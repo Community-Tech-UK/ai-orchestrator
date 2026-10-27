@@ -1,0 +1,52 @@
+[
+  {
+    "lifecycle": "enrolled",
+    "location": {
+      "type": "worker",
+      "nodeId": "bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be"
+    },
+    "provider": "openai-compatible",
+    "endpointId": "worker:bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:openai-compatible:127.0.0.1:1234",
+    "baseUrl": "http://127.0.0.1:1234",
+    "expectedModels": [
+      {
+        "modelId": "qwen/qwen3.6-35b-a3b",
+        "required": true,
+        "minContextLength": 131072
+      }
+    ],
+    "canary": {
+      "model": "qwen/qwen3.6-35b-a3b",
+      "timeoutMs": 30000,
+      "intervalMs": 600000
+    },
+    "endpointCheckIntervalMs": 60000,
+    "freshnessLimitMs": 120000,
+    "warningLatencyMs": 15000,
+    "routingRoles": [
+      "compression",
+      "memoryDistillation",
+      "webExtract",
+      "titleGeneration",
+      "routingClassification",
+      "approvalScoring",
+      "approvalAdjudication",
+      "loopScoring",
+      "retrievalHypothesis",
+      "branchScoring",
+      "subQueryExecution",
+      "verifyOutputSummary"
+    ],
+    "fallbackPolicy": "notify-and-allow",
+    "slotFallbackPolicies": {},
+    "recovery": {
+      "automatic": false,
+      "maxAttempts": 2,
+      "cooldownMs": 300000
+    },
+    "id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+    "label": "windows-pc · LM Studio",
+    "createdAt": 1791064115418,
+    "updatedAt": 1792199532916
+  }
+]

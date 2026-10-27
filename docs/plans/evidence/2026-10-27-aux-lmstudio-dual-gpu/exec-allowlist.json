@@ -1,0 +1,9 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "tool call error: tool call failed for `orchestrator/orchestrator.tool_execute`\n\nCaused by:\n    Mcp error: -32000: exec_on_node refused this command. It only runs curl with an https:// URL and PowerShell that writes literal text (Write-Output, Write-Host, Write-Error, Write-Verbose, Write-Warning, exit N), so it can never launch or drive the operator's shared Chrome/session. Use run_on_node for anything else, including diagnostics such as tasklist, nvidia-smi or Get-CimInstance."
+    }
+  ],
+  "isError": true
+}

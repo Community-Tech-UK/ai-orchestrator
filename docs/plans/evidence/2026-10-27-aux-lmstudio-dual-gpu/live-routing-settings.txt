@@ -1,0 +1,17 @@
+{
+  "key": "auxiliaryLlmQualityModel",
+  "value": "qwen/qwen3.6-35b-a3b",
+  "restartRequired": false,
+  "writable": true,
+  "policyTier": "open",
+  "cliWritable": true
+}
+{
+  "key": "auxiliaryLlmQuickModel",
+  "value": "qwen/qwen3.6-35b-a3b",
+  "restartRequired": false,
+  "writable": true,
+  "policyTier": "open",
+  "cliWritable": true
+}
+aio-mcp settings failed: Cannot read secret setting: auxiliaryLlmEndpointsJson

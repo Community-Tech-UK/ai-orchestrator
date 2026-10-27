@@ -1,0 +1,1 @@
+PASS: rebuilt dev app and Local AI IPC respond in the isolated profile; no real worker paired, so this does not prove production restart cases

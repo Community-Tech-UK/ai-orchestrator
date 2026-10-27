@@ -1,0 +1,62 @@
+{
+  "aggregate": {
+    "state": "healthy",
+    "enrolled": 1,
+    "healthy": 1,
+    "degraded": 0,
+    "unavailable": 0,
+    "paused": 0
+  },
+  "targets": [
+    {
+      "id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "label": "windows-pc · LM Studio",
+      "lifecycle": "enrolled",
+      "provider": "openai-compatible",
+      "state": "healthy",
+      "routableRoles": [
+        "compression",
+        "memoryDistillation",
+        "webExtract",
+        "titleGeneration",
+        "routingClassification",
+        "approvalScoring",
+        "approvalAdjudication",
+        "loopScoring",
+        "retrievalHypothesis",
+        "branchScoring",
+        "subQueryExecution",
+        "verifyOutputSummary"
+      ],
+      "consecutiveFailures": 0,
+      "checkedAt": 1793086918633,
+      "layers": {
+        "worker": {
+          "ok": true,
+          "required": true,
+          "checkedAt": 1793086918597,
+          "durationMs": 4
+        },
+        "endpoint": {
+          "ok": true,
+          "required": true,
+          "checkedAt": 1793086918633,
+          "durationMs": 1
+        },
+        "model": {
+          "ok": true,
+          "required": false,
+          "checkedAt": 1793086918633,
+          "durationMs": 1
+        },
+        "inference": {
+          "ok": true,
+          "required": true,
+          "checkedAt": 1793086690661,
+          "durationMs": 332
+        }
+      }
+    }
+  ],
+  "incidents": []
+}

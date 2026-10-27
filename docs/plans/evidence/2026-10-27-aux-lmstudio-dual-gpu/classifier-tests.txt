@@ -1,0 +1,27 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/mcp/run-on-node-intent-policy.spec.ts src/main/mcp/exec-on-node-policy.spec.ts
+
+✗ test run failed (exit 1) and produced no JSON report. Tail of log:
+
+ RUN  v4.1.12 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-03-aux-llm-lmstudio-du-f17dc6
+
+No test files found, exiting with code 1
+
+filter: src/main/mcp/run-on-node-intent-policy.spec.ts, src/main/mcp/exec-on-node-policy.spec.ts
+
+|renderer| 
+
+include: src/renderer/**/*.spec.ts, src/renderer/**/*.test.ts, src/tests/renderer-integration/**/*.spec.ts, src/tests/renderer-integration/**/*.test.ts, scripts/__tests__/cross-wave-smoke.spec.ts
+exclude:  src/**/*.bench.ts, src/**/*.load.ts, src/**/*.e2e.spec.ts, src/**/*.e2e.test.ts, src/**/soak.spec.ts, src/**/soak.test.ts
+
+|main| 
+
+include: src/main/**/*.spec.ts, src/main/**/*.test.ts, src/shared/**/*.spec.ts, src/shared/**/*.test.ts, src/preload/**/*.spec.ts, src/preload/**/*.test.ts, src/worker-agent/**/*.spec.ts, src/worker-agent/**/*.test.ts, src/tests/**/*.spec.ts, src/tests/**/*.test.ts, packages/**/*.spec.ts, packages/**/*.test.ts, scripts/**/*.spec.ts, scripts/**/*.test.ts
+exclude:  src/**/*.bench.ts, src/**/*.load.ts, src/**/*.e2e.spec.ts, src/**/*.e2e.test.ts, src/**/soak.spec.ts, src/**/soak.test.ts, src/tests/renderer-integration/**/*.spec.ts, src/tests/renderer-integration/**/*.test.ts, scripts/__tests__/cross-wave-smoke.spec.ts
+
+JSON report written to /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-03-aux-llm-lmstudio-du-f17dc6/_scratch/test-results.pid-9841.json
+
+full log: _scratch/test-run.pid-9841.log
+
+✗ FAILED — the run produced no usable JSON report (exit 1).

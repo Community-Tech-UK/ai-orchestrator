@@ -1,0 +1,52 @@
+{
+  "recordedAt": "2026-10-27T07:53:53.847879+00:00",
+  "phase": "after-runtime-cleanup",
+  "documentComplete": false,
+  "closedChecks": [
+    1,
+    3,
+    4
+  ],
+  "openChecks": [
+    2,
+    5,
+    6
+  ],
+  "verifierVerdict": null,
+  "owner": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-03-aux-llm-lmstudio-dual-gpu_livetest.md",
+  "ownerSha256": "68d46b84ba373e06b8ea4e6928166b9e06bf56eac4edb104305d020ffe8907dd",
+  "files": {
+    "build-aio-mcp-pinned.txt": "8dd1c96478a2086fa25a00a84811d622992d49079ccbce244a791eca7ab1bb7f",
+    "build-aio-mcp.txt": "c6c004d428acc7ded8169bf4bdecc670ffaac8f14b2341dc8a7f571928d1234d",
+    "build-main.txt": "8a835608be4ff96d86b296d26ec20f1c971ca748a1dc7379102fe668b63c6ddd",
+    "build-renderer.txt": "49313945e873d98e6856d7faef2c8d1d7c56acf4a7f50ce0f50899fb0c857da0",
+    "classifier-tests.txt": "4dd75380782432500ffb8c2996a2ca3fdadd1c1b82d2a090f562e6329a6054fa",
+    "cleanup-receipt.json": "5e7602a87138c91a80cb519328d1134d530e8dfbadd6925aaa85bc563ada0a0b",
+    "commands.jsonl": "c2e8f93ef5061359c908faa53e8693d9993896a2e7c57c864d0dd623aa1ccea5",
+    "dev-runtime-initial-failure.json": "5db8d48572f5c98b690ac2c59a6a5dc405610c807f0c7684fb861d9e29657f86",
+    "dev-runtime-initial-failure.txt": "e04e106acb5165480ac31fc76cacfd63b62e016f7282ca11a376ad4ba332b733",
+    "dev-runtime-ipc-only-receipt.json": "b5f4ac52cffeed8cdedd0c59cc45c95ad29438ebdf881d4f8756ef3b29b5588d",
+    "dev-runtime-ready.txt": "7172f88be3c9f0aba99442a3cf3c279211a4e87ea2916528cbe8b292ad0e93c3",
+    "dev-runtime-receipt.json": "9bf0de544a0c1dafb37749096c3a226a6ce4aa115413549badd1f94457660ade",
+    "dev-runtime-retry.txt": "7172f88be3c9f0aba99442a3cf3c279211a4e87ea2916528cbe8b292ad0e93c3",
+    "dev-runtime.txt": "8c6c03901621e0255a44d8f696b8c4e1b27f59fc61fbaf053811dce7f1db3c4a",
+    "exec-allowlist.json": "0311277d7d82fa677716b365705b4a8aefaf32656abdfc7bde7ac473b8d72f84",
+    "focused-assertions.json": "8bd44fb046fb48e0c303fd9694611ebf5b27495a7f2227d887d174263ddf7bcd",
+    "focused-full-output.txt": "3ca09d85ecc7ee849e703c72011809cda67a557a6ef1b4406c999d9cda74de86",
+    "focused.txt": "03dc924120a826f970e30730861ac96b4e7b7023dc03234c7dea7012669255d2",
+    "lint.txt": "a9f86453985a02868554a836eef151dc9a361f1e39714fc833e0933028e09a98",
+    "live-local-ai-list.txt": "618c99750034434cbf5c02475606921e9ca2c86713cf593038d42cc15eebdddd",
+    "live-local-ai-status.txt": "791e348435d4246a47543f2f61843fee26b9e1d980fd29f8eb356611894dde96",
+    "live-routing-settings.txt": "52f081dbb2beaba4fa4fb3290bbcf5f820f8fbf7c73849df43a6d548fcdfda37",
+    "orchestrator-full-output.txt": "0844d2753277633169715a47c454d3277fbd231ee1885c0534f73d16f8490ec7",
+    "orchestrator-tests.txt": "6b88a13b85e1d8313433068f3bfc747707a4e33753a387648f632301e93838a8",
+    "preflight.json": "95dd13ac192abd6e5a7bdd806bcf2b28fedc6ae51a78361d5a48c8ef7e810897",
+    "production-readonly-db.json": "593d67eb03da0606bb77ead1a2184b87490a44d87cb0c9467c1e31a43ea2f25c",
+    "report-review.json": "81d98df48372d3461254d720bf791c39f3f4ebc11da81294bd9c04fd088cb0fc",
+    "startup-observations.json": "33464fae9566fa004d7040d7224cfa17ce022340a1acf69f84553ea715926294",
+    "typecheck-spec.txt": "4e31c408e8be4057c1075f658596af0cb057c7a9329948cca2022b8326a00133",
+    "typecheck.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "windows-evidence.json": "fdb55b2a4355b3aa14123756c36392872b17129c6f9a3c599609c9b4dabb136a",
+    "windows-spawn-receipt.json": "730f0cc17fe217b9ea6141215f92fad5c44f95149eb69d4c7cd77ca64c6fb123"
+  }
+}

@@ -1,0 +1,99 @@
+{
+  "startedAt": "2026-10-27T07:53:07.884077+00:00",
+  "ownedPids": {
+    "59496": "absent",
+    "14570": "absent",
+    "49241": "absent"
+  },
+  "ports": {
+    "9510": "closed",
+    "4599": "closed"
+  },
+  "removed": [
+    {
+      "path": "dist",
+      "existed": true,
+      "symlink": false,
+      "absentAfter": true
+    },
+    {
+      "path": "_scratch/lt-queue-14f17dc6",
+      "existed": true,
+      "symlink": false,
+      "absentAfter": true
+    },
+    {
+      "path": "/tmp/aio-lt-queue-14f17dc6",
+      "existed": true,
+      "symlink": false,
+      "absentAfter": true
+    },
+    {
+      "path": "_scratch/test-results.pid-23477.json",
+      "existed": true,
+      "symlink": false,
+      "absentAfter": true
+    },
+    {
+      "path": "_scratch/test-results.pid-9841.json",
+      "existed": true,
+      "symlink": false,
+      "absentAfter": true
+    },
+    {
+      "path": "_scratch/test-run.pid-23477.log",
+      "existed": true,
+      "symlink": false,
+      "absentAfter": true
+    },
+    {
+      "path": "_scratch/test-run.pid-9841.log",
+      "existed": true,
+      "symlink": false,
+      "absentAfter": true
+    },
+    {
+      "path": "_scratch/test-results.pid-42443.json",
+      "existed": true,
+      "symlink": false,
+      "absentAfter": true
+    },
+    {
+      "path": "_scratch/test-run.pid-42443.log",
+      "existed": true,
+      "symlink": false,
+      "absentAfter": true
+    }
+  ],
+  "preserved": [
+    "pre-provided node_modules",
+    "AIO-managed worktree",
+    "installed Harness and its profile",
+    "windows-pc model configuration"
+  ],
+  "noInstallOrCopiedCheckout": true,
+  "finishedAt": "2026-10-27T07:53:10.667020+00:00",
+  "preprovidedDependenciesStillPresent": true,
+  "remainingOwnedCompileCache": false,
+  "allRequestedRemovalsSucceeded": true,
+  "worktreeStatus": {
+    "exitCode": 0,
+    "stdout": "?? docs/plans/evidence/\n",
+    "stderr": ""
+  },
+  "stagedPaths": {
+    "exitCode": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "branch": {
+    "exitCode": 0,
+    "stdout": "queue/2026-10-03-aux-llm-lmstudio-du-f17dc6\n",
+    "stderr": ""
+  },
+  "worktreeList": {
+    "exitCode": 0,
+    "stdout": "worktree /Users/suas/work/orchestrat0r/ai-orchestrator\nHEAD 359a0706c33999e34d50e8e5b0f555c221a84193\nbranch refs/heads/main\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.claude/worktrees/agent-a1d7bb162fd56b4c6\nHEAD 460a2ef8558e98cb841ba11da51de15c1d44dcc2\nbranch refs/heads/worktree-agent-a1d7bb162fd56b4c6\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.claude/worktrees/agent-a4d6deb10e35abdd8\nHEAD 8b3db8bb660354aad210fa8aa0b2f9e4e5cbe733\nbranch refs/heads/worktree-agent-a4d6deb10e35abdd8\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/composer-resize-verification\nHEAD e4a99cbb5effd385374291e11bc91fc5facf7dc5\nbranch refs/heads/rescue/composer-resize-verification\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de\nHEAD 62e40762a8cf00f94aa6c7a466f2bc666f4f4dfa\nbranch refs/heads/queue/2026-09-27-livetest-agent-runt-f326de\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-02-session-sidechats-c9f650\nHEAD 80412201a07ec93cefb9a4b6ddb06579ad314d75\nbranch refs/heads/queue/2026-10-02-session-sidechats-c9f650\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-03-aux-llm-lmstudio-du-f17dc6\nHEAD 80412201a07ec93cefb9a4b6ddb06579ad314d75\nbranch refs/heads/queue/2026-10-03-aux-llm-lmstudio-du-f17dc6\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-04-local-ai-cli-parity-39d4ca\nHEAD 80412201a07ec93cefb9a4b6ddb06579ad314d75\nbranch refs/heads/queue/2026-10-04-local-ai-cli-parity-39d4ca\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-04-localhost-browser-a-a36a87\nHEAD 7e5222cfe773e2fc3edff0c2eade2e77fe7131cc\nbranch refs/heads/queue/2026-10-04-localhost-browser-a-a36a87\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-can-you-work-through-all-the-p-mt76ztv1\nHEAD 1f230732cc738928ab24b30f748fb15e1202327f\nbranch refs/heads/task-can-you-work-through-all-the-p-mt76ztv1\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-i-said-keep-going-uintil-it-s-mtovfbpg\nHEAD 33fe2d5dccea5e4789fe3e2f43a80e7d28f431b5\nbranch refs/heads/task-i-said-keep-going-uintil-it-s-mtovfbpg\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-please-investigate-all-the-pla-mtl9icld\nHEAD b332edf734934ca2fe9547d1dde98e616f407642\nbranch refs/heads/task-please-investigate-all-the-pla-mtl9icld\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-please-look-at-all-the-untrack-mtjeyorh\nHEAD bb5ad1f2687bd7a4b6f0ad3b137b1cff4803daf4\nbranch refs/heads/task-please-look-at-all-the-untrack-mtjeyorh\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-please-look-at-all-the-untrack-mtjvhjeh\nHEAD ae88a599a11231b5c75ac023d0eb407d814f22e0\nbranch refs/heads/task-please-look-at-all-the-untrack-mtjvhjeh\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-please-look-at-all-the-untrack-mtkdez2p\nHEAD f965e960edbed6a51c342875ff06cf550bb9fb50\nbranch refs/heads/task-please-look-at-all-the-untrack-mtkdez2p\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-please-work-through-all-the-li-mtkqr41h\nHEAD d24a421b9448e31088b752ff0e5bcefd8f744039\nbranch refs/heads/task-please-work-through-all-the-li-mtkqr41h\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-please-work-through-all-the-li-mu4ui30h\nHEAD 322cef61b985f3b6a9523d832d422d4602d99958\nbranch refs/heads/task-please-work-through-all-the-li-mu4ui30h\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-so-finish-the-work-please-mtklsatd\nHEAD 07403ee118aecce63e4f4138d5f7c62f04ab5efe\nbranch refs/heads/task-so-finish-the-work-please-mtklsatd\n\n",
+    "stderr": ""
+  }
+}

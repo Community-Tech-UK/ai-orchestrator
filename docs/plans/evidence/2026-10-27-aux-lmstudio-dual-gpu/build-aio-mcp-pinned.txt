@@ -1,0 +1,21 @@
+
+> harness@0.1.0 build:aio-mcp-dist
+> npm run build:aio-mcp-cli && npm run build:aio-mcp-sea
+
+
+> harness@0.1.0 build:aio-mcp-cli
+> tsx build-aio-mcp-cli.ts
+
+
+  dist/aio-mcp-cli/index.js  1.3mb ⚠️
+
+⚡ Done in 81ms
+aio-mcp CLI bundle built -> dist/aio-mcp-cli/index.js
+
+> harness@0.1.0 build:aio-mcp-sea
+> tsx build-aio-mcp-cli-sea.ts
+
+Wrote single executable preparation blob to /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-03-aux-llm-lmstudio-du-f17dc6/dist/aio-mcp-cli-sea/sea-prep.blob
+[36mStart injection of NODE_SEA_BLOB in /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-03-aux-llm-lmstudio-du-f17dc6/dist/aio-mcp-cli-sea/aio-mcp...[0m
+[32m💉 Injection done![0m
+[sea] built /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-03-aux-llm-lmstudio-du-f17dc6/dist/aio-mcp-cli-sea/aio-mcp

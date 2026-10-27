@@ -1,0 +1,6 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/mcp/__tests__/orchestrator-tools.spec.ts
+
+✓ 1 files · 50 tests passed in 6.3s
+  full log: _scratch/test-run.pid-23477.log

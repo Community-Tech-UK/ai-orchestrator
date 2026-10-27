@@ -1,0 +1,15 @@
+{
+  "startedAt": "2026-10-27T07:42:06.386398+00:00",
+  "head": "80412201a07ec93cefb9a4b6ddb06579ad314d75",
+  "mergeBase": "80412201a07ec93cefb9a4b6ddb06579ad314d75",
+  "diffFromBase": "",
+  "profile": "/tmp/aio-lt-queue-14f17dc6",
+  "debugPort": 9510,
+  "preexisting": {
+    "node_modules": true,
+    "dist": false,
+    ".angular": false,
+    "/tmp/aio-lt-queue-14f17dc6": false
+  },
+  "dependencyEntryIsSymlink": false
+}

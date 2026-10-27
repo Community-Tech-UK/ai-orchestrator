@@ -1,0 +1,56 @@
+{
+  "startedAt": "2026-10-27T07:49:34.426Z",
+  "profile": "/tmp/aio-lt-queue-14f17dc6",
+  "debugPort": 9510,
+  "rendererPort": 4599,
+  "launchFlags": [
+    "--js-flags=--max-old-space-size=8192",
+    "--remote-debugging-port=9510",
+    "--no-sandbox",
+    "--disable-gpu"
+  ],
+  "probes": [
+    {
+      "kind": "live-dev-local-ai-snapshot",
+      "at": "2026-10-27T07:49:48.611Z",
+      "result": {
+        "success": true,
+        "data": {
+          "helperPauses": [],
+          "revision": "1",
+          "aggregate": {
+            "state": "not-configured",
+            "enrolled": 0,
+            "healthy": 0,
+            "degraded": 0,
+            "unavailable": 0,
+            "paused": 0
+          },
+          "targets": [],
+          "targetConfigs": [],
+          "incidents": [],
+          "recoveryAttempts": [],
+          "pendingFallbacks": [],
+          "fallbackNotifications": []
+        }
+      }
+    }
+  ],
+  "pid": 49241,
+  "focusEmulation": true,
+  "visibilityOverride": {
+    "supported": false,
+    "error": "'Emulation.setPageVisibilityOverride' wasn't found"
+  },
+  "rendererReady": true,
+  "renderer": {
+    "hidden": false,
+    "visibilityState": "visible",
+    "bridgePresent": true
+  },
+  "result": "PASS: rebuilt dev app and Local AI IPC respond in the isolated profile; no real worker paired, so this does not prove production restart cases",
+  "exitCode": 0,
+  "signalCode": null,
+  "pidGone": true,
+  "finishedAt": "2026-10-27T07:49:48.803Z"
+}

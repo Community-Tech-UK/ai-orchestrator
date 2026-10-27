@@ -1,0 +1,286 @@
+{
+  "capturedAt": "2026-10-27T07:45:13.094121+00:00",
+  "readOnly": true,
+  "targets": [
+    {
+      "id": "733d66c0-7e97-49cd-82e6-5462234237b9",
+      "label": "bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be: worker:bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:ollama:127.0.0.1:11434",
+      "lifecycle": "retired",
+      "provider": "ollama",
+      "retired_at": 1791152384695,
+      "updated_at": 1791152384695
+    },
+    {
+      "id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "label": "windows-pc \u00b7 LM Studio",
+      "lifecycle": "enrolled",
+      "provider": "openai-compatible",
+      "retired_at": null,
+      "updated_at": 1792199532916
+    }
+  ],
+  "latestInference": [
+    {
+      "target_id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "ok": 1,
+      "checked_at": 1793086690661,
+      "duration_ms": 332,
+      "failure_code": null
+    },
+    {
+      "target_id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "ok": 1,
+      "checked_at": 1793086090197,
+      "duration_ms": 444,
+      "failure_code": null
+    },
+    {
+      "target_id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "ok": 1,
+      "checked_at": 1793085489817,
+      "duration_ms": 367,
+      "failure_code": null
+    },
+    {
+      "target_id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "ok": 1,
+      "checked_at": 1793084889314,
+      "duration_ms": 485,
+      "failure_code": null
+    },
+    {
+      "target_id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "ok": 1,
+      "checked_at": 1793084288888,
+      "duration_ms": 400,
+      "failure_code": null
+    },
+    {
+      "target_id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "ok": 1,
+      "checked_at": 1793083688492,
+      "duration_ms": 391,
+      "failure_code": null
+    },
+    {
+      "target_id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "ok": 1,
+      "checked_at": 1793083088053,
+      "duration_ms": 439,
+      "failure_code": null
+    },
+    {
+      "target_id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "ok": 1,
+      "checked_at": 1793082487720,
+      "duration_ms": 334,
+      "failure_code": null
+    },
+    {
+      "target_id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "ok": 1,
+      "checked_at": 1793081887371,
+      "duration_ms": 344,
+      "failure_code": null
+    },
+    {
+      "target_id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "ok": 1,
+      "checked_at": 1793081286907,
+      "duration_ms": 465,
+      "failure_code": null
+    },
+    {
+      "target_id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "ok": 1,
+      "checked_at": 1793080686582,
+      "duration_ms": 319,
+      "failure_code": null
+    },
+    {
+      "target_id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "ok": 1,
+      "checked_at": 1793080086187,
+      "duration_ms": 383,
+      "failure_code": null
+    },
+    {
+      "target_id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "ok": 1,
+      "checked_at": 1793079485960,
+      "duration_ms": 210,
+      "failure_code": null
+    },
+    {
+      "target_id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "ok": 1,
+      "checked_at": 1793078885364,
+      "duration_ms": 581,
+      "failure_code": null
+    },
+    {
+      "target_id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "ok": 1,
+      "checked_at": 1793078284971,
+      "duration_ms": 376,
+      "failure_code": null
+    },
+    {
+      "target_id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "ok": 1,
+      "checked_at": 1793077684689,
+      "duration_ms": 263,
+      "failure_code": null
+    },
+    {
+      "target_id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "ok": 1,
+      "checked_at": 1793077083910,
+      "duration_ms": 602,
+      "failure_code": null
+    },
+    {
+      "target_id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "ok": 1,
+      "checked_at": 1793076483415,
+      "duration_ms": 358,
+      "failure_code": null
+    },
+    {
+      "target_id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "ok": 1,
+      "checked_at": 1793075882996,
+      "duration_ms": 372,
+      "failure_code": null
+    },
+    {
+      "target_id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "ok": 1,
+      "checked_at": 1793075282628,
+      "duration_ms": 353,
+      "failure_code": null
+    }
+  ],
+  "routing24h": [
+    {
+      "actual_route": "frontier",
+      "provider": "aio-basic-summary",
+      "model": null,
+      "disposition": "allowed",
+      "count": 3,
+      "firstAt": 1793014631932,
+      "lastAt": 1793014632085
+    },
+    {
+      "actual_route": "local",
+      "provider": "openai-compatible",
+      "model": "qwen/qwen3.6-35b-a3b",
+      "disposition": "not-needed",
+      "count": 120,
+      "firstAt": 1793006137015,
+      "lastAt": 1793086828282
+    }
+  ],
+  "latestRouting": [
+    {
+      "target_id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "slot": "titleGeneration",
+      "actual_route": "local",
+      "provider": "openai-compatible",
+      "model": "qwen/qwen3.6-35b-a3b",
+      "disposition": "not-needed",
+      "created_at": 1793086828282,
+      "completed_at": 1793086828282
+    },
+    {
+      "target_id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "slot": "titleGeneration",
+      "actual_route": "local",
+      "provider": "openai-compatible",
+      "model": "qwen/qwen3.6-35b-a3b",
+      "disposition": "not-needed",
+      "created_at": 1793086800090,
+      "completed_at": 1793086800090
+    },
+    {
+      "target_id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "slot": "compression",
+      "actual_route": "local",
+      "provider": "openai-compatible",
+      "model": "qwen/qwen3.6-35b-a3b",
+      "disposition": "not-needed",
+      "created_at": 1793085828284,
+      "completed_at": 1793085828284
+    },
+    {
+      "target_id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "slot": "compression",
+      "actual_route": "local",
+      "provider": "openai-compatible",
+      "model": "qwen/qwen3.6-35b-a3b",
+      "disposition": "not-needed",
+      "created_at": 1793084751488,
+      "completed_at": 1793084751488
+    },
+    {
+      "target_id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "slot": "compression",
+      "actual_route": "local",
+      "provider": "openai-compatible",
+      "model": "qwen/qwen3.6-35b-a3b",
+      "disposition": "not-needed",
+      "created_at": 1793084153536,
+      "completed_at": 1793084153536
+    },
+    {
+      "target_id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "slot": "compression",
+      "actual_route": "local",
+      "provider": "openai-compatible",
+      "model": "qwen/qwen3.6-35b-a3b",
+      "disposition": "not-needed",
+      "created_at": 1793083550148,
+      "completed_at": 1793083550148
+    },
+    {
+      "target_id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "slot": "compression",
+      "actual_route": "local",
+      "provider": "openai-compatible",
+      "model": "qwen/qwen3.6-35b-a3b",
+      "disposition": "not-needed",
+      "created_at": 1793083310312,
+      "completed_at": 1793083310312
+    },
+    {
+      "target_id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "slot": "compression",
+      "actual_route": "local",
+      "provider": "openai-compatible",
+      "model": "qwen/qwen3.6-35b-a3b",
+      "disposition": "not-needed",
+      "created_at": 1793083188203,
+      "completed_at": 1793083188203
+    },
+    {
+      "target_id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "slot": "compression",
+      "actual_route": "local",
+      "provider": "openai-compatible",
+      "model": "qwen/qwen3.6-35b-a3b",
+      "disposition": "not-needed",
+      "created_at": 1793082661260,
+      "completed_at": 1793082661260
+    },
+    {
+      "target_id": "afa37744-ae04-4e0d-9efd-eca955d37777",
+      "slot": "compression",
+      "actual_route": "local",
+      "provider": "openai-compatible",
+      "model": "qwen/qwen3.6-35b-a3b",
+      "disposition": "not-needed",
+      "created_at": 1793081867243,
+      "completed_at": 1793081867243
+    }
+  ]
+}

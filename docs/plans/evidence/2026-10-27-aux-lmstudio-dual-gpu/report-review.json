@@ -1,0 +1,41 @@
+{
+  "at": "2026-10-27T07:53:53.847427+00:00",
+  "kind": "worker self-review of evidence only, not independent queue verdict",
+  "checks": {
+    "focused": true,
+    "orchestrator-tests": true,
+    "build-main": true,
+    "build-renderer": true,
+    "build-aio-mcp-pinned": true,
+    "typecheck": true,
+    "typecheck-spec": true,
+    "lint": true,
+    "dev-runtime-ready": true,
+    "rendererLoaded": true,
+    "focusEnabled": true,
+    "visible": true,
+    "liveIpcSucceeded": true,
+    "ownedPidGone": true,
+    "cleanupSucceeded": true,
+    "notRenamed": true,
+    "ownerNotCopiedIntoWorktree": true
+  },
+  "rootOwnerStatus": {
+    "exitCode": 0,
+    "stdout": " M docs/plans/2026-10-03-aux-llm-lmstudio-dual-gpu_livetest.md\n"
+  },
+  "documentComplete": false,
+  "notRun": [
+    "full/slow application suites",
+    "source/UI size gates",
+    "original dual-GPU reboot test",
+    "production live routing mutation",
+    "timed installed-Harness restarts"
+  ],
+  "initialFailuresRetained": {
+    "live-routing-settings": 1,
+    "build-aio-mcp": 1,
+    "dev-runtime": 1,
+    "classifier-tests": 1
+  }
+}

@@ -1,0 +1,365 @@
+{
+  "provenanceLimit": "shared app log may include other dev apps; these entries do not prove a packaged-app restart or elapsed worker reconnect time",
+  "observations": [
+    {
+      "source": "app.log",
+      "timestamp": 1793079191651,
+      "subsystem": "App",
+      "message": "Initializing Harness"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793079191808,
+      "subsystem": "App",
+      "message": "Initialized: Auxiliary LLM service"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793079191810,
+      "subsystem": "App",
+      "message": "Initialized: Local AI Guard"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793079213137,
+      "subsystem": "App",
+      "message": "Harness initialized"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793079320538,
+      "subsystem": "App",
+      "message": "Initializing Harness"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793079391791,
+      "subsystem": "App",
+      "message": "Initializing Harness"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793079392099,
+      "subsystem": "App",
+      "message": "Initialized: Auxiliary LLM service"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793079392101,
+      "subsystem": "App",
+      "message": "Initialized: Local AI Guard"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793079415020,
+      "subsystem": "App",
+      "message": "Harness initialized"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793079563598,
+      "subsystem": "App",
+      "message": "Initializing Harness"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793079563813,
+      "subsystem": "App",
+      "message": "Initialized: Auxiliary LLM service"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793079563815,
+      "subsystem": "App",
+      "message": "Initialized: Local AI Guard"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793079583874,
+      "subsystem": "App",
+      "message": "Harness initialized"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793080432092,
+      "subsystem": "App",
+      "message": "Initializing Harness"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793080432253,
+      "subsystem": "App",
+      "message": "Initialized: Auxiliary LLM service"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793080432255,
+      "subsystem": "App",
+      "message": "Initialized: Local AI Guard"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793080453369,
+      "subsystem": "App",
+      "message": "Harness initialized"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793081096052,
+      "subsystem": "App",
+      "message": "Initializing Harness"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793081096245,
+      "subsystem": "App",
+      "message": "Initialized: Auxiliary LLM service"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793081096247,
+      "subsystem": "App",
+      "message": "Initialized: Local AI Guard"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793081122176,
+      "subsystem": "App",
+      "message": "Harness initialized"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793082193305,
+      "subsystem": "App",
+      "message": "Initializing Harness"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793082193468,
+      "subsystem": "App",
+      "message": "Initialized: Auxiliary LLM service"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793082193470,
+      "subsystem": "App",
+      "message": "Initialized: Local AI Guard"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793082215021,
+      "subsystem": "App",
+      "message": "Harness initialized"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793082468715,
+      "subsystem": "App",
+      "message": "Initializing Harness"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793082468820,
+      "subsystem": "App",
+      "message": "Initialized: Auxiliary LLM service"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793082468822,
+      "subsystem": "App",
+      "message": "Initialized: Local AI Guard"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793082485840,
+      "subsystem": "App",
+      "message": "Harness initialized"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793084991750,
+      "subsystem": "App",
+      "message": "Initializing Harness"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793084992269,
+      "subsystem": "App",
+      "message": "Initialized: Auxiliary LLM service"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793084992270,
+      "subsystem": "App",
+      "message": "Initialized: Local AI Guard"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793085079427,
+      "subsystem": "App",
+      "message": "Initializing Harness"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793085079559,
+      "subsystem": "App",
+      "message": "Initialized: Auxiliary LLM service"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793085079561,
+      "subsystem": "App",
+      "message": "Initialized: Local AI Guard"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793085099535,
+      "subsystem": "App",
+      "message": "Harness initialized"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793085522576,
+      "subsystem": "App",
+      "message": "Initializing Harness"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793085599991,
+      "subsystem": "App",
+      "message": "Initializing Harness"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793085600078,
+      "subsystem": "App",
+      "message": "Initialized: Auxiliary LLM service"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793085600080,
+      "subsystem": "App",
+      "message": "Initialized: Local AI Guard"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793085712208,
+      "subsystem": "App",
+      "message": "Initializing Harness"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793085712409,
+      "subsystem": "App",
+      "message": "Initialized: Auxiliary LLM service"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793085712410,
+      "subsystem": "App",
+      "message": "Initialized: Local AI Guard"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793085734752,
+      "subsystem": "App",
+      "message": "Initializing Harness"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793085734833,
+      "subsystem": "App",
+      "message": "Initialized: Auxiliary LLM service"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793085734834,
+      "subsystem": "App",
+      "message": "Initialized: Local AI Guard"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793085752882,
+      "subsystem": "App",
+      "message": "Initializing Harness"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793085752955,
+      "subsystem": "App",
+      "message": "Initialized: Auxiliary LLM service"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793085752956,
+      "subsystem": "App",
+      "message": "Initialized: Local AI Guard"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793085764612,
+      "subsystem": "App",
+      "message": "Harness initialized"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793086374478,
+      "subsystem": "App",
+      "message": "Initializing Harness"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793086374770,
+      "subsystem": "App",
+      "message": "Initialized: Auxiliary LLM service"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793086374771,
+      "subsystem": "App",
+      "message": "Initialized: Local AI Guard"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793086443255,
+      "subsystem": "App",
+      "message": "Initializing Harness"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793086443343,
+      "subsystem": "App",
+      "message": "Initialized: Auxiliary LLM service"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793086443344,
+      "subsystem": "App",
+      "message": "Initialized: Local AI Guard"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793086481969,
+      "subsystem": "App",
+      "message": "Initializing Harness"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793086482075,
+      "subsystem": "App",
+      "message": "Initialized: Auxiliary LLM service"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793086482077,
+      "subsystem": "App",
+      "message": "Initialized: Local AI Guard"
+    },
+    {
+      "source": "app.log",
+      "timestamp": 1793086499548,
+      "subsystem": "App",
+      "message": "Harness initialized"
+    }
+  ]
+}

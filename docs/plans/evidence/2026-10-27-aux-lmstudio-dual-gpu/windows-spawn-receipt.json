@@ -1,0 +1,29 @@
+{
+  "capturedAt": "2026-10-27T07:50:13.145503+00:00",
+  "tool": "run_on_node",
+  "arguments": {
+    "node": "windows-pc",
+    "provider": "codex",
+    "prompt": "Read-only: on this Windows PC, report the real GPU memory use with nvidia-smi."
+  },
+  "result": {
+    "instanceId": "x9sl67nid",
+    "nodeName": "windows-pc",
+    "status": "idle"
+  },
+  "outputReceipt": {
+    "utcTime": "2026-10-27T07:40:09Z",
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "usedMiB": 27258,
+    "totalMiB": 32607,
+    "source": "read_node_output, tool_result seq 5; full LM Studio follow-up raw outputs in windows-evidence.json"
+  },
+  "cleanup": {
+    "tool": "terminate_node_instance",
+    "terminated": [
+      "x9sl67nid",
+      "xi248sk37"
+    ]
+  },
+  "limits": "The exact check-4 prompt started successfully. An earlier expanded diagnostic prompt mentioning Browser Gateway/shared tabs was refused by the intent guard, then replaced with this exact documented prompt. This receipt does not represent every incidental diagnostic prompt as accepted."
+}

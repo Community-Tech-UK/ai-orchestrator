@@ -1,0 +1,86 @@
+[
+  {
+    "name": "LocalAiHealthEngine returns checking when a required canary is overdue past its cadence plus freshness grace",
+    "status": "passed"
+  },
+  {
+    "name": "LocalAiHealthEngine discards malformed persisted layers and invalid or foreign incoming probes independently",
+    "status": "passed"
+  },
+  {
+    "name": "initialFunctionalDelayMs overdue canary runs now",
+    "status": "passed"
+  },
+  {
+    "name": "LocalAiHealthScheduler admits coordinator targets and only authoritatively connected worker targets",
+    "status": "passed"
+  },
+  {
+    "name": "LocalAiHealthScheduler rejects manual checks for a disconnected worker without probing",
+    "status": "passed"
+  },
+  {
+    "name": "LocalAiHealthScheduler rechecks a stale role immediately after reconnect and ensureFresh returns the shared fresh verdict",
+    "status": "passed"
+  },
+  {
+    "name": "LocalAiHealthScheduler waits for one current-revision replacement when reconnect invalidates an active probe",
+    "status": "passed"
+  },
+  {
+    "name": "LocalAiHealthScheduler discards an in-flight worker result after disconnect and keeps the target non-routable",
+    "status": "passed"
+  },
+  {
+    "name": "LocalAiHealthScheduler does not emit outage evidence for initial or duplicate non-connected worker states",
+    "status": "passed"
+  },
+  {
+    "name": "LocalAiHealthScheduler emits one outage transition per connected to non-connected change",
+    "status": "passed"
+  },
+  {
+    "name": "LocalAiHealthScheduler runs the first canary after a restart on the persisted cadence when it is overdue",
+    "status": "passed"
+  },
+  {
+    "name": "LocalAiHealthScheduler runs the first canary after a restart on the persisted cadence when it is due later",
+    "status": "passed"
+  },
+  {
+    "name": "LocalAiHealthScheduler runs an overdue canary as soon as the worker connects after start",
+    "status": "passed"
+  },
+  {
+    "name": "LocalAiHealthScheduler runs an overdue canary as soon as the worker connects before start",
+    "status": "passed"
+  },
+  {
+    "name": "LocalAiHealthScheduler reconstructs persisted samples and incidents without treating stale persisted health as healthy",
+    "status": "passed"
+  },
+  {
+    "name": "LocalAiHealthScheduler rechecks even a recent persisted incident before returning it from ensureFresh",
+    "status": "passed"
+  },
+  {
+    "name": "AuxiliaryLlmService \u2014 bounded discovery deduplicates a legacy persisted worker ID against its normalized heartbeat source",
+    "status": "passed"
+  },
+  {
+    "name": "AuxiliaryLlmService \u2014 worker-node discovery and routing discoverCandidates surfaces a connected worker node as a worker-node candidate",
+    "status": "passed"
+  },
+  {
+    "name": "AuxiliaryLlmService \u2014 worker-node discovery and routing routes generation to a connected worker via RPC when localhost is unavailable",
+    "status": "passed"
+  },
+  {
+    "name": "AuxiliaryLlmService \u2014 worker-node discovery and routing routes a tier model to the later endpoint that advertises it instead of auto-picking on an earlier one",
+    "status": "passed"
+  },
+  {
+    "name": "AuxiliaryLlmService \u2014 worker-node discovery and routing does not route to a worker that is not connected",
+    "status": "passed"
+  }
+]

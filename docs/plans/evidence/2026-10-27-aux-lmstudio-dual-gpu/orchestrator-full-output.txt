@@ -1,0 +1,28 @@
+
+ RUN  v4.1.12 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-03-aux-llm-lmstudio-du-f17dc6
+
+(node:25937) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+stdout | src/main/mcp/__tests__/orchestrator-tools.spec.ts > orchestrator MCP tools > creates an auditable operator run when git_batch_pull is invoked from a chat instance
+[2026-10-27T07:48:45.604Z] [INFO] [ConversationLedgerService] ConversationLedgerService initialized 
+
+stdout | src/main/mcp/__tests__/orchestrator-tools.spec.ts > orchestrator MCP tools > records a cancelled operator run when git_batch_pull observes cancellation
+[2026-10-27T07:48:45.627Z] [INFO] [ConversationLedgerService] ConversationLedgerService initialized 
+
+stdout | src/main/mcp/__tests__/orchestrator-tools.spec.ts > orchestrator MCP tools > captures an AIO-owned MCP result with the canonical tool-call identity before returning it
+[2026-10-27T07:48:45.639Z] [INFO] [ConversationLedgerService] ConversationLedgerService initialized 
+
+stdout | src/main/mcp/__tests__/orchestrator-tools.spec.ts > orchestrator MCP tools > blocks an explicit failed capture result in enforce mode
+[2026-10-27T07:48:45.648Z] [INFO] [ConversationLedgerService] ConversationLedgerService initialized 
+
+stdout | src/main/mcp/__tests__/orchestrator-tools.spec.ts > orchestrator MCP tools > passes capture failures through in shadow and blocks the result in enforce
+[2026-10-27T07:48:45.656Z] [INFO] [ConversationLedgerService] ConversationLedgerService initialized 
+
+ ✓ |main| src/main/mcp/__tests__/orchestrator-tools.spec.ts (50 tests) 158ms
+
+ Test Files  1 passed (1)
+      Tests  50 passed (50)
+   Start at  07:48:44
+   Duration  1.64s (transform 594ms, setup 87ms, import 756ms, tests 158ms, environment 447ms)
+
+JSON report written to /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-03-aux-llm-lmstudio-du-f17dc6/_scratch/test-results.pid-23477.json

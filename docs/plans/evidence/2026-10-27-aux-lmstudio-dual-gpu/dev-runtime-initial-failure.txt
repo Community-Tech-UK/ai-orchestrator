@@ -1,0 +1,15 @@
+Failed to initialize sandbox.sandbox initialization failed: Operation not permitted
+Failed to initialize sandbox.[2026-10-27T07:46:37.028Z] [INFO] [ContextWorkerClient] Context worker started 
+[59496:1027/074637.313782:ERROR:content/browser/gpu/gpu_process_host.cc:1017] GPU process exited unexpectedly: exit_code=6
+Failed to initialize sandbox.[59496:1027/074637.383191:ERROR:content/browser/network_service_instance_impl.cc:703] Network service crashed or was terminated, restarting service.
+Failed to initialize sandbox.[59496:1027/074637.389435:ERROR:content/browser/gpu/gpu_process_host.cc:1017] GPU process exited unexpectedly: exit_code=6
+Failed to initialize sandbox.[59496:1027/074637.445661:ERROR:content/browser/network_service_instance_impl.cc:703] Network service crashed or was terminated, restarting service.
+Failed to initialize sandbox.[59496:1027/074637.462787:ERROR:content/browser/gpu/gpu_process_host.cc:1017] GPU process exited unexpectedly: exit_code=6
+Failed to initialize sandbox.[59496:1027/074637.524158:ERROR:content/browser/network_service_instance_impl.cc:703] Network service crashed or was terminated, restarting service.
+Failed to initialize sandbox.[59496:1027/074637.540239:ERROR:content/browser/gpu/gpu_process_host.cc:1017] GPU process exited unexpectedly: exit_code=6
+Failed to initialize sandbox.[59496:1027/074637.596719:ERROR:content/browser/network_service_instance_impl.cc:703] Network service crashed or was terminated, restarting service.
+Failed to initialize sandbox.[59496:1027/074637.604304:ERROR:content/browser/gpu/gpu_process_host.cc:1017] GPU process exited unexpectedly: exit_code=6
+Failed to initialize sandbox.[59496:1027/074637.652777:ERROR:content/browser/network_service_instance_impl.cc:703] Network service crashed or was terminated, restarting service.
+Failed to initialize sandbox.[59496:1027/074637.658359:ERROR:content/browser/gpu/gpu_process_host.cc:1017] GPU process exited unexpectedly: exit_code=6
+[59496:1027/074637.658386:FATAL:content/browser/gpu/gpu_data_manager_impl_private.cc:418] GPU process isn't usable. Goodbye.
+Failed to initialize sandbox.

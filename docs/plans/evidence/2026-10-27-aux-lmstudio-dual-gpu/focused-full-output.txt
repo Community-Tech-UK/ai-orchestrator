@@ -1,0 +1,28 @@
+
+ RUN  v4.1.12 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-03-aux-llm-lmstudio-du-f17dc6
+
+(node:44179) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:44180) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |main| src/main/local-ai-guard/local-ai-health-engine.spec.ts (50 tests) 38ms
+ ✓ |main| src/main/rlm/__tests__/auxiliary-llm-service.spec.ts (72 tests) 535ms
+(node:44399) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | src/main/local-ai-guard/local-ai-health-scheduler.spec.ts > LocalAiHealthScheduler > rejects a queued current-revision replacement when stopped
+[1970-01-01T00:16:40.000Z] [WARN] [LocalAiHealthScheduler] Local AI Guard asynchronous callback failed { reason: 'worker-reconnect-check' }
+
+stderr | src/main/local-ai-guard/local-ai-health-scheduler.spec.ts > LocalAiHealthScheduler > rejects a queued current-revision replacement on a lifecycle change
+[1970-01-01T00:16:40.000Z] [WARN] [LocalAiHealthScheduler] Local AI Guard asynchronous callback failed { reason: 'worker-reconnect-check' }
+
+stderr | src/main/local-ai-guard/local-ai-health-scheduler.spec.ts > LocalAiHealthScheduler > reschedules daily retention after a fail-soft retention error
+[1970-01-01T00:16:40.000Z] [WARN] [LocalAiHealthScheduler] Local AI Guard retention failed { reason: 'repository-error' }
+
+ ✓ |main| src/main/local-ai-guard/local-ai-health-scheduler.spec.ts (44 tests) 398ms
+
+ Test Files  3 passed (3)
+      Tests  166 passed (166)
+   Start at  07:42:13
+   Duration  2.25s (transform 464ms, setup 211ms, import 392ms, tests 971ms, environment 1.50s)
+
+JSON report written to /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-03-aux-llm-lmstudio-du-f17dc6/_scratch/test-results.pid-42443.json

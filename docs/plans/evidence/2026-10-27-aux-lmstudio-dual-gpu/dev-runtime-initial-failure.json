@@ -1,0 +1,13 @@
+{
+  "startedAt": "2026-10-27T07:46:33.094Z",
+  "profile": "/tmp/aio-lt-queue-14f17dc6",
+  "debugPort": 9510,
+  "rendererPort": 4599,
+  "probes": [],
+  "pid": 59496,
+  "error": "Error: Owned dev app did not expose its renderer; exit null\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-03-aux-llm-lmstudio-du-f17dc6/_scratch/lt-queue-14f17dc6/runtime.mjs:66:20",
+  "exitCode": null,
+  "signalCode": "SIGTRAP",
+  "pidGone": true,
+  "finishedAt": "2026-10-27T07:48:03.522Z"
+}

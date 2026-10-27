@@ -1,0 +1,6 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/rlm/__tests__/auxiliary-llm-service.spec.ts src/main/local-ai-guard/local-ai-health-scheduler.spec.ts src/main/local-ai-guard/local-ai-health-engine.spec.ts
+
+✓ 3 files · 166 tests passed in 9.2s
+  full log: _scratch/test-run.pid-42443.log
