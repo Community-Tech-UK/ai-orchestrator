@@ -26,7 +26,7 @@ export class PlanQueueVerifierReminders {
 
   constructor(
     private readonly host: PlanQueueFlowHost,
-    /** Where a reminder that could not be delivered is reported, as the verifier's outcome. */
+    /** Where a reminder that failed (not delivered, or its turn failed) is reported, as the verifier's outcome. */
     private readonly onSendFailed: (instanceId: string, outcome: PlanQueueTurnOutcome) => void,
   ) {}
 
@@ -58,7 +58,7 @@ export class PlanQueueVerifierReminders {
       .catch((error: unknown) => {
         if (this.host.tracker.isShuttingDown()) return;
         logger.warn('Plan queue: could not remind the verifier', { itemId: item.id, instanceId, error: errorMessage(error) });
-        this.onSendFailed(instanceId, { kind: 'failed', reason: `the reminder could not be sent: ${errorMessage(error)}` });
+        this.onSendFailed(instanceId, { kind: 'failed', reason: `its reminder turn failed: ${errorMessage(error)}` });
       });
     return true;
   }

@@ -62,6 +62,20 @@ describe('selectPlanQueueVerifier', () => {
     expect(await select(() => null)).toEqual({ ok: true, choice: { provider: 'antigravity', modelOverride: gemini } });
     expect(await select(quota(20))).toEqual({ ok: true, choice: { provider: 'antigravity', modelOverride: gemini } });
     expect(await select(quota(100))).toEqual({ ok: true, choice: { provider: 'antigravity', modelOverride: ANTIGRAVITY_REVIEW_FALLBACK_MODELS.SONNET } });
+
+    // A Claude worker never gets the Claude quota fallback as its checker.
+    const forClaudeWorker = (thirdPartyUsed: number) => selectPlanQueueVerifier(
+      { ...base, workerProvider: 'claude', workerModel: 'claude-opus-5' },
+      {
+        listInstalledProviders: async () => ['claude', 'antigravity'], classifyScope: openScope, resolveProviderModel: () => gemini,
+        antigravityQuota: (): ProviderQuotaSnapshot => ({
+          provider: 'antigravity', takenAt: Date.now(), source: 'admin-api', ok: true,
+          windows: [window('antigravity.gemini-5h', 'Gemini · 5-hour', 100), window('antigravity.3p-5h', 'Claude/GPT · 5-hour', thirdPartyUsed)],
+        }),
+      },
+    );
+    expect(await forClaudeWorker(0)).toEqual({ ok: true, choice: { provider: 'antigravity', modelOverride: ANTIGRAVITY_REVIEW_FALLBACK_MODELS.GPT_OSS } });
+    expect(await forClaudeWorker(100)).toEqual({ ok: true, choice: { provider: 'antigravity', modelOverride: gemini } });
   });
 
   it('prefers codex for a claude worker', async () => {

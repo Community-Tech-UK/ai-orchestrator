@@ -74,13 +74,22 @@ type CheckerCandidate = ReturnType<typeof resolveCheckerPlan>['candidates'][numb
  * (Antigravity's quota-aware plan included); without it the session inherits
  * whatever model was last remembered for that provider.
  */
-function verifierModelOption(candidate: CheckerCandidate, deps: VerifierSelectDeps): { modelOverride?: string } {
+function verifierModelOption(candidate: CheckerCandidate, input: VerifierSelectInput, deps: VerifierSelectDeps): { modelOverride?: string } {
   const changed = modelOverrideOptionFor(candidate);
   if (changed.modelOverride || !candidate.model) return changed;
   const model = candidate.provider === 'antigravity'
-    ? resolveAntigravityReviewModelPlan(candidate.model, (deps.antigravityQuota ?? defaultAntigravityQuota)())[0]
+    ? antigravityVerifierModel(candidate.model, input.workerModel, deps)
     : candidate.model;
-  return model ? { modelOverride: model } : {};
+  return { modelOverride: model };
+}
+
+/**
+ * Antigravity's review model plan, but never a quota fallback from the worker's own
+ * model family: the plan step already judged the configured model diverse.
+ */
+function antigravityVerifierModel(configured: string, workerModel: string | null | undefined, deps: VerifierSelectDeps): string {
+  const plan = resolveAntigravityReviewModelPlan(configured, (deps.antigravityQuota ?? defaultAntigravityQuota)());
+  return plan.find((model): model is string => !!model && !sameFamily(model, workerModel)) ?? configured;
 }
 
 function defaultAntigravityQuota(): ProviderQuotaSnapshot | null {
@@ -151,7 +160,7 @@ export async function selectPlanQueueVerifier(
     ok: true,
     choice: {
       provider: candidate.provider,
-      ...verifierModelOption(candidate, deps),
+      ...verifierModelOption(candidate, input, deps),
       ...(candidate.copilotProfileId ? { copilotProfileId: candidate.copilotProfileId } : {}),
     },
   };
@@ -271,5 +280,5 @@ function checkerModelFor(
   // other providers are James's choice and are only re-modelled for family.
   }, provider === 'copilot' ? deps : { ...deps, classifyScope: () => ({ kind: 'none' }) });
   const candidate = plan.candidates[0];
-  return candidate ? verifierModelOption(candidate, deps) : {};
+  return candidate ? verifierModelOption(candidate, input, deps) : {};
 }

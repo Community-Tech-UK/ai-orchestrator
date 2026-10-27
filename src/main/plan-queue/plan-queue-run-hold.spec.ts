@@ -106,12 +106,12 @@ describe('paused runs never continue work or park it', () => {
     expect(host.instances.sendInput).toHaveBeenCalledWith('checker', expect.stringContaining('Plan Queue reminder 1 of 2'), undefined, expect.objectContaining({ internalSource: 'plan-queue' }));
   });
 
-  it('counts an unusable round when a reminder cannot be sent', async () => {
+  it('counts an unusable round when a reminder turn fails', async () => {
     run.status = 'running';
     vi.mocked(host.instances.sendInput).mockRejectedValueOnce(new Error('session gone'));
     await flow.onVerifierOutcome('checker', { kind: 'turn-complete', lastAssistantOutput: null });
     await vi.waitFor(() => expect(item).toMatchObject({
-      state: 'awaiting-slot', erroredRounds: 1, verifierInstanceId: null, detail: 'the verifier failed: the reminder could not be sent: session gone',
+      state: 'awaiting-slot', erroredRounds: 1, verifierInstanceId: null, detail: 'the verifier failed: its reminder turn failed: session gone',
     }));
     expect(host.instances.sendInput).toHaveBeenCalledTimes(1);
     expect(host.instances.terminateInstance).toHaveBeenCalledWith('checker', true);
