@@ -99,9 +99,9 @@ export async function syncItemWithBase(item: PlanQueueItem, baseBranch: string):
 }
 
 /** Run the deterministic post-merge commands in the item worktree; stop at the first failure. */
-export async function runPostMergeGate(commands: readonly string[], cwd: string): Promise<GateResult> {
+export async function runPostMergeGate(commands: readonly string[], cwd: string, signal?: AbortSignal): Promise<GateResult> {
   for (const command of commands) {
-    const { exitCode, output } = await runShell(command, cwd);
+    const { exitCode, output } = await runShell(command, cwd, signal);
     if (exitCode !== 0) {
       return { ok: false, command, output: output.slice(-GATE_OUTPUT_TAIL) };
     }
@@ -109,7 +109,7 @@ export async function runPostMergeGate(commands: readonly string[], cwd: string)
   return { ok: true };
 }
 
-function runShell(command: string, cwd: string): Promise<{ exitCode: number; output: string }> {
+function runShell(command: string, cwd: string, signal?: AbortSignal): Promise<{ exitCode: number; output: string }> {
   // buildCliEnv: a packaged app starts with a stripped PATH that may not find node/npm.
   // Own process group: a timed-out gate command's children must not outlive it in the worktree.
   return runInProcessGroup(command, [], {
@@ -119,6 +119,7 @@ function runShell(command: string, cwd: string): Promise<{ exitCode: number; out
     timeoutMs: GATE_TIMEOUT_MS,
     outputTail: GATE_OUTPUT_TAIL,
     label: `\`${command}\``,
+    signal,
   });
 }
 
@@ -191,6 +192,7 @@ export async function landItemBranch(
   commitMessage: string,
   documents: readonly LandingDocument[] = [],
   onCommitBuilt?: (commit: string) => void,
+  signal?: AbortSignal,
 ): Promise<LandResult> {
   const { branchName } = requireGit(item);
   if (!item.worktreePath) throw new Error(`Plan queue item ${item.id} has no worktree`);
@@ -205,7 +207,10 @@ export async function landItemBranch(
     }
     // ...or after building the commit but before promoting it.
     const parent = await gitExecSafe(['rev-parse', `${item.landedCommit}^`], repoRoot);
-    if (parent === baseTip) return promote(item, repoRoot, baseBranch, integrationBranch, item.landedCommit);
+    if (parent === baseTip) {
+      signal?.throwIfAborted();
+      return promote(item, repoRoot, baseBranch, integrationBranch, item.landedCommit);
+    }
   }
 
   const built = await buildLandingCommit({
@@ -214,6 +219,7 @@ export async function landItemBranch(
     baseTip,
     message: commitMessage,
     documents,
+    signal,
   });
   switch (built.status) {
     case 'nothing-to-land':
@@ -224,6 +230,7 @@ export async function landItemBranch(
       return built;
     case 'committed':
       onCommitBuilt?.(built.commit);
+      signal?.throwIfAborted();
       return promote(item, repoRoot, baseBranch, integrationBranch, built.commit);
   }
 }

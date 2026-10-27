@@ -5,7 +5,7 @@
 
 import type { PlanQueueItemState } from '@contracts/schemas/plan-queue';
 import type { InstanceStatus } from '@contracts/types/instance-events';
-import type { InstanceCreateConfig } from '../../shared/types/instance.types';
+import type { AccountPreferences, InstanceCreateConfig } from '../../shared/types/instance.types';
 import type { PlanQueueInstanceTracker } from './plan-queue-instance-tracker';
 import type { VerifierSelectInput, VerifierSelection } from './plan-queue-verifier-select';
 import type { PlanQueueWorktreeService } from './plan-queue-worktree';
@@ -21,6 +21,8 @@ export interface PlanQueueInstanceRecord {
   /** The session's pool account / Copilot account, inherited by a run's workers. */
   accountProfileId?: string;
   copilotAccountProfileId?: string;
+  /** Failover preferences from James's account rules; see `Instance.accountPreferences`. */
+  accountPreferences?: AccountPreferences;
   workingDirectory?: string;
   metadata?: Record<string, unknown>;
   parentId?: string | null;

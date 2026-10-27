@@ -33,4 +33,6 @@ export const UI_TERMS: readonly UiTerm[] = [
   { id: 'auto-approve', use: 'Auto-approve', never: [/\bYOLO\b/i], meaning: 'The agent can run tools without asking you first. Risky outside a safe folder.', enforcement: 'planned' },
   { id: 'storage-buffers', use: 'Storage & buffers', never: [/^Memory$/], meaning: 'Settings for stored output and buffers.', enforcement: 'planned' },
   { id: 'phone-chat', use: 'Discord & WhatsApp', never: [/^Connections$/], meaning: 'Settings for phone chat connections.', enforcement: 'planned' },
+  { id: 'connectors', use: 'Connectors', never: [], meaning: 'A tool server and its sign-in, saved once in Harness for your selected local AI sessions.', enforcement: 'planned' },
+  { id: 'tool-servers', use: 'Tool servers', never: [], meaning: 'Model Context Protocol (MCP) programs give agents extra abilities, such as searching a service or reading a database.', enforcement: 'planned' },
 ];

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { RUNTIME_PLUGIN_CHANNELS } from '../runtime-plugin.channels';
 
 describe('RUNTIME_PLUGIN_CHANNELS', () => {
-  it('defines runtime plugin package-manager channels separately from provider plugin channels', () => {
+  it('defines runtime plugin package-manager channels', () => {
     expect(RUNTIME_PLUGIN_CHANNELS.RUNTIME_PLUGINS_LIST).toBe('runtime-plugins:list');
     expect(RUNTIME_PLUGIN_CHANNELS.RUNTIME_PLUGINS_VALIDATE).toBe('runtime-plugins:validate');
     expect(RUNTIME_PLUGIN_CHANNELS.RUNTIME_PLUGINS_INSTALL).toBe('runtime-plugins:install');

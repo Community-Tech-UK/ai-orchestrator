@@ -100,6 +100,8 @@ export interface AttachCopilotRouteOptions {
   persistedProfileId?: string;
   /** Execution node. Defaults to the local controller. */
   executionNodeId?: string;
+  /** Profiles this spawn must never run on (Plan Queue never-use list). */
+  avoidProfileIds?: readonly string[];
   /** Correlation only. */
   instanceId?: string;
   /** Injected for tests. */
@@ -125,6 +127,15 @@ export async function attachCopilotRoute(
   // An already-attached route is a respawn of a stamped session; keep it
   // rather than re-resolving, so changed rules cannot move a live thread.
   if (options.copilotAccountRoute?.profileId) {
+    const attached = options.copilotAccountRoute.profileId;
+    if (attachOptions.avoidProfileIds?.includes(attached)) {
+      throw new CopilotRoutingError({
+        ok: false,
+        code: 'automation-disallowed',
+        detail: `The ${options.copilotAccountRoute.profileLabel ?? attached} Copilot account is on your never-use list (Plan Queue page), so this session cannot use it.`,
+        profileId: attached,
+      });
+    }
     return options;
   }
 
@@ -136,6 +147,7 @@ export async function attachCopilotRoute(
     persistedProfileId: attachOptions.persistedProfileId,
     origin,
     executionNodeId: attachOptions.executionNodeId ?? LOCAL_COPILOT_NODE_ID,
+    avoidProfileIds: attachOptions.avoidProfileIds,
     instanceId: attachOptions.instanceId ?? options.instanceId,
   });
 

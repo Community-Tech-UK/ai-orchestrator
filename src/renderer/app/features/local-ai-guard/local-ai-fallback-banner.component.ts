@@ -463,6 +463,8 @@ export class LocalAiFallbackBannerComponent {
     const statusChip = document.querySelector<HTMLButtonElement>(
       'app-local-ai-status-chip button',
     );
-    (nextAction ?? statusChip)?.focus();
+    // The chip hides while local AI is healthy; the main area is then the next stop.
+    const main = document.querySelector<HTMLElement>('main.app-main');
+    (nextAction ?? statusChip ?? main)?.focus();
   }
 }

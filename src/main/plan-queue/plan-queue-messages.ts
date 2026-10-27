@@ -25,6 +25,7 @@ export function itemToDto(item: PlanQueueItem): PlanQueueItemDto {
     documentPath: item.documentPath,
     heldAt: item.heldAt ?? null,
     pendingInstruction: item.pendingInstruction ?? null,
+    steppedUpAt: item.steppedUpAt ?? null,
     state: item.state,
     round: item.round,
     erroredRounds: item.erroredRounds,

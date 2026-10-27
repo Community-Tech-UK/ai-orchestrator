@@ -495,3 +495,37 @@ describe('AccountFailoverCoordinator', () => {
     expect(on.applied[0]?.desired).toMatchObject({ accountHandoffKind: 'preemptive' });
   });
 });
+
+describe('AccountFailoverCoordinator: account rules', () => {
+  it('never moves a session onto an account on its never-use list', async () => {
+    const h = harness();
+    addInstance(h, 'i1');
+    h.instances.get('i1')!.accountPreferences = { avoid: ['max-b'], last: [] };
+    h.parked = ['legacy'];
+    expect(await h.coordinator.perform(params('i1'))).toMatchObject({ outcome: 'switched', toProfileId: 'max-c' });
+  });
+
+  it('uses a use-last account only when no other account can take the turn', async () => {
+    const h = harness();
+    addInstance(h, 'i1');
+    h.instances.get('i1')!.accountPreferences = { avoid: [], last: ['max-b'] };
+    h.parked = ['legacy'];
+    expect(await h.coordinator.perform(params('i1'))).toMatchObject({ outcome: 'switched', toProfileId: 'max-c' });
+  });
+
+  it('falls back to a use-last account when nothing else is left', async () => {
+    const h = harness();
+    addInstance(h, 'i1');
+    h.instances.get('i1')!.accountPreferences = { avoid: [], last: ['max-b'] };
+    h.parked = ['legacy', 'max-c'];
+    expect(await h.coordinator.perform(params('i1'))).toMatchObject({ outcome: 'switched', toProfileId: 'max-b' });
+  });
+
+  it('never makes a pre-emptive move onto a use-last account', () => {
+    const h = harness();
+    addInstance(h, 'i1');
+    h.instances.get('i1')!.accountPreferences = { avoid: [], last: ['max-b'] };
+    h.parked = ['max-c'];
+    expect(h.coordinator.plan(params('i1', { handoffKind: 'preemptive' }))).toEqual({ kind: 'none', reason: 'no-candidate' });
+  });
+});

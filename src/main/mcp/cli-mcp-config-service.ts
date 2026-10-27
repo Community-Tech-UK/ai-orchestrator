@@ -3,21 +3,20 @@ import type {
   McpMultiProviderStateDto,
   OrchestratorMcpDto,
   ProviderTabDto,
-  SharedMcpDto,
+  ConnectorAuthStatus,
 } from '../../shared/types/mcp-dtos.types';
-import { SUPPORTED_PROVIDERS, type ProviderMcpScope, type SupportedProvider } from '../../shared/types/mcp-scopes.types';
+import { SUPPORTED_PROVIDERS, type OrchestratorRuntimeInjectionProvider, type ProviderMcpScope, type SupportedProvider } from '../../shared/types/mcp-scopes.types';
 import { RedactionService, type RawMcpRecord } from './redaction-service';
 import type { ProviderMcpAdapter } from './adapters/provider-mcp-adapter.types';
 import type { OrchestratorMcpRecordWithTargets, OrchestratorMcpRepository } from './orchestrator-mcp-repository';
-import type { SharedMcpRepository } from './shared-mcp-repository';
-import type { SharedMcpCoordinator } from './shared-mcp-coordinator';
 import { assertNoWorkspaceSecretRefs } from './reject-workspace-secret-ref';
 
 export interface CliMcpConfigServiceDeps {
   adapters: Record<SupportedProvider, ProviderMcpAdapter>;
   orchestratorRepo: OrchestratorMcpRepository;
-  sharedRepo: SharedMcpRepository;
-  sharedCoordinator: SharedMcpCoordinator;
+  connectorAuth: { status(serverId: string): ConnectorAuthStatus };
+  agentsMayWrite: (accountId: string) => Promise<boolean>;
+  graphAccounts: () => Promise<readonly { accountKey: string; tokenStatus: 'valid' | 'reauth_required' }[]>;
   redaction: RedactionService;
   cwdProvider: () => string;
 }
@@ -29,8 +28,7 @@ export class CliMcpConfigService {
 
   async getMultiProviderState(): Promise<McpMultiProviderStateDto> {
     return {
-      orchestrator: this.getOrchestratorDtos(),
-      shared: await this.getSharedDtos(),
+      orchestrator: await this.getOrchestratorDtos(),
       providers: await this.getProviderTabs(),
       stateVersion: this.stateVersion,
     };
@@ -53,20 +51,8 @@ export class CliMcpConfigService {
     this.bumpStateVersion();
   }
 
-  orchestratorSetInjectionTargets(serverId: string, providers: readonly SupportedProvider[]): void {
+  orchestratorSetInjectionTargets(serverId: string, providers: readonly OrchestratorRuntimeInjectionProvider[]): void {
     this.deps.orchestratorRepo.setInjectionTargets(serverId, providers);
-    this.bumpStateVersion();
-  }
-
-  sharedUpsert(payload: Parameters<SharedMcpRepository['upsert']>[0]): string {
-    assertNoWorkspaceSecretRefs(payload.env);
-    const saved = this.deps.sharedRepo.upsert(payload);
-    this.bumpStateVersion();
-    return saved.id;
-  }
-
-  sharedDelete(serverId: string): void {
-    this.deps.sharedRepo.delete(serverId);
     this.bumpStateVersion();
   }
 
@@ -128,32 +114,23 @@ export class CliMcpConfigService {
     this.stateVersion += 1;
   }
 
-  private getOrchestratorDtos(): OrchestratorMcpDto[] {
-    return this.deps.orchestratorRepo.list().map(({ record, injectInto }) => ({
-      record: this.deps.redaction.redact(record, {
+  private async getOrchestratorDtos(): Promise<OrchestratorMcpDto[]> {
+    const records = this.deps.orchestratorRepo.list();
+    const accounts = records.some(({ record }) => record.kind === 'microsoft365')
+      ? await this.deps.graphAccounts() : [];
+    return Promise.all(records.map(async ({ record, injectInto }) => ({
+      record: { ...this.deps.redaction.redact(record, {
         scope: record.scope,
         readOnly: false,
-      }) as OrchestratorMcpDto['record'],
+      }), kind: record.kind, authType: record.authType, clientMetadataUrl: record.clientMetadataUrl, accountId: record.accountId,
+      mailEnabled: record.mailEnabled } as OrchestratorMcpDto['record'],
       injectInto,
-    }));
-  }
-
-  private async getSharedDtos(): Promise<SharedMcpDto[]> {
-    const driftById = new Map<string, Awaited<ReturnType<SharedMcpCoordinator['getDrift']>>>();
-    for (const record of this.deps.sharedRepo.list()) {
-      driftById.set(record.id, await this.deps.sharedCoordinator.getDrift(record.id));
-    }
-    return this.deps.sharedRepo.list().map((record) => ({
-      record: this.deps.redaction.redact({
-        ...record,
-        autoConnect: true,
-      }, {
-        scope: 'shared',
-        readOnly: false,
-        sharedTargets: record.targets,
-      }) as SharedMcpDto['record'],
-      targets: driftById.get(record.id) ?? [],
-    }));
+      authStatus: record.kind === 'microsoft365'
+        ? { state: accounts.find((account) => account.accountKey === record.accountId)?.tokenStatus === 'valid' ? 'signed-in' : 'expired' }
+        : this.deps.connectorAuth.status(record.id),
+      ...(record.kind === 'microsoft365' && record.accountId
+        ? { agentsMayWrite: await this.deps.agentsMayWrite(record.accountId) } : {}),
+    })));
   }
 
   private async getProviderTabs(): Promise<ProviderTabDto[]> {

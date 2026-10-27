@@ -25,6 +25,8 @@ vi.mock('electron', () => ({
   powerMonitor: new EventEmitter(),
 }));
 vi.mock('../plugins/hook-emitter', () => ({ emitPluginHook: vi.fn() }));
+// The account rules read settings; their own spec covers them.
+vi.mock('./automation-account-rules', () => ({ automationAccountPreferences: async () => undefined }));
 vi.mock('../channels/channel-manager', () => ({
   getChannelManager: () => ({ getAdapter: vi.fn(), emitResponseSent: vi.fn() }),
 }));

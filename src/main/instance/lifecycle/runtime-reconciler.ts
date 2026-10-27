@@ -61,7 +61,7 @@ import { announceRuntimeChangeSet, runtimeChangeNoticesFor } from './runtime-cha
 import type { UnifiedSpawnOptions } from '../../cli/adapters/adapter-factory';
 import type { DesiredRuntime, Instance } from '../../../shared/types/instance.types';
 import { isLogicalMiMoModel } from '../../../shared/types/provider-account.types';
-import { accountChangeNotice, applyAccountHandoff, isAccountOnlyChange, restoreAccount, snapshotAccount, tryAccountSwitchInPlace } from './runtime-reconciler-account-handoff';
+import { accountChangeNotice, accountPreferencesAfterProviderSwap, applyAccountHandoff, isAccountOnlyChange, restoreAccount, snapshotAccount, tryAccountSwitchInPlace } from './runtime-reconciler-account-handoff';
 import type {
   RecoveryRespawnHooks,
   RecoveryRespawnOutcome,
@@ -111,6 +111,7 @@ export class RuntimeReconciler {
       const oldReasoningEffort = instance.reasoningEffort;
       const oldCopilotProfileId = instance.copilotAccountProfileId;
       const oldAccount = snapshotAccount(instance);
+      const oldAccountPreferences = instance.accountPreferences;
       const localModelTarget = desired.modelRuntimeTarget?.kind === 'local-model'
         ? desired.modelRuntimeTarget
         : null;
@@ -260,6 +261,9 @@ export class RuntimeReconciler {
             accountRoutingSource: undefined,
             accountSwitches: undefined,
           });
+          // The never-use and use-last lists hold the old provider's account ids.
+          // Read the rules now, not from the settings snapshot above: a rule saved during the swap must count.
+          instance.accountPreferences = accountPreferencesAfterProviderSwap(instance, this.deps.getSettings().planQueueAccountRules, targetProvider);
           if (instance.fastMode && targetProvider !== 'claude' && targetProvider !== 'codex') {
             logger.info('Dropping fast mode — target provider has no equivalent', {
               instanceId,
@@ -505,6 +509,7 @@ export class RuntimeReconciler {
               accountProfileId: instance.accountProfileId,
               accountRoutingSource: instance.accountRoutingSource,
               accountSwitches: instance.accountSwitches,
+              accountPreferences: instance.accountPreferences,
               ...(validatedModel !== undefined ? { modelId: validatedModel } : {}),
             });
             assertCurrent();
@@ -586,6 +591,12 @@ export class RuntimeReconciler {
           instance.copilotAccountProfileId = oldCopilotProfileId;
         }
         if (isProviderSwap || diff.accountProfileChanged) restoreAccount(instance, oldAccount);
+        // Only a provider swap changes the lists. Rebuild the old provider's from the rules as they are now, so neither
+        // rollback undoes a rule change made meanwhile.
+        if (isProviderSwap) {
+          instance.accountPreferences = accountPreferencesAfterProviderSwap(
+            { accountPreferences: oldAccountPreferences }, this.deps.getSettings().planQueueAccountRules, oldProvider);
+        }
         this.deps.transitionState(instance, 'error');
         assertCurrent();
         logger.error('Failed to apply runtime change', error instanceof Error ? error : undefined, { instanceId, newModel, targetProvider });

@@ -47,7 +47,7 @@ export interface PlanQueueLandingContext {
   /** Back to the worker with a prompt; `detail` tells the panel why. Lock held. */
   toFixing(item: PlanQueueItem, prompt: string, detail: string): Promise<void>;
   /** Park, stopping writers before checkpointing. Lock held. */
-  park(item: PlanQueueItem, reason: PlanQueueParkReason, detail: string): Promise<void>;
+  park(item: PlanQueueItem, reason: PlanQueueParkReason, detail: string, requireCheckpoint?: boolean): Promise<void>;
   stopInstance(instanceId: string): Promise<void>;
 }
 
@@ -70,9 +70,29 @@ export function hasPendingLandingCleanup(item: PlanQueueItem): boolean {
 }
 
 export class PlanQueueItemLanding {
+  private readonly active = new Map<string, AbortController>();
   constructor(private readonly ctx: PlanQueueLandingContext) {}
 
+  cancel(itemId: string): void { this.active.get(itemId)?.abort(); }
+
   async land(itemId: string, options: { operatorOverride?: boolean }): Promise<void> {
+    const controller = new AbortController();
+    this.active.set(itemId, controller);
+    if (!options.operatorOverride && this.ctx.host.getRun(this.ctx.host.getItem(itemId).runId).status === 'paused') controller.abort();
+    try { await this.landActive(itemId, options, controller.signal); }
+    catch (error) {
+      const item = this.ctx.host.getItem(itemId);
+      if (controller.signal.aborted && error === controller.signal.reason) {
+        this.ctx.host.transition(item, 'awaiting-slot', { verifiedMainCommit: null, landedCommit: null,
+          heldAt: item.heldAt ?? Date.now(), detail: 'Paused before landing.' });
+      } else {
+        logger.error('Plan queue landing failed unexpectedly', error instanceof Error ? error : undefined, { itemId });
+        if (item.state !== 'landed') await this.ctx.park(item, 'land-blocked', `Landing failed: ${errorMessage(error)}`, true);
+      }
+    } finally { this.active.delete(itemId); }
+  }
+
+  private async landActive(itemId: string, options: { operatorOverride?: boolean }, signal: AbortSignal): Promise<void> {
     const { host } = this.ctx;
     let item = host.getItem(itemId);
     if (item.state !== 'landing') return;
@@ -101,7 +121,8 @@ export class PlanQueueItemLanding {
     const baseTip = await gitExec(['rev-parse', `refs/heads/${baseBranch}`], repoRoot);
     const alreadyLanded = item.landedCommit !== null && (await isAncestor(item.landedCommit, baseTip, repoRoot));
     if (!alreadyLanded) {
-      const landed = await this.buildAndPromote(item, run, baseTip, closeDocuments);
+      signal.throwIfAborted();
+      const landed = await this.buildAndPromote(item, run, baseTip, closeDocuments, signal);
       if (!landed) return;
       item = landed;
     }
@@ -153,6 +174,7 @@ export class PlanQueueItemLanding {
     run: PlanQueueRun,
     baseTip: string,
     closeDocuments: boolean,
+    signal: AbortSignal,
   ): Promise<PlanQueueItem | null> {
     const { host } = this.ctx;
     const repoRoot = run.workspaceCwd;
@@ -175,7 +197,7 @@ export class PlanQueueItemLanding {
       }
       if (sync.status === 'merged') {
         item = await host.worktrees.checkpoint(item, `merge ${baseBranch} before landing`);
-        const gate = await runPostMergeGate(run.config.postMergeGate, item.worktreePath!);
+        const gate = await runPostMergeGate(run.config.postMergeGate, item.worktreePath!, signal);
         if (!gate.ok) {
           await this.ctx.toFixing(item, buildGateFailurePrompt(gate.command, gate.output),
             `Not landed: \`${gate.command}\` failed after merging ${baseBranch}; sent back to the worker.`);
@@ -205,6 +227,7 @@ export class PlanQueueItemLanding {
       message,
       prepared.mode === 'commit' ? prepared.documents : [],
       (commit) => { item = host.save({ ...host.getItem(item.id), landedCommit: commit }); },
+      signal,
     );
     switch (result.status) {
       case 'landed':

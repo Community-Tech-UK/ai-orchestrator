@@ -289,6 +289,20 @@ describe('AppComponent startup banner', () => {
     expect(fixture.nativeElement.querySelector('.startup-banner')).not.toBeNull();
   });
 
+  it('shows the startup chip only while a startup check needs attention', () => {
+    expect(fixture.nativeElement.querySelector('.startup-status-chip')?.textContent).toContain('Startup degraded');
+
+    component.startupCapabilities.set({ ...makeDegradedReport(), status: 'ready', checks: [] });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.startup-status-chip')).toBeNull();
+  });
+
+  it('leaves the remote terminal toggle to the workspace rail', () => {
+    expect(template).not.toContain('Remote Terminal');
+    expect(template.match(/<app-terminal-drawer/g)).toHaveLength(1);
+  });
+
   it('does not show a root-level route fallback back button on the dashboard route', () => {
     expect(fixture.nativeElement.querySelector('[data-testid="route-backstop"]')).toBeNull();
   });
@@ -336,7 +350,7 @@ describe('AppComponent title bar layout', () => {
     const browserBannerIndex = template.indexOf('<app-browser-approvals-banner');
     const fallbackBannerIndex = template.indexOf('<app-local-ai-fallback-banner');
     expect(fallbackBannerIndex).toBeGreaterThan(browserBannerIndex);
-    expect(fallbackBannerIndex).toBeLessThan(template.indexOf('<main class="app-main">'));
+    expect(fallbackBannerIndex).toBeLessThan(template.indexOf('<main class="app-main"'));
   });
 
   it('renders Status unavailable in the root shell when initialization has no snapshot', async () => {
@@ -429,7 +443,7 @@ describe('AppComponent title bar layout', () => {
   it('mounts the Computer Use permission banner once above app-main', () => {
     expect(template.match(/<app-computer-use-permission-banner/g)).toHaveLength(1);
     expect(template.indexOf('<app-computer-use-permission-banner'))
-      .toBeLessThan(template.indexOf('<main class="app-main">'));
+      .toBeLessThan(template.indexOf('<main class="app-main"'));
   });
 
   it('mounts the Computer Use permission chip once in the title-bar status cluster', () => {

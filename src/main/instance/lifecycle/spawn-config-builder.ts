@@ -17,9 +17,7 @@ import * as path from 'path';
 
 import type { ExecutionLocation } from '../../../shared/types/worker-node.types';
 import {
-  ORCHESTRATOR_INJECTION_PROVIDERS,
   isOrchestratorRuntimeInjectionProvider,
-  isSupportedProvider,
 } from '../../../shared/types/mcp-scopes.types';
 import {
   buildBrowserGatewayMcpConfigJson,
@@ -217,7 +215,7 @@ export class SpawnConfigBuilder {
       }
     }
 
-    configs.push(...this.getOrchestratorMcpConfigs(provider, instanceId));
+    if (instanceId) configs.push(...this.getOrchestratorMcpConfigs(provider, instanceId));
     configs.push(...this.getWorkspaceMcpConfigs(
       executionLocation,
       instanceId,
@@ -310,16 +308,13 @@ export class SpawnConfigBuilder {
     }
   }
 
-  private getOrchestratorMcpConfigs(provider?: string, instanceId?: string): string[] {
+  private getOrchestratorMcpConfigs(provider: string | undefined, instanceId: string): string[] {
     if (!isOrchestratorRuntimeInjectionProvider(provider)) {
       return [];
     }
 
     try {
-      const bundle = isSupportedProvider(provider) &&
-        ORCHESTRATOR_INJECTION_PROVIDERS.includes(provider)
-        ? getOrchestratorInjectionReader().buildBundle(provider)
-        : { configPaths: [], inlineConfigs: [] };
+      const bundle = getOrchestratorInjectionReader().buildBundle(provider, instanceId);
       const orchestratorToolsOptions = this.getOrchestratorToolsMcpOptions(instanceId, provider);
       const builtInToolsConfig = orchestratorToolsOptions
         ? buildOrchestratorToolsMcpConfig(orchestratorToolsOptions)

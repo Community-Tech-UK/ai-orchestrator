@@ -33,6 +33,16 @@
     }
   </section>
 
+  <section class="pq-section pq-section-account-rules" aria-labelledby="pq-account-rules-heading">
+    <h2 id="pq-account-rules-heading">Account rules</h2>
+    <p class="pq-purpose">
+      Keep an account away from Plan Queue sessions and automation runs. Use last: they use it only when no other account can run (a Copilot automation always uses its folder's Copilot account unless it is set to Never use).
+      Never use: no queue session or new automation session starts, switches or wakes on it, and a queue session already running on it is stopped and restarted on another account.
+      Sessions you open yourself, loops and automations that wake one of your existing sessions are not affected.
+    </p>
+    <app-plan-queue-account-rules-panel />
+  </section>
+
   <section class="pq-section pq-section-runs" aria-labelledby="pq-runs-heading">
     <h2 id="pq-runs-heading">Runs</h2>
     @if (runningCount() > 0) {
@@ -46,7 +56,7 @@
       have not started are skipped, and work in progress moves to Parked work with its branch kept. Open a run's
       document list to see each document.
     </p>
-    @if (store.isLoading()) {
+    @if (store.isLoading() && store.allRuns().length === 0) {
       <div class="pq-loading">Loading plan queue runs...</div>
     } @else if (store.allRuns().length === 0) {
       <div class="pq-empty">No plan queue runs yet.</div>

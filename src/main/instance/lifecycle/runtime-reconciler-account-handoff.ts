@@ -5,7 +5,8 @@
  * terminate, spawn, rollback).
  */
 
-import type { DesiredRuntime, Instance } from '../../../shared/types/instance.types';
+import { DEFAULT_PLAN_QUEUE_ACCOUNT_RULES, type PlanQueueAccountRules } from '@contracts/schemas/plan-queue';
+import type { AccountPreferences, DesiredRuntime, Instance } from '../../../shared/types/instance.types';
 import {
   LEGACY_ACCOUNT_PROFILE_ID,
   isPooledProvider,
@@ -22,6 +23,7 @@ import { mapAcpEffort } from '../../cli/adapters/acp-session-config-options';
 import { announceRuntimeChangeSet, runtimeChangeNoticesFor } from './runtime-change-notices';
 import type { RuntimeReconcilerDeps } from './runtime-reconciler.types';
 import { getLogger } from '../../logging/logger';
+import { accountPreferencesFor } from '../../plan-queue/plan-queue-account-rules';
 
 const logger = getLogger('RuntimeReconcilerAccountHandoff');
 
@@ -43,6 +45,21 @@ export function restoreAccount(instance: Instance, snapshot: AccountHandoffSnaps
   instance.accountProfileId = snapshot.accountProfileId;
   instance.accountRoutingSource = snapshot.accountRoutingSource;
   instance.accountSwitches = snapshot.accountSwitches;
+}
+
+/**
+ * The never-use and use-last lists a session carries after moving to another
+ * provider. The lists hold the old provider's account ids, so a session that
+ * carries them takes the new provider's from James's current rules (empty
+ * lists still mark it as following the rules); one that carries none keeps none.
+ */
+export function accountPreferencesAfterProviderSwap(
+  instance: Pick<Instance, 'accountPreferences'>,
+  rules: PlanQueueAccountRules | undefined,
+  provider: string,
+): AccountPreferences | undefined {
+  if (!instance.accountPreferences) return undefined;
+  return accountPreferencesFor(rules ?? DEFAULT_PLAN_QUEUE_ACCOUNT_RULES, provider) ?? { avoid: [], last: [] };
 }
 
 /**

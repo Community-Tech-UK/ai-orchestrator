@@ -38,7 +38,7 @@
       <button type="button" [disabled]="pending()" (click)="act('release')">Release</button>
     }
     @if (store.state().phase === 'collecting') {
-      <p role="status">Writing notes: {{ store.state().completedNotes }} of {{ store.state().totalNotes }}</p>
+      <p role="status">{{ label() }}</p>
       <p>Skip the remaining model turns and save basic notes instead.</p>
       <button type="button" (click)="act('skip-notes')">Skip the rest</button>
     }

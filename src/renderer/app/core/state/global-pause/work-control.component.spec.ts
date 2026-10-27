@@ -19,7 +19,7 @@ describe('WorkControlComponent', () => {
   const set = vi.fn();
   beforeEach(() => {
     vi.clearAllMocks();
-    state.update(s => ({ ...s, phase: 'none', entries: [], completedNotes: 0, totalNotes: 0, resumeInterrupted: false }));
+    state.update(s => ({ ...s, phase: 'none', collectionStage: undefined, entries: [], completedNotes: 0, totalNotes: 0, resumeInterrupted: false }));
     TestBed.configureTestingModule({ imports: [WorkControlComponent], providers: [
       { provide: GlobalPauseStore, useValue: { state, error: signal(null), command, initialize: vi.fn() } },
       { provide: SettingsStore, useValue: { get: () => 3, set } },
@@ -48,6 +48,17 @@ describe('WorkControlComponent', () => {
     const confirm = [...fixture.nativeElement.querySelectorAll('button')].find((b: unknown) => (b as HTMLButtonElement).textContent?.trim() === 'Delete notes and discard') as HTMLButtonElement;
     confirm.click();
     expect(command).toHaveBeenCalledWith('discard', undefined);
+  });
+  it('shows background work stopping before note collection starts', () => {
+    state.update(s => ({ ...s, phase: 'collecting', collectionStage: 'stopping-work', totalNotes: 15 }));
+    const fixture = TestBed.createComponent(WorkControlComponent);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('summary').textContent).toContain('Stopping background work');
+    expect(fixture.nativeElement.querySelector('[role="status"]').textContent).toContain('Stopping background work');
+    expect(fixture.nativeElement.textContent).not.toContain('Writing notes:');
+    state.update(s => ({ ...s, collectionStage: 'writing-notes', completedNotes: 1 }));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('summary').textContent).toContain('Writing notes: 1 of 15');
   });
   it('saves a workload change through the shared setting', () => {
     const fixture = TestBed.createComponent(WorkControlComponent);

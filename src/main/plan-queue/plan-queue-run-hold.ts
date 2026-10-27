@@ -1,10 +1,24 @@
 /** Pausing retains the worktree and branch; it never goes through parking. */
 import { existsSync } from 'fs';
+import { NEVER_USE_HOLD_REASON } from './plan-queue-account-rules';
 import { isOwnCheckout, UnresolvedMergeError, revertToSnapshot, snapshotTree } from './plan-queue-git';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { buildFixPrompt } from './plan-queue-prompts';
 import { readProvisionedPaths } from './plan-queue-worktree';
 import type { PlanQueueItem } from './plan-queue.types';
+
+/** A hold's note on the item: a status for James, never an instruction to send the worker, and cleared when held work restarts. */
+export function isHoldNote(detail: string | null | undefined): boolean {
+  return detail === 'Paused' || detail === NEVER_USE_HOLD_REASON;
+}
+
+/** Why a held or parked item is resumed: James's action, or the queue moving it off a never-use account. */
+export function resumeReason(item: PlanQueueItem): string {
+  if (!item.heldAt) return 'James resumed this parked item';
+  return item.detail === NEVER_USE_HOLD_REASON
+    ? 'the queue moved this item off an account on your never-use list'
+    : 'James resumed this paused item';
+}
 
 export class PlanQueueSpawnRunPaused extends Error {
   constructor(readonly instanceId?: string, options?: ErrorOptions) {
@@ -26,7 +40,7 @@ export async function holdItem(
   const verifying = item.state === 'verifying';
   const pendingInstruction = item.pendingInstruction
     ?? (item.verdict?.verdict === 'FAIL' ? buildFixPrompt(item.round, host.getRun(item.runId).config.maxRounds, item.verdict.findings)
-      : item.detail && item.detail !== 'Paused' ? item.detail : null);
+      : item.detail && !isHoldNote(item.detail) ? item.detail : null);
   await Promise.all([item.workerInstanceId, item.verifierInstanceId].filter((id): id is string => Boolean(id)).map(stopInstance));
   if (verifying) await restoreVerifier(item);
   else if (item.worktreePath && existsSync(item.worktreePath)) {

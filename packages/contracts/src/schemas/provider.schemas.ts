@@ -40,36 +40,6 @@ export const ProviderUpdateConfigPayloadSchema = z.object({
   config: z.record(z.string(), z.unknown()),
 });
 
-export const PluginsLoadPayloadSchema = z.object({
-  idOrPath: z.string().min(1).max(2000),
-  timeout: z.number().int().min(0).max(300000).optional(),
-  sandbox: z.boolean().optional(),
-});
-
-export const PluginsUnloadPayloadSchema = z.object({
-  pluginId: z.string().min(1).max(200),
-});
-
-export const PluginsInstallPayloadSchema = z.object({
-  sourcePath: z.string().min(1).max(2000),
-});
-
-export const PluginsUninstallPayloadSchema = z.object({
-  pluginId: z.string().min(1).max(200),
-});
-
-export const PluginsGetPayloadSchema = z.object({
-  pluginId: z.string().min(1).max(200),
-});
-
-export const PluginsGetMetaPayloadSchema = z.object({
-  pluginId: z.string().min(1).max(200),
-});
-
-export const PluginsCreateTemplatePayloadSchema = z.object({
-  name: z.string().min(1).max(200),
-});
-
 // ============ MCP Payloads ============
 
 export const McpServerPayloadSchema = z.object({
@@ -398,14 +368,6 @@ export const ModelsCLIPushPayloadSchema = z.object({
 export const ModelsLocalReviewerQualifyPayloadSchema = z.object({
   selectorId: z.string().min(1).max(4_096).startsWith('lm://'),
   ipcAuthToken: z.string().optional(),
-}).strict();
-
-export const PluginLifecycleEventSchema = z.object({
-  pluginId: z.string().min(1).max(200),
-}).strict();
-
-export const PluginErrorEventSchema = PluginLifecycleEventSchema.extend({
-  error: z.string().min(1).max(10_000),
 }).strict();
 
 const CatalogSourceSchema = z.enum([

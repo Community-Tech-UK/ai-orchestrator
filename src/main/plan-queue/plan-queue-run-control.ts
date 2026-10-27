@@ -12,6 +12,8 @@ export interface PlanQueueRunControlHost extends PlanQueueRunRoutingChangeHost {
   authorize(run: PlanQueueRun, action: RunPayload['action'], caller?: string): string;
   cancel(run: PlanQueueRun, actor: string): Promise<void>;
   adopt(run: PlanQueueRun, caller?: string): void;
+  requestHandover(run: PlanQueueRun, caller?: string): Promise<void>;
+  handover(run: PlanQueueRun, targetInstanceId: string, caller?: string): void;
   routing?: PlanQueueRoutingDeps;
 }
 
@@ -21,6 +23,13 @@ export class PlanQueueRunControl {
 
   control(payload: RunPayload, caller: string | undefined, host: PlanQueueRunControlHost): Promise<void> {
     const previous = this.locks.get(payload.runId) ?? Promise.resolve();
+    // sendInput may await the owner's whole turn, including its handover call.
+    // Wait earlier controls, but never hold this run's lock while notifying it.
+    if (payload.action === 'request-handover') return previous.then(async () => {
+      const run = host.getRun(payload.runId);
+      host.authorize(run, payload.action, caller);
+      await host.requestHandover(run, caller);
+    });
     const result = previous.then(async () => {
       const run = host.getRun(payload.runId);
       const actor = host.authorize(run, payload.action, caller);
@@ -43,6 +52,7 @@ export class PlanQueueRunControl {
           break;
         case 'cancel': await host.cancel(run, actor); break;
         case 'adopt': host.adopt(run, caller); break;
+        case 'handover': host.handover(run, payload.targetInstanceId, caller); break;
       }
       host.requestPump();
     });

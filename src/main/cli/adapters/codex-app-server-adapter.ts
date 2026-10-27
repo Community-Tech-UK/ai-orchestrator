@@ -372,7 +372,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
     const appServerAvailable =
       Boolean(status.metadata?.['appServerAvailable']) && !hardenedMode;
     if (this.cliConfig.mcpServersConfigToml) {
-      this.prepareCodexHome('exec');
+      this.prepareCodexHome(appServerAvailable ? 'app-server' : 'exec');
     } else if (!this.config.env?.['CODEX_HOME']) {
       this.prepareCodexHome(appServerAvailable ? 'app-server' : 'exec');
     }

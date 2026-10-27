@@ -4,6 +4,7 @@ import { Router } from '@angular/router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuxiliaryHelperPause } from '../../../../shared/types/auxiliary-llm.types';
 import type {
+  LocalAiAggregateStatus,
   LocalAiFallbackRequest,
   LocalAiFallbackResolution,
   LocalAiRoutingEvent,
@@ -18,6 +19,7 @@ import { LocalAiStatusChipComponent } from './local-ai-status-chip.component';
   template: `
     <app-local-ai-status-chip />
     <app-local-ai-fallback-banner />
+    <main class="app-main" tabindex="-1"></main>
   `,
 })
 class LocalAiFallbackShellHostComponent {}
@@ -67,14 +69,15 @@ describe('LocalAiFallbackBannerComponent', () => {
   const error = signal<string | null>(null);
   const isInitialized = signal(true);
   const hasAuthoritativeSnapshot = signal(true);
-  const aggregate = signal({
-    state: 'healthy' as const,
+  const unavailableAggregate: LocalAiAggregateStatus = {
+    state: 'unavailable',
     enrolled: 1,
-    healthy: 1,
+    healthy: 0,
     degraded: 0,
-    unavailable: 0,
+    unavailable: 1,
     paused: 0,
-  });
+  };
+  const aggregate = signal<LocalAiAggregateStatus>(unavailableAggregate);
   const resolveFallback = vi.fn(
     async (_id: string, _resolution: LocalAiFallbackResolution) => undefined,
   );
@@ -104,6 +107,7 @@ describe('LocalAiFallbackBannerComponent', () => {
     resolvingFallbackId.set(null);
     error.set(null);
     fallbackNotifications.set([]);
+    aggregate.set(unavailableAggregate);
     TestBed.configureTestingModule({
       imports: [LocalAiFallbackBannerComponent],
       providers: [
@@ -227,7 +231,11 @@ describe('LocalAiFallbackBannerComponent', () => {
     expect(live.textContent).toBe('Paid fallback queue cleared.');
   });
 
-  it('focuses the status chip after successful resolution empties the queue', async () => {
+  it.each([
+    ['the status chip', 'unavailable', '[data-testid="local-ai-status-chip"]'],
+    ['the main area when the chip is hidden', 'healthy', 'main.app-main'],
+  ] as const)('focuses %s after successful resolution empties the queue', async (_name, state, focusTarget) => {
+    aggregate.set({ ...unavailableAggregate, state, unavailable: state === 'unavailable' ? 1 : 0, healthy: state === 'healthy' ? 1 : 0 });
     pendingFallbacks.set([request('only-request', 1_000)]);
     resolveFallback.mockImplementationOnce(async () => {
       pendingFallbacks.set([]);
@@ -245,11 +253,9 @@ describe('LocalAiFallbackBannerComponent', () => {
     await shell.whenStable();
 
     expect(shell.nativeElement.querySelector('.local-ai-fallback-banner')).toBeNull();
-    const statusChip = shell.nativeElement.querySelector(
-      '[data-testid="local-ai-status-chip"]',
-    );
-    expect(statusChip).not.toBeNull();
-    expect(document.activeElement).toBe(statusChip);
+    const target = shell.nativeElement.querySelector(focusTarget);
+    expect(target).not.toBeNull();
+    expect(document.activeElement).toBe(target);
     shell.destroy();
     shell.nativeElement.remove();
   });

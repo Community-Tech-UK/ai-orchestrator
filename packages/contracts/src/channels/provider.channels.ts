@@ -1,6 +1,6 @@
 /**
- * IPC channels for provider management, CLI detection, provider plugins,
- * and model discovery/routing.
+ * IPC channels for provider management, CLI detection, and model
+ * discovery/routing.
  */
 export const PROVIDER_CHANNELS = {
   // Provider operations
@@ -23,23 +23,6 @@ export const PROVIDER_CHANNELS = {
 
   // Copilot operations
   COPILOT_LIST_MODELS: 'copilot:list-models',
-
-  // Provider Plugins
-  PLUGINS_DISCOVER: 'plugins:discover',
-  PLUGINS_LOAD: 'plugins:load',
-  PLUGINS_UNLOAD: 'plugins:unload',
-  PLUGINS_GET: 'plugins:get',
-  PLUGINS_GET_ALL: 'plugins:get-all',
-  PLUGINS_GET_LOADED: 'plugins:get-loaded',
-  PLUGINS_GET_META: 'plugins:get-meta',
-  PLUGINS_INSTALL: 'plugins:install',
-  PLUGINS_UNINSTALL: 'plugins:uninstall',
-  PLUGINS_CREATE_TEMPLATE: 'plugins:create-template',
-
-  // Plugin lifecycle events (renderer-bound)
-  PLUGINS_LOADED: 'plugins:loaded',
-  PLUGINS_UNLOADED: 'plugins:unloaded',
-  PLUGINS_ERROR: 'plugins:error',
 
   // Model Discovery operations
   MODEL_DISCOVER: 'model:discover',

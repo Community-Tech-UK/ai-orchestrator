@@ -443,7 +443,7 @@ function isReauthRequired(error: unknown): boolean {
   return /reauth_required|invalid_grant|interaction_required|login_required/i.test(message);
 }
 
-function sanitizeCalendarResult(value: unknown): unknown {
+export function sanitizeCalendarResult(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sanitizeCalendarResult);
   if (!value || typeof value !== 'object') return value;
   return Object.fromEntries(Object.entries(value as Record<string, unknown>)

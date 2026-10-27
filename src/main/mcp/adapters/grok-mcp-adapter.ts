@@ -22,7 +22,7 @@ import { serverNameFromId } from './json-mcp-config';
  */
 export class GrokMcpAdapter implements ProviderMcpAdapter {
   readonly provider: SupportedProvider = 'grok';
-  private readonly editor = new CodexTomlEditor();
+  private readonly editor = new CodexTomlEditor('grok');
 
   constructor(private readonly deps: { home: string; writeSafety: WriteSafetyHelper }) {}
 

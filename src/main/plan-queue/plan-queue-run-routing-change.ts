@@ -39,7 +39,9 @@ export async function changeRunRouting(
     ...(actor === 'parent' ? { verifiers: choice.verifiers } : {}),
     relaxExclusions: run.config.relaxSettings,
     workspaceCwd: run.workspaceCwd,
-  }, { ...deps, readSaved: () => ({ workers: choice.workers, verifiers: actor === 'parent' ? [] : choice.verifiers }) });
+  }, { ...deps, readSaved: () => ({
+    workers: choice.workers, verifiers: actor === 'parent' ? [] : choice.verifiers, ...(choice.stepUp ? { stepUp: choice.stepUp } : {}),
+  }) });
   await assertRoutingInstalled(routing, deps);
   // Detection can yield while the scheduler finishes the run or restores its parent.
   // Keep that newer lifecycle state while changing only routing fields.
@@ -54,7 +56,8 @@ export async function changeRunRouting(
   const before = describeRouting(current.config.routing);
   const after = describeRouting(routing);
   host.upsertRun(updated);
-  const message = `James changed this run's workers from ${before.workers} to ${after.workers}; checkers from ${before.checkers} to ${after.checkers}.`
+  const message = `James changed this run's workers from ${before.workers} to ${after.workers}; checkers from ${before.checkers} to ${after.checkers}; `
+    + `if a worker gets stuck, from ${before.stepUp} to ${after.stepUp}.`
     + (moveInProgress && current.status === 'running' ? ' Documents in progress are moving to the new choice now.' : ' New sessions use this choice.');
   logger.info('Plan queue: routing changed', { runId: run.id, actor, before, after, moveInProgress });
   host.notifyParent(updated, message);

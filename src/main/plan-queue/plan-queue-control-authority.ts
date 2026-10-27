@@ -8,9 +8,10 @@
  * parent is gone no MCP caller could stop the run, which would keep its
  * documents locked indefinitely. Any session that the queue did not spawn may
  * then adopt or cancel the run, or discard a parked item. The audit trail records the
- * rescuer in each affected item's detail and in the log. "Gone" means absent
- * from the instance manager: a parent that still exists, even in a failed
- * state, keeps the run until it is removed.
+ * rescuer in each affected item's detail and in the log. A missing or
+ * edit-superseded source can be rescued after restored-parent resolution.
+ * A sleeping, idle or failed retained owner keeps the run; handover requires
+ * that owner's explicit control or the operator panel.
  */
 
 import type { PlanQueueControlPayload } from '@contracts/schemas/plan-queue';
@@ -52,6 +53,12 @@ export function authorizePlanQueueControl(
   callerInstanceId: string | undefined,
   lookup: PlanQueueCallerLookup,
 ): string {
+  if (action === 'request-handover') {
+    if (!callerInstanceId || !lookup.instanceExists(callerInstanceId) || lookup.isQueueInstance(callerInstanceId)) {
+      throw new Error('A handover request requires a live session that the queue did not spawn');
+    }
+    return `session ${callerInstanceId}`;
+  }
   if (action === 'adopt') {
     if (lookup.instanceExists(run.parentInstanceId)) throw new Error('This run still has a live parent; it cannot be adopted');
     if (!callerInstanceId || !lookup.instanceExists(callerInstanceId) || lookup.isQueueInstance(callerInstanceId)) {

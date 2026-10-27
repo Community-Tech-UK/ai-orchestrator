@@ -98,6 +98,8 @@ const ROUTE_CHOICE_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+const STEP_UP_DESCRIPTION = 'Provider, model and accounts a document is handed to once, when its worker fails every verification round. Used only when James saved no step-up choice on the Plan Queue page. Pass only when James asked.';
+
 /** Name, description and input schema per tool; shared with the stdio forwarder. */
 export const PLAN_QUEUE_TOOL_SPECS = {
   plan_queue_start: {
@@ -110,12 +112,13 @@ export const PLAN_QUEUE_TOOL_SPECS = {
         glob: { type: 'string', description: 'Optional repo-relative filter, for example "docs/plans/2026-09-*". Defaults to every matching document under docs/.' },
         worker_slots: { type: 'integer', minimum: 1, maximum: 8, description: 'Documents worked at once. Default 3 for plans, 1 for livetests.' },
         verification_slots: { type: 'integer', minimum: 1, maximum: 4, description: 'Verifications at once across all runs. Default 2 for plans.' },
-        max_rounds: { type: 'integer', minimum: 1, maximum: 10, description: 'Verification rounds before an item is parked. Default 3.' },
+        max_rounds: { type: 'integer', minimum: 1, maximum: 10, description: 'Verification rounds before an item is parked, or handed to the step-up worker when one is set. Default 3.' },
         relax_settings: { type: 'boolean', description: 'Temporarily relax computerUseAutonomyLevel and providersExcludedFromAutomation for this run only. Only when James asked for it.' },
         verifier_gates: { type: 'array', items: { type: 'string' }, description: 'Commands every verifier must run and report. Defaults to this app\'s canonical checklist; pass the target repository\'s own commands for any other repository, or [] to let the verifier use the repository\'s documented checks.' },
         post_merge_gate: { type: 'array', items: { type: 'string' }, description: 'Commands the coordinator runs after merging a moved base branch into an item. Defaults to the two TypeScript checks; pass [] for a repository without them.' },
         workers: { type: 'array', maxItems: 10, items: ROUTE_CHOICE_SCHEMA, description: 'Providers, models and accounts the workers may use, in preference order: each new worker session starts on the first with usage left. Used only when James saved no worker list on the Plan Queue page; his list always wins. Omit to use his list, else this session\'s own provider, model and account. Pass only when James asked for specific providers or accounts.' },
         verifiers: { type: 'array', maxItems: 10, items: ROUTE_CHOICE_SCHEMA, description: 'Checkers this run may use, in preference order: each check uses the first that can run with usage left. Used only when James saved no checker list; his list always wins. Omit to use his list, else automatic selection. Pass only when James asked for specific checkers.' },
+        step_up: { ...ROUTE_CHOICE_SCHEMA, description: STEP_UP_DESCRIPTION },
       },
       required: ['kind'],
       additionalProperties: false,
@@ -142,16 +145,21 @@ export const PLAN_QUEUE_TOOL_SPECS = {
     },
   },
   plan_queue_control: {
-    description: 'Control a Plan Queue run or item: pause stops its workers, triage and checkers now and saves work on document branches; resume continues with fresh sessions. Cancel ends a run (run_id); set-routing changes its worker/checker providers and accounts for future sessions (run_id and routing, optional move_in_progress); skip an item that has not started, resume a parked item, retry a blocked merge of a verified item, land a parked item without a verifier PASS, or discard a parked item\'s branch (item_id). Land anyway and discard change git state, so do them only when James asked. If the session that started a run no longer exists, any session the queue did not spawn may adopt the run (it then answers its questions and receives its summary), cancel it, or discard a parked item. Adopt when the work should continue; cancel only when James asked.',
+    description: 'Control a Plan Queue run or item: pause stops its workers, triage and checkers now and saves work on document branches; resume continues with fresh sessions. Cancel ends a run (run_id); set-routing changes its worker, checker and step-up providers and accounts for future sessions (run_id and routing, optional move_in_progress); skip an item that has not started, resume a parked item, retry a blocked merge of a verified item, land a parked item without a verifier PASS, or discard a parked item\'s branch (item_id). Land anyway and discard change git state, so do them only when James asked. If the session that started a run no longer exists, any session the queue did not spawn may adopt the run (it then answers its questions and receives its summary), cancel it, or discard a parked item. Adopt when the work should continue; cancel only when James asked. Use request-handover (run_id) to ask an existing owner to transfer this run. Only that owner or the panel may handover (run_id, target_instance_id); this requires all Queue workers, triage and checkers to have stopped. A sleeping owner retains ownership.',
     inputSchema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['pause', 'resume', 'cancel', 'adopt', 'set-routing', 'skip-item', 'resume-item', 'land-anyway', 'retry-landing', 'discard-item'] },
-        run_id: { type: 'string', description: 'Required for pause, resume, cancel, adopt and set-routing.' },
+        action: { type: 'string', enum: ['pause', 'resume', 'cancel', 'adopt', 'request-handover', 'handover', 'set-routing', 'skip-item', 'resume-item', 'land-anyway', 'retry-landing', 'discard-item'] },
+        run_id: { type: 'string', description: 'Required for pause, resume, cancel, adopt, request-handover, handover and set-routing.' },
         item_id: { type: 'string', description: 'Required for the item actions.' },
+        target_instance_id: { type: 'string', description: 'handover only: the existing non-Queue session receiving ownership. Only the current owner or panel may transfer it.' },
         routing: {
           type: 'object', description: "Required for set-routing. Replaces this run's routing for future sessions; workers and verifiers are in preference order, and workers:[] inherits the starting session. Does not change saved defaults. Parent only; an agent checker list cannot replace a protected work Copilot seat.",
-          properties: { workers: { type: 'array', items: ROUTE_CHOICE_SCHEMA, maxItems: 10 }, verifiers: { type: 'array', items: ROUTE_CHOICE_SCHEMA, maxItems: 10 } },
+          properties: {
+            workers: { type: 'array', items: ROUTE_CHOICE_SCHEMA, maxItems: 10 },
+            verifiers: { type: 'array', items: ROUTE_CHOICE_SCHEMA, maxItems: 10 },
+            step_up: { ...ROUTE_CHOICE_SCHEMA, description: `${STEP_UP_DESCRIPTION} Omit to stop and wait for James.` },
+          },
           required: ['workers', 'verifiers'], additionalProperties: false,
         },
         move_in_progress: { type: 'boolean', description: 'set-routing only. Stop, checkpoint and restart in-progress sessions using the new choice now. Defaults to false.' },

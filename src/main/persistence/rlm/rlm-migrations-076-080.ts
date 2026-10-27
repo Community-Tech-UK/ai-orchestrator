@@ -1,5 +1,13 @@
 import type { Migration } from './rlm-types';
 
+export const CONNECTOR_STORAGE_SQL = `
+  CREATE TABLE IF NOT EXISTS connector_auth (
+    connector_id TEXT PRIMARY KEY REFERENCES orchestrator_mcp_servers(id) ON DELETE CASCADE,
+    encrypted_json TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS connector_migration_state (source_id TEXT PRIMARY KEY);
+`;
+
 export const RLM_MIGRATIONS_076_080: Migration[] = [
   {
     // A denied/failed browser decision's reason code used to reach only the
@@ -75,5 +83,10 @@ export const RLM_MIGRATIONS_076_080: Migration[] = [
       CREATE INDEX idx_global_pause_entries_batch ON global_pause_entries(batch_id);
     `,
     down: `DROP TABLE global_pause_entries; DROP TABLE global_pause_batches;`,
+  },
+  {
+    name: '080_connectors',
+    up: `ALTER TABLE orchestrator_mcp_servers ADD COLUMN connector_json TEXT; ${CONNECTOR_STORAGE_SQL}`,
+    down: `DROP TABLE connector_auth; DROP TABLE connector_migration_state; ALTER TABLE orchestrator_mcp_servers DROP COLUMN connector_json;`,
   },
 ];

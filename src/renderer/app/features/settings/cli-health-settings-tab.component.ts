@@ -335,7 +335,7 @@ export class CliHealthSettingsTabComponent implements OnInit {
   private readonly displayNames: Record<string, string> = {
     claude: 'Claude Code',
     codex: 'OpenAI Codex',
-    gemini: 'Google Gemini (legacy)',
+    gemini: 'Google Gemini',
     antigravity: 'Antigravity',
     copilot: 'GitHub Copilot',
     cursor: 'Cursor Agent',
@@ -458,8 +458,7 @@ export class CliHealthSettingsTabComponent implements OnInit {
   }
 
   /**
-   * Renderer-side overrides first (they carry UI-only wording such as the
-   * "legacy" marker), then the name the main process sent with the update plan
+   * Renderer-side display names first, then the name the main process sent with the update plan
    * — which comes from CLI_REGISTRY, so a newly registered CLI reads as
    * "Grok Build" rather than the raw `grok` id without a second edit here.
    */

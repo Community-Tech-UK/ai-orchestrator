@@ -95,7 +95,7 @@ describe('buildStaticMcpServersCodexConfigToml', () => {
     expect(buildStaticMcpServersCodexConfigToml([path])).toBeNull();
   });
 
-  it('writes sse/http transport and env for non-stdio servers', () => {
+  it('writes supported Codex HTTP keys and env for non-stdio servers', () => {
     const path = writeStaticConfig(
       JSON.stringify({
         mcpServers: {
@@ -111,7 +111,7 @@ describe('buildStaticMcpServersCodexConfigToml', () => {
     const toml = buildStaticMcpServersCodexConfigToml([path]) ?? '';
     expect(toml).toContain('[mcp_servers.remote]');
     expect(toml).toContain('url = "https://example.com/mcp"');
-    expect(toml).toContain('transport = "http"');
+    expect(toml).not.toContain('transport =');
     expect(toml).toContain('[mcp_servers.remote.env]');
     expect(toml).toContain('TOKEN = "abc"');
   });

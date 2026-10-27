@@ -202,6 +202,12 @@ export class PlanQueueTriage {
 
   isStopping(runId: string): boolean { return this.pendingStops.has(runId); }
 
+  /** Includes spawn and teardown gaps where no live instance has been assigned yet. */
+  hasActiveWork(runId: string): boolean {
+    return this.triageByRun.has(runId) || this.pendingSpawns.has(runId)
+      || this.pendingStops.has(runId) || this.pendingRetirements.has(runId);
+  }
+
   private rememberStop(runId: string, instanceId: string): void {
     const pending = this.pendingStops.get(runId) ?? new Set<string>();
     pending.add(instanceId);

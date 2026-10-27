@@ -4,7 +4,6 @@ import type { SqliteDriver } from '../../db/sqlite-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../../persistence/rlm/rlm-schema';
 import { McpSecretStorage } from '../secret-storage';
 import { OrchestratorMcpRepository } from '../orchestrator-mcp-repository';
-import { SharedMcpRepository } from '../shared-mcp-repository';
 
 const dbs: SqliteDriver[] = [];
 
@@ -99,37 +98,4 @@ describe('MCP repositories', () => {
     expect(saved.injectInto).toEqual(['claude', 'codex', 'copilot']);
   });
 
-  it('upserts and lists shared records', () => {
-    const repo = new SharedMcpRepository(openDb(), storage());
-    const saved = repo.upsert({
-      name: 'fs',
-      transport: 'stdio',
-      command: 'npx',
-      targets: ['claude', 'codex'],
-    });
-    expect(repo.get(saved.id)?.targets).toEqual(['claude', 'codex']);
-    expect(repo.list()[0]?.name).toBe('fs');
-  });
-
-  it('preserves stored shared env when updating targets only', () => {
-    const repo = new SharedMcpRepository(openDb(), storage());
-    const saved = repo.upsert({
-      name: 'fs',
-      transport: 'stdio',
-      command: 'npx',
-      env: { API_TOKEN: 'hunter2' },
-      targets: ['claude'],
-    });
-
-    repo.upsert({
-      id: saved.id,
-      name: 'fs',
-      transport: 'stdio',
-      command: 'npx',
-      env: { HOME: '/tmp' },
-      targets: ['claude', 'codex'],
-    });
-
-    expect(repo.get(saved.id)?.env).toEqual({ API_TOKEN: 'hunter2', HOME: '/tmp' });
-  });
 });

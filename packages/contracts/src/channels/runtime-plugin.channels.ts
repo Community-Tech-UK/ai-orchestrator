@@ -1,7 +1,5 @@
 /**
  * IPC channels for Orchestrator runtime plugin package management.
- *
- * These are intentionally separate from provider-plugin `PLUGINS_*` channels.
  */
 export const RUNTIME_PLUGIN_CHANNELS = {
   RUNTIME_PLUGINS_LIST: 'runtime-plugins:list',

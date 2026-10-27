@@ -23,7 +23,7 @@ const TRANSITIONS: Readonly<Record<PlanQueueItemState, readonly PlanQueueItemSta
   fixing: ['awaiting-slot', 'queued'],
   'awaiting-slot': ['verifying', 'fixing'],
   verifying: ['landing', 'fixing', 'awaiting-slot'],
-  landing: ['landed', 'fixing'],
+  landing: ['landed', 'fixing', 'awaiting-slot'],
   landed: [],
   // Resume and "Land anyway" are operator actions on a parked branch.
   parked: ['queued', 'landing'],

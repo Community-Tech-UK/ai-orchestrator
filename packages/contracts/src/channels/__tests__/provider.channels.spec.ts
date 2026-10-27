@@ -14,11 +14,6 @@ describe('PROVIDER_CHANNELS', () => {
     expect(PROVIDER_CHANNELS.COPILOT_LIST_MODELS).toBe('copilot:list-models');
   });
 
-  it('has plugin channels', () => {
-    expect(PROVIDER_CHANNELS.PLUGINS_DISCOVER).toBe('plugins:discover');
-    expect(PROVIDER_CHANNELS.PLUGINS_LOADED).toBe('plugins:loaded');
-  });
-
   it('has model discovery channels', () => {
     expect(PROVIDER_CHANNELS.MODEL_DISCOVER).toBe('model:discover');
     expect(PROVIDER_CHANNELS.MODEL_SET_OVERRIDE).toBe('model:set-override');

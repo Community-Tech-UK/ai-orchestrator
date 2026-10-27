@@ -1,6 +1,5 @@
 import type { McpTransport } from './mcp-orchestrator.types';
-import type { McpScope, SupportedProvider } from './mcp-scopes.types';
-import type { DriftState } from './mcp-shared.types';
+import type { McpScope, SupportedProvider, OrchestratorRuntimeInjectionProvider } from './mcp-scopes.types';
 
 export const REDACTED_SENTINEL = '***';
 
@@ -10,6 +9,11 @@ export interface RedactedMcpServerDto {
   description?: string;
   scope: McpScope;
   transport: McpTransport;
+  kind?: 'local' | 'remote' | 'microsoft365';
+  authType?: 'none' | 'bearer' | 'oauth';
+  clientMetadataUrl?: string;
+  accountId?: string;
+  mailEnabled?: boolean;
   command?: string;
   args?: string[];
   url?: string;
@@ -18,7 +22,6 @@ export interface RedactedMcpServerDto {
   autoConnect: boolean;
   sourceFile?: string;
   readOnly: boolean;
-  sharedTargets?: readonly SupportedProvider[];
   createdAt: number;
   updatedAt: number;
 }
@@ -29,17 +32,9 @@ export interface ProviderTabDto {
   servers: readonly RedactedMcpServerDto[];
 }
 
-export interface SharedMcpDto {
-  record: Omit<RedactedMcpServerDto, 'scope' | 'readOnly'> & {
-    scope: 'shared';
-    readOnly: false;
-  };
-  targets: readonly {
-    provider: SupportedProvider;
-    state: DriftState;
-    diff?: string;
-    lastObservedAt?: number;
-  }[];
+export interface ConnectorAuthStatus {
+  state: 'signed-out' | 'signed-in' | 'not-required' | 'expired';
+  message?: string;
 }
 
 export interface OrchestratorMcpDto {
@@ -47,19 +42,13 @@ export interface OrchestratorMcpDto {
     scope: 'orchestrator' | 'orchestrator-bootstrap' | 'orchestrator-codemem';
     readOnly: false;
   };
-  injectInto: readonly SupportedProvider[];
+  injectInto: readonly OrchestratorRuntimeInjectionProvider[];
+  authStatus?: ConnectorAuthStatus;
+  agentsMayWrite?: boolean;
 }
 
 export interface McpMultiProviderStateDto {
   orchestrator: readonly OrchestratorMcpDto[];
-  shared: readonly SharedMcpDto[];
   providers: readonly ProviderTabDto[];
   stateVersion: number;
-}
-
-export interface SharedDriftStatusDto {
-  provider: SupportedProvider;
-  state: DriftState;
-  diff?: string;
-  lastObservedAt: number;
 }

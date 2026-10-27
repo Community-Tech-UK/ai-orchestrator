@@ -17,16 +17,12 @@ import { OrchestratorMcpRepository } from '../orchestrator-mcp-repository';
 import { RedactionService } from '../redaction-service';
 import { SecretClassifier } from '../secret-classifier';
 import { McpSecretStorage } from '../secret-storage';
-import { SharedMcpCoordinator } from '../shared-mcp-coordinator';
-import { SharedMcpRepository } from '../shared-mcp-repository';
 import { WriteSafetyHelper } from '../write-safety-helper';
 
 describe('MCP multi-provider service', () => {
   let tmp: string;
   let db: SqliteDriver;
   let service: CliMcpConfigService;
-  let shared: SharedMcpRepository;
-  let coordinator: SharedMcpCoordinator;
 
   beforeEach(() => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'orc-mcp-service-'));
@@ -45,17 +41,12 @@ describe('MCP multi-provider service', () => {
       grok: new GrokMcpAdapter({ home: tmp, writeSafety }),
       opencode: new OpenCodeMcpAdapter({ home: tmp, writeSafety }),
     };
-    shared = new SharedMcpRepository(db, secrets);
-    coordinator = new SharedMcpCoordinator({
-      repo: shared,
-      adapters,
-      cwdProvider: () => tmp,
-    });
     service = new CliMcpConfigService({
       adapters,
       orchestratorRepo: new OrchestratorMcpRepository(db, secrets),
-      sharedRepo: shared,
-      sharedCoordinator: coordinator,
+      connectorAuth: { status: () => ({ state: 'not-required' }) },
+      agentsMayWrite: async () => false,
+      graphAccounts: async () => [],
       redaction: new RedactionService(new SecretClassifier()),
       cwdProvider: () => tmp,
     });
@@ -64,53 +55,6 @@ describe('MCP multi-provider service', () => {
   afterEach(() => {
     db.close();
     fs.rmSync(tmp, { recursive: true, force: true });
-  });
-
-  it('fans out shared records and detects drift', async () => {
-    const record = shared.upsert({
-      name: 'fs',
-      transport: 'stdio',
-      command: 'npx',
-      args: ['-y'],
-      targets: ['claude', 'codex'],
-    });
-    expect(await coordinator.fanOut(record.id)).toMatchObject([
-      { provider: 'claude', state: 'in-sync' },
-      { provider: 'codex', state: 'in-sync' },
-    ]);
-
-    const claudeConfig = path.join(tmp, '.claude.json');
-    fs.writeFileSync(claudeConfig, fs.readFileSync(claudeConfig, 'utf8').replace('npx', 'DIFFERENT'));
-    expect((await coordinator.getDrift(record.id)).find((status) => status.provider === 'claude')?.state)
-      .toBe('drifted');
-    await coordinator.resolveDrift(record.id, 'claude', 'overwrite-target');
-    expect((await coordinator.getDrift(record.id)).find((status) => status.provider === 'claude')?.state)
-      .toBe('in-sync');
-  });
-
-  it('fans out shared records to Grok and OpenCode config files', async () => {
-    const record = shared.upsert({
-      name: 'fs',
-      transport: 'stdio',
-      command: 'npx',
-      args: ['-y'],
-      targets: ['grok', 'opencode'],
-    });
-    expect(await coordinator.fanOut(record.id)).toMatchObject([
-      { provider: 'grok', state: 'in-sync' },
-      { provider: 'opencode', state: 'in-sync' },
-    ]);
-
-    const grokConfig = path.join(tmp, '.grok', 'config.toml');
-    expect(fs.readFileSync(grokConfig, 'utf8')).toContain('[mcp_servers.fs]');
-    const openCodeConfig = path.join(tmp, '.config', 'opencode', 'opencode.json');
-    const parsed = JSON.parse(fs.readFileSync(openCodeConfig, 'utf8')) as {
-      mcp: Record<string, { command: string[] }>;
-    };
-    expect(parsed.mcp['fs']?.command).toEqual(['npx', '-y']);
-    const drift = await coordinator.getDrift(record.id);
-    expect(drift.find((status) => status.provider === 'grok')?.state).toBe('in-sync');
-    expect(drift.find((status) => status.provider === 'opencode')?.state).toBe('in-sync');
   });
 
   it('returns redacted multi-provider state', async () => {
@@ -160,18 +104,11 @@ describe('MCP multi-provider service', () => {
     expect(claude?.servers[0]?.env).toEqual({ API_KEY: '***', HOME: '/tmp' });
   });
 
-  it('keeps shared state available when one provider config cannot be parsed', async () => {
-    const record = shared.upsert({
-      name: 'fs',
-      transport: 'stdio',
-      command: 'npx',
-      targets: ['claude'],
-    });
+  it('keeps connectors available when one provider config cannot be parsed', async () => {
+    const saved = service.orchestratorUpsert({ name: 'fs', transport: 'stdio', command: 'npx' });
     fs.writeFileSync(path.join(tmp, '.claude.json'), '{not-json');
-
     const state = await service.getMultiProviderState();
-    const sharedRecord = state.shared.find((entry) => entry.record.id === record.id);
-    expect(sharedRecord?.targets.find((target) => target.provider === 'claude')?.state)
-      .toBe('missing');
+    expect(state.orchestrator.find((entry) => entry.record.id === saved.record.id)?.record.name).toBe('fs');
+    expect(state).not.toHaveProperty('shared');
   });
 });

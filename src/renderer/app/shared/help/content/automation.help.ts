@@ -31,6 +31,7 @@ export const AUTOMATIONS_HELP: HelpEntry = {
       items: [
         'Schedule: Cron (recurring) or One time (single execution).',
         'Provider: Auto lets the orchestrator choose; or pin a specific CLI.',
+        'Accounts: runs that start a new session follow the Never use and Use last account rules on the Plan Queue page. Loop runs do not, and a run that wakes one of your existing sessions keeps that session\'s account. Copilot runs follow Never use only.',
         'Missed runs: Skip, Notify, or Run once. Concurrency: Skip or Queue.',
         'YOLO mode skips safety checks; use only for trusted, sandboxed work.',
       ],
@@ -149,6 +150,7 @@ export const PLAN_QUEUE_HELP: HelpEntry = {
       items: [
         'Needs your answer: every open question across all runs, grouped by run and labelled with its document.',
         'Providers and accounts: one line showing which providers, models and accounts new runs use, including runs started from chat. Change opens it: list workers and checkers in order of preference, and each new session starts on the first that has usage left.',
+        'Account rules: set an account to Use last or Never use for queue sessions and automation runs that start a new session. A queue session already running on an account you set to Never use restarts on another.',
         "Runs: Pause saves work on each document's branch and stops its sessions now; Resume continues from there. Pause all and Resume all control every active run. Cancel ends a run. Open its document list for states, rounds and verdicts.",
         "Change beside a run's providers edits its workers, checkers and accounts. Pause, Change, Resume switches its documents together. On a running run, tick Move documents in progress now to restart them immediately.",
         'Start a run: pick the parent session and the document kind.',

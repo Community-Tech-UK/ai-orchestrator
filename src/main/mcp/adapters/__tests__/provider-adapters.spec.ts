@@ -90,6 +90,45 @@ describe('provider MCP adapters', () => {
     });
   });
 
+  it('writes Codex remote authentication with supported HTTP header keys', () => {
+    const editor = new CodexTomlEditor();
+    const output = editor.upsertMcpServer('', 'remote', {
+      url: 'https://example.invalid/mcp', transport: 'http',
+      headers: { 'X-Example': 'PLACEHOLDER_VALUE' },
+    });
+    expect(output).toContain('[mcp_servers.remote.http_headers]');
+    expect(output).not.toContain('[mcp_servers.remote.headers]');
+    expect(output).not.toContain('transport =');
+    expect(editor.parseMcpServers(output)['remote']).toMatchObject({
+      url: 'https://example.invalid/mcp', headers: { 'X-Example': 'PLACEHOLDER_VALUE' },
+    });
+  });
+
+  it('round-trips Codex environment header names and quoted HTTP header keys', () => {
+    const editor = new CodexTomlEditor();
+    const input = '[mcp_servers.remote]\nurl = "https://example.invalid/mcp"\nbearer_token_env_var = "PLACEHOLDER_TOKEN_ENV"\n'
+      + '[mcp_servers.remote.http_headers]\n"X.Trace" = "PLACEHOLDER_VALUE"\n'
+      + '[mcp_servers.remote.env_http_headers]\nAuthorization = "PLACEHOLDER_AUTH_ENV"\n';
+    const server = editor.parseMcpServers(input)['remote']!;
+    expect(server).toMatchObject({
+      headers: { 'X.Trace': 'PLACEHOLDER_VALUE' },
+      envHttpHeaders: { Authorization: 'PLACEHOLDER_AUTH_ENV' },
+      bearerTokenEnvVar: 'PLACEHOLDER_TOKEN_ENV',
+    });
+    expect(editor.parseMcpServers(editor.upsertMcpServer('', 'remote', server))['remote']).toEqual(server);
+  });
+
+  it('writes Claude remote server type so the CLI recognizes it', async () => {
+    const adapter = new ClaudeMcpAdapter({ home: tmp, writeSafety: new WriteSafetyHelper({ allowWorldWritableParent: false, writeBackups: false }) });
+    const configPath = path.join(tmp, '.claude.json');
+    await adapter.writeUserServer({ kind: 'upsert', sourceFile: configPath, record: {
+      id: 'remote', name: 'remote', transport: 'http', url: 'https://example.invalid/mcp',
+      autoConnect: true, createdAt: 1, updatedAt: 1,
+    } });
+    expect(JSON.parse(fs.readFileSync(configPath, 'utf8')).mcpServers.remote)
+      .toEqual({ type: 'http', url: 'https://example.invalid/mcp' });
+  });
+
   it('Codex TOML editor removes nested MCP env and header tables', () => {
     const editor = new CodexTomlEditor();
     const input = [

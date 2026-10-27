@@ -1,6 +1,7 @@
 import { readFileSync, rmSync } from 'fs';
+import { dirname } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createGeminiAdapter } from '../adapter-factory';
+import { createGeminiAdapter, mapSettingsToDetectionType } from '../adapter-factory';
 import { GeminiCliAdapter } from '../gemini-cli-adapter';
 import type { CliMessage } from '../base-cli-adapter';
 import { CHROME_DEVTOOLS_MCP_VERSION } from '../../../browser-gateway/chrome-devtools-mcp-config';
@@ -27,7 +28,7 @@ describe('adapter factory — gemini chrome-devtools attach', () => {
     Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
     for (const file of written.splice(0)) {
       try {
-        rmSync(file, { force: true });
+        rmSync(dirname(file), { recursive: true, force: true });
       } catch {
         // best-effort cleanup
       }
@@ -69,6 +70,26 @@ describe('adapter factory — gemini chrome-devtools attach', () => {
       'browser-gateway',
       'chrome-devtools',
     ]);
+  });
+
+  it('delivers connector programs and remote servers in Gemini settings', () => {
+    const adapter = createGeminiAdapter({
+      workingDirectory: '/tmp',
+      mcpConfig: [JSON.stringify({ mcpServers: {
+        'linear-comtech': { command: 'PLACEHOLDER_COMMAND', args: ['connector', 'linear-comtech'] },
+        remote: { type: 'http', url: 'https://example.invalid/mcp', headers: { 'X-Example': 'PLACEHOLDER_VALUE' } },
+      } })],
+    });
+    const path = settingsPathOf(adapter);
+    written.push(path);
+    const settings = JSON.parse(readFileSync(path, 'utf8'));
+    expect(settings.mcpServers['linear-comtech']).toEqual({ command: 'PLACEHOLDER_COMMAND', args: ['connector', 'linear-comtech'] });
+    expect(settings.mcpServers.remote).toEqual({ httpUrl: 'https://example.invalid/mcp', headers: { 'X-Example': 'PLACEHOLDER_VALUE' } });
+  });
+
+  it('resolves Gemini to its own CLI independently of Antigravity', () => {
+    expect(mapSettingsToDetectionType('gemini')).toBe('gemini');
+    expect(mapSettingsToDetectionType('antigravity')).toBe('antigravity');
   });
 });
 

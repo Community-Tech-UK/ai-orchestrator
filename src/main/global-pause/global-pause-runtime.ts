@@ -151,7 +151,12 @@ export function createGlobalPauseRuntime(manager: InstanceManager): GlobalPauseR
     pauseEngines: async (entries) => {
       const queue = getPlanQueueCoordinator();
       // Checkpoints complete first. Never interrupt queue sessions from a generic loop.
-      for (const entry of entries.filter((item) => item.kind === 'queue-run')) await queue.control({ action: 'pause', runId: entry.id });
+      // Runs share a landing queue: request every stop before awaiting any run.
+      // Drain all attempts on failure too, so a retry cannot overlap old checkpoints.
+      const checkpoints = await Promise.allSettled(entries.filter(item => item.kind === 'queue-run')
+        .map(entry => queue.control({ action: 'pause', runId: entry.id })));
+      const failed = checkpoints.find(result => result.status === 'rejected');
+      if (failed?.status === 'rejected') throw failed.reason;
       await pauseConsults();
       for (const entry of entries.filter((item) => item.kind === 'campaign')) getCampaignCoordinator().pauseForGlobalPause(entry.id);
       for (const entry of entries.filter((item) => item.kind === 'repo-job')) await getRepoJobService().pauseForGlobalPause(entry.id);
@@ -235,16 +240,23 @@ export function createGlobalPauseRuntime(manager: InstanceManager): GlobalPauseR
     collectNote: async (session, signal) => {
       signal.throwIfAborted();
       const startedAt = Date.now();
-      const deadline = AbortSignal.timeout(180_000);
-      const combined = AbortSignal.any([signal, deadline]);
+      const deadline = new AbortController();
+      const combined = AbortSignal.any([signal, deadline.signal]);
       const interrupt = (): void => { manager.interruptInstance(session.id, 'pause'); };
       combined.addEventListener('abort', interrupt, { once: true });
       let collected = false;
       let note: string | null = null;
       let failure: unknown;
       try {
-        await manager.sendInput(session.id, globalPauseNotePrompt(session.helperReplies), undefined, { internalSource: 'global-pause-note', signal: combined });
-        const settled = await manager.waitForInstanceSettled(session.id, { afterTimestamp: startedAt, timeoutMs: 180_000, signal: combined });
+        // Provider preparation can ignore cancellation until its await returns.
+        // Bound our wait as well as cancelling dispatch, then prove the turn stopped below.
+        const settled = await withOperationDeadline({ name: 'global-pause-note', owner: session.id,
+          deadlineMs: 180_000, signal: combined, onTimeout: () => deadline.abort(),
+          operation: async () => {
+            await manager.sendInput(session.id, globalPauseNotePrompt(session.helperReplies), undefined, { internalSource: 'global-pause-note', signal: combined });
+            combined.throwIfAborted();
+            return manager.waitForInstanceSettled(session.id, { afterTimestamp: startedAt, timeoutMs: 180_000, signal: combined });
+          } });
         if (!combined.aborted) {
           collected = true;
           const reply = settled ? [...settled.outputBuffer].reverse().find((message) => message.type === 'assistant' && message.timestamp >= startedAt) : undefined;

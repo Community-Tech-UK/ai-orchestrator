@@ -29,7 +29,6 @@ import {
   LIST_REMOTE_NODES_DESCRIPTION,
   RUN_ON_NODE_DESCRIPTION,
 } from './orchestrator-tool-copy';
-import { createCalendarToolDefinitions, type CalendarToolDependencies } from './orchestrator-calendar-tools';
 import {
   createNodeExecToolDefinitions,
   type NodeExecToolContext,
@@ -395,7 +394,6 @@ export interface OrchestratorToolRuntimeContext
   requestDocReview?: RequestDocReviewFn | null;
   getDocReviewResult?: GetDocReviewResultFn | null;
   planQueueTools?: PlanQueueToolOperations | null;
-  calendarTools?: CalendarToolDependencies;
   releaseTools?: ReleaseToolDependencies;
   contextEvidence?: Omit<OrchestratorEvidenceToolContext, 'instanceId'> | null;
   /** Flush real runtime source messages before provenance lookup/execution. */
@@ -762,7 +760,6 @@ export function createOrchestratorToolDefinitions(
     ...createAutomationToolDefinitions(context),
     ...createDocReviewToolDefinitions(context),
     ...createPlanQueueToolDefinitions(context),
-    ...createCalendarToolDefinitions(context.calendarTools),
     ...createReleaseToolDefinitions(context.releaseTools),
     ...(context.contextEvidence && context.instanceId
       ? createOrchestratorEvidenceToolDefinitions({

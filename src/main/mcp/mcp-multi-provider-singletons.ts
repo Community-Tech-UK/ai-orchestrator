@@ -9,8 +9,8 @@ import { OrchestratorMcpRepository } from './orchestrator-mcp-repository';
 import { RedactionService } from './redaction-service';
 import { SecretClassifier } from './secret-classifier';
 import { getMcpSecretStorage } from './secret-storage';
-import { SharedMcpCoordinator } from './shared-mcp-coordinator';
-import { SharedMcpRepository } from './shared-mcp-repository';
+import { getConnectorAuthService } from './connector-auth-service';
+import { getGraphConnectorService } from '../graph/graph-connector-service';
 import { WorkspaceMcpConnectorRepository } from './workspace-mcp-connector-repository';
 import { WorkspaceMcpConnectorService } from './workspace-mcp-connector-service';
 import { WriteSafetyHelper } from './write-safety-helper';
@@ -25,8 +25,6 @@ import { GrokMcpAdapter } from './adapters/grok-mcp-adapter';
 import { OpenCodeMcpAdapter } from './adapters/opencode-mcp-adapter';
 
 let orchestratorRepo: OrchestratorMcpRepository | null = null;
-let sharedRepo: SharedMcpRepository | null = null;
-let sharedCoordinator: SharedMcpCoordinator | null = null;
 let cliService: CliMcpConfigService | null = null;
 let injectionReader: OrchestratorInjectionReader | null = null;
 let workspaceConnectorRepo: WorkspaceMcpConnectorRepository | null = null;
@@ -101,31 +99,14 @@ export function getOrchestratorMcpRepository(): OrchestratorMcpRepository {
   return orchestratorRepo;
 }
 
-export function getSharedMcpRepository(): SharedMcpRepository {
-  if (!sharedRepo) {
-    sharedRepo = new SharedMcpRepository(getRLMDatabase().getRawDb(), getMcpSecretStorage());
-  }
-  return sharedRepo;
-}
-
-export function getSharedMcpCoordinator(): SharedMcpCoordinator {
-  if (!sharedCoordinator) {
-    sharedCoordinator = new SharedMcpCoordinator({
-      repo: getSharedMcpRepository(),
-      adapters: buildAdapters(),
-      cwdProvider,
-    });
-  }
-  return sharedCoordinator;
-}
-
 export function getCliMcpConfigService(): CliMcpConfigService {
   if (!cliService) {
     cliService = new CliMcpConfigService({
       adapters: buildAdapters(),
       orchestratorRepo: getOrchestratorMcpRepository(),
-      sharedRepo: getSharedMcpRepository(),
-      sharedCoordinator: getSharedMcpCoordinator(),
+      connectorAuth: { status: (serverId) => getConnectorAuthService().status(serverId) },
+      agentsMayWrite: (accountId) => getGraphConnectorService().isWritable(accountId),
+      graphAccounts: () => getGraphConnectorService().listAccounts(),
       redaction: new RedactionService(new SecretClassifier()),
       cwdProvider,
     });
@@ -161,8 +142,6 @@ export function getOrchestratorInjectionReader(): OrchestratorInjectionReader {
 
 export function _resetMcpMultiProviderSingletonsForTesting(): void {
   orchestratorRepo = null;
-  sharedRepo = null;
-  sharedCoordinator = null;
   cliService = null;
   injectionReader = null;
   workspaceConnectorRepo = null;

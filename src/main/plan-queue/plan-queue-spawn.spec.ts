@@ -34,7 +34,7 @@ beforeEach(() => {
 });
 
 function host(ready: Promise<void>) {
-  return { ready, instances, getRun: () => run, isShuttingDown: () => false, userCloseEpoch: () => epoch, isProviderExcluded: () => false };
+  return { ready, instances, getRun: () => run, isShuttingDown: () => false, userCloseEpoch: () => epoch, readAccountRules: () => ({ never: [], last: [] }), isProviderExcluded: () => false };
 }
 
 describe('Plan Queue asynchronous spawn fences', () => {
@@ -178,8 +178,8 @@ describe('ranked worker choices at spawn', () => {
   it('skips a worker choice since added to the never-auto-pick list without checking its usage', async () => {
     run = { ...run, config: { ...run.config, routing: { workers: [{ provider: 'claude' }, { provider: 'codex' }, { provider: 'cursor' }], verifiers: [] } } };
     const routeUsage = vi.fn(async () => ({ usable: true, resumeAt: null }));
-    await spawnQueueInstance(config, { ...host(Promise.resolve()), isProviderExcluded: (provider: string) => provider === 'claude', routeUsage });
-    expect(routeUsage).toHaveBeenCalledExactlyOnceWith({ provider: 'codex' }, 'automation');
+    await spawnQueueInstance(config, { ...host(Promise.resolve()), readAccountRules: () => ({ never: [], last: [] }), isProviderExcluded: (provider: string) => provider === 'claude', routeUsage });
+    expect(routeUsage).toHaveBeenCalledExactlyOnceWith({ provider: 'codex' }, 'automation', { allowLast: false, workingDirectory: '/queue-test' });
     expect(instances.createInstance).toHaveBeenCalledWith(expect.objectContaining({ provider: 'codex' }));
   });
 });

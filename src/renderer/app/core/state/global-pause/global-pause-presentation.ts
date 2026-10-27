@@ -7,7 +7,8 @@ export function workControlLabel(state: GlobalPauseState, missingSessions: numbe
       return state.stale && state.since
         ? `Holding new work since ${new Date(state.since).toLocaleDateString(undefined, { weekday: 'long' })} · Release`
         : 'Holding new work · Release';
-    case 'collecting': return `Writing notes: ${state.completedNotes} of ${state.totalNotes}`;
+    case 'collecting': return state.collectionStage === 'stopping-work'
+      ? 'Stopping background work' : `Writing notes: ${state.completedNotes} of ${state.totalNotes}`;
     case 'ready':
       if (state.stale) return 'Paused 3 days or more · Resume or discard';
       return missingSessions > 0

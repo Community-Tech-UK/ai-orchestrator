@@ -64,9 +64,6 @@ describe('renderer event validation', () => {
     expect(isRendererEventSchemaRegistered(IPC_CHANNELS.WATCHER_ERROR)).toBe(true);
     expect(isRendererEventSchemaRegistered(IPC_CHANNELS.CONTEXT_WARNING)).toBe(true);
     expect(isRendererEventSchemaRegistered(IPC_CHANNELS.INSTANCE_COMPACT_STATUS)).toBe(true);
-    expect(isRendererEventSchemaRegistered(IPC_CHANNELS.PLUGINS_LOADED)).toBe(true);
-    expect(isRendererEventSchemaRegistered(IPC_CHANNELS.PLUGINS_UNLOADED)).toBe(true);
-    expect(isRendererEventSchemaRegistered(IPC_CHANNELS.PLUGINS_ERROR)).toBe(true);
     expect(isRendererEventSchemaRegistered(IPC_CHANNELS.MODELS_CATALOG_UPDATED)).toBe(true);
     expect(isRendererEventSchemaRegistered(IPC_CHANNELS.MODELS_LOCAL_MODEL_INVENTORY_UPDATED)).toBe(true);
     expect(isRendererEventSchemaRegistered('remote-config:updated')).toBe(true);
@@ -314,11 +311,7 @@ describe('renderer event validation', () => {
     })).toBe(false);
   });
 
-  it('validates plugin and model-catalog event payloads', () => {
-    expect(validateRendererEventPayload(IPC_CHANNELS.PLUGINS_ERROR, {
-      pluginId: 'plugin-1',
-      error: 'failed to load',
-    })).toBe(true);
+  it('validates model-catalog event payloads', () => {
     expect(validateRendererEventPayload(IPC_CHANNELS.MODELS_CATALOG_UPDATED, {
       totalEntries: 12,
       sources: ['static', 'models-dev'],
@@ -704,7 +697,6 @@ describe('renderer event validation', () => {
         },
         injectInto: ['claude'],
       }],
-      shared: [],
       providers: [{ provider: 'codex', cliAvailable: true, servers: [] }],
       stateVersion: 7,
     })).toBe(true);

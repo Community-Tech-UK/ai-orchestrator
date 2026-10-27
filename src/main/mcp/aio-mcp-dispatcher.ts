@@ -30,6 +30,7 @@ import { runLocalAiCli } from './local-ai-cli';
 import { runBrowserCredentialsCli } from './browser-credentials-cli';
 import { runCopilotAccountCli } from './copilot-account-cli';
 import { runLoopCli } from './loop-cli';
+import { runConnectorForwarder } from './connector-forwarder';
 import { runPauseCli } from './pause-cli';
 
 type AioMcpRunner = (argv: readonly string[]) => Promise<void>;
@@ -48,6 +49,7 @@ const SUBCOMMANDS = {
   'copilot-account': runCopilotAccountCli,
   loop: runLoopCli,
   pause: runPauseCli,
+  connector: runConnectorForwarder,
 } as const;
 
 export type AioMcpSubcommand = keyof typeof SUBCOMMANDS;
@@ -97,6 +99,7 @@ function formatHelp(): string {
     '  copilot-account     Inspect Copilot profiles and workspace routing',
     '  loop                List parked loops and resume one',
     '  pause               Check, hold or release new work',
+    '  connector           Connect a session to an assigned connector',
     '',
   ].join('\n');
 }

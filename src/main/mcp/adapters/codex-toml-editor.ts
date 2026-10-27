@@ -5,6 +5,8 @@ export interface CodexTomlServer {
   args?: string[];
   url?: string;
   headers?: Record<string, string>;
+  envHttpHeaders?: Record<string, string>;
+  bearerTokenEnvVar?: string;
   env?: Record<string, string>;
   transport?: 'stdio' | 'sse' | 'http';
   description?: string;
@@ -53,6 +55,8 @@ function stripTomlComment(line: string): string {
 }
 
 export class CodexTomlEditor {
+  constructor(private readonly dialect: 'codex' | 'grok' = 'codex') {}
+
   stripMcpServers(input: string): string {
     return this.filterSections(input, () => false);
   }
@@ -157,31 +161,32 @@ export class CodexTomlEditor {
     return match ? (match[1] ?? match[2] ?? null) : null;
   }
 
-  private parseNestedMcpTable(sectionName: string): { name: string; table: 'env' | 'headers' } | null {
-    const match = sectionName.match(/^mcp_servers\.(?:"([^"]+)"|([^.]+))\.(env|headers)$/);
+  private parseNestedMcpTable(sectionName: string): { name: string } | null {
+    const match = sectionName.match(/^mcp_servers\.(?:"([^"]+)"|([^.]+))\.(env|headers|http_headers|env_http_headers)$/);
     if (!match) {
       return null;
     }
     return {
       name: match[1] ?? match[2] ?? '',
-      table: match[3] as 'env' | 'headers',
     };
   }
 
   private parseServerBody(lines: string[]): CodexTomlServer {
     const server: CodexTomlServer = {};
-    let currentTable: 'env' | 'headers' | null = null;
+    let currentTable: 'env' | 'headers' | 'envHttpHeaders' | null = null;
     for (const rawLine of lines) {
       const line = stripTomlComment(rawLine).trim();
       if (!line) continue;
-      const table = line.match(/^\[(?:mcp_servers\.(?:"[^"]+"|[^\]]+)\.)?(env|headers)\]$/);
+      const table = line.match(/^\[(?:mcp_servers\.(?:"[^"]+"|[^\]]+)\.)?(env|headers|http_headers|env_http_headers)\]$/);
       if (table) {
-        currentTable = table[1] as 'env' | 'headers';
+        currentTable = table[1] === 'env_http_headers' ? 'envHttpHeaders'
+          : table[1] === 'http_headers' ? 'headers' : table[1] as 'env' | 'headers';
         continue;
       }
-      const assignment = line.match(/^([A-Za-z0-9_-]+)\s*=\s*(.+)$/);
+      const assignment = line.match(/^((?:"(?:\\.|[^"\\])*"|'[^']*'|[A-Za-z0-9_-]+))\s*=\s*(.+)$/);
       if (!assignment) continue;
-      const key = assignment[1] ?? '';
+      const rawKey = assignment[1] ?? '';
+      const key = rawKey.startsWith("'") ? rawKey.slice(1, -1) : this.parseString(rawKey) ?? '';
       const value = assignment[2] ?? '';
       if (currentTable) {
         const bucket = server[currentTable] ?? {};
@@ -200,13 +205,15 @@ export class CodexTomlEditor {
         if (parsed === 'true' || parsed === 'false') {
           server.enabled = parsed === 'true';
         }
-      } else if (key === 'env' || key === 'headers') {
+      } else if (key === 'env' || key === 'headers' || key === 'http_headers' || key === 'env_http_headers') {
         // Inline tables — `env = { VAR = "value" }` — the form the Grok Build
         // README documents. Sub-tables (`[.env]`) are handled above.
         const table = this.parseInlineTable(value);
         if (table) {
-          server[key] = table;
+          server[key === 'env_http_headers' ? 'envHttpHeaders' : key === 'http_headers' ? 'headers' : key] = table;
         }
+      } else if (key === 'bearer_token_env_var') {
+        server.bearerTokenEnvVar = this.parseString(value);
       } else if (key === 'command' || key === 'url' || key === 'transport' || key === 'description') {
         (server as Record<string, unknown>)[key] = this.parseString(value);
       }
@@ -223,9 +230,10 @@ export class CodexTomlEditor {
     if (entry.args) lines.push(`args = [${entry.args.map((arg) => JSON.stringify(arg)).join(', ')}]`);
     if (entry.url) lines.push(`url = ${JSON.stringify(entry.url)}`);
     if (entry.enabled === false) lines.push('enabled = false');
-    if (entry.transport && entry.transport !== 'stdio') {
+    if (this.dialect === 'grok' && entry.transport && entry.transport !== 'stdio') {
       lines.push(`transport = ${JSON.stringify(entry.transport)}`);
     }
+    if (entry.bearerTokenEnvVar) lines.push(`bearer_token_env_var = ${JSON.stringify(entry.bearerTokenEnvVar)}`);
     if (entry.description) lines.push(`description = ${JSON.stringify(entry.description)}`);
     if (entry.startupTimeoutSec !== undefined) {
       lines.push(`startup_timeout_sec = ${entry.startupTimeoutSec}`);
@@ -234,7 +242,8 @@ export class CodexTomlEditor {
       lines.push(`tool_timeout_sec = ${entry.toolTimeoutSec}`);
     }
     this.appendToolApprovals(lines, sectionName, entry.toolApprovalModes);
-    this.appendTable(lines, sectionName, 'headers', entry.headers);
+    this.appendTable(lines, sectionName, this.dialect === 'codex' ? 'http_headers' : 'headers', entry.headers);
+    this.appendTable(lines, sectionName, 'env_http_headers', entry.envHttpHeaders);
     this.appendTable(lines, sectionName, 'env', entry.env);
     return lines.join('\n');
   }
@@ -262,7 +271,7 @@ export class CodexTomlEditor {
   private appendTable(
     lines: string[],
     sectionName: string,
-    key: 'headers' | 'env',
+    key: 'headers' | 'env' | 'http_headers' | 'env_http_headers',
     value: Record<string, string> | undefined,
   ): void {
     if (!value || Object.keys(value).length === 0) {
@@ -270,7 +279,8 @@ export class CodexTomlEditor {
     }
     lines.push('', `[${sectionName}.${key}]`);
     for (const [entryKey, entryValue] of Object.entries(value)) {
-      lines.push(`${entryKey} = ${JSON.stringify(entryValue)}`);
+      const keyText = /^[A-Za-z0-9_-]+$/.test(entryKey) ? entryKey : JSON.stringify(entryKey);
+      lines.push(`${keyText} = ${JSON.stringify(entryValue)}`);
     }
   }
 

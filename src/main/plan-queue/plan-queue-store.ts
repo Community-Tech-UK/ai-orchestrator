@@ -60,6 +60,7 @@ interface ItemRow {
   verifier_instance_id: string | null;
   worker_provider: string | null;
   worker_model: string | null;
+  stepped_up_at: number | null;
   question_json: string | null;
   answer: string | null;
   park_reason: string | null;
@@ -220,8 +221,8 @@ export class PlanQueueStore {
         id, run_id, document_path, state, round, errored_rounds, landing_refusals, branch_name, worktree_path,
         base_commit, checkpoint_commit, verified_main_commit, landed_commit,
         worker_instance_id, verifier_instance_id, question_json, answer, park_reason, detail,
-        verdict_json, created_at, updated_at, held_at, pending_instruction, worker_provider, worker_model
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        verdict_json, created_at, updated_at, held_at, pending_instruction, worker_provider, worker_model, stepped_up_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         state                = excluded.state,
         round                = excluded.round,
@@ -244,6 +245,7 @@ export class PlanQueueStore {
         pending_instruction  = excluded.pending_instruction,
         worker_provider      = excluded.worker_provider,
         worker_model         = excluded.worker_model,
+        stepped_up_at        = excluded.stepped_up_at,
         updated_at           = excluded.updated_at
     `).run(
       item.id,
@@ -272,6 +274,7 @@ export class PlanQueueStore {
       item.pendingInstruction ?? null,
       item.workerProvider ?? null,
       item.workerModel ?? null,
+      item.steppedUpAt ?? null,
     );
   }
 
@@ -379,6 +382,7 @@ function rowToItem(row: ItemRow): PlanQueueItem {
     verifierInstanceId: row.verifier_instance_id,
     ...(row.worker_provider ? { workerProvider: row.worker_provider } : {}),
     ...(row.worker_model ? { workerModel: row.worker_model } : {}),
+    ...(row.stepped_up_at !== null && row.stepped_up_at !== undefined ? { steppedUpAt: row.stepped_up_at } : {}),
     question: row.question_json ? (JSON.parse(row.question_json) as PlanQueueQuestion) : null,
     answer: row.answer,
     parkReason: row.park_reason as PlanQueueParkReason | null,

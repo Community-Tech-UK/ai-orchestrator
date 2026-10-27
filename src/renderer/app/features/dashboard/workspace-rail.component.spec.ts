@@ -8,6 +8,8 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AutomationStore } from '../../core/state/automation.store';
 import { SideChatStore } from '../../core/state/side-chat.store';
+import { RemoteNodeStore } from '../../core/state/remote-node.store';
+import { TerminalDrawerStore } from '../../core/state/terminal-drawer.store';
 import type { SideChatAttention } from '../../../../shared/types/side-chat.types';
 import { WorkspaceRailComponent } from './workspace-rail.component';
 
@@ -30,9 +32,11 @@ describe('WorkspaceRailComponent', () => {
   const markAllSeen = vi.fn().mockResolvedValue(undefined);
   const sideChatAttention = signal<SideChatAttention[]>([]);
   const requestOpen = vi.fn();
+  const connectedNodes = signal<unknown[]>([]);
 
   beforeEach(async () => {
     unreadCount.set(2);
+    connectedNodes.set([]);
     sideChatAttention.set([]);
     requestOpen.mockClear();
     markAllSeen.mockClear();
@@ -54,6 +58,7 @@ describe('WorkspaceRailComponent', () => {
             requestOpen,
           },
         },
+        { provide: RemoteNodeStore, useValue: { connectedNodes: connectedNodes.asReadonly() } },
       ],
     }).compileComponents();
 
@@ -151,5 +156,44 @@ describe('WorkspaceRailComponent', () => {
 
     expect(sideChatButton().querySelector('.rail-badge')).toBeNull();
     expect(sideChatButton().querySelector('.rail-activity-dot')).not.toBeNull();
+  });
+
+  it('links to the Plan Queue page', () => {
+    const link = fixture.nativeElement.querySelector('a[aria-label="Plan Queue"]') as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe('/plan-queue');
+  });
+
+  function terminalButton(): HTMLButtonElement | null {
+    return fixture.nativeElement.querySelector('button[aria-label="Remote terminal on a worker computer"]');
+  }
+
+  it('shows the remote terminal toggle only when a worker is connected', () => {
+    expect(terminalButton()).toBeNull();
+
+    connectedNodes.set([{ id: 'windows-pc' }]);
+    fixture.detectChanges();
+
+    expect(terminalButton()).not.toBeNull();
+    expect(terminalButton()?.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('toggles the shared terminal drawer and keeps the toggle while it is open', () => {
+    const drawer = TestBed.inject(TerminalDrawerStore);
+    connectedNodes.set([{ id: 'windows-pc' }]);
+    fixture.detectChanges();
+
+    terminalButton()?.click();
+    fixture.detectChanges();
+    expect(drawer.isOpen()).toBe(true);
+    expect(terminalButton()?.classList.contains('active')).toBe(true);
+
+    connectedNodes.set([]);
+    fixture.detectChanges();
+    expect(terminalButton()).not.toBeNull();
+
+    terminalButton()?.click();
+    fixture.detectChanges();
+    expect(drawer.isOpen()).toBe(false);
+    expect(terminalButton()).toBeNull();
   });
 });

@@ -126,6 +126,14 @@ export const REVIEW_NETWORK_SETTINGS_METADATA: SettingMetadata[] = [
     hidden: true,
   },
   {
+    key: 'planQueueAccountRules',
+    label: 'Plan Queue and automation account rules',
+    description: 'Accounts Plan Queue sessions and new automation sessions must never use, and accounts they use only when nothing else can run. Managed from the Plan Queue page. Set only from there — not changeable by agents.',
+    type: 'json',
+    category: 'review',
+    hidden: true,
+  },
+  {
     key: 'crossModelReviewLocalEnabled',
     label: 'Enable local reviewer',
     description: 'Run an additional review with the selected local model when one is available.',

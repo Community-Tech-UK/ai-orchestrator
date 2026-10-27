@@ -29,9 +29,15 @@
             type="text"
             maxlength="200"
             placeholder="Provider default"
+            [attr.list]="view.modelListId"
             [value]="view.draft.model"
             (input)="setModel(view.list, view.index, inputValue($event))"
           />
+          <datalist [id]="view.modelListId">
+            @for (model of view.modelOptions; track model.id) {
+              <option [value]="model.id">{{ model.label }}</option>
+            }
+          </datalist>
         </label>
 
         @if (view.isCopilot) {
@@ -53,7 +59,7 @@
         <fieldset class="pq-routing-accounts">
           <legend>Accounts (none ticked means automatic)</legend>
           @for (row of view.accountRows; track row.id) {
-            <label class="pq-routing-account" [class.pq-routing-account-off]="row.note">
+            <label class="pq-routing-account" [class.pq-routing-account-off]="row.off">
               <input
                 type="checkbox"
                 [checked]="row.checked"
@@ -212,6 +218,43 @@
           <span class="pq-routing-note">Up to {{ maxChoices }} checkers.</span>
         }
       </div>
+    }
+  </fieldset>
+
+  <fieldset class="pq-routing-group pq-routing-step-up">
+    <legend>If a worker gets stuck</legend>
+    <label class="pq-routing-radio">
+      <input
+        type="radio"
+        [name]="'pqRoutingStepUpMode' + radioSuffix()"
+        value="stop"
+        [checked]="!isStepUp()"
+        (change)="setStepUpMode('stop')"
+      />
+      Stop and wait for me
+    </label>
+    <label class="pq-routing-radio">
+      <input
+        type="radio"
+        [name]="'pqRoutingStepUpMode' + radioSuffix()"
+        value="handover"
+        [checked]="isStepUp()"
+        (change)="setStepUpMode('handover')"
+      />
+      Hand it to a stronger worker
+    </label>
+
+    @if (isStepUp()) {
+      <p class="pq-routing-note">
+        Used once per document, after its worker fails every check it is given. It starts a new session on this choice,
+        which may cost more. Checkers still come from a different maker.
+      </p>
+      @for (view of stepUpViews(); track view.key) {
+        <ng-container [ngTemplateOutlet]="routeEditor" [ngTemplateOutletContext]="{ $implicit: view }" />
+      }
+      @for (error of stepUpErrors(); track error) {
+        <p class="pq-routing-error" role="alert">{{ error }}</p>
+      }
     }
   </fieldset>
 

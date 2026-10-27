@@ -94,6 +94,7 @@ export function commitWithHooks(
   worktreePath: string,
   message: string,
   timeoutMs = HOOK_TIMEOUT_MS,
+  signal?: AbortSignal,
 ): Promise<{ exitCode: number; output: string }> {
   return runInProcessGroup('git', ['commit', '--no-gpg-sign', '-q', '-m', message], {
     cwd: worktreePath,
@@ -101,6 +102,7 @@ export function commitWithHooks(
     timeoutMs,
     outputTail: OUTPUT_TAIL,
     label: 'the pre-commit hook',
+    signal,
   });
 }
 
@@ -115,6 +117,7 @@ export async function buildLandingCommit(params: {
   baseTip: string;
   message: string;
   documents: readonly LandingDocument[];
+  signal?: AbortSignal;
 }): Promise<LandingCommitResult> {
   const { worktreePath, branchName, baseTip, message, documents } = params;
   const documentPaths = documents.map((doc) => doc.relativePath);
@@ -142,7 +145,8 @@ export async function buildLandingCommit(params: {
 
     if (await run(['diff', '--cached', '--quiet'], worktreePath)) return { status: 'nothing-to-land' };
 
-    const { exitCode, output } = await commitWithHooks(worktreePath, message);
+    params.signal?.throwIfAborted();
+    const { exitCode, output } = await commitWithHooks(worktreePath, message, HOOK_TIMEOUT_MS, params.signal);
     if (exitCode !== 0) return { status: 'hook-failed', output };
     return { status: 'committed', commit: await gitExec(['rev-parse', 'HEAD'], worktreePath) };
   } finally {

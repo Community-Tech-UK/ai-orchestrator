@@ -22,7 +22,8 @@ import {
   TimedGraphLoopbackClient,
 } from './graph-loopback-client';
 
-const DEFAULT_AUTHORITY = 'https://login.microsoftonline.com/common';
+const DEFAULT_AUTHORITY = 'https://login.microsoftonline.com/organizations';
+const MAIL_SCOPES = ['Mail.ReadWrite', 'Mail.Send'] as const;
 const DEFAULT_SCOPES = [
   'Calendars.ReadWrite',
   'offline_access',
@@ -80,7 +81,7 @@ export class GraphReauthRequiredError extends Error {
 
   constructor() {
     super(
-      'Microsoft calendar authorization expired. Run graph_calendar_connect to reconnect this account.',
+      'Microsoft 365 authorization expired. Sign in to this account again in Settings → Connectors.',
     );
     this.name = 'GraphReauthRequiredError';
   }
@@ -108,12 +109,13 @@ export class GraphAuthManager {
     this.interactiveTimeoutMs = options.interactiveTimeoutMs ?? INTERACTIVE_AUTH_TIMEOUT_MS;
   }
 
-  async connectAccount(): Promise<GraphAccount> {
+  async connectAccount(options: { mailEnabled?: boolean } = {}): Promise<GraphAccount> {
     const client = this.createPublicClient();
+    const scopes = [...new Set([...this.scopes, ...(options.mailEnabled ? MAIL_SCOPES : [])])];
     let browserOpenFailed = false;
     let result: AuthenticationResult | null;
     try {
-      result = await this.acquireInteractiveToken(client, async (url) => {
+      result = await this.acquireInteractiveToken(client, scopes, async (url) => {
         try {
           await this.openExternal(url);
         } catch (error) {
@@ -123,7 +125,7 @@ export class GraphAuthManager {
       });
     } catch (error) {
       if (!shouldUseDeviceCode(error, browserOpenFailed)) {
-        throw error;
+        rethrowConsentError(error);
       }
       const deviceCodeCallback = this.options.deviceCodeCallback;
       if (!deviceCodeCallback) {
@@ -131,15 +133,40 @@ export class GraphAuthManager {
           'GRAPH_DEVICE_CODE_CALLBACK_REQUIRED: system browser unavailable and no device-code presenter configured',
         );
       }
-      result = await client.acquireTokenByDeviceCode({
-        scopes: [...this.scopes],
-        deviceCodeCallback: ({ message }) => {
-          deviceCodeCallback(message);
-        },
-      });
+      try {
+        result = await client.acquireTokenByDeviceCode({
+          scopes,
+          deviceCodeCallback: ({ message }) => {
+            deviceCodeCallback(message);
+          },
+        });
+      } catch (deviceError) {
+        rethrowConsentError(deviceError);
+      }
     }
     if (!result?.account) {
       throw new Error('GRAPH_AUTH_NO_ACCOUNT: Microsoft sign-in returned no account');
+    }
+    const accountKey = result.account.homeAccountId;
+    const existing = this.options.tokenStore.getAccount(accountKey);
+    const existingScopes = this.options.tokenStore.getScopes(accountKey);
+    const grantedScopes = new Set(result.scopes.map((scope) => scope.toLowerCase()));
+    if (existing && existingScopes.some((scope) => !grantedScopes.has(scope.toLowerCase()))) {
+      // Interactive sign-in starts without a per-account cache because the user
+      // has not selected an identity yet. Never replace a shared account's broader
+      // cache/token with this narrower result, or existing mail connectors break.
+      try {
+        await this.getAccessToken(accountKey);
+      } catch (error) {
+        if (error instanceof GraphReauthRequiredError) {
+          const hasMail = existingScopes.some((scope) => MAIL_SCOPES.some((mailScope) => mailScope.toLowerCase() === scope.toLowerCase()));
+          throw new Error(hasMail
+            ? 'This account is already used for mail. Sign in again with mail enabled in Settings → Connectors.'
+            : 'Sign in again with this account’s existing permissions in Settings → Connectors.', { cause: error });
+        }
+        throw error;
+      }
+      return existing;
     }
     this.cacheAuthenticationResult(result.account.homeAccountId, result);
     return this.options.tokenStore.upsertAccount({
@@ -147,11 +174,13 @@ export class GraphAuthManager {
       username: result.account.username,
       tenant: result.account.tenantId,
       tokenCache: client.getTokenCache().serialize(),
+      scopes: result.scopes,
     });
   }
 
   private async acquireInteractiveToken(
     client: GraphPublicClientApplication,
+    scopes: string[],
     openBrowser: (url: string) => Promise<void>,
   ): Promise<AuthenticationResult> {
     const crypto = new CryptoProvider();
@@ -162,7 +191,7 @@ export class GraphAuthManager {
     const loopback = new TimedGraphLoopbackClient(this.interactiveTimeoutMs, state);
     const { redirectUri, response } = await loopback.listenForAuthCode(async (redirectUri) => {
       const url = await client.getAuthCodeUrl({
-        scopes: [...this.scopes],
+        scopes,
         authority: this.authority,
         redirectUri,
         prompt: PromptValue.SELECT_ACCOUNT,
@@ -188,7 +217,7 @@ export class GraphAuthManager {
     // Keep configuration separate from untrusted callback data. MSAL validates
     // the returned state against the request and the ID-token nonce against nonce.
     return client.acquireTokenByCode({
-      scopes: [...this.scopes],
+      scopes,
       authority: this.authority,
       redirectUri,
       code: response.code,
@@ -222,7 +251,7 @@ export class GraphAuthManager {
     try {
       result = await client.acquireTokenSilent({
         account,
-        scopes: [...this.scopes],
+        scopes: [...new Set([...this.scopes, ...this.options.tokenStore.getScopes(accountKey)])],
       });
     } catch (error) {
       if (error instanceof InteractionRequiredAuthError) {
@@ -286,12 +315,22 @@ export class GraphAuthManager {
     return this.createClient({
       auth: {
         clientId: this.options.clientId,
-        authority: this.authority,
+        authority: accountKey ? this.authorityForAccount(accountKey) : this.authority,
       },
       ...(accountKey
         ? { cache: { cachePlugin: this.createCachePlugin(accountKey) } }
         : {}),
     });
+  }
+
+  private authorityForAccount(accountKey: string): string {
+    const account = this.options.tokenStore.getAccount(accountKey);
+    if (!account?.tenant) throw new GraphReauthRequiredError();
+    const authority = new URL(this.authority);
+    authority.pathname = `/${encodeURIComponent(account.tenant)}`;
+    authority.search = '';
+    authority.hash = '';
+    return authority.toString().replace(/\/$/, '');
   }
 
   private createCachePlugin(accountKey: string): ICachePlugin {
@@ -321,6 +360,17 @@ function shouldUseDeviceCode(error: unknown, browserOpenFailed: boolean): boolea
   return browserOpenFailed
     || error instanceof GraphInteractiveTimeoutError
     || error instanceof GraphLoopbackUnavailableError;
+}
+
+function isAdminConsentError(error: unknown): error is Error {
+  return error instanceof Error && /AADSTS(?:65001|90094|90095)|admin(?:istrator)?(?:[^.]*)(?:consent|approv)/i.test(error.message);
+}
+
+function rethrowConsentError(error: unknown): never {
+  if (isAdminConsentError(error)) {
+    throw new Error(`Your organisation's IT administrator must approve this application. ${error.message}`, { cause: error });
+  }
+  throw error;
 }
 
 async function openExternalWithElectron(url: string): Promise<void> {

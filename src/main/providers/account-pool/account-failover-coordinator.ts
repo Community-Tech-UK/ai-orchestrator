@@ -534,13 +534,17 @@ export class AccountFailoverCoordinator {
         thresholdPct = null;
       }
     }
-    // A session fenced to certain accounts (Plan Queue) never moves outside them.
-    const fence = this.deps.getInstance(params.instanceId)?.allowedAccountProfileIds;
+    // A session fenced to certain accounts (Plan Queue) never moves outside them,
+    // and never onto an account on its never-use list. Read live, so a rule
+    // added mid-run applies to the next switch.
+    const instance = this.deps.getInstance(params.instanceId);
+    const fence = instance?.allowedAccountProfileIds;
     const outsideFence = fence?.length ? profiles.filter((profile) => !fence.includes(profile.id)).map((profile) => profile.id) : [];
-    return selectAccount({
-      profiles,
+    const avoided = instance?.accountPreferences?.avoid ?? [];
+    const lastIds = new Set(instance?.accountPreferences?.last ?? []);
+    const input = {
       origin,
-      exclude: [params.exhaustedProfileId, ...outsideFence],
+      exclude: [params.exhaustedProfileId, ...outsideFence, ...avoided],
       parkedProfileIds: parked,
       parkedSince,
       allowCredits: params.allowCredits ?? true,
@@ -550,7 +554,16 @@ export class AccountFailoverCoordinator {
       lastUsedAt,
       // A pre-emptive move only makes sense onto an account that is itself under the threshold.
       thresholdPct,
-    });
+    };
+    const preferred = profiles.filter((profile) => !lastIds.has(profile.id));
+    const selection = selectAccount({ ...input, profiles: preferred });
+    if (selection.profileId !== null || params.handoffKind === 'preemptive') return selection;
+    // Use-last accounts only when nothing else can take the turn; a pre-emptive
+    // move never lands on one (it is a move away from a limit, not a last resort).
+    const lastTier = profiles.filter((profile) => lastIds.has(profile.id));
+    if (lastTier.length === 0) return selection;
+    const last = selectAccount({ ...input, profiles: lastTier, thresholdPct: null });
+    return { ...last, considered: [...selection.considered, ...last.considered] };
   }
 
   private async waitForSwitchableInstance(instanceId: string, signal: AbortSignal, waitMs: number): Promise<boolean> {

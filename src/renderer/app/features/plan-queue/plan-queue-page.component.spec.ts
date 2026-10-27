@@ -217,6 +217,7 @@ describe('PlanQueuePageComponent', () => {
     expect(sections.map((section) => section.querySelector('h2')?.textContent?.trim())).toEqual([
       'Needs your answer',
       'Providers and accounts',
+      'Account rules',
       'Runs',
       'Start a run',
       'Needs James (livetests)',

@@ -30,6 +30,25 @@ describe('GraphTokenStore', () => {
     }
   });
 
+  it('migrates an existing account table without losing its encrypted cache', () => {
+    const db = openDb();
+    db.exec(`CREATE TABLE graph_accounts (
+      account_key TEXT PRIMARY KEY, username TEXT NOT NULL, tenant TEXT NOT NULL,
+      token_cache_encrypted_json TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    )`);
+    const secrets = encryptedStorage();
+    db.prepare('INSERT INTO graph_accounts VALUES (?, ?, ?, ?, ?, ?)').run(
+      'account-key', 'user@example.test', 'tenant',
+      JSON.stringify(secrets.encryptSecret('serialized-msal-cache')), 1, 1,
+    );
+    const store = new GraphTokenStore(db, secrets);
+    expect(store.getTokenCache('account-key')).toBe('serialized-msal-cache');
+    expect(store.getScopes('account-key')).toEqual([]);
+    store.upsertAccount({ accountKey: 'account-key', username: 'user@example.test', tenant: 'tenant',
+      tokenCache: 'updated-cache-placeholder', scopes: ['Mail.ReadWrite', 'Mail.Send'] });
+    expect(new GraphTokenStore(db, secrets).getScopes('account-key')).toEqual(['Mail.ReadWrite', 'Mail.Send']);
+  });
+
   it('round-trips an account cache without storing the serialized cache in plaintext', () => {
     const db = openDb();
     const store = new GraphTokenStore(db, encryptedStorage(), () => 1_234);

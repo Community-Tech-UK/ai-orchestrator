@@ -169,6 +169,7 @@ export const SETTING_SURFACING = {
   providerAccountProfiles: 'bespoke',
   providerAccountPools: 'bespoke',
   planQueueRouting: 'bespoke', // Plan Queue page panel
+  planQueueAccountRules: 'bespoke', // Plan Queue page panel
   pingPongReviewerProvider: 'tab',
   pingPongMaxRounds: 'tab',
   voiceSttRoutingMode: 'bespoke', // voice tab

@@ -15,9 +15,9 @@ import { threadId } from 'node:worker_threads';
 import { execFileSync } from 'node:child_process';
 import { join } from 'path';
 import { getLogger } from '../../../logging/logger';
-import { CodexTomlEditor } from '../../../mcp/adapters/codex-toml-editor';
 import { preserveHarnessCliShellPolicy } from './codex-harness-shell-policy';
 import { disableClaudeCallbackTools } from './codex-claude-mcp-policy';
+import { mergeCodexMcpConfig } from './codex-mcp-config-merge';
 
 const logger = getLogger('CodexHomeManager');
 const OWNER_FILE = '.aio-codex-home-owner.json';
@@ -102,7 +102,7 @@ export class CodexHomeManager {
     try {
       const configPath = join(codexDir, 'config.toml');
       const configContent = existsSync(configPath) ? readFileSync(configPath, 'utf-8') : null;
-      const stripConfig = opts.stripUserMcp && configContent !== null && configContent.includes('[mcp_servers');
+      const stripConfig = opts.stripUserMcp && configContent !== null;
       const nextConfig = preserveHarnessCliShellPolicy(
         stripConfig ? stripMcpServers(configContent) : disableClaudeCallbackTools(configContent ?? ''),
         this.options.harnessCliEnv,
@@ -136,7 +136,7 @@ export class CodexHomeManager {
     }
   }
 
-  prepareHomeWithMcpConfig(mcpConfigToml: string): string | null {
+  prepareHomeWithMcpConfig(mcpConfigToml: string, mode: 'app-server' | 'exec'): string | null {
     this.cleanup();
     const homeDir = process.env['HOME'] || process.env['USERPROFILE'] || '';
     const codexDir = join(homeDir, '.codex');
@@ -152,11 +152,11 @@ export class CodexHomeManager {
 
       const configPath = join(codexDir, 'config.toml');
       const baseConfig = existsSync(configPath)
-        ? stripMcpServers(readFileSync(configPath, 'utf-8')).trim()
+        ? readFileSync(configPath, 'utf-8')
         : '';
-      const nextConfig = preserveHarnessCliShellPolicy(disableClaudeCallbackTools([baseConfig, mcpConfigToml.trim()]
-        .filter(Boolean)
-        .join('\n\n')), this.options.harnessCliEnv);
+      const nextConfig = preserveHarnessCliShellPolicy(
+        disableClaudeCallbackTools(mergeCodexMcpConfig(baseConfig, mcpConfigToml, mode === 'exec')), this.options.harnessCliEnv,
+      );
       writeFileSync(join(tempDir, 'config.toml'), nextConfig, { encoding: 'utf-8', mode: 0o600 });
       this.linkSessionStore(tempDir);
       this.linkThreadStateStore(tempDir);
@@ -336,7 +336,7 @@ export class CodexHomeManager {
  * Strip all [mcp_servers.*] sections from a TOML config string.
  */
 export function stripMcpServers(config: string): string {
-  return new CodexTomlEditor().stripMcpServers(config);
+  return mergeCodexMcpConfig(config, '', true);
 }
 
 /** Temp-dir prefixes created by CodexHomeManager. */

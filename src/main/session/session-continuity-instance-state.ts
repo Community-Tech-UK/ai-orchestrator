@@ -81,6 +81,7 @@ export function instanceToContinuityState(instance: Instance, config: Pick<Conti
     accountSwitches: instance.accountSwitches,
     accountRouteOrigin: instance.accountRouteOrigin,
     allowedAccountProfileIds: instance.allowedAccountProfileIds,
+    accountPreferences: instance.accountPreferences,
   };
 
   return normalizeStateForContinuity(state, config.redactToolOutputs);

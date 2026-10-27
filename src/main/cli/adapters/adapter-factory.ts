@@ -116,9 +116,7 @@ export function mapSettingsToDetectionType(settingsType: SettingsCliType | CliTy
     case 'openai':
       return 'codex';
     case 'gemini':
-      // Legacy alias: the Gemini CLI has been replaced by Antigravity (`agy`).
-      // Persisted `gemini` selections resolve to the antigravity runtime.
-      return 'antigravity';
+      return 'gemini';
     case 'antigravity':
       return 'antigravity';
     case 'copilot':
@@ -729,8 +727,6 @@ export function createCliAdapter(
         return createCodexAdapter(effectiveOptions);
 
       case 'gemini':
-        // Legacy alias — should not normally be reached (resolveCliType maps
-        // gemini→antigravity), but kept so any direct `gemini` caller still works.
         return createGeminiAdapter(effectiveOptions);
 
       case 'antigravity':
@@ -775,7 +771,7 @@ export function getCliDisplayName(cliType: CliType): string {
     case 'codex':
       return 'OpenAI Codex';
     case 'gemini':
-      return 'Google Gemini (legacy)';
+      return 'Google Gemini';
     case 'antigravity':
       return 'Antigravity';
     case 'copilot':

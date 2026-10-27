@@ -222,13 +222,6 @@ export class IpcFacadeService {
   getProviderStatus = this.provider.getProviderStatus.bind(this.provider);
   getAllProviderStatus = this.provider.getAllProviderStatus.bind(this.provider);
   updateProviderConfig = this.provider.updateProviderConfig.bind(this.provider);
-  pluginsDiscover = this.provider.pluginsDiscover.bind(this.provider);
-  pluginsLoad = this.provider.pluginsLoad.bind(this.provider);
-  pluginsUnload = this.provider.pluginsUnload.bind(this.provider);
-  pluginsInstall = this.provider.pluginsInstall.bind(this.provider);
-  pluginsUninstall = this.provider.pluginsUninstall.bind(this.provider);
-  pluginsGetLoaded = this.provider.pluginsGetLoaded.bind(this.provider);
-  pluginsCreateTemplate = this.provider.pluginsCreateTemplate.bind(this.provider);
 
   // ============================================
   // Settings Service Methods

@@ -1,7 +1,11 @@
+import { randomUUID } from 'node:crypto';
+import { setTimeout as sleep } from 'node:timers/promises';
+
 const GRAPH_BASE_URL = 'https://graph.microsoft.com/v1.0';
 const GRAPH_TIME_ZONE_PREFERENCE = 'outlook.timezone="Europe/London"';
 const GRAPH_MAX_RETRY_ATTEMPTS = 3;
 const GRAPH_RETRY_BACKOFF_BASE_MS = 1_000;
+const GRAPH_REQUEST_TIMEOUT_MS = 30_000;
 
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
 type GraphRecord = Record<string, unknown>;
@@ -15,7 +19,15 @@ export interface GraphClientOptions {
   fetch?: FetchLike;
   baseUrl?: string;
   now?: () => number;
-  sleep?: (milliseconds: number) => Promise<void>;
+  sleep?: (milliseconds: number, signal?: AbortSignal) => Promise<void>;
+  requestTimeoutMs?: number;
+  requestContext?: GraphRequestContext;
+}
+
+export interface GraphRequestContext {
+  signal?: AbortSignal;
+  /** Synchronous ownership/policy check, including immediately before fetch. */
+  assertActive?: () => void;
 }
 
 export interface GraphListEventsInput {
@@ -32,6 +44,12 @@ export interface GraphEventTarget {
   calendarId?: string;
 }
 
+export interface GraphSearchMailInput {
+  search: string;
+  folderId?: string;
+  top?: number;
+}
+
 interface GraphCollectionResponse {
   value?: unknown;
   '@odata.nextLink'?: unknown;
@@ -42,7 +60,9 @@ export class GraphClient {
   private readonly fetchImpl: FetchLike;
   private readonly baseUrl: string;
   private readonly now: () => number;
-  private readonly sleep: (milliseconds: number) => Promise<void>;
+  private readonly sleep: (milliseconds: number, signal?: AbortSignal) => Promise<void>;
+  private readonly requestTimeoutMs: number;
+  private readonly requestContext: GraphRequestContext;
 
   constructor(options: GraphClientOptions) {
     this.tokenProvider = options.tokenProvider;
@@ -50,6 +70,8 @@ export class GraphClient {
     this.baseUrl = (options.baseUrl ?? GRAPH_BASE_URL).replace(/\/$/, '');
     this.now = options.now ?? Date.now;
     this.sleep = options.sleep ?? defaultSleep;
+    this.requestTimeoutMs = options.requestTimeoutMs ?? GRAPH_REQUEST_TIMEOUT_MS;
+    this.requestContext = options.requestContext ?? {};
   }
 
   async listCalendars(accountKey: string): Promise<GraphRecord[]> {
@@ -77,17 +99,44 @@ export class GraphClient {
     return this.listCollection(accountKey, url.toString());
   }
 
-  private async listCollection(accountKey: string, initialUrl: string): Promise<GraphRecord[]> {
+  async searchMail(accountKey: string, input: GraphSearchMailInput): Promise<GraphRecord[]> {
+    const path = input.folderId ? `/me/mailFolders/${encode(input.folderId)}/messages` : '/me/messages';
+    const url = new URL(`${this.baseUrl}${path}`);
+    const limit = input.top ?? 25;
+    url.searchParams.set('$search', JSON.stringify(input.search));
+    url.searchParams.set('$top', String(limit));
+    url.searchParams.set('$select', 'id,subject,from,toRecipients,receivedDateTime,isRead,bodyPreview,hasAttachments');
+    return this.listCollection(accountKey, url.toString(), limit);
+  }
+
+  readMail(accountKey: string, messageId: string): Promise<GraphRecord> {
+    return this.request(accountKey, 'GET', `/me/messages/${encode(messageId)}`);
+  }
+
+  listMailFolders(accountKey: string, folderId?: string): Promise<GraphRecord[]> {
+    return this.listCollection(accountKey, folderId
+      ? `/me/mailFolders/${encode(folderId)}/childFolders` : '/me/mailFolders');
+  }
+
+  createMailDraft(accountKey: string, message: GraphRecord): Promise<GraphRecord> {
+    return this.request(accountKey, 'POST', '/me/messages', { json: message });
+  }
+
+  async sendMailDraft(accountKey: string, messageId: string): Promise<void> {
+    await this.request(accountKey, 'POST', `/me/messages/${encode(messageId)}/send`);
+  }
+
+  private async listCollection(accountKey: string, initialUrl: string, limit = Infinity): Promise<GraphRecord[]> {
     const values: GraphRecord[] = [];
     let nextUrl: string | undefined = initialUrl;
-    while (nextUrl) {
+    while (nextUrl && values.length < limit) {
       const response: GraphCollectionResponse = await this.request(accountKey, 'GET', nextUrl);
       values.push(...collectionValues(response));
       nextUrl = typeof response['@odata.nextLink'] === 'string'
         ? response['@odata.nextLink']
         : undefined;
     }
-    return values;
+    return values.slice(0, limit);
   }
 
   getEvent(accountKey: string, eventId: string, target: GraphEventTarget = {}): Promise<GraphRecord> {
@@ -123,6 +172,11 @@ export class GraphClient {
     pathOrUrl: string,
     options: { json?: unknown } = {},
   ): Promise<T> {
+    const deadline = AbortSignal.timeout(this.requestTimeoutMs);
+    const signal = this.requestContext.signal
+      ? AbortSignal.any([this.requestContext.signal, deadline]) : deadline;
+    signal.throwIfAborted();
+    this.requestContext.assertActive?.();
     const url = pathOrUrl.startsWith('http') ? pathOrUrl : `${this.baseUrl}${pathOrUrl}`;
     if (new URL(url).origin !== new URL(this.baseUrl).origin) {
       throw new Error('graph_api_error:invalid_url_origin');
@@ -136,9 +190,12 @@ export class GraphClient {
     };
 
     for (let attempt = 0; attempt < GRAPH_MAX_RETRY_ATTEMPTS; attempt++) {
+      signal.throwIfAborted();
+      this.requestContext.assertActive?.();
       const response = await this.fetchImpl(url, {
         method,
         headers,
+        signal,
         ...(options.json === undefined ? {} : { body: JSON.stringify(options.json) }),
       });
       if (
@@ -146,7 +203,7 @@ export class GraphClient {
         (response.status === 429 || response.status === 503) &&
         attempt < GRAPH_MAX_RETRY_ATTEMPTS - 1
       ) {
-        await this.sleep(retryDelay(response.headers.get('retry-after'), attempt, this.now()));
+        await this.sleep(retryDelay(response.headers.get('retry-after'), attempt, this.now()), signal);
         continue;
       }
       return parseGraphResponse<T>(response, token);
@@ -231,10 +288,6 @@ function escapeODataString(value: string): string {
   return value.replace(/'/g, "''");
 }
 
-function defaultSleep(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, milliseconds);
-    timer.unref?.();
-  });
+function defaultSleep(milliseconds: number, signal?: AbortSignal): Promise<void> {
+  return sleep(milliseconds, undefined, { signal, ref: false });
 }
-import { randomUUID } from 'node:crypto';

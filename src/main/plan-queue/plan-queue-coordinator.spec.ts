@@ -323,6 +323,8 @@ function startCoordinator(
     },
     routing: {
       readSaved: () => savedRouting,
+      readAccountRules: () => ({ never: [], last: [] }),
+      copilotProfileFor: () => null,
       poolProfiles: () => poolProfiles,
       copilotProfiles: () => [],
       isProviderExcluded: (provider) => excludedProviders.includes(provider),
@@ -1051,7 +1053,53 @@ describe('PlanQueueCoordinator — whole run against a temp repo', { timeout: 30
     await waitForRun(run.id);
 
     expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'parked', parkReason: 'verifier-unreliable', erroredRounds: 2 });
-    expect(fake.created.filter((i) => i.role === 'verifier')).toHaveLength(2);
+    const verifiers = fake.created.filter((i) => i.role === 'verifier');
+    expect(verifiers).toHaveLength(2);
+    // Each silent verifier was reminded before its round counted as unusable.
+    for (const verifier of verifiers) {
+      expect(fake.inputs.filter((m) => m.instanceId === verifier.id).map((m) => m.message.split(':')[0]))
+        .toEqual(['Plan Queue reminder 1 of 2', 'Plan Queue reminder 2 of 2']);
+    }
+  });
+
+  it('reminds a verifier that ended its turn without a verdict and accepts its verdict from the same session', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.verifier = (instance, message) => {
+      if (message.startsWith('Plan Queue reminder 1 of 2')) pass(instance, message, fake);
+    };
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForRun(run.id);
+
+    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'landed', erroredRounds: 0 });
+    const verifiers = fake.created.filter((i) => i.role === 'verifier');
+    expect(verifiers).toHaveLength(1);
+    const reminders = fake.inputs.filter((m) => m.instanceId === verifiers[0].id);
+    expect(reminders).toHaveLength(1);
+    expect(reminders[0].internalSource).toBe('plan-queue');
+    expect(reminders[0].message).toContain('orchestrator.tool_search');
+    expect(reminders[0].message).toContain('never end your turn while a gate is still running');
+  });
+
+  it('does not remind a verifier that changed the tree or failed', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    let verifications = 0;
+    fake.scripts.verifier = (instance) => {
+      verifications += 1;
+      if (verifications === 1) writeFileSync(join(instance.workingDirectory!, 'a.txt'), 'verifier edit\n');
+      else fake.setStatus(instance, 'error');
+    };
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForRun(run.id);
+
+    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'parked', parkReason: 'verifier-unreliable', erroredRounds: 2 });
+    const verifiers = fake.created.filter((i) => i.role === 'verifier');
+    expect(verifiers).toHaveLength(2);
+    expect(fake.inputs.filter((m) => verifiers.some((v) => v.id === m.instanceId))).toEqual([]);
+    expect(git(['show', 'main:a.txt'])).toBe('base');
   });
 
   it('refuses a verdict from anyone but the assigned verifier', async () => {
@@ -2388,5 +2436,201 @@ describe('PlanQueueCoordinator — providers and accounts', { timeout: 30_000 },
     await expect(coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' }))
       .rejects.toThrow('the claude account "MAX-A" is turned off');
     expect(coordinator.listRunDtos()).toEqual([]);
+  });
+});
+
+describe('PlanQueueCoordinator — handing a stuck document to the step-up worker', { timeout: 30_000 }, () => {
+  const haiku = { provider: 'claude', model: 'haiku' };
+  const opus = { provider: 'claude', model: 'opus' };
+  const fail: Script = (instance) => {
+    coordinator.reportVerdict(instance.id, {
+      item_id: itemIdOf(instance), verdict: 'FAIL',
+      findings: [{ severity: 'high', confidence: 80, summary: 'Retry never resets.' }], gates_run: [], document_complete: false, need_james: [],
+    });
+  };
+  /** FAIL the first `failures` checks, then PASS. */
+  const failThenPass = (failures: number): Script => {
+    let checks = 0;
+    return (instance, message, f) => { checks += 1; return checks <= failures ? fail(instance, message, f) : pass(instance, message, f); };
+  };
+  const workers = (instances = fake) => instances.created.filter((i) => i.role === 'worker');
+  const steppedUp = (instance: FakeInstance) => instance.config.metadata?.['planQueueSteppedUp'] === true;
+  const parentMessages = (parent: FakeInstance) => fake.inputs.filter((m) => m.instanceId === parent.id).map((m) => m.message);
+
+  beforeEach(() => {
+    savedRouting = { workers: [haiku], verifiers: [], stepUp: opus };
+  });
+
+  it('hands a document that failed every round to the step-up worker once, which then lands it', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.verifier = failThenPass(1);
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans', config: { maxRounds: 1 } });
+    await waitForRun(run.id);
+
+    const [first, second] = workers();
+    expect(workers()).toHaveLength(2);
+    expect(first.config).toMatchObject({ provider: 'claude', modelOverride: 'haiku' });
+    expect(steppedUp(first)).toBe(false);
+    expect(second.config).toMatchObject({ provider: 'claude', modelOverride: 'opus' });
+    expect(steppedUp(second)).toBe(true);
+    // The cheap worker was stopped before the step-up worker started; its work stayed on the branch.
+    expect(fake.live.has(first.id)).toBe(false);
+    expect(second.config.initialPrompt).toContain('An earlier, cheaper attempt did not pass after 1 verification round(s).');
+    expect(second.config.initialPrompt).toContain('Retry never resets.');
+    // Its checker was chosen against what the step-up worker ran on.
+    expect(verifierInputs.map((input) => [input.workerProvider, input.workerModel])).toEqual([['claude', 'haiku'], ['claude', 'opus']]);
+
+    const item = coordinator.getRunDto(run.id)!.items[0];
+    expect(item).toMatchObject({ state: 'landed', round: 1, erroredRounds: 0 });
+    expect(item.steppedUpAt).toEqual(expect.any(Number));
+    expect(git(['show', 'main:2026-01-01-alpha_plan.feature.txt'])).toBe('built 2026-01-01-alpha_plan');
+    expect(parentMessages(parent).filter((m) => m.includes('handed to the stronger worker'))).toEqual([
+      expect.stringContaining('2026-01-01-alpha_plan.md failed its checks in all 1 verification round(s), so it was handed to the stronger worker James chose (claude / opus).'),
+    ]);
+  });
+
+  it('parks a document the step-up worker could not pass either, never handing it over twice, and Resume keeps the step-up worker', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.verifier = fail;
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans', config: { maxRounds: 2 } });
+    await waitForRun(run.id);
+
+    const parked = coordinator.getRunDto(run.id)!.items[0];
+    expect(parked).toMatchObject({ state: 'parked', parkReason: 'round-limit', round: 2 });
+    expect(parked.detail).toMatch(/^Still failing after the step-up worker's 2 verification round\(s\): \[high, confidence 80\] Retry never resets\./);
+    expect(workers().map(steppedUp)).toEqual([false, true]);
+    expect(parentMessages(parent).filter((m) => m.includes('handed to the stronger worker'))).toHaveLength(1);
+
+    // James resumes it: the next worker is the step-up worker again.
+    fake.scripts.verifier = pass;
+    await coordinator.control({ action: 'resume-item', itemId: parked.id });
+    await waitForRun(run.id);
+    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'landed', steppedUpAt: parked.steppedUpAt });
+    expect(workers()).toHaveLength(3);
+    expect(workers()[2].config).toMatchObject({ provider: 'claude', modelOverride: 'opus' });
+    expect(steppedUp(workers()[2])).toBe(true);
+  });
+
+  it('parks as before when the run has no step-up choice', async () => {
+    savedRouting = { workers: [haiku], verifiers: [] };
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.verifier = fail;
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans', config: { maxRounds: 1 } });
+    await waitForRun(run.id);
+
+    const item = coordinator.getRunDto(run.id)!.items[0];
+    expect(item).toMatchObject({ state: 'parked', parkReason: 'round-limit', steppedUpAt: null });
+    expect(item.detail).toMatch(/^Still failing after 1 verification round\(s\)/);
+    expect(workers()).toHaveLength(1);
+  });
+
+  it.each([
+    ['verifier-unreliable', { verifier: (() => undefined) as Script }],
+    ['worker-error', { worker: ((instance, _message, f) => { f.setStatus(instance, 'error'); }) as Script }],
+  ])('never hands over a document parked as %s', async (reason, scripts) => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    Object.assign(fake.scripts, scripts);
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans', config: { maxRounds: 1 } });
+    await waitForRun(run.id);
+
+    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'parked', parkReason: reason, steppedUpAt: null });
+    expect(workers().some(steppedUp)).toBe(false);
+  });
+
+  it('starts the step-up worker after a restart that came between recording the handover and starting it', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.verifier = fail;
+    // The step-up worker's session never comes up before the app goes down.
+    const create = fake.createInstance.bind(fake);
+    fake.createInstance = (config) => (config.metadata?.['planQueueSteppedUp'] === true ? new Promise<never>(() => undefined) : create(config));
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans', config: { maxRounds: 1 } });
+    await vi.waitFor(() => {
+      const item = store.getItem(run.items[0].id)!;
+      if (item.state !== 'fixing' || !item.steppedUpAt) throw new Error(`item is ${item.state}`);
+    }, { timeout: 15_000, interval: 25 });
+    const recorded = store.getItem(run.items[0].id)!;
+    expect(recorded.workerInstanceId).toBeNull();
+
+    const next = await restart(null, { scripts: { verifier: fail } });
+    await waitForRun(run.id);
+
+    expect(workers(next)).toHaveLength(1);
+    expect(workers(next)[0].config).toMatchObject({ provider: 'claude', modelOverride: 'opus' });
+    expect(steppedUp(workers(next)[0])).toBe(true);
+    // It failed too, and there was no second handover.
+    const item = coordinator.getRunDto(run.id)!.items[0];
+    expect(item).toMatchObject({ state: 'parked', parkReason: 'round-limit', steppedUpAt: recorded.steppedUpAt });
+    expect(item.detail).toContain('the step-up worker\'s 1 verification round(s)');
+  });
+
+  it('holds a document paused while its step-up worker was starting, and Resume carries on with the step-up worker', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.verifier = failThenPass(1);
+    const create = fake.createInstance.bind(fake);
+    let paused = false;
+    fake.createInstance = async (config) => {
+      if (config.metadata?.['planQueueSteppedUp'] !== true || paused) return create(config);
+      paused = true;
+      // Pause lands while the new session is still coming up.
+      void coordinator.control({ action: 'pause', runId: config.metadata['planQueueRunId'] as string });
+      await vi.waitFor(() => { if (store.getRun(config.metadata!['planQueueRunId'] as string)!.status !== 'paused') throw new Error('not paused'); });
+      return create(config);
+    };
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans', config: { maxRounds: 1 } });
+    await vi.waitFor(() => {
+      const item = store.getItem(run.items[0].id)!;
+      if (!item.heldAt || !item.steppedUpAt) throw new Error(`item is ${item.state}`);
+    }, { timeout: 15_000, interval: 25 });
+    await coordinator._whenSettledForTesting();
+    // The session that came up during the pause was not leaked.
+    expect(workers().filter((w) => fake.live.has(w.id))).toEqual([]);
+    expect(store.getItem(run.items[0].id)!.pendingInstruction).toContain('An earlier, cheaper attempt did not pass');
+
+    await coordinator.control({ action: 'resume', runId: run.id });
+    await waitForRun(run.id);
+
+    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'landed' });
+    const resumed = workers().at(-1)!;
+    expect(resumed.config).toMatchObject({ provider: 'claude', modelOverride: 'opus' });
+    expect(steppedUp(resumed)).toBe(true);
+    expect(resumed.config.initialPrompt).toContain('An earlier, cheaper attempt did not pass after 1 verification round(s).');
+  });
+  it('parks a document whose step-up worker could not start, says so, and Resume tries the step-up worker again', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.verifier = failThenPass(1);
+    const create = fake.createInstance.bind(fake);
+    let refused = false;
+    fake.createInstance = async (config) => {
+      if (config.metadata?.['planQueueSteppedUp'] === true && !refused) { refused = true; throw new Error('CLI missing'); }
+      return create(config);
+    };
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans', config: { maxRounds: 1 } });
+    await waitForRun(run.id);
+
+    const parked = coordinator.getRunDto(run.id)!.items[0];
+    expect(parked).toMatchObject({ state: 'parked', parkReason: 'worker-error' });
+    expect(parked.steppedUpAt).toEqual(expect.any(Number));
+    const handover = parentMessages(parent).filter((m) => m.includes('handed to the stronger worker'));
+    expect(handover).toEqual([expect.stringContaining('That worker could not start, so the document is parked; Resume continues with the stronger worker.')]);
+    expect(handover[0]).not.toContain('more round(s)');
+
+    await coordinator.control({ action: 'resume-item', itemId: parked.id });
+    await waitForRun(run.id);
+    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'landed', steppedUpAt: parked.steppedUpAt });
+    expect(workers().at(-1)!.config).toMatchObject({ provider: 'claude', modelOverride: 'opus' });
   });
 });

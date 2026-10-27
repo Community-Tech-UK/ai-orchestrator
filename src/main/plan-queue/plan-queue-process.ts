@@ -31,12 +31,13 @@ export interface GroupRunResult {
   output: string;
 }
 
-export function runInProcessGroup(
+export async function runInProcessGroup(
   command: string,
   args: readonly string[],
-  options: { cwd: string; env: NodeJS.ProcessEnv; shell?: boolean; timeoutMs: number; outputTail: number; label: string },
+  options: { cwd: string; env: NodeJS.ProcessEnv; shell?: boolean; timeoutMs: number; outputTail: number; label: string; signal?: AbortSignal },
 ): Promise<GroupRunResult> {
-  return new Promise((resolve) => {
+  options.signal?.throwIfAborted();
+  const result = await new Promise<GroupRunResult>((resolve) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
@@ -62,6 +63,7 @@ export function runInProcessGroup(
       clearTimeout(timer);
       if (grace) clearTimeout(grace);
       if (settle) clearTimeout(settle);
+      options.signal?.removeEventListener('abort', aborted);
       unregister();
       resolve({ exitCode: result.exitCode, output: result.output.slice(-options.outputTail) });
     };
@@ -83,6 +85,12 @@ export function runInProcessGroup(
       output += `\n[plan queue] ${options.label} timed out after ${options.timeoutMs}ms`;
       killAndSettle();
     }, options.timeoutMs);
+    const aborted = (): void => {
+      output += `\n[plan queue] ${options.label} cancelled for pause`;
+      killAndSettle();
+    };
+    options.signal?.addEventListener('abort', aborted, { once: true });
+    if (options.signal?.aborted) aborted();
 
     child.on('exit', (code) => {
       exitCode = code ?? 1;
@@ -105,4 +113,7 @@ export function runInProcessGroup(
       finish({ exitCode: exitCode ?? code ?? 1, output });
     });
   });
+  // Abort is reported only after the owned process group has finished teardown.
+  options.signal?.throwIfAborted();
+  return result;
 }

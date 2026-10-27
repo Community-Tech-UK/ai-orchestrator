@@ -34,6 +34,7 @@ import type { StartupCapabilityReport } from '../../shared/types/startup-capabil
 import { FirstRunService } from './core/services/first-run.service';
 import { ScratchDirectoryService } from './core/services/scratch-directory.service';
 import { RemoteNodeStore } from './core/state/remote-node.store';
+import { TerminalDrawerStore } from './core/state/terminal-drawer.store';
 import { getControlSurface } from './shared/control-surface/control-surface-nav';
 import { RoleChoiceComponent } from './features/worker-mode/role-choice.component';
 import type { HarnessRole } from '../../shared/types/pair-both.types';
@@ -160,6 +161,7 @@ export class AppComponent implements OnInit, OnDestroy {
   private readonly remoteNodeStore = inject(RemoteNodeStore);
   private readonly appUpdateStore = inject(AppUpdateStore);
   private readonly localAiGuardStore = inject(LocalAiGuardStore);
+  protected readonly terminalDrawer = inject(TerminalDrawerStore);
 
   private menuListenerCleanup: (() => void) | null = null;
   private toolLoopListenerCleanup: (() => void) | null = null;
@@ -191,30 +193,15 @@ export class AppComponent implements OnInit, OnDestroy {
   });
 
   /**
-   * Always-visible title-bar chip: shown as soon as a capabilities report is
-   * available, regardless of status. The chip is green when healthy so /setup
-   * is always reachable even on a clean install.
+   * Title-bar chip that links to /setup. Hidden once every startup check is
+   * ready: a healthy start needs no attention.
    */
-  protected readonly startupStatusChipReport = computed(() => this.startupCapabilities());
+  protected readonly startupStatusChipReport = computed(() => {
+    const report = this.startupCapabilities();
+    return report && report.status !== 'ready' ? report : null;
+  });
 
   protected readonly resumeToast = signal<ResumeEvent | null>(null);
-
-  /** C2: remote-terminal drawer visibility (xterm.js ⇄ node-pty on a worker). */
-  protected readonly terminalOpen = signal(false);
-
-  /**
-   * The remote-terminal feature is useless without a connected worker node — the
-   * drawer auto-picks the only connected node and refuses to open otherwise. So
-   * only surface the title-bar toggle when at least one worker is connected. An
-   * already-open drawer keeps its toggle so it can always be closed again.
-   */
-  protected readonly showRemoteTerminalButton = computed(
-    () => this.remoteNodeStore.connectedNodes().length > 0 || this.terminalOpen(),
-  );
-
-  protected toggleTerminal(): void {
-    this.terminalOpen.update((open) => !open);
-  }
 
   protected async selectHarnessRole(role: Exclude<HarnessRole, 'unset'>): Promise<void> {
     await this.settingsStore.set('workerMode', {
@@ -280,8 +267,8 @@ export class AppComponent implements OnInit, OnDestroy {
     void this.usageStore.init();
     void this.promptHistoryStore.init();
     void this.scratchDirectory.init();
-    // Populate worker-node state up front: the title bar (always mounted) gates
-    // the Remote Terminal toggle on a connected worker. initialize() is idempotent.
+    // Populate worker-node state up front: the workspace rail gates the Remote
+    // Terminal toggle on a connected worker. initialize() is idempotent.
     void this.remoteNodeStore.initialize();
     void this.appUpdateStore.init();
     void this.localAiGuardStore.initialize();

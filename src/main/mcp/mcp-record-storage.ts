@@ -1,5 +1,6 @@
 import type { SqliteDriver } from '../db/sqlite-driver';
 import type { EncryptedSecret, McpSecretStorage } from './secret-storage';
+import { ensureConnectorStorage } from './connector-storage';
 import { SecretClassifier } from './secret-classifier';
 
 export interface SecretRecordStorageParts {
@@ -115,6 +116,7 @@ export function ensureMcpTables(db: SqliteDriver): void {
     'headers_secrets_encrypted_json',
     'headers_secrets_encrypted_json TEXT',
   );
+  ensureConnectorStorage(db);
 }
 
 function ensureColumn(db: SqliteDriver, table: string, column: string, definition: string): void {

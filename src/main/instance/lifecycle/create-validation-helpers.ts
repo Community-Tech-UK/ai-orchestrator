@@ -6,6 +6,7 @@ import {
 } from '../../../shared/types/provider.types';
 import type { InstanceCreateConfig } from '../../../shared/types/instance.types';
 import { getLogger } from '../../logging/logger';
+import { listCopilotModelsAcrossProfiles } from '../../providers/copilot-profile-model-discovery';
 
 const logger = getLogger('InstanceLifecycle');
 
@@ -15,13 +16,15 @@ const logger = getLogger('InstanceLifecycle');
  * snapshot is authoritative when populated; static provider lists are only the
  * offline/no-snapshot fallback.
  *
- * Copilot and Cursor expose their real model list only at runtime
- * (`<cli> --list-models`), and our static `PROVIDER_MODEL_LIST` entry for them
+ * Copilot and Cursor expose their real model list only at runtime, and our
+ * static `PROVIDER_MODEL_LIST` entry for them
  * is just a small curated fallback. Validating against that static subset would
  * silently reset any non-curated-but-valid live model (e.g. a Cursor
  * `composer-2.5-fast`) to the provider default — so for these providers we
  * query the CLI dynamically (results are cached in the adapter), falling back to
- * the static list only when the CLI is unreachable.
+ * the static list only when the CLI is unreachable. Without a resolved Copilot
+ * profile, use the same routed profile union as the picker: an accountless
+ * adapter only reads the CLI build's help roster and misses live-only models.
  */
 export async function getKnownModelsForCli(
   cliType: string,
@@ -33,9 +36,9 @@ export async function getKnownModelsForCli(
   const catalogIds = getKnownCatalogModelIdsForProvider(cliType);
   if (cliType === 'copilot') {
     try {
-      const models = await new CopilotCliAdapter(
-        copilotAccountProfileId ? { accountProfileId: copilotAccountProfileId } : {},
-      ).listAvailableModels();
+      const models = copilotAccountProfileId
+        ? await new CopilotCliAdapter({ accountProfileId: copilotAccountProfileId }).listAvailableModels()
+        : await listCopilotModelsAcrossProfiles();
       return mergeModelIds(models.map(model => model.id), catalogIds);
     } catch (error) {
       logger.warn('Falling back to static Copilot model list during validation', {

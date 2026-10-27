@@ -34,7 +34,6 @@ export * from './conversation-ledger.types';
 export * from './operator.types';
 export * from './mcp-scopes.types';
 export * from './mcp-orchestrator.types';
-export * from './mcp-shared.types';
 export * from './mcp-dtos.types';
 export * from './provider-doctor.types';
 export * from './copilot-account.types';

@@ -21,6 +21,7 @@ export const GlobalPauseEntrySchema = z.object({
 });
 export const GlobalPauseStateSchema = z.object({
   phase: GlobalPausePhaseSchema,
+  collectionStage: z.enum(['stopping-work', 'writing-notes']).optional(),
   since: z.number().nullable(),
   reason: z.string().nullable(),
   batchId: z.string().nullable(),

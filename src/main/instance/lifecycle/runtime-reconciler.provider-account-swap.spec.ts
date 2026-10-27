@@ -42,7 +42,11 @@ function profile(provider: PooledProvider, id: string, priority = 0): ProviderAc
   };
 }
 
-function harness(overrides: Partial<Instance> = {}, profiles = [profile('codex', 'example-codex')]) {
+function harness(
+  overrides: Partial<Instance> = {},
+  profiles = [profile('codex', 'example-codex')],
+  settings: Partial<ReturnType<RuntimeReconcilerDeps['getSettings']>> = {},
+) {
   const instance = {
     id: 'example-instance', status: 'error', provider: 'opencode',
     currentModel: 'xiaomi-token-plan-ams/mimo-v2.6-pro',
@@ -79,7 +83,7 @@ function harness(overrides: Partial<Instance> = {}, profiles = [profile('codex',
     // Keep the executing lifecycle's account preflight and stamping real.
     const resolved = await attachAccountRoute(cliType, options, instance.accountRouteOrigin ?? 'interactive', {
       persistedProfileId: persistedAccountProfileId(instance, options.resume),
-      restrictTo: instance.allowedAccountProfileIds, routingService: routing,
+      restrictTo: instance.allowedAccountProfileIds, preferences: instance.accountPreferences, routingService: routing,
     });
     stampAccountRouteOnInstance(instance, resolved);
     routed.push(resolved);
@@ -99,7 +103,7 @@ function harness(overrides: Partial<Instance> = {}, profiles = [profile('codex',
     buildFallbackHistory: async () => 'Example fallback continuity',
     emitModelSelectionDegradation: vi.fn(), emitSystemNotice: vi.fn(),
     emitRuntimeChanged: vi.fn(), emitYoloToggled: vi.fn(),
-    getSettings: () => ({ defaultCli: 'auto' } as ReturnType<RuntimeReconcilerDeps['getSettings']>),
+    getSettings: () => ({ defaultCli: 'auto', ...settings } as ReturnType<RuntimeReconcilerDeps['getSettings']>),
     spawnConfigBuilder: {
       getMcpConfig: () => undefined, getChromeDevtoolsMcpOptions: () => undefined,
       getBrowserGatewayMcpOptions: () => undefined, getPermissionHookPath: () => undefined,
@@ -195,5 +199,53 @@ describe('provider swaps scope account profiles to the destination', () => {
     await expect(h.reconciler.applyRuntimeChange(h.instance.id, { provider: 'codex', model: 'gpt-6-sol' })).rejects.toMatchObject({ code: 'automation-disallowed' });
     expect(h.instance.accountRouteOrigin).toBe('automation');
     expect(h.instance.accountProfileId).toBe('example-mimo');
+  });
+
+  describe('never-use and use-last lists', () => {
+    const rules = { planQueueAccountRules: { never: [{ provider: 'codex' as const, accountId: 'example-codex' }], last: [] } };
+    const codexPool = [profile('codex', 'example-codex'), profile('codex', 'example-codex-b', 1)];
+
+    it('gives a session that carries lists the destination provider\'s lists, so it avoids its never-use account', async () => {
+      const h = harness({ accountPreferences: { avoid: [], last: [] } }, codexPool, rules);
+      await h.reconciler.applyRuntimeChange(h.instance.id, { provider: 'codex', model: 'gpt-6-sol' });
+      expect(h.instance.accountPreferences).toEqual({ avoid: ['example-codex'], last: [] });
+      expect(h.instance.accountProfileId).toBe('example-codex-b');
+      // Saved too, so a wake does not bring back the old provider's lists.
+      expect(h.snapshot.accountPreferences).toEqual({ avoid: ['example-codex'], last: [] });
+    });
+
+    it('gives back the source provider\'s lists, from the rules as they are now, when the destination spawn fails', async () => {
+      const current = { planQueueAccountRules: { ...rules.planQueueAccountRules,
+        never: [...rules.planQueueAccountRules.never, { provider: 'opencode' as const, accountId: 'example-other-mimo' }] } };
+      const h = harness({ accountPreferences: { avoid: [], last: [] } }, codexPool, current);
+      vi.mocked(h.adapter.spawn).mockRejectedValue(new Error('Example spawn failure'));
+      await expect(h.reconciler.applyRuntimeChange(h.instance.id, { provider: 'codex', model: 'gpt-6-sol' })).rejects.toThrow('Example spawn failure');
+      expect(h.instance.accountPreferences).toEqual({ avoid: ['example-other-mimo'], last: [] });
+      expect(h.snapshot.accountPreferences).toBeUndefined();
+    });
+
+    it('keeps a rule change made during a failed account-only switch', async () => {
+      const h = harness({ provider: 'codex', status: 'idle', currentModel: 'gpt-6-sol', accountProfileId: 'example-codex',
+        accountPreferences: { avoid: [], last: [] } }, codexPool, rules);
+      const construct = h.createRuntimeAdapter.getMockImplementation();
+      if (!construct) throw new Error('Missing adapter construction fixture');
+      h.createRuntimeAdapter.mockImplementationOnce(async (cliType, options) => {
+        h.instance.accountPreferences = { avoid: ['example-codex'], last: [] };
+        await construct(cliType, options);
+        throw new Error('Example construction failure');
+      });
+      await expect(h.reconciler.applyRuntimeChange(h.instance.id, {
+        provider: 'codex', model: 'gpt-6-sol', accountProfileId: 'example-codex-b', accountHandoffKind: 'failover',
+      })).rejects.toThrow('Example construction failure');
+      expect(h.instance.accountProfileId).toBe('example-codex');
+      expect(h.instance.accountPreferences).toEqual({ avoid: ['example-codex'], last: [] });
+    });
+
+    it('leaves a session that carries no lists without them', async () => {
+      const h = harness({}, codexPool, rules);
+      await h.reconciler.applyRuntimeChange(h.instance.id, { provider: 'codex', model: 'gpt-6-sol' });
+      expect(h.instance.accountPreferences).toBeUndefined();
+      expect(h.instance.accountProfileId).toBe('example-codex');
+    });
   });
 });

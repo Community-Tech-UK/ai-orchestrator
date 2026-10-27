@@ -1,21 +1,25 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, Injector, OnInit, computed, effect, inject, input, signal, untracked } from '@angular/core';
-import { DEFAULT_PLAN_QUEUE_ROUTING, type PlanQueueRouteChoice, type PlanQueueRouting, type PlanQueueRunDto } from '@contracts/schemas/plan-queue';
+import { DEFAULT_PLAN_QUEUE_ACCOUNT_RULES, DEFAULT_PLAN_QUEUE_ROUTING, type PlanQueueRouteChoice, type PlanQueueRouting, type PlanQueueRunDto } from '@contracts/schemas/plan-queue';
 import { sameFamily } from '../../../../../shared/models/model-family';
 import { sameProviderCheckerCanDiffer } from '../../../../../shared/models/multi-maker-providers';
 import { AUTOMATION_PROVIDER_DEFINITIONS } from '../../../../../shared/types/automation-provider.types';
 import { isLogicalMiMoModel, isPooledProvider } from '../../../../../shared/types/provider-account.types';
+import { getModelsForProvider } from '../../../../../shared/types/provider.types';
 import { REMOTE_REVIEWER_PROVIDER_DEFINITIONS } from '../../../../../shared/types/reviewer-provider.types';
 import { upgradePlanQueueRouting } from '../../../../../shared/utils/plan-queue-routing-upgrade';
 import { CopilotAccountIpcService, type CopilotAccountView } from '../../../core/services/ipc/copilot-account-ipc.service';
 import { ProviderAccountIpcService, type ProviderAccountView } from '../../../core/services/ipc/provider-account-ipc.service';
 import { PlanQueueStore } from '../../../core/state/plan-queue.store';
 import { SettingsStore } from '../../../core/state/settings.store';
+import { UnifiedCatalogStore } from '../../models/unified-catalog.store';
 
 /** Most worker or checker rows the main process accepts. */
 export const PLAN_QUEUE_MAX_CHOICES = 10;
 const MAX_MODEL_LENGTH = 200;
 const NEVER_AUTO_PICK_NOTE = 'on your never-auto-pick list';
+const NEVER_USE_NOTE = 'on your never-use list';
+const USE_LAST_NOTE = 'use last';
 
 /** One provider/account choice as the user is editing it (nothing stripped yet). */
 interface RouteDraft {
@@ -26,9 +30,10 @@ interface RouteDraft {
   readonly copilotProfileId: string;
 }
 
-type RouteList = 'workers' | 'checkers';
+type RouteList = 'workers' | 'checkers' | 'stepUp';
 type WorkerMode = 'same' | 'list';
 type CheckerMode = 'auto' | 'manual';
+type StepUpMode = 'stop' | 'handover';
 
 export interface PlanQueueProviderOption {
   readonly id: string;
@@ -42,6 +47,8 @@ export interface PlanQueueAccountRow {
   readonly label: string;
   readonly checked: boolean;
   readonly disabled: boolean;
+  /** True when the account cannot be used, so the row is drawn greyed (a "use last" note is not greyed). */
+  readonly off: boolean;
   readonly note: string | null;
 }
 
@@ -50,6 +57,12 @@ export interface PlanQueueCopilotOption {
   readonly label: string;
   readonly disabled: boolean;
   readonly note: string | null;
+}
+
+/** A known model for the chosen provider, offered as a suggestion in the model box. */
+export interface PlanQueueModelOption {
+  readonly id: string;
+  readonly label: string;
 }
 
 /** Everything the template needs to draw one provider/model/account editor. */
@@ -61,6 +74,9 @@ interface RouteView {
   readonly key: number;
   readonly draft: RouteDraft;
   readonly providerOptions: PlanQueueProviderOption[];
+  /** Ties the model box to its suggestion list; unique on the page. */
+  readonly modelListId: string;
+  readonly modelOptions: PlanQueueModelOption[];
   readonly pooled: boolean;
   readonly accountRows: PlanQueueAccountRow[];
   readonly accountsNote: string | null;
@@ -117,7 +133,7 @@ function eventChecked(event: Event): boolean {
 
 /**
  * Which providers and accounts Plan Queue workers and checkers may use, each
- * as a ranked list. Edits a draft of the saved `planQueueRouting` setting (or
+ * as a ranked list, and the stronger worker a stuck document is handed to. Edits a draft of the saved `planQueueRouting` setting (or
  * one run's routing) and mirrors the checks the main process makes when a run
  * starts, so nothing refusable can be saved.
  */
@@ -142,6 +158,7 @@ export class PlanQueueRoutingPanelComponent implements OnInit {
   private readonly settingsStore = inject(SettingsStore);
   private readonly providerAccountIpc = inject(ProviderAccountIpcService);
   private readonly copilotAccountIpc = inject(CopilotAccountIpcService);
+  private readonly modelCatalog = inject(UnifiedCatalogStore);
 
   protected readonly maxChoices = PLAN_QUEUE_MAX_CHOICES;
 
@@ -154,6 +171,9 @@ export class PlanQueueRoutingPanelComponent implements OnInit {
   private readonly workerDrafts = signal<RouteDraft[]>([]);
   private readonly checkerMode = signal<CheckerMode>('auto');
   private readonly checkerDrafts = signal<RouteDraft[]>([]);
+  private readonly stepUpMode = signal<StepUpMode>('stop');
+  /** At most one entry: the step-up choice. */
+  private readonly stepUpDrafts = signal<RouteDraft[]>([]);
 
   private readonly accounts = signal<ProviderAccountView[]>([]);
   private readonly copilotAccounts = signal<CopilotAccountView[]>([]);
@@ -165,6 +185,7 @@ export class PlanQueueRoutingPanelComponent implements OnInit {
 
   protected readonly isWorkerList = computed(() => this.workerMode() === 'list');
   protected readonly isCheckerManual = computed(() => this.checkerMode() === 'manual');
+  protected readonly isStepUp = computed(() => this.stepUpMode() === 'handover');
 
   private readonly saved = computed<PlanQueueRouting>(() => {
     // An older build sharing the settings file can write the single-worker shape back.
@@ -175,6 +196,8 @@ export class PlanQueueRoutingPanelComponent implements OnInit {
       verifiers: [],
     };
   });
+  /** The live account rules, so greying matches what is saved (and what the queue enforces). */
+  private readonly accountRules = computed(() => this.settingsStore.settings().planQueueAccountRules ?? DEFAULT_PLAN_QUEUE_ACCOUNT_RULES);
   // Only the current run's explicit relaxation bypasses exclusions; saved defaults still enforce them.
   private readonly excludedProviders = computed(() => {
     if (this.mode() === 'run' && this.run()?.config.relaxSettings) return new Set<string>();
@@ -182,13 +205,18 @@ export class PlanQueueRoutingPanelComponent implements OnInit {
   });
 
   /** The value that would be saved right now (empty optional fields stripped). */
-  protected readonly cleaned = computed<PlanQueueRouting>(() => ({
-    workers: this.workerMode() === 'list' ? this.workerDrafts().map(cleanChoice) : [],
-    verifiers: this.checkerMode() === 'manual' ? this.checkerDrafts().map(cleanChoice) : [],
-  }));
+  protected readonly cleaned = computed<PlanQueueRouting>(() => {
+    const stepUp = this.stepUpMode() === 'handover' ? this.stepUpDrafts()[0] : undefined;
+    return {
+      workers: this.workerMode() === 'list' ? this.workerDrafts().map(cleanChoice) : [],
+      verifiers: this.checkerMode() === 'manual' ? this.checkerDrafts().map(cleanChoice) : [],
+      ...(stepUp ? { stepUp: cleanChoice(stepUp) } : {}),
+    };
+  });
 
   protected readonly workerViews = computed<RouteView[]>(() => this.workerMode() === 'list' ? this.buildViews('workers') : []);
   protected readonly checkerViews = computed<RouteView[]>(() => this.checkerMode() === 'manual' ? this.buildViews('checkers') : []);
+  protected readonly stepUpViews = computed<RouteView[]>(() => this.stepUpMode() === 'handover' ? this.buildViews('stepUp') : []);
 
   protected readonly workerListErrors = computed<string[]>(() => this.workerMode() === 'list' && this.workerDrafts().length === 0
     ? [`Add at least one worker choice, or choose "Same as the session that ${this.mode() === 'run' ? 'started' : 'starts'} the run".`]
@@ -211,11 +239,31 @@ export class PlanQueueRoutingPanelComponent implements OnInit {
     return [`Every checker uses ${workers[stuck].provider}, like ${like}, without a model from a different maker, so nothing could check the work. Add a checker on another provider, or give one a model from a different maker (on OpenCode, also name the workers' model).`];
   });
 
+  protected readonly stepUpErrors = computed<string[]>(() => {
+    const stepUp = this.stepUpMode() === 'handover' ? this.stepUpDrafts()[0] : undefined;
+    if (!stepUp) return [];
+    const errors: string[] = [];
+    const workers = this.workerMode() === 'list' ? this.workerDrafts() : [];
+    const only = workers.length === 1 ? workers[0] : undefined;
+    if (only && runsAs(only.provider) === runsAs(stepUp.provider) && only.model.trim() === stepUp.model.trim()) {
+      errors.push('This is the same as the worker, so handing over would change nothing.');
+    }
+    // Mirrors the main process: a chosen checker list must be able to judge the stronger worker too.
+    const checkers = this.checkerMode() === 'manual' ? this.checkerDrafts() : [];
+    if (checkers.length > 0 && !checkers.some((checker) => runsAs(checker.provider) !== runsAs(stepUp.provider)
+      || sameProviderCheckerCanDiffer(runsAs(stepUp.provider), checker.model.trim() || undefined, stepUp.model.trim(), (a, b) => !sameFamily(a, b)))) {
+      errors.push(`Every checker uses ${stepUp.provider}, like the stronger worker, without a model from a different maker, so nothing could check its work. Add a checker on another provider, or choose a stronger worker on another provider.`);
+    }
+    return errors;
+  });
+
   protected readonly valid = computed(() =>
     this.workerViews().every((view) => view.errors.length === 0)
     && this.checkerViews().every((view) => view.errors.length === 0)
+    && this.stepUpViews().every((view) => view.errors.length === 0)
     && this.workerListErrors().length === 0
-    && this.checkerListErrors().length === 0,
+    && this.checkerListErrors().length === 0
+    && this.stepUpErrors().length === 0,
   );
   protected readonly dirty = computed(
     () => JSON.stringify(this.cleaned()) !== JSON.stringify(this.normalise(this.saved())),
@@ -246,6 +294,7 @@ export class PlanQueueRoutingPanelComponent implements OnInit {
 
   ngOnInit(): void {
     void this.loadAccounts();
+    this.modelCatalog.ensureLoaded();
   }
 
   /** Loads the Claude/Codex/OpenCode pools and the Copilot accounts. Never throws. */
@@ -284,21 +333,29 @@ export class PlanQueueRoutingPanelComponent implements OnInit {
     this.status.set(null);
   }
 
+  setStepUpMode(mode: StepUpMode): void {
+    this.stepUpMode.set(mode);
+    if (mode === 'handover' && this.stepUpDrafts().length === 0) {
+      this.stepUpDrafts.set([emptyDraft(this.nextKey++, this.firstAllowedProvider('stepUp'))]);
+    }
+    this.status.set(null);
+  }
+
   // ---- Ranked lists ----
 
-  addChoice(list: RouteList): void {
+  addChoice(list: 'workers' | 'checkers'): void {
     if (!(list === 'workers' ? this.canAddWorker() : this.canAddChecker())) return;
     const provider = this.firstAllowedProvider(list);
     this.drafts(list).update((drafts) => [...drafts, emptyDraft(this.nextKey++, provider)]);
     this.status.set(null);
   }
 
-  removeChoice(list: RouteList, index: number): void {
+  removeChoice(list: 'workers' | 'checkers', index: number): void {
     this.drafts(list).update((drafts) => drafts.filter((_, i) => i !== index));
     this.status.set(null);
   }
 
-  moveChoice(list: RouteList, index: number, delta: -1 | 1): void {
+  moveChoice(list: 'workers' | 'checkers', index: number, delta: -1 | 1): void {
     const target = index + delta;
     this.drafts(list).update((drafts) => {
       if (target < 0 || target >= drafts.length) return drafts;
@@ -390,6 +447,7 @@ export class PlanQueueRoutingPanelComponent implements OnInit {
     return {
       workers: routing.workers.map((choice, index) => cleanChoice(this.draftFromChoice(index, choice))),
       verifiers: routing.verifiers.map((choice, index) => cleanChoice(this.draftFromChoice(index, choice))),
+      ...(routing.stepUp ? { stepUp: cleanChoice(this.draftFromChoice(0, routing.stepUp)) } : {}),
     };
   }
 
@@ -408,10 +466,12 @@ export class PlanQueueRoutingPanelComponent implements OnInit {
     this.workerDrafts.set(routing.workers.map((choice) => this.draftFromChoice(this.nextKey++, choice)));
     this.checkerMode.set(routing.verifiers.length > 0 ? 'manual' : 'auto');
     this.checkerDrafts.set(routing.verifiers.map((choice) => this.draftFromChoice(this.nextKey++, choice)));
+    this.stepUpMode.set(routing.stepUp ? 'handover' : 'stop');
+    this.stepUpDrafts.set(routing.stepUp ? [this.draftFromChoice(this.nextKey++, routing.stepUp)] : []);
   }
 
   private drafts(list: RouteList) {
-    return list === 'workers' ? this.workerDrafts : this.checkerDrafts;
+    return list === 'workers' ? this.workerDrafts : list === 'checkers' ? this.checkerDrafts : this.stepUpDrafts;
   }
 
   private patchDraft(list: RouteList, index: number, patch: Partial<RouteDraft>): void {
@@ -421,13 +481,13 @@ export class PlanQueueRoutingPanelComponent implements OnInit {
 
   private firstAllowedProvider(list: RouteList): string {
     const excluded = this.excludedProviders();
-    const definitions = list === 'workers' ? AUTOMATION_PROVIDER_DEFINITIONS : REMOTE_REVIEWER_PROVIDER_DEFINITIONS;
+    const definitions = list === 'checkers' ? REMOTE_REVIEWER_PROVIDER_DEFINITIONS : AUTOMATION_PROVIDER_DEFINITIONS;
     return definitions.find((def) => !excluded.has(def.id) && !excluded.has(runsAs(def.id)))?.id ?? definitions[0].id;
   }
 
   private providerOptions(list: RouteList, current: string): PlanQueueProviderOption[] {
     const excluded = this.excludedProviders();
-    const definitions = list === 'workers' ? AUTOMATION_PROVIDER_DEFINITIONS : REMOTE_REVIEWER_PROVIDER_DEFINITIONS;
+    const definitions = list === 'checkers' ? REMOTE_REVIEWER_PROVIDER_DEFINITIONS : AUTOMATION_PROVIDER_DEFINITIONS;
     const options: PlanQueueProviderOption[] = definitions.map((def) => {
       // Every queue session is automatic work, so the list applies to workers too,
       // under both the id shown and the CLI it runs as (gemini runs as antigravity).
@@ -446,6 +506,21 @@ export class PlanQueueRoutingPanelComponent implements OnInit {
     return options;
   }
 
+  /** The provider's known models (the shared catalog, or the built-in list until it loads). */
+  private modelOptions(provider: string): PlanQueueModelOption[] {
+    const id = runsAs(provider);
+    const catalog = this.modelCatalog.displayModelsForProvider(id);
+    return (catalog.length > 0 ? catalog : getModelsForProvider(id)).map((model) => ({ id: model.id, label: model.name }));
+  }
+
+  /** Why an account cannot be ticked or picked, plus the harmless "use last" label. */
+  private ruleNotes(provider: string, accountId: string): { blocked: string | null; label: string | null } {
+    const rules = this.accountRules();
+    const matches = (ref: { provider: string; accountId: string }) => ref.provider === provider && ref.accountId === accountId;
+    if (rules.never.some(matches)) return { blocked: NEVER_USE_NOTE, label: null };
+    return { blocked: null, label: rules.last.some(matches) ? USE_LAST_NOTE : null };
+  }
+
   private buildViews(list: RouteList): RouteView[] {
     const drafts = this.drafts(list)();
     return drafts.map((draft, index) => this.buildView(list, draft, index, drafts.length));
@@ -455,7 +530,7 @@ export class PlanQueueRoutingPanelComponent implements OnInit {
     const errors: string[] = [];
     const providerOptions = this.providerOptions(list, draft.provider);
     const chosen = providerOptions.find((option) => option.id === draft.provider);
-    const role = list === 'workers' ? `worker choice ${index + 1}` : `checker ${index + 1}`;
+    const role = list === 'workers' ? `worker choice ${index + 1}` : list === 'checkers' ? `checker ${index + 1}` : 'stronger worker';
     if (!chosen || chosen.note === 'not available') {
       errors.push(`The ${role} provider is not available.`);
     } else if (chosen.disabled) {
@@ -473,19 +548,21 @@ export class PlanQueueRoutingPanelComponent implements OnInit {
       for (const profile of this.accounts().filter((p) => p.provider === draft.provider)) {
         known.add(profile.id);
         const checked = draft.accountIds.includes(profile.id);
-        const reason = ineligibleReason(profile.enabled, profile.automationPolicy);
+        const rule = this.ruleNotes(draft.provider, profile.id);
+        const reason = ineligibleReason(profile.enabled, profile.automationPolicy) ?? rule.blocked;
         accountRows.push({
           id: profile.id,
           label: profile.label,
           checked,
           disabled: reason !== null && !checked,
-          note: reason,
+          off: reason !== null,
+          note: reason ?? rule.label,
         });
         if (reason !== null && checked) errors.push(`The ${role} account "${profile.label}" is ${reason}. Untick it.`);
       }
       if (this.accountsLoaded()) {
         for (const id of draft.accountIds.filter((accountId) => !known.has(accountId))) {
-          accountRows.push({ id, label: `Unknown account (${id})`, checked: true, disabled: false, note: 'no longer exists' });
+          accountRows.push({ id, label: `Unknown account (${id})`, checked: true, disabled: false, off: true, note: 'no longer exists' });
           errors.push(`The ${role} uses an account that no longer exists. Untick it.`);
         }
         if (accountRows.length === 0) accountsNote = 'No accounts are set up for this provider.';
@@ -501,8 +578,9 @@ export class PlanQueueRoutingPanelComponent implements OnInit {
     const copilotOptions: PlanQueueCopilotOption[] = [];
     if (isCopilot) {
       for (const profile of this.copilotAccounts()) {
-        const reason = ineligibleReason(true, profile.automationPolicy);
-        copilotOptions.push({ id: profile.id, label: profile.label, disabled: reason !== null, note: reason });
+        const rule = this.ruleNotes('copilot', profile.id);
+        const reason = ineligibleReason(true, profile.automationPolicy) ?? rule.blocked;
+        copilotOptions.push({ id: profile.id, label: profile.label, disabled: reason !== null, note: reason ?? rule.label });
         if (reason !== null && draft.copilotProfileId === profile.id) {
           errors.push(`The ${role} Copilot account "${profile.label}" is ${reason}. Pick another.`);
         }
@@ -518,10 +596,12 @@ export class PlanQueueRoutingPanelComponent implements OnInit {
     return {
       list,
       index,
-      groupLabel: `${list === 'workers' ? 'Worker choice' : 'Checker'} ${index + 1}`,
+      groupLabel: list === 'stepUp' ? 'Stronger worker' : `${list === 'workers' ? 'Worker choice' : 'Checker'} ${index + 1}`,
       key: draft.key,
       draft,
       providerOptions,
+      modelListId: `pq-routing-models${this.radioSuffix()}-${draft.key}`,
+      modelOptions: this.modelOptions(draft.provider),
       pooled,
       accountRows,
       accountsNote,

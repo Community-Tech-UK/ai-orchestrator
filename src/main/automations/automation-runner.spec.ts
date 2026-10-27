@@ -4,6 +4,7 @@ import type { Automation, AutomationRun } from '../../shared/types/automation.ty
 import type { InstanceManager } from '../instance/instance-manager';
 import type { AutomationStore } from './automation-store';
 import { AutomationRunner } from './automation-runner';
+import { pauseConsults } from '../work-admission/consult-admission';
 
 vi.mock('electron', () => ({
   app: {
@@ -14,6 +15,9 @@ vi.mock('electron', () => ({
 vi.mock('../plugins/hook-emitter', () => ({
   emitPluginHook: vi.fn(),
 }));
+// The account rules read settings; their own spec covers them. Tests that set rules inject a resolver.
+const accountRules = vi.hoisted(() => ({ automationAccountPreferences: vi.fn(async (): Promise<unknown> => undefined) }));
+vi.mock('./automation-account-rules', () => accountRules);
 
 vi.mock('../channels/channel-manager', () => ({
   getChannelManager: () => ({
@@ -513,6 +517,148 @@ describe('AutomationRunner thread wakeups', () => {
       provider: 'claude',
       modelOverride: 'opus[1m]',
     }));
+  });
+
+  it('starts a fresh session with the never-use and use-last lists for its provider', async () => {
+    const automation = makeAutomation({
+      destination: { kind: 'newInstance' },
+      action: { prompt: 'Do the thing', workingDirectory: '/repo/current', provider: 'claude', forceNodeId: 'windows-pc' },
+    });
+    const run = makeRun();
+    run.configSnapshot = { ...run.configSnapshot!, destination: { kind: 'newInstance' }, action: automation.action };
+    vi.mocked(store.get).mockResolvedValue(automation);
+    vi.mocked(store.decideAndInsertRun).mockReturnValue({ kind: 'started', run });
+    manager.createInstance.mockResolvedValue({ id: 'instance-rules', outputBuffer: [], status: 'working' });
+    const accountPreferences = vi.fn(async () => ({ avoid: ['suas'], last: ['spare'] }));
+    const runner = new AutomationRunner(
+      store, undefined, () => 2_000, threadWakeupFactory, undefined, undefined,
+      () => ({ automationDefaultCli: 'auto', automationDefaultModel: '', modelPickerFavorites: [] }),
+      () => false, undefined, accountPreferences,
+    );
+    runner.initialize(manager);
+
+    await runner.fire('automation-1', { trigger: 'scheduled', scheduledAt: 2_000 });
+
+    expect(accountPreferences).toHaveBeenCalledWith({ provider: 'claude', modelOverride: undefined }, 'windows-pc');
+    expect(manager.createInstance).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'claude',
+      accountPreferences: { avoid: ['suas'], last: ['spare'] },
+    }));
+  });
+
+  it('reads the lists through the account-rules module when no resolver is given', async () => {
+    const retryRun = makeRun();
+    retryRun.attempt = 2;
+    retryRun.configSnapshot = {
+      ...retryRun.configSnapshot!,
+      destination: { kind: 'newInstance' },
+      action: { prompt: 'Retry me', workingDirectory: '/repo/current', provider: 'codex' },
+    };
+    manager.createInstance.mockResolvedValue({ id: 'instance-default-rules', outputBuffer: [], status: 'working' });
+    accountRules.automationAccountPreferences.mockResolvedValueOnce({ avoid: ['pro-1'], last: [] });
+    const runner = new AutomationRunner(
+      store, undefined, () => 2_000, threadWakeupFactory, undefined, undefined,
+      () => ({ automationDefaultCli: 'auto', automationDefaultModel: '', modelPickerFavorites: [] }),
+    );
+    runner.initialize(manager);
+
+    await runner.dispatchRetryRun(retryRun);
+
+    expect(manager.createInstance).toHaveBeenCalledWith(expect.objectContaining({ accountPreferences: { avoid: ['pro-1'], last: [] } }));
+  });
+
+  it('applies the lists as they are when a retry starts', async () => {
+    const retryRun = makeRun();
+    retryRun.attempt = 2;
+    retryRun.configSnapshot = {
+      ...retryRun.configSnapshot!,
+      destination: { kind: 'newInstance' },
+      action: { prompt: 'Retry me', workingDirectory: '/repo/current', provider: 'codex' },
+    };
+    manager.createInstance.mockResolvedValue({ id: 'instance-retry-rules', outputBuffer: [], status: 'working' });
+    const runner = new AutomationRunner(
+      store, undefined, () => 2_000, threadWakeupFactory, undefined, undefined,
+      () => ({ automationDefaultCli: 'auto', automationDefaultModel: '', modelPickerFavorites: [] }),
+      () => false, undefined, async () => ({ avoid: [], last: ['pro-2'] }),
+    );
+    runner.initialize(manager);
+
+    await runner.dispatchRetryRun(retryRun);
+
+    expect(manager.createInstance).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'codex',
+      accountPreferences: { avoid: [], last: ['pro-2'] },
+    }));
+  });
+
+  it('starts a session without account lists when no rule names its provider\'s accounts', async () => {
+    const retryRun = makeRun();
+    retryRun.attempt = 2;
+    retryRun.configSnapshot = {
+      ...retryRun.configSnapshot!,
+      destination: { kind: 'newInstance' },
+      action: { prompt: 'Retry me', workingDirectory: '/repo/current', provider: 'codex' },
+    };
+    manager.createInstance.mockResolvedValue({ id: 'instance-no-rules', outputBuffer: [], status: 'working' });
+    const runner = new AutomationRunner(
+      store, undefined, () => 2_000, threadWakeupFactory, undefined, undefined,
+      () => ({ automationDefaultCli: 'auto', automationDefaultModel: '', modelPickerFavorites: [] }),
+      () => false, undefined, async () => undefined,
+    );
+    runner.initialize(manager);
+
+    await runner.dispatchRetryRun(retryRun);
+
+    expect(manager.createInstance).toHaveBeenCalledTimes(1);
+    expect(manager.createInstance.mock.calls[0]![0]).not.toHaveProperty('accountPreferences');
+  });
+
+  it('fails the run with the reason, and starts no session, when the account lists cannot be read', async () => {
+    const retryRun = makeRun();
+    retryRun.attempt = 2;
+    retryRun.configSnapshot = {
+      ...retryRun.configSnapshot!,
+      destination: { kind: 'newInstance' },
+      action: { prompt: 'Retry me', workingDirectory: '/repo/current', provider: 'codex' },
+    };
+    const runner = new AutomationRunner(
+      store, undefined, () => 2_000, threadWakeupFactory, undefined, undefined,
+      () => ({ automationDefaultCli: 'auto', automationDefaultModel: '', modelPickerFavorites: [] }),
+      () => false, undefined, async () => { throw new Error('Example settings read failure'); },
+    );
+    runner.initialize(manager);
+
+    await runner.dispatchRetryRun(retryRun);
+
+    expect(manager.createInstance).not.toHaveBeenCalled();
+    expect(store.terminalizeRun).toHaveBeenCalledWith('run-1', 'failed', 'Example settings read failure', undefined, 2_000);
+  });
+
+  it('starts no session when a pause arrives while the account lists are read', async () => {
+    const retryRun = makeRun();
+    retryRun.attempt = 2;
+    retryRun.configSnapshot = {
+      ...retryRun.configSnapshot!,
+      destination: { kind: 'newInstance' },
+      action: { prompt: 'Retry me', workingDirectory: '/repo/current', provider: 'codex' },
+    };
+    let pausing: Promise<void> | undefined;
+    const runner = new AutomationRunner(
+      store, undefined, () => 2_000, threadWakeupFactory, undefined, undefined,
+      () => ({ automationDefaultCli: 'auto', automationDefaultModel: '', modelPickerFavorites: [] }),
+      () => false, undefined, async () => {
+        pausing = pauseConsults();
+        return { avoid: ['pro-1'], last: [] };
+      },
+    );
+    runner.initialize(manager);
+
+    await runner.dispatchRetryRun(retryRun);
+    await pausing;
+
+    expect(manager.createInstance).not.toHaveBeenCalled();
+    expect(store.terminalizeRun).not.toHaveBeenCalled();
+    expect(store.attachInstance).toHaveBeenCalledWith('run-1', null, 2_000);
   });
 
   it('falls back to the favourite model for the provider when Auto and no default is set', async () => {

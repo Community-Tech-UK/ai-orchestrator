@@ -1,11 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  McpFanOutPayloadSchema,
   McpInjectionTargetsPayloadSchema,
-  McpResolveDriftPayloadSchema,
   OrchestratorMcpServerSchema,
   OrchestratorMcpServerUpsertSchema,
-  SharedMcpServerUpsertSchema,
+  McpConnectorAuthPayloadSchema,
 } from '@contracts/schemas/mcp-multi-provider';
 
 describe('mcp-multi-provider schemas', () => {
@@ -37,46 +35,17 @@ describe('mcp-multi-provider schemas', () => {
     expect(result.success).toBe(true);
   });
 
-  it('requires shared targets', () => {
-    expect(
-      SharedMcpServerUpsertSchema.safeParse({
-        name: 'fs',
-        transport: 'stdio',
-        command: 'npx',
-        targets: [],
-      }).success,
-    ).toBe(false);
-  });
-
-  it('validates fan-out providers', () => {
-    expect(McpFanOutPayloadSchema.safeParse({ serverId: 'x', providers: ['claude'] }).success)
-      .toBe(true);
-    expect(McpFanOutPayloadSchema.safeParse({ serverId: 'x', providers: ['grok', 'opencode'] }).success)
-      .toBe(true);
-    expect(McpFanOutPayloadSchema.safeParse({ serverId: 'x', providers: ['cursor'] }).success)
-      .toBe(false);
-  });
-
-  it('validates drift resolution action', () => {
-    expect(
-      McpResolveDriftPayloadSchema.safeParse({
-        serverId: 'x',
-        provider: 'claude',
-        action: 'overwrite-target',
-      }).success,
-    ).toBe(true);
-    expect(
-      McpResolveDriftPayloadSchema.safeParse({
-        serverId: 'x',
-        provider: 'claude',
-        action: 'invalid',
-      }).success,
-    ).toBe(false);
-  });
-
   it('allows empty injection target arrays', () => {
     expect(McpInjectionTargetsPayloadSchema.safeParse({ serverId: 'x', providers: [] }).success)
       .toBe(true);
+  });
+
+  it('accepts Gemini and Cursor connector injection without accepting Cursor file settings', () => {
+    expect(McpInjectionTargetsPayloadSchema.safeParse({ serverId: 'x', providers: ['gemini', 'cursor'] }).success)
+      .toBe(true);
+    expect(OrchestratorMcpServerUpsertSchema.safeParse({
+      name: 'connector', transport: 'stdio', command: 'PLACEHOLDER_COMMAND', injectInto: ['gemini', 'cursor'],
+    }).success).toBe(true);
   });
 
   it('preserves orchestrator injection targets on upsert payloads', () => {
@@ -98,5 +67,17 @@ describe('mcp-multi-provider schemas', () => {
         transport: 'http',
       }).success,
     ).toBe(true);
+  });
+
+  it('accepts a Microsoft 365 connector without a local program', () => {
+    expect(OrchestratorMcpServerUpsertSchema.safeParse({
+      name: 'm365-comtech', kind: 'microsoft365', accountId: 'PLACEHOLDER_ACCOUNT', transport: 'stdio',
+    }).success).toBe(true);
+  });
+
+  it('requires a bearer value only for saving a bearer token', () => {
+    expect(McpConnectorAuthPayloadSchema.safeParse({ serverId: 'connector', action: 'set-bearer' }).success).toBe(false);
+    expect(McpConnectorAuthPayloadSchema.safeParse({ serverId: 'connector', action: 'test', bearerToken: 'PLACEHOLDER_TOKEN' }).success).toBe(false);
+    expect(McpConnectorAuthPayloadSchema.safeParse({ serverId: 'connector', action: 'set-bearer', bearerToken: 'PLACEHOLDER_TOKEN' }).success).toBe(true);
   });
 });

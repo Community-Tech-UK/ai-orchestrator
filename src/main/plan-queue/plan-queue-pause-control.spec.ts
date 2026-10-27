@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_PLAN_QUEUE_CONFIG } from '@contracts/schemas/plan-queue';
+import { DEFAULT_PLAN_QUEUE_CONFIG, type PlanQueueAccountRules } from '@contracts/schemas/plan-queue';
 import type { InstanceCreateConfig } from '../../shared/types/instance.types';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { runLoopMigrations } from '../orchestration/loop-schema';
@@ -40,9 +40,15 @@ let instances: Instances;
 let coordinator: PlanQueueCoordinator;
 let run: PlanQueueRun;
 let item: PlanQueueItem;
+/** James saves account rules: the coordinator's listener, what the settings now say, and what it persisted per session. */
+let notifyAccountRules: (rules: PlanQueueAccountRules) => void = () => undefined;
+let currentAccountRules: PlanQueueAccountRules = { never: [], last: [] };
+const setAccountRules = (rules: PlanQueueAccountRules): void => { currentAccountRules = rules; notifyAccountRules(rules); };
+const persisted: { id: string; preferences: unknown }[] = [];
 const git = (args: string[], cwd = repo) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 
 beforeEach(() => {
+  currentAccountRules = { never: [], last: [] }; persisted.length = 0;
   PlanQueueCoordinator._resetForTesting(); GitWriteQueue._resetForTesting();
   repo = mkdtempSync(join(tmpdir(), 'queue-pause-control-'));
   git(['init', '-q', '-b', 'main']); git(['config', 'user.name', 'Queue Test']); git(['config', 'user.email', 'queue@example.invalid']);
@@ -67,7 +73,11 @@ beforeEach(() => {
   coordinator.initialize({ store, instances, skipInstall: true, pumpIntervalMs: null, loadAverage: () => [0, 0, 0],
     worktreeCreator: { createWorktree: vi.fn(), cleanupWorktree: vi.fn(), getAllSessions: () => [] },
     selectVerifier: async () => ({ ok: true, choice: { provider: 'codex' } }),
-    routing: { readSaved: () => ({ workers: [], verifiers: [] }), poolProfiles: () => [], copilotProfiles: () => [],
+    accountRules: {
+      onChanged: (listener) => { notifyAccountRules = listener; return () => undefined; },
+      persistPreferences: (id, preferences) => { persisted.push({ id, preferences }); },
+    },
+    routing: { readSaved: () => ({ workers: [], verifiers: [] }), readAccountRules: () => currentAccountRules, copilotProfileFor: () => null, poolProfiles: () => [], copilotProfiles: () => [],
       defaultProvider: () => null, checkerScopeKind: () => 'none', isProviderExcluded: () => false, listInstalledProviders: async () => ['claude', 'codex', 'cursor'] },
   });
   coordinator.registerRole('worker', { role: 'worker', runId: run.id, itemId: item.id });
@@ -77,6 +87,72 @@ afterEach(async () => {
   coordinator.shutdown(); await coordinator._whenSettledForTesting();
   vi.restoreAllMocks();
   db.close(); rmSync(repo, { recursive: true, force: true });
+});
+
+describe('Plan Queue account rules in the coordinator', () => {
+  const neverSuas: PlanQueueAccountRules = { never: [{ provider: 'claude', accountId: 'suas' }], last: [] };
+
+  it('holds the work on a newly banned account and restarts it on an allowed one', async () => {
+    persisted.length = 0;
+    instances.live.get('worker')!.accountProfileId = 'suas';
+    setAccountRules(neverSuas);
+    await coordinator._whenSettledForTesting();
+    expect(persisted).toEqual([{ id: 'worker', preferences: { avoid: ['suas'], last: [] } }]);
+    expect(instances.created).toHaveLength(1);
+    expect(instances.created[0]).toMatchObject({ provider: 'claude', accountPreferences: { avoid: ['suas'], last: [] } });
+    // The never-use note is cleared once the work restarts; it is not left on the document.
+    expect(store.getItem(item.id)).toMatchObject({ state: 'working', detail: null });
+  });
+
+  it('leaves a worker running when a use-last rule is added', async () => {
+    persisted.length = 0;
+    instances.live.get('worker')!.accountProfileId = 'suas';
+    setAccountRules({ never: [], last: [{ provider: 'claude', accountId: 'suas' }] });
+    await coordinator._whenSettledForTesting();
+    expect(persisted).toEqual([{ id: 'worker', preferences: { avoid: [], last: ['suas'] } }]);
+    expect(instances.live.has('worker')).toBe(true);
+    expect(instances.created).toEqual([]);
+  });
+
+  it('does nothing when the item has moved to another session before a queued hold runs', async () => {
+    instances.live.get('worker')!.accountProfileId = 'suas';
+    instances.live.set('replacement', { id: 'replacement', status: 'busy', outputBuffer: [], provider: 'claude' });
+    setAccountRules(neverSuas);
+    // The hold is queued for `worker`; the item moves to `replacement` before the item lock is taken.
+    store.upsertItem({ ...store.getItem(item.id)!, workerInstanceId: 'replacement' });
+    await coordinator._whenSettledForTesting();
+    expect(instances.terminateInstance).not.toHaveBeenCalledWith('replacement', expect.anything());
+    expect(instances.live.has('replacement')).toBe(true);
+  });
+
+  it('does not restart a run that is pausing: the ban waits for the pause, and Resume then starts the work elsewhere', async () => {
+    persisted.length = 0;
+    instances.live.get('worker')!.accountProfileId = 'suas';
+    const checkpoint = coordinator.worktrees.checkpoint.bind(coordinator.worktrees);
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const blockedCheckpoint = vi.spyOn(coordinator.worktrees, 'checkpoint').mockImplementationOnce(async (...args) => {
+      await gate;
+      return checkpoint(...args);
+    });
+    const pausing = coordinator.control({ action: 'pause', runId: run.id });
+    try {
+      await vi.waitFor(() => expect(blockedCheckpoint).toHaveBeenCalledTimes(1));
+      setAccountRules(neverSuas);
+      await new Promise(resolve => setImmediate(resolve));
+      expect(instances.created).toEqual([]);
+      release();
+      await pausing;
+      await coordinator._whenSettledForTesting();
+      expect(store.getRun(run.id)?.status).toBe('paused');
+      expect(store.getItem(item.id)?.state).toBe('queued');
+      expect(instances.created).toEqual([]);
+      await coordinator.control({ action: 'resume', runId: run.id });
+      await coordinator._whenSettledForTesting();
+      expect(instances.created).toHaveLength(1);
+      expect(instances.created[0]).toMatchObject({ accountPreferences: { avoid: ['suas'], last: [] } });
+    } finally { release(); await pausing; }
+  });
 });
 
 describe('Plan Queue pause controls in the coordinator', () => {

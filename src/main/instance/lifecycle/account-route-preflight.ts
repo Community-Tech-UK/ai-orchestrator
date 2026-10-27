@@ -16,6 +16,7 @@ import type {
   AccountRouteFailure,
   AccountRouteSource,
 } from '../../../shared/types/provider-account.types';
+import type { AccountPreferences } from '../../../shared/types/instance.types';
 import { LEGACY_ACCOUNT_PROFILE_ID, isLogicalMiMoModel, isPooledProvider } from '../../../shared/types/provider-account.types';
 import {
   getProviderAccountRoutingService,
@@ -65,13 +66,16 @@ export function persistedAccountProfileId(
   return instance?.accountProfileId ?? (resume ? LEGACY_ACCOUNT_PROFILE_ID : undefined);
 }
 
-/** Restore the account-pool stamp, routing origin and account fence from persisted session state (wake). */
+/** Restore the account-pool stamp, routing origin, account fence and account preferences from persisted session state (wake). */
 export function restoreAccountStamp(
-  instance: Pick<Instance, 'accountProfileId' | 'accountRoutingSource' | 'accountSwitches' | 'accountRouteOrigin' | 'allowedAccountProfileIds'>,
-  state: Pick<Instance, 'accountProfileId' | 'accountRoutingSource' | 'accountSwitches' | 'accountRouteOrigin' | 'allowedAccountProfileIds'>,
+  instance: Pick<Instance, 'accountProfileId' | 'accountRoutingSource' | 'accountSwitches' | 'accountRouteOrigin' | 'allowedAccountProfileIds' | 'accountPreferences'>,
+  state: Pick<Instance, 'accountProfileId' | 'accountRoutingSource' | 'accountSwitches' | 'accountRouteOrigin' | 'allowedAccountProfileIds' | 'accountPreferences'>,
 ): void {
   if (state.accountRouteOrigin) instance.accountRouteOrigin = state.accountRouteOrigin;
   if (state.allowedAccountProfileIds?.length) instance.allowedAccountProfileIds = [...state.allowedAccountProfileIds];
+  if (state.accountPreferences) {
+    instance.accountPreferences = { avoid: [...state.accountPreferences.avoid], last: [...state.accountPreferences.last] };
+  }
   if (!state.accountProfileId) return;
   instance.accountProfileId = state.accountProfileId;
   instance.accountRoutingSource = state.accountRoutingSource;
@@ -89,6 +93,8 @@ export interface AttachAccountRouteOptions {
   exclude?: readonly string[];
   /** The only profiles that may be chosen (the session's account fence); absent/empty = any. */
   restrictTo?: readonly string[];
+  /** Plan Queue account rules: `avoid` is never chosen; `last` is chosen only when nothing else can run. */
+  preferences?: AccountPreferences;
   /** Source stamped when the default selection runs on behalf of a handoff. */
   defaultSource?: Extract<AccountRouteSource, 'default' | 'failover' | 'preemptive'>;
   /**
@@ -137,6 +143,8 @@ export async function attachAccountRoute(
     newSession: !options.resume && !attachOptions.persistedProfileId,
     exclude: attachOptions.exclude,
     restrictTo: attachOptions.restrictTo,
+    avoid: attachOptions.preferences?.avoid,
+    useLast: attachOptions.preferences?.last,
     defaultSource: attachOptions.defaultSource,
     moveOffLimitedAccount: attachOptions.moveOffLimitedAccount,
     resume: Boolean(options.resume),

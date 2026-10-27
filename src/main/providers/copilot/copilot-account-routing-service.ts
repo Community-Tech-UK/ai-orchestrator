@@ -67,6 +67,8 @@ export interface CopilotRouteRequest {
   origin: CopilotInvocationOrigin;
   /** Defaults to the local controller node. */
   executionNodeId?: string;
+  /** Profiles this spawn must never run on (Plan Queue never-use list). Refuses rather than falling back. */
+  avoidProfileIds?: readonly string[];
   /** Correlation only; never used for routing. */
   instanceId?: string;
 }
@@ -120,6 +122,24 @@ export interface CopilotAccountRoutingDeps {
   canonicalize?: (path: string) => string;
   isProviderExcluded?: (provider: string) => boolean;
   now?: () => number;
+}
+
+/**
+ * A resolved profile on the Plan Queue never-use list is refused, never
+ * replaced: Copilot does not switch accounts mid-session, and the queue starts
+ * a fresh session instead.
+ */
+export function refuseAvoidedCopilotRoute(
+  outcome: CopilotRouteOutcome,
+  avoidProfileIds: readonly string[] | undefined,
+): CopilotRouteOutcome {
+  if (!outcome.ok || !avoidProfileIds?.includes(outcome.route.profileId)) return outcome;
+  return {
+    ok: false,
+    code: 'automation-disallowed',
+    detail: `The ${outcome.route.profileLabel ?? 'Copilot'} account is on your never-use list (Plan Queue page), so this session cannot use it.`,
+    profileId: outcome.route.profileId,
+  };
 }
 
 export class CopilotAccountRoutingService {
@@ -439,6 +459,35 @@ export class CopilotAccountRoutingService {
 
   async resolveRouteForSpawn(request: CopilotRouteRequest): Promise<CopilotRouteOutcome> {
     const nodeId = request.executionNodeId ?? LOCAL_COPILOT_NODE_ID;
+    const decided = await this.decideRoute(request, nodeId);
+    const outcome = refuseAvoidedCopilotRoute(decided, request.avoidProfileIds);
+    this.report(outcome, request, nodeId);
+    return outcome;
+  }
+
+  /**
+   * The profile a spawn for this folder would be given, with no admission or
+   * sign-in check. Null when no profile would be chosen. Used to check a Plan
+   * Queue choice before its session exists.
+   */
+  previewProfileFor(
+    workingDirectory: string | undefined,
+    origin: CopilotInvocationOrigin,
+    explicitProfileId?: string,
+  ): string | null {
+    let settings: RoutingSettings;
+    try {
+      settings = this.readRoutingSettings();
+    } catch {
+      return null;
+    }
+    if (settings.profiles.length === 0) return COPILOT_LEGACY_PROFILE_ID;
+    const outcome = this.decide({ workingDirectory, explicitProfileId, origin }, settings, LOCAL_COPILOT_NODE_ID);
+    return outcome.ok ? outcome.route.profileId : null;
+  }
+
+  /** The routing decision and admission, without reporting it. */
+  private async decideRoute(request: CopilotRouteRequest, nodeId: string): Promise<CopilotRouteOutcome> {
     let settings: RoutingSettings;
     try {
       settings = this.readRoutingSettings();
@@ -465,7 +514,6 @@ export class CopilotAccountRoutingService {
         detail:
           'GitHub Copilot is on the "never auto-pick these providers" list, so no Copilot account can be selected automatically. Start the session yourself, or remove Copilot from that list in Settings.',
       };
-      this.report(outcome, request, nodeId);
       return outcome;
     }
 
@@ -493,7 +541,6 @@ export class CopilotAccountRoutingService {
           expectedLogin: null,
         },
       };
-      this.report(outcome, request, nodeId);
       return outcome;
     }
 
@@ -502,22 +549,15 @@ export class CopilotAccountRoutingService {
     if (cached && this.now() - cached.cachedAt < ROUTE_CACHE_TTL_MS) {
       // Binding state is re-verified below even on a cache hit — only the
       // *decision* is cached, never the admission result.
-      if (cached.outcome.ok) {
-        const admitted = await this.admit(cached.outcome, settings.profiles, nodeId);
-        this.report(admitted, request, nodeId);
-        return admitted;
-      }
-      this.report(cached.outcome, request, nodeId);
+      if (cached.outcome.ok) return this.admit(cached.outcome, settings.profiles, nodeId);
       return cached.outcome;
     }
 
     const decided = this.decide(request, settings, nodeId);
     this.cache.set(cacheKey, { outcome: decided, cachedAt: this.now() });
-    const admitted = decided.ok
-      ? await this.admit(decided, settings.profiles, nodeId)
+    return decided.ok
+      ? this.admit(decided, settings.profiles, nodeId)
       : decided;
-    this.report(admitted, request, nodeId);
-    return admitted;
   }
 
   private cacheKey(

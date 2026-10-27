@@ -11,7 +11,6 @@
       <button
         type="button"
         class="startup-status-chip"
-        [class.ready]="report.status === 'ready'"
         [class.failed]="report.status === 'failed'"
         [title]="startupCapabilitySummary()"
         (click)="openSetupCenter()"
@@ -25,18 +24,6 @@
     <app-work-control />
     @if (settingsStore.isInitialized() && settingsStore.get('pauseFeatureEnabled')) {
       <app-pause-toggle />
-    }
-    @if (showRemoteTerminalButton()) {
-      <button
-        type="button"
-        class="startup-status-chip"
-        [class.ready]="terminalOpen()"
-        title="Remote terminal (open a shell on a connected worker node)"
-        aria-label="Toggle remote terminal"
-        (click)="toggleTerminal()"
-      >
-        Remote Terminal
-      </button>
     }
     <app-provider-quota-chip (accountsRequested)="openProviderAccounts($event)" />
     <app-computer-use-permission-chip />
@@ -104,7 +91,8 @@
   <app-terminate-confirm-dialog />
   <app-help-drawer />
 
-  <main class="app-main">
+  <!-- tabindex="-1": focus lands here when a closing banner has no nearer target. -->
+  <main class="app-main" tabindex="-1">
     <!-- Worker role keeps the full app: Worker Mode is a Control Center page,
          not a takeover, so a worker computer can still run its own sessions. -->
     @if (settingsStore.isInitialized() && settingsStore.harnessRole() === 'unset') {
@@ -138,5 +126,5 @@
   <app-rlm-storage-maintenance [showWarning]="false" />
 
   <!-- C2: remote-terminal drawer (xterm.js streaming a node-pty session on a worker node) -->
-  <app-terminal-drawer [isOpen]="terminalOpen()" (closeRequested)="terminalOpen.set(false)" />
+  <app-terminal-drawer [isOpen]="terminalDrawer.isOpen()" (closeRequested)="terminalDrawer.close()" />
 </div>

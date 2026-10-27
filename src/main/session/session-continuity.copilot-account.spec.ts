@@ -146,9 +146,9 @@ describe('instanceToState — Copilot account continuity', () => {
 
   it('copies the account routing origin and account fence (Plan Queue sessions)', () => {
     const state = createManager().instanceToState(
-      makeInstance({ provider: 'codex', accountRouteOrigin: 'automation', allowedAccountProfileIds: ['pro-1', 'pro-2'] }),
+      makeInstance({ provider: 'codex', accountRouteOrigin: 'automation', allowedAccountProfileIds: ['pro-1', 'pro-2'], accountPreferences: { avoid: ['pro-3'], last: [] } }),
     );
-    expect(state).toMatchObject({ accountRouteOrigin: 'automation', allowedAccountProfileIds: ['pro-1', 'pro-2'] });
+    expect(state).toMatchObject({ accountRouteOrigin: 'automation', allowedAccountProfileIds: ['pro-1', 'pro-2'], accountPreferences: { avoid: ['pro-3'], last: [] } });
   });
 
   it('leaves the profile undefined for a non-Copilot session', () => {

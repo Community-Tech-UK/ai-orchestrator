@@ -196,12 +196,12 @@
 
 .management-form-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--spacing-sm);
 }
 
 .form-wide {
-  grid-column: span 2;
+  grid-column: 1 / -1;
 }
 
 .compact {
@@ -221,7 +221,7 @@
 
 .management-row {
   display: grid;
-  grid-template-columns: minmax(160px, 0.7fr) minmax(200px, 1fr) auto;
+  grid-template-columns: minmax(160px, 0.7fr) minmax(200px, 1fr);
   gap: var(--spacing-sm);
   align-items: center;
   border: 1px solid var(--border-color);

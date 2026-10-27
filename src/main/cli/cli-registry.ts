@@ -10,14 +10,13 @@ import { join } from 'node:path';
 import { getCliAdditionalPaths } from './cli-environment';
 
 /**
- * CLI type identifiers. `gemini` is a deprecated back-compat alias (persisted
- * data / older remote nodes); its live successor is `antigravity` (the `agy`
- * CLI). Legacy `gemini` is normalized to `antigravity` in mapSettingsToDetectionType.
+ * CLI type identifiers. Gemini (`gemini`) and Antigravity (`agy`) are
+ * independent providers with different tool-server support.
  */
 export type CliType = 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'ollama' | 'cursor' | 'grok' | 'opencode';
 
-/** CLIs surfaced in CLI Health. `gemini` is excluded — superseded by `antigravity`. */
-export const SUPPORTED_CLIS: CliType[] = ['claude', 'codex', 'antigravity', 'copilot', 'ollama', 'cursor', 'grok', 'opencode'];
+/** CLIs surfaced in CLI Health. */
+export const SUPPORTED_CLIS: CliType[] = ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'ollama', 'cursor', 'grok', 'opencode'];
 
 /**
  * Registry entry for a CLI tool

@@ -77,7 +77,8 @@ to the Markdown source. These are MCP tools, not `$AIO_MCP` CLI subcommands.
 It also exposes the Plan Queue tools: `plan_queue_start` (args: `kind` =
 `plans` or `livetests`, optional `glob`, `worker_slots`, `verification_slots`,
 `max_rounds`, `relax_settings`, `verifier_gates`, `post_merge_gate`, and
-`workers` / `verifiers` provider-and-account choices in preference order — pass
+`workers` / `verifiers` provider-and-account choices in preference order, and one
+`step_up` choice a document is handed to once when its worker fails every round — pass
 those only when James asks for specific providers or accounts; his saved Plan
 Queue lists always win for any role he set; the gate lists default to this app's checklist, so pass the
 target repository's own commands or `[]` for any other repository), `plan_queue_status` (`run_id?`),
@@ -92,6 +93,9 @@ detail records who did it). `plan_queue_report_triage` and
 `plan_queue_report_verdict` belong to the queue's own triage and verifier
 sessions and are refused from anyone else. These are MCP tools, not `$AIO_MCP`
 CLI subcommands.
+
+`plan_queue_status` shows an `accountRules` line with account labels when James has set
+never-use or use-last account rules.
 
 Without `run_id`, `plan_queue_status` lists every running or paused run and every
 finished run with parked documents, including branchless triage failures, plus the
@@ -108,8 +112,8 @@ just because the run paused.
 
 The parent's `plan_queue_control` action `set-routing` takes `run_id` and
 `routing: { workers: [{ provider, model?, account_ids?, copilot_account_id? }],
-verifiers: [<same choice shape>] }`, each in preference order. `workers: []`
-inherits the starting session; an empty checker list means automatic selection. This replaces the run's choice
+verifiers: [<same choice shape>], step_up?: <same choice shape> }`, each in preference order. `workers: []`
+inherits the starting session; an empty checker list means automatic selection; no `step_up` means stop and wait. This replaces the run's choice
 for future sessions, including resumed parked work, triage and checkers, without
 changing the saved default. Invalid or unavailable providers/accounts are refused
 before saving. Per-run agent checker lists still cannot replace a protected work
@@ -162,12 +166,16 @@ automation-provider block-list (`providersExcludedFromAutomation`), the two GitH
 Copilot account-routing keys (`copilotAccountProfiles`, `copilotAccountRoutingRules`),
 the two account-pool keys (`providerAccountProfiles`,
 `providerAccountPools`, covering Claude, Codex and MiMo), the Plan Queue
-provider-and-account choice (`planQueueRouting`), the two Workspace Secret Card keys (`workspaceSecretsEnabled`,
+provider-and-account choice (`planQueueRouting`), the Plan Queue never-use and use-last account lists (`planQueueAccountRules`), the two Workspace Secret Card keys (`workspaceSecretsEnabled`,
 `workspaceSecretsAllowAgentRequests`), the post-fill observation lock
 (`browserSecretObservationProtectionEnabled`), and the macOS session signal
 fence (`providerSignalFenceEnabled`).
 `PRIVILEGED_CLI_OPERATOR_ONLY_KEYS` in
 `src/main/core/config/settings-control-policy.ts` is the authoritative list.
+`planQueueAccountRules` (26th anchor) is the never-use and use-last account list for
+Plan Queue sessions and fresh automation sessions: operator-only, read live, not
+changeable by agents, and it does not affect sessions James opens himself, loops, or
+automations that wake an existing session.
 
 The credential-vault unlock keys and the shared-tab credential-fill switch were
 anchors until 2026-08-29, when the operator had them widened so unattended

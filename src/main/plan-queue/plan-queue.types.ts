@@ -61,6 +61,8 @@ export interface PlanQueueItem {
   /** Provider and model the latest worker session ran on; checkers are chosen against them. */
   workerProvider?: string;
   workerModel?: string;
+  /** When the document was handed to the run's step-up worker; set once, never cleared. */
+  steppedUpAt?: number | null;
   question: PlanQueueQuestion | null;
   answer: string | null;
   parkReason: PlanQueueParkReason | null;

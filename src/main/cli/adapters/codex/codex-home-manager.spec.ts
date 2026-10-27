@@ -94,7 +94,7 @@ describe('CodexHomeManager', () => {
     manager.cleanup();
   });
 
-  it('creates a temporary CODEX_HOME with only the injected Browser Gateway MCP config', () => {
+  it('keeps user servers alongside the injected Browser Gateway MCP config', () => {
     const home = join(tmpdir(), `codex-home-manager-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     tempRoots.push(home);
     const codexDir = join(home, '.codex');
@@ -113,12 +113,15 @@ describe('CodexHomeManager', () => {
       '[mcp_servers."browser-gateway"]',
       'command = "app"',
       'args = ["browser-mcp-stdio-server.js"]',
-    ].join('\n'));
+    ].join('\n'), 'app-server');
 
     expect(generated).toBeTruthy();
     expect(existsSync(join(generated!, 'auth.json'))).toBe(true);
     expect(readFileSync(join(generated!, 'config.toml'), 'utf-8')).toBe([
       'model = "gpt-5.3-codex"',
+      '',
+      '[mcp_servers.user_server]',
+      'command = "user-mcp"',
       '',
       '[mcp_servers."browser-gateway"]',
       'command = "app"',
@@ -127,6 +130,26 @@ describe('CodexHomeManager', () => {
 
     manager.cleanup();
     expect(existsSync(generated!)).toBe(false);
+  });
+
+  it.each([
+    '[mcp_servers.same]\ncommand = "PLACEHOLDER_USER"\n[mcp_servers.same.env]\nOLD = "PLACEHOLDER_VALUE"\n',
+    'mcp_servers.same = { command = "PLACEHOLDER_USER" }\n',
+    'mcp_servers = { same = { command = "PLACEHOLDER_USER" }, retained = { command = "PLACEHOLDER_RETAINED" } }\n',
+  ])('lets injected servers replace a colliding user definition: %s', (userServer) => {
+    const original = 'model = "PLACEHOLDER_MODEL"\n' + userServer;
+    const home = makeSandboxCodexHome(original);
+    const manager = new CodexHomeManager();
+    try {
+      const generated = manager.prepareHomeWithMcpConfig('[mcp_servers.same]\ncommand = "PLACEHOLDER_HARNESS"', 'app-server');
+      expect(generated).not.toBeNull();
+      const prepared = readFileSync(join(generated!, 'config.toml'), 'utf8');
+      expect(prepared).toContain('PLACEHOLDER_HARNESS');
+      expect(prepared).not.toContain('PLACEHOLDER_USER');
+      expect(prepared).not.toContain('OLD =');
+      if (userServer.includes('retained')) expect(prepared).toContain('PLACEHOLDER_RETAINED');
+      expect(readFileSync(join(home, '.codex', 'config.toml'), 'utf8')).toBe(original);
+    } finally { manager.cleanup(); }
   });
 
   function makeSandboxCodexHome(config: string | null): string {
@@ -149,7 +172,7 @@ describe('CodexHomeManager', () => {
     ['MCP-free', (manager: CodexHomeManager) => manager.prepareMcpFreeHome()],
     ['session-isolated', (manager: CodexHomeManager) => manager.prepareSessionIsolatedHome()],
     ['injected MCP', (manager: CodexHomeManager) => manager.prepareHomeWithMcpConfig(
-      '[mcp_servers.browser]\ncommand = "PLACEHOLDER"',
+      '[mcp_servers.browser]\ncommand = "PLACEHOLDER"', 'app-server',
     )],
   ])('%s homes preserve this session’s shell bridge without widening inherited variables', (_name, prepare) => {
     const config = '[shell_environment_policy]\ninherit = "core"\ninclude_only = ["PATH"]\n';
@@ -200,7 +223,7 @@ describe('CodexHomeManager', () => {
     ['Browser Gateway', (manager: CodexHomeManager) => manager.prepareHomeWithMcpConfig([
       '[mcp_servers."browser-gateway"]',
       'command = "app"',
-    ].join('\n'))],
+    ].join('\n'), 'app-server')],
   ])('%s homes keep thread state outside the user Codex database', (_name, prepare) => {
     const home = makeSandboxCodexHome('model = "gpt-5.3-codex"');
     const manager = new CodexHomeManager();
@@ -326,7 +349,7 @@ args = ["\U0000006Dcp", "serve"]
     const injected = '[mcp_servers.injected]\ncommand = "claude"\nargs = ["mcp", "serve"]\nenabled_tools = ["Read", "Monitor"]\n';
     const manager = new CodexHomeManager();
     try {
-      const generated = manager.prepareHomeWithMcpConfig(injected);
+      const generated = manager.prepareHomeWithMcpConfig(injected, 'app-server');
       expect(generated).not.toBeNull();
       const prepared = readFileSync(join(generated!, 'config.toml'), 'utf-8');
       expect(prepared.match(/"Monitor", "ScheduleWakeup"/g)).toHaveLength(2);

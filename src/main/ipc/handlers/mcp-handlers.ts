@@ -19,15 +19,14 @@ import {
 } from '@contracts/schemas/provider';
 import {
   McpDeletePayloadSchema,
-  McpDriftQuerySchema,
-  McpFanOutPayloadSchema,
+  McpConnectorAuthPayloadSchema,
+  McpConnectorAddMicrosoft365Schema,
+  McpConnectorSetWritableSchema,
   McpInjectionTargetsPayloadSchema,
   McpProviderScopePayloadSchema,
   McpProviderUserDeletePayloadSchema,
   McpProviderUserUpsertPayloadSchema,
-  McpResolveDriftPayloadSchema,
   OrchestratorMcpServerUpsertSchema,
-  SharedMcpServerUpsertSchema,
 } from '@contracts/schemas/mcp-multi-provider';
 import { MCP_SERVER_PRESETS } from '../../../shared/types/mcp.types';
 import type { McpServerConfig } from '../../../shared/types/mcp.types';
@@ -41,8 +40,10 @@ import {
 import {
   getCliMcpConfigService,
   getOrchestratorMcpRepository,
-  getSharedMcpCoordinator,
 } from '../../mcp/mcp-multi-provider-singletons';
+import { getConnectorAuthService } from '../../mcp/connector-auth-service';
+import { assertConnectorName } from '../../mcp/connector-storage';
+import { getGraphConnectorService } from '../../graph/graph-connector-service';
 import { getLogger } from '../../logging/logger';
 
 const logger = getLogger('McpHandlers');
@@ -60,7 +61,7 @@ export function registerMcpHandlers(deps: {
 
   try {
     for (const { record } of getOrchestratorMcpRepository().list()) {
-      if (!mcp.getServerStatus(record.id)) {
+      if (record.transport === 'stdio' && record.kind !== 'microsoft365' && !mcp.getServerStatus(record.id)) {
         mcp.addServer(toMcpManagerConfig(record));
       }
     }
@@ -636,9 +637,13 @@ export function registerMcpHandlers(deps: {
           'MCP_ORCHESTRATOR_UPSERT',
         );
         const saved = getCliMcpConfigService().orchestratorUpsert(validated);
-        await mcp.upsertServer(toMcpManagerConfig(saved.record));
+        if (saved.record.transport === 'stdio' && saved.record.kind !== 'microsoft365') {
+          await mcp.upsertServer(toMcpManagerConfig(saved.record));
+        } else {
+          await mcp.removeServer(saved.record.id);
+        }
         await broadcastMultiProviderState();
-        return { success: true };
+        return { success: true, data: { id: saved.record.id } };
       } catch (error) {
         return {
           success: false,
@@ -700,113 +705,65 @@ export function registerMcpHandlers(deps: {
   );
 
   ipcMain.handle(
-    IPC_CHANNELS.MCP_SHARED_UPSERT,
+    IPC_CHANNELS.MCP_CONNECTOR_AUTH,
     async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
       try {
-        const validated = validateIpcPayload(SharedMcpServerUpsertSchema, payload, 'MCP_SHARED_UPSERT');
-        const id = getCliMcpConfigService().sharedUpsert(validated);
-        await broadcastMultiProviderState();
-        return { success: true, data: { id } };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'MCP_SHARED_UPSERT_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now(),
-          },
-        };
-      }
-    },
-  );
-
-  ipcMain.handle(
-    IPC_CHANNELS.MCP_SHARED_DELETE,
-    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(McpDeletePayloadSchema, payload, 'MCP_SHARED_DELETE');
-        getCliMcpConfigService().sharedDelete(validated.serverId);
+        const validated = validateIpcPayload(McpConnectorAuthPayloadSchema, payload, 'MCP_CONNECTOR_AUTH');
+        const auth = getConnectorAuthService();
+        const record = getOrchestratorMcpRepository().get(validated.serverId)?.record;
+        if (!record) throw new Error('This connector no longer exists.');
+        if (record.kind === 'microsoft365' && validated.action === 'sign-in') {
+          const account = await getGraphConnectorService().connectAccount(record.mailEnabled);
+          if (account.accountKey !== record.accountId) throw new Error('Choose the same Microsoft account to sign in again. To use a different account, add a new connector.');
+        } else if (record.kind === 'microsoft365' && validated.action === 'sign-out') {
+          await getGraphConnectorService().removeAccount(record.accountId!);
+        } else if (validated.action === 'sign-in') await auth.signIn(validated.serverId);
+        else if (validated.action === 'sign-out') await auth.signOut(validated.serverId);
+        else if (validated.action === 'set-bearer') await auth.setBearerToken(validated.serverId, validated.bearerToken);
+        else await auth.testConnector(validated.serverId);
         await broadcastMultiProviderState();
         return { success: true };
       } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'MCP_SHARED_DELETE_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now(),
-          },
-        };
+        return { success: false, error: { code: 'MCP_CONNECTOR_AUTH_FAILED', message: (error as Error).message, timestamp: Date.now() } };
       }
     },
   );
 
   ipcMain.handle(
-    IPC_CHANNELS.MCP_SHARED_FAN_OUT,
+    IPC_CHANNELS.MCP_CONNECTOR_ADD_MICROSOFT365,
     async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
       try {
-        const validated = validateIpcPayload(McpFanOutPayloadSchema, payload, 'MCP_SHARED_FAN_OUT');
-        const result = await getSharedMcpCoordinator().fanOut(validated.serverId, validated.providers);
-        await getCliMcpConfigService().refreshMultiProviderState();
-        await broadcastMultiProviderState();
-        return { success: true, data: result };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'MCP_SHARED_FAN_OUT_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now(),
-          },
-        };
-      }
-    },
-  );
-
-  ipcMain.handle(
-    IPC_CHANNELS.MCP_SHARED_GET_DRIFT,
-    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(McpDriftQuerySchema, payload, 'MCP_SHARED_GET_DRIFT');
-        return {
-          success: true,
-          data: await getSharedMcpCoordinator().getDrift(validated.serverId),
-        };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'MCP_SHARED_GET_DRIFT_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now(),
-          },
-        };
-      }
-    },
-  );
-
-  ipcMain.handle(
-    IPC_CHANNELS.MCP_SHARED_RESOLVE_DRIFT,
-    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(McpResolveDriftPayloadSchema, payload, 'MCP_SHARED_RESOLVE_DRIFT');
-        await getSharedMcpCoordinator().resolveDrift(
-          validated.serverId,
-          validated.provider,
-          validated.action,
-        );
-        await getCliMcpConfigService().refreshMultiProviderState();
+        const validated = validateIpcPayload(McpConnectorAddMicrosoft365Schema, payload, 'MCP_CONNECTOR_ADD_MICROSOFT365');
+        assertConnectorName(validated.name);
+        if (getOrchestratorMcpRepository().list().some(({ record }) => record.name.toLowerCase() === validated.name.toLowerCase())) {
+          throw new Error('A connector already uses that name. Choose a different name before signing in.');
+        }
+        const account = await getGraphConnectorService().connectAccount(validated.mailEnabled);
+        getCliMcpConfigService().orchestratorUpsert({
+          name: validated.name, kind: 'microsoft365', accountId: account.accountKey,
+          description: account.username, transport: 'stdio', authType: 'none',
+          mailEnabled: validated.mailEnabled, injectInto: validated.injectInto, autoConnect: true,
+        });
         await broadcastMultiProviderState();
         return { success: true };
       } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'MCP_SHARED_RESOLVE_DRIFT_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now(),
-          },
-        };
+        return { success: false, error: { code: 'MCP_CONNECTOR_MICROSOFT365_FAILED', message: (error as Error).message, timestamp: Date.now() } };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.MCP_CONNECTOR_SET_WRITABLE,
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(McpConnectorSetWritableSchema, payload, 'MCP_CONNECTOR_SET_WRITABLE');
+        const record = getOrchestratorMcpRepository().get(validated.serverId)?.record;
+        if (record?.kind !== 'microsoft365' || !record.accountId) throw new Error('Choose a Microsoft 365 connector first.');
+        await getGraphConnectorService().setWritable(record.accountId, validated.allowed);
+        await broadcastMultiProviderState();
+        return { success: true };
+      } catch (error) {
+        return { success: false, error: { code: 'MCP_CONNECTOR_SET_WRITABLE_FAILED', message: (error as Error).message, timestamp: Date.now() } };
       }
     },
   );

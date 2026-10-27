@@ -262,7 +262,9 @@ const ALLOWLIST: Record<string, number> = {
   // Raised 3522 -> 3537: wire interrupt-respawn stuck-detector idle callback.
   // Raised 3537 -> 3591: setAllowIncomingSessionMessages passthrough for
   // cross-session messaging consent (2026-09-16).
-  'src/main/instance/instance-lifecycle.ts': 3591,
+  // Raised 3591 -> 3642 (2026-10-27): the file already sat at 3640 before the Plan Queue
+  // account preferences; that change adds 2 lines (routes at runtime-adapter creation).
+  'src/main/instance/instance-lifecycle.ts': 3642,
   // Raised 2632 -> 2655 for the sendInput post-wait liveness re-check (fail
   // fast instead of delivering input into a terminated instance).
   // Raised 2772 -> 2773 (one-line drift; re-tighten at the next manager split).
@@ -601,7 +603,9 @@ const ALLOWLIST: Record<string, number> = {
   // InstanceCreateConfig) — re-tighten with a dedicated split if it grows further.
   // Raised 780 -> 850 for CrossSessionMessageMetadata, OutputMessage.metadata
   // widening, and Instance.allowIncomingSessionMessages (2026-09-16).
-  'src/shared/types/instance.types.ts': 850,
+  // Raised 850 -> 915 (2026-10-27): the file already sat at 900 before this change;
+  // Plan Queue account preferences on Instance and InstanceCreateConfig add 15 lines.
+  'src/shared/types/instance.types.ts': 915,
   'src/shared/types/loop.types.ts': 780,
   // Crossed 700 from the WS-B3 `approvalAdjudicationEnabled` field alongside a
   // concurrent, unrelated primitive-type extraction into settings-primitives.types.ts
@@ -609,13 +613,27 @@ const ALLOWLIST: Record<string, number> = {
   // Raised 767 -> 771 for the two provider-account-pool settings keys (2026-09-13).
   // Raised 771 -> 839 for the interSessionMessaging nested settings group
   // (cross-session messaging, 2026-09-16).
-  'src/shared/types/settings.types.ts': 839,
+  // Raised 839 -> 891 (2026-10-27): the file already sat at 889 before this change;
+  // the planQueueAccountRules setting adds 2 lines.
+  'src/shared/types/settings.types.ts': 891,
   // Worker agent
   // Raised 989 -> 990 (one-line drift; re-tighten at the next worker split).
   // Raised 990 -> 1060 for the Worker Mode connection report and the
   // registration-answer watchdog (2026-10-21 worker start button plan); the
   // file was already 45 lines past 990. Re-tighten at the next worker split.
   'src/worker-agent/worker-agent.ts': 1060,
+  // Added 2026-10-27: Plan Queue never-use check and the Copilot preview for queue
+  // seats (699 -> 739). Re-tighten with a split of the routing service.
+  'src/main/providers/copilot/copilot-account-routing-service.ts': 739,
+  // Added 2026-10-27: Plan Queue account-rule hooks (686 -> 727). This includes the
+  // uncommitted Plan Queue handover lines in the same working tree (+15); re-tighten
+  // once the handover and account-rule code are committed and split out.
+  'src/main/plan-queue/plan-queue-coordinator.ts': 727,
+  // Added 2026-10-27: the Plan Queue hold re-checks the banned session under the item
+  // lock (+6 lines). The file was exactly 700 at HEAD; most of the growth to 706 is
+  // other uncommitted Plan Queue work in the same working tree (retirements, active-work
+  // checks, landing chain). Re-tighten once that work is committed and the file is split.
+  'src/main/plan-queue/plan-queue-item-flow.ts': 706,
 };
 
 function countLines(filePath: string): number {

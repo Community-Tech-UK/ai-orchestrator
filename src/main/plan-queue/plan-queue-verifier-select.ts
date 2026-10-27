@@ -11,12 +11,17 @@
 import type { PlanQueueRouteChoice } from '@contracts/schemas/plan-queue';
 import { sameFamily } from '../../shared/models/model-family';
 import { sameProviderCheckerCanDiffer } from '../../shared/models/multi-maker-providers';
+import type { ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
 import { detectAvailableClis } from '../cli/cli-detection';
+import { getProviderQuotaService } from '../core/system/provider-quota-service';
+import { resolveAntigravityReviewModelPlan } from '../orchestration/antigravity-review-model-routing';
 import { getLogger } from '../logging/logger';
 import { filterProvidersForAutomation, isProviderExcludedFromAutomation } from '../providers/automation-provider-exclusions';
 import { normalizeAgenticReviewerCliList, normalizeReviewerCli } from '../orchestration/cross-model-review-service.constants';
 import { classifyCheckerScope, modelOverrideOptionFor, resolveCheckerPlan, type CheckerPlanDeps } from '../review/checker-plan';
 import { defaultPlanQueueRouteUsage, pickRouteChoice, type PlanQueueRouteUsageCheck } from './plan-queue-route-usage';
+import { defaultPlanQueueRoutingDeps, type PlanQueueRoutingDeps } from './plan-queue-routing';
+import { accountPreferencesFor, accountRuleTier, choiceBlockedByNeverUse, choiceWithoutNeverUse } from './plan-queue-account-rules';
 
 const logger = getLogger('PlanQueueVerifierSelect');
 
@@ -54,6 +59,32 @@ export interface VerifierSelectDeps extends CheckerPlanDeps {
   isProviderExcluded?: (provider: string) => boolean;
   /** Usage left for a chosen checker; defaults to the account pools and the limit ledger. */
   routeUsage?: PlanQueueRouteUsageCheck;
+  /** James's account lists and the Copilot seats they apply to; defaults to the settings. */
+  accountRules?: Pick<PlanQueueRoutingDeps, 'readAccountRules' | 'poolProfiles' | 'copilotProfiles' | 'copilotProfileFor'>;
+  /** Antigravity's latest quota reading, for its review model plan; defaults to the quota service. */
+  antigravityQuota?: () => ProviderQuotaSnapshot | null;
+}
+
+type CheckerCandidate = ReturnType<typeof resolveCheckerPlan>['candidates'][number];
+
+/**
+ * A verifier is a full session, so the review host's fallback to James's configured
+ * reviewer model (`dispatchReviewerPrompt`) never reaches it. Pass an unchanged
+ * checker's configured model explicitly, choosing it the way that host does
+ * (Antigravity's quota-aware plan included); without it the session inherits
+ * whatever model was last remembered for that provider.
+ */
+function verifierModelOption(candidate: CheckerCandidate, deps: VerifierSelectDeps): { modelOverride?: string } {
+  const changed = modelOverrideOptionFor(candidate);
+  if (changed.modelOverride || !candidate.model) return changed;
+  const model = candidate.provider === 'antigravity'
+    ? resolveAntigravityReviewModelPlan(candidate.model, (deps.antigravityQuota ?? defaultAntigravityQuota)())[0]
+    : candidate.model;
+  return model ? { modelOverride: model } : {};
+}
+
+function defaultAntigravityQuota(): ProviderQuotaSnapshot | null {
+  return getProviderQuotaService().getSnapshot('antigravity');
 }
 
 async function installedProviders(): Promise<string[]> {
@@ -95,10 +126,15 @@ export async function selectPlanQueueVerifier(
   }, deps);
 
   if (plan.blockedReason) return { ok: false, reason: plan.blockedReason };
-  const candidate = plan.candidates.find(
+  const accounts = deps.accountRules ?? defaultPlanQueueRoutingDeps();
+  const ruled = await applyAccountRules(plan.candidates, input, accounts, deps.routeUsage ?? defaultPlanQueueRouteUsage());
+  const candidate = ruled.candidates.find(
     (c) => c.rationale === 'licence-pinned' || normalizeReviewerCli(c.provider) !== worker,
   );
   if (!candidate) {
+    if (ruled.seatOnNeverList) {
+      return { ok: false, reason: 'the work Copilot seat for this folder is on your never-use list; choose checkers on the Plan Queue page' };
+    }
     return {
       ok: false,
       reason: `no installed provider other than ${worker} is available for verification`
@@ -115,10 +151,50 @@ export async function selectPlanQueueVerifier(
     ok: true,
     choice: {
       provider: candidate.provider,
-      ...modelOverrideOptionFor(candidate),
+      ...verifierModelOption(candidate, deps),
       ...(candidate.copilotProfileId ? { copilotProfileId: candidate.copilotProfileId } : {}),
     },
   };
+}
+
+/**
+ * Automatic checkers under James's account rules. A checker whose every account
+ * is on the never-use list is dropped, and so is a Copilot checker on a
+ * never-use seat (`seatOnNeverList` says when that was the reason). A provider
+ * whose only usable account is use-last moves behind the others.
+ */
+async function applyAccountRules(
+  candidates: readonly CheckerCandidate[],
+  input: VerifierSelectInput,
+  accounts: NonNullable<VerifierSelectDeps['accountRules']>,
+  usage: PlanQueueRouteUsageCheck,
+): Promise<{ candidates: CheckerCandidate[]; seatOnNeverList: boolean }> {
+  const rules = accounts.readAccountRules();
+  const kept: CheckerCandidate[] = [];
+  const lastOnly: CheckerCandidate[] = [];
+  let seatOnNeverList = false;
+  for (const candidate of candidates) {
+    if (candidate.provider === 'copilot') {
+      const seat = candidate.copilotProfileId ?? (input.workingDirectory ? accounts.copilotProfileFor(input.workingDirectory, 'verification') : null);
+      const tier = seat ? accountRuleTier(rules, 'copilot', seat) : null;
+      if (tier === 'never') {
+        seatOnNeverList = true;
+        continue;
+      }
+      // A licence-pinned seat cannot be moved: it is the work seat the folder's rule requires.
+      (tier === 'last' && candidate.rationale !== 'licence-pinned' ? lastOnly : kept).push(candidate);
+      continue;
+    }
+    const choice = { provider: candidate.provider, ...(candidate.model ? { model: candidate.model } : {}) };
+    if (choiceBlockedByNeverUse(choice, candidate.provider, rules, accounts.poolProfiles(), accounts.copilotProfiles())) continue;
+    if (!accountPreferencesFor(rules, candidate.provider)?.last.length) {
+      kept.push(candidate);
+      continue;
+    }
+    const preferred = await usage(choice, 'verification', { allowLast: false, ...(input.workingDirectory ? { workingDirectory: input.workingDirectory } : {}) });
+    (preferred.usable ? kept : lastOnly).push(candidate);
+  }
+  return { candidates: [...kept, ...lastOnly], seatOnNeverList };
 }
 
 /**
@@ -136,6 +212,8 @@ async function selectFromChoices(
   deps: VerifierSelectDeps,
 ): Promise<VerifierSelection> {
   const isExcluded = deps.isProviderExcluded ?? isProviderExcludedFromAutomation;
+  const accounts = deps.accountRules ?? defaultPlanQueueRoutingDeps();
+  const rules = accounts.readAccountRules();
   const skipped: string[] = [];
   const eligible: PlanQueueRouteChoice[] = [];
   for (const choice of input.choices ?? []) {
@@ -147,10 +225,16 @@ async function selectFromChoices(
       skipped.push(`${provider} is the worker's provider and no different-family model was chosen`);
       continue;
     }
-    eligible.push({ ...choice, provider });
+    const usable = choiceWithoutNeverUse({ ...choice, provider }, provider, rules, accounts.poolProfiles(), accounts.copilotProfiles());
+    if ('blocked' in usable) { skipped.push(`${provider}: ${usable.blocked}`); continue; }
+    if (provider === 'copilot' && !choice.copilotProfileId && input.workingDirectory) {
+      const seat = accounts.copilotProfileFor(input.workingDirectory, 'verification');
+      if (seat && accountRuleTier(rules, 'copilot', seat) === 'never') { skipped.push('this folder\'s Copilot account is on the never-use list'); continue; }
+    }
+    eligible.push({ ...usable.choice, provider });
   }
   const picked = eligible.length > 1
-    ? await pickRouteChoice(eligible, 'verification', deps.routeUsage ?? defaultPlanQueueRouteUsage())
+    ? await pickRouteChoice(eligible, 'verification', deps.routeUsage ?? defaultPlanQueueRouteUsage(), input.workingDirectory)
     : null;
   const choice = picked?.choice ?? eligible[0];
   if (!choice) return { ok: false, reason: `none of the checkers chosen for this run can check it: ${skipped.join('; ')}` };
@@ -187,5 +271,5 @@ function checkerModelFor(
   // other providers are James's choice and are only re-modelled for family.
   }, provider === 'copilot' ? deps : { ...deps, classifyScope: () => ({ kind: 'none' }) });
   const candidate = plan.candidates[0];
-  return candidate ? modelOverrideOptionFor(candidate) : {};
+  return candidate ? verifierModelOption(candidate, deps) : {};
 }

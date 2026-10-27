@@ -28,7 +28,8 @@ export interface InstanceSpawnPreflightDeps {
 
 export interface InstanceSpawnPreflightInput {
   config: InstanceCreateConfig;
-  instance: Pick<Instance, 'workingDirectory' | 'bareMode'>;
+  /** The live record: its account preferences are read here, not from the create config, so a rule saved during init still applies. */
+  instance: Pick<Instance, 'workingDirectory' | 'bareMode' | 'accountPreferences'>;
   provider: CliType;
   spawnOptions: UnifiedSpawnOptions;
   /** Already resolved by the lifecycle when model selection needs it. */
@@ -140,6 +141,7 @@ export class InstanceSpawnPreflightChain {
         persistedProfileId: config.resume ? config.copilotAccountProfileId : undefined,
         executionNodeId:
           executionLocation.type === 'remote' ? executionLocation.nodeId : undefined,
+        avoidProfileIds: instance.accountPreferences?.avoid,
       },
     );
 
@@ -150,6 +152,7 @@ export class InstanceSpawnPreflightChain {
       {
         explicitProfileId: config.resume ? undefined : config.accountProfileId,
         restrictTo: config.allowedAccountProfileIds,
+        preferences: instance.accountPreferences,
         // A resume/restore keeps the account the session ran on; an unstamped
         // resume predates pools and ran on the legacy profile.
         persistedProfileId: config.resume ? (config.accountProfileId ?? 'legacy') : undefined,

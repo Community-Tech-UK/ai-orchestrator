@@ -24,8 +24,16 @@ export interface OrchestratorToolsRpcClientOptions {
   timeoutMs?: number;
 }
 
+export interface OrchestratorToolsRpcCallOptions {
+  signal?: AbortSignal;
+}
+
 export interface OrchestratorToolsRpcClientLike {
-  call(method: string, payload: Record<string, unknown>): Promise<unknown>;
+  call(
+    method: string,
+    payload: Record<string, unknown>,
+    options?: OrchestratorToolsRpcCallOptions,
+  ): Promise<unknown>;
 }
 
 let nextRequestId = 1;
@@ -46,58 +54,81 @@ export class OrchestratorToolsRpcClient implements OrchestratorToolsRpcClientLik
     this.timeoutMs = options.timeoutMs ?? 5 * 60_000; // long-running git pulls
   }
 
-  async call(method: string, payload: Record<string, unknown>): Promise<unknown> {
+  async call(
+    method: string,
+    payload: Record<string, unknown>,
+    options: OrchestratorToolsRpcCallOptions = {},
+  ): Promise<unknown> {
     const socketPath = this.env['AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET'];
     const instanceId = this.env['AI_ORCHESTRATOR_INSTANCE_ID'];
     const capability = this.env['AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_CAPABILITY'];
     if (!socketPath || !instanceId || !capability) {
       throw new OrchestratorToolsUnavailableError();
     }
-    return this.send(socketPath, {
-      jsonrpc: '2.0',
-      id: nextRequestId++,
-      method,
-      params: { instanceId, capability, payload },
-    });
+    return this.send(
+      socketPath,
+      {
+        jsonrpc: '2.0',
+        id: nextRequestId++,
+        method,
+        params: { instanceId, capability, payload },
+      },
+      options.signal,
+    );
   }
 
-  private send(socketPath: string, request: Record<string, unknown>): Promise<unknown> {
+  private send(
+    socketPath: string,
+    request: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
     return new Promise<unknown>((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(new Error('orchestrator-tools RPC request cancelled'));
+        return;
+      }
       const socket = net.connect(socketPath);
       let buffer = '';
-      const timeout = setTimeout(() => {
-        socket.destroy();
-        reject(new Error('orchestrator-tools RPC request timed out'));
-      }, this.timeoutMs);
-
-      socket.on('connect', () => {
-        socket.write(`${JSON.stringify(request)}\n`);
-      });
+      let settled = false;
+      const finish = (error: Error | null, result?: unknown) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        signal?.removeEventListener('abort', abort);
+        if (error) {
+          socket.destroy();
+          reject(error);
+        } else {
+          socket.end();
+          resolve(result);
+        }
+      };
+      const abort = () => finish(new Error('orchestrator-tools RPC request cancelled'));
+      const timeout = setTimeout(
+        () => finish(new Error('orchestrator-tools RPC request timed out')),
+        this.timeoutMs,
+      );
+      signal?.addEventListener('abort', abort, { once: true });
+      socket.once('connect', () => socket.write(`${JSON.stringify(request)}\n`));
       socket.on('data', (chunk) => {
+        if (settled) return;
         buffer += chunk.toString('utf-8');
         const newline = buffer.indexOf('\n');
-        if (newline === -1) {
-          return;
-        }
-        const line = buffer.slice(0, newline);
-        clearTimeout(timeout);
-        socket.end();
+        if (newline === -1) return;
         let response: { result?: unknown; error?: { message?: string } };
         try {
-          response = JSON.parse(line) as { result?: unknown; error?: { message?: string } };
-        } catch (parseError) {
-          reject(parseError instanceof Error ? parseError : new Error(String(parseError)));
+          response = JSON.parse(buffer.slice(0, newline)) as typeof response;
+        } catch (error) {
+          finish(error instanceof Error ? error : new Error(String(error)));
           return;
         }
-        if (response.error) {
-          reject(new Error(response.error.message ?? 'orchestrator-tools RPC failed'));
-          return;
-        }
-        resolve(response.result);
+        if (response.error)
+          finish(new Error(response.error.message ?? 'orchestrator-tools RPC failed'));
+        else finish(null, response.result);
       });
-      socket.on('error', (error) => {
-        clearTimeout(timeout);
-        reject(error);
+      socket.once('error', (error) => finish(error));
+      socket.once('close', () => {
+        if (!settled) finish(new Error('orchestrator-tools RPC connection closed before a reply'));
       });
     });
   }

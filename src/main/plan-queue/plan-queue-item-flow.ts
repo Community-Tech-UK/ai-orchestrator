@@ -1,5 +1,5 @@
 import { PlanQueueSpawnRoutingChanged, selectCurrentQueueVerifier } from './plan-queue-checker-routing';
-import { holdItem, PlanQueueSpawnRunPaused, restoreCheckpointAfterVerification } from './plan-queue-run-hold';
+import { holdItem, isHoldNote, PlanQueueSpawnRunPaused, resumeReason, restoreCheckpointAfterVerification } from './plan-queue-run-hold';
 import { PlanQueueSpawnStoppedByUser } from './plan-queue-user-close';
 /**
  * Plan Queue item flow — the side effects of each item transition: prepare a
@@ -43,6 +43,8 @@ import {
   buildVerifierPrompt,
   buildWorkerPrompt,
 } from './plan-queue-prompts';
+import { canStepUp, stepUpItem } from './plan-queue-step-up';
+import { PlanQueueVerifierReminders } from './plan-queue-verifier-reminder';
 import type { VerifierSelection } from './plan-queue-verifier-select';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 
@@ -65,19 +67,32 @@ export class PlanQueueItemFlow {
   private readonly snapshots = new Map<string, TreeSnapshot>();
   /** Verdicts reported during the verifier's current turn, keyed by item. */
   private readonly pendingVerdicts = new Map<string, { verifierId: string; verdict: PlanQueueVerdict }>();
+  private readonly reminders: PlanQueueVerifierReminders;
   /** Per-item operation chain: one side-effecting operation per item at a time. */
   private readonly locks = new Map<string, Promise<void>>();
   private readonly stopping = new Map<string, Promise<void>>();
+  /** Failed stops retain ownership without retaining a rejected promise that would block retries. */
+  private readonly pendingRetirements = new Set<string>();
   private landingChain: Promise<void> = Promise.resolve();
   private readonly landing: PlanQueueItemLanding;
 
   constructor(private readonly host: PlanQueueFlowHost) {
+    this.reminders = new PlanQueueVerifierReminders(host, (id, outcome) => void this.onVerifierOutcome(id, outcome));
     this.landing = new PlanQueueItemLanding({
       host,
       toFixing: (item, prompt, detail) => this.toFixing(item, prompt, detail),
-      park: (item, reason, detail) => this.parkUnlocked(item, reason, detail),
+      park: (item, reason, detail, requireCheckpoint) => this.parkUnlocked(item, reason, detail, requireCheckpoint),
       stopInstance: (id) => this.stopInstance(id),
     });
+  }
+
+  /** Runtime ownership, including teardown; persisted instance IDs may be historical. */
+  hasActiveWork(itemId: string): boolean {
+    const item = this.host.getItem(itemId);
+    return this.locks.has(itemId) || hasPendingLandingCleanup(item) || ['preparing', 'working', 'fixing', 'verifying', 'landing'].includes(item.state)
+      || [item.workerInstanceId, item.verifierInstanceId].some(id => !!id
+        && (this.stopping.has(id) || (this.pendingRetirements.has(id) && this.host.instances.getInstance(id) !== undefined)
+          || this.host.tracker.isTracked(id) || this.host.roleOf(id) !== undefined));
   }
 
   /** Serialize operations; read current state inside the lock before saving. */
@@ -101,10 +116,7 @@ export class PlanQueueItemFlow {
     await this.landingChain;
   }
 
-  // ---------------------------------------------------------------------------
   // Worker
-  // ---------------------------------------------------------------------------
-
   /**
    * queued → preparing → working. The first transition is synchronous so the
    * scheduler's slot count is exact; the rest runs under the item lock. A
@@ -127,7 +139,7 @@ export class PlanQueueItemFlow {
       }
       const ctx = this.promptContext(run, item);
       const prompt = resuming
-        ? buildResumePrompt(ctx, item.heldAt ? 'James resumed this paused item' : 'James resumed this parked item') + (await this.conflictAddendum(item, run))
+        ? buildResumePrompt(ctx, resumeReason(item)) + (await this.conflictAddendum(item, run))
         : buildWorkerPrompt(ctx);
       await this.spawnWorker(item, prompt, 'working');
     });
@@ -164,12 +176,22 @@ export class PlanQueueItemFlow {
     });
   }
 
-  /** Public holds serialize with preparation, checkpointing, verification and landing. */
-  hold(itemId: string, reason = 'Paused'): Promise<void> {
-    return this.withItemLock(itemId, () => this.holdUnlocked(this.host.getItem(itemId), reason));
+  /**
+   * `stillHeld`, when given, is a targeted hold (a rule change, not Pause): it does
+   * not abort a landing in flight, and it is checked again under the item lock, so
+   * a hold that waited behind another change does nothing if the item has moved on.
+   */
+  hold(itemId: string, reason = 'Paused', stillHeld?: (item: PlanQueueItem) => boolean): Promise<void> {
+    if (!stillHeld) this.landing.cancel(itemId);
+    return this.withItemLock(itemId, async () => {
+      const item = this.host.getItem(itemId);
+      if (stillHeld && !stillHeld(item)) return;
+      await this.holdUnlocked(item, reason);
+    });
   }
 
   private async holdUnlocked(item: PlanQueueItem, reason = 'Paused'): Promise<void> {
+    if (item.state === 'landing') { await this.landing.land(item.id, {}); item = this.host.getItem(item.id); }
     if (hasPendingLandingCleanup(item)) return this.landing.finishCleanup(item);
     await holdItem(this.host, item, (id) => this.stopInstance(id), async (checking) => {
       const before = this.snapshots.get(checking.id);
@@ -215,7 +237,8 @@ export class PlanQueueItemFlow {
         ...(run.workerProvider ? { provider: run.workerProvider as InstanceProvider } : {}),
         ...(run.workerModel ? { modelOverride: run.workerModel } : {}),
         yoloMode: true,
-        metadata: { planQueueRunId: run.id, planQueueItemId: item.id, planQueueRole: 'worker' },
+        // A handed-over document's every later worker takes the run's step-up choice (`queueWorkerChoices`).
+        metadata: { planQueueRunId: run.id, planQueueItemId: item.id, planQueueRole: 'worker', ...(item.steppedUpAt ? { planQueueSteppedUp: true } : {}) },
       });
       this.host.registerRole(instance.id, { role: 'worker', runId: run.id, itemId: item.id });
       holdFromReclaim(instance.id, RECLAIM_HOLD_OWNER);
@@ -225,7 +248,7 @@ export class PlanQueueItemFlow {
         logger.info('Plan queue worker runs under relaxed settings', { itemId: item.id, runId: run.id, settings: relaxed });
       }
       const current = this.host.getItem(item.id);
-      const patch = { workerInstanceId: instance.id, question: null, heldAt: null, pendingInstruction: null, detail: current.detail === 'Paused' ? null : current.detail };
+      const patch = { workerInstanceId: instance.id, question: null, heldAt: null, pendingInstruction: null, detail: isHoldNote(current.detail) ? null : current.detail };
       if (nextState && current.state !== nextState) this.host.transition(current, nextState, patch);
       else this.host.save({ ...current, ...patch });
       this.host.tracker.track(instance.id);
@@ -347,10 +370,7 @@ export class PlanQueueItemFlow {
     });
   }
 
-  // ---------------------------------------------------------------------------
   // Verification
-  // ---------------------------------------------------------------------------
-
   /** awaiting-slot → verifying. Synchronous first transition reserves the slot. */
   startVerification(waiting: PlanQueueItem): Promise<void> {
     this.host.transition(waiting, 'verifying', { verdict: null, landedCommit: null });
@@ -466,6 +486,8 @@ export class PlanQueueItemFlow {
   private async finishVerification(itemId: string, instanceId: string, outcome: PlanQueueTurnOutcome): Promise<void> {
     let item = this.host.getItem(itemId);
     if (item.state !== 'verifying' || item.verifierInstanceId !== instanceId) return;
+    const hasVerdict = this.pendingVerdicts.get(itemId)?.verifierId === instanceId;
+    if (await this.reminders.remind(item, instanceId, outcome, hasVerdict, this.snapshots.get(itemId))) return;
     // Keep ownership, verdict and snapshot until the checker can no longer write.
     // A rejected lock tail is settled, so a later hold must still find its ID.
     await this.stopInstance(instanceId);
@@ -516,8 +538,17 @@ export class PlanQueueItemFlow {
     }
     const run = this.host.getRun(item.runId);
     if (round >= run.config.maxRounds) {
+      if (canStepUp(run, item)) {
+        await stepUpItem({
+          host: this.host,
+          stopInstance: (id) => this.stopInstance(id),
+          spawnWorker: (next, prompt) => this.spawnWorker(next, prompt, null),
+          promptContext: (r, i) => this.promptContext(r, i),
+        }, item, round, verdict);
+        return;
+      }
       const summary = verdict.findings.slice(0, 5).map((f) => `[${f.severity}, confidence ${f.confidence}] ${f.summary}`).join('; ');
-      await this.parkUnlocked({ ...item, round, verdict }, 'round-limit', `Still failing after ${round} verification round(s): ${summary || 'no findings listed'}`);
+      await this.parkUnlocked({ ...item, round, verdict }, 'round-limit', `Still failing after ${item.steppedUpAt ? 'the step-up worker\'s ' : ''}${round} verification round(s): ${summary || 'no findings listed'}`);
       return;
     }
     await this.toFixing(
@@ -542,29 +573,22 @@ export class PlanQueueItemFlow {
     await this.runWorkerTurn(fixing, prompt);
   }
 
-  // ---------------------------------------------------------------------------
   // Landing — serial, one at a time across every run
-  // ---------------------------------------------------------------------------
-
   /** Queue a landing. Never await this while holding the item's lock. */
   enqueueLanding(itemId: string, options: { operatorOverride?: boolean } = {}): Promise<void> {
-    this.landingChain = this.landingChain
-      .then(() => this.withItemLock(itemId, () => this.landing.land(itemId, options)))
+    const previous = this.landingChain;
+    this.landingChain = this.withItemLock(itemId, async () => { await previous; await this.landing.land(itemId, options); })
       .catch((error: unknown) => {
-        logger.error('Plan queue landing failed unexpectedly', error instanceof Error ? error : undefined, { itemId });
-        if (this.host.getItem(itemId).state === 'landed') return;
-        void this.park(itemId, 'land-blocked', `Landing failed: ${errorMessage(error)}`).catch(() => undefined);
+        logger.error('Plan queue landing recovery failed', error instanceof Error ? error : undefined, { itemId });
       });
     return this.landingChain;
   }
 
-  // ---------------------------------------------------------------------------
   // Parking and operator actions
-  // ---------------------------------------------------------------------------
-
   /** Operator Resume must wait for retained-checkout recovery and other writers. */
   resume(itemId: string): Promise<void> {
     return this.withItemLock(itemId, async () => {
+      // `steppedUpAt` stays: a handed-over document resumes on the step-up choice and is never handed over twice.
       this.host.transition(this.host.getItem(itemId), 'queued', { parkReason: null, detail: null, heldAt: null, round: 0, erroredRounds: 0, landingRefusals: 0, question: null, landedCommit: null, verdict: null, verifiedMainCommit: null });
     });
   }
@@ -575,7 +599,7 @@ export class PlanQueueItemFlow {
   }
 
   /** Any non-terminal state → parked. Stops writers before checkpointing; never deletes the branch. */
-  private async parkUnlocked(item: PlanQueueItem, reason: PlanQueueParkReason, detail: string): Promise<void> {
+  private async parkUnlocked(item: PlanQueueItem, reason: PlanQueueParkReason, detail: string, requireCheckpoint = false): Promise<void> {
     if (hasPendingLandingCleanup(item)) return this.landing.finishCleanup(item);
     if (item.state === 'landed' || item.state === 'parked' || item.state === 'skipped') return;
     const run = this.host.getRun(item.runId);
@@ -598,6 +622,7 @@ export class PlanQueueItemFlow {
         if (removal.removed) item = this.host.getItem(item.id);
         else notes.push(`Worktree kept (${removal.reason}: ${removal.detail}).`);
       } catch (error) {
+        if (requireCheckpoint) throw error;
         notes.push(error instanceof UnresolvedMergeError
           ? `Worktree kept with the merge of ${run.config.baseBranch ?? 'the base branch'} still in progress (unresolved: ${error.conflictFiles.join(', ')}); nothing was committed. Resume sends the conflict back to a worker.`
           : `Worktree kept: ${errorMessage(error)}.`);
@@ -663,10 +688,7 @@ export class PlanQueueItemFlow {
     });
   }
 
-  // ---------------------------------------------------------------------------
   // Instances
-  // ---------------------------------------------------------------------------
-
   /** Resolve the live parent; missing parents leave children at the rail's top. */
   liveParentId(run: PlanQueueRun): string | undefined {
     return this.host.resolveRunParent(run);
@@ -683,11 +705,14 @@ export class PlanQueueItemFlow {
   stopInstance(instanceId: string): Promise<void> {
     const pending = this.stopping.get(instanceId);
     if (pending) return pending;
+    this.pendingRetirements.add(instanceId);
+    this.reminders.forget(instanceId);
     this.host.tracker.untrack(instanceId);
     this.host.unregisterRole(instanceId);
     releaseReclaimHold(instanceId);
-    const stopped = this.host.instances.getInstance(instanceId)
-      ? this.host.instances.terminateInstance(instanceId, true) : Promise.resolve();
+    const stopped = (this.host.instances.getInstance(instanceId)
+      ? this.host.instances.terminateInstance(instanceId, true) : Promise.resolve())
+      .then(() => { this.pendingRetirements.delete(instanceId); });
     this.stopping.set(instanceId, stopped);
     void stopped.finally(() => { this.stopping.delete(instanceId); }).catch(() => undefined);
     return stopped;

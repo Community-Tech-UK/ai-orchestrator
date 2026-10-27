@@ -392,6 +392,17 @@ export interface EvidenceConversationOwnerReference {
   conversationId: string;
 }
 
+/**
+ * Account preferences a session keeps for failover and handoffs (the Plan Queue
+ * account rules, carried by queue and automation sessions). Ids are this session's own provider's profile ids: pool
+ * profiles for Claude/Codex/OpenCode, Copilot profiles for Copilot. `avoid` is
+ * a hard rule; `last` is used only when nothing else can run.
+ */
+export interface AccountPreferences {
+  avoid: string[];
+  last: string[];
+}
+
 export interface Instance {
   // Identity
   id: string;
@@ -571,6 +582,8 @@ export interface Instance {
   accountRouteOrigin?: AccountInvocationOrigin;
   /** Pool accounts this session may run on, including after failover; absent = any. */
   allowedAccountProfileIds?: string[];
+  /** Accounts failover and handoffs avoid or use last for this session; read live from here (queue sessions get rule changes pushed in; automation sessions keep the lists their run started with). See `AccountPreferences`. */
+  accountPreferences?: AccountPreferences;
   /**
    * WS7 Phase B — ordered fallback providers this session may fail over to when
    * its recovery ladder exhausts on a provider-fault category. Empty/undefined
@@ -754,6 +767,8 @@ export interface InstanceCreateConfig {
   /** See `Instance.accountRouteOrigin` / `Instance.allowedAccountProfileIds`. */
   accountRouteOrigin?: AccountInvocationOrigin;
   allowedAccountProfileIds?: string[];
+  /** See `Instance.accountPreferences`. */
+  accountPreferences?: AccountPreferences;
   /** WS7 Phase B — ordered fallback providers; undefined = seed from global `sessionFailoverProviders`. */
   failoverProviders?: string[];
 

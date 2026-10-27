@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { PlanQueueAlertSchema, PlanQueueQuestionSchema, PlanQueueReportTriageArgsSchema, PlanQueueControlPayloadSchema, PlanQueueControlArgsSchema } from '../plan-queue.schemas';
+import {
+  PlanQueueAlertSchema, PlanQueueQuestionSchema, PlanQueueReportTriageArgsSchema, PlanQueueControlPayloadSchema, PlanQueueControlArgsSchema,
+  PlanQueueItemDtoSchema, PlanQueueRoutingSchema, PlanQueueStartArgsSchema,
+} from '../plan-queue.schemas';
 
 const question = {
   question: 'Which existing verification command should the worker use?',
@@ -80,5 +83,27 @@ describe('Plan Queue routing controls', () => {
     expect(PlanQueueControlArgsSchema.safeParse({ action: 'set-routing', run_id: 'run', routing: { worker: { provider: 'codex' }, verifiers: [] } }).success).toBe(false);
     expect(PlanQueueControlArgsSchema.safeParse({ action: 'pause-all' }).success).toBe(false);
     expect(PlanQueueControlArgsSchema.safeParse({ action: 'set-routing', run_id: 'run' }).success).toBe(false);
+  });
+  it('carries an optional step-up choice in routing, start and set-routing, and still refuses unknown fields', () => {
+    const stepUp = { provider: 'claude', model: 'opus' };
+    expect(PlanQueueRoutingSchema.parse({ workers: [], verifiers: [] })).toEqual({ workers: [], verifiers: [] });
+    expect(PlanQueueRoutingSchema.parse({ workers: [], verifiers: [], stepUp })).toEqual({ workers: [], verifiers: [], stepUp });
+    expect(PlanQueueRoutingSchema.safeParse({ workers: [], verifiers: [], stepUp, fallback: stepUp }).success).toBe(false);
+    expect(PlanQueueRoutingSchema.safeParse({ workers: [], verifiers: [], stepUp: { ...stepUp, accounts: [] } }).success).toBe(false);
+    expect(PlanQueueStartArgsSchema.parse({ kind: 'plans', step_up: { provider: 'claude', model: 'opus' } }))
+      .toMatchObject({ step_up: { provider: 'claude', model: 'opus' } });
+    expect(PlanQueueControlArgsSchema.parse({ action: 'set-routing', run_id: 'run', routing: { workers: [], verifiers: [], step_up: { provider: 'claude' } } }))
+      .toMatchObject({ routing: { step_up: { provider: 'claude' } } });
+    expect(PlanQueueControlArgsSchema.safeParse({ action: 'set-routing', run_id: 'run', routing: { workers: [], verifiers: [], stepUp } }).success).toBe(false);
+  });
+  it('accepts an item with or without a recorded handover', () => {
+    const item = {
+      id: 'item', runId: 'run', documentPath: '/repo/a_plan.md', state: 'fixing', round: 0, erroredRounds: 0, branchName: null, worktreePath: null,
+      baseCommit: null, checkpointCommit: null, landedCommit: null, workerInstanceId: null, verifierInstanceId: null, question: null, answer: null,
+      parkReason: null, detail: null, verdict: null, createdAt: 1, updatedAt: 1,
+    };
+    expect(PlanQueueItemDtoSchema.safeParse(item).success).toBe(true);
+    expect(PlanQueueItemDtoSchema.parse({ ...item, steppedUpAt: 5 }).steppedUpAt).toBe(5);
+    expect(PlanQueueItemDtoSchema.parse({ ...item, steppedUpAt: null }).steppedUpAt).toBeNull();
   });
 });

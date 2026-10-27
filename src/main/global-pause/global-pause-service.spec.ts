@@ -129,6 +129,19 @@ describe('GlobalPauseService', () => {
     expect(collect).not.toHaveBeenCalled();
     expect(service.getState().entries[0]).toMatchObject({ state: 'ready', noteKind: 'basic' });
   });
+  it('reports stopping background work before the note-writing stage begins', async () => {
+    let stop!: () => void;
+    let engineStarted!: () => void;
+    const started = new Promise<void>(resolve => { engineStarted = resolve; });
+    runtime.pauseEngines = async () => { engineStarted(); await new Promise<void>(resolve => { stop = resolve; }); };
+    const collect = vi.spyOn(runtime, 'collectNote');
+    const pausing = service.pauseForRestart({ withNotes: true });
+    await started;
+    try {
+      expect(service.getState()).toMatchObject({ phase: 'collecting', collectionStage: 'stopping-work', completedNotes: 0 });
+      expect(collect).not.toHaveBeenCalled();
+    } finally { stop(); await pausing; }
+  });
   it('waits for an empty chat initialization without inventing a continuation task', async () => {
     runtime.sessions = () => [{ ...session, busy: false, waitingForInitialization: true, lastRequest: '', lastReply: '' }];
     const interrupt = vi.spyOn(runtime, 'interruptSession').mockRejectedValueOnce(new GlobalPauseUnsafeError('Initialization is still running'));
@@ -152,6 +165,23 @@ describe('GlobalPauseService', () => {
     expect(service.getState().summary).toContain('did not finish');
     await service.pauseForRestart({ withNotes: false });
     expect(service.getState()).toMatchObject({ phase: 'ready', summary: null });
+  });
+  it('retries recorded engines after a failed checkpoint changes their running status', async () => {
+    const queue = { kind: 'queue-run' as const, id: 'queue', displayName: 'Queue' };
+    runtime.engines = async () => [queue];
+    const pause = vi.spyOn(runtime, 'pauseEngines').mockImplementation(async entries => {
+      runtime.engines = async () => [];
+      if (entries.some(entry => entry.id === 'queue')) throw new Error('Checkout still blocked');
+    });
+    await expect(service.pauseForRestart({ withNotes: false })).rejects.toThrow('Checkout still blocked');
+    await expect(service.pauseForRestart({ withNotes: false })).rejects.toThrow('Checkout still blocked');
+    const recorded = { ...queue, originalInstanceId: null, historyThreadId: null, providerSessionId: null };
+    expect(pause.mock.calls[1][0]).toEqual([recorded]);
+    expect(service.getState().phase).toBe('collecting');
+    pause.mockResolvedValue(undefined);
+    await service.pauseForRestart({ withNotes: false });
+    expect(pause.mock.calls[2][0]).toEqual([recorded]);
+    expect(service.getState().phase).toBe('ready');
   });
   it.each([true, false])('rearms picked-up busy work on explicit repeat pause (notes %s)', async (withNotes) => {
     const interrupt = vi.spyOn(runtime, 'interruptSession');

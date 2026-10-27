@@ -111,6 +111,14 @@ describe('attachAccountRoute', () => {
     expect(instance).toMatchObject({ accountProfileId: 'max-b', accountRoutingSource: 'default', accountSwitches: 1, accountRouteOrigin: 'automation' });
   });
 
+  it('restores the account preferences on wake as a copy', () => {
+    const instance: Record<string, unknown> = {};
+    const state = { accountPreferences: { avoid: ['max-a'], last: ['max-b'] } };
+    restoreAccountStamp(instance as never, state as never);
+    expect(instance).toEqual({ accountPreferences: { avoid: ['max-a'], last: ['max-b'] } });
+    expect(instance['accountPreferences']).not.toBe(state.accountPreferences);
+  });
+
   it('stamps first-class instance fields', () => {
     const instance: { accountProfileId?: string; accountRoutingSource?: string } = {};
     stampAccountRouteOnInstance(instance as never, {

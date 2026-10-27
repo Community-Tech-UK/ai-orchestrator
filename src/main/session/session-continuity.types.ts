@@ -1,6 +1,6 @@
 import type { ExecutionLocation, NodePlacementPrefs } from '../../shared/types/worker-node.types';
 import type { AccountInvocationOrigin, AccountRouteSource } from '../../shared/types/provider-account.types';
-import type { InstanceProvider, ThinkingContent } from '../../shared/types/instance.types';
+import type { AccountPreferences, InstanceProvider, ThinkingContent } from '../../shared/types/instance.types';
 import type { CopilotRouteSource } from '../../shared/types/copilot-account.types';
 import type { InternalInputMetadata } from '../../shared/types/input-provenance.types';
 
@@ -165,6 +165,8 @@ export interface SessionState {
   /** Routing origin and account fence (Plan Queue sessions); see the matching `Instance` fields. */
   accountRouteOrigin?: AccountInvocationOrigin;
   allowedAccountProfileIds?: string[];
+  /** Failover preferences (Plan Queue account rules); see `Instance.accountPreferences`. */
+  accountPreferences?: AccountPreferences;
 }
 
 export interface ConversationEntry {

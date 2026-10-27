@@ -15,7 +15,7 @@ vi.mock('../account-route-preflight', () => ({
 import type { InstanceCreateConfig } from '../../../../shared/types/instance.types';
 import { InstanceSpawnPreflightChain } from '../instance-spawn-preflight-chain';
 
-function prepare(config: Partial<InstanceCreateConfig>) {
+function prepare(config: Partial<InstanceCreateConfig>, instanceFields: { accountPreferences?: { avoid: string[]; last: string[] } } = {}) {
   const chain = new InstanceSpawnPreflightChain({
     consumeWarmAdapter: vi.fn(),
     assertLocalModelRuntimeAvailable: vi.fn().mockResolvedValue(undefined),
@@ -23,7 +23,7 @@ function prepare(config: Partial<InstanceCreateConfig>) {
   });
   return chain.prepare({
     config: { workingDirectory: '/tmp/project', provider: 'claude', ...config },
-    instance: { workingDirectory: '/tmp/project', bareMode: false },
+    instance: { workingDirectory: '/tmp/project', bareMode: false, ...instanceFields },
     provider: 'claude',
     spawnOptions: { sessionId: 's', workingDirectory: '/tmp/project', resume: true },
   });
@@ -52,5 +52,17 @@ describe('InstanceSpawnPreflightChain — account routing origin and fence', () 
     expect(routes.copilot[0]?.[2]).toBe('verification');
     expect(routes.account[0]?.[2]).toBe('verification');
     expect(routes.account[0]?.[3]).toMatchObject({ restrictTo: ['max-b'] });
+  });
+
+  it('passes the account preferences to the pool and Copilot routes (Plan Queue never-use and use-last)', async () => {
+    await prepare({ accountRouteOrigin: 'automation' }, { accountPreferences: { avoid: ['max-a'], last: ['max-b'] } });
+    expect(routes.account[0]?.[3]).toMatchObject({ preferences: { avoid: ['max-a'], last: ['max-b'] } });
+    expect(routes.copilot[0]?.[3]).toMatchObject({ avoidProfileIds: ['max-a'] });
+  });
+
+  it('reads the live instance\'s preferences, not the create config snapshot, so a rule saved during init still applies', async () => {
+    await prepare({ accountRouteOrigin: 'automation', accountPreferences: { avoid: ['max-a'], last: [] } });
+    expect(routes.account[0]?.[3]).toMatchObject({ preferences: undefined });
+    expect(routes.copilot[0]?.[3]).toMatchObject({ avoidProfileIds: undefined });
   });
 });

@@ -56,6 +56,7 @@ import {
 import { isProviderExcludedFromAutomation } from '../providers/automation-provider-exclusions';
 import { revealHiddenAutomationSession, stampHiddenAutomationOutcome } from './automation-hidden-outcome';
 import { defaultAutomationNetworkGate, type AutomationNetworkGate } from './automation-network-gate';
+import { automationAccountPreferences, type AutomationAccountPreferencesResolver } from './automation-account-rules';
 import { GlobalPauseService } from '../global-pause/global-pause-service';
 import { AutomationPauseStartup } from './automation-pause-startup';
 import { isAutomaticStartupCancelled, type AutomaticStartup } from '../work-admission/automatic-startup';
@@ -103,6 +104,7 @@ export class AutomationRunner {
     private readonly automationModelDefaults: () => AutomationModelDefaults = readAutomationModelDefaults,
     private readonly isProviderExcluded: (provider: string) => boolean = isProviderExcludedFromAutomation,
     private readonly networkGate: AutomationNetworkGate = defaultAutomationNetworkGate,
+    private readonly accountPreferencesFor: AutomationAccountPreferencesResolver = automationAccountPreferences,
   ) {}
 
   /**
@@ -346,6 +348,9 @@ export class AutomationRunner {
       if (!spawnTarget) {
         return;
       }
+      // James's never-use and use-last account lists apply to automation sessions too.
+      const accountPreferences = await this.accountPreferencesFor(spawnTarget, claimed.snapshot.action.forceNodeId);
+      startup.signal.throwIfAborted();
       const contained = claimed.snapshot.action.executionProfile === 'contained';
       const instance = await manager.createInstance({
         // The automation name is operator-facing and already specific. Keep it
@@ -360,6 +365,7 @@ export class AutomationRunner {
         yoloMode: contained ? false : claimed.snapshot.action.yoloMode,
         agentId: claimed.snapshot.action.agentId,
         ...spawnTarget,
+        ...(accountPreferences ? { accountPreferences } : {}),
         forceNodeId: claimed.snapshot.action.forceNodeId,
         reasoningEffort: claimed.snapshot.action.reasoningEffort,
         ...(contained ? { containedExecution: true } : {}),

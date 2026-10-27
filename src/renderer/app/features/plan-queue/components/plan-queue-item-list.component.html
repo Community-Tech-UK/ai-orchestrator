@@ -24,6 +24,12 @@
           </div>
         }
 
+        @if (item.steppedUpAt) {
+          <div class="pq-item-stepped-up">
+            {{ steppedUpLabel() }}
+          </div>
+        }
+
         @if (item.verdict) {
           <div class="pq-item-verdict">{{ verdictSummary(item.verdict) }}</div>
         }

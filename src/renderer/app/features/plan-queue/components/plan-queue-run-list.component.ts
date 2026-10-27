@@ -57,7 +57,10 @@ function describeRouteChoice(choice: PlanQueueRouteChoice, accountLabel: PlanQue
   return `${choice.provider}${choice.model ? `/${choice.model}` : ''}${accounts}${copilot}`;
 }
 
-/** "Workers: claude/opus (accounts: Work, Spare), then codex · Checkers: automatic": the current provider choices, in order. */
+/**
+ * "Workers: claude/haiku (accounts: Work, Spare), then codex · Checkers: automatic · If stuck: claude/opus":
+ * the current provider choices, in order. The last part shows only when a step-up choice is set.
+ */
 export function planQueueRoutingSummary(
   routing: PlanQueueRouting,
   options: { noWorkers?: string; accountLabel?: PlanQueueAccountLabel | null } = {},
@@ -66,7 +69,7 @@ export function planQueueRoutingSummary(
   const describe = (choice: PlanQueueRouteChoice) => describeRouteChoice(choice, label);
   const workers = routing.workers.length > 0 ? routing.workers.map(describe).join(', then ') : options.noWorkers ?? 'default provider';
   const checkers = routing.verifiers.length > 0 ? routing.verifiers.map(describe).join(', ') : 'automatic';
-  return `Workers: ${workers} · Checkers: ${checkers}`;
+  return `Workers: ${workers} · Checkers: ${checkers}${routing.stepUp ? ` · If stuck: ${describe(routing.stepUp)}` : ''}`;
 }
 
 /**

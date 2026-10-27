@@ -51,7 +51,6 @@ describe('LocalAiStatusChipComponent', () => {
   it.each([
     ['not-configured', 'Not configured', 'neutral'],
     ['checking', 'Checking', 'checking'],
-    ['healthy', 'Healthy', 'healthy'],
     ['degraded', 'Degraded', 'degraded'],
     ['unavailable', 'Unavailable', 'unavailable'],
     ['paused', 'Paused', 'paused'],
@@ -69,6 +68,25 @@ describe('LocalAiStatusChipComponent', () => {
     );
   });
 
+  it('hides the chip while every target is healthy', () => {
+    currentAggregate.set(aggregate('healthy', 2));
+    const fixture = TestBed.createComponent(LocalAiStatusChipComponent);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('button')).toBeNull();
+
+    currentAggregate.set(aggregate('degraded', 2));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('button')).not.toBeNull();
+  });
+
+  it('still shows a healthy aggregate when helpers are paused', () => {
+    currentAggregate.set(aggregate('healthy', 1));
+    store.helperPauses.set([{ slot: 'compression', pausedUntil: Date.now() + 60_000, failures: 2, startedAt: Date.now(), reason: 'Paused until retry after 2 failures' }]);
+    const fixture = TestBed.createComponent(LocalAiStatusChipComponent);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('button')?.dataset['state']).toBe('degraded');
+  });
+
   it('shows helper pauses and lists the affected types and reason', () => {
     const at = Date.now() + 60_000;
     store.helperPauses.set([{ slot: 'compression', pausedUntil: at, failures: 2, startedAt: Date.now(), reason: 'Paused until retry after 2 failures' }]);
@@ -78,7 +96,7 @@ describe('LocalAiStatusChipComponent', () => {
     expect(button.title).toContain('compression: Paused until retry after 2 failures');
   });
 
-  it('is hidden only until initialization completes', () => {
+  it('is hidden until initialization completes', () => {
     initialized.set(false);
     const fixture = TestBed.createComponent(LocalAiStatusChipComponent);
     fixture.detectChanges();
@@ -113,7 +131,7 @@ describe('LocalAiStatusChipComponent', () => {
   });
 
   it('uses singular target grammar in visible and accessible copy', () => {
-    currentAggregate.set(aggregate('healthy', 1));
+    currentAggregate.set(aggregate('degraded', 1));
     const fixture = TestBed.createComponent(LocalAiStatusChipComponent);
     fixture.detectChanges();
 

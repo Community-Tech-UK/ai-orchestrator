@@ -99,12 +99,6 @@
   text-transform: capitalize;
 }
 
-.startup-status-chip.ready {
-  border-color: var(--pill-ok-border);
-  background: var(--pill-ok-bg);
-  color: var(--pill-ok-fg);
-}
-
 .startup-status-chip.failed {
   border-color: var(--pill-error-border);
   background: var(--pill-error-bg);
@@ -204,6 +198,11 @@
   flex: 1;
   display: flex;
   overflow: hidden;
+}
+
+/* Only ever focused by script (tabindex -1); a ring around the whole page is noise. */
+.app-main:focus {
+  outline: none;
 }
 
 .app-main > router-outlet {

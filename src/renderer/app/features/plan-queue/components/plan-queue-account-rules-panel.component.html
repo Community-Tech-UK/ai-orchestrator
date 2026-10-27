@@ -1,0 +1,59 @@
+<div class="pq-account-rules">
+  @if (accountsError(); as accountsProblem) {
+    <p class="pq-account-rules-note" role="status">{{ accountsProblem }}</p>
+  }
+
+  @if (!hasAccounts() && !accountsError()) {
+    <p class="pq-account-rules-note">No accounts are signed in yet.</p>
+  }
+
+  @for (group of groups(); track group.provider) {
+    @if (group.rows.length > 0) {
+      <section class="pq-account-rules-group" [attr.aria-label]="group.title + ' accounts'">
+        <h3>{{ group.title }}</h3>
+        @for (row of group.rows; track row.key) {
+          @if (row.missing) {
+            <div class="pq-account-rules-row pq-account-rules-missing">
+              <span class="pq-account-rules-label">{{ row.label }}</span>
+              <span class="pq-account-rules-note">({{ row.note }}; the rule is dropped when you save)</span>
+            </div>
+          } @else {
+            <div class="pq-account-rules-row" [class.pq-account-rules-off]="row.note" role="radiogroup" [attr.aria-labelledby]="'pq-account-rule-label-' + row.key">
+              <span class="pq-account-rules-label" [id]="'pq-account-rule-label-' + row.key">
+                {{ row.label }}@if (row.note) { <span class="pq-account-rules-note">({{ row.note }})</span> }
+              </span>
+              @for (option of choiceOptions; track option.value) {
+                <label class="pq-account-rules-choice">
+                  <input
+                    type="radio"
+                    [name]="'pqAccountRule-' + row.key"
+                    [value]="option.value"
+                    [checked]="choiceChecked(row, option.value)"
+                    (change)="setChoice(row.ref, option.value)"
+                  />
+                  {{ option.label }}
+                </label>
+              }
+            </div>
+          }
+        }
+      </section>
+    }
+  }
+
+  @if (problem(); as reason) {
+    <p class="pq-account-rules-error" role="alert">{{ reason }}</p>
+  }
+
+  <div class="pq-account-rules-actions">
+    <button type="button" class="pq-account-rules-save" [disabled]="!canSave()" (click)="save()">Save</button>
+    <button type="button" class="pq-account-rules-reset" [disabled]="!dirty() || saving()" (click)="resetToSaved()">Reset to saved</button>
+    @if (status(); as line) {
+      @if (line.kind === 'success') {
+        <span class="pq-account-rules-status pq-account-rules-status-ok" role="status">{{ line.text }}</span>
+      } @else {
+        <span class="pq-account-rules-status pq-account-rules-status-error" role="alert">{{ line.text }}</span>
+      }
+    }
+  </div>
+</div>

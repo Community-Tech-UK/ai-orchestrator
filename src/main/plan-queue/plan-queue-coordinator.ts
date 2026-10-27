@@ -17,6 +17,7 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   DEFAULT_PLAN_QUEUE_CONFIG,
+  type PlanQueueAccountRules,
   type PlanQueueAlert,
   type PlanQueueControlPayload,
   type PlanQueueItemState,
@@ -28,10 +29,12 @@ import {
   type PlanQueueStateChangedEvent,
 } from '@contracts/schemas/plan-queue';
 import { getLogger } from '../logging/logger';
+import { applyLiveAccountRules, liveQueueSessionsHost, type PlanQueueAccountRulesPort } from './plan-queue-account-rules-live';
 import { getWorkAdmission } from '../work-admission/work-admission';
 import { pumpPlanQueue } from './plan-queue-pump';
 import { assertPlanQueueParent, authorizePlanQueueControl } from './plan-queue-control-authority';
 import { adoptRunParent } from './plan-queue-run-parent';
+import { requestRunHandover, handoverRunParent } from './plan-queue-handover';
 import { PlanQueueParentMessenger } from './plan-queue-parent-messenger';
 import { discoverPlanQueueDocuments } from './plan-queue-discovery';
 import { currentBranch, diffStat, repositoryRoot } from './plan-queue-git';
@@ -53,7 +56,7 @@ import { reconcilePlanQueueWorktrees } from './plan-queue-reconciler';
 import { recoverInterruptedDocumentMerges, recoverPlanQueue } from './plan-queue-recovery';
 import { applyTriageRecords, PRE_START_STATES, reconcileWaitingDocuments } from './plan-queue-readiness';
 import type { PlanQueueRelaxation } from './plan-queue-relaxation';
-import { assertRoutingInstalled, resolveRunRouting, type PlanQueueRoutingDeps, type PlanQueueRoutingOverride } from './plan-queue-routing';
+import { assertRoutingInstalled, defaultPlanQueueRoutingDeps, resolveRunRouting, type PlanQueueRoutingDeps, type PlanQueueRoutingOverride, type ResolvedRunRouting } from './plan-queue-routing';
 import { assertItemTransition, isTerminalItemState, itemHoldsWorktree, newPlanQueueItem } from './plan-queue-state';
 import type { PlanQueueStore } from './plan-queue-store';
 import { PlanQueueWorktreeService, type PlanQueueWorktreeCreator } from './plan-queue-worktree';
@@ -74,6 +77,8 @@ export interface PlanQueueCoordinatorDeps {
   relaxation?: PlanQueueRelaxation | null;
   /** Saved routing and account lists; defaults to the settings manager. */
   routing?: PlanQueueRoutingDeps;
+  /** James's account rules: changes reach running sessions; see plan-queue-account-rules-live.ts. */
+  accountRules?: PlanQueueAccountRulesPort;
   now?: () => number;
   newId?: () => string;
   /** Periodic re-check (load gate, missed events). `null` disables the timer. */
@@ -97,7 +102,9 @@ export interface StartRunResult {
   /** Documents already owned by another active run. */
   excluded: string[];
   /** Roles whose per-run choice gave way to James's saved list. */
-  routingSetAside: ('workers' | 'checkers')[];
+  routingSetAside: ResolvedRunRouting['setAside'];
+  /** Account-rule effects on the run's starting route (see `ResolvedRunRouting.accountNotes`). */
+  accountNotes: string[];
 }
 interface ResolvedDeps {
   store: PlanQueueStore;
@@ -106,6 +113,7 @@ interface ResolvedDeps {
   loadAverage: () => number[];
   relaxation: PlanQueueRelaxation | null;
   routing: PlanQueueRoutingDeps | undefined;
+  accountRules: PlanQueueAccountRulesPort | undefined;
   now: () => number;
   newId: () => string;
 }
@@ -130,6 +138,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   private userCloseEpoch = 0;
   private admissionCleanup: (() => void)[] = [];
   private readonly runControl = new PlanQueueRunControl();
+  private accountRulesUnsubscribe: (() => void) | null = null;
   private readonly userClose = new PlanQueueUserClose(() => this.requireDeps().now());
   static getInstance(): PlanQueueCoordinator {
     if (!PlanQueueCoordinator.instance) PlanQueueCoordinator.instance = new PlanQueueCoordinator();
@@ -148,6 +157,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       loadAverage: deps.loadAverage ?? (() => os.loadavg()),
       relaxation: deps.relaxation ?? null,
       routing: deps.routing,
+      accountRules: deps.accountRules,
       now: deps.now ?? Date.now,
       newId: deps.newId ?? randomUUID,
     };
@@ -206,6 +216,11 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       this.timer = setInterval(() => this.requestPump(), interval);
       this.timer.unref?.();
     }
+    this.accountRulesUnsubscribe = deps.accountRules?.onChanged((rules) => {
+      this.applyAccountRules(rules).catch((error: unknown) => logger.warn('Plan queue account rules could not be applied to running sessions', {
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    }) ?? null;
     const admission = getWorkAdmission();
     const repump = (): void => this.requestPump();
     admission.on('admission-changed', repump);
@@ -227,6 +242,8 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   }
   consumeUserClose(id: string): boolean { return this.userClose.consume(id); }
   shutdown(): void {
+    this.accountRulesUnsubscribe?.();
+    this.accountRulesUnsubscribe = null;
     this.admissionCleanup.splice(0).forEach(cleanup => cleanup());
     this.trackerInstance?.noteAppShutdown();
     this.parentMessenger?.shutdown();
@@ -252,6 +269,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
         ready, instances: inner, getRun: (id) => this.store.getRun(id),
         isShuttingDown: () => this.tracker.isShuttingDown(), userCloseEpoch: () => this.userCloseEpoch,
         isProviderExcluded: this.requireDeps().routing?.isProviderExcluded, routeUsage: this.requireDeps().routing?.routeUsage,
+        readAccountRules: () => (this.requireDeps().routing ?? defaultPlanQueueRoutingDeps()).readAccountRules(),
       }),
       sendInput: (instanceId, message, attachments, options) => inner.sendInput(instanceId, message, attachments, options),
       terminateInstance: (instanceId, graceful) => inner.terminateInstance(instanceId, graceful),
@@ -288,6 +306,17 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   registerRole(instanceId: string, record: PlanQueueRoleRecord): void { this.roles.set(instanceId, record); }
   unregisterRole(instanceId: string): void { this.roles.delete(instanceId); }
   roleOf(instanceId: string): PlanQueueRoleRecord | undefined { return this.roles.get(instanceId); }
+  /** James saved new account rules: running queue sessions take them now. */
+  private async applyAccountRules(rules: PlanQueueAccountRules): Promise<void> {
+    await applyLiveAccountRules(rules, liveQueueSessionsHost({
+      getAllInstances: () => this.instances.getAllInstances(), getInstance: (id) => this.instances.getInstance(id),
+      isQueueInstance: (id) => this.isQueueInstance(id), roleOf: (id) => this.roleOf(id),
+      itemFor: (id) => this.store.listActiveRuns().flatMap((run) => this.store.listItems(run.id))
+        .find((item) => item.workerInstanceId === id || item.verifierInstanceId === id),
+      pauseTriage: (runId) => this.triage?.pause(runId), hold: (itemId, reason, stillHeld) => this.requireFlow().hold(itemId, reason, stillHeld),
+      requestPump: () => this.requestPump(), persistPreferences: this.requireDeps().accountRules?.persistPreferences,
+    }));
+  }
   notifyParent(run: PlanQueueRun, message: string, questions?: readonly PlanQueueItem[]): void {
     this.require(this.parentMessenger).notify(run, message, questions);
   }
@@ -328,7 +357,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     if (!baseBranch) throw new Error(`${repoRoot} is not on a branch; the queue lands work on the checked-out branch`);
 
     // Fixed now, validated now: a choice the queue cannot honour refuses the run.
-    const { routing, setAside } = resolveRunRouting(parent, { ...input.routing, relaxExclusions: input.config?.relaxSettings === true, workspaceCwd: repoRoot }, deps.routing);
+    const { routing, setAside, accountNotes } = resolveRunRouting(parent, { ...input.routing, relaxExclusions: input.config?.relaxSettings === true, workspaceCwd: repoRoot }, deps.routing);
     await assertRoutingInstalled(routing, deps.routing ?? {});
     const config: PlanQueueRunConfig = { ...DEFAULT_PLAN_QUEUE_CONFIG[input.kind], ...input.config, baseBranch, routing, startingSessionRoute: { provider: parent.provider, currentModel: parent.currentModel, accountProfileId: parent.accountProfileId, copilotAccountProfileId: parent.copilotAccountProfileId } };
     const documents = await discoverPlanQueueDocuments(repoRoot, input.kind, input.glob);
@@ -368,7 +397,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     logger.info('Plan queue run started', { runId: run.id, kind: run.kind, items: items.length, excluded: excluded.length });
     this.announce({ runId: run.id });
     this.requestPump();
-    return { run: runToDto(this.getRun(run.id), items), excluded, routingSetAside: setAside };
+    return { run: runToDto(this.getRun(run.id), items), excluded, routingSetAside: setAside, accountNotes };
   }
   getRunDto(runId: string): PlanQueueRunDto | null {
     const run = this.requireDeps().store.getRun(runId);
@@ -455,6 +484,15 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
         },
         notifyParent: (run, message) => this.notifyParent(run, message), requestPump: () => this.requestPump(),
         cancel: (run, actor) => this.cancelRun(run, actor), routing: this.requireDeps().routing,
+        requestHandover: (run, caller) => requestRunHandover(run, caller, { instances: this.instances, isQueueInstance: id => this.isQueueInstance(id) }),
+        handover: (run, targetId, caller) => handoverRunParent(run, targetId, caller, {
+          instances: this.instances, isQueueInstance: id => this.isQueueInstance(id),
+          getRun: id => this.require(this.parents).follow(this.getRun(id)),
+          hasActiveWork: id => !!this.triage?.hasActiveWork(id) || this.store.listItems(id).some(item => flow.hasActiveWork(item.id)),
+          setParent: (id, parentId, thread) => { this.store.setRunParent(id, parentId, thread); this.announce({ runId: id }); },
+          onParentChanged: updated => this.require(this.parentMessenger).onParentChanged(updated),
+          notifyParent: (updated, message) => this.notifyParent(updated, message),
+        }),
         adopt: (run, callerInstanceId) => { adoptRunParent(run, callerInstanceId, {
           instances: this.instances, isQueueInstance: (id) => this.isQueueInstance(id),
         getRun: (id) => this.getRun(id),
@@ -662,7 +700,10 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   private authorizeControl(run: PlanQueueRun, action: PlanQueueControlPayload['action'], caller: string | undefined): string {
     this.resolveRunParent(run);
     return authorizePlanQueueControl(run, action, caller, {
-      instanceExists: (id) => this.instances.getInstance(id) !== undefined,
+      instanceExists: (id) => {
+        const instance = this.instances.getInstance(id);
+        return instance !== undefined && instance.status !== 'superseded';
+      },
       isQueueInstance: (id) => this.isQueueInstance(id),
     });
   }

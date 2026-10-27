@@ -35,6 +35,11 @@ describe('resolveCliType', () => {
     await expect(resolveCliType('ollama', 'auto')).resolves.toBe('ollama');
   });
 
+  it('honors Gemini requests when both Gemini and Antigravity are installed', async () => {
+    detectAllMock.mockResolvedValue(detectionResult(['gemini', 'antigravity']));
+    await expect(resolveCliType('gemini', 'auto')).resolves.toBe('gemini');
+  });
+
   it('reuses a single detection result when falling back from an unavailable default', async () => {
     detectAllMock.mockResolvedValue(detectionResult(['claude']));
 

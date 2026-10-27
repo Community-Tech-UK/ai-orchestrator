@@ -555,3 +555,21 @@ describe('CopilotAccountRoutingService.classifyWorkspaceScope — degraded reads
     expect(service.classifyWorkspaceScope('/work/ebrd/repo')).toMatchObject({ kind: 'protected' });
   });
 });
+
+describe('CopilotAccountRoutingService: Plan Queue never-use list', () => {
+  it('refuses a resolved profile on the never-use list rather than falling back to another account', async () => {
+    const service = makeService({ profiles: [profile('personal', { isDefault: true }), profile('work')] });
+    const outcome = await service.resolveRouteForSpawn({ workingDirectory: '/w', origin: 'automation', avoidProfileIds: ['personal'] });
+    expect(outcome).toMatchObject({ ok: false, code: 'automation-disallowed', profileId: 'personal' });
+  });
+
+  it('previews the profile a folder would get without the sign-in check that a spawn makes', () => {
+    const service = makeService({ bindings: { personal: 'unauthenticated' } });
+    expect(service.previewProfileFor('/w', 'automation')).toBe('personal');
+  });
+
+  it('previews nothing when no profile would be chosen for the folder', () => {
+    const service = makeService({ profiles: [profile('personal', { isDefault: true, automationPolicy: 'manual-only' })] });
+    expect(service.previewProfileFor('/w', 'automation')).toBeNull();
+  });
+});

@@ -15,6 +15,8 @@ import { GlobalPauseStore } from '../global-pause/global-pause-store';
 const ports=vi.hoisted(()=>({store:null as unknown,runner:null as unknown,revive:vi.fn()}));
 vi.mock('electron',()=>({app:{getPath:()=>'/tmp/ai-orchestrator-test'},powerMonitor:new EventEmitter()}));
 vi.mock('../plugins/hook-emitter',()=>({emitPluginHook:vi.fn()}));
+// The account rules read settings; their own spec covers them.
+vi.mock('./automation-account-rules', () => ({ automationAccountPreferences: async () => undefined }));
 vi.mock('../session/session-revival-service',()=>({SessionRevivalService:class{revive=ports.revive;}}));
 vi.mock('../session/session-queue-service',()=>({getSessionQueueService:()=>({reassignQueue:vi.fn()})}));
 vi.mock('./index',()=>({getAutomationStore:()=>ports.store,getAutomationRunner:()=>ports.runner}));

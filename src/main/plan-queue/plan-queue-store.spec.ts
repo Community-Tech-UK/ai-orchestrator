@@ -276,7 +276,7 @@ describe('PlanQueueStore', () => {
 
       runLoopMigrations(old);
       expect(old.prepare('SELECT * FROM plan_queue_runs').get()).toEqual(runBefore);
-      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...itemBefore, held_at: null, pending_instruction: null, worker_provider: null, worker_model: null });
+      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...itemBefore, held_at: null, pending_instruction: null, worker_provider: null, worker_model: null, stepped_up_at: null });
       const upgraded = new PlanQueueStore(old);
       expect(upgraded.getItem('legacy-item')).toMatchObject({ heldAt: null, pendingInstruction: null, state: 'fixing', round: 2 });
 
@@ -327,11 +327,41 @@ describe('PlanQueueStore', () => {
         VALUES ('item-23', 'run-23', '/repo/a_plan.md', 'awaiting-slot', 1, 0, 2, 2)`).run();
       const before = old.prepare('SELECT * FROM plan_queue_items').get<Record<string, unknown>>();
       runLoopMigrations(old);
-      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...before, worker_provider: null, worker_model: null });
+      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...before, worker_provider: null, worker_model: null, stepped_up_at: null });
       const upgraded = new PlanQueueStore(old);
       expect(upgraded.getItem('item-23')).not.toHaveProperty('workerProvider');
       expect(() => runLoopMigrations(old)).not.toThrow();
       expect(old.prepare('SELECT COUNT(*) AS n FROM loop_migrations WHERE version = 24').get<{ n: number }>()?.n).toBe(1);
+    } finally { old.close(); }
+  });
+
+  it('records when an item was handed to the step-up worker and keeps it across later saves', () => {
+    store.upsertRun(makeRun());
+    store.upsertItem(makeItem());
+    expect(store.getItem('item-1')).not.toHaveProperty('steppedUpAt');
+    store.upsertItem({ ...store.getItem('item-1')!, state: 'fixing', steppedUpAt: 4_000 });
+    expect(store.getItem('item-1')?.steppedUpAt).toBe(4_000);
+    store.upsertItem({ ...store.getItem('item-1')!, state: 'parked', round: 0 });
+    expect(store.getItem('item-1')?.steppedUpAt).toBe(4_000);
+  });
+
+  it('upgrades v24 to v25 with no recorded handover, and repeats safely', () => {
+    const old = new Database(':memory:') as unknown as SqliteDriver;
+    try {
+      runLoopMigrationsUpTo(old, 24);
+      old.prepare(`INSERT INTO plan_queue_runs (id, parent_instance_id, kind, workspace_cwd, status, config_json, started_at, updated_at)
+        VALUES ('run-24', 'p', 'plans', '/repo', 'running', '{}', 1, 1)`).run();
+      old.prepare(`INSERT INTO plan_queue_items (id, run_id, document_path, state, round, errored_rounds, worker_provider, worker_model, created_at, updated_at)
+        VALUES ('item-24', 'run-24', '/repo/a_plan.md', 'parked', 3, 0, 'claude', 'haiku', 2, 2)`).run();
+      const before = old.prepare('SELECT * FROM plan_queue_items').get<Record<string, unknown>>();
+      expect(Object.keys(before!)).not.toContain('stepped_up_at');
+      runLoopMigrations(old);
+      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...before, stepped_up_at: null });
+      const upgraded = new PlanQueueStore(old);
+      expect(upgraded.getItem('item-24')).toMatchObject({ state: 'parked', round: 3, workerProvider: 'claude', workerModel: 'haiku' });
+      expect(upgraded.getItem('item-24')).not.toHaveProperty('steppedUpAt');
+      expect(() => runLoopMigrations(old)).not.toThrow();
+      expect(old.prepare('SELECT COUNT(*) AS n FROM loop_migrations WHERE version = 25').get<{ n: number }>()?.n).toBe(1);
     } finally { old.close(); }
   });
 

@@ -8,7 +8,7 @@
 
 import type { SqliteDriver } from '../db/sqlite-driver';
 
-export const LOOP_SCHEMA_VERSION = 24;
+export const LOOP_SCHEMA_VERSION = 25;
 
 interface LoopMigration {
   version: number;
@@ -466,6 +466,17 @@ const MIGRATIONS: LoopMigration[] = [
     up: `
       ALTER TABLE plan_queue_items ADD COLUMN worker_provider TEXT;
       ALTER TABLE plan_queue_items ADD COLUMN worker_model TEXT;
+    `,
+  },
+  {
+    // Plan Queue: a document whose worker failed every check is handed to the
+    // run's step-up worker once. Recorded before that worker starts, so every
+    // later session for it (respawn, restart, Resume) keeps the step-up choice
+    // and the document is never handed over twice.
+    version: 25,
+    name: '025_plan_queue_item_step_up',
+    up: `
+      ALTER TABLE plan_queue_items ADD COLUMN stepped_up_at INTEGER;
     `,
   },
 ];

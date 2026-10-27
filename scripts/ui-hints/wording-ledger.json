@@ -3,7 +3,8 @@
     "id": "d193d1b465adf482",
     "owner": "src/renderer/app/app.component.ts",
     "text": "Remote terminal (open a shell on a connected worker node)",
-    "why": "long"
+    "why": "long",
+    "retired": "Remote terminal toggle moved from the title bar to the workspace rail as an icon button named 'Remote terminal on a worker computer'"
   },
   {
     "id": "4463cfe970a5fc13",
@@ -761,19 +762,22 @@
     "id": "5b5bfe50f96079f2",
     "owner": "src/renderer/app/features/plugins/plugins-page.component.ts",
     "text": "Provider plugin files installed in your app data folder",
-    "why": "long"
+    "why": "long",
+    "retired": "Provider Plugins feature removed (plan 2026-10-26-plugins-cleanup-and-global-connectors): the Installed counter tile no longer exists."
   },
   {
     "id": "d6cafc24ddeff10a",
     "owner": "src/renderer/app/features/plugins/plugins-page.component.ts",
     "text": "Provider plugins discovered on disk via the Discover tab",
-    "why": "long"
+    "why": "long",
+    "retired": "Provider Plugins feature removed (plan 2026-10-26-plugins-cleanup-and-global-connectors): the Available counter tile no longer exists."
   },
   {
     "id": "f7813336186c8888",
     "owner": "src/renderer/app/features/plugins/plugins-page.component.ts",
     "text": "Provider plugins currently loaded into memory and usable as a model backend",
-    "why": "long"
+    "why": "long",
+    "retired": "Provider Plugins feature removed (plan 2026-10-26-plugins-cleanup-and-global-connectors): the Loaded Plugins counter tile no longer exists."
   },
   {
     "id": "2ac4e9de45a97e4d",

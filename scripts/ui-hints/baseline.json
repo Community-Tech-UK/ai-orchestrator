@@ -64,7 +64,7 @@
       "src/renderer/app/shared/menu/menu-item.component.ts": 1
     },
     "H2a": {
-      "src/renderer/app/app.component.ts": 3,
+      "src/renderer/app/app.component.ts": 2,
       "src/renderer/app/core/state/computer-use-permission-banner.component.ts": 1,
       "src/renderer/app/core/state/computer-use-permission-chip.component.ts": 1,
       "src/renderer/app/core/state/pause/pause-detector-error-modal.component.ts": 1,
@@ -181,7 +181,6 @@
       "src/renderer/app/features/plan-queue/components/plan-queue-parked-list.component.ts": 1,
       "src/renderer/app/features/plan-queue/components/plan-queue-question-list.component.ts": 2,
       "src/renderer/app/features/plan-queue/components/plan-queue-run-list.component.ts": 1,
-      "src/renderer/app/features/plugins/plugins-page.component.ts": 4,
       "src/renderer/app/features/settings/auxiliary-models-settings-tab.component.ts": 5,
       "src/renderer/app/features/settings/cli-health-settings-tab.component.ts": 1,
       "src/renderer/app/features/settings/copilot-accounts-tab.component.ts": 1,
@@ -281,7 +280,6 @@
       "src/renderer/app/features/plan-queue/components/plan-queue-parked-list.component.ts": 1,
       "src/renderer/app/features/plan-queue/components/plan-queue-question-list.component.ts": 2,
       "src/renderer/app/features/plan-queue/components/plan-queue-run-list.component.ts": 1,
-      "src/renderer/app/features/plugins/plugins-page.component.ts": 4,
       "src/renderer/app/features/settings/auxiliary-models-settings-tab.component.ts": 5,
       "src/renderer/app/features/settings/cli-health-settings-tab.component.ts": 1,
       "src/renderer/app/features/settings/copilot-accounts-tab.component.ts": 1,

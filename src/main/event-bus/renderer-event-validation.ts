@@ -100,8 +100,6 @@ import { PauseStateSchema } from '@contracts/schemas/pause';
 import {
   ModelsCatalogUpdatedEventSchema,
   ModelsLocalInventoryUpdatedEventSchema,
-  PluginErrorEventSchema,
-  PluginLifecycleEventSchema,
 } from '@contracts/schemas/provider';
 import {
   CostBudgetAlertEventSchema,
@@ -223,9 +221,6 @@ const RENDERER_EVENT_SCHEMAS = new Map<string, ZodType>([
   [IPC_CHANNELS.WATCHER_ERROR, WatcherErrorEventSchema],
   [IPC_CHANNELS.CONTEXT_WARNING, ContextWarningEventSchema],
   [IPC_CHANNELS.INSTANCE_COMPACT_STATUS, InstanceCompactStatusEventSchema],
-  [IPC_CHANNELS.PLUGINS_LOADED, PluginLifecycleEventSchema],
-  [IPC_CHANNELS.PLUGINS_UNLOADED, PluginLifecycleEventSchema],
-  [IPC_CHANNELS.PLUGINS_ERROR, PluginErrorEventSchema],
   [IPC_CHANNELS.MODELS_CATALOG_UPDATED, ModelsCatalogUpdatedEventSchema],
   [IPC_CHANNELS.MODELS_LOCAL_MODEL_INVENTORY_UPDATED, ModelsLocalInventoryUpdatedEventSchema],
   ['remote-config:updated', RemoteConfigUpdatedEventSchema],

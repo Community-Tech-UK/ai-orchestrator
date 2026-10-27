@@ -78,7 +78,7 @@ describe('orchestrator settings MCP tools', () => {
 
     expect(defaults).toMatchObject({
       graphClientId: 'fdbb0672-4089-48dc-bcc5-7121a331fcfc',
-      graphAuthority: 'https://login.microsoftonline.com/60b0a25e-b75d-4d9e-b797-1805ec311dfb',
+      graphAuthority: 'https://login.microsoftonline.com/organizations',
       graphScopesJson: JSON.stringify([
         'Calendars.ReadWrite',
         'offline_access',
@@ -535,7 +535,7 @@ describe('privileged settings CLI writability reporting', () => {
   });
 
   it('holds the operator-only anchor count the docs quote', () => {
-    // docs/AIO_MCP_CLI.md and docs/llm/AIO_MCP_CLI_REFERENCE.md both state 24
+    // docs/AIO_MCP_CLI.md and docs/llm/AIO_MCP_CLI_REFERENCE.md both state 26
     // anchors and enumerate them by group. History: the count reached 21 on
     // 2026-08-26 (`computerUseAutonomyLevel` took the Computer Use group from
     // five keys to six, after Copilot account routing added two on 2026-08-25,
@@ -554,12 +554,14 @@ describe('privileged settings CLI writability reporting', () => {
     // `planQueueRouting` became the 24th: it decides which of those accounts
     // unattended Plan Queue sessions may spend. On 2026-10-16
     // `providerSignalFenceEnabled` became the 25th: an agent that could turn
-    // the macOS signal fence off could kill sibling sessions.
-    // Fail here if a 26th is added, or one is removed, without updating the
+    // the macOS signal fence off could kill sibling sessions. On 2026-10-27
+    // `planQueueAccountRules` became the 26th: it decides which accounts
+    // unattended Plan Queue sessions must avoid or use last.
+    // Fail here if a 27th is added, or one is removed, without updating the
     // prose.
     const anchors = [...privilegedList().values()].filter((setting) => !setting.cliWritable);
 
-    expect(anchors).toHaveLength(25);
+    expect(anchors).toHaveLength(26);
   });
 
   it('refuses an operator-only key before parsing the supplied value', () => {

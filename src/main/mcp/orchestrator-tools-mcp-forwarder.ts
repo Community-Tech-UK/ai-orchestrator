@@ -17,7 +17,6 @@ import type { OrchestratorToolsRpcClientLike } from './orchestrator-tools-rpc-cl
 import { RELEASE_TOOL_SPECS, type ReleaseToolName } from './orchestrator-release-tools';
 import { createFileTransferForwarderTools } from './orchestrator-file-transfer-forwarder-tools';
 import { createOrchestratorEvidenceToolDefinitions } from './orchestrator-evidence-tools';
-import { CALENDAR_TOOL_SPECS } from './orchestrator-calendar-tools';
 import { PLAN_QUEUE_TOOL_SPECS } from './plan-queue-tools';
 import { createNodeExecForwarderTool } from './orchestrator-node-exec-forwarder-tool';
 import { createNodeConnectionForwarderTool } from './orchestrator-node-connection-tools';
@@ -53,12 +52,6 @@ function createSpecForwarderTools(
       return client.call(`orchestrator_tools.${name}`, args as Record<string, unknown>);
     },
   }));
-}
-
-export function createCalendarForwarderTools(
-  client: OrchestratorToolsRpcClientLike,
-): McpServerToolDefinition[] {
-  return createSpecForwarderTools(client, CALENDAR_TOOL_SPECS);
 }
 
 /**
@@ -677,7 +670,6 @@ export function createOrchestratorToolsForwarderTools(
       },
     },
     ...createSpecForwarderTools(client, PLAN_QUEUE_TOOL_SPECS),
-    ...createCalendarForwarderTools(client),
     ...RELEASE_TOOL_NAMES.map((name): McpServerToolDefinition => ({
       name,
       description: RELEASE_TOOL_SPECS[name].description,

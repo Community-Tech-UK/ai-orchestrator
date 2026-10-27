@@ -71,7 +71,7 @@ export function normalizeJsonMcpServers(
 
 export function serializeJsonMcpRecord(record: RawMcpRecord): Record<string, unknown> {
   const output: Record<string, unknown> = {};
-  if (record.transport !== 'stdio') output['transport'] = record.transport;
+  if (record.transport !== 'stdio') output['type'] = record.transport;
   if (record.command) output['command'] = record.command;
   if (record.args) output['args'] = record.args;
   if (record.url) output['url'] = record.url;

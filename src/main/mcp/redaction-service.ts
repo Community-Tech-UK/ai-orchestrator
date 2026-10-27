@@ -1,5 +1,5 @@
 import type { McpTransport } from '../../shared/types/mcp-orchestrator.types';
-import type { McpScope, SupportedProvider } from '../../shared/types/mcp-scopes.types';
+import type { McpScope } from '../../shared/types/mcp-scopes.types';
 import {
   REDACTED_SENTINEL,
   type RedactedMcpServerDto,
@@ -25,7 +25,6 @@ export interface RedactionContext {
   scope: McpScope;
   readOnly: boolean;
   sourceFile?: string;
-  sharedTargets?: readonly SupportedProvider[];
 }
 
 export class RedactionService {
@@ -46,7 +45,6 @@ export class RedactionService {
       autoConnect: raw.autoConnect,
       sourceFile: ctx.sourceFile,
       readOnly: ctx.readOnly,
-      sharedTargets: ctx.sharedTargets,
       createdAt: raw.createdAt,
       updatedAt: raw.updatedAt,
     };

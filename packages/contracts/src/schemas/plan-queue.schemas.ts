@@ -164,6 +164,11 @@ export const PlanQueueRoutingSchema = z.object({
   workers: z.array(PlanQueueRouteChoiceSchema).max(10),
   verifiers: z.array(PlanQueueRouteChoiceSchema).max(10),
   /**
+   * Where a document goes, once, when its worker fails every verification
+   * round. Absent = park it and wait for James.
+   */
+  stepUp: PlanQueueRouteChoiceSchema.optional(),
+  /**
    * Set by the coordinator on a run's routing, never in the saved setting:
    * where the checker list came from. Only James's saved choice ('saved') may
    * replace the licence-pinned work Copilot seat in a protected folder; a
@@ -173,6 +178,30 @@ export const PlanQueueRoutingSchema = z.object({
 }).strict();
 
 export const DEFAULT_PLAN_QUEUE_ROUTING: PlanQueueRouting = { workers: [], verifiers: [] };
+
+/**
+ * One signed-in account. The provider is part of the reference because pool
+ * profile ids and Copilot profile ids are separate namespaces.
+ */
+export const PlanQueueAccountRefSchema = z.object({
+  provider: z.enum(['claude', 'codex', 'opencode', 'copilot']),
+  accountId: z.string().min(1).max(100),
+}).strict();
+
+/**
+ * James's account rules for Plan Queue sessions. `never` is a hard rule; `last`
+ * is a preference that uses the account only when nothing else can run. An
+ * account can be on one list, once.
+ */
+export const PlanQueueAccountRulesSchema = z.object({
+  never: z.array(PlanQueueAccountRefSchema).max(50),
+  last: z.array(PlanQueueAccountRefSchema).max(50),
+}).strict().refine((rules) => {
+  const keys = [...rules.never, ...rules.last].map((ref) => `${ref.provider}:${ref.accountId}`);
+  return new Set(keys).size === keys.length;
+}, { message: 'An account can be on the never-use list or the use-last list, once.' });
+
+export const DEFAULT_PLAN_QUEUE_ACCOUNT_RULES: PlanQueueAccountRules = { never: [], last: [] };
 
 export const PlanQueueRunConfigSchema = z.object({
   workerSlots: z.number().int().min(1).max(8),
@@ -222,6 +251,8 @@ export const PlanQueueItemDtoSchema = z.object({
   detail: z.string().max(8000).nullable(),
   heldAt: z.number().int().nullable().optional(),
   pendingInstruction: z.string().nullable().optional(),
+  /** When the document was handed to the run's step-up worker; null = never. */
+  steppedUpAt: z.number().int().nullable().optional(),
   verdict: PlanQueueVerdictSchema.nullable(),
   createdAt: z.number().int(),
   updatedAt: z.number().int(),
@@ -288,6 +319,8 @@ export const PlanQueueControlPayloadSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('resume'), runId: IdSchema }),
   z.object({ action: z.literal('cancel'), runId: IdSchema }),
   z.object({ action: z.literal('adopt'), runId: IdSchema }),
+  z.object({ action: z.literal('request-handover'), runId: IdSchema }),
+  z.object({ action: z.literal('handover'), runId: IdSchema, targetInstanceId: IdSchema }),
   z.object({ action: z.literal('skip-item'), itemId: IdSchema }),
   z.object({ action: z.literal('resume-item'), itemId: IdSchema }),
   z.object({ action: z.literal('land-anyway'), itemId: IdSchema }),
@@ -332,6 +365,8 @@ export const PlanQueueStartArgsSchema = z.object({
   workers: z.array(PlanQueueRouteChoiceArgsSchema).max(10).optional(),
   /** Checker choices for this run, in preference order; used only when James saved no checker list. */
   verifiers: z.array(PlanQueueRouteChoiceArgsSchema).max(10).optional(),
+  /** Where a stuck document goes once; used only when James saved no step-up choice. */
+  step_up: PlanQueueRouteChoiceArgsSchema.optional(),
 }).strict();
 
 export const PlanQueueStatusArgsSchema = z.object({ run_id: IdSchema.optional() });
@@ -342,15 +377,21 @@ export const PlanQueueAnswerArgsSchema = z.object({
 });
 
 export const PlanQueueControlArgsSchema = z.discriminatedUnion('action', [z.object({
-  action: z.enum(['pause', 'resume', 'cancel', 'adopt', 'skip-item', 'resume-item', 'land-anyway', 'retry-landing', 'discard-item']),
+  action: z.enum(['pause', 'resume', 'cancel', 'adopt', 'request-handover', 'skip-item', 'resume-item', 'land-anyway', 'retry-landing', 'discard-item']),
   run_id: IdSchema.optional(),
   item_id: IdSchema.optional(),
 }), z.object({
   action: z.literal('set-routing'),
   run_id: IdSchema,
-  routing: z.object({ workers: z.array(PlanQueueRouteChoiceArgsSchema).max(10), verifiers: z.array(PlanQueueRouteChoiceArgsSchema).max(10) }).strict(),
+  routing: z.object({
+    workers: z.array(PlanQueueRouteChoiceArgsSchema).max(10),
+    verifiers: z.array(PlanQueueRouteChoiceArgsSchema).max(10),
+    step_up: PlanQueueRouteChoiceArgsSchema.optional(),
+  }).strict(),
   move_in_progress: z.boolean().optional(),
-})]);
+}), z.object({
+  action: z.literal('handover'), run_id: IdSchema, target_instance_id: IdSchema,
+}).strict()]);
 
 export const PlanQueueStateChangedEventSchema = z.object({
   runId: IdSchema,
@@ -374,6 +415,8 @@ export type PlanQueueTriageRecord = z.infer<typeof PlanQueueTriageRecordSchema>;
 export type PlanQueueRunConfig = z.infer<typeof PlanQueueRunConfigSchema>;
 export type PlanQueueRouteChoice = z.infer<typeof PlanQueueRouteChoiceSchema>;
 export type PlanQueueRouting = z.infer<typeof PlanQueueRoutingSchema>;
+export type PlanQueueAccountRef = z.infer<typeof PlanQueueAccountRefSchema>;
+export type PlanQueueAccountRules = z.infer<typeof PlanQueueAccountRulesSchema>;
 export type PlanQueueRouteChoiceArgs = z.infer<typeof PlanQueueRouteChoiceArgsSchema>;
 export type PlanQueueItemDto = z.infer<typeof PlanQueueItemDtoSchema>;
 export type PlanQueueRunDto = z.infer<typeof PlanQueueRunDtoSchema>;

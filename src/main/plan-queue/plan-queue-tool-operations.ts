@@ -3,10 +3,26 @@
  * RPC-authenticated instance id, never a tool argument.
  */
 
-import type { PlanQueueControlArgs, PlanQueueControlPayload, PlanQueueItemDto, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
+import { DEFAULT_PLAN_QUEUE_ACCOUNT_RULES, type PlanQueueControlArgs, type PlanQueueControlPayload, type PlanQueueItemDto, type PlanQueueRunDto } from '@contracts/schemas/plan-queue';
 import type { PlanQueueToolOperations } from '../mcp/plan-queue-tools';
+import { getSettingsManager } from '../core/config/settings-manager';
 import type { PlanQueueCoordinator } from './plan-queue-coordinator';
+import { describeAccountRules, copilotLabel, poolLabel } from './plan-queue-account-rules';
 import { describeRouting, routeChoiceFromArgs } from './plan-queue-routing';
+
+/** James's account rules as one line, labelled by account name; null when none are set. */
+function accountRulesLine(): string | null {
+  const settings = getSettingsManager().getAll();
+  return describeAccountRules(settings.planQueueAccountRules ?? DEFAULT_PLAN_QUEUE_ACCOUNT_RULES, (ref) => (ref.provider === 'copilot'
+    ? copilotLabel(settings.copilotAccountProfiles ?? [], ref.accountId)
+    : poolLabel(settings.providerAccountProfiles ?? [], ref.provider, ref.accountId)));
+}
+
+/** "workers, checkers and the step-up worker". */
+function setAsideRoles(roles: readonly ('workers' | 'checkers' | 'step-up')[]): string {
+  const names = roles.map((role) => (role === 'step-up' ? 'the step-up worker' : role));
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names.join('');
+}
 
 function itemSummary(item: PlanQueueItemDto) {
   return {
@@ -17,19 +33,23 @@ function itemSummary(item: PlanQueueItemDto) {
     ...(item.question ? { question: item.question } : {}),
     ...(item.parkReason ? { parkReason: item.parkReason } : {}),
     ...(item.branchName ? { branch: item.branchName } : {}),
+    ...(item.steppedUpAt ? { handedToStepUpAt: new Date(item.steppedUpAt).toISOString() } : {}),
     ...(item.detail ? { detail: item.detail } : {}),
     ...(item.verdict ? { verdict: item.verdict.verdict, findings: item.verdict.findings } : {}),
   };
 }
 
 function runSummary(run: PlanQueueRunDto) {
+  const accountRules = accountRulesLine();
   return {
     runId: run.id,
+    parentInstanceId: run.parentInstanceId,
     kind: run.kind,
     status: run.status,
     workspace: run.workspaceCwd,
     baseBranch: run.config.baseBranch,
     ...(run.config.routing ? { routing: describeRouting(run.config.routing) } : {}),
+    ...(accountRules ? { accountRules } : {}),
     relaxedSettings: run.relaxedSettings,
     items: run.items.map(itemSummary),
   };
@@ -37,15 +57,19 @@ function runSummary(run: PlanQueueRunDto) {
 
 function toControlPayload(args: PlanQueueControlArgs): PlanQueueControlPayload {
   switch (args.action) {
+    case 'handover':
+      return { action: 'handover', runId: args.run_id, targetInstanceId: args.target_instance_id };
     case 'set-routing':
       return { action: 'set-routing', runId: args.run_id, routing: {
         workers: args.routing.workers.map(routeChoiceFromArgs),
         verifiers: args.routing.verifiers.map(routeChoiceFromArgs),
+        ...(args.routing.step_up ? { stepUp: routeChoiceFromArgs(args.routing.step_up) } : {}),
       }, ...(args.move_in_progress !== undefined ? { moveInProgress: args.move_in_progress } : {}) };
     case 'pause':
     case 'resume':
     case 'cancel':
     case 'adopt':
+    case 'request-handover':
       if (!args.run_id) throw new Error(`${args.action} needs run_id`);
       return { action: args.action, runId: args.run_id };
     default:
@@ -57,7 +81,7 @@ function toControlPayload(args: PlanQueueControlArgs): PlanQueueControlPayload {
 export function createPlanQueueToolOperations(coordinator: () => PlanQueueCoordinator): PlanQueueToolOperations {
   return {
     async start(callerInstanceId, args) {
-      const { run, excluded, routingSetAside } = await coordinator().startRun({
+      const { run, excluded, routingSetAside, accountNotes } = await coordinator().startRun({
         parentInstanceId: callerInstanceId,
         kind: args.kind,
         glob: args.glob,
@@ -72,6 +96,7 @@ export function createPlanQueueToolOperations(coordinator: () => PlanQueueCoordi
         routing: {
           ...(args.workers ? { workers: args.workers.map(routeChoiceFromArgs) } : {}),
           ...(args.verifiers ? { verifiers: args.verifiers.map(routeChoiceFromArgs) } : {}),
+          ...(args.step_up ? { stepUp: routeChoiceFromArgs(args.step_up) } : {}),
         },
       });
       return {
@@ -81,7 +106,8 @@ export function createPlanQueueToolOperations(coordinator: () => PlanQueueCoordi
           ? 'No matching documents were found.'
           : 'The run has started. Workers appear nested under this session. Documents that need James will arrive as a message with questions to ask him; a summary arrives when the run ends. Use plan_queue_status to check progress.')
           + (excluded.length ? ' Some documents belong to another active run. If its session no longer exists, adopt that run instead of starting again.' : '')
-          + (routingSetAside.length ? ` James's saved Plan Queue choice for ${routingSetAside.join(' and ')} was used instead of the one you passed.` : ''),
+          + (routingSetAside.length ? ` James's saved Plan Queue choice for ${setAsideRoles(routingSetAside)} was used instead of the one you passed.` : '')
+          + accountNotes.map((note) => ` ${note}`).join(''),
       };
     },
     status(_callerInstanceId, runId) {

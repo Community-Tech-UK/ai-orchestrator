@@ -1,5 +1,5 @@
 /** Run-status fences before and after asynchronous instance creation. */
-import type { PlanQueueRouteChoice } from '@contracts/schemas/plan-queue';
+import type { PlanQueueAccountRules, PlanQueueRouteChoice } from '@contracts/schemas/plan-queue';
 import type { InstanceCreateConfig } from '../../shared/types/instance.types';
 import type { PlanQueueInstancePort } from './plan-queue-host';
 import { PlanQueueSpawnRoutingChanged } from './plan-queue-checker-routing';
@@ -8,6 +8,7 @@ import { chooseQueueWorker, queueWorkerChoices, routeQueueSpawn } from './plan-q
 import { defaultPlanQueueRouteUsage, type PlanQueueRouteUsageCheck } from './plan-queue-route-usage';
 import type { PlanQueueRun } from './plan-queue.types';
 import { PlanQueueSpawnStoppedByUser } from './plan-queue-user-close';
+import { isProviderExcludedFromAutomation } from '../providers/automation-provider-exclusions';
 
 export async function spawnQueueInstance(
   config: InstanceCreateConfig,
@@ -16,6 +17,7 @@ export async function spawnQueueInstance(
     getRun(id: string): PlanQueueRun | null;
     isShuttingDown(): boolean; userCloseEpoch(): number;
     isProviderExcluded?: (provider: string) => boolean;
+    readAccountRules: () => PlanQueueAccountRules;
     routeUsage?: PlanQueueRouteUsageCheck;
   },
 ): ReturnType<PlanQueueInstancePort['createInstance']> {
@@ -42,13 +44,13 @@ export async function spawnQueueInstance(
   // James changes the run's routing meanwhile, so the spawn never uses a stale list.
   while (choices.length > 1) {
     const routing = JSON.stringify(runOf()?.config.routing);
-    worker = await chooseQueueWorker(choices, host.routeUsage ?? defaultPlanQueueRouteUsage(), String(runId));
+    worker = await chooseQueueWorker(choices, host.routeUsage ?? defaultPlanQueueRouteUsage(), String(runId), runOf()?.workspaceCwd);
     assertAllowed();
     if (JSON.stringify(runOf()?.config.routing) === routing) break;
     choices = queueWorkerChoices(config, runOf(), host.isProviderExcluded);
     worker = choices[0] ?? null;
   }
-  const instance = await host.instances.createInstance(routeQueueSpawn(config, host.getRun, worker, host.isProviderExcluded));
+  const instance = await host.instances.createInstance(routeQueueSpawn(config, host.getRun, worker, host.isProviderExcluded ?? isProviderExcludedFromAutomation, host.readAccountRules()));
   try { assertAllowed(false); }
   catch (error) {
     // A pause can land while createInstance is awaiting its adapter. Never leak its session.

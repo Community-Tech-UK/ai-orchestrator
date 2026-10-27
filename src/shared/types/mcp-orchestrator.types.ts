@@ -1,4 +1,4 @@
-import type { OrchestratorMcpScope, SupportedProvider } from './mcp-scopes.types';
+import type { OrchestratorMcpScope, OrchestratorRuntimeInjectionProvider } from './mcp-scopes.types';
 
 export type McpTransport = 'stdio' | 'sse' | 'http';
 
@@ -7,6 +7,11 @@ export interface OrchestratorMcpServer {
   name: string;
   description?: string;
   scope: OrchestratorMcpScope;
+  kind?: 'local' | 'remote' | 'microsoft365';
+  clientMetadataUrl?: string;
+  authType?: 'none' | 'bearer' | 'oauth';
+  accountId?: string;
+  mailEnabled?: boolean;
   transport: McpTransport;
   command?: string;
   args?: string[];
@@ -21,7 +26,7 @@ export interface OrchestratorMcpServer {
 
 export interface OrchestratorInjectionTargets {
   serverId: string;
-  providers: readonly SupportedProvider[];
+  providers: readonly OrchestratorRuntimeInjectionProvider[];
 }
 
 export interface McpInjectionBundle {

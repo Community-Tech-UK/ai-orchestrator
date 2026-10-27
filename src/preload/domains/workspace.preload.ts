@@ -356,28 +356,16 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
       return ipcRenderer.invoke(ch.MCP_ORCHESTRATOR_SET_INJECTION_TARGETS, payload);
     },
 
-    mcpSharedUpsert: (payload: unknown): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.MCP_SHARED_UPSERT, payload);
+    mcpConnectorAuth: (payload: unknown): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.MCP_CONNECTOR_AUTH, payload);
     },
 
-    mcpSharedDelete: (payload: { serverId: string }): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.MCP_SHARED_DELETE, payload);
+    mcpConnectorAddMicrosoft365: (payload: unknown): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.MCP_CONNECTOR_ADD_MICROSOFT365, payload);
     },
 
-    mcpSharedFanOut: (payload: { serverId: string; providers?: string[] }): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.MCP_SHARED_FAN_OUT, payload);
-    },
-
-    mcpSharedGetDrift: (payload: { serverId: string }): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.MCP_SHARED_GET_DRIFT, payload);
-    },
-
-    mcpSharedResolveDrift: (payload: {
-      serverId: string;
-      provider: string;
-      action: string;
-    }): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.MCP_SHARED_RESOLVE_DRIFT, payload);
+    mcpConnectorSetWritable: (payload: unknown): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.MCP_CONNECTOR_SET_WRITABLE, payload);
     },
 
     mcpProviderUserUpsert: (payload: unknown): Promise<IpcResponse> => {

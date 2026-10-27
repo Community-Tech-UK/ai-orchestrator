@@ -77,6 +77,17 @@ export interface AccountRouteRequest {
    * A persisted profile still wins: a live thread never moves.
    */
   restrictTo?: readonly string[];
+  /**
+   * Profiles this session must never use (Plan Queue never-use list). Unlike
+   * `exclude`, a persisted profile on this list does not keep the session: it
+   * moves to an allowed account, or the spawn is refused.
+   */
+  avoid?: readonly string[];
+  /**
+   * Profiles used only when no other allowed profile can run at all (Plan
+   * Queue use-last list). Being close to a limit does not count.
+   */
+  useLast?: readonly string[];
   /** Source to stamp when the default selection runs on behalf of failover. */
   defaultSource?: Extract<AccountRouteSource, 'default' | 'failover' | 'preemptive'>;
   /**
@@ -112,6 +123,14 @@ export interface ProviderAccountRoutingDeps {
 
 function failure(code: AccountRouteFailure['code'], detail: string, profileId?: string): AccountRouteFailure {
   return { ok: false, code, detail, ...(profileId ? { profileId } : {}) };
+}
+
+function avoidedFailure(provider: PooledProvider, label: string, profileId: string): AccountRouteFailure {
+  return failure(
+    'automation-disallowed',
+    `The ${label} ${pooledProviderLabel(provider)} account is on your never-use list (Plan Queue page), so this session cannot use it.`,
+    profileId,
+  );
 }
 
 export class ProviderAccountRoutingService {
@@ -194,6 +213,7 @@ export class ProviderAccountRoutingService {
 
   /** A restart landed on another account: record it as the failover it is and tell the user. */
   private reportRestartMove(request: AccountRouteRequest, fromProfileId: string, toProfileId: string): void {
+    const neverUse = request.avoid?.includes(fromProfileId) === true;
     emitProviderAccountEvent({
       event: 'account_failover_performed',
       provider: request.provider,
@@ -216,7 +236,9 @@ export class ProviderAccountRoutingService {
         kind: 'account-switched',
         instanceId: request.instanceId,
         title: 'Account switched',
-        body: `${from} → ${to} (usage limit; restarted on the account with usage left).`,
+        body: neverUse
+          ? `${from} → ${to} (on your never-use list; restarted on another account).`
+          : `${from} → ${to} (usage limit; restarted on the account with usage left).`,
       });
     } catch {
       // Notifications are best-effort.
@@ -244,6 +266,9 @@ export class ProviderAccountRoutingService {
       };
     }
     if (legacyOnly) {
+      if (request.avoid?.includes(LEGACY_ACCOUNT_PROFILE_ID)) {
+        return { outcome: avoidedFailure(request.provider, 'existing', LEGACY_ACCOUNT_PROFILE_ID), considered: [] };
+      }
       // Pre-pools behaviour, byte for byte: no sign-in check, no env change.
       return { outcome: { ok: true, route: this.buildRoute(request.provider, LEGACY_ACCOUNT_PROFILE_ID, 'legacy', nodeId, profiles) }, considered: [] };
     }
@@ -259,6 +284,9 @@ export class ProviderAccountRoutingService {
           ),
           considered: [],
         };
+      }
+      if (request.avoid?.includes(persisted.id)) {
+        return { outcome: await this.moveOffAvoidedPersisted(request, persisted, profiles, nodeId), considered: [] };
       }
       const moved = request.moveOffLimitedAccount ? await this.moveOffParkedPersisted(request, persisted, profiles, nodeId) : null;
       if (moved) return moved;
@@ -289,6 +317,9 @@ export class ProviderAccountRoutingService {
           outcome: failure('profile-missing', `No ${pooledProviderLabel(request.provider)} account "${request.explicitProfileId}".`, request.explicitProfileId),
           considered: [],
         };
+      }
+      if (request.avoid?.includes(explicit.id)) {
+        return { outcome: avoidedFailure(request.provider, explicit.label, explicit.id), considered: [] };
       }
       if (!explicit.enabled) {
         return {
@@ -338,10 +369,11 @@ export class ProviderAccountRoutingService {
       policyThreshold = null;
     }
 
+    const avoided = request.avoid ?? [];
     const input = {
       profiles,
       origin: request.origin,
-      exclude: request.exclude,
+      exclude: [...(request.exclude ?? []), ...avoided],
       parkedProfileIds: parked,
       parkedSince,
       // Unattended work prefers accounts that do not bill purchased credits;
@@ -353,11 +385,20 @@ export class ProviderAccountRoutingService {
       lastUsedAt: this.getLastUsedAt(request.provider),
       thresholdPct: policyThreshold,
     };
-    let selection = selectAccount(input);
+    // Use-last accounts are the final tier: the other accounts are tried first,
+    // up to their limits, before the pre-emptive threshold is ignored.
+    const lastIds = new Set(request.useLast ?? []);
+    const preferred = profiles.filter((profile) => !lastIds.has(profile.id));
+    const lastTier = profiles.filter((profile) => lastIds.has(profile.id));
+    let selection = selectAccount({ ...input, profiles: preferred });
     if (selection.profileId === null && policyThreshold !== null) {
       // Every candidate is over the pre-emptive threshold: steering is a
       // preference, not a refusal, so pick without it.
-      selection = selectAccount({ ...input, thresholdPct: null });
+      selection = selectAccount({ ...input, profiles: preferred, thresholdPct: null });
+    }
+    if (selection.profileId === null && lastTier.length > 0) {
+      const last = selectAccount({ ...input, profiles: lastTier, thresholdPct: null });
+      selection = { ...last, considered: [...selection.considered, ...last.considered] };
     }
     const source = request.defaultSource ?? 'default';
     if (selection.profileId !== null) {
@@ -379,8 +420,14 @@ export class ProviderAccountRoutingService {
       return { outcome: { ok: true, route: this.buildRoute(request.provider, soonest, source, nodeId, profiles) }, considered: selection.considered };
     }
 
-    const reasons = new Set(selection.considered.map((entry) => entry.vetoReason));
     const label = pooledProviderLabel(request.provider);
+    if (avoided.length > 0 && !profiles.some((profile) => profile.enabled && !avoided.includes(profile.id))) {
+      return {
+        outcome: failure('automation-disallowed', `No enabled ${label} account is left for this session outside your never-use list. Remove one from that list on the Plan Queue page, or enable an account.`),
+        considered: selection.considered,
+      };
+    }
+    const reasons = new Set(selection.considered.map((entry) => entry.vetoReason));
     const outcome = reasons.has('parked') || reasons.has('exhausted') || reasons.has('credits-only')
       ? failure('all-profiles-parked', `Every ${label} account in the pool has hit its usage limit.`)
       : reasons.has('unbound')
@@ -389,6 +436,47 @@ export class ProviderAccountRoutingService {
           ? failure('automation-disallowed', `No enabled ${label} account is allowed for this kind of work. Check account policies in Settings → Accounts.`)
           : failure('no-profiles', `No ${label} account is available. Enable an account in Settings → Accounts.`);
     return { outcome, considered: selection.considered };
+  }
+
+  /**
+   * A persisted profile on the Plan Queue never-use list: the session moves to
+   * an allowed account, or the spawn is refused. Unlike a limit move this does
+   * not wait for the pool's failover mode, because James asked for the move.
+   * A thread that cannot move (a replay pool resuming its own thread) is
+   * refused, so the queue starts a fresh session instead of keeping the account.
+   */
+  private async moveOffAvoidedPersisted(
+    request: AccountRouteRequest,
+    persisted: ProviderAccountProfile,
+    profiles: ProviderAccountProfile[],
+    nodeId: string,
+  ): Promise<AccountRouteOutcome> {
+    const refused = avoidedFailure(request.provider, persisted.label, persisted.id);
+    let policy;
+    try {
+      policy = this.store().getPoolPolicy(request.provider);
+    } catch {
+      return refused;
+    }
+    if (policy.continuation !== 'shared-store' && request.resume !== false) return refused;
+    const fence = request.restrictTo?.length ? new Set(request.restrictTo) : null;
+    const candidates = fence ? profiles.filter((profile) => fence.has(profile.id)) : profiles;
+    const preview = await this.resolveDefault({
+      ...request,
+      persistedProfileId: undefined,
+      moveOffLimitedAccount: undefined,
+      newSession: false,
+      exclude: [...(request.exclude ?? []), persisted.id],
+      defaultSource: 'failover',
+    }, candidates, nodeId);
+    if (!preview.outcome.ok) return preview.outcome;
+    logger.info('Restarting a session on another account: its own account is on the Plan Queue never-use list', {
+      instanceId: request.instanceId,
+      provider: request.provider,
+      fromProfileId: persisted.id,
+      toProfileId: preview.outcome.route.profileId,
+    });
+    return preview.outcome;
   }
 
   /**

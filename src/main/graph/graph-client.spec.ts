@@ -1,10 +1,94 @@
 import { describe, expect, it } from 'vitest';
+import { createServer } from 'node:http';
 import { GraphClient, type GraphClientOptions } from './graph-client';
 
 const TEST_ACCOUNT_KEY = 'account-key';
 const TEST_TOKEN = 'test-token';
 
 describe('GraphClient', () => {
+  it('bounds a real stalled HTTP response body and never retries an ambiguous send', async () => {
+    let sends = 0;
+    let signal: AbortSignal | null | undefined;
+    const cleanupTimers: ReturnType<typeof setTimeout>[] = [];
+    const server = createServer((_request, response) => {
+      sends += 1;
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.write('{"pending":');
+      // Keep the deliberately failing pre-fix run bounded too.
+      cleanupTimers.push(setTimeout(() => response.destroy(), 800));
+    });
+    await new Promise<void>((resolve) => { server.listen(0, '127.0.0.1', resolve); });
+    try {
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('Expected local test server');
+      const client = new GraphClient({
+        tokenProvider: { getAccessToken: async () => TEST_TOKEN },
+        baseUrl: `http://127.0.0.1:${address.port}`,
+        requestTimeoutMs: 200,
+        fetch: (url, init) => { signal = init?.signal; return fetch(url, init); },
+      });
+      await expect(client.sendMailDraft(TEST_ACCOUNT_KEY, 'draft-1')).rejects.toThrow();
+      expect(sends).toBe(1);
+      expect(signal?.aborted).toBe(true);
+    } finally {
+      for (const timer of cleanupTimers) clearTimeout(timer);
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) => { server.close((error) => error ? reject(error) : resolve()); });
+    }
+  }, 5_000);
+
+  it('rechecks request ownership after token acquisition before starting the Graph request', async () => {
+    let active = true;
+    let calls = 0;
+    const client = new GraphClient({
+      tokenProvider: { getAccessToken: async () => { active = false; return TEST_TOKEN; } },
+      requestContext: { assertActive: () => { if (!active) throw new Error('request no longer active'); } },
+      fetch: async () => { calls += 1; return jsonResponse({}); },
+    });
+    await expect(client.sendMailDraft(TEST_ACCOUNT_KEY, 'draft-1')).rejects.toThrow('request no longer active');
+    expect(calls).toBe(0);
+  });
+
+  it('searches mail and reads folders, messages, drafts and sends in the selected account', async () => {
+    const requests: { url: string; init: RequestInit }[] = [];
+    const accounts: string[] = [];
+    const client = new GraphClient({
+      tokenProvider: { getAccessToken: async (accountKey) => { accounts.push(accountKey); return TEST_TOKEN; } },
+      fetch: async (url, init) => {
+        requests.push({ url: String(url), init: init ?? {} });
+        return init?.method === 'POST' && String(url).endsWith('/send')
+          ? new Response(null, { status: 202 })
+          : jsonResponse({ value: [{ id: 'message-1' }], id: 'message-1' });
+      },
+    });
+    await client.searchMail('other-account', { search: 'subject:planning', folderId: 'inbox', top: 10 });
+    await client.readMail('other-account', 'message/id');
+    await client.listMailFolders('other-account');
+    const message = { subject: 'Planning', body: { contentType: 'text', content: 'Agenda' }, toRecipients: [{ emailAddress: { address: 'recipient@example.test' } }] };
+    await client.createMailDraft('other-account', message);
+    await client.sendMailDraft('other-account', 'message/id');
+
+    const searchUrl = new URL(requests[0].url);
+    expect(searchUrl.pathname).toBe('/v1.0/me/mailFolders/inbox/messages');
+    expect(searchUrl.searchParams.get('$search')).toBe('"subject:planning"');
+    expect(searchUrl.searchParams.get('$top')).toBe('10');
+    expect(requests.slice(1).map(({ url, init }) => [init.method, url])).toEqual([
+      ['GET', 'https://graph.microsoft.com/v1.0/me/messages/message%2Fid'],
+      ['GET', 'https://graph.microsoft.com/v1.0/me/mailFolders'],
+      ['POST', 'https://graph.microsoft.com/v1.0/me/messages'],
+      ['POST', 'https://graph.microsoft.com/v1.0/me/messages/message%2Fid/send'],
+    ]);
+    expect(JSON.parse(String(requests[3].init.body))).toEqual(message);
+    expect(accounts).toEqual(Array(5).fill('other-account'));
+  });
+
+  it('never retries sending a draft after an ambiguous response', async () => {
+    let attempts = 0;
+    const client = createClient({ fetch: async () => { attempts += 1; return jsonResponse({ error: { message: 'unavailable' } }, 503); } });
+    await expect(client.sendMailDraft(TEST_ACCOUNT_KEY, 'draft-1')).rejects.toThrow('graph_api_error:503');
+    expect(attempts).toBe(1);
+  });
+
   it('lists calendars with the delegated token and London timezone preference', async () => {
     const requests: { url: string; init: RequestInit }[] = [];
     const client = createClient({

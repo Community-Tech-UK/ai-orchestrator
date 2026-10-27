@@ -36,7 +36,7 @@
             <span class="pq-run-state-counts">{{ stateCounts(run.items) }}</span>
           }
         </summary>
-        <app-plan-queue-item-list [items]="run.items" [maxRounds]="run.config.maxRounds" (skipItem)="skipItem.emit($event)" />
+        <app-plan-queue-item-list [items]="run.items" [maxRounds]="run.config.maxRounds" [stepUp]="run.config.routing?.stepUp ?? null" (skipItem)="skipItem.emit($event)" />
       </details>
     </div>
   }

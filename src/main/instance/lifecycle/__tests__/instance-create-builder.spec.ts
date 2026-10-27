@@ -67,6 +67,18 @@ describe('buildInstanceRecord', () => {
     const plain = buildInstanceRecord(buildConfig({ provider: 'claude' }), buildAgent(), { defaultYoloMode: false, getParent: () => undefined });
     expect(plain.accountRouteOrigin).toBeUndefined();
     expect(plain.allowedAccountProfileIds).toBeUndefined();
+    expect(plain.accountPreferences).toBeUndefined();
+  });
+
+  it('carries the account preferences onto the instance as a copy', () => {
+    const preferences = { avoid: ['max-a'], last: ['max-b'] };
+    const instance = buildInstanceRecord(
+      buildConfig({ provider: 'claude', accountPreferences: preferences }),
+      buildAgent(),
+      { defaultYoloMode: false, getParent: () => undefined },
+    );
+    expect(instance.accountPreferences).toEqual({ avoid: ['max-a'], last: ['max-b'] });
+    expect(instance.accountPreferences).not.toBe(preferences);
   });
 
   it('lets an explicit empty failover list (Plan Queue sessions) override the global seed', () => {

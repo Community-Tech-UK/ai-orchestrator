@@ -22,25 +22,25 @@ describe('OrchestratorToolsRpcClient', () => {
 
   it('throws OrchestratorToolsUnavailableError when env vars are missing', async () => {
     const client = new OrchestratorToolsRpcClient({ env: {} });
-    await expect(client.call('orchestrator_tools.git_batch_pull', { root: '/r' })).rejects.toBeInstanceOf(
-      OrchestratorToolsUnavailableError,
-    );
+    await expect(
+      client.call('orchestrator_tools.git_batch_pull', { root: '/r' }),
+    ).rejects.toBeInstanceOf(OrchestratorToolsUnavailableError);
   });
 
   it('throws OrchestratorToolsUnavailableError when only one env var is set', async () => {
     const a = new OrchestratorToolsRpcClient({
       env: { AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET: '/tmp/x.sock' },
     });
-    await expect(a.call('orchestrator_tools.git_batch_pull', { root: '/r' })).rejects.toBeInstanceOf(
-      OrchestratorToolsUnavailableError,
-    );
+    await expect(
+      a.call('orchestrator_tools.git_batch_pull', { root: '/r' }),
+    ).rejects.toBeInstanceOf(OrchestratorToolsUnavailableError);
 
     const b = new OrchestratorToolsRpcClient({
       env: { AI_ORCHESTRATOR_INSTANCE_ID: 'inst-1' },
     });
-    await expect(b.call('orchestrator_tools.git_batch_pull', { root: '/r' })).rejects.toBeInstanceOf(
-      OrchestratorToolsUnavailableError,
-    );
+    await expect(
+      b.call('orchestrator_tools.git_batch_pull', { root: '/r' }),
+    ).rejects.toBeInstanceOf(OrchestratorToolsUnavailableError);
   });
 
   it('throws OrchestratorToolsUnavailableError when the capability token is missing', async () => {
@@ -52,9 +52,9 @@ describe('OrchestratorToolsRpcClient', () => {
         // simulates a child spawned before per-spawn capabilities existed.
       },
     });
-    await expect(client.call('orchestrator_tools.git_batch_pull', { root: '/r' })).rejects.toBeInstanceOf(
-      OrchestratorToolsUnavailableError,
-    );
+    await expect(
+      client.call('orchestrator_tools.git_batch_pull', { root: '/r' }),
+    ).rejects.toBeInstanceOf(OrchestratorToolsUnavailableError);
   });
 
   it('sends a single line-delimited JSON-RPC envelope and resolves the parent reply', async () => {
@@ -109,7 +109,7 @@ describe('OrchestratorToolsRpcClient', () => {
     });
   });
 
-  it('rejects with the parent\'s error message when the response carries an error envelope', async () => {
+  it("rejects with the parent's error message when the response carries an error envelope", async () => {
     if (process.platform === 'win32') return;
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ot-client-err-'));
     const socketPath = path.join(tmpDir, 'ot.sock');
@@ -176,5 +176,51 @@ describe('OrchestratorToolsRpcClient', () => {
     await expect(client.call('orchestrator_tools.git_batch_pull', { root: '/r' })).rejects.toThrow(
       /timed out/,
     );
+  });
+  it('cancels an in-flight call and closes the parent socket when its caller aborts', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'connector-rpc-abort-'));
+    const socketPath =
+      process.platform === 'win32'
+        ? `\\\\.\\pipe\\connector-abort-${Date.now()}`
+        : path.join(directory, 'rpc.sock');
+    cleanups.push(() => fs.rmSync(directory, { recursive: true, force: true }));
+    let received!: () => void;
+    const requestReceived = new Promise<void>((resolve) => {
+      received = resolve;
+    });
+    let disconnected!: () => void;
+    const peerClosed = new Promise<void>((resolve) => {
+      disconnected = resolve;
+    });
+    const sockets: net.Socket[] = [];
+    const server = net.createServer((socket) => {
+      sockets.push(socket);
+      socket.on('data', () => received());
+      socket.once('close', () => disconnected());
+    });
+    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+    cleanups.push(() => {
+      sockets.forEach((socket) => socket.destroy());
+      return new Promise<void>((resolve) => server.close(() => resolve()));
+    });
+    const controller = new AbortController();
+    const client = new OrchestratorToolsRpcClient({
+      env: {
+        AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET: socketPath,
+        AI_ORCHESTRATOR_INSTANCE_ID: 'fixture',
+        AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_CAPABILITY: 'PLACEHOLDER_CAPABILITY',
+      },
+      timeoutMs: 1000,
+    });
+    const pending = client.call(
+      'connectors.graph',
+      { name: 'example' },
+      { signal: controller.signal },
+    );
+    const rejected = expect(pending).rejects.toThrow('cancelled');
+    await requestReceived;
+    controller.abort();
+    await rejected;
+    await peerClosed;
   });
 });

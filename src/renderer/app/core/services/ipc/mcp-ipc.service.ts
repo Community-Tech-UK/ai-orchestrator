@@ -6,7 +6,6 @@ import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService, IpcResponse } from './electron-ipc.service';
 import type {
   McpMultiProviderStateDto,
-  SharedDriftStatusDto,
 } from '../../../../../shared/types/mcp-dtos.types';
 
 @Injectable({ providedIn: 'root' })
@@ -194,36 +193,23 @@ export class McpIpcService {
     return this.api.mcpOrchestratorSetInjectionTargets(payload);
   }
 
-  async sharedUpsert(payload: unknown): Promise<IpcResponse<{ id: string }>> {
-    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.mcpSharedUpsert(payload) as Promise<IpcResponse<{ id: string }>>;
-  }
-
-  async sharedDelete(serverId: string): Promise<IpcResponse> {
-    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.mcpSharedDelete({ serverId });
-  }
-
-  async sharedFanOut(payload: {
+  async connectorAuth(payload: {
     serverId: string;
-    providers?: string[];
-  }): Promise<IpcResponse<SharedDriftStatusDto[]>> {
-    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.mcpSharedFanOut(payload) as Promise<IpcResponse<SharedDriftStatusDto[]>>;
-  }
-
-  async sharedGetDrift(serverId: string): Promise<IpcResponse<SharedDriftStatusDto[]>> {
-    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.mcpSharedGetDrift({ serverId }) as Promise<IpcResponse<SharedDriftStatusDto[]>>;
-  }
-
-  async sharedResolveDrift(payload: {
-    serverId: string;
-    provider: string;
-    action: string;
+    action: 'sign-in' | 'sign-out' | 'set-bearer' | 'test';
+    bearerToken?: string;
   }): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.mcpSharedResolveDrift(payload);
+    return this.api.mcpConnectorAuth(payload);
+  }
+
+  async connectorAddMicrosoft365(payload: unknown): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.mcpConnectorAddMicrosoft365(payload);
+  }
+
+  async connectorSetWritable(payload: { serverId: string; allowed: boolean }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.mcpConnectorSetWritable(payload);
   }
 
   async providerUserUpsert(payload: unknown): Promise<IpcResponse> {

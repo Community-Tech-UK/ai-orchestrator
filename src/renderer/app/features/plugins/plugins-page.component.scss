@@ -24,16 +24,6 @@
   gap: var(--spacing-md);
 }
 
-.header-btn {
-  padding: var(--spacing-xs) var(--spacing-md);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-color);
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  cursor: pointer;
-  font-size: 12px;
-}
-
 .header-title {
   flex: 1;
   display: flex;
@@ -55,36 +45,6 @@
   gap: var(--spacing-sm);
 }
 
-/* Metrics */
-
-.metrics {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: var(--spacing-md);
-}
-
-.metric-card {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: var(--spacing-md);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: var(--bg-secondary);
-}
-
-.metric-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-muted);
-}
-
-.metric-value {
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
 /* Error Banner */
 
 .error-banner {
@@ -96,80 +56,26 @@
   font-size: 12px;
 }
 
-/* Panel / Tabs */
+.error-detail {
+  margin-top: var(--spacing-xs);
+  color: var(--text-muted);
+  font-family: var(--font-family-mono);
+  font-size: 11px;
+}
 
-/* overflow:hidden is here to clip the tab strip to the rounded corners, but it
-   also zeroes the flex item's automatic minimum size, so on a short window the
-   panel was squashed and silently swallowed its own tab content. Keep the
-   clipping, refuse the squash, and let `.page` scroll instead. */
+/* Panels */
+
+/* flex-shrink: 0 stops a short window squashing a panel and hiding its
+   content; `.page` scrolls instead. */
 .panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   background: var(--bg-secondary);
-  overflow: hidden;
   flex-shrink: 0;
-}
-
-/* Info / Explainer */
-
-.info-panel {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--spacing-lg);
-  padding: var(--spacing-md);
-}
-
-.info-block {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.info-title {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.info-text {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-muted);
-}
-
-.info-text strong {
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.tab-bar {
-  display: flex;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.tab {
-  padding: var(--spacing-sm) var(--spacing-md);
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 13px;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-}
-
-.tab.active {
-  color: var(--text-primary);
-  border-bottom-color: var(--primary-color);
-  font-weight: 600;
-}
-
-.tab-content {
-  padding: var(--spacing-md);
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
 }
 
 /* Plugin Grid */
@@ -216,26 +122,9 @@
   font-weight: 600;
 }
 
-.status-loaded {
-  background: color-mix(in srgb, var(--success-color, #22c55e) 20%, transparent);
-  color: var(--success-color, #22c55e);
-}
-
-.status-unloaded {
-  background: color-mix(in srgb, var(--text-muted) 20%, transparent);
-  color: var(--text-muted);
-}
-
 .status-error {
   background: color-mix(in srgb, var(--error-color) 20%, transparent);
   color: var(--error-color);
-}
-
-.plugin-description {
-  margin: 0;
-  font-size: 12px;
-  color: var(--text-muted);
-  line-height: 1.4;
 }
 
 .plugin-path {
@@ -254,18 +143,7 @@
   margin-top: var(--spacing-xs);
 }
 
-.project-trust-panel {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-md);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  background: var(--bg-primary);
-}
-
-.project-trust-heading,
-.trust-row {
+.project-trust-heading {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
@@ -288,6 +166,9 @@
 }
 
 .trust-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
   padding-top: var(--spacing-xs);
   border-top: 1px solid var(--border-color);
 }
@@ -315,23 +196,6 @@
   color: var(--error-color);
 }
 
-/* Discover Actions */
-
-.discover-actions {
-  display: flex;
-  gap: var(--spacing-sm);
-}
-
-/* Install from Path */
-
-.install-from-path {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-  padding-top: var(--spacing-md);
-  border-top: 1px solid var(--border-color);
-}
-
 .section-title {
   font-size: 12px;
   font-weight: 700;
@@ -350,40 +214,35 @@
   font-size: 11px;
 }
 
-.install-row,
-.create-row {
+.install-row {
   display: flex;
   gap: var(--spacing-sm);
 }
 
-/* Create Template */
-
-.create-template {
-  padding: var(--spacing-md);
+.prune-row {
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: var(--spacing-sm);
+  padding-top: var(--spacing-sm);
+  border-top: 1px solid var(--border-color);
 }
 
-.panel-title {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-muted);
+.prune-row .section-desc {
+  margin: 0;
 }
 
-.template-result {
+.status-message {
   padding: var(--spacing-sm) var(--spacing-md);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   background: var(--bg-primary);
   font-size: 12px;
   color: var(--text-primary);
-  font-family: var(--font-family-mono);
 }
 
 .runtime-validation {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: var(--spacing-sm);
   padding: var(--spacing-sm) var(--spacing-md);
   border: 1px solid color-mix(in srgb, var(--success-color, #22c55e) 50%, transparent);
@@ -451,14 +310,3 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
-
-@media (max-width: 640px) {
-  .metrics {
-    grid-template-columns: 1fr;
-  }
-
-  .info-panel {
-    grid-template-columns: 1fr;
-  }
-}
-  

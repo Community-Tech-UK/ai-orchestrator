@@ -58,7 +58,7 @@ describe('registerRuntimePluginHandlers', () => {
     registerRuntimePluginHandlers({ packageManager: manager });
   });
 
-  it('registers runtime plugin channels separately from provider plugin handlers', async () => {
+  it('registers runtime plugin channels', async () => {
     await expect(invoke(IPC_CHANNELS.RUNTIME_PLUGINS_LIST)).resolves.toMatchObject({
       success: true,
       data: [{ id: 'plugin-a', status: 'installed', installPath: '[managed]/plugin-a' }],

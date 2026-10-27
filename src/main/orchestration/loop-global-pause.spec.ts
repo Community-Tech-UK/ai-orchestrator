@@ -46,4 +46,19 @@ describe('global loop controls', () => {
     expect(paused?.totalIterations).toBe(0);
     expect(paused?.inFlightIteration).toBeUndefined();
   }, 20_000);
+  it('waits for a previously paused round when retrying restart pause', async () => {
+    let callback: ((result: LoopChildResult | { error: string }) => void) | undefined;
+    coordinator.on('loop:invoke-iteration', (payload: unknown) => { callback = (payload as { callback: typeof callback }).callback; });
+    coordinator.on('loop:pause-for-restart', () => callback?.({ error: 'interrupted by global pause' }));
+    const config = defaultLoopConfig(workspace, 'Retry a working round');
+    config.audit.preflightMode = 'off';
+    const state = await coordinator.startLoop('chat-retry', config);
+    await vi.waitFor(() => expect(callback).toBeDefined());
+    expect(coordinator.pauseLoop(state.id)).toBe(true);
+    try {
+      await coordinator.pauseForGlobalPause(state.id);
+      expect(coordinator.getLoop(state.id)?.inFlightIteration).toBeUndefined();
+      expect(coordinator.getLoop(state.id)?.totalIterations).toBe(0);
+    } finally { callback?.({ error: 'Test cleanup' }); }
+  }, 20_000);
 });

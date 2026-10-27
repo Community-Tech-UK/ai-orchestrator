@@ -21,19 +21,23 @@ export function resolveRunParent(run: PlanQueueRun, deps: ParentDeps): string | 
   const current = deps.getRun(run.id);
   run.parentInstanceId = current.parentInstanceId;
   run.parentHistoryThreadId = current.parentHistoryThreadId;
-  if (deps.instances.getInstance(current.parentInstanceId)) return current.parentInstanceId;
-  const thread = current.parentHistoryThreadId?.trim();
-  const restored = thread ? deps.instances.getAllInstances().find((instance) =>
-    instance.historyThreadId?.trim() === thread && !deps.isQueueInstance(instance.id)
-      && !AUTOMATION_FAILURE_STATUSES.has(instance.status)) : undefined;
+  const recorded = deps.instances.getInstance(current.parentInstanceId);
+  if (recorded && recorded.status !== 'superseded') return current.parentInstanceId;
+  const threads = new Set([current.parentHistoryThreadId?.trim(), recorded?.historyThreadId?.trim()].filter(Boolean));
+  const restored = deps.instances.getAllInstances()
+    .filter((instance) => instance.id !== current.parentInstanceId && threads.has(instance.historyThreadId?.trim())
+      && !deps.isQueueInstance(instance.id) && !AUTOMATION_FAILURE_STATUSES.has(instance.status))
+    .sort((left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0))[0];
   if (!restored) {
     logger.debug('Plan queue owner is not live', { runId: run.id, parentInstanceId: run.parentInstanceId });
     return undefined;
   }
   const previousParentId = run.parentInstanceId;
-  deps.setParent(run.id, restored.id, current.parentHistoryThreadId);
+  const thread = restored.historyThreadId?.trim() || null;
+  deps.setParent(run.id, restored.id, thread);
   // Keep this synchronous caller's run snapshot consistent with the persisted ownership.
   run.parentInstanceId = restored.id;
+  run.parentHistoryThreadId = thread;
   logger.info('Plan queue run rebound to the restored parent conversation', {
     runId: run.id, previousParentId, parentInstanceId: restored.id,
   });

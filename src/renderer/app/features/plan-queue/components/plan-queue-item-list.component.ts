@@ -1,9 +1,10 @@
 import { queueItemSpendLabel } from './plan-queue-spend-label';
-import { ChangeDetectionStrategy, Component, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
 import type {
   PlanQueueItemDto,
   PlanQueueItemState,
   PlanQueueParkReason,
+  PlanQueueRouteChoice,
   PlanQueueVerdict,
 } from '@contracts/schemas/plan-queue';
 
@@ -73,7 +74,7 @@ export function planQueueVerdictSummary(verdict: PlanQueueVerdict | null): strin
 /**
  * One run's items: document, current state, round/error counts, a verdict
  * summary once the verifier has judged it, and the park reason and free-text
- * detail when present. An item with an open question only points to it: the
+ * detail when present, and whether it was handed to the stronger worker. An item with an open question only points to it: the
  * question cards themselves live in the page's "Needs your answer" section.
  */
 @Component({
@@ -87,7 +88,15 @@ export function planQueueVerdictSummary(verdict: PlanQueueVerdict | null): strin
 export class PlanQueueItemListComponent {
   items = input<PlanQueueItemDto[]>([]);
   maxRounds = input.required<number>();
+  /** The run's step-up choice, named on a document that was handed to it. */
+  stepUp = input<PlanQueueRouteChoice | null>(null);
   protected readonly confirmingSkip = signal<string | null>(null);
+  /** A handover happens only when the rounds run out, so its failed checks are the run's round limit. */
+  protected readonly steppedUpLabel = computed(() => {
+    const choice = this.stepUp();
+    const named = choice ? ` (${choice.provider}${choice.model ? ` / ${choice.model}` : ''})` : '';
+    return `Handed to a stronger worker${named} after ${this.maxRounds()} failed check(s)`;
+  });
 
   skipItem = output<string>();
 

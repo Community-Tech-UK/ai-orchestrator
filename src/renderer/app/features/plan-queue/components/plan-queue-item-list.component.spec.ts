@@ -114,6 +114,20 @@ describe('PlanQueueItemListComponent', () => {
     fixture.detectChanges(); expect(fixture.nativeElement.textContent).toContain('Round 2 of 3 · $3.10');
   });
 
+  it('says when a document was handed to the stronger worker, naming it and the failed checks', () => {
+    fixture.componentRef.setInput('items', [makeItem({ id: 'plain' }), makeItem({ id: 'handed', steppedUpAt: 5 })]);
+    fixture.componentRef.setInput('stepUp', { provider: 'claude', model: 'opus' });
+    fixture.detectChanges();
+    const lines = Array.from(fixture.nativeElement.querySelectorAll('.pq-item-stepped-up') as NodeListOf<HTMLElement>)
+      .map((line) => line.textContent!.replace(/\s+/g, ' ').trim());
+    expect(lines).toEqual(['Handed to a stronger worker (claude / opus) after 3 failed check(s)']);
+    // The run's step-up choice was removed since: the record of the handover stays.
+    fixture.componentRef.setInput('stepUp', null);
+    fixture.detectChanges();
+    expect((fixture.nativeElement.querySelector('.pq-item-stepped-up') as HTMLElement).textContent!.replace(/\s+/g, ' ').trim())
+      .toBe('Handed to a stronger worker after 3 failed check(s)');
+  });
+
   it('shows the park reason when the item is parked', () => {
     fixture.componentRef.setInput('items', [makeItem({ state: 'parked', parkReason: 'round-limit' })]);
     fixture.detectChanges();

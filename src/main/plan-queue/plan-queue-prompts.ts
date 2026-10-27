@@ -1,5 +1,5 @@
 /**
- * Plan Queue prompts — worker, fix round, conflict, resume, verifier, triage.
+ * Plan Queue prompts — worker, fix round, conflict, resume, step-up, verifier, triage.
  *
  * Provider-neutral (no Claude-only tool names), per
  * docs/prompt-engineering-house-style.md: role and goal first, interpolated
@@ -17,6 +17,12 @@ export const TRIAGE_TOOL = 'plan_queue_report_triage';
 
 const RUNBOOK_RELATIVE = 'docs/plans/livetest-campaign-runbook.md';
 const MAX_DATA_CHARS = 12_000;
+const VERIFIER_WAIT_RULE = 'Your review ends when your turn ends. A gate you start in the background must be waited for (poll its output until it exits) before you end your turn; never end your turn while a gate is still running.';
+const VERDICT_DISCOVERY_STEPS: readonly string[] = [
+  '- If Harness tools are not already callable, use your provider discovery mechanism to find orchestrator.tool_search or orchestrator.tool_describe. Searching only the provider native tool list is insufficient.',
+  '- Search Harness for plan_queue_report_verdict, or describe that exact name. Follow the returned input schema and invocation route.',
+  '- If the returned invocation names orchestrator.tool_execute, call it with name plan_queue_report_verdict and an arguments object containing your verdict fields; discover tool_execute through the provider mechanism if needed.',
+];
 const WORKER_EVIDENCE_CLEANUP_RULE = '- After the report, seal and command receipts are written, delete the runtime you created: database clusters, browser binaries, dependency installs, compile caches and copied source trees. Leave the report, the seal and the receipts. Do not copy a checkout or node_modules into the plan folder or into a directory outside the worktree.';
 
 /** Wrap untrusted text in a named delimiter, neutralising any closing tag inside it. */
@@ -107,14 +113,19 @@ function buildLivetestWorkerPrompt(ctx: ItemPromptContext, answer: string[]): st
   ].join('\n');
 }
 
-export function buildFixPrompt(round: number, maxRounds: number, findings: readonly PlanQueueFinding[]): string {
+/** A verifier's findings as a numbered data block. */
+function findingsBlock(findings: readonly PlanQueueFinding[]): string {
   const rendered = findings.length
     ? findings.map((f, i) => `${i + 1}. [${f.severity}, confidence ${f.confidence}] ${f.summary}${f.file ? ` (${f.file})` : ''}${f.evidence ? `\n   Evidence: ${f.evidence}` : ''}`).join('\n')
     : '(The verifier failed the work without listing findings. Re-check the plan\'s acceptance criteria and the canonical gates.)';
+  return dataBlock('verifier_findings', rendered);
+}
+
+export function buildFixPrompt(round: number, maxRounds: number, findings: readonly PlanQueueFinding[]): string {
   return [
     `An independent verifier failed your work (verification round ${round} of ${maxRounds}). Its findings follow as data.`,
     '',
-    dataBlock('verifier_findings', rendered),
+    findingsBlock(findings),
     '',
     WORKER_EVIDENCE_CLEANUP_RULE,
     '',
@@ -164,6 +175,28 @@ export function buildResumePrompt(ctx: ItemPromptContext, reason: string): strin
   ].join('\n');
 }
 
+/**
+ * The step-up worker's task after taking over from a worker that failed every
+ * round. Saved as the item's pending instruction too, so a Pause before the
+ * new session starts still carries it into the resume prompt.
+ */
+export function buildStepUpInstruction(failedRounds: number, findings: readonly PlanQueueFinding[]): string {
+  return [
+    `An earlier, cheaper attempt did not pass after ${failedRounds} verification round(s). Its work is on your branch. Treat it as a starting point: keep what is right, fix or redo what is not. The last verifier's findings follow as data.`,
+    '',
+    findingsBlock(findings),
+    '',
+    WORKER_EVIDENCE_CLEANUP_RULE,
+    '',
+    'Task: make the document\'s work complete and correct in your worktree, including a fix for every finding, re-run the targeted checks, update the document\'s as-built notes, then stop. The same rules as before apply: no commits, no branch changes, no `_completed` rename.',
+  ].join('\n');
+}
+
+/** A fresh worker on the run's step-up choice, taking over a document whose worker failed every round. */
+export function buildStepUpPrompt(ctx: ItemPromptContext, failedRounds: number, findings: readonly PlanQueueFinding[]): string {
+  return `${buildResumePrompt(ctx, 'an earlier worker could not get this past the verifier')}\n\n${buildStepUpInstruction(failedRounds, findings)}`;
+}
+
 interface VerifierPromptContext {
   item: PlanQueueItem;
   kind: PlanQueueKind;
@@ -202,6 +235,13 @@ export function buildVerifierPrompt(ctx: VerifierPromptContext): string {
     ...(ctx.gates.length
       ? ['Run these gates in the worktree, each separately, and record each exit code:', ...ctx.gates.map((gate) => `- \`${gate}\``)]
       : ['Run the repository\'s own documented verification commands (its AGENTS.md, README or package scripts) in the worktree, each separately, and record each exit code.']),
+    VERIFIER_WAIT_RULE,
+    '',
+    'Reporting your verdict through Harness:',
+    '- Read and apply the task-completion-gate skill for this independent acceptance review.',
+    ...VERDICT_DISCOVERY_STEPS,
+    '- Only you, the independent verifier assigned to this item, may submit this verdict. Do not ask the worker or coordinator to submit it for you.',
+    '- Read the tool response and confirm accepted: true before ending your turn. Written PASS or FAIL text is not a recorded Queue verdict. If discovery or invocation fails, preserve the exact tool error and report that failure honestly.',
     '',
     `Task: finish by calling the \`${VERDICT_TOOL}\` tool exactly once with \`item_id\` "${ctx.item.id}". Use \`PASS\` only when every criterion holds and every gate exited 0. Each finding needs a severity (critical, high, medium or low), a confidence from 0 to 100, a one-sentence summary and concrete evidence, normally file:line. A PASS with no findings is valid after genuine scrutiny. Example call arguments:`,
     '',
@@ -213,6 +253,17 @@ export function buildVerifierPrompt(ctx: VerifierPromptContext): string {
       document_complete: false,
       ...(livetest ? { need_james: [{ check: 'Check 3: Face ID unlock', classification: 'real', reason: 'Needs a physical iPhone with enrolled biometrics.' }] } : {}),
     }, null, 2),
+  ].join('\n');
+}
+
+/** A follow-up turn for a verifier whose turn ended before its verdict was recorded. */
+export function buildVerifierReminderPrompt(itemId: string, reminder: number, maxReminders: number): string {
+  return [
+    `Plan Queue reminder ${reminder} of ${maxReminders}: your turn ended without a recorded verdict for item "${itemId}". Your review is not finished until \`${VERDICT_TOOL}\` returns accepted: true.`,
+    '',
+    `- ${VERIFIER_WAIT_RULE} Background commands may have stopped when your turn ended: check their output and run again any gate that has no final exit code.`,
+    ...VERDICT_DISCOVERY_STEPS,
+    '- Then report your verdict once, with your findings and every gate exit code, exactly as your original instructions describe. If discovery or invocation fails, quote the exact tool error in your reply.',
   ].join('\n');
 }
 

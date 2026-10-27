@@ -1,13 +1,12 @@
 /**
- * Provider and Plugin IPC Handlers
- * Handles provider configuration and plugin management
+ * Provider IPC Handlers
+ * Handles provider configuration and model catalog requests
  */
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import type { ProviderType } from '../../../shared/types/provider.types';
 import { getProviderInstanceManager } from '../../providers';
-import { getProviderPluginsManager } from '../../providers/provider-plugins';
 import {
   getUnifiedModelCatalog,
   CATALOG_UPDATED_EVENT,
@@ -24,13 +23,6 @@ import { handleLocalReviewerQualification } from './local-reviewer-qualification
 import { validateIpcPayload } from '@contracts/schemas/common';
 import {
   ModelsCLIPushPayloadSchema,
-  PluginsCreateTemplatePayloadSchema,
-  PluginsGetMetaPayloadSchema,
-  PluginsGetPayloadSchema,
-  PluginsInstallPayloadSchema,
-  PluginsLoadPayloadSchema,
-  PluginsUninstallPayloadSchema,
-  PluginsUnloadPayloadSchema,
   ProviderRunLoginPayloadSchema,
   ProviderStatusPayloadSchema,
   ProviderUpdateConfigPayloadSchema,
@@ -50,7 +42,6 @@ export function registerProviderHandlers(
   deps: RegisterProviderHandlersDeps
 ): void {
   const registry = getProviderInstanceManager();
-  const pluginManager = getProviderPluginsManager();
   const localModelInventory = getLocalModelInventoryService();
   const localReviewerQualification = new LocalReviewerQualificationController(localModelInventory);
 
@@ -207,271 +198,6 @@ export function registerProviderHandlers(
   );
 
   // ============================================
-  // Provider Plugin Handlers
-  // ============================================
-
-  // Discover plugins
-  ipcMain.handle(
-    IPC_CHANNELS.PLUGINS_DISCOVER,
-    async (): Promise<IpcResponse> => {
-      try {
-        const plugins = await pluginManager.discoverPlugins();
-        return { success: true, data: plugins };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'PLUGINS_DISCOVER_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
-  );
-
-  // Load plugin
-  ipcMain.handle(
-    IPC_CHANNELS.PLUGINS_LOAD,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown
-    ): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(PluginsLoadPayloadSchema, payload, 'PLUGINS_LOAD');
-        const plugin = await pluginManager.loadPlugin(validated.idOrPath, {
-          timeout: validated.timeout,
-          sandbox: validated.sandbox
-        });
-        return {
-          success: true,
-          data: plugin ? pluginManager.pluginToProviderConfig(plugin) : null
-        };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'PLUGINS_LOAD_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
-  );
-
-  // Unload plugin
-  ipcMain.handle(
-    IPC_CHANNELS.PLUGINS_UNLOAD,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown
-    ): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(PluginsUnloadPayloadSchema, payload, 'PLUGINS_UNLOAD');
-        await pluginManager.unloadPlugin(validated.pluginId);
-        return { success: true };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'PLUGINS_UNLOAD_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
-  );
-
-  // Install plugin
-  ipcMain.handle(
-    IPC_CHANNELS.PLUGINS_INSTALL,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown
-    ): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(PluginsInstallPayloadSchema, payload, 'PLUGINS_INSTALL');
-        const meta = await pluginManager.installPlugin(validated.sourcePath);
-        return { success: true, data: meta };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'PLUGINS_INSTALL_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
-  );
-
-  // Uninstall plugin
-  ipcMain.handle(
-    IPC_CHANNELS.PLUGINS_UNINSTALL,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown
-    ): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(PluginsUninstallPayloadSchema, payload, 'PLUGINS_UNINSTALL');
-        await pluginManager.uninstallPlugin(validated.pluginId);
-        return { success: true };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'PLUGINS_UNINSTALL_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
-  );
-
-  // Get a specific plugin
-  ipcMain.handle(
-    IPC_CHANNELS.PLUGINS_GET,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown
-    ): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(PluginsGetPayloadSchema, payload, 'PLUGINS_GET');
-        const plugin = pluginManager.getPlugin(validated.pluginId);
-        return {
-          success: true,
-          data: plugin ? pluginManager.pluginToProviderConfig(plugin) : null
-        };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'PLUGINS_GET_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
-  );
-
-  // Get all loaded plugins
-  ipcMain.handle(
-    IPC_CHANNELS.PLUGINS_GET_ALL,
-    async (): Promise<IpcResponse> => {
-      try {
-        const plugins = pluginManager.getLoadedPlugins();
-        return {
-          success: true,
-          data: plugins.map((p) => pluginManager.pluginToProviderConfig(p))
-        };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'PLUGINS_GET_ALL_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
-  );
-
-  // Get installed provider plugins with their load state.
-  // Drives the Plugins page list — returns every discovered plugin file
-  // (not just loaded ones) with a per-plugin status.
-  ipcMain.handle(
-    IPC_CHANNELS.PLUGINS_GET_LOADED,
-    async (): Promise<IpcResponse> => {
-      try {
-        // Refresh metadata from disk so newly created/installed plugins appear.
-        const metas = await pluginManager.discoverPlugins();
-        // discoverPlugins() rebuilds metadata and resets the `loaded` flag, so
-        // derive load state from the live loaded-plugin instances instead.
-        const loadedIds = new Set(
-          pluginManager.getLoadedPlugins().map((plugin) => plugin.id)
-        );
-        const data = metas.map((meta) => ({
-          id: meta.id,
-          name: meta.name,
-          version: meta.version,
-          description: meta.description,
-          status: meta.error
-            ? 'error'
-            : loadedIds.has(meta.id)
-              ? 'loaded'
-              : 'unloaded',
-          path: meta.filePath,
-        }));
-        return { success: true, data };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'PLUGINS_GET_LOADED_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
-  );
-
-  // Get plugin metadata
-  ipcMain.handle(
-    IPC_CHANNELS.PLUGINS_GET_META,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown
-    ): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(PluginsGetMetaPayloadSchema, payload, 'PLUGINS_GET_META');
-        const allMeta = pluginManager.getAllPluginMeta();
-        const meta = allMeta.find((m) => m.id === validated.pluginId);
-        return { success: true, data: meta || null };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'PLUGINS_GET_META_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
-  );
-
-  // Create plugin template
-  ipcMain.handle(
-    IPC_CHANNELS.PLUGINS_CREATE_TEMPLATE,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: unknown
-    ): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(PluginsCreateTemplatePayloadSchema, payload, 'PLUGINS_CREATE_TEMPLATE');
-        const filePath = pluginManager.savePluginTemplate(validated.name);
-        return { success: true, data: { filePath } };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'PLUGINS_CREATE_TEMPLATE_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
-  );
-
-  // ============================================
   // Unified Model Catalog
   // ============================================
 
@@ -559,19 +285,6 @@ export function registerProviderHandlers(
       }
     }
   );
-
-  // Forward plugin events to renderer
-  pluginManager.on('plugin-loaded', (pluginId) => {
-    deps.windowManager.sendToRenderer(IPC_CHANNELS.PLUGINS_LOADED, { pluginId });
-  });
-
-  pluginManager.on('plugin-unloaded', (pluginId) => {
-    deps.windowManager.sendToRenderer(IPC_CHANNELS.PLUGINS_UNLOADED, { pluginId });
-  });
-
-  pluginManager.on('plugin-error', (pluginId, error) => {
-    deps.windowManager.sendToRenderer(IPC_CHANNELS.PLUGINS_ERROR, { pluginId, error: error.message });
-  });
 
   // Forward unified-catalog refreshes to the renderer (A1 consume-half) so a
   // UnifiedCatalogStore can live-refresh pickers when models.dev/CLI discovery

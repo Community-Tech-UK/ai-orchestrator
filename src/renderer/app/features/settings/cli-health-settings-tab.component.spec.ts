@@ -400,7 +400,7 @@ describe('CliHealthSettingsTabComponent', () => {
 
     expect(component.cliDisplayName('grok')).toBe('Grok Build');
     // Renderer overrides still win for the names that carry UI-only wording.
-    expect(component.cliDisplayName('gemini')).toBe('Google Gemini (legacy)');
+    expect(component.cliDisplayName('gemini')).toBe('Google Gemini');
   });
 
   it('reflects the persisted cliUpdatePolicy in the segmented control', () => {

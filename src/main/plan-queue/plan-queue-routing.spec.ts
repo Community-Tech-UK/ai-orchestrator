@@ -38,6 +38,8 @@ function deps(overrides: {
 } = {}): PlanQueueRoutingDeps {
   return {
     readSaved: () => overrides.saved ?? { workers: [], verifiers: [] },
+    readAccountRules: () => ({ never: [], last: [] }),
+    copilotProfileFor: () => null,
     poolProfiles: () => overrides.pool ?? [],
     copilotProfiles: () => overrides.copilot ?? [],
     isProviderExcluded: (provider) => (overrides.excluded ?? []).includes(provider),
@@ -104,15 +106,15 @@ describe('resolveRunRouting — saved and per-run choices', () => {
   it('keeps James\'s saved list for each role, using a per-run choice only where he saved none', () => {
     const saved: PlanQueueRouting = { workers: [{ provider: 'codex' }], verifiers: [{ provider: 'claude' }] };
     expect(resolveRunRouting({ provider: 'claude' }, undefined, deps({ saved })))
-      .toEqual({ routing: { ...saved, checkersChosenBy: 'saved' }, setAside: [] });
+      .toEqual({ routing: { ...saved, checkersChosenBy: 'saved' }, setAside: [], accountNotes: [] });
     expect(resolveRunRouting({ provider: 'claude' }, { workers: [{ provider: 'cursor' }], verifiers: [{ provider: 'cursor' }] }, deps({ saved })))
-      .toEqual({ routing: { ...saved, checkersChosenBy: 'saved' }, setAside: ['workers', 'checkers'] });
+      .toEqual({ routing: { ...saved, checkersChosenBy: 'saved' }, setAside: ['workers', 'checkers'], accountNotes: [] });
     // An explicit "automatic" from chat is a per-run choice too.
     expect(resolveRunRouting({ provider: 'claude' }, { verifiers: [] }, deps({ saved })).setAside).toEqual(['checkers']);
 
     const workersOnly: PlanQueueRouting = { workers: [{ provider: 'codex' }], verifiers: [] };
     expect(resolveRunRouting({ provider: 'claude' }, { workers: [{ provider: 'cursor' }], verifiers: [{ provider: 'claude' }] }, deps({ saved: workersOnly })))
-      .toEqual({ routing: { workers: [{ provider: 'codex' }], verifiers: [{ provider: 'claude' }], checkersChosenBy: 'run' }, setAside: ['workers'] });
+      .toEqual({ routing: { workers: [{ provider: 'codex' }], verifiers: [{ provider: 'claude' }], checkersChosenBy: 'run' }, setAside: ['workers'], accountNotes: [] });
     const checkersOnly: PlanQueueRouting = { workers: [], verifiers: [{ provider: 'claude' }] };
     expect(resolveRouting({ provider: 'claude' }, { workers: [{ provider: 'cursor' }] }, deps({ saved: checkersOnly })))
       .toEqual({ workers: [{ provider: 'cursor' }], verifiers: [{ provider: 'claude' }], checkersChosenBy: 'saved' });
@@ -260,58 +262,58 @@ describe('routeQueueSpawn', () => {
     ({ metadata: { planQueueRunId: 'run-1', planQueueRole: role }, ...extra }) as InstanceCreateConfig;
 
   it('keeps every queue session on its provider: no cross-provider failover', () => {
-    expect(routeQueueSpawn(spawn('verifier', { provider: 'claude' }), () => run(), null).failoverProviders).toEqual([]);
-    expect(routeQueueSpawn(spawn('worker', { provider: 'claude' }), () => run(), null).failoverProviders).toEqual([]);
+    expect(routeQueueSpawn(spawn('verifier', { provider: 'claude' }), () => run(), null, () => false, { never: [], last: [] }).failoverProviders).toEqual([]);
+    expect(routeQueueSpawn(spawn('worker', { provider: 'claude' }), () => run(), null, () => false, { never: [], last: [] }).failoverProviders).toEqual([]);
   });
 
   it('refuses a new worker on a provider added to the never-auto-pick list mid-run, unless the run relaxes it', () => {
     const excluded = (provider: string) => provider === 'antigravity';
-    expect(() => routeQueueSpawn(spawn('worker', { provider: 'gemini' }), () => run(), null, excluded))
+    expect(() => routeQueueSpawn(spawn('worker', { provider: 'gemini' }), () => run(), null, excluded, { never: [], last: [] }))
       .toThrow('antigravity has been added to the "never auto-pick these providers" list since this run started');
     const relaxed = { config: { relaxSettings: true } } as unknown as PlanQueueRun;
-    expect(routeQueueSpawn(spawn('worker', { provider: 'gemini' }), () => relaxed, null, excluded).accountRouteOrigin).toBe('automation');
+    expect(routeQueueSpawn(spawn('worker', { provider: 'gemini' }), () => relaxed, null, excluded, { never: [], last: [] }).accountRouteOrigin).toBe('automation');
     // The verifier is re-checked at selection, not here.
-    expect(routeQueueSpawn(spawn('verifier', { provider: 'antigravity' }), () => run(), null, excluded).accountRouteOrigin).toBe('verification');
+    expect(routeQueueSpawn(spawn('verifier', { provider: 'antigravity' }), () => run(), null, excluded, { never: [], last: [] }).accountRouteOrigin).toBe('verification');
     // A chosen worker on that list is refused the same way.
-    expect(() => routeQueueSpawn(spawn('worker'), () => run({ workers: [{ provider: 'antigravity' }], verifiers: [] }), { provider: 'antigravity' }, excluded))
+    expect(() => routeQueueSpawn(spawn('worker'), () => run({ workers: [{ provider: 'antigravity' }], verifiers: [] }), { provider: 'antigravity' }, excluded, { never: [], last: [] }))
       .toThrow('antigravity has been added');
   });
 
   it('passes a non-queue spawn through untouched', () => {
     const config = { displayName: 'x' } as InstanceCreateConfig;
-    expect(routeQueueSpawn(config, () => run(), null)).toBe(config);
+    expect(routeQueueSpawn(config, () => run(), null, () => false, { never: [], last: [] })).toBe(config);
   });
 
   it('routes a verifier as verification work and keeps its own accounts', () => {
     const worker = { provider: 'codex', accountProfileIds: ['pro-1'] };
     expect(routeQueueSpawn(spawn('verifier', { provider: 'claude', allowedAccountProfileIds: ['max-b'] }), () => run({
       workers: [worker], verifiers: [],
-    }), worker)).toMatchObject({ accountRouteOrigin: 'verification', allowedAccountProfileIds: ['max-b'] });
+    }), worker, () => false, { never: [], last: [] })).toMatchObject({ accountRouteOrigin: 'verification', allowedAccountProfileIds: ['max-b'] });
   });
 
   it.each(['worker', 'triage'])('fences a %s to the chosen worker accounts as automatic work', (role) => {
     const chosen = { provider: 'codex', accountProfileIds: ['pro-1', 'pro-2'] };
     expect(routeQueueSpawn(spawn(role, { provider: 'claude' }), () => run({
       workers: [{ provider: 'claude' }, chosen], verifiers: [],
-    }), chosen)).toMatchObject({ provider: 'codex', accountRouteOrigin: 'automation', allowedAccountProfileIds: ['pro-1', 'pro-2'] });
+    }), chosen, () => false, { never: [], last: [] })).toMatchObject({ provider: 'codex', accountRouteOrigin: 'automation', allowedAccountProfileIds: ['pro-1', 'pro-2'] });
   });
 
   it('routes a Copilot worker as automatic work too, pinning its chosen account', () => {
     const worker = { provider: 'copilot', copilotProfileId: 'personal' };
-    const routed = routeQueueSpawn(spawn('worker', { provider: 'copilot' }), () => run({ workers: [worker], verifiers: [] }), worker);
+    const routed = routeQueueSpawn(spawn('worker', { provider: 'copilot' }), () => run({ workers: [worker], verifiers: [] }), worker, () => false, { never: [], last: [] });
     expect(routed).toMatchObject({ accountRouteOrigin: 'automation', copilotAccountProfileId: 'personal' });
   });
 
   it('still routes an older run without recorded routing as automatic work', () => {
-    expect(routeQueueSpawn(spawn('worker', { provider: 'claude' }), () => run(), null)).toMatchObject({ accountRouteOrigin: 'automation' });
-    expect(routeQueueSpawn(spawn('worker'), () => null, null).allowedAccountProfileIds).toBeUndefined();
+    expect(routeQueueSpawn(spawn('worker', { provider: 'claude' }), () => run(), null, () => false, { never: [], last: [] })).toMatchObject({ accountRouteOrigin: 'automation' });
+    expect(routeQueueSpawn(spawn('worker'), () => null, null, () => false, { never: [], last: [] }).allowedAccountProfileIds).toBeUndefined();
   });
 
   it('fills the worker provider, model and account fence from the chosen route, never a stale caller snapshot', () => {
     let reads = 0;
     const chosen = { provider: 'claude', model: 'new-model', accountProfileIds: ['new-account'] };
     const current = run({ workers: [chosen], verifiers: [] });
-    const result = routeQueueSpawn(spawn('worker', { provider: 'codex', modelOverride: 'old-model', allowedAccountProfileIds: ['old-account'], copilotAccountProfileId: 'old-seat' }), () => { reads += 1; return current; }, chosen, () => false);
+    const result = routeQueueSpawn(spawn('worker', { provider: 'codex', modelOverride: 'old-model', allowedAccountProfileIds: ['old-account'], copilotAccountProfileId: 'old-seat' }), () => { reads += 1; return current; }, chosen, () => false, { never: [], last: [] });
     expect(reads).toBe(1);
     expect(result).toMatchObject({ provider: 'claude', modelOverride: 'new-model', allowedAccountProfileIds: ['new-account'] });
     expect(result.copilotAccountProfileId).toBeUndefined();
@@ -320,7 +322,7 @@ describe('routeQueueSpawn', () => {
   it('clears a stale explicit provider and model when the run now routes automatically', () => {
     const current = run({ workers: [], verifiers: [] });
     current.workerProvider = null;
-    const result = routeQueueSpawn(spawn('worker', { provider: 'codex', modelOverride: 'old' }), () => current, null);
+    const result = routeQueueSpawn(spawn('worker', { provider: 'codex', modelOverride: 'old' }), () => current, null, () => false, { never: [], last: [] });
     expect(result.provider).toBeUndefined();
     expect(result.modelOverride).toBeUndefined();
   });
@@ -328,7 +330,7 @@ describe('routeQueueSpawn', () => {
   it('keeps a triage retry on the selected checker accounts rather than worker accounts', () => {
     const config = spawn('triage', { provider: 'claude', allowedAccountProfileIds: ['checker-account'] });
     config.metadata = { ...config.metadata, planQueueTriageRetry: true };
-    expect(routeQueueSpawn(config, () => run({ workers: [{ provider: 'codex', accountProfileIds: ['worker-account'] }], verifiers: [] }), null))
+    expect(routeQueueSpawn(config, () => run({ workers: [{ provider: 'codex', accountProfileIds: ['worker-account'] }], verifiers: [] }), null, () => false, { never: [], last: [] }))
       .toMatchObject({ provider: 'claude', allowedAccountProfileIds: ['checker-account'] });
   });
 });
@@ -374,6 +376,69 @@ describe('ranked worker choices', () => {
   });
 });
 
+describe('step-up choice', () => {
+  const haiku = { provider: 'claude', model: 'haiku' };
+  const opus = { provider: 'claude', model: 'opus' };
+  const withRules = (base: PlanQueueRoutingDeps, never: { provider: 'claude' | 'codex' | 'opencode' | 'copilot'; accountId: string }[]): PlanQueueRoutingDeps =>
+    ({ ...base, readAccountRules: () => ({ never, last: [] }) });
+
+  it('takes James\'s saved step-up first, else the per-run one, and reports a per-run one set aside', () => {
+    expect(resolveRunRouting({}, { workers: [haiku], stepUp: { provider: 'codex' } }, deps({ saved: { workers: [], verifiers: [], stepUp: opus } })))
+      .toEqual({ routing: { workers: [haiku], verifiers: [], stepUp: opus }, setAside: ['step-up'], accountNotes: [] });
+    expect(resolveRunRouting({}, { workers: [haiku], stepUp: { provider: ' Codex ' } }, deps()))
+      .toEqual({ routing: { workers: [haiku], verifiers: [], stepUp: { provider: 'codex' } }, setAside: [], accountNotes: [] });
+    // Neither: no step-up, so the run parks a stuck document as before.
+    expect(resolveRouting({}, { workers: [haiku] }, deps())).toEqual({ workers: [haiku], verifiers: [] });
+    expect(resolveRunRouting({}, { workers: [haiku] }, deps({ saved: { workers: [], verifiers: [], stepUp: opus } })).setAside).toEqual([]);
+  });
+
+  it('refuses a step-up the queue could not honour, naming it as the step-up worker', () => {
+    expect(() => resolveRouting({}, { workers: [haiku], stepUp: { provider: 'nope' } }, deps()))
+      .toThrow('Plan Queue step-up worker: "nope" is not a provider the queue can use here');
+    expect(() => resolveRouting({}, { workers: [haiku], stepUp: { provider: 'codex' } }, deps({ excluded: ['codex'] })))
+      .toThrow('Plan Queue step-up worker: codex is on the "never auto-pick these providers" list');
+    // A run that relaxes the auto-pick list may use it.
+    expect(resolveRouting({}, { workers: [haiku], stepUp: { provider: 'codex' }, relaxExclusions: true }, deps({ excluded: ['codex'] })).stepUp)
+      .toEqual({ provider: 'codex' });
+    const pools = deps({ pool: [pool('max-a', 'claude'), pool('max-b', 'claude')] });
+    expect(() => resolveRouting({}, { workers: [haiku], stepUp: { ...opus, accountProfileIds: ['max-a'] } }, withRules(pools, [{ provider: 'claude', accountId: 'max-a' }])))
+      .toThrow(/^Plan Queue step-up worker: .*never-use list/);
+  });
+
+  it('refuses explicit checkers that could not judge the step-up worker', () => {
+    // Codex workers with a Claude checker are fine; a Claude step-up leaves nothing to check it.
+    expect(() => resolveRouting({}, { workers: [{ provider: 'codex' }], verifiers: [{ provider: 'claude' }], stepUp: opus }, deps()))
+      .toThrow('None of the chosen checkers can check the step-up worker: they all use claude, its provider, without a model from a different maker.');
+    expect(resolveRouting({}, { workers: [haiku], verifiers: [{ provider: 'codex' }], stepUp: opus }, deps()).stepUp).toEqual(opus);
+    // Automatic checkers are chosen per check, so nothing is refused up front.
+    expect(resolveRouting({}, { workers: [{ provider: 'codex' }], stepUp: opus }, deps()).stepUp).toEqual(opus);
+  });
+
+  it('refuses a Copilot step-up whose folder seat is on the never-use list', () => {
+    const base = { ...deps({ copilot: [copilot('work')] }), copilotProfileFor: () => 'work' };
+    expect(() => resolveRouting({}, { workers: [haiku], stepUp: { provider: 'copilot' }, workspaceCwd: '/repo' }, withRules(base, [{ provider: 'copilot', accountId: 'work' }])))
+      .toThrow('The Plan Queue step-up worker: this folder\'s Copilot account ("work") is on your never-use list.');
+    expect(resolveRouting({}, { workers: [haiku], stepUp: { provider: 'copilot', copilotProfileId: 'work' }, workspaceCwd: '/repo' }, base).stepUp)
+      .toEqual({ provider: 'copilot', copilotProfileId: 'work' });
+  });
+
+  it('routes only a handed-over document\'s workers to the step-up choice', () => {
+    const run = (stepUp?: typeof opus) => ({ id: 'run-1', config: { relaxSettings: false, routing: { workers: [haiku, { provider: 'codex' }], verifiers: [], ...(stepUp ? { stepUp } : {}) } } }) as unknown as PlanQueueRun;
+    const spawn = (role: string, metadata: Record<string, unknown> = {}): InstanceCreateConfig =>
+      ({ metadata: { planQueueRunId: 'run-1', planQueueRole: role, ...metadata } }) as unknown as InstanceCreateConfig;
+    const never = () => false;
+    expect(queueWorkerChoices(spawn('worker', { planQueueSteppedUp: true }), run(opus), never)).toEqual([opus]);
+    expect(queueWorkerChoices(spawn('worker'), run(opus), never)).toEqual([haiku, { provider: 'codex' }]);
+    // The step-up choice was removed after the handover: back to the ordinary workers.
+    expect(queueWorkerChoices(spawn('worker', { planQueueSteppedUp: true }), run(), never)).toEqual([haiku, { provider: 'codex' }]);
+    expect(queueWorkerChoices(spawn('triage', { planQueueSteppedUp: true }), run(opus), never)).toEqual([haiku, { provider: 'codex' }]);
+    // Added to the never-auto-pick list since: kept, so the spawn refuses with the reason.
+    expect(queueWorkerChoices(spawn('worker', { planQueueSteppedUp: true }), run(opus), () => true)).toEqual([opus]);
+    const routed = routeQueueSpawn(spawn('worker', { planQueueSteppedUp: true }), () => run(opus), opus, never, { never: [], last: [] });
+    expect(routed).toMatchObject({ provider: 'claude', modelOverride: 'opus' });
+  });
+});
+
 describe('helpers', () => {
   it('maps tool arguments, dropping duplicate and empty account lists', () => {
     expect(routeChoiceFromArgs({ provider: 'claude', account_ids: ['a', 'a', 'b'], copilot_account_id: 'p' }))
@@ -383,9 +448,11 @@ describe('helpers', () => {
 
   it('describes routing in one line per role, workers in order', () => {
     expect(describeRouting({ workers: [{ provider: 'codex', model: 'gpt-6.1-sol', accountProfileIds: ['pro-1'] }, { provider: 'claude' }], verifiers: [] }))
-      .toEqual({ workers: 'codex / gpt-6.1-sol (accounts: pro-1), then claude', checkers: 'automatic' });
+      .toEqual({ workers: 'codex / gpt-6.1-sol (accounts: pro-1), then claude', checkers: 'automatic', stepUp: 'stop and wait' });
     expect(describeRouting({ workers: [], verifiers: [{ provider: 'claude' }, { provider: 'copilot', copilotProfileId: 'p' }] }))
-      .toEqual({ workers: 'the default provider', checkers: 'claude; copilot (account: p)' });
+      .toEqual({ workers: 'the default provider', checkers: 'claude; copilot (account: p)', stepUp: 'stop and wait' });
+    expect(describeRouting({ workers: [{ provider: 'claude', model: 'haiku' }], verifiers: [], stepUp: { provider: 'claude', model: 'opus', accountProfileIds: ['max-a'] } }).stepUp)
+      .toBe('claude / opus (accounts: max-a)');
   });
 });
 

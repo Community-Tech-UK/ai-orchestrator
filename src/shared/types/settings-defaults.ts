@@ -301,6 +301,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   providerAccountPools: defaultProviderAccountPools(),
   // Plan Queue: workers follow the starting session, checkers are automatic.
   planQueueRouting: { workers: [], verifiers: [] },
+  planQueueAccountRules: { never: [], last: [] },
 
   // Conversational ping-pong review
   pingPongReviewerProvider: 'auto',
@@ -365,10 +366,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   mcpCleanupBackupsOnQuit: true,
   mcpDisableProviderBackups: false,
   mcpAllowWorldWritableParent: false,
-  // The registered app is currently single-tenant, so Microsoft requires a
-  // tenant-specific authority (AADSTS50194 rejects /common for this audience).
+  // The app registration must allow accounts in any organisational directory.
   graphClientId: 'fdbb0672-4089-48dc-bcc5-7121a331fcfc',
-  graphAuthority: 'https://login.microsoftonline.com/60b0a25e-b75d-4d9e-b797-1805ec311dfb',
+  graphAuthority: 'https://login.microsoftonline.com/organizations',
   graphScopesJson: JSON.stringify([
     'Calendars.ReadWrite',
     'offline_access',

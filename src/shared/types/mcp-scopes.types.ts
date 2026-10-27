@@ -22,7 +22,7 @@ export type SupportedProvider = Extract<
 
 export type OrchestratorRuntimeInjectionProvider = Extract<
   CanonicalCliType,
-  'claude' | 'codex' | 'copilot' | 'cursor' | 'grok' | 'opencode'
+  'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor' | 'grok' | 'opencode'
 >;
 
 export const ALL_MCP_SCOPES: readonly McpScope[] = [
@@ -48,10 +48,12 @@ export const SUPPORTED_PROVIDERS: readonly SupportedProvider[] = [
   'opencode',
 ];
 
-export const ORCHESTRATOR_INJECTION_PROVIDERS: readonly SupportedProvider[] = [
+export const ORCHESTRATOR_INJECTION_PROVIDERS: readonly OrchestratorRuntimeInjectionProvider[] = [
   'claude',
   'codex',
+  'gemini',
   'copilot',
+  'cursor',
   'grok',
   'opencode',
 ];
@@ -59,6 +61,7 @@ export const ORCHESTRATOR_INJECTION_PROVIDERS: readonly SupportedProvider[] = [
 export const ORCHESTRATOR_RUNTIME_INJECTION_PROVIDERS: readonly OrchestratorRuntimeInjectionProvider[] = [
   'claude',
   'codex',
+  'gemini',
   'copilot',
   'cursor',
   'grok',

@@ -1237,40 +1237,6 @@ export interface SearchConfigureExaPayload {
 }
 
 // ============================================
-// Provider Plugins Payloads (12.2)
-// ============================================
-
-export interface PluginsLoadPayload {
-  idOrPath: string;
-  timeout?: number;
-  sandbox?: boolean;
-}
-
-export interface PluginsUnloadPayload {
-  pluginId: string;
-}
-
-export interface PluginsGetPayload {
-  pluginId: string;
-}
-
-export interface PluginsGetMetaPayload {
-  pluginId: string;
-}
-
-export interface PluginsInstallPayload {
-  sourcePath: string;
-}
-
-export interface PluginsUninstallPayload {
-  pluginId: string;
-}
-
-export interface PluginsCreateTemplatePayload {
-  name: string;
-}
-
-// ============================================
 // Workflow Payloads (6.1)
 // ============================================
 

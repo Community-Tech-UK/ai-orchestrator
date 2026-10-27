@@ -227,6 +227,11 @@ describe('planQueueRoutingSummary', () => {
       .toBe('Workers: codex/gpt-6.1-sol, then claude · Checkers: automatic');
   });
 
+  it('names the step-up choice only when one is set', () => {
+    expect(planQueueRoutingSummary({ workers: [{ provider: 'claude', model: 'haiku' }], verifiers: [], stepUp: { provider: 'claude', model: 'opus' } }))
+      .toBe('Workers: claude/haiku · Checkers: automatic · If stuck: claude/opus');
+  });
+
   it('reads an empty worker list as the default provider and no checkers as automatic', () => {
     expect(planQueueRoutingSummary({ workers: [], verifiers: [] })).toBe('Workers: default provider · Checkers: automatic');
   });

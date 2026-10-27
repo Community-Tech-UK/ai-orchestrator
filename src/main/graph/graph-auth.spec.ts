@@ -147,7 +147,7 @@ describe('GraphAuthManager', () => {
     expect(new URL(openedUrls[0]!).origin).toBe('https://login.example.test');
     expect(configuration?.auth).toEqual({
       clientId: 'client-id',
-      authority: 'https://login.microsoftonline.com/common',
+      authority: 'https://login.microsoftonline.com/organizations',
     });
     expect(authorizationRequest?.scopes).toEqual([
       'Calendars.ReadWrite',
@@ -170,7 +170,7 @@ describe('GraphAuthManager', () => {
       redirectUri: authorizationRequest?.redirectUri,
       state: authorizationRequest?.state,
       nonce: authorizationRequest?.nonce,
-      authority: 'https://login.microsoftonline.com/common',
+      authority: 'https://login.microsoftonline.com/organizations',
     });
     expect(createHash('sha256').update(tokenRequest!.codeVerifier!).digest('base64url'))
       .toBe(authorizationRequest?.codeChallenge);
@@ -195,10 +195,11 @@ describe('GraphAuthManager', () => {
       silentRequest = request;
       return authResult();
     };
+    let configuration: Configuration | undefined;
     const manager = new GraphAuthManager({
       clientId: 'client-id',
       tokenStore: store,
-      createClient: () => client,
+      createClient: (value) => { configuration = value; return client; },
     });
 
     await expect(manager.getAccessToken(account.homeAccountId)).resolves.toBe(
@@ -214,6 +215,49 @@ describe('GraphAuthManager', () => {
         'User.Read',
       ],
     });
+    expect(configuration?.auth.authority).toBe('https://login.microsoftonline.com/tenant-id');
+  });
+
+  it('requests mail consent only when enabled and remembers those scopes after restart', async () => {
+    const store = openStore();
+    let authorizationRequest: AuthorizationUrlRequest | undefined;
+    const client = createFakeClient();
+    const getAuthCodeUrl = client.getAuthCodeUrl;
+    client.getAuthCodeUrl = async (request) => {
+      authorizationRequest = request;
+      return getAuthCodeUrl(request);
+    };
+    client.acquireTokenByCode = async () => authResult({
+      scopes: ['Calendars.ReadWrite', 'User.Read', 'Mail.ReadWrite', 'Mail.Send'],
+    });
+    const manager = new GraphAuthManager({
+      clientId: 'client-id', tokenStore: store,
+      createClient: () => client,
+      openExternal: (url) => completeAuthorization(url),
+    });
+    await manager.connectAccount({ mailEnabled: true });
+    expect(authorizationRequest?.scopes).toEqual(expect.arrayContaining(['Mail.ReadWrite', 'Mail.Send']));
+
+    let silentRequest: SilentFlowRequest | undefined;
+    client.acquireTokenSilent = async (request) => { silentRequest = request; return authResult(); };
+    const restarted = new GraphAuthManager({ clientId: 'client-id', tokenStore: store, createClient: () => client });
+    await restarted.getAccessToken(account.homeAccountId);
+    expect(silentRequest?.scopes).toEqual(expect.arrayContaining(['Mail.ReadWrite', 'Mail.Send']));
+  });
+
+  it('preserves an explicit sign-in authority and reports the tenant consent refusal', async () => {
+    const store = openStore();
+    let configuration: Configuration | undefined;
+    const manager = new GraphAuthManager({
+      clientId: 'client-id', authority: 'https://login.microsoftonline.com/custom-tenant', tokenStore: store,
+      createClient: (value) => { configuration = value; return createFakeClient(); },
+      openExternal: (url) => completeAuthorization(url, {
+        code: '', error: 'access_denied', error_description: 'AADSTS90094: Your administrator must approve this application.',
+      }),
+    });
+    await expect(manager.connectAccount()).rejects.toThrow(/IT administrator.*AADSTS90094/);
+    expect(configuration?.auth.authority).toBe('https://login.microsoftonline.com/custom-tenant');
+    expect(store.listAccounts()).toEqual([]);
   });
 
   it('hydrates and persists MSAL cache changes through the encrypted token store plugin', async () => {
@@ -462,7 +506,7 @@ describe('GraphAuthManager', () => {
     ).rejects.toMatchObject({
       code: 'reauth_required',
       message:
-        'Microsoft calendar authorization expired. Run graph_calendar_connect to reconnect this account.',
+        'Microsoft 365 authorization expired. Sign in to this account again in Settings → Connectors.',
     });
   });
 
@@ -501,6 +545,19 @@ describe('GraphAuthManager', () => {
     expect(store.getTokenCache(account.homeAccountId)).toBe(
       'serialized-msal-cache',
     );
+  });
+
+  it('reports an administrator consent block from device-code sign-in without hiding the tenant message', async () => {
+    const store = openStore();
+    const client = createFakeClient();
+    client.acquireTokenByDeviceCode = async () => { throw new Error('AADSTS90094: Approval is required by this organisation.'); };
+    const manager = new GraphAuthManager({
+      clientId: 'client-id', tokenStore: store, createClient: () => client,
+      openExternal: async () => { throw new Error('system browser unavailable'); },
+      deviceCodeCallback: () => undefined,
+    });
+    await expect(manager.connectAccount()).rejects.toThrow(/IT administrator.*AADSTS90094/);
+    expect(store.listAccounts()).toEqual([]);
   });
 
   it('bounds abandoned browser consent and falls back to device-code authentication', async () => {

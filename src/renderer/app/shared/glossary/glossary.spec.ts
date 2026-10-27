@@ -5,8 +5,8 @@ import { CONTROL_SURFACE_HELP } from '../help/control-surface-help';
 import { GLOSSARY, GLOSSARY_PATTERNS, type GlossaryEntry } from './glossary';
 
 describe('Glossary', () => {
-  it('has thirty useful, unambiguous entries using the canonical vocabulary', () => {
-    expect(Object.keys(GLOSSARY)).toHaveLength(30);
+  it('has useful, unambiguous entries using the canonical vocabulary', () => {
+    expect(Object.keys(GLOSSARY)).toHaveLength(31);
     const names = new Set<string>();
     for (const entry of Object.values(GLOSSARY) as GlossaryEntry[]) {
       expect(entry.plain.trim().length).toBeGreaterThan(0);

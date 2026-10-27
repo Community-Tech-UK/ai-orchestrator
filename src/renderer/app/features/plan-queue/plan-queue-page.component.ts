@@ -5,6 +5,7 @@ import { ProviderAccountIpcService } from '../../core/services/ipc/provider-acco
 import { InstanceStore } from '../../core/state/instance.store';
 import { PlanQueueStore } from '../../core/state/plan-queue.store';
 import { SettingsStore } from '../../core/state/settings.store';
+import { PlanQueueAccountRulesPanelComponent } from './components/plan-queue-account-rules-panel.component';
 import { PlanQueueAlertsListComponent } from './components/plan-queue-alerts-list.component';
 import { PlanQueueNeedJamesListComponent } from './components/plan-queue-need-james-list.component';
 import { PlanQueueParkedListComponent } from './components/plan-queue-parked-list.component';
@@ -18,7 +19,8 @@ import { PlanQueueStartFormComponent } from './components/plan-queue-start-form.
 /**
  * The Plan Queue control surface, in operator order: the questions waiting on
  * James, then which providers and accounts new runs use (one line, opened with
- * Change, so a long run list never hides it), then the runs and their
+ * Change, so a long run list never hides it), then the account rules (accounts
+ * to avoid or use last), then the runs and their
  * Pause/Resume/Cancel controls, then starting a run, then history (livetest
  * checks only James can do, parked work and reconciler alerts). Each section
  * opens with one plain-English purpose line.
@@ -27,6 +29,7 @@ import { PlanQueueStartFormComponent } from './components/plan-queue-start-form.
   selector: 'app-plan-queue-page',
   standalone: true,
   imports: [
+    PlanQueueAccountRulesPanelComponent,
     PlanQueueAlertsListComponent,
     PlanQueueNeedJamesListComponent,
     PlanQueueParkedListComponent,

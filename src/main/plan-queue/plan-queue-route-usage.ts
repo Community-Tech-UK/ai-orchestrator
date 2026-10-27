@@ -12,7 +12,7 @@
  * usage until a session hits its limit and the ledger records it.
  */
 
-import type { PlanQueueRouteChoice } from '@contracts/schemas/plan-queue';
+import { DEFAULT_PLAN_QUEUE_ACCOUNT_RULES, type PlanQueueAccountRules, type PlanQueueRouteChoice } from '@contracts/schemas/plan-queue';
 import {
   LEGACY_ACCOUNT_PROFILE_ID,
   isLogicalMiMoModel,
@@ -28,12 +28,14 @@ import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import { instanceProviderLimitScope } from '../instance/instance-provider-limit-scope';
 import { ModelSelectionResolver } from '../instance/lifecycle/model-selection-resolver';
 import { quotaEvidenceFromSnapshot } from '../providers/account-pool/account-quota-evidence';
+import { getCopilotAccountRoutingService } from '../providers/copilot/copilot-account-routing-service';
 import {
   getProviderAccountRoutingService,
   type AccountRoutePreview,
   type AccountRouteRequest,
 } from '../providers/account-pool/provider-account-routing-service';
 import { evidenceLiftsPark, type AccountQuotaEvidence } from '../providers/account-pool/provider-account-selector';
+import { accountPreferencesFor, accountRuleTier } from './plan-queue-account-rules';
 
 export interface PlanQueueRouteUsage {
   usable: boolean;
@@ -41,7 +43,18 @@ export interface PlanQueueRouteUsage {
   resumeAt: number | null;
 }
 
-export type PlanQueueRouteUsageCheck = (choice: PlanQueueRouteChoice, origin: AccountInvocationOrigin) => Promise<PlanQueueRouteUsage>;
+export interface PlanQueueRouteUsageOptions {
+  /** False on the first pass over a ranked list: a use-last account counts as unavailable until nothing else can run. */
+  allowLast: boolean;
+  /** The run's folder, to find the Copilot seat a Copilot choice without an account would use. */
+  workingDirectory?: string;
+}
+
+export type PlanQueueRouteUsageCheck = (
+  choice: PlanQueueRouteChoice,
+  origin: AccountInvocationOrigin,
+  options: PlanQueueRouteUsageOptions,
+) => Promise<PlanQueueRouteUsage>;
 
 export interface PlanQueueRouteUsageDeps {
   previewAccountRoute: (request: AccountRouteRequest) => Promise<AccountRoutePreview>;
@@ -50,15 +63,26 @@ export interface PlanQueueRouteUsageDeps {
   spawnModel: (choice: PlanQueueRouteChoice) => Promise<string | null>;
   /** The provider's latest usage evidence for one account (null = the pre-pools sign-in). */
   quotaEvidence: (provider: string, accountProfileId: string | null) => AccountQuotaEvidence | null;
+  /** James's never-use and use-last lists, read live. */
+  accountRules: () => PlanQueueAccountRules;
+  /** The Copilot profile a session in this folder would get (rules applied), or null when none would. */
+  copilotProfileFor: (workingDirectory: string, origin: AccountInvocationOrigin) => string | null;
   now: () => number;
 }
 
 export async function planQueueRouteUsage(
   choice: PlanQueueRouteChoice,
   origin: AccountInvocationOrigin,
+  options: PlanQueueRouteUsageOptions,
   deps: PlanQueueRouteUsageDeps,
 ): Promise<PlanQueueRouteUsage> {
   const provider = choice.provider;
+  const rules = deps.accountRules();
+  if (provider === 'copilot') {
+    const seat = choice.copilotProfileId ?? (options.workingDirectory ? deps.copilotProfileFor(options.workingDirectory, origin) : null);
+    const tier = seat ? accountRuleTier(rules, 'copilot', seat) : null;
+    if (tier === 'never' || (tier === 'last' && !options.allowLast)) return { usable: false, resumeAt: null };
+  }
   const model = await deps.spawnModel(choice);
   const now = deps.now();
   const limitFor = (accountProfileId: string | null): PlanQueueRouteUsage => {
@@ -80,17 +104,26 @@ export async function planQueueRouteUsage(
   };
   // OpenCode accounts apply only to MiMo Token Plan models, exactly as at spawn.
   if (!isPooledProvider(provider) || (provider === 'opencode' && !isLogicalMiMoModel(model))) return limitFor(null);
+  // The never-use list is excluded and the use-last list is the final tier, exactly as the spawn's own pick applies them.
+  const preferences = accountPreferencesFor(rules, provider);
   const preview = await deps.previewAccountRoute({
     provider, model, origin, newSession: true,
     ...(choice.accountProfileIds?.length ? { restrictTo: choice.accountProfileIds } : {}),
+    ...(preferences ? { avoid: preferences.avoid, useLast: preferences.last } : {}),
   });
-  // No account can start here at all (signed out, removed, not allowed): no usage either.
+  // No account can start here at all (signed out, removed, not allowed, all on the never-use list): no usage either.
   if (!preview.outcome.ok) return { usable: false, resumeAt: null };
   const route = preview.outcome.route;
-  // A pool of only the pre-pools sign-in: the ledger alone knows its limits.
-  if (route.source === 'legacy') return limitFor(null);
+  // A pool of only the pre-pools sign-in: the ledger alone knows its limits. A use-last rule on it still holds it back on the first pass.
+  if (route.source === 'legacy') {
+    if (!options.allowLast && accountRuleTier(rules, provider, route.profileId) === 'last') return { usable: false, resumeAt: null };
+    return limitFor(null);
+  }
   // The pool's first pass picks an unvetoed account; with none it falls back to a vetoed one to wait on.
-  if (!preview.considered.some((entry) => entry.profileId === route.profileId)) return { usable: true, resumeAt: null };
+  if (!preview.considered.some((entry) => entry.profileId === route.profileId)) {
+    const lastTier = accountRuleTier(rules, provider, route.profileId) === 'last';
+    return { usable: options.allowLast || !lastTier, resumeAt: null };
+  }
   const waiting = limitFor(route.profileId);
   return { usable: false, resumeAt: waiting.resumeAt };
 }
@@ -98,9 +131,11 @@ export async function planQueueRouteUsage(
 const spawnModelResolver = new ModelSelectionResolver();
 
 export function defaultPlanQueueRouteUsage(): PlanQueueRouteUsageCheck {
-  return (choice, origin) => planQueueRouteUsage(choice, origin, {
+  return (choice, origin, options) => planQueueRouteUsage(choice, origin, options, {
     previewAccountRoute: (request) => getProviderAccountRoutingService().preview(request),
     ledger: getProviderLimitLedgerPort(),
+    accountRules: () => getSettingsManager().getAll().planQueueAccountRules ?? DEFAULT_PLAN_QUEUE_ACCOUNT_RULES,
+    copilotProfileFor: (workingDirectory, seatOrigin) => getCopilotAccountRoutingService().previewProfileFor(workingDirectory, seatOrigin),
     spawnModel: async (target) => {
       // Queue sessions spawn locally with no agent, so these are all the inputs the spawn's own resolver sees.
       const settings = getSettingsManager().getAll();
@@ -131,12 +166,18 @@ export async function pickRouteChoice(
   choices: readonly PlanQueueRouteChoice[],
   origin: AccountInvocationOrigin,
   usage: PlanQueueRouteUsageCheck,
+  workingDirectory?: string,
 ): Promise<PickedRouteChoice | null> {
+  // Use-last accounts come last across the whole list (not just within one
+  // provider): the first pass treats them as unavailable, so a later choice on
+  // an ordinary account beats an earlier choice on a use-last one.
   let soonest: { index: number; resumeAt: number } | null = null;
-  for (const [index, choice] of choices.entries()) {
-    const found = await usage(choice, origin);
-    if (found.usable) return { choice, index, usable: true };
-    if (found.resumeAt !== null && (soonest === null || found.resumeAt < soonest.resumeAt)) soonest = { index, resumeAt: found.resumeAt };
+  for (const allowLast of [false, true]) {
+    for (const [index, choice] of choices.entries()) {
+      const found = await usage(choice, origin, { allowLast, ...(workingDirectory ? { workingDirectory } : {}) });
+      if (found.usable) return { choice, index, usable: true };
+      if (allowLast && found.resumeAt !== null && (soonest === null || found.resumeAt < soonest.resumeAt)) soonest = { index, resumeAt: found.resumeAt };
+    }
   }
   if (choices.length === 0) return null;
   const index = soonest?.index ?? 0;

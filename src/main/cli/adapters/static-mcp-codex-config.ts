@@ -55,7 +55,6 @@ function positiveTimeout(value: number | undefined): number | undefined {
 }
 
 function toCodexServer(server: JsonMcpServer): CodexTomlServer {
-  const transport = server.transport ?? server.type;
   const startupTimeoutSec = positiveTimeout(
     server.startupTimeoutSec ?? server.startup_timeout_sec,
   );
@@ -68,9 +67,6 @@ function toCodexServer(server: JsonMcpServer): CodexTomlServer {
     url: server.url,
     headers: server.headers,
     env: server.env,
-    // stdio is Codex's default and is omitted; only sse/http are written out.
-    transport:
-      transport === 'sse' || transport === 'http' ? transport : undefined,
     ...(startupTimeoutSec !== undefined
       ? { startupTimeoutSec }
       : server.command

@@ -41,6 +41,7 @@ describe('MCP RLM migrations', () => {
       'created_at',
       'updated_at',
       'headers_secrets_encrypted_json',
+      'connector_json',
     ]);
 
     expect(() => db.prepare(`

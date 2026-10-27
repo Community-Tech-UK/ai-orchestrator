@@ -29,7 +29,7 @@ export abstract class CodexBaseAdapter extends BaseCliAdapter {
   private readonly codexHome: CodexHomeManager;
   private harnessBackgroundWorkManaged = false;
   /** Which config.toml treatment the current prepared CODEX_HOME has, if any. */
-  protected preparedHomeKind: 'mcp-toml' | 'app-server' | 'exec' | null = null;
+  protected preparedHomeKind: 'app-server' | 'exec' | null = null;
   protected cumulativeTokensUsed = 0;
   protected cumulativeCostUsd = 0;
   protected lastTurnTokens = 0;
@@ -173,7 +173,7 @@ export abstract class CodexBaseAdapter extends BaseCliAdapter {
   /** Prepare a session-isolated CODEX_HOME with mode-specific MCP treatment. */
   protected prepareCodexHome(kind: 'app-server' | 'exec'): void {
     const codexHomeDir = this.cliConfig.mcpServersConfigToml
-      ? this.codexHome.prepareHomeWithMcpConfig(this.cliConfig.mcpServersConfigToml)
+      ? this.codexHome.prepareHomeWithMcpConfig(this.cliConfig.mcpServersConfigToml, kind)
       : kind === 'app-server'
         ? this.codexHome.prepareSessionIsolatedHome()
         : this.codexHome.prepareMcpFreeHome();
@@ -182,7 +182,7 @@ export abstract class CodexBaseAdapter extends BaseCliAdapter {
         'Failed to prepare isolated CODEX_HOME; refusing to start Codex without state isolation',
       );
     }
-    this.preparedHomeKind = this.cliConfig.mcpServersConfigToml ? 'mcp-toml' : kind;
+    this.preparedHomeKind = kind;
     this.config.env = { ...this.config.env, CODEX_HOME: codexHomeDir };
   }
 

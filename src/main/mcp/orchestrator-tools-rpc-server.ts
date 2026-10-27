@@ -6,6 +6,7 @@
 
 import * as fs from 'node:fs';
 import * as net from 'node:net';
+import { dispatchConnectorRpc } from './connector-rpc';
 import { app } from 'electron';
 import { registerCleanup as registerGlobalCleanup } from '../util/cleanup-registry';
 import { getLogger } from '../logging/logger';
@@ -87,12 +88,6 @@ import {
   handleOneShotOrchestratorToolsRpcSocket,
   type OrchestratorToolsRpcSocketRequest,
 } from './orchestrator-tools-rpc-socket';
-import type { CalendarToolDependencies } from './orchestrator-calendar-tools';
-import {
-  CALENDAR_READ_RPC_SPECS,
-  CALENDAR_TOOL_NAMES,
-  dispatchCalendarMutation,
-} from './orchestrator-tools-rpc-calendar';
 import { dispatchLocalAiCliRpc, isLocalAiCliRpcMethod, type LocalAiCliOperations } from './orchestrator-tools-rpc-local-ai';
 import { dispatchLoopCliRpc, isLoopCliMutationMethod, isLoopCliRpcMethod, type LoopCliOperations } from './orchestrator-tools-rpc-loop';
 import { dispatchPauseCliRpc, isPauseCliRpcMethod } from './orchestrator-tools-rpc-pause';
@@ -103,7 +98,7 @@ const logger = getLogger('OrchestratorToolsRpcServer');
 
 /** Per-surface tool scoping for spawn-depth defense-in-depth. */
 const ORCHESTRATOR_TOOLSETS = createToolsetRegistry([
-  { name: 'orchestrator-tools-full', tools: ['git_batch_pull', 'list_remote_nodes', 'run_on_node', 'exec_on_node', 'read_node_output', ...FILE_TRANSFER_TOOL_NAMES, 'list_settings', 'get_setting', 'set_setting', 'reset_setting', 'update_node_config', 'create_automation', 'list_automations', 'delete_automation', 'update_automation', 'postpone_automation', 'request_doc_review', 'get_doc_review_result', ...PLAN_QUEUE_TOOL_NAMES, ...CALENDAR_TOOL_NAMES, 'evidence_list', 'evidence_search', 'evidence_read', 'evidence_compare', 'evidence_verify'] },
+  { name: 'orchestrator-tools-full', tools: ['git_batch_pull', 'list_remote_nodes', 'run_on_node', 'exec_on_node', 'read_node_output', ...FILE_TRANSFER_TOOL_NAMES, 'list_settings', 'get_setting', 'set_setting', 'reset_setting', 'update_node_config', 'create_automation', 'list_automations', 'delete_automation', 'update_automation', 'postpone_automation', 'request_doc_review', 'get_doc_review_result', ...PLAN_QUEUE_TOOL_NAMES, 'evidence_list', 'evidence_search', 'evidence_read', 'evidence_compare', 'evidence_verify'] },
   { name: 'orchestrator-tools-leaf', includes: ['orchestrator-tools-full'], tools: ['!run_on_node', '!exec_on_node'] },
 ]);
 
@@ -126,19 +121,11 @@ export interface ReleaseMutationAuthorizationRequest {
   payload: Record<string, unknown>;
 }
 
-export interface CalendarMutationAuthorizationRequest {
-  instanceId: string;
-  method: 'orchestrator_tools.graph_calendar_connect'
-    | 'orchestrator_tools.graph_calendar_create_event'
-    | 'orchestrator_tools.graph_calendar_update_event'
-    | 'orchestrator_tools.graph_calendar_delete_event';
-  payload: Record<string, unknown>;
-}
-
 export interface OrchestratorToolsRpcServerOptions extends FileTransferToolContext, NodeConnectionToolContext, Omit<HostProcessToolContext, 'instanceId'> {
   operatorDbPath?: string;
   userDataPath?: string;
   isKnownLocalInstance?: (instanceId: string) => boolean;
+  getInstanceGeneration?: (instanceId: string) => string | undefined;
   /** Mint-time check (default `isKnownLocalInstance`). Must also accept unpublished
    *  crash-recovery instances, whose CLI spawns first; requests still use `isKnownLocalInstance`. */
   canMintInstanceCapability?: (instanceId: string) => boolean;
@@ -194,14 +181,10 @@ export interface OrchestratorToolsRpcServerOptions extends FileTransferToolConte
   authorizeReleaseMutation?: (
     request: ReleaseMutationAuthorizationRequest,
   ) => Promise<boolean>;
-  calendarTools?: CalendarToolDependencies;
   /** Backs the privileged Local AI Guard CLI without importing native runtime code into the SEA. */
   localAiGuardOperations?: LocalAiCliOperations | null;
   copilotAccountOperations?: CopilotAccountCliOperations | null;
   loopOperations?: LoopCliOperations | null;
-  authorizeCalendarMutation?: (
-    request: CalendarMutationAuthorizationRequest,
-  ) => Promise<boolean>;
   toolFactory?: (deps: OrchestratorToolRuntimeContext) => McpServerToolDefinition[];
 }
 
@@ -209,6 +192,7 @@ export class OrchestratorToolsRpcServer {
   private readonly operatorDbPath: string;
   private readonly userDataPath: string;
   private readonly isKnownLocalInstance: (instanceId: string) => boolean;
+  private readonly getInstanceGeneration: (instanceId: string) => string | undefined;
   private readonly canMintInstanceCapability: (instanceId: string) => boolean;
   private readonly maxPayloadBytes: number;
   private readonly rateLimit: { maxRequests: number; windowMs: number };
@@ -240,13 +224,9 @@ export class OrchestratorToolsRpcServer {
   private readonly authorizeReleaseMutation: NonNullable<
     OrchestratorToolsRpcServerOptions['authorizeReleaseMutation']
   >;
-  private readonly calendarTools: CalendarToolDependencies;
   private readonly localAiGuardOperations: LocalAiCliOperations | null;
   private readonly copilotAccountOperations: CopilotAccountCliOperations | null;
   private readonly loopOperations: LoopCliOperations | null;
-  private readonly authorizeCalendarMutation: NonNullable<
-    OrchestratorToolsRpcServerOptions['authorizeCalendarMutation']
-  >;
   private readonly instanceCapabilities = new OrchestratorToolsRpcInstanceCapability();
   private readonly buckets = new Map<string, number[]>();
   private readonly toolFactory: NonNullable<OrchestratorToolsRpcServerOptions['toolFactory']>;
@@ -263,6 +243,7 @@ export class OrchestratorToolsRpcServer {
     this.operatorDbPath = options.operatorDbPath ?? defaultOperatorDbPath();
     this.userDataPath = options.userDataPath ?? app.getPath('userData');
     this.isKnownLocalInstance = options.isKnownLocalInstance ?? (() => false);
+    this.getInstanceGeneration = options.getInstanceGeneration ?? (() => undefined);
     this.canMintInstanceCapability = options.canMintInstanceCapability ?? this.isKnownLocalInstance;
     this.maxPayloadBytes = options.maxPayloadBytes ?? DEFAULT_MAX_PAYLOAD_BYTES;
     this.rateLimit = options.rateLimit ?? { maxRequests: 30, windowMs: 10_000 };
@@ -298,11 +279,9 @@ export class OrchestratorToolsRpcServer {
     this.resolveContextEvidence = options.resolveContextEvidence ?? (() => null);
     this.prepareEvidenceSource = options.prepareEvidenceSource;
     this.authorizeReleaseMutation = options.authorizeReleaseMutation ?? (async () => false);
-    this.calendarTools = options.calendarTools ?? {};
     this.localAiGuardOperations = options.localAiGuardOperations ?? null;
     this.copilotAccountOperations = options.copilotAccountOperations ?? null;
     this.loopOperations = options.loopOperations ?? null;
-    this.authorizeCalendarMutation = options.authorizeCalendarMutation ?? (async () => false);
     this.toolFactoryInjected = options.toolFactory !== undefined;
     this.toolFactory = options.toolFactory ?? createOrchestratorToolDefinitions;
     const register = options.registerCleanup ?? registerGlobalCleanup;
@@ -359,6 +338,16 @@ export class OrchestratorToolsRpcServer {
     }
     this.enforceRateLimit(params.instanceId);
     this.enforcePayloadSize(params.payload);
+    if (request.method.startsWith('connectors.')) {
+      const generation=this.getInstanceGeneration(params.instanceId);
+      return dispatchConnectorRpc(request.method,params.instanceId,params.payload,undefined,{
+        signal:abortSignal,
+        assertActive:()=>{
+          if(!this.isKnownLocalInstance(params.instanceId))throw new Error('unknown orchestrator-tools instance');
+          if(this.getInstanceGeneration(params.instanceId)!==generation)throw new Error('Session changed while the connector request was waiting.');
+        },
+      });
+    }
     if (isPauseCliRpcMethod(request.method)) return dispatchPauseCliRpc(request.method, params.payload);
     const fileTransferSpec = FILE_TRANSFER_RPC_SPECS.find((spec) => spec.method === request.method);
     if (fileTransferSpec) {
@@ -367,10 +356,6 @@ export class OrchestratorToolsRpcServer {
     const evidenceSpec = EVIDENCE_RPC_SPECS.find((spec) => spec.method === request.method);
     if (evidenceSpec) {
       return this.dispatchValidatedTool(evidenceSpec.toolName, evidenceSpec.schema, params, abortSignal);
-    }
-    const calendarReadSpec = CALENDAR_READ_RPC_SPECS.find((spec) => spec.method === request.method);
-    if (calendarReadSpec) {
-      return this.dispatchValidatedTool(calendarReadSpec.toolName, calendarReadSpec.schema, params, abortSignal);
     }
     if (isBrowserCredentialsCliRpcMethod(request.method)) return dispatchBrowserCredentialsCliRpc(request.method, params.payload, undefined, { instanceId: params.instanceId });
     if (isCopilotAccountCliRpcMethod(request.method)) {
@@ -594,16 +579,6 @@ export class OrchestratorToolsRpcServer {
         }
         return this.dispatchSameNameTool(request.method, params, abortSignal);
       }
-      // LT-192: dispatchCalendarMutation fails fast on a doomed account
-      // before requesting approval; see orchestrator-tools-rpc-calendar.ts.
-      case 'orchestrator_tools.graph_calendar_connect':
-      case 'orchestrator_tools.graph_calendar_create_event':
-      case 'orchestrator_tools.graph_calendar_update_event':
-      case 'orchestrator_tools.graph_calendar_delete_event':
-        return dispatchCalendarMutation(
-          { calendarTools: this.calendarTools, authorizeCalendarMutation: this.authorizeCalendarMutation, dispatchSameNameTool: (m, p) => this.dispatchSameNameTool(m, p, abortSignal) },
-          params.instanceId, request.method, params.payload,
-        );
       default:
         throw new Error(`Unknown orchestrator-tools RPC method: ${request.method}`);
     }
@@ -748,7 +723,6 @@ export class OrchestratorToolsRpcServer {
         requestDocReview: this.requestDocReview,
         getDocReviewResult: this.getDocReviewResult,
         planQueueTools: this.planQueueTools,
-        calendarTools: this.calendarTools,
         contextEvidence: this.resolveContextEvidence(instanceId),
         resolveEvidenceConversation: () => this.resolveContextEvidence(instanceId)?.conversationId ?? null,
         prepareEvidenceSource: this.prepareEvidenceSource,
@@ -783,7 +757,6 @@ export class OrchestratorToolsRpcServer {
       requestDocReview: this.requestDocReview,
       getDocReviewResult: this.getDocReviewResult,
       planQueueTools: this.planQueueTools,
-      calendarTools: this.calendarTools,
       contextEvidence: this.resolveContextEvidence(instanceId),
       resolveEvidenceConversation: () => this.resolveContextEvidence(instanceId)?.conversationId ?? null,
       prepareEvidenceSource: this.prepareEvidenceSource,

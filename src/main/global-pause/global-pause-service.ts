@@ -22,6 +22,7 @@ export class GlobalPauseService extends EventEmitter {
   private resumeInterrupted = false;
   private operation: Promise<void> | null = null;
   private skip = false;
+  private collectionStage: GlobalPauseState['collectionStage'];
   private sweepTimer?: ReturnType<typeof setInterval>;
   private readonly collectors = new Map<string, AbortController>();
   private readonly now: () => number;
@@ -72,7 +73,8 @@ export class GlobalPauseService extends EventEmitter {
     const liveAliases = heldEntries.length ? this.deps.runtime.sessions().filter((session) => heldEntries.some((entry) =>
       [entry.targetId, entry.originalInstanceId, entry.historyThreadId, entry.providerSessionId].some((identity) => identity
         && [session.id, session.originalInstanceId, session.historyThreadId, session.providerSessionId].includes(identity)))).map((session) => session.id) : [];
-    return { phase: this.batch?.phase ?? 'none', since: this.batch?.since ?? null, reason: this.batch?.reason ?? null,
+    return { phase: this.batch?.phase ?? 'none', ...(this.batch?.phase === 'collecting' ? { collectionStage: this.collectionStage } : {}),
+      since: this.batch?.since ?? null, reason: this.batch?.reason ?? null,
       batchId: this.batch?.id ?? null, entries, heldInstanceIds: [...new Set([...heldEntries.map((entry) => entry.targetId), ...liveAliases])],
       totalNotes: sessionEntries.filter((entry) => entry.wasBusy).length,
       completedNotes: sessionEntries.filter((entry) => entry.wasBusy && ['ready', 'resumed', 'failed'].includes(entry.state)).length,
@@ -102,6 +104,7 @@ export class GlobalPauseService extends EventEmitter {
   private async collect(withNotes: boolean): Promise<void> {
     if (this.batch?.phase === 'resuming') return;
     this.summary = null;
+    this.collectionStage = 'stopping-work';
     if (!this.batch) this.batch = this.deps.store.createBatch('collecting', null, this.now());
     else {
       this.deps.store.setPhase(this.batch.id, 'collecting', this.now());
@@ -114,12 +117,22 @@ export class GlobalPauseService extends EventEmitter {
     this.publish();
     try {
       const engines = await this.deps.runtime.engines();
+      // A failed stop may already have changed its engine to paused. Its saved
+      // ownership still requires cleanup on retry, even when discovery omits it.
+      const observed = new Set(engines.map(engine => `${engine.kind}:${engine.id}`));
+      for (const entry of this.entries()) {
+        if (entry.kind === 'session' || ['void', 'resumed', 'failed'].includes(entry.state)
+          || observed.has(`${entry.kind}:${entry.targetId}`)) continue;
+        engines.push({ kind: entry.kind, id: entry.targetId, displayName: entry.displayName,
+          originalInstanceId: entry.originalInstanceId, historyThreadId: entry.historyThreadId, providerSessionId: entry.providerSessionId });
+      }
       for (const engine of engines) this.deps.store.refreshSnapshot(this.batch.id, {
         kind: engine.kind, targetId: engine.id, displayName: engine.displayName, wasBusy: true,
         originalInstanceId: engine.originalInstanceId, historyThreadId: engine.historyThreadId, providerSessionId: engine.providerSessionId,
       }, this.now());
       // Runtime pauses queue workers/checkpointers before interrupting anything else.
       await this.deps.runtime.pauseEngines(engines);
+      this.collectionStage = 'writing-notes'; this.publish();
       let cursor = 0;
       const worker = async (): Promise<void> => {
         while (cursor < sessions.length) {

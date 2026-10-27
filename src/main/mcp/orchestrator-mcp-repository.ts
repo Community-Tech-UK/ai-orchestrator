@@ -1,6 +1,7 @@
+import { assertConnectorName, migrateSharedConnectors } from './connector-storage';
 import { randomUUID } from 'node:crypto';
 import type { SqliteDriver } from '../db/sqlite-driver';
-import type { OrchestratorMcpScope, SupportedProvider } from '../../shared/types/mcp-scopes.types';
+import type { OrchestratorMcpScope, OrchestratorRuntimeInjectionProvider } from '../../shared/types/mcp-scopes.types';
 import { ORCHESTRATOR_INJECTION_PROVIDERS } from '../../shared/types/mcp-scopes.types';
 import type { OrchestratorMcpServer } from '../../shared/types/mcp-orchestrator.types';
 import type { McpSecretStorage } from './secret-storage';
@@ -29,11 +30,12 @@ interface OrchestratorMcpRow {
   inject_into_json: string;
   created_at: number;
   updated_at: number;
+  connector_json: string | null;
 }
 
 export interface OrchestratorMcpRecordWithTargets {
   record: OrchestratorMcpServer;
-  injectInto: readonly SupportedProvider[];
+  injectInto: readonly OrchestratorRuntimeInjectionProvider[];
 }
 
 export class OrchestratorMcpRepository {
@@ -42,6 +44,7 @@ export class OrchestratorMcpRepository {
     private readonly secrets: McpSecretStorage,
   ) {
     ensureMcpTables(db);
+    migrateSharedConnectors(db);
   }
 
   list(): OrchestratorMcpRecordWithTargets[] {
@@ -61,14 +64,22 @@ export class OrchestratorMcpRepository {
   upsert(input: Partial<OrchestratorMcpServer> & {
     name: string;
     scope?: OrchestratorMcpScope;
-    injectInto?: readonly SupportedProvider[];
+    injectInto?: readonly OrchestratorRuntimeInjectionProvider[];
   }): OrchestratorMcpRecordWithTargets {
+    assertConnectorName(input.name);
+    const duplicate = this.db.prepare('SELECT id FROM orchestrator_mcp_servers WHERE name = ? COLLATE NOCASE AND id <> ?').get(input.name, input.id ?? '');
+    if (duplicate) throw new Error('A connector already uses that name. Choose another name.');
     const existing = input.id ? this.get(input.id) : null;
     const now = Date.now();
     const transport = input.transport ?? existing?.record.transport ?? 'stdio';
     const record: OrchestratorMcpServer = {
       id: input.id ?? existing?.record.id ?? randomUUID(),
       name: input.name,
+      kind: input.kind ?? existing?.record.kind ?? (input.transport && input.transport !== 'stdio' ? 'remote' : 'local'),
+      clientMetadataUrl: input.clientMetadataUrl ?? existing?.record.clientMetadataUrl,
+      authType: input.authType ?? existing?.record.authType ?? 'none',
+      accountId: input.accountId ?? existing?.record.accountId,
+      mailEnabled: input.mailEnabled ?? existing?.record.mailEnabled ?? false,
       description: input.description ?? existing?.record.description,
       scope: input.scope ?? existing?.record.scope ?? 'orchestrator',
       transport,
@@ -93,8 +104,8 @@ export class OrchestratorMcpRepository {
     this.db.prepare(`
       INSERT INTO orchestrator_mcp_servers (
         id, name, description, scope, transport, command, args_json, url, headers_json, headers_secrets_encrypted_json,
-        env_json, env_secrets_encrypted_json, auto_connect, inject_into_json, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        env_json, env_secrets_encrypted_json, auto_connect, inject_into_json, created_at, updated_at, connector_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         description = excluded.description,
@@ -109,7 +120,8 @@ export class OrchestratorMcpRepository {
         env_secrets_encrypted_json = excluded.env_secrets_encrypted_json,
         auto_connect = excluded.auto_connect,
         inject_into_json = excluded.inject_into_json,
-        updated_at = excluded.updated_at
+        updated_at = excluded.updated_at,
+        connector_json = excluded.connector_json
     `).run(
       record.id,
       record.name,
@@ -127,23 +139,28 @@ export class OrchestratorMcpRepository {
       stringifyJson(injectInto),
       record.createdAt,
       record.updatedAt,
+      JSON.stringify({kind: record.kind, authType: record.authType, accountId: record.accountId, mailEnabled: record.mailEnabled, clientMetadataUrl: record.clientMetadataUrl}),
     );
     return this.get(record.id)!;
   }
 
-  setInjectionTargets(serverId: string, providers: readonly SupportedProvider[]): void {
+  setInjectionTargets(serverId: string, providers: readonly OrchestratorRuntimeInjectionProvider[]): void {
     this.db
       .prepare('UPDATE orchestrator_mcp_servers SET inject_into_json = ?, updated_at = ? WHERE id = ?')
       .run(JSON.stringify(normalizeInjectionTargets(providers)), Date.now(), serverId);
   }
 
   delete(serverId: string): void {
+    this.db.prepare('DELETE FROM connector_auth WHERE connector_id = ?').run(serverId);
     this.db.prepare('DELETE FROM orchestrator_mcp_servers WHERE id = ?').run(serverId);
   }
 
   private fromRow(row: OrchestratorMcpRow): OrchestratorMcpRecordWithTargets {
     return {
       record: {
+        kind: row.transport === 'stdio' ? 'local' : 'remote',
+        authType: 'none',
+        ...parseJson<Pick<OrchestratorMcpServer, 'kind' | 'clientMetadataUrl' | 'authType' | 'accountId' | 'mailEnabled'>>(row.connector_json, {}),
         id: row.id,
         name: row.name,
         description: row.description ?? undefined,
@@ -159,13 +176,13 @@ export class OrchestratorMcpRepository {
         updatedAt: row.updated_at,
       },
       injectInto: normalizeInjectionTargets(
-        parseJson<SupportedProvider[]>(row.inject_into_json, [...ORCHESTRATOR_INJECTION_PROVIDERS]),
+        parseJson<OrchestratorRuntimeInjectionProvider[]>(row.inject_into_json, [...ORCHESTRATOR_INJECTION_PROVIDERS]),
       ),
     };
   }
 }
 
-function normalizeInjectionTargets(providers: readonly SupportedProvider[]): SupportedProvider[] {
+function normalizeInjectionTargets(providers: readonly OrchestratorRuntimeInjectionProvider[]): OrchestratorRuntimeInjectionProvider[] {
   return providers.filter((provider) =>
     ORCHESTRATOR_INJECTION_PROVIDERS.includes(provider)
   );

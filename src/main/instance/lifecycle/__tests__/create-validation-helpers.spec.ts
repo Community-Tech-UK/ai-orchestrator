@@ -3,6 +3,8 @@ import {
   clearKnownModelCatalogSnapshotForTesting,
   replaceKnownModelCatalogSnapshot,
 } from '../../../../shared/types/provider.types';
+import type { CopilotAccountProfile } from '../../../../shared/types/copilot-account.types';
+import type { CopilotCliConfig } from '../../../cli/adapters/copilot-cli-adapter.types';
 
 /**
  * Regression coverage for getKnownModelsForCli — the model-validation source of
@@ -16,9 +18,10 @@ import {
  * dynamically here.
  */
 
-const { cursorListModels, copilotListModels } = vi.hoisted(() => ({
+const { cursorListModels, copilotListModels, listCopilotProfiles } = vi.hoisted(() => ({
   cursorListModels: vi.fn(),
   copilotListModels: vi.fn(),
+  listCopilotProfiles: vi.fn<() => CopilotAccountProfile[]>(),
 }));
 
 vi.mock('../../../cli/adapters/cursor-cli-adapter', () => ({
@@ -29,8 +32,15 @@ vi.mock('../../../cli/adapters/cursor-cli-adapter', () => ({
 
 vi.mock('../../../cli/adapters/copilot-cli-adapter', () => ({
   CopilotCliAdapter: class {
-    listAvailableModels = copilotListModels;
+    constructor(private readonly config: CopilotCliConfig = {}) {}
+    listAvailableModels(options?: { fallbackToStatic?: boolean }) {
+      return copilotListModels(this.config, options);
+    }
   },
+}));
+
+vi.mock('../../../providers/copilot/copilot-account-routing-service', () => ({
+  getCopilotAccountRoutingService: () => ({ listProfiles: listCopilotProfiles }),
 }));
 
 vi.mock('../../../logging/logger', () => ({
@@ -38,6 +48,15 @@ vi.mock('../../../logging/logger', () => ({
 }));
 
 import { getKnownModelsForCli, requiresFreshConfiguredModelSpawn } from '../create-validation-helpers';
+import { ModelSelectionResolver } from '../model-selection-resolver';
+
+function profile(id: string, isDefault = false): CopilotAccountProfile {
+  return {
+    id, label: id, expectedLogin: null, host: 'github.com',
+    accountKind: 'personal', scopePolicy: 'default-eligible', automationPolicy: 'allow-routed',
+    isDefault, createdAt: 0, updatedAt: 0,
+  };
+}
 
 describe('requiresFreshConfiguredModelSpawn', () => {
   it('requires a fresh spawn for an explicit Cursor/Copilot model (warm process runs the default)', () => {
@@ -68,6 +87,7 @@ describe('getKnownModelsForCli', () => {
   beforeEach(() => {
     cursorListModels.mockReset();
     copilotListModels.mockReset();
+    listCopilotProfiles.mockReset().mockReturnValue([]);
     clearKnownModelCatalogSnapshotForTesting();
   });
 
@@ -94,6 +114,64 @@ describe('getKnownModelsForCli', () => {
 
     expect(copilotListModels).toHaveBeenCalledTimes(1);
     expect(models).toContain('claude-opus-4.8');
+    expect(copilotListModels).toHaveBeenCalledWith(
+      { accountProfileId: 'legacy', accountIsLegacy: true },
+      { fallbackToStatic: false },
+    );
+  });
+
+  it('preserves live-only Opus when new-session validation has no resolved account yet', async () => {
+    listCopilotProfiles.mockReturnValue([profile('personal', true), profile('enterprise')]);
+    copilotListModels.mockImplementation(async (config: CopilotCliConfig) => [
+      { id: config.accountProfileId === 'enterprise' ? 'claude-opus-5.5' : 'claude-opus-5' },
+    ]);
+
+    const result = await new ModelSelectionResolver().resolve({
+      provider: 'copilot', configModelOverride: 'claude-opus-5.5',
+    });
+
+    expect(result).toEqual({ model: 'claude-opus-5.5' });
+  });
+
+  it('keeps the other account live models when one profile cannot be discovered', async () => {
+    listCopilotProfiles.mockReturnValue([profile('personal', true), profile('enterprise')]);
+    copilotListModels.mockImplementation(async (config: CopilotCliConfig) => {
+      if (config.accountProfileId === 'personal') throw new Error('Profile signed out');
+      return [{ id: 'claude-opus-5.5' }];
+    });
+
+    expect(await getKnownModelsForCli('copilot')).toContain('claude-opus-5.5');
+  });
+
+  it('keeps explicitly scoped validation on the requested account', async () => {
+    listCopilotProfiles.mockReturnValue([profile('personal', true), profile('enterprise')]);
+    copilotListModels.mockImplementation(async (config: CopilotCliConfig) => [
+      { id: config.accountProfileId === 'enterprise' ? 'claude-opus-5.5' : 'claude-opus-5' },
+    ]);
+
+    expect(await getKnownModelsForCli('copilot', 'personal')).toEqual(['claude-opus-5']);
+    expect(listCopilotProfiles).not.toHaveBeenCalled();
+    expect(copilotListModels).toHaveBeenCalledWith({ accountProfileId: 'personal' }, undefined);
+  });
+
+  it('merges the profile union with models already learned by the unified catalog', async () => {
+    replaceKnownModelCatalogSnapshot([{ provider: 'copilot', id: 'gpt-catalog-only' }]);
+    copilotListModels.mockResolvedValue([{ id: 'claude-opus-5.5' }]);
+
+    expect(await getKnownModelsForCli('copilot')).toEqual(['claude-opus-5.5', 'gpt-catalog-only']);
+  });
+
+  it('uses the last catalog when every Copilot profile discovery fails', async () => {
+    replaceKnownModelCatalogSnapshot([{ provider: 'copilot', id: 'claude-opus-5.5' }]);
+    copilotListModels.mockRejectedValue(new Error('Copilot unavailable'));
+
+    expect(await getKnownModelsForCli('copilot')).toEqual(['claude-opus-5.5']);
+  });
+
+  it('uses the static Copilot catalog when discovery fails with no learned catalog', async () => {
+    copilotListModels.mockRejectedValue(new Error('Copilot unavailable'));
+
+    expect(await getKnownModelsForCli('copilot')).toContain('auto');
   });
 
   it('falls back to the static catalog when the Cursor CLI is unreachable', async () => {

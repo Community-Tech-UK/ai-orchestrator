@@ -17,7 +17,7 @@ const STATE_LABELS: Record<LocalAiAggregateStatus['state'], string> = {
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (store.isInitialized()) {
+    @if (visible()) {
       <button
         type="button"
         class="local-ai-status-chip"
@@ -76,12 +76,6 @@ const STATE_LABELS: Record<LocalAiAggregateStatus['state'], string> = {
       font-weight: 500;
     }
 
-    .local-ai-status-chip[data-state='healthy'] {
-      border-color: var(--pill-ok-border);
-      background: var(--pill-ok-bg);
-      color: var(--pill-ok-fg);
-    }
-
     .local-ai-status-chip[data-state='checking'] {
       border-color: var(--pill-info-border);
       background: var(--pill-info-bg);
@@ -113,6 +107,13 @@ const STATE_LABELS: Record<LocalAiAggregateStatus['state'], string> = {
 export class LocalAiStatusChipComponent {
   protected readonly store = inject(LocalAiGuardStore);
   private readonly router = inject(Router);
+
+  /** Healthy needs no attention, so the chip only appears when something does. */
+  protected readonly visible = computed(() =>
+    this.store.isInitialized()
+    && !(this.store.hasAuthoritativeSnapshot()
+      && this.store.helperPauses().length === 0
+      && this.store.aggregate().state === 'healthy'));
 
   protected readonly stateLabel = computed(() => {
     if (!this.store.hasAuthoritativeSnapshot()) return 'Status unavailable';

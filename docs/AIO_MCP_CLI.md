@@ -71,8 +71,8 @@ lands on the checked-out branch as one local squash commit (never pushed).
 
 | Tool | Args | Purpose |
 | --- | --- | --- |
-| `plan_queue_start` | `kind` (`plans`\|`livetests`), `glob?`, `worker_slots?`, `verification_slots?`, `max_rounds?`, `relax_settings?`, `verifier_gates?`, `post_merge_gate?`, `workers?`, `verifiers?` | Discover documents and start a run with the caller as parent. The gate lists default to this app's checklist; pass the target repository's own commands (or `[]`) elsewhere. Each `workers` and `verifiers` entry is `{ provider, model?, account_ids?, copilot_account_id? }`, in preference order: each new worker session starts on the first worker choice with usage left, and each check uses the first checker that can run with usage left (with none left, the one whose known limit lifts soonest). James's saved choice on the Plan Queue page (`planQueueRouting`) always wins for a role he set; a per-run list applies only to a role he left empty, and the result's `message` says when one was set aside. Without either, workers use the caller's provider and model, and its account when that account is allowed for automatic work, and checkers are picked automatically. Choices the queue may not use refuse the run: a provider on the never-auto-pick list or not installed, an account that is off or manual-only, a misspelt key, or a worker choice whose checkers all share its provider without a model from a different maker. A per-run `verifiers` list is refused in a repository covered by a protected work Copilot rule; only James's saved choice can replace that seat. Not available to queue-spawned sessions. |
-| `plan_queue_status` | `run_id?` | One run's items (state, round, question, park reason, findings), or all active runs and finished runs with parked documents plus the ten most recent runs, deduplicated and newest first, with reconciler alerts. |
+| `plan_queue_start` | `kind` (`plans`\|`livetests`), `glob?`, `worker_slots?`, `verification_slots?`, `max_rounds?`, `relax_settings?`, `verifier_gates?`, `post_merge_gate?`, `workers?`, `verifiers?`, `step_up?` | Discover documents and start a run with the caller as parent. The gate lists default to this app's checklist; pass the target repository's own commands (or `[]`) elsewhere. Each `workers` and `verifiers` entry is `{ provider, model?, account_ids?, copilot_account_id? }`, in preference order: each new worker session starts on the first worker choice with usage left, and each check uses the first checker that can run with usage left (with none left, the one whose known limit lifts soonest). James's saved choice on the Plan Queue page (`planQueueRouting`) always wins for a role he set; a per-run list applies only to a role he left empty, and the result's `message` says when one was set aside. Without either, workers use the caller's provider and model, and its account when that account is allowed for automatic work, and checkers are picked automatically. Choices the queue may not use refuse the run: a provider on the never-auto-pick list or not installed, an account that is off or manual-only, a misspelt key, or a worker choice whose checkers all share its provider without a model from a different maker. A per-run `verifiers` list is refused in a repository covered by a protected work Copilot rule; only James's saved choice can replace that seat. `step_up` (one choice of the same shape) is where a document goes, once, when its worker fails every one of its `max_rounds` checks: a new worker on that choice continues from the branch with the last findings and gets the full rounds again; without it the document parks as before. James's saved step-up choice wins, the same refusals apply, and explicit checkers must be able to judge it. Not available to queue-spawned sessions. |
+| `plan_queue_status` | `run_id?` | One run's routing (`workers`, `checkers`, `stepUp`) and items (state, round, question, park reason, findings, `handedToStepUpAt` when an item was handed to the step-up worker), or all active runs and finished runs with parked documents plus the ten most recent runs, deduplicated and newest first, with reconciler alerts. When James has set account rules, each run's status also carries an `accountRules` line naming the accounts by label. |
 | `plan_queue_answer` | `item_id`, `option_id` | Record James's answer to a readiness or worker question. Parent session only. |
 | `plan_queue_control` | `action`, `run_id?`, `item_id?`, `routing?`, `move_in_progress?` | Pause stops workers, triage and checkers now, checkpointing work on document branches; Resume starts fresh sessions on those branches. Landing already in progress finishes. Cancel ends the run. `set-routing` changes providers/accounts for future sessions; see below. Item controls include skip, resume, retry-landing, land-anyway and discard. Parent session only, except stranded-run rescue: once the parent no longer exists, a non-queue session may adopt or cancel the run, or discard a parked item. `set-routing` is never a rescue action. |
 | `plan_queue_report_triage` | `run_id`, `records` | Triage agent only (caller-checked). |
@@ -85,14 +85,14 @@ that recent window only. Active runs and runs with parked work can take the tota
 above the limit; ordinary terminal history stays bounded. Results are deduplicated
 and sorted newest first.
 
-`set-routing` requires `run_id` and a full `routing` object:
+`set-routing` requires `run_id` and a full `routing` object (`step_up` optional):
 
 ```json
 {"action":"set-routing","run_id":"<run-id>","routing":{"workers":[{"provider":"codex","account_ids":["<account-id>"]},{"provider":"claude"}],"verifiers":[{"provider":"claude"}]},"move_in_progress":false}
 ```
 
 Choices use the same fields and order rule as `plan_queue_start`. `workers: []`
-inherits the session that started the run; `verifiers: []` selects checkers automatically.
+inherits the session that started the run; `verifiers: []` selects checkers automatically; leaving out `step_up` clears it (stop and wait for James).
 The choice is validated before saving, including installed CLIs, automatic-account
 eligibility, exclusions and checker diversity. An agent's checker list cannot
 replace a protected work Copilot seat. James's choice from the page has the
@@ -247,7 +247,7 @@ Because of that, the two surfaces have different write boundaries:
 The `CLI-Write` column (`cliWritable` under `--json`) answers "can this CLI
 change it". The `Policy` column reports the safe MCP tool tier instead, so a
 `read-only` policy does not imply the CLI is blocked. `CLI-Write: no` marks the
-25 operator-only authorization anchors: the six Computer Use policy keys, the
+26 operator-only authorization anchors: the six Computer Use policy keys, the
 four Microsoft Graph OAuth and calendar-allowlist keys, the context-evidence
 rollout mode, the three Local AI Guard fallback-policy and budget keys, the
 WS-B1 per-project PR-creation opt-in map (`allowPrCreation`), the licence-scoping
@@ -255,11 +255,19 @@ automation-provider block-list (`providersExcludedFromAutomation`), the two GitH
 Copilot account-routing keys (`copilotAccountProfiles`, `copilotAccountRoutingRules`),
 the two account-pool keys (`providerAccountProfiles`,
 `providerAccountPools`, covering Claude, Codex and MiMo), the Plan Queue
-provider-and-account choice (`planQueueRouting`), the two Workspace Secret Card keys (`workspaceSecretsEnabled`,
+provider-and-account choice (`planQueueRouting`), the Plan Queue never-use and use-last account lists (`planQueueAccountRules`), the two Workspace Secret Card keys (`workspaceSecretsEnabled`,
 `workspaceSecretsAllowAgentRequests`), the post-fill observation lock
 (`browserSecretObservationProtectionEnabled`), and the macOS session signal
 fence (`providerSignalFenceEnabled`).
 Those are changed from the Settings UI by the operator, never by an agent.
+`planQueueAccountRules` is the never-use and use-last account list for Plan Queue
+sessions and automation runs: a never-use account is never started on, switched to or
+woken on by the queue or a fresh automation session, and a use-last account is used
+only when nothing else can run. It is set on the Plan Queue page, read live by the
+queue and at the start of each automation run, and cannot be changed by agents. It
+does not affect sessions James opens himself, loops, or automations that wake an
+existing session. A Copilot automation follows only the never-use list, because it
+always runs on its folder's Copilot account.
 
 On 2026-08-29 the two credential-vault unlock keys
 (`browserVaultMasterPasswordFile`, `browserVaultAutoUnlock`) and the shared-tab

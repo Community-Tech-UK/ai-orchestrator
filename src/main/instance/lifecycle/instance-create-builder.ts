@@ -122,6 +122,9 @@ export function buildInstanceRecord(
     ...(config.accountProfileId ? { accountProfileId: config.accountProfileId } : {}),
     ...(config.accountRouteOrigin ? { accountRouteOrigin: config.accountRouteOrigin } : {}),
     ...(config.allowedAccountProfileIds?.length ? { allowedAccountProfileIds: [...config.allowedAccountProfileIds] } : {}),
+    ...(config.accountPreferences
+      ? { accountPreferences: { avoid: [...config.accountPreferences.avoid], last: [...config.accountPreferences.last] } }
+      : {}),
     // WS7 Phase B: per-instance override wins; else seed from the global list.
     ...((config.failoverProviders ?? options.defaultFailoverProviders)?.length
       ? { failoverProviders: config.failoverProviders ?? options.defaultFailoverProviders }

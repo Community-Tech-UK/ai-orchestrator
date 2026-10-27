@@ -327,7 +327,7 @@ describe('SpawnConfigBuilder — Browser Gateway MCP config', () => {
     const configs = builder.getMcpConfig({ type: 'local' }, 'instance-browser', 'claude');
 
     expect(configs).toContain('{"mcpServers":{"orchestrator-test":{}}}');
-    expect(mcpInjectionMocks.buildBundle).toHaveBeenCalledWith('claude');
+    expect(mcpInjectionMocks.buildBundle).toHaveBeenCalledWith('claude', 'instance-browser');
   });
 
   it('adds Orchestrator-scoped inline MCP configs for Codex local instances', () => {
@@ -337,7 +337,7 @@ describe('SpawnConfigBuilder — Browser Gateway MCP config', () => {
 
     expect(configs).toContain('{"mcpServers":{"orchestrator-test":{}}}');
     expect(configs).toContain('{"mcpServers":{"orchestrator":{}}}');
-    expect(mcpInjectionMocks.buildBundle).toHaveBeenCalledWith('codex');
+    expect(mcpInjectionMocks.buildBundle).toHaveBeenCalledWith('codex', 'instance-codex');
   });
 
   it('adds Orchestrator-scoped inline MCP configs for Copilot local instances', () => {
@@ -347,7 +347,7 @@ describe('SpawnConfigBuilder — Browser Gateway MCP config', () => {
 
     expect(configs).toContain('{"mcpServers":{"orchestrator-test":{}}}');
     expect(configs).toContain('{"mcpServers":{"orchestrator":{}}}');
-    expect(mcpInjectionMocks.buildBundle).toHaveBeenCalledWith('copilot');
+    expect(mcpInjectionMocks.buildBundle).toHaveBeenCalledWith('copilot', 'instance-copilot');
   });
 
   it('adds built-in Orchestrator Tools MCP for Cursor local instances', () => {
@@ -356,16 +356,17 @@ describe('SpawnConfigBuilder — Browser Gateway MCP config', () => {
     const configs = builder.getMcpConfig({ type: 'local' }, 'instance-cursor', 'cursor');
 
     expect(configs).toContain('{"mcpServers":{"orchestrator":{}}}');
-    expect(configs).not.toContain('{"mcpServers":{"orchestrator-test":{}}}');
-    expect(mcpInjectionMocks.buildBundle).not.toHaveBeenCalled();
+    expect(configs).toContain('{"mcpServers":{"orchestrator-test":{}}}');
+    expect(mcpInjectionMocks.buildBundle).toHaveBeenCalledWith('cursor', 'instance-cursor');
   });
 
-  it('skips Orchestrator-scoped configs for providers that do not consume mcpConfig', () => {
+  it('adds connector configs for Gemini local instances', () => {
     const builder = makeBuilder();
 
-    builder.getMcpConfig({ type: 'local' }, 'instance-browser', 'gemini');
+    const configs = builder.getMcpConfig({ type: 'local' }, 'instance-browser', 'gemini');
 
-    expect(mcpInjectionMocks.buildBundle).not.toHaveBeenCalled();
+    expect(configs).toContain('{"mcpServers":{"orchestrator-test":{}}}');
+    expect(mcpInjectionMocks.buildBundle).toHaveBeenCalledWith('gemini', 'instance-browser');
   });
 });
 

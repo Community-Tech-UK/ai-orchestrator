@@ -94,9 +94,6 @@ const INFRA_EVENTS = new Set<string>([
   IPC_CHANNELS.VCS_OPERATION_PROGRESS,
   IPC_CHANNELS.WATCHER_FILE_CHANGED,
   IPC_CHANNELS.WATCHER_ERROR,
-  IPC_CHANNELS.PLUGINS_LOADED,
-  IPC_CHANNELS.PLUGINS_UNLOADED,
-  IPC_CHANNELS.PLUGINS_ERROR,
   IPC_CHANNELS.MODELS_CATALOG_UPDATED,
   IPC_CHANNELS.CODEBASE_AUTO_STATUS_CHANGED,
   IPC_CHANNELS.ECOSYSTEM_CHANGED,
@@ -308,7 +305,6 @@ export function resolveEventTier(type: string): EventTier {
   if (
     type.startsWith('vcs:')
     || type.startsWith('watcher:')
-    || type.startsWith('plugins:')
     || type.startsWith('codebase:')
     || type.startsWith('ecosystem:')
     || type.startsWith('rlm:')

@@ -842,12 +842,14 @@ export class InstanceLifecycleManager extends EventEmitter {
     const routedOptions = await attachCopilotRoute(cliType, durableOptions, routeOrigin, {
       persistedProfileId: instance?.copilotAccountProfileId,
       executionNodeId: executionLocation?.type === 'remote' ? executionLocation.nodeId : undefined,
+      avoidProfileIds: instance?.accountPreferences?.avoid,
       instanceId: options.instanceId,
     });
     // Claude/Codex account pools: a respawn keeps the account the session runs on.
     const accountRoutedOptions = await attachAccountRoute(cliType, routedOptions, routeOrigin, {
       persistedProfileId: persistedAccountProfileId(instance, durableOptions.resume),
       restrictTo: instance?.allowedAccountProfileIds,
+      preferences: instance?.accountPreferences,
       moveOffLimitedAccount: routing?.moveOffLimitedAccount,
       executionNodeId: executionLocation?.type === 'remote' ? executionLocation.nodeId : undefined,
       instanceId: options.instanceId,

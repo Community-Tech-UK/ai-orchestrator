@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GlobalPauseEntry } from '@contracts/schemas/global-pause';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import type { InstanceManager } from '../instance/instance-manager';
@@ -7,6 +7,7 @@ import { GlobalPauseService } from './global-pause-service';
 import { createGlobalPauseRuntime } from './global-pause-runtime';
 import { GLOBAL_PAUSE_NOTE_PROMPT, globalPauseResumePrompt } from './global-pause-prompts';
 import { beginAdapterLoan, endAdapterLoan } from '../instance/lifecycle/adapter-loan-registry';
+import { getPlanQueueCoordinator, PlanQueueCoordinator } from '../plan-queue/plan-queue-coordinator';
 
 const deps = vi.hoisted(() => ({ revive: vi.fn(), reassignQueue: vi.fn() }));
 vi.mock('../session/session-revival-service', () => ({ SessionRevivalService: class { revive = deps.revive; } }));
@@ -17,7 +18,7 @@ function instance(id: string, overrides: Partial<Instance> = {}): Instance {
     outputBuffer: [], ...overrides } as Instance;
 }
 function fixture(instances = [instance('chat')]) {
-  const sendInput = vi.fn(async (_id: string, _message: string, _attachments?: unknown, _options?: { signal?: AbortSignal }) => undefined);
+  const sendInput = vi.fn(async (_id: string, _message: string, _attachments?: unknown, _options?: { signal?: AbortSignal }): Promise<void> => undefined);
   const interruptInstance = vi.fn(() => true);
   const waitForInstanceSettled = vi.fn(async () => instances[0]);
   const manager = { getAllInstances: () => instances, getInstance: (id: string) => instances.find((session) => session.id === id),
@@ -31,7 +32,8 @@ function entry(): GlobalPauseEntry {
 }
 
 describe('global pause runtime', () => {
-  afterEach(() => { vi.clearAllMocks(); vi.restoreAllMocks(); });
+  beforeEach(() => { PlanQueueCoordinator._resetForTesting(); });
+  afterEach(() => { vi.clearAllMocks(); vi.restoreAllMocks(); vi.useRealTimers(); PlanQueueCoordinator._resetForTesting(); });
   it('records an ordinary user chat whose adapter is temporarily borrowed by a loop', () => {
     const loan = beginAdapterLoan('chat', 'loop');
     try {
@@ -39,6 +41,45 @@ describe('global pause runtime', () => {
       expect(runtime.sessions().map((session) => session.id)).toEqual(['chat']);
       expect(runtime.sessions()[0].busy).toBe(true);
     } finally { endAdapterLoan(loan); }
+  });
+  it('requests every queue run to pause before waiting for their shared landing queue', async () => {
+    const { runtime } = fixture();
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const requested: string[] = [];
+    vi.spyOn(getPlanQueueCoordinator(), 'control').mockImplementation(async payload => {
+      if (!('runId' in payload)) throw new Error('Expected one queue run');
+      requested.push(payload.runId);
+      if (payload.runId === 'first') await gate;
+      else release();
+    });
+    const pausing = runtime.pauseEngines([
+      { kind: 'queue-run', id: 'first', displayName: 'First queue' },
+      { kind: 'queue-run', id: 'second', displayName: 'Second queue' },
+    ]);
+    try {
+      await new Promise<void>(resolve => setImmediate(resolve));
+      expect(requested).toEqual(['first', 'second']);
+    } finally { release(); await pausing; }
+  });
+  it('waits for every queue checkpoint before reporting one failed pause', async () => {
+    const { runtime } = fixture();
+    let release!: () => void;
+    const checkpoint = new Promise<void>(resolve => { release = resolve; });
+    vi.spyOn(getPlanQueueCoordinator(), 'control').mockImplementation(async payload => {
+      if ('runId' in payload && payload.runId === 'first') throw new Error('Checkpoint failed');
+      await checkpoint;
+    });
+    let failure: unknown;
+    const pausing = runtime.pauseEngines([
+      { kind: 'queue-run', id: 'first', displayName: 'First queue' },
+      { kind: 'queue-run', id: 'second', displayName: 'Second queue' },
+    ]).catch(error => { failure = error; });
+    try {
+      await new Promise<void>(resolve => setImmediate(resolve));
+      expect(failure).toBeUndefined();
+    } finally { release(); await pausing; }
+    expect(failure).toBeInstanceOf(Error);
   });
   it('captures and stops run-on-node helpers using their recorded parent identity', async () => {
     const { runtime, manager } = fixture([instance('chat'), instance('remote-helper', { metadata: { spawnParentInstanceId: 'chat', spawnDepth: 1 },
@@ -97,6 +138,62 @@ describe('global pause runtime', () => {
     });
     await expect(runtime.collectNote(runtime.sessions()[0], controller.signal)).rejects.toThrow('Note cancelled');
     expect(manager.interruptInstance).toHaveBeenCalledTimes(1);
+  });
+  it('finishes skipping a note even when provider dispatch ignores cancellation', async () => {
+    const { runtime, manager } = fixture();
+    vi.spyOn(GlobalPauseService, 'peek').mockReturnValue({ holdsAutomaticInput: () => true } as unknown as GlobalPauseService);
+    let release!: () => void;
+    let started!: () => void;
+    const sending = new Promise<void>(resolve => { started = resolve; });
+    manager.sendInput.mockImplementationOnce(() => new Promise<void>(resolve => { release = resolve; started(); }));
+    const controller = new AbortController();
+    let finished = false;
+    const note = runtime.collectNote(runtime.sessions()[0], controller.signal).catch(() => { finished = true; });
+    await sending;
+    controller.abort();
+    try {
+      await new Promise<void>(resolve => setTimeout(resolve, 20));
+      expect(finished).toBe(true);
+    } finally { release(); await note; }
+    expect(manager.waitForInstanceSettled).toHaveBeenCalledTimes(1);
+    expect(manager.waitForInstanceSettled).toHaveBeenCalledWith('chat', { timeoutMs: 31_000 });
+  });
+  it('enforces the note deadline across a provider send that never returns', async () => {
+    vi.useFakeTimers();
+    const { runtime, manager } = fixture();
+    vi.spyOn(GlobalPauseService, 'peek').mockReturnValue({ holdsAutomaticInput: () => true } as unknown as GlobalPauseService);
+    let release!: () => void;
+    let dispatchedSignal: AbortSignal | undefined;
+    manager.sendInput.mockImplementationOnce((_id, _message, _attachments, options) => {
+      dispatchedSignal = options?.signal;
+      return new Promise<void>(resolve => { release = resolve; });
+    });
+    let failure: unknown;
+    const note = runtime.collectNote(runtime.sessions()[0], new AbortController().signal).catch(error => { failure = error; });
+    try {
+      await vi.advanceTimersByTimeAsync(180_000);
+      expect(failure).toBeInstanceOf(Error);
+      expect(dispatchedSignal?.aborted).toBe(true);
+      expect(manager.waitForInstanceSettled).toHaveBeenCalledWith('chat', { timeoutMs: 31_000 });
+    } finally { release(); await note; }
+  });
+  it('waits for the cancelled note turn to stop before finishing Skip', async () => {
+    const { runtime, manager } = fixture();
+    vi.spyOn(GlobalPauseService, 'peek').mockReturnValue({ holdsAutomaticInput: () => true } as unknown as GlobalPauseService);
+    let releaseSend!: () => void;
+    manager.sendInput.mockImplementationOnce(() => new Promise<void>(resolve => { releaseSend = resolve; }));
+    let stopped!: (instance: Instance) => void;
+    let stopping!: () => void;
+    const cleanupStarted = new Promise<void>(resolve => { stopping = resolve; });
+    manager.waitForInstanceSettled.mockImplementationOnce(() => new Promise<Instance>(resolve => { stopped = resolve; stopping(); }));
+    const controller = new AbortController();
+    let finished = false;
+    const note = runtime.collectNote(runtime.sessions()[0], controller.signal).catch(() => { finished = true; });
+    controller.abort();
+    await cleanupStarted;
+    try { expect(finished).toBe(false); }
+    finally { stopped(instance('chat', { status: 'idle' })); releaseSend(); await note; }
+    expect(finished).toBe(true);
   });
   it('does not terminate a manual replacement after the original interrupt settle wait fails', async () => {
     const { runtime, manager } = fixture();

@@ -11,12 +11,14 @@ import { ChangeDetectionStrategy, Component, computed, inject, input, output, si
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { AutomationStore } from '../../core/state/automation.store';
 import { SideChatStore } from '../../core/state/side-chat.store';
+import { TerminalDrawerStore } from '../../core/state/terminal-drawer.store';
 import { ContextMenuComponent, type ContextMenuItem } from '../../shared/components/context-menu/context-menu.component';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 
 @Component({
   selector: 'app-workspace-rail',
   standalone: true,
-  imports: [RouterLink, RouterLinkActive, ContextMenuComponent],
+  imports: [RouterLink, RouterLinkActive, ContextMenuComponent, AppIconButtonDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <nav class="workspace-rail" aria-label="Workspace navigation">
@@ -49,6 +51,17 @@ import { ContextMenuComponent, type ContextMenuItem } from '../../shared/compone
           @if (unreadAutomations() > 0) {
             <span class="rail-badge">{{ unreadAutomations() > 99 ? '99+' : unreadAutomations() }}</span>
           }
+        </a>
+
+        <a
+          class="rail-btn"
+          routerLink="/plan-queue"
+          routerLinkActive="active"
+          appIconButton="Plan Queue"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="4" rx="1" /><rect x="3" y="10" width="18" height="4" rx="1" /><path d="M8 18l3 3 3-3" />
+          </svg>
         </a>
 
         <a
@@ -118,6 +131,21 @@ import { ContextMenuComponent, type ContextMenuItem } from '../../shared/compone
           }
         </button>
 
+        @if (terminalDrawer.isAvailable()) {
+          <button
+            type="button"
+            class="rail-btn"
+            [class.active]="terminalDrawer.isOpen()"
+            [attr.aria-expanded]="terminalDrawer.isOpen()"
+            (click)="terminalDrawer.toggle()"
+            appIconButton="Remote terminal on a worker computer"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="16" rx="2" /><path d="m7 9 3 3-3 3" /><path d="M13 15h4" />
+            </svg>
+          </button>
+        }
+
         <button
           type="button"
           class="rail-btn"
@@ -164,6 +192,7 @@ import { ContextMenuComponent, type ContextMenuItem } from '../../shared/compone
 export class WorkspaceRailComponent {
   private readonly automationStore = inject(AutomationStore);
   private readonly sideChatStore = inject(SideChatStore);
+  protected readonly terminalDrawer = inject(TerminalDrawerStore);
 
   /** Whether the control plane is currently open (drives the active state). */
   readonly controlPlaneOpen = input(false);

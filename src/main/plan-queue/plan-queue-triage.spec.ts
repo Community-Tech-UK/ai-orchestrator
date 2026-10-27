@@ -294,7 +294,7 @@ describe('retry routing at the final asynchronous dispatch boundary', () => {
         queueMicrotask(() => { run = { ...run, config: { ...run.config, routing: { workers: [{ provider: 'codex' }], verifiers: [current] } } }; });
       }
       return spawnQueueInstance(config, { ready: Promise.resolve(), instances: port, getRun: () => run,
-        isShuttingDown: () => false, userCloseEpoch: () => 0, isProviderExcluded: () => false });
+        isShuttingDown: () => false, userCloseEpoch: () => 0, readAccountRules: () => ({ never: [], last: [] }), isProviderExcluded: () => false });
     });
     triage.maybeStart(run, items);
     await vi.waitFor(() => expect(triage.isTriageFor(run.id, 'current-retry')).toBe(true));
@@ -355,7 +355,7 @@ it('keeps the first-triage worker route fallback when retry checker selection is
   const dispatch = vi.fn().mockResolvedValue({ id: 'fallback' });
   create.mockImplementation((config: InstanceCreateConfig) => spawnQueueInstance(config, {
     ready: Promise.resolve(), instances: { createInstance: dispatch } as unknown as PlanQueueInstancePort,
-    getRun: () => run, isShuttingDown: () => false, userCloseEpoch: () => 0, isProviderExcluded: () => false,
+    getRun: () => run, isShuttingDown: () => false, userCloseEpoch: () => 0, readAccountRules: () => ({ never: [], last: [] }), isProviderExcluded: () => false,
   }));
   triage.maybeStart(run, items);
   await vi.waitFor(() => expect(triage.isTriageFor(run.id, 'fallback')).toBe(true));

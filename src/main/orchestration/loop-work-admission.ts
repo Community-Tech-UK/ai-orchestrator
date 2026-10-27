@@ -19,7 +19,7 @@ interface PauseLoopHost {
 /** Preserve the loop checkpoint and wait for the turn/adapter loan to settle. */
 export async function pauseLoopForGlobalPause(host: PauseLoopHost, loopRunId: string): Promise<void> {
   const before = host.getLoop(loopRunId);
-  if (!before || !host.pauseLoop(loopRunId)) return;
+  if (!before || (before.status !== 'paused' && !host.pauseLoop(loopRunId))) return;
   if (before.inFlightIteration) restartInterruptedRounds.add(loopRunId);
   host.emit('loop:pause-for-restart', { loopRunId, seq: before.inFlightIteration?.seq });
   const deadline = Date.now() + 35_000;

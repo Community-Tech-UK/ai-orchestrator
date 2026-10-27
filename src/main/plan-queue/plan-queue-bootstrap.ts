@@ -6,7 +6,9 @@ import { attachPlanQueueSpendRecorder } from './plan-queue-spend';
  */
 
 import type { AppSettings } from '../../shared/types/settings.types';
+import { DEFAULT_PLAN_QUEUE_ACCOUNT_RULES } from '@contracts/schemas/plan-queue';
 import { getSettingsManager } from '../core/config/settings-manager';
+import { getSessionContinuityManager } from '../session/session-continuity';
 import { getHistoryManager } from '../history/history-manager';
 import type { InstanceManager } from '../instance/instance-manager';
 import { getLogger } from '../logging/logger';
@@ -65,6 +67,20 @@ export async function initializePlanQueue(instanceManager: InstanceManager): Pro
       get: (key) => settings.get(key as keyof AppSettings),
       set: (key, value) => settings.set(key as keyof AppSettings, value as AppSettings[keyof AppSettings]),
     }),
+    accountRules: {
+      onChanged: (listener) => {
+        const onSettingChanged = (key: string): void => {
+          if (key === 'planQueueAccountRules') listener(settings.getAll().planQueueAccountRules ?? DEFAULT_PLAN_QUEUE_ACCOUNT_RULES);
+        };
+        settings.on('setting-changed', onSettingChanged);
+        return () => { settings.off('setting-changed', onSettingChanged); };
+      },
+      persistPreferences: (instanceId, preferences) => {
+        getSessionContinuityManager().updateState(instanceId, { accountPreferences: preferences }).catch((error: unknown) => logger.warn('Could not save a session\'s account preferences', {
+          instanceId, error: error instanceof Error ? error.message : String(error),
+        }));
+      },
+    },
     whenOrchestratorToolsListening: waitForOrchestratorToolsListening,
     findRestoredSession: (instanceId) =>
       findRestoredSessionId(instanceId, getHistoryManager().getEntries(), instanceManager.getAllInstances()),

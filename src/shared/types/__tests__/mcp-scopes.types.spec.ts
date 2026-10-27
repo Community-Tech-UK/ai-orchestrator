@@ -58,11 +58,13 @@ describe('mcp-scopes.types', () => {
     expect(isSupportedProvider(undefined)).toBe(false);
   });
 
-  it('keeps persisted orchestrator injection scoped to managed provider configs', () => {
+  it('offers connector injection for every local provider that accepts tool servers', () => {
     expect(ORCHESTRATOR_INJECTION_PROVIDERS).toEqual([
       'claude',
       'codex',
+      'gemini',
       'copilot',
+      'cursor',
       'grok',
       'opencode',
     ]);
@@ -72,6 +74,7 @@ describe('mcp-scopes.types', () => {
     expect(ORCHESTRATOR_RUNTIME_INJECTION_PROVIDERS).toEqual([
       'claude',
       'codex',
+      'gemini',
       'copilot',
       'cursor',
       'grok',
@@ -80,6 +83,6 @@ describe('mcp-scopes.types', () => {
     expect(isOrchestratorRuntimeInjectionProvider('cursor')).toBe(true);
     expect(isOrchestratorRuntimeInjectionProvider('grok')).toBe(true);
     expect(isOrchestratorRuntimeInjectionProvider('opencode')).toBe(true);
-    expect(isOrchestratorRuntimeInjectionProvider('gemini')).toBe(false);
+    expect(isOrchestratorRuntimeInjectionProvider('gemini')).toBe(true);
   });
 });

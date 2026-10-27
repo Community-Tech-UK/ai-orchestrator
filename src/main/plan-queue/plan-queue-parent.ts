@@ -99,7 +99,8 @@ export class PlanQueueParentTracker {
    */
   liveParentId(run: PlanQueueRun): string | undefined {
     const current = this.follow(run);
-    return this.deps.instances.getInstance(current.parentInstanceId) ? current.parentInstanceId : undefined;
+    const parent = this.deps.instances.getInstance(current.parentInstanceId);
+    return parent && parent.status !== 'superseded' ? current.parentInstanceId : undefined;
   }
 
   notify(run: PlanQueueRun, message: string): void {

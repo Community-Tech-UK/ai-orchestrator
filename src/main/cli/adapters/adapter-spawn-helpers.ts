@@ -7,7 +7,7 @@
  * config assembly. The factory module composes these into concrete adapters.
  */
 
-import { mkdirSync, mkdtempSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { dirname, join } from 'path';
 import type { CodexReasoningEffort } from './codex/app-server-types';
@@ -426,9 +426,8 @@ function mergeGeminiMcpServers(json: string | null, into: Record<string, unknown
  * Gemini reads MCP servers from a settings.json file rather than inline JSON,
  * so the `computer-use` server the spawn-config builder pushes onto `mcpConfig`
  * (consumed directly by Claude/Codex/Copilot) would otherwise be dropped for
- * Gemini. Prefer the dedicated {@link UnifiedSpawnOptions.computerUseMcp}
- * option; otherwise recover the already-built server spec from the inline
- * `mcpConfig` so injection works even when only the inline path is populated.
+ * Gemini. The generic inline merge handles fallback entries; a dedicated
+ * option takes precedence over those entries.
  */
 function mergeComputerUseGeminiSettings(
   options: UnifiedSpawnOptions,
@@ -441,22 +440,6 @@ function mergeComputerUseGeminiSettings(
       ),
       into,
     );
-    return;
-  }
-  for (const entry of options.mcpConfig ?? []) {
-    const trimmed = entry.trim();
-    if (!trimmed.startsWith('{')) {
-      continue;
-    }
-    try {
-      const parsed = JSON.parse(trimmed) as { mcpServers?: Record<string, unknown> };
-      const server = parsed.mcpServers?.[COMPUTER_USE_MCP_SERVER_NAME];
-      if (server) {
-        into[COMPUTER_USE_MCP_SERVER_NAME] = server;
-      }
-    } catch {
-      // Ignore malformed inline entries; other providers validate separately.
-    }
   }
 }
 
@@ -464,6 +447,19 @@ export function writeGeminiBrowserGatewaySettings(
   options: UnifiedSpawnOptions,
 ): string | undefined {
   const mcpServers: Record<string, unknown> = {};
+  for (const entry of options.mcpConfig ?? []) {
+    const trimmed = entry.trim();
+    mergeGeminiMcpServers(trimmed.startsWith('{') ? trimmed : readFileSync(trimmed, 'utf8'), mcpServers);
+  }
+  for (const [name, value] of Object.entries(mcpServers)) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+    const { type, transport, ...server } = value as Record<string, unknown>;
+    if ((type === 'http' || transport === 'http') && typeof server['url'] === 'string') {
+      server['httpUrl'] = server['url'];
+      delete server['url'];
+    }
+    mcpServers[name] = server;
+  }
   if (options.browserGatewayMcp) {
     mergeGeminiMcpServers(
       buildBrowserGatewayGeminiSettingsJson(

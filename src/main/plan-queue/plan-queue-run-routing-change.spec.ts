@@ -9,7 +9,7 @@ function fixture(options: { scope?: string; excluded?: string[]; installed?: str
     status: 'running', config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, routing: { workers: [{ provider: 'codex' }], verifiers: [] } },
     relaxation: null, workerProvider: 'codex', workerModel: null, startedAt: 1, endedAt: null };
   const host = { getRun: () => run, hasParkedWork: () => true, parentRoute: () => ({ provider: 'claude', currentModel: 'parent-model' }), upsertRun: vi.fn(), holdRun: vi.fn().mockResolvedValue(undefined), requestPump: vi.fn(), notifyParent: vi.fn() };
-  const deps: PlanQueueRoutingDeps = { readSaved: () => ({ workers: [{ provider: 'codex' }], verifiers: [] }), poolProfiles: () => [], copilotProfiles: () => [],
+  const deps: PlanQueueRoutingDeps = { readSaved: () => ({ workers: [{ provider: 'codex' }], verifiers: [] }), readAccountRules: () => ({ never: [], last: [] }), copilotProfileFor: () => null, poolProfiles: () => [], copilotProfiles: () => [],
     isProviderExcluded: (p) => options.excluded?.includes(p) ?? false, defaultProvider: () => null,
     checkerScopeKind: () => options.scope ?? 'none', listInstalledProviders: async () => options.installed ?? ['codex', 'claude', 'copilot'] };
   return { host, run, deps };
@@ -96,4 +96,28 @@ it.each(['completed', 'cancelled'] as const)('refuses a %s run without parked do
   run.status = status; host.hasParkedWork = () => false;
   await expect(changeRunRouting(host, run, choice, 'panel', false, deps)).rejects.toThrow('no parked documents');
   expect(host.upsertRun).not.toHaveBeenCalled();
+});
+
+describe('changing a run\'s step-up choice', () => {
+  const opus = { provider: 'claude', model: 'opus' };
+  it('sets, reports and then clears it, from the page or the parent', async () => {
+    const { host, run, deps } = fixture();
+    await changeRunRouting(host, run, { ...choice, stepUp: opus }, 'parent', false, deps);
+    expect(host.upsertRun).toHaveBeenLastCalledWith(expect.objectContaining({ config: expect.objectContaining({ routing: { ...choice, stepUp: opus, checkersChosenBy: 'run' } }) }));
+    expect(host.notifyParent).toHaveBeenLastCalledWith(expect.anything(), expect.stringContaining('if a worker gets stuck, from stop and wait to claude / opus.'));
+    run.config = { ...run.config, routing: { ...choice, stepUp: opus } };
+    // A full edit without it clears it.
+    await changeRunRouting(host, run, choice, 'panel', false, deps);
+    expect(host.upsertRun).toHaveBeenLastCalledWith(expect.objectContaining({ config: expect.objectContaining({ routing: { ...choice, checkersChosenBy: 'saved' } }) }));
+    expect(host.notifyParent).toHaveBeenLastCalledWith(expect.anything(), expect.stringContaining('if a worker gets stuck, from claude / opus to stop and wait.'));
+  });
+  it.each([
+    [{ installed: ['codex', 'copilot'] }, { workers: [{ provider: 'codex' }], verifiers: [], stepUp: opus }, 'claude is not installed'],
+    [{ excluded: ['claude'] }, { workers: [{ provider: 'codex' }], verifiers: [], stepUp: opus }, 'Plan Queue step-up worker: claude is on the "never auto-pick'],
+    [{}, { workers: [{ provider: 'codex' }], verifiers: [{ provider: 'claude' }], stepUp: opus }, 'None of the chosen checkers can check the step-up worker'],
+  ])('refuses a step-up the run could not use, without saving %#', async (options, routing, reason) => {
+    const { host, run, deps } = fixture(options);
+    await expect(changeRunRouting(host, run, routing, 'panel', false, deps)).rejects.toThrow(reason);
+    expect(host.upsertRun).not.toHaveBeenCalled();
+  });
 });

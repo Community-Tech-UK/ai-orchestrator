@@ -94,9 +94,9 @@ beforeEach(() => {
     if (directory) preparedDirectories.add(directory);
     return directory;
   });
-  vi.spyOn(CodexHomeManager.prototype, 'prepareHomeWithMcpConfig').mockImplementation(function (this: CodexHomeManager, config: string) {
+  vi.spyOn(CodexHomeManager.prototype, 'prepareHomeWithMcpConfig').mockImplementation(function (this: CodexHomeManager, config: string, mode: 'app-server' | 'exec') {
     preparedManagers.add(this);
-    const directory = realPrepare.prepareHomeWithMcpConfig.call(this, config);
+    const directory = realPrepare.prepareHomeWithMcpConfig.call(this, config, mode);
     if (directory) preparedDirectories.add(directory);
     return directory;
   });

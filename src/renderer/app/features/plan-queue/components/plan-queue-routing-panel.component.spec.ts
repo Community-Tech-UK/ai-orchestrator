@@ -5,7 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { DEFAULT_PLAN_QUEUE_CONFIG, PlanQueueRunDtoSchema } from '@contracts/schemas/plan-queue';
-import type { PlanQueueItemState, PlanQueueRouting, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
+import type { PlanQueueAccountRules, PlanQueueItemState, PlanQueueRouting, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
 import { CopilotAccountIpcService, type CopilotAccountView } from '../../../core/services/ipc/copilot-account-ipc.service';
 import { ProviderAccountIpcService, type ProviderAccountView } from '../../../core/services/ipc/provider-account-ipc.service';
 import { PlanQueueStore } from '../../../core/state/plan-queue.store';
@@ -70,7 +70,7 @@ const COPILOTS: CopilotAccountView[] = [
 
 describe('PlanQueueRoutingPanelComponent', () => {
   let fixture: ComponentFixture<PlanQueueRoutingPanelComponent>;
-  let settings: ReturnType<typeof signal<{ planQueueRouting: PlanQueueRouting; providersExcludedFromAutomation: string[] }>>;
+  let settings: ReturnType<typeof signal<{ planQueueRouting: PlanQueueRouting; providersExcludedFromAutomation: string[]; planQueueAccountRules?: PlanQueueAccountRules }>>;
   let storeError: ReturnType<typeof signal<string | null>>;
   let setSetting: Mock;
   let listProfiles: Mock;
@@ -83,8 +83,8 @@ describe('PlanQueueRoutingPanelComponent', () => {
     await fixture.whenStable();
   }
 
-  async function mount(saved: PlanQueueRouting = { workers: [], verifiers: [] }, excluded: string[] = []): Promise<void> {
-    settings.set({ planQueueRouting: saved, providersExcludedFromAutomation: excluded });
+  async function mount(saved: PlanQueueRouting = { workers: [], verifiers: [] }, excluded: string[] = [], rules?: PlanQueueAccountRules): Promise<void> {
+    settings.set({ planQueueRouting: saved, providersExcludedFromAutomation: excluded, ...(rules ? { planQueueAccountRules: rules } : {}) });
     fixture = TestBed.createComponent(PlanQueueRoutingPanelComponent);
     fixture.detectChanges();
     await flush();
@@ -213,6 +213,56 @@ describe('PlanQueueRoutingPanelComponent', () => {
     expect(claude?.disabled).toBe(true);
     expect(select.value).not.toBe('claude');
     expect(saveButton().disabled).toBe(false);
+  });
+
+  it('greys out accounts on the never-use list, labels use-last accounts, and keeps the choice list free of both problems', async () => {
+    await mount(undefined, [], {
+      never: [{ provider: 'claude', accountId: 'acc-ok' }, { provider: 'copilot', accountId: 'cp-ok' }],
+      last: [{ provider: 'codex', accountId: 'cx-ok' }, { provider: 'copilot', accountId: 'cp-manual' }],
+    });
+    await click(radio('pqRoutingWorkerMode', 'list'));
+
+    const claudeBoxes = qa<HTMLInputElement>('input[type="checkbox"]', q('.pq-routing-workers'));
+    expect(claudeBoxes[0].disabled).toBe(true);
+    expect(claudeBoxes[0].parentElement?.textContent).toContain('on your never-use list');
+    expect(claudeBoxes[0].parentElement?.classList).toContain('pq-routing-account-off');
+    expect(q('.pq-routing-workers .pq-routing-error')).toBeNull();
+
+    await choose(providerSelect(q('.pq-routing-workers')), 'codex');
+    const codexLabel = q<HTMLElement>('.pq-routing-workers .pq-routing-account');
+    expect(codexLabel.textContent).toContain('use last');
+    expect(codexLabel.querySelector('input')?.disabled).toBe(false);
+    expect(codexLabel.classList).not.toContain('pq-routing-account-off');
+
+    await click(radio('pqRoutingCheckerMode', 'manual'));
+    await choose(providerSelect(checkerRows()[0]), 'copilot');
+    const options = qa<HTMLOptionElement>('option', qa<HTMLSelectElement>('select', checkerRows()[0])[1]);
+    expect(options.find((option) => option.value === 'cp-ok')?.disabled).toBe(true);
+    expect(options.find((option) => option.value === 'cp-ok')?.textContent).toContain('on your never-use list');
+    expect(options.find((option) => option.value === 'cp-manual')?.textContent).toContain('manual only');
+  });
+
+  it('refuses to save a choice that ticks a never-use account, saying why', async () => {
+    await mount({ workers: [{ provider: 'claude', accountProfileIds: ['acc-ok'] }], verifiers: [] }, [], {
+      never: [{ provider: 'claude', accountId: 'acc-ok' }], last: [],
+    });
+    const error = q('.pq-routing-workers .pq-routing-error');
+    expect(error?.textContent).toContain('"Work Claude" is on your never-use list');
+    expect(saveButton().disabled).toBe(true);
+
+    await tick(qa<HTMLInputElement>('input[type="checkbox"]', q('.pq-routing-workers'))[0], false);
+    expect(q('.pq-routing-workers .pq-routing-error')).toBeNull();
+    expect(saveButton().disabled).toBe(false);
+  });
+
+  it('refuses a Copilot account on the never-use list and follows the rules as they change', async () => {
+    await mount({ workers: [], verifiers: [{ provider: 'copilot', copilotProfileId: 'cp-ok' }] });
+    expect(q('.pq-routing-checkers .pq-routing-error')).toBeNull();
+
+    settings.update((current) => ({ ...current, planQueueAccountRules: { never: [{ provider: 'copilot', accountId: 'cp-ok' }], last: [] } }));
+    await flush();
+    expect(q('.pq-routing-checkers .pq-routing-error')?.textContent).toContain('"Personal Copilot" is on your never-use list');
+    expect(saveButton().disabled).toBe(true);
   });
 
   it('shows one error for several vanished accounts and explains what inheriting a session means', async () => {
@@ -689,5 +739,96 @@ describe('PlanQueueRoutingPanelComponent', () => {
       expect(q('.pq-routing-move-progress')).toBeNull();
     },
   );
+
+  describe('if a worker gets stuck', () => {
+    const stepUpRow = (): HTMLElement => q<HTMLElement>('.pq-routing-step-up');
+    const stepUpError = (): string => qa<HTMLElement>('.pq-routing-error', stepUpRow()).map((e) => e.textContent ?? '').join(' ');
+
+    it('sets, changes and clears the saved step-up choice', async () => {
+      await mount({ workers: [{ provider: 'claude', model: 'haiku' }], verifiers: [] });
+      expect(radio('pqRoutingStepUpMode', 'stop').checked).toBe(true);
+      expect(q('.pq-routing-step-up select')).toBeNull();
+
+      await click(radio('pqRoutingStepUpMode', 'handover'));
+      expect(stepUpRow().textContent).toContain('Used once per document, after its worker fails every check it is given.');
+      expect(stepUpRow().textContent).toContain('which may cost more');
+      await choose(providerSelect(stepUpRow()), 'claude');
+      await type(q<HTMLInputElement>('input[type="text"]', stepUpRow()), 'opus');
+      await click(saveButton());
+      expect(setSetting).toHaveBeenLastCalledWith('planQueueRouting', {
+        workers: [{ provider: 'claude', model: 'haiku' }], verifiers: [], stepUp: { provider: 'claude', model: 'opus' },
+      });
+      expect(saveButton().disabled).toBe(true);
+
+      await type(q<HTMLInputElement>('input[type="text"]', stepUpRow()), 'opus[1m]');
+      await click(saveButton());
+      expect(setSetting).toHaveBeenLastCalledWith('planQueueRouting', expect.objectContaining({ stepUp: { provider: 'claude', model: 'opus[1m]' } }));
+
+      await click(radio('pqRoutingStepUpMode', 'stop'));
+      await click(saveButton());
+      expect(setSetting).toHaveBeenLastCalledWith('planQueueRouting', { workers: [{ provider: 'claude', model: 'haiku' }], verifiers: [] });
+    });
+
+    it('loads a saved step-up choice and resets back to it', async () => {
+      await mount({ workers: [], verifiers: [], stepUp: { provider: 'codex', model: 'big' } });
+      expect(radio('pqRoutingStepUpMode', 'handover').checked).toBe(true);
+      expect(providerSelect(stepUpRow()).value).toBe('codex');
+      expect(q<HTMLInputElement>('input[type="text"]', stepUpRow()).value).toBe('big');
+      await click(radio('pqRoutingStepUpMode', 'stop'));
+      expect(saveButton().disabled).toBe(false);
+      await click(q('.pq-routing-reset'));
+      expect(radio('pqRoutingStepUpMode', 'handover').checked).toBe(true);
+      expect(saveButton().disabled).toBe(true);
+    });
+
+    it('will not save a step-up that changes nothing, or one the chosen checkers could not judge', async () => {
+      await mount({ workers: [{ provider: 'claude', model: 'haiku' }], verifiers: [{ provider: 'codex' }] });
+      await click(radio('pqRoutingStepUpMode', 'handover'));
+      await choose(providerSelect(stepUpRow()), 'claude');
+      await type(q<HTMLInputElement>('input[type="text"]', stepUpRow()), 'haiku');
+      expect(stepUpError()).toContain('This is the same as the worker, so handing over would change nothing.');
+      expect(saveButton().disabled).toBe(true);
+
+      await type(q<HTMLInputElement>('input[type="text"]', stepUpRow()), 'opus');
+      expect(stepUpError()).toBe('');
+      expect(saveButton().disabled).toBe(false);
+
+      // Codex checkers cannot judge a Codex step-up worker.
+      await choose(providerSelect(stepUpRow()), 'codex');
+      expect(stepUpError()).toContain('Every checker uses codex, like the stronger worker, without a model from a different maker');
+      expect(saveButton().disabled).toBe(true);
+    });
+
+    it('sets the step-up choice for one run', async () => {
+      await mountRun('paused', []);
+      await click(radio('pqRoutingStepUpMode-run-edit', 'handover'));
+      await choose(providerSelect(stepUpRow()), 'codex');
+      await click(saveButton());
+      expect(control).toHaveBeenCalledWith({
+        action: 'set-routing', runId: 'run-edit',
+        routing: { workers: [{ provider: 'claude', model: 'opus' }], verifiers: [], stepUp: { provider: 'codex' } },
+      });
+      expect(setSetting).not.toHaveBeenCalled();
+    });
+  });
+
+  it('suggests the chosen provider\'s known models in every model box, and free text still works', async () => {
+    await mount({ workers: [{ provider: 'claude' }], verifiers: [] });
+    const input = q<HTMLInputElement>('.pq-routing-workers input[type="text"]');
+    const list = (): HTMLDataListElement => q<HTMLDataListElement>(`datalist#${input.getAttribute('list')}`);
+    expect(list()).not.toBeNull();
+    const claude = qa<HTMLOptionElement>('option', list());
+    expect(claude.find((option) => option.value === 'haiku')?.textContent?.trim()).toBe('Haiku latest');
+    expect(claude.some((option) => option.value === 'opus')).toBe(true);
+
+    await choose(providerSelect(q('.pq-routing-workers')), 'codex');
+    const codex = qa<HTMLOptionElement>('option', list()).map((option) => option.value);
+    expect(codex.length).toBeGreaterThan(0);
+    expect(codex).not.toContain('haiku');
+
+    await type(input, 'my-own-model');
+    await click(saveButton());
+    expect(setSetting).toHaveBeenLastCalledWith('planQueueRouting', { workers: [{ provider: 'codex', model: 'my-own-model' }], verifiers: [] });
+  });
 
 });

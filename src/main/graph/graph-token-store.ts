@@ -15,6 +15,7 @@ export interface GraphAccountInput {
   username: string;
   tenant: string;
   tokenCache: string;
+  scopes?: readonly string[];
 }
 
 interface GraphAccountRow {
@@ -22,6 +23,7 @@ interface GraphAccountRow {
   username: string;
   tenant: string;
   token_cache_encrypted_json: string;
+  scopes_json: string;
   created_at: number;
   updated_at: number;
 }
@@ -38,10 +40,15 @@ export class GraphTokenStore {
         username TEXT NOT NULL,
         tenant TEXT NOT NULL,
         token_cache_encrypted_json TEXT NOT NULL,
+        scopes_json TEXT NOT NULL DEFAULT '[]',
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
     `);
+    const columns = this.db.prepare('PRAGMA table_info(graph_accounts)').all<{ name: string }>();
+    if (!columns.some((column) => column.name === 'scopes_json')) {
+      this.db.exec("ALTER TABLE graph_accounts ADD COLUMN scopes_json TEXT NOT NULL DEFAULT '[]'");
+    }
   }
 
   getAccount(accountKey: string): GraphAccount | null {
@@ -71,18 +78,30 @@ export class GraphTokenStore {
     return this.secrets.decryptSecret(encrypted);
   }
 
+  getScopes(accountKey: string): string[] {
+    const row = this.db.prepare('SELECT scopes_json FROM graph_accounts WHERE account_key = ?')
+      .get<{ scopes_json: string }>(accountKey);
+    if (!row) return [];
+    const scopes: unknown = JSON.parse(row.scopes_json);
+    if (!Array.isArray(scopes) || !scopes.every((scope): scope is string => typeof scope === 'string')) {
+      throw new Error('GRAPH_SCOPES_INVALID: stored Microsoft account scopes are malformed');
+    }
+    return scopes;
+  }
+
   upsertAccount(input: GraphAccountInput): GraphAccount {
     const now = this.now();
     const encryptedCache = this.secrets.encryptSecret(input.tokenCache);
     this.db
       .prepare(`
         INSERT INTO graph_accounts (
-          account_key, username, tenant, token_cache_encrypted_json, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?)
+          account_key, username, tenant, token_cache_encrypted_json, scopes_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(account_key) DO UPDATE SET
           username = excluded.username,
           tenant = excluded.tenant,
           token_cache_encrypted_json = excluded.token_cache_encrypted_json,
+          scopes_json = excluded.scopes_json,
           updated_at = excluded.updated_at
       `)
       .run(
@@ -90,6 +109,7 @@ export class GraphTokenStore {
         input.username,
         input.tenant,
         JSON.stringify(encryptedCache),
+        JSON.stringify(input.scopes ?? this.getScopes(input.accountKey)),
         now,
         now,
       );

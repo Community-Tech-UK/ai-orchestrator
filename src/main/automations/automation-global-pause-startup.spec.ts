@@ -15,6 +15,8 @@ import { deliverInitialPromptAfterSpawn } from '../instance/lifecycle/initial-pr
 const ports = vi.hoisted(() => ({store: null as unknown, runner: null as unknown, resumeLoop: vi.fn(), revive: vi.fn()}));
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp/ai-orchestrator-test' }, powerMonitor: new EventEmitter() }));
 vi.mock('../plugins/hook-emitter', () => ({ emitPluginHook: vi.fn() }));
+// The account rules read settings; their own spec covers them.
+vi.mock('./automation-account-rules', () => ({ automationAccountPreferences: async () => undefined }));
 vi.mock('../orchestration/loop-resume', () => ({resumeLoopRun: ports.resumeLoop}));
 vi.mock('../session/session-revival-service',()=>({SessionRevivalService:class{revive=ports.revive;}}));
 vi.mock('./index', () => ({getAutomationStore: () => ports.store, getAutomationRunner: () => ports.runner}));
