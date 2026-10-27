@@ -1,0 +1,18 @@
+focus-before-dom {"hidden":false,"visibility":"visible"}
+account-list-shape {"keys":["success","data"],"dataKeys":["profiles","pools"]}
+created {"id":"iyz3vjob0"}
+source-runtime {"id":"iyz3vjob0","provider":"opencode","accountProfileId":"comtechspare-f7a6","status":"idle"}
+TimeoutError: Waiting for selector `app-instance-row .instance-row` failed
+    at CSSQueryHandler.waitFor (file:///Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/puppeteer-core/lib/puppeteer/common/QueryHandler.js:211:46)
+    at async CdpFrame.waitForSelector (file:///Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/puppeteer-core/lib/puppeteer/api/Frame.js:546:21)
+    at async CdpPage.waitForSelector (file:///Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/puppeteer-core/lib/puppeteer/api/Page.js:1482:20)
+    at async file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-provider-swap-accou-60c2ee/_scratch/lt-queue-c260c2ee/composer-check.mjs:76:2 {
+  cause: TimeoutError: Waiting failed: 60000ms exceeded
+      at new WaitTask (file:///Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/puppeteer-core/lib/puppeteer/common/WaitTask.js:46:34)
+      at IsolatedWorld.waitForFunction (file:///Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/puppeteer-core/lib/puppeteer/api/Realm.js:49:26)
+      at CSSQueryHandler.waitFor (file:///Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/puppeteer-core/lib/puppeteer/common/QueryHandler.js:176:95)
+      at async CdpFrame.waitForSelector (file:///Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/puppeteer-core/lib/puppeteer/api/Frame.js:546:21)
+      at async CdpPage.waitForSelector (file:///Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/puppeteer-core/lib/puppeteer/api/Page.js:1482:20)
+      at async file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-provider-swap-accou-60c2ee/_scratch/lt-queue-c260c2ee/composer-check.mjs:76:2
+}
+instance-cleanup {"remaining":0}

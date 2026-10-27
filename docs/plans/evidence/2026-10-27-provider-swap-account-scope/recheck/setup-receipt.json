@@ -1,0 +1,13 @@
+{
+  "at": "2026-10-27T14:14:56.726809+00:00",
+  "profile": "/tmp/aio-lt-queue-c260c2ee",
+  "secretValuesCopied": false,
+  "productionSettingsModified": false,
+  "mirroredSettingsKeys": [
+    "providerAccountProfiles",
+    "providerAccountPools"
+  ],
+  "isolatedMiMoDefault": "existing named account",
+  "codexDefault": "existing legacy account",
+  "expectedCodexLabel": "CodexSUAS"
+}

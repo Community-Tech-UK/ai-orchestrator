@@ -1,0 +1,3 @@
+# Preserve the command receipts referenced by this campaign's seals.
+# The machine-wide log ignore would otherwise omit them from queue harvest.
+!*.log

@@ -1,0 +1,165 @@
+{
+  "startedAt": "2026-10-27T13:55:04.298Z",
+  "profile": "/tmp/aio-lt-queue-c260c2ee",
+  "debugPort": 9832,
+  "hiddenTestWindow": true,
+  "probes": [
+    {
+      "name": "renderer-prerequisites",
+      "at": "2026-10-27T13:55:31.660Z",
+      "data": {
+        "hidden": false,
+        "visibility": "visible",
+        "bridge": true
+      }
+    },
+    {
+      "name": "accounts",
+      "at": "2026-10-27T13:55:36.952Z",
+      "data": {
+        "success": true,
+        "profiles": [
+          {
+            "provider": "claude",
+            "id": "legacy",
+            "enabled": true,
+            "isLegacy": true,
+            "binding": {
+              "state": "authenticated"
+            }
+          },
+          {
+            "provider": "codex",
+            "id": "chatgptcomtech-e73d",
+            "enabled": true,
+            "isLegacy": false,
+            "binding": {
+              "state": "authenticated"
+            }
+          },
+          {
+            "provider": "codex",
+            "id": "legacy",
+            "enabled": true,
+            "isLegacy": true,
+            "binding": {
+              "state": "authenticated"
+            }
+          },
+          {
+            "provider": "opencode",
+            "id": "comtechspare-f7a6",
+            "enabled": true,
+            "isLegacy": false,
+            "region": "ams",
+            "binding": {
+              "state": "authenticated"
+            }
+          },
+          {
+            "provider": "opencode",
+            "id": "legacy",
+            "enabled": true,
+            "isLegacy": true,
+            "region": "ams",
+            "binding": {
+              "state": "authenticated"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "models",
+      "at": "2026-10-27T13:55:36.955Z",
+      "data": {
+        "opencode": {
+          "success": true,
+          "data": []
+        },
+        "codex": {
+          "success": true,
+          "data": [
+            {
+              "id": "gpt-5.6-sol",
+              "name": "GPT-5.6 Sol",
+              "tier": "powerful",
+              "pinned": true,
+              "family": "GPT"
+            },
+            {
+              "id": "gpt-5.6-terra",
+              "name": "GPT-5.6 Terra",
+              "tier": "balanced",
+              "family": "GPT"
+            },
+            {
+              "id": "gpt-5.6-luna",
+              "name": "GPT-5.6 Luna",
+              "tier": "fast",
+              "family": "GPT"
+            },
+            {
+              "id": "gpt-6-astra",
+              "name": "GPT-6 Astra",
+              "tier": "powerful",
+              "family": "GPT"
+            },
+            {
+              "id": "gpt-5.5",
+              "name": "GPT-5.5",
+              "tier": "powerful",
+              "pinned": true,
+              "family": "GPT"
+            },
+            {
+              "id": "gpt-5.3-codex",
+              "name": "GPT-5.3 Codex",
+              "tier": "balanced",
+              "family": "GPT"
+            },
+            {
+              "id": "gpt-5.3-codex-spark",
+              "name": "GPT-5.3 Codex Spark",
+              "tier": "fast",
+              "family": "GPT"
+            },
+            {
+              "id": "gpt-5.2",
+              "name": "GPT-5.2",
+              "tier": "balanced",
+              "family": "GPT"
+            },
+            {
+              "id": "gpt-5.5-mini",
+              "name": "GPT-5.5 Mini",
+              "tier": "fast",
+              "pinned": true,
+              "family": "GPT"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "instances-initial",
+      "at": "2026-10-27T13:55:36.956Z",
+      "data": {
+        "success": true,
+        "instances": []
+      }
+    }
+  ],
+  "restartOf": "runtime-before-restart.json",
+  "pid": 44153,
+  "focusEmulation": true,
+  "visibilityOverride": {
+    "supported": false,
+    "error": "'Emulation.setPageVisibilityOverride' wasn't found"
+  },
+  "forcedExit": true,
+  "exitCode": null,
+  "signalCode": "SIGKILL",
+  "pidGone": true,
+  "finishedAt": "2026-10-27T13:59:45.376Z"
+}

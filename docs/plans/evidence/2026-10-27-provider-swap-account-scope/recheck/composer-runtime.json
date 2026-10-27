@@ -1,0 +1,172 @@
+{
+  "startedAt": "2026-10-27T14:19:27.379Z",
+  "method": "automated offscreen Electron DOM/IPC integration probe",
+  "probes": [
+    {
+      "name": "focus-before-dom",
+      "at": "2026-10-27T14:19:43.160Z",
+      "data": {
+        "hidden": false,
+        "visibility": "visible"
+      }
+    },
+    {
+      "name": "disposable-role-selected",
+      "at": "2026-10-27T14:19:43.262Z",
+      "data": {
+        "role": "coordinator",
+        "productionSettingsModified": false
+      }
+    },
+    {
+      "name": "account-list-shape",
+      "at": "2026-10-27T14:19:46.618Z",
+      "data": {
+        "keys": [
+          "success",
+          "data"
+        ],
+        "dataKeys": [
+          "profiles",
+          "pools"
+        ]
+      }
+    },
+    {
+      "name": "created",
+      "at": "2026-10-27T14:19:46.633Z",
+      "data": {
+        "id": "ikomymkke"
+      }
+    },
+    {
+      "name": "source-runtime",
+      "at": "2026-10-27T14:19:54.178Z",
+      "data": {
+        "id": "ikomymkke",
+        "provider": "opencode",
+        "accountProfileId": "comtechspare-f7a6",
+        "status": "idle"
+      }
+    },
+    {
+      "name": "source-input-accepted",
+      "at": "2026-10-27T14:20:34.647Z",
+      "data": {
+        "success": true
+      }
+    },
+    {
+      "name": "source-interrupted",
+      "at": "2026-10-27T14:20:36.652Z",
+      "data": {
+        "success": false
+      }
+    },
+    {
+      "name": "composer-before",
+      "at": "2026-10-27T14:20:36.654Z",
+      "data": {
+        "hidden": false,
+        "visibility": "visible",
+        "composerPresent": true,
+        "modelLabel": "OpenCode\n·\nMiMo-V2.6-Pro\n· Thinking: Provider default\n▾",
+        "accountLabel": "ComTechSpare",
+        "accountValue": "comtechspare-f7a6",
+        "accountOptions": [
+          {
+            "value": "comtechspare-f7a6",
+            "label": "ComTechSpare"
+          },
+          {
+            "value": "legacy",
+            "label": "SuasMimo"
+          }
+        ],
+        "originalMessageVisible": true,
+        "providerNoticeVisible": false,
+        "staleAccountErrorVisible": false
+      }
+    },
+    {
+      "name": "picker-model-available",
+      "at": "2026-10-27T14:20:36.731Z",
+      "data": {
+        "provider": "codex",
+        "model": "gpt-6-astra"
+      }
+    },
+    {
+      "name": "notice-diagnostic",
+      "at": "2026-10-27T14:20:43.825Z",
+      "data": {
+        "systemNotices": [
+          "[System: Provider changed from opencode (model xiaomi-token-plan-ams/mimo-v2.6-pro) to codex (model gpt-6-astra). Thinking changed from provider default to medium. Conversation context has been carried over from the previous provider.]"
+        ]
+      }
+    },
+    {
+      "name": "composer-after",
+      "at": "2026-10-27T14:20:43.825Z",
+      "data": {
+        "hidden": false,
+        "visibility": "visible",
+        "composerPresent": true,
+        "modelLabel": "Codex\n·\nGPT-6 Astra\n· Thinking: Provider default\n▾",
+        "accountLabel": "CodexSUAS",
+        "accountValue": "legacy",
+        "accountOptions": [
+          {
+            "value": "legacy",
+            "label": "CodexSUAS"
+          },
+          {
+            "value": "chatgptcomtech-e73d",
+            "label": "CodexComTech"
+          }
+        ],
+        "originalMessageVisible": true,
+        "providerNoticeVisible": true,
+        "staleAccountErrorVisible": false
+      }
+    },
+    {
+      "name": "swap-assertions",
+      "at": "2026-10-27T14:20:43.826Z",
+      "data": {
+        "provider": "codex",
+        "model": "gpt-6-astra",
+        "accountProfileId": "legacy",
+        "accountRoutingSource": "default",
+        "userMessagesPreserved": true,
+        "sourceAndDestinationDiffer": true,
+        "pickerUsed": true
+      }
+    },
+    {
+      "name": "continuation",
+      "at": "2026-10-27T14:20:47.594Z",
+      "data": {
+        "status": "idle",
+        "provider": "codex",
+        "accountProfileId": "legacy",
+        "priorFactRecalled": true
+      }
+    },
+    {
+      "name": "instance-cleanup",
+      "at": "2026-10-27T14:20:47.652Z",
+      "data": {
+        "remaining": 0
+      }
+    }
+  ],
+  "pid": 33032,
+  "focusEmulation": true,
+  "visibilityOverride": "unsupported",
+  "status": "PASS",
+  "pidGone": true,
+  "childExitCode": 0,
+  "childSignal": null,
+  "finishedAt": "2026-10-27T14:20:50.675Z"
+}

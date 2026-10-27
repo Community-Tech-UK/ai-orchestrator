@@ -1,0 +1,62 @@
+{
+  "at": "2026-10-27T13:49:22.774Z",
+  "name": "seven-mimo-sessions",
+  "focusEmulation": true,
+  "data": {
+    "rows": [
+      {
+        "n": 1,
+        "id": "ig122wkmi",
+        "status": "idle",
+        "elapsedMs": 6013,
+        "errors": []
+      },
+      {
+        "n": 2,
+        "id": "iz97mmnsg",
+        "status": "idle",
+        "elapsedMs": 6015,
+        "errors": []
+      },
+      {
+        "n": 3,
+        "id": "irginss8b",
+        "status": "idle",
+        "elapsedMs": 6013,
+        "errors": []
+      },
+      {
+        "n": 4,
+        "id": "i66k7pek9",
+        "status": "idle",
+        "elapsedMs": 6014,
+        "errors": []
+      },
+      {
+        "n": 5,
+        "id": "iba715k7b",
+        "status": "idle",
+        "elapsedMs": 6014,
+        "errors": []
+      },
+      {
+        "n": 6,
+        "id": "ie8c69z51",
+        "status": "idle",
+        "elapsedMs": 6015,
+        "errors": []
+      },
+      {
+        "n": 7,
+        "id": "iaw8q0k3g",
+        "status": "idle",
+        "elapsedMs": 6016,
+        "errors": []
+      }
+    ],
+    "idleCount": 7,
+    "providerCount": 7,
+    "seventhIdle": true,
+    "allIdle": true
+  }
+}

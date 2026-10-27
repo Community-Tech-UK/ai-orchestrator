@@ -1,0 +1,70 @@
+
+> harness@0.1.0 build:renderer
+> ng build --configuration production
+
+❯ Building...
+✔ Building...
+Initial chunk files | Names                            |  Raw size | Estimated transfer size
+main-KM5ALXY6.js    | main                             | 574.09 kB |               129.98 kB
+chunk-B15epgHb.js   | -                                | 427.85 kB |                78.12 kB
+chunk-DLFHzkT9.js   | -                                | 175.88 kB |                52.23 kB
+chunk-CGolJBWN.js   | -                                | 114.68 kB |                27.27 kB
+chunk-B0KCOq1D.js   | -                                |  65.25 kB |                16.73 kB
+chunk-CvdJpHGh.js   | -                                |  62.37 kB |                 9.02 kB
+chunk-DRU8Noka.js   | -                                |  56.70 kB |                13.43 kB
+styles-UDO6EOXO.css | styles                           |  50.32 kB |                 7.30 kB
+chunk-DOKiL5Sv.js   | -                                |  20.91 kB |                 6.49 kB
+chunk-DH-C1ECi.js   | -                                |  12.45 kB |                 3.01 kB
+chunk-HMGMIWcS.js   | -                                |   9.63 kB |                 1.06 kB
+chunk-D_H0GgoO.js   | -                                |   9.60 kB |                 1.57 kB
+chunk-BJemzEx0.js   | -                                |   8.38 kB |                 1.72 kB
+chunk-C4MMChMk.js   | -                                |   4.99 kB |                 1.06 kB
+chunk-ZvdWgXG2.js   | -                                |   4.44 kB |               680 bytes
+chunk-CZjBakRp.js   | -                                |   3.79 kB |               641 bytes
+chunk-Bgoexcot.js   | -                                |   3.77 kB |                 1.30 kB
+chunk--e5snqew.js   | -                                |   3.19 kB |               826 bytes
+chunk-DRpVibfG.js   | -                                |   2.28 kB |               632 bytes
+chunk-FM9b_vfL.js   | -                                |   1.91 kB |               445 bytes
+chunk-DOXDXD1w.js   | -                                |   1.58 kB |               409 bytes
+chunk-C66tc2rU.js   | -                                |   1.55 kB |               638 bytes
+chunk-DFsxk5cV.js   | -                                |   1.50 kB |               408 bytes
+chunk-a_qpsMts.js   | -                                |   1.29 kB |               358 bytes
+chunk-DxqKAYlM.js   | -                                |   1.21 kB |               505 bytes
+chunk-Cl3qHlxX.js   | -                                |   1.14 kB |               326 bytes
+chunk-C4LEZgO4.js   | -                                |   1.08 kB |               314 bytes
+chunk-4sJ0ybVw.js   | -                                |   1.05 kB |               321 bytes
+chunk-Bi4JZ-Tg.js   | -                                | 908 bytes |               908 bytes
+chunk-CjocP1Rv.js   | -                                | 868 bytes |               868 bytes
+chunk-CpKYhTYM.js   | -                                | 772 bytes |               772 bytes
+chunk-Dn626nBl.js   | -                                | 429 bytes |               429 bytes
+chunk-CJpGc7fm.js   | -                                | 216 bytes |               216 bytes
+chunk-DlUEGU2K.js   | -                                | 180 bytes |               180 bytes
+chunk-BeKI9a5c.js   | -                                | 145 bytes |               145 bytes
+
+                    | Initial total                    |   1.63 MB |               360.31 kB
+
+Lazy chunk files    | Names                            |  Raw size | Estimated transfer size
+chunk-CGHF_AST.js   | -                                |   1.23 MB |               304.73 kB
+chunk-CCf8c2Ng.js   | -                                |   1.15 MB |               311.83 kB
+chunk-BpTuZPKi.js   | -                                | 845.84 kB |               162.62 kB
+chunk-B5eyH6gT.js   | settings-component               | 692.27 kB |               135.24 kB
+chunk-Do5y-nGS.js   | dashboard-component              | 544.95 kB |               103.43 kB
+chunk-GoqToXSE.js   | xterm                            | 342.66 kB |                73.96 kB
+chunk-Dz7ForyK.js   | browser-page-component           | 122.85 kB |                22.74 kB
+chunk-Bt5TU_th.js   | local-ai-guard-page-component    | 103.43 kB |                19.64 kB
+chunk-CDSl_CSW.js   | verification-dashboard-component |  99.30 kB |                19.84 kB
+chunk-BJ5MkspQ.js   | automations-page-component       |  93.30 kB |                19.95 kB
+chunk-fCVqMflZ.js   | plan-queue-page-component        |  76.79 kB |                17.66 kB
+chunk-BDKUkKX0.js   | mcp-page-component               |  75.06 kB |                13.91 kB
+chunk-D39TnPs8.js   | rlm-page-component               |  70.19 kB |                12.63 kB
+chunk-yuwrx8oX.js   | knowledge-page-component         |  66.56 kB |                12.65 kB
+chunk-HFndv7b9.js   | cli-settings-panel-component     |  61.36 kB |                12.64 kB
+...and 84 more lazy chunks files. Use "--verbose" to show all the files.
+
+Application bundle generation complete. [27.083 seconds] - 2026-10-27T13:41:16.870Z
+
+▲ [WARNING] bundle initial exceeded maximum budget. Budget 1.00 MB was not met by 626.40 kB with a total of 1.63 MB.
+
+
+Output location: /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-provider-swap-accou-60c2ee/dist/renderer
+

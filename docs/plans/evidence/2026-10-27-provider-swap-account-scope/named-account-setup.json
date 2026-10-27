@@ -1,0 +1,35 @@
+{
+  "productionSettingsModified": false,
+  "metadataMirroredIntoIsolatedProfile": true,
+  "isolatedDefaultSelection": "existing named accounts before legacy",
+  "secretValuesCopied": false,
+  "links": [
+    {
+      "provider": "codex",
+      "profileId": "chatgptcomtech-e73d",
+      "authLinkCreated": true
+    }
+  ],
+  "selected": [
+    {
+      "provider": "codex",
+      "id": "legacy",
+      "priority": 1
+    },
+    {
+      "provider": "codex",
+      "id": "chatgptcomtech-e73d",
+      "priority": 0
+    },
+    {
+      "provider": "opencode",
+      "id": "legacy",
+      "priority": 1
+    },
+    {
+      "provider": "opencode",
+      "id": "comtechspare-f7a6",
+      "priority": 0
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+focus-before-dom {"hidden":false,"visibility":"visible"}
+AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+false !== true
+
+    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-provider-swap-accou-60c2ee/_scratch/lt-queue-c260c2ee/composer-check.mjs:67:9 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: false,
+  expected: true,
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+instance-cleanup {"remaining":0}

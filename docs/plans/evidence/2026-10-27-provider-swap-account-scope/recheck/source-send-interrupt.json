@@ -1,0 +1,7 @@
+{
+  "at": "2026-10-27T14:20:34.644Z",
+  "reason": "sendInput waits for source-provider completion; interrupt only the disposable source turn",
+  "id": "ikomymkke",
+  "statusBefore": "busy",
+  "success": true
+}

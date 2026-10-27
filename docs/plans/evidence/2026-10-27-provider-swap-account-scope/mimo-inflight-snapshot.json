@@ -1,0 +1,22 @@
+{
+  "at": "2026-10-27T13:47:30.625Z",
+  "name": "mimo-inflight-snapshot",
+  "focusEmulation": true,
+  "data": {
+    "id": "ivvrzdqhb",
+    "status": "error",
+    "provider": "opencode",
+    "messageTypes": [
+      "user",
+      "system",
+      "error",
+      "error"
+    ],
+    "errors": [
+      "ACP session/prompt failed: Internal error: quota exhausted (-32603)",
+      "ACP session/prompt failed: Internal error: quota exhausted (-32603)"
+    ],
+    "assistantResponsePresent": false,
+    "rememberedColourPresent": true
+  }
+}

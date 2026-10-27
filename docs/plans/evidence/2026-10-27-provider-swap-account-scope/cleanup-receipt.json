@@ -1,0 +1,84 @@
+{
+  "at": "2026-10-27T14:07:03.616982+00:00",
+  "isolatedMainPids": [
+    {
+      "pid": 4963,
+      "gone": true
+    },
+    {
+      "pid": 30165,
+      "gone": true
+    },
+    {
+      "pid": 59673,
+      "gone": true
+    },
+    {
+      "pid": 44153,
+      "gone": true
+    },
+    {
+      "pid": 84179,
+      "gone": true
+    }
+  ],
+  "listeners": [
+    {
+      "port": 9832,
+      "closed": true
+    },
+    {
+      "port": 49832,
+      "closed": true
+    }
+  ],
+  "removed": [
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-provider-swap-accou-60c2ee/dist",
+      "existed": true,
+      "absentAfter": true
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-provider-swap-accou-60c2ee/.angular",
+      "existed": false,
+      "absentAfter": true
+    },
+    {
+      "path": "/tmp/aio-lt-queue-c260c2ee",
+      "existed": true,
+      "absentAfter": true
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-provider-swap-accou-60c2ee/_scratch/lt-queue-c260c2ee",
+      "existed": true,
+      "absentAfter": true
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-provider-swap-accou-60c2ee/_scratch/test-run.pid-47926.log",
+      "existed": true,
+      "absentAfter": true
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-provider-swap-accou-60c2ee/_scratch/test-results.pid-47926.json",
+      "existed": true,
+      "absentAfter": true
+    }
+  ],
+  "preExistingDependencyLinksPreserved": true,
+  "dependencyInstallsCreated": false,
+  "browserBinariesDownloaded": false,
+  "sourceCheckoutsCopied": false,
+  "productionStoresPreserved": true,
+  "remainingInstances": 0,
+  "remainingAutomations": 0,
+  "branch": "queue/2026-10-14-provider-swap-accou-60c2ee",
+  "worktreeListChecked": true,
+  "branchListChecked": true,
+  "worktreeStatus": [
+    "?? docs/plans/evidence/2026-10-27-provider-swap-account-scope/"
+  ],
+  "owningRootDocumentStatus": "M docs/plans/2026-10-14-provider-swap-account-scope_livetest.md",
+  "stagedPaths": [],
+  "documentRenamed": false,
+  "commitOrStashCreated": false
+}

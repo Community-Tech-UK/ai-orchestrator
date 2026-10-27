@@ -1,0 +1,14 @@
+focus-before-dom {"hidden":false,"visibility":"visible"}
+disposable-role-selected {"role":"coordinator","productionSettingsModified":false}
+account-list-shape {"keys":["success","data"],"dataKeys":["profiles","pools"]}
+created {"id":"ikomymkke"}
+source-runtime {"id":"ikomymkke","provider":"opencode","accountProfileId":"comtechspare-f7a6","status":"idle"}
+source-input-accepted {"success":true}
+source-interrupted {"success":false}
+composer-before {"hidden":false,"visibility":"visible","composerPresent":true,"modelLabel":"OpenCode\n·\nMiMo-V2.6-Pro\n· Thinking: Provider default\n▾","accountLabel":"ComTechSpare","accountValue":"comtechspare-f7a6","accountOptions":[{"value":"comtechspare-f7a6","label":"ComTechSpare"},{"value":"legacy","label":"SuasMimo"}],"originalMessageVisible":true,"providerNoticeVisible":false,"staleAccountErrorVisible":false}
+picker-model-available {"provider":"codex","model":"gpt-6-astra"}
+notice-diagnostic {"systemNotices":["[System: Provider changed from opencode (model xiaomi-token-plan-ams/mimo-v2.6-pro) to codex (model gpt-6-astra). Thinking changed from provider default to medium. Conversation context has been carried over from the previous provider.]"]}
+composer-after {"hidden":false,"visibility":"visible","composerPresent":true,"modelLabel":"Codex\n·\nGPT-6 Astra\n· Thinking: Provider default\n▾","accountLabel":"CodexSUAS","accountValue":"legacy","accountOptions":[{"value":"legacy","label":"CodexSUAS"},{"value":"chatgptcomtech-e73d","label":"CodexComTech"}],"originalMessageVisible":true,"providerNoticeVisible":true,"staleAccountErrorVisible":false}
+swap-assertions {"provider":"codex","model":"gpt-6-astra","accountProfileId":"legacy","accountRoutingSource":"default","userMessagesPreserved":true,"sourceAndDestinationDiffer":true,"pickerUsed":true}
+continuation {"status":"idle","provider":"codex","accountProfileId":"legacy","priorFactRecalled":true}
+instance-cleanup {"remaining":0}

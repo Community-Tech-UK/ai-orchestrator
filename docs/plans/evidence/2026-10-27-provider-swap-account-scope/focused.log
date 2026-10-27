@@ -1,0 +1,6 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/instance/lifecycle/runtime-reconciler.provider-account-swap.spec.ts src/main/cli/provider-concurrency-limiter.spec.ts src/main/providers/account-pool/provider-account-routing-service.spec.ts
+
+✓ 3 files · 65 tests passed in 13.2s
+  full log: _scratch/test-run.pid-47926.log

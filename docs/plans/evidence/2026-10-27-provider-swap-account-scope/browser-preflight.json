@@ -1,0 +1,9 @@
+{
+  "recordedAt": "2026-10-27T14:06:00.069Z",
+  "decision": "allowed",
+  "outcome": "succeeded",
+  "requestedComputer": "windows-pc",
+  "selectedChannel": null,
+  "remoteInventoryResponded": true,
+  "localBrowserDriven": false
+}

@@ -1,0 +1,23 @@
+{
+  "at": "2026-10-27T13:48:58.018Z",
+  "name": "codex-continuation-supported-model",
+  "focusEmulation": true,
+  "data": {
+    "success": true,
+    "sendSuccess": false,
+    "error": {
+      "code": "SEND_FAILED",
+      "message": "Instance ivvrzdqhb terminated while waiting to deliver input (status: error)",
+      "timestamp": 1793108938016
+    },
+    "provider": "codex",
+    "model": "gpt-5.3-codex",
+    "status": "error",
+    "assistantPresent": false,
+    "priorColourRecalled": false,
+    "userCount": 1,
+    "latestErrors": [
+      "Codex error: {\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account.\",\"code\":\"model_not_found\"}} - [codex_error_info: other]"
+    ]
+  }
+}

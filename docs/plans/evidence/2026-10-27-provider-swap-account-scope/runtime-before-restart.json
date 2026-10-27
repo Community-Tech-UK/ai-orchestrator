@@ -1,0 +1,193 @@
+{
+  "startedAt": "2026-10-27T13:43:28.924Z",
+  "profile": "/tmp/aio-lt-queue-c260c2ee",
+  "debugPort": 9832,
+  "hiddenTestWindow": true,
+  "probes": [
+    {
+      "name": "renderer-prerequisites",
+      "at": "2026-10-27T13:43:55.808Z",
+      "data": {
+        "hidden": false,
+        "visibility": "visible",
+        "bridge": true
+      }
+    },
+    {
+      "name": "accounts",
+      "at": "2026-10-27T13:43:58.532Z",
+      "data": {
+        "success": true,
+        "profiles": [
+          {
+            "provider": "claude",
+            "id": "legacy",
+            "enabled": true,
+            "isLegacy": true,
+            "binding": {
+              "state": "authenticated"
+            }
+          },
+          {
+            "provider": "codex",
+            "id": "legacy",
+            "enabled": true,
+            "isLegacy": true,
+            "binding": {
+              "state": "authenticated"
+            }
+          },
+          {
+            "provider": "opencode",
+            "id": "legacy",
+            "enabled": true,
+            "isLegacy": true,
+            "region": "ams",
+            "binding": {
+              "state": "authenticated"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "models",
+      "at": "2026-10-27T13:43:58.535Z",
+      "data": {
+        "opencode": {
+          "success": true,
+          "data": []
+        },
+        "codex": {
+          "success": true,
+          "data": [
+            {
+              "id": "gpt-5.6-sol",
+              "name": "GPT-5.6 Sol",
+              "tier": "powerful",
+              "pinned": true,
+              "family": "GPT"
+            },
+            {
+              "id": "gpt-5.6-terra",
+              "name": "GPT-5.6 Terra",
+              "tier": "balanced",
+              "family": "GPT"
+            },
+            {
+              "id": "gpt-5.6-luna",
+              "name": "GPT-5.6 Luna",
+              "tier": "fast",
+              "family": "GPT"
+            },
+            {
+              "id": "gpt-6-astra",
+              "name": "GPT-6 Astra",
+              "tier": "powerful",
+              "family": "GPT"
+            },
+            {
+              "id": "gpt-5.5",
+              "name": "GPT-5.5",
+              "tier": "powerful",
+              "pinned": true,
+              "family": "GPT"
+            },
+            {
+              "id": "gpt-5.3-codex",
+              "name": "GPT-5.3 Codex",
+              "tier": "balanced",
+              "family": "GPT"
+            },
+            {
+              "id": "gpt-5.3-codex-spark",
+              "name": "GPT-5.3 Codex Spark",
+              "tier": "fast",
+              "family": "GPT"
+            },
+            {
+              "id": "gpt-5.2",
+              "name": "GPT-5.2",
+              "tier": "balanced",
+              "family": "GPT"
+            },
+            {
+              "id": "gpt-5.5-mini",
+              "name": "GPT-5.5 Mini",
+              "tier": "fast",
+              "pinned": true,
+              "family": "GPT"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "instances-initial",
+      "at": "2026-10-27T13:43:58.536Z",
+      "data": {
+        "success": true,
+        "instances": []
+      }
+    },
+    {
+      "name": "create-mimo",
+      "at": "2026-10-27T13:44:37.599Z",
+      "data": {
+        "success": true,
+        "id": "i98wl35x6",
+        "status": "initializing",
+        "provider": "opencode",
+        "model": "xiaomi-token-plan-ams/mimo-v2.6-pro"
+      }
+    },
+    {
+      "name": "mimo-send",
+      "at": "2026-10-27T13:44:58.623Z",
+      "data": {
+        "ready": false,
+        "status": "error",
+        "provider": "opencode"
+      }
+    },
+    {
+      "name": "mimo-startup-error",
+      "at": "2026-10-27T13:45:24.655Z",
+      "data": {
+        "id": "i98wl35x6",
+        "status": "error",
+        "errorMessages": [
+          "This session could not start. Reason: Interactive launch mode is only supported for Claude."
+        ]
+      }
+    },
+    {
+      "name": "create-mimo-corrected-launch",
+      "at": "2026-10-27T13:45:37.683Z",
+      "data": {
+        "success": true,
+        "id": "ivvrzdqhb"
+      }
+    },
+    {
+      "name": "mimo-send-corrected",
+      "at": "2026-10-27T13:47:13.714Z",
+      "data": {
+        "ready": true,
+        "provider": "opencode",
+        "sendSuccess": true
+      }
+    }
+  ],
+  "pid": 30165,
+  "focusEmulation": true,
+  "visibilityOverride": {
+    "supported": false,
+    "error": "'Emulation.setPageVisibilityOverride' wasn't found"
+  },
+  "forcedExit": true,
+  "exitCode": null,
+  "signalCode": "SIGKILL",
+  "pidGone": true,
+  "finishedAt": "2026-10-27T13:51:14.016Z"
+}

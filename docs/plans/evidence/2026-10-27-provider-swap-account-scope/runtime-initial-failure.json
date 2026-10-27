@@ -1,0 +1,11 @@
+{
+  "startedAt": "2026-10-27T13:42:24.358Z",
+  "profile": "/tmp/aio-lt-queue-c260c2ee",
+  "debugPort": 9832,
+  "hiddenTestWindow": true,
+  "probes": [],
+  "pid": 4963,
+  "error": "Initial Electron launch ended during sandbox initialization before CDP readiness; runner fetch lacked a deadline and was stopped.",
+  "pidGone": true,
+  "finishedAt": "2026-10-27T13:43:28.243805+00:00"
+}

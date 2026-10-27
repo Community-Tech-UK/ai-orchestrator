@@ -1,0 +1,21 @@
+{
+  "at": "2026-10-27T13:57:22.848Z",
+  "name": "named-mimo-to-codex",
+  "focusEmulation": true,
+  "data": {
+    "success": true,
+    "interrupted": true,
+    "id": "xrep2efs3",
+    "sourceProvider": "opencode",
+    "sourceAccount": "comtechspare-f7a6",
+    "provider": "codex",
+    "model": "gpt-6-astra",
+    "status": "idle",
+    "accountProfileId": "legacy",
+    "accountRoutingSource": "default",
+    "destinationDiffersFromSource": true,
+    "userMessagesPreserved": true,
+    "providerNoticePresent": true,
+    "staleAccountErrorPresent": false
+  }
+}

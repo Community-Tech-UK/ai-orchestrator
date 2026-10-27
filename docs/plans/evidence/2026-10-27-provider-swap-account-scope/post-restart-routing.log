@@ -1,0 +1,8 @@
+[2026-10-27T14:00:53.191Z] [INFO] [ProviderAccountEvents] account_route_resolved {
+  provider: 'codex',
+  profileId: 'legacy',
+  nodeId: 'local',
+  origin: 'interactive',
+  routingSource: 'persisted'
+}
+[2026-10-27T14:00:53.195Z] [INFO] [InstanceLifecycle] Spawning CLI process { provider: 'codex' }

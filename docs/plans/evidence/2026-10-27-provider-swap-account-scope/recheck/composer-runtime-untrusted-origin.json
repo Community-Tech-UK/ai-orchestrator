@@ -1,0 +1,33 @@
+{
+  "startedAt": "2026-10-27T14:16:25.670Z",
+  "method": "automated offscreen Electron DOM/IPC integration probe",
+  "probes": [
+    {
+      "name": "focus-before-dom",
+      "at": "2026-10-27T14:16:44.605Z",
+      "data": {
+        "hidden": false,
+        "visibility": "visible"
+      }
+    },
+    {
+      "name": "instance-cleanup",
+      "at": "2026-10-27T14:16:44.617Z",
+      "data": {
+        "remaining": 0
+      }
+    }
+  ],
+  "pid": 53586,
+  "focusEmulation": true,
+  "visibilityOverride": "unsupported",
+  "status": "FAIL",
+  "error": {
+    "message": "Expected values to be strictly equal:\n\nfalse !== true\n",
+    "stack": "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n\nfalse !== true\n\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-provider-swap-accou-60c2ee/_scratch/lt-queue-c260c2ee/composer-check.mjs:67:9"
+  },
+  "pidGone": true,
+  "childExitCode": 0,
+  "childSignal": null,
+  "finishedAt": "2026-10-27T14:16:44.871Z"
+}

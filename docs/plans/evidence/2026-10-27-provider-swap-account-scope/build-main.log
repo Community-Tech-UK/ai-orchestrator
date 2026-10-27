@@ -1,0 +1,13 @@
+
+> harness@0.1.0 prebuild:main
+> node scripts/refresh-codex-protocol.js
+
+
+> harness@0.1.0 build:main
+> tsc -p tsconfig.electron.json && node scripts/sync-dist.js && tsx build-preload.ts
+
+
+  dist/preload/preload.js  234.9kb
+
+⚡ Done in 15ms
+Preload bundled -> dist/preload/preload.js

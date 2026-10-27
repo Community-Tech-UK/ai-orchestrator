@@ -1,0 +1,13 @@
+{
+  "at": "2026-10-27T14:01:07.458Z",
+  "name": "named-account-post-restart-continuation",
+  "focusEmulation": true,
+  "data": {
+    "sendSuccess": true,
+    "provider": "codex",
+    "model": "gpt-6-astra",
+    "status": "idle",
+    "priorFactRecalled": true,
+    "accountProfileId": "legacy"
+  }
+}

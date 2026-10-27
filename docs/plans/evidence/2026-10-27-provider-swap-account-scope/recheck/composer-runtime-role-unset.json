@@ -1,0 +1,64 @@
+{
+  "startedAt": "2026-10-27T14:17:46.681Z",
+  "method": "automated offscreen Electron DOM/IPC integration probe",
+  "probes": [
+    {
+      "name": "focus-before-dom",
+      "at": "2026-10-27T14:18:02.863Z",
+      "data": {
+        "hidden": false,
+        "visibility": "visible"
+      }
+    },
+    {
+      "name": "account-list-shape",
+      "at": "2026-10-27T14:18:05.768Z",
+      "data": {
+        "keys": [
+          "success",
+          "data"
+        ],
+        "dataKeys": [
+          "profiles",
+          "pools"
+        ]
+      }
+    },
+    {
+      "name": "created",
+      "at": "2026-10-27T14:18:05.773Z",
+      "data": {
+        "id": "iyz3vjob0"
+      }
+    },
+    {
+      "name": "source-runtime",
+      "at": "2026-10-27T14:18:10.798Z",
+      "data": {
+        "id": "iyz3vjob0",
+        "provider": "opencode",
+        "accountProfileId": "comtechspare-f7a6",
+        "status": "idle"
+      }
+    },
+    {
+      "name": "instance-cleanup",
+      "at": "2026-10-27T14:19:10.820Z",
+      "data": {
+        "remaining": 0
+      }
+    }
+  ],
+  "pid": 62375,
+  "focusEmulation": true,
+  "visibilityOverride": "unsupported",
+  "status": "FAIL",
+  "error": {
+    "message": "Waiting for selector `app-instance-row .instance-row` failed",
+    "stack": "TimeoutError: Waiting for selector `app-instance-row .instance-row` failed\n    at CSSQueryHandler.waitFor (file:///Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/puppeteer-core/lib/puppeteer/common/QueryHandler.js:211:46)\n    at async CdpFrame.waitForSelector (file:///Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/puppeteer-core/lib/puppeteer/api/Frame.js:546:21)\n    at async CdpPage.waitForSelector (file:///Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/puppeteer-core/lib/puppeteer/api/Page.js:1482:20)\n    at async file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-provider-swap-accou-60c2ee/_scratch/lt-queue-c260c2ee/composer-check.mjs:76:2"
+  },
+  "pidGone": true,
+  "childExitCode": 0,
+  "childSignal": null,
+  "finishedAt": "2026-10-27T14:19:11.073Z"
+}

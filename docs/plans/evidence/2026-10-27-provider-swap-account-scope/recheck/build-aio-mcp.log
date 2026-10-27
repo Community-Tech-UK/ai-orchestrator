@@ -1,0 +1,28 @@
+
+> harness@0.1.0 build:aio-mcp-dist
+> npm run build:aio-mcp-cli && npm run build:aio-mcp-sea
+
+
+> harness@0.1.0 build:aio-mcp-cli
+> tsx build-aio-mcp-cli.ts
+
+
+  dist/aio-mcp-cli/index.js  1.3mb ⚠️
+
+⚡ Done in 30ms
+aio-mcp CLI bundle built -> dist/aio-mcp-cli/index.js
+
+> harness@0.1.0 build:aio-mcp-sea
+> tsx build-aio-mcp-cli-sea.ts
+
+Error: SEA build requires a Node binary that contains the Node SEA fuse, but /opt/homebrew/Cellar/node/26.12.1/bin/node does not contain the Node SEA fuse. Use the self-contained Node version pinned in .nvmrc (for example, `nvm use`).
+    at assertSeaBuildSupported (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-provider-swap-accou-60c2ee/scripts/sea-build-support.ts:61:11)
+    at main (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-provider-swap-accou-60c2ee/build-aio-mcp-cli-sea.ts:20:3)
+    at <anonymous> (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-provider-swap-accou-60c2ee/build-aio-mcp-cli-sea.ts:62:1)
+    at Object.<anonymous> (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-provider-swap-accou-60c2ee/build-aio-mcp-cli-sea.ts:65:2)
+    at Module._compile (node:internal/modules/cjs/loader:1968:14)
+    at Object.transformer (/Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/tsx/dist/register-B1c7OH6V.cjs:22:2188)
+    at Module.load (node:internal/modules/cjs/loader:1690:32)
+    at Module._load (node:internal/modules/cjs/loader:1480:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)
+    at loadCJSModuleWithModuleLoad (node:internal/modules/esm/translators:377:15)

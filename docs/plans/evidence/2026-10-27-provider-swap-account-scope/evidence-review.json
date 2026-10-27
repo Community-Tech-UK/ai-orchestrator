@@ -1,0 +1,27 @@
+{
+  "at": "2026-10-27T14:06:00.169918+00:00",
+  "reviewType": "worker evidence consistency review; independent queue verification still pending",
+  "checks": {
+    "1": "PARTIAL: backend passes; installed composer visual requirement open",
+    "2": "PASS: real restart, native resume, same account, contextual reply",
+    "3": "PASS: seven live idle MiMo sessions"
+  },
+  "sourceCodeChanged": false,
+  "requiredCommandsPassed": [
+    "build-main",
+    "build-renderer",
+    "build-aio-mcp",
+    "typecheck",
+    "typecheck-spec",
+    "lint",
+    "focused"
+  ],
+  "allAssertionsPassed": true,
+  "initialFailuresRetained": true,
+  "finalRuntimeProviderPidsGone": [
+    {
+      "pid": 13419,
+      "stillExists": false
+    }
+  ]
+}

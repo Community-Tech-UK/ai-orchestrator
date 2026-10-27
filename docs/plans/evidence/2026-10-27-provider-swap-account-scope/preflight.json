@@ -1,0 +1,11 @@
+{
+  "at": "2026-10-27T13:39:46.823388+00:00",
+  "runtimePaths": {
+    "dist": false,
+    ".angular": false,
+    "node_modules": true,
+    "/tmp/aio-lt-queue-c260c2ee": false
+  },
+  "head": "7c8922a37c5b26d7fe6fa0eefaf00c6f3f241b87",
+  "branch": "queue/2026-10-14-provider-swap-accou-60c2ee"
+}

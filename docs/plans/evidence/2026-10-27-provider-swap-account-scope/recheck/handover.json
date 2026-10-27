@@ -1,0 +1,67 @@
+{
+  "at": "2026-10-27T14:25:34.247869+00:00",
+  "ownerDocument": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-14-provider-swap-account-scope_livetest.md",
+  "ownerSha256": "d99984816fdfa3f5bc199f7db4cc7d84af3037f8f398c35f282343793dbc6305",
+  "ownerUpdatedInRootOnly": true,
+  "worktreeDocumentIntentionallyUnchanged": true,
+  "rootDocumentCopiedIntoWorktree": false,
+  "branch": "queue/2026-10-14-provider-swap-accou-60c2ee",
+  "checkpointHead": "5cf63d90b4926acf2a57ef99a3736f59e69bc41c",
+  "evidenceWorkingDirectory": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-provider-swap-accou-60c2ee/docs/plans/evidence/2026-10-27-provider-swap-account-scope",
+  "evidenceLandingDirectory": "docs/plans/evidence/2026-10-27-provider-swap-account-scope",
+  "closedDocumentDestinationForCoordinator": "docs/plans/2026-10-14-provider-swap-account-scope_livetest_completed.md",
+  "workerRenamedDocument": false,
+  "requiredCoordinatorAction": "After an independent verifier PASS, harvest the current root owner document together with all branch evidence, including the newly unignored command logs. Use the existing queue document-close/landing workflow; do not discard either half.",
+  "existingCoordinatorWiring": [
+    "src/main/plan-queue/plan-queue-doc-close.ts:94 (reads root document content into prepared landing documents)",
+    "src/main/plan-queue/plan-queue-squash.ts:112 (squashes branch and writes prepared documents into one landing commit)"
+  ],
+  "beforeLandingLinks": "The owning document follow-up supplies working-copy links into this worktree alongside portable landing links. This handover also provides an absolute root owner path, so both pieces are directly reviewable now.",
+  "portableLinkMappings": [
+    {
+      "landing": "evidence/2026-10-27-provider-swap-account-scope/recheck/report.md",
+      "workingCopy": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-provider-swap-accou-60c2ee/docs/plans/evidence/2026-10-27-provider-swap-account-scope/recheck/report.md"
+    },
+    {
+      "landing": "evidence/2026-10-27-provider-swap-account-scope/recheck/composer-runtime.json",
+      "workingCopy": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-provider-swap-accou-60c2ee/docs/plans/evidence/2026-10-27-provider-swap-account-scope/recheck/composer-runtime.json"
+    },
+    {
+      "landing": "evidence/2026-10-27-provider-swap-account-scope/recheck/command-receipts.ndjson",
+      "workingCopy": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-provider-swap-accou-60c2ee/docs/plans/evidence/2026-10-27-provider-swap-account-scope/recheck/command-receipts.ndjson"
+    },
+    {
+      "landing": "evidence/2026-10-27-provider-swap-account-scope/recheck/seal.json",
+      "workingCopy": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-provider-swap-accou-60c2ee/docs/plans/evidence/2026-10-27-provider-swap-account-scope/recheck/seal.json"
+    },
+    {
+      "landing": "evidence/2026-10-27-provider-swap-account-scope/recheck/cleanup-receipt.json",
+      "workingCopy": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-provider-swap-accou-60c2ee/docs/plans/evidence/2026-10-27-provider-swap-account-scope/recheck/cleanup-receipt.json"
+    },
+    {
+      "landing": "evidence/2026-10-27-provider-swap-account-scope/recheck/handover.json",
+      "workingCopy": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-provider-swap-accou-60c2ee/docs/plans/evidence/2026-10-27-provider-swap-account-scope/recheck/handover.json"
+    },
+    {
+      "landing": "evidence/2026-10-27-provider-swap-account-scope/named-account-restore-after-restart.json",
+      "workingCopy": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-provider-swap-accou-60c2ee/docs/plans/evidence/2026-10-27-provider-swap-account-scope/named-account-restore-after-restart.json"
+    },
+    {
+      "landing": "evidence/2026-10-27-provider-swap-account-scope/named-account-post-restart-continuation.json",
+      "workingCopy": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-provider-swap-accou-60c2ee/docs/plans/evidence/2026-10-27-provider-swap-account-scope/named-account-post-restart-continuation.json"
+    },
+    {
+      "landing": "evidence/2026-10-27-provider-swap-account-scope/seven-mimo-sessions.json",
+      "workingCopy": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-provider-swap-accou-60c2ee/docs/plans/evidence/2026-10-27-provider-swap-account-scope/seven-mimo-sessions.json"
+    }
+  ],
+  "commandLogsPortable": true,
+  "logIgnoreException": "docs/plans/evidence/2026-10-27-provider-swap-account-scope/.gitignore",
+  "liveChecks": {
+    "composerSwap": "PASS",
+    "restart": "PASS (original evidence revalidated)",
+    "seventhSession": "PASS (original evidence revalidated)"
+  },
+  "humanStepsOutstanding": [],
+  "independentQueueVerifier": "pending"
+}

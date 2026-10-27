@@ -1,0 +1,10 @@
+{
+  "archivePresent": true,
+  "checkedAt": "2026-10-27T13:57:39.567Z",
+  "runningInstalledProcessInspected": false,
+  "reconcilerSha256": "2a0353396982f9a073c177b7f2d4e1c77e2596febf276094757ef4abaf122d18",
+  "containsProviderAccountReset": true,
+  "containsRollbackAccountRestore": true,
+  "containsDestinationAccountContinuity": true,
+  "containsOpenCodeCap20": true
+}

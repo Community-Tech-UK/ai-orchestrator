@@ -1,0 +1,87 @@
+{
+  "at": "2026-10-27T14:26:00.371970+00:00",
+  "ownedPidChecks": [
+    {
+      "pid": 33032,
+      "gone": true
+    },
+    {
+      "pid": 53586,
+      "gone": true
+    },
+    {
+      "pid": 62375,
+      "gone": true
+    },
+    {
+      "pid": 33278,
+      "gone": true
+    },
+    {
+      "pid": 64434,
+      "gone": true
+    },
+    {
+      "pid": 77060,
+      "gone": true
+    }
+  ],
+  "listeners": [
+    {
+      "port": 9832,
+      "closed": true
+    },
+    {
+      "port": 49832,
+      "closed": true
+    }
+  ],
+  "removed": [
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-provider-swap-accou-60c2ee/dist",
+      "existed": true,
+      "absentAfter": true
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-provider-swap-accou-60c2ee/.angular",
+      "existed": false,
+      "absentAfter": true
+    },
+    {
+      "path": "/tmp/aio-lt-queue-c260c2ee",
+      "existed": true,
+      "absentAfter": true
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-provider-swap-accou-60c2ee/_scratch/lt-queue-c260c2ee",
+      "existed": true,
+      "absentAfter": true
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-provider-swap-accou-60c2ee/_scratch/test-run.pid-54379.log",
+      "existed": true,
+      "absentAfter": true
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-provider-swap-accou-60c2ee/_scratch/test-results.pid-54379.json",
+      "existed": true,
+      "absentAfter": true
+    }
+  ],
+  "remainingInstances": 0,
+  "preExistingSharedDependenciesAndCacheSymlinksPreserved": true,
+  "dependencyInstallsCreated": false,
+  "browserBinariesDownloaded": false,
+  "sourceCheckoutsCopied": false,
+  "productionStoresPreserved": true,
+  "branch": "queue/2026-10-14-provider-swap-accou-60c2ee",
+  "head": "5cf63d90b4926acf2a57ef99a3736f59e69bc41c",
+  "stagedPaths": [],
+  "documentRenamed": false,
+  "rootDocumentCopiedIntoWorktree": false,
+  "owningRootDocumentStatus": "M docs/plans/2026-10-14-provider-swap-account-scope_livetest.md",
+  "worktreeDocumentStatus": "",
+  "worktreeListChecked": true,
+  "branchListChecked": true,
+  "commitOrStashCreated": false
+}

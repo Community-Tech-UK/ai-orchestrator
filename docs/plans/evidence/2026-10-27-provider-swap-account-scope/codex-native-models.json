@@ -1,0 +1,54 @@
+{
+  "models": [
+    {
+      "id": "gpt-6.1-sol",
+      "model": "gpt-6.1-sol",
+      "isDefault": true,
+      "hidden": false
+    },
+    {
+      "id": "gpt-6-astra",
+      "model": "gpt-6-astra",
+      "isDefault": false,
+      "hidden": false
+    },
+    {
+      "id": "gpt-6.1-terra",
+      "model": "gpt-6.1-terra",
+      "isDefault": false,
+      "hidden": false
+    },
+    {
+      "id": "gpt-6-sol",
+      "model": "gpt-6-sol",
+      "isDefault": false,
+      "hidden": false
+    },
+    {
+      "id": "gpt-6-luna",
+      "model": "gpt-6-luna",
+      "isDefault": false,
+      "hidden": false
+    },
+    {
+      "id": "gpt-5.6-sol",
+      "model": "gpt-5.6-sol",
+      "isDefault": false,
+      "hidden": false
+    },
+    {
+      "id": "gpt-5.6-terra",
+      "model": "gpt-5.6-terra",
+      "isDefault": false,
+      "hidden": false
+    },
+    {
+      "id": "gpt-5.6-luna",
+      "model": "gpt-5.6-luna",
+      "isDefault": false,
+      "hidden": false
+    }
+  ],
+  "error": null,
+  "processStopped": true
+}
