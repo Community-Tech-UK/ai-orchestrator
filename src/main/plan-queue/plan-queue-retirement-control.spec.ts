@@ -42,6 +42,11 @@ let run: PlanQueueRun;
 let item: PlanQueueItem;
 const git = (args: string[], cwd = repo) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 
+// Every test drives real git (worktree, checkpoint, squash landing), so the
+// default 5s test / 1s waitFor budgets fail under a loaded full-suite run.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
+const waitBudget = { timeout: 10_000 };
+
 beforeEach(() => {
   PlanQueueCoordinator._resetForTesting(); GitWriteQueue._resetForTesting();
   repo = mkdtempSync(join(tmpdir(), 'queue-pause-control-'));
@@ -109,12 +114,12 @@ it.each(['pause', 'move', 'cancel'] as const)('%s waits for checker outcome reti
   const remove = vi.spyOn(coordinator.worktrees, 'removeWithProof');
   vi.spyOn(coordinator, 'requestPump').mockImplementation(() => undefined);
   outcome('checker', 'verifier');
-  await vi.waitFor(() => expect(instances.terminateInstance).toHaveBeenCalledWith('checker', true));
+  await vi.waitFor(() => expect(instances.terminateInstance).toHaveBeenCalledWith('checker', true), waitBudget);
   writeFileSync(join(item.worktreePath!, 'feature.txt'), 'checker still writing\n');
   let settled = false;
   const controlling = control(action).then(() => { settled = true; });
   try {
-    await vi.waitFor(() => expect(store.getRun(run.id)?.status).toBe('paused'));
+    await vi.waitFor(() => expect(store.getRun(run.id)?.status).toBe('paused'), waitBudget);
     await tick();
     expect(settled).toBe(false);
     expect(store.getItem(item.id)).toMatchObject({ state: 'verifying', verifierInstanceId: 'checker', erroredRounds: 0 });
@@ -159,7 +164,7 @@ it('Cancel waits for a failed worker outcome retirement before checkpointing', a
   vi.spyOn(coordinator, 'requestPump').mockImplementation(() => undefined);
   const checkpoint = vi.spyOn(coordinator.worktrees, 'checkpoint');
   outcome('worker', 'worker');
-  await vi.waitFor(() => expect(instances.terminateInstance).toHaveBeenCalledWith('worker', true));
+  await vi.waitFor(() => expect(instances.terminateInstance).toHaveBeenCalledWith('worker', true), waitBudget);
   let settled = false;
   const cancelling = control('cancel').then(() => { settled = true; });
   try {
@@ -175,7 +180,7 @@ it('Cancel waits for a failed worker outcome retirement before checkpointing', a
 it('Pause waits for retirement started by a triage outcome and retries a completed failure', async () => {
   store.upsertItem({ ...item, state: 'discovered', branchName: null, worktreePath: null, workerInstanceId: null });
   coordinator.requestPump();
-  await vi.waitFor(() => expect(instances.created.some(config => config.metadata?.['planQueueRole'] === 'triage')).toBe(true));
+  await vi.waitFor(() => expect(instances.created.some(config => config.metadata?.['planQueueRole'] === 'triage')).toBe(true), waitBudget);
   const triage = [...instances.live.values()].find(session => session.metadata?.['planQueueRole'] === 'triage')!;
   vi.spyOn(coordinator, 'requestPump').mockImplementation(() => undefined);
   const gate = deferred();
@@ -185,7 +190,7 @@ it('Pause waits for retirement started by a triage outcome and retries a complet
     instances.live.delete(id);
   });
   outcome(triage.id, 'triage');
-  await vi.waitFor(() => expect(instances.terminateInstance).toHaveBeenCalledWith(triage.id, true));
+  await vi.waitFor(() => expect(instances.terminateInstance).toHaveBeenCalledWith(triage.id, true), waitBudget);
   let settled = false;
   const pausing = control('pause').then(() => { settled = true; });
   const rejected = expect(pausing).rejects.toThrow('triage outcome cleanup failed');
@@ -215,7 +220,7 @@ it('Pause does not lose the old worker when sendInput fails before replacement',
   });
   vi.spyOn(coordinator, 'requestPump').mockImplementation(() => undefined);
   const answering = coordinator.answer(item.id, 'continue').catch(error => error);
-  await vi.waitFor(() => expect(instances.terminateInstance).toHaveBeenCalledWith('worker', true));
+  await vi.waitFor(() => expect(instances.terminateInstance).toHaveBeenCalledWith('worker', true), waitBudget);
   const pausing = control('pause');
   const rejected = expect(pausing).rejects.toThrow('old worker stop failed');
   try {
@@ -235,7 +240,7 @@ it('Pause does not lose the old worker when sendInput fails before replacement',
 it('keeps scheduling and completion blocked after a triage outcome stop has already failed', async () => {
   store.upsertItem({ ...item, state: 'discovered', branchName: null, worktreePath: null, workerInstanceId: null });
   coordinator.requestPump();
-  await vi.waitFor(() => expect(instances.created.some(config => config.metadata?.['planQueueRole'] === 'triage')).toBe(true));
+  await vi.waitFor(() => expect(instances.created.some(config => config.metadata?.['planQueueRole'] === 'triage')).toBe(true), waitBudget);
   const triage = [...instances.live.values()].find(session => session.metadata?.['planQueueRole'] === 'triage')!;
   instances.terminateInstance.mockImplementation(async id => {
     if (id === triage.id) throw new Error('completed triage stop failure');
@@ -265,7 +270,7 @@ it('preserves a spawned checker snapshot through failed cleanup and restores it 
   store.upsertItem({ ...item, state: 'awaiting-slot' });
   writeFileSync(join(item.worktreePath!, 'worker-untracked.txt'), 'worker snapshot\n');
   coordinator.requestPump();
-  await vi.waitFor(() => expect(store.getItem(item.id)?.verifierInstanceId).toBeTruthy());
+  await vi.waitFor(() => expect(store.getItem(item.id)?.verifierInstanceId).toBeTruthy(), waitBudget);
   const checkerId = store.getItem(item.id)!.verifierInstanceId!;
   vi.spyOn(coordinator, 'requestPump').mockImplementation(() => undefined);
   coordinator.reportVerdict(checkerId, { item_id: item.id, verdict: 'PASS', findings: [], gates_run: [], document_complete: true, need_james: [] });
@@ -288,7 +293,7 @@ it('preserves a spawned checker snapshot through failed cleanup and restores it 
 it.each([false, true])('keeps an all-skipped run operational until active triage cleanup succeeds (failure=%s)', async fail => {
   store.upsertItem({ ...item, state: 'discovered', branchName: null, worktreePath: null, workerInstanceId: null });
   coordinator.requestPump();
-  await vi.waitFor(() => expect(instances.created.some(config => config.metadata?.['planQueueRole'] === 'triage')).toBe(true));
+  await vi.waitFor(() => expect(instances.created.some(config => config.metadata?.['planQueueRole'] === 'triage')).toBe(true), waitBudget);
   const triage = [...instances.live.values()].find(session => session.metadata?.['planQueueRole'] === 'triage')!;
   const gate = deferred();
   instances.terminateInstance.mockImplementation(async id => {
@@ -298,7 +303,7 @@ it.each([false, true])('keeps an all-skipped run operational until active triage
   coordinator.reportTriage(triage.id, { run_id: run.id, records: [
     { documentPath: item.documentPath, disposition: 'skip', reason: 'no work needed' },
   ] });
-  await vi.waitFor(() => expect(instances.terminateInstance).toHaveBeenCalledWith(triage.id, true));
+  await vi.waitFor(() => expect(instances.terminateInstance).toHaveBeenCalledWith(triage.id, true), waitBudget);
   try {
     expect(store.getRun(run.id)?.status).toBe('running');
     expect(instances.live.has(triage.id)).toBe(true);
@@ -311,7 +316,7 @@ it.each([false, true])('keeps an all-skipped run operational until active triage
       instances.terminateInstance.mockImplementation(async id => { instances.live.delete(id); });
       await control('cancel');
     }
-    await vi.waitFor(() => expect(store.getRun(run.id)?.status).toBe(fail ? 'cancelled' : 'completed'));
+    await vi.waitFor(() => expect(store.getRun(run.id)?.status).toBe(fail ? 'cancelled' : 'completed'), waitBudget);
     expect(instances.live.has(triage.id)).toBe(false);
   } finally { gate.release(); await coordinator._whenSettledForTesting(); }
 });
@@ -330,13 +335,13 @@ it.each([false, true])('waits for invalidated in-flight triage cleanup before co
   });
   instances.terminateInstance.mockImplementation(async id => { await stop.promise; if (fail) throw new Error('in-flight triage stop failed'); instances.live.delete(id); });
   coordinator.requestPump();
-  await vi.waitFor(() => expect(triageId).toBeDefined());
+  await vi.waitFor(() => expect(triageId).toBeDefined(), waitBudget);
   try {
     await coordinator.control({ action: 'skip-item', itemId: item.id });
     await coordinator._whenSettledForTesting();
     expect(store.getRun(run.id)?.status).toBe('running');
     spawn.release();
-    await vi.waitFor(() => expect(instances.terminateInstance).toHaveBeenCalledWith(triageId, true));
+    await vi.waitFor(() => expect(instances.terminateInstance).toHaveBeenCalledWith(triageId, true), waitBudget);
     expect(store.getRun(run.id)?.status).toBe('running');
     stop.release();
     await tick();
@@ -347,7 +352,7 @@ it.each([false, true])('waits for invalidated in-flight triage cleanup before co
       instances.terminateInstance.mockImplementation(async id => { instances.live.delete(id); });
       await coordinator.control({ action: 'resume', runId: run.id });
     }
-    await vi.waitFor(() => expect(store.getRun(run.id)?.status).toBe('completed'));
+    await vi.waitFor(() => expect(store.getRun(run.id)?.status).toBe('completed'), waitBudget);
     expect(instances.live.has(triageId!)).toBe(false);
   } finally { spawn.release(); stop.release(); await coordinator._whenSettledForTesting(); }
 });
@@ -355,18 +360,18 @@ it.each([false, true])('waits for invalidated in-flight triage cleanup before co
 it.each(['pause', 'cancel'] as const)('%s cannot overtake cleanup initiated by terminal triage reports', async action => {
   store.upsertItem({ ...item, state: 'discovered', branchName: null, worktreePath: null, workerInstanceId: null });
   coordinator.requestPump();
-  await vi.waitFor(() => expect(instances.created.some(config => config.metadata?.['planQueueRole'] === 'triage')).toBe(true));
+  await vi.waitFor(() => expect(instances.created.some(config => config.metadata?.['planQueueRole'] === 'triage')).toBe(true), waitBudget);
   const triage = [...instances.live.values()].find(session => session.metadata?.['planQueueRole'] === 'triage')!;
   const stop = deferred();
   instances.terminateInstance.mockImplementation(async id => { if (id === triage.id) await stop.promise; instances.live.delete(id); });
   coordinator.reportTriage(triage.id, { run_id: run.id, records: [
     { documentPath: item.documentPath, disposition: 'skip', reason: 'no work needed' },
   ] });
-  await vi.waitFor(() => expect(instances.terminateInstance).toHaveBeenCalledWith(triage.id, true));
+  await vi.waitFor(() => expect(instances.terminateInstance).toHaveBeenCalledWith(triage.id, true), waitBudget);
   let settled = false;
   const controlling = control(action).then(() => { settled = true; });
   try {
-    await vi.waitFor(() => expect(store.getRun(run.id)?.status).toBe('paused'));
+    await vi.waitFor(() => expect(store.getRun(run.id)?.status).toBe('paused'), waitBudget);
     await tick();
     expect(settled).toBe(false);
     expect(store.getRun(run.id)?.status).toBe('paused');
@@ -394,7 +399,7 @@ async function normalPassLanding(withSibling = true) {
   instances.live.set('worker', { id: 'worker', status: 'idle', provider: 'claude',
     outputBuffer: [{ type: 'assistant', content: 'Implemented the work.' }] });
   coordinator.tracker.track('worker');
-  await vi.waitFor(() => expect(store.getItem(item.id)?.verifierInstanceId).toBeTruthy());
+  await vi.waitFor(() => expect(store.getItem(item.id)?.verifierInstanceId).toBeTruthy(), waitBudget);
   const checker = store.getItem(item.id)!.verifierInstanceId!;
   coordinator.reportVerdict(checker, { item_id: item.id, verdict: 'PASS', findings: [], gates_run: [], document_complete: false, need_james: [] });
   instances.emit('provider:normalized-event', { instanceId: checker, event: { kind: 'output', messageType: 'assistant', content: 'Verified PASS.' } });
@@ -415,7 +420,7 @@ it.each(['pause', 'move', 'cancel'] as const)('%s waits for normal PASS landing 
     const checkpoint = vi.spyOn(coordinator.worktrees, 'checkpoint');
     let settled = false;
     controlling = control(action).then(() => { settled = true; });
-    await vi.waitFor(() => expect(store.getRun(run.id)?.status).toBe('paused'));
+    await vi.waitFor(() => expect(store.getRun(run.id)?.status).toBe('paused'), waitBudget);
     await tick();
     expect(settled).toBe(false);
     expect(instances.live.has('worker')).toBe(true);
@@ -520,11 +525,11 @@ it('Cancel arriving during Git promotion retries a subsequent failed landed-work
   const landing = normalPassLanding();
   let cancelling: Promise<void> | undefined;
   try {
-    await vi.waitFor(() => expect(entering).toBe(true));
+    await vi.waitFor(() => expect(entering).toBe(true), waitBudget);
     expect(store.getItem(item.id)?.state).toBe('landing');
     cancelling = control('cancel');
     const rejected = expect(cancelling).rejects.toThrow('worker stop after promotion failed');
-    await vi.waitFor(() => expect(store.getRun(run.id)?.status).toBe('paused'));
+    await vi.waitFor(() => expect(store.getRun(run.id)?.status).toBe('paused'), waitBudget);
     promotion.release();
     const landedCommit = await landing;
     await rejected;
