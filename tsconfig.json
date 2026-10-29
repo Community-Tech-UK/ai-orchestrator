@@ -4,6 +4,7 @@
     "dist",
     "apps",
     "_scratch",
+    "docs",
     "vitest.config.ts",
     "src/**/*.spec.ts",
     "src/**/*.test.ts",
