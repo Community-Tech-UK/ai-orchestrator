@@ -176,6 +176,32 @@ async function promote(
 }
 
 /**
+ * Why the item must not land when its branch carries commits the base branch
+ * no longer has (the base was reset past them), or null when it may. The
+ * squash would put back everything they added, under this item's name.
+ *
+ * The item's own commits are the branch's first-parent line down to where it
+ * started. Anything else not on the base came in through a merge, so the
+ * branch is foreign-carrying when it started from a commit the base no longer
+ * has, or when it merged in commits the base does not have.
+ */
+async function strayHistoryReason(item: PlanQueueItem, branchName: string, baseBranch: string, baseTip: string, repoRoot: string): Promise<string | null> {
+  let stray = '';
+  if (item.baseCommit && !(await succeeds(['merge-base', '--is-ancestor', item.baseCommit, baseTip], repoRoot))) {
+    stray = item.baseCommit;
+  } else {
+    const own = new Set((await gitExec(['rev-list', '--first-parent', branchName, `^${baseTip}`], repoRoot)).split('\n'));
+    stray = (await gitExec(['rev-list', '--reverse', branchName, `^${baseTip}`], repoRoot)).split('\n').find((c) => c && !own.has(c)) ?? '';
+  }
+  if (!stray) return null;
+  const subject = await gitExecSafe(['log', '-1', '--format=%s', stray], repoRoot);
+  logger.warn('Plan queue landing refused: the branch carries commits the base branch no longer has', { itemId: item.id, stray });
+  return `Not landed: this item's branch carries commit ${stray.slice(0, 8)}${subject ? ` ("${subject}")` : ''}, which is not on ${baseBranch}, `
+    + `so landing it would put that commit's changes on ${baseBranch} too. Its work is safe on ${branchName}; `
+    + `its own changes need moving onto the current ${baseBranch} before it can land.`;
+}
+
+/**
  * Squash the item branch, with its closed documents, into one commit made with
  * the repository's hooks, and fast-forward the base branch to it. Promotion
  * uses `block-overlap`, so untracked working documents in the root checkout do
@@ -213,9 +239,13 @@ export async function landItemBranch(
     }
   }
 
+  const stray = await strayHistoryReason(item, branchName, baseBranch, baseTip, repoRoot);
+  if (stray) return { status: 'blocked', reason: stray };
+
   const built = await buildLandingCommit({
     worktreePath: item.worktreePath,
     branchName,
+    itemId: item.id,
     baseTip,
     message: commitMessage,
     documents,

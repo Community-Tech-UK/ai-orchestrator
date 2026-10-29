@@ -304,8 +304,11 @@ export function inferUninstallHint(installPath: string): string | null {
     const binName = installPath.split('/').pop();
     return `/usr/local/bin/npm uninstall -g <package>  # ${binName} under system npm`;
   }
-  if (installPath.includes('/.nvm/versions/node/')) {
-    return 'nvm install handled — keep this one if it is the newest';
+  // Every nvm node version has its own global bin, and a stale copy is only
+  // removed by that version's npm — the active node's npm cannot see it.
+  const nvmBin = /^(.*\/\.nvm\/versions\/node\/[^/]+\/bin)\/([^/]+)$/.exec(installPath);
+  if (nvmBin) {
+    return `${nvmBin[1]}/npm uninstall -g <package>  # ${nvmBin[2]} under that nvm node version`;
   }
   return null;
 }

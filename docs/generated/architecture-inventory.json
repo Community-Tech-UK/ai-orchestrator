@@ -6083,11 +6083,15 @@
     },
     {
       "path": "resources/browser-extension/background.js",
-      "lines": 6920
+      "lines": 7277
     },
     {
       "path": "docs/plans/2026-10-10-oct-phase1-token-levers_plan.md",
       "lines": 6371
+    },
+    {
+      "path": "src/main/browser-gateway/browser-extension-assets.spec.ts",
+      "lines": 5589
     },
     {
       "path": "docs/superpowers/plans/2026-04-21-mcp-multi-provider-management_completed.md",
@@ -6096,10 +6100,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-28-pause-on-vpn_completed.md",
       "lines": 5156
-    },
-    {
-      "path": "src/main/browser-gateway/browser-extension-assets.spec.ts",
-      "lines": 5053
     },
     {
       "path": "docs/plans/2026-10-10-oct-phase3-calm-screen_plan.md",
@@ -6190,6 +6190,10 @@
       "lines": 2832
     },
     {
+      "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
+      "lines": 2795
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-21-cursor-cli-provider_completed.md",
       "lines": 2737
     },
@@ -6214,12 +6218,8 @@
       "lines": 2659
     },
     {
-      "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
-      "lines": 2637
-    },
-    {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
-      "lines": 2616
+      "lines": 2629
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service-existing-tabs.spec.ts",
@@ -6398,16 +6398,16 @@
       "lines": 1660
     },
     {
+      "path": "src/main/browser-gateway/browser-gateway-rpc-server.spec.ts",
+      "lines": 1653
+    },
+    {
       "path": "src/main/ipc/handlers/__tests__/loop-handlers.spec.ts",
       "lines": 1640
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
       "lines": 1635
-    },
-    {
-      "path": "src/main/browser-gateway/browser-gateway-rpc-server.spec.ts",
-      "lines": 1623
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.create.spec.ts",
@@ -6470,16 +6470,16 @@
       "lines": 1475
     },
     {
+      "path": "src/main/browser-gateway/browser-extension-origin-bound-secret.spec.ts",
+      "lines": 1459
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-08-phase2-provider-tool-sdk_completed.md",
       "lines": 1457
     },
     {
       "path": "docs/superpowers/plans/2026-04-04-agentic-harness-hardening_completed.md",
       "lines": 1456
-    },
-    {
-      "path": "src/main/browser-gateway/browser-extension-origin-bound-secret.spec.ts",
-      "lines": 1451
     },
     {
       "path": "src/main/background-jobs/__tests__/lane-gateway.spec.ts",
@@ -6867,7 +6867,7 @@
     },
     {
       "path": "src/main/workspace/git/worktree-manager.ts",
-      "lines": 1081
+      "lines": 1083
     },
     {
       "path": "src/main/context/__tests__/context-compactor.spec.ts",
@@ -7166,6 +7166,10 @@
       "lines": 888
     },
     {
+      "path": "src/main/browser-gateway/browser-mcp-tools.ts",
+      "lines": 885
+    },
+    {
       "path": "src/main/memory/skills-loader.spec.ts",
       "lines": 883
     },
@@ -7176,10 +7180,6 @@
     {
       "path": "src/main/ipc/handlers/mcp-handlers.ts",
       "lines": 882
-    },
-    {
-      "path": "src/main/browser-gateway/browser-mcp-tools.ts",
-      "lines": 879
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.normalized-event.spec.ts",
@@ -7327,7 +7327,7 @@
     },
     {
       "path": "packages/contracts/src/schemas/browser.schemas.ts",
-      "lines": 835
+      "lines": 836
     },
     {
       "path": "src/renderer/app/features/plan-queue/components/plan-queue-routing-panel.component.spec.ts",
@@ -7375,6 +7375,10 @@
     },
     {
       "path": "docs/superpowers/specs/2026-05-06-claude-code-feature-harvest-design_completed.md",
+      "lines": 814
+    },
+    {
+      "path": "src/main/plan-queue/plan-queue-pause-control.spec.ts",
       "lines": 814
     },
     {

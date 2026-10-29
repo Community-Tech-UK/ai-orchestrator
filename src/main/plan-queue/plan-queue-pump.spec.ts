@@ -24,7 +24,7 @@ describe('Plan Queue admission wiring', () => {
       const starts: string[] = [];
       const host: Parameters<typeof pumpPlanQueue>[0] = {
         store: { listActiveRuns: () => [run], listItems: () => items } as unknown as PlanQueueStore,
-        flow: { startItem: async item => { starts.push(item.id); }, startVerification: async item => { starts.push(item.id); } },
+        flow: { startItem: async item => { starts.push(item.id); }, startVerification: async item => { starts.push(item.id); }, isWaitingForUsage: () => false },
         triage: { isStopping: () => false, maybeStart: () => { starts.push('triage'); } },
         getRun: () => run, getItem: id => items.find(item => item.id === id)!,
         transition: (item, state, patch) => Object.assign(item, patch, { state }),

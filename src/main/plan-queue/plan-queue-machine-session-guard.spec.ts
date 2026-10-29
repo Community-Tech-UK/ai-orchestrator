@@ -17,12 +17,22 @@ describe('plan queue machine session call-site guard', () => {
         if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'createInstance') {
           const options = node.arguments[0];
           if (file === 'plan-queue-spawn.ts') {
-            // The close fence forwards the already-tagged options without rebuilding
-            // them, optionally through the routing wrapper (which spreads them and
-            // keeps the queue tags).
-            const forwarded = options && ts.isCallExpression(options) && ts.isIdentifier(options.expression)
-              && options.expression.text === 'routeQueueSpawn' ? options.arguments[0] : options;
-            expect(forwarded?.getText(source)).toBe('config');
+            // Both the reopen and fresh fallback retain the routed config's tags.
+            const declarations = source.statements.filter(ts.isFunctionDeclaration)
+              .flatMap(fn => fn.body?.statements ?? [])
+              .filter(ts.isVariableStatement)
+              .flatMap(statement => statement.declarationList.declarations);
+            const route = declarations.find(declaration => declaration.name.getText(source) === 'route')?.initializer;
+            expect(route && ts.isCallExpression(route) && route.expression.getText(source)).toBe('routeQueueSpawn');
+            expect(route && ts.isCallExpression(route) && route.arguments[0].getText(source)).toBe('config');
+            if (options && ts.isConditionalExpression(options)) {
+              expect(options.whenFalse.getText(source)).toBe('route');
+              expect(ts.isObjectLiteralExpression(options.whenTrue)).toBe(true);
+              if (ts.isObjectLiteralExpression(options.whenTrue)) {
+                expect(options.whenTrue.properties[0].getText(source)).toBe('...route');
+                expect(property(options.whenTrue, 'metadata')).toBeUndefined();
+              }
+            } else expect(options?.getText(source)).toBe('route');
             calls.push({ file, role: 'forwarded', hasRun: true });
             ts.forEachChild(node, visit);
             return;
@@ -37,6 +47,7 @@ describe('plan queue machine session call-site guard', () => {
       visit(source);
     }
     expect(calls.sort((a, b) => a.role.localeCompare(b.role))).toEqual([
+      { file: 'plan-queue-spawn.ts', role: 'forwarded', hasRun: true },
       { file: 'plan-queue-spawn.ts', role: 'forwarded', hasRun: true },
       { file: 'plan-queue-triage.ts', role: 'triage', hasRun: true },
       { file: 'plan-queue-item-flow.ts', role: 'verifier', hasRun: true },

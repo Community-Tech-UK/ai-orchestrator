@@ -6,6 +6,9 @@ export interface OpenCodeGenerationBudget {
   combinedOutputTokens: number;
   reasoningBudgetSupported: false;
 }
+export interface OpenCodeScopedGenerationBudget extends OpenCodeGenerationBudget {
+  inputLimit: number;
+}
 // Scopes to MiMo-V2.6-Pro under the built-in region providers and under the
 // per-account `aio-mimo-*` providers AIO defines (same model, other account).
 const scopedModel = (model: string | undefined) =>
@@ -15,6 +18,9 @@ const capOf = (options: Record<string, unknown>) => openCodePositive(options['ma
 // 32000 ceiling. Matching that ceiling keeps both wire fields equal, so the classifier's
 // saturation check uses the cap the provider actually enforced.
 export const MIMO_COMBINED_OUTPUT_TOKEN_CAP = 32_000;
+// OpenCode 1.x subtracts reserved=min(20000, output cap), giving about 120k.
+// OpenCode 2.x subtracts max(15%, 16k), giving about 119k. The real context stays 1M.
+export const MIMO_COMPACTION_INPUT_LIMIT = 140_000;
 
 function scopedAgents(config: Record<string, unknown>, model: string): [string, Record<string, unknown>][] {
   return Object.entries(openCodeRecord(config['agent'])).filter(([name, raw]) => {
@@ -37,7 +43,7 @@ function scopedAgents(config: Record<string, unknown>, model: string): [string, 
 }
 
 /** Clamp every supported native precedence layer to one truthful, scoped combined ceiling. */
-export function applyOpenCodeGenerationBudget(base: Record<string, unknown>, model: string | undefined, effectiveConfig?: Record<string, unknown>): OpenCodeGenerationBudget | undefined {
+export function applyOpenCodeGenerationBudget(base: Record<string, unknown>, model: string | undefined, effectiveConfig?: Record<string, unknown>): OpenCodeScopedGenerationBudget | undefined {
   const match = scopedModel(model);
   if (!match || !model) return undefined;
   const providerId = match[1]!;
@@ -70,10 +76,12 @@ export function applyOpenCodeGenerationBudget(base: Record<string, unknown>, mod
     ...[nativeVariants, overlayVariants].flatMap((layer) => Object.values(layer).map((variant) => capOf(openCodeRecord(variant)))),
     ...agents.flatMap(([name]) => [agentCap(openCodeRecord(overlayAgents[name])), agentCap(openCodeRecord(nativeAgents[name]))])];
   const output = Math.min(MIMO_COMBINED_OUTPUT_TOKEN_CAP, ...caps.filter((value): value is number => value !== undefined));
+  const inputLimit = Math.min(MIMO_COMPACTION_INPUT_LIMIT,
+    ...[openCodePositive(limit['input']), openCodePositive(effectiveLimit['input'])].filter((value): value is number => value !== undefined));
   // Official MiMo-V2.6 launch documentation publishes a 1M context window.
   // The compatible SDK sends max_tokens; MiMo documents the combined cap as max_completion_tokens.
   models[modelId] = { ...config, options: { ...options, max_completion_tokens: output },
-    limit: { ...limit, context: openCodePositive(effectiveLimit['context']) ?? openCodePositive(limit['context']) ?? 1_000_000, output },
+    limit: { ...limit, input: inputLimit, context: openCodePositive(effectiveLimit['context']) ?? openCodePositive(limit['context']) ?? 1_000_000, output },
     ...(Object.keys(variants).length ? { variants: Object.fromEntries(Object.keys(variants).map((name) => [name, { ...openCodeRecord(openCodeRecord(config['variants'])[name]), max_completion_tokens: output }])) } : {}),
   };
   providers[providerId] = { ...provider, models };
@@ -84,14 +92,15 @@ export function applyOpenCodeGenerationBudget(base: Record<string, unknown>, mod
     overlayAgents[name] = { ...overlay, ...(Object.hasOwn(agent, 'max_completion_tokens') ? { max_completion_tokens: output } : {}), options: { ...openCodeRecord(overlay['options']), max_completion_tokens: output } };
   }
   if (Object.keys(overlayAgents).length) base['agent'] = overlayAgents;
-  return { model, combinedOutputTokens: output, reasoningBudgetSupported: false };
+  return { model, combinedOutputTokens: output, reasoningBudgetSupported: false, inputLimit };
 }
 
-export function assertOpenCodeGenerationBudget(effective: Record<string, unknown>, budget: OpenCodeGenerationBudget): void {
+export function assertOpenCodeGenerationBudget(effective: Record<string, unknown>, budget: OpenCodeScopedGenerationBudget): void {
   const check: Record<string, unknown> = {};
   const resolved = applyOpenCodeGenerationBudget(check, budget.model, effective);
   const selected = openCodeModelConfig(effective, budget.model);
   if (resolved?.combinedOutputTokens !== budget.combinedOutputTokens
+    || openCodePositive(openCodeRecord(selected['limit'])['input']) !== budget.inputLimit
     || capOf(openCodeRecord(selected['options'])) !== budget.combinedOutputTokens
     || openCodePositive(openCodeRecord(selected['limit'])['output']) !== budget.combinedOutputTokens
     || Object.values(openCodeRecord(selected['variants'])).some((variant) => capOf(openCodeRecord(variant)) !== budget.combinedOutputTokens)

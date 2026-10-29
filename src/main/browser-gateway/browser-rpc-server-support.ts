@@ -47,6 +47,7 @@ import {
   BrowserPressKeyRequestSchema,
   BrowserSetViewportRequestSchema,
   BrowserSetZoomRequestSchema,
+  BrowserHandleDialogRequestSchema,
   BrowserUploadFileRequestSchema,
   BrowserWaitForRequestSchema,
 } from '@contracts/schemas/browser';
@@ -93,6 +94,7 @@ const STRICT_NO_STRIP_METHODS: ReadonlySet<string> = new Set([
   'browser.press_key',
   'browser.set_viewport',
   'browser.set_zoom',
+  'browser.handle_dialog',
 ]);
 
 function schemaForBrowserRpcMethod(method: string): ZodType | null {
@@ -125,6 +127,8 @@ function schemaForBrowserRpcMethod(method: string): ZodType | null {
       return BrowserSetViewportRequestSchema;
     case 'browser.set_zoom':
       return BrowserSetZoomRequestSchema;
+    case 'browser.handle_dialog':
+      return BrowserHandleDialogRequestSchema;
     case 'browser.execute_fill_plan':
       return BrowserExecuteFillPlanRequestSchema;
     case 'browser.fill_credential':

@@ -168,8 +168,8 @@ export class ConversationLedgerWorkerClient implements LedgerStorePort {
     return (await this.call('getRecentMessages', [threadId, limit])) as ConversationMessageRecord[];
   }
 
-  async getLatestUserMessage(threadId: string, instanceId: string | null): Promise<ConversationMessageRecord | null> {
-    return (await this.call('getLatestUserMessage', [threadId, instanceId])) as ConversationMessageRecord | null;
+  async getLatestInputSource(threadId: string, instanceId: string | null): Promise<ConversationMessageRecord | null> {
+    return (await this.call('getLatestInputSource', [threadId, instanceId])) as ConversationMessageRecord | null;
   }
 
   async getMessagesBefore(

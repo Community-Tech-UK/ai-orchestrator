@@ -121,9 +121,8 @@ export class GitWriteQueue {
    * Enqueue a git write operation. Returns a promise that resolves to the
    * thunk's return value only after all previously enqueued ops have settled.
    *
-   * Errors from previous ops are swallowed (they resolve the chain to allow
-   * the next op to run); only the error from *this* thunk propagates to the
-   * caller. Transient git lock errors within the thunk are retried with
+   * An op's error goes to its own caller only, so a failed op never stops
+   * the ops behind it. Transient git lock errors within the thunk are retried with
    * exponential backoff before the error is surfaced.
    */
   async enqueue<T>(label: string, fn: () => Promise<T>, options?: EnqueueOptions): Promise<T> {
@@ -138,20 +137,16 @@ export class GitWriteQueue {
 
     this.depth++;
     const depth = this.depth;
-    this.tail = this.tail
-      .catch(() => {
-        // Swallow errors from previous ops so the queue drains.
-      })
-      .then(async () => {
-        logger.debug('GitWriteQueue: running', { label, depth });
-        try {
-          const result = await this.runWithRetry(label, fn, retry);
-          resolve(result);
-        } catch (err) {
-          reject(err);
-          throw err; // Re-throw so .catch() above handles it next round.
-        }
-      });
+    // The error goes to this op's caller only. The chain itself never rejects:
+    // a rejected tail with no later op behind it surfaced as an unhandled rejection.
+    this.tail = this.tail.then(async () => {
+      logger.debug('GitWriteQueue: running', { label, depth });
+      try {
+        resolve(await this.runWithRetry(label, fn, retry));
+      } catch (err) {
+        reject(err);
+      }
+    });
 
     return outer;
   }

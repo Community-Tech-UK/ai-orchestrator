@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PLAN_QUEUE_CONFIG } from '@contracts/schemas/plan-queue';
 import type { SqliteDriver } from '../db/sqlite-driver';
-import { runLoopMigrations, runLoopMigrationsUpTo } from '../orchestration/loop-schema';
+import { LOOP_SCHEMA_VERSION, runLoopMigrations, runLoopMigrationsUpTo } from '../orchestration/loop-schema';
 import { PlanQueueStore } from './plan-queue-store';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 
@@ -276,7 +276,7 @@ describe('PlanQueueStore', () => {
 
       runLoopMigrations(old);
       expect(old.prepare('SELECT * FROM plan_queue_runs').get()).toEqual(runBefore);
-      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...itemBefore, held_at: null, pending_instruction: null, worker_provider: null, worker_model: null, stepped_up_at: null });
+      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...itemBefore, held_at: null, pending_instruction: null, worker_provider: null, worker_model: null, stepped_up_at: null, worker_session_json: null });
       const upgraded = new PlanQueueStore(old);
       expect(upgraded.getItem('legacy-item')).toMatchObject({ heldAt: null, pendingInstruction: null, state: 'fixing', round: 2 });
 
@@ -327,7 +327,7 @@ describe('PlanQueueStore', () => {
         VALUES ('item-23', 'run-23', '/repo/a_plan.md', 'awaiting-slot', 1, 0, 2, 2)`).run();
       const before = old.prepare('SELECT * FROM plan_queue_items').get<Record<string, unknown>>();
       runLoopMigrations(old);
-      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...before, worker_provider: null, worker_model: null, stepped_up_at: null });
+      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...before, worker_provider: null, worker_model: null, stepped_up_at: null, worker_session_json: null });
       const upgraded = new PlanQueueStore(old);
       expect(upgraded.getItem('item-23')).not.toHaveProperty('workerProvider');
       expect(() => runLoopMigrations(old)).not.toThrow();
@@ -356,7 +356,7 @@ describe('PlanQueueStore', () => {
       const before = old.prepare('SELECT * FROM plan_queue_items').get<Record<string, unknown>>();
       expect(Object.keys(before!)).not.toContain('stepped_up_at');
       runLoopMigrations(old);
-      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...before, stepped_up_at: null });
+      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...before, stepped_up_at: null, worker_session_json: null });
       const upgraded = new PlanQueueStore(old);
       expect(upgraded.getItem('item-24')).toMatchObject({ state: 'parked', round: 3, workerProvider: 'claude', workerModel: 'haiku' });
       expect(upgraded.getItem('item-24')).not.toHaveProperty('steppedUpAt');
@@ -467,4 +467,52 @@ describe('PlanQueueStore', () => {
 
     expect(store.getItem('item-1')).toBeNull();
   });
+});
+
+it('round-trips, clears and tolerates corrupt worker conversation records', () => {
+  store.upsertRun(makeRun());
+  const workerSession = { provider: 'opencode', model: 'mimo-v2.6-pro', accountProfileId: 'account', providerSessionId: 'session', workingDirectory: '/repo/work', recordedAt: 123 };
+  store.upsertItem(makeItem({ workerSession }));
+  expect(store.getItem('item-1')?.workerSession).toEqual(workerSession);
+  store.upsertItem(makeItem());
+  expect(store.getItem('item-1')?.workerSession).toBeUndefined();
+  driver.prepare('UPDATE plan_queue_items SET worker_session_json = ? WHERE id = ?').run('{invalid', 'item-1');
+  expect(store.getItem('item-1')?.workerSession).toBeUndefined();
+});
+
+it('upgrades v25 with existing queue work to worker-session storage and repeats safely', () => {
+  const old = new Database(':memory:') as unknown as SqliteDriver;
+  try {
+    runLoopMigrationsUpTo(old, 25);
+    old.prepare(`INSERT INTO plan_queue_runs
+      (id, parent_instance_id, kind, workspace_cwd, status, config_json, started_at, updated_at)
+      VALUES ('run-25', 'parent', 'plans', '/repo', 'paused', '{}', 100, 200)`).run();
+    old.prepare(`INSERT INTO plan_queue_items
+      (id, run_id, document_path, state, round, errored_rounds, branch_name, worktree_path, worker_provider,
+       worker_model, stepped_up_at, held_at, pending_instruction, created_at, updated_at)
+      VALUES ('item-25', 'run-25', '/repo/example_plan.md', 'queued', 2, 1, 'queue/example', '/repo/.worktrees/queue/example',
+              'opencode', 'mimo-v2.6-pro', 150, 180, 'Finish the pending repair', 100, 200)`).run();
+    const runBefore = old.prepare('SELECT * FROM plan_queue_runs').get();
+    const itemBefore = old.prepare('SELECT * FROM plan_queue_items').get<Record<string, unknown>>();
+    expect(itemBefore).not.toHaveProperty('worker_session_json');
+    runLoopMigrations(old);
+    expect(old.prepare('SELECT * FROM plan_queue_runs').get()).toEqual(runBefore);
+    expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...itemBefore, worker_session_json: null });
+    const upgraded = new PlanQueueStore(old);
+    const item = upgraded.getItem('item-25')!;
+    expect(item).toMatchObject({ state: 'queued', round: 2, erroredRounds: 1, heldAt: 180,
+      pendingInstruction: 'Finish the pending repair', branchName: 'queue/example', steppedUpAt: 150 });
+    expect(item.workerSession).toBeUndefined();
+    const workerSession = { provider: 'opencode', model: 'mimo-v2.6-pro', accountProfileId: null,
+      providerSessionId: 'conversation', workingDirectory: item.worktreePath!, recordedAt: 300 };
+    upgraded.upsertItem({ ...item, workerSession });
+    const saved = upgraded.getItem(item.id);
+    expect(saved?.workerSession).toEqual(workerSession);
+    expect(() => runLoopMigrations(old)).not.toThrow();
+    expect(upgraded.getItem(item.id)).toEqual(saved);
+    expect(old.prepare('SELECT COUNT(*) AS n FROM loop_migrations WHERE version = ?')
+      .get<{ n: number }>(LOOP_SCHEMA_VERSION)?.n).toBe(1);
+    expect(old.prepare('SELECT name FROM loop_migrations WHERE version = ?')
+      .get<{ name: string }>(LOOP_SCHEMA_VERSION)?.name).toBe('030_plan_queue_item_worker_session');
+  } finally { old.close(); }
 });

@@ -1,7 +1,7 @@
 import type { SqliteDriver } from '../db/sqlite-driver';
-import { MESSAGE_SOURCE_OWNER_SQL } from './conversation-message-source-query';
+import { HARNESS_INPUT_ACTOR_SQL, MESSAGE_SOURCE_OWNER_SQL } from './conversation-message-source-query';
 
-export const CONVERSATION_LEDGER_SCHEMA_VERSION = 7;
+export const CONVERSATION_LEDGER_SCHEMA_VERSION = 8;
 
 interface LedgerMigration {
   version: number;
@@ -350,6 +350,13 @@ const MIGRATIONS: LedgerMigration[] = [
       CREATE INDEX idx_evidence_deletion_queue_pending_blob ON evidence_deletion_queue(blob_ref)
         WHERE completed_at IS NULL;
     `,
+  },
+  {
+    version: 8,
+    name: '008_latest_harness_input_source_owner',
+    up: `CREATE INDEX idx_conversation_messages_harness_input_source_owner
+      ON conversation_messages(thread_id, (${MESSAGE_SOURCE_OWNER_SQL}), sequence DESC)
+      WHERE role = 'system' AND (${HARNESS_INPUT_ACTOR_SQL}) = 'harness';`,
   },
 ];
 

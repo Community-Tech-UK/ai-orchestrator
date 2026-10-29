@@ -132,9 +132,9 @@ describe('Browser Gateway approval resume admission', () => {
     expect(resolveCredentialAccessSession('resumed-session')).toEqual({
       instanceId: 'resumed-session', taskScope: 'conversation:placeholder-thread', sessionName: '12steps',
     });
-    expect(findCredentialAccessSession('conversation:placeholder-thread')?.instanceId).toBe('resumed-session');
+    expect(findCredentialAccessSession('conversation:placeholder-thread', 'old-session')?.instanceId).toBe('resumed-session');
     instances.push({ id: 'duplicate-session', historyThreadId: 'placeholder-thread', displayName: '12steps', status: 'idle' });
-    expect(findCredentialAccessSession('conversation:placeholder-thread')).toBeUndefined();
+    expect(findCredentialAccessSession('conversation:placeholder-thread', 'old-session')).toBeUndefined();
   });
 
   it.each(['approved', 'denied', 'expired'] as const)(

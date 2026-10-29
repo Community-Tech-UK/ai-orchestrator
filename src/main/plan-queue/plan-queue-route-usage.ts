@@ -8,7 +8,9 @@
  * credits-only). Otherwise the provider-limit ledger: an active limit for the
  * provider and the model a new session would start on means no usage, unless
  * the provider has said since that the account can run again (as the send
- * path accepts). A provider Harness cannot see usage for counts as having
+ * path accepts). A provider outside the pools whose usage figures show its
+ * whole plan spent has no usage either, so the queue never starts a session
+ * just to learn that. A provider Harness cannot see usage for counts as having
  * usage until a session hits its limit and the ledger records it.
  */
 
@@ -19,12 +21,12 @@ import {
   isPooledProvider,
   type AccountInvocationOrigin,
 } from '../../shared/types/provider-account.types';
-import type { ProviderId } from '../../shared/types/provider-quota.types';
+import type { ProviderId, ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
 import type { CliType } from '../cli/cli-detection';
 import { COPILOT_RATE_LIMIT_SOURCE } from '../cli/copilot-limit-messages';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getProviderLimitLedgerPort, type ProviderLimitLedgerPort } from '../core/system/provider-limit-ledger';
-import { getProviderQuotaService } from '../core/system/provider-quota-service';
+import { clearElapsedQuotaWindows, getProviderQuotaService } from '../core/system/provider-quota-service';
 import { instanceProviderLimitScope } from '../instance/instance-provider-limit-scope';
 import { ModelSelectionResolver } from '../instance/lifecycle/model-selection-resolver';
 import { quotaEvidenceFromSnapshot } from '../providers/account-pool/account-quota-evidence';
@@ -63,6 +65,8 @@ export interface PlanQueueRouteUsageDeps {
   spawnModel: (choice: PlanQueueRouteChoice) => Promise<string | null>;
   /** The provider's latest usage evidence for one account (null = the pre-pools sign-in). */
   quotaEvidence: (provider: string, accountProfileId: string | null) => AccountQuotaEvidence | null;
+  /** The latest usage figures for a provider outside the account pools. */
+  providerQuota: (provider: string) => ProviderQuotaSnapshot | null;
   /** James's never-use and use-last lists, read live. */
   accountRules: () => PlanQueueAccountRules;
   /** The Copilot profile a session in this folder would get (rules applied), or null when none would. */
@@ -103,7 +107,10 @@ export async function planQueueRouteUsage(
     return { usable: false, resumeAt: active.resumeAt };
   };
   // OpenCode accounts apply only to MiMo Token Plan models, exactly as at spawn.
-  if (!isPooledProvider(provider) || (provider === 'opencode' && !isLogicalMiMoModel(model))) return limitFor(null);
+  if (!isPooledProvider(provider) || (provider === 'opencode' && !isLogicalMiMoModel(model))) {
+    const limit = limitFor(null);
+    return limit.usable ? planSpent(deps.providerQuota(provider), now) ?? limit : limit;
+  }
   // The never-use list is excluded and the use-last list is the final tier, exactly as the spawn's own pick applies them.
   const preferences = accountPreferencesFor(rules, provider);
   const preview = await deps.previewAccountRoute({
@@ -128,6 +135,25 @@ export async function planQueueRouteUsage(
   return { usable: false, resumeAt: waiting.resumeAt };
 }
 
+/**
+ * Usage windows that every model of their provider draws from. Once one is
+ * spent the provider only serves paid on-demand usage, which unattended queue
+ * work never counts. A model-specific window (Claude's Opus week, Antigravity's
+ * per-model quotas, Copilot premium requests, which included models skip) never
+ * stops a whole provider, so it is not listed.
+ */
+const PLAN_WIDE_WINDOW_IDS: ReadonlySet<string> = new Set(['cursor.included', 'grok.monthly']);
+
+/** No usage while a plan-wide window is spent; null when the figures show none spent. */
+function planSpent(snapshot: ProviderQuotaSnapshot | null, now: number): PlanQueueRouteUsage | null {
+  if (!snapshot?.ok) return null;
+  // A reading from before a reset that has since passed says nothing about the window now.
+  const spent = clearElapsedQuotaWindows(snapshot, now).windows
+    .find((window) => PLAN_WIDE_WINDOW_IDS.has(window.id) && window.limit > 0 && window.used >= window.limit);
+  if (!spent) return null;
+  return { usable: false, resumeAt: spent.resetsAt !== null && spent.resetsAt > now ? spent.resetsAt : null };
+}
+
 const spawnModelResolver = new ModelSelectionResolver();
 
 export function defaultPlanQueueRouteUsage(): PlanQueueRouteUsageCheck {
@@ -146,6 +172,7 @@ export function defaultPlanQueueRouteUsage(): PlanQueueRouteUsageCheck {
       return resolved.model ?? null;
     },
     quotaEvidence: (provider, accountProfileId) => quotaEvidenceFromSnapshot(getProviderQuotaService().getSnapshot(provider as ProviderId, accountProfileId)),
+    providerQuota: (provider) => getProviderQuotaService().getSnapshot(provider as ProviderId),
     now: Date.now,
   });
 }

@@ -113,8 +113,8 @@ function callStore(method: LedgerStoreMethod, args: unknown[]): unknown {
       return store.getMessages(args[0] as string, args[1] as ConversationMessagesQuery | undefined);
     case 'getRecentMessages':
       return store.getRecentMessages(args[0] as string, args[1] as number);
-    case 'getLatestUserMessage':
-      return store.getLatestUserMessage(args[0] as string, args[1] as string | null);
+    case 'getLatestInputSource':
+      return store.getLatestInputSource(args[0] as string, args[1] as string | null);
     case 'getMessagesBefore':
       return store.getMessagesBefore(
         args[0] as string,

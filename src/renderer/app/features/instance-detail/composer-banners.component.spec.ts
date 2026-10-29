@@ -32,8 +32,11 @@ describe('ComposerBannersComponent auth repair', () => {
     restartInstance: vi.fn(),
   };
   const providerIpc = { runProviderLogin };
-  const providerAccountIpc = { list: vi.fn(), switchSession: vi.fn() };
-  const instanceStore = { getInstance: vi.fn(() => undefined), setError: vi.fn() };
+  const providerAccountIpc = { list: vi.fn(), switchSession: vi.fn(), launchLogin: vi.fn() };
+  const instanceStore = {
+    getInstance: vi.fn<(id: string) => { id: string; provider: string; accountProfileId?: string } | undefined>(() => undefined),
+    setError: vi.fn(),
+  };
 
   let fixture: ComponentFixture<ComposerBannersComponent>;
   let component: ComposerBannersComponent;
@@ -46,6 +49,7 @@ describe('ComposerBannersComponent auth repair', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    instanceStore.getInstance.mockReturnValue(undefined);
     authRepairRetry.mockResolvedValue({ success: true, data: { status: 'resumed' } });
     authRepairCancel.mockResolvedValue({ success: true });
     runProviderLogin.mockResolvedValue({
@@ -93,6 +97,31 @@ describe('ComposerBannersComponent auth repair', () => {
     expect(component.authNotice()).toContain('claude auth login');
     expect(component.authNotice()).toContain('resumes on its own');
     expect(component.authBusy()).toBe(false);
+  });
+
+  it('signs in the account this session runs on, not the default login', async () => {
+    instanceStore.getInstance.mockReturnValue({ id: 'i1', provider: 'claude', accountProfileId: 'work-account' });
+    providerAccountIpc.launchLogin.mockResolvedValue({
+      success: true,
+      data: { copied: true, openedTerminal: true, terminal: 'Terminal', hint: 'Sign in as someone@example.org.' },
+    });
+
+    await component.onSignIn('claude');
+
+    expect(providerAccountIpc.launchLogin).toHaveBeenCalledWith('claude', 'work-account', { openTerminal: true });
+    expect(runProviderLogin).not.toHaveBeenCalled();
+    expect(component.authNotice()).toBe(
+      "Terminal opened the sign-in for this session's account. Sign in as someone@example.org. This session resumes on its own once you finish.",
+    );
+  });
+
+  it('keeps the provider sign-in for a provider without account profiles', async () => {
+    instanceStore.getInstance.mockReturnValue({ id: 'i1', provider: 'copilot', accountProfileId: 'gh-work' });
+
+    await component.onSignIn('copilot');
+
+    expect(runProviderLogin).toHaveBeenCalledWith('copilot');
+    expect(providerAccountIpc.launchLogin).not.toHaveBeenCalled();
   });
 
   it('surfaces a failed sign-in launch', async () => {

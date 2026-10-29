@@ -141,6 +141,17 @@ describe('PlanQueueAccountRulesPanelComponent', () => {
     expect(saveButton().disabled).toBe(true);
   });
 
+  it('says the rules are not saved until Save is pressed', async () => {
+    await mount();
+    expect(statusText()).toBe('');
+    await pick('codex:cx-a', 'never');
+    expect(statusText()).toBe('Not saved yet. New sessions follow the saved rules until you press Save.');
+
+    saveButton().click();
+    await flush();
+    expect(statusText()).toContain('Saved');
+  });
+
   it('moves an account between the lists and back to "Use normally"', async () => {
     await mount({ never: [{ provider: 'claude', accountId: 'cl-a' }], last: [] });
     await pick('claude:cl-a', 'last');

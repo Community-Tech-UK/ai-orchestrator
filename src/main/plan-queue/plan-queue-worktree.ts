@@ -26,7 +26,8 @@ import {
   removeManagedWorktreeDirectory,
 } from '../workspace/git/worktree-cleanup';
 import { UnresolvedMergeError, unresolvedMergeFiles } from './plan-queue-git';
-import { assertQueueCheckout, retainedQueuePathExists } from './plan-queue-orphan-checkout';
+import { assertQueueCheckout, retainedQueuePathExists, setAsideHalfRemovedCheckout } from './plan-queue-orphan-checkout';
+import { recoverLandingLeftover } from './plan-queue-landing-leftover';
 import type { PlanQueueItem } from './plan-queue.types';
 import { getCodemem } from '../codemem';
 import { stopAttributedLeftoversIn } from '../process/leftover-process-sweeper';
@@ -35,6 +36,14 @@ const logger = getLogger('PlanQueueWorktree');
 
 export const PLAN_QUEUE_BRANCH_PREFIX = 'queue/';
 export const PLAN_QUEUE_WORKTREE_BASE_DIR = '.worktrees';
+
+/** A checkpoint refused checkout ownership before staging or committing anything. */
+export class PlanQueueCheckoutOwnershipError extends Error {
+  constructor(worktreePath: string, branchName: string) {
+    super(`${worktreePath} is not this item's checkout of ${branchName}, so nothing was committed`);
+    this.name = 'PlanQueueCheckoutOwnershipError';
+  }
+}
 
 /**
  * Kept in the worktree's private git dir (`.git/worktrees/<name>/`), so it
@@ -128,8 +137,18 @@ export class PlanQueueWorktreeService {
     const worktreePath = path.join(repoRoot, PLAN_QUEUE_WORKTREE_BASE_DIR, branchName);
     const withPath = { ...item, worktreePath };
     this.deps.saveItem(withPath);
-    const alreadyThere = await retainedQueuePathExists(worktreePath);
-    if (alreadyThere) await assertQueueCheckout(worktreePath, branchName, repoRoot);
+    let alreadyThere = await retainedQueuePathExists(worktreePath);
+    let rescueRef: string | null = null;
+    if (alreadyThere) {
+      const movedTo = await setAsideHalfRemovedCheckout(worktreePath, branchName, repoRoot);
+      if (movedTo) {
+        logger.warn('Plan queue: moved a half-removed checkout aside before checking its branch out again', { itemId: item.id, movedTo });
+        alreadyThere = false;
+      } else {
+        rescueRef = await recoverLeftover(worktreePath, branchName, item.id);
+        await assertQueueCheckout(worktreePath, branchName, repoRoot);
+      }
+    }
     if (!alreadyThere) {
       await fs.mkdir(path.dirname(worktreePath), { recursive: true });
       await getGitWriteQueue().enqueue('plan-queue-reattach', () =>
@@ -148,6 +167,7 @@ export class PlanQueueWorktreeService {
     const head = await gitExec(['rev-parse', 'HEAD'], worktreePath);
     const reattached = {
       ...withPath,
+      ...(rescueRef ? { detail: rescueNote(rescueRef) } : {}),
       checkpointCommit: head,
       landedCommit: head === item.checkpointCommit ? item.landedCommit : null,
     };
@@ -165,7 +185,10 @@ export class PlanQueueWorktreeService {
     const worktreePath = requireWorktree(item);
     const branchName = requireBranch(item);
     const scope = await workPathspec(worktreePath);
+    let rescueRef: string | null = null;
     const hash = await getGitWriteQueue().enqueue('plan-queue-checkpoint', async () => {
+      // `??`: the write queue reruns a job after a Git lock error, and a rerun finds nothing left to recover.
+      rescueRef = (await recoverLeftoverUnqueued(worktreePath, branchName, item.id)) ?? rescueRef;
       await assertItemCheckout(worktreePath, branchName);
       // A resolved merge is completed by this commit (that is the worker
       // contract); an unresolved one must never be, or the conflict markers
@@ -189,6 +212,7 @@ export class PlanQueueWorktreeService {
       ...item,
       checkpointCommit: hash,
       landedCommit: hash === item.checkpointCommit ? item.landedCommit : null,
+      ...(rescueRef ? { detail: rescueNote(rescueRef) } : {}),
     };
     this.deps.saveItem(updated);
     return updated;
@@ -336,8 +360,31 @@ async function assertItemCheckout(worktreePath: string, branchName: string): Pro
   const root = await gitExec(['rev-parse', '--show-toplevel'], worktreePath);
   const branch = await gitExec(['symbolic-ref', '-q', '--short', 'HEAD'], worktreePath).catch(() => '');
   if (pathCompareKey(await fs.realpath(root)) !== pathCompareKey(await fs.realpath(worktreePath)) || branch !== branchName) {
-    throw new Error(`${worktreePath} is not this item's checkout of ${branchName}, so nothing was committed`);
+    throw new PlanQueueCheckoutOwnershipError(worktreePath, branchName);
   }
+}
+
+/**
+ * Put back a checkout an interrupted landing left detached
+ * (plan-queue-landing-leftover.ts); returns the rescue ref when some files
+ * were set aside. Takes the Git write queue, so never call it from inside it.
+ */
+export function recoverLeftover(worktreePath: string, branchName: string, itemId: string): Promise<string | null> {
+  return getGitWriteQueue().enqueue('plan-queue-recover-landing-leftover', () => recoverLeftoverUnqueued(worktreePath, branchName, itemId));
+}
+
+async function recoverLeftoverUnqueued(worktreePath: string, branchName: string, itemId: string): Promise<string | null> {
+  const recovered = await recoverLandingLeftover(worktreePath, branchName, itemId, await readProvisionedPaths(worktreePath));
+  if (!recovered) return null;
+  logger.warn('Plan queue: put a checkout an interrupted landing left detached back on its branch', {
+    itemId, rescueRef: recovered.rescueRef, unexplained: recovered.unexplained.length,
+  });
+  return recovered.rescueRef;
+}
+
+export function rescueNote(rescueRef: string): string {
+  return 'A landing had stopped part-way and left this item\'s folder off its branch. It was put back on the branch. '
+    + `Some files in it matched neither side (half-written, or edited while it was off the branch); they were left off the branch, and the whole folder was saved at ${rescueRef} in case any of it is needed.`;
 }
 
 function refuse(reason: RemovalRefusal, detail: string): RemovalResult {

@@ -252,13 +252,13 @@ describe('registerBrowserGatewayHandlers', () => {
       const { sendInput } = registerSessions(older);
 
       expect(resolveCredentialAccessSession('older-placeholder')).toBeUndefined();
-      expect(findCredentialAccessSession('conversation:conversation-placeholder')).toEqual({
+      expect(findCredentialAccessSession('conversation:conversation-placeholder', 'older-placeholder')).toEqual({
         instanceId: 'current-placeholder', taskScope: 'conversation:conversation-placeholder',
         sessionName: 'Current conversation',
       });
 
       await notifyCredentialAccessDecision({
-        requestId: 'request-placeholder', status: 'approved',
+        requestId: 'request-placeholder', instanceId: 'older-placeholder', status: 'approved',
         credentialAccess: { taskScope: 'conversation:conversation-placeholder' },
       } as BrowserApprovalRequest);
 
@@ -268,12 +268,30 @@ describe('registerBrowserGatewayHandlers', () => {
       );
     });
 
-    it('refuses consent routing when two eligible runtimes share a conversation', async () => {
-      const { sendInput } = registerSessions({ status: 'idle' });
-      expect(findCredentialAccessSession('conversation:conversation-placeholder')).toBeUndefined();
+    it('routes consent to the requester while a sleeping copy shares its conversation', async () => {
+      const { sendInput } = registerSessions({ status: 'hibernated' });
+      expect(findCredentialAccessSession('conversation:conversation-placeholder', 'current-placeholder')?.instanceId)
+        .toBe('current-placeholder');
+      // A requester is never returned for a conversation it does not run.
+      expect(findCredentialAccessSession('conversation:other-placeholder', 'current-placeholder')).toBeUndefined();
 
       await notifyCredentialAccessDecision({
-        requestId: 'request-placeholder', status: 'approved',
+        requestId: 'request-placeholder', instanceId: 'current-placeholder', status: 'approved',
+        credentialAccess: { taskScope: 'conversation:conversation-placeholder' },
+      } as BrowserApprovalRequest);
+
+      expect(sendInput).toHaveBeenCalledExactlyOnceWith(
+        'current-placeholder', expect.stringContaining('approved by the user'),
+        undefined, { automatedInput: true, internalSource: 'browser-gateway' },
+      );
+    });
+
+    it('refuses consent routing when the requester has gone and two eligible runtimes share a conversation', async () => {
+      const { sendInput } = registerSessions({ status: 'idle' });
+      expect(findCredentialAccessSession('conversation:conversation-placeholder', 'gone-placeholder')).toBeUndefined();
+
+      await notifyCredentialAccessDecision({
+        requestId: 'request-placeholder', instanceId: 'gone-placeholder', status: 'approved',
         credentialAccess: { taskScope: 'conversation:conversation-placeholder' },
       } as BrowserApprovalRequest);
 
@@ -291,7 +309,7 @@ describe('registerBrowserGatewayHandlers', () => {
           getAllInstances: () => instances,
         } as never,
       });
-      expect(findCredentialAccessSession('conversation:conversation-placeholder')?.instanceId)
+      expect(findCredentialAccessSession('conversation:conversation-placeholder', 'older-placeholder')?.instanceId)
         .toBe('current-placeholder');
     });
   });

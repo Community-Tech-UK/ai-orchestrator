@@ -74,6 +74,8 @@ describe('classifyFinalOutputProviderLimit', () => {
       "You've hit your usage limit · resets 3am (UTC+1)",
       "You've hit your weekly limit · resets Monday (GMT+01:00)",
       'Opus limit reached ∙ resets 11pm (BST)',
+      'Upgrade your plan to continue',
+      'Add a payment method to continue.',
     ];
     for (const notice of notices) {
       expect(classifyFinalOutputProviderLimit(notice), notice).toBe(`provider_limit: ${notice}`);
@@ -116,6 +118,9 @@ describe('classifyFinalOutputProviderLimit', () => {
       'Weekly limit reached · resets Monday (LinkedIn)',
       '5-hour limit reached ∙ resets 3am (Explee)',
       `Outreach desk finished. ${'Details. '.repeat(60)} You've hit your session limit · resets 6:30pm`,
+      'Explee wants us to upgrade your plan to continue enrichment; 0 sends.',
+      'Fixed the paywall copy. Upgrade your plan to continue',
+      'Upgrade your plan to continue using Mailchimp automations.',
     ];
     for (const text of legit) {
       expect(classifyFinalOutputProviderLimit(text), text).toBeNull();

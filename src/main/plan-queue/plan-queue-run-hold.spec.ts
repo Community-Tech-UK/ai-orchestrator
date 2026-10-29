@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,6 +8,7 @@ import { PlanQueueItemFlow } from './plan-queue-item-flow';
 import { recoverPlanQueue, type PlanQueueRecoveryHost } from './plan-queue-recovery';
 import { newPlanQueueItem } from './plan-queue-state';
 import { holdItem, PlanQueueSpawnRunPaused } from './plan-queue-run-hold';
+import { PlanQueueSpawnOutOfUsage } from './plan-queue-spawn';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 
 vi.mock('./plan-queue-git', async (original) => ({
@@ -80,10 +81,31 @@ describe('paused runs never continue work or park it', () => {
 
   it('refuses a full hold when an unfinished landing cannot be restored or checkpointed', async () => {
     item = { ...item, state: 'landing' };
+    writeFileSync(join(directory, '.git'), 'gitdir: /checkout-metadata\n');
     vi.mocked(host.worktrees.checkpoint).mockRejectedValue(new Error('Checkpoint recovery blocked'));
     await expect(flow.hold(item.id)).rejects.toThrow('Checkpoint recovery blocked');
     expect(item.state).toBe('landing');
     expect(host.instances.createInstance).not.toHaveBeenCalled();
+  });
+
+  it('lets a Pause that lands while a refused worker start is in flight clear its usage wait', async () => {
+    run.status = 'running';
+    item = { ...item, state: 'queued', verifierInstanceId: null, workerInstanceId: null };
+    vi.mocked(host.instances.createInstance).mockRejectedValueOnce(new PlanQueueSpawnOutOfUsage(null, 'claude'));
+    const starting = flow.startItem(item);
+    const pausing = flow.hold(item.id);
+    await Promise.all([starting, pausing]);
+    expect(item.detail).toBe('Paused');
+    expect(flow.isWaitingForUsage(item.id)).toBe(false);
+  });
+
+  it('holds an item whose folder was half-removed without committing in it', async () => {
+    // 26 Oct: only an ignored _scratch was left. Its work is on the branch; Resume checks it out again.
+    item = { ...item, state: 'awaiting-slot', verifierInstanceId: null, workerInstanceId: null };
+    vi.mocked(host.worktrees.checkpoint).mockRejectedValue(new Error(`${directory} is not this item's checkout`));
+    await flow.hold(item.id);
+    expect(host.worktrees.checkpoint).not.toHaveBeenCalled();
+    expect(item).toMatchObject({ state: 'awaiting-slot', worktreePath: directory, heldAt: expect.any(Number) });
   });
 
   it('discards an interrupted check without sending another turn to the live worker', async () => {

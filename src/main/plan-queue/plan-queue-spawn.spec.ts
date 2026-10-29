@@ -4,7 +4,8 @@ import type { InstanceCreateConfig } from '../../shared/types/instance.types';
 import { PlanQueueSpawnRoutingChanged } from './plan-queue-checker-routing';
 import type { PlanQueueInstancePort } from './plan-queue-host';
 import { PlanQueueSpawnRunPaused } from './plan-queue-run-hold';
-import { spawnQueueInstance } from './plan-queue-spawn';
+import { continuableWorkerSession, PlanQueueSpawnOutOfUsage, spawnQueueInstance } from './plan-queue-spawn';
+import { newPlanQueueItem } from './plan-queue-state';
 import type { PlanQueueRun } from './plan-queue.types';
 import { PlanQueueSpawnStoppedByUser } from './plan-queue-user-close';
 
@@ -34,7 +35,8 @@ beforeEach(() => {
 });
 
 function host(ready: Promise<void>) {
-  return { ready, instances, getRun: () => run, isShuttingDown: () => false, userCloseEpoch: () => epoch, readAccountRules: () => ({ never: [], last: [] }), isProviderExcluded: () => false };
+  return { ready, instances, getRun: () => run, getItem: () => null, clearWorkerSession: vi.fn(), isShuttingDown: () => false, userCloseEpoch: () => epoch, readAccountRules: () => ({ never: [], last: [] }), isProviderExcluded: () => false,
+    routeUsage: async () => ({ usable: true, resumeAt: null }) };
 }
 
 describe('Plan Queue asynchronous spawn fences', () => {
@@ -137,17 +139,39 @@ describe('ranked worker choices at spawn', () => {
     run = { ...run, config: { ...run.config, routing: twoChoices } };
     const routeUsage = vi.fn(async (choice: { provider: string }) => ({ usable: choice.provider !== 'claude', resumeAt: null }));
     await spawnQueueInstance(config, { ...host(Promise.resolve()), routeUsage });
-    expect(routeUsage).toHaveBeenCalledTimes(2);
+    // Two to rank the choices, then the chosen route's own check before it starts.
+    expect(routeUsage).toHaveBeenCalledTimes(3);
+    expect(routeUsage).toHaveBeenLastCalledWith({ provider: 'codex', model: 'gpt-6.1-sol', accountProfileIds: ['pro-2'] }, 'automation', { allowLast: true, workingDirectory: '/queue-test' });
     expect(instances.createInstance).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
       provider: 'codex', modelOverride: 'gpt-6.1-sol', allowedAccountProfileIds: ['pro-2'], accountRouteOrigin: 'automation',
     }));
   });
 
-  it('never checks usage for a run with one worker choice', async () => {
-    const routeUsage = vi.fn();
-    await spawnQueueInstance(config, { ...host(Promise.resolve()), routeUsage });
-    expect(routeUsage).not.toHaveBeenCalled();
-    expect(instances.createInstance).toHaveBeenCalledWith(expect.objectContaining({ provider: 'claude' }));
+  it('never starts a worker whose only choice has no usage left', async () => {
+    const resumeAt = Date.UTC(2026, 10, 2, 6, 7);
+    const routeUsage = vi.fn(async () => ({ usable: false, resumeAt }));
+    const refused = await spawnQueueInstance(config, { ...host(Promise.resolve()), routeUsage }).catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(PlanQueueSpawnOutOfUsage);
+    expect((refused as PlanQueueSpawnOutOfUsage).resumeAt).toBe(resumeAt);
+    expect((refused as Error).message).toMatch(/^claude has no usage left until /);
+    expect(routeUsage).toHaveBeenCalledExactlyOnceWith({ provider: 'claude' }, 'automation', { allowLast: true, workingDirectory: '/queue-test' });
+    expect(instances.createInstance).not.toHaveBeenCalled();
+  });
+
+  it('never starts a worker when no choice has usage left', async () => {
+    run = { ...run, config: { ...run.config, routing: twoChoices } };
+    await expect(spawnQueueInstance(config, { ...host(Promise.resolve()), routeUsage: async () => ({ usable: false, resumeAt: null }) }))
+      .rejects.toThrow('claude (claude-opus-5) has no usage left');
+    expect(instances.createInstance).not.toHaveBeenCalled();
+  });
+
+  it('never starts a checker on a route with no usage left', async () => {
+    const checker: InstanceCreateConfig = { workingDirectory: '/queue-test', provider: 'codex', modelOverride: 'gpt-6.1-sol',
+      metadata: { planQueueRunId: run.id, planQueueRole: 'verifier', planQueueRouting: JSON.stringify(run.config.routing) } };
+    const routeUsage = vi.fn(async () => ({ usable: false, resumeAt: null }));
+    await expect(spawnQueueInstance(checker, { ...host(Promise.resolve()), routeUsage })).rejects.toBeInstanceOf(PlanQueueSpawnOutOfUsage);
+    expect(routeUsage).toHaveBeenCalledExactlyOnceWith({ provider: 'codex', model: 'gpt-6.1-sol' }, 'verification', { allowLast: true, workingDirectory: '/queue-test' });
+    expect(instances.createInstance).not.toHaveBeenCalled();
   });
 
   it('chooses again from the new list when James changes routing during the usage check', async () => {
@@ -179,7 +203,42 @@ describe('ranked worker choices at spawn', () => {
     run = { ...run, config: { ...run.config, routing: { workers: [{ provider: 'claude' }, { provider: 'codex' }, { provider: 'cursor' }], verifiers: [] } } };
     const routeUsage = vi.fn(async () => ({ usable: true, resumeAt: null }));
     await spawnQueueInstance(config, { ...host(Promise.resolve()), readAccountRules: () => ({ never: [], last: [] }), isProviderExcluded: (provider: string) => provider === 'claude', routeUsage });
-    expect(routeUsage).toHaveBeenCalledExactlyOnceWith({ provider: 'codex' }, 'automation', { allowLast: false, workingDirectory: '/queue-test' });
+    expect(routeUsage).toHaveBeenCalledTimes(2);
+    expect(routeUsage).toHaveBeenNthCalledWith(1, { provider: 'codex' }, 'automation', { allowLast: false, workingDirectory: '/queue-test' });
+    expect(routeUsage).not.toHaveBeenCalledWith(expect.objectContaining({ provider: 'claude' }), expect.anything(), expect.anything());
     expect(instances.createInstance).toHaveBeenCalledWith(expect.objectContaining({ provider: 'codex' }));
+  });
+});
+
+describe('worker conversation continuity', () => {
+  const session = { provider: 'claude', model: 'model', accountProfileId: 'account', providerSessionId: 'conversation', workingDirectory: '/queue-test', recordedAt: 1 };
+  const item = () => newPlanQueueItem('item', 'run', '/repo/plan.md', 1, { workerSession: session });
+  const route = { workingDirectory: '/queue-test', provider: 'claude' as const, modelOverride: 'model', allowedAccountProfileIds: ['account'] };
+  it('requires provider, model, account and checkout to match', () => {
+    expect(continuableWorkerSession(item(), route)).toEqual(session);
+    expect(continuableWorkerSession(item(), { ...route, provider: 'codex' })).toBeNull();
+    expect(continuableWorkerSession(item(), { ...route, modelOverride: 'other' })).toBeNull();
+    expect(continuableWorkerSession(item(), { ...route, allowedAccountProfileIds: ['other'] })).toBeNull();
+    expect(continuableWorkerSession(item(), { ...route, workingDirectory: '/other' })).toBeNull();
+    expect(continuableWorkerSession(null, route)).toBeNull();
+    expect(continuableWorkerSession({ ...item(), workerSession: { ...session, accountProfileId: null } }, { ...route, allowedAccountProfileIds: undefined })).not.toBeNull();
+  });
+  it('pins a matching session and uses its short continuation prompt', async () => {
+    run.config.routing = { workers: [{ provider: 'claude', model: 'model', accountProfileIds: ['account', 'other'] }], verifiers: [] };
+    const result = await spawnQueueInstance({ ...config, initialPrompt: 'full resume', metadata: { ...config.metadata, planQueueItemId: 'item', planQueueContinuePrompt: 'short continue' } },
+      { ...host(Promise.resolve()), getItem: item });
+    expect(result.queueResumed).toBe(true);
+    expect(instances.createInstance).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'conversation', resume: true, initialPrompt: 'short continue', allowedAccountProfileIds: ['account'] }));
+  });
+  it('clears a rejected conversation and retries exactly once with the full prompt', async () => {
+    run.config.routing = { workers: [{ provider: 'claude', model: 'model', accountProfileIds: ['account'] }], verifiers: [] };
+    vi.mocked(instances.createInstance).mockRejectedValueOnce(new Error('conversation missing'));
+    const clearWorkerSession = vi.fn();
+    await spawnQueueInstance({ ...config, initialPrompt: 'full resume', metadata: { ...config.metadata, planQueueItemId: 'item', planQueueContinuePrompt: 'short continue' } },
+      { ...host(Promise.resolve()), getItem: item, clearWorkerSession });
+    expect(clearWorkerSession).toHaveBeenCalledWith('item');
+    expect(instances.createInstance).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(instances.createInstance).mock.calls[1][0]).toMatchObject({ initialPrompt: 'full resume' });
+    expect(vi.mocked(instances.createInstance).mock.calls[1][0].sessionId).toBeUndefined();
   });
 });

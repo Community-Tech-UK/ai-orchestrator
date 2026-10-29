@@ -13,6 +13,72 @@ export async function retainedQueuePathExists(target: string): Promise<boolean> 
   }
 }
 
+/**
+ * Whether the item's folder holds a checkout. A folder with no `.git` entry is
+ * what a removal that stopped part-way leaves: Git run there resolves the
+ * enclosing repository, so nothing may be committed or reverted in it, and its
+ * work is on the branch.
+ */
+export async function hasCheckout(worktreePath: string): Promise<boolean> {
+  try { await fs.lstat(path.join(worktreePath, '.git')); return true; } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'ENOTDIR') return false;
+    throw error;
+  }
+}
+
+/**
+ * Resume's repair for a queue folder whose removal stopped part-way (26 Oct: an
+ * `.asar` inside an agent's `_scratch` copy). With no `.git`, no Git
+ * registration and nothing but what Git ignores, it holds no work a checkpoint
+ * would have kept, so it is moved into the quarantine folder (never deleted)
+ * and the branch can be checked out there again. Any other folder stays where
+ * it is and reattaching refuses it. Returns where it went, or null when the
+ * folder is not such a leftover.
+ */
+export async function setAsideHalfRemovedCheckout(worktreePath: string, branchName: string, repoRoot: string): Promise<string | null> {
+  return getGitWriteQueue().enqueue('plan-queue-set-aside-leftover', async () => {
+    const folder = await fs.lstat(worktreePath).catch(() => null);
+    if (!folder?.isDirectory() || !branchName.startsWith('queue/') || await hasCheckout(worktreePath)) return null;
+    const root = await fs.realpath(await gitExec(['rev-parse', '--show-toplevel'], repoRoot));
+    const expectedPath = path.join(root, '.worktrees', branchName);
+    if (pathCompareKey(await fs.realpath(worktreePath)) !== pathCompareKey(expectedPath)) return null;
+    const commonDir = await fs.realpath(await gitExec(['rev-parse', '--path-format=absolute', '--git-common-dir'], root));
+    await requireUnregistered(root, expectedPath, branchName, path.join(commonDir, 'worktrees', path.basename(expectedPath)));
+    const entries = await fs.readdir(expectedPath, { withFileTypes: true });
+    if (!(await allIgnored(root, entries.map((entry) => (entry.isDirectory() ? `${entry.name}/` : entry.name))))) return null;
+    const destination = path.join(await quarantineContainer(root, expectedPath), 'leftover');
+    await fs.rename(expectedPath, destination);
+    return destination;
+  });
+}
+
+/**
+ * True when the repository's ignore rules cover every path; a directory is passed
+ * with a trailing `/`. The names are checked as if at the repository root, where
+ * they sit in a checkout: prefixed with the queue folder they would always match
+ * the root's `.worktrees/` rule.
+ */
+async function allIgnored(root: string, paths: readonly string[]): Promise<boolean> {
+  if (paths.length === 0) return true;
+  try {
+    // A name Git has to quote does not match, so its folder is left alone.
+    const matched = new Set((await gitExec(['-c', 'core.quotePath=false', 'check-ignore', '--', ...paths], root)).split('\n'));
+    return paths.every((entry) => matched.has(entry));
+  } catch (error) {
+    // check-ignore exits 1 when no path is ignored.
+    if ((error as { code?: unknown }).code === 1) return false;
+    throw error;
+  }
+}
+
+async function quarantineContainer(root: string, checkout: string): Promise<string> {
+  const quarantineRoot = path.join(root, '.worktrees', 'queue-quarantine');
+  await fs.mkdir(quarantineRoot, { recursive: true });
+  await requireDirectory(quarantineRoot);
+  return fs.mkdtemp(path.join(quarantineRoot, `${path.basename(checkout)}-`));
+}
+
 export async function assertQueueCheckout(worktreePath: string, branchName: string, repoRoot: string): Promise<void> {
   try {
     const gitfile = await fs.lstat(path.join(worktreePath, '.git'));
@@ -80,10 +146,8 @@ export async function quarantineOrphanCheckout(
       throw new Error('The orphan gitfile does not point to this repository and item');
     }
     await requireUnregistered(root, expectedPath, expectedBranch, expectedMetadata);
-    const quarantineRoot = path.join(root, '.worktrees', 'queue-quarantine');
-    await fs.mkdir(quarantineRoot, { recursive: true });
-    await requireDirectory(quarantineRoot);
-    const container = await fs.mkdtemp(path.join(quarantineRoot, `${path.basename(expectedPath)}-`));
+    const container = await quarantineContainer(root, expectedPath);
+    const quarantineRoot = path.dirname(container);
     const destination = path.join(container, 'checkout');
     const receipt = `Orphan checkout recovery location: ${destination}\n`;
     const recorded = { ...item, detail: receipt + (item.detail ?? '').slice(0, 8000 - receipt.length) };

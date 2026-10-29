@@ -205,6 +205,10 @@ export class BrowserTargetPersistenceSentinel {
         payload: {
           expression: buildPersistenceScanExpression(attachment.origin),
           awaitPromise: false,
+          // A read-only check after a write: the extension runs it without a
+          // pop-up watch (which would show Chrome's debugging bar after every
+          // keystroke batch).
+          internalScan: true,
         },
         timeoutMs: SCAN_TIMEOUT_MS,
         executionTimeoutMs: SCAN_EXECUTION_MS,

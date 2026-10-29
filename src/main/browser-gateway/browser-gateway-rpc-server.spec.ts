@@ -1166,6 +1166,36 @@ describe('BrowserGatewayRpcServer', () => {
     });
   });
 
+  it('forwards browser.handle_dialog and refuses fields it does not support', async () => {
+    const handleDialog = vi.fn().mockResolvedValue({ decision: 'allowed', outcome: 'succeeded' });
+    const server = new BrowserGatewayRpcServer({
+      service: { handleDialog },
+      userDataPath: '/tmp',
+      isKnownLocalInstance: () => true,
+      registerCleanup: vi.fn(),
+    });
+    const call = (payload: Record<string, unknown>) => server.handleRequest({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'browser.handle_dialog',
+      params: { instanceId: 'instance-1', payload },
+    });
+
+    await expect(call({ profileId: 'profile-1', targetId: 'target-1', accept: false }))
+      .resolves.toEqual({ decision: 'allowed', outcome: 'succeeded' });
+    expect(handleDialog).toHaveBeenCalledWith({
+      instanceId: 'instance-1',
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      accept: false,
+    });
+    // A prompt answer the gateway cannot type must not be silently dropped.
+    await expect(call({ profileId: 'profile-1', targetId: 'target-1', accept: true, promptText: 'x' }))
+      .rejects.toThrow();
+    await expect(call({ profileId: 'profile-1', targetId: 'target-1' })).rejects.toThrow();
+    expect(handleDialog).toHaveBeenCalledTimes(1);
+  });
+
   it('validates and forwards human handoff browser gateway calls', async () => {
     const requestUserLogin = vi.fn().mockResolvedValue({
       decision: 'requires_user',

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -170,6 +170,26 @@ describe('explicit orphan Discard through the real queue flow', () => {
     rmSync(join(source, '.git'));
     await expect(service.reattach(item, repo)).rejects.toThrow('saved queue checkout is invalid');
     expect(readFileSync(join(source, 'untracked.txt'), 'utf8')).toBe('retained work\n');
+  });
+
+  it('moves a half-removed copy holding only ignored files aside and checks the branch out again', async () => {
+    // 26 Oct: a removal stopped on an .asar inside an agent's _scratch copy, leaving only that folder.
+    breakMetadata();
+    for (const entry of ['.git', 'base.txt', 'untracked.txt']) rmSync(join(source, entry));
+    mkdirSync(join(source, '_scratch/verifier'), { recursive: true });
+    writeFileSync(join(source, '_scratch/verifier/notes.txt'), 'scratch\n');
+    writeFileSync(join(repo, '.gitignore'), '_scratch/\n');
+    const tip = git(['rev-parse', 'queue/sample-abc123']);
+
+    const reattached = await service.reattach(item, repo);
+
+    expect(reattached.worktreePath).toBe(source);
+    expect(reattached.checkpointCommit).toBe(tip);
+    expect(git(['symbolic-ref', '--short', 'HEAD'], source)).toBe('queue/sample-abc123');
+    const quarantine = join(repo, '.worktrees/queue-quarantine');
+    const [container] = readdirSync(quarantine);
+    expect(readFileSync(join(quarantine, container!, 'leftover/_scratch/verifier/notes.txt'), 'utf8')).toBe('scratch\n');
+    expect(readFileSync(join(repo, 'base.txt'), 'utf8')).toBe('base\n');
   });
 
   it('refuses Resume into another repository even when its branch and checkout path match', async () => {

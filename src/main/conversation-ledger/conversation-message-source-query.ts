@@ -37,7 +37,19 @@ export const MESSAGE_SOURCE_OWNER_SQL = `CASE
 END`;
 
 const ACTIVE_THREAD_SQL = '(SELECT id FROM conversation_threads WHERE id = ? AND deleted_at IS NULL)';
-export const LATEST_USER_MESSAGE_SQL = `
+// Harness-authored input (LT-657) is recorded as a system row carrying
+// `metadata.internalInput`. Read the actor only from valid JSON so a malformed
+// retained row cannot fail an index write or the lookup. Keep the query and
+// partial index identical so the planner can use the index.
+export const HARNESS_INPUT_ACTOR_SQL = `CASE WHEN json_valid(raw_json)
+  THEN json_extract(raw_json, '$.metadata.internalInput.actor') END`;
+
+/**
+ * The latest recorded input that started or joined a turn: the user's own
+ * message, or input Harness sent itself. Harness input must name this exact
+ * instance; legacy ownerless rows are accepted for user messages only.
+ */
+export const LATEST_INPUT_SOURCE_SQL = `
   SELECT * FROM (
     SELECT *, (${MESSAGE_SOURCE_OWNER_SQL}) AS source_owner_key FROM conversation_messages
     WHERE role = 'user' AND thread_id = ${ACTIVE_THREAD_SQL}
@@ -51,15 +63,23 @@ export const LATEST_USER_MESSAGE_SQL = `
       AND (${MESSAGE_SOURCE_OWNER_SQL}) = ?
     ORDER BY sequence DESC LIMIT 1
   )
+  UNION ALL
+  SELECT * FROM (
+    SELECT *, (${MESSAGE_SOURCE_OWNER_SQL}) AS source_owner_key FROM conversation_messages
+    WHERE role = 'system' AND (${HARNESS_INPUT_ACTOR_SQL}) = 'harness'
+      AND thread_id = ${ACTIVE_THREAD_SQL}
+      AND (${MESSAGE_SOURCE_OWNER_SQL}) = ?
+    ORDER BY sequence DESC LIMIT 1
+  )
   ORDER BY sequence DESC LIMIT 1
 `;
 
-export function getLatestUserMessage(
+export function getLatestInputSource(
   db: SqliteDriver, threadId: string, instanceId: string | null,
 ): ConversationMessageRecord | null {
   const ownerKey = instanceId === null ? 'null' : `text:${instanceId}`;
-  const row = db.prepare(LATEST_USER_MESSAGE_SQL)
-    .get<MessageRow & { source_owner_key: string }>(threadId, threadId, ownerKey);
+  const row = db.prepare(LATEST_INPUT_SOURCE_SQL)
+    .get<MessageRow & { source_owner_key: string }>(threadId, threadId, ownerKey, threadId, ownerKey);
   if (!row) return null;
   const message = messageRowToRecord(row);
   const metadata = message.rawJson?.['metadata'];
@@ -72,6 +92,15 @@ export function getLatestUserMessage(
   if (row.source_owner_key !== decodedOwnerKey
     || (decodedOwnerKey !== 'absent' && decodedOwnerKey !== ownerKey)) {
     throw new Error('SOURCE_OWNER_MISMATCH');
+  }
+  // SQLite reads the first duplicate key while JSON.parse reads the last; a
+  // system row is only a source when both agree that Harness sent it.
+  if (message.role === 'system') {
+    const internalInput = (metadata as Record<string, unknown>)['internalInput'];
+    if (internalInput === null || typeof internalInput !== 'object'
+      || (internalInput as Record<string, unknown>)['actor'] !== 'harness') {
+      throw new Error('SOURCE_ACTOR_MISMATCH');
+    }
   }
   return message;
 }

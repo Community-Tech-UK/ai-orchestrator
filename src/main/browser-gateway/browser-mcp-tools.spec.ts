@@ -19,6 +19,7 @@ const ALLOWED_TOOLS = [
   'browser.press_key',
   'browser.set_viewport',
   'browser.set_zoom',
+  'browser.handle_dialog',
   'browser.execute_fill_plan',
   'browser.fill_credential',
   'browser.fill_http_auth',
@@ -284,6 +285,19 @@ describe('browser-mcp-tools', () => {
     expect(source).not.toContain('BrowserProfileStore');
     expect(source).not.toContain('PuppeteerBrowserDriver');
     expect(source).not.toContain('getBrowserGatewayService');
+  });
+
+  it('exposes browser.handle_dialog with a required accept choice and no typed prompt text', () => {
+    const handleDialog = createBrowserMcpTools({ call: vi.fn() })
+      .find((tool) => tool.name === 'browser.handle_dialog')!;
+
+    expect(handleDialog.inputSchema).toMatchObject({
+      required: ['profileId', 'targetId', 'accept'],
+      properties: { accept: { type: 'boolean' }, actionHint: { type: 'string' } },
+      additionalProperties: false,
+    });
+    expect(Object.keys(handleDialog.inputSchema['properties'] as object)).not.toContain('promptText');
+    expect(handleDialog.description).toContain('browser_dialog_open');
   });
 
   it('exposes keyboard, viewport and zoom controls with named-key and scope constraints', () => {

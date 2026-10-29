@@ -371,6 +371,46 @@ export function classifyPressKeyAction(input: {
   return { actionClass: 'input', hardStop: false };
 }
 
+/**
+ * Accepting a page pop-up with no evidence of what it does: the coordinator
+ * never sees the pop-up (only the extension does), so Leave / OK could discard
+ * unsaved work or confirm a deletion. Gated like an unexplained Enter.
+ */
+export const DIALOG_ACCEPT_REASON = 'dialog_accept_requires_user';
+
+/**
+ * Classify `browser.handle_dialog`. Staying (accept false) leaves the page as it
+ * was: an input action. Accepting presses the pop-up's Leave / OK button, so
+ * the actionHint rules for that button apply first and win (destructive,
+ * submit, payment, credential); with no such evidence it hard-stops behind an
+ * explicit user-approved grant (`DIALOG_ACCEPT_REASON`).
+ */
+export function classifyHandleDialogAction(input: {
+  accept: boolean;
+  actionHint?: string;
+}): BrowserActionClassification {
+  if (!input.accept) {
+    return { actionClass: 'input', hardStop: false };
+  }
+  const base = classifyBrowserAction({
+    toolName: 'browser.handle_dialog',
+    actionHint: input.actionHint,
+    elementContext: {
+      visibleText: input.actionHint,
+      nearbyText: input.actionHint,
+    },
+    elementContextSource: 'agent_hint',
+  });
+  if (
+    base.actionClass === 'unknown'
+    && !base.hardStop
+    && base.reason === 'unclassified_browser_action'
+  ) {
+    return { actionClass: 'unknown', hardStop: true, reason: DIALOG_ACCEPT_REASON };
+  }
+  return base;
+}
+
 /** Page evidence from the challenge probe (see browser-page-challenge-probe.ts). */
 export interface BrowserPageChallengeEvidence {
   /** A visible, unsolved reCAPTCHA / hCaptcha / Turnstile widget is on the page. */

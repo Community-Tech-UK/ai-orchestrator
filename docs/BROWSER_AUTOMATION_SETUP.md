@@ -95,6 +95,7 @@ Once configured, Claude instances will have access to these browser automation t
 | `browser_press_key` | Press a named key (Tab, Shift+Tab, Enter, Escape, arrows) with real keyboard input and modifiers |
 | `browser_set_viewport` | Set or read the content viewport in CSS pixels (tab-scoped emulation, optional real window resize) |
 | `browser_set_zoom` | Set, read or reset real Chrome browser zoom (1 = 100%, 2 = 200%) |
+| `browser_handle_dialog` | Answer a Chrome page pop-up (alert, confirm, "Leave site?") that opened while a gateway command ran on a shared tab |
 | `browser_scroll` | Scroll the page |
 | `browser_evaluate` | Execute JavaScript in the page |
 | `browser_console_logs` | Get console logs from the page |

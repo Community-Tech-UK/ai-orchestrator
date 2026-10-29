@@ -33,9 +33,12 @@ export function resolveCredentialAccessSession(instanceId?: string): CredentialA
   return instanceId ? resolveSession?.(instanceId) : undefined;
 }
 
-export function findCredentialAccessSession(taskScope: string): CredentialAccessSession | undefined {
+/** The requesting instance owns its request while it still runs that conversation. */
+export function findCredentialAccessSession(taskScope: string, requesterInstanceId: string): CredentialAccessSession | undefined {
+  const requester = resolveCredentialAccessSession(requesterInstanceId);
+  if (requester?.taskScope === taskScope) return requester;
   const matches = listSessions?.().filter((session) => session.taskScope === taskScope) ?? [];
-  // A logical conversation running twice is ambiguous: never choose another task.
+  // Otherwise follow the conversation only to its sole open copy: never choose between two.
   return matches.length === 1 ? matches[0] : undefined;
 }
 

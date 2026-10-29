@@ -100,6 +100,14 @@ describe('detectCompletionProviderLimit', () => {
     expect(signal?.resetAtHint).toBe(resetAt);
   });
 
+  it('ignores a reply that quotes another provider\'s limit notice', () => {
+    // 27 Oct: a Claude session relaying a Codex checker's failure was marked limited and moved off its account.
+    expect(detectCompletionProviderLimit({
+      content: 'The checker failed: You\'ve hit your usage limit. Visit https://chatgpt.com/settings/usage to purchase more credits or try again at Nov 2nd, 2026 6:07 AM.\n\nI\'ll restart it on Claude.',
+    }, null, { provider: 'claude' })).toBeNull();
+    expect(detectCompletionProviderLimit({ content: 'Codex resets 6:07am, so the queue waits until then.' }, null, { provider: 'claude' })).toBeNull();
+  });
+
   it('ignores an ordinary completed turn', () => {
     expect(detectCompletionProviderLimit({ content: 'Here is the refactored function.' })).toBeNull();
     expect(detectCompletionProviderLimit({ content: '' })).toBeNull();
@@ -108,7 +116,7 @@ describe('detectCompletionProviderLimit', () => {
   it('falls back to the telemetry reset time when the notice carries no metadata', () => {
     const resetsAtSec = Math.floor(Date.now() / 1000) + 1800;
     const signal = detectCompletionProviderLimit(
-      { content: '5-hour limit reached' },
+      { content: 'Claude usage limit reached.' },
       { status: 'rejected', resetsAt: resetsAtSec },
     );
     expect(signal?.resetAtHint).toBe(resetsAtSec * 1000);

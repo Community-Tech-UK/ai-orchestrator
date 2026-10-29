@@ -12,11 +12,13 @@ const PAGE_TEXT_UNREADABLE_REASONS = new Set([
   'page_text_read_failed',
   // The page did not answer within the extension's page-text time limit.
   'page_not_responding',
+  // A Chrome pop-up the extension saw open is blocking the page.
+  'dialog_open',
 ]);
 
 export function isPageTextUnreadableReason(
   reason: string | undefined,
-): reason is 'host_permission_denied' | 'page_text_read_failed' | 'page_not_responding' {
+): reason is 'host_permission_denied' | 'page_text_read_failed' | 'page_not_responding' | 'dialog_open' {
   return reason !== undefined && PAGE_TEXT_UNREADABLE_REASONS.has(reason);
 }
 

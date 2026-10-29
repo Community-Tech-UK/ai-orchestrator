@@ -69,7 +69,8 @@ describe('BrowserTargetPersistenceSentinel', () => {
     expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({
       command: 'evaluate',
       queueKey: expect.stringContaining('node-1'),
-      payload: expect.objectContaining({ awaitPromise: false }),
+      // Read-only: the extension runs it without a pop-up watch.
+      payload: expect.objectContaining({ awaitPromise: false, internalScan: true }),
     }));
     expect(sentinel.needsPreWriteCheck(attachment, 50)).toBe(false);
     expect(sentinel.needsPreWriteCheck(attachment, 150)).toBe(true);

@@ -31,7 +31,8 @@ import { recoverDocumentMergeForItem } from './plan-queue-doc-merge';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { landItemBranch, runPostMergeGate, syncItemWithBase } from './plan-queue-landing';
 import { buildActiveDocumentsPrompt, buildConflictPrompt, buildGateFailurePrompt } from './plan-queue-prompts';
-import { restoreItemCheckout } from './plan-queue-squash';
+import { returnToItemCheckout } from './plan-queue-squash';
+import { PlanQueueCheckoutOwnershipError, rescueNote } from './plan-queue-worktree';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 
 const logger = getLogger('PlanQueueItemLanding');
@@ -87,7 +88,10 @@ export class PlanQueueItemLanding {
           heldAt: item.heldAt ?? Date.now(), detail: 'Paused before landing.' });
       } else {
         logger.error('Plan queue landing failed unexpectedly', error instanceof Error ? error : undefined, { itemId });
-        if (item.state !== 'landed') await this.ctx.park(item, 'land-blocked', `Landing failed: ${errorMessage(error)}`, true);
+        // A folder that is not the item's checkout cannot be checkpointed; requiring it would leave the item stuck in landing.
+        if (item.state !== 'landed') {
+          await this.ctx.park(item, 'land-blocked', `Landing failed: ${errorMessage(error)}`, !(error instanceof PlanQueueCheckoutOwnershipError));
+        }
       }
     } finally { this.active.delete(itemId); }
   }
@@ -112,10 +116,12 @@ export class PlanQueueItemLanding {
       item = host.save({ ...item, detail: `Merged with your uncommitted edits to ${recovered.mergedPaths.join(', ')}; your edits are still uncommitted.` });
     }
 
+    let rescueRef: string | null = null;
     if (item.worktreePath && item.branchName && existsSync(item.worktreePath)) {
-      // A crash while the squash was being built leaves the worktree on a
-      // detached HEAD; restore the item branch before anything checkpoints.
-      await restoreItemCheckout(item.worktreePath, item.branchName);
+      // A crash while the squash was being built leaves the worktree off its
+      // branch; restore the item branch before anything checkpoints.
+      rescueRef = await returnToItemCheckout(item.worktreePath, item.branchName, item.id);
+      if (rescueRef) item = host.save({ ...item, detail: rescueNote(rescueRef) });
     }
 
     const baseTip = await gitExec(['rev-parse', `refs/heads/${baseBranch}`], repoRoot);
@@ -130,13 +136,14 @@ export class PlanQueueItemLanding {
 
     const notes: string[] = [];
     if (item.detail?.startsWith('Merged with your uncommitted edits to ')) notes.push(item.detail);
+    if (rescueRef) notes.push(rescueNote(rescueRef));
     if (options.operatorOverride) {
       notes.push('Landed by James without a verifier PASS; the document was left open.');
     } else if (closeDocuments) {
       notes.push(...(await this.finishDocuments(item, repoRoot, baseBranch)));
     }
 
-    item = host.transition(item, 'landed', { detail: notes.join(' ') || null, question: null, parkReason: null });
+    item = host.transition(item, 'landed', { workerSession: undefined, detail: notes.join(' ') || null, question: null, parkReason: null });
     await this.finishCleanup(item);
   }
 

@@ -34,7 +34,17 @@ export interface PlanQueueRun {
   endedAt: number | null;
 }
 
+export interface PlanQueueWorkerSession {
+  provider: string;
+  model: string | null;
+  accountProfileId: string | null;
+  providerSessionId: string;
+  workingDirectory: string;
+  recordedAt: number;
+}
+
 export interface PlanQueueItem {
+  workerSession?: PlanQueueWorkerSession;
   /** Paused work retains its branch and pending next-turn instructions. */
   heldAt?: number | null;
   pendingInstruction?: string | null;

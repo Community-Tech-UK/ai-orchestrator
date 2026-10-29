@@ -49,6 +49,7 @@ const TARGET_SCOPED_METHODS = new Set([
   'browser.press_key',
   'browser.set_viewport',
   'browser.set_zoom',
+  'browser.handle_dialog',
   'browser.execute_fill_plan',
   'browser.fill_credential',
   'browser.fill_http_auth',

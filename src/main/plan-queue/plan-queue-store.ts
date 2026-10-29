@@ -9,6 +9,7 @@
  * exists"; a swallowed write error would let an unowned worktree be created.
  */
 
+import { getLogger } from '../logging/logger';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { DEFAULT_PLAN_QUEUE_CONFIG } from '@contracts/schemas/plan-queue';
 import type {
@@ -61,6 +62,7 @@ interface ItemRow {
   worker_provider: string | null;
   worker_model: string | null;
   stepped_up_at: number | null;
+  worker_session_json: string | null;
   question_json: string | null;
   answer: string | null;
   park_reason: string | null;
@@ -221,8 +223,8 @@ export class PlanQueueStore {
         id, run_id, document_path, state, round, errored_rounds, landing_refusals, branch_name, worktree_path,
         base_commit, checkpoint_commit, verified_main_commit, landed_commit,
         worker_instance_id, verifier_instance_id, question_json, answer, park_reason, detail,
-        verdict_json, created_at, updated_at, held_at, pending_instruction, worker_provider, worker_model, stepped_up_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        verdict_json, created_at, updated_at, held_at, pending_instruction, worker_provider, worker_model, stepped_up_at, worker_session_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         state                = excluded.state,
         round                = excluded.round,
@@ -246,6 +248,7 @@ export class PlanQueueStore {
         worker_provider      = excluded.worker_provider,
         worker_model         = excluded.worker_model,
         stepped_up_at        = excluded.stepped_up_at,
+        worker_session_json  = excluded.worker_session_json,
         updated_at           = excluded.updated_at
     `).run(
       item.id,
@@ -275,6 +278,7 @@ export class PlanQueueStore {
       item.workerProvider ?? null,
       item.workerModel ?? null,
       item.steppedUpAt ?? null,
+      item.workerSession ? JSON.stringify(item.workerSession) : null,
     );
   }
 
@@ -360,9 +364,30 @@ function rowToRun(row: RunRow): PlanQueueRun {
   };
 }
 
+const invalidWorkerSessions = new Set<string>();
+function readWorkerSession(row: ItemRow): PlanQueueItem['workerSession'] {
+  if (!row.worker_session_json) return undefined;
+  try {
+    const value = JSON.parse(row.worker_session_json) as Record<string, unknown> | null;
+    if (!value || typeof value['provider'] !== 'string' || typeof value['providerSessionId'] !== 'string'
+      || typeof value['workingDirectory'] !== 'string' || typeof value['recordedAt'] !== 'number'
+      || !(value['model'] === null || typeof value['model'] === 'string')
+      || !(value['accountProfileId'] === null || typeof value['accountProfileId'] === 'string')) throw new Error('Invalid worker session shape');
+    return value as unknown as PlanQueueItem['workerSession'];
+  }
+  catch {
+    if (!invalidWorkerSessions.has(row.id)) {
+      invalidWorkerSessions.add(row.id);
+      getLogger('PlanQueueStore').warn('Invalid worker session record', { itemId: row.id });
+    }
+    return undefined;
+  }
+}
+
 function rowToItem(row: ItemRow): PlanQueueItem {
   return {
     ...(row.tokens || row.cost_usd || row.exact_cost_usd ? { spend: { tokens: row.tokens, costUsd: row.cost_usd, exactUsd: row.exact_cost_usd } } : {}),
+    workerSession: readWorkerSession(row),
     id: row.id,
     runId: row.run_id,
     documentPath: row.document_path,

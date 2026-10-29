@@ -13,7 +13,7 @@ import { promisify } from 'node:util';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { WorktreeManager, _resetWorktreeManagerForTesting } from './worktree-manager';
+import { WorktreeCapacityError, WorktreeManager, _resetWorktreeManagerForTesting } from './worktree-manager';
 import { GitWriteQueue } from './git-write-queue';
 import { hermeticGitEnv } from './git-env';
 import * as gitCommands from './git-exec';
@@ -164,6 +164,16 @@ describe('WorktreeManager.integrateWorktree — auto-integration (real git)', ()
     } catch {
       /* noop */
     }
+  });
+
+  it('rejects a sixth active worktree with a typed capacity error', async () => {
+    const mgr = WorktreeManager.getInstance();
+    for (let n = 0; n < 5; n++) await mgr.createWorktree(`capacity-${n}`, `capacity ${n}`, {
+      repoRoot: repo, baseBranch: 'main', skipInstall: true,
+    });
+    await expect(mgr.createWorktree('capacity-sixth', 'sixth', { repoRoot: repo, baseBranch: 'main', skipInstall: true }))
+      .rejects.toBeInstanceOf(WorktreeCapacityError);
+    expect(mgr.getConfig().maxConcurrent).toBe(5);
   });
 
   it('merges a session worktree branch into integration/main and marks it merged', async () => {

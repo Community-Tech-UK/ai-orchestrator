@@ -13,7 +13,7 @@ import { runLoopMigrations } from '../orchestration/loop-schema';
 import { getLogger } from '../logging/logger';
 import { _resetReclaimHoldsForTesting } from '../process/reclaim-holds';
 import { GitWriteQueue } from '../workspace/git/git-write-queue';
-import { WorktreeManager } from '../workspace/git/worktree-manager';
+import { WorktreeCapacityError, WorktreeManager } from '../workspace/git/worktree-manager';
 import { buildOrchestratorToolsMcpConfig } from '../mcp/orchestrator-tools-mcp-config';
 import { PlanQueueCoordinator } from './plan-queue-coordinator';
 import { PlanQueueItemFlow } from './plan-queue-item-flow';
@@ -1733,6 +1733,27 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     expect(git(['show', 'main:2026-01-01-alpha_plan.feature.txt'])).toBe('built 2026-01-01-alpha_plan');
   });
 
+  it('Resume checks a held item out again when its folder was half-removed, then checks and lands it', async () => {
+    appendFileSync(join(repo, '.gitignore'), '_scratch/\n');
+    git(['commit', '-qam', 'ignore scratch']);
+    const { runId, itemId, branch } = await parkedAtRoundLimit();
+    // As on 26 Oct: paused while waiting for its checker, its folder reduced to an ignored _scratch.
+    const leftover = join(repo, '.worktrees', branch);
+    mkdirSync(join(leftover, '_scratch'), { recursive: true });
+    writeFileSync(join(leftover, '_scratch', 'notes.txt'), 'scratch\n');
+    store.upsertItem({ ...store.getItem(itemId)!, state: 'awaiting-slot', worktreePath: leftover, round: 0, verdict: null, parkReason: null, detail: 'Paused', heldAt: Date.now() });
+    store.upsertRun({ ...store.getRun(runId)!, status: 'paused', endedAt: null });
+    fake.scripts.verifier = pass;
+
+    await coordinator.control({ action: 'resume', runId });
+    await waitForRun(runId);
+
+    expect(store.getItem(itemId)).toMatchObject({ state: 'landed' });
+    expect(git(['show', 'main:2026-01-01-alpha_plan.feature.txt'])).toBe('built 2026-01-01-alpha_plan');
+    const [moved] = readdirSync(join(repo, '.worktrees/queue-quarantine'));
+    expect(readFileSync(join(repo, '.worktrees/queue-quarantine', moved!, 'leftover/_scratch/notes.txt'), 'utf8')).toBe('scratch\n');
+  });
+
   it.each([
     { change: 'code repair', resume: 'explicit resume' },
     { change: 'document only', resume: 'explicit resume' },
@@ -2366,6 +2387,69 @@ describe('PlanQueueCoordinator — providers and accounts', { timeout: 30_000 },
     expect(store.listItems(run.id)[0]).toMatchObject({ workerProvider: 'codex', workerModel: 'gpt-6.1-sol' });
   });
 
+  it('never starts a worker on a provider with no usage left: the document waits, then runs once usage is back', async () => {
+    planDoc('2026-01-01-alpha');
+    savedRouting = { workers: [{ provider: 'claude', model: 'claude-opus-5' }], verifiers: [] };
+    const parent = fake.addParent();
+    // Triage runs; then Claude reaches its limit before the worker starts.
+    fake.scripts.triage = (instance, message, f) => {
+      outOfUsage = ['claude'];
+      return triageAllReady(instance, message, f);
+    };
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await vi.waitFor(() => expect(store.listItems(run.id)[0]).toMatchObject({
+      state: 'queued', detail: expect.stringContaining('Waiting for usage: claude (claude-opus-5) has no usage left'),
+    }), { timeout: 15_000, interval: 25 });
+    coordinator.requestPump();
+    await coordinator._whenSettledForTesting();
+    expect(fake.created.some((i) => i.role === 'worker')).toBe(false);
+    expect(store.listItems(run.id)[0]).toMatchObject({ state: 'queued', parkReason: null, round: 0 });
+
+    outOfUsage = [];
+    const realNow = Date.now.bind(Date);
+    const later = vi.spyOn(Date, 'now').mockImplementation(() => realNow() + 6 * 60_000);
+    try {
+      coordinator.requestPump();
+      await waitForRun(run.id);
+    } finally {
+      later.mockRestore();
+    }
+    expect(store.listItems(run.id)[0].state).toBe('landed');
+    const worker = fake.created.find((i) => i.role === 'worker')!;
+    expect(worker.config).toMatchObject({ provider: 'claude', modelOverride: 'claude-opus-5' });
+    expect(worker.config.initialPrompt).toContain('it waited for usage to come back on its provider');
+  });
+
+  it('never starts a checker on a provider with no usage left: the check waits without counting a round', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.worker = (instance, message, f) => {
+      outOfUsage = ['codex'];
+      return implement(instance, message, f);
+    };
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await vi.waitFor(() => expect(store.listItems(run.id)[0]).toMatchObject({
+      state: 'awaiting-slot', detail: expect.stringContaining('Waiting for usage: codex has no usage left'),
+    }), { timeout: 15_000, interval: 25 });
+    coordinator.requestPump();
+    await coordinator._whenSettledForTesting();
+    expect(fake.created.some((i) => i.role === 'verifier')).toBe(false);
+    expect(store.listItems(run.id)[0]).toMatchObject({ state: 'awaiting-slot', erroredRounds: 0, round: 0 });
+
+    outOfUsage = [];
+    const realNow = Date.now.bind(Date);
+    const later = vi.spyOn(Date, 'now').mockImplementation(() => realNow() + 6 * 60_000);
+    try {
+      coordinator.requestPump();
+      await waitForRun(run.id);
+    } finally {
+      later.mockRestore();
+    }
+    expect(store.listItems(run.id)[0].state).toBe('landed');
+  });
+
   it('refuses a run on a never-auto-pick provider unless the run relaxes that list', async () => {
     planDoc('2026-01-01-alpha');
     excludedProviders = ['claude'];
@@ -2634,3 +2718,77 @@ describe('PlanQueueCoordinator — handing a stuck document to the step-up worke
     expect(workers().at(-1)!.config).toMatchObject({ provider: 'claude', modelOverride: 'opus' });
   });
 });
+
+describe('queue spend reductions', { timeout: 30_000 }, () => {
+  it('waits for capacity and starts on a later pump, while real preparation failures still park', async () => {
+    planDoc('2026-01-01-capacity');
+    fake.scripts.worker = never;
+    const prepare = vi.spyOn(coordinator.worktrees, 'prepare').mockRejectedValue(new WorktreeCapacityError('Maximum concurrent worktrees (5) reached'));
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
+    await coordinator._whenSettledForTesting();
+    const waiting = store.listItems(run.id)[0];
+    expect(waiting).toMatchObject({ state: 'queued', round: 0, parkReason: null, detail: 'Waiting for a free worktree (Harness allows 5 at once).' });
+    prepare.mockRestore();
+    coordinator.requestPump();
+    await coordinator._whenSettledForTesting();
+    expect(store.getItem(waiting.id)).toMatchObject({ state: 'working', detail: null });
+    prepare.mockRestore();
+  });
+
+  it('keeps genuine preparation errors parked', async () => {
+    planDoc('2026-01-01-prepare-failure');
+    vi.spyOn(coordinator.worktrees, 'prepare').mockRejectedValueOnce(new Error('disk unavailable'));
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
+    await coordinator._whenSettledForTesting();
+    expect(store.listItems(run.id)[0]).toMatchObject({ state: 'parked', parkReason: 'worktree-error', detail: 'Could not prepare the worktree: disk unavailable' });
+  });
+});
+
+it.each([
+  ['provider-limit', 'the verifier stopped at a usage limit before reporting a verdict'],
+  ['needs-input', 'the verifier asked a question instead of reporting a verdict'],
+] as const)('counts verifier %s failures with a specific reason', async (kind, detail) => {
+  planDoc('2026-01-01-specific-verifier-stop');
+  fake.scripts.verifier = (instance, _message, source) => {
+    if (kind === 'needs-input') source.setStatus(instance, 'waiting_for_input');
+    else {
+      source.say(instance, 'Claude usage limit reached.');
+      source.setStatus(instance, 'idle');
+    }
+  };
+  const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
+  await waitForRun(run.id);
+  expect(store.listItems(run.id)[0]).toMatchObject({ state: 'parked', parkReason: 'verifier-unreliable', erroredRounds: 2, detail });
+}, 30_000);
+
+it('clears the former conversation before handing work to the step-up worker', async () => {
+  savedRouting = { workers: [{ provider: 'claude', model: 'haiku' }], verifiers: [], stepUp: { provider: 'claude', model: 'opus' } };
+  planDoc('2026-01-01-session-step-up');
+  let sawInitialSession = false;
+  let sawClearedSession = false;
+  fake.scripts.worker = async (instance, message, source) => {
+    const current = store.getItem(itemIdOf(instance))!;
+    if (instance.currentModel === 'opus') {
+      expect(current.workerSession).toBeUndefined();
+      sawClearedSession = true;
+    }
+    instance.providerSessionId = `conversation-${instance.id}`;
+    await implement(instance, message, source);
+  };
+  let verificationCount = 0;
+  const verify: Script = (instance) => {
+    verificationCount++;
+    coordinator.reportVerdict(instance.id, { item_id: itemIdOf(instance),
+      verdict: verificationCount === 1 ? 'FAIL' : 'PASS', findings: [], gates_run: [], document_complete: true, need_james: [] });
+  };
+  fake.scripts.verifier = async (instance, message, source) => {
+    expect(store.getItem(itemIdOf(instance))?.workerSession?.providerSessionId).toBeTruthy();
+    sawInitialSession = true;
+    await verify(instance, message, source);
+  };
+  const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans', config: { maxRounds: 1 } });
+  await waitForRun(run.id);
+  expect(sawInitialSession).toBe(true);
+  expect(sawClearedSession).toBe(true);
+  expect(store.listItems(run.id)[0].workerSession).toBeUndefined();
+}, 30_000);

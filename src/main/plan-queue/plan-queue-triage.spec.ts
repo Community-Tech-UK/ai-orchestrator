@@ -3,7 +3,7 @@ import { DEFAULT_PLAN_QUEUE_CONFIG } from '@contracts/schemas/plan-queue';
 import { newPlanQueueItem } from './plan-queue-state';
 import type { InstanceCreateConfig } from '../../shared/types/instance.types';
 import type { PlanQueueInstancePort } from './plan-queue-host';
-import { spawnQueueInstance } from './plan-queue-spawn';
+import { PlanQueueSpawnOutOfUsage, spawnQueueInstance, USAGE_RECHECK_MS } from './plan-queue-spawn';
 import { PlanQueueSpawnRoutingChanged } from './plan-queue-checker-routing';
 import { PlanQueueSpawnRunPaused } from './plan-queue-run-hold';
 import { PlanQueueTriage } from './plan-queue-triage';
@@ -55,6 +55,23 @@ async function start(): Promise<void> {
   await vi.waitFor(() => expect(create).toHaveBeenCalled());
   await new Promise((resolve) => setImmediate(resolve));
 }
+
+describe('usage waits', () => {
+  it('waits for usage without spending the three start attempts that park documents', async () => {
+    create.mockRejectedValue(new PlanQueueSpawnOutOfUsage(null, 'claude'));
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      triage.maybeStart(run, items);
+      await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(attempt));
+      await vi.waitFor(() => expect(triage.isStopping(run.id)).toBe(false));
+      await new Promise((resolve) => setImmediate(resolve));
+      triage.maybeStart(run, items);
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(create).toHaveBeenCalledTimes(attempt);
+      now += USAGE_RECHECK_MS + 1;
+    }
+    expect(items.every((item) => item.state === 'discovered')).toBe(true);
+  });
+});
 
 describe('readiness batches and retries', () => {
   it('does not spend a readiness attempt when James closes its session', async () => {
@@ -293,8 +310,8 @@ describe('retry routing at the final asynchronous dispatch boundary', () => {
         // A concurrent set-routing validation finishes before ready's already-resolved continuation.
         queueMicrotask(() => { run = { ...run, config: { ...run.config, routing: { workers: [{ provider: 'codex' }], verifiers: [current] } } }; });
       }
-      return spawnQueueInstance(config, { ready: Promise.resolve(), instances: port, getRun: () => run,
-        isShuttingDown: () => false, userCloseEpoch: () => 0, readAccountRules: () => ({ never: [], last: [] }), isProviderExcluded: () => false });
+      return spawnQueueInstance(config, { ready: Promise.resolve(), instances: port, getRun: () => run, getItem: () => null, clearWorkerSession: vi.fn(),
+        isShuttingDown: () => false, userCloseEpoch: () => 0, readAccountRules: () => ({ never: [], last: [] }), isProviderExcluded: () => false, routeUsage: async () => ({ usable: true, resumeAt: null }) });
     });
     triage.maybeStart(run, items);
     await vi.waitFor(() => expect(triage.isTriageFor(run.id, 'current-retry')).toBe(true));
@@ -355,7 +372,7 @@ it('keeps the first-triage worker route fallback when retry checker selection is
   const dispatch = vi.fn().mockResolvedValue({ id: 'fallback' });
   create.mockImplementation((config: InstanceCreateConfig) => spawnQueueInstance(config, {
     ready: Promise.resolve(), instances: { createInstance: dispatch } as unknown as PlanQueueInstancePort,
-    getRun: () => run, isShuttingDown: () => false, userCloseEpoch: () => 0, readAccountRules: () => ({ never: [], last: [] }), isProviderExcluded: () => false,
+    getRun: () => run, getItem: () => null, clearWorkerSession: vi.fn(), isShuttingDown: () => false, userCloseEpoch: () => 0, readAccountRules: () => ({ never: [], last: [] }), isProviderExcluded: () => false, routeUsage: async () => ({ usable: true, resumeAt: null }),
   }));
   triage.maybeStart(run, items);
   await vi.waitFor(() => expect(triage.isTriageFor(run.id, 'fallback')).toBe(true));

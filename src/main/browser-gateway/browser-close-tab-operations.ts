@@ -458,7 +458,12 @@ export class BrowserCloseTabOperations {
           });
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          if (!/not found|no tab|tabs\.remove|missing_extension_tab|Chrome tab/i.test(message)) {
+          // A pop-up holding the close is never "already closed", whatever the
+          // page's own pop-up text says.
+          if (
+            message.startsWith('browser_dialog_open')
+            || !/not found|no tab|tabs\.remove|missing_extension_tab|Chrome tab/i.test(message)
+          ) {
             return { ok: false, reason: message };
           }
         }

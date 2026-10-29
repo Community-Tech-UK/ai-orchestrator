@@ -8,7 +8,7 @@
 
 import type { SqliteDriver } from '../db/sqlite-driver';
 
-export const LOOP_SCHEMA_VERSION = 25;
+export const LOOP_SCHEMA_VERSION = 30;
 
 interface LoopMigration {
   version: number;
@@ -478,6 +478,13 @@ const MIGRATIONS: LoopMigration[] = [
     up: `
       ALTER TABLE plan_queue_items ADD COLUMN stepped_up_at INTEGER;
     `,
+  },
+  {
+    // Plan Queue: the provider conversation a worker last ran in, so a replacement on the same
+    // route can continue it. Versions 26–29 are reserved by the Phase C queue branch.
+    version: 30,
+    name: '030_plan_queue_item_worker_session',
+    up: `ALTER TABLE plan_queue_items ADD COLUMN worker_session_json TEXT;`,
   },
 ];
 

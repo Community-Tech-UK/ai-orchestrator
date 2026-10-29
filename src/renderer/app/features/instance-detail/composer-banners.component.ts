@@ -19,6 +19,7 @@ import {
   signal,
 } from '@angular/core';
 import { InstanceIpcService } from '../../core/services/ipc/instance-ipc.service';
+import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service';
 import { ProviderAccountIpcService, type ProviderAccountView } from '../../core/services/ipc/provider-account-ipc.service';
 import { InstanceStore } from '../../core/state/instance.store';
@@ -302,20 +303,35 @@ export class ComposerBannersComponent {
     this.authNotice.set(null);
     this.authBusy.set(true);
     try {
-      const response = await this.providerIpc.runProviderLogin(provider);
+      const accountProfileId = this.instanceStore.getInstance(this.instanceId())?.accountProfileId;
+      const response = await this.openSignIn(provider, accountProfileId);
       if (!response.success) {
         this.authNotice.set(response.error?.message ?? 'Could not open a sign-in terminal.');
         return;
       }
-      const data = response.data as { command: string; terminal: string } | undefined;
+      // An account sign-in never sends its command back: it names the account's private folder.
+      const data = response.data as { command?: string; terminal?: string; hint?: string } | undefined;
+      const opened = !data?.terminal
+        ? 'Sign-in terminal opened.'
+        : data.command
+          ? `${data.terminal} opened running \`${data.command}\`.`
+          : `${data.terminal} opened the sign-in for this session's account.`;
       this.authNotice.set(
-        data
-          ? `${data.terminal} opened running \`${data.command}\`. This session resumes on its own once you finish.`
-          : 'Sign-in terminal opened. This session resumes on its own once you finish.',
+        [opened, data?.hint, 'This session resumes on its own once you finish.'].filter(Boolean).join(' '),
       );
     } finally {
       this.authBusy.set(false);
     }
+  }
+
+  /**
+   * A session on a pooled account profile must sign in to that profile's own
+   * folder; the provider-level sign-in only repairs the default login.
+   */
+  private openSignIn(provider: string, accountProfileId: string | undefined): Promise<IpcResponse> {
+    return accountProfileId && isPooledProvider(provider)
+      ? this.providerAccountIpc.launchLogin(provider, accountProfileId, { openTerminal: true })
+      : this.providerIpc.runProviderLogin(provider);
   }
 
   async onAuthRetry(): Promise<void> {
@@ -456,9 +472,7 @@ export class ComposerBannersComponent {
     this.hardenedCredentialBusyOwner.set(instanceId);
     this.hardenedCredentialNoticeState.set(null);
     try {
-      const response = instance.accountProfileId && isPooledProvider(provider)
-        ? await this.providerAccountIpc.launchLogin(provider, instance.accountProfileId, { openTerminal: true })
-        : await this.providerIpc.runProviderLogin(provider);
+      const response = await this.openSignIn(provider, instance.accountProfileId);
       if (this.instanceId() === instanceId) {
         this.hardenedCredentialNoticeState.set({
           instanceId,

@@ -123,6 +123,12 @@ describe('PlanQueueInstanceTracker', () => {
     expect(outcomes[0].outcome.kind).toBe('provider-limit');
   });
 
+  it('classifies a Cursor turn refused for spent usage as a provider limit, not finished work', () => {
+    tracker.track('w1');
+    source.replay('w1', [assistant('\n\nUpgrade your plan to continue'), { channel: 'status', status: 'idle' }]);
+    expect(outcomes[0].outcome).toEqual({ kind: 'provider-limit', notice: 'provider_limit: Upgrade your plan to continue' });
+  });
+
   it('reports waiting_for_input as needs-input and re-arms when James answers in the session', () => {
     tracker.track('w1');
     source.replay('w1', [assistant('Which retention period?'), { channel: 'status', status: 'waiting_for_input' }]);

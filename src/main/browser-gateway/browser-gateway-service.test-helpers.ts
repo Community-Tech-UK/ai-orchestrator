@@ -514,6 +514,11 @@ export function makeService(overrides: {
             managedProfiles: false,
             mechanism: 'chrome.tabs.setZoom',
           },
+          handle_dialog: {
+            sharedTabs: true,
+            managedProfiles: false,
+            mechanism: 'Page.handleJavaScriptDialog',
+          },
         },
         warnings: [],
       }),

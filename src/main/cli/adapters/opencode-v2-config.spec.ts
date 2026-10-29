@@ -12,7 +12,7 @@ describe('OpenCode 2 config projection', () => {
         permissions: [{ action: '*', resource: '*', effect: 'allow' }, { action: 'doom_loop*', resource: '*', effect: 'ask' }],
         agents: { build: { permissions: [{ action: 'doom_loop', resource: '*', effect: 'ask' }], model: { providerID: 'xiaomi-token-plan', id: 'mimo-v2.6-pro' } } },
         providers: { 'xiaomi-token-plan': { models: { 'mimo-v2.6-pro': {
-          limit: { context: 1048576, output: 16384 },
+          limit: { context: 1048576, output: 16384, input: 90000 },
           headers: { authorization: 'LOCAL_PRIVATE_CREDENTIAL_PLACEHOLDER' },
         } } } },
       } },
@@ -22,7 +22,7 @@ describe('OpenCode 2 config projection', () => {
       agent: { build: { model: 'xiaomi-token-plan/mimo-v2.6-pro', permission: { doom_loop: 'ask' } } },
       provider: { 'xiaomi-token-plan': { models: { 'mimo-v2.6-pro': {
         options: { max_completion_tokens: 16384 },
-        limit: { context: 1048576, output: 16384 },
+        limit: { context: 1048576, output: 16384, input: 90000 },
       } } } },
     });
     expect(JSON.stringify(projected)).not.toContain('LOCAL_PRIVATE_CREDENTIAL_PLACEHOLDER');
@@ -165,10 +165,10 @@ it('retains native provider models and agent context while final AIO caps take p
 
 it('observes a later source replacing the same native body cap so verification cannot accept an overridden budget', () => {
  const model = 'aio-mimo-demo/mimo-v2.6-pro';
- const documents = [512, 8192].map((cap) => ({ type: 'document', info: { providers: { 'aio-mimo-demo': { models: { 'mimo-v2.6-pro': { body: { max_completion_tokens: cap }, limit: { output: 32000 } } } } } } }));
+ const documents = [512, 8192].map((cap) => ({ type: 'document', info: { providers: { 'aio-mimo-demo': { models: { 'mimo-v2.6-pro': { body: { max_completion_tokens: cap }, limit: { output: 32000, input: 140000 } } } } } } }));
  const projected = projectOpenCodeConfig(normalizeOpenCodeNativeConfig(documents), model);
  expect(projected).toMatchObject({ provider: { 'aio-mimo-demo': { models: { 'mimo-v2.6-pro': { options: { max_completion_tokens: 8192 } } } } } });
- expect(() => assertOpenCodeGenerationBudget(projected, { model, combinedOutputTokens: 512, reasoningBudgetSupported: false })).toThrow('effective scoped');
+ expect(() => assertOpenCodeGenerationBudget(projected, { model, combinedOutputTokens: 512, reasoningBudgetSupported: false, inputLimit: 140000 })).toThrow('effective scoped');
 });
 
 

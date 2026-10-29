@@ -132,6 +132,16 @@ describe('GitWriteQueue — serialization + retry', () => {
     await expect(p1).rejects.toThrow('boom');
     await expect(p2).resolves.toBe('survived');
   });
+
+  it('a failed last op reaches its caller and leaves the chain settled', async () => {
+    const q = getGitWriteQueue();
+    q.configureRetry({ baseDelayMs: 0, maxDelayMs: 0, maxAttempts: 1 });
+    await expect(q.enqueue('last-and-failing', async () => { throw new Error('not a checkout'); })).rejects.toThrow('not a checkout');
+    // A rejected chain with no op behind it was an "Unhandled rejection" in the app
+    // log. Vitest's worker does not report those, so check the chain itself.
+    const tail = (q as unknown as { tail: Promise<void> }).tail;
+    await expect(tail).resolves.toBeUndefined();
+  });
 });
 
 describe('GitWriteQueue — real-git concurrency stress', () => {

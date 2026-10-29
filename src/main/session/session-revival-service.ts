@@ -32,14 +32,14 @@ export interface SessionRevivalResult {
 type HistoryRestoreDep = Pick<HistoryRestoreCoordinator, 'restore'>;
 type HistoryLookupDep = Pick<HistoryManager, 'getEntries'>;
 
-const NOT_LIVE_STATUSES = new Set<InstanceStatus>([
-  'cancelled',
-  'superseded',
-  'hibernated',
-  'error',
-  'failed',
-  'terminated',
-]);
+/** Copies that no longer hold the conversation; it is reopened from history. */
+const CLOSED_STATUSES = new Set<InstanceStatus>(['superseded', 'failed', 'terminated']);
+/**
+ * Open copies that take no input until restarted. They are restarted in place:
+ * opening a second copy beside one leaves two runtimes on the same conversation.
+ * A hibernated copy needs nothing here, because sending input wakes it.
+ */
+const RESTART_STATUSES = new Set<InstanceStatus>(['error', 'cancelled']);
 
 export class SessionRevivalService {
   private readonly historyRestore: HistoryRestoreDep;
@@ -65,11 +65,19 @@ export class SessionRevivalService {
   }
 
   async revive(request: SessionRevivalRequest): Promise<SessionRevivalResult> {
-    const liveInstance = this.findLiveInstance(request);
-    if (liveInstance) {
+    let entry: ConversationHistoryEntry | undefined;
+    let historyError: unknown;
+    try {
+      entry = this.findHistoryEntry(request);
+    } catch (error) {
+      historyError = error;
+    }
+
+    const openCopy = this.findOpenInstance(request, entry);
+    if (openCopy && !RESTART_STATUSES.has(openCopy.status)) {
       return {
         status: 'live',
-        instanceId: liveInstance.id,
+        instanceId: openCopy.id,
       };
     }
 
@@ -80,16 +88,19 @@ export class SessionRevivalService {
       };
     }
 
-    let historyEntryId: string | undefined;
-    try {
-      historyEntryId = this.resolveHistoryEntryId(request);
-    } catch (error) {
+    if (openCopy) {
+      return this.restartInPlace(openCopy.id);
+    }
+
+    if (historyError) {
       return {
         status: 'failed',
         failureCode: 'resume_failed',
-        error: error instanceof Error ? error.message : String(error),
+        error: historyError instanceof Error ? historyError.message : String(historyError),
       };
     }
+
+    const historyEntryId = entry?.id ?? this.normalizeIdentifier(request.historyEntryId);
     if (!historyEntryId) {
       return {
         status: 'failed',
@@ -119,48 +130,62 @@ export class SessionRevivalService {
     }
   }
 
-  private findLiveInstance(request: SessionRevivalRequest): Instance | null {
-    if (request.instanceId) {
-      const instance = this.instanceManager.getInstance(request.instanceId);
-      if (this.isLive(instance)) {
-        return instance;
+  /** Prefers a copy that can take input; otherwise a stopped copy to restart. */
+  private findOpenInstance(
+    request: SessionRevivalRequest,
+    entry: ConversationHistoryEntry | undefined,
+  ): Instance | null {
+    const requested = request.instanceId
+      ? this.instanceManager.getInstance(request.instanceId)
+      : undefined;
+    const identifiers = this.getLookupIdentifiers(request, entry);
+    const matches = typeof this.instanceManager.getAllInstances === 'function'
+      ? this.instanceManager.getAllInstances().filter((instance) => this.instanceMatches(instance, identifiers))
+      : [];
+    const open = [requested, ...matches].filter((instance): instance is Instance =>
+      Boolean(instance && !CLOSED_STATUSES.has(instance.status))
+    );
+    return open.find((instance) => !RESTART_STATUSES.has(instance.status)) ?? open[0] ?? null;
+  }
+
+  private async restartInPlace(instanceId: string): Promise<SessionRevivalResult> {
+    try {
+      const outcome = await this.instanceManager.restartInstance(instanceId);
+      if (outcome.success) {
+        return { status: 'revived', instanceId };
       }
+      return { status: 'failed', failureCode: 'resume_failed', error: outcome.error ?? 'Restart failed' };
+    } catch (error) {
+      return {
+        status: 'failed',
+        failureCode: 'resume_failed',
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
-
-    if (typeof this.instanceManager.getAllInstances !== 'function') {
-      return null;
-    }
-
-    const identifiers = this.getLookupIdentifiers(request);
-    return this.instanceManager.getAllInstances().find((instance) =>
-      this.isLive(instance) && this.instanceMatches(instance, identifiers)
-    ) ?? null;
   }
 
-  private isLive(instance: Instance | undefined): instance is Instance {
-    return Boolean(instance && !NOT_LIVE_STATUSES.has(instance.status));
-  }
-
-  private resolveHistoryEntryId(request: SessionRevivalRequest): string | undefined {
+  private findHistoryEntry(request: SessionRevivalRequest): ConversationHistoryEntry | undefined {
     const requestedEntryId = this.normalizeIdentifier(request.historyEntryId);
     const entries = this.history().getEntries();
     const exactEntry = requestedEntryId
       ? entries.find((entry) => entry.id === requestedEntryId)
       : undefined;
     if (exactEntry) {
-      return exactEntry.id;
+      return exactEntry;
     }
 
     const identifiers = this.getLookupIdentifiers(request);
-    const matchingEntry = entries.find((entry) => this.entryMatches(entry, identifiers));
-    return matchingEntry?.id ?? requestedEntryId;
+    return entries.find((entry) => this.entryMatches(entry, identifiers));
   }
 
-  private getLookupIdentifiers(request: SessionRevivalRequest): Set<string> {
+  private getLookupIdentifiers(request: SessionRevivalRequest, entry?: ConversationHistoryEntry): Set<string> {
     const identifiers = [
       request.instanceId,
       request.historyEntryId,
       request.providerSessionId,
+      entry?.originalInstanceId,
+      entry?.historyThreadId,
+      entry?.sessionId,
     ]
       .map((value) => this.normalizeIdentifier(value))
       .filter((value): value is string => Boolean(value));

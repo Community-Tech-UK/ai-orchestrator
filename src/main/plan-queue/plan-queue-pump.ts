@@ -11,7 +11,7 @@ import { queueAdmission } from '../work-admission/queue-admission';
 
 interface QueuePumpHost extends Pick<PlanQueueFlowHost, 'getRun' | 'getItem' | 'transition' | 'notifyParent' | 'resolveRunParent'> {
   store: PlanQueueStore;
-  flow: Pick<PlanQueueItemFlow, 'startItem' | 'startVerification'>;
+  flow: Pick<PlanQueueItemFlow, 'startItem' | 'startVerification' | 'isWaitingForUsage'>;
   triage: Pick<PlanQueueTriage, 'isStopping' | 'maybeStart'> | null;
   loadAverage(): number[];
   followParent(run: PlanQueueRun): PlanQueueRun;
@@ -47,14 +47,14 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
         const overloaded = oneMinute > policy.maxLoadAverage || fiveMinute > policy.maxLoadAverage;
         if (!overloaded) {
           let inFlight = items.filter((item) => itemHoldsWorktree(item.state)).length;
-          for (const item of items.filter((candidate) => candidate.state === 'queued')) {
+          for (const item of items.filter((candidate) => candidate.state === 'queued' && !flow.isWaitingForUsage(candidate.id))) {
             if (!queueAdmission(run.config, totalJobs, verifying).canStartWorker(inFlight)) break;
             inFlight += 1;
             totalJobs += 1;
             void flow.startItem(item).catch((error: unknown) => host.logItemError(item, error));
           }
           let runVerifying = items.filter((item) => item.state === 'verifying').length;
-          for (const item of items.filter((candidate) => candidate.state === 'awaiting-slot')) {
+          for (const item of items.filter((candidate) => candidate.state === 'awaiting-slot' && !flow.isWaitingForUsage(candidate.id))) {
             if (verifying >= sharedCap || !queueAdmission(run.config, totalJobs, verifying).canStartCheck(runVerifying)) break;
             verifying += 1;
             runVerifying += 1;

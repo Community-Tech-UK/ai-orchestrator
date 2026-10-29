@@ -483,8 +483,9 @@ export class BrowserExistingTabOperations {
         },
       });
     } catch (error) {
-      if (!useCachedFallback) {
-        const message = error instanceof Error ? error.message : String(error);
+      const message = error instanceof Error ? error.message : String(error);
+      // A cached copy would hide the pop-up now holding the page.
+      if (!useCachedFallback || message.startsWith('browser_dialog_open')) {
         return this.deps.result({
           context: request,
           profileId: attachment.profileId,
@@ -495,9 +496,11 @@ export class BrowserExistingTabOperations {
           decision: 'allowed',
           outcome: 'failed',
           reason: message,
-          summary: request.requireLive === true
-            ? `Existing-tab live snapshot failed (a live read was required): ${message}`
-            : `Existing-tab live snapshot failed and no cached snapshot is available: ${message}`,
+          summary: useCachedFallback
+            ? `Existing-tab live snapshot failed: ${message}`
+            : request.requireLive === true
+              ? `Existing-tab live snapshot failed (a live read was required): ${message}`
+              : `Existing-tab live snapshot failed and no cached snapshot is available: ${message}`,
           origin: originDecision.origin,
           url: attachment.url,
           data: null,

@@ -237,8 +237,8 @@ describe('orchestrator-tools evidence RPC', () => {
       if (stage === 'prepare') invalidateOwnership();
     };
     if (stage === 'lookup') {
-      const read = ledger.getLatestUserMessage.bind(ledger);
-      vi.spyOn(ledger, 'getLatestUserMessage').mockImplementationOnce(async (...args) => {
+      const read = ledger.getLatestInputSource.bind(ledger);
+      vi.spyOn(ledger, 'getLatestInputSource').mockImplementationOnce(async (...args) => {
         const source = await read(...args);
         invalidateOwnership();
         return source;

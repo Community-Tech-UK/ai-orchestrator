@@ -71,6 +71,7 @@ describe('WorkerNodeHealth', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     mockConnection.sendRpc.mockReset();
+    mockConnection.disconnectNode.mockReset();
     mockConnection.sendRpc.mockResolvedValue({ pong: Date.now() });
     WorkerNodeRegistry._resetForTesting();
     WorkerNodeHealth._resetForTesting();
@@ -146,6 +147,58 @@ describe('WorkerNodeHealth', () => {
     // The socket must be closed alongside deregistration — otherwise a
     // suspended-then-resumed worker heartbeats into the void forever.
     expect(mockConnection.disconnectNode).toHaveBeenCalledWith('n4', expect.any(String));
+  });
+
+  // -------------------------------------------------------------------------
+  // Coordinator freeze is not a node failure
+  // -------------------------------------------------------------------------
+
+  /**
+   * Simulates the coordinator's own event loop being blocked: wall-clock time
+   * moves on but no timer runs, then the overdue interval fires once. The
+   * node's heartbeats are sitting unread in the socket the whole time.
+   */
+  function freezeCoordinator(ms: number): void {
+    vi.setSystemTime(Date.now() + ms);
+  }
+
+  it('does not deregister a node because the coordinator itself was frozen', async () => {
+    registry.registerNode(makeNode('frozen', { status: 'connected', lastHeartbeat: Date.now() }));
+    health.startMonitoring('frozen');
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    // 2026-10-28: three main-process stalls of 82-134 s each deregistered
+    // windows-pc and noahlaptop together, then their queued heartbeats arrived
+    // for an "unknown node" and both sockets were closed.
+    freezeCoordinator(115_000);
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(registry.getNode('frozen')).toBeDefined();
+    expect(registry.getNode('frozen')?.status).toBe('connected');
+    expect(mockConnection.disconnectNode).not.toHaveBeenCalled();
+  });
+
+  it('still deregisters a node that stays silent for the full window after a coordinator freeze', async () => {
+    registry.registerNode(makeNode('silent', { status: 'connected', lastHeartbeat: Date.now() }));
+    health.startMonitoring('silent');
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    freezeCoordinator(115_000);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(registry.getNode('silent')).toBeDefined();
+
+    // No heartbeat ever arrives after the coordinator resumes. Silence is
+    // counted from the resume: degraded at 60 s, gone at 90 s.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(registry.getNode('silent')?.status).toBe('degraded');
+
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(registry.getNode('silent')).toBeDefined();
+    expect(mockConnection.disconnectNode).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(registry.getNode('silent')).toBeUndefined();
+    expect(mockConnection.disconnectNode).toHaveBeenCalledWith('silent', expect.any(String));
   });
 
   // -------------------------------------------------------------------------

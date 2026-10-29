@@ -157,6 +157,7 @@ describe('extension origin-bound secret typing', () => {
       'requireTargetTabId',
       'secretTaintOriginForTabId',
       `const secretObservationGuardErrors = new WeakSet();
+const dialogErrorMessages = new WeakMap();
 ${SECRET_OBSERVATION_PROTECTION_STUBS}
 ${extractFunctionSource(background, 'loadSecretTaints')}
 ${extractFunctionSource(background, 'assertSecretObservationAllowed')}
@@ -439,6 +440,7 @@ return markSecretTaint;`,
       'POLL_TIMEOUT_MS',
       'targetSecretTaintOrigin',
       `const secretObservationGuardErrors = new WeakSet();
+const dialogErrorMessages = new WeakMap();
 ${SECRET_OBSERVATION_PROTECTION_STUBS}
 ${extractFunctionSource(background, 'browserCommandErrorMessage')}
 ${PROFILE_GUARD_SOURCE}
@@ -542,6 +544,7 @@ return runBrowserCommand;`,
       'scheduleNextPoll',
       'targetSecretTaintOrigin',
       `const secretObservationGuardErrors = new WeakSet();
+const dialogErrorMessages = new WeakMap();
 ${SECRET_OBSERVATION_PROTECTION_STUBS}
 ${extractFunctionSource(background, 'browserCommandErrorMessage')}
 ${PROFILE_GUARD_SOURCE}
@@ -592,6 +595,7 @@ return runBrowserCommand;`,
       'scheduleNextPoll',
       'targetSecretTaintOrigin',
       `const secretObservationGuardErrors = new WeakSet();
+const dialogErrorMessages = new WeakMap();
 ${SECRET_OBSERVATION_PROTECTION_STUBS}
 ${extractFunctionSource(background, 'browserCommandErrorMessage')}
 ${PROFILE_GUARD_SOURCE}
@@ -640,6 +644,7 @@ return runBrowserCommand;`,
       'scheduleNextPoll',
       'targetSecretTaintOrigin',
       `const secretObservationGuardErrors = new WeakSet();
+const dialogErrorMessages = new WeakMap();
 ${SECRET_OBSERVATION_PROTECTION_STUBS}
 ${extractFunctionSource(background, 'browserCommandErrorMessage')}
 ${PROFILE_GUARD_SOURCE}
@@ -693,6 +698,7 @@ return runBrowserCommand;`,
       'scheduleNextPoll',
       'targetSecretTaintOrigin',
       `const secretObservationGuardErrors = new WeakSet();
+const dialogErrorMessages = new WeakMap();
 ${SECRET_OBSERVATION_PROTECTION_STUBS}
 ${extractFunctionSource(background, 'browserCommandErrorMessage')}
 ${PROFILE_GUARD_SOURCE}
@@ -748,6 +754,7 @@ return runBrowserCommand;`,
       'scheduleNextPoll',
       'targetSecretTaintOrigin',
       `const secretObservationGuardErrors = new WeakSet();
+const dialogErrorMessages = new WeakMap();
 ${SECRET_OBSERVATION_PROTECTION_STUBS.replace('= true;', '= false;')}
 ${extractFunctionSource(background, 'browserCommandErrorMessage')}
 ${PROFILE_GUARD_SOURCE}
@@ -1338,6 +1345,7 @@ describe('extension credential writes into embedded cross-origin forms', () => {
       'POLL_TIMEOUT_MS',
       'targetSecretTaintOrigin',
       `const secretObservationGuardErrors = new WeakSet();
+const dialogErrorMessages = new WeakMap();
 ${SECRET_OBSERVATION_PROTECTION_STUBS}
 ${extractFunctionSource(background, 'browserCommandErrorMessage')}
 ${PROFILE_GUARD_SOURCE}

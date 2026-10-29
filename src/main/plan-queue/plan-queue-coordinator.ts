@@ -267,6 +267,8 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     return {
       createInstance: (config) => spawnQueueInstance(config, {
         ready, instances: inner, getRun: (id) => this.store.getRun(id),
+        getItem: (id) => this.store.getItem(id),
+        clearWorkerSession: (id) => { this.save({ ...this.getItem(id), workerSession: undefined }); },
         isShuttingDown: () => this.tracker.isShuttingDown(), userCloseEpoch: () => this.userCloseEpoch,
         isProviderExcluded: this.requireDeps().routing?.isProviderExcluded, routeUsage: this.requireDeps().routing?.routeUsage,
         readAccountRules: () => (this.requireDeps().routing ?? defaultPlanQueueRoutingDeps()).readAccountRules(),
@@ -438,7 +440,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     if (item.state === 'needs-answer') {
       const answer = `${item.question.question} → ${option.label}`;
       if (optionId === 'skip') {
-        this.transition(item, 'skipped', { question: null, answer, detail: 'James chose to leave this document for now.' });
+        this.transition(item, 'skipped', { workerSession: undefined, question: null, answer, detail: 'James chose to leave this document for now.' });
       } else {
         this.transition(item, 'queued', { question: null, answer });
       }
@@ -512,7 +514,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     switch (payload.action) {
       case 'skip-item':
         if (!PRE_START_STATES.has(item.state) || item.branchName || item.worktreePath) throw new Error(`Item is ${item.state}; only an item that has not started can be skipped`);
-        this.transition(item, 'skipped', { question: null, detail: 'Skipped by James.' });
+        this.transition(item, 'skipped', { workerSession: undefined, question: null, detail: 'Skipped by James.' });
         break;
       case 'resume-item':
         await flow.resume(item.id);
@@ -614,7 +616,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       const item = this.getItem(id);
       if (hasPendingLandingCleanup(item)) await flow.hold(item.id);
       if (PRE_START_STATES.has(item.state) && !item.branchName && !item.worktreePath) {
-        this.transition(item, 'skipped', { question: null, heldAt: null, detail });
+        this.transition(item, 'skipped', { workerSession: undefined, question: null, heldAt: null, detail });
       } else if (!isTerminalItemState(item.state)) {
         await flow.park(item.id, 'cancelled', detail);
       }

@@ -189,8 +189,8 @@ export class ConversationLedgerService {
     return this.buildConversation(thread, messages, totalMessages);
   }
 
-  async getLatestUserMessage(threadId: string, instanceId: string | null): Promise<ConversationMessageRecord | null> {
-    return this.port.getLatestUserMessage(threadId, instanceId);
+  async getLatestInputSource(threadId: string, instanceId: string | null): Promise<ConversationMessageRecord | null> {
+    return this.port.getLatestInputSource(threadId, instanceId);
   }
 
   async getRecentConversation(

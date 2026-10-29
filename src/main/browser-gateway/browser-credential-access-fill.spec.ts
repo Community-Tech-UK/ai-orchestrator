@@ -47,9 +47,10 @@ function harness() {
   const origin = 'http://localhost:4567';
   let primary = { instanceId: 'instance-1', taskScope: 'test-task', sessionName: 'Test task' };
   const other = { instanceId: 'instance-2', taskScope: 'other-task', sessionName: 'Other task' };
+  const copies: typeof primary[] = [];
   setCredentialAccessSessionResolver(
-    (id) => id === primary.instanceId ? primary : id === other.instanceId ? other : undefined,
-    () => [primary, other],
+    (id) => [primary, other, ...copies].find((session) => session.instanceId === id),
+    () => [primary, other, ...copies],
   );
   const db = defaultDriverFactory(':memory:');
   createTables(db); createMigrationsTable(db); runMigrations(db);
@@ -87,6 +88,8 @@ function harness() {
   return { access, request, approve, store, authorizations, vault, ...gateway, fillRequest,
     advance: (ms: number) => { now += ms; },
     resume: () => { primary = { ...primary, instanceId: 'resumed-instance' }; },
+    // An automation retry can restore a conversation while an earlier copy stays open.
+    openSecondCopy: () => { copies.push({ ...primary, instanceId: 'second-copy' }); },
     changeTask: () => { primary = { ...primary, taskScope: 'changed-task' }; },
   };
 }
@@ -124,6 +127,45 @@ describe('approved credential access reaches the actual secure fill path', () =>
     const h = harness(); await h.approve(); h.resume();
     expect((await h.service.fillCredential({ ...h.fillRequest, instanceId: 'resumed-instance' })).decision).toBe('allowed');
     expect(h.vault.enrolExistingCredential).toHaveBeenCalledOnce();
+  });
+
+  it('approves for the session that asked while another copy of its conversation is open', async () => {
+    const h = harness(); h.openSecondCopy();
+    const pending = (await h.request()).data!;
+    const approved = await h.access.approve(pending);
+    expect(approved, approved.reason).toMatchObject({ decision: 'allowed', data: { instanceId: 'instance-1' } });
+    expect((await h.service.fillCredential(h.fillRequest)).decision).toBe('allowed');
+  });
+
+  it('refuses to choose between two copies once the session that asked has gone', async () => {
+    const h = harness(); const pending = (await h.request()).data!;
+    h.resume(); h.openSecondCopy();
+    expect(await h.access.approve(pending)).toMatchObject({ decision: 'denied', reason: 'session_unavailable' });
+    expect(h.vault.enrolExistingCredential).not.toHaveBeenCalled();
+  });
+
+  it('never approves for the session that asked once it runs another conversation', async () => {
+    const h = harness(); const pending = (await h.request()).data!;
+    h.changeTask();
+    expect(await h.access.approve(pending)).toMatchObject({ decision: 'denied', reason: 'session_unavailable' });
+    expect(h.vault.enrolExistingCredential).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { change: 'a second copy opens', apply: (h: ReturnType<typeof harness>) => h.openSecondCopy(), expected: { decision: 'allowed', data: { instanceId: 'instance-1' } } },
+    { change: 'the asking session is replaced', apply: (h: ReturnType<typeof harness>) => h.resume(), expected: { decision: 'denied', reason: 'session_changed' } },
+  ])('rechecks ownership after enrolment when $change', async ({ apply, expected }) => {
+    const h = harness(); const pending = (await h.request()).data!;
+    let started!: () => void;
+    let finish!: () => void;
+    const begun = new Promise<void>((resolve) => { started = resolve; });
+    h.vault.enrolExistingCredential.mockImplementationOnce(async () => {
+      started(); await new Promise<void>((resolve) => { finish = resolve; });
+      return { vaultItemRef: 'item-placeholder', username: 'TEST_ONLY_USERNAME_PLACEHOLDER', movedIntoFolder: true };
+    });
+    const approving = h.access.approve(pending);
+    await begun; apply(h); finish();
+    expect(await approving).toMatchObject(expected);
   });
 
   it('denial never reaches enrolment or secure fill', async () => {

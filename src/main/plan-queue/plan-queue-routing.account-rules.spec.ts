@@ -160,6 +160,7 @@ describe('planQueueRouteUsage with account rules', () => {
       ledger: { getActive: () => null, getParkedSince: () => new Map() } as unknown as PlanQueueRouteUsageDeps['ledger'],
       spawnModel: async () => null,
       quotaEvidence: () => null,
+      providerQuota: () => null,
       accountRules: () => r,
       copilotProfileFor: () => null,
       now: () => 1,

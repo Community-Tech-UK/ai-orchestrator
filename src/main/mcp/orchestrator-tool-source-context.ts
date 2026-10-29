@@ -55,18 +55,23 @@ async function latestSourceMessage(
 ): Promise<Pick<OrchestratorToolSourceContext, 'sourceMessageId' | 'failureReason'>> {
   try {
     if (toolName) {
-      // A long turn can have hundreds of tool events after its genuine user.
-      // Resolve that durable anchor independently of the bounded native-call
-      // window, without loading or scanning the transcript in the main process.
-      const user = await ledger.getLatestUserMessage(threadId, instanceId);
-      if (user) {
-        const metadata = asRecord(user.rawJson?.['metadata']);
+      // A long turn can have hundreds of tool events after the input that
+      // started it: the user's message, or input Harness sent itself (a resume,
+      // Plan Queue request or continuation, often the only input after a
+      // restart). Resolve that durable anchor independently of the bounded
+      // native-call window, without loading or scanning the transcript here.
+      const source = await ledger.getLatestInputSource(threadId, instanceId);
+      if (source) {
+        const metadata = asRecord(source.rawJson?.['metadata']);
         const hasOwner = metadata !== null && Object.hasOwn(metadata, 'instanceId');
-        if (user.role !== 'user' || user.threadId !== threadId || typeof user.id !== 'string' || !user.id
+        const isHarnessInput = source.role === 'system' && hasOwner
+          && asRecord(metadata['internalInput'])?.['actor'] === 'harness';
+        if ((source.role !== 'user' && !isHarnessInput) || source.threadId !== threadId
+          || typeof source.id !== 'string' || !source.id
           || (hasOwner && metadata['instanceId'] !== instanceId)) {
           return { sourceMessageId: fallback, failureReason: 'SOURCE_MESSAGE_INVALID' };
         }
-        return { sourceMessageId: user.id };
+        return { sourceMessageId: source.id };
       }
     }
     const conversation = await ledger.getRecentConversation(threadId, SOURCE_CONTEXT_MESSAGE_LIMIT);
@@ -74,8 +79,8 @@ async function latestSourceMessage(
       const owner = asRecord(message.rawJson?.['metadata'])?.['instanceId'];
       return owner === undefined || owner === instanceId;
     });
-    // For named MCP calls the indexed lookup is authoritative for users;
-    // never re-admit an ineligible/corrupt row through the legacy window.
+    // For named MCP calls the indexed lookup is authoritative for recorded
+    // inputs; never re-admit an ineligible/corrupt row through the legacy window.
     const user = toolName ? null : findLatestMessage(messages, (message) => message.role === 'user');
     const currentTurn = user ? messages.slice(messages.indexOf(user) + 1) : messages;
     const pendingCalls = currentTurn.filter((message, index) => {

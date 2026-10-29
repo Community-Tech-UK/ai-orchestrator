@@ -38,6 +38,10 @@ describe('browser-extension-command-failures', () => {
     expect(isMissingExtensionTabError('No tab with id: 42')).toBe(true);
     expect(isMissingExtensionTabError('no tab with id 42.')).toBe(true);
     expect(isMissingExtensionTabError('browser_extension_command_timeout')).toBe(false);
+    // A page pop-up's own text is quoted inside this error; the tab is still there.
+    expect(isMissingExtensionTabError(
+      'browser_dialog_open: the page opened an alert pop-up saying "No tab with id 7" while this command was running',
+    )).toBe(false);
   });
 
   it('tells an agent a read timeout is not a permission problem', () => {

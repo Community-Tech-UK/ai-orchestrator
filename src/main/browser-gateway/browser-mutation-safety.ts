@@ -31,6 +31,8 @@ const MUTATING_BROWSER_COMMANDS: ReadonlySet<string> = new Set([
   // Native keystrokes: Enter/Space can activate or submit, so a blind retry
   // can double-fire the default action (see press_key idempotencyKey).
   'press_key',
+  // Leave / OK on a pop-up lets the action it interrupted carry on.
+  'handle_dialog',
   'upload_file',
   'download_file',
   // Arbitrary JS — may perform any mutation, so it is never safe to blind-retry.

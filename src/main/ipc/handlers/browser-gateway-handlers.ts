@@ -90,7 +90,7 @@ export function registerBrowserGatewayHandlers(
       if (!approval.credentialAccess || (
         approval.status !== 'approved' && approval.status !== 'denied' && approval.status !== 'expired'
       )) return;
-      const owner = findCredentialAccessSession(approval.credentialAccess.taskScope);
+      const owner = findCredentialAccessSession(approval.credentialAccess.taskScope, approval.instanceId);
       if (!owner) return;
       resumeInstanceAfterBrowserDecision(manager, approval.status, approval.requestId, {
         decision: 'allowed', outcome: 'succeeded', data: { instanceId: owner.instanceId },

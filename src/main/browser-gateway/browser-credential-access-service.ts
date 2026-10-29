@@ -16,7 +16,7 @@ export interface BrowserCredentialAccessDependencies {
   vault: Pick<CredentialVault, 'inspectExistingCredential' | 'enrolExistingCredential'>;
   grants: Pick<BrowserGrantStore, 'createGrant' | 'getGrant' | 'revokeGrant'>;
   resolveSession: (instanceId?: string) => CredentialAccessSession | undefined;
-  findSession: (taskScope: string) => CredentialAccessSession | undefined;
+  findSession: (taskScope: string, requesterInstanceId: string) => CredentialAccessSession | undefined;
   readTarget: (profileId: string, targetId: string, context?: BrowserGatewayContext) => Promise<{ origin: string; scope: string; computerName: string; computerId?: string }>;
   now: () => number;
   result: <T>(input: BrowserGatewayResultInput<T>) => BrowserGatewayResult<T>;
@@ -133,7 +133,7 @@ export class BrowserCredentialAccessService {
     if (request.status !== 'pending') return this.reportGrant(null, request, 'denied', request.status);
     try {
       const choice = BrowserCredentialAccessChoiceSchema.parse(rawChoice);
-      const session = this.deps.findSession(request.credentialAccess!.taskScope);
+      const session = this.deps.findSession(request.credentialAccess!.taskScope, request.instanceId);
       if (!session) throw new Error('session_unavailable');
       const m = request.credentialAccess!;
       await this.validateTarget(request, m, session);
@@ -213,7 +213,7 @@ export class BrowserCredentialAccessService {
     // before any secret is read. A tab that left the sign-in page must not strand approval.
     if (target.scope !== m.scope) throw new Error('computer_changed');
     if ((target.computerId ?? target.scope) !== m.computerId) throw new Error('computer_changed');
-    if (this.deps.findSession(m.taskScope)?.instanceId !== session.instanceId) throw new Error('session_changed');
+    if (this.deps.findSession(m.taskScope, request.instanceId)?.instanceId !== session.instanceId) throw new Error('session_changed');
   }
 
   private requirePending(request: BrowserApprovalRequest): void {

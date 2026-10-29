@@ -229,3 +229,13 @@ export class PlanQueueInstanceTracker {
 function emptyTracking(): Tracking {
   return { seenAssistantOutput: false, lastAssistantOutput: null, settled: false, settledBy: null };
 }
+
+/** Why a verifier without a verdict stopped, kept distinct for queue reports. */
+export function unreportedVerifierReason(outcome: PlanQueueTurnOutcome): string {
+  switch (outcome.kind) {
+    case 'failed': return `the verifier failed: ${outcome.reason}`;
+    case 'provider-limit': return 'the verifier stopped at a usage limit before reporting a verdict';
+    case 'needs-input': return 'the verifier asked a question instead of reporting a verdict';
+    case 'turn-complete': return 'the verifier ended its turn without reporting a verdict';
+  }
+}

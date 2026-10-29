@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { PlanQueueReportTriageArgsSchema, PlanQueueReportVerdictArgsSchema } from '@contracts/schemas/plan-queue';
 import {
   buildConflictPrompt,
+  buildContinuePrompt,
   buildFixPrompt,
   buildResumePrompt,
   buildStepUpInstruction,
@@ -193,4 +194,15 @@ it('requires the verifier to discover Harness reporting and read its accepted re
   expect(prompt).toContain('accepted: true');
   expect(prompt).toContain('Do not ask the worker or coordinator to submit it');
   expect(() => PlanQueueReportVerdictArgsSchema.parse(lastJsonBlock(prompt))).not.toThrow();
+});
+
+it('carries the last verifier findings into a replacement only when no instruction survives', () => {
+  const verdict = { verdict: 'FAIL' as const, findings: [{ severity: 'high' as const, confidence: 90, summary: 'Repair the retry.' }], gatesRun: [], documentComplete: false, needJames: [] };
+  const ctx = { item: { ...item, verdict }, kind: 'plans' as const, repoRoot: '/repo', worktreePath: '/w' };
+  expect(buildResumePrompt(ctx, 'restart')).toContain('Repair the retry.');
+  expect(buildResumePrompt({ ...ctx, item: { ...ctx.item, pendingInstruction: 'already contains findings' } }, 'restart')).not.toContain('<verifier_findings>');
+  const prompt = buildContinuePrompt({ ...ctx, item: { ...ctx.item, pendingInstruction: 'unique pending turn' } }, 'restart');
+  expect(prompt).toContain('Reason: restart');
+  expect(prompt.match(/unique pending turn/g)).toHaveLength(1);
+  expect(prompt).not.toContain('You are a Plan Queue worker');
 });

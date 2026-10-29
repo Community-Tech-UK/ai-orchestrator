@@ -225,6 +225,11 @@ export interface BrowserGatewayHealthReport {
       managedProfiles: boolean;
       mechanism: string;
     };
+    handle_dialog: {
+      sharedTabs: boolean;
+      managedProfiles: boolean;
+      mechanism: string;
+    };
   };
   /**
    * Per-instance MCP forwarder sessions that reported their tool surface.
@@ -603,6 +608,13 @@ export class BrowserHealthService {
             + '(original factor and settings preserved for reset); managed profiles '
             + 'have no browser-zoom surface and CSS zoom/transforms/device-scale are '
             + 'never substituted',
+        },
+        handle_dialog: {
+          sharedTabs: true,
+          managedProfiles: false,
+          mechanism:
+            'CDP Page.handleJavaScriptDialog on a pop-up the extension saw open while one of '
+            + 'its own commands ran on the tab; pop-ups that opened otherwise cannot be seen',
         },
       },
       mcpSessions,

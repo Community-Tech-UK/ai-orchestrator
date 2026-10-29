@@ -18,6 +18,7 @@ export interface PlanQueueInstanceRecord {
   outputBuffer: readonly { type: string; content: string }[];
   provider?: string;
   currentModel?: string;
+  providerSessionId?: string;
   /** The session's pool account / Copilot account, inherited by a run's workers. */
   accountProfileId?: string;
   copilotAccountProfileId?: string;
@@ -41,7 +42,7 @@ export interface PlanQueueSessionTreePort {
 
 /** The slice of InstanceManager the queue drives. */
 export interface PlanQueueInstancePort {
-  createInstance(config: InstanceCreateConfig): Promise<{ id: string; readyPromise?: Promise<unknown> }>;
+  createInstance(config: InstanceCreateConfig): Promise<{ id: string; readyPromise?: Promise<unknown>; queueResumed?: boolean }>;
   sendInput(
     instanceId: string,
     message: string,

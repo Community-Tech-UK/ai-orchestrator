@@ -14,6 +14,7 @@ vi.mock('../providers/automation-provider-exclusions', () => ({
 
 let excluded = new Set<string>();
 const openScope = () => ({ kind: 'open' }) as never;
+const usable = async () => ({ usable: true, resumeAt: null });
 
 import type { ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
 import { ANTIGRAVITY_REVIEW_FALLBACK_MODELS } from '../orchestration/antigravity-review-model-routing';
@@ -29,7 +30,7 @@ describe('selectPlanQueueVerifier', () => {
   it('never picks the worker provider', async () => {
     const result = await selectPlanQueueVerifier(
       { ...base, workerProvider: 'codex' },
-      { listInstalledProviders: async () => ['codex', 'claude'], classifyScope: openScope, resolveProviderModel: () => undefined },
+      { listInstalledProviders: async () => ['codex', 'claude'], classifyScope: openScope, routeUsage: usable, resolveProviderModel: () => undefined },
     );
     expect(result).toEqual({ ok: true, choice: { provider: 'claude' } });
   });
@@ -39,7 +40,7 @@ describe('selectPlanQueueVerifier', () => {
       { ...base, workerProvider: 'codex' },
       {
         listInstalledProviders: async () => ['codex', 'claude'],
-        classifyScope: openScope,
+        classifyScope: openScope, routeUsage: usable,
         resolveProviderModel: (provider) => (provider === 'claude' ? 'sonnet' : undefined),
       },
     );
@@ -57,7 +58,7 @@ describe('selectPlanQueueVerifier', () => {
     });
     const select = (antigravityQuota: () => ProviderQuotaSnapshot | null) => selectPlanQueueVerifier(
       { ...base, workerProvider: 'codex' },
-      { listInstalledProviders: async () => ['codex', 'antigravity'], classifyScope: openScope, resolveProviderModel: () => gemini, antigravityQuota },
+      { listInstalledProviders: async () => ['codex', 'antigravity'], classifyScope: openScope, routeUsage: usable, resolveProviderModel: () => gemini, antigravityQuota },
     );
     expect(await select(() => null)).toEqual({ ok: true, choice: { provider: 'antigravity', modelOverride: gemini } });
     expect(await select(quota(20))).toEqual({ ok: true, choice: { provider: 'antigravity', modelOverride: gemini } });
@@ -67,7 +68,7 @@ describe('selectPlanQueueVerifier', () => {
     const forClaudeWorker = (thirdPartyUsed: number) => selectPlanQueueVerifier(
       { ...base, workerProvider: 'claude', workerModel: 'claude-opus-5' },
       {
-        listInstalledProviders: async () => ['claude', 'antigravity'], classifyScope: openScope, resolveProviderModel: () => gemini,
+        listInstalledProviders: async () => ['claude', 'antigravity'], classifyScope: openScope, routeUsage: usable, resolveProviderModel: () => gemini,
         antigravityQuota: (): ProviderQuotaSnapshot => ({
           provider: 'antigravity', takenAt: Date.now(), source: 'admin-api', ok: true,
           windows: [window('antigravity.gemini-5h', 'Gemini · 5-hour', 100), window('antigravity.3p-5h', 'Claude/GPT · 5-hour', thirdPartyUsed)],
@@ -81,7 +82,7 @@ describe('selectPlanQueueVerifier', () => {
   it('prefers codex for a claude worker', async () => {
     const result = await selectPlanQueueVerifier(
       { ...base, workerProvider: 'claude' },
-      { listInstalledProviders: async () => ['claude', 'copilot', 'codex'], classifyScope: openScope, resolveProviderModel: () => undefined },
+      { listInstalledProviders: async () => ['claude', 'copilot', 'codex'], classifyScope: openScope, routeUsage: usable, resolveProviderModel: () => undefined },
     );
     expect(result.ok && result.choice.provider).toBe('codex');
   });
@@ -89,7 +90,7 @@ describe('selectPlanQueueVerifier', () => {
   it('refuses rather than falling back to the worker provider', async () => {
     const result = await selectPlanQueueVerifier(
       { ...base, workerProvider: 'claude' },
-      { listInstalledProviders: async () => ['claude'], classifyScope: openScope },
+      { listInstalledProviders: async () => ['claude'], classifyScope: openScope, routeUsage: usable },
     );
     expect(result.ok).toBe(false);
   });
@@ -98,7 +99,7 @@ describe('selectPlanQueueVerifier', () => {
     excluded = new Set(['copilot']);
     const result = await selectPlanQueueVerifier(
       { ...base, workerProvider: 'claude' },
-      { listInstalledProviders: async () => ['claude', 'copilot'], classifyScope: openScope },
+      { listInstalledProviders: async () => ['claude', 'copilot'], classifyScope: openScope, routeUsage: usable },
     );
     expect(result.ok).toBe(false);
   });
@@ -257,7 +258,7 @@ describe('selectPlanQueueVerifier: account rules', () => {
     copilotProfileFor: () => seat,
   });
   // An unprotected folder ('none') lets a saved or per-run checker list decide, as in the choice tests above.
-  const common = { classifyScope: () => ({ kind: 'none' }) as never, resolveProviderModel: () => undefined };
+  const common = { classifyScope: () => ({ kind: 'none' }) as never, resolveProviderModel: () => undefined, routeUsage: usable };
 
   it('skips a saved checker whose only account is on the never-use list', async () => {
     const result = await selectPlanQueueVerifier(
@@ -303,6 +304,20 @@ describe('selectPlanQueueVerifier: account rules', () => {
       { ...common, listInstalledProviders: async () => ['claude', 'copilot', 'cursor'], accountRules: accounts([], [{ provider: 'copilot', accountId: 'work' }], 'work') },
     );
     expect(result.ok && result.choice.provider).toBe('cursor');
+  });
+
+  it('moves an automatic checker with no usage left behind the others, and uses it only when nothing else can run', async () => {
+    const outOf = (spent: string[]) => vi.fn(async (choice: { provider: string }) => ({ usable: !spent.includes(choice.provider), resumeAt: null }));
+    const select = (routeUsage: ReturnType<typeof outOf>) => selectPlanQueueVerifier(
+      { ...base, workerProvider: 'claude' },
+      { ...common, listInstalledProviders: async () => ['claude', 'codex', 'cursor'], accountRules: accounts([]), routeUsage },
+    );
+    const codexSpent = outOf(['codex']);
+    const result = await select(codexSpent);
+    expect(result.ok && result.choice.provider).toBe('cursor');
+    expect(codexSpent).toHaveBeenCalledWith({ provider: 'codex' }, 'verification', { allowLast: false, workingDirectory: '/repo' });
+    const allSpent = await select(outOf(['codex', 'cursor']));
+    expect(allSpent.ok && allSpent.choice.provider).toBe('codex');
   });
 
   it('moves an automatic checker whose only usable account is use-last behind the others', async () => {

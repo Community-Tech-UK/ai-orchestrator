@@ -65,7 +65,7 @@ export function projectOpenCodeConfig(config: unknown, model?: string): Record<s
     max_completion_tokens: openCodePositive(openCodeRecord(value)['max_completion_tokens']),
   }]));
   result['provider'] = { [providerId!]: { models: { [modelId!]: {
-    limit: { context: openCodePositive(limit['context']), output: openCodePositive(limit['output']) },
+    limit: { context: openCodePositive(limit['context']), input: openCodePositive(limit['input']), output: openCodePositive(limit['output']) },
     options: { max_completion_tokens: openCodePositive(options['max_completion_tokens']) },
     ...(Object.keys(variants).length ? { variants } : {}),
   } } } };

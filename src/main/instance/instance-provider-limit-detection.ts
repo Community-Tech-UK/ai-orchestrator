@@ -1,6 +1,7 @@
 import type { CliRateLimitInfo } from '../../shared/types/cli.types';
 import { isProviderNotice } from '../cli/provider-notice';
 import { containsCopilotLimitNotice, matchCopilotLimitNotice } from '../cli/copilot-limit-messages';
+import { classifyFinalOutputProviderLimit } from '../cli/final-output-provider-limit';
 import type { InstanceProvider } from '../../shared/types/instance.types';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { extractProviderErrorDiagnostics } from './instance-communication.diagnostics';
@@ -144,7 +145,13 @@ export function detectCompletionProviderLimit(
   // structured signal: the adapter attaches `metadata.quota`, so the turn is a
   // limit stop even when the assistant content carries no notice text.
   const structuredLimit = diagnostics.quota?.exhausted === true;
-  const noticeLimit = structuredLimit || (isProviderNotice(response.content)
+  // A whole turn is the session's own words, and a session often quotes another
+  // provider's limit (a coordinator relaying "You've hit your usage limit" from a
+  // Codex checker). Only a reply that IS a notice counts, or notice-like text the
+  // provider itself backed with limit data.
+  const noticeShaped = classifyFinalOutputProviderLimit(response.content) !== null
+    || ((diagnostics.rateLimit !== undefined || diagnostics.quota !== undefined) && isProviderNotice(response.content));
+  const noticeLimit = structuredLimit || (noticeShaped
     && !(opts.provider !== undefined && containsCopilotLimitNotice(response.content)));
   const overageStop = detectUsageOverageStop(telemetry, {
     ...opts,

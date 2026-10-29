@@ -197,8 +197,11 @@ import {
   createBrowserInputControlOperations,
   type BrowserInputControlOperations,
 } from './browser-input-control-operations';
+import { handleBrowserDialog } from './browser-dialog-operations';
 import { requireUserForMutatingActionResult } from './browser-mutation-result';
 import type {
+  BrowserHandleDialogRequest,
+  BrowserHandleDialogResult,
   BrowserPressKeyRequest,
   BrowserPressKeyResult,
   BrowserSetViewportRequest,
@@ -1718,6 +1721,16 @@ export class BrowserGatewayService {
   /** Real Chrome zoom on shared tabs: set/read/reset with per-tab preservation. */
   async setZoom(request: BrowserGatewayContext & BrowserSetZoomRequest): Promise<BrowserGatewayResult<BrowserSetZoomResult | null>> {
     return this.inputControls.setZoom(request);
+  }
+
+  /** Answer a Chrome page pop-up (alert, confirm, "Leave site?") a shared-tab command ran into. */
+  async handleDialog(request: BrowserGatewayContext & BrowserHandleDialogRequest): Promise<BrowserGatewayResult<BrowserHandleDialogResult | null>> {
+    return handleBrowserDialog({
+      result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
+      getExistingTab: (profileId, targetId) => this.extensionTabStore.getTab(profileId, targetId) ?? undefined,
+      sendCommand: (attachment, command, payload) => this.existingTabOperations.sendCommand(attachment, command, payload),
+      actionGuard: this.actionGuard,
+    }, request);
   }
 
   /**

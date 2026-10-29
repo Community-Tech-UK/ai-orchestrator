@@ -213,6 +213,25 @@ describe('BrowserExistingTabOperations mutation guards', () => {
     }));
   });
 
+  it.each([
+    ['interrupted by a page pop-up', 'browser_dialog_open: the page opened an alert pop-up while this command was running', 'maybe_applied'],
+    ['refused for a waiting pop-up', 'browser_dialog_open: this tab is showing an alert pop-up, so the command was not run.', 'failed'],
+  ])('journals a write %s by whether it ran', async (_name, message, outcome) => {
+    const sentinel = {
+      scan: vi.fn().mockResolvedValue(okScan),
+      needsPreWriteCheck: vi.fn(() => false),
+    };
+    const journal = {
+      recordIntent: vi.fn().mockResolvedValue(4),
+      recordOutcome: vi.fn().mockResolvedValue(undefined),
+    };
+    const sendCommand = vi.fn().mockRejectedValue(new Error(message));
+    const { ops } = makeOps({ sentinel, writeJournal: journal, sendCommand });
+
+    await expect(ops.sendCommand(makeAttachment(), 'click', { uid: '1' })).rejects.toThrow(message);
+    expect(journal.recordOutcome).toHaveBeenCalledWith(expect.objectContaining({ seq: 4, outcome }));
+  });
+
   it('proceeds when the pre-write scan is ok or unknown', async () => {
     const sentinel = {
       scan: vi.fn()

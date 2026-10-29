@@ -85,7 +85,10 @@ const TIMESTAMP_TAIL = String.raw`\|\d{9,}`;
 const WILL_RESET_TAIL = String.raw`\.\s*your\s+limit\s+will\s+reset\s+(?:at\s+)?${WHEN}${TIMEZONE}\.?`;
 const END = String.raw`\s*$`;
 
-const PROVIDER_LIMIT_NOTICE_RES: readonly RegExp[] = [
+// Built on first use: copilot-limit-messages imports the session limit detection,
+// which uses this classifier, so its sources may not exist yet when this module loads.
+let providerLimitNoticeRes: readonly RegExp[] | null = null;
+const noticeRes = (): readonly RegExp[] => (providerLimitNoticeRes ??= [
   ...COPILOT_LIMIT_WHOLE_SOURCES.map((source) => new RegExp(`${LEAD_IN}${source}${END}`, 'iu')),
   // (a)/(e) "You've hit your session limit · resets 6:30pm", "You've hit your limit · resets 11pm",
   // the Claude monthly spend message, and Codex ". Visit … / Upgrade to Pro … / try again …".
@@ -101,7 +104,11 @@ const PROVIDER_LIMIT_NOTICE_RES: readonly RegExp[] = [
   new RegExp(`${LEAD_IN}you(?:['’]?ve|\\s+have)\\s+reached\\s+your\\s+usage\\s+limit(?:\\.?|${RESET_TAIL}|${CODEX_TAIL})${END}`, 'iu'),
   // (d) Copilot "Error: You have exceeded your monthly quota (Request ID: ...)".
   new RegExp(`${LEAD_IN}you\\s+have\\s+exceeded\\s+your\\s+(?:weekly|monthly)\\s+quota(?:\\s*\\(request\\s+id:[^()\\n]*\\))?\\.?${END}`, 'iu'),
-];
+  // (f) cursor-agent's whole reply when the backend refuses the account until it upgrades or pays, as when its plan
+  // and on-demand usage are spent: "Upgrade your plan to continue" (seen 2026-10-28), or the billing variant from
+  // the same table in the CLI, "Add a payment method to continue".
+  new RegExp(`${LEAD_IN}(?:upgrade\\s+your\\s+plan|add\\s+a\\s+payment\\s+method)\\s+to\\s+continue\\.?${END}`, 'iu'),
+]);
 
 /**
  * Returns the run `error` to record when the final assistant output is a
@@ -112,7 +119,7 @@ export function classifyFinalOutputProviderLimit(finalOutput: string | undefined
   if (
     !trimmed
     || trimmed.length > MAX_PROVIDER_NOTICE_LENGTH
-    || !PROVIDER_LIMIT_NOTICE_RES.some((notice) => matchesWithTimezoneSuffix(notice, trimmed))
+    || !noticeRes().some((notice) => matchesWithTimezoneSuffix(notice, trimmed))
   ) {
     return null;
   }

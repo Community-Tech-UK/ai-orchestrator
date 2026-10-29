@@ -96,3 +96,8 @@ cross-model-review-service.js
 
 # CI Electron download cache (electron_config_cache workspace path in ci.yml)
 .electron-cache/
+
+# Raw plan/live-test evidence dumps (bulky run output). The dated evidence
+# section in the owning *_livetest.md / plan doc is the durable record;
+# files already tracked here stay tracked.
+docs/plans/*evidence/

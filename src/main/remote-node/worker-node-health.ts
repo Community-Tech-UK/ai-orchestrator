@@ -22,12 +22,26 @@ const DEGRADED_THRESHOLD_MS = 60_000;
 // handled before the health monitor removes the node entry. This ordering is
 // intentional — the health monitor acts as a backstop cleanup.
 const DISCONNECT_THRESHOLD_MS = 90_000;
+// A check this late means the coordinator itself was not running: its main
+// event loop was blocked, or the Mac was asleep. Heartbeats that arrived in
+// the meantime can still be unread in the socket (an overdue timer can run
+// before socket I/O when the loop resumes), so the silence is the
+// coordinator's, not the node's. On 2026-10-28 three main-process stalls of
+// 82-134 s deregistered every connected worker at once this way. After such a
+// gap the heartbeat window restarts from the moment the coordinator resumed.
+// Trade-off: a coordinator that stalled 10 s+ more often than every 90 s would
+// never deregister a dead node whose socket stayed open; a closed socket is
+// still handled at once by the connection server.
+const LATE_CHECK_MS = CHECK_INTERVAL_MS * 2;
 
 export class WorkerNodeHealth {
   private static instance: WorkerNodeHealth | null = null;
 
   private intervals = new Map<string, ReturnType<typeof setInterval>>();
   private pingInFlight = new Set<string>();
+  private lastCheckAt = new Map<string, number>();
+  /** When the coordinator last resumed from a stall, per monitored node. */
+  private resumedAt = new Map<string, number>();
 
   static getInstance(): WorkerNodeHealth {
     if (!this.instance) {
@@ -58,6 +72,7 @@ export class WorkerNodeHealth {
     }, CHECK_INTERVAL_MS);
 
     this.intervals.set(nodeId, handle);
+    this.lastCheckAt.set(nodeId, Date.now());
     logger.info('Health monitoring started', { nodeId });
   }
 
@@ -67,6 +82,8 @@ export class WorkerNodeHealth {
     clearInterval(handle);
     this.intervals.delete(nodeId);
     this.pingInFlight.delete(nodeId);
+    this.lastCheckAt.delete(nodeId);
+    this.resumedAt.delete(nodeId);
     logger.info('Health monitoring stopped', { nodeId });
   }
 
@@ -96,7 +113,18 @@ export class WorkerNodeHealth {
     }
 
     const now = Date.now();
-    const timeSinceHeartbeat = now - (node.lastHeartbeat ?? node.connectedAt ?? 0);
+    const sinceLastCheck = now - (this.lastCheckAt.get(nodeId) ?? now);
+    this.lastCheckAt.set(nodeId, now);
+    if (sinceLastCheck >= LATE_CHECK_MS) {
+      this.resumedAt.set(nodeId, now);
+      logger.info('Coordinator was not running; restarting the heartbeat window', {
+        nodeId,
+        sinceLastCheck,
+      });
+    }
+
+    const lastHeardAt = Math.max(node.lastHeartbeat ?? node.connectedAt ?? 0, this.resumedAt.get(nodeId) ?? 0);
+    const timeSinceHeartbeat = now - lastHeardAt;
 
     if (timeSinceHeartbeat >= DISCONNECT_THRESHOLD_MS) {
       logger.warn('Node exceeded disconnect threshold, deregistering', {

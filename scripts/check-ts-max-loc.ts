@@ -118,7 +118,9 @@ const ALLOWLIST: Record<string, number> = {
   // http_auth_navigate dispatch shim + readTargetUrl (HTTP Basic/Digest
   // answering, 2026-10-17; the operation itself lives in
   // browser-http-auth-fill-operation.ts).
-  'src/main/browser-gateway/browser-gateway-service.ts': 2613,
+  // Raised 2613 -> 2628 for the handleDialog delegate (browser.handle_dialog,
+  // 2026-10-28; the operation lives in browser-dialog-operations.ts).
+  'src/main/browser-gateway/browser-gateway-service.ts': 2628,
   // Thin pressKey/viewport delegates; page-level impl in browser-input-control-driver.ts.
   'src/main/browser-gateway/puppeteer-browser-driver.ts': 717,
   // Self-allowlisted: the registry below grows one line per documented ceiling.
@@ -128,13 +130,16 @@ const ALLOWLIST: Record<string, number> = {
   // Health aggregator: one section per surface. Crossed 700 with the per-node
   // secret observation report; the mapping and warnings live in
   // browser-secret-observation-health.ts.
-  'src/main/browser-gateway/browser-health-service.ts': 715,
+  // Raised 715 -> 776 for the handle_dialog controls entry (the file had
+  // already crept to 764 within tolerance).
+  'src/main/browser-gateway/browser-health-service.ts': 776,
   // Declarative MCP tool-name + JSON-schema catalog; crossed 700 with the
   // reliability tools (assert_persisted, write_journal). Catalog growth, not
   // logic growth. Raised 727 -> 762 for the fill_credential authorize-path hint.
   // Raised 762 -> 825 for browser.close_tab / close_matching schemas.
   // Raised 825 -> 878 for the browser.fill_http_auth schema + description.
-  'src/main/browser-gateway/browser-mcp-tools.ts': 878,
+  // Raised 878 -> 884 for the browser.handle_dialog name + description.
+  'src/main/browser-gateway/browser-mcp-tools.ts': 884,
   // Declarative Zod request/response schema catalog for the browser domain;
   // crossed 700 with the snapshot/assert_persisted/write_journal schemas.
   // Raised 731 -> 796 for close + inspection-state request schemas.

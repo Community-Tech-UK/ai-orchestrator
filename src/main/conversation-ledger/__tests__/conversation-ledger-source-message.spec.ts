@@ -3,15 +3,15 @@ import Database from 'better-sqlite3';
 import type { SqliteDriver } from '../../db/sqlite-driver';
 import { runConversationLedgerMigrations } from '../conversation-ledger-schema';
 import { ConversationLedgerStore } from '../conversation-ledger-store';
-import { getLatestUserMessage, LATEST_USER_MESSAGE_SQL } from '../conversation-message-source-query';
+import { getLatestInputSource, LATEST_INPUT_SOURCE_SQL } from '../conversation-message-source-query';
 import { ConversationLedgerService } from '../conversation-ledger-service';
 import { getLogger } from '../../logging/logger';
 
-describe('latest recorded user source', () => {
+describe('latest recorded input source', () => {
   let db: SqliteDriver;
   let store: ConversationLedgerStore;
   let threadId: string;
-  const latest = (owner: string | null, thread = threadId) => store.getLatestUserMessage(thread, owner);
+  const latest = (owner: string | null, thread = threadId) => store.getLatestInputSource(thread, owner);
 
   beforeEach(() => {
     db = new Database(':memory:') as unknown as SqliteDriver;
@@ -117,7 +117,7 @@ describe('latest recorded user source', () => {
       const inconsistentDriver = {
         prepare: () => ({ get: () => returnedRow }),
       } as unknown as SqliteDriver;
-      expect(() => getLatestUserMessage(inconsistentDriver, threadId, 'current'))
+      expect(() => getLatestInputSource(inconsistentDriver, threadId, 'current'))
         .toThrow(/^SOURCE_OWNER_MISMATCH$/);
     },
   );
@@ -129,7 +129,7 @@ describe('latest recorded user source', () => {
     const inconsistentDriver = {
       prepare: () => ({ get: () => ({ ...row, source_owner_key: 'absent' }) }),
     } as unknown as SqliteDriver;
-    expect(() => getLatestUserMessage(inconsistentDriver, threadId, 'current'))
+    expect(() => getLatestInputSource(inconsistentDriver, threadId, 'current'))
       .toThrow(/^SOURCE_OWNER_MISMATCH$/);
   });
 
@@ -155,6 +155,75 @@ describe('latest recorded user source', () => {
     expect(latest('current')?.id).toBe('legacy');
   });
 
+  describe('Harness-authored input', () => {
+    function harnessInput(id: string, sequence: number, metadata: Record<string, unknown>): void {
+      store.upsertMessages(threadId, [{ id, role: 'system', content: 'Synthetic Harness input', sequence,
+        createdAt: 10_000 - sequence, rawJson: { metadata } }]);
+    }
+    const internalInput = { actor: 'harness', source: 'plan-queue' };
+
+    it('selects input Harness sent to this instance after users owned by a replaced instance', () => {
+      user('pre-restart', 1, 'replaced');
+      harnessInput('resume', 2, { instanceId: 'current', internalInput });
+      store.upsertMessages(threadId, Array.from({ length: 1205 }, (_, index) => ({
+        id: `tail-${index}`, sequence: index + 3, role: 'tool' as const, phase: 'tool_result', content: 'Synthetic result',
+      })));
+      expect(latest('current')).toMatchObject({ id: 'resume', role: 'system', sequence: 2 });
+      expect(latest('replaced')?.id).toBe('pre-restart');
+    });
+
+    it('returns whichever recorded input is newest', () => {
+      harnessInput('earlier-harness', 1, { instanceId: 'current', internalInput });
+      user('later-user', 2, 'current');
+      expect(latest('current')?.id).toBe('later-user');
+      harnessInput('latest-harness', 3, { instanceId: 'current', internalInput });
+      expect(latest('current')?.id).toBe('latest-harness');
+    });
+
+    it.each([
+      ['an ordinary system notice', { instanceId: 'current', kind: 'system' }],
+      ['another instance', { instanceId: 'foreign', internalInput }],
+      ['no explicit owner', { internalInput }],
+      ['explicit null owner', { instanceId: null, internalInput }],
+      ['another actor', { instanceId: 'current', internalInput: { actor: 'user', source: 'plan-queue' } }],
+      ['a non-object provenance', { instanceId: 'current', internalInput: 'harness' }],
+    ])('ignores system rows with %s', (_name, metadata) => {
+      harnessInput('ineligible', 1, metadata);
+      expect(latest('current')).toBeNull();
+    });
+
+    it('ignores malformed system JSON without failing the lookup', () => {
+      user('anchor', 1, 'current');
+      harnessInput('malformed', 2, { instanceId: 'current', internalInput });
+      db.prepare('UPDATE conversation_messages SET raw_json = ? WHERE id = ?').run('{synthetic malformed', 'malformed');
+      expect(latest('current')?.id).toBe('anchor');
+    });
+
+    it('fails closed when SQLite and JSON.parse disagree about the actor', () => {
+      harnessInput('ambiguous', 1, { instanceId: 'current', internalInput });
+      db.prepare('UPDATE conversation_messages SET raw_json = ? WHERE id = ?').run(
+        '{"metadata":{"instanceId":"current","internalInput":{"actor":"harness"},"internalInput":null}}', 'ambiguous');
+      expect(() => latest('current')).toThrow(/^SOURCE_ACTOR_MISMATCH$/);
+    });
+
+    it('migration 8 indexes existing rows without changing them', () => {
+      db.exec(`DROP INDEX idx_conversation_messages_harness_input_source_owner;
+        DELETE FROM conversation_ledger_migrations WHERE version = 8;`);
+      harnessInput('resume', 1, { instanceId: 'current', internalInput });
+      harnessInput('notice', 2, { instanceId: 'current', kind: 'system' });
+      store.upsertMessages(threadId, [{ id: 'malformed', role: 'system', content: 'Synthetic', sequence: 3,
+        rawJson: {} }]);
+      db.prepare('UPDATE conversation_messages SET raw_json = ? WHERE id = ?').run('{synthetic malformed', 'malformed');
+      const before = db.prepare('SELECT * FROM conversation_messages ORDER BY id').all();
+      runConversationLedgerMigrations(db);
+      runConversationLedgerMigrations(db);
+      expect(db.prepare('SELECT * FROM conversation_messages ORDER BY id').all()).toEqual(before);
+      expect(latest('current')?.id).toBe('resume');
+      expect(db.prepare('SELECT version FROM conversation_ledger_migrations WHERE version = 8').all())
+        .toEqual([{ version: 8 }]);
+    });
+  });
+
   it('does not cross conversation boundaries or return soft-deleted history', () => {
     user('source', 1, 'current');
     const other = store.upsertThread({ provider: 'orchestrator', sourceKind: 'orchestrator' }).id;
@@ -164,14 +233,17 @@ describe('latest recorded user source', () => {
     expect(latest('current')).toBeNull();
   });
 
-  it('uses two owner index seeks and active-thread primary-key lookups without scanning message history', () => {
+  it('uses owner index seeks and active-thread primary-key lookups without scanning message history', () => {
     user('source', 1, 'current');
-    const plan = db.prepare(`EXPLAIN QUERY PLAN ${LATEST_USER_MESSAGE_SQL}`)
-      .all<{ detail: string }>(threadId, threadId, 'text:current').map(row => row.detail);
+    const plan = db.prepare(`EXPLAIN QUERY PLAN ${LATEST_INPUT_SOURCE_SQL}`)
+      .all<{ detail: string }>(threadId, threadId, 'text:current', threadId, 'text:current').map(row => row.detail);
     expect(plan.filter(detail => /SEARCH conversation_messages USING INDEX idx_conversation_messages_user_source_owner/.test(detail)))
       .toHaveLength(2);
+    expect(plan.filter(detail =>
+      /SEARCH conversation_messages USING INDEX idx_conversation_messages_harness_input_source_owner/.test(detail)))
+      .toHaveLength(1);
     expect(plan.filter(detail => /SEARCH conversation_threads USING INDEX sqlite_autoindex_conversation_threads_1/.test(detail)))
-      .toHaveLength(2);
+      .toHaveLength(3);
     expect(plan.some(detail => /SCAN conversation_messages/.test(detail))).toBe(false);
   });
 
@@ -200,8 +272,8 @@ describe('latest recorded user source', () => {
     user('source', 1, 'current');
     user('foreign', 2, 'foreign');
     const service = new ConversationLedgerService({ store });
-    expect(await service.getLatestUserMessage(threadId, 'current')).toMatchObject({ id: 'source' });
+    expect(await service.getLatestInputSource(threadId, 'current')).toMatchObject({ id: 'source' });
     db.prepare('UPDATE conversation_threads SET deleted_at = ? WHERE id = ?').run('synthetic-deleted', threadId);
-    expect(await service.getLatestUserMessage(threadId, 'current')).toBeNull();
+    expect(await service.getLatestInputSource(threadId, 'current')).toBeNull();
   });
 });

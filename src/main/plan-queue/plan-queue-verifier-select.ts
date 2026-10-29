@@ -21,7 +21,7 @@ import { normalizeAgenticReviewerCliList, normalizeReviewerCli } from '../orches
 import { classifyCheckerScope, modelOverrideOptionFor, resolveCheckerPlan, type CheckerPlanDeps } from '../review/checker-plan';
 import { defaultPlanQueueRouteUsage, pickRouteChoice, type PlanQueueRouteUsageCheck } from './plan-queue-route-usage';
 import { defaultPlanQueueRoutingDeps, type PlanQueueRoutingDeps } from './plan-queue-routing';
-import { accountPreferencesFor, accountRuleTier, choiceBlockedByNeverUse, choiceWithoutNeverUse } from './plan-queue-account-rules';
+import { accountRuleTier, choiceBlockedByNeverUse, choiceWithoutNeverUse } from './plan-queue-account-rules';
 
 const logger = getLogger('PlanQueueVerifierSelect');
 
@@ -167,10 +167,11 @@ export async function selectPlanQueueVerifier(
 }
 
 /**
- * Automatic checkers under James's account rules. A checker whose every account
- * is on the never-use list is dropped, and so is a Copilot checker on a
- * never-use seat (`seatOnNeverList` says when that was the reason). A provider
- * whose only usable account is use-last moves behind the others.
+ * Automatic checkers under James's account rules and usage. A checker whose
+ * every account is on the never-use list is dropped, and so is a Copilot
+ * checker on a never-use seat (`seatOnNeverList` says when that was the
+ * reason). A checker with no usage left, or left only with use-last accounts,
+ * moves behind the others: it runs only when nothing else can.
  */
 async function applyAccountRules(
   candidates: readonly CheckerCandidate[],
@@ -183,6 +184,11 @@ async function applyAccountRules(
   const lastOnly: CheckerCandidate[] = [];
   let seatOnNeverList = false;
   for (const candidate of candidates) {
+    const choice = {
+      provider: candidate.provider,
+      ...(candidate.model ? { model: candidate.model } : {}),
+      ...(candidate.copilotProfileId ? { copilotProfileId: candidate.copilotProfileId } : {}),
+    };
     if (candidate.provider === 'copilot') {
       const seat = candidate.copilotProfileId ?? (input.workingDirectory ? accounts.copilotProfileFor(input.workingDirectory, 'verification') : null);
       const tier = seat ? accountRuleTier(rules, 'copilot', seat) : null;
@@ -191,13 +197,15 @@ async function applyAccountRules(
         continue;
       }
       // A licence-pinned seat cannot be moved: it is the work seat the folder's rule requires.
-      (tier === 'last' && candidate.rationale !== 'licence-pinned' ? lastOnly : kept).push(candidate);
-      continue;
-    }
-    const choice = { provider: candidate.provider, ...(candidate.model ? { model: candidate.model } : {}) };
-    if (choiceBlockedByNeverUse(choice, candidate.provider, rules, accounts.poolProfiles(), accounts.copilotProfiles())) continue;
-    if (!accountPreferencesFor(rules, candidate.provider)?.last.length) {
-      kept.push(candidate);
+      if (candidate.rationale === 'licence-pinned') {
+        kept.push(candidate);
+        continue;
+      }
+      if (tier === 'last') {
+        lastOnly.push(candidate);
+        continue;
+      }
+    } else if (choiceBlockedByNeverUse(choice, candidate.provider, rules, accounts.poolProfiles(), accounts.copilotProfiles())) {
       continue;
     }
     const preferred = await usage(choice, 'verification', { allowLast: false, ...(input.workingDirectory ? { workingDirectory: input.workingDirectory } : {}) });

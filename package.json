@@ -59,6 +59,7 @@
     "check:circular": "node scripts/check-circular-deps.js",
     "check:knip": "node scripts/check-knip.js",
     "check:provider-parity": "node scripts/check-provider-parity.js",
+    "audit:queue-mimo-spend": "node scripts/queue-mimo-spend-report.mjs",
     "audit:claude-cost": "node scripts/claude-cost-audit-report.mjs",
     "verify:architecture": "node scripts/check-import-boundaries.js && node scripts/check-loop-cwd-discipline.js && node scripts/generate-architecture-inventory.js --check",
     "verify:boundaries": "node scripts/check-import-boundaries.js",

@@ -28,6 +28,7 @@ export type BrowserExtensionCommandName =
   | 'press_key'
   | 'set_viewport'
   | 'set_zoom'
+  | 'handle_dialog'
   | 'upload_file'
   | 'download_file'
   | 'snapshot'

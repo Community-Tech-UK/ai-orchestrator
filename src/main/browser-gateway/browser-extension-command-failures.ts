@@ -19,7 +19,9 @@ export function isDeliveredCommandTimeout(message: string): boolean {
 }
 
 export function isMissingExtensionTabError(message: string): boolean {
-  return /\bno tab with id\b/i.test(message);
+  // A page pop-up's own text is quoted inside browser_dialog_open, so it can
+  // say anything; the tab is plainly still there.
+  return !message.startsWith('browser_dialog_open') && /\bno tab with id\b/i.test(message);
 }
 
 /** The CDP hop the extension reported as stalled, when it named one. */

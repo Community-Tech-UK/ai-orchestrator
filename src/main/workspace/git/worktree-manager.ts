@@ -57,6 +57,8 @@ const logger = getLogger('WorktreeManager');
 
 const execFileAsync = promisify(execFile);
 
+export class WorktreeCapacityError extends Error {}
+
 export class WorktreeManager extends EventEmitter {
   private static instance: WorktreeManager | null = null;
   private sessions: Map<string, WorktreeSession> = new Map();
@@ -114,7 +116,7 @@ export class WorktreeManager extends EventEmitter {
     ).length;
 
     if (activeCount >= this.config.maxConcurrent) {
-      throw new Error(
+      throw new WorktreeCapacityError(
         `Maximum concurrent worktrees (${this.config.maxConcurrent}) reached. ` +
           `Complete or abandon existing worktrees before creating new ones.`
       );

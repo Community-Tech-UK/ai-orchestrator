@@ -1,9 +1,11 @@
 import type { BrowserDownloadFileResult } from '@contracts/types/browser';
-import type {
-  BrowserFocusInfo,
-  BrowserPressKeyResult,
-  BrowserSetViewportResult,
-  BrowserSetZoomResult,
+import {
+  BrowserDialogTypeSchema,
+  type BrowserFocusInfo,
+  type BrowserHandleDialogResult,
+  type BrowserPressKeyResult,
+  type BrowserSetViewportResult,
+  type BrowserSetZoomResult,
 } from '@contracts/schemas/browser';
 import { redactBrowserText, redactBrowserUrl } from './browser-redaction';
 
@@ -248,5 +250,29 @@ export function normalizeSetZoomResult(result: unknown): BrowserSetZoomResult {
     ...(stringField(value['restorationFailed'], 500)
       ? { restorationFailed: stringField(value['restorationFailed'], 500)! }
       : {}),
+  };
+}
+
+/**
+ * Validate the extension's handle_dialog result against what was asked. On a
+ * secret-filled tab the extension replaces every result with its fixed
+ * `completed` marker: the answer went through and its details are withheld.
+ */
+export function normalizeHandleDialogResult(
+  result: unknown,
+  accept: boolean,
+): BrowserHandleDialogResult {
+  const value = recordField(result);
+  if (value?.['completed'] === true) {
+    return { handled: true, accepted: accept };
+  }
+  if (value?.['handled'] !== true || value['accepted'] !== accept) {
+    throw new Error('browser_extension_handle_dialog_result_invalid');
+  }
+  const dialogType = BrowserDialogTypeSchema.safeParse(value['dialogType']);
+  return {
+    handled: true,
+    accepted: accept,
+    ...(dialogType.success ? { dialogType: dialogType.data } : {}),
   };
 }

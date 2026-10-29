@@ -57,13 +57,13 @@ describe('latest user source worker protocol', () => {
       { id: 'foreign', role: 'user', content: 'Synthetic foreign source', sequence: 2, rawJson: { metadata: { instanceId: 'foreign' } } },
     ]);
     const service = new ConversationLedgerService({ port: client });
-    expect(await service.getLatestUserMessage(thread.id, 'current')).toMatchObject({ id: 'source', threadId: thread.id });
+    expect(await service.getLatestInputSource(thread.id, 'current')).toMatchObject({ id: 'source', threadId: thread.id });
     expect(worker.postMessage).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'store-call', method: 'getLatestUserMessage', args: [thread.id, 'current'],
+      type: 'store-call', method: 'getLatestInputSource', args: [thread.id, 'current'],
     }));
-    expect(await service.getLatestUserMessage(thread.id, null)).toBeNull();
+    expect(await service.getLatestInputSource(thread.id, null)).toBeNull();
     db.prepare('UPDATE conversation_threads SET deleted_at = ? WHERE id = ?').run('synthetic-deleted', thread.id);
-    expect(await service.getLatestUserMessage(thread.id, 'current')).toBeNull();
-    expect(await service.getLatestUserMessage('missing', 'current')).toBeNull();
+    expect(await service.getLatestInputSource(thread.id, 'current')).toBeNull();
+    expect(await service.getLatestInputSource('missing', 'current')).toBeNull();
   });
 });

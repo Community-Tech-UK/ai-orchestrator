@@ -1,6 +1,7 @@
 import { PlanQueueSpawnRoutingChanged } from './plan-queue-checker-routing';
 import { PlanQueueSpawnRunPaused } from './plan-queue-run-hold';
 import { PlanQueueSpawnStoppedByUser } from './plan-queue-user-close';
+import { PlanQueueSpawnOutOfUsage, USAGE_RECHECK_MS } from './plan-queue-spawn';
 /** Batched, bounded readiness investigation. Failed starts do not spend a document's attempts. */
 import type { InstanceProvider } from '../../shared/types/instance.types';
 import { getLogger } from '../logging/logger';
@@ -71,6 +72,13 @@ export class PlanQueueTriage {
       }
       this.triageByRun.delete(run.id);
       if (this.host.tracker.isShuttingDown() || error instanceof PlanQueueSpawnStoppedByUser || error instanceof PlanQueueSpawnRunPaused) return;
+      if (error instanceof PlanQueueSpawnOutOfUsage) {
+        // A wait, not a failed try: it never counts toward parking the documents.
+        this.spawnFailures.set(run.id, { count: this.spawnFailures.get(run.id)?.count ?? 0, notBefore: this.host.now() + USAGE_RECHECK_MS });
+        logger.info('Plan queue: triage waits for usage', { runId: run.id, reason: error.message });
+        this.host.requestPump();
+        return;
+      }
       const message = errorMessage(error).slice(0, 1500);
       const count = (this.spawnFailures.get(run.id)?.count ?? 0) + 1;
       this.spawnFailures.set(run.id, { count, notBefore: this.host.now() + SPAWN_BACKOFF_MS });

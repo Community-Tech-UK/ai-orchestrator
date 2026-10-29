@@ -5,7 +5,8 @@ import type {
   AutomationDestination,
 } from '../../shared/types/automation.types';
 import type { InstanceManager } from '../instance/instance-manager';
-import type { SessionRevivalService } from '../session/session-revival-service';
+import { SessionRevivalService } from '../session/session-revival-service';
+import type { Instance } from '../../shared/types/instance.types';
 import type { AutomationStore } from './automation-store';
 
 const mockAdmitAutomatedWrite = vi.fn().mockReturnValue({ kind: 'admitted', admissionId: 'adm-default' });
@@ -322,5 +323,33 @@ describe('ThreadWakeupRunner', () => {
         { automatedInput: true },
       );
     });
+  });
+
+  // A retry used to restore a second copy beside the errored one, leaving two
+  // runtimes on one provider conversation.
+  it('restarts an errored copy of the thread in place and delivers to it', async () => {
+    const errored = {
+      id: 'retry-copy', status: 'error', historyThreadId: 'thread-1', providerSessionId: 'provider-session-1',
+    } as Instance;
+    const restartInstance = vi.fn(async () => { errored.status = 'idle'; return { success: true, method: 'native-resume' }; });
+    const restore = vi.fn();
+    const manager = { sendInput, getInstance: () => undefined, getAllInstances: () => [errored], restartInstance } as unknown as InstanceManager;
+    runner = new ThreadWakeupRunner(
+      manager,
+      new SessionRevivalService(manager, { historyRestore: { restore }, history: { getEntries: () => [] } }),
+      { attachInstance, terminalizeRun } as unknown as AutomationStore,
+      () => 3_000,
+    );
+    const destination: AutomationDestination = {
+      kind: 'thread', instanceId: 'closed-original', historyEntryId: 'history-entry-1', sessionId: 'provider-session-1', reviveIfArchived: true,
+    };
+    terminalizeRun.mockImplementation((id: string, status: string) => ({ ...makeRun({ id }), status }));
+
+    await expect(runner.fireThreadWakeup({ run: makeRun(), automation: makeAutomation(destination), destination }))
+      .resolves.toMatchObject({ status: 'succeeded' });
+
+    expect(restartInstance).toHaveBeenCalledExactlyOnceWith('retry-copy');
+    expect(restore).not.toHaveBeenCalled();
+    expect(sendInput).toHaveBeenCalledWith('retry-copy', 'Continue the work', expect.any(Array), { automatedInput: true });
   });
 });

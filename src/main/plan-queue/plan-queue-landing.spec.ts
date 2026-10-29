@@ -339,7 +339,8 @@ describe('landItemBranch', () => {
     it('recovers a worktree a crash left on the detached squash state', async () => {
       const item = makeItemWithWork({ 'one.txt': '1\n' });
       const wt = item.worktreePath ?? '';
-      git(['checkout', '-q', '--detach', 'main'], wt);
+      // As buildLandingCommit detaches: at the base tip's full hash, which the recovery's proof checks.
+      git(['checkout', '-q', '--detach', git(['rev-parse', 'main'])], wt);
       git(['merge', '--squash', '-q', item.branchName ?? ''], wt);
 
       const result = await landItemBranch(item, repo, 'main', 'feat: after crash');

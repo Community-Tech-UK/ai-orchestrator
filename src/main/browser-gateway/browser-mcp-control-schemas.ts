@@ -1,6 +1,7 @@
 /**
  * JSON-schema fragments for the input-control browser tools
- * (browser.press_key / browser.set_viewport / browser.set_zoom). Kept beside
+ * (browser.press_key / browser.set_viewport / browser.set_zoom /
+ * browser.handle_dialog). Kept beside
  * the shared schema props so the declarative MCP tool catalog stays under its
  * size ceiling. Plain data only — this file is bundled into the aio-mcp SEA
  * forwarder, so it must stay free of Electron and main-process imports.
@@ -144,3 +145,25 @@ export const setZoomToolSchema = objectSchema({
     description: 'Browser Gateway approval request id.',
   },
 }, ['profileId', 'targetId']);
+
+export const handleDialogToolSchema = objectSchema({
+  profileId: profileIdProp,
+  targetId: targetIdProp,
+  accept: {
+    ...booleanProp,
+    description:
+      'true presses Leave / OK (on "Leave site?" the unsaved changes are lost); '
+      + 'false presses Stay / Cancel.',
+  },
+  actionHint: {
+    ...stringProp,
+    description:
+      'What accepting does (e.g. "confirm deleting the post"). Shown to the approver and '
+      + 'classified like the button it presses; an accept whose hint gives no such '
+      + 'evidence needs the user\'s explicit approval.',
+  },
+  requestId: {
+    ...stringProp,
+    description: 'Browser Gateway approval request id.',
+  },
+}, ['profileId', 'targetId', 'accept']);

@@ -143,6 +143,11 @@ function writeOutcomeFromError(error: unknown): 'failed' | 'maybe_applied' {
   if (message.includes('timed_out_applied')) {
     return 'maybe_applied';
   }
+  // The action ran and the page opened a pop-up before it finished. (The
+  // "this tab is showing" refusal ran nothing and stays 'failed'.)
+  if (message.startsWith('browser_dialog_open: the page opened')) {
+    return 'maybe_applied';
+  }
   if (
     message.includes('not_delivered')
     || message.includes('receipt_missing')

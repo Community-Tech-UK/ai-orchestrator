@@ -232,10 +232,52 @@ describe('MCP evidence execution boundary', () => {
     expect(capture).not.toHaveBeenCalled();
   });
 
+  it('anchors a Harness-started turn after a restart replaced the instance that owned the user turns', async () => {
+    const { context, ledger, conversation, captures } = await setup();
+    await ledger.appendMessageReturningRecord(conversation.id, {
+      role: 'user', content: 'Request sent to the pre-restart instance', createdAt: 1,
+      rawJson: { metadata: { instanceId: 'pre-restart-instance' } },
+    });
+    const source = await ledger.appendMessageReturningRecord(conversation.id, {
+      role: 'system', content: 'Synthetic Plan Queue handover request', createdAt: 2,
+      rawJson: { metadata: { kind: 'system', instanceId: 'instance-1',
+        internalInput: { actor: 'harness', source: 'plan-queue' } } },
+    });
+    await ledger.appendMessagesReturningRecords(conversation.id, Array.from({ length: 220 }, (_, index) => ({
+      role: 'tool' as const, phase: 'tool_result', content: `Synthetic result ${index}`, createdAt: index + 3,
+      rawJson: { metadata: { instanceId: 'instance-1', kind: 'tool_result', toolName: 'orchestrator.tool_execute' } },
+    })));
+    const list = vi.fn(async () => ({ connectedCount: 0, totalCount: 0, nodes: [] }));
+    const tool = createOrchestratorToolDefinitions({ ...context, listRemoteNodes: list })
+      .find((entry) => entry.name === 'list_remote_nodes')!;
+    await expect(tool.handler({})).resolves.toMatchObject({ totalCount: 0 });
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(captures[0]?.['turnRef']).toBe(source.id);
+  });
+
+  it.each([
+    ['an ordinary system notice', { metadata: { kind: 'system', instanceId: 'instance-1' } }],
+    ['Harness input for another instance', { metadata: { instanceId: 'other-instance',
+      internalInput: { actor: 'harness', source: 'plan-queue' } } }],
+    ['Harness input without an explicit owner', { metadata: {
+      internalInput: { actor: 'harness', source: 'plan-queue' } } }],
+  ])('keeps %s from anchoring a turn', async (_name, rawJson) => {
+    const { context, ledger, conversation, capture } = await setup();
+    await ledger.appendMessageReturningRecord(conversation.id, {
+      role: 'system', content: 'Synthetic system record', createdAt: 1, rawJson,
+    });
+    const list = vi.fn(async () => ({ connectedCount: 0, totalCount: 0, nodes: [] }));
+    const tool = createOrchestratorToolDefinitions({ ...context, listRemoteNodes: list })
+      .find((entry) => entry.name === 'list_remote_nodes')!;
+    await expect(tool.handler({})).rejects.toThrow(/execution=not_started.*SOURCE_MESSAGE_MISSING/);
+    expect(list).not.toHaveBeenCalled();
+    expect(capture).not.toHaveBeenCalled();
+  });
+
   it('sanitizes durable user lookup failures before dispatch even with a recorded anchor', async () => {
     const { context, ledger, user, capture } = await setup();
     await user();
-    vi.spyOn(ledger, 'getLatestUserMessage').mockRejectedValueOnce(new Error('synthetic-private-ledger-detail'));
+    vi.spyOn(ledger, 'getLatestInputSource').mockRejectedValueOnce(new Error('synthetic-private-ledger-detail'));
     const list = vi.fn(async () => ({ connectedCount: 0, totalCount: 0, nodes: [] }));
     const tool = createOrchestratorToolDefinitions({ ...context, listRemoteNodes: list })
       .find((entry) => entry.name === 'list_remote_nodes')!;
@@ -304,11 +346,13 @@ describe('MCP evidence execution boundary', () => {
     { rawJson: { metadata: { instanceId: undefined } } },
     { threadId: 'other-conversation' },
     { role: 'tool' as const },
+    { role: 'system' as const },
+    { role: 'system' as const, rawJson: { metadata: { internalInput: { actor: 'harness', source: 'plan-queue' } } } },
     { id: '' },
   ])('rejects an invalid decoded durable source before dispatch: %j', async (override) => {
     const { context, ledger, user, capture } = await setup();
     const source = await user();
-    vi.spyOn(ledger, 'getLatestUserMessage').mockResolvedValueOnce({ ...source, ...override });
+    vi.spyOn(ledger, 'getLatestInputSource').mockResolvedValueOnce({ ...source, ...override });
     const list = vi.fn(async () => ({ connectedCount: 0, totalCount: 0, nodes: [] }));
     const tool = createOrchestratorToolDefinitions({ ...context, listRemoteNodes: list })
       .find((entry) => entry.name === 'list_remote_nodes')!;

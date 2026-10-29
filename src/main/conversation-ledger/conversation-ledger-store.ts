@@ -21,7 +21,7 @@ import type {
 } from '../../shared/types/conversation-ledger.types';
 import { ProviderEventCaptureStore } from './provider-event-capture-store';
 import { ContextEvidenceLedgerStore } from './context-evidence-ledger-store';
-import { getLatestUserMessage, messageRowToRecord, type MessageRow } from './conversation-message-source-query';
+import { getLatestInputSource, messageRowToRecord, type MessageRow } from './conversation-message-source-query';
 import type {
   ProviderEventCaptureInput,
   ProviderEventCaptureQuery,
@@ -439,8 +439,8 @@ export class ConversationLedgerStore {
     return rows.map(messageRowToRecord);
   }
 
-  getLatestUserMessage(threadId: string, instanceId: string | null): ConversationMessageRecord | null {
-    return getLatestUserMessage(this.db, threadId, instanceId);
+  getLatestInputSource(threadId: string, instanceId: string | null): ConversationMessageRecord | null {
+    return getLatestInputSource(this.db, threadId, instanceId);
   }
 
   getMessagesBefore(

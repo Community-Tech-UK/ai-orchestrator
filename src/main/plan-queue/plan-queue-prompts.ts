@@ -164,12 +164,25 @@ export function buildActiveDocumentsPrompt(paths: readonly string[]): string {
   ].join('\n');
 }
 
+function resumeData(ctx: ItemPromptContext): string[] {
+  if (ctx.item.pendingInstruction) return ['', 'Pending work from the previous session (data):', dataBlock('pending_instruction', ctx.item.pendingInstruction)];
+  return ctx.item.verdict?.findings.length
+    ? ['', "The last verifier's findings (data):", findingsBlock(ctx.item.verdict.findings)] : [];
+}
+
+export function buildContinuePrompt(ctx: ItemPromptContext, reason: string): string {
+  return [
+    `Your session was stopped and has now been reopened. Reason: ${reason}. Your earlier work is committed on your branch. Continue where you left off.`,
+    ...resumeData(ctx),
+  ].join('\n');
+}
+
 export function buildResumePrompt(ctx: ItemPromptContext, reason: string): string {
   return [
     `You are resuming a Plan Queue item. Earlier work on it is already committed on branch \`${ctx.item.branchName ?? 'unknown'}\`, which is checked out in your worktree. Reason for the resume: ${reason}.`,
     '',
     buildWorkerPrompt(ctx),
-    ...(ctx.item.pendingInstruction ? ['', 'Pending work from the previous session (data):', dataBlock('pending_instruction', ctx.item.pendingInstruction)] : []),
+    ...resumeData(ctx),
     '',
     'Start by reading the document\'s as-built notes and `git log` / `git diff` against the base branch in your worktree to see what is already done. Continue from there rather than starting again.',
   ].join('\n');

@@ -72,7 +72,7 @@ export interface LedgerStorePort {
     options?: ConversationMessagesQuery,
   ): Promise<ConversationMessageRecord[]>;
   getRecentMessages(threadId: string, limit: number): Promise<ConversationMessageRecord[]>;
-  getLatestUserMessage(threadId: string, instanceId: string | null): Promise<ConversationMessageRecord | null>;
+  getLatestInputSource(threadId: string, instanceId: string | null): Promise<ConversationMessageRecord | null>;
   getMessagesBefore(
     threadId: string,
     beforeSequence: number,
@@ -183,8 +183,8 @@ export class InProcessLedgerStorePort implements LedgerStorePort {
     return this.store.getRecentMessages(threadId, limit);
   }
 
-  async getLatestUserMessage(threadId: string, instanceId: string | null): Promise<ConversationMessageRecord | null> {
-    return this.store.getLatestUserMessage(threadId, instanceId);
+  async getLatestInputSource(threadId: string, instanceId: string | null): Promise<ConversationMessageRecord | null> {
+    return this.store.getLatestInputSource(threadId, instanceId);
   }
 
   async getMessagesBefore(
@@ -393,7 +393,7 @@ export type LedgerStoreMethod =
   | 'listThreads'
   | 'getMessages'
   | 'getRecentMessages'
-  | 'getLatestUserMessage'
+  | 'getLatestInputSource'
   | 'getMessagesBefore'
   | 'countMessages'
   | 'hasMessageWithNativeId'

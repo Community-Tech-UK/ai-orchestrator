@@ -501,6 +501,34 @@ describe('ProviderDoctor', () => {
     expect(recs[0]).toContain('Remove the stale copies');
   });
 
+  it('gives a stale copy under another nvm node version a real uninstall command', () => {
+    // The stale copy is never the active one, so the old "keep this one if it
+    // is the newest" hint told the user nothing they could act on.
+    const stale = '/Users/test/.nvm/versions/node/v24.22.0/bin/codex';
+    const report = {
+      installs: [
+        { path: '/Users/test/.nvm/versions/node/v24.22.1/bin/codex', version: '0.165.0', installed: true },
+        { path: stale, version: '0.164.0', installed: true },
+      ],
+      activePath: '/Users/test/.nvm/versions/node/v24.22.1/bin/codex',
+      activeVersion: '0.165.0',
+    };
+    const [rec] = ProviderDoctor.getInstance().generateRecommendations('codex-cli', [
+      {
+        name: 'cli_shadow_check',
+        status: 'fail',
+        message: 'Multiple codex installs with different versions',
+        latencyMs: 0,
+        metadata: { report: report as unknown as Record<string, unknown> },
+      },
+    ]);
+
+    expect(rec).toContain(
+      `${stale} (v0.164.0) — uninstall: /Users/test/.nvm/versions/node/v24.22.0/bin/npm uninstall -g <package>`,
+    );
+    expect(rec).not.toContain('keep this one');
+  });
+
   it('recommends the direct Copilot CLI install path', () => {
     const doctor = ProviderDoctor.getInstance();
     const recs = doctor.generateRecommendations('copilot', [

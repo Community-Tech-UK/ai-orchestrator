@@ -10,6 +10,7 @@ import {
   targetIdProp,
 } from './browser-mcp-schema-props';
 import {
+  handleDialogToolSchema,
   pressKeyToolSchema,
   setViewportToolSchema,
   setZoomToolSchema,
@@ -36,6 +37,7 @@ const TOOL_NAMES = [
   'browser.press_key',
   'browser.set_viewport',
   'browser.set_zoom',
+  'browser.handle_dialog',
   'browser.execute_fill_plan',
   'browser.fill_credential',
   'browser.fill_http_auth',
@@ -346,6 +348,7 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
   'browser.press_key': pressKeyToolSchema,
   'browser.set_viewport': setViewportToolSchema,
   'browser.set_zoom': setZoomToolSchema,
+  'browser.handle_dialog': handleDialogToolSchema,
   'browser.execute_fill_plan': objectSchema({
     profileId: profileIdProp,
     targetId: targetIdProp,
@@ -858,6 +861,9 @@ function toolDescription(name: BrowserMcpToolName): string {
   }
   if (name === 'browser.set_zoom') {
     return `${UNTRUSTED_WARNING} Set, read or reset real Chrome browser zoom (1 = 100%, 2 = 200%) on a shared Chrome tab. CSS zoom, transforms and device-scale emulation are not substitutes. Tab-scoped; the original zoom factor and settings are preserved and restored by reset (restoration failures are reported explicitly). Fails clearly on managed browser profiles.`;
+  }
+  if (name === 'browser.handle_dialog') {
+    return `${UNTRUSTED_WARNING} Answer a Chrome page pop-up (alert, confirm, "Leave site?") on a shared Chrome tab after a command failed with browser_dialog_open. accept true = Leave / OK, false = Stay / Cancel. Only a pop-up that opened while a Browser Gateway command was running on the tab can be answered; for any other, ask the user to answer it on that computer.`;
   }
   return `${UNTRUSTED_WARNING} Calls the managed Browser Gateway tool ${name}.`;
 }

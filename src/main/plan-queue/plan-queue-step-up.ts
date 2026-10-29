@@ -45,7 +45,7 @@ export async function stepUpItem(deps: PlanQueueStepUpDeps, item: PlanQueueItem,
   // The task is also the pending instruction, so a Pause before the new session starts keeps it.
   const prompt = buildStepUpPrompt(deps.promptContext(run, { ...item, pendingInstruction: null }), failedRounds, verdict.findings);
   const saved = host.transition(item, 'fixing', {
-    steppedUpAt: Date.now(), round: 0, erroredRounds: 0, verdict, workerInstanceId: null,
+    steppedUpAt: Date.now(), workerSession: undefined, round: 0, erroredRounds: 0, verdict, workerInstanceId: null,
     pendingInstruction: buildStepUpInstruction(failedRounds, verdict.findings),
     detail: `Handed to a stronger worker (${choice}) after ${failedRounds} failed check(s).`,
   });

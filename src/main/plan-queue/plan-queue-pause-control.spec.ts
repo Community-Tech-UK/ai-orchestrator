@@ -28,7 +28,7 @@ class Instances extends EventEmitter {
   async createInstance(config: InstanceCreateConfig) {
     this.created.push(config);
     const id = `new-${this.created.length}`;
-    this.live.set(id, { id, status: 'busy', outputBuffer: [], provider: config.provider, metadata: config.metadata });
+    this.live.set(id, { id, status: 'busy', outputBuffer: [], provider: config.provider, metadata: config.metadata, workingDirectory: config.workingDirectory, currentModel: config.modelOverride, providerSessionId: config.sessionId ?? `conversation-${id}` });
     return { id };
   }
 }
@@ -77,7 +77,7 @@ beforeEach(() => {
       onChanged: (listener) => { notifyAccountRules = listener; return () => undefined; },
       persistPreferences: (id, preferences) => { persisted.push({ id, preferences }); },
     },
-    routing: { readSaved: () => ({ workers: [], verifiers: [] }), readAccountRules: () => currentAccountRules, copilotProfileFor: () => null, poolProfiles: () => [], copilotProfiles: () => [],
+    routing: { readSaved: () => ({ workers: [], verifiers: [] }), routeUsage: async () => ({ usable: true, resumeAt: null }), readAccountRules: () => currentAccountRules, copilotProfileFor: () => null, poolProfiles: () => [], copilotProfiles: () => [],
       defaultProvider: () => null, checkerScopeKind: () => 'none', isProviderExcluded: () => false, listInstalledProviders: async () => ['claude', 'codex', 'cursor'] },
   });
   coordinator.registerRole('worker', { role: 'worker', runId: run.id, itemId: item.id });
@@ -637,4 +637,177 @@ it.each(['worker', 'verifier'] as const)('keeps normal Close all semantics for a
     parkReason: role === 'worker' ? 'cancelled' : null, erroredRounds: 0,
   });
   if (role === 'verifier') expect(readFileSync(join(item.worktreePath!, 'feature.txt'), 'utf8')).toBe('base\n');
+});
+
+describe('worker conversation continuity through queue controls', () => {
+  function seedConversation() {
+    Object.assign(instances.live.get('worker')!, { providerSessionId: 'original-conversation', workingDirectory: item.worktreePath });
+  }
+  it('records before Pause and reopens on Resume with a short prompt', async () => {
+    seedConversation();
+    await coordinator.control({ action: 'pause', runId: run.id });
+    expect(store.getItem(item.id)?.workerSession).toMatchObject({ providerSessionId: 'original-conversation', provider: 'claude', model: null, accountProfileId: null });
+    await coordinator.control({ action: 'resume', runId: run.id });
+    await coordinator._whenSettledForTesting();
+    expect(instances.created[0]).toMatchObject({ sessionId: 'original-conversation', resume: true });
+    expect(instances.created[0].initialPrompt).toContain('Your session was stopped and has now been reopened');
+    expect(instances.created[0].initialPrompt).not.toContain('You are a Plan Queue worker');
+  });
+
+  it('starts fresh after a provider routing change', async () => {
+    seedConversation();
+    await coordinator.control({ action: 'pause', runId: run.id });
+    const current = store.getRun(run.id)!;
+    store.upsertRun({ ...current, config: { ...current.config, routing: { workers: [{ provider: 'cursor' }], verifiers: [{ provider: 'codex' }] } } });
+    await coordinator.control({ action: 'resume', runId: run.id });
+    await coordinator._whenSettledForTesting();
+    expect(instances.created[0].resume).toBeUndefined();
+    expect(instances.created[0].initialPrompt).toContain('You are a Plan Queue worker');
+  });
+
+  it('replaces a conversation that fails readiness once without parking or losing pending work', async () => {
+    seedConversation();
+    store.upsertItem({ ...store.getItem(item.id)!, pendingInstruction: 'unique pending fix' });
+    await coordinator.control({ action: 'pause', runId: run.id });
+    const create = instances.createInstance.bind(instances);
+    vi.spyOn(instances, 'createInstance').mockImplementation(async config => {
+      const created = await create(config);
+      return config.resume ? { ...created, readyPromise: new Promise<void>((_resolve, reject) => {
+        setImmediate(() => {
+          instances.live.get(created.id)!.status = 'failed';
+          instances.emit('instance:event', { instanceId: created.id, event: { kind: 'status_changed', status: 'failed' } });
+          reject(new Error('session expired'));
+        });
+      }) } : created;
+    });
+    await coordinator.control({ action: 'resume', runId: run.id });
+    await coordinator._whenSettledForTesting();
+    expect(instances.created).toHaveLength(2);
+    expect(instances.created[0].resume).toBe(true);
+    expect(instances.created[1].resume).toBeUndefined();
+    expect(instances.created[1].initialPrompt).toContain('You are a Plan Queue worker');
+    expect(instances.created[1].initialPrompt?.match(/unique pending fix/g)).toHaveLength(1);
+    expect(store.getItem(item.id)).toMatchObject({ state: 'working', parkReason: null, erroredRounds: 0 });
+  });
+
+  it('continues a recorded conversation during restart recovery', async () => {
+    seedConversation();
+    await coordinator.control({ action: 'pause', runId: run.id });
+    store.upsertRun({ ...store.getRun(run.id)!, status: 'running' });
+    store.upsertItem({ ...store.getItem(item.id)!, state: 'working', heldAt: null });
+    coordinator.shutdown();
+    PlanQueueCoordinator._resetForTesting();
+    // Recreate the coordinator, then run the application boot recovery.
+    coordinator = PlanQueueCoordinator.getInstance();
+    coordinator.initialize({ store, instances, skipInstall: true, pumpIntervalMs: null, loadAverage: () => [0, 0, 0],
+      worktreeCreator: { createWorktree: vi.fn(), cleanupWorktree: vi.fn(), getAllSessions: () => [] },
+      selectVerifier: async () => ({ ok: true, choice: { provider: 'codex' } }),
+      routing: { readSaved: () => ({ workers: [], verifiers: [] }), routeUsage: async () => ({ usable: true, resumeAt: null }), readAccountRules: () => ({ never: [], last: [] }), copilotProfileFor: () => null, poolProfiles: () => [], copilotProfiles: () => [], defaultProvider: () => null, checkerScopeKind: () => 'none', isProviderExcluded: () => false, listInstalledProviders: async () => ['claude', 'codex'] },
+    });
+    await coordinator.recover();
+    await coordinator._whenSettledForTesting();
+    expect(instances.created[0]).toMatchObject({ sessionId: 'original-conversation', resume: true });
+  });
+});
+
+describe('reopened worker startup outcome races', () => {
+  async function pausedConversation() {
+    Object.assign(instances.live.get('worker')!, { providerSessionId: 'original-conversation', workingDirectory: item.worktreePath });
+    await coordinator.control({ action: 'pause', runId: run.id });
+  }
+  it('does not lose a provider failure when readiness subsequently succeeds', async () => {
+    await pausedConversation();
+    const create = instances.createInstance.bind(instances);
+    vi.spyOn(instances, 'createInstance').mockImplementation(async config => {
+      const created = await create(config);
+      return { ...created, readyPromise: new Promise<void>(resolve => setImmediate(() => {
+        instances.emit('provider:normalized-event', { instanceId: created.id, event: { kind: 'error', recoverable: false, message: 'initial prompt delivery failed' } });
+        resolve();
+      })) };
+    });
+    await coordinator.control({ action: 'resume', runId: run.id });
+    await vi.waitFor(() => expect(store.getItem(item.id)).toMatchObject({ state: 'parked', parkReason: 'worker-error' }));
+    expect(instances.created).toHaveLength(1);
+  });
+  it('honours Close one while reopened readiness is unresolved', async () => {
+    await pausedConversation();
+    const create = instances.createInstance.bind(instances);
+    let rejectReady!: (error: Error) => void;
+    vi.spyOn(instances, 'createInstance').mockImplementation(async config => {
+      const created = await create(config);
+      return { ...created, readyPromise: new Promise<void>((_resolve, reject) => { rejectReady = reject; }) };
+    });
+    await coordinator.control({ action: 'resume', runId: run.id });
+    await coordinator._whenSettledForTesting();
+    const id = store.getItem(item.id)!.workerInstanceId!;
+    coordinator.noteUserClosing([id], 'one');
+    instances.live.delete(id);
+    instances.emit('instance:removed', id);
+    rejectReady(new Error('closed by user'));
+    await coordinator._whenSettledForTesting();
+    expect(store.getItem(item.id)).toMatchObject({ state: 'parked', parkReason: 'cancelled' });
+    expect(instances.created).toHaveLength(1);
+  });
+});
+
+it('includes a failed send instruction exactly once in the replacement prompt', async () => {
+  store.upsertItem({ ...store.getItem(item.id)!, question: { question: 'Continue?', options: [{ id: 'continue', label: 'Continue' }] } });
+  instances.sendInput.mockRejectedValueOnce(new Error('session gone'));
+  await coordinator.answer(item.id, 'continue');
+  await coordinator._whenSettledForTesting();
+  expect(instances.created).toHaveLength(1);
+  expect(instances.created[0].initialPrompt?.match(/James says: carry on using your best judgement\./g)).toHaveLength(1);
+});
+
+it('records conversation identity on readiness and again on a worker outcome', async () => {
+  await coordinator.control({ action: 'pause', runId: run.id });
+  expect(store.getItem(item.id)?.workerSession).toBeUndefined();
+  await coordinator.control({ action: 'resume', runId: run.id });
+  await coordinator._whenSettledForTesting();
+  const id = store.getItem(item.id)!.workerInstanceId!;
+  expect(store.getItem(item.id)?.workerSession).toMatchObject({ providerSessionId: `conversation-${id}`, workingDirectory: item.worktreePath });
+  instances.live.get(id)!.providerSessionId = 'conversation-at-turn-end';
+  instances.emit('provider:normalized-event', { instanceId: id, event: { kind: 'output', messageType: 'assistant', content: 'work finished' } });
+  instances.emit('provider:normalized-event', { instanceId: id, event: { kind: 'complete' } });
+  await coordinator._whenSettledForTesting();
+  expect(store.getItem(item.id)?.workerSession?.providerSessionId).toBe('conversation-at-turn-end');
+});
+
+it('parks a failed reopen when its worker cannot be stopped and Resume retries cleanup before spawning', async () => {
+  Object.assign(instances.live.get('worker')!, { providerSessionId: 'original-conversation', workingDirectory: item.worktreePath });
+  store.upsertItem({ ...store.getItem(item.id)!, pendingInstruction: 'Keep this pending repair' });
+  await coordinator.control({ action: 'pause', runId: run.id });
+  const create = instances.createInstance.bind(instances);
+  let reopenedId: string | undefined;
+  vi.spyOn(instances, 'createInstance').mockImplementation(async config => {
+    const created = await create(config);
+    if (!config.resume) return created;
+    reopenedId = created.id;
+    // Resume may checkpoint the held checkout before this writer starts.
+    checkpoint.mockClear();
+    return { ...created, readyPromise: Promise.reject(new Error('conversation expired')) };
+  });
+  instances.terminateInstance.mockImplementation(async id => {
+    if (id === reopenedId) throw new Error('termination unavailable');
+    instances.live.delete(id);
+  });
+  const checkpoint = vi.spyOn(coordinator.worktrees, 'checkpoint');
+  await coordinator.control({ action: 'resume', runId: run.id });
+  await coordinator._whenSettledForTesting();
+  expect(store.getItem(item.id)).toMatchObject({ state: 'parked', parkReason: 'worker-error',
+    workerInstanceId: reopenedId, pendingInstruction: 'Keep this pending repair' });
+  expect(store.getItem(item.id)?.detail).toContain('termination unavailable');
+  expect(instances.live.has(reopenedId!)).toBe(true);
+  expect(instances.created).toHaveLength(1);
+  expect(checkpoint).not.toHaveBeenCalled();
+  await expect(coordinator.control({ action: 'resume-item', itemId: item.id })).rejects.toThrow('termination unavailable');
+  expect(store.getItem(item.id)?.state).toBe('parked');
+  expect(instances.created).toHaveLength(1);
+  instances.terminateInstance.mockImplementation(async id => { instances.live.delete(id); });
+  vi.spyOn(instances, 'createInstance').mockRestore();
+  await coordinator.control({ action: 'resume-item', itemId: item.id });
+  await coordinator._whenSettledForTesting();
+  expect(instances.live.has(reopenedId!)).toBe(false);
+  expect(instances.created).toHaveLength(2);
+  expect(store.getItem(item.id)?.state).toBe('working');
 });

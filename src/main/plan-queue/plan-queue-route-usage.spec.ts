@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AccountBindingStatus, ProviderAccountProfile } from '../../shared/types/provider-account.types';
 import { defaultProviderAccountPools } from '../../shared/types/provider-account.types';
+import type { ProviderQuotaSnapshot, ProviderQuotaWindow } from '../../shared/types/provider-quota.types';
 import type { ProviderLimitEvent } from '../core/system/provider-limit-ledger';
 
 vi.mock('../providers/account-pool/provider-account-events', () => ({ emitProviderAccountEvent: vi.fn() }));
@@ -10,6 +11,8 @@ import { ProviderAccountBindingService } from '../providers/account-pool/provide
 import { ProviderAccountRoutingService } from '../providers/account-pool/provider-account-routing-service';
 import type { AccountQuotaEvidence } from '../providers/account-pool/provider-account-selector';
 import { ProviderAccountStore } from '../providers/account-pool/provider-account-store';
+import { parseCursorUsageSummaryPayload } from '../core/system/provider-quota/cursor-usage-summary-probe';
+import { parseGrokBillingPayload } from '../core/system/provider-quota/grok-billing-probe';
 import { pickRouteChoice, planQueueRouteUsage, type PlanQueueRouteUsageDeps } from './plan-queue-route-usage';
 
 function profile(id: string, provider: ProviderAccountProfile['provider'], priority: number, overrides: Partial<ProviderAccountProfile> = {}): ProviderAccountProfile {
@@ -19,6 +22,14 @@ function profile(id: string, provider: ProviderAccountProfile['provider'], prior
   };
 }
 
+function window(id: string, used: number, resetsAt: number | null, overage = false): ProviderQuotaWindow {
+  return { kind: 'calendar-period', id, label: id, unit: 'percent', used, limit: 100, remaining: 100 - used, resetsAt, overage };
+}
+
+function snapshot(provider: ProviderQuotaSnapshot['provider'], windows: ProviderQuotaWindow[]): ProviderQuotaSnapshot {
+  return { provider, takenAt: 10, source: 'admin-api', ok: true, windows };
+}
+
 let profiles: ProviderAccountProfile[];
 let parked: string[];
 let quota: Record<string, AccountQuotaEvidence>;
@@ -26,6 +37,7 @@ let limits: (Omit<ProviderLimitEvent, 'id' | 'detectedAt' | 'source' | 'instance
 /** The model the spawn's own resolver would start a session on, per provider (absent = the choice's own model). */
 let spawnModels: Record<string, string>;
 let accountQuota: Record<string, AccountQuotaEvidence>;
+let providerQuota: Record<string, ProviderQuotaSnapshot>;
 const getActive = vi.fn((query: { provider: string; model: string | null; accountProfileId?: string | null; includeAccountWideFallback?: boolean }) => {
   const profileId = query.accountProfileId ?? null;
   const found = limits.find((limit) => limit.provider === query.provider
@@ -54,6 +66,7 @@ function deps(): PlanQueueRouteUsageDeps {
     ledger: { getActive, getParkedSince } as unknown as PlanQueueRouteUsageDeps['ledger'],
     spawnModel: async (choice) => choice.model ?? spawnModels[choice.provider] ?? null,
     quotaEvidence: (provider, accountProfileId) => accountQuota[`${provider}:${accountProfileId ?? 'legacy'}`] ?? null,
+    providerQuota: (provider) => providerQuota[provider] ?? null,
     now: () => 100,
   };
 }
@@ -65,6 +78,7 @@ beforeEach(() => {
   limits = [];
   spawnModels = {};
   accountQuota = {};
+  providerQuota = {};
   getActive.mockClear();
 });
 
@@ -152,6 +166,50 @@ describe('planQueueRouteUsage — providers without an account pool', () => {
     expect(await planQueueRouteUsage({ provider: 'copilot', model: 'gpt-6-astra' }, 'automation', { allowLast: true }, deps())).toEqual({ usable: false, resumeAt: 900 });
     // Any other Copilot limit is lifted by newer evidence like other providers'.
     expect(await planQueueRouteUsage({ provider: 'copilot', model: 'gpt-6-astra' }, 'automation', { allowLast: true }, deps())).toEqual({ usable: true, resumeAt: null });
+  });
+
+  it('has no usage when the provider\'s figures show its whole plan spent, until that plan resets', async () => {
+    // James's real case: Cursor at 100% of included usage, on-demand spend also used up.
+    providerQuota = { cursor: snapshot('cursor', [window('cursor.included', 100, 5000), window('cursor.on-demand', 100, 5000, true)]) };
+    expect(await planQueueRouteUsage({ provider: 'cursor', model: 'grok-4.7-high' }, 'automation', { allowLast: true }, deps())).toEqual({ usable: false, resumeAt: 5000 });
+    providerQuota = { cursor: snapshot('cursor', [window('cursor.included', 90, 5000)]) };
+    expect(await planQueueRouteUsage({ provider: 'cursor', model: 'grok-4.7-high' }, 'automation', { allowLast: true }, deps())).toEqual({ usable: true, resumeAt: null });
+    providerQuota = { grok: snapshot('grok', [window('grok.monthly', 100, 7000)]) };
+    expect(await planQueueRouteUsage({ provider: 'grok', model: 'grok-4.7' }, 'automation', { allowLast: true }, deps())).toEqual({ usable: false, resumeAt: 7000 });
+  });
+
+  it('reads the windows the Cursor and Grok usage probes actually produce', async () => {
+    // The shape Cursor's usage page returned on 2026-10-28, when the queue started a worker anyway.
+    const cursorEnd = '2026-11-03T15:09:40.000Z';
+    providerQuota = { cursor: snapshot('cursor', parseCursorUsageSummaryPayload({
+      billingCycleEnd: cursorEnd,
+      individualUsage: { plan: { enabled: true, used: 7000, limit: 7000, totalPercentUsed: 100 }, onDemand: { enabled: true, used: 10028, limit: 10000 } },
+    })) };
+    expect(await planQueueRouteUsage({ provider: 'cursor', model: 'grok-4.7-high' }, 'automation', { allowLast: true }, deps())).toEqual({ usable: false, resumeAt: Date.parse(cursorEnd) });
+    const grokEnd = '2026-11-01T00:00:00.000Z';
+    providerQuota = { grok: snapshot('grok', parseGrokBillingPayload({ config: { used: { val: 50 }, monthlyLimit: { val: 50 }, billingPeriodEnd: grokEnd } })) };
+    expect(await planQueueRouteUsage({ provider: 'grok', model: 'grok-4.7' }, 'automation', { allowLast: true }, deps())).toEqual({ usable: false, resumeAt: Date.parse(grokEnd) });
+  });
+
+  it('never counts paid on-demand spend as usage left once the plan is spent', async () => {
+    providerQuota = { cursor: snapshot('cursor', [window('cursor.included', 100, 5000), window('cursor.on-demand', 20, 5000, true)]) };
+    expect(await planQueueRouteUsage({ provider: 'cursor' }, 'automation', { allowLast: true }, deps())).toEqual({ usable: false, resumeAt: 5000 });
+  });
+
+  it('ignores model-specific windows, failed readings and readings from before a reset that has passed', async () => {
+    providerQuota = { copilot: snapshot('copilot', [window('copilot.premium-interactions', 100, 5000)]) };
+    expect(await planQueueRouteUsage({ provider: 'copilot', model: 'gpt-6-astra' }, 'automation', { allowLast: true }, deps())).toEqual({ usable: true, resumeAt: null });
+    providerQuota = { cursor: { ...snapshot('cursor', [window('cursor.included', 100, 5000)]), ok: false } };
+    expect(await planQueueRouteUsage({ provider: 'cursor' }, 'automation', { allowLast: true }, deps())).toEqual({ usable: true, resumeAt: null });
+    // Read at 10, reset at 50, now 100: the plan has reset since.
+    providerQuota = { cursor: snapshot('cursor', [window('cursor.included', 100, 50)]) };
+    expect(await planQueueRouteUsage({ provider: 'cursor' }, 'automation', { allowLast: true }, deps())).toEqual({ usable: true, resumeAt: null });
+  });
+
+  it('keeps the ledger\'s reset time when a recorded limit is also active', async () => {
+    limits = [{ provider: 'cursor', model: null, accountProfileId: null, resumeAt: 400 }];
+    providerQuota = { cursor: snapshot('cursor', [window('cursor.included', 100, 5000)]) };
+    expect(await planQueueRouteUsage({ provider: 'cursor' }, 'automation', { allowLast: true }, deps())).toEqual({ usable: false, resumeAt: 400 });
   });
 
   it('honours a lifted limit for a provider with only its pre-pools sign-in too', async () => {

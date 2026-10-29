@@ -54,6 +54,8 @@
       } @else {
         <span class="pq-account-rules-status pq-account-rules-status-error" role="alert">{{ line.text }}</span>
       }
+    } @else if (dirty()) {
+      <span class="pq-account-rules-status" role="status">Not saved yet. New sessions follow the saved rules until you press Save.</span>
     }
   </div>
 </div>
