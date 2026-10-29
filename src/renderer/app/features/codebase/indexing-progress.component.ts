@@ -15,11 +15,13 @@ import {
   computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import type { IndexingProgress, IndexingStatus } from '../../../../shared/types/codebase.types';
 
 @Component({
   selector: 'app-indexing-progress',
   standalone: true,
+  imports: [AioTooltipDirective],
   template: `
     <div class="progress-container" [class.active]="isActive()">
       <!-- Status Header -->
@@ -33,7 +35,7 @@ import type { IndexingProgress, IndexingStatus } from '../../../../shared/types/
           }
         </div>
         @if (isActive()) {
-          <button class="cancel-btn" (click)="cancelIndexing.emit()" title="Cancel indexing">
+          <button class="cancel-btn" (click)="cancelIndexing.emit()" appTooltip="Cancel indexing">
             Cancel
           </button>
         }
@@ -58,7 +60,7 @@ import type { IndexingProgress, IndexingStatus } from '../../../../shared/types/
 
       <!-- Current File -->
       @if (progress()?.currentFile && isActive()) {
-        <div class="current-file" title="{{ progress()!.currentFile }}">
+        <div class="current-file" tabindex="0" [appTooltip]="progress()!.currentFile">
           <span class="file-path">{{ truncatePath(progress()!.currentFile!) }}</span>
         </div>
       }

@@ -1,3 +1,5 @@
+import { By } from '@angular/platform-browser';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
@@ -68,6 +70,22 @@ describe('LocalAiStatusChipComponent', () => {
     );
   });
 
+  it('preserves the complete helper pause explanation and name on the real directive', () => {
+    store.helperPauses.set([{ slot: 'compression', pausedUntil: Date.now() + 60_000, failures: 2,
+      startedAt: Date.now(), reason: 'Paused until retry after 2 failures' }]);
+    const fixture = TestBed.createComponent(LocalAiStatusChipComponent); fixture.detectChanges();
+    const button = fixture.debugElement.query(By.css('button'));
+    const tip = button.injector.get(AioTooltipDirective).appTooltip();
+    expect(button.nativeElement.hasAttribute('title')).toBe(false);
+    expect(tip).toBe(button.nativeElement.getAttribute('aria-label'));
+    expect(tip).toContain('compression: Paused until retry after 2 failures. Open Local AI health centre.');
+    const element = button.nativeElement as HTMLElement;
+    const matches = element.matches.bind(element);
+    vi.spyOn(element, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
+    element.dispatchEvent(new FocusEvent('focus')); fixture.detectChanges();
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain(tip);
+  });
+
   it('hides the chip while every target is healthy', () => {
     currentAggregate.set(aggregate('healthy', 2));
     const fixture = TestBed.createComponent(LocalAiStatusChipComponent);
@@ -93,7 +111,7 @@ describe('LocalAiStatusChipComponent', () => {
     const fixture = TestBed.createComponent(LocalAiStatusChipComponent); fixture.detectChanges();
     const button = fixture.nativeElement.querySelector('button') as HTMLButtonElement;
     expect(button.textContent).toContain('Local AI: helpers paused until');
-    expect(button.title).toContain('compression: Paused until retry after 2 failures');
+    expect(fixture.debugElement.query(By.css('button')).injector.get(AioTooltipDirective).appTooltip()).toContain('compression: Paused until retry after 2 failures');
   });
 
   it('is hidden until initialization completes', () => {

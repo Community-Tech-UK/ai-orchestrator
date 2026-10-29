@@ -17,7 +17,7 @@ import type { TaskPreflightReport } from '../../../../shared/types/task-prefligh
     <section class="preflight-card">
       <div class="card-header">
         <div>
-          <h3>{{ title() }}</h3>
+          <h3>{{ heading() }}</h3>
           <p>{{ subtitle() }}</p>
         </div>
         @if (loading()) {
@@ -286,7 +286,7 @@ import type { TaskPreflightReport } from '../../../../shared/types/task-prefligh
 })
 export class TaskPreflightCardComponent {
   readonly report = input<TaskPreflightReport | null>(null);
-  readonly title = input('Task Preflight');
+  readonly heading = input('Task Preflight');
   readonly subtitle = input('Instructions, permissions, and tool readiness for this task.');
   readonly emptyMessage = input('Select a working directory to inspect task readiness.');
   readonly loading = input(false);

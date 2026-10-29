@@ -789,7 +789,8 @@
     "id": "2c5b39900a747604",
     "owner": "src/renderer/app/features/settings/advanced-settings-tab.component.ts",
     "text": "Reset all settings",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Reset all settings is now the permanent visible DangerZone heading supplied through heading; its accidental whole-card hover was removed by the shared heading-input rename."
   },
   {
     "id": "05ab740b2f15732f",
@@ -1216,6 +1217,258 @@
     "id": "625b48071601dcef",
     "owner": "src/renderer/app/shared/components/provider-account-chip.component.ts",
     "text": "The account this conversation will continue on. Pick another to continue there.",
+    "why": "long"
+  },
+  {
+    "id": "8746fd8586a3103a",
+    "owner": "src/renderer/app/features/side-chat/side-chat-panel.component.ts",
+    "text": "Choose an available provider and model first",
+    "why": "long"
+  },
+  {
+    "id": "63821aad30916c6e",
+    "owner": "src/renderer/app/features/source-control/source-control.component.ts",
+    "text": "Ctrl/Shift-click to multi-select · drag to attach",
+    "why": "long"
+  },
+  {
+    "id": "7d523338b3509e59",
+    "owner": "src/renderer/app/features/source-control/source-control.component.ts",
+    "text": "click to open diff · Ctrl/Shift-click to multi-select · drag to attach",
+    "why": "long"
+  },
+  {
+    "id": "82d448c94af051a1",
+    "owner": "src/renderer/app/features/verification/dashboard/verification-dashboard.component.ts",
+    "text": "Clear working directory",
+    "why": "consequence"
+  },
+  {
+    "id": "05f96185ab724d31",
+    "owner": "src/renderer/app/features/rlm/context-browser/context-query-panel.component.ts",
+    "text": "Close template dialog",
+    "why": "consequence"
+  },
+  {
+    "id": "6defb0203fbf1422",
+    "owner": "src/renderer/app/features/rlm/context-browser/context-query-panel.component.ts",
+    "text": "Remove section from query",
+    "why": "consequence"
+  },
+  {
+    "id": "3575aa86cad15d10",
+    "owner": "src/renderer/app/features/rlm/context-browser/context-query-results.component.ts",
+    "text": "Close result details",
+    "why": "consequence"
+  },
+  {
+    "id": "5e7fb00f321e94de",
+    "owner": "src/renderer/app/features/rlm/context-browser/context-section-detail.component.ts",
+    "text": "Close section details",
+    "why": "consequence"
+  },
+  {
+    "id": "55f5f3e9d9b74395",
+    "owner": "src/renderer/app/features/archive/archive-page.component.ts",
+    "text": "Close archive details",
+    "why": "consequence"
+  },
+  {
+    "id": "967772e6d61b9219",
+    "owner": "src/renderer/app/features/compare/ask-council-page.component.ts",
+    "text": "Two providers need to answer before the council can be synthesized.",
+    "why": "long"
+  },
+  {
+    "id": "a5011c4a060069d6",
+    "owner": "src/renderer/app/features/instance-detail/compaction-preview-dialog.component.ts",
+    "text": "Compaction can't run because of the error above. Cancel and reopen the preview to try again.",
+    "why": "consequence"
+  },
+  {
+    "id": "31f9b6bfba2f019d",
+    "owner": "src/renderer/app/features/instance-detail/output-stream.component.ts",
+    "text": "Preserved context is already queued for the next turn",
+    "why": "long"
+  },
+  {
+    "id": "c100542e49de79d1",
+    "owner": "src/renderer/app/features/settings/review-settings-tab.component.ts",
+    "text": " is already first, so it cannot move up.",
+    "why": "consequence"
+  },
+  {
+    "id": "e9b70c76f2302369",
+    "owner": "src/renderer/app/features/settings/review-settings-tab.component.ts",
+    "text": " is already last, so it cannot move down.",
+    "why": "consequence"
+  },
+  {
+    "id": "a411772d2b915456",
+    "owner": "src/renderer/app/features/skills/skill-browser.component.ts",
+    "text": "Close skill details",
+    "why": "consequence"
+  },
+  {
+    "id": "612f5adde9fe8ece",
+    "owner": "src/renderer/app/features/training/grpo-dashboard.component.ts",
+    "text": "Close insight detail",
+    "why": "consequence"
+  },
+  {
+    "id": "9d3a59bec33d2f3f",
+    "owner": "src/renderer/app/features/training/grpo-dashboard.component.ts",
+    "text": "Close outcome detail",
+    "why": "consequence"
+  },
+  {
+    "id": "9b7a8529531f161e",
+    "owner": "src/renderer/app/features/worktree/worktree-panel.component.ts",
+    "text": "No worktree has finished yet. Mark one complete to merge it.",
+    "why": "long"
+  },
+  {
+    "id": "03eb0fec6dfddb47",
+    "owner": "src/renderer/app/features/campaign/campaign-page.component.ts",
+    "text": "A campaign needs at least one node.",
+    "why": "long"
+  },
+  {
+    "id": "738b9948734880dd",
+    "owner": "src/renderer/app/features/campaign/campaign-page.component.ts",
+    "text": "Validate the graph and fix its errors before running.",
+    "why": "long"
+  },
+  {
+    "id": "348562d4a1f8418b",
+    "owner": "src/renderer/app/features/hooks/hooks-config.component.ts",
+    "text": "Close without saving",
+    "why": "consequence"
+  },
+  {
+    "id": "2d37db093dc82917",
+    "owner": "src/renderer/app/features/mcp/mcp-page.component.ts",
+    "text": "Close add server dialog",
+    "why": "consequence"
+  },
+  {
+    "id": "cf7f4153de685edf",
+    "owner": "src/renderer/app/features/terminal-drawer/terminal-drawer.component.ts",
+    "text": "Close terminal drawer",
+    "why": "consequence"
+  },
+  {
+    "id": "4a9a47171c835435",
+    "owner": "src/renderer/app/features/verification/config/api-key-manager.component.ts",
+    "text": "Choose a provider and enter a key to save it",
+    "why": "long"
+  },
+  {
+    "id": "d76842cca138b4bd",
+    "owner": "src/renderer/app/features/verification/config/api-key-manager.component.ts",
+    "text": "Enter an API key to test it",
+    "why": "long"
+  },
+  {
+    "id": "063f4d4271b35e38",
+    "owner": "src/renderer/app/features/verification/config/verification-preferences.component.ts",
+    "text": "Remove personality for Agent ",
+    "why": "consequence"
+  },
+  {
+    "id": "ef260d018c4fefee",
+    "owner": "src/renderer/app/features/dashboard/workspace-rail.component.ts",
+    "text": "Sidechats. Right-click for sidechat activity. Shift+F10 also opens sidechat activity.",
+    "why": "long"
+  },
+  {
+    "id": "26efd08196e9a293",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Resolve the warning above before sending",
+    "why": "consequence"
+  },
+  {
+    "id": "2713d881a22b6afb",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Choose a GitHub Copilot account before sending",
+    "why": "consequence"
+  },
+  {
+    "id": "ac1b24fd0958c693",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Hardened mode is not supported for {provider} yet. Click to turn it off, or choose Claude",
+    "why": "long"
+  },
+  {
+    "id": "e00c1e93187b4897",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Write a message or attach a file or folder before sending",
+    "why": "consequence"
+  },
+  {
+    "id": "f44760615b515549",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Hardened mode is not supported for {provider} yet",
+    "why": "long"
+  },
+  {
+    "id": "57a642b5c2406b93",
+    "owner": "src/renderer/app/features/instance-list/instance-list.component.ts",
+    "text": "Close project options to reorder projects.",
+    "why": "consequence"
+  },
+  {
+    "id": "6d8f194a358772cf",
+    "owner": "src/renderer/app/features/instance-list/instance-list.component.ts",
+    "text": "Clear the project search to reorder projects.",
+    "why": "consequence"
+  },
+  {
+    "id": "dff4215c19c2696a",
+    "owner": "src/renderer/app/features/instance-list/instance-list.component.ts",
+    "text": "Only projects with a folder can be reordered.",
+    "why": "long"
+  },
+  {
+    "id": "3370281e2c96cb33",
+    "owner": "src/renderer/app/features/loop/loop-config-panel.component.ts",
+    "text": "A plan file is configured, so its completed rename is required before stopping.",
+    "why": "consequence"
+  },
+  {
+    "id": "e5094b5eef74cd08",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-alerts-list.component.ts",
+    "text": "Checks for leftover workspaces and branches again.",
+    "why": "long"
+  },
+  {
+    "id": "8a62c1ab8d4f02f1",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-item-list.component.ts",
+    "text": "Opens the confirmation to leave this document out of this run.",
+    "why": "long"
+  },
+  {
+    "id": "ab554196500dc3bc",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-question-card.component.ts",
+    "text": "Sends this answer so the document can continue.",
+    "why": "consequence"
+  },
+  {
+    "id": "03f161bf992853a7",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-run-controls.component.ts",
+    "text": "Stops anything new from starting and pauses work already running. Paused work is saved and carries on when you resume.",
+    "why": "consequence"
+  },
+  {
+    "id": "574e2521aed334c8",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-run-controls.component.ts",
+    "text": "Lets new documents and checks start again.",
+    "why": "long"
+  },
+  {
+    "id": "ab740d9bbb2a62c6",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-run-controls.component.ts",
+    "text": "Opens the confirmation to end this run and park work in progress.",
     "why": "long"
   }
 ]

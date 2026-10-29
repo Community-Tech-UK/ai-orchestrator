@@ -12,6 +12,7 @@ import {
   output,
 } from '@angular/core';
 import { OverlayModule, ConnectedPosition } from '@angular/cdk/overlay';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { ModelPickerController } from './model-picker.controller';
 import {
   PROVIDER_MENU_COLORS,
@@ -62,7 +63,7 @@ const REASONING_LABELS: Record<ReasoningEffort, string> = {
 @Component({
   selector: 'app-compact-model-picker',
   standalone: true,
-  imports: [OverlayModule, ModelSelectionPanelComponent],
+  imports: [OverlayModule, ModelSelectionPanelComponent, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [ModelPickerController],
   template: `
@@ -74,8 +75,7 @@ const REASONING_LABELS: Record<ReasoningEffort, string> = {
         [attr.aria-haspopup]="'menu'"
         [attr.aria-expanded]="menuOpen()"
         [attr.aria-controls]="menuId"
-        [disabled]="_disabledReason() ? true : null"
-        [attr.title]="_disabledReason() ?? null"
+        [appTooltipDisabledReason]="_disabledReason()"
         (click)="toggleMenu()"
       >
         <span class="compact-picker__dot" [style.background]="providerColor()"></span>
@@ -95,7 +95,8 @@ const REASONING_LABELS: Record<ReasoningEffort, string> = {
         <span
           class="compact-picker__catalog"
           role="status"
-          [attr.title]="'Model catalog last refreshed ' + catalogFreshness()"
+          tabindex="0"
+          [appTooltip]="'Model catalog last refreshed ' + catalogFreshness()"
         >↻ {{ catalogFreshness() }}</span>
       }
     </div>
@@ -148,10 +149,10 @@ const REASONING_LABELS: Record<ReasoningEffort, string> = {
       max-width: 100%;
       white-space: nowrap;
     }
-    .compact-picker__chip:hover:not(:disabled) {
+    .compact-picker__chip:hover:not([aria-disabled='true']) {
       background: var(--bg-tertiary, rgba(127,127,127,0.12));
     }
-    .compact-picker__chip:disabled {
+    .compact-picker__chip[aria-disabled='true'] {
       opacity: 0.55;
       cursor: not-allowed;
     }
@@ -237,8 +238,9 @@ export class CompactModelPickerComponent {
    * passes the wider list including `cursor`.
    */
   /**
-   * When set, the picker trigger is disabled and the menu cannot be opened; the
-   * string is shown as a tooltip explaining why (e.g. "Model changes are only
+   * When set, the picker trigger is marked aria-disabled (it stays focusable) and
+   * the menu cannot be opened; the string is the trigger's disabled reason, shown
+   * on hover and keyboard focus (e.g. "Model changes are only
    * available while the instance is waiting for user input"). Lets a host gate
    * the whole picker to match a backend rule rather than letting the user make a
    * change that would be silently rejected.

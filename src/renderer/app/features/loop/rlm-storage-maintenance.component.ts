@@ -9,12 +9,14 @@ import {
   OnInit,
   ViewChild,
 } from '@angular/core';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { formatStorageBytes } from '../../../../shared/utils/storage-format';
 import { RlmStorageMaintenanceStore } from '../../core/state/rlm-storage-maintenance.store';
 
 @Component({
   selector: 'app-rlm-storage-maintenance',
   standalone: true,
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (showWarning() && store.visible(); as visible) {
@@ -50,7 +52,7 @@ import { RlmStorageMaintenanceStore } from '../../core/state/rlm-storage-mainten
               <h2 id="rlm-maintenance-title">Clean up Harness's learning database</h2>
             </div>
             @if (!store.busy()) {
-              <button type="button" class="icon-button" aria-label="Close" (click)="close()">×</button>
+              <button type="button" class="icon-button" aria-label="Close" appTooltip="Close" (click)="close()">×</button>
             }
           </header>
 

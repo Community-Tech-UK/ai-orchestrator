@@ -8,7 +8,7 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
     <section class="danger-zone">
       <div class="danger-header">
         <div>
-          <h4>{{ title() }}</h4>
+          <h4>{{ heading() }}</h4>
           @if (description()) {
             <p>{{ description() }}</p>
           }
@@ -22,6 +22,6 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
   styleUrl: './danger-zone.component.scss',
 })
 export class DangerZoneComponent {
-  readonly title = input('Danger Zone');
+  readonly heading = input('Danger Zone');
   readonly description = input('');
 }

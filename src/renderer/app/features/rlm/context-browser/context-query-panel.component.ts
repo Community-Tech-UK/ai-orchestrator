@@ -13,6 +13,7 @@ import {
 import { SlicePipe } from '@angular/common';
 import type { QueryType, ContextQuery } from '../../../../../shared/types/rlm.types';
 import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
+import { AppIconButtonDirective } from '../../../shared/tooltip/icon-button.directive';
 
 export interface SavedQueryTemplate {
   id: string;
@@ -25,7 +26,7 @@ export interface SavedQueryTemplate {
 @Component({
   selector: 'app-context-query-panel',
   standalone: true,
-  imports: [SlicePipe, AioTooltipDirective],
+  imports: [SlicePipe, AioTooltipDirective, AppIconButtonDirective],
   template: `
     <div class="query-panel">
       <div class="query-header">
@@ -115,7 +116,7 @@ export interface SavedQueryTemplate {
                 @for (id of sectionIds(); track id) {
                   <span class="selected-section">
                     {{ id | slice: 0 : 8 }}...
-                    <button class="remove-btn" (click)="removeSectionId(id)">
+                    <button class="remove-btn" appIconButton="Remove section from query" (click)="removeSectionId(id)">
                       ✕
                     </button>
                   </span>
@@ -178,7 +179,7 @@ export interface SavedQueryTemplate {
             <button
               class="save-template-btn"
               (click)="openSaveTemplateDialog()"
-              title="Save as template"
+              appTooltip="Save as template"
             >
               Save
             </button>
@@ -193,6 +194,8 @@ export interface SavedQueryTemplate {
             <span class="templates-title">Saved Templates</span>
             <button
               class="collapse-btn"
+              [attr.aria-expanded]="templatesExpanded()"
+              [appIconButton]="templatesExpanded() ? 'Collapse saved templates' : 'Expand saved templates'"
               (click)="templatesExpanded.set(!templatesExpanded())"
             >
               {{ templatesExpanded() ? '▼' : '▶' }}
@@ -209,8 +212,7 @@ export interface SavedQueryTemplate {
                   <button
                     class="template-delete"
                     (click)="deleteTemplate.emit(template.id)"
-                    appTooltip="Delete template"
-                    aria-label="Delete template"
+                    appIconButton="Delete template"
                   >
                     ✕
                   </button>
@@ -226,7 +228,7 @@ export interface SavedQueryTemplate {
         <div class="save-template-dialog">
           <div class="dialog-header">
             <span>Save Query Template</span>
-            <button class="close-btn" (click)="closeSaveTemplateDialog()">
+            <button class="close-btn" appIconButton="Close template dialog" (click)="closeSaveTemplateDialog()">
               ✕
             </button>
           </div>
@@ -265,7 +267,7 @@ export interface SavedQueryTemplate {
       @if (queryError()) {
         <div class="error-banner">
           <span class="error-text">{{ queryError() }}</span>
-          <button class="close-error-btn" (click)="clearError.emit()">✕</button>
+          <button class="close-error-btn" appIconButton="Dismiss error" (click)="clearError.emit()">✕</button>
         </div>
       }
     </div>
@@ -553,6 +555,10 @@ export interface SavedQueryTemplate {
         transition: opacity var(--transition-fast);
 
         .template-item:hover & {
+          opacity: 1;
+        }
+
+        &:focus-visible {
           opacity: 1;
         }
 

@@ -8,11 +8,11 @@
     </span>
   } @else {
     @if (run().status === 'running') {
-      <button type="button" (click)="onPause()">Pause</button>
-      <button type="button" class="pq-cancel" (click)="onCancelClick()">Cancel</button>
+      <button type="button" [appTooltip]="copy('planQueue.pauseRun')" (click)="onPause()">Pause</button>
+      <button type="button" class="pq-cancel" [appTooltip]="copy('planQueue.cancelRun')" (click)="onCancelClick()">Cancel</button>
     } @else if (run().status === 'paused') {
-      <button type="button" class="pq-resume" (click)="onResume()">Resume</button>
-      <button type="button" class="pq-cancel" (click)="onCancelClick()">Cancel</button>
+      <button type="button" class="pq-resume" [appTooltip]="copy('planQueue.resumeRun')" (click)="onResume()">Resume</button>
+      <button type="button" class="pq-cancel" [appTooltip]="copy('planQueue.cancelRun')" (click)="onCancelClick()">Cancel</button>
 
     }
   }

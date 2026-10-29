@@ -53,6 +53,8 @@ import { LocalAiStatusChipComponent } from './features/local-ai-guard/local-ai-s
 import { LocalAiFallbackBannerComponent } from './features/local-ai-guard/local-ai-fallback-banner.component';
 import { BrowserComputerOfflineBannerComponent } from './features/remote-nodes/browser-computer-offline-banner.component';
 import { HelpDrawerComponent } from './shared/help/help-drawer.component';
+import { AioTooltipDirective } from './shared/tooltip/aio-tooltip.directive';
+import { copyFor } from './shared/tooltip/tooltip-copy';
 
 const STARTUP_BANNER_DISMISSAL_STORAGE_KEY = 'startup-capabilities-banner:dismissed-fingerprint';
 
@@ -106,6 +108,7 @@ const WINDOW_CONTROLS_FALLBACK_INSET = 150;
   selector: 'app-root',
   standalone: true,
   imports: [
+    AioTooltipDirective,
     AwayRecapBannerComponent,
     TerminateConfirmDialogComponent,
     ApprovalDigestBannerComponent,
@@ -137,6 +140,7 @@ const WINDOW_CONTROLS_FALLBACK_INSET = 150;
   styleUrl: './app.component.scss',
 })
 export class AppComponent implements OnInit, OnDestroy {
+  protected readonly copy = copyFor;
   private ipcService = inject(IpcFacadeService);
   private router = inject(Router);
   private perfService = inject(PerfInstrumentationService);

@@ -7,6 +7,7 @@
  * permissions, error tone for helper/platform failures.
  */
 
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { ComputerUsePermissionStore } from './computer-use-permission.store';
@@ -14,6 +15,7 @@ import { ComputerUsePermissionStore } from './computer-use-permission.store';
 @Component({
   selector: 'app-computer-use-permission-chip',
   standalone: true,
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (store.chipVisible()) {
@@ -22,7 +24,7 @@ import { ComputerUsePermissionStore } from './computer-use-permission.store';
         class="cu-permission-chip"
         [class.error]="store.unavailable()"
         [attr.aria-label]="'Computer Use permissions: open Computer Use settings'"
-        [title]="text()"
+        [appTooltip]="text()"
         (click)="openSettings()"
       >
         {{ text() }}

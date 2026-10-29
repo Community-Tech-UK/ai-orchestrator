@@ -84,7 +84,6 @@ const liveTooltips = new Set<AioTooltipDirective>();
   standalone: true,
   host: {
     '[attr.aria-keyshortcuts]': 'ariaShortcuts()',
-    '[attr.aria-disabled]': 'reasonActive() ? \'true\' : null',
     '[class.aio-reason-disabled]': 'reasonActive()',
     '(mouseenter)': 'onPointerEnter()',
     '(mouseleave)': 'onPointerLeave($event)',
@@ -144,6 +143,9 @@ export class AioTooltipDirective implements OnDestroy {
   private touchHideTimer: ReturnType<typeof setTimeout> | null = null;
   private clickedAt = 0;
   private describedByApplied = false;
+  private disabledReasonApplied = false;
+  private previousAriaDisabled: string | null = null;
+  private disabledReasonObserver: MutationObserver | null = null;
   private readonly tooltipId = `aio-tooltip-${++tooltipIdCounter}`;
 
   constructor() {
@@ -172,6 +174,7 @@ export class AioTooltipDirective implements OnDestroy {
       this.restoreDescribedBy();
     });
     afterRenderEffect({ write: () => {
+      this.syncDisabledReason();
       // Companion directives may update aria-label later in the same render.
       // Compare against the finished host binding rather than its previous value.
       const text = !this.reasonActive() && this.appTooltipTpl() ? 'template' : this.effectiveText();
@@ -364,6 +367,58 @@ export class AioTooltipDirective implements OnDestroy {
     this.describedByApplied = false;
   }
 
+  private syncDisabledReason(): void {
+    const element = this.host.nativeElement;
+    if (this.reasonActive()) {
+      if (!this.disabledReasonApplied) {
+        this.previousAriaDisabled = element.getAttribute('aria-disabled');
+        this.disabledReasonApplied = true;
+        // Host bindings can change independently of the reason. Track their
+        // latest value even when they write the same "true" we currently show.
+        this.disabledReasonObserver = new MutationObserver(() => {
+          this.previousAriaDisabled = element.getAttribute('aria-disabled');
+          if (this.reasonActive()) this.applyDisabledReason();
+        });
+        this.disabledReasonObserver.observe(element, { attributes: true, attributeFilter: ['aria-disabled'] });
+      }
+      this.applyDisabledReason();
+    } else {
+      this.restoreAriaDisabled();
+    }
+  }
+
+  private captureHostDisabledChange(): void {
+    if (this.disabledReasonObserver?.takeRecords().length) {
+      this.previousAriaDisabled = this.host.nativeElement.getAttribute('aria-disabled');
+    }
+  }
+
+  private applyDisabledReason(): void {
+    this.captureHostDisabledChange();
+    const element = this.host.nativeElement;
+    if (element.getAttribute('aria-disabled') !== 'true') {
+      this.renderer.setAttribute(element, 'aria-disabled', 'true');
+      // Only host writes belong to the observer; ignore our own mutation.
+      this.disabledReasonObserver?.takeRecords();
+    }
+  }
+
+  private restoreAriaDisabled(): void {
+    if (!this.disabledReasonApplied) return;
+    this.captureHostDisabledChange();
+    this.disabledReasonObserver?.disconnect();
+    this.disabledReasonObserver = null;
+    const element = this.host.nativeElement;
+    // A host binding may already have cleared or replaced the value this
+    // directive supplied. Keep that newer state instead of restoring stale data.
+    if (element.getAttribute('aria-disabled') === 'true') {
+      if (this.previousAriaDisabled === null) this.renderer.removeAttribute(element, 'aria-disabled');
+      else this.renderer.setAttribute(element, 'aria-disabled', this.previousAriaDisabled);
+    }
+    this.disabledReasonApplied = false;
+    this.previousAriaDisabled = null;
+  }
+
   private clearTimer(which: 'openTimer' | 'touchHideTimer'): void {
     const timer = this[which];
     if (timer) {
@@ -373,6 +428,7 @@ export class AioTooltipDirective implements OnDestroy {
   }
 
   private dispose(): void {
+    this.restoreAriaDisabled();
     liveTooltips.delete(this);
     tooltipHostElements.delete(this.host.nativeElement);
     this.clearTimer('openTimer');

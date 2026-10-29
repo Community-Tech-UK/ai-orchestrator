@@ -3,7 +3,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlanQueueItemDto } from '@contracts/schemas/plan-queue';
 import { PlanQueueItemListComponent, planQueueDocumentBasename, planQueueVerdictSummary } from './plan-queue-item-list.component';
 
@@ -90,6 +90,16 @@ describe('PlanQueueItemListComponent', () => {
     }).compileComponents();
     fixture = TestBed.createComponent(PlanQueueItemListComponent);
     fixture.componentRef.setInput('maxRounds', 3);
+  });
+
+  it('reveals the whole document path on keyboard focus even when the basename fits', () => {
+    const item = makeItem(); fixture.componentRef.setInput('items', [item]); fixture.detectChanges();
+    const documentName = fixture.nativeElement.querySelector('.pq-item-doc') as HTMLElement;
+    const matches = documentName.matches.bind(documentName);
+    vi.spyOn(documentName, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
+    documentName.focus(); fixture.detectChanges();
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain(item.documentPath);
+    expect(documentName.hasAttribute('title')).toBe(false);
   });
 
   it('shows an empty message when there are no items', () => {

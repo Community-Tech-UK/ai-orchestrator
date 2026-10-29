@@ -78,12 +78,11 @@
                   }
                 }
                 @if (item.response && hasContent(item.response)) {
-                  <div class="message message-assistant" [class.continuation]="item.showHeader === false"
-                    [title]="item.response.timestamp | date: 'HH:mm:ss'">
+                  <div class="message message-assistant" [class.continuation]="item.showHeader === false">
                     @if (item.showHeader !== false) {
                       <div class="message-header">
                         <span class="message-type">{{ getProviderDisplayName(provider()) }}</span>
-                        <span class="message-time">{{ item.response.timestamp | date: 'HH:mm:ss' }}</span>
+                        <span class="message-time" tabindex="0">{{ item.response.timestamp | date: 'HH:mm:ss' }}</span>
                       </div>
                     }
                     <div class="message-content">
@@ -97,12 +96,14 @@
                         }
                       }
                     </div>
+                    @if (item.showHeader === false) {
+                      <span class="inline-timestamp">{{ item.response.timestamp | date: 'HH:mm:ss' }}</span>
+                    }
                   </div>
                   <div class="message-hover-actions">
                     <button class="action-btn" [class.copied]="isMessageCopied(item.response.id)"
                       (click)="copyMessageContent(item.response.content, item.response.id, item.response.attachments)"
-                      appTooltip="Copy to clipboard"
-                      aria-label="Copy to clipboard">
+                      appIconButton="Copy to clipboard">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
@@ -132,9 +133,10 @@
                       class="compaction-recover-btn"
                       [class.queued]="compactionRecoveryState()[markerId] === 'queued'"
                       [class.failed]="compactionRecoveryState()[markerId] === 'failed'"
-                      [disabled]="isCompactionRecoveryDisabled(markerId)"
+                      [disabled]="compactionRecoveryState()[markerId] === 'recovering'"
+                      [appTooltipDisabledReason]="compactionRecoveryState()[markerId] === 'queued' ? compactionQueuedReason : null"
                       (click)="recoverCompactionContext($event, markerId)"
-                      appTooltip="Queue preserved context for the next turn">
+                      [appTooltip]="compactionRecoveryHint">
                       {{ compactionRecoveryLabel(markerId) }}
                     </button>
                   }
@@ -194,9 +196,10 @@
                     class="compaction-recover-btn boundary-recover-btn"
                     [class.queued]="compactionRecoveryState()[markerId] === 'queued'"
                     [class.failed]="compactionRecoveryState()[markerId] === 'failed'"
-                    [disabled]="isCompactionRecoveryDisabled(markerId)"
+                    [disabled]="compactionRecoveryState()[markerId] === 'recovering'"
+                    [appTooltipDisabledReason]="compactionRecoveryState()[markerId] === 'queued' ? compactionQueuedReason : null"
                     (click)="recoverCompactionContext($event, markerId)"
-                    appTooltip="Queue preserved context for the next turn">
+                    [appTooltip]="compactionRecoveryHint">
                     {{ compactionRecoveryLabel(markerId) }}
                   </button>
                 }
@@ -241,20 +244,21 @@
               <div class="message" [class]="'message-' + item.message.type"
                 [class.continuation]="item.showHeader === false"
                 [class.progress-note]="isProgressNote(item.message)"
-                [title]="item.message.timestamp | date: 'HH:mm:ss'">
+                >
                 @if (item.showHeader !== false && item.message.type !== 'user') {
                   <div class="message-header">
                     <span class="message-type"
                       [class.message-type-internal]="!!item.message.metadata?.internalInput"
-                      [attr.title]="describeMessageSender(item.message) || null">{{ formatMessageLabel(item.message, provider()) }}</span>
+                      [appTooltip]="describeMessageSender(item.message) || null"
+                      [attr.tabindex]="describeMessageSender(item.message) ? 0 : null">{{ formatMessageLabel(item.message, provider()) }}</span>
                     @if (item.repeatCount && item.repeatCount > 1) {
                       <span class="repeat-badge">&times;{{ item.repeatCount }}</span>
                     }
-                    <span class="message-time">{{ item.message.timestamp | date: 'HH:mm:ss' }}</span>
+                    <span class="message-time" tabindex="0">{{ item.message.timestamp | date: 'HH:mm:ss' }}</span>
                     @if (item.message.type === 'assistant') {
                       <button class="copy-message-btn" [class.copied]="isMessageCopied(item.message.id)"
                         (click)="copyMessageContent(item.message.content, item.message.id, item.message.attachments)"
-                        title="Copy to clipboard">
+                        appIconButton="Copy to clipboard">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                           <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                           <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
@@ -266,9 +270,12 @@
                     }
                   </div>
                 }
+                @if (item.showHeader === false && item.message.type !== 'user') {
+                  <span class="inline-timestamp">{{ item.message.timestamp | date: 'HH:mm:ss' }}</span>
+                }
                 <div class="message-content">
                   @if (item.message.type === 'user' && item.message.metadata?.crossSessionMessage; as crossSessionMeta) {
-                    <div class="cross-session-badge" [title]="'Relayed from another session (hop ' + crossSessionMeta.hopCount + ')'">
+                    <div class="cross-session-badge" tabindex="0" [appTooltip]="'Relayed from another session (hop ' + crossSessionMeta.hopCount + ')'">
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3"></path>
                         <polyline points="16 3 21 3 21 8"></polyline>
@@ -335,14 +342,13 @@
                     <button
                       class="action-btn"
                       type="button"
-                      [disabled]="isLoopOriginatedUserMessage(item.message)"
-                      [appTooltip]="isLoopOriginatedUserMessage(item.message)
+                      [appIconButton]="isLoopOriginatedUserMessage(item.message)
                         ? 'Cannot edit a loop prompt — start a new loop to change it'
                         : 'Edit and resend'"
-                      [attr.aria-label]="isLoopOriginatedUserMessage(item.message)
+                      [appIconButtonDisabledReason]="isLoopOriginatedUserMessage(item.message)
                         ? 'Cannot edit a loop prompt — start a new loop to change it'
-                        : 'Edit and resend'"
-                      (click)="inlineEdit.startEditingMessage(item.message)">
+                        : null"
+                      (click)="!isLoopOriginatedUserMessage(item.message) && inlineEdit.startEditingMessage(item.message)">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
                         <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
@@ -351,8 +357,7 @@
                   }
                   <button class="action-btn" [class.copied]="isMessageCopied(item.message.id)"
                     (click)="copyMessageContent(item.message.content, item.message.id, item.message.attachments)"
-                    appTooltip="Copy to clipboard"
-                    aria-label="Copy to clipboard">
+                    appIconButton="Copy to clipboard">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                       <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
@@ -367,7 +372,7 @@
 
     <!-- Scroll to top button -->
     @if (showScrollToTop()) {
-      <button class="scroll-to-top-btn" (click)="scrollToTop()" appTooltip="Scroll to top" aria-label="Scroll to top">
+      <button class="scroll-to-top-btn" (click)="scrollToTop()" appIconButton="Scroll to top">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="18 15 12 9 6 15"></polyline>
         </svg>
@@ -376,7 +381,7 @@
 
     <!-- Scroll to bottom button -->
     @if (showScrollToBottom()) {
-      <button class="scroll-to-bottom-btn" (click)="scrollToBottom()" appTooltip="Scroll to bottom" aria-label="Scroll to bottom">
+      <button class="scroll-to-bottom-btn" (click)="scrollToBottom()" appIconButton="Scroll to bottom">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="6 9 12 15 18 9"></polyline>
         </svg>

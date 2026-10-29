@@ -17,6 +17,7 @@ import { NodePickerComponent } from '../../shared/components/node-picker/node-pi
 import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
 import type { ModelRuntimeTarget } from '../../../../shared/types/local-model-runtime.types';
 import type { NewSessionSubmitRequest } from './input-panel-new-session-submit';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 interface WelcomeProjectContext {
   branch: string | null;
@@ -30,7 +31,7 @@ interface WelcomeProjectContext {
 @Component({
   selector: 'app-instance-welcome',
   standalone: true,
-  imports: [DropZoneComponent, InputPanelComponent, RecentDirectoriesDropdownComponent, NodePickerComponent],
+  imports: [DropZoneComponent, InputPanelComponent, RecentDirectoriesDropdownComponent, NodePickerComponent, AioTooltipDirective],
   template: `
     <app-drop-zone
       class="full-drop-zone"
@@ -89,7 +90,7 @@ interface WelcomeProjectContext {
                       type="button"
                       class="workspace-action-btn"
                       [class.active]="isFileExplorerOpen()"
-                      [title]="isFileExplorerOpen() ? 'Hide file browser' : 'Open file browser'"
+                      [appTooltip]="isFileExplorerOpen() ? 'Hide file browser' : 'Open file browser'"
                       (click)="toggleFileExplorer.emit()"
                     >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
@@ -105,7 +106,7 @@ interface WelcomeProjectContext {
                       type="button"
                       class="workspace-action-btn"
                       [class.active]="isSourceControlOpen()"
-                      [title]="sourceControlButtonTitle()"
+                      [appTooltip]="sourceControlButtonTitle()"
                       (click)="toggleSourceControl.emit()"
                     >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none"

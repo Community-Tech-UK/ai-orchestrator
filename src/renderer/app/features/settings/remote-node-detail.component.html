@@ -24,7 +24,7 @@
         <button
           class="btn btn-secondary small"
           type="button"
-          title="Close this computer's live connection without revoking it. It reconnects by itself."
+          [appTooltip]="copy('settingsHints.resetConnection')"
           (click)="requestReset()"
         >
           Reset connection
@@ -52,13 +52,17 @@
     }
   </div>
 
+  @if (healthEntry().status !== 'disconnected') {
+    <p class="field-hint reset-connection-hint">{{ copy('settingsHints.resetConnection') }}</p>
+  }
+
   <app-remote-node-repair-panel [entry]="healthEntry()" />
 
   <div class="badge-row">
     <span
       class="capability-chip browser-automation"
       [attr.data-state]="browserAutomationState(healthEntry())"
-      [title]="browserAutomationState(healthEntry()) === 'chrome-only'
+      tabindex="0" [appTooltip]="browserAutomationState(healthEntry()) === 'chrome-only'
         ? 'Chrome is installed but automation is not enabled on this node.'
         : browserAutomationState(healthEntry()) === 'off'
           ? 'No Chrome/Chromium runtime detected on this node.'
@@ -69,7 +73,7 @@
     <span
       class="capability-chip browser-automation"
       [attr.data-state]="extensionRelayState(healthEntry())"
-      [title]="extensionRelayState(healthEntry()) === 'ready'
+      tabindex="0" [appTooltip]="extensionRelayState(healthEntry()) === 'ready'
         ? 'Chrome extension native-host relay is listening on this node.'
         : extensionRelayState(healthEntry()) === 'enabled'
           ? 'Chrome extension relay is enabled but not currently running.'
@@ -80,7 +84,7 @@
     <span
       class="capability-chip android-automation"
       [attr.data-state]="androidAutomationState(healthEntry())"
-      [title]="androidAutomationState(healthEntry()) === 'sdk-only'
+      tabindex="0" [appTooltip]="androidAutomationState(healthEntry()) === 'sdk-only'
         ? 'Android SDK/ADB is detected, but automation is not ready on this node.'
         : androidAutomationState(healthEntry()) === 'off'
           ? 'No Android SDK/ADB state reported by this node.'

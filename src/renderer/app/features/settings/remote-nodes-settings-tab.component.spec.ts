@@ -4,6 +4,8 @@ import { ɵresolveComponentResources as resolveComponentResources, type Writable
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { By } from '@angular/platform-browser';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { RemoteNodesSettingsTabComponent } from './remote-nodes-settings-tab.component';
 import { SettingsStore } from '../../core/state/settings.store';
 import { RemoteNodeIpcService, type RemoteNodeServerStatus } from '../../core/services/ipc/remote-node-ipc.service';
@@ -73,7 +75,7 @@ describe('RemoteNodesSettingsTabComponent', () => {
     remoteNodesAutoOffloadAndroid: vi.fn(() => true),
     remoteNodesAutoOffloadGpu: vi.fn(() => false),
     remoteNodesRegisteredNodes: vi.fn(() => ({})),
-    remoteNodesEnrollmentToken: vi.fn(() => 'manual-token'),
+    remoteNodesEnrollmentToken: vi.fn(() => 'EXAMPLE_TOKEN'),
     remoteNodesEnabled: vi.fn(() => true),
     harnessRole: vi.fn(() => 'coordinator'),
     workerMode: vi.fn(() => ({ role: 'coordinator' })),
@@ -109,6 +111,7 @@ describe('RemoteNodesSettingsTabComponent', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     store.remoteNodesEnabled.mockReturnValue(true);
+    store.remoteNodesEnrollmentToken.mockReturnValue('EXAMPLE_TOKEN');
     ipc.getServerStatus.mockResolvedValue({ running: false } as RemoteNodeServerStatus);
     ipc.listNodes.mockResolvedValue([]);
     ipc.listPairingCredentials.mockResolvedValue([]);
@@ -129,6 +132,56 @@ describe('RemoteNodesSettingsTabComponent', () => {
     component = fixture.componentInstance;
   });
 
+  function renderCopyToken(): HTMLButtonElement {
+    fixture.detectChanges();
+    (fixture.nativeElement.querySelectorAll('[role="tab"]')[3] as HTMLButtonElement).click();
+    fixture.detectChanges();
+    return fixture.nativeElement.querySelector('[aria-label="Copy token"]') as HTMLButtonElement;
+  }
+
+  it('explains a missing token on focus and Escape while refusing to copy', async () => {
+    store.remoteNodesEnrollmentToken.mockReturnValue('');
+    const button = renderCopyToken();
+    expect(button.disabled).toBe(false);
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    expect(button.classList.contains('aio-reason-disabled')).toBe(true);
+    const matches = button.matches.bind(button);
+    vi.spyOn(button, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
+    button.focus();
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(button);
+    const tooltipElement = document.querySelector('[role="tooltip"]')!;
+    expect(tooltipElement.textContent).toContain('No token is set');
+    expect(button.getAttribute('aria-describedby')).toContain(tooltipElement.id);
+    button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    fixture.detectChanges();
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    button.click();
+    await fixture.whenStable();
+    expect(clipboard.copyText).not.toHaveBeenCalled();
+    // The handler's guard also applies when called without DOM activation.
+    await component.copyToken();
+    expect(clipboard.copyText).not.toHaveBeenCalled();
+  });
+
+  it('keeps the Copy token name and tooltip and copies a populated token', async () => {
+    const button = renderCopyToken();
+    expect(button.disabled).toBe(false);
+    expect(button.getAttribute('aria-disabled')).toBeNull();
+    expect(button.classList.contains('aio-reason-disabled')).toBe(false);
+    const directive = fixture.debugElement.queryAll(By.directive(AioTooltipDirective))
+      .find(element => element.nativeElement === button)!.injector.get(AioTooltipDirective);
+    expect(directive.appTooltipDisabledReason()).toBeNull();
+    const matches = button.matches.bind(button);
+    vi.spyOn(button, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
+    button.focus();
+    fixture.detectChanges();
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('Copy token');
+    button.click();
+    await fixture.whenStable();
+    expect(clipboard.copyText).toHaveBeenCalledExactlyOnceWith('EXAMPLE_TOKEN', { label: 'remote node token' });
+  });
+
   it('prefers the Tailscale IP when generating worker pairing connection details', () => {
     (
       component as unknown as {
@@ -147,15 +200,15 @@ describe('RemoteNodesSettingsTabComponent', () => {
       component as unknown as {
         buildConnectionConfig: (token: string) => Record<string, unknown>;
       }
-    ).buildConnectionConfig('pair-token');
+    ).buildConnectionConfig('EXAMPLE_TOKEN');
     const pairingLink = (
       component as unknown as {
         buildPairingLink: (token: string) => string;
       }
-    ).buildPairingLink('pair-token');
+    ).buildPairingLink('EXAMPLE_TOKEN');
 
     expect(connectionConfig).toMatchObject({
-      authToken: 'pair-token',
+      authToken: 'EXAMPLE_TOKEN',
       coordinatorUrl: 'ws://100.101.102.103:4878',
       namespace: 'default',
       maxConcurrentInstances: 10,
@@ -185,12 +238,12 @@ describe('RemoteNodesSettingsTabComponent', () => {
       component as unknown as {
         buildConnectionConfig: (token: string) => Record<string, unknown>;
       }
-    ).buildConnectionConfig('pair-token');
+    ).buildConnectionConfig('EXAMPLE_TOKEN');
     const pairingLink = (
       component as unknown as {
         buildPairingLink: (token: string) => string;
       }
-    ).buildPairingLink('pair-token');
+    ).buildPairingLink('EXAMPLE_TOKEN');
 
     expect(connectionConfig['coordinatorUrl']).toBe('ws://studio-mac.tailnet-abcd.ts.net:4878');
     expect(new URL(pairingLink).searchParams.get('host')).toBe('studio-mac.tailnet-abcd.ts.net');
@@ -213,10 +266,10 @@ describe('RemoteNodesSettingsTabComponent', () => {
       component as unknown as {
         buildPairingCommand: (token: string) => string;
       }
-    ).buildPairingCommand('pair-token');
+    ).buildPairingCommand('EXAMPLE_TOKEN');
 
     expect(command).toBe(
-      'aio-worker pair "ai-orchestrator://remote-node/pair?host=studio-mac.tailnet-abcd.ts.net&port=4878&namespace=default&token=pair-token&requireTls=false"',
+      'aio-worker pair "ai-orchestrator://remote-node/pair?host=studio-mac.tailnet-abcd.ts.net&port=4878&namespace=default&token=EXAMPLE_TOKEN&requireTls=false"',
     );
   });
 

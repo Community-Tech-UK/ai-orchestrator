@@ -12,6 +12,8 @@ import type {
 } from '../../../../shared/types/campaign.types';
 import { CampaignStore } from '../../core/state/campaign.store';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 
 type Provider = 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor';
 type Stage = 'PLAN' | 'REVIEW' | 'IMPLEMENT';
@@ -100,7 +102,7 @@ function newCampaignId(): string {
 @Component({
   selector: 'app-campaign-page',
   standalone: true,
-  imports: [FormsModule, SlicePipe, AioTooltipDirective],
+  imports: [FormsModule, SlicePipe, AioTooltipDirective, AppIconButtonDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './campaign-page.component.html',
   styleUrl: './campaign-page.component.scss',
@@ -111,6 +113,10 @@ export class CampaignPageComponent implements OnInit {
   protected readonly terminalStatuses = TERMINAL_STATUSES;
   protected readonly providers = PROVIDERS;
   protected readonly stages = STAGES;
+  protected readonly copy = {
+    run: copyFor('campaign.run'),
+    halt: copyFor('campaign.halt'),
+  };
   store = inject(CampaignStore);
   private route = inject(ActivatedRoute);
 
@@ -148,6 +154,7 @@ export class CampaignPageComponent implements OnInit {
 
   selectedNode = computed(() => this.nodeFor(this.selectedNodeId()) ?? this.nodes()[0]);
   canRun = computed(() => this.localValidationErrors().length === 0);
+
 
   ngOnInit(): void {
     this.store.ensureWired();

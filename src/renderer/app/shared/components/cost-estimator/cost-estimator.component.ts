@@ -16,11 +16,12 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import type { CostBreakdown, SessionCostSummary } from '../../../../../shared/types/verification-ui.types';
+import { AioTooltipDirective } from '../../tooltip/aio-tooltip.directive';
 
 @Component({
   selector: 'app-cost-estimator',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="cost-estimator" [class.compact]="compact()">
@@ -58,14 +59,20 @@ import type { CostBreakdown, SessionCostSummary } from '../../../../../shared/ty
                 <div
                   class="cost-bar input"
                   [style.width.%]="getBarWidth(item, 'input')"
-                  [title]="'Input: ' + formatTokens(item.inputTokens) + ' tokens'"
+                  role="img"
+                  tabindex="0"
+                  [appTooltip]="'Input: ' + formatTokens(item.inputTokens) + ' tokens'"
+                  [attr.aria-label]="'Input: ' + formatTokens(item.inputTokens) + ' tokens'"
                 ></div>
                 <!-- Output bar -->
                 <div
                   class="cost-bar output"
                   [style.width.%]="getBarWidth(item, 'output')"
                   [style.left.%]="getBarWidth(item, 'input')"
-                  [title]="'Output: ' + formatTokens(item.outputTokens) + ' tokens'"
+                  role="img"
+                  tabindex="0"
+                  [appTooltip]="'Output: ' + formatTokens(item.outputTokens) + ' tokens'"
+                  [attr.aria-label]="'Output: ' + formatTokens(item.outputTokens) + ' tokens'"
                 ></div>
               </div>
 

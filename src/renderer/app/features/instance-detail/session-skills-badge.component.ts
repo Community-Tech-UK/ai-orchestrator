@@ -13,6 +13,8 @@ import {
   signal,
 } from '@angular/core';
 import { SkillStore } from '../../core/state/skill.store';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { ROLLING_INSTANCE_COPY } from '../../shared/tooltip/tooltip-copy-rolling-instance';
 
 interface SessionSkillSummaryRow {
   skillName: string;
@@ -27,6 +29,7 @@ interface SessionSkillSummaryRow {
 @Component({
   selector: 'app-session-skills-badge',
   standalone: true,
+  imports: [AioTooltipDirective],
   template: `
     @if (sessionSkillCount() > 0) {
       <div class="session-skills">
@@ -34,7 +37,8 @@ interface SessionSkillSummaryRow {
           type="button"
           class="session-skills-badge"
           [class.open]="showPopover()"
-          title="Skills injected into this session — click for details"
+          [attr.aria-expanded]="showPopover()"
+          [appTooltip]="copy['skills.badge'].meaning"
           (click)="onTogglePopover($event)"
         >
           ⚡ {{ sessionSkillCount() }} active
@@ -42,6 +46,7 @@ interface SessionSkillSummaryRow {
         @if (showPopover()) {
           <div class="session-skills-popover">
             <div class="popover-title">Skills active this session</div>
+            <p class="popover-note">Disabling a skill turns it off everywhere. It takes effect on the next turn.</p>
             @for (row of sessionSkillSummary(); track row.skillName) {
               <div class="popover-row" [class.disabled]="isSkillDisabled(row.skillName)">
                 <div class="row-main">
@@ -60,9 +65,8 @@ interface SessionSkillSummaryRow {
                 <button
                   type="button"
                   class="row-toggle"
-                  [title]="isSkillDisabled(row.skillName)
-                    ? 'Re-enable this skill'
-                    : 'Disable this skill everywhere (takes effect next turn)'"
+                  [attr.aria-label]="(isSkillDisabled(row.skillName) ? 'Enable ' : 'Disable ') + row.skillName"
+                  [appTooltip]="isSkillDisabled(row.skillName) ? copy['skills.enable'].meaning : copy['skills.disable'].meaning"
                   (click)="onToggleSkillDisabled(row.skillName)"
                 >
                   {{ isSkillDisabled(row.skillName) ? 'Enable' : 'Disable' }}
@@ -122,6 +126,12 @@ interface SessionSkillSummaryRow {
         margin-bottom: 8px;
       }
 
+      .popover-note {
+        margin: 0 0 8px;
+        font-size: 10px;
+        opacity: 0.7;
+      }
+
       .popover-row {
         display: flex;
         align-items: center;
@@ -175,6 +185,7 @@ interface SessionSkillSummaryRow {
 })
 export class SessionSkillsBadgeComponent {
   private skillStore = inject(SkillStore);
+  protected readonly copy = ROLLING_INSTANCE_COPY;
 
   instanceId = input.required<string>();
 

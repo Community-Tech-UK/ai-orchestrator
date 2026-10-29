@@ -21,7 +21,7 @@
             } @else {
               <h2
                 class="instance-name editable"
-                [title]="displayTitle()"
+                [appTooltip]="displayTitle()" appTooltipVariant="overflow"
                 role="button"
                 tabindex="0"
                 (dblclick)="startEditName.emit()"
@@ -36,7 +36,7 @@
               <span class="remote-connecting">Connecting to {{ remoteNodeName() }}...</span>
             }
             @if (waitReasonLabel()) {
-              <span class="wait-reason-label" [title]="waitReasonDetail()">{{ waitReasonLabel() }}</span>
+              <span class="wait-reason-label">{{ waitReasonLabel() }} <span class="wait-reason-detail">{{ waitReasonDetail() }}</span></span>
             }
           </div>
         </div>
@@ -45,7 +45,7 @@
           @if (instance().status === 'busy') {
             <button
               class="btn-action btn-interrupt"
-              [title]="interruptTitle()"
+              [appTooltip]="interruptTitle()" appTooltipShortcut="cancel-operation"
               (click)="interrupt.emit()"
             >
               ⏸ Interrupt
@@ -54,9 +54,9 @@
           <div class="open-menu-shell">
             <button
               class="btn-action btn-open"
-              title="Open workspace"
-              [disabled]="!instance().workingDirectory"
-              (click)="onToggleOpenMenu($event)"
+              appTooltip="Open workspace"
+              [appTooltipDisabledReason]="instance().workingDirectory ? null : 'Choose a working folder first'"
+              (click)="instance().workingDirectory && onToggleOpenMenu($event)"
             >
               <span>Open</span>
               <span class="open-caret">▾</span>
@@ -68,7 +68,7 @@
                   (click)="openInPreferredEditor()"
                   [disabled]="isLoadingEditors()"
                 >
-                  Open in {{ preferredEditorLabel() }}
+                  {{ isLoadingEditors() ? 'Loading editors…' : 'Open in ' + preferredEditorLabel() }}
                 </button>
                 <button
                   class="open-menu-item"
@@ -94,9 +94,9 @@
           </div>
           <button
             class="btn-action btn-icon btn-terminal"
-            title="Open in Terminal"
+            appTooltip="Open in Terminal"
             aria-label="Open in Terminal"
-            [disabled]="!instance().workingDirectory"
+            [appTooltipDisabledReason]="instance().workingDirectory ? null : 'Choose a working folder first'"
             (click)="openInTerminal()"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
@@ -125,7 +125,7 @@
               class="btn-action btn-icon btn-source-control"
               [class.active]="isSourceControlOpen()"
               [class.has-changes]="sourceControlChangeCount() > 0"
-              [title]="sourceControlButtonTitle()"
+              [appTooltip]="sourceControlButtonTitle()"
               aria-label="Toggle source control"
               (click)="toggleSourceControl.emit()"
             >
@@ -149,14 +149,14 @@
       <div class="header-bottom">
         <div class="instance-meta">
           <span
-            class="provider-badge"
+            class="provider-badge" tabindex="0"
             [style.background-color]="providerColor()"
-            [title]="'Provider: ' + providerDisplayName()"
+            [appTooltip]="'Provider: ' + providerDisplayName()"
           >
             {{ providerDisplayName() }}
           </span>
           @if (copilotAccountBadge(); as copilotAccount) {
-            <span class="copilot-account-badge" [title]="copilotAccount.title">
+            <span class="copilot-account-badge" tabindex="0" [appTooltip]="copilotAccount.title">
               {{ copilotAccount.label }}
             </span>
           }
@@ -170,20 +170,21 @@
           />
           @if (isRemote()) {
             <span
-              class="node-badge"
+              class="node-badge" tabindex="0"
               [class.node-badge-warning]="remoteNodeDisconnected()"
-              [title]="remoteNodeTooltip()"
+              [appTooltip]="remoteNodeTooltip()"
             >
               {{ remoteNodeName() }}
+              @if (remoteNodeDisconnected()) { <span>Disconnected</span> }
             </span>
           }
           @if (isLocalModelRuntime()) {
             <span
-              class="runtime-model-badge"
+              class="runtime-model-badge" tabindex="0"
               [style.border-color]="modelBtnBorderColor()"
               [style.background]="modelBtnBgColor()"
               [style.color]="providerColor()"
-              [title]="'Model: ' + currentModelId()"
+              [appTooltip]="'Model: ' + currentModelId()"
             >
               {{ currentModelDisplayName() }}
             </span>
@@ -199,26 +200,28 @@
               <button
                 type="button"
                 class="pending-model-badge"
-                [title]="'Will switch to ' + pendingLabel + ' when the current turn finishes. Click to cancel.'"
+                [appTooltip]="copy('composer.pendingModelPrefix') + ' ' + pendingLabel + ' ' + copy('composer.pendingModelSuffix')"
                 (click)="cancelDesiredRuntime.emit()"
               >
                 {{ pendingLabel }} <span aria-hidden="true">✕</span>
               </button>
+              <span class="header-action-detail">{{ copy('composer.pendingModelPrefix') + ' ' + pendingLabel + ' ' + copy('composer.pendingModelSuffix') }}</span>
             }
           }
           <button
             class="mode-badge"
             [class.plan]="instance().agentId === 'plan'"
             [class.review]="instance().agentId === 'review'"
-            [disabled]="isChangingMode() || isRuntimeLocked()"
-            [title]="
+            [disabled]="isChangingMode()"
+            [appTooltipDisabledReason]="isRuntimeLocked() ? copy('header.modeLocked') : null"
+            [appTooltip]="
               isRuntimeLocked()
-                ? 'Cannot change mode while instance is running or recovering'
+                ? copy('header.modeLocked')
                 : 'Click to change mode'
             "
-            (click)="cycleAgentMode.emit()"
+            (click)="!isRuntimeLocked() && !isChangingMode() && cycleAgentMode.emit()"
           >
-            {{ agentModeName() }}
+            {{ isChangingMode() ? 'Changing…' : agentModeName() }}
           </button>
           <app-recent-directories-dropdown
             [currentPath]="instance().workingDirectory || ''"
@@ -228,49 +231,58 @@
             class="yolo-badge"
             [class.active]="instance().yoloMode"
             [class.pending]="yoloPending()"
-            [disabled]="isTogglingYolo() || isStartingOrRecovering()"
-            [title]="
+            [disabled]="isTogglingYolo()"
+            [appTooltipDisabledReason]="isStartingOrRecovering() ? copy('header.yoloLocked') : null"
+            [appTooltip]="
               isStartingOrRecovering()
-                ? 'Cannot toggle YOLO mode while the session is starting or recovering'
+                ? copy('header.yoloLocked')
                 : yoloPending()
                   ? (instance().pendingYoloMode
-                      ? 'YOLO will turn ON when the current turn finishes. Click to cancel.'
-                      : 'YOLO will turn OFF when the current turn finishes. Click to cancel.')
+                      ? copy('header.yoloPendingOn')
+                      : copy('header.yoloPendingOff'))
                   : instance().yoloMode
-                    ? 'YOLO Mode: Auto-approve all tool calls without prompting. Click to disable'
-                    : 'YOLO Mode: Requires manual approval for tool calls. Click to enable auto-approve'
+                    ? copy('header.yoloOn')
+                    : copy('header.yoloOff')
             "
-            (click)="toggleYolo.emit()"
+            (click)="!isStartingOrRecovering() && !isTogglingYolo() && toggleYolo.emit()"
           >
-            YOLO {{ instance().yoloMode ? 'ON' : 'OFF'
+            {{ isTogglingYolo() ? 'Changing…' : 'YOLO' }} {{ instance().yoloMode ? 'ON' : 'OFF'
             }}{{ yoloPending() ? (instance().pendingYoloMode ? ' → ON' : ' → OFF') : '' }}
           </button>
+          <span class="header-action-detail">{{ instance().yoloMode ? copy('header.yoloOn') : copy('header.yoloOff') }}</span>
+          @if (yoloPending()) {
+            <span class="header-action-detail">{{ instance().pendingYoloMode ? copy('header.yoloPendingOn') : copy('header.yoloPendingOff') }}</span>
+          }
           <app-session-computer-use-control [instance]="instance()" />
           @if (supportsFastMode()) {
             <button
               class="fast-badge"
               [class.active]="instance().fastMode"
-              [disabled]="isTogglingFastMode() || isRuntimeLocked()"
-              [title]="
+              [disabled]="isTogglingFastMode()"
+              [appTooltipDisabledReason]="isRuntimeLocked() ? copy('header.fastLocked') : null"
+              [appTooltip]="
                 isRuntimeLocked()
-                  ? 'Cannot toggle fast mode while instance is running or recovering'
+                  ? copy('header.fastLocked')
                   : instance().fastMode
-                    ? 'Fast Mode: faster output (Opus / Codex priority tier). Click to disable'
-                    : 'Fast Mode: faster output at some capability cost. Click to enable'
+                    ? copy('header.fastOn')
+                    : copy('header.fastOff')
               "
-              (click)="toggleFastMode.emit()"
+              (click)="!isRuntimeLocked() && !isTogglingFastMode() && toggleFastMode.emit()"
             >
-              FAST {{ instance().fastMode ? 'ON' : 'OFF' }}
+              {{ isTogglingFastMode() ? 'Changing…' : 'FAST' }} {{ instance().fastMode ? 'ON' : 'OFF' }}
             </button>
           }
+          @if (supportsFastMode()) {
+            <span class="header-action-detail">{{ instance().fastMode ? copy('header.fastOn') : copy('header.fastOff') }}</span>
+          }
           @if (activeSkillCount() > 0) {
-            <span class="skills-badge" [title]="activeSkillsTooltip()">
+            <span class="skills-badge" tabindex="0" [appTooltip]="activeSkillsTooltip()">
               {{ activeSkillCount() }} skill{{ activeSkillCount() > 1 ? 's' : '' }}
             </span>
           }
           <app-session-skills-badge [instanceId]="instance().id" />
           @if (enabledHookCount() > 0) {
-            <span class="hooks-badge" [title]="enabledHooksTooltip()">
+            <span class="hooks-badge" tabindex="0" [appTooltip]="enabledHooksTooltip()">
               {{ enabledHookCount() }} hook{{ enabledHookCount() > 1 ? 's' : '' }}
             </span>
           }

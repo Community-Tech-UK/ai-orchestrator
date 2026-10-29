@@ -1,3 +1,4 @@
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 /**
  * Codebase Search Component
  *
@@ -47,16 +48,17 @@ import type { HybridSearchOptions } from '../../../../shared/types/codebase.type
       <!-- Search Options -->
       <div class="search-options">
         <!-- HyDE Toggle -->
-        <label class="option-toggle" for="hyde-toggle" title="Hypothetical Document Embedding - generates better semantic queries">
+        <div class="option-toggle">
           <input
             type="checkbox"
             id="hyde-toggle"
+            [appTooltip]="hydeHint"
             [ngModel]="useHyDE()"
             (ngModelChange)="useHyDE.set($event); triggerSearch()"
             [disabled]="disabled()"
           />
-          <span class="toggle-label">HyDE</span>
-        </label>
+          <label class="toggle-label" for="hyde-toggle" [appTooltip]="hydeHint">HyDE</label>
+        </div>
 
         <!-- File Pattern Filter -->
         <div class="file-pattern">
@@ -69,7 +71,7 @@ import type { HybridSearchOptions } from '../../../../shared/types/codebase.type
             [ngModel]="filePattern()"
             (ngModelChange)="onPatternChange($event)"
             [disabled]="disabled()"
-            title="Filter by file patterns (comma-separated glob patterns)"
+            appTooltip="Filter by file patterns (comma-separated glob patterns)"
           />
         </div>
 
@@ -279,6 +281,7 @@ import type { HybridSearchOptions } from '../../../../shared/types/codebase.type
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CodebaseSearchComponent {
+  protected readonly hydeHint = copyFor('codebase.hyde');
   /** Store ID for search */
   storeId = input.required<string>();
 

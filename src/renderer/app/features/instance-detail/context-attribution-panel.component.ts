@@ -32,6 +32,8 @@ import type {
   ContextManifestTrigger,
 } from '../../../../shared/types/context-manifest.types';
 import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 
 const REFRESH_INTERVAL_MS = 10_000;
 
@@ -153,7 +155,7 @@ export function buildSparklinePoints(samples: readonly { ratio: number }[]): str
 @Component({
   selector: 'app-context-attribution-panel',
   standalone: true,
-  imports: [DecimalPipe, DatePipe],
+  imports: [DecimalPipe, DatePipe, AioTooltipDirective],
   template: `
     <div class="attribution-panel">
       @if (error(); as message) {
@@ -164,7 +166,7 @@ export function buildSparklinePoints(samples: readonly { ratio: number }[]): str
         <div class="section">
           <div class="section-title">
             Context by source
-            <span class="estimated-note" title="Char-heuristic estimates (same family as the compactor); the provider-owned system prompt is not observable and lands in Other.">~estimated</span>
+            <span class="estimated-note" tabindex="0" [appTooltip]="copy('attribution.estimates')">~estimated</span>
           </div>
           <div class="stacked-bar" role="img" aria-label="Context usage by source">
             @for (row of rows(); track row.key) {
@@ -172,7 +174,7 @@ export function buildSparklinePoints(samples: readonly { ratio: number }[]): str
                 class="segment"
                 [class]="'segment seg-' + row.key"
                 [style.width.%]="row.percent"
-                [title]="row.label + ': ' + row.tokens + ' tokens'"
+                [appTooltip]="row.label + ': ' + row.tokens + ' tokens'"
               ></div>
             }
           </div>
@@ -186,7 +188,7 @@ export function buildSparklinePoints(samples: readonly { ratio: number }[]): str
               </li>
               @for (detail of row.detail; track detail.label) {
                 <li class="detail-row">
-                  <span class="label detail-label" [title]="detail.label">{{ detail.label }}</span>
+                  <span class="label detail-label" tabindex="0" [appTooltip]="detail.label" appTooltipVariant="overflow">{{ detail.label }}</span>
                   <span class="tokens">{{ detail.tokens | number:'1.0-0' }}</span>
                 </li>
               }
@@ -204,7 +206,7 @@ export function buildSparklinePoints(samples: readonly { ratio: number }[]): str
             <div class="cache-meta">
               <span>latest {{ latestRatioPct() | number:'1.0-0' }}%</span>
               @if (lastBreak(); as brk) {
-                <span class="cache-break" [title]="'Hit ratio fell to ' + (brk.ratio * 100 | number:'1.0-0') + '% vs median ' + (brk.trailingMedian * 100 | number:'1.0-0') + '%'">
+                <span class="cache-break" tabindex="0" [appTooltip]="'Hit ratio fell to ' + (brk.ratio * 100 | number:'1.0-0') + '% vs median ' + (brk.trailingMedian * 100 | number:'1.0-0') + '%'">
                   cache broke{{ brk.probableCause ? ' after: ' + brk.probableCause : '' }}
                 </span>
               }
@@ -217,7 +219,7 @@ export function buildSparklinePoints(samples: readonly { ratio: number }[]): str
         <div class="section">
           <div class="section-title">
             Context manifest
-            <span class="estimated-note" title="AIO can only prove what it composed and sent — never what the provider's own process actually kept or used from it.">AIO-owned sources only</span>
+            <span class="estimated-note" tabindex="0" [appTooltip]="copy('attribution.composedSources')">AIO-owned sources only</span>
           </div>
           <p class="manifest-honesty-note">
             Records exactly which AIO-owned context sources (instructions, project brief, lessons, etc.)
@@ -246,7 +248,7 @@ export function buildSparklinePoints(samples: readonly { ratio: number }[]): str
                           <span class="entry-label">{{ entry.label }}</span>
                           <span class="entry-status">{{ entry.statusLabel }}</span>
                           @if (entry.shortHash) {
-                            <span class="entry-hash" [title]="'sha256 ' + entry.shortHash">{{ entry.shortHash }}</span>
+                            <span class="entry-hash" tabindex="0" [appTooltip]="'sha256 ' + entry.shortHash">{{ entry.shortHash }}</span>
                           }
                           @if (entry.charLength !== undefined) {
                             <span class="entry-length">{{ entry.charLength | number:'1.0-0' }} chars</span>
@@ -433,6 +435,7 @@ export function buildSparklinePoints(samples: readonly { ratio: number }[]): str
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ContextAttributionPanelComponent implements OnInit, OnDestroy {
+  protected readonly copy = copyFor;
   instanceId = input.required<string>();
 
   private readonly ipc = inject(ElectronIpcService);

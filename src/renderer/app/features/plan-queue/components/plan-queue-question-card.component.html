@@ -14,7 +14,7 @@
       </label>
     }
   </div>
-  <button type="button" class="pq-question-submit" [disabled]="!selectedOptionId()" (click)="onSubmit()">
+  <button type="button" class="pq-question-submit" [appTooltip]="copy('planQueue.submit')" [appTooltipDisabledReason]="selectedOptionId() ? null : copy('planQueue.chooseAnswer')" (click)="onSubmit()">
     Submit answer
   </button>
 </fieldset>

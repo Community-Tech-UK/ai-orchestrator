@@ -6,6 +6,9 @@
       <span class="queue-hold-reason">{{ holdReasonLabel() }}</span>
     }
   </div>
+  @if (hasUnsavedMessages()) {
+    <p class="queue-unsaved-warning" role="status">Not saved yet. If Harness crashes now, the marked message could be lost.</p>
+  }
   @if (parked()) {
     <!-- B7: Stop holds the queue. Said plainly, because a queue that silently
          stops sending looks identical to one that is broken. -->
@@ -19,31 +22,31 @@
   <div class="queued-messages">
     @for (queuedMsg of messages(); track $index; let i = $index) {
       <div class="queued-message-item">
-        <span class="queued-message-text" [title]="queuedMsg.message">
+        <span class="queued-message-text" [appTooltip]="queuedMsg.message" appTooltipVariant="overflow" tabindex="0">
           {{ truncate(queuedMsg.message) }}
         </span>
         @if (queuedMsg.kind === 'steer') {
           <span class="queued-kind queued-kind-steer"><app-term term="steer">steer</app-term></span>
         }
         @if (queuedMsg.files && queuedMsg.files.length > 0) {
-          <span class="queued-file-count" title="Attached files">
+          <span class="queued-file-count" appTooltip="Attached files" tabindex="0">
             {{ queuedMsg.files.length }} attached
           </span>
         }
         @if (queuedMsg.hadAttachmentsDropped) {
-          <span class="queued-drop-warning" title="Attachments could not be restored for this queued message">
+          <span class="queued-drop-warning" [appTooltip]="copy('composer.attachmentsDropped')" tabindex="0">
             attachments dropped
           </span>
         }
         @if (queuedMsg.notDurable) {
-          <span class="queued-drop-warning" title="Not yet saved for crash recovery — a renderer crash right now could lose this message">
+          <span class="queued-drop-warning" [appTooltip]="copy('composer.queueNotSaved')" tabindex="0">
             not saved
           </span>
         }
         <button
           class="queued-edit-btn"
           (click)="editMessage.emit(i)"
-          title="Edit queued message"
+          appTooltip="Edit queued message"
           aria-label="Edit queued message"
         >
           <svg class="queued-edit-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -55,7 +58,7 @@
           <button
             class="queued-steer-btn"
             (click)="steerMessage.emit(i)"
-            title="Steer this queued message now"
+            appTooltip="Steer this queued message now"
           >
             <svg class="queued-steer-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M4 7h11a5 5 0 0 1 0 10H9"></path>
@@ -67,7 +70,7 @@
         <button
           class="queued-cancel-btn"
           (click)="cancelMessage.emit(i)"
-          appTooltip="Cancel and restore to input"
+          [appTooltip]="copy('composer.cancelQueued')"
           aria-label="Cancel and restore to input"
         >
           ×

@@ -1,9 +1,11 @@
+import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { PauseStore } from './pause.store';
 
 @Component({
   selector: 'app-pause-toggle',
   standalone: true,
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <button
@@ -12,7 +14,7 @@ import { PauseStore } from './pause.store';
       [class.active]="store.manualPaused()"
       [attr.aria-pressed]="store.manualPaused()"
       [attr.aria-label]="store.manualPaused() ? 'Resume orchestrator' : 'Pause orchestrator'"
-      [title]="store.manualPaused() ? 'Resume orchestrator' : 'Pause orchestrator'"
+      [appTooltip]="store.manualPaused() ? 'Resume orchestrator' : 'Pause orchestrator'"
       (click)="toggleManualPause()"
     >
       @if (store.manualPaused()) {

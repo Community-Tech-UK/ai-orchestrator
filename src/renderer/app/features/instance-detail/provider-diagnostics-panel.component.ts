@@ -16,6 +16,7 @@ import type {
 } from '@contracts/types/provider-runtime-events';
 import type { ContextUsage } from '../../core/state/instance.store';
 import { InstanceEventsService } from '../../core/services/instance-events.service';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 interface ProviderDiagnosticsSnapshot {
   requestId?: string;
@@ -50,6 +51,7 @@ interface ProviderDiagnosticItem {
 @Component({
   selector: 'app-provider-diagnostics-panel',
   standalone: true,
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (items().length > 0) {
@@ -59,10 +61,11 @@ interface ProviderDiagnosticItem {
             class="diagnostic-pill"
             [class.warning]="item.tone === 'warning'"
             [class.danger]="item.tone === 'danger'"
-            [title]="item.value"
+            role="group"
+            [attr.aria-label]="item.label"
           >
             <span class="diagnostic-label">{{ item.label }}</span>
-            <span class="diagnostic-value">{{ item.value }}</span>
+            <span class="diagnostic-value" tabindex="0" [appTooltip]="item.value">{{ item.value }}</span>
           </span>
         }
       </section>
@@ -111,6 +114,11 @@ interface ProviderDiagnosticItem {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+
+    .diagnostic-value:focus-visible {
+      outline: 1px solid currentColor;
+      outline-offset: 2px;
     }
   `],
 })

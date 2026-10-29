@@ -36,7 +36,8 @@
           : (navCollapsed() ? 'Expand settings navigation' : 'Collapse settings navigation')
       "
       [attr.aria-expanded]="compactViewport() ? compactNavOpen() : !navCollapsed()"
-      [title]="
+      [appTooltipShowWhenExpanded]="true"
+      [appTooltip]="
         compactViewport()
           ? (compactNavOpen() ? 'Close settings navigation' : 'Open settings navigation')
           : (navCollapsed() ? 'Expand settings navigation' : 'Collapse settings navigation')
@@ -63,7 +64,7 @@
           class="search-clear"
           type="button"
           (click)="clearSearch()"
-          aria-label="Clear search"
+          aria-label="Clear search" appTooltip="Clear search"
         >
           ×
         </button>
@@ -81,17 +82,19 @@
 
     <nav id="settings-section-navigation" class="settings-nav">
       @for (item of ungroupedItems(); track item.id) {
+        @let badge = navBadges()[item.id];
         <button
           class="nav-item"
           type="button"
           [class.active]="activeTab() === item.id"
           (click)="selectTab(item.id)"
-          [title]="item.label"
-          [attr.aria-label]="item.label"
+          [appTooltip]="effectiveNavCollapsed() && !(compactViewport() && compactNavOpen()) ? navLabel(item.label, badge?.text ?? null, !!item.recommended) : null"
+          appTooltipPosition="after"
+          [attr.aria-label]="navLabel(item.label, badge?.text ?? null, !!item.recommended)"
         >
           <span class="nav-item-icon"><app-settings-nav-icon [name]="item.id" /></span>
           <span class="nav-item-label">{{ item.label }}</span>
-          @if (navBadges()[item.id]; as badge) {
+          @if (badge) {
             <span class="nav-badge" [attr.data-status]="badge.status">{{ badge.text }}</span>
           } @else if (item.recommended) {
             <span class="nav-recommended">Recommended</span>
@@ -102,17 +105,19 @@
       @for (group of groups(); track group) {
         <span class="nav-group-label">{{ group }}</span>
         @for (item of getGroupItems(group); track item.id) {
+          @let badge = navBadges()[item.id];
           <button
             class="nav-item"
             type="button"
             [class.active]="activeTab() === item.id"
             (click)="selectTab(item.id)"
-            [title]="item.label"
-            [attr.aria-label]="item.label"
+            [appTooltip]="effectiveNavCollapsed() && !(compactViewport() && compactNavOpen()) ? navLabel(item.label, badge?.text ?? null, !!item.recommended) : null"
+            appTooltipPosition="after"
+            [attr.aria-label]="navLabel(item.label, badge?.text ?? null, !!item.recommended)"
           >
             <span class="nav-item-icon"><app-settings-nav-icon [name]="item.id" /></span>
             <span class="nav-item-label">{{ item.label }}</span>
-            @if (navBadges()[item.id]; as badge) {
+            @if (badge) {
               <span class="nav-badge" [attr.data-status]="badge.status">{{ badge.text }}</span>
             } @else if (item.recommended) {
               <span class="nav-recommended">Recommended</span>

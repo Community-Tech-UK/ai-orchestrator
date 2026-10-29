@@ -54,7 +54,7 @@ export function verificationRunResultLabel(exitCode: number | null): string {
                 <div class="vr-row-head">
                   <span class="vr-result" [attr.data-result]="run.exitCode === 0 ? 'passed' : 'failed'">{{ result(run.exitCode) }}</span>
                   <span class="vr-freshness" [attr.data-freshness]="freshness(run)">{{ freshness(run) }}</span>
-                  <span class="vr-age" [title]="timestamp(run.startedAt)">{{ timestamp(run.startedAt) }}</span>
+                  <span class="vr-age">{{ timestamp(run.startedAt) }}</span>
                   <span class="vr-duration">{{ duration(run.durationMs) }}</span>
                 </div>
                 <code class="vr-command">{{ run.command }}</code>

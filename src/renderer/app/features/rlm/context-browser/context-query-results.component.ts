@@ -9,6 +9,7 @@ import {
   ChangeDetectionStrategy
 } from '@angular/core';
 import type { QueryType } from '../../../../../shared/types/rlm.types';
+import { AppIconButtonDirective } from '../../../shared/tooltip/icon-button.directive';
 
 export interface QueryResult {
   id: string;
@@ -24,6 +25,7 @@ export interface QueryResult {
 @Component({
   selector: 'app-context-query-results',
   standalone: true,
+  imports: [AppIconButtonDirective],
   template: `
     <!-- Results List -->
     <div class="query-results-section">
@@ -78,7 +80,7 @@ export interface QueryResult {
           <span class="detail-title">
             {{ result.type }} Result
           </span>
-          <button class="close-btn" (click)="closeDetail.emit()">✕</button>
+          <button class="close-btn" appIconButton="Close result details" (click)="closeDetail.emit()">✕</button>
         </div>
         <div class="detail-content">
           @if (result.error) {

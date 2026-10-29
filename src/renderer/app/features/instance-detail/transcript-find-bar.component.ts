@@ -8,10 +8,12 @@ import {
   output,
   viewChild,
 } from '@angular/core';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 
 @Component({
   selector: 'app-transcript-find-bar',
   standalone: true,
+  imports: [AppIconButtonDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="transcript-find-bar" role="search" aria-label="Find in transcript">
@@ -30,15 +32,15 @@ import {
         (keydown)="onKeydown($event)"
         aria-label="Find in transcript"
       />
-      <span class="find-count" [class.empty]="matchCount() === 0">
+      <span class="find-count" [class.empty]="matchCount() === 0" aria-live="polite">
         {{ statusLabel() }}
       </span>
       <button
         type="button"
         class="find-button"
-        title="Previous match"
-        aria-label="Previous match"
-        [disabled]="matchCount() === 0 || loadingOlder()"
+        appIconButton="Previous match"
+        [appIconButtonDisabledReason]="noMatchReason()"
+        [disabled]="loadingOlder()"
         (click)="previous.emit()"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
@@ -49,9 +51,9 @@ import {
       <button
         type="button"
         class="find-button"
-        title="Next match"
-        aria-label="Next match"
-        [disabled]="matchCount() === 0 || loadingOlder()"
+        appIconButton="Next match"
+        [appIconButtonDisabledReason]="noMatchReason()"
+        [disabled]="loadingOlder()"
         (click)="next.emit()"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
@@ -62,8 +64,7 @@ import {
       <button
         type="button"
         class="find-button close"
-        title="Close find"
-        aria-label="Close find"
+        appIconButton="Close find"
         (click)="closeRequested.emit()"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
@@ -147,12 +148,13 @@ import {
       transition: background var(--transition-fast), color var(--transition-fast);
     }
 
-    .find-button:hover:not(:disabled) {
+    .find-button:hover:not(:disabled):not([aria-disabled='true']) {
       background: var(--bg-hover);
       color: var(--text-primary);
     }
 
-    .find-button:disabled {
+    .find-button:disabled,
+    .find-button[aria-disabled='true'] {
       cursor: not-allowed;
       opacity: 0.35;
     }
@@ -174,6 +176,11 @@ export class TranscriptFindBarComponent implements AfterViewInit {
   readonly closeRequested = output<void>();
 
   private readonly searchInput = viewChild<ElementRef<HTMLInputElement>>('searchInput');
+
+  protected readonly noMatchReason = computed(() => {
+    if (this.loadingOlder() || this.matchCount() > 0) return null;
+    return this.query().trim() ? 'No matches for this search' : 'Type something to search for first';
+  });
 
   protected readonly statusLabel = computed(() => {
     if (this.loadingOlder()) {

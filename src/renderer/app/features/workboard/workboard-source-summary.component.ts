@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
 import { basename, relativeTime } from './workboard-projection';
 import { sourceLabel } from './workboard-card.component';
 import type { WorkboardItem, WorkboardSourceKind } from './workboard.types';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 export interface WorkboardSpecialistTarget {
   label: string;
@@ -37,6 +38,7 @@ export function workboardSpecialistTarget(kind: WorkboardSourceKind): WorkboardS
   selector: 'app-workboard-source-summary',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [AioTooltipDirective],
   template: `
     <div class="wb-summary">
       <header class="wb-summary-head">
@@ -51,7 +53,7 @@ export function workboardSpecialistTarget(kind: WorkboardSourceKind): WorkboardS
         </div>
         <div class="wb-summary-row">
           <dt>Workspace</dt>
-          <dd [title]="item().workingDirectory">{{ workspaceLabel() }}</dd>
+          <dd [appTooltip]="item().workingDirectory" [attr.tabindex]="item().workingDirectory ? 0 : null">{{ workspaceLabel() }}</dd>
         </div>
         <div class="wb-summary-row">
           <dt>Updated</dt>

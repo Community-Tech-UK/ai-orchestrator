@@ -18,6 +18,9 @@ import { FormsModule } from '@angular/forms';
 import { VerificationStore } from '../../../core/state/verification.store';
 import type { CliType } from '../../../../../shared/types/unified-cli-response';
 import type { PersonalityType, SynthesisStrategy } from '../../../../../shared/types/verification.types';
+import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
+import { AppIconButtonDirective } from '../../../shared/tooltip/icon-button.directive';
+import { copyFor } from '../../../shared/tooltip/tooltip-copy';
 
 interface AgentConfig {
   name: CliType;
@@ -30,7 +33,7 @@ interface AgentConfig {
 @Component({
   selector: 'app-agent-config-panel',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, AioTooltipDirective, AppIconButtonDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="panel-overlay" (click)="handleOverlayClick($event)" (keydown.enter)="handleOverlayClick($event)" (keydown.space)="handleOverlayClick($event)" tabindex="0" role="button">
@@ -38,7 +41,7 @@ interface AgentConfig {
         <!-- Header -->
         <div class="panel-header">
           <h2 class="panel-title">Configure Verification Agents</h2>
-          <button class="close-btn" (click)="closePanel.emit()">×</button>
+          <button class="close-btn" appIconButton="Close" (click)="closePanel.emit()">×</button>
         </div>
 
         <!-- Content -->
@@ -54,7 +57,7 @@ interface AgentConfig {
                   <button
                     class="remove-btn"
                     (click)="removeAgent(agent.name)"
-                    [disabled]="store.selectedAgents().length <= 1"
+                    [appTooltipDisabledReason]="store.selectedAgents().length <= 1 ? copy('verificationHints.lastAgent') : null"
                   >
                     Remove
                   </button>
@@ -301,7 +304,8 @@ interface AgentConfig {
       cursor: pointer;
     }
 
-    .remove-btn:disabled {
+    .remove-btn:disabled,
+    .remove-btn.aio-reason-disabled {
       color: var(--text-muted);
       cursor: not-allowed;
     }
@@ -472,6 +476,7 @@ interface AgentConfig {
 })
 export class AgentConfigPanelComponent implements OnInit {
   store = inject(VerificationStore);
+  protected readonly copy = copyFor;
 
   closePanel = output<void>();
 
@@ -568,6 +573,7 @@ export class AgentConfigPanelComponent implements OnInit {
   }
 
   removeAgent(name: CliType): void {
+    if (this.store.selectedAgents().length <= 1) return;
     this.store.removeSelectedAgent(name);
     this.initAgentConfigs();
   }

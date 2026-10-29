@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import type { LocalAiAggregateStatus } from '../../../../shared/types/local-ai-guard.types';
@@ -15,6 +16,7 @@ const STATE_LABELS: Record<LocalAiAggregateStatus['state'], string> = {
 @Component({
   selector: 'app-local-ai-status-chip',
   standalone: true,
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (visible()) {
@@ -30,7 +32,7 @@ const STATE_LABELS: Record<LocalAiAggregateStatus['state'], string> = {
           ? 'neutral'
           : store.aggregate().state"
         [attr.aria-label]="accessibleLabel()"
-        [title]="accessibleLabel()"
+        [appTooltip]="accessibleLabel()"
         (click)="openHealthCentre()"
       >
         <span class="status-mark" aria-hidden="true"></span>

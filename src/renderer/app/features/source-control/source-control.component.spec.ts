@@ -15,7 +15,9 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { By } from '@angular/platform-browser';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { SourceControlComponent } from './source-control.component';
 import { SourceControlStore } from '../../core/state/source-control.store';
 import { VcsIpcService } from '../../core/services/ipc/vcs-ipc.service';
@@ -70,6 +72,7 @@ function repoState(status: GitStatusResponse | null = seededStatus()): RepoState
 
 describe('SourceControlComponent (VS Code SCM restyle)', () => {
   let store: SourceControlStore;
+  afterEach(() => vi.restoreAllMocks());
 
   function seed(status: GitStatusResponse | null = seededStatus()): void {
     store._resetForTesting();
@@ -95,6 +98,48 @@ describe('SourceControlComponent (VS Code SCM restyle)', () => {
     });
     store = TestBed.inject(SourceControlStore);
     seed();
+  });
+
+  it.each([['MacIntel', '⌘/⇧', '⌘'], ['Win32', 'Ctrl/Shift', 'Ctrl'], ['Linux x86_64', 'Ctrl/Shift', 'Ctrl']])(
+    'shows platform keys in real row and commit hints on %s', async (platform, clickKeys, commitKey) => {
+      vi.spyOn(navigator, 'platform', 'get').mockReturnValue(platform);
+      const fixture = await render();
+      const rows = fixture.debugElement.queryAll(By.css('.file-row'));
+      expect(rows).toHaveLength(4);
+      const hints = rows.map(row => row.injector.get(AioTooltipDirective, null)?.appTooltip());
+      expect(hints[0]).toBe(`src/alpha.ts — click to open diff · ${clickKeys}-click to multi-select · drag to attach`);
+      expect(hints[3]).toBe(`src/newfile.ts — ${clickKeys}-click to multi-select · drag to attach`);
+      const commit = fixture.debugElement.query(By.css('.commit-row .action-btn'));
+      expect(commit.injector.get(AioTooltipDirective, null)?.appTooltip()).toBe(`Commit staged changes (${commitKey}+Enter)`);
+      expect(fixture.nativeElement.querySelector('.commit-message').placeholder).toBe(`Commit message — ${commitKey}+Enter to commit`);
+      expect(fixture.nativeElement.querySelectorAll('[title]')).toHaveLength(0);
+    },
+  );
+
+  it('gives both diff chevrons keyboard-opened explanations even when expanded', async () => {
+    const fixture = await render();
+    const button = fixture.debugElement.query(By.css('.file-expand-chevron'));
+    const hint = button.injector.get(AioTooltipDirective, null);
+    expect(hint?.appTooltip()).toBe('Expand diff inline');
+    expect(hint?.appTooltipShowWhenExpanded()).toBe(true);
+    const host: HTMLElement = button.nativeElement;
+    const matches = host.matches.bind(host);
+    vi.spyOn(host, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
+    host.dispatchEvent(new FocusEvent('focus'));
+    fixture.detectChanges();
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('Expand diff inline');
+  });
+
+  it('discloses recoverable trash removal and respects cancellation', async () => {
+    const discard = vi.spyOn(store, 'discardFiles').mockResolvedValue({ success: true });
+    const confirmTrash = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const fixture = await render();
+    fixture.nativeElement.querySelector('[aria-label="Trash src/newfile.ts"]').click();
+    expect(confirmTrash).toHaveBeenCalledWith(expect.stringContaining('Move to Trash (recoverable)'));
+    expect(discard).not.toHaveBeenCalled();
+    confirmTrash.mockReturnValue(true);
+    fixture.nativeElement.querySelector('[aria-label="Trash src/newfile.ts"]').click();
+    expect(discard).toHaveBeenCalledExactlyOnceWith(REPO, ['src/newfile.ts']);
   });
 
   it('renders a file-type icon for every change row', async () => {
@@ -146,7 +191,9 @@ describe('SourceControlComponent (VS Code SCM restyle)', () => {
     const fixture = await render();
     const trash = fixture.nativeElement.querySelector('[aria-label="Trash src/newfile.ts"]');
     expect(trash).toBeTruthy();
-    expect((trash as HTMLElement).getAttribute('title')).toBe('Move to Trash (recoverable)');
+    const hint = fixture.debugElement.query(By.css('[aria-label="Trash src/newfile.ts"]')).injector.get(AioTooltipDirective);
+    expect(hint.appTooltip()).toBe('Move to Trash (recoverable)');
+    expect((trash as HTMLElement).hasAttribute('title')).toBe(false);
     // Its "Stage all" absorbs untracked (single button per group, no separate
     // "Stage all untracked").
     const stageAll = Array.from(fixture.nativeElement.querySelectorAll('.group-action')).map((el) =>
@@ -156,18 +203,19 @@ describe('SourceControlComponent (VS Code SCM restyle)', () => {
     expect(stageAll).toContain('Unstage all');
   });
 
-  it('gives every file row a title beginning with the full repo-relative path', async () => {
+  it('gives every file row a tooltip beginning with the full repo-relative path', async () => {
     const fixture = await render();
-    const rows = Array.from(fixture.nativeElement.querySelectorAll('.file-row')) as HTMLElement[];
+    const rows = fixture.debugElement.queryAll(By.css('.file-row'));
     expect(rows.length).toBe(4);
     for (const row of rows) {
-      const title = row.getAttribute('title') ?? '';
-      expect(title.startsWith('src/')).toBe(true);
+      const hint = row.injector.get(AioTooltipDirective).appTooltip() ?? '';
+      expect(hint.startsWith('src/')).toBe(true);
     }
-    // Untracked row title omits the diff hint but still leads with the path.
-    const untrackedRow = rows.find((r) => r.getAttribute('title')?.startsWith('src/newfile.ts'));
-    expect(untrackedRow?.getAttribute('title')).toBe(
-      'src/newfile.ts — ⌘/⇧-click to multi-select · drag to attach',
+    // Untracked row omits the diff hint but still leads with the path.
+    const hints = rows.map(row => row.injector.get(AioTooltipDirective).appTooltip());
+    const keys = /Mac|iPhone|iPad|iPod/.test(navigator.platform) ? '⌘/⇧' : 'Ctrl/Shift';
+    expect(hints.find(hint => hint?.startsWith('src/newfile.ts'))).toBe(
+      `src/newfile.ts — ${keys}-click to multi-select · drag to attach`,
     );
   });
 
@@ -193,7 +241,7 @@ describe('SourceControlComponent (VS Code SCM restyle)', () => {
     const openDiff = vi.spyOn(store, 'openDiff');
     const fixture = await render();
     const untrackedRow = (Array.from(fixture.nativeElement.querySelectorAll('.file-row')) as HTMLElement[]).find(
-      (r) => r.getAttribute('title')?.startsWith('src/newfile.ts'),
+      (r) => r.querySelector('.file-name')?.textContent?.trim() === 'newfile.ts',
     ) as HTMLButtonElement;
     untrackedRow.click();
     expect(openDiff).not.toHaveBeenCalled();

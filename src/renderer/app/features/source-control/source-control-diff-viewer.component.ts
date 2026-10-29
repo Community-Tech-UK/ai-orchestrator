@@ -24,11 +24,12 @@ import { DiffLoader } from './diff-loader';
 import { SourceControlDiffViewComponent } from './source-control-diff-view.component';
 import { resolveRelativePath } from '../../../../shared/utils/cross-platform-path';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 
 @Component({
   selector: 'app-source-control-diff-viewer',
   standalone: true,
-  imports: [SourceControlDiffViewComponent, AioTooltipDirective],
+  imports: [SourceControlDiffViewComponent, AioTooltipDirective, AppIconButtonDirective],
   template: `
     <div
       class="diff-backdrop"
@@ -41,7 +42,7 @@ import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive'
         <header class="diff-header">
           <div class="diff-title-block">
             <div class="diff-eyebrow">{{ repoName() }} · {{ staged() ? 'staged' : 'unstaged' }}</div>
-            <div class="diff-title" [title]="filePath()">{{ filePath() }}</div>
+            <div class="diff-title" tabindex="0" appTooltipVariant="overflow" [appTooltip]="filePath()">{{ filePath() }}</div>
           </div>
           @if (loader.file(); as f) {
             <div class="diff-stats">
@@ -54,7 +55,7 @@ import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive'
             class="diff-action"
             (click)="onOpenInEditor()"
             [disabled]="openInEditorPending()"
-            [title]="openInEditorTitle()"
+            [appTooltip]="openInEditorTitle()"
             aria-label="Open file in editor"
           >
             <!-- inline icon: external-link / arrow-up-right-from-square -->
@@ -65,6 +66,7 @@ import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive'
               <path d="M10 6H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" />
             </svg>
           </button>
+          @if (openInEditorPending()) { <span role="status">Opening…</span> }
           <button
             type="button"
             class="diff-close"
@@ -80,7 +82,7 @@ import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive'
             <span>{{ err }}</span>
             <button type="button" class="open-in-editor-error-dismiss"
               (click)="openInEditorError.set(null)"
-              aria-label="Dismiss editor error">×</button>
+              appIconButton="Dismiss editor error">×</button>
           </div>
         }
 

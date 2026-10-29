@@ -62,6 +62,25 @@ describe('LoopConfigPanelComponent', () => {
     fixture.detectChanges();
   });
 
+  it('explains a required rename on its focusable checkbox and keeps the effective setting on', () => {
+    component.onCompletionModeChange('gated'); component.showAdvanced.set(true); component.planFile.set('PLAN.md');
+    fixture.detectChanges();
+    const input = fixture.nativeElement.querySelector('#loop-cfg-require-rename') as HTMLInputElement;
+    expect(input.disabled).toBe(false);
+    expect(input.getAttribute('aria-disabled')).toBe('true');
+    input.click(); fixture.detectChanges();
+    expect(component.buildConfig()?.completion?.requireCompletedFileRename).toBe(true);
+    component.planFile.set(''); fixture.detectChanges();
+    expect(input.getAttribute('aria-disabled')).toBeNull();
+  });
+
+  it('shows the selected recipe description visibly and removes all native hints', () => {
+    component.onCompletionModeChange('gated'); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('#loop-cfg-recipe-description')?.textContent).toContain('Default software-implementation stages.');
+    expect(fixture.nativeElement.querySelector('#loop-cfg-recipe')?.getAttribute('aria-describedby')).toBe('loop-cfg-recipe-description');
+    expect(fixture.nativeElement.querySelector('[title]')).toBeNull();
+  });
+
   it('sends the chosen check time limit in milliseconds and shows its timeout consequence', async () => {
     component.showAdvanced.set(true); fixture.detectChanges(); await fixture.whenStable();
     const input = fixture.nativeElement.querySelector('#loop-cfg-verify-timeout') as HTMLInputElement;

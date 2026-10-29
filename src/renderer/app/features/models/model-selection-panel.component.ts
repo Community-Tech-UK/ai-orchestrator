@@ -31,6 +31,8 @@ import {
 import { ModelUsageMemoryService } from './model-usage-memory.service';
 import { ModelFavoritesService } from './model-favorites.service';
 import { DEFAULT_FAVORITE_MODEL_KEYS } from './default-favorites';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 
 type ActiveModelTab = 'favorites' | PickerProvider;
 type ProviderLabelMap = Partial<Record<PickerProvider, string>>;
@@ -61,6 +63,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
 @Component({
   selector: 'app-model-selection-panel',
   standalone: true,
+  imports: [AioTooltipDirective, AppIconButtonDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
@@ -76,8 +79,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
           class="model-picker-rail__button model-picker-rail__button--favorites"
           [class.active]="activeTab() === 'favorites'"
           data-tab="favorites"
-          aria-label="Favorites"
-          title="Favorites"
+          appIconButton="Favorites"
           (click)="selectTab('favorites')"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -93,8 +95,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
             class="model-picker-rail__button"
             [class.active]="activeTab() === provider"
             [attr.data-provider]="provider"
-            [attr.aria-label]="providerLabelMap()[provider] ?? provider"
-            [title]="providerLabelMap()[provider] ?? provider"
+            [appIconButton]="providerLabelMap()[provider] ?? provider"
             (click)="selectTab(provider)"
           >
             <span
@@ -134,15 +135,13 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
               [class.selected]="row.selected"
               [class.disabled]="row.disabledReason"
               [attr.aria-disabled]="row.disabledReason ? 'true' : null"
-              [attr.title]="row.disabledReason ?? row.model.id"
             >
               <button
                 type="button"
                 class="model-picker-row__favorite"
                 [class.active]="row.favorite"
                 [attr.aria-pressed]="row.favorite ? 'true' : 'false'"
-                [attr.aria-label]="row.favorite ? 'Remove from favorites' : 'Add to favorites'"
-                [title]="row.favorite ? 'Remove from favorites' : 'Add to favorites'"
+                [appIconButton]="row.favorite ? 'Remove from favorites' : 'Add to favorites'"
                 (click)="toggleFavorite(row, $event)"
                 (keydown)="onFavoriteKeydown(row, $event)"
               >
@@ -154,9 +153,9 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
               <button
                 type="button"
                 class="model-picker-row__select"
-                [disabled]="row.disabledReason ? true : null"
                 [attr.aria-current]="row.selected ? 'true' : null"
-                [attr.title]="row.disabledReason ?? row.model.id"
+                [appTooltip]="selectRowHint(row)"
+                [appTooltipDisabledReason]="row.disabledReason ?? null"
                 (click)="selectRow(row)"
               >
                 <span class="model-picker-row__body">
@@ -178,7 +177,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
                           {{ row.model.localModel.healthy ? 'Healthy' : 'Unavailable' }}
                         </span>
                         @if (row.model.localModel.loaded) {
-                          <span class="model-picker-row__badge model-picker-row__badge--loaded" [attr.title]="loadedContextTitle(row)">Loaded</span>
+                          <span class="model-picker-row__badge model-picker-row__badge--loaded">Loaded</span>
                         }
                       }
                     </span>
@@ -488,8 +487,13 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
       outline: none;
     }
 
-    .model-picker-row__select:disabled {
+    .model-picker-row__select[aria-disabled='true'] {
       cursor: not-allowed;
+    }
+
+    .model-picker-row__select:focus-visible {
+      outline: 2px solid var(--primary-color, #d97706);
+      outline-offset: -2px;
     }
 
     .model-picker-row__body {
@@ -781,7 +785,11 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
             disabled: true,
           }]
           : availableReasoningOptions;
-        const disabledReason = providerDisabledReason ?? localModelDisabledReason(model);
+        const reason = providerDisabledReason ?? localModelDisabledReason(model);
+        const loadedContext = model.localModel?.loaded ? model.localModel.loadedContextLength : undefined;
+        const disabledReason = reason && loadedContext
+          ? `${reason} Loaded context: ${loadedContext.toLocaleString()} tokens`
+          : reason;
         return {
           key,
           provider,
@@ -919,9 +927,12 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
     this.toggleFavorite(row, event);
   }
 
-  protected loadedContextTitle(row: ModelPickerRow): string | null {
-    const contextLength = row.model.localModel?.loadedContextLength;
-    return contextLength ? `Loaded context: ${contextLength.toLocaleString()} tokens` : null;
+  /** One hover host per row: the model id, plus the loaded context for a loaded local model. */
+  protected selectRowHint(row: ModelPickerRow): string {
+    const contextLength = row.model.localModel?.loaded ? row.model.localModel.loadedContextLength : undefined;
+    return contextLength
+      ? `${row.model.id} · Loaded context: ${contextLength.toLocaleString()} tokens`
+      : row.model.id;
   }
 
   protected onPanelKeydown(event: KeyboardEvent): void {

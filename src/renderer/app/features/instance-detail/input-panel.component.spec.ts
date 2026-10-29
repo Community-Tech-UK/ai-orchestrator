@@ -1,3 +1,6 @@
+import { By } from '@angular/platform-browser';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -228,6 +231,7 @@ describe('InputPanelComponent composer autocomplete integration', () => {
         styleUrl: undefined,
         styleUrls: [],
         imports: [
+          AioTooltipDirective, AppIconButtonDirective,
           AgentSelectorStubComponent,
           CompactModelPickerStubComponent,
           LoopToggleStubComponent,
@@ -256,7 +260,7 @@ describe('InputPanelComponent composer autocomplete integration', () => {
          },
         {
           provide: KeybindingService,
-          useValue: { setContext: vi.fn(), onAction: vi.fn(() => vi.fn()) },
+          useValue: { setContext: vi.fn(), onAction: vi.fn(() => vi.fn()), formatBindingByAction: () => 'Live binding', ariaShortcutsByAction: () => 'Control+Enter' },
         },
         { provide: OrchestrationIpcService, useValue: createOrchestrationIpcMock() },
         { provide: ElectronIpcService, useValue: { platform: 'darwin' } },
@@ -556,9 +560,10 @@ describe('InputPanelComponent composer autocomplete integration', () => {
     expect(component.hardenedUnavailable()).toBe(true);
     expect(component.hardenedLabel()).toBe('N/A');
     let hardenedButton = fixture.nativeElement.querySelector('.hardened-toggle') as HTMLButtonElement;
-    expect(hardenedButton.disabled).toBe(true);
+    expect(hardenedButton.disabled).toBe(false);
+    expect(hardenedButton.getAttribute('aria-disabled')).toBe('true');
     expect(hardenedButton.textContent).toContain('Hardened N/A');
-    expect(hardenedButton.title).toContain('not supported for Gemini yet');
+    expect(hintFor('.hardened-toggle').appTooltipDisabledReason()).toContain('not supported for Gemini yet');
     hardenedButton.click();
     expect(newSessionDraft.setHardened).not.toHaveBeenCalled();
 
@@ -593,13 +598,14 @@ describe('InputPanelComponent composer autocomplete integration', () => {
     newSessionDraft.signalFenceOff.set(true);
     fixture.detectChanges();
     expect(fenceButton().textContent).toContain('Fence OFF');
-    expect(fenceButton().title).toContain('can stop any program you own');
+    expect(hintFor('.fence-toggle').appTooltip()).toContain('can stop any program you own');
 
     // A hardened jail always blocks cross-session signals.
     newSessionDraft.hardened.set(true);
     fixture.detectChanges();
     expect(fenceButton().textContent).toContain('Fence ON');
-    expect(fenceButton().disabled).toBe(true);
+    expect(fenceButton().disabled).toBe(false);
+    expect(fenceButton().getAttribute('aria-disabled')).toBe('true');
     newSessionDraft.hardened.set(null);
 
     // The Settings switch turns it off for every session.
@@ -608,8 +614,9 @@ describe('InputPanelComponent composer autocomplete integration', () => {
     fixture.detectChanges();
     try {
       expect(fenceButton().textContent).toContain('Fence OFF');
-      expect(fenceButton().disabled).toBe(true);
-      expect(fenceButton().title).toContain('Settings');
+      expect(fenceButton().disabled).toBe(false);
+    expect(fenceButton().getAttribute('aria-disabled')).toBe('true');
+      expect(hintFor('.fence-toggle').appTooltipDisabledReason()).toContain('Settings');
     } finally {
       appSettings.set({ providerSignalFenceEnabled: true });
     }
@@ -626,6 +633,102 @@ describe('InputPanelComponent composer autocomplete integration', () => {
     expect(hints).toContain('Codex is compacting');
     expect(hints).toContain('your message will send afterwards');
     expect(hints).not.toContain('Esc interrupts');
+  });
+
+  function hintFor(selector: string): AioTooltipDirective {
+    return fixture.debugElement.query(By.css(selector)).injector.get(AioTooltipDirective);
+  }
+
+  it('names the message, wake-up and unavailable voice controls and opens their real hints on focus', () => {
+    fixture.componentRef.setInput('instanceId', 'new');
+    fixture.componentRef.setInput('showWakeupControls', true);
+    fixture.detectChanges();
+    expect(getTextarea().getAttribute('aria-label')).toBe('Message');
+    const wakeup = fixture.nativeElement.querySelector('.btn-wakeup') as HTMLButtonElement;
+    expect(wakeup.getAttribute('aria-label')).toBe('Schedule thread wakeup');
+    expect(hintFor('.btn-wakeup')).toBeDefined();
+    const voice = fixture.nativeElement.querySelector('.btn-voice') as HTMLButtonElement;
+    expect(voice.getAttribute('aria-label')).toBe('Start voice conversation');
+    expect(voice.disabled).toBe(false);
+    expect(voice.getAttribute('aria-disabled')).toBe('true');
+    const original = voice.matches.bind(voice);
+    vi.spyOn(voice, 'matches').mockImplementation(selector => selector === ':focus-visible' || original(selector));
+    voice.dispatchEvent(new FocusEvent('focus'));
+    fixture.detectChanges();
+    expect(document.getElementById(voice.getAttribute('aria-describedby')!)?.textContent).toContain('Start a session before using voice');
+    voice.click();
+    expect(TestBed.inject(VoiceConversationStore).start).not.toHaveBeenCalled();
+    voice.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    fixture.detectChanges();
+    expect(voice.hasAttribute('aria-describedby')).toBe(false);
+    expect(fixture.nativeElement.querySelectorAll('[title]')).toHaveLength(0);
+  });
+
+  it('keeps empty Send focusable with a reason and blocks activation before sending real content', async () => {
+    const sent: string[] = [];
+    component.sendMessage.subscribe(text => sent.push(text));
+    const send = fixture.nativeElement.querySelector('.btn-send') as HTMLButtonElement;
+    expect(send.disabled).toBe(false);
+    expect(send.getAttribute('aria-disabled')).toBe('true');
+    expect(send.getAttribute('aria-label')).toBe('Send message');
+    expect(hintFor('.btn-send').appTooltipShortcut()).toBe('send-message');
+    send.click();
+    await fixture.whenStable();
+    expect(sent).toEqual([]);
+    await typeInComposer('a real message');
+    expect(send.hasAttribute('aria-disabled')).toBe(false);
+    send.click();
+    await fixture.whenStable();
+    expect(sent).toEqual(['a real message']);
+    fixture.componentRef.setInput('isBusy', true);
+    fixture.detectChanges();
+    expect(hintFor('.btn-stop').appTooltip()).toBe('Stop current turn');
+    expect(hintFor('.btn-stop').appTooltipShortcut()).toBe('cancel-operation');
+  });
+
+  it('keeps attachment preview, full name and removal hints on separate hosts', () => {
+    vi.stubGlobal('URL', { createObjectURL: () => 'blob:test-preview', revokeObjectURL: vi.fn() });
+    fixture.componentRef.setInput('pendingFiles', [new File(['image'], 'long-image-name.png', { type: 'image/png' }), new File(['text'], 'note.txt')]);
+    fixture.detectChanges();
+    const hints = fixture.debugElement.queryAll(By.directive(AioTooltipDirective));
+    for (const hint of hints) {
+      expect(hint.nativeElement.querySelector('[appTooltip], [appIconButton]')).toBeNull();
+    }
+    expect(fixture.nativeElement.querySelectorAll('.file-preview-trigger')).toHaveLength(4);
+    expect(hintFor('.file-preview-trigger').appTooltip()).toBe('Click to preview');
+    expect(fixture.nativeElement.querySelector('.file-name')?.closest('button')?.tabIndex).toBe(0);
+  });
+
+  it('previews attachments when their filename is activated and retains native keyboard button semantics', () => {
+    vi.stubGlobal('URL', { createObjectURL: () => 'blob:test-preview', revokeObjectURL: vi.fn() });
+    const files = [new File(['image'], 'picture.png', { type: 'image/png' }), new File(['text'], 'note.txt')];
+    fixture.componentRef.setInput('pendingFiles', files);
+    fixture.detectChanges();
+    const preview = vi.spyOn(component, 'openLightbox');
+    const names = fixture.nativeElement.querySelectorAll('.file-name') as NodeListOf<HTMLElement>;
+    names.forEach((name, index) => {
+      const button = name.closest('button');
+      expect(button, 'filename must belong to a native preview button for Enter/Space activation').not.toBeNull();
+      expect(button!.type).toBe('button');
+      expect(button!.tabIndex).toBe(0);
+      expect(button!.getAttribute('aria-label')).toBe('Preview ' + files[index].name);
+      name.click();
+      expect(preview).toHaveBeenLastCalledWith(files[index]);
+    });
+    expect(preview).toHaveBeenCalledTimes(2);
+    fixture.nativeElement.querySelector('.file-size').click();
+    expect(preview).toHaveBeenCalledTimes(3);
+  });
+
+  it('shows progress on the natively disabled Steer button while a loop is starting', () => {
+    fixture.componentRef.setInput('instanceStatus', 'busy');
+    component.message.set('continue');
+    component.loopStarting.set(true);
+    fixture.detectChanges();
+    const steer = fixture.nativeElement.querySelector('.btn-steer') as HTMLButtonElement;
+    expect(steer.disabled).toBe(true);
+    expect(steer.textContent).toContain('Starting loop…');
+    expect(steer.getAttribute('aria-label')).toBe('Starting loop…');
   });
 
   function getTextarea(): HTMLTextAreaElement {

@@ -1,3 +1,5 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 /**
  * MCP Page
  * MCP Server Management — list servers, manage connections, browse tools,
@@ -127,7 +129,7 @@ type ManagementProviderField = 'injectInto';
 @Component({
   selector: 'app-mcp-page',
   standalone: true,
-  imports: [CommonModule, McpPresetCatalogComponent, WorkspaceMcpConnectorsPanelComponent, GlossaryTermComponent],
+  imports: [CommonModule, McpPresetCatalogComponent, WorkspaceMcpConnectorsPanelComponent, GlossaryTermComponent, AioTooltipDirective, AppIconButtonDirective],
   templateUrl: './mcp-page.component.html',
   styleUrl: './mcp-page.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

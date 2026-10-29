@@ -58,7 +58,7 @@
           min-width: 0;
           flex: 1;
 
-          &:hover {
+          &:hover:not([aria-disabled="true"]) {
             background: rgba(255, 255, 255, 0.02);
           }
 
@@ -174,7 +174,7 @@
         cursor: pointer;
         transition: all var(--transition-fast);
 
-        &:hover {
+        &:hover:not([aria-disabled="true"]) {
           color: var(--text-primary);
           border-color: rgba(255, 255, 255, 0.1);
           background: rgba(255, 255, 255, 0.045);
@@ -190,7 +190,8 @@
           color: var(--primary-color);
         }
 
-        &:disabled {
+        &:disabled,
+        &[aria-disabled="true"] {
           opacity: 0.5;
           cursor: not-allowed;
           transform: none;
@@ -204,7 +205,7 @@
         cursor: pointer;
         transition: all var(--transition-fast);
 
-        &:hover {
+        &:hover:not([aria-disabled="true"]) {
           color: var(--text-primary);
           border-color: rgba(255, 255, 255, 0.1);
           background: rgba(255, 255, 255, 0.045);
@@ -226,7 +227,8 @@
           animation: yolo-pending-pulse 1.6s ease-in-out infinite;
         }
 
-        &:disabled {
+        &:disabled,
+        &[aria-disabled="true"] {
           opacity: 0.5;
           cursor: not-allowed;
         }
@@ -285,11 +287,12 @@
         cursor: pointer;
         transition: color var(--transition-fast), opacity var(--transition-fast);
 
-        &:hover:not(:disabled) {
+        &:hover:not(:disabled):not([aria-disabled="true"]) {
           color: var(--text-primary);
         }
 
-        &:disabled {
+        &:disabled,
+        &[aria-disabled="true"] {
           opacity: 0.4;
           cursor: not-allowed;
         }
@@ -417,7 +420,7 @@
       .btn-interrupt {
         color: var(--primary-color);
 
-        &:hover:not(:disabled) {
+        &:hover:not(:disabled):not([aria-disabled="true"]) {
           color: var(--primary-hover);
         }
       }
@@ -507,3 +510,6 @@
   font-size: 11px;
   white-space: nowrap;
 }
+
+.header-action-detail { font-size: 11px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.wait-reason-detail { display: block; }

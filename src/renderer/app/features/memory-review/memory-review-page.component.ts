@@ -35,7 +35,7 @@ const DEFAULT_ACTOR = 'james';
             type="button"
             class="btn"
             [disabled]="store.scanning()"
-            title="Manually scan settled sessions for repeated command corrections. Nothing auto-promotes — results appear below as reviewable proposals."
+            aria-describedby="memory-scan-hint"
             (click)="runScan()"
           >
             {{ store.scanning() ? 'Scanning…' : 'Scan for corrections' }}
@@ -45,6 +45,8 @@ const DEFAULT_ACTOR = 'james';
           </button>
         </div>
       </header>
+
+      <p class="scan-line" id="memory-scan-hint">Manually scan settled sessions for repeated command corrections. Nothing auto-promotes — results appear below as reviewable proposals.</p>
 
       @if (store.lastScanResult(); as scan) {
         <p class="scan-line">

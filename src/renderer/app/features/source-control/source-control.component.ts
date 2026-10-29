@@ -28,6 +28,10 @@ import { SourceControlDiffViewerComponent } from './source-control-diff-viewer.c
 import { SourceControlInlineDiffComponent } from './source-control-inline-diff.component';
 import { SourceControlRepoActionsComponent } from './source-control-repo-actions.component';
 import { buildChangesRows, statusLetter } from './source-control-rows';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
+import { modKeyLabel } from '../../core/keybindings/shortcut-display';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import type {
   FileChange,
   FileChangeStatus,
@@ -43,12 +47,15 @@ import type {
     SourceControlDiffViewerComponent,
     SourceControlInlineDiffComponent,
     SourceControlRepoActionsComponent,
+    AioTooltipDirective,
+    AppIconButtonDirective,
   ],
   templateUrl: './source-control.component.html',
   styleUrl: './source-control.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SourceControlComponent {
+  private readonly modifier = modKeyLabel(/Mac|iPhone|iPad|iPod/.test(navigator.platform));
   protected store = inject(SourceControlStore);
   private viewLayoutService = inject(ViewLayoutService);
 
@@ -127,6 +134,18 @@ export class SourceControlComponent {
   fileBasename(filePath: string): string {
     const idx = filePath.lastIndexOf('/');
     return idx === -1 ? filePath : filePath.slice(idx + 1);
+  }
+
+  trackedFileHint(path: string): string {
+    return this.modifier === '⌘'
+      ? path + ' — ' + copyFor('sourceControl.trackedMac')
+      : path + ' — ' + copyFor('sourceControl.trackedOther');
+  }
+
+  untrackedFileHint(path: string): string {
+    return this.modifier === '⌘'
+      ? path + ' — ' + copyFor('sourceControl.untrackedMac')
+      : path + ' — ' + copyFor('sourceControl.untrackedOther');
   }
 
   fileDirname(filePath: string): string {
@@ -371,10 +390,7 @@ export class SourceControlComponent {
   // -------------------------------------------------------------------------
   // Phase 2d item 8 — discard handlers.
   // Tracked files: confirm because the change is unrecoverable.
-  // Untracked files: trash without confirm (shell.trashItem is reversible).
-  // Untracked DIRECTORIES: confirm because losing a whole directory is a
-  // bigger consequence and matches the plan's "confirmation modal required"
-  // requirement for the directory case.
+  // Untracked entries: disclose recoverable removal before sending to Trash.
   // -------------------------------------------------------------------------
 
   onDiscardFile(repo: RepoState, filePath: string): void {
@@ -386,20 +402,10 @@ export class SourceControlComponent {
   }
 
   onDiscardUntracked(repo: RepoState, filePath: string): void {
-    // Untracked entries from `git status --porcelain` are paths relative
-    // to the repo root. We can't reliably tell from the string whether
-    // it points at a file or a directory, so do a heuristic: trailing `/`
-    // means directory in git's output. For everything else we still ask
-    // for the dir case via the OS — better to over-confirm than to lose
-    // a folder accidentally.
-    const looksLikeDir = filePath.endsWith('/');
-    if (looksLikeDir) {
-      const ok = window.confirm(
-        `Move untracked directory "${filePath}" to the Trash?\n\n` +
-        `You can recover it from your Trash if you change your mind.`,
-      );
-      if (!ok) return;
-    }
+    const ok = window.confirm(
+      `Move to Trash (recoverable)\n\nMove "${filePath}" to the Trash?\n\nYou can recover it from your Trash if you change your mind.`,
+    );
+    if (!ok) return;
     void this.store.discardFiles(repo.absolutePath, [filePath]);
   }
 }

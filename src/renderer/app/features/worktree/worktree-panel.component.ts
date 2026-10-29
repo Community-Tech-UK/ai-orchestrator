@@ -24,6 +24,7 @@ import type {
   WorktreeStatus,
 } from '../../../../shared/types/worktree.types';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 import { GlossaryTermComponent } from '../../shared/glossary/glossary-term.component';
 
 // Simple pipe for truncating paths
@@ -48,7 +49,7 @@ interface WorktreeAction {
 @Component({
   selector: 'app-worktree-panel',
   standalone: true,
-  imports: [TruncatePathPipe, AioTooltipDirective, GlossaryTermComponent],
+  imports: [TruncatePathPipe, AioTooltipDirective, AppIconButtonDirective, GlossaryTermComponent],
   template: `
     <div class="worktree-container">
       <!-- Header -->
@@ -60,7 +61,7 @@ interface WorktreeAction {
         @if (sessions().length > 0) {
           <button
             class="merge-all-btn"
-            [disabled]="!canMergeAll()"
+            [appTooltipDisabledReason]="canMergeAll() ? null : mergeAllDisabledReason"
             (click)="onMergeAll()"
           >
             Merge All
@@ -83,7 +84,13 @@ interface WorktreeAction {
               role="button"
             >
               <!-- Status Indicator -->
-              <div class="status-indicator" [title]="session.status">
+              <div
+                class="status-indicator"
+                role="img"
+                tabindex="0"
+                [attr.aria-label]="session.status"
+                [appTooltip]="session.status"
+              >
                 {{ getStatusIcon(session.status) }}
               </div>
 
@@ -99,6 +106,7 @@ interface WorktreeAction {
                   <span class="meta-item">
                     {{ session.worktreePath | truncatePath }}
                   </span>
+                  <span class="meta-item">{{ session.status }}</span>
                   @if (session.filesChanged && session.filesChanged.length > 0) {
                     <span class="meta-item changes">
                       {{ session.filesChanged.length }} files changed
@@ -124,8 +132,7 @@ interface WorktreeAction {
                 @if (session.filesChanged && session.filesChanged.length > 0) {
                   <button
                     class="action-btn"
-                    appTooltip="View Changes"
-                    aria-label="View Changes"
+                    appIconButton="View Changes"
                     (click)="onAction(session.id, 'view'); $event.stopPropagation()"
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -137,8 +144,7 @@ interface WorktreeAction {
                 @if (session.status === 'active') {
                   <button
                     class="action-btn"
-                    appTooltip="Mark Complete"
-                    aria-label="Mark Complete"
+                    appIconButton="Mark Complete"
                     (click)="onAction(session.id, 'complete'); $event.stopPropagation()"
                   >
                     ✓
@@ -147,8 +153,7 @@ interface WorktreeAction {
                 @if (session.status === 'completed') {
                   <button
                     class="action-btn primary"
-                    appTooltip="Merge"
-                    aria-label="Merge"
+                    appIconButton="Merge"
                     (click)="onAction(session.id, 'merge'); $event.stopPropagation()"
                   >
                     ⎇
@@ -156,8 +161,7 @@ interface WorktreeAction {
                 }
                 <button
                   class="action-btn danger"
-                  appTooltip="Abandon"
-                  aria-label="Abandon"
+                  appIconButton="Abandon"
                   (click)="onAction(session.id, 'abandon'); $event.stopPropagation()"
                 >
                   ✕
@@ -303,11 +307,12 @@ interface WorktreeAction {
       cursor: pointer;
       transition: all var(--transition-fast);
 
-      &:hover:not(:disabled) {
+      &:hover:not(:disabled):not([aria-disabled='true']) {
         background: var(--primary-hover);
       }
 
-      &:disabled {
+      &:disabled,
+      &[aria-disabled='true'] {
         opacity: 0.5;
         cursor: not-allowed;
       }
@@ -671,6 +676,9 @@ export class WorktreePanelComponent {
     this.sessions().some((s) => s.status === 'completed')
   );
 
+  /** Shown on Merge All while no worktree has finished. */
+  readonly mergeAllDisabledReason = 'No worktree has finished yet. Mark one complete to merge it.';
+
   getStatusIcon(status: WorktreeStatus): string {
     switch (status) {
       case 'active':
@@ -709,6 +717,7 @@ export class WorktreePanelComponent {
   }
 
   onMergeAll(): void {
+    if (!this.canMergeAll()) return;
     this.mergeAll.emit();
   }
 }

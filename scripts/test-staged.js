@@ -17,6 +17,18 @@ const { GENERATED_ARTIFACTS } = require('./run-git-hook.js');
 // File extensions vitest can map back to related test files.
 const SOURCE_FILE_PATTERN = /\.(?:ts|tsx|js|cjs|mjs|jsx)$/;
 
+// This build-refreshed snapshot is imported by the entire Codex runtime. Like
+// other generated artifacts it has dedicated validation instead of expanding
+// every transitive importer. Real adapter changes still use normal discovery.
+const CODEX_PROTOCOL_SNAPSHOT = 'src/main/cli/adapters/codex/generated/app-server-protocol.gen.ts';
+const CODEX_PROTOCOL_TESTS = [
+  'src/main/cli/adapters/codex/generated/app-server-protocol.gen.spec.ts',
+  'src/main/cli/adapters/codex/app-server-client-protocol.spec.ts',
+  'src/main/cli/adapters/codex/app-server-client.spec.ts',
+  'src/main/cli/adapters/codex/codex-protocol-snapshot-check.spec.ts',
+  'scripts/__tests__/refresh-codex-protocol.spec.ts',
+];
+
 function getStagedTestRelatedFiles(options = {}) {
   const exec = options.execFileSync ?? execFileSync;
   const existsSync = options.existsSync ?? fs.existsSync;
@@ -49,13 +61,29 @@ function runStagedTests(options = {}) {
     return 0;
   }
 
+  const existsSync = options.existsSync ?? fs.existsSync;
+  const relatedFiles = [];
+  for (const file of files) {
+    if (file !== CODEX_PROTOCOL_SNAPSHOT) {
+      relatedFiles.push(file);
+      continue;
+    }
+    for (const test of CODEX_PROTOCOL_TESTS) {
+      if (!existsSync(test)) {
+        console.error(`test-staged: required Codex protocol validation is missing: ${test}`);
+        return 1;
+      }
+      relatedFiles.push(test);
+    }
+  }
+
   log(`test-staged: running tests related to ${files.length} staged file(s)`);
 
   // Source batches have overlapping dependency graphs and rerun the same tests.
   // Feed the entire list through stdin to one Vitest run instead: no cmd.exe or
   // OS argument-length limit, and each related test specification executes once.
   const result = run(process.execPath, [path.join(__dirname, 'run-related-tests.mjs')], {
-    input: JSON.stringify(files),
+    input: JSON.stringify([...new Set(relatedFiles)]),
     stdio: ['pipe', 'inherit', 'inherit'],
     shell: false,
   });

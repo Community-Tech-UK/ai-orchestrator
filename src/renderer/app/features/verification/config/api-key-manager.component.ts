@@ -17,6 +17,8 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { CLIPBOARD_SERVICE } from '../../../core/services/clipboard.service';
+import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
+import { copyFor } from '../../../shared/tooltip/tooltip-copy';
 
 interface ApiKeyEntry {
   id: string;
@@ -44,7 +46,7 @@ interface ProviderInfo {
 @Component({
   selector: 'app-api-key-manager',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="api-key-manager">
@@ -119,14 +121,15 @@ interface ProviderInfo {
             <button
               class="btn-secondary"
               (click)="validateNewKey()"
-              [disabled]="!newKeyValue || isValidating()"
+              [disabled]="isValidating()"
+              [appTooltipDisabledReason]="!newKeyValue ? copy('verificationHints.enterKeyToTest') : null"
             >
               {{ isValidating() ? 'Validating...' : 'Test Key' }}
             </button>
             <button
               class="btn-primary"
               (click)="saveNewKey()"
-              [disabled]="!newKeyProvider || !newKeyValue"
+              [appTooltipDisabledReason]="!newKeyProvider || !newKeyValue ? copy('verificationHints.completeKeyToSave') : null"
             >
               Save Key
             </button>
@@ -185,14 +188,14 @@ interface ProviderInfo {
                 <button
                   class="btn-icon"
                   (click)="toggleKeyReveal(key.id)"
-                  [title]="key.isRevealed ? 'Hide' : 'Reveal'"
+                  [appTooltip]="key.isRevealed ? 'Hide' : 'Reveal'"
                 >
                   {{ key.isRevealed ? 'Hide' : 'Show' }}
                 </button>
                 <button
                   class="btn-icon"
                   (click)="copyKey(key.id)"
-                  title="Copy to clipboard"
+                  appTooltip="Copy to clipboard"
                 >
                   Copy
                 </button>
@@ -541,7 +544,8 @@ interface ProviderInfo {
       opacity: 0.9;
     }
 
-    .btn-primary:disabled {
+    .btn-primary:disabled,
+    .btn-primary.aio-reason-disabled {
       opacity: 0.5;
       cursor: not-allowed;
     }
@@ -560,7 +564,8 @@ interface ProviderInfo {
       background: var(--bg-hover);
     }
 
-    .btn-secondary:disabled {
+    .btn-secondary:disabled,
+    .btn-secondary.aio-reason-disabled {
       opacity: 0.5;
       cursor: not-allowed;
     }
@@ -609,6 +614,7 @@ interface ProviderInfo {
 })
 export class ApiKeyManagerComponent {
   private clipboard = inject(CLIPBOARD_SERVICE);
+  protected readonly copy = copyFor;
 
   // Providers
   providers: ProviderInfo[] = [

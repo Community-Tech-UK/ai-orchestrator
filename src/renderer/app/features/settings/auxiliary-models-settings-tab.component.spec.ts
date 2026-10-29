@@ -170,6 +170,19 @@ describe('AuxiliaryModelsSettingsTabComponent', () => {
     expect(fixture.nativeElement).toBeTruthy();
   });
 
+  it('keeps slot explanations keyboard reachable and the cloud consequence visible', () => {
+    fixture.detectChanges();
+    component.onSectionChange('slots');
+    fixture.detectChanges();
+    const headers: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll('.slot-table th[tabindex="0"]');
+    expect(Array.from(headers, header => header.textContent?.trim())).toEqual(['Tier', 'Model override', 'Frontier fallback']);
+    expect(fixture.nativeElement.querySelector('#panel-slots').textContent.replace(/\s+/g, ' '))
+      .toContain('It does not stop content reaching the auxiliary endpoints you configure — those may be cloud');
+    expect(fixture.nativeElement.querySelector('#settings-frontier-fallback-hint').textContent.replace(/\s+/g, ' '))
+      .toContain('cheap-first mode or a manual OpenAI-compatible endpoint');
+    expect(fixture.nativeElement.querySelectorAll('[title]')).toHaveLength(0);
+  });
+
   it('calls listCandidates on init', async () => {
     fixture.detectChanges();
     await fixture.whenStable();

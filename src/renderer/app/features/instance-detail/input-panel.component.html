@@ -34,7 +34,7 @@
               <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>
             </svg>
           </span>
-          <span class="file-name" [title]="folder">{{ getFolderDisplayName(folder) }}</span>
+          <span class="file-name" [appTooltip]="folder" tabindex="0">{{ getFolderDisplayName(folder) }}</span>
           <button
             class="file-remove"
             (click)="onRemoveFolder(folder)"
@@ -48,21 +48,18 @@
       <!-- File previews -->
       @for (preview of pendingFilePreviews(); track preview.file.name) {
         @if (preview.isImage) {
-          <div
-            class="file-preview-card clickable"
-            (click)="openLightbox(preview.file)"
-            (keydown.enter)="openLightbox(preview.file)"
-            (keydown.space)="openLightbox(preview.file)"
-            tabindex="0"
-            role="button"
-            title="Click to preview"
-          >
-            <div class="preview-thumbnail" [style.background-image]="'url(' + preview.previewUrl + ')'">
-            </div>
-            <div class="preview-info">
-              <span class="file-name" [title]="preview.file.name">{{ preview.file.name }}</span>
+          <div class="file-preview-card">
+            <button type="button" class="file-preview-trigger" [appTooltip]="copy('composer.previewAttachment')"
+              [attr.aria-label]="'Preview ' + preview.file.name" (click)="openLightbox(preview.file)">
+            <span class="preview-thumbnail" [style.background-image]="'url(' + preview.previewUrl + ')'">
+            </span>
+            </button>
+            <button type="button" class="preview-info file-preview-trigger"
+              [appTooltip]="preview.file.name" appTooltipVariant="overflow"
+              [attr.aria-label]="'Preview ' + preview.file.name" (click)="openLightbox(preview.file)">
+              <span class="file-name">{{ preview.file.name }}</span>
               <span class="file-size">{{ preview.size }}</span>
-            </div>
+            </button>
             <button
               class="file-remove"
               (click)="onRemoveFile(preview.file); $event.stopPropagation()"
@@ -73,22 +70,19 @@
             </button>
           </div>
         } @else {
-          <div
-            class="file-chip clickable"
-            (click)="openLightbox(preview.file)"
-            (keydown.enter)="openLightbox(preview.file)"
-            (keydown.space)="openLightbox(preview.file)"
-            tabindex="0"
-            role="button"
-            title="Click to preview"
-          >
+          <div class="file-chip">
+            <button type="button" class="file-preview-trigger" [appTooltip]="copy('composer.previewAttachment')"
+              [attr.aria-label]="'Preview ' + preview.file.name" (click)="openLightbox(preview.file)">
             <span class="file-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"/>
                 <path d="M14 2v6h6"/>
               </svg>
             </span>
-            <span class="file-name" [title]="preview.file.name">{{ preview.file.name }}</span>
+            </button>
+            <button type="button" class="file-name file-preview-trigger file-preview-name"
+              [appTooltip]="preview.file.name" appTooltipVariant="overflow"
+              [attr.aria-label]="'Preview ' + preview.file.name" (click)="openLightbox(preview.file)">{{ preview.file.name }}</button>
             <button
               class="file-remove"
               (click)="onRemoveFile(preview.file); $event.stopPropagation()"
@@ -157,7 +151,7 @@
                 type="button"
                 [class.active]="effectiveLaunchMode() === 'orchestrated'"
                 (click)="onLaunchModeSelected('orchestrated')"
-                appTooltip="Orchestrated: full Harness routing, workflows, Loop Mode, and managed approvals"
+                [appTooltip]="copy('composer.launchOrchestrated')"
               >
                 Orchestrated
               </button>
@@ -165,7 +159,7 @@
                 type="button"
                 [class.active]="effectiveLaunchMode() === 'interactive'"
                 (click)="onLaunchModeSelected('interactive')"
-                appTooltip="Interactive: human-driven Claude terminal session; workflows and Loop Mode are unavailable"
+                [appTooltip]="copy('composer.launchInteractive')"
               >
                 Interactive
               </button>
@@ -175,7 +169,7 @@
             class="yolo-toggle"
             [class.active]="effectiveYoloMode()"
             (click)="onToggleYoloMode()"
-            [title]="effectiveYoloMode() ? 'YOLO mode ON — auto-approve all actions' : 'YOLO mode OFF — will prompt for approvals'"
+            [appTooltip]="effectiveYoloMode() ? copy('composer.yoloOn') : copy('composer.yoloOff')"
           >
             <span class="yolo-label">YOLO {{ effectiveYoloMode() ? 'ON' : 'OFF' }}</span>
           </button>
@@ -185,33 +179,42 @@
               class="yolo-toggle fast-toggle"
               [class.active]="effectiveDraftFastMode()"
               (click)="onToggleDraftFastMode()"
-              [title]="effectiveDraftFastMode() ? 'Fast Mode ON — faster output at some capability cost. Click to disable' : 'Fast Mode OFF — standard output. Click to enable faster output'"
+              [appTooltip]="effectiveDraftFastMode() ? copy('composer.fastOn') : copy('composer.fastOff')"
             >
               <span class="yolo-label">FAST {{ effectiveDraftFastMode() ? 'ON' : 'OFF' }}</span>
             </button>
           }
           @if (showHardenedToggle()) {
+            @let hardenedHint = hardenedTitle();
+            @let fenceHint = fenceTitle();
             <button
               class="yolo-toggle hardened-toggle"
               [class.active]="draftHardened()"
-              [disabled]="hardenedUnavailable() && !draftHardened()"
+              [appTooltipDisabledReason]="hardenedUnavailable() && !draftHardened() ? hardenedHint : null"
               (click)="onToggleHardened()"
-              [title]="hardenedTitle()"
+              [appTooltip]="hardenedTitle()"
             >
               <span class="yolo-label">Hardened {{ hardenedLabel() }}</span>
             </button>
             <button
               class="yolo-toggle fence-toggle"
               [class.active]="draftFenceOff() && !draftHardened()"
-              [disabled]="fenceOffInSettings() || draftHardened()"
+              [appTooltipDisabledReason]="fenceOffInSettings() || draftHardened() ? fenceHint : null"
               (click)="onToggleFence()"
-              [title]="fenceTitle()"
+              [appTooltip]="fenceTitle()"
             >
               <span class="yolo-label">Fence {{ draftFenceOff() && !draftHardened() ? 'OFF' : 'ON' }}</span>
             </button>
           }
         </div>
       </div>
+      <p class="composer-mode-detail">{{ effectiveYoloMode() ? copy('composer.yoloOn') : copy('composer.yoloOff') }}</p>
+      @if (showDraftFastModeToggle()) {
+        <p class="composer-mode-detail">{{ effectiveDraftFastMode() ? copy('composer.fastOn') : copy('composer.fastOff') }}</p>
+      }
+      @if (showHardenedToggle()) {
+        <p class="composer-mode-detail">{{ hardenedTitle() }}. {{ fenceTitle() }}</p>
+      }
     </div>
   }
 
@@ -222,10 +225,11 @@
         <div class="suggestion-header">{{ slashResolutionLabel() }}</div>
       }
       @for (cmd of visibleCommandSuggestions(); track cmd.id; let i = $index) {
+        @let eligibility = commandStore.commandEligibility(cmd);
         <button
           class="suggestion-item"
           [class.selected]="i === selectedCommandIndex()"
-          [disabled]="!commandStore.commandEligibility(cmd).eligible"
+          [appTooltipDisabledReason]="eligibility.eligible ? null : (eligibility.reason || 'This command is unavailable')"
           (click)="onSelectCommand(cmd)"
           (mouseenter)="selectedCommandIndex.set(i)"
         >
@@ -317,6 +321,7 @@
       }
       <textarea
         class="message-input"
+        aria-label="Message"
         [class.has-ghost]="showGhostText()"
         [placeholder]="showGhostText() ? '' : placeholder()"
         [disabled]="disabled()"
@@ -342,7 +347,7 @@
       <div class="composer-actions-left">
         <button
           class="btn-attach"
-          [disabled]="disabled()"
+          [appTooltipDisabledReason]="disabled() ? copy('composer.inputUnavailable') : null"
           (click)="onAddFiles()"
           appTooltip="Add files"
           aria-label="Add files"
@@ -364,7 +369,7 @@
               class="btn-wakeup"
               [class.active]="showWakeupMenu() || hasThreadWakeups()"
               (click)="onToggleWakeupMenu()"
-              title="Schedule thread wakeup"
+              appIconButton="Schedule thread wakeup"
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                 <circle cx="12" cy="12" r="9"></circle>
@@ -382,7 +387,7 @@
                     type="button"
                     class="wakeup-close"
                     (click)="showWakeupMenu.set(false)"
-                    title="Close"
+                    appIconButton="Close"
                     aria-label="Close"
                   >×</button>
                 </div>
@@ -482,9 +487,9 @@
           class="btn-voice"
           [class.active]="isVoiceActive()"
           [class.error]="voiceMode() === 'error'"
-          [disabled]="!isVoiceActive() && !canUseVoice()"
+          [appIconButtonDisabledReason]="voiceTooltip().disabledReason"
           (click)="onToggleVoice()"
-          [title]="voiceButtonTitle()"
+          [appIconButton]="voiceTooltip().name"
           type="button"
         >
           <span class="voice-meter-ring" [style.transform]="'scale(' + voiceMeterStyle() + ')'"></span>
@@ -503,23 +508,26 @@
         @if (canSteerActiveTurn()) {
           <button
             class="btn-steer"
-            [disabled]="disabled() || !canSend() || isInitializing()"
+            [disabled]="loopStarting() || submission.submitting()"
+            [appTooltipDisabledReason]="sendDisabledReason() || (isInitializing() ? 'Wait for the session to start' : null)"
             (click)="onSteer()"
-            title="Steer current turn now"
+            appTooltip="Steer current turn now"
+            [attr.aria-label]="loopStarting() ? 'Starting loop…' : submission.submitting() ? 'Sending…' : 'Steer current turn now'"
           >
             <svg class="steer-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M4 7h11a5 5 0 0 1 0 10H9"></path>
               <path d="M9 12l-5 5 5 5"></path>
             </svg>
-            <span class="steer-label">Steer</span>
+            <span class="steer-label">{{ loopStarting() ? 'Starting loop…' : submission.submitting() ? 'Sending…' : 'Steer' }}</span>
           </button>
         }
         @if (showStopButton()) {
+          <span class="hint">Stop current turn</span>
           <button
             type="button"
             class="btn-send btn-stop"
             (click)="onInterruptClick()"
-            title="Stop current turn (Esc)"
+            appTooltip="Stop current turn" appTooltipShortcut="cancel-operation"
             aria-label="Stop current turn"
           >
             <svg class="stop-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -531,9 +539,11 @@
             type="button"
             class="btn-send"
             [class.loop-mode]="loopArmed()"
-            [disabled]="disabled() || !canSend()"
+            [disabled]="loopStarting() || submission.submitting()"
+            [appTooltipDisabledReason]="sendDisabledReason()"
             (click)="onSend()"
             [appTooltip]="sendButtonLabel()"
+            [appTooltipShortcut]="loopStarting() ? null : 'send-message'"
             [attr.aria-label]="sendButtonLabel()"
           >
             <span class="send-icon" aria-hidden="true">{{ loopArmed() ? '↻' : '↑' }}</span>
@@ -542,6 +552,9 @@
       </div>
     </div>
 
+    @if (sendDisabledReason(); as reason) {
+      <p class="composer-disabled-reason" role="status">{{ reason }}</p>
+    }
     @if (voiceStatusLabel(); as label) {
       <div
         class="voice-status-row"

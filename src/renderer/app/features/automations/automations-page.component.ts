@@ -26,6 +26,9 @@ import type { PendingSelection, PickerProvider } from '../models/compact-model-p
 import { AutomationWebhooksPanelComponent } from './automation-webhooks-panel.component';
 import { AutomationAuthorityPanelComponent } from './automation-authority-panel.component';
 import { AutomationExecutionProfileSelectorComponent } from './automation-execution-profile-selector.component';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import {
   AUTOMATION_AUTHORITY_TEMPLATES,
   automationToAuthorityInput,
@@ -72,6 +75,8 @@ interface AutomationGroup {
     PageHeaderComponent,
     AutomationWebhooksPanelComponent,
     AutomationAuthorityPanelComponent, AutomationExecutionProfileSelectorComponent,
+    AioTooltipDirective,
+    AppIconButtonDirective,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { '(document:keydown.escape)': 'onEscape()' },
@@ -95,6 +100,8 @@ export class AutomationsPageComponent {
   preflightAcknowledged = signal(false);
   form = signal<AutomationFormModel>(emptyForm());
   confirmingDeleteId = signal<string | null>(null);
+  /** Hover copy for the "Hidden" checkbox (see tooltip-copy-automations.ts). */
+  readonly hiddenHint = copyFor('automations.hidden');
 
   // Chat-composer state
   chatText = signal('');

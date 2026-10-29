@@ -1,19 +1,21 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { ExpansionStateService } from './expansion-state.service';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import type { CopilotPlanUpdate } from './copilot-plan-update';
 import { summarizeCopilotPlanUpdate } from './copilot-plan-update';
 
 @Component({
   selector: 'app-plan-update-card',
   standalone: true,
-  imports: [DatePipe],
+  imports: [DatePipe, AioTooltipDirective],
   template: `
     <div class="plan-card" [class.expanded]="isExpanded()" [class.empty]="!hasEntries()">
       <button
         class="plan-card__header"
         type="button"
-        [disabled]="!hasEntries()"
+        [attr.aria-disabled]="!hasEntries() ? 'true' : null"
+        [appTooltip]="plan().preview"
         [attr.aria-expanded]="hasEntries() ? isExpanded() : null"
         (click)="toggle()">
         <span class="plan-card__toggle">{{ hasEntries() ? (isExpanded() ? '▾' : '▸') : '•' }}</span>
@@ -25,7 +27,7 @@ import { summarizeCopilotPlanUpdate } from './copilot-plan-update';
           </div>
           <div class="plan-card__summary">{{ summary() }}</div>
           @if (plan().preview) {
-            <div class="plan-card__preview" [title]="plan().preview">{{ plan().preview }}</div>
+            <div class="plan-card__preview">{{ plan().preview }}</div>
           }
         </div>
       </button>
@@ -79,11 +81,11 @@ import { summarizeCopilotPlanUpdate } from './copilot-plan-update';
       transition: background var(--transition-fast);
     }
 
-    .plan-card__header:hover:enabled {
+    .plan-card__header:hover:not([aria-disabled="true"]) {
       background: rgba(255, 255, 255, 0.02);
     }
 
-    .plan-card__header:disabled {
+    .plan-card__header[aria-disabled="true"] {
       cursor: default;
     }
 

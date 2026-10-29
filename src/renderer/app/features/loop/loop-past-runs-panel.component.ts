@@ -117,7 +117,7 @@ export function deriveReattemptSeed(
               <div class="pr-row" role="listitem">
                 <div class="pr-row-head">
                   <span class="pr-status" [attr.data-status]="run.status" [attr.data-tone]="statusTone(run.status)">{{ statusLabel(run.status) }}</span>
-                  <span class="pr-time" [title]="absoluteTime(run.startedAt)">{{ relTime(run.startedAt) }}</span>
+                  <span class="pr-time" tabindex="0" [appTooltip]="absoluteTime(run.startedAt)">{{ relTime(run.startedAt) }}</span>
                   <span class="pr-meta">{{ run.totalIterations }} iter · {{ tokens(run.totalTokens) }} · {{ cost(run.totalCostCents) }}</span>
                   @if (managedStatus(run); as managed) {
                     <span
@@ -140,21 +140,22 @@ export function deriveReattemptSeed(
                       class="pr-action-btn"
                       (click)="toggleRowExpanded(run.id)"
                       [attr.aria-expanded]="isRowExpanded(run.id)"
-                      [title]="isRowExpanded(run.id) ? 'Hide full prompt' : 'Show full prompt'"
+                      [appTooltip]="isRowExpanded(run.id) ? 'Hide full prompt' : 'Show full prompt'"
+                      [appTooltipShowWhenExpanded]="true"
                     >{{ isRowExpanded(run.id) ? 'Hide' : 'Show' }}</button>
                     <button
                       type="button"
                       class="pr-action-btn"
                       (click)="onCopy(run)"
-                      [disabled]="!run.initialPrompt"
-                      [title]="copiedRunId() === run.id ? 'Copied!' : 'Copy this prompt'"
+                      [appTooltipDisabledReason]="run.initialPrompt ? null : copy('loop.noStoredPrompt')"
+                      [appTooltip]="copiedRunId() === run.id ? 'Copied!' : 'Copy this prompt'"
                     >{{ copiedRunId() === run.id ? 'Copied ✓' : 'Copy' }}</button>
                     <button
                       type="button"
                       class="pr-action-btn pr-action-rerun"
                       (click)="onReattempt(run)"
-                      [disabled]="reattemptDisabledReason(run) !== null"
-                      [title]="reattemptDisabledReason(run) ?? 'Open the loop config pre-filled with this prompt'"
+                      [appTooltipDisabledReason]="reattemptDisabledReason(run)"
+                      [appTooltip]="copy('loop.reattempt')"
                     >Reattempt</button>
                     @if (run.worktreeLifecycle?.phase === 'blocked') {
                       <button
@@ -265,12 +266,12 @@ export function deriveReattemptSeed(
       border: 1px solid rgba(255,255,255,0.12); border-radius: 3px;
       cursor: pointer;
     }
-    .pr-action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .pr-action-btn:disabled, .pr-action-btn[aria-disabled="true"] { opacity: 0.4; cursor: not-allowed; }
     .pr-action-rerun {
       border-color: rgba(212, 180, 90, 0.5);
       color: var(--primary-color, #d4b45a);
     }
-    .pr-action-rerun:hover:not(:disabled) {
+    .pr-action-rerun:hover:not(:disabled):not([aria-disabled="true"]) {
       background: rgba(212, 180, 90, 0.12);
     }
     .pr-prompt-preview {
@@ -309,6 +310,7 @@ export function deriveReattemptSeed(
   `],
 })
 export class LoopPastRunsPanelComponent implements OnDestroy {
+  protected readonly copy = copyFor;
   protected readonly continuationLabel = LATER_ITERATION_CONTINUATION_LABEL;
   protected readonly closeTooltip = copyFor('loop.closeStored');
   protected readonly pendingClose = signal<LoopRunSummaryPayload | null>(null);
@@ -466,10 +468,10 @@ export class LoopPastRunsPanelComponent implements OnDestroy {
   }
 
   /** Returns the reason Reattempt is disabled, or null when the action
-   *  can fire. Used both for the `[disabled]` binding and the tooltip
+   *  can fire. Used both for the disabled-reason directive and action guard
    *  so the user always knows *why* the button is grey. */
   reattemptDisabledReason(run: LoopRunSummaryPayload): string | null {
-    if (!run.initialPrompt) return 'No prompt recorded for this run';
+    if (!run.initialPrompt) return copyFor('loop.noStoredPrompt');
     if (this.loopRunning()) return 'A loop is already running for this chat — stop it first';
     if (!this.chatId()) return 'No chat selected';
     return null;

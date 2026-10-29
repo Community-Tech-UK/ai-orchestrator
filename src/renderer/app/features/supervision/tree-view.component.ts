@@ -28,6 +28,7 @@ import type {
 } from '../../../../shared/types/supervision.types';
 import { isWorkerNode, isSupervisorNode } from '../../../../shared/types/supervision.types';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 
 interface NodeAction {
   nodeId: string;
@@ -39,7 +40,7 @@ type UnifiedNode = SupervisorNode | WorkerNode;
 @Component({
   selector: 'app-supervision-tree-view',
   standalone: true,
-  imports: [NgTemplateOutlet, AioTooltipDirective],
+  imports: [NgTemplateOutlet, AioTooltipDirective, AppIconButtonDirective],
   template: `
     <div class="tree-container">
       <!-- Header -->
@@ -112,7 +113,7 @@ type UnifiedNode = SupervisorNode | WorkerNode;
           }
 
           <!-- Status Icon -->
-          <span class="status-icon" [title]="node.status">
+          <span class="status-icon" role="img" tabindex="0" [attr.aria-label]="node.status" [appTooltip]="node.status">
             {{ getStatusIcon(node.status) }}
           </span>
 
@@ -124,7 +125,7 @@ type UnifiedNode = SupervisorNode | WorkerNode;
 
           <!-- Restart Count (only for workers) -->
           @if (isWorker(node) && node.restartCount > 0) {
-            <span class="restart-badge" title="Restart count">
+            <span class="restart-badge" tabindex="0" appTooltip="Restart count">
               ↻ {{ node.restartCount }}
             </span>
           }
@@ -134,8 +135,7 @@ type UnifiedNode = SupervisorNode | WorkerNode;
             @if (node.status === 'failed' || node.status === 'stopped') {
               <button
                 class="action-btn"
-                appTooltip="Restart"
-                aria-label="Restart"
+                appIconButton="Restart"
                 (click)="onAction(node.id, 'restart')"
               >
                 ↻
@@ -144,8 +144,7 @@ type UnifiedNode = SupervisorNode | WorkerNode;
             @if (node.status === 'running') {
               <button
                 class="action-btn"
-                appTooltip="Stop"
-                aria-label="Stop"
+                appIconButton="Stop"
                 (click)="onAction(node.id, 'stop')"
               >
                 ⏹
@@ -154,8 +153,7 @@ type UnifiedNode = SupervisorNode | WorkerNode;
             @if (node.status === 'failed' && isWorker(node)) {
               <button
                 class="action-btn danger"
-                appTooltip="Escalate"
-                aria-label="Escalate"
+                appIconButton="Escalate"
                 (click)="onAction(node.id, 'escalate')"
               >
                 ⬆
@@ -399,7 +397,7 @@ type UnifiedNode = SupervisorNode | WorkerNode;
       transition: opacity var(--transition-fast);
     }
 
-    .node-header:hover .node-actions {
+    .node-header:hover .node-actions, .node-header:focus-within .node-actions {
       opacity: 1;
     }
 

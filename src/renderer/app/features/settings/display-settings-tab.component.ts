@@ -41,7 +41,7 @@ import type {
   template: `
     <app-settings-card
       icon="display"
-      title="Workspace appearance"
+      heading="Workspace appearance"
       description="Choose how the app looks. Changes are previewed live — nothing is saved until you click Apply."
     >
       <!-- UX4.2: this bespoke field IS the row for theme; it carries the search anchor. -->

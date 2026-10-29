@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import type { InspectorProgressView } from './loop-formatters.util';
 
 /**
@@ -16,6 +17,7 @@ import type { InspectorProgressView } from './loop-formatters.util';
   selector: 'app-loop-inspector-progress',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [AioTooltipDirective],
   template: `
     @if (view(); as p) {
       <div class="li-progress" [attr.data-status]="p.status">
@@ -26,7 +28,7 @@ import type { InspectorProgressView } from './loop-formatters.util';
         </div>
         <div class="li-progress-bars">
           @for (m of p.metrics; track m.key) {
-            <div class="li-metric" [class.uncapped]="m.pct === null" [title]="m.tooltip">
+            <div class="li-metric" tabindex="0" [class.uncapped]="m.pct === null" [appTooltip]="m.tooltip">
               <div class="li-metric-top">
                 <span class="li-metric-label">{{ m.label }}</span>
                 <span class="li-metric-value">{{ m.valueText }}</span>

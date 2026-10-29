@@ -6419,7 +6419,7 @@
     },
     {
       "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
-      "lines": 1589
+      "lines": 1591
     },
     {
       "path": "docs/superpowers/plans/2026-05-02-full-voice-conversation_completed.md",
@@ -6578,11 +6578,11 @@
       "lines": 1319
     },
     {
-      "path": "src/main/plugins/plugin-manager.ts",
-      "lines": 1314
+      "path": "src/renderer/app/features/knowledge/knowledge-page.component.ts",
+      "lines": 1315
     },
     {
-      "path": "src/renderer/app/features/knowledge/knowledge-page.component.ts",
+      "path": "src/main/plugins/plugin-manager.ts",
       "lines": 1314
     },
     {
@@ -6626,16 +6626,16 @@
       "lines": 1275
     },
     {
+      "path": "src/renderer/app/features/instance-detail/output-stream.component.ts",
+      "lines": 1273
+    },
+    {
       "path": "docs/plans/2026-03-02-architectural-remediation-plan_completed.md",
       "lines": 1272
     },
     {
       "path": "docs/superpowers/plans/2026-03-14-instance-startup-optimization_completed.md",
       "lines": 1270
-    },
-    {
-      "path": "src/renderer/app/features/instance-detail/output-stream.component.ts",
-      "lines": 1269
     },
     {
       "path": "docs/superpowers/plans/2026-04-13-collapsible-system-events_completed.md",
@@ -6702,6 +6702,10 @@
       "lines": 1214
     },
     {
+      "path": "src/renderer/app/features/instance-detail/input-panel.component.scss",
+      "lines": 1210
+    },
+    {
       "path": "src/main/security/permission-manager.ts",
       "lines": 1207
     },
@@ -6712,10 +6716,6 @@
     {
       "path": "docs/plans/2026-06-27-supergoal-inspired-loop-planning-audit_completed.md",
       "lines": 1203
-    },
-    {
-      "path": "src/renderer/app/features/instance-detail/input-panel.component.scss",
-      "lines": 1195
     },
     {
       "path": "src/main/cli/adapters/copilot-cli-adapter.ts",
@@ -6787,7 +6787,7 @@
     },
     {
       "path": "src/renderer/app/features/instance-list/instance-list.component.scss",
-      "lines": 1142
+      "lines": 1145
     },
     {
       "path": "docs/superpowers/specs/2026-04-28-wave2-navigation-pickers-prompt-recall-design_completed.md",
@@ -6819,7 +6819,7 @@
     },
     {
       "path": "src/renderer/app/features/mcp/mcp-page.component.ts",
-      "lines": 1124
+      "lines": 1126
     },
     {
       "path": "docs/plans/bigchange_remote-nodes_completed.md",
@@ -6874,12 +6874,12 @@
       "lines": 1080
     },
     {
-      "path": "claude_oct-todo.md",
-      "lines": 1070
+      "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
+      "lines": 1080
     },
     {
-      "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
-      "lines": 1069
+      "path": "claude_oct-todo.md",
+      "lines": 1070
     },
     {
       "path": "src/main/ipc/handlers/__tests__/pair-both-handlers.spec.ts",
@@ -6902,6 +6902,10 @@
       "lines": 1043
     },
     {
+      "path": "src/renderer/app/features/archive/archive-page.component.ts",
+      "lines": 1040
+    },
+    {
       "path": "src/main/cli/adapters/base-cli-adapter.ts",
       "lines": 1038
     },
@@ -6910,12 +6914,8 @@
       "lines": 1038
     },
     {
-      "path": "src/renderer/app/features/archive/archive-page.component.ts",
-      "lines": 1038
-    },
-    {
       "path": "src/renderer/app/features/hooks/hooks-config.component.ts",
-      "lines": 1031
+      "lines": 1032
     },
     {
       "path": "docs/superpowers/plans/2026-03-14-worktree-safety-attention-cost_superseded.md",
@@ -6947,7 +6947,7 @@
     },
     {
       "path": "src/renderer/app/features/file-explorer/file-explorer.component.ts",
-      "lines": 999
+      "lines": 1001
     },
     {
       "path": "src/main/memory/project-memory-brief.ts",
@@ -7107,7 +7107,7 @@
     },
     {
       "path": "src/renderer/app/features/memory/memory-browser.component.ts",
-      "lines": 926
+      "lines": 928
     },
     {
       "path": "docs/plans/2026-10-11-oct-followups_history.md",
@@ -7116,6 +7116,10 @@
     {
       "path": "src/worker-agent/provider-runtime-diagnostics.spec.ts",
       "lines": 922
+    },
+    {
+      "path": "src/renderer/app/features/instance-detail/input-panel.component.spec.ts",
+      "lines": 916
     },
     {
       "path": "src/shared/types/instance.types.ts",
@@ -7154,6 +7158,10 @@
       "lines": 896
     },
     {
+      "path": "src/renderer/app/features/verification/dashboard/verification-dashboard.component.spec.ts",
+      "lines": 893
+    },
+    {
       "path": "src/shared/types/settings.types.ts",
       "lines": 892
     },
@@ -7166,15 +7174,15 @@
       "lines": 888
     },
     {
+      "path": "src/renderer/app/features/verification/config/verification-preferences.component.ts",
+      "lines": 888
+    },
+    {
       "path": "src/main/browser-gateway/browser-mcp-tools.ts",
       "lines": 885
     },
     {
       "path": "src/main/memory/skills-loader.spec.ts",
-      "lines": 883
-    },
-    {
-      "path": "src/renderer/app/features/verification/config/verification-preferences.component.ts",
       "lines": 883
     },
     {
@@ -7198,16 +7206,20 @@
       "lines": 876
     },
     {
+      "path": "src/renderer/app/features/verification/config/api-key-manager.component.ts",
+      "lines": 875
+    },
+    {
+      "path": "docs/plans/2026-10-10-oct-phase4c-tooltips-finish_plan_completed.md",
+      "lines": 874
+    },
+    {
       "path": "src/main/app/compaction-runtime.spec.ts",
       "lines": 871
     },
     {
       "path": "src/main/instance/lifecycle/__tests__/interrupt-respawn-handler.spec.ts",
       "lines": 870
-    },
-    {
-      "path": "src/renderer/app/features/verification/config/api-key-manager.component.ts",
-      "lines": 869
     },
     {
       "path": "docs/plans/2026-06-26-loop-engine-overhaul-spec_completed.md",
@@ -7262,15 +7274,15 @@
       "lines": 853
     },
     {
+      "path": "src/renderer/app/features/instance-detail/output-stream.component.scss",
+      "lines": 853
+    },
+    {
       "path": "src/renderer/app/features/stats/stats-page.component.ts",
-      "lines": 852
+      "lines": 853
     },
     {
       "path": "src/main/mcp/orchestrator-tools-rpc-server.ts",
-      "lines": 851
-    },
-    {
-      "path": "src/renderer/app/features/instance-detail/output-stream.component.scss",
       "lines": 851
     },
     {
@@ -7302,10 +7314,6 @@
       "lines": 843
     },
     {
-      "path": "src/renderer/app/features/verification/dashboard/verification-dashboard.component.spec.ts",
-      "lines": 841
-    },
-    {
       "path": "src/main/orchestration/child-result-storage.ts",
       "lines": 838
     },
@@ -7320,6 +7328,10 @@
     {
       "path": "src/renderer/app/features/review/review-results.component.ts",
       "lines": 838
+    },
+    {
+      "path": "src/renderer/app/features/rlm/context-browser/context-query-panel.component.ts",
+      "lines": 837
     },
     {
       "path": "src/shared/types/history.types.spec.ts",
@@ -7342,8 +7354,8 @@
       "lines": 833
     },
     {
-      "path": "src/renderer/app/features/rlm/context-browser/context-query-panel.component.ts",
-      "lines": 831
+      "path": "src/renderer/app/features/instance-detail/composer-toolbar.component.spec.ts",
+      "lines": 832
     },
     {
       "path": "docs/superpowers/plans/2026-07-04-back-navigation-hotfix-plan_completed.md",
@@ -7386,10 +7398,6 @@
       "lines": 814
     },
     {
-      "path": "src/renderer/app/features/instance-detail/input-panel.component.spec.ts",
-      "lines": 813
-    },
-    {
       "path": "src/main/orchestration/default-invokers.spec.ts",
       "lines": 812
     },
@@ -7412,10 +7420,6 @@
     {
       "path": "src/main/instance/lifecycle/runtime-reconciler.ts",
       "lines": 809
-    },
-    {
-      "path": "src/renderer/app/features/instance-detail/composer-toolbar.component.spec.ts",
-      "lines": 808
     },
     {
       "path": "src/shared/types/loop.types.ts",
@@ -7444,6 +7448,10 @@
     {
       "path": "src/renderer/app/core/state/loop.store.ts",
       "lines": 801
+    },
+    {
+      "path": "src/renderer/app/shared/components/provider-quota-chip/provider-quota-chip.component.spec.ts",
+      "lines": 800
     }
   ]
 }

@@ -1,4 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
+import { AioTooltipDirective } from '../tooltip/aio-tooltip.directive';
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { MenuItemComponent } from './menu-item.component';
 import type { MenuItem } from './menu.types';
@@ -28,6 +30,7 @@ describe('MenuItemComponent', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   function setItem(item: MenuItem<Payload>): void {
@@ -53,12 +56,14 @@ describe('MenuItemComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('✓');
   });
 
-  it('marks disabled items aria-disabled and surfaces reason via title', () => {
+  it('marks disabled items aria-disabled and surfaces the same reason through a Harness hint', () => {
     setItem(leaf('locked', { disabledReason: 'Pick a provider first' }));
 
     const row = rowButton(fixture);
     expect(row.getAttribute('aria-disabled')).toBe('true');
-    expect(row.getAttribute('title')).toBe('Pick a provider first');
+    const hint = fixture.debugElement.query(By.css('.menu-item-row__body')).injector.get(AioTooltipDirective);
+    expect(hint.appTooltipDisabledReason()).toBe('Pick a provider first');
+    expect(row.hasAttribute('title')).toBe(false);
   });
 
   it('disabled row click does not emit', () => {
@@ -69,6 +74,24 @@ describe('MenuItemComponent', () => {
     rowButton(fixture).click();
 
     expect(emitted).toBe(false);
+  });
+
+  it('explains a disabled row on keyboard focus and re-enables it when the reason clears', () => {
+    fixture.componentRef.setInput('focused', true);
+    setItem(leaf('locked', { disabledReason: 'Pick a provider first' }));
+    const row = rowButton(fixture);
+    const matches = row.matches.bind(row);
+    vi.spyOn(row, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
+    row.dispatchEvent(new FocusEvent('focus'));
+    fixture.detectChanges();
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('Pick a provider first');
+    expect(row.hasAttribute('title')).toBe(false);
+    setItem(leaf('locked'));
+    expect(row.hasAttribute('aria-disabled')).toBe(false);
+    const selected = vi.fn();
+    fixture.componentInstance.itemSelect.subscribe(selected);
+    row.click();
+    expect(selected).toHaveBeenCalledOnce();
   });
 
   it('renders the chevron only when item has a submenu', () => {

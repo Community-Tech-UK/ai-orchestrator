@@ -11,6 +11,7 @@ import { InlineHintComponent } from '../../shared/hint/inline-hint.component';
 import { shouldHintCostHiddenWhileBusy } from '../../../../shared/types/hint-policy';
 import { isActiveTurnStatus } from '../../core/state/instance/instance-messaging-queue-utils';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import { FLEET_COST_TOOLTIP } from '../../../../shared/types/session-cost-copy';
 
 /** Display labels for the per-provider cost breakdown tooltip. */
@@ -61,9 +62,9 @@ const PROVIDER_COST_LABELS: Record<string, string> = {
             type="button"
             class="btn-close-all"
             (click)="closeAllClicked.emit()"
-            title="Close all sessions"
+            [appTooltip]="copy('shell.closeAllSessions')"
           >
-            Close All
+            Close all sessions
           </button>
         }
       </div>
@@ -72,6 +73,7 @@ const PROVIDER_COST_LABELS: Record<string, string> = {
   styleUrl: './sidebar-footer.component.scss'
 })
 export class SidebarFooterComponent {
+  protected readonly copy = copyFor;
   store = inject(InstanceStore);
   private settings = inject(SettingsStore);
 

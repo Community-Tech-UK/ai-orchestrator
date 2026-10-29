@@ -1,3 +1,5 @@
+import { copyFor } from '../../../shared/tooltip/tooltip-copy';
+import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import type { PlanQueueAlert } from '@contracts/schemas/plan-queue';
 
@@ -20,12 +22,13 @@ export function planQueueAlertLabel(kind: PlanQueueAlert['kind']): string {
 @Component({
   selector: 'app-plan-queue-alerts-list',
   standalone: true,
-  imports: [],
+  imports: [AioTooltipDirective],
   templateUrl: './plan-queue-alerts-list.component.html',
   styleUrl: './plan-queue-alerts-list.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PlanQueueAlertsListComponent {
+  protected readonly copy = copyFor;
   alerts = input<PlanQueueAlert[]>([]);
   refresh = output<void>();
 

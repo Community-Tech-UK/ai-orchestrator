@@ -10,7 +10,7 @@ import { SettingsCardComponent } from './ui/settings-card.component';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-settings-card
-      title="Application updates"
+      heading="Application updates"
       description="Harness checks in the background and downloads stable releases for this computer."
       icon="general"
     >

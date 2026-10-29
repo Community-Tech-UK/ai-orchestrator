@@ -16,6 +16,7 @@ import {
 } from '@angular/core';
 import { OrchestrationIpcService } from '../../core/services/ipc/orchestration-ipc.service';
 import { SkillStore } from '../../core/state/skill.store';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import type {
   SkillControlMode,
   SkillControlRecord,
@@ -37,6 +38,7 @@ const CONTROL_MODES: SkillControlMode[] = ['enabled', 'suggest-only', 'disabled'
 @Component({
   selector: 'app-skill-health-panel',
   standalone: true,
+  imports: [AioTooltipDirective],
   template: `
     <div class="panel-card">
       <div class="panel-title">Skill Health</div>
@@ -53,7 +55,13 @@ const CONTROL_MODES: SkillControlMode[] = ['enabled', 'suggest-only', 'disabled'
               <div class="row-head">
                 <span class="row-name">{{ row.skillName }}</span>
                 @if (row.outlier) {
-                  <span class="row-outlier" [title]="row.outlier">⚠ {{ row.outlier }}</span>
+                  <span
+                    class="row-outlier"
+                    tabindex="0"
+                    [appTooltip]="row.outlier"
+                    [appTooltipLabel]="row.outlier"
+                    appTooltipVariant="overflow"
+                  >⚠ {{ row.outlier }}</span>
                 }
               </div>
               <div class="row-stats">

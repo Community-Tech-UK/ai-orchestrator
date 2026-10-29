@@ -27,7 +27,8 @@ import type { TodoStatus } from '../../../../shared/types/todo.types';
             <span class="toggle-icon">{{ collapsed() ? '▸' : '▾' }}</span>
             <span class="header-title">Tasks</span>
             @if (store.isWorking()) {
-              <span class="working-indicator" title="Working...">
+              <span class="working-label">Working...</span>
+              <span class="working-indicator" aria-hidden="true">
                 <svg viewBox="0 0 24 24" width="8" height="8" fill="currentColor">
                   <circle cx="12" cy="12" r="10" />
                 </svg>

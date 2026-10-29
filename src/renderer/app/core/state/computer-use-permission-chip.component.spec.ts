@@ -1,3 +1,5 @@
+import { By } from '@angular/platform-browser';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
@@ -35,6 +37,17 @@ describe('ComputerUsePermissionChipComponent', () => {
     fixture.detectChanges();
     return fixture;
   }
+
+  it('keeps its settings action name while preserving both status hints', () => {
+    const fixture = render();
+    const chip = fixture.debugElement.query(By.css('button'));
+    expect(chip.nativeElement.hasAttribute('title')).toBe(false);
+    expect(chip.nativeElement.getAttribute('aria-label')).toBe('Computer Use permissions: open Computer Use settings');
+    expect(chip.injector.get(AioTooltipDirective).appTooltip()).toBe('Computer Use: 2 needed');
+    store.unavailable.set(true); fixture.detectChanges();
+    expect(chip.injector.get(AioTooltipDirective).appTooltip()).toBe('Computer Use unavailable');
+    expect(chip.nativeElement.textContent).toContain('Computer Use unavailable');
+  });
 
   it('shows the outstanding permission count', () => {
     const fixture = render();

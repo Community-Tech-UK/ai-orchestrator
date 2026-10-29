@@ -1,5 +1,5 @@
 import { signal } from '@angular/core';
-import { TestBed } from '@angular/core/testing';
+import { type ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ModelRuntimeTarget } from '../../../../../shared/types/local-model-runtime.types';
 import type { RemoteNodeRosterEntry } from '../../../../../shared/types/worker-node.types';
@@ -51,16 +51,19 @@ function makeNode(
 
 describe('NodePickerComponent', () => {
   let component: NodePickerComponent;
+  let fixture: ComponentFixture<NodePickerComponent>;
+  const nodes = signal<RemoteNodeRosterEntry[]>([]);
 
   beforeEach(() => {
     TestBed.resetTestingModule();
+    nodes.set([]);
     TestBed.configureTestingModule({
       imports: [NodePickerComponent],
       providers: [
         {
           provide: RemoteNodeStore,
           useValue: {
-            nodes: signal<RemoteNodeRosterEntry[]>([]),
+            nodes,
             hasNodes: signal(true),
             nodeById: vi.fn(),
           },
@@ -74,7 +77,32 @@ describe('NodePickerComponent', () => {
       ],
     });
 
-    component = TestBed.createComponent(NodePickerComponent).componentInstance;
+    fixture = TestBed.createComponent(NodePickerComponent);
+    component = fixture.componentInstance;
+  });
+
+  it.each([
+    [makeNode('disconnected', false), 'Node is disconnected'],
+    [makeNode('connected', true, { supportedClis: [] }), 'claude CLI not installed on this node'],
+  ] as const)('keeps an unavailable node focusable and explains it without selecting it', (node, reason) => {
+    nodes.set([node]);
+    fixture.componentRef.setInput('selectedCli', 'claude');
+    component.isOpen.set(true);
+    const selected = vi.fn();
+    component.nodeSelected.subscribe(selected);
+    fixture.detectChanges();
+    const option = fixture.nativeElement.querySelector('button.node-option.disabled') as HTMLButtonElement;
+    expect(option.disabled).toBe(false);
+    expect(option.getAttribute('aria-disabled')).toBe('true');
+    expect(option.textContent).toContain(reason);
+    const matches = option.matches.bind(option);
+    vi.spyOn(option, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
+    option.dispatchEvent(new FocusEvent('focus'));
+    fixture.detectChanges();
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain(reason);
+    option.click();
+    expect(selected).not.toHaveBeenCalled();
+    expect(component.isOpen()).toBe(true);
   });
 
   it('does not allow stale connected-status nodes without a live socket', () => {

@@ -100,7 +100,7 @@
         </div>
       } @else if (symbolsLoaded()) {
         <app-empty-state
-          title="No symbols"
+          heading="No symbols"
           message="This file has no recognized symbols. Check that an LSP server is running for this language."
         />
       } @else {
@@ -225,7 +225,7 @@
         </div>
       } @else if (workspaceSearched()) {
         <app-empty-state
-          title="No results"
+          heading="No results"
           [message]="'No symbols found for \'' + workspaceQuery() + '\'.'"
         />
       } @else {

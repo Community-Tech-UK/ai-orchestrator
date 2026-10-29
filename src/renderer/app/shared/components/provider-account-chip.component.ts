@@ -37,6 +37,7 @@ import type {
   ProviderAccountPools,
 } from '../../../../shared/types/provider-account.types';
 import { isPooledProvider, pooledProviderLabel } from '../../../../shared/types/provider-account.types';
+import { AioTooltipDirective } from '../tooltip/aio-tooltip.directive';
 
 /** Same promise as Settings → Accounts. A second account stays off until the user confirms it. */
 const OWNERSHIP_COPY: Record<PooledProvider, { subscription: string; vendor: string }> = {
@@ -49,14 +50,16 @@ const OWNERSHIP_COPY: Record<PooledProvider, { subscription: string; vendor: str
   standalone: true,
   selector: 'app-provider-account-chip',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [AioTooltipDirective],
   template: `
     @if (poolActive()) {
       <div class="provider-account-chip" [class.compact]="mode() === 'session'" [class.blocked]="blockedText()">
         <span class="dot" [class.blocked]="blockedText()" aria-hidden="true"></span>
-        <span class="text" [title]="title()">{{ blockedText() ?? label() }}</span>
+        <span class="text">{{ blockedText() ?? label() }}</span>
         <select
           class="override"
           [attr.aria-label]="accountAriaLabel()"
+          [appTooltip]="title()"
           [value]="selectedValue()"
           (change)="onSelect($event)"
         >

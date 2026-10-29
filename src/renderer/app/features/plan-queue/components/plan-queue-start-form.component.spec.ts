@@ -3,7 +3,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PlanQueueStartFormComponent, type PlanQueueParentSessionOption, type PlanQueueStartRequest } from './plan-queue-start-form.component';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
@@ -41,6 +41,23 @@ describe('PlanQueueStartFormComponent', () => {
     return fixture.nativeElement.querySelector('button[type="submit"]') as HTMLButtonElement;
   }
 
+  it('explains the missing parent on a focusable Start button and blocks submission', () => {
+    const button = submitButton();
+    const emitted: PlanQueueStartRequest[] = [];
+    fixture.componentInstance.start.subscribe(value => emitted.push(value));
+    expect(button.disabled).toBe(false);
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    button.click(); expect(emitted).toEqual([]);
+    expect(button.tabIndex).toBe(0);
+    const matches = button.matches.bind(button);
+    vi.spyOn(button, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
+    button.focus(); fixture.detectChanges();
+    expect(document.activeElement).toBe(button);
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('Choose a parent session first.');
+    button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+  });
+
   it('lists every parent session with its working directory', () => {
     const text = fixture.nativeElement.textContent as string;
     expect(text).toContain('Session A (claude)');
@@ -49,7 +66,7 @@ describe('PlanQueueStartFormComponent', () => {
   });
 
   it('disables Start run until a parent session is chosen', () => {
-    expect(submitButton().disabled).toBe(true);
+    expect(submitButton().getAttribute('aria-disabled')).toBe('true');
   });
 
   it('enables Start run once a parent session is chosen', async () => {
@@ -59,6 +76,7 @@ describe('PlanQueueStartFormComponent', () => {
     await fixture.whenStable();
 
     expect(submitButton().disabled).toBe(false);
+    expect(submitButton().getAttribute('aria-disabled')).toBeNull();
   });
 
   it('emits the start request with the chosen parent workspace and default kind plans', async () => {

@@ -144,13 +144,14 @@
   font-family: inherit;
 }
 
-.remote-nodes-tab .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.remote-nodes-tab .btn:disabled,
+.remote-nodes-tab .btn.aio-reason-disabled { opacity: 0.5; cursor: not-allowed; }
 .remote-nodes-tab .btn-primary { background: var(--primary-color); color: var(--button-on-primary); }
-.remote-nodes-tab .btn-primary:hover:not(:disabled) { opacity: 0.9; }
+.remote-nodes-tab .btn-primary:hover:not(:disabled):not(.aio-reason-disabled) { opacity: 0.9; }
 .remote-nodes-tab .btn-secondary { background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); }
-.remote-nodes-tab .btn-secondary:hover:not(:disabled) { background: var(--glass-strong); }
+.remote-nodes-tab .btn-secondary:hover:not(:disabled):not(.aio-reason-disabled) { background: var(--glass-strong); }
 .remote-nodes-tab .btn-danger { background: var(--error-color); color: var(--button-on-danger); }
-.remote-nodes-tab .btn-danger:hover:not(:disabled) { opacity: 0.9; }
+.remote-nodes-tab .btn-danger:hover:not(:disabled):not(.aio-reason-disabled) { opacity: 0.9; }
 .remote-nodes-tab .btn.small { min-height: 1.875rem; padding: 0.35rem 0.75rem; font-size: 0.8125rem; }
 
 .remote-nodes-tab .btn-icon {
@@ -168,9 +169,15 @@
   flex-shrink: 0;
 }
 
-.remote-nodes-tab .btn-icon:hover:not(:disabled) {
+.remote-nodes-tab .btn-icon:hover:not(:disabled):not(.aio-reason-disabled) {
   color: var(--text-primary);
   background: var(--glass-strong);
+}
+
+.remote-nodes-tab .btn-icon.aio-reason-disabled {
+  color: var(--text-muted);
+  background: var(--bg-primary);
+  border-color: var(--border-color);
 }
 
 .token-row {

@@ -2,6 +2,9 @@
  * Input Panel Component - Text input for sending messages to Claude
  */
 
+import { composerSendDisabledReason, voiceTooltipParts } from './input-panel-tooltips';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import {
   Component,
   ChangeDetectionStrategy,
@@ -138,7 +141,7 @@ const LOOP_START_ACK_TIMEOUT_MS = 30_000;
   selector: 'app-input-panel',
   standalone: true,
   imports: [InlineHintComponent, 
-    AioTooltipDirective,
+    AioTooltipDirective, AppIconButtonDirective,
     AgentSelectorComponent,
     CompactModelPickerComponent,
     ComposerAutocompleteComponent,
@@ -158,6 +161,9 @@ const LOOP_START_ACK_TIMEOUT_MS = 30_000;
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class InputPanelComponent implements OnDestroy {
+  protected readonly copy = copyFor;
+  protected readonly sendDisabledReason = computed(() => composerSendDisabledReason(this));
+  protected readonly voiceTooltip = computed(() => voiceTooltipParts(this));
   private document = inject(DOCUMENT);
   protected commandStore = inject(CommandStore);
   private draftService = inject(DraftService);
@@ -494,10 +500,11 @@ export class InputPanelComponent implements OnDestroy {
    */
   readonly sendButtonLabel = computed(() => {
     if (this.loopStarting()) return 'Starting loop…';
-    if (this.loopArmed()) return 'Start loop (Enter)';
+    if (this.submission.submitting()) return 'Sending…';
+    if (this.loopArmed()) return 'Start loop';
     return this.isInitializing() || this.isSteeringTarget()
-      ? 'Queue message (Enter)'
-      : 'Send message (Enter)';
+      ? 'Queue message'
+      : 'Send message';
   });
 
   readonly isInitializing = computed(() => {
@@ -761,13 +768,6 @@ export class InputPanelComponent implements OnDestroy {
     && !this.isDraftComposer()
     && !this.isInitializing()
   );
-  voiceButtonTitle = computed(() => {
-    if (this.isDraftComposer()) return 'Start a session before using voice';
-    if (this.isInitializing()) return 'Voice is available after the session starts';
-    if (this.disabled()) return 'Voice is unavailable right now';
-    if (this.isVoiceActive()) return 'Stop voice conversation';
-    return 'Start voice conversation';
-  });
   voiceStatusLabel = computed(() =>
     formatVoiceStatusLabel(this.voiceMode(), this.voice.error(), this.voice.partialTranscript()),
   );
@@ -1720,7 +1720,7 @@ export class InputPanelComponent implements OnDestroy {
   }
 
   onAddFiles(): void {
-    this.addFiles.emit();
+    if (!this.disabled()) this.addFiles.emit();
   }
 
   async onToggleVoice(): Promise<void> {
@@ -1796,31 +1796,31 @@ export class InputPanelComponent implements OnDestroy {
     if (this.hardenedUnavailable()) {
       const name = hardenedProviderName(this.selectedProvider());
       return this.draftHardened()
-        ? `Hardened mode is not supported for ${name} yet. Click to turn it off, or choose Claude`
-        : `Hardened mode is not supported for ${name} yet`;
+        ? this.copy('composer.hardenedUnsupportedOn').replace('{provider}', name)
+        : this.copy('composer.hardenedUnsupported').replace('{provider}', name);
     }
     return this.draftHardened()
-      ? 'Hardened ON — CLI runs inside the macOS Seatbelt sandbox (writes confined to the workspace)'
-      : 'Hardened OFF — CLI runs unsandboxed';
+      ? this.copy('composer.hardenedOn')
+      : this.copy('composer.hardenedOff');
   });
 
   onToggleHardened(): void {
     // null (not false) keeps the draft's "no override" semantics when turning off.
-    this.newSessionDraft.setHardened(this.draftHardened() ? null : true);
+    if (!(this.hardenedUnavailable() && !this.draftHardened())) this.newSessionDraft.setHardened(this.draftHardened() ? null : true);
   }
 
   /** macOS signal fence: shown with Hardened; a hardened jail already blocks cross-session signals. */
   readonly fenceOffInSettings = computed(() => this.settingsStore.settings().providerSignalFenceEnabled === false);
   readonly draftFenceOff = computed(() => this.fenceOffInSettings() || this.newSessionDraft.signalFenceOff());
   readonly fenceTitle = computed(() => {
-    if (this.fenceOffInSettings()) return 'Fence OFF for every session (Settings > Advanced > Security)';
-    if (this.draftHardened()) return 'Hardened sessions always keep the fence';
+    if (this.fenceOffInSettings()) return this.copy('composer.fenceSettings');
+    if (this.draftHardened()) return this.copy('composer.fenceHardened');
     return this.draftFenceOff()
-      ? 'Fence OFF — this session can stop any program you own, including other sessions. Click to turn the fence back on'
-      : 'Fence ON — this session can only stop programs it started. Click to let it stop any program you own';
+      ? this.copy('composer.fenceOff')
+      : this.copy('composer.fenceOn');
   });
   onToggleFence(): void {
-    this.newSessionDraft.setSignalFenceOff(!this.newSessionDraft.signalFenceOff());
+    if (!(this.fenceOffInSettings() || this.draftHardened())) this.newSessionDraft.setSignalFenceOff(!this.newSessionDraft.signalFenceOff());
   }
 
   private persistComposerText(value: string): void {

@@ -78,6 +78,7 @@ import { TranscriptJumpRailComponent } from './transcript-jump-rail.component';
 import { excerptText } from './transcript-jump-rail.markers';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 import { AsyncQuestionAnswersComponent } from './async-question-answers.component';
 import type { AsyncAnswerTarget } from './async-question';
 import { OutputStreamRenderWindow } from './output-stream-render-window';
@@ -107,6 +108,7 @@ import {
     TranscriptFindBarComponent,
     TranscriptJumpRailComponent,
     AioTooltipDirective,
+    AppIconButtonDirective,
     AsyncQuestionAnswersComponent,
   ],
   templateUrl: './output-stream.component.html',
@@ -186,6 +188,8 @@ export class OutputStreamComponent {
    *  set so clearing one never disturbs the other. */
   protected expandedProgressNoteIds = signal(new Set<string>());
   protected compactionRecoveryState = signal<Record<string, 'recovering' | 'queued' | 'failed'>>({});
+  protected readonly compactionRecoveryHint = copyFor('output.compactionRecovery');
+  protected readonly compactionQueuedReason = copyFor('output.compactionQueued');
   private copyResetTimer: number | null = null;
 
   // Context menu state

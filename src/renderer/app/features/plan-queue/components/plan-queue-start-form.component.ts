@@ -1,3 +1,5 @@
+import { copyFor } from '../../../shared/tooltip/tooltip-copy';
+import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
 import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import type { PlanQueueKind } from '@contracts/schemas/plan-queue';
@@ -24,12 +26,13 @@ const KINDS: PlanQueueKind[] = ['plans', 'livetests'];
 @Component({
   selector: 'app-plan-queue-start-form',
   standalone: true,
-  imports: [FormsModule],
+  imports: [AioTooltipDirective, FormsModule],
   templateUrl: './plan-queue-start-form.component.html',
   styleUrl: './plan-queue-start-form.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PlanQueueStartFormComponent {
+  protected readonly copy = copyFor;
   parentSessions = input<PlanQueueParentSessionOption[]>([]);
   start = output<PlanQueueStartRequest>();
 

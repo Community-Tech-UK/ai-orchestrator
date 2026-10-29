@@ -28,6 +28,7 @@ import type {
 } from '@contracts/types/browser';
 import { BrowserGatewayIpcService } from '../services/ipc/browser-gateway-ipc.service';
 import { BrowserApprovalsStore } from './browser-approvals.store';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 import {
   type BannerGrantMode,
   type CredentialAccessDuration,
@@ -47,6 +48,7 @@ import {
 @Component({
   selector: 'app-browser-approvals-banner',
   standalone: true,
+  imports: [AppIconButtonDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (oldestPending(); as approval) {
@@ -159,7 +161,7 @@ import {
             <button
               type="button"
               class="banner-close"
-              aria-label="Minimize browser approval banner"
+              appIconButton="Minimize browser approval banner"
               (click)="minimize()"
             >×</button>
           </div>

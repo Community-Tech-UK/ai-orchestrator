@@ -21,6 +21,8 @@
  * so conversation context is preserved.
  */
 
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -60,16 +62,15 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
   selector: 'app-composer-toolbar',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CompactModelPickerComponent, ProviderAccountChipComponent, DecimalPipe],
+  imports: [CompactModelPickerComponent, ProviderAccountChipComponent, DecimalPipe, AioTooltipDirective],
   template: `
     <div class="composer-toolbar-row">
       <!-- (a) Context ring -->
       <button
         type="button"
         class="ctx-ring-btn"
-        [title]="ringTitle()"
+        [appTooltip]="ringTitle()"
         [attr.aria-label]="ringTitle()"
-        tabindex="-1"
       >
         <svg
           class="ctx-ring"
@@ -134,11 +135,14 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
         <button
           type="button"
           class="pending-model-chip"
-          [title]="'Will switch to ' + pendingLabel + ' when the current turn finishes. Click to cancel.'"
+          [appTooltip]="copy('composer.pendingModelPrefix') + ' ' + pendingLabel + ' ' + copy('composer.pendingModelSuffix')"
           (click)="cancelPendingChange()"
         >
           ⏳ {{ pendingLabel }} <span class="pending-model-chip__x" aria-hidden="true">✕</span>
         </button>
+      }
+      @if (desiredRuntimeLabel(); as pendingLabel) {
+        <span class="pending-model-detail">{{ copy('composer.pendingModelPrefix') + ' ' + pendingLabel + ' ' + copy('composer.pendingModelSuffix') }}</span>
       }
     </div>
   `,
@@ -236,6 +240,7 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
   `],
 })
 export class ComposerToolbarComponent {
+  protected readonly copy = copyFor;
   private readonly ipc = inject(InstanceIpcService);
   private readonly toast = inject(ToastService);
   private readonly historySessions = inject(HistoryPreviewSessionService);

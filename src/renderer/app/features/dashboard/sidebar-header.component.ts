@@ -6,12 +6,13 @@
  * header is focused purely on the session list it sits above.
  */
 
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { ChangeDetectionStrategy, Component, output } from '@angular/core';
 
 @Component({
   selector: 'app-sidebar-header',
   standalone: true,
-  imports: [],
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="sidebar-header">
@@ -20,7 +21,7 @@ import { ChangeDetectionStrategy, Component, output } from '@angular/core';
         <button
           class="btn-header-icon"
           (click)="newChatClicked.emit()"
-          title="New chat"
+          appTooltip="New chat"
           aria-label="Start a new chat"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
@@ -31,7 +32,7 @@ import { ChangeDetectionStrategy, Component, output } from '@angular/core';
         <button
           class="btn-header-icon btn-header-icon--primary"
           (click)="createClicked.emit()"
-          title="New session (⌘N)"
+          appTooltip="New session" appTooltipShortcut="new-instance"
           aria-label="Create a new session"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none"

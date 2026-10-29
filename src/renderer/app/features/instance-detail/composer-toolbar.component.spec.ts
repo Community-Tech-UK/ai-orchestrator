@@ -1,3 +1,5 @@
+import { By } from '@angular/platform-browser';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 /**
  * ComposerToolbarComponent spec
  *
@@ -804,4 +806,26 @@ describe('ComposerToolbarComponent account chip', () => {
     const sessions = TestBed.inject(HistoryPreviewSessionService);
     expect(sessions.accountChoice('history-a')).toBe('codexcomtech-1');
   });
+});
+
+
+it('opens the context-ring explanation on keyboard focus and shows queued model timing visibly', async () => {
+  TestBed.resetTestingModule();
+  await TestBed.configureTestingModule({ imports: [ComposerToolbarComponent], providers: toolbarProviders }).compileComponents();
+  const fixture = TestBed.createComponent(ComposerToolbarComponent);
+  fixture.componentRef.setInput('instanceId', 'session');
+  fixture.componentRef.setInput('desiredRuntime', { provider: 'codex', model: 'next-model' });
+  fixture.detectChanges();
+  const ring = fixture.debugElement.query(By.css('.ctx-ring-btn'));
+  const element = ring.nativeElement as HTMLButtonElement;
+  expect(element.tabIndex).toBe(0);
+  expect(ring.injector.get(AioTooltipDirective).appTooltip()).toBe('Context window: no data');
+  const original = element.matches.bind(element);
+  vi.spyOn(element, 'matches').mockImplementation(selector => selector === ':focus-visible' || original(selector));
+  element.dispatchEvent(new FocusEvent('focus'));
+  fixture.detectChanges();
+  expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('Context window: no data');
+  expect(fixture.nativeElement.querySelector('.pending-model-detail').textContent).toBe('Will switch to Codex · next-model when the current turn finishes. Click to cancel.');
+  expect(fixture.nativeElement.querySelectorAll('[title]')).toHaveLength(0);
+  fixture.destroy();
 });

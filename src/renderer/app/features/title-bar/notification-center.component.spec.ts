@@ -1,3 +1,5 @@
+import { By } from '@angular/platform-browser';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -53,6 +55,17 @@ describe('NotificationCenterComponent', () => {
 
     expect(fixture.nativeElement.querySelector('.notification-center-panel')?.textContent)
       .toContain('Codex has completed its task');
+  });
+
+  it('names dismiss separately from its hint and makes clearing notifications explicit', () => {
+    fixture.nativeElement.querySelector('.notification-center-trigger').click(); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('[title]')).toHaveLength(0);
+    const dismiss = fixture.debugElement.query(By.css('.notification-center-dismiss'));
+    expect(dismiss.nativeElement.getAttribute('aria-label')).toBe('Dismiss Agent finished');
+    expect(dismiss.injector.get(AioTooltipDirective).appTooltip()).toBe('Dismiss');
+    const clear = fixture.debugElement.query(By.css('.notification-center-clear'));
+    expect(clear.nativeElement.textContent).toContain('Clear all notifications');
+    expect(clear.injector.get(AioTooltipDirective).appTooltip()).toBe('Clear all notifications');
   });
 
   it('dismisses a single record and clears the whole center from the panel', () => {

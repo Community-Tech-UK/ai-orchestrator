@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
 /**
  * Verification Results Component
  *
@@ -26,7 +27,7 @@ type ResultTab = 'summary' | 'comparison' | 'debate' | 'raw' | 'export';
 @Component({
   selector: 'app-verification-results',
   standalone: true,
-  imports: [ConsensusHeatmapComponent, StreamingTextComponent],
+  imports: [AioTooltipDirective, ConsensusHeatmapComponent, StreamingTextComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './verification-results.component.html',
   styleUrl: './verification-results.component.scss',

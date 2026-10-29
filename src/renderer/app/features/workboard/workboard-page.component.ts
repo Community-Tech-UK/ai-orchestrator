@@ -67,10 +67,9 @@ const REFRESH_INTERVAL_MS = 4000;
               @for (option of store.workspaceOptions(); track option.id) {
                 <option
                   [value]="option.id"
-                  [attr.title]="option.workingDirectory || option.label"
                   [attr.aria-label]="option.workingDirectory || option.label"
                 >
-                  {{ option.label }}
+                  {{ option.label }}{{ option.workingDirectory ? ' · ' + option.workingDirectory : '' }}
                 </option>
               }
             </select>

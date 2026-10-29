@@ -52,7 +52,8 @@
       <button
         class="btn btn-select-all"
         type="button"
-        [disabled]="availableProviders().length === 0 || isRunning()"
+        [disabled]="isRunning() || loadingProviders()"
+        [appTooltipDisabledReason]="allDisabledReason()"
         (click)="selectAll()"
       >
         All
@@ -60,7 +61,8 @@
       <button
         class="btn btn-clear"
         type="button"
-        [disabled]="selectedProviders().length === 0 || isRunning()"
+        [disabled]="isRunning()"
+        [appTooltipDisabledReason]="noneDisabledReason()"
         (click)="clearSelection()"
       >
         None
@@ -71,7 +73,8 @@
       <button
         class="btn btn-primary"
         type="button"
-        [disabled]="!canStart()"
+        [disabled]="starting() || isRunning()"
+        [appTooltipDisabledReason]="startDisabledReason()"
         (click)="runCouncil()"
       >
         @if (starting()) {
@@ -203,7 +206,8 @@
       <button
         class="btn btn-primary"
         type="button"
-        [disabled]="!canSynthesize()"
+        [disabled]="synthesizing()"
+        [appTooltipDisabledReason]="synthesizeDisabledReason()"
         (click)="synthesize()"
       >
         @if (synthesizing()) {
@@ -222,7 +226,7 @@
           }
           <div class="synthesis-attribution">
             @for (a of result.attribution; track a.provider) {
-              <span class="attribution-chip" [class.included]="a.included" [title]="a.reason ?? ''">
+              <span class="attribution-chip" [class.included]="a.included" [appTooltip]="a.reason" [attr.tabindex]="a.reason ? 0 : null">
                 {{ a.provider }}{{ a.included ? '' : ' (absent)' }}
               </span>
             }

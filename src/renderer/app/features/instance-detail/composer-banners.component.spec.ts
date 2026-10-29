@@ -1,3 +1,5 @@
+import { By } from '@angular/platform-browser';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 /**
  * Unit tests for the in-session auth-repair banner.
  *
@@ -88,6 +90,23 @@ describe('ComposerBannersComponent auth repair', () => {
 
     expect(component.authRequired()).toBeNull();
     expect(component.authLabel()).toBeNull();
+  });
+
+  it('shows the auth recovery consequence visibly and opens a button hint on keyboard focus', () => {
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.quota-park-detail').textContent).toBe(component.authDetail());
+    expect(fixture.nativeElement.querySelectorAll('[title]')).toHaveLength(0);
+    const button = fixture.debugElement.query(By.css('button'));
+    const element = button.nativeElement as HTMLButtonElement;
+    expect(button.injector.get(AioTooltipDirective).appTooltip()).toBe("Open a terminal running this provider's sign-in command");
+    const original = element.matches.bind(element);
+    vi.spyOn(element, 'matches').mockImplementation(selector => selector === ':focus-visible' || original(selector));
+    element.dispatchEvent(new FocusEvent('focus'));
+    fixture.detectChanges();
+    expect(document.getElementById(element.getAttribute('aria-describedby')!)?.textContent).toContain("Open a terminal running this provider's sign-in command");
+    element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    fixture.detectChanges();
+    expect(element.hasAttribute('aria-describedby')).toBe(false);
   });
 
   it('opens the sign-in terminal and says the session resumes on its own', async () => {
@@ -237,6 +256,7 @@ describe('ComposerBannersComponent same-provider account switch', () => {
 
   it('offers the other enabled sibling account, excluding the current and disabled ones', () => {
     expect(component.accountSwitchOptions().map((a) => a.id)).toEqual(['acct-b']);
+    expect(fixture.nativeElement.querySelector('.quota-park-detail').textContent).toBe(component.quotaParkDetail());
   });
 
   it('switches the session to the chosen account', async () => {
@@ -406,5 +426,8 @@ describe('ComposerBannersComponent hardened credential failure', () => {
     fixture.detectChanges();
 
     expect(fixture.nativeElement.querySelector('.hardened-path-input')).not.toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('Allowing a path gives this session write access to it.');
+    const hint = fixture.debugElement.queryAll(By.directive(AioTooltipDirective)).find(host => host.nativeElement.textContent.includes('Allow path'));
+    expect(hint?.injector.get(AioTooltipDirective).appTooltip()).toBe('Grant this path as a writable root and restart the session inside the rebuilt sandbox');
   });
 });

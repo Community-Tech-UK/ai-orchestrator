@@ -85,7 +85,7 @@
       <div class="panel-header">Sessions</div>
       @if (sessions().length === 0) {
         <app-empty-state
-          [title]="selectedInstanceId().trim() ? 'No sessions found' : 'No instance selected'"
+          [heading]="selectedInstanceId().trim() ? 'No sessions found' : 'No instance selected'"
           [message]="selectedInstanceId().trim()
             ? 'No snapshot sessions were recorded for this instance.'
             : 'Enter an instance ID above to load its sessions.'"
@@ -95,6 +95,7 @@
           @for (session of sessions(); track session.id) {
             <li
               class="item-row"
+              [appTooltip]="session.id"
               [class.selected]="selectedSessionId() === session.id"
               (click)="selectSession(session)"
               (keydown.enter)="selectSession(session)"
@@ -102,7 +103,7 @@
               role="button"
             >
               <div class="item-main">
-                <span class="item-name" title="{{ session.id }}">
+                <span class="item-name">
                   {{ session.description || session.id.slice(0, 12) + '…' }}
                 </span>
                 <span class="item-badge">{{ session.fileCount ?? 0 }} files</span>
@@ -127,12 +128,12 @@
       </div>
       @if (!selectedSessionId()) {
         <app-empty-state
-          title="No session selected"
+          heading="No session selected"
           message="Select a session from the left panel to view its file snapshots."
         />
       } @else if (snapshots().length === 0) {
         <app-empty-state
-          title="No snapshots"
+          heading="No snapshots"
           message="No file snapshots were recorded in this session."
         />
       } @else {
@@ -140,6 +141,7 @@
           @for (snap of snapshots(); track snap.id) {
             <li
               class="item-row"
+              [appTooltip]="snap.filePath"
               [class.selected]="selectedSnapshotId() === snap.id"
               (click)="selectSnapshot(snap)"
               (keydown.enter)="selectSnapshot(snap)"
@@ -147,10 +149,10 @@
               role="button"
             >
               <div class="item-main">
-                <span class="action-icon" [class]="'action-' + snap.action" title="{{ snap.action }}">
+                <span class="action-icon" [class]="'action-' + snap.action" aria-hidden="true">
                   {{ actionIcon(snap.action) }}
                 </span>
-                <span class="item-name item-file" title="{{ snap.filePath }}">
+                <span class="item-name item-file">
                   {{ shortPath(snap.filePath) }}
                 </span>
               </div>
@@ -174,7 +176,7 @@
       </div>
       @if (!selectedSnapshotId()) {
         <app-empty-state
-          title="No snapshot selected"
+          heading="No snapshot selected"
           message="Select a file snapshot to view its diff."
         />
       } @else if (loadingDiff()) {
@@ -188,7 +190,7 @@
         />
       } @else {
         <app-empty-state
-          title="No diff available"
+          heading="No diff available"
           message="No diff could be loaded for this snapshot."
         />
       }
@@ -215,7 +217,7 @@
             <li class="item-row evidence-row">
               <div class="item-main">
                 <span class="item-badge">{{ artifact.type }}</span>
-                <span class="item-name" title="{{ artifact.title }}">{{ artifact.title }}</span>
+                <span class="item-name" tabindex="0" appTooltipVariant="overflow" [appTooltip]="artifact.title">{{ artifact.title }}</span>
               </div>
               @if (artifact.fileLabel) {
                 <div class="item-meta">
@@ -250,7 +252,7 @@
             <li class="item-row evidence-row">
               <div class="item-main">
                 <span class="item-badge">{{ attachment.kind }}</span>
-                <span class="item-name" title="{{ attachment.title }}">{{ attachment.title }}</span>
+                <span class="item-name" tabindex="0" appTooltipVariant="overflow" [appTooltip]="attachment.title">{{ attachment.title }}</span>
               </div>
               <div class="item-meta">
                 <span>{{ attachment.sourcePathLabel || attachment.fileName || 'Attachment' }}</span>

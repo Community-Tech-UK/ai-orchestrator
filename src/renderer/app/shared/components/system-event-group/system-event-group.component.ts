@@ -13,19 +13,20 @@ import { DatePipe } from '@angular/common';
 import type { OutputMessage } from '../../../core/state/instance/instance.types';
 import { MarkdownService } from '../../../core/services/markdown.service';
 import { ExpansionStateService } from '../../../features/instance-detail/expansion-state.service';
+import { AioTooltipDirective } from '../../tooltip/aio-tooltip.directive';
 
 @Component({
   selector: 'app-system-event-group',
   standalone: true,
-  imports: [DatePipe],
+  imports: [DatePipe, AioTooltipDirective],
   template: `
     <div class="system-event-group" [class.expanded]="isExpanded()">
-      <button class="seg-header" type="button" (click)="toggle()">
+      <button class="seg-header" type="button" [appTooltip]="preview()" (click)="toggle()">
         <span class="seg-icon">{{ isExpanded() ? '▼' : '▶' }}</span>
         <span class="seg-label">{{ label() }}</span>
         <span class="seg-count">({{ events().length }}x)</span>
         @if (preview()) {
-          <span class="seg-preview" [title]="preview()">- {{ preview() }}</span>
+          <span class="seg-preview">- {{ preview() }}</span>
         }
         <span class="seg-chevron">{{ isExpanded() ? '-' : '+' }}</span>
       </button>

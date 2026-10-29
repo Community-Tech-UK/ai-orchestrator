@@ -163,7 +163,8 @@
                   (animationend)="onInspectorToggleAnimationEnd('todo')"
                   (click)="showTodoInspector.set(!showTodoInspector())"
                   [attr.aria-expanded]="showTodoInspector()"
-                  title="Toggle task list"
+                  appTooltip="Toggle task list"
+                  [appTooltipShowWhenExpanded]="true"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -183,7 +184,8 @@
                   (animationend)="onInspectorToggleAnimationEnd('review')"
                   (click)="showReviewInspector.set(!showReviewInspector())"
                   [attr.aria-expanded]="showReviewInspector()"
-                  title="Toggle review panel"
+                  appTooltip="Toggle review panel"
+                  [appTooltipShowWhenExpanded]="true"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -210,7 +212,8 @@
                   (animationend)="onInspectorToggleAnimationEnd('children')"
                   (click)="showChildrenInspector.set(!showChildrenInspector())"
                   [attr.aria-expanded]="showChildrenInspector()"
-                  title="Toggle child agents"
+                  appTooltip="Toggle child agents"
+                  [appTooltipShowWhenExpanded]="true"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -230,7 +233,8 @@
                   (animationend)="onInspectorToggleAnimationEnd('checkpoint')"
                   (click)="showCheckpointInspector.set(!showCheckpointInspector())"
                   [attr.aria-expanded]="showCheckpointInspector()"
-                  title="Toggle checkpoints"
+                  appTooltip="Toggle checkpoints"
+                  [appTooltipShowWhenExpanded]="true"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -250,7 +254,8 @@
                   (animationend)="onInspectorToggleAnimationEnd('outstanding')"
                   (click)="showOutstandingInspector.set(!showOutstandingInspector())"
                   [attr.aria-expanded]="showOutstandingInspector()"
-                  title="Toggle outstanding items needing a human"
+                  appTooltip="Toggle outstanding items needing a human"
+                  [appTooltipShowWhenExpanded]="true"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

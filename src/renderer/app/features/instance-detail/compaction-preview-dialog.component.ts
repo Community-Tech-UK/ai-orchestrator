@@ -26,6 +26,9 @@ import { InstanceIpcService } from '../../core/services/ipc/instance-ipc.service
 import { ToastService } from '../../core/services/toast.service';
 import { createFocusTrap, type FocusTrapHandle } from '../../shared/utils/focus-trap';
 import type { CompactionPreview } from '../../../../shared/types/compaction-preview.types';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
+import { ROLLING_INSTANCE_COPY } from '../../shared/tooltip/tooltip-copy-rolling-instance';
 
 /** Debounce for re-previewing after the user edits the "keep latest N exchanges" field. */
 const PREVIEW_DEBOUNCE_MS = 300;
@@ -33,6 +36,7 @@ const PREVIEW_DEBOUNCE_MS = 300;
 @Component({
   selector: 'app-compaction-preview-dialog',
   standalone: true,
+  imports: [AioTooltipDirective, AppIconButtonDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (isOpen()) {
@@ -49,7 +53,7 @@ const PREVIEW_DEBOUNCE_MS = 300;
         <div class="cpd-container" role="document" (click)="$event.stopPropagation()" (keydown)="$event.stopPropagation()">
           <div class="cpd-header">
             <span id="cpd-title" class="cpd-title">Preview compaction</span>
-            <button type="button" class="cpd-close" aria-label="Cancel" (click)="onCancel()">✕</button>
+            <button type="button" class="cpd-close" appIconButton="Cancel" (click)="onCancel()">✕</button>
           </div>
 
           @if (loading()) {
@@ -109,7 +113,8 @@ const PREVIEW_DEBOUNCE_MS = 300;
             <button
               type="button"
               class="cpd-btn cpd-primary"
-              [disabled]="!canConfirm()"
+              [disabled]="loading() || applying()"
+              [appTooltipDisabledReason]="confirmBlockedReason()"
               (click)="onConfirm()"
             >{{ applying() ? 'Compacting…' : 'Confirm' }}</button>
           </div>
@@ -169,14 +174,14 @@ const PREVIEW_DEBOUNCE_MS = 300;
       padding: 6px 16px; border-radius: 6px; font-size: 13px; font-weight: 500;
       cursor: pointer; border: 1px solid transparent; transition: all 0.15s;
     }
-    .cpd-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .cpd-btn:disabled, .cpd-btn.aio-reason-disabled { opacity: 0.4; cursor: not-allowed; }
     .cpd-secondary {
       background: transparent; border-color: var(--border-color, rgba(255, 255, 255, 0.12));
       color: var(--text-secondary, #a6adc8);
     }
     .cpd-secondary:hover:not(:disabled) { background: var(--hover-bg, rgba(255, 255, 255, 0.08)); color: var(--text-primary, #cdd6f4); }
     .cpd-primary { background: var(--accent-color, #89b4fa); color: #1e1e2e; }
-    .cpd-primary:hover:not(:disabled) { filter: brightness(1.1); }
+    .cpd-primary:hover:not(:disabled):not(.aio-reason-disabled) { filter: brightness(1.1); }
   `],
 })
 export class CompactionPreviewDialogComponent implements OnDestroy {
@@ -195,6 +200,8 @@ export class CompactionPreviewDialogComponent implements OnDestroy {
   protected readonly keepLatestExchanges = signal(0);
   protected readonly maxExchanges = computed(() => this.preview()?.totalExchangeCount ?? 0);
   protected readonly canConfirm = computed(() => !this.loading() && !this.applying() && !this.error());
+  protected readonly confirmBlockedReason = computed(() =>
+    !this.loading() && !this.applying() && this.error() ? ROLLING_INSTANCE_COPY['compaction.confirmBlocked'].meaning : null);
 
   private readonly overlay = viewChild<ElementRef<HTMLElement>>('overlay');
   private focusTrap: FocusTrapHandle | null = null;

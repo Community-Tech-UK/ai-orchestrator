@@ -14,6 +14,7 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { createFocusTrap, type FocusTrapHandle } from '../../utils/focus-trap';
+import { AppIconButtonDirective } from '../../tooltip/icon-button.directive';
 
 /**
  * Generic single-field text-prompt modal.
@@ -33,7 +34,7 @@ import { createFocusTrap, type FocusTrapHandle } from '../../utils/focus-trap';
   selector: 'app-prompt-modal',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule],
+  imports: [FormsModule, AppIconButtonDirective],
   host: {
     '[class.pm-host-open]': 'isOpen()',
   },
@@ -50,8 +51,8 @@ import { createFocusTrap, type FocusTrapHandle } from '../../utils/focus-trap';
       >
         <div class="pm-container" role="document" (click)="$event.stopPropagation()" (keydown)="$event.stopPropagation()">
           <div class="pm-header">
-            <span class="pm-title">{{ title() }}</span>
-            <button type="button" class="pm-close" aria-label="Cancel" (click)="onCancel()">✕</button>
+            <span class="pm-title">{{ heading() }}</span>
+            <button type="button" class="pm-close" appIconButton="Cancel" (click)="onCancel()">✕</button>
           </div>
 
           @if (message()) {
@@ -211,7 +212,7 @@ import { createFocusTrap, type FocusTrapHandle } from '../../utils/focus-trap';
 })
 export class PromptModalComponent implements AfterViewChecked, OnDestroy {
   isOpen = input(false);
-  title = input('Enter a value');
+  heading = input('Enter a value');
   message = input('');
   placeholder = input('');
   initialValue = input('');

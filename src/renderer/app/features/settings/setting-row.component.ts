@@ -30,7 +30,7 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
         <label [for]="setting().key" class="setting-label">{{
           setting().label
         }}</label>
-        <p class="setting-description">
+        <p class="setting-description" [id]="descriptionId()">
           {{ setting().description }}
         </p>
         @if (rowBadge(); as badge) {
@@ -42,6 +42,7 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
           <span
             class="stage-pill"
             [attr.data-stage]="stageBadge.text"
+            tabindex="0"
             [appTooltip]="stageBadge.detail"
           >{{ stageBadge.text }}</span>
         }
@@ -52,6 +53,7 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
             (click)="resetToDefault()"
             [appTooltip]="resetTooltip()"
             [attr.aria-label]="resetTooltip()"
+            [attr.aria-describedby]="descriptionId()"
           >Reset</button>
         }
       </div>
@@ -62,6 +64,7 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
               <input
                 type="checkbox"
                 [id]="setting().key"
+                [attr.aria-describedby]="descriptionId()"
                 [checked]="value()"
                 (change)="onBooleanChange($event)"
               />
@@ -71,6 +74,7 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
           @case ('select') {
             <select
               [id]="setting().key"
+              [attr.aria-describedby]="descriptionId()"
               (change)="onSelectChange($event)"
             >
               @for (option of selectOptions(); track option.value) {
@@ -84,6 +88,7 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
             <input
               type="number"
               [id]="setting().key"
+              [attr.aria-describedby]="descriptionId()"
               [value]="value()"
               [min]="setting().min"
               [max]="setting().max"
@@ -94,6 +99,7 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
             <input
               type="text"
               [id]="setting().key"
+              [attr.aria-describedby]="descriptionId()"
               [value]="value()"
               [placeholder]="setting().placeholder || ''"
               (change)="onStringChange($event)"
@@ -104,11 +110,12 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
               <input
                 type="text"
                 [id]="setting().key"
+                [attr.aria-describedby]="descriptionId()"
                 [value]="value()"
                 [placeholder]="setting().placeholder || 'Select folder...'"
                 readonly
               />
-              <button class="btn-browse" (click)="browseFolder()">
+              <button class="btn-browse" (click)="browseFolder()" [attr.aria-describedby]="descriptionId()">
                 Browse
               </button>
             </div>
@@ -117,6 +124,7 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
             <div class="json-editor">
               <textarea
                 [id]="setting().key"
+                [attr.aria-describedby]="descriptionId()"
                 rows="6"
                 spellcheck="false"
                 [value]="jsonText()"
@@ -135,6 +143,7 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
                   <input
                     type="checkbox"
                     [checked]="isOptionSelected(option.value)"
+                    [attr.aria-describedby]="descriptionId()"
                     (change)="toggleMultiSelectOption(option.value)"
                   />
                   {{ option.label }}
@@ -184,6 +193,7 @@ export class SettingRowComponent {
   }
 
   setting = input.required<SettingMetadata>();
+  protected readonly descriptionId = computed(() => `setting-description-${this.setting().key}`);
   value = input.required<unknown>();
   /**
    * Runtime-loaded options for a `select` row, used when the choices aren't

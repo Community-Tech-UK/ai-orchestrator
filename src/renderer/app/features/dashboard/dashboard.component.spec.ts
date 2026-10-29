@@ -1,3 +1,5 @@
+import { By } from '@angular/platform-browser';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { CUSTOM_ELEMENTS_SCHEMA, signal, ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
@@ -78,7 +80,7 @@ describe('DashboardComponent resume picker routing', () => {
 
     TestBed.overrideComponent(DashboardComponent, {
       set: {
-        imports: [NgTemplateOutlet, SessionRecoveryBannerComponent],
+        imports: [NgTemplateOutlet, SessionRecoveryBannerComponent, AioTooltipDirective],
         template: dashboardTemplate,
         templateUrl: undefined,
         styles: [],
@@ -149,7 +151,7 @@ describe('DashboardComponent resume picker routing', () => {
             }),
           },
         },
-        { provide: KeybindingService, useValue: { setEligibilityState: vi.fn() } },
+        { provide: KeybindingService, useValue: { setEligibilityState: vi.fn(), ariaShortcutsByAction: () => 'Control+B', formatBindingByAction: () => 'Ctrl+B' } },
         {
           provide: ViewLayoutService,
           useValue: {
@@ -195,6 +197,33 @@ describe('DashboardComponent resume picker routing', () => {
         },
       ],
     });
+  });
+
+  it('keeps distinct pin hints and supplies the sidebar shortcut through a real directive', () => {
+    const fixture = TestBed.createComponent(DashboardComponent);
+    fixture.componentInstance.showSidebar.set(false); fixture.componentInstance.showControlPlane.set(true); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('[title]')).toHaveLength(0);
+    const sidebar = fixture.debugElement.query(By.css('.sidebar-toggle-btn'));
+    expect(sidebar.injector.get(AioTooltipDirective).appTooltip()).toBe('Show sidebar');
+    expect(sidebar.injector.get(AioTooltipDirective).appTooltipShortcut()).toBe('toggle-sidebar');
+    const pin = fixture.debugElement.query(By.css('.control-plane-pin'));
+    expect(pin.nativeElement.getAttribute('aria-label')).toBe('Pin control plane');
+    expect(pin.injector.get(AioTooltipDirective).appTooltip()).toBe('Pin — dock the control plane');
+    controlPlanePinned.set(true); fixture.detectChanges();
+    const unpin = fixture.debugElement.query(By.css('.control-plane-pin'));
+    expect(unpin.injector.get(AioTooltipDirective).appTooltip()).toBe('Unpin — float the control plane');
+    controlPlanePinned.set(false);
+    fixture.destroy();
+  });
+  it('returns focus to the migrated sidechat rail toggle on close', async () => {
+    const component = TestBed.runInInjectionContext(() => new DashboardComponent());
+    const rail = document.createElement('app-workspace-rail');
+    rail.innerHTML = '<button data-testid="sidechat-toggle" aria-label="Sidechats"></button>';
+    document.body.appendChild(rail);
+    try {
+      component.showSideChat.set(true); component.closeSideChat(); await Promise.resolve();
+      expect(document.activeElement).toBe(rail.querySelector('button'));
+    } finally { rail.remove(); component.ngOnDestroy(); }
   });
 
   it('keeps banner-open recovery filtering scoped to the current picker lifetime', () => {

@@ -13,6 +13,8 @@ import type { AppSettings } from '../../../../shared/types/settings.types';
 import type { ModelDisplayInfo } from '../../../../shared/types/provider.types';
 import { UnifiedCatalogStore } from '../models/unified-catalog.store';
 import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 
 import { ProviderModelOverrideComponent } from './provider-model-override.component';
 import {
@@ -47,7 +49,7 @@ const LOCAL_REVIEW_SETTING_KEYS = new Set<keyof AppSettings>([
 @Component({
   selector: 'app-review-settings-tab',
   standalone: true,
-  imports: [ProviderModelOverrideComponent, SettingsTieredRowListComponent],
+  imports: [ProviderModelOverrideComponent, SettingsTieredRowListComponent, AioTooltipDirective, AppIconButtonDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="settings-list-card" aria-label="Cross-model review settings">
@@ -99,8 +101,8 @@ const LOCAL_REVIEW_SETTING_KEYS = new Set<keyof AppSettings>([
                 <button
                   type="button"
                   class="reorder-btn"
-                  [disabled]="i === 0"
-                  [attr.aria-label]="'Move ' + provider.label + ' up'"
+                  [appIconButton]="'Move ' + provider.label + ' up'"
+                  [appIconButtonDisabledReason]="i === 0 ? provider.label + ' is already first, so it cannot move up.' : null"
                   (click)="move(i, -1)"
                 >
                   ↑
@@ -108,8 +110,8 @@ const LOCAL_REVIEW_SETTING_KEYS = new Set<keyof AppSettings>([
                 <button
                   type="button"
                   class="reorder-btn"
-                  [disabled]="i === orderedProviders().length - 1"
-                  [attr.aria-label]="'Move ' + provider.label + ' down'"
+                  [appIconButton]="'Move ' + provider.label + ' down'"
+                  [appIconButtonDisabledReason]="i === orderedProviders().length - 1 ? provider.label + ' is already last, so it cannot move down.' : null"
                   (click)="move(i, 1)"
                 >
                   ↓
@@ -125,7 +127,8 @@ const LOCAL_REVIEW_SETTING_KEYS = new Set<keyof AppSettings>([
                   <span
                     class="reviewer-list__health"
                     [class.is-ratelimited]="notice.kind === 'rate-limited'"
-                    [title]="noticeTooltip(notice)"
+                    tabindex="0"
+                    [appTooltip]="noticeTooltip(notice)"
                   >
                     {{ notice.kind === 'rate-limited' ? 'Rate-limited' : 'Unavailable' }}
                   </span>
@@ -145,7 +148,7 @@ const LOCAL_REVIEW_SETTING_KEYS = new Set<keyof AppSettings>([
               <button
                 type="button"
                 class="reviewer-list__remove"
-                [attr.aria-label]="'Remove ' + provider.label"
+                [appIconButton]="'Remove ' + provider.label"
                 (click)="remove(provider.id)"
               >
                 ✕

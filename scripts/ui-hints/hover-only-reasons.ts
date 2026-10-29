@@ -1,5 +1,9 @@
 const prefix = 'src/renderer/app/features/';
 export const HOVER_ONLY_REASONS: Record<string, string> = {
+  [prefix + 'loop/loop-toggle.component.ts#span.lt-label']: 'the focusable switch beside it carries the same complete explanation',
+  [prefix + 'automations/automations-page.component.ts#label.hidden-label']: 'the label is associated with automation-hidden-control; the same complete explanation is on its focusable checkbox',
+  [prefix + 'codebase/codebase-search.component.ts#label.toggle-label']: 'the label is associated with hyde-toggle; the same complete explanation is on its focusable checkbox',
+  [prefix + 'instance-detail/context-attribution-panel.component.ts#div.segment']: 'the visible legend below lists the same source labels and token counts',
   [prefix + 'instance-list/instance-row.component.ts#span.approval-chip']: 'visible text already reads Awaiting approval',
   [prefix + 'instance-list/instance-row.component.ts#span.remote-badge']: 'visible text carries offline when disconnected',
   [prefix + 'instance-list/instance-row.component.ts#div.diff-stats']: 'visible text is the +N/-N counts themselves',

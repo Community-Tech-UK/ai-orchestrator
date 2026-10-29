@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
 import { SettingsStore } from '../../core/state/settings.store';
@@ -37,6 +38,7 @@ export function resolveComputerUsePresentation(
 @Component({
   selector: 'app-session-computer-use-control',
   standalone: true,
+  imports: [AioTooltipDirective],
   templateUrl: './session-computer-use-control.component.html',
   styleUrl: './session-computer-use-control.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

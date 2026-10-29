@@ -1,6 +1,6 @@
 <div class="pq-alerts">
   <div class="pq-alerts-head">
-    <button type="button" (click)="onRefresh()">Refresh</button>
+    <button type="button" [appTooltip]="copy('planQueue.refresh')" (click)="onRefresh()">Refresh</button>
   </div>
   @if (alerts().length === 0) {
     <div class="pq-alerts-empty">No worktree or branch alerts.</div>

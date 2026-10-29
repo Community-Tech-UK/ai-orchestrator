@@ -1,3 +1,5 @@
+import { By } from '@angular/platform-browser';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -34,6 +36,26 @@ describe('ComposerQueueComponent', () => {
       .toBe(`${glossaryPlain('steer')} Select for more.`);
     fixture.destroy();
   });
+  it('shows one crash-loss warning for multiple unsaved messages and removes it after save', async () => {
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({ imports: [ComposerQueueComponent] }).compileComponents();
+    const fixture = TestBed.createComponent(ComposerQueueComponent);
+    fixture.componentRef.setInput('messages', [{ message: 'one', notDurable: true }, { message: 'two', notDurable: true }]);
+    fixture.detectChanges();
+    const warnings = fixture.nativeElement.querySelectorAll('.queue-unsaved-warning');
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].textContent).toBe('Not saved yet. If Harness crashes now, the marked message could be lost.');
+    expect(warnings[0].getAttribute('role')).toBe('status');
+    const chip = fixture.debugElement.query(By.css('.queued-drop-warning'));
+    expect(chip.injector.get(AioTooltipDirective).appTooltip()).toBe('Not yet saved for crash recovery — a renderer crash right now could lose this message');
+    expect(chip.nativeElement.getAttribute('tabindex')).toBe('0');
+    expect(fixture.nativeElement.querySelectorAll('[title]')).toHaveLength(0);
+    fixture.componentRef.setInput('messages', [{ message: 'one' }, { message: 'two' }]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.queue-unsaved-warning')).toBeNull();
+    fixture.destroy();
+  });
+
   it('renders queue metadata and emits edit/cancel/steer indexes', async () => {
     TestBed.resetTestingModule();
     await TestBed.configureTestingModule({ imports: [ComposerQueueComponent] }).compileComponents();

@@ -199,7 +199,7 @@
                 type="button"
                 (click)="toggleModifyPanel(request)"
                 [disabled]="isResponding()"
-                title="Inspect or edit the tool's input before approving (experimental — requires CLI support)"
+                [appTooltip]="copy('permissions.editInput')"
               >
                 {{ isModifyPanelOpen(request.id) ? '▾' : '▸' }} Edit input
                 <span class="modify-badge">experimental</span>
@@ -231,7 +231,7 @@
                       type="button"
                       (click)="onApproveWithChanges(request)"
                       [disabled]="isResponding()"
-                      title="Approve with the edited input (requires CLI support for modify)"
+                      [appTooltip]="copy('permissions.approveChanges')"
                     >
                       Approve with changes
                     </button>
@@ -271,10 +271,11 @@
                   class="btn-yolo"
                   (click)="onEnableYolo(request)"
                   [disabled]="isResponding()"
-                  title="Enable YOLO mode to auto-approve all permissions for this session"
+                  [appTooltip]="copy('permissions.enableYolo')"
                 >
                   YOLO
                 </button>
+                <span class="scope-write-hint">{{ copy('permissions.enableYolo') }}</span>
               }
             }
             @if (getApproveLabel(request); as approveLabel) {

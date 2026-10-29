@@ -11,6 +11,7 @@ import { ContextEvidencePanelComponent } from '../../shared/components/context-e
 import { ContextAttributionPanelComponent } from './context-attribution-panel.component';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { SESSION_COST_TOOLTIP } from '../../../../shared/types/session-cost-copy';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 
 @Component({
   selector: 'app-context-bar',
@@ -35,7 +36,7 @@ import { SESSION_COST_TOOLTIP } from '../../../../shared/types/session-cost-copy
                without reporting window occupancy. -->
           @if (occupancyKnown()) {
             @if (isEstimated()) {
-              <span class="estimated-badge" title="Estimated from aggregate token spend — actual context occupancy may be lower">~</span>
+              <span class="estimated-badge" tabindex="0" [appTooltip]="copy('context.estimated')">~</span>
             }
             <span class="used">{{ usage().used | number:'1.0-0' }}</span>
             <span class="separator">/</span>
@@ -47,10 +48,10 @@ import { SESSION_COST_TOOLTIP } from '../../../../shared/types/session-cost-copy
             <span class="used">{{ spend | number:'1.0-0' }}</span>
             <span
               class="percentage no-data"
-              title="Tokens used this session. This provider does not report context-window occupancy, so no percentage is shown."
+              tabindex="0" [appTooltip]="copy('context.aggregateSpend')"
             >tokens used</span>
           } @else {
-            <span class="percentage no-data" title="This provider has not reported context occupancy for this session">no data</span>
+            <span class="percentage no-data" tabindex="0" [appTooltip]="copy('context.noOccupancy')">no data</span>
           }
           @if (showCostEffective() && costEstimate()) {
             <span class="cost" tabindex="0" [appTooltip]="costTooltip">≈\${{ costEstimate() | number:'1.2-2' }}</span>
@@ -60,7 +61,7 @@ import { SESSION_COST_TOOLTIP } from '../../../../shared/types/session-cost-copy
         <!-- LT-034: the compact label has no room to explain, so an
              aggregate-only provider gets the neutral dash rather than a
              percentage it never measured. -->
-        <span class="compact-label" [title]="compactLabelTitle()">{{ occupancyKnown() ? (isEstimated() ? '~' : '') + (percentage() | number:'1.0-0') + '%' : '–' }}</span>
+        <span class="compact-label" tabindex="0" [appTooltip]="compactLabelTitle()">{{ occupancyKnown() ? (isEstimated() ? '~' : '') + (percentage() | number:'1.0-0') + '%' : '–' }}</span>
       }
 
       @if (instanceId()) {
@@ -233,6 +234,7 @@ import { SESSION_COST_TOOLTIP } from '../../../../shared/types/session-cost-copy
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ContextBarComponent {
+  protected readonly copy = copyFor;
   readonly costTooltip = SESSION_COST_TOOLTIP;
   usage = input.required<ContextUsage>();
   compact = input<boolean>(false);
@@ -294,7 +296,7 @@ export class ContextBarComponent {
     if (this.occupancyKnown()) return 'Context window used';
     const spend = this.aggregateTokens();
     return spend === null
-      ? 'This provider has not reported context occupancy for this session'
+      ? copyFor('context.noOccupancy')
       : `${spend.toLocaleString()} tokens used this session — `
         + 'this provider does not report context-window occupancy';
   });

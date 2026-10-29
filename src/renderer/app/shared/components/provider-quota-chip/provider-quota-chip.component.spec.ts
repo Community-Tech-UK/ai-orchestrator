@@ -1,3 +1,5 @@
+import { By } from '@angular/platform-browser';
+import { AioTooltipDirective } from '../../tooltip/aio-tooltip.directive';
 /**
  * Unit tests for ProviderQuotaChipComponent.
  *
@@ -243,6 +245,17 @@ describe('ProviderQuotaChipComponent', () => {
       const pacingBadge = host.querySelector<SVGElement>('[data-testid="quota-pacing-claude"]');
       expect(pacingBadge).toBeInstanceOf(SVGElement);
       expect(pacingBadge?.querySelector('path')).toBeTruthy();
+    });
+
+    it('shows the whole pacing warning as visible text without nested native titles', () => {
+      const window = makeWindow(90, 100, Date.now() + 90 * 60_000);
+      store.setSnapshot('claude', makeSnapshot('claude', 'max', true, [window]));
+      store.setPacingWarning({ provider: 'claude', window, utilizationPercent: 90, elapsedPercent: 70,
+        utilizationThresholdPercent: 90, latestElapsedPercent: 72, timestamp: Date.now() });
+      fixture.detectChanges();
+      const host = fixture.nativeElement as HTMLElement;
+      expect(host.querySelectorAll('[title], svg title')).toHaveLength(0);
+      expect(host.querySelector('.pacing-warning')?.textContent).toBe("Quota is being consumed ahead of this window's time budget");
     });
 
     it('clears a stale pacing badge when a refreshed quota window has reset below its warning threshold', () => {
@@ -622,7 +635,9 @@ describe('ProviderQuotaChipComponent', () => {
         const warning = host.querySelector<HTMLButtonElement>(`[data-testid="quota-reauth-${provider}"]`)!;
         expect(warning.tagName).toBe('BUTTON');
         expect(warning.type).toBe('button');
-        expect(warning.title).toBe(title);
+        expect(warning.hasAttribute('title')).toBe(false);
+        const warningHost = fixture.debugElement.query(By.css(`[data-testid="quota-reauth-${provider}"]`));
+        expect(warningHost.injector.get(AioTooltipDirective).appTooltip()).toBe(title);
         expect(warning.textContent).toContain('Sign in again to keep checking usage');
 
         // Refresh must not navigate; only the banner does.

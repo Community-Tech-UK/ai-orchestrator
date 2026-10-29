@@ -14,10 +14,12 @@ import {
   PERMISSION_LABELS,
 } from './computer-use-permission.store';
 import type { DesktopSystemPermission } from '../../../../shared/types/desktop-gateway.types';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 @Component({
   selector: 'app-computer-use-permission-banner',
   standalone: true,
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (store.bannerVisible()) {
@@ -81,7 +83,7 @@ import type { DesktopSystemPermission } from '../../../../shared/types/desktop-g
             type="button"
             class="banner-btn"
             aria-label="Dismiss Computer Use permission banner"
-            title="Dismiss"
+            appTooltip="Dismiss"
             (click)="dismiss()"
           >
             Dismiss

@@ -187,7 +187,7 @@
 
             @if (totalChanges() === 0) {
               <app-empty-state
-                title="Working tree clean"
+                heading="Working tree clean"
                 message="No staged or unstaged changes detected."
               />
             }
@@ -205,7 +205,7 @@
             }
             @if (branches().length === 0) {
               <app-empty-state
-                title="No branches"
+                heading="No branches"
                 message="No local branches found in this repository."
               />
             }
@@ -255,7 +255,7 @@
           }
           @if (commits().length === 0) {
             <app-empty-state
-              title="No commits"
+              heading="No commits"
               message="No commit history found for this branch."
             />
           }

@@ -1,3 +1,5 @@
+import { copyFor } from '../../../shared/tooltip/tooltip-copy';
+import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
 import { ChangeDetectionStrategy, Component, input, output, signal } from '@angular/core';
 import type { PlanQueueQuestion } from '@contracts/schemas/plan-queue';
 
@@ -10,12 +12,13 @@ let nextGroupId = 0;
 @Component({
   selector: 'app-plan-queue-question-card',
   standalone: true,
-  imports: [],
+  imports: [AioTooltipDirective],
   templateUrl: './plan-queue-question-card.component.html',
   styleUrl: './plan-queue-question-card.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PlanQueueQuestionCardComponent {
+  protected readonly copy = copyFor;
   question = input.required<PlanQueueQuestion>();
   submitAnswer = output<string>();
 

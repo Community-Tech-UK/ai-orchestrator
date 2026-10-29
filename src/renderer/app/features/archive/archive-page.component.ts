@@ -14,6 +14,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { ArchiveIpcService } from '../../core/services/ipc/archive-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 
 interface ArchiveEntry {
   id: string;
@@ -27,7 +28,7 @@ interface ArchiveEntry {
 @Component({
   selector: 'app-archive-page',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, AppIconButtonDirective],
   template: `
     <div class="page">
 
@@ -183,7 +184,7 @@ interface ArchiveEntry {
         <div class="drawer">
           <div class="drawer-header">
             <span class="drawer-title">Archive Detail</span>
-            <button class="drawer-close" type="button" (click)="closeDrawer()">✕</button>
+            <button class="drawer-close" type="button" appIconButton="Close archive details" (click)="closeDrawer()">✕</button>
           </div>
 
           <div class="drawer-body">
@@ -226,6 +227,7 @@ interface ArchiveEntry {
                         <button
                           class="tag-remove"
                           type="button"
+                          [appIconButton]="'Remove tag ' + tag"
                           (click)="removeTag(tag)"
                         >×</button>
                       </span>

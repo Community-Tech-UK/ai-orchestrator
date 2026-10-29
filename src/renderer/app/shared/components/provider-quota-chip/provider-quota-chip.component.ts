@@ -29,6 +29,7 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { copyFor } from '../../tooltip/tooltip-copy';
 import { AioTooltipDirective } from '../../tooltip/aio-tooltip.directive';
 import { ProviderQuotaStore } from '../../../core/state/provider-quota.store';
 import { ProviderAccountIpcService } from '../../../core/services/ipc/provider-account-ipc.service';
@@ -124,12 +125,12 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
                   <svg
                     class="pacing-badge"
                     [attr.data-testid]="'quota-pacing-' + entry.provider"
-                    viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                    aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
                     stroke-linecap="round" stroke-linejoin="round"
                   >
-                    <title>Quota is being consumed ahead of this window's time budget</title>
                     <path d="M13 3 4 14h6l-1 7 9-11h-6l1-7Z"/>
                   </svg>
+                  <span class="pacing-warning">{{ copy('shell.quotaPacing') }}</span>
                 }
               </span>
             }
@@ -174,7 +175,7 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
                       type="button"
                       class="reauth-row reauth-action"
                       [attr.data-testid]="section.id === 'legacy' ? 'quota-reauth-' + provider.provider : 'quota-reauth-' + provider.provider + '-' + section.id"
-                      [title]="reauthActionTitle(provider.provider)"
+                      [appTooltip]="reauthActionTitle(provider.provider)"
                       (click)="openAccounts(provider.provider)"
                     >⚠ Reauth needed — {{ section.reauthHint }}</button>
                   }
@@ -221,6 +222,7 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
     .provider-entry { display: inline-flex; align-items: baseline; gap: 3px; }
     .provider-code { font-weight: 700; }
     .provider-value { opacity: 0.82; font-variant-numeric: tabular-nums; }
+    .pacing-warning { white-space: normal; max-width: 200px; font-size: 10px; }
     .pacing-badge { width: 11px; height: 11px; color: #f6c453; flex-shrink: 0; }
     .text { text-transform: none; }
     .account-rows { display: contents; }
@@ -271,6 +273,7 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
   `],
 })
 export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
+  protected readonly copy = copyFor;
   private store = inject(ProviderQuotaStore);
   private readonly elementRef = inject<ElementRef<HTMLElement>>(ElementRef);
 
@@ -472,8 +475,8 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
 
   reauthActionTitle(provider: ProviderId): string {
     return provider === 'copilot'
-      ? 'Open Copilot Accounts to sign in'
-      : 'Open Accounts to sign in';
+      ? copyFor('shell.copilotAccountsSignIn')
+      : copyFor('shell.accountsSignIn');
   }
 
   private async loadAccountProfiles(): Promise<void> {

@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, effect, inject, input, ou
 import { LoopStore } from '../../core/state/loop.store';
 import { InstanceIpcService } from '../../core/services/ipc/instance-ipc.service';
 import { basename, relativeTime } from './workboard-projection';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { WorkboardStore } from './workboard.store';
 import type { WorkboardItem, WorkboardPendingActionRequest, WorkboardSourceKind } from './workboard.types';
 
@@ -39,6 +40,7 @@ const CARD_ACTIONABLE_REQUEST_TYPES = new Set(['approve_action', 'confirm']);
   selector: 'app-workboard-card',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [AioTooltipDirective],
   template: `
     <div class="wb-card-shell">
       <button
@@ -48,10 +50,11 @@ const CARD_ACTIONABLE_REQUEST_TYPES = new Set(['approve_action', 'confirm']);
         [class.wb-card-selected]="selected()"
         [attr.aria-pressed]="selected()"
         [attr.aria-label]="ariaLabel()"
+        [appTooltip]="cardHint()"
         (click)="activate.emit(item().id)"
       >
         <span class="wb-card-top">
-          <span class="wb-card-title" [title]="item().title">{{ item().title }}</span>
+          <span class="wb-card-title">{{ item().title }}</span>
           <span class="wb-card-source" [attr.data-kind]="item().primary.kind">{{ sourceText() }}</span>
         </span>
         <span class="wb-card-mid">
@@ -64,7 +67,7 @@ const CARD_ACTIONABLE_REQUEST_TYPES = new Set(['approve_action', 'confirm']);
           }
         </span>
         <span class="wb-card-bottom">
-          <span class="wb-card-dir" [title]="item().workingDirectory">{{ workspaceLabel() }}</span>
+          <span class="wb-card-dir">{{ workspaceLabel() }}</span>
           <span class="wb-card-time">{{ relTime() }}</span>
         </span>
         @if (relatedBadges().length > 0) {
@@ -175,6 +178,12 @@ export class WorkboardCardComponent {
   protected readonly ariaLabel = computed(() => {
     const item = this.item();
     return `${item.title}, ${sourceLabel(item.primary.kind)}, ${item.primary.rawStatus}`;
+  });
+
+  /** Full title and folder, for when the card text is cut short. Lives on the focusable card button. */
+  protected readonly cardHint = computed(() => {
+    const item = this.item();
+    return item.workingDirectory ? `${item.title} · ${item.workingDirectory}` : item.title;
   });
 
   constructor() {

@@ -25,7 +25,7 @@ vi.mock('./loop-attempt-observation', () => ({ createAttemptDeltaObserver: () =>
 vi.mock('./loop-provider-event-capture', () => ({ observeLoopProviderRuntimeEvents: () => () => undefined }));
 vi.mock('./loop-output-externalize', () => ({ maybeExternalizeLoopOutput: async (output: string) => output }));
 import { registerDefaultLoopInvoker } from './default-invokers';
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 async function publicLoopIteration(adapter: ClaudeCliAdapter, regular = false) {
   if (regular)
     return sendRecordedOrchestrationCall(adapter, { taskType: 'loop-orchestration:claude', correlationId: 'disposable-control', provider: 'claude', model: 'claude-opus-5' }, () => adapter.sendMessage({ role: 'user', content: 'Disposable regular timeout control', metadata: { continueWhileActiveOnTimeout: true, activeTimeoutMs: 25 } }));
@@ -59,6 +59,11 @@ it.each([
   { mode: 'partial-no-final-lf', cost: 0.25 },
 ])('native finality $mode', async ({mode, cost}) => {
   vi.stubEnv('AIO_COST_ATTRIBUTION', '0');
+  const realSetTimeout = setTimeout;
+  const realClearTimeout = clearTimeout;
+  // Keep real child I/O, but charge the watchdog only after the buffered result
+  // is acknowledged. Interpreter startup must not choose the no-output branch.
+  vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
   const adapter = new ClaudeCliAdapter({ model: 'claude-opus-5', timeout: 150 });
   adapter.on('error', () => undefined);
   let child!: ChildProcessWithoutNullStreams;
@@ -72,6 +77,12 @@ it.each([
   adapter.on('complete', response => completed.push({ closed: closeSeen, usage: response.usage }));
   let paused = false;
   let finalWritten = false;
+  let acknowledgeFinal!: () => void;
+  const finalAcknowledged = new Promise<void>(resolve => { acknowledgeFinal = resolve; });
+  let deadline!: ReturnType<typeof setTimeout>;
+  const fixtureDeadline = new Promise<never>((_resolve, reject) => {
+    deadline = realSetTimeout(() => reject(new Error('Disposable CLI fixture did not settle within 5 seconds')), 5_000);
+  });
   const paid = { type: 'assistant', message: { content: [{ type: 'text', text: 'PARTIAL_FIXTURE' }], usage: { input_tokens: 100, output_tokens: 10 } } };
   const result = { type: 'result', subtype: mode === 'partial-native-error' ? 'error_during_execution' : 'success',
     is_error: mode === 'partial-native-error', total_cost_usd: cost, usage: { input_tokens: 100, output_tokens: 10 },
@@ -85,8 +96,12 @@ it.each([
     child.once('close', () => { closeSeen = true; });
     child.once('exit', () => child.stdout.resume());
     child.stdout.on('data', chunk => { drainedRaw += chunk.toString(); });
-    child.stderr.on('data', chunk => { if (chunk.toString().includes('FINAL_WRITTEN'))
-      finalWritten = true; });
+    child.stderr.on('data', chunk => {
+      if (chunk.toString().includes('FINAL_WRITTEN')) {
+        finalWritten = true;
+        acknowledgeFinal();
+      }
+    });
     return child;
   });
   adapter.on('output', event => { if (event.type === 'assistant' && !paused && mode !== 'partial-unpaused') {
@@ -96,9 +111,21 @@ it.each([
   const rows: CostAttributionRecord[] = [];
   const stop = subscribeCostAttribution(row => rows.push(row));
   try {
-    const actual = await publicLoopIteration(adapter, mode === 'regular-paused').then(response => ({ response, error: undefined }), error => ({ response: undefined, error }));
+    const running = publicLoopIteration(adapter, mode === 'regular-paused')
+      .then(response => ({ response, error: undefined }), error => ({ response: undefined, error }));
+    await Promise.race([
+      finalAcknowledged,
+      running.then(() => { throw new Error('Disposable CLI settled before its final-write acknowledgement'); }),
+      fixtureDeadline,
+    ]);
+    await vi.advanceTimersByTimeAsync(150);
+    // The regular timeout deliberately drains for 250 ms before killing a
+    // paused pipe. Keep the real close boundary; never advance its 3s fallback.
+    if (mode === 'regular-paused') await vi.advanceTimersByTimeAsync(250);
+    const actual = await Promise.race([running, fixtureDeadline]);
     const response = actual.response;
-    await closed;
+    expect(Boolean(response)).toBe(mode !== 'regular-paused' && mode !== 'partial-native-error');
+    await Promise.race([closed, fixtureDeadline]);
     await new Promise(resolve => setImmediate(resolve));
     expect(adapter.listenerCount('usage')).toBe(0);
     expect(adapter.listenerCount('complete')).toBe(1);
@@ -121,13 +148,15 @@ it.each([
       {model: 'claude-opus-5', inputTokens: 100, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: cost},
     ]);
   } finally {
+    realClearTimeout(deadline);
+    vi.useRealTimers();
     stop();
     child?.stdout.resume();
     await adapter.terminate(false);
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
   }
-});
+}, 15_000);
 it('does not record a native dispatch refused before child creation', async () => {
   vi.stubEnv('AIO_COST_ATTRIBUTION', '0');
   const adapter = new ClaudeCliAdapter({ workingDirectory: '/disposable-absent-fixture-directory/does-not-exist', model: 'claude-opus-5', timeout: 150 });

@@ -1,3 +1,4 @@
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 
 import { truncateQueuedMessage } from './input-panel-formatters';
@@ -22,6 +23,7 @@ export interface ComposerQueuedMessage {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ComposerQueueComponent {
+  protected readonly copy = copyFor;
   readonly messages = input<ComposerQueuedMessage[]>([]);
   readonly holdReasonLabel = input<string | null>(null);
   readonly canSteer = input(false);
@@ -32,6 +34,8 @@ export class ComposerQueueComponent {
   readonly steerMessage = output<number>();
   readonly cancelMessage = output<number>();
   readonly resumeQueue = output<void>();
+
+  protected hasUnsavedMessages(): boolean { return this.messages().some(message => message.notDurable); }
 
   protected truncate(message: string): string {
     return truncateQueuedMessage(message);

@@ -22,3 +22,5 @@
 .pq-question-submit {
   margin-top: 4px;
 }
+
+button[aria-disabled='true'] { opacity: 0.5; cursor: not-allowed; }

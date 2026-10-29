@@ -18,6 +18,8 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { SlicePipe } from '@angular/common';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 import type { MemoryEntry } from '../../../../shared/types/memory-r1.types';
 import type { MemoryType } from '../../../../shared/types/unified-memory.types';
 
@@ -29,7 +31,7 @@ interface MemoryEntryWithType extends MemoryEntry {
 @Component({
   selector: 'app-memory-browser',
   standalone: true,
-  imports: [SlicePipe],
+  imports: [SlicePipe, AioTooltipDirective, AppIconButtonDirective],
   template: `
     <div class="memory-container">
       <!-- Header -->
@@ -129,17 +131,17 @@ interface MemoryEntryWithType extends MemoryEntry {
               }
               <div class="entry-scores">
                 @if (entry.relevanceScore !== undefined) {
-                  <span class="score relevance" title="Relevance">
+                  <span class="score relevance" tabindex="0" appTooltip="Relevance">
                     R: {{ (entry.relevanceScore * 100).toFixed(0) }}%
                   </span>
                 }
                 @if (entry.confidenceScore !== undefined) {
-                  <span class="score confidence" title="Confidence">
+                  <span class="score confidence" tabindex="0" appTooltip="Confidence">
                     C: {{ (entry.confidenceScore * 100).toFixed(0) }}%
                   </span>
                 }
                 @if (entry.accessCount) {
-                  <span class="score access" title="Access count">
+                  <span class="score access" tabindex="0" appTooltip="Access count">
                     A: {{ entry.accessCount }}
                   </span>
                 }
@@ -198,7 +200,7 @@ interface MemoryEntryWithType extends MemoryEntry {
                 memory
               </span>
             }
-            <button class="close-btn" (click)="clearSelection()">✕</button>
+            <button class="close-btn" appIconButton="Close details" (click)="clearSelection()">✕</button>
           </div>
 
           <div class="details-body">

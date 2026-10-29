@@ -3,7 +3,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlanQueueQuestion } from '@contracts/schemas/plan-queue';
 import { PlanQueueQuestionCardComponent } from './plan-queue-question-card.component';
 
@@ -46,18 +46,35 @@ describe('PlanQueueQuestionCardComponent', () => {
     return fixture.nativeElement.querySelector('.pq-question-submit') as HTMLButtonElement;
   }
 
+  it('keeps Submit focusable with an explanation and rejects activation until an answer is picked', () => {
+    const button = submitButton();
+    const emitted: string[] = []; fixture.componentInstance.submitAnswer.subscribe(value => emitted.push(value));
+    expect(button.disabled).toBe(false);
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    button.click(); expect(emitted).toEqual([]);
+    expect(button.tabIndex).toBe(0);
+    const matches = button.matches.bind(button);
+    vi.spyOn(button, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
+    button.focus(); fixture.detectChanges();
+    expect(document.activeElement).toBe(button);
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('Pick an answer first.');
+    button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+  });
+
   it('renders the question text and one radio per option', () => {
     expect(fixture.nativeElement.textContent).toContain(question.question);
     expect(radios()).toHaveLength(2);
   });
 
   it('disables the submit button until an option is selected', () => {
-    expect(submitButton().disabled).toBe(true);
+    expect(submitButton().getAttribute('aria-disabled')).toBe('true');
 
     radios()[0].dispatchEvent(new Event('change'));
     fixture.detectChanges();
 
     expect(submitButton().disabled).toBe(false);
+    expect(submitButton().getAttribute('aria-disabled')).toBeNull();
   });
 
   it('never lets James type an option id — only radio inputs are rendered', () => {

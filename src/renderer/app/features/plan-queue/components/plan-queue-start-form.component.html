@@ -30,5 +30,5 @@
     />
   </label>
 
-  <button type="submit" [disabled]="!canStart()">Start run</button>
+  <button type="submit" [appTooltip]="copy('planQueue.start')" [appTooltipDisabledReason]="canStart() ? null : copy('planQueue.chooseParent')">Start run</button>
 </form>

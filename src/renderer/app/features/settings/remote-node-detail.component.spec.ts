@@ -1,5 +1,7 @@
 import { ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -102,6 +104,16 @@ describe('RemoteNodeDetailComponent', () => {
     resetButton?.click();
 
     expect(emit).toHaveBeenCalledWith({ type: 'reset-connection', nodeId: 'node-a' });
+  });
+
+  it('shows the complete reset consequence before the connection action', () => {
+    expect(fixture.nativeElement.querySelector('.reset-connection-hint')?.textContent)
+      .toContain("Close this computer's live connection without revoking it. It reconnects by itself.");
+    expect(fixture.nativeElement.querySelectorAll('[title]')).toHaveLength(0);
+    const chips = fixture.debugElement.queryAll(By.directive(AioTooltipDirective))
+      .filter(element => element.nativeElement.classList.contains('capability-chip'));
+    expect(chips).toHaveLength(3);
+    for (const chip of chips) expect(chip.nativeElement.tabIndex).toBe(0);
   });
 
   it('does not offer Reset connection for a disconnected node', () => {

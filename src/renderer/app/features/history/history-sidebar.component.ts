@@ -20,13 +20,14 @@ import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import { ViewLayoutService } from '../../core/services/view-layout.service';
 import { HistoryListComponent } from './history-list.component';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 import type { ConversationHistoryEntry } from '../../../../shared/types/history.types';
 import type { OutputMessage } from '../../core/state/instance/instance.types';
 
 @Component({
   selector: 'app-history-sidebar',
   standalone: true,
-  imports: [FormsModule, HistoryListComponent, AioTooltipDirective],
+  imports: [FormsModule, HistoryListComponent, AioTooltipDirective, AppIconButtonDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
@@ -42,10 +43,10 @@ import type { OutputMessage } from '../../core/state/instance/instance.types';
       <div class="sidebar-header">
         <h2>Conversation History</h2>
         <div class="header-actions">
-          <button class="btn-import" (click)="loadBundle()" title="Load saved share bundle">
+          <button class="btn-import" (click)="loadBundle()" appTooltip="Load saved share bundle">
             Bundle
           </button>
-          <button class="btn-close" (click)="closeHistory.emit()" appTooltip="Close" aria-label="Close">
+          <button class="btn-close" (click)="closeHistory.emit()" appIconButton="Close">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <line x1="18" y1="6" x2="6" y2="18"></line>
               <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -68,7 +69,7 @@ import type { OutputMessage } from '../../core/state/instance/instance.types';
             (ngModelChange)="onSearchChange($event)"
           />
           @if (store.searchQuery()) {
-            <button class="btn-clear" (click)="store.clearSearch()" appTooltip="Clear search" aria-label="Clear search">
+            <button class="btn-clear" (click)="store.clearSearch()" appIconButton="Clear search">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <line x1="18" y1="6" x2="6" y2="18"></line>
                 <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -92,7 +93,7 @@ import type { OutputMessage } from '../../core/state/instance/instance.types';
       <div class="sidebar-footer">
         <span class="entry-count">{{ store.entryCount() }} conversations</span>
         @if (store.hasEntries()) {
-          <button class="btn-clear-all" (click)="onClearAll()" title="Delete all conversation history">
+          <button class="btn-clear-all" (click)="onClearAll()" appTooltip="Delete all conversation history">
             Clear All
           </button>
         }
@@ -118,8 +119,8 @@ import type { OutputMessage } from '../../core/state/instance/instance.types';
           <h3>{{ confirmTitle() }}</h3>
           <p>{{ confirmMessage() }}</p>
           <div class="confirm-actions">
-            <button class="btn-cancel" (click)="cancelConfirm()" title="Cancel action">Cancel</button>
-            <button class="btn-confirm" [class.danger]="confirmDanger()" (click)="executeConfirm()" title="Confirm action">
+            <button class="btn-cancel" (click)="cancelConfirm()" appTooltip="Cancel action">Cancel</button>
+            <button class="btn-confirm" [class.danger]="confirmDanger()" (click)="executeConfirm()" appTooltip="Confirm action">
               {{ confirmAction() }}
             </button>
           </div>

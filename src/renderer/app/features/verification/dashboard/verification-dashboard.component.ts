@@ -34,6 +34,8 @@ import type { CliType } from '../../../../../shared/types/unified-cli-response';
 import type { SynthesisStrategy } from '../../../../../shared/types/verification.types';
 import type { TaskPreflightReport } from '../../../../../shared/types/task-preflight.types';
 import { TaskPreflightCardComponent } from '../../../shared/components/task-preflight-card.component';
+import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
+import { AppIconButtonDirective } from '../../../shared/tooltip/icon-button.directive';
 
 @Component({
   selector: 'app-verification-dashboard',
@@ -46,6 +48,8 @@ import { TaskPreflightCardComponent } from '../../../shared/components/task-pref
     VerificationResultsComponent,
     DropZoneComponent,
     TaskPreflightCardComponent,
+    AioTooltipDirective,
+    AppIconButtonDirective,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './verification-dashboard.component.html',
@@ -329,7 +333,9 @@ export class VerificationDashboardComponent implements OnDestroy, AfterViewInit 
 
   deleteSession(sessionId: string, event: Event): void {
     event.stopPropagation(); // Don't trigger viewSession
-    this.store.deleteSession(sessionId);
+    if (confirm('Are you sure you want to delete this verification session? This removes the session and its results.')) {
+      this.store.deleteSession(sessionId);
+    }
   }
 
   truncatePrompt(prompt: string): string {

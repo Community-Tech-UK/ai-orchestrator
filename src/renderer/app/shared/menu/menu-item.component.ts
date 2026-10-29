@@ -9,6 +9,7 @@ import {
   output
 } from '@angular/core';
 import type { MenuItem } from './menu.types';
+import { AioTooltipDirective } from '../tooltip/aio-tooltip.directive';
 
 /**
  * One row in a `<app-nested-menu>`.
@@ -29,6 +30,7 @@ import type { MenuItem } from './menu.types';
 @Component({
   selector: 'app-menu-item',
   standalone: true,
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="menu-item-row" (mouseenter)="onMouseEnter()" (mouseleave)="onMouseLeave()">
@@ -42,7 +44,7 @@ import type { MenuItem } from './menu.types';
         [attr.aria-haspopup]="item().submenu ? 'menu' : null"
         [attr.aria-disabled]="item().disabledReason ? 'true' : null"
         [attr.aria-expanded]="item().submenu ? (submenuOpen() ? 'true' : 'false') : null"
-        [attr.title]="item().disabledReason ?? null"
+        [appTooltipDisabledReason]="item().disabledReason ?? null"
         (click)="onRowClick($event)"
         (focus)="onRowFocus()"
       >
@@ -59,6 +61,7 @@ import type { MenuItem } from './menu.types';
           class="menu-item-row__chevron"
           tabindex="-1"
           [attr.aria-label]="'Open ' + item().label + ' options'"
+          appTooltip="Open submenu"
           [attr.aria-disabled]="item().disabledReason ? 'true' : null"
           (click)="onChevronClick($event)"
         >

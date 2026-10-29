@@ -13,6 +13,7 @@ import {
 import { Router } from '@angular/router';
 import { HistoryStore } from '../../core/state/history.store';
 import { InstanceStore } from '../../core/state/instance.store';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import type { ConversationHistoryEntry } from '../../../../shared/types/history.types';
 
 interface SearchResult {
@@ -31,6 +32,7 @@ const RESULT_CAP = 50;
 @Component({
   selector: 'app-chat-search-page',
   standalone: true,
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="search-page">
@@ -56,7 +58,7 @@ const RESULT_CAP = 50;
               class="clear-btn"
               (click)="clear()"
               aria-label="Clear search"
-              title="Clear"
+              appTooltip="Clear"
             >
               ×
             </button>

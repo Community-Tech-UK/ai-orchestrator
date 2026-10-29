@@ -13,10 +13,12 @@ import { isRemoteNodeOnline } from '../../../core/state/remote-node-connectivity
 import type { ModelRuntimeTarget } from '../../../../../shared/types/local-model-runtime.types';
 import type { RemoteNodeRosterEntry } from '../../../../../shared/types/worker-node.types';
 import { formatRemoteNodePlatformLabel } from '../../remote-node-display';
+import { AioTooltipDirective } from '../../tooltip/aio-tooltip.directive';
 
 @Component({
   standalone: true,
   selector: 'app-node-picker',
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     '[class.picker-open]': 'isOpen()',
@@ -28,7 +30,7 @@ import { formatRemoteNodePlatformLabel } from '../../remote-node-display';
           class="node-picker-trigger"
           type="button"
           (click)="toggleOpen()"
-          [title]="selectedTooltip()"
+          [appTooltip]="selectedTooltip()"
         >
           <span class="node-health-dot" [class]="selectedHealthClass()"></span>
           <span class="node-picker-label">{{ selectedLabel() }}</span>
@@ -61,15 +63,15 @@ import { formatRemoteNodePlatformLabel } from '../../remote-node-display';
                 class="node-option"
                 [class.selected]="selectedNodeId() === node.id"
                 [class.disabled]="!isNodeSelectable(node)"
-                [disabled]="!isNodeSelectable(node)"
-                [title]="nodeDisabledReason(node)"
+                [appTooltipDisabledReason]="nodeDisabledReason(node)"
                 type="button"
-                (click)="selectNode(node.id)"
+                (click)="isNodeSelectable(node) && selectNode(node.id)"
               >
                 <span class="node-health-dot" [class]="healthClass(node)"></span>
                 <div class="node-option-content">
                   <span class="node-option-name">{{ node.name }}</span>
                   <span class="node-option-detail">{{ nodeSubtitle(node) }}</span>
+                  @if (nodeDisabledReason(node); as reason) { <span class="node-option-detail">{{ reason }}</span> }
                 </div>
                 @if (node.latencyMs !== null && node.latencyMs !== undefined) {
                   <span class="node-option-latency">{{ node.latencyMs }}ms</span>
@@ -141,7 +143,7 @@ import { formatRemoteNodePlatformLabel } from '../../remote-node-display';
       width: 100%;
     }
 
-    .node-option:hover:not(:disabled) { background: var(--bg-hover); }
+    .node-option:hover:not(.disabled) { background: var(--bg-hover); }
     .node-option.selected { background: var(--bg-hover); }
     .node-option.disabled { opacity: 0.4; cursor: not-allowed; }
 

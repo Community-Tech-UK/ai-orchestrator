@@ -71,7 +71,7 @@
       <button
         class="sidebar-toggle-btn"
         (click)="showSidebar.set(true)"
-        appTooltip="Show sidebar (⌘B)"
+        appTooltip="Show sidebar" appTooltipShortcut="toggle-sidebar"
         aria-label="Show sidebar"
       >
         <svg
@@ -190,7 +190,7 @@
               class="control-plane-pin"
               [class.active]="controlPlanePinned()"
               (click)="toggleControlPlanePinned()"
-              [title]="controlPlanePinned() ? 'Unpin — float the control plane' : 'Pin — dock the control plane'"
+              [appTooltip]="controlPlanePinned() ? 'Unpin — float the control plane' : 'Pin — dock the control plane'"
               [attr.aria-label]="controlPlanePinned() ? 'Unpin control plane' : 'Pin control plane'"
               [attr.aria-pressed]="controlPlanePinned()"
             >
@@ -211,7 +211,7 @@
               type="button"
               class="control-plane-close"
               (click)="toggleControlPlane()"
-              title="Close control plane"
+              appTooltip="Close control plane"
               aria-label="Close control plane"
             >
               ×
@@ -227,7 +227,7 @@
                 type="button"
                 class="preset-btn"
                 [class.active]="activeWorkspacePreset() === preset.id"
-                [title]="preset.description"
+                [appTooltip]="preset.description"
                 (click)="applyWorkspacePreset(preset.id)"
               >
                 {{ preset.label }}

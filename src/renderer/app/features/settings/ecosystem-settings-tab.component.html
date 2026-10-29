@@ -56,7 +56,7 @@
                 class="item"
                 [class.active]="selectedKind() === 'command' && selectedKey() === cmd.name"
                 (click)="select('command', cmd.name, cmd.filePath || null)"
-                [attr.title]="cmd.filePath || ''"
+                [appTooltip]="cmd.filePath"
               >
                 <div class="item-title">/{{ cmd.name }}</div>
                 <div class="item-sub">{{ cmd.description }}</div>
@@ -73,7 +73,7 @@
                 class="item"
                 [class.active]="selectedKind() === 'agent' && selectedKey() === a.profile.id"
                 (click)="select('agent', a.profile.id, a.source === 'file' ? a.filePath : null)"
-                [attr.title]="a.source === 'file' ? a.filePath : 'Built in to the app'"
+                [appTooltip]="a.source === 'file' ? a.filePath : 'Built in to the app'"
               >
                 <div class="item-title">
                   {{ a.profile.name }}
@@ -95,7 +95,7 @@
                 class="item"
                 [class.active]="selectedKind() === 'tool' && selectedKey() === t.id"
                 (click)="select('tool', t.id, t.filePath)"
-                [attr.title]="t.filePath"
+                [appTooltip]="t.filePath"
               >
                 <div class="item-title">{{ t.id }}</div>
                 <div class="item-sub">{{ t.description }}</div>
@@ -112,7 +112,7 @@
                 class="item"
                 [class.active]="selectedKind() === 'plugin' && selectedKey() === p.filePath"
                 (click)="select('plugin', p.filePath, p.filePath)"
-                [attr.title]="p.filePath"
+                [appTooltip]="p.filePath"
               >
                 <div class="item-title">{{ basename(p.filePath) }}</div>
                 <div class="item-sub">
@@ -136,7 +136,7 @@
                 class="item"
                 [class.active]="activeOutputStyle() === style.name"
                 (click)="selectOutputStyle(style.name)"
-                [attr.title]="style.filePath || (style.source === 'built-in' ? 'Built in to the app' : '')"
+                [appTooltip]="style.filePath || (style.source === 'built-in' ? 'Built in to the app' : null)"
               >
                 <div class="item-title">
                   {{ style.label }}
@@ -177,7 +177,7 @@
         @if (selectedOutputStyleDetail(); as style) {
           <div class="detail">
             <div class="detail-header">
-              <div class="detail-title" [attr.title]="style.label">
+              <div class="detail-title" tabindex="0" [appTooltip]="style.label" appTooltipVariant="overflow">
                 {{ style.label }}
                 @if (activeOutputStyle() === style.name) {
                   <span class="pill active-pill">active</span>
@@ -224,7 +224,7 @@
       } @else {
         <div class="detail">
           <div class="detail-header">
-            <div class="detail-title" [attr.title]="selectedKind() + ': ' + selectedKey()">
+            <div class="detail-title" tabindex="0" [appTooltip]="selectedKind() + ': ' + selectedKey()" appTooltipVariant="overflow">
               {{ selectedKind() }}: {{ selectedKey() }}
             </div>
             <div class="detail-actions">

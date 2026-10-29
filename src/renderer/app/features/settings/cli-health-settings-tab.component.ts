@@ -21,6 +21,7 @@ import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service
 import { CliUpdatePillStore } from '../../core/state/cli-update-pill.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { SegmentedControlComponent, type SegmentOption } from './ui/segmented-control.component';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import type { CliUpdatePolicy } from '../../../../shared/types/settings.types';
 
 interface CliInstall {
@@ -100,7 +101,7 @@ interface CliUpdateResult {
   standalone: true,
   selector: 'app-cli-health-settings-tab',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [SegmentedControlComponent],
+  imports: [SegmentedControlComponent, AioTooltipDirective],
   template: `
     <div class="cli-health-tab">
       <div class="tab-header">
@@ -172,7 +173,7 @@ interface CliUpdateResult {
                 {{ severityLabel(severity(entry)) }}
               </span>
               @if (entry.updateAvailable) {
-                <span class="update-badge" [title]="updateBadgeTooltip(entry)">
+                <span class="update-badge" tabindex="0" [appTooltip]="updateBadgeTooltip(entry)">
                   Update available
                 </span>
               }

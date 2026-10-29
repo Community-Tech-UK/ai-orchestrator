@@ -1,3 +1,5 @@
+import { By } from '@angular/platform-browser';
+import { AioTooltipDirective } from './shared/tooltip/aio-tooltip.directive';
 import {
   computed,
   CUSTOM_ELEMENTS_SCHEMA,
@@ -88,7 +90,7 @@ async function setupAppComponent(
 
   TestBed.overrideComponent(AppComponent, {
     set: {
-      imports: [],
+      imports: [AioTooltipDirective],
       template,
       templateUrl: undefined,
       styles: [styles],
@@ -164,7 +166,7 @@ describe('AppComponent startup banner', () => {
 
     TestBed.overrideComponent(AppComponent, {
       set: {
-        imports: [],
+        imports: [AioTooltipDirective],
         template,
         templateUrl: undefined,
         styles: [styles],
@@ -226,6 +228,31 @@ describe('AppComponent startup banner', () => {
     fixture.detectChanges();
     await fixture.whenStable();
     fixture.detectChanges();
+  });
+
+  it('preserves the startup explanation and the dismiss name with real tooltip directives', () => {
+    expect(fixture.nativeElement.querySelectorAll('[title]')).toHaveLength(0);
+    const chip = fixture.debugElement.query(By.css('.startup-status-chip'));
+    expect(chip.injector.get(AioTooltipDirective).appTooltip()).toBe('Codex CLI: Multiple codex installs detected.');
+    const dismiss = fixture.debugElement.query(By.css('.startup-banner-dismiss'));
+    expect(dismiss.nativeElement.getAttribute('aria-label')).toBe('Dismiss startup checks banner');
+    expect(dismiss.injector.get(AioTooltipDirective).appTooltip()).toBe('Dismiss');
+    const element = dismiss.nativeElement as HTMLElement;
+    const matches = element.matches.bind(element);
+    vi.spyOn(element, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
+    element.dispatchEvent(new FocusEvent('focus')); fixture.detectChanges();
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('Dismiss');
+    element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); fixture.detectChanges();
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+  });
+
+  it('makes the resuming-traffic status visible instead of hover-only', () => {
+    (component as unknown as { resumeToast: { set(value: { id: number; at: number; queuedTotal: number }): void } }).resumeToast.set({
+      id: 1, at: Date.now(), queuedTotal: 3,
+    });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.title-activity-chip').textContent).toContain('Queued paused traffic is resuming: 3');
+    expect(fixture.nativeElement.querySelector('.title-activity-chip').hasAttribute('title')).toBe(false);
   });
 
   it('renders a dismiss control for degraded startup checks', () => {
@@ -367,7 +394,7 @@ describe('AppComponent title bar layout', () => {
     });
     TestBed.overrideComponent(AppComponent, {
       set: {
-        imports: [LocalAiStatusChipComponent],
+        imports: [LocalAiStatusChipComponent, AioTooltipDirective],
         template,
         templateUrl: undefined,
         styles: [styles],

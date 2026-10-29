@@ -1,3 +1,4 @@
+import { AppIconButtonDirective } from '../../tooltip/icon-button.directive';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -18,8 +19,9 @@ import type { FsEntry, FsProjectMatch } from '../../../../../shared/types/remote
 @Component({
   selector: 'app-remote-browse-modal',
   standalone: true,
+
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, NodePathPipe],
+  imports: [CommonModule, FormsModule, NodePathPipe, AppIconButtonDirective],
   template: `
     @if (isOpen()) {
       <div class="modal-overlay" (click)="close()" (keydown.escape)="close()" tabindex="-1" role="dialog" aria-modal="true">
@@ -47,7 +49,7 @@ import type { FsEntry, FsProjectMatch } from '../../../../../shared/types/remote
                   Search
                 </button>
               </div>
-              <button type="button" class="close-btn" (click)="close()">✕</button>
+              <button type="button" class="close-btn" appIconButton="Close" (click)="close()">✕</button>
             </div>
 
             @if (mode() === 'browse') {

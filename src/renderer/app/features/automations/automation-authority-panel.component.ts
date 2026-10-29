@@ -7,6 +7,7 @@ import {
   type AutomationAuthorityTemplate,
   type AutomationAuthorityTemplateId,
 } from './automation-authority';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 /**
  * WS-C5 — displays the six operating-authority cards (May access / May change
@@ -20,7 +21,7 @@ import {
 @Component({
   selector: 'app-automation-authority-panel',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './automation-authority-panel.component.html',
   styleUrl: './automation-authority-panel.component.css',

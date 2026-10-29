@@ -32,6 +32,9 @@ import {
   TestBed
 } from '@angular/core/testing';
 import { FormsModule } from '@angular/forms';
+import { By } from '@angular/platform-browser';
+import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
+import { AppIconButtonDirective } from '../../../shared/tooltip/icon-button.directive';
 import { VerificationDashboardComponent } from './verification-dashboard.component';
 import { VerificationStore } from '../../../core/state/verification.store';
 import { CliStore } from '../../../core/state/cli.store';
@@ -100,7 +103,7 @@ class DropZoneStubComponent {
 class TaskPreflightCardStubComponent {
   @Input() report: unknown;
   @Input() loading = false;
-  @Input() title = '';
+  @Input() heading = '';
   @Input() subtitle = '';
   @Input() emptyMessage = '';
 }
@@ -323,6 +326,8 @@ describe('VerificationDashboardComponent', () => {
         styleUrls: [],
         imports: [
           FormsModule,
+          AioTooltipDirective,
+          AppIconButtonDirective,
           AgentCardStubComponent,
           AgentConfigPanelStubComponent,
           VerificationMonitorStubComponent,
@@ -348,6 +353,7 @@ describe('VerificationDashboardComponent', () => {
 
   afterEach(() => {
     TestBed.resetTestingModule();
+    vi.restoreAllMocks();
   });
 
   // ============================================
@@ -674,6 +680,52 @@ describe('VerificationDashboardComponent', () => {
     it('should display recent sessions', () => {
       const sessions = fixture.nativeElement.querySelectorAll('.session-item');
       expect(sessions.length).toBe(2);
+    });
+
+    it('leaves the session and its results alone when deletion is cancelled', () => {
+      const confirmDelete = vi.spyOn(window, 'confirm').mockReturnValue(false);
+      const button: HTMLButtonElement = fixture.nativeElement.querySelector('.session-delete');
+      button.click();
+      expect(confirmDelete).toHaveBeenCalledWith(
+        'Are you sure you want to delete this verification session? This removes the session and its results.',
+      );
+      expect(mockVerificationStore.deleteSession).not.toHaveBeenCalled();
+      expect(fixture.nativeElement.querySelectorAll('.session-item')).toHaveLength(2);
+    });
+
+    it('deletes only the chosen session after confirmation', () => {
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      const button: HTMLButtonElement = fixture.nativeElement.querySelector('.session-delete');
+      button.click();
+      expect(mockVerificationStore.deleteSession).toHaveBeenCalledExactlyOnceWith('session-1');
+    });
+
+    it('gives deletion a keyboard-opened hint and closes it with Escape', () => {
+      const debugButton = fixture.debugElement.query(By.css('.session-delete'));
+      expect(debugButton.injector.get(AioTooltipDirective, null)).not.toBeNull();
+      const button: HTMLButtonElement = debugButton.nativeElement;
+      const originalMatches = button.matches.bind(button);
+      vi.spyOn(button, 'matches').mockImplementation(selector => selector === ':focus-visible' || originalMatches(selector));
+      button.dispatchEvent(new FocusEvent('focus'));
+      fixture.detectChanges();
+      expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('Delete session');
+      button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      fixture.detectChanges();
+      expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    });
+
+    it('uses actual Harness hints instead of native titles for dashboard controls', () => {
+      expect(fixture.nativeElement.querySelectorAll('button[title]')).toHaveLength(0);
+      for (const selector of ['.directory-clear', '.chip-remove', '.collapse-btn', '.session-delete']) {
+        if (selector === '.directory-clear') {
+          component.workingDirectory.set('/example/project');
+          fixture.detectChanges();
+        }
+        for (const button of fixture.debugElement.queryAll(By.css(selector))) {
+          expect(button.nativeElement.getAttribute('aria-label')).toBeTruthy();
+          expect(button.injector.get(AioTooltipDirective, null), selector).not.toBeNull();
+        }
+      }
     });
 
     it('should show session prompt', () => {

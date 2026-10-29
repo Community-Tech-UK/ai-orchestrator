@@ -20,6 +20,7 @@ import {
   OnDestroy,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { CodebaseIpcService } from '../../core/services/ipc/codebase-ipc.service';
 import { IndexingProgressComponent } from './indexing-progress.component';
 import { CodebaseSearchComponent } from './codebase-search.component';
@@ -45,6 +46,7 @@ interface ToastNotification {
   standalone: true,
   imports: [
     FormsModule,
+    AioTooltipDirective,
     IndexingProgressComponent,
     CodebaseSearchComponent,
     SearchResultsComponent,

@@ -538,7 +538,7 @@
 
   <app-prompt-modal
     [isOpen]="hintModalOpen()"
-    [title]="hintMode() === 'follow-up' ? 'Queue a follow-up' : 'Inject a hint'"
+    [heading]="hintMode() === 'follow-up' ? 'Queue a follow-up' : 'Inject a hint'"
     [message]="hintMode() === 'follow-up'
       ? 'This runs before the loop finishes: when the loop next tries to complete, it addresses this first, then re-checks. The loop keeps running.'
       : 'This is added to the next loop iteration as a steering instruction. The loop keeps running.'"

@@ -9,6 +9,7 @@
  *   grant one absolute path as a writable root and restart into the rebuilt
  *   jail. Never disables the sandbox.
  */
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import {
   Component,
   ChangeDetectionStrategy,
@@ -27,33 +28,35 @@ import type { InstanceStatus } from '../../core/state/instance/instance.types';
 import type { InstanceWaitReason } from '../../../../shared/types/instance.types';
 import { isPooledProvider } from '../../../../shared/types/provider-account.types';
 import { formatQuotaParkCountdown } from './input-panel-formatters';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { isSandboxCredentialFailure, isSandboxFileDenial } from '../../../../shared/sandbox-failure-keywords';
 
 @Component({
   selector: 'app-composer-banners',
   standalone: true,
+  imports: [AioTooltipDirective],
   template: `
     <!-- Provider quota park: gates the composer, so it renders here rather than in the header -->
     @if (quotaParkLabel()) {
-      <div class="quota-park-bar" role="status" [title]="quotaParkDetail()">
-        <span class="quota-park-text">{{ quotaParkLabel() }}</span>
+      <div class="quota-park-bar" role="status">
+        <span class="quota-park-text" tabindex="0" [appTooltip]="quotaParkDetail()">{{ quotaParkLabel() }} <span class="quota-park-detail">{{ quotaParkDetail() }}</span></span>
         <button
           type="button"
           class="quota-park-btn"
-          title="Resume this session now instead of waiting"
+          [appTooltip]="copy('composer.resumeNow')"
           (click)="onResumeFromProviderLimit()"
         >Resume now</button>
         <button
           type="button"
           class="quota-park-btn quota-park-btn--secondary"
-          title="Cancel the auto-resume for this session"
+          [appTooltip]="copy('composer.cancelResume')"
           (click)="onCancelProviderLimitPark()"
         >Cancel</button>
         @if (canOfferFailover()) {
           <button
             type="button"
             class="quota-park-btn"
-            title="Move this conversation to the next configured fallback provider instead of waiting"
+            [appTooltip]="copy('composer.switchProvider')"
             (click)="onFailoverNow()"
           >Switch provider</button>
         }
@@ -61,7 +64,7 @@ import { isSandboxCredentialFailure, isSandboxFileDenial } from '../../../../sha
           <select
             class="quota-park-account-select"
             aria-label="Switch this session to another Claude or Codex account"
-            title="Move this conversation to a different account for the same provider (e.g. one you just topped up)"
+            [appTooltip]="copy('composer.switchAccount')"
             [disabled]="accountSwitchBusy()"
             (change)="onSwitchAccount($event)"
           >
@@ -76,26 +79,26 @@ import { isSandboxCredentialFailure, isSandboxFileDenial } from '../../../../sha
 
     <!-- Provider signed us out mid-session: sign in, then resume the lost turn -->
     @if (authRequired(); as auth) {
-      <div class="quota-park-bar auth-required-bar" role="status" [title]="authDetail()">
-        <span class="quota-park-text">{{ authLabel() }}</span>
+      <div class="quota-park-bar auth-required-bar" role="status">
+        <span class="quota-park-text" tabindex="0" [appTooltip]="authDetail()">{{ authLabel() }} <span class="quota-park-detail">{{ authDetail() }}</span></span>
         <button
           type="button"
           class="quota-park-btn"
-          title="Open a terminal running this provider's sign-in command"
+          [appTooltip]="copy('composer.signIn')"
           [disabled]="authBusy()"
           (click)="onSignIn(auth.provider)"
-        >Sign in</button>
+        >{{ authBusy() ? 'Opening…' : 'Sign in' }}</button>
         <button
           type="button"
           class="quota-park-btn"
-          title="Check again and resume the interrupted turn"
+          [appTooltip]="copy('composer.retryAuth')"
           [disabled]="authBusy()"
           (click)="onAuthRetry()"
         >{{ authBusy() ? 'Checking…' : 'Retry now' }}</button>
         <button
           type="button"
           class="quota-park-btn quota-park-btn--secondary"
-          title="Dismiss this banner and stop watching for a sign-in"
+          [appTooltip]="copy('composer.dismissAuth')"
           [disabled]="authBusy()"
           (click)="onAuthDismiss()"
         >Dismiss</button>
@@ -131,7 +134,7 @@ import { isSandboxCredentialFailure, isSandboxFileDenial } from '../../../../sha
     <!-- WS13: hardened session died after a file denial — offer the allow-and-retry lever -->
     @if (showHardenedDenialBar()) {
       <div class="quota-park-bar hardened-denial-bar" role="status">
-        <span class="quota-park-text">Hardened session exited — the sandbox may have blocked a write.</span>
+        <span class="quota-park-text">Hardened session exited — the sandbox may have blocked a write. Allowing a path gives this session write access to it.</span>
         <input
           class="hardened-path-input"
           type="text"
@@ -143,20 +146,21 @@ import { isSandboxCredentialFailure, isSandboxFileDenial } from '../../../../sha
           type="button"
           class="quota-park-btn"
           [disabled]="hardenedAllowBusy()"
-          title="Grant this path as a writable root and restart the session inside the rebuilt sandbox"
+          [appTooltip]="copy('composer.allowPath')"
           (click)="onHardenedAllowPath()"
-        >Allow path & retry</button>
+        >{{ hardenedAllowBusy() ? 'Allowing…' : 'Allow path & retry' }}</button>
         <button
           type="button"
           class="quota-park-btn quota-park-btn--secondary"
           [disabled]="hardenedAllowBusy()"
-          title="Restart the session in the same sandbox without granting anything new"
+          [appTooltip]="copy('composer.retrySandbox')"
           (click)="onHardenedRetry()"
         >Just retry</button>
       </div>
     }
   `,
   styles: `
+    .quota-park-detail { display: block; }
     .quota-park-bar {
       display: flex;
       align-items: center;
@@ -239,6 +243,7 @@ import { isSandboxCredentialFailure, isSandboxFileDenial } from '../../../../sha
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ComposerBannersComponent {
+  protected readonly copy = copyFor;
   private instanceIpc = inject(InstanceIpcService);
   private providerIpc = inject(ProviderIpcService);
   private providerAccountIpc = inject(ProviderAccountIpcService);

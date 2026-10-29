@@ -2,6 +2,7 @@
  * Advanced Settings Tab Component - Runtime, Security, and Data sections.
  */
 
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -61,7 +62,7 @@ interface AdvancedSectionView {
   selector: 'app-advanced-settings-tab',
   changeDetection: ChangeDetectionStrategy.OnPush,
   standalone: true,
-  imports: [
+  imports: [AioTooltipDirective,
     SettingRowComponent,
     SettingsNavIconComponent,
     SettingsTieredRowListComponent,
@@ -124,7 +125,7 @@ interface AdvancedSectionView {
           <button
             class="guide-link-inline"
             (click)="openDocsFile('BROWSER_AUTOMATION_SETUP.md')"
-            title="How to let agents control a real web browser"
+            appTooltip="How to let agents control a real web browser"
           >
             <app-settings-nav-icon name="network" />
             <span>Open the browser automation setup guide</span>
@@ -250,7 +251,7 @@ interface AdvancedSectionView {
 
         @if (securityDangerousSections().length > 0) {
           <app-danger-zone
-            title="Credentials &amp; secrets"
+            heading="Credentials &amp; secrets"
             description="These controls affect real passwords and credential auto-fill on your own browser tabs. Review before changing."
           >
             @for (section of securityDangerousSections(); track section.id) {
@@ -310,7 +311,7 @@ interface AdvancedSectionView {
         </section>
 
         <app-danger-zone
-          title="Reset all settings"
+          heading="Reset all settings"
           description="Restore app settings to their defaults on this machine. This does not delete conversation history or workspace files."
         >
           <div class="setting-row reset-section">

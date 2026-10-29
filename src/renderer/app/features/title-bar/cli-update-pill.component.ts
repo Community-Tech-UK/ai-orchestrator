@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { ChangeDetectionStrategy, Component, OnInit, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { CliUpdatePillStore } from '../../core/state/cli-update-pill.store';
@@ -5,13 +6,14 @@ import { CliUpdatePillStore } from '../../core/state/cli-update-pill.store';
 @Component({
   selector: 'app-cli-update-pill',
   standalone: true,
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (store.state().count > 0) {
       <button
         type="button"
         class="cli-update-pill"
-        [title]="tooltip()"
+        [appTooltip]="tooltip()"
         (click)="openCliHealth()"
       >
         <span class="dot" aria-hidden="true"></span>

@@ -133,7 +133,7 @@ interface InstanceOption {
             <app-task-preflight-card
               [report]="preflight()"
               [loading]="preflightLoading()"
-              title="Worktree Preflight"
+              heading="Worktree Preflight"
               subtitle="Filesystem permissions, instructions, and tool readiness for worktree creation."
               emptyMessage="Select an instance to inspect worktree readiness."
             />

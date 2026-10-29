@@ -18,6 +18,8 @@ import {
 import { Router } from '@angular/router';
 import { IpcFacadeService } from '../../core/services/ipc';
 import { FirstRunService } from '../../core/services/first-run.service';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 import type {
   StartupCapabilityCategory,
   StartupCapabilityCheck,
@@ -51,6 +53,7 @@ const CATEGORY_ORDER: StartupCapabilityCategory[] = ['provider', 'native', 'subs
 @Component({
   selector: 'app-setup-center',
   standalone: true,
+  imports: [AppIconButtonDirective, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './setup-center.component.html',
   styleUrl: './setup-center.component.scss',

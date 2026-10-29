@@ -8,7 +8,7 @@
   <section class="side-chat" [style.--side-chat-width.px]="panelWidth()" aria-label="Sidechats">
     <div class="panel-header">
       <span class="collapse-icon" aria-hidden="true">⁂</span>
-      <h2 class="header-title" [attr.title]="parentTitle() ? 'Sidechats · ' + parentTitle() : 'Sidechats'">
+      <h2 class="header-title" tabindex="0" appTooltipVariant="overflow" [appTooltip]="parentTitle() ? 'Sidechats · ' + parentTitle() : 'Sidechats'">
         @if (parentTitle()) {
           Sidechats · {{ parentTitle() }}
         } @else {
@@ -20,7 +20,7 @@
           type="button"
           class="header-action"
           (click)="openInMain()"
-          title="Open in main view"
+          appTooltip="Open in main view"
           aria-label="Open this sidechat in the main view"
         >⇱</button>
       }
@@ -28,15 +28,16 @@
         type="button"
         class="header-action"
         (click)="startNewSideChat()"
-        [disabled]="!parent()"
-        title="New sidechat"
+        [appTooltipDisabledReason]="newSideChatDisabledReason()"
+        appTooltip="New sidechat"
         aria-label="Start a new sidechat"
       >+</button>
       <button
         type="button"
         class="header-close"
         (click)="closeRequested.emit()"
-        title="Close panel (⌥⌘S). Running sidechats keep going."
+        [appTooltip]="copy('sideChat.close')"
+        appTooltipShortcut="toggle-side-chat"
         aria-label="Close sidechat panel; running sidechats keep going"
       >×</button>
     </div>
@@ -141,9 +142,9 @@
             type="button"
             class="header-action archive-action"
             (click)="archiveSideChat()"
-            title="Archive this sidechat (keeps history, removes it from the list)"
             aria-label="Archive this sidechat"
-          >◻</button>
+            [attr.aria-describedby]="'sidechat-archive-consequence-' + chat()?.id"
+          >◻ <span [id]="'sidechat-archive-consequence-' + chat()?.id">Archive this sidechat (keeps history, removes it from the list)</span></button>
         } @else {
           <span class="status-pill">New sidechat</span>
         }
@@ -236,18 +237,19 @@
           type="button"
           class="composer-button stop"
           (click)="interrupt()"
-          title="Stop this sidechat's answer (the main session is not affected)"
           aria-label="Stop this sidechat's answer"
-        >■</button>
+          [attr.aria-describedby]="'sidechat-stop-consequence-' + chat()?.id"
+        >■ <span [id]="'sidechat-stop-consequence-' + chat()?.id">Stop this sidechat's answer (the main session is not affected)</span></button>
       } @else {
         <button
           type="button"
           class="composer-button send"
-          [disabled]="!canSend()"
+          [disabled]="sending()"
+          [appTooltipDisabledReason]="sendDisabledReason()"
           (click)="send()"
-          title="Send"
+          appTooltip="Send"
           aria-label="Send sidechat message"
-        >➤</button>
+        >{{ sending() ? 'Sending…' : '➤' }}</button>
       }
     </div>
   </section>

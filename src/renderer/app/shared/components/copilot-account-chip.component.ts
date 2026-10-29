@@ -32,11 +32,13 @@ import type {
   CopilotInvocationOrigin,
   CopilotRouteOutcome,
 } from '../../../../shared/types/copilot-account.types';
+import { AioTooltipDirective } from '../tooltip/aio-tooltip.directive';
 
 @Component({
   standalone: true,
   selector: 'app-copilot-account-chip',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [AioTooltipDirective],
   template: `
     @if (isCopilot()) {
       <div class="copilot-account-chip" [class.blocked]="isBlocked()" [class.compact]="compact()">
@@ -45,7 +47,7 @@ import type {
         } @else if (outcome(); as resolved) {
           @if (resolved.ok) {
             <span class="dot" aria-hidden="true"></span>
-            <span class="text" [title]="reasonText()">{{ label() }}</span>
+            <span class="text" tabindex="0" [appTooltip]="reasonText()">{{ label() }}</span>
             @if (!compact() && accounts().length > 1) {
               <select
                 class="override"

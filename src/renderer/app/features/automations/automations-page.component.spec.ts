@@ -12,13 +12,15 @@ import { FormsModule } from '@angular/forms';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Automation } from '../../../../shared/types/automation.types';
 import { CLAUDE_MODELS } from '../../../../shared/types/provider.types';
 import type { PendingSelection } from '../models/compact-model-picker.types';
 import { AutomationStore } from '../../core/state/automation.store';
 import { InstanceStore } from '../../core/state/instance/instance.store';
 import { AutomationsPageComponent } from './automations-page.component';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
 const componentSource = readFileSync(resolve(specDirectory, './automations-page.component.ts'), 'utf8');
@@ -38,7 +40,7 @@ await resolveComponentResources((url) => {
   template: '<ng-content select="[actions]"></ng-content>',
 })
 class PageHeaderStubComponent {
-  @Input() title = '';
+  @Input() heading = '';
   @Input() subtitle: string | null = null;
 }
 
@@ -167,6 +169,8 @@ describe('AutomationsPageComponent row actions', () => {
           PageHeaderStubComponent,
           AutomationWebhooksPanelStubComponent,
           AutomationAuthorityPanelStubComponent,
+          AioTooltipDirective,
+          AppIconButtonDirective,
         ],
       },
     });
@@ -181,6 +185,29 @@ describe('AutomationsPageComponent row actions', () => {
     fixture = TestBed.createComponent(AutomationsPageComponent);
     fixture.detectChanges();
     await fixture.whenStable();
+  });
+
+  afterEach(() => vi.useRealTimers());
+
+  it('shows the Hidden explanation over its label and on checkbox focus', () => {
+    const component = fixture.componentInstance;
+    component.select(automations()[0]);
+    component.editSelected();
+    fixture.detectChanges();
+    vi.useFakeTimers();
+    const input = fixture.nativeElement.querySelector('input[name="hidden"]') as HTMLInputElement;
+    const label = input.labels![0];
+    label.dispatchEvent(new MouseEvent('mouseenter'));
+    vi.advanceTimersByTime(500);
+    fixture.detectChanges();
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain("Keeps this automation's sessions out of the project rail.");
+    label.dispatchEvent(new MouseEvent('mouseleave'));
+    const matches = input.matches.bind(input);
+    vi.spyOn(input, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
+    input.dispatchEvent(new FocusEvent('focus'));
+    fixture.detectChanges();
+    expect(document.querySelectorAll('[role="tooltip"]')).toHaveLength(1);
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('Runs still appear here with their full output');
   });
 
   it('spaces the primary create action from its dropdown trigger', () => {
@@ -464,7 +491,7 @@ describe('AutomationsPageComponent route header', () => {
   it('uses the shared PageHeaderComponent for the page title while shell owns Back navigation', () => {
     expect(componentSource).toContain('PageHeaderComponent');
     expect(templateSource).toContain('<app-page-header');
-    expect(templateSource).toContain('title="Automations"');
+    expect(templateSource).toContain('heading="Automations"');
     expect(templateSource).not.toContain('backRoute="/"');
     expect(templateSource).not.toContain('<header class="toolbar">');
   });

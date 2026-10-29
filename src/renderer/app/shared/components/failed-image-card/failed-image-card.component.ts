@@ -1,9 +1,11 @@
+import { AioTooltipDirective } from '../../tooltip/aio-tooltip.directive';
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 import type { FailedImageRef } from '../../../../../shared/types/instance.types';
 
 @Component({
   selector: 'app-failed-image-card',
   standalone: true,
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="failed-image-card">
@@ -11,7 +13,7 @@ import type { FailedImageRef } from '../../../../../shared/types/instance.types'
         <span class="failed-image-badge">{{ failure().kind }}</span>
         <span class="failed-image-reason">{{ formatReason(failure().reason) }}</span>
       </div>
-      <div class="failed-image-src" [title]="failure().src">{{ failure().src }}</div>
+      <div class="failed-image-src" tabindex="0" appTooltipVariant="overflow" [appTooltip]="failure().src">{{ failure().src }}</div>
       <div class="failed-image-message">{{ failure().message }}</div>
     </div>
   `,

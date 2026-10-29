@@ -11,6 +11,8 @@
  * Harness never sees the token.
  */
 
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -47,7 +49,7 @@ interface RuleGroup {
   standalone: true,
   selector: 'app-copilot-accounts-tab',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, PromptModalComponent],
+  imports: [AioTooltipDirective, FormsModule, PromptModalComponent],
   template: `
     <div class="copilot-accounts-tab">
       <div class="tab-header">
@@ -209,7 +211,7 @@ interface RuleGroup {
                 <div class="rule-row">
                   <span class="rule-target">{{ describeMatcher(rule.matcher) }}</span>
                   @if (rule.isProtected) {
-                    <span class="chip protected" title="A failed match here blocks Copilot rather than falling back">
+                    <span class="chip protected" tabindex="0" [appTooltip]="copy('settingsHints.protectedAccount')">
                       Protected
                     </span>
                   }
@@ -385,7 +387,7 @@ interface RuleGroup {
       </section>
       <app-prompt-modal
         [isOpen]="renameModalOpen()"
-        title="Rename account"
+        heading="Rename account"
         [initialValue]="renameInitial()"
         placeholder="Account name"
         confirmLabel="Rename"
@@ -433,6 +435,7 @@ interface RuleGroup {
   `],
 })
 export class CopilotAccountsTabComponent implements OnInit {
+  protected readonly copy = copyFor;
   private readonly ipc = inject(CopilotAccountIpcService);
   private readonly recentDirectories = inject(RecentDirectoriesIpcService);
 

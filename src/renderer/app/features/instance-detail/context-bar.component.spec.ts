@@ -18,7 +18,7 @@
 
 import { Component, input, ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ContextEvidenceScope } from '@contracts/types/context-evidence';
 import { ContextBarComponent } from './context-bar.component';
 import { ContextEvidencePanelComponent } from '../../shared/components/context-evidence-panel/context-evidence-panel.component';
@@ -66,6 +66,7 @@ describe('ContextBarComponent', () => {
   const instances = new Map<string, Instance>();
   const fakeInstanceStore = { getInstance: (id: string) => instances.get(id) };
   const fakeSettingsStore = { showCost: () => true };
+  afterEach(() => vi.restoreAllMocks());
 
   beforeEach(async () => {
     instances.clear();
@@ -98,6 +99,20 @@ describe('ContextBarComponent', () => {
   function setShowDetails(component: ContextBarComponent, value: boolean): void {
     (component as unknown as { showDetails: () => boolean }).showDetails = () => value;
   }
+
+  it('makes the no-data explanation reachable by keyboard without a native title', () => {
+    setUsage(fixture.componentInstance, unreportedUsage());
+    setShowDetails(fixture.componentInstance, true);
+    fixture.detectChanges();
+    const label: HTMLElement = fixture.nativeElement.querySelector('.no-data');
+    expect(label.tabIndex).toBe(0);
+    const matches = label.matches.bind(label);
+    vi.spyOn(label, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
+    label.dispatchEvent(new FocusEvent('focus'));
+    fixture.detectChanges();
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('This provider has not reported context occupancy for this session');
+    expect(fixture.nativeElement.querySelectorAll('[title]')).toHaveLength(0);
+  });
 
   /**
    * LT-018 — asserted against the rendered DOM, because this is a defect about
@@ -190,7 +205,12 @@ describe('ContextBarComponent', () => {
 
       const label = fixture.nativeElement.querySelector('.compact-label') as HTMLElement;
       expect(label.textContent?.trim()).toBe('\u2013');
-      expect(label.getAttribute('title')).toContain('103,222 tokens used this session');
+      expect(label.hasAttribute('title')).toBe(false);
+      const matches = label.matches.bind(label);
+      vi.spyOn(label, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
+      label.dispatchEvent(new FocusEvent('focus'));
+      fixture.detectChanges();
+      expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('103,222 tokens used this session');
     });
 
     it('keeps the bar fill empty so a large aggregate cannot look like a full window', () => {

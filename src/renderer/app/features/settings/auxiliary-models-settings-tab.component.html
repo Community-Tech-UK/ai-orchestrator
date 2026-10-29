@@ -203,13 +203,13 @@
             <thead>
               <tr>
                 <th>Slot</th>
-                <th title="Which tier model this slot uses by default (quick = small/fast, quality = larger). Set the two tier models in Models.">
+                <th tabindex="0" [appTooltip]="copy('settingsHints.slotTier')">
                   Tier
                 </th>
-                <th title="Override the tier model for this slot with a specific model. Auto = use the slot's tier model (or first available if no tier model is set).">
+                <th tabindex="0" [appTooltip]="copy('settingsHints.slotOverride')">
                   Model override
                 </th>
-                <th title="When on, this slot may escalate to the main frontier model if no auxiliary model produces output. Turn off to cap this slot at your configured auxiliary endpoints — if none is available it uses a deterministic local summary. Note: this only blocks the frontier model; content is still sent to whatever auxiliary endpoints you configure, which may be cloud.">
+                <th tabindex="0" [appTooltip]="copy('settingsHints.frontierFallback')">
                   Frontier fallback
                 </th>
                 <th>Test</th>
@@ -223,7 +223,7 @@
                     @if (!isSlotWired(slot)) {
                       <span
                         class="slot-inactive-badge"
-                        title="No feature consumes this slot yet — the Test button still works, but nothing in normal operation routes through it."
+                        tabindex="0" [appTooltip]="copy('settingsHints.inactiveSlot')"
                         >not yet active</span
                       >
                     }
@@ -256,6 +256,7 @@
                     <input
                       type="checkbox"
                       [checked]="frontierFallbackEnabled(slot)"
+                      aria-describedby="settings-frontier-fallback-hint"
                       (change)="onFrontierFallbackChange(slot, $event)"
                       [attr.aria-label]="'Allow cloud fallback for ' + slot"
                     />
@@ -305,7 +306,7 @@
                   @if (!isSlotWired(slot)) {
                     <span
                       class="slot-inactive-badge"
-                      title="No feature consumes this slot yet — the Test button still works, but nothing in normal operation routes through it."
+                      tabindex="0" [appTooltip]="copy('settingsHints.inactiveSlot')"
                       >not yet active</span
                     >
                   }
@@ -343,6 +344,7 @@
                     type="checkbox"
                     [id]="'slot-card-fallback-' + slot"
                     [checked]="frontierFallbackEnabled(slot)"
+                      aria-describedby="settings-frontier-fallback-hint"
                     (change)="onFrontierFallbackChange(slot, $event)"
                   />
                 </div>
@@ -376,7 +378,7 @@
             }
           </div>
 
-          <p class="field-hint">
+          <p class="field-hint" id="settings-frontier-fallback-hint">
             Frontier fallback off = this slot never escalates to the main frontier
             model; if no auxiliary model is available it uses a deterministic local
             summary. It does <strong>not</strong> stop content reaching the auxiliary

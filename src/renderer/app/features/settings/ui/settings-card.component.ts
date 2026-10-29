@@ -20,7 +20,7 @@ import { SettingsNavIconComponent } from './settings-nav-icon.component';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="settings-card">
-      @if (title()) {
+      @if (heading()) {
         <header class="card-header">
           @if (icon()) {
             <span class="card-icon">
@@ -28,7 +28,7 @@ import { SettingsNavIconComponent } from './settings-nav-icon.component';
             </span>
           }
           <div class="card-heading">
-            <h3 class="card-title">{{ title() }}</h3>
+            <h3 class="card-title">{{ heading() }}</h3>
             @if (description()) {
               <p class="card-description">{{ description() }}</p>
             }
@@ -48,7 +48,7 @@ import { SettingsNavIconComponent } from './settings-nav-icon.component';
 })
 export class SettingsCardComponent {
   /** Optional section title. When omitted the header is not rendered. */
-  readonly title = input<string>();
+  readonly heading = input<string>();
   /** Optional supporting description shown under the title. */
   readonly description = input<string>();
   /** Optional icon name (see SettingsNavIconComponent). */

@@ -1,3 +1,4 @@
+import { AppIconButtonDirective } from '../../../shared/tooltip/icon-button.directive';
 /**
  * CLI Settings Panel Component
  *
@@ -46,7 +47,7 @@ interface CliSettingsEntry {
 @Component({
   selector: 'app-cli-settings-panel',
   standalone: true,
-  imports: [CommonModule, FormsModule, ApiKeyManagerComponent, VerificationPreferencesComponent],
+  imports: [AppIconButtonDirective, CommonModule, FormsModule, ApiKeyManagerComponent, VerificationPreferencesComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './cli-settings-panel.component.html',
   styleUrl: './cli-settings-panel.component.scss',

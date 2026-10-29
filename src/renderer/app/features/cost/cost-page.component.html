@@ -30,13 +30,13 @@
   <!-- Metric cards row 1: cost & session aggregates -->
   <div class="metrics-row">
     <div class="metric-card">
-      <div class="metric-value" [title]="hasEstimatedEntries() ? ('Includes ~\$' + totalEstimatedCost().toFixed(4) + ' estimated (no provider-reported usage for those turns)') : ''">
+      <div class="metric-value" [attr.tabindex]="hasEstimatedEntries() ? 0 : null" [appTooltip]="hasEstimatedEntries() ? ('Includes ~\$' + totalEstimatedCost().toFixed(4) + ' estimated (no provider-reported usage for those turns)') : ''">
         {{ hasEstimatedEntries() ? '~' : '' }}\${{ totalCost().toFixed(4) }}
       </div>
       <div class="metric-label">
         Total Spend
         @if (hasEstimatedEntries()) {
-          <span class="estimated-badge" title="Total includes one or more estimated entries — not a fully measured figure">~ incl. estimate</span>
+          <span class="estimated-badge" tabindex="0" [appTooltip]="estimatedTotalHint">~ incl. estimate</span>
         }
       </div>
     </div>
@@ -182,7 +182,7 @@
             @for (row of modelRows(); track row.model) {
               <tr>
                 <td class="provider-cell">{{ row.model }}</td>
-                <td class="num-col mono" [title]="row.hasEstimated ? 'Includes at least one estimated entry (no provider-reported usage for that turn)' : ''">
+                <td class="num-col mono" [attr.tabindex]="row.hasEstimated ? 0 : null" [appTooltip]="row.hasEstimated ? 'Includes at least one estimated entry (no provider-reported usage for that turn)' : ''">
                   {{ row.hasEstimated ? '~' : '' }}\${{ row.cost.toFixed(6) }}
                 </td>
                 <td class="num-col">
@@ -223,7 +223,7 @@
             @for (row of sessionRows(); track row.sessionId) {
               <tr>
                 <td class="mono truncate-cell">{{ row.sessionId }}</td>
-                <td class="num-col mono" [title]="row.hasEstimated ? 'Includes at least one estimated entry (no provider-reported usage for that turn)' : ''">
+                <td class="num-col mono" [attr.tabindex]="row.hasEstimated ? 0 : null" [appTooltip]="row.hasEstimated ? 'Includes at least one estimated entry (no provider-reported usage for that turn)' : ''">
                   {{ row.hasEstimated ? '~' : '' }}\${{ row.cost.toFixed(6) }}
                 </td>
                 <td class="num-col">
@@ -267,14 +267,14 @@
               <tr>
                 <td class="mono">{{ formatTimestamp(entry.timestamp) }}</td>
                 <td>{{ entry.model }}</td>
-                <td class="mono truncate-cell" [title]="entry.instanceId">{{ entry.instanceId }}</td>
-                <td class="mono truncate-cell" [title]="entry.sessionId">{{ entry.sessionId }}</td>
+                <td class="mono truncate-cell" tabindex="0" [appTooltip]="entry.instanceId">{{ entry.instanceId }}</td>
+                <td class="mono truncate-cell" tabindex="0" [appTooltip]="entry.sessionId">{{ entry.sessionId }}</td>
                 <td class="num-col mono">{{ entry.inputTokens.toLocaleString() }}</td>
                 <td class="num-col mono">{{ entry.outputTokens.toLocaleString() }}</td>
                 <td class="num-col mono">{{ entry.isEstimated ? '~' : '' }}\${{ entry.cost.toFixed(6) }}</td>
                 <td>
                   @if (entry.isEstimated) {
-                    <span class="estimated-badge" title="No provider-reported usage for this turn — tokens/cost are a heuristic estimate">~ estimated</span>
+                    <span class="estimated-badge" tabindex="0" [appTooltip]="estimatedEntryHint">~ estimated</span>
                   } @else {
                     <span class="measured-label">measured</span>
                   }

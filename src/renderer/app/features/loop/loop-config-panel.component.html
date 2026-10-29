@@ -5,7 +5,7 @@
       <span class="subtitle">Iterate toward the goal — caps apply.</span>
     </div>
     <app-help-link topic="loop" label="Help: Loop Mode" />
-    <button type="button" class="close" (click)="dismissed.emit()" aria-label="Close">×</button>
+    <button type="button" class="close" appTooltip="Close" (click)="dismissed.emit()" aria-label="Close">×</button>
   </header>
 
   <!-- UX5: this hint was declared in the registry and mounted nowhere — a copy
@@ -87,13 +87,16 @@
   @if (showGatedChrome()) {
     <section class="row">
       <label for="loop-cfg-recipe">Loop recipe <span class="hint">(stage prompts)</span></label>
-    <select id="loop-cfg-recipe" [ngModel]="loopRecipe()" (ngModelChange)="loopRecipe.set($event)">
+    <select id="loop-cfg-recipe" aria-describedby="loop-cfg-recipe-description" [ngModel]="loopRecipe()" (ngModelChange)="loopRecipe.set($event)">
       @for (option of recipeOptions(); track option.name) {
-        <option [value]="option.name" [title]="option.description">
+        <option [value]="option.name">
           {{ option.name }}{{ option.source === 'user' ? ' (user)' : '' }}
         </option>
       }
     </select>
+    @for (option of recipeOptions(); track option.name) {
+      @if (option.name === loopRecipe()) { <p id="loop-cfg-recipe-description" class="hint">{{ option.description }}</p> }
+    }
     </section>
   }
 
@@ -357,7 +360,8 @@
             <input
               type="checkbox"
               [checked]="effectiveRequireRename()"
-              [disabled]="planFileRequiresRename()"
+              id="loop-cfg-require-rename"
+              [appTooltipDisabledReason]="planFileRequiresRename() ? copy('loop.requireRenameReason') : null"
               (change)="requireRename.set(toggleEvent($event))"
             />
             Require <code>*_Completed.md</code> plan rename before stopping

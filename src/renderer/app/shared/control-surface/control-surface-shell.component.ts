@@ -19,6 +19,7 @@ import type { ControlSurfaceId, ControlSurfaceItem } from './control-surface.typ
 import { HelpPaneComponent } from '../help/help-pane.component';
 import { CONTROL_SURFACE_HELP } from '../help/control-surface-help';
 import { SettingsStore } from '../../core/state/settings.store';
+import { AioTooltipDirective } from '../tooltip/aio-tooltip.directive';
 import type { HelpEntry } from '../help/help-content.types';
 
 /** localStorage key remembering whether the Control Center help pane is collapsed. */
@@ -28,7 +29,7 @@ const NAV_COLLAPSED_KEY = 'aiorch.control.navCollapsed';
 @Component({
   selector: 'app-control-surface-shell',
   standalone: true,
-  imports: [RouterLink, RouterLinkActive, RouterOutlet, HelpPaneComponent],
+  imports: [RouterLink, RouterLinkActive, RouterOutlet, HelpPaneComponent, AioTooltipDirective],
   templateUrl: './control-surface-shell.component.html',
   styleUrl: './control-surface-shell.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

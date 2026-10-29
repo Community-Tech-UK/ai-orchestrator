@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -16,6 +17,7 @@ import type { NotificationRecord } from '../../../../shared/types/notification.t
 @Component({
   selector: 'app-notification-center',
   standalone: true,
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <button
@@ -23,7 +25,7 @@ import type { NotificationRecord } from '../../../../shared/types/notification.t
       class="notification-center-trigger"
       [attr.aria-expanded]="open()"
       aria-controls="notification-center-panel"
-      title="Open notification center"
+      appTooltip="Open notification center"
       (click)="toggle()"
     >
       Notifications
@@ -37,8 +39,8 @@ import type { NotificationRecord } from '../../../../shared/types/notification.t
         <header>
           <span>Notifications</span>
           @if (store.records().length > 0) {
-            <button type="button" class="notification-center-clear" title="Clear all notifications" (click)="clearAll()">
-              Clear all
+            <button type="button" class="notification-center-clear" appTooltip="Clear all notifications" (click)="clearAll()">
+              Clear all notifications
             </button>
           }
         </header>
@@ -70,10 +72,10 @@ import type { NotificationRecord } from '../../../../shared/types/notification.t
                   type="button"
                   class="notification-center-dismiss"
                   [attr.aria-label]="'Dismiss ' + record.title"
-                  title="Dismiss"
+                  appTooltip="Dismiss"
                   (click)="dismiss(record.id)"
                 >
-                  ✕
+                  Dismiss
                 </button>
               </li>
             }

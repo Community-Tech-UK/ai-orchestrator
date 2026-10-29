@@ -24,7 +24,7 @@ import { Router } from '@angular/router';
           </button>
         }
         <div class="header-titles">
-          <h1 class="header-title">{{ title() }}</h1>
+          <h1 class="header-title">{{ heading() }}</h1>
           @if (subtitle()) {
             <p class="header-subtitle">{{ subtitle() }}</p>
           }
@@ -63,7 +63,7 @@ import { Router } from '@angular/router';
   `]
 })
 export class PageHeaderComponent {
-  readonly title = input.required<string>();
+  readonly heading = input.required<string>();
   readonly subtitle = input<string | null>(null);
   readonly backRoute = input<string | null>(null);
 

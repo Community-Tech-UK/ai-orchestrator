@@ -24,6 +24,7 @@ import {
 } from '@angular/core';
 import { AppIpcService } from '../../core/services/ipc/app-ipc.service';
 import { ActionDispatchService } from '../../core/services/action-dispatch.service';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 import type { InstanceProvider } from '../../core/state/instance/instance.types';
 import type { StartupCapabilityReport } from '../../../../shared/types/startup-capability.types';
 import { buildRunReadinessReasons, type RunReadinessReason } from './run-readiness';
@@ -61,6 +62,7 @@ export class RunReadinessGate {
 @Component({
   selector: 'app-run-readiness-banner',
   standalone: true,
+  imports: [AppIconButtonDirective],
   template: `
     @if (visibleReasons().length > 0) {
       <div class="run-readiness-banner">
@@ -85,8 +87,7 @@ export class RunReadinessGate {
                 <button
                   type="button"
                   class="run-readiness-btn run-readiness-btn--secondary"
-                  aria-label="Dismiss"
-                  title="Dismiss"
+                  appIconButton="Dismiss"
                   (click)="onDismiss(reason.id)"
                 >
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

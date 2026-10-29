@@ -15,6 +15,7 @@ import { CommonModule } from '@angular/common';
 import { StatsIpcService } from '../../core/services/ipc/stats-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import { EchartsThemedComponent } from '../../shared/components/echarts-themed/echarts-themed.component';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import type { EChartsOption } from 'echarts';
 
 // ─── Local Interfaces ──────────────────────────────────────────────────────────
@@ -57,7 +58,7 @@ const PERIODS: Period[] = ['day', 'week', 'month', 'year', 'all'];
 @Component({
   selector: 'app-stats-page',
   standalone: true,
-  imports: [CommonModule, EchartsThemedComponent],
+  imports: [CommonModule, EchartsThemedComponent, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page">
@@ -166,8 +167,8 @@ const PERIODS: Period[] = ['day', 'week', 'month', 'year', 'all'];
                   <tbody>
                     @for (session of stats()!.sessions; track session.sessionId) {
                       <tr>
-                        <td class="mono truncate" [title]="session.sessionId">{{ session.sessionId }}</td>
-                        <td class="mono truncate" [title]="session.agentId">{{ session.agentId }}</td>
+                        <td class="mono truncate" tabindex="0" appTooltipVariant="overflow" [appTooltip]="session.sessionId">{{ session.sessionId }}</td>
+                        <td class="mono truncate" tabindex="0" appTooltipVariant="overflow" [appTooltip]="session.agentId">{{ session.agentId }}</td>
                         <td class="num">{{ session.messages }}</td>
                         <td class="num">{{ formatNumber(session.inputTokens + session.outputTokens) }}</td>
                         <td class="num">{{ formatCost(session.cost) }}</td>

@@ -6,7 +6,8 @@
         <span
           class="auto-status-badge"
           [class]="'auto-status-' + badge.tone"
-          [title]="badge.title"
+          tabindex="0"
+          [appTooltip]="badge.title"
         >
           {{ badge.label }}
         </span>
@@ -42,7 +43,7 @@
           (keyup.space)="dismissToast(toast.id)"
         >
           <span class="toast-message">{{ toast.message }}</span>
-          <button class="toast-close" (click)="dismissToast(toast.id); $event.stopPropagation()">
+          <button class="toast-close" appTooltip="Dismiss notification" aria-label="Dismiss notification" (click)="dismissToast(toast.id); $event.stopPropagation()">
             ✕
           </button>
         </div>

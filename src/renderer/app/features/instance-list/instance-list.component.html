@@ -21,7 +21,7 @@
             class="state-quick-btn"
             [class.active]="statusFilter() === 'all'"
             [attr.aria-pressed]="statusFilter() === 'all'"
-            title="Show all sessions"
+            appTooltip="Show all sessions"
             (click)="setStatusFilter('all')"
           >
             All
@@ -31,7 +31,7 @@
             class="state-quick-btn"
             [class.active]="statusFilter() === 'active'"
             [attr.aria-pressed]="statusFilter() === 'active'"
-            title="Show active sessions only"
+            appTooltip="Show active sessions only"
             (click)="setStatusFilter('active')"
           >
             Active
@@ -45,8 +45,8 @@
             [class.has-active-filters]="hasActiveFilters()"
             [attr.aria-expanded]="filtersOpen()"
             aria-haspopup="dialog"
-            aria-label="Filter and sort options"
-            title="Filter and sort"
+            [attr.aria-label]="hasActiveFilters() ? 'Filter and sort options, filters on' : 'Filter and sort options'"
+            [appTooltip]="hasActiveFilters() ? 'Filter and sort, filters on' : 'Filter and sort'"
             (click)="toggleFiltersPopover($event)"
           >
             <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -67,7 +67,7 @@
                   class="sort-filter"
                   [value]="historySortMode()"
                   (change)="onSortModeChange($event)"
-                  title="Sort project threads"
+                  appTooltip="Sort project threads"
                 >
                   <option value="last-interacted">Last interacted</option>
                   <option value="created">Created</option>
@@ -79,7 +79,7 @@
                   class="status-filter"
                   [value]="historyVisibilityMode()"
                   (change)="onHistoryVisibilityModeChange($event)"
-                  title="Choose how much imported history appears in the project rail"
+                  [appTooltip]="copy('shell.historyVisibility')"
                 >
                   <option value="relevant">Relevant</option>
                   <option value="all">All history</option>
@@ -91,7 +91,7 @@
                   class="status-filter"
                   [value]="historyTimeWindow()"
                   (change)="onHistoryTimeWindowChange($event)"
-                  title="Limit projects and threads by recent activity"
+                  [appTooltip]="copy('shell.historyActivity')"
                 >
                   <option value="all">Any time</option>
                   <option value="day">Last day</option>
@@ -139,18 +139,17 @@
                 />
                 <span class="filter-select-label">Show empty projects</span>
               </label>
-              <label
-                class="filter-checkbox-group"
-                title="Hidden automations stay out of the rail while they are working normally. A run that fails, or stops for permission, is always shown."
-              >
+              <label class="filter-checkbox-group">
                 <input
                   type="checkbox"
                   class="filter-checkbox"
+                  [appTooltip]="copy('shell.hiddenAutomations')"
                   [checked]="showHiddenAutomations()"
                   (change)="onShowHiddenAutomationsChange($event)"
                 />
                 <span class="filter-select-label">Show hidden automation runs</span>
               </label>
+              <p class="filter-help">{{ copy('shell.hiddenAutomations') }}</p>
             </div>
           }
         </div>
@@ -209,10 +208,10 @@
                       <span class="project-pinned-pill">Pinned</span>
                     }
                     @if (group.hasDraft) {
-                      <span class="project-draft-pill" [title]="getProjectDraftTitle(group)">Draft</span>
+                      <span class="project-draft-pill">{{ getProjectDraftTitle(group) }}</span>
                     }
                   </div>
-                  <span class="project-subtitle" [title]="group.subtitle">{{ group.subtitle }}</span>
+                  <span class="project-subtitle" tabindex="0" [appTooltip]="group.subtitle" appTooltipVariant="overflow">{{ group.subtitle }}</span>
                 </div>
               </button>
               <div class="project-actions" [class.visible]="openProjectMenuKey() === group.key">
@@ -220,9 +219,9 @@
                   type="button"
                   class="project-action-btn project-drag-handle"
                   cdkDragHandle
-                  [disabled]="!canDragProject(group)"
+                  [appTooltipDisabledReason]="canDragProject(group) ? null : !group.path ? 'Only projects with a folder can be reordered.' : filterInput() ? 'Clear the project search to reorder projects.' : locationFilter() !== 'all' ? 'Show all locations to reorder projects.' : 'Close project options to reorder projects.'"
                   aria-label="Reorder project"
-                  title="Drag to reorder project"
+                  appTooltip="Drag to reorder project"
                   (click)="$event.preventDefault(); $event.stopPropagation()"
                 >
                   <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -234,7 +233,7 @@
                     type="button"
                     class="project-action-btn"
                     [attr.aria-label]="group.hasDraft ? 'Resume draft in this project' : 'Start a new conversation in this project'"
-                    [attr.title]="group.hasDraft ? 'Resume draft in this project' : 'Start a new conversation in this project'"
+                    [appTooltip]="group.hasDraft ? copy('shell.resumeDraft') : copy('shell.startProjectConversation')"
                     (click)="startProjectConversation(group, $event)"
                   >
                     <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -249,7 +248,7 @@
                       aria-haspopup="menu"
                       [attr.aria-expanded]="openProjectMenuKey() === group.key"
                       aria-label="Project options"
-                      title="Project options"
+                      appTooltip="Project options"
                       (click)="toggleProjectMenu(group.key, $event)"
                     >
                       <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -435,7 +434,7 @@
                         class="history-entry-pin"
                         [class.active]="isPinnedHistory(item.entry.id)"
                         [attr.aria-label]="isPinnedHistory(item.entry.id) ? 'Unpin thread' : 'Pin thread'"
-                        [title]="isPinnedHistory(item.entry.id) ? 'Unpin thread' : 'Pin thread'"
+                        [appTooltip]="isPinnedHistory(item.entry.id) ? 'Unpin thread' : 'Pin thread'"
                         (click)="togglePinnedHistory(item.entry.id, $event)"
                       >
                         <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -449,7 +448,7 @@
                           [class.expanded]="item.isExpanded"
                           [attr.aria-label]="item.isExpanded ? 'Collapse child sessions' : 'Expand child sessions'"
                           [attr.aria-expanded]="item.isExpanded"
-                          title="Child sessions"
+                          appTooltip="Child sessions"
                           (click)="toggleHistoryChildren(item.entry, $event)"
                         >
                           <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -469,14 +468,12 @@
                             <span
                               class="history-entry-unread-dot"
                               role="img"
-                              appTooltip="Completed — click to view"
                               aria-label="Completed"
-                            ></span>
+                            >{{ copy('shell.completedHistory') }}</span>
                           }
                           <span
                             class="history-entry-provider-badge"
                             [style.color]="getHistoryProviderVisual(item.entry).color"
-                            [title]="getHistoryProviderVisual(item.entry).label"
                           >
                             @switch (getHistoryProviderVisual(item.entry).icon) {
                               @case ('anthropic') {
@@ -536,8 +533,9 @@
                               }
                             }
                           </span>
-                          <span class="history-entry-title">
-                            {{ getHistoryPreviewTitle(item.entry) }}
+                          <span class="history-entry-provider-name">{{ getHistoryProviderVisual(item.entry).label }}</span>
+                          <span class="history-entry-title" tabindex="0" [appTooltip]="getHistoryTitle(item.entry)" appTooltipVariant="overflow">
+                            {{ isRestoringHistory(item.entry.id) ? 'Loading… ' : '' }}{{ getHistoryPreviewTitle(item.entry) }}
                           </span>
                         </span>
                       </button>
@@ -546,28 +544,29 @@
                       @if (item.entry.isAutomation) {
                         <span
                           class="history-entry-automation-clock"
-                          title="Started by a scheduled automation"
                           aria-label="Automation session"
                         >
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                             <circle cx="12" cy="12" r="9" />
                             <path d="M12 7v5l3.5 2" />
                           </svg>
+                          Started by a scheduled automation
                         </span>
                       }
                       @if (pendingArchiveId() === item.entry.id) {
+                        <span class="archive-warning">{{ copy('shell.archiveHistory') }}</span>
                         <button
                           type="button"
                           class="history-entry-confirm-btn"
                           aria-label="Confirm archive"
-                          title="Confirm archive"
+                          appTooltip="Confirm archive"
                           (click)="confirmArchiveHistory(item.entry.id, $event)"
                         >
                           Confirm
                         </button>
                       } @else {
                         @if (getHistoryChangeSummary(item.entry); as changeSummary) {
-                          <div class="history-entry-diff" title="Changes in this completed session">
+                          <div class="history-entry-diff" tabindex="0" appTooltip="Changes in this completed session">
                             <span class="history-entry-diff-additions">
                               +{{ changeSummary.additions }}
                             </span>
@@ -578,16 +577,15 @@
                         } @else {
                           <span
                             class="history-entry-time"
-                            [title]="historySortMode() === 'created' ? 'Created' : 'Last interacted'"
                           >
-                            {{ formatHistoryTime(item.entry) }}
+                            {{ historySortMode() === 'created' ? 'Created' : 'Last interacted' }} {{ formatHistoryTime(item.entry) }}
                           </span>
                         }
                         <button
                           type="button"
                           class="history-entry-action"
                           aria-label="Archive thread"
-                          title="Archive thread"
+                          appTooltip="Archive thread"
                           (click)="onArchiveHistory(item.entry.id, $event)"
                         >
                           <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -638,7 +636,7 @@
       />
       <app-prompt-modal
         [isOpen]="renameModalOpen()"
-        title="Rename session"
+        heading="Rename session"
         [initialValue]="renameInitial()"
         placeholder="Session name"
         confirmLabel="Rename"
@@ -647,7 +645,7 @@
       />
       <app-prompt-modal
         [isOpen]="crossSessionMessageModalOpen()"
-        title="Message this session"
+        heading="Message this session"
         [message]="'Send a message to \'' + crossSessionMessageTargetLabel() + '\' from your active session.'"
         placeholder="Type your message…"
         confirmLabel="Send"

@@ -17,6 +17,7 @@ import {
   computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 
 /** Task outcome from self-improvement tracking */
 export interface TaskOutcome {
@@ -97,6 +98,7 @@ export interface TrainingStats {
 @Component({
   selector: 'app-grpo-dashboard',
   standalone: true,
+  imports: [AppIconButtonDirective],
   templateUrl: './grpo-dashboard.component.html',
   styleUrl: './grpo-dashboard.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

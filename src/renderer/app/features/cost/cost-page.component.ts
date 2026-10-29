@@ -33,6 +33,8 @@ import { EchartsThemedComponent } from '../../shared/components/echarts-themed/e
 import type { EChartsOption } from 'echarts';
 import { RendererPollSchedulerService } from '../../core/services/renderer-poll-scheduler.service';
 import type { CostPurposeSummary } from '../../../../shared/types/cost-purpose.types';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 
 // ─── Local data shapes ────────────────────────────────────────────────────────
 
@@ -140,7 +142,7 @@ const EMPTY_BUDGET_STATUS: BudgetStatusData = {
 @Component({
   selector: 'app-cost-page',
   standalone: true,
-  imports: [CommonModule, EchartsThemedComponent],
+  imports: [CommonModule, EchartsThemedComponent, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './cost-page.component.html',
   styleUrl: './cost-page.component.scss',
@@ -148,6 +150,8 @@ const EMPTY_BUDGET_STATUS: BudgetStatusData = {
 export class CostPageComponent implements OnInit, OnDestroy {
   private readonly costIpc = inject(CostIpcService);
   private readonly pollScheduler = inject(RendererPollSchedulerService);
+  protected readonly estimatedTotalHint = copyFor('cost.estimatedTotal');
+  protected readonly estimatedEntryHint = copyFor('cost.estimatedEntry');
 
   // ── Raw state signals ────────────────────────────────────────────────────
 

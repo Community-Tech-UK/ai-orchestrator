@@ -1,4 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   PANEL_COLLAPSED_FIELD,
@@ -86,6 +88,18 @@ describe('SessionProgressPanelComponent', () => {
     createPanel();
     expect(fixture.nativeElement.querySelector('.progress-panel')).toBeTruthy();
     expect(fixture.nativeElement.querySelector('.progress-tab')).toBeNull();
+  });
+
+  it('keeps the minimize name and its distinct old hint, with no native titles', () => {
+    createPanel();
+    const button = fixture.debugElement.query(By.css('.icon-button'));
+    expect(button.nativeElement.getAttribute('aria-label')).toBe('Minimize progress panel');
+    expect(button.injector.get(AioTooltipDirective, null)?.appTooltip()).toBe('Minimize panel');
+    expect(fixture.nativeElement.querySelectorAll('[title]')).toHaveLength(0);
+    button.nativeElement.click();
+    fixture.detectChanges();
+    const pill = fixture.debugElement.query(By.css('.progress-tab'));
+    expect(pill.injector.get(AioTooltipDirective, null)?.appTooltip()).toBe('Show progress panel');
   });
 
   it('minimises to a restorable pill and persists the choice', () => {

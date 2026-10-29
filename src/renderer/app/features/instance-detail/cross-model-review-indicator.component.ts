@@ -8,10 +8,12 @@
 import { Component, input, output, computed, inject, ChangeDetectionStrategy } from '@angular/core';
 import { CrossModelReviewIpcService } from '../../core/services/ipc/cross-model-review-ipc.service';
 import { countReviewResultsWithConcerns } from '../../../../shared/utils/cross-model-review-concerns';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 @Component({
   selector: 'app-cross-model-review-indicator',
   standalone: true,
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (hasVisibleState()) {
@@ -23,7 +25,7 @@ import { countReviewResultsWithConcerns } from '../../../../shared/utils/cross-m
         [class.advisory]="hasLocalAdvisory() && !hasConcerns() && !isVerified()"
         [class.failed]="hasLocalFailure() && !hasConcerns() && !isVerified()"
         [class.skipped]="isSkipped()"
-        [title]="tooltip()"
+        [appTooltip]="tooltip()"
         role="button"
         tabindex="0"
         (click)="indicatorClicked.emit()"

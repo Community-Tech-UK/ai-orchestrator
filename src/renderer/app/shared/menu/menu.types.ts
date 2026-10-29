@@ -9,7 +9,7 @@
  *     compact model picker's "Latest" section at the top of the menu).
  *   - A divider is rendered between consecutive sections.
  *   - Items with `disabledReason` stay focusable for screen-reader access
- *     and surface the reason as a `title` tooltip.
+ *     and surface the reason in a Harness tooltip on focus or hover.
  *   - Items with `submenu` render a chevron and open the submenu on
  *     hover (after 120ms) or `→` / `Enter` / chevron click.
  *   - `payload` is an opaque user-typed handle returned to the consumer

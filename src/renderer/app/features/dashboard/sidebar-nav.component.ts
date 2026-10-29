@@ -45,8 +45,7 @@ import { listDashboardNavGroups } from '../../shared/control-surface/control-sur
               @for (item of group.items; track item.id) {
                 <a class="nav-item"
                   [routerLink]="item.path"
-                  routerLinkActive="active"
-                  [title]="item.label">
+                  routerLinkActive="active">
                   <svg class="nav-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
                     [innerHTML]="item.icon">

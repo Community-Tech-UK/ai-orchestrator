@@ -475,6 +475,23 @@ describe('ModelSelectionPanelComponent', () => {
     expect(row.textContent).toContain('Loaded');
     expect(row.textContent).toContain('Chat');
     expect(row.textContent).toContain('Tools');
+
+    fixture.componentRef.setInput('disabledReasonForProvider', () => 'Model changes are unavailable during this turn');
+    fixture.detectChanges();
+    const select = row.querySelector('.model-picker-row__select') as HTMLButtonElement;
+    const selected = vi.fn();
+    fixture.componentInstance.selection.subscribe(selected);
+    expect(select.disabled).toBe(false);
+    expect(select.getAttribute('aria-disabled')).toBe('true');
+    const matches = select.matches.bind(select);
+    vi.spyOn(select, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
+    select.dispatchEvent(new FocusEvent('focus'));
+    fixture.detectChanges();
+    const hint = document.querySelector('[role="tooltip"]')?.textContent;
+    expect(hint).toContain('Model changes are unavailable during this turn');
+    expect(hint).toContain('Loaded context: 32,768 tokens');
+    select.click();
+    expect(selected).not.toHaveBeenCalled();
   });
 
   it('keeps unhealthy local-model rows visible but disabled', () => {

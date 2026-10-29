@@ -15,13 +15,14 @@ import {
 import { NgTemplateOutlet } from '@angular/common';
 import type { OverlayController, OverlayItem, OverlayItemFooterTemplate } from './overlay.types';
 import { createFocusTrap, type FocusTrapHandle } from '../../shared/utils/focus-trap';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { KeybindingService } from '../../core/services/keybinding.service';
 import type { KeybindingContext } from '../../../../shared/types/keybinding.types';
 
 @Component({
   selector: 'app-overlay-shell',
   standalone: true,
-  imports: [NgTemplateOutlet],
+  imports: [NgTemplateOutlet, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
@@ -71,7 +72,9 @@ import type { KeybindingContext } from '../../../../shared/types/keybinding.type
                       [class.selected]="isSelected(item)"
                       [class.disabled-row]="item.disabled"
                       [class.manual-row]="!isRowActivating(item)"
-                      [title]="item.disabledReason || item.description || item.label"
+                      [appTooltip]="item.disabledReason || item.description || item.label"
+                      [appTooltipDisabledReason]="rowDisabledReason(item)"
+                      appTooltipVariant="overflow"
                       (click)="select(item)"
                       (keydown.enter)="select(item)"
                       (keydown.space)="select(item)"
@@ -435,6 +438,11 @@ export class OverlayShellComponent implements AfterViewInit, OnDestroy {
 
   protected rowAriaLabel(item: OverlayItem): string | null {
     return this.isRowActivating(item) ? null : item.label;
+  }
+
+  /** Lasting disabled reason. Manual rows can hold footer buttons, so they only get the hover text. */
+  protected rowDisabledReason(item: OverlayItem): string | null {
+    return item.disabled && this.isRowActivating(item) ? item.disabledReason || null : null;
   }
 
   private move(delta: 1 | -1): void {

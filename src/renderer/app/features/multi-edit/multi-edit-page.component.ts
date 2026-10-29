@@ -14,6 +14,7 @@ import { CommonModule } from '@angular/common';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import { DiffViewerComponent } from '../../shared/components/diff-viewer/diff-viewer.component';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 interface EditOp {
   filePath: string;
@@ -33,7 +34,7 @@ interface EditPreview {
 @Component({
   selector: 'app-multi-edit-page',
   standalone: true,
-  imports: [CommonModule, DiffViewerComponent],
+  imports: [CommonModule, DiffViewerComponent, AioTooltipDirective],
   template: `
     <div class="page">
       <!-- Page Header -->
@@ -71,7 +72,8 @@ interface EditPreview {
           <button
             class="btn primary"
             type="button"
-            [disabled]="working() || !canPreview()"
+            [disabled]="working()"
+            [appTooltipDisabledReason]="previewDisabledReason()"
             (click)="runPreview()"
           >
             {{ working() && previewPending() ? 'Previewing...' : 'Preview' }}
@@ -89,21 +91,23 @@ interface EditPreview {
               @for (preview of previews(); track preview.filePath) {
                 <button
                   class="file-card"
+                  [appTooltip]="preview.filePath"
                   type="button"
                   [class.selected]="selectedFilePath() === preview.filePath"
                   (click)="selectFile(preview.filePath)"
                 >
                   <div class="file-card-header">
-                    <span class="file-status-icon">
+                    <span class="file-status-icon" aria-hidden="true">
                       @if (appliedFiles().has(preview.filePath)) {
-                        <span class="icon-applied" title="Applied">&#10003;</span>
+                        <span class="icon-applied">&#10003;</span>
                       } @else {
-                        <span class="icon-pending" title="Pending">&#9679;</span>
+                        <span class="icon-pending">&#9679;</span>
                       }
                     </span>
-                    <span class="file-path" [title]="preview.filePath">{{ shortPath(preview.filePath) }}</span>
+                    <span class="file-path">{{ shortPath(preview.filePath) }}</span>
                   </div>
                   <div class="file-counts">
+                    <span class="count">{{ appliedFiles().has(preview.filePath) ? 'Applied' : 'Pending' }}</span>
                     <span class="count additions">+{{ preview.additions }}</span>
                     <span class="count deletions">-{{ preview.deletions }}</span>
                   </div>
@@ -299,7 +303,8 @@ interface EditPreview {
       color: #fff;
     }
 
-    .btn:disabled {
+    .btn:disabled,
+    .btn.aio-reason-disabled {
       opacity: 0.6;
       cursor: not-allowed;
     }
@@ -519,6 +524,9 @@ export class MultiEditPageComponent {
   readonly infoMessage = signal<string | null>(null);
 
   readonly canPreview = computed(() => this.editsJson().trim().length > 0);
+
+  readonly previewDisabledReason = computed(() =>
+    this.working() || this.canPreview() ? null : 'Enter edit operations first.');
 
   readonly selectedPreview = computed(() => {
     const path = this.selectedFilePath();

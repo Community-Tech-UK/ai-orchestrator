@@ -184,7 +184,7 @@ interface RepoInfo {
           <app-task-preflight-card
             [report]="preflight()"
             [loading]="preflightLoading()"
-            title="Launch Preflight"
+            heading="Launch Preflight"
             subtitle="Instructions, permissions, MCP readiness, and browser tooling for this background job."
             emptyMessage="Load a working directory to resolve launch readiness before submitting a repo job."
           />

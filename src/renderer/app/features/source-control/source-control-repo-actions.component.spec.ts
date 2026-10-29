@@ -5,6 +5,8 @@
  */
 
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppSettings } from '../../../../shared/types/settings.types';
 import { SourceControlStore } from '../../core/state/source-control.store';
@@ -85,6 +87,29 @@ describe('SourceControlRepoActionsComponent — LT-138 PR-creation opt-in', () =
     if (!box) throw new Error('Sign-off checkbox not found');
     return box as HTMLInputElement;
   }
+
+  it('keeps up-to-date Pull and Push focusable with reasons and blocks activation', () => {
+    const buttons = fixture.debugElement.queryAll(By.css('.sync-row > .action-btn'));
+    const pull = buttons[1];
+    const push = buttons[2];
+    expect((pull.nativeElement as HTMLButtonElement).disabled).toBe(false);
+    expect(pull.nativeElement.getAttribute('aria-disabled')).toBe('true');
+    expect(pull.injector.get(AioTooltipDirective, null)?.appTooltipDisabledReason()).toBe('Nothing to pull (up to date)');
+    expect(push.injector.get(AioTooltipDirective, null)?.appTooltipDisabledReason()).toBe('Nothing to push');
+    pull.nativeElement.click();
+    push.nativeElement.click();
+    expect(sourceControlStore.pull).not.toHaveBeenCalled();
+    expect(sourceControlStore.push).not.toHaveBeenCalled();
+  });
+
+  it('shows upstream synchronization consequences beside the buttons', () => {
+    const repo = repoState(REPO_A);
+    fixture.componentRef.setInput('repo', { ...repo, status: { ...repo.status!, ahead: 1, behind: 2 } });
+    fixture.detectChanges();
+    const text = fixture.nativeElement.querySelector('.sync-hint')?.textContent;
+    expect(text).toContain('Pull 2 commit(s) from upstream (fast-forward only)');
+    expect(text).toContain('Push 1 commit(s) to upstream');
+  });
 
   it('renders unchecked by default and labels the control "Allow PR creation"', () => {
     expect(fixture.nativeElement.textContent).toContain('Allow PR creation');

@@ -1,3 +1,5 @@
+import { By } from '@angular/platform-browser';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
@@ -68,12 +70,22 @@ describe('CliUpdatePillComponent', () => {
     fixture.detectChanges();
   });
 
+  it('keeps every CLI hint fragment on the real directive without native titles', () => {
+    const button = fixture.debugElement.query(By.css('.cli-update-pill'));
+    expect(button.nativeElement.hasAttribute('title')).toBe(false);
+    expect(button.injector.get(AioTooltipDirective).appTooltip()).toBe('Claude Code 1.0.0 → 1.1.0: claude update');
+    state.set({ generatedAt: 2, count: 1, entries: [{ cli: 'codex', displayName: 'Codex', currentVersion: '2.0',
+      updateAvailable: true, updatePlan: { cli: 'codex', displayName: 'Codex', supported: false, reason: 'Update manually' } }] });
+    fixture.detectChanges();
+    expect(button.injector.get(AioTooltipDirective).appTooltip()).toBe('Codex 2.0: Update manually');
+  });
+
   it('renders when update work is available', () => {
     expect(store.init).toHaveBeenCalledOnce();
     const button = fixture.nativeElement.querySelector('.cli-update-pill') as HTMLButtonElement | null;
 
     expect(button?.textContent).toContain('Update CLI');
-    expect(button?.title).toContain('Claude Code 1.0.0 → 1.1.0: claude update');
+    expect(fixture.debugElement.query(By.css('.cli-update-pill')).injector.get(AioTooltipDirective).appTooltip()).toContain('Claude Code 1.0.0 → 1.1.0: claude update');
   });
 
   it('pluralises when multiple updates are pending', () => {

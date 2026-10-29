@@ -8,7 +8,7 @@
           <button class="action-btn secondary" type="button" (click)="openSettings()">
             Settings
           </button>
-          <button class="action-btn secondary" type="button" (click)="showHelp()" aria-label="Help">
+          <button class="action-btn secondary" type="button" (click)="showHelp()" appIconButton="Help">
             ?
           </button>
         </div>
@@ -75,12 +75,12 @@
                             <span class="file-name">{{ preview.file.name }}</span>
                             <span class="file-size">{{ preview.size }}</span>
                           </div>
-                          <button class="file-remove" type="button" (click)="removeFile(preview.file)" [attr.aria-label]="'Remove ' + preview.file.name">×</button>
+                          <button class="file-remove" type="button" (click)="removeFile(preview.file)" [appIconButton]="'Remove ' + preview.file.name">×</button>
                         </div>
                       } @else {
                         <div class="file-chip">
                           <span class="file-name">{{ preview.file.name }}</span>
-                          <button class="file-remove" type="button" (click)="removeFile(preview.file)" [attr.aria-label]="'Remove ' + preview.file.name">×</button>
+                          <button class="file-remove" type="button" (click)="removeFile(preview.file)" [appIconButton]="'Remove ' + preview.file.name">×</button>
                         </div>
                       }
                     }
@@ -95,7 +95,7 @@
                       class="directory-btn"
                       type="button"
                       (click)="selectWorkingDirectory()"
-                      [title]="workingDirectory() || 'Select a folder for agents to scan'"
+                      [appTooltip]="workingDirectory() || 'Select a folder for agents to scan'"
                     >
                       <span class="directory-path">
                         {{ workingDirectory() || 'Select folder to scan...' }}
@@ -106,7 +106,7 @@
                         class="directory-clear"
                         type="button"
                         (click)="clearWorkingDirectory()"
-                        aria-label="Clear working directory"
+                        appIconButton="Clear working directory"
                       >
                         ×
                       </button>
@@ -117,7 +117,7 @@
                     <app-task-preflight-card
                       [report]="preflight()"
                       [loading]="preflightLoading()"
-                      title="Verification Preflight"
+                      heading="Verification Preflight"
                       subtitle="Checks the selected workspace for instruction, permission, and network readiness."
                       emptyMessage="Pick a working directory to inspect verification readiness."
                     />
@@ -145,7 +145,7 @@ You can write detailed, multi-line prompts here. The textarea will expand as nee
                       class="expand-btn"
                       type="button"
                       (click)="toggleExpandedPrompt()"
-                      [title]="isPromptExpanded() ? 'Collapse prompt area' : 'Expand prompt area'"
+                      [appTooltip]="isPromptExpanded() ? 'Collapse prompt area' : 'Expand prompt area'"
                     >
                       {{ isPromptExpanded() ? '↑ Collapse' : '↓ Expand' }}
                     </button>
@@ -163,7 +163,7 @@ You can write detailed, multi-line prompts here. The textarea will expand as nee
                             class="chip-remove"
                             type="button"
                             (click)="store.removeSelectedAgent(agent)"
-                            [attr.aria-label]="'Remove ' + getAgentDisplayName(agent)"
+                            [appIconButton]="'Remove ' + getAgentDisplayName(agent)"
                           >
                             ×
                           </button>
@@ -225,7 +225,7 @@ You can write detailed, multi-line prompts here. The textarea will expand as nee
             <section class="section" [class.collapsed]="agentsCollapsed()">
               <div class="section-header clickable" (click)="toggleAgentsCollapsed()" (keydown.enter)="toggleAgentsCollapsed()" (keydown.space)="toggleAgentsCollapsed()" tabindex="0" role="button" [attr.aria-expanded]="!agentsCollapsed()">
                 <div class="section-header-left">
-                  <button class="collapse-btn" [class.collapsed]="agentsCollapsed()" type="button" [attr.aria-label]="agentsCollapsed() ? 'Expand available agents' : 'Collapse available agents'">
+                  <button class="collapse-btn" [class.collapsed]="agentsCollapsed()" type="button" [appIconButton]="agentsCollapsed() ? 'Expand available agents' : 'Collapse available agents'">
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                       <polyline points="6 9 12 15 18 9"></polyline>
                     </svg>
@@ -309,12 +309,12 @@ You can write detailed, multi-line prompts here. The textarea will expand as nee
                       <button
                         class="session-delete"
                         type="button"
-                        aria-label="Delete session"
+                        appIconButton="Delete session"
                         (click)="deleteSession(session.id, $event)"
                       >
                         ×
                       </button>
-                      <button class="session-arrow" type="button" aria-hidden="true" tabindex="-1">→</button>
+                      <span class="session-arrow" aria-hidden="true">→</span>
                     </div>
                   }
                 </div>

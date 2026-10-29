@@ -46,6 +46,8 @@ import { ChatOutputMessageMapper } from '../chats/chat-output-message.mapper';
 import { UserActionRequestComponent } from '../instance-detail/user-action-request.component';
 import { BrowserApprovalRequestComponent } from '../instance-detail/browser-approval-request.component';
 import { describePermissionPolicy } from './side-chat-permissions';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 
 const BUSY_STATUSES = new Set<InstanceStatus>([
   'busy', 'processing', 'thinking_deeply', 'waiting_for_permission', 'initializing',
@@ -71,12 +73,14 @@ const AT_BOTTOM_TOLERANCE_PX = 48;
     CompactModelPickerComponent,
     UserActionRequestComponent,
     BrowserApprovalRequestComponent,
+    AioTooltipDirective,
   ],
   templateUrl: './side-chat-panel.component.html',
   styleUrl: './side-chat-panel.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SideChatPanelComponent {
+  protected readonly copy = copyFor;
   readonly chatStore = inject(ChatStore);
   readonly sideChatStore = inject(SideChatStore);
   private readonly instanceStore = inject(InstanceStore);
@@ -264,6 +268,12 @@ export class SideChatPanelComponent {
     this.isBusy() ? 'Stop the current answer before changing provider or model' : null);
   readonly canSend = computed(() =>
     !!this.parent() && !this.sending() && !!this.draft().trim() && (!!this.chat() || !!this.pickerSelection()));
+  readonly newSideChatDisabledReason = computed(() => this.parent() ? null : 'Select a session first');
+  readonly sendDisabledReason = computed(() => {
+    if (this.sending() || this.canSend()) return null;
+    if (!this.parent()) return 'Select a session first';
+    return this.draft().trim() ? 'Choose an available provider and model first' : 'Write a sidechat message first';
+  });
 
   /** Existing chats in this workspace that could be attached explicitly. */
   readonly attachCandidates = computed(() => {

@@ -108,22 +108,25 @@ export function buildOutstandingQuery(
           type="button"
           class="o-resolve-all"
           (click)="onResolveAll()"
-          [disabled]="openCount() === 0 || resolvingAll()"
+          [disabled]="resolvingAll()"
           [appTooltip]="copy('loop.outstanding.resolveAll')"
+          [appTooltipDisabledReason]="openCount() === 0 ? 'No open items to resolve' : null"
         >{{ resolvingAll() ? 'Resolving…' : 'Resolve all' }}</button>
         <button
           type="button"
           class="o-export"
           (click)="onExport()"
-          [disabled]="!workspaceCwd() || exporting() || openCount() === 0"
-          [appTooltip]="exportTitle()"
+          [disabled]="exporting()"
+          [appTooltip]="'Write open items to <workspace>/OUTSTANDING.md'"
+          [appTooltipDisabledReason]="exportDisabledReason()"
         >{{ exportedPath() ? 'Exported ✓' : 'Export .md' }}</button>
         <button
           type="button"
           class="o-resume"
           (click)="onResume()"
-          [disabled]="!canResume() || resuming()"
-          [appTooltip]="resumeTitle()"
+          [disabled]="resuming()"
+          [appTooltip]="'Start a new loop run that applies your answers'"
+          [appTooltipDisabledReason]="resumeDisabledReason()"
         >{{ resuming() ? 'Starting…' : 'Resume with answers (' + answeredCount() + ')' }}</button>
       </div>
       @if (resumeError()) {
@@ -154,14 +157,14 @@ export function buildOutstandingQuery(
                   <div class="o-text">{{ item.text }}</div>
                   <div class="o-meta">
                     <span class="o-loop-status" [attr.data-status]="item.loopStatus" [attr.data-tone]="statusTone(item.loopStatus)">{{ statusLabel(item.loopStatus) }}</span>
-                    <span class="o-time" [title]="absoluteTime(item.createdAt)">{{ relTime(item.createdAt) }}</span>
+                    <span class="o-time" tabindex="0" [appTooltip]="absoluteTime(item.createdAt)">{{ relTime(item.createdAt) }}</span>
                     @if (item.status !== 'open') {
                       <span class="o-resolved">{{ item.status }}</span>
                     }
                   </div>
                   @if (item.status === 'open') {
                     @if (isShowingRecommendation(item)) {
-                      <div class="o-suggested" [appTooltip]="copy('loop.outstanding.suggested')">Suggested — review, then Save or Resolve to use</div>
+                      <div class="o-suggested" tabindex="0" [appTooltip]="copy('loop.outstanding.suggested')">Suggested — review, then Save or Resolve to use</div>
                     }
                     <textarea
                       class="o-answer-input"
@@ -176,7 +179,7 @@ export function buildOutstandingQuery(
                 </div>
                 <div class="o-actions">
                   @if (item.status === 'open') {
-                    <button type="button" class="o-act o-save" (click)="saveAnswer(item)" [disabled]="savingId() === item.id || !canSaveAnswer(item)" [appTooltip]="copy('loop.outstanding.save')">{{ savingId() === item.id ? 'Saving…' : 'Save answer' }}</button>
+                    <button type="button" class="o-act o-save" (click)="saveAnswer(item)" [disabled]="savingId() === item.id" [appTooltip]="copy('loop.outstanding.save')" [appTooltipDisabledReason]="canSaveAnswer(item) ? null : 'No changes to save'">{{ savingId() === item.id ? 'Saving…' : 'Save answer' }}</button>
                     <button type="button" class="o-act o-resolve" (click)="setStatus(item, 'resolved')" [appTooltip]="copy('loop.outstanding.resolve')">Resolve</button>
                     <button type="button" class="o-act o-dismiss" (click)="setStatus(item, 'dismissed')" [appTooltip]="copy('loop.outstanding.dismiss')">Dismiss</button>
                   } @else {
@@ -216,17 +219,18 @@ export function buildOutstandingQuery(
       cursor: pointer;
     }
     .o-export { border-color: rgba(212,180,90,0.5); color: var(--primary-color, #d4b45a); }
-    .o-export:hover:not(:disabled) { background: rgba(212,180,90,0.12); }
+    .o-export:hover:not(:disabled):not([aria-disabled="true"]) { background: rgba(212,180,90,0.12); }
     .o-resolve-all { border-color: rgba(142,220,142,0.4); color: #8edc8e; }
-    .o-resolve-all:hover:not(:disabled) { background: rgba(142,220,142,0.12); }
+    .o-resolve-all:hover:not(:disabled):not([aria-disabled="true"]) { background: rgba(142,220,142,0.12); }
     .o-resume {
       padding: 2px 8px; font: inherit; font-size: 11px;
       background: rgba(123,176,255,0.1); color: #9ec1ff;
       border: 1px solid rgba(123,176,255,0.5); border-radius: 3px; cursor: pointer;
     }
-    .o-resume:hover:not(:disabled) { background: rgba(123,176,255,0.2); }
+    .o-resume:hover:not(:disabled):not([aria-disabled="true"]) { background: rgba(123,176,255,0.2); }
     .o-resume-error { margin: 2px 0 6px; color: #f08a8a; font-size: 11px; }
     .o-filter:disabled, .o-export:disabled, .o-resolve-all:disabled, .o-resume:disabled { opacity: 0.4; cursor: not-allowed; }
+    .o-head button[aria-disabled="true"], .o-act[aria-disabled="true"] { opacity: 0.4; cursor: not-allowed; }
     .o-empty { padding: 10px 4px; opacity: 0.6; font-style: italic; }
     .o-section-label {
       margin: 8px 0 4px; font-size: 10px; font-weight: 600;
@@ -290,7 +294,7 @@ export function buildOutstandingQuery(
       background: rgba(255,255,255,0.05); color: inherit;
       border: 1px solid rgba(255,255,255,0.12); border-radius: 3px; cursor: pointer;
     }
-    .o-act:hover:not(:disabled) { background: rgba(255,255,255,0.1); }
+    .o-act:hover:not(:disabled):not([aria-disabled="true"]) { background: rgba(255,255,255,0.1); }
     .o-act:disabled { opacity: 0.4; cursor: not-allowed; }
     .o-save { border-color: rgba(212,180,90,0.5); color: var(--primary-color, #d4b45a); }
     .o-resolve { border-color: rgba(142,220,142,0.4); color: #8edc8e; }
@@ -437,6 +441,7 @@ export class LoopOutstandingPanelComponent {
 
   /** Persist the typed answer without changing status (item stays open). */
   protected async saveAnswer(item: LoopOutstandingItemPayload): Promise<void> {
+    if (!this.canSaveAnswer(item)) return;
     await this.commit(item, item.status, this.draftFor(item));
   }
 
@@ -489,15 +494,15 @@ export class LoopOutstandingPanelComponent {
     }
   }
 
-  protected exportTitle(): string {
+  protected exportDisabledReason(): string | null {
     if (!this.workspaceCwd()) return 'No workspace selected';
     if (this.openCount() === 0) return 'No open items to export';
-    return 'Write open items to <workspace>/OUTSTANDING.md';
+    return null;
   }
 
   protected async onExport(): Promise<void> {
     const cwd = this.workspaceCwd();
-    if (!cwd) return;
+    if (!cwd || this.openCount() === 0 || this.exporting()) return;
     this.exporting.set(true);
     try {
       const result = await this.store.exportOutstanding(cwd, undefined, this.chatId() ?? undefined);
@@ -511,10 +516,11 @@ export class LoopOutstandingPanelComponent {
     }
   }
 
-  protected resumeTitle(): string {
+  protected resumeDisabledReason(): string | null {
+    if (!this.workspaceCwd()) return 'No workspace selected';
     if (!this.chatId()) return 'Resume needs a session — open this from an instance';
     if (this.answeredCount() === 0) return 'Type an answer on an item first';
-    return 'Start a new loop run that applies your answers';
+    return null;
   }
 
   /** Start a fresh loop run that applies the saved answers; the consumed items
@@ -524,7 +530,7 @@ export class LoopOutstandingPanelComponent {
   protected async onResume(): Promise<void> {
     const chatId = this.chatId();
     const cwd = this.workspaceCwd();
-    if (!chatId || !cwd || this.resuming()) return;
+    if (!chatId || !cwd || !this.canResume() || this.resuming()) return;
     this.resumeError.set(null);
     this.resuming.set(true);
     try {

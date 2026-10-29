@@ -44,6 +44,7 @@ import type { RenderedDiffLine } from './source-control.types';
 import { InstanceStore } from '../../core/state/instance.store';
 import { DiffReviewDraftStore } from './diff-review-draft.store';
 import { buildReviewPacket } from './diff-review-packet';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import type {
   DiffAnnotation,
   DiffAnnotationLineRange,
@@ -81,6 +82,7 @@ function rowKey(hunkIndex: number, lineIndex: number): string {
 @Component({
   selector: 'app-source-control-diff-view',
   standalone: true,
+  imports: [AioTooltipDirective],
   template: `
     @if (loader().isLoading() && !loader().file()) {
       <div class="diff-loading">Loading diff…</div>
@@ -159,7 +161,8 @@ function rowKey(hunkIndex: number, lineIndex: number): string {
                           <button
                             type="button"
                             class="diff-anno-marker"
-                            [title]="starting.length + ' comment(s): ' + starting[0].comment"
+                            [appTooltip]="starting.length + ' comment(s): ' + starting[0].comment"
+                            [attr.aria-label]="starting.length + ' comment(s): ' + starting[0].comment"
                             (click)="toggleExpanded($event, starting[0].id)"
                           >💬 {{ starting.length }}</button>
                         }

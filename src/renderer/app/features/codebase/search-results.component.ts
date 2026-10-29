@@ -18,12 +18,14 @@ import {
   ChangeDetectionStrategy,
   inject,
 } from '@angular/core';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import type { HybridSearchResult } from '../../../../shared/types/codebase.types';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 
 @Component({
   selector: 'app-search-results',
   standalone: true,
+  imports: [AioTooltipDirective],
   template: `
     <div class="results-container">
       <!-- Results Header -->
@@ -52,7 +54,7 @@ import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
               <!-- Result Header -->
               <div class="result-header">
                 <div class="file-info">
-                  <span class="file-path" title="{{ result.filePath }}">
+                  <span class="file-path" tabindex="0" [appTooltip]="result.filePath">
                     {{ truncatePath(result.filePath) }}
                   </span>
                   @if (result.startLine) {
@@ -65,7 +67,7 @@ import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
                   <span class="match-type" [class]="result.matchType">
                     {{ result.matchType }}
                   </span>
-                  <span class="score" title="Relevance score">
+                  <span class="score" tabindex="0" appTooltip="Relevance score">
                     {{ formatScore(result.score) }}
                   </span>
                 </div>
@@ -88,14 +90,14 @@ import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
                   <button
                     class="action-btn"
                     (click)="copyContent(result); $event.stopPropagation()"
-                    title="Copy to clipboard"
+                    appTooltip="Copy to clipboard"
                   >
                     Copy
                   </button>
                   <button
                     class="action-btn"
                     (click)="openFile.emit(result); $event.stopPropagation()"
-                    title="Open file"
+                    appTooltip="Open file"
                   >
                     Open
                   </button>

@@ -20,6 +20,7 @@ import { ViewLayoutService } from '../../core/services/view-layout.service';
 import { RemoteFsIpcService } from '../../core/services/ipc/remote-fs-ipc.service';
 import type { RemoteFsEventNotification } from '../../../../shared/types/remote-fs.types';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 
 interface TreeNode extends FileEntry {
   children?: TreeNode[];
@@ -31,7 +32,7 @@ interface TreeNode extends FileEntry {
 @Component({
   selector: 'app-file-explorer',
   standalone: true,
-  imports: [AioTooltipDirective],
+  imports: [AioTooltipDirective, AppIconButtonDirective],
   template: `
     <div class="file-explorer-wrapper" [class.collapsed]="isCollapsed()" [class.resizing]="isResizing()">
       <!-- Resize handle -->
@@ -45,24 +46,24 @@ interface TreeNode extends FileEntry {
 
       <div class="file-explorer" [style.width.px]="isCollapsed() ? 36 : explorerWidth()">
         <!-- Header with toggle -->
-        <div class="explorer-header" (click)="toggleCollapse()" (keydown.enter)="toggleCollapse()" (keydown.space)="toggleCollapse()" tabindex="0" role="button">
+        <div class="explorer-header" (click)="toggleCollapse()" (keydown.enter)="toggleCollapse()" (keydown.space)="toggleCollapse()" tabindex="0" role="button" [appTooltip]="isCollapsed() ? 'Open files panel' : 'Close panel'" [attr.aria-label]="isCollapsed() ? 'Open files panel' : null">
         <svg class="collapse-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
         </svg>
         <span class="header-title" [class.hidden]="isCollapsed()">Files</span>
         @if (!isCollapsed()) {
-          <span class="close-arrow" title="Close panel">›</span>
+          <span class="close-arrow" aria-hidden="true">›</span>
         }
       </div>
 
       @if (!isCollapsed()) {
         <!-- Root folder selector -->
         <div class="root-selector">
-          <button class="select-root-btn" (click)="onSelectRoot()" title="Select folder">
+          <button class="select-root-btn" (click)="onSelectRoot()" appTooltip="Select folder">
             {{ rootName() || 'Select folder...' }}
           </button>
           @if (rootPath()) {
-            <button class="refresh-btn" (click)="refresh()" appTooltip="Refresh" aria-label="Refresh">↻</button>
+            <button class="refresh-btn" (click)="refresh()" appIconButton="Refresh">↻</button>
           }
         </div>
 
@@ -104,6 +105,7 @@ interface TreeNode extends FileEntry {
                 (keydown.space)="onNodeClick(node, $any($event))"
                 tabindex="0"
                 role="button"
+                [appTooltip]="node.path"
               >
                 @if (node.isDirectory) {
                   <span class="expand-icon">
@@ -119,7 +121,7 @@ interface TreeNode extends FileEntry {
                 } @else {
                   <span class="expand-icon"></span>
                 }
-                <span class="node-name" [title]="node.path">{{ node.name }}</span>
+                <span class="node-name">{{ node.name }}</span>
               </div>
             } @empty {
               <div class="empty-state">

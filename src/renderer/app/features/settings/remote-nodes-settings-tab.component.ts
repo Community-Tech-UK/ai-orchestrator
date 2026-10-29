@@ -3,6 +3,8 @@
  * Configure remote worker node connections from within Settings.
  */
 
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -69,7 +71,7 @@ export type { RemoteNodesSection };
 @Component({
   standalone: true,
   selector: 'app-remote-nodes-settings-tab',
-  imports: [
+  imports: [AioTooltipDirective, AppIconButtonDirective,
     SaveStateBannerComponent,
     ValidationRowComponent,
     CopyRowComponent,

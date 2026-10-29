@@ -1,9 +1,12 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import { LoopStore } from '../../core/state/loop.store';
 
 @Component({
   selector: 'app-loop-toggle',
   standalone: true,
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <label
@@ -11,14 +14,14 @@ import { LoopStore } from '../../core/state/loop.store';
       [class.disabled]="!canInteract()"
       [class.armed]="panelOpen() && !isActive()"
       [class.running]="isActive()"
-      [title]="title()"
     >
-      <span class="lt-label">{{ isActive() ? 'Loop running' : (panelOpen() ? 'Loop armed' : 'Loop') }}</span>
+      <span class="lt-label" [appTooltip]="title()">{{ isActive() ? 'Loop running' : (panelOpen() ? 'Loop armed' : 'Loop') }}</span>
       <span class="lt-switch" [class.armed]="panelOpen() && !isActive()" [class.running]="isActive()">
         <input
           type="checkbox"
           [checked]="visuallyOn()"
-          [disabled]="!canInteract()"
+          [appTooltip]="title()"
+          [appTooltipDisabledReason]="canInteract() ? null : copy('loop.noFolder')"
           (change)="onChange($event)"
         />
         <span class="lt-track"></span>
@@ -69,6 +72,7 @@ import { LoopStore } from '../../core/state/loop.store';
       cursor: inherit;
     }
     .lt-track {
+      pointer-events: none;
       position: absolute;
       inset: 0;
       border-radius: 999px;
@@ -97,6 +101,7 @@ import { LoopStore } from '../../core/state/loop.store';
   `],
 })
 export class LoopToggleComponent {
+  protected readonly copy = copyFor;
   chatId = input<string | null>(null);
   workspaceCwd = input<string | null>(null);
   hasTypedText = input<boolean>(false);
@@ -127,7 +132,7 @@ export class LoopToggleComponent {
   title = computed(() => {
     if (this.isActive()) return 'Loop ON — click to stop';
     if (this.panelOpen()) return 'Click to close the loop config panel';
-    if (!this.workspaceCwd()) return 'Pick a working folder to enable Loop Mode';
+    if (!this.workspaceCwd()) return copyFor('loop.noFolder');
     return 'Click to open the loop config panel';
   });
 
@@ -136,6 +141,10 @@ export class LoopToggleComponent {
   }
 
   onChange(event: Event): void {
+    if (!this.canInteract()) {
+      (event.target as HTMLInputElement).checked = this.visuallyOn();
+      return;
+    }
     if (this.isActive()) {
       // Active loop → clicking the toggle is always a stop request.
       this.stopRequested.emit();

@@ -15,6 +15,7 @@ import {
   computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 interface MemoryStats {
   totalEntries: number;
@@ -45,6 +46,7 @@ interface MemoryStats {
 @Component({
   selector: 'app-memory-stats',
   standalone: true,
+  imports: [AioTooltipDirective],
   template: `
     <div class="stats-container">
       <!-- Header -->
@@ -91,14 +93,14 @@ interface MemoryStats {
             <div class="token-bar-container">
               <div class="token-bar">
                 <div
-                  class="token-segment short-term"
+                  class="token-segment short-term" tabindex="0"
                   [style.width.%]="(s.tokenUsage.shortTerm / s.tokenUsage.limit) * 100"
-                  title="Short-term: {{ formatTokens(s.tokenUsage.shortTerm) }}"
+                  [appTooltip]="'Short-term: ' + formatTokens(s.tokenUsage.shortTerm)"
                 ></div>
                 <div
-                  class="token-segment long-term"
+                  class="token-segment long-term" tabindex="0"
                   [style.width.%]="(s.tokenUsage.longTerm / s.tokenUsage.limit) * 100"
-                  title="Long-term: {{ formatTokens(s.tokenUsage.longTerm) }}"
+                  [appTooltip]="'Long-term: ' + formatTokens(s.tokenUsage.longTerm)"
                 ></div>
               </div>
               <span class="token-limit">

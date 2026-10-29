@@ -1,3 +1,4 @@
+import { copyFor } from '../../tooltip/tooltip-copy';
 /**
  * Message Attachments Component - Displays file attachments in chat messages
  *
@@ -35,7 +36,7 @@ export interface AttachmentDisplay {
               tabindex="0"
               role="button"
               [style.background-image]="'url(' + attachment.data + ')'"
-              title="Click to preview image"
+              [appTooltip]="copy('attachments.preview')"
             >
               <div class="image-overlay">
                 <span class="image-name">{{ attachment.name }}</span>
@@ -50,7 +51,7 @@ export interface AttachmentDisplay {
               (keydown.space)="openPreview(attachment)"
               tabindex="0"
               role="button"
-              title="Click to preview image"
+              [appTooltip]="copy('attachments.preview')"
             >
               <div class="file-icon" [innerHTML]="getFileIconSvg(attachment)"></div>
               <div class="file-info">
@@ -66,7 +67,7 @@ export interface AttachmentDisplay {
               (keydown.space)="openFile(attachment)"
               tabindex="0"
               role="button"
-              title="Click to open file"
+              [appTooltip]="copy('attachments.open')"
             >
               <div class="file-icon" [innerHTML]="getFileIconSvg(attachment)"></div>
               <div class="file-info">
@@ -103,7 +104,7 @@ export interface AttachmentDisplay {
                 <button
                   class="preview-action-btn"
                   (click)="copyImageToClipboard()"
-                  title="Copy image to clipboard"
+                  [appTooltip]="copy('attachments.copy')"
                 >
                   Copy
                 </button>
@@ -394,6 +395,7 @@ export interface AttachmentDisplay {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MessageAttachmentsComponent {
+  protected readonly copy = copyFor;
   private ipc = inject(ElectronIpcService);
   attachments = input.required<AttachmentDisplay[]>();
   previewAttachment = signal<AttachmentDisplay | null>(null);

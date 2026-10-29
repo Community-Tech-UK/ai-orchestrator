@@ -13,21 +13,24 @@ import { AutomationStore } from '../../core/state/automation.store';
 import { SideChatStore } from '../../core/state/side-chat.store';
 import { TerminalDrawerStore } from '../../core/state/terminal-drawer.store';
 import { ContextMenuComponent, type ContextMenuItem } from '../../shared/components/context-menu/context-menu.component';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 
 @Component({
   selector: 'app-workspace-rail',
   standalone: true,
-  imports: [RouterLink, RouterLinkActive, ContextMenuComponent, AppIconButtonDirective],
+  imports: [RouterLink, RouterLinkActive, ContextMenuComponent, AppIconButtonDirective, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <nav class="workspace-rail" aria-label="Workspace navigation">
       <div class="rail-section">
         <a
           class="rail-btn"
+          appTooltipPosition="after"
           routerLink="/chat-search"
           routerLinkActive="active"
-          title="Search projects, sessions, and messages"
+          appTooltip="Search projects, sessions, and messages"
           aria-label="Search"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -37,9 +40,10 @@ import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directi
 
         <a
           class="rail-btn"
+          appTooltipPosition="after"
           routerLink="/automations"
           routerLinkActive="active"
-          title="Scheduled and recurring agent runs"
+          appTooltip="Scheduled and recurring agent runs"
           aria-label="Automations"
           aria-haspopup="menu"
           [attr.aria-expanded]="automationsMenuVisible() ? 'true' : 'false'"
@@ -55,6 +59,7 @@ import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directi
 
         <a
           class="rail-btn"
+          appTooltipPosition="after"
           routerLink="/plan-queue"
           routerLinkActive="active"
           appIconButton="Plan Queue"
@@ -66,9 +71,10 @@ import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directi
 
         <a
           class="rail-btn"
+          appTooltipPosition="after"
           routerLink="/browser"
           routerLinkActive="active"
-          title="Managed Browser Gateway profiles"
+          appTooltip="Managed Browser Gateway profiles"
           aria-label="Browser"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -78,9 +84,10 @@ import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directi
 
         <a
           class="rail-btn"
+          appTooltipPosition="after"
           routerLink="/plugins"
           routerLinkActive="active"
-          title="Manage installed plugins"
+          appTooltip="Manage installed plugins"
           aria-label="Plugins"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -96,10 +103,11 @@ import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directi
         <button
           type="button"
           class="rail-btn"
+          appTooltipPosition="after"
           [class.active]="controlPlaneOpen()"
           [attr.aria-expanded]="controlPlaneOpen()"
           (click)="toggleControlPlane.emit()"
-          title="Tools & Views"
+          appTooltip="Tools & Views" [appTooltipShowWhenExpanded]="true"
           aria-label="Tools and Views"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -110,13 +118,17 @@ import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directi
         <button
           type="button"
           class="rail-btn"
+          appTooltipPosition="after"
           [class.active]="sideChatOpen()"
           [attr.aria-expanded]="sideChatOpen()"
           (click)="toggleSideChat.emit()"
           (contextmenu)="onSideChatContextMenu($event)"
           (keydown.shift.f10)="onSideChatContextMenu($event)"
           (keydown.contextmenu)="onSideChatContextMenu($event)"
-          title="Sidechats (⌥⌘S). Right-click for sidechat activity."
+          [appTooltip]="copy('shell.sidechats')" appTooltipShortcut="toggle-side-chat"
+          [appTooltipShowWhenExpanded]="true"
+          data-testid="sidechat-toggle"
+          data-ui-hints-exempt="local-key"
           [attr.aria-label]="sideChatButtonLabel()"
           aria-haspopup="menu"
         >
@@ -135,10 +147,11 @@ import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directi
           <button
             type="button"
             class="rail-btn"
+            appTooltipPosition="after"
             [class.active]="terminalDrawer.isOpen()"
             [attr.aria-expanded]="terminalDrawer.isOpen()"
             (click)="terminalDrawer.toggle()"
-            appIconButton="Remote terminal on a worker computer"
+            [appIconButton]="copy('shell.remoteTerminal')" [appTooltipShowWhenExpanded]="true"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <rect x="3" y="4" width="18" height="16" rx="2" /><path d="m7 9 3 3-3 3" /><path d="M13 15h4" />
@@ -149,8 +162,9 @@ import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directi
         <button
           type="button"
           class="rail-btn"
+          appTooltipPosition="after"
           (click)="historyClicked.emit()"
-          title="Session history (⌘H)"
+          appTooltip="Session history" appTooltipShortcut="toggle-history"
           aria-label="History"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -161,8 +175,9 @@ import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directi
         <button
           type="button"
           class="rail-btn"
+          appTooltipPosition="after"
           (click)="settingsClicked.emit()"
-          title="Settings (⌘,)"
+          appTooltip="Settings" appTooltipShortcut="toggle-settings"
           aria-label="Settings"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -190,6 +205,7 @@ import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directi
   styleUrl: './workspace-rail.component.scss',
 })
 export class WorkspaceRailComponent {
+  protected readonly copy = copyFor;
   private readonly automationStore = inject(AutomationStore);
   private readonly sideChatStore = inject(SideChatStore);
   protected readonly terminalDrawer = inject(TerminalDrawerStore);

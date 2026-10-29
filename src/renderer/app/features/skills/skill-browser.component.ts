@@ -18,6 +18,7 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import type { SkillBundle } from '../../../../shared/types/skill.types';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 
 interface SkillWithStatus {
   bundle: SkillBundle;
@@ -28,6 +29,7 @@ interface SkillWithStatus {
 @Component({
   selector: 'app-skill-browser',
   standalone: true,
+  imports: [AppIconButtonDirective],
   template: `
     <div class="skills-container">
       <!-- Header -->
@@ -195,7 +197,7 @@ interface SkillWithStatus {
                 <span class="skill-name">{{ skill.bundle.metadata.name }}</span>
                 <span class="skill-version">v{{ skill.bundle.metadata.version }}</span>
               </div>
-              <button class="close-btn" (click)="closeDetails()">✕</button>
+              <button class="close-btn" type="button" appIconButton="Close skill details" (click)="closeDetails()">✕</button>
             </div>
 
             <div class="modal-body">

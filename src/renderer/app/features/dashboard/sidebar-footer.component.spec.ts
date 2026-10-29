@@ -1,3 +1,5 @@
+import { By } from '@angular/platform-browser';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 /**
  * SidebarFooterComponent spec.
  *
@@ -96,6 +98,14 @@ describe('SidebarFooterComponent', () => {
 
   beforeEach(() => {
     TestBed.resetTestingModule();
+  });
+
+  it('keeps Close all sessions visible and attaches its real tooltip', async () => {
+    await render({ instanceCount: 1, usage: unreported() });
+    const button = fixture.debugElement.query(By.css('.btn-close-all'));
+    expect(button.nativeElement.textContent.trim()).toBe('Close all sessions');
+    expect(button.nativeElement.hasAttribute('title')).toBe(false);
+    expect(button.injector.get(AioTooltipDirective).appTooltip()).toBe('Close all sessions');
   });
 
   it('does not render a context percentage when no instance has reported occupancy', async () => {

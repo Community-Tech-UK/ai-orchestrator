@@ -28,6 +28,7 @@ import {
   type Signal,
 } from '@angular/core';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import type { Instance } from '../../core/state/instance/instance.types';
 import {
   applyStatusFilter,
@@ -63,6 +64,7 @@ const STATUS_SYMBOL: Record<ArtifactStatus, string> = {
 @Component({
   selector: 'app-session-artifacts-strip',
   standalone: true,
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (entries().length > 0) {
@@ -73,7 +75,8 @@ const STATUS_SYMBOL: Record<ArtifactStatus, string> = {
             class="header-toggle"
             (click)="onToggleCollapse()"
             [attr.aria-expanded]="!collapsed()"
-            [title]="collapsed() ? 'Expand artifacts' : 'Collapse artifacts'"
+            [appTooltip]="collapsed() ? 'Expand artifacts' : 'Collapse artifacts'"
+            [appTooltipShowWhenExpanded]="true"
           >
             <span class="caret">{{ collapsed() ? '▸' : '▾' }}</span>
             <span class="header-title">Artifacts</span>
@@ -152,7 +155,7 @@ const STATUS_SYMBOL: Record<ArtifactStatus, string> = {
                 [class.chip-modified]="entry.status === 'modified'"
                 [class.chip-deleted]="entry.status === 'deleted'"
                 [class.chip-image]="entry.category === 'image'"
-                [title]="chipTooltip(entry)"
+                [appTooltip]="chipTooltip(entry)"
                 (click)="onClickChip(entry)"
                 (contextmenu)="onContextMenu($event, entry)"
               >
@@ -169,7 +172,7 @@ const STATUS_SYMBOL: Record<ArtifactStatus, string> = {
                 }
                 <span class="chip-name">{{ entry.basename }}</span>
                 @if (entry.outsideCwd) {
-                  <span class="chip-outside" title="Outside working directory" aria-label="Outside working directory">↗</span>
+                  <span class="chip-outside"><span aria-hidden="true">↗</span> Outside working directory</span>
                 }
               </button>
             }
@@ -395,6 +398,7 @@ const STATUS_SYMBOL: Record<ArtifactStatus, string> = {
     .chip-status[data-status='deleted']  { color: rgba(255, 125, 114, 0.94); }
 
     .chip-name {
+      min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -413,6 +417,8 @@ const STATUS_SYMBOL: Record<ArtifactStatus, string> = {
     }
 
     .chip-outside {
+      white-space: nowrap;
+      flex-shrink: 0;
       margin-left: 2px;
       font-size: 10px;
       color: var(--text-muted);

@@ -66,7 +66,6 @@ import type { HelpEntry, HelpLiveStatus } from '../../shared/help/help-content.t
 import { SETTINGS_TAB_HELP } from './help/settings-help';
 import { bestSettingMatch } from '../../../../shared/types/settings-search-catalog';
 import { SettingsHealthNoticesComponent } from './settings-health-notices.component';
-
 /** UX4.2 — how long the landing pulse marker stays on the row. */
 const SEARCH_LANDING_MS = 1800;
 const SEARCH_LANDING_CLASS = 'settings-search-landing';
@@ -91,8 +90,9 @@ import {
 } from './settings-navigation';
 import { bindSettingsViewportMediaQueries } from './settings-viewport-media';
 import { SettingsHelpDrawerFocus } from './settings-help-drawer-focus';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { navItemLabel } from './settings-nav-label';
 import { SettingsCompactNavFocus } from './settings-compact-nav-focus';
-
 @Component({
   selector: 'app-settings',
   standalone: true,
@@ -129,13 +129,14 @@ import { SettingsCompactNavFocus } from './settings-compact-nav-focus';
     RemoteConfigPageComponent,
     ModelsPageComponent,
     SettingsNavIconComponent,
-    HelpPaneComponent,
+    HelpPaneComponent, AioTooltipDirective,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './settings.component.html',
   styleUrl: './settings.component.scss',
 })
 export class SettingsComponent implements AfterViewChecked {
+  readonly navLabel = navItemLabel;
   protected readonly store = inject(SettingsStore);
   private router = inject(Router);
   private route = inject(ActivatedRoute);

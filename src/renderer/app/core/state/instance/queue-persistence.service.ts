@@ -231,12 +231,12 @@ export class QueuePersistenceService {
     return (this.stateService.messageQueue().get(instanceId) ?? []).includes(entry);
   }
 
-  /** Mutates the entry in place (preserving WeakMap identity) and touches the outer Map so signal-reading templates re-render. */
+  /** Mutates the entry in place (preserving WeakMap identity) and replaces the queue array so computed/OnPush consumers re-render. */
   private setDurabilityFlag(instanceId: string, entry: QueuedMessage, notDurable: boolean): void {
     if (entry.notDurable === notDurable) return;
     entry.notDurable = notDurable;
     if (!this.isStillQueued(instanceId, entry)) return;
-    this.stateService.messageQueue.update((current) => new Map(current));
+    this.stateService.messageQueue.update((current) => new Map(current).set(instanceId, [...current.get(instanceId)!]));
   }
 
   private async filesToAttachments(files: File[]): Promise<FileAttachment[] | undefined> {

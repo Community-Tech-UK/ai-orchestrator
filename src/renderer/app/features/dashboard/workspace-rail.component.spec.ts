@@ -1,3 +1,5 @@
+import { By } from '@angular/platform-browser';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { ɵresolveComponentResources as resolveComponentResources, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { RouterTestingModule } from '@angular/router/testing';
@@ -11,6 +13,7 @@ import { SideChatStore } from '../../core/state/side-chat.store';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { TerminalDrawerStore } from '../../core/state/terminal-drawer.store';
 import type { SideChatAttention } from '../../../../shared/types/side-chat.types';
+import { KeybindingService } from '../../core/services/keybinding.service';
 import { WorkspaceRailComponent } from './workspace-rail.component';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
@@ -79,6 +82,35 @@ describe('WorkspaceRailComponent', () => {
     return document.body.querySelector('.context-menu');
   }
 
+  it('keeps every control named with a real tooltip and retains distinct old names', () => {
+    expect(fixture.nativeElement.querySelectorAll('[title]')).toHaveLength(0);
+    for (const host of fixture.debugElement.queryAll(By.css('a, button.rail-btn'))) {
+      expect(host.nativeElement.getAttribute('aria-label')).toBeTruthy();
+      expect(host.injector.get(AioTooltipDirective)).toBeTruthy();
+    }
+    const search = fixture.debugElement.query(By.css('a[aria-label="Search"]'));
+    expect(search.injector.get(AioTooltipDirective).appTooltip()).toBe('Search projects, sessions, and messages');
+  });
+  it('shows live rebound shortcut chips and keeps expanded panel hints on keyboard focus', () => {
+    const keybindings = TestBed.inject(KeybindingService);
+    keybindings.customizeBinding('toggle-history', { key: 'j', modifiers: ['alt'] }); fixture.detectChanges();
+    const history = fixture.debugElement.query(By.css('button[aria-label="History"]'));
+    expect(history.nativeElement.getAttribute('aria-keyshortcuts')).toBe('Alt+J');
+    const element = history.nativeElement as HTMLElement;
+    const matches = element.matches.bind(element);
+    vi.spyOn(element, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
+    element.dispatchEvent(new FocusEvent('focus')); fixture.detectChanges();
+    expect(document.querySelector('[role="tooltip"] kbd')?.textContent).toBe('Alt+J');
+    element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); fixture.detectChanges();
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    fixture.componentRef.setInput('controlPlaneOpen', true); fixture.componentRef.setInput('sideChatOpen', true); fixture.detectChanges();
+    for (const label of ['Tools and Views', 'Sidechats']) {
+      const toggle = fixture.debugElement.query(By.css(`button[aria-label="${label}"]`));
+      expect(toggle.injector.get(AioTooltipDirective).appTooltipShowWhenExpanded()).toBe(true);
+      expect(toggle.injector.get(AioTooltipDirective).appTooltipPosition()).toBe('after');
+    }
+  });
+
   it('shows the unread automations badge on the rail destination', () => {
     expect(automationsLink().querySelector('.rail-badge')?.textContent).toBe('2');
     expect(automationsLink().getAttribute('aria-haspopup')).toBe('menu');
@@ -126,7 +158,7 @@ describe('WorkspaceRailComponent', () => {
   });
 
   function sideChatButton(): HTMLButtonElement {
-    return fixture.nativeElement.querySelector('button[aria-haspopup="menu"][title^="Sidechats"]') as HTMLButtonElement;
+    return fixture.nativeElement.querySelector('button[data-testid="sidechat-toggle"]') as HTMLButtonElement;
   }
 
   it('names parent sessions in the sidechat attention list and opens the exact conversation', () => {

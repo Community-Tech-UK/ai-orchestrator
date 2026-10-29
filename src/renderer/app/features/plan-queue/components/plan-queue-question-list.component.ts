@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import type { PlanQueueQuestionGroup } from '../../../core/state/plan-queue.store';
 import { planQueueDocumentBasename } from './plan-queue-item-list.component';
@@ -17,7 +18,7 @@ export const PLAN_QUEUE_QUESTIONS_OPEN_LIMIT = 10;
 @Component({
   selector: 'app-plan-queue-question-list',
   standalone: true,
-  imports: [PlanQueueQuestionCardComponent],
+  imports: [AioTooltipDirective, PlanQueueQuestionCardComponent],
   templateUrl: './plan-queue-question-list.component.html',
   styleUrl: './plan-queue-question-list.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

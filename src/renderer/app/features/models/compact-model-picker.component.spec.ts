@@ -172,8 +172,14 @@ describe('CompactModelPickerComponent', () => {
     fixture.detectChanges();
 
     const chip = fixture.nativeElement.querySelector('.compact-picker__chip') as HTMLButtonElement;
-    expect(chip.disabled).toBe(true);
-    expect(chip.getAttribute('title')).toBe('Busy — try again when idle');
+    expect(chip.disabled).toBe(false);
+    expect(chip.getAttribute('aria-disabled')).toBe('true');
+    expect(chip.hasAttribute('title')).toBe(false);
+    const matches = chip.matches.bind(chip);
+    vi.spyOn(chip, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
+    chip.dispatchEvent(new FocusEvent('focus'));
+    fixture.detectChanges();
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('Busy — try again when idle');
 
     chip.click();
     fixture.detectChanges();

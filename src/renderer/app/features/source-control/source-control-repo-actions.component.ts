@@ -30,11 +30,14 @@ import { SourceControlStore } from '../../core/state/source-control.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { VcsIpcService } from '../../core/services/ipc/vcs-ipc.service';
 import type { BranchInfo, RepoState } from './source-control.types';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
+import { modKeyLabel } from '../../core/keybindings/shortcut-display';
 
 @Component({
   selector: 'app-source-control-repo-actions',
   standalone: true,
-  imports: [OverlayModule],
+  imports: [OverlayModule, AioTooltipDirective],
   template: `
     <!-- ============================================================
          Sync row (Phase 2d item 10): fetch / pull / push + cancel.
@@ -55,21 +58,23 @@ import type { BranchInfo, RepoState } from './source-control.types';
           class="action-btn"
           (click)="onFetch()"
           [disabled]="isWriting()"
-          title="Fetch (git fetch --prune)"
+          appTooltip="Fetch (git fetch --prune)"
         >Fetch</button>
         <button
           type="button"
           class="action-btn"
           (click)="onPull()"
-          [disabled]="isWriting() || !canPull()"
-          [title]="pullTitle()"
+          [disabled]="isWriting()"
+          [appTooltip]="pullTitle()"
+          [appTooltipDisabledReason]="pullDisabledReason()"
         >Pull</button>
         <button
           type="button"
           class="action-btn action-btn-primary"
           (click)="onPush()"
-          [disabled]="isWriting() || !canPush()"
-          [title]="pushTitle()"
+          [disabled]="isWriting()"
+          [appTooltip]="pushTitle()"
+          [appTooltipDisabledReason]="pushDisabledReason()"
         >Push{{ aheadSuffix() }}</button>
       }
 
@@ -90,7 +95,8 @@ import type { BranchInfo, RepoState } from './source-control.types';
           class="action-btn branch-picker-button"
           (click)="onToggleBranchMenu()"
           [disabled]="isWriting()"
-          [title]="'Switch branch (current: ' + branchName() + ')'"
+          [appTooltip]="'Switch branch (current: ' + branchName() + ')'"
+          [attr.aria-expanded]="branchMenuOpen()"
         >⎇ {{ branchName() }} <span class="caret">▾</span></button>
 
         <ng-template
@@ -117,7 +123,7 @@ import type { BranchInfo, RepoState } from './source-control.types';
                   class="branch-menu-item"
                   [class.current]="b.current"
                   (click)="onSelectBranch(b.name)"
-                  [title]="b.tracking ? b.name + ' → ' + b.tracking : b.name"
+                  [appTooltip]="b.tracking ? b.name + ' → ' + b.tracking : b.name"
                 >
                   <span class="branch-menu-marker">{{ b.current ? '●' : '○' }}</span>
                   <span class="branch-menu-name">{{ b.name }}</span>
@@ -131,6 +137,13 @@ import type { BranchInfo, RepoState } from './source-control.types';
         </ng-template>
       </div>
     </div>
+
+    @if (canPull() || canPush()) {
+      <p class="sync-hint">
+        @if (canPull()) { {{ pullTitle() }}. }
+        @if (canPush()) { {{ pushTitle() }}. }
+      </p>
+    }
 
     <!-- ============================================================
          Allow PR creation (LT-138). Per-repo capability opt-in for
@@ -166,7 +179,7 @@ import type { BranchInfo, RepoState } from './source-control.types';
           (input)="onCommitMessageInput($event)"
           (keydown.meta.enter)="onCommit()"
           (keydown.control.enter)="onCommit()"
-          placeholder="Commit message — ⌘+Enter to commit"
+          [placeholder]="commitPlaceholder"
           rows="2"
           [disabled]="isWriting()"
           aria-label="Commit message"
@@ -185,8 +198,10 @@ import type { BranchInfo, RepoState } from './source-control.types';
             type="button"
             class="action-btn action-btn-primary"
             (click)="onCommit()"
-            [disabled]="isWriting() || !commitMessageValue().trim()"
-            title="Commit staged changes (⌘+Enter)"
+            [disabled]="isWriting()"
+            [appTooltipDisabledReason]="commitDisabledReason()"
+            data-ui-hints-exempt="local-key"
+            [appTooltip]="commitHint"
           >Commit ({{ stagedCount() }})</button>
         </div>
       </div>
@@ -217,13 +232,14 @@ import type { BranchInfo, RepoState } from './source-control.types';
       transition: all var(--transition-fast);
     }
 
-    .action-btn:hover:not(:disabled) {
+    .action-btn:hover:not(:disabled):not([aria-disabled='true']) {
       color: var(--text-primary);
       background: var(--bg-hover);
       border-color: var(--secondary-color);
     }
 
-    .action-btn:disabled {
+    .action-btn:disabled,
+    .action-btn[aria-disabled='true'] {
       opacity: 0.4;
       cursor: default;
     }
@@ -234,7 +250,7 @@ import type { BranchInfo, RepoState } from './source-control.types';
       border-color: rgba(var(--secondary-rgb), 0.4);
     }
 
-    .action-btn-primary:hover:not(:disabled) {
+    .action-btn-primary:hover:not(:disabled):not([aria-disabled='true']) {
       background: rgba(var(--secondary-rgb), 0.22);
       border-color: var(--secondary-color);
     }
@@ -455,6 +471,9 @@ import type { BranchInfo, RepoState } from './source-control.types';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SourceControlRepoActionsComponent {
+  private readonly modifier = modKeyLabel(/Mac|iPhone|iPad|iPod/.test(navigator.platform));
+  protected readonly commitHint = this.modifier === '⌘' ? copyFor('sourceControl.commitMac') : copyFor('sourceControl.commitOther');
+  protected readonly commitPlaceholder = `Commit message — ${this.modifier}+Enter to commit`;
   private store = inject(SourceControlStore);
   private vcs = inject(VcsIpcService);
   private settingsStore = inject(SettingsStore);
@@ -487,6 +506,8 @@ export class SourceControlRepoActionsComponent {
   protected canCommit = computed(() => this.stagedCount() > 0);
   protected canPull = computed(() => (this.repo().status?.behind ?? 0) > 0);
   protected canPush = computed(() => (this.repo().status?.ahead ?? 0) > 0);
+  protected readonly pullDisabledReason = computed(() => this.isWriting() || this.canPull() ? null : 'Nothing to pull (up to date)');
+  protected readonly pushDisabledReason = computed(() => this.isWriting() || this.canPush() ? null : 'Nothing to push');
   protected aheadSuffix = computed(() => {
     const a = this.repo().status?.ahead ?? 0;
     return a > 0 ? ` (${a})` : '';
@@ -495,6 +516,7 @@ export class SourceControlRepoActionsComponent {
   protected longOp = computed(() => this.store.longOpState(this.repo().absolutePath));
 
   protected commitMessageValue = computed(() => this.store.getCommitMessage(this.repo().absolutePath));
+  protected readonly commitDisabledReason = computed(() => this.isWriting() || this.commitMessageValue().trim() ? null : 'Write a commit message first');
 
   /**
    * LT-138: PrCreationService's Gate 1 (`resolvePrCreationOptIn`) — off by

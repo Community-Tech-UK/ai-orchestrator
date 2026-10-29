@@ -96,7 +96,7 @@ export interface DocReviewArtifactInit {
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <iframe
+    <iframe tabindex="0"
       #frame
       class="artifact-frame"
       title="Document review artifact"

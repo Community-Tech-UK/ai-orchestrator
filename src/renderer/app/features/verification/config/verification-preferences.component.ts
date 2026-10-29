@@ -21,6 +21,8 @@ import { FormsModule } from '@angular/forms';
 import { VerificationStore } from '../../../core/state/verification.store';
 import type { CliType } from '../../../core/state/verification.store';
 import type { PersonalityType } from '../../../../../shared/types/verification.types';
+import { AppIconButtonDirective } from '../../../shared/tooltip/icon-button.directive';
+import { copyFor } from '../../../shared/tooltip/tooltip-copy';
 
 interface PersonalityPreset {
   id: string;
@@ -32,7 +34,7 @@ interface PersonalityPreset {
 @Component({
   selector: 'app-verification-preferences',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, AppIconButtonDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="preferences-panel">
@@ -290,7 +292,8 @@ interface PersonalityPreset {
               <button
                 class="btn-icon-small"
                 (click)="removePersonality(i)"
-                [disabled]="defaultPersonalities().length <= 1"
+                [appIconButton]="'Remove personality for Agent ' + (i + 1)"
+                [appIconButtonDisabledReason]="defaultPersonalities().length <= 1 ? copy('verificationHints.lastPersonality') : null"
               >
                 ✕
               </button>
@@ -626,7 +629,8 @@ interface PersonalityPreset {
       background: var(--bg-tertiary);
     }
 
-    .btn-icon-small:disabled {
+    .btn-icon-small:disabled,
+    .btn-icon-small.aio-reason-disabled {
       opacity: 0.3;
       cursor: not-allowed;
     }
@@ -689,6 +693,7 @@ interface PersonalityPreset {
 })
 export class VerificationPreferencesComponent implements OnInit {
   private store = inject(VerificationStore);
+  protected readonly copy = copyFor;
 
   // Strategies
   strategies = [

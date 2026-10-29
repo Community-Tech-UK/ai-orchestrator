@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { By } from '@angular/platform-browser';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import {
   ProviderAccountIpcService,
   type ProviderAccountDoctorView,
@@ -226,7 +228,24 @@ describe('ProviderAccountsTabComponent', () => {
   it('locks the Enabled toggle on the only enabled account', async () => {
     const section = claudeSection(await render());
     const toggles = Array.from(section.querySelectorAll<HTMLInputElement>('.account-card input[type="checkbox"]'));
-    expect(toggles.map((toggle) => toggle.disabled)).toEqual([true, false]);
+    expect(toggles.map((toggle) => toggle.disabled)).toEqual([false, false]);
+    expect(toggles.map((toggle) => toggle.getAttribute('aria-disabled'))).toEqual(['true', null]);
+  });
+
+  it('makes the last-account explanation available on focus while refusing to disable it', async () => {
+    const fixture = await render();
+    const toggle = claudeSection(fixture).querySelector<HTMLInputElement>('.account-card input[type="checkbox"]')!;
+    expect(toggle.disabled).toBe(false);
+    expect(toggle.getAttribute('aria-disabled')).toBe('true');
+    const matches = toggle.matches.bind(toggle);
+    vi.spyOn(toggle, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
+    toggle.dispatchEvent(new FocusEvent('focus'));
+    fixture.detectChanges();
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('At least one account must stay enabled');
+    toggle.click();
+    await settle(fixture);
+    expect(toggle.checked).toBe(true);
+    expect(ipc.update).not.toHaveBeenCalled();
   });
 
   it('leads with the Sign in button only for an account that is not signed in', async () => {
@@ -262,6 +281,76 @@ describe('ProviderAccountsTabComponent', () => {
     const second = fixture.componentInstance.accountsFor('claude')[1]!;
     await fixture.componentInstance.move(second, -1);
     expect(ipc.setPriorityOrder).toHaveBeenCalledWith('claude', ['max-b-1a2b', 'legacy']);
+  });
+
+  it.each([
+    { name: 'Move Existing Claude account up', tooltip: 'Move up', reason: 'Already first in this list', index: 0, delta: -1 as const },
+    { name: 'Move Max B down', tooltip: 'Move down', reason: 'Already last in this list', index: 1, delta: 1 as const },
+  ])('explains the boundary on focus for $name and blocks activation', async ({ name, tooltip, reason, index, delta }) => {
+    const fixture = await render();
+    try {
+      const button = claudeSection(fixture).querySelector<HTMLButtonElement>(`[aria-label="${name}"]`)!;
+      expect(button.disabled).toBe(false);
+      expect(button.getAttribute('aria-disabled')).toBe('true');
+      expect(button.classList.contains('aio-reason-disabled')).toBe(true);
+      const directive = fixture.debugElement.queryAll(By.directive(AioTooltipDirective))
+        .find(element => element.nativeElement === button)!.injector.get(AioTooltipDirective);
+      expect(directive.appTooltip()).toBe(tooltip);
+      const matches = button.matches.bind(button);
+      vi.spyOn(button, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
+      button.focus();
+      fixture.detectChanges();
+      expect(document.activeElement).toBe(button);
+      const tooltipElement = document.querySelector('[role="tooltip"]')!;
+      expect(tooltipElement.textContent).toContain(reason);
+      expect(button.getAttribute('aria-describedby')).toContain(tooltipElement.id);
+      button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      fixture.detectChanges();
+      expect(document.querySelector('[role="tooltip"]')).toBeNull();
+      button.click();
+      await settle(fixture);
+      expect(ipc.setPriorityOrder).not.toHaveBeenCalled();
+      // The handler must also reject a boundary move independently of the directive.
+      await fixture.componentInstance.move(fixture.componentInstance.accountsFor('claude')[index]!, delta);
+      expect(ipc.setPriorityOrder).not.toHaveBeenCalled();
+    } finally {
+      fixture.destroy();
+    }
+  });
+
+  it.each(['Move Existing Claude account down', 'Move Max B up'])('keeps allowed movement available for %s', async name => {
+    const fixture = await render();
+    try {
+      const button = claudeSection(fixture).querySelector<HTMLButtonElement>(`[aria-label="${name}"]`)!;
+      expect(button.disabled).toBe(false);
+      expect(button.getAttribute('aria-disabled')).toBeNull();
+      button.click();
+      await settle(fixture);
+      expect(ipc.setPriorityOrder).toHaveBeenCalledExactlyOnceWith('claude', ['max-b-1a2b', 'legacy']);
+    } finally {
+      fixture.destroy();
+    }
+  });
+
+  it('keeps every move button natively disabled while refreshing accounts', async () => {
+    const fixture = await render();
+    let finishRefresh!: (value: Awaited<ReturnType<typeof ipc.list>>) => void;
+    ipc.list.mockImplementationOnce(() => new Promise(resolve => { finishRefresh = resolve; }));
+    const refresh = fixture.componentInstance.refresh();
+    fixture.detectChanges();
+    try {
+      const buttons = Array.from(claudeSection(fixture).querySelectorAll<HTMLButtonElement>('[aria-label^="Move "]'));
+      expect(buttons).toHaveLength(4);
+      for (const button of buttons) {
+        expect(button.disabled).toBe(true);
+        button.click();
+      }
+      expect(ipc.setPriorityOrder).not.toHaveBeenCalled();
+    } finally {
+      finishRefresh({ profiles: [account()], pools });
+      await refresh;
+      fixture.destroy();
+    }
   });
 
   it('surfaces a failed change as an error, not silently', async () => {

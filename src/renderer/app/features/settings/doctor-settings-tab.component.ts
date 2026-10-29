@@ -1,3 +1,5 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -49,7 +51,7 @@ function isDoctorSection(value: string | null): value is DoctorSectionId {
 @Component({
   selector: 'app-doctor-settings-tab',
   standalone: true,
-  imports: [CliHealthSettingsTabComponent, StorageUsageCardComponent, LeftoverWorktreesCardComponent],
+  imports: [AioTooltipDirective, CliHealthSettingsTabComponent, StorageUsageCardComponent, LeftoverWorktreesCardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="doctor-tab">
@@ -189,7 +191,7 @@ function isDoctorSection(value: string | null): value is DoctorSectionId {
                                     <button
                                       type="button"
                                       class="copy-btn"
-                                      title="Opens a terminal already running the sign-in command"
+                                      [appTooltip]="copy('accounts.signIn')"
                                       (click)="signIn(diagnosis.provider)"
                                       [disabled]="signingInProvider() !== null"
                                     >
@@ -297,10 +299,11 @@ function isDoctorSection(value: string | null): value is DoctorSectionId {
                         <p>{{ diag.message }}</p>
                         @if (diag.filePath) { <code>{{ diag.filePath }}</code> }
                         @if (diag.code === 'instruction-trust' && diag.sha256 && diag.filePath && diag.scanSeverity !== 'critical') {
+                          <p>{{ copy('settingsHints.pinTrust') }}</p>
                           <button
                             type="button"
                             class="btn btn-secondary"
-                            title="Pin this file at its current content hash; it re-flags if it changes again"
+                            [appTooltip]="copy('settingsHints.pinTrust')"
                             (click)="approveTrust(diag.filePath, diag.sha256)"
                             [disabled]="approvingTrust()"
                           >Approve</button>
@@ -345,6 +348,7 @@ function isDoctorSection(value: string | null): value is DoctorSectionId {
   styleUrl: './doctor-settings-tab.component.scss',
 })
 export class DoctorSettingsTabComponent implements OnInit {
+  protected readonly copy = copyFor;
   protected readonly store = inject(DoctorStore);
   private readonly settings = inject(SettingsStore);
 

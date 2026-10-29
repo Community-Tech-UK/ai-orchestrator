@@ -19,10 +19,12 @@ import {
 } from '@angular/core';
 import { BUILTIN_AGENTS } from '../../../../shared/types/agent.types';
 import type { AgentProfile } from '../../../../shared/types/agent.types';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 @Component({
   selector: 'app-agent-selector',
   standalone: true,
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="agent-selector">
@@ -31,7 +33,7 @@ import type { AgentProfile } from '../../../../shared/types/agent.types';
         class="selected-agent"
         [style.border-color]="selectedAgent().color"
         (click)="toggleDropdown()"
-        [title]="'Mode: ' + selectedAgent().name"
+        [appTooltip]="'Mode: ' + selectedAgent().name"
       >
         <span class="agent-icon" [style.color]="selectedAgent().color">
           @switch (selectedAgent().icon) {

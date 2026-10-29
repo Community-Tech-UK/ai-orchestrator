@@ -1,7 +1,6 @@
 /**
  * Instance List Component - Project-grouped session rail
  */
-
 import { NgTemplateOutlet } from '@angular/common';
 import {
   ChangeDetectionStrategy,
@@ -78,8 +77,8 @@ import {
 } from './instance-list-preferences';
 import { getSystemFileManagerLabel } from '../instance-detail/output-stream.utils';
 import { computeProjectMenuPosition, type ProjectMenuPosition } from './project-menu-position';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
-
 @Component({
   selector: 'app-instance-list',
   standalone: true,
@@ -89,6 +88,7 @@ import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive'
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class InstanceListComponent implements OnDestroy {
+  protected readonly copy = copyFor;
   private host = inject(ElementRef<HTMLElement>);
   private store = inject(InstanceStore);
   private terminateConfirm = inject(TerminateConfirmStore);

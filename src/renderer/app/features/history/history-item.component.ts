@@ -100,7 +100,14 @@ import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive'
             }
           </div>
 
-          <div class="working-dir" title="{{ entry().workingDirectory }}">
+          <div
+            class="working-dir"
+            tabindex="0"
+            [appTooltip]="entry().workingDirectory"
+            [attr.aria-label]="entry().workingDirectory"
+            (keydown.enter)="$event.stopPropagation()"
+            (keydown.space)="$event.stopPropagation()"
+          >
             {{ shortenPath(entry().workingDirectory) }}
           </div>
 

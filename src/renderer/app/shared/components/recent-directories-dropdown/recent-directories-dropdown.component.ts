@@ -23,12 +23,13 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RecentDirectoriesIpcService } from '../../../core/services/ipc/recent-directories-ipc.service';
+import { AioTooltipDirective } from '../../tooltip/aio-tooltip.directive';
 import type { RecentDirectoryEntry } from '../../../../../shared/types/recent-directories.types';
 
 @Component({
   selector: 'app-recent-directories-dropdown',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     '[class.dropdown-open]': 'isOpen()',
@@ -39,7 +40,7 @@ import type { RecentDirectoryEntry } from '../../../../../shared/types/recent-di
       <button
         class="trigger-btn"
         [class.has-value]="currentPath()"
-        [title]="currentPath() || 'Click to select a working folder'"
+        [appTooltip]="currentPath() || 'Click to select a working folder'"
         (click)="toggleDropdown()"
         (keydown.arrowdown)="onTriggerArrowDown($any($event))"
       >
@@ -73,7 +74,7 @@ import type { RecentDirectoryEntry } from '../../../../../shared/types/recent-di
                   class="menu-item"
                   [class.selected]="dir.path === currentPath()"
                   [class.focused]="focusedIndex() === i"
-                  [title]="dir.path"
+                  [appTooltip]="dir.path"
                   role="option"
                   [attr.aria-selected]="dir.path === currentPath()"
                   (click)="selectDirectory(dir)"
@@ -103,7 +104,7 @@ import type { RecentDirectoryEntry } from '../../../../../shared/types/recent-di
                   class="menu-item"
                   [class.selected]="dir.path === currentPath()"
                   [class.focused]="focusedIndex() === filteredPinnedDirectories().length + i"
-                  [title]="dir.path"
+                  [appTooltip]="dir.path"
                   role="option"
                   [attr.aria-selected]="dir.path === currentPath()"
                   (click)="selectDirectory(dir)"

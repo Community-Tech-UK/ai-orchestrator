@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
 import { queueRunSpendLabel } from './plan-queue-spend-label';
 import { ChangeDetectionStrategy, Component, input, output, signal } from '@angular/core';
 import type {
@@ -80,7 +81,7 @@ export function planQueueRoutingSummary(
 @Component({
   selector: 'app-plan-queue-run-list',
   standalone: true,
-  imports: [PlanQueueItemListComponent, PlanQueueRunControlsComponent, PlanQueueRoutingPanelComponent],
+  imports: [AioTooltipDirective, PlanQueueItemListComponent, PlanQueueRunControlsComponent, PlanQueueRoutingPanelComponent],
   templateUrl: './plan-queue-run-list.component.html',
   styleUrl: './plan-queue-run-list.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

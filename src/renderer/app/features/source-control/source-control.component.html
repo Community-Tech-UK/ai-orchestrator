@@ -17,7 +17,7 @@
         class="header-action"
         (click)="refresh()"
         [disabled]="store.isRefreshing()"
-        title="Refresh"
+        appTooltip="Refresh"
         aria-label="Refresh source control"
       >
         <span [class.spinning]="store.isRefreshing()">↻</span>
@@ -26,8 +26,7 @@
         type="button"
         class="header-close"
         (click)="closeRequested.emit()"
-        title="Close source control"
-        aria-label="Close source control"
+        appIconButton="Close source control"
       >×</button>
     </div>
 
@@ -72,16 +71,16 @@
                 role="button"
               >
                 <span class="repo-chevron">{{ store.isRepoExpanded(repo.absolutePath) ? '▾' : '▸' }}</span>
-                <span class="repo-name" [title]="repo.absolutePath">{{ repo.name }}</span>
+                <span class="repo-name" tabindex="0" appTooltipVariant="overflow" [appTooltip]="repo.absolutePath">{{ repo.name }}</span>
                 @if (repo.status) {
-                  <span class="repo-branch" [title]="branchTooltip(repo.status)">
+                  <span class="repo-branch" tabindex="0" [appTooltip]="branchTooltip(repo.status)">
                     {{ repo.status.branch }}{{ repo.status.hasChanges ? '*' : '' }}
                   </span>
                   @if (repo.status.ahead > 0) {
-                    <span class="repo-track repo-ahead" [title]="repo.status.ahead + ' commit(s) ahead of upstream'">↑{{ repo.status.ahead }}</span>
+                    <span class="repo-track repo-ahead" tabindex="0" [appTooltip]="repo.status.ahead + ' commit(s) ahead of upstream'">↑{{ repo.status.ahead }}</span>
                   }
                   @if (repo.status.behind > 0) {
-                    <span class="repo-track repo-behind" [title]="repo.status.behind + ' commit(s) behind upstream'">↓{{ repo.status.behind }}</span>
+                    <span class="repo-track repo-behind" tabindex="0" [appTooltip]="repo.status.behind + ' commit(s) behind upstream'">↓{{ repo.status.behind }}</span>
                   }
                 }
                 @if (changeCount(repo) > 0) {
@@ -127,6 +126,8 @@
                                   class="file-expand-chevron"
                                   [attr.aria-expanded]="store.isFileExpanded(repo.absolutePath, file.path, true)"
                                   [attr.aria-label]="store.isFileExpanded(repo.absolutePath, file.path, true) ? 'Collapse diff' : 'Expand diff inline'"
+                                  [appTooltip]="store.isFileExpanded(repo.absolutePath, file.path, true) ? 'Collapse diff' : 'Expand diff inline'"
+                                  [appTooltipShowWhenExpanded]="true"
                                   (click)="store.toggleFileExpansion(repo.absolutePath, file.path, true)"
                                 >{{ store.isFileExpanded(repo.absolutePath, file.path, true) ? '▾' : '▸' }}</button>
                                 <button
@@ -136,7 +137,7 @@
                                   draggable="true"
                                   (dragstart)="onFileDragStart($event, repo, file.path)"
                                   (click)="onFileRowClick($event, repo, file.path, { file: file, staged: true })"
-                                  [title]="file.path + ' — click to open diff · ⌘/⇧-click to multi-select · drag to attach'"
+                                  data-ui-hints-exempt="local-key" [appTooltip]="trackedFileHint(file.path)"
                                 >
                                   <app-file-icon [path]="file.path" />
                                   <span
@@ -151,7 +152,7 @@
                                   class="file-action file-action-discard"
                                   (click)="onDiscardFile(repo, file.path)"
                                   [disabled]="isWriting(repo.absolutePath)"
-                                  title="Discard changes (revert to HEAD)"
+                                  appTooltip="Discard changes (revert to HEAD)"
                                   [attr.aria-label]="'Discard ' + file.path"
                                 >⌫</button>
                                 <button
@@ -159,13 +160,13 @@
                                   class="file-action file-action-unstage"
                                   (click)="onUnstageFile(repo.absolutePath, file.path)"
                                   [disabled]="isWriting(repo.absolutePath)"
-                                  title="Unstage file (git restore --staged)"
+                                  appTooltip="Unstage file (git restore --staged)"
                                   [attr.aria-label]="'Unstage ' + file.path"
                                 >−</button>
                                 <span
                                   class="status-letter"
                                   [class]="'status-' + file.status"
-                                  [title]="statusLabel(file.status)"
+                                  tabindex="0" [appTooltip]="statusLabel(file.status)"
                                 >{{ statusLetter(file.status) }}</span>
                               </div>
                               @if (store.isFileExpanded(repo.absolutePath, file.path, true)) {
@@ -183,7 +184,7 @@
                               class="group-action"
                               (click)="onUnstageAll(repo)"
                               [disabled]="isWriting(repo.absolutePath)"
-                              title="Unstage all"
+                              appTooltip="Unstage all"
                             >Unstage all</button>
                           </div>
                         }
@@ -216,6 +217,8 @@
                                     class="file-expand-chevron"
                                     [attr.aria-expanded]="store.isFileExpanded(repo.absolutePath, file.path, false)"
                                     [attr.aria-label]="store.isFileExpanded(repo.absolutePath, file.path, false) ? 'Collapse diff' : 'Expand diff inline'"
+                                  [appTooltip]="store.isFileExpanded(repo.absolutePath, file.path, false) ? 'Collapse diff' : 'Expand diff inline'"
+                                  [appTooltipShowWhenExpanded]="true"
                                     (click)="store.toggleFileExpansion(repo.absolutePath, file.path, false)"
                                   >{{ store.isFileExpanded(repo.absolutePath, file.path, false) ? '▾' : '▸' }}</button>
                                 }
@@ -226,9 +229,7 @@
                                   draggable="true"
                                   (dragstart)="onFileDragStart($event, repo, file.path)"
                                   (click)="onFileRowClick($event, repo, file.path, file.status === 'untracked' ? null : { file: file, staged: false })"
-                                  [title]="file.status === 'untracked'
-                                    ? file.path + ' — ⌘/⇧-click to multi-select · drag to attach'
-                                    : file.path + ' — click to open diff · ⌘/⇧-click to multi-select · drag to attach'"
+                                  data-ui-hints-exempt="local-key" [appTooltip]="file.status === 'untracked' ? untrackedFileHint(file.path) : trackedFileHint(file.path)"
                                 >
                                   <app-file-icon [path]="file.path" />
                                   <span
@@ -244,7 +245,7 @@
                                     class="file-action file-action-discard"
                                     (click)="onDiscardUntracked(repo, file.path)"
                                     [disabled]="isWriting(repo.absolutePath)"
-                                    title="Move to Trash (recoverable)"
+                                    appTooltip="Move to Trash (recoverable)"
                                     [attr.aria-label]="'Trash ' + file.path"
                                   >⌫</button>
                                 } @else {
@@ -253,7 +254,7 @@
                                     class="file-action file-action-discard"
                                     (click)="onDiscardFile(repo, file.path)"
                                     [disabled]="isWriting(repo.absolutePath)"
-                                    title="Discard changes (revert to HEAD)"
+                                    appTooltip="Discard changes (revert to HEAD)"
                                     [attr.aria-label]="'Discard ' + file.path"
                                   >⌫</button>
                                 }
@@ -262,13 +263,13 @@
                                   class="file-action file-action-stage"
                                   (click)="onStageFile(repo.absolutePath, file.path)"
                                   [disabled]="isWriting(repo.absolutePath)"
-                                  title="Stage file (git add)"
+                                  appTooltip="Stage file (git add)"
                                   [attr.aria-label]="'Stage ' + file.path"
                                 >+</button>
                                 <span
                                   class="status-letter"
                                   [class]="'status-' + file.status"
-                                  [title]="statusLabel(file.status)"
+                                  tabindex="0" [appTooltip]="statusLabel(file.status)"
                                 >{{ statusLetter(file.status) }}</span>
                               </div>
                               @if (file.status !== 'untracked' && store.isFileExpanded(repo.absolutePath, file.path, false)) {
@@ -286,7 +287,7 @@
                               class="group-action"
                               (click)="onStageAllChanges(repo)"
                               [disabled]="isWriting(repo.absolutePath)"
-                              title="Stage all changes"
+                              appTooltip="Stage all changes"
                             >Stage all</button>
                           </div>
                         }

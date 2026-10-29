@@ -26,6 +26,7 @@ import { InstructionInspectorComponent } from './instruction-inspector.component
 import { SettingsSectionTabsComponent } from './ui/settings-section-tabs.component';
 import type { SettingsSectionTab } from './settings-navigation';
 import { SaveStateBannerComponent, type SaveState } from './ui/save-state-banner.component';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import {
   mergeOutputStyleOptions,
   type BuiltInOutputStyleDto,
@@ -112,7 +113,7 @@ interface FileReadTextResponse {
 @Component({
   selector: 'app-ecosystem-settings-tab',
   standalone: true,
-  imports: [InstructionInspectorComponent, SettingsSectionTabsComponent, SaveStateBannerComponent],
+  imports: [InstructionInspectorComponent, SettingsSectionTabsComponent, SaveStateBannerComponent, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './ecosystem-settings-tab.component.html',
   styleUrl: './ecosystem-settings-tab.component.scss',

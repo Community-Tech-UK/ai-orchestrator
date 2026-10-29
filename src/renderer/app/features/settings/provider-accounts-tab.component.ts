@@ -119,6 +119,10 @@ const SIGN_IN_POLL_LIMIT = 60;
     .account-actions, .add-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
     .account-actions .btn { padding: 4px 10px; }
     .account-actions .btn.icon { min-width: 30px; padding: 4px 6px; }
+    .account-actions .btn.icon.aio-reason-disabled {
+      opacity: 0.5; cursor: not-allowed;
+      background: var(--bg-tertiary); color: var(--text-primary); border-color: var(--border-color);
+    }
     .sign-in-rows { display: flex; flex-direction: column; gap: 8px; }
     .sign-in-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
     .action-divider { width: 1px; align-self: stretch; margin: 0 4px; background: var(--border-color); }

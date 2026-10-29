@@ -10,14 +10,14 @@ const specDirectory = dirname(fileURLToPath(import.meta.url));
 const componentSource = readFileSync(resolve(specDirectory, './page-header.component.ts'), 'utf8');
 
 interface PageHeaderInputOverrides {
-  title: () => string;
+  heading: () => string;
   subtitle: () => string | null;
   backRoute: () => string | null;
 }
 
 function setInputs(component: PageHeaderComponent): void {
   const target = component as unknown as PageHeaderInputOverrides;
-  target.title = () => 'Automations';
+  target.heading = () => 'Automations';
   target.subtitle = () => 'Scheduled work';
   target.backRoute = () => '/';
 }

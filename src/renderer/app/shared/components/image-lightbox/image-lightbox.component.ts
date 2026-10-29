@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../tooltip/aio-tooltip.directive';
 /**
  * Image Lightbox Component
  *
@@ -41,6 +42,7 @@ export interface LightboxItem {
 @Component({
   selector: 'app-image-lightbox',
   standalone: true,
+  imports: [AioTooltipDirective],
   template: `
     @if (current(); as item) {
       <div
@@ -56,12 +58,12 @@ export interface LightboxItem {
           #dialog
           class="lightbox-content"
           (click)="$event.stopPropagation()"
-          (keydown)="$event.stopPropagation()"
+          (keydown)="$event.stopPropagation(); onKeydown($event)"
           tabindex="-1"
         >
           <div class="lightbox-header">
-            <span class="lightbox-title" [title]="item.name">{{ item.name }}</span>
-            <button class="lightbox-close" (click)="close()" title="Close preview" aria-label="Close preview">×</button>
+            <span class="lightbox-title" tabindex="0" appTooltipVariant="overflow" [appTooltip]="item.name">{{ item.name }}</span>
+            <button class="lightbox-close" (click)="close()" appTooltip="Close preview" aria-label="Close preview">×</button>
           </div>
 
           <div class="lightbox-body">
@@ -69,7 +71,7 @@ export interface LightboxItem {
               <button
                 class="lightbox-nav prev"
                 (click)="prev(); $event.stopPropagation()"
-                title="Previous"
+                appTooltip="Previous"
                 aria-label="Previous attachment"
               >
                 ‹
@@ -97,7 +99,7 @@ export interface LightboxItem {
               <button
                 class="lightbox-nav next"
                 (click)="next(); $event.stopPropagation()"
-                title="Next"
+                appTooltip="Next"
                 aria-label="Next attachment"
               >
                 ›
@@ -120,7 +122,7 @@ export interface LightboxItem {
       display: flex;
       align-items: center;
       justify-content: center;
-      z-index: 10000;
+      z-index: var(--z-modal, 400);
       padding: 24px;
       isolation: isolate;
       animation: lightbox-fade-in 0.15s ease-out;

@@ -54,12 +54,13 @@
                   }
                 </span>
               </div>
-              <label class="toggle" [attr.title]="isOnlyEnabled(account) ? 'At least one account must stay enabled' : null">
+              <label class="toggle">
                 <input
                   type="checkbox"
                   [checked]="account.enabled"
                   (change)="setEnabled(account, $any($event.target).checked)"
-                  [disabled]="busy() || isOnlyEnabled(account)"
+                  [disabled]="busy()"
+                  [appTooltipDisabledReason]="isOnlyEnabled(account) ? 'At least one account must stay enabled' : null"
                 />
                 Enabled
               </label>
@@ -143,10 +144,12 @@
                 }
                 <span class="action-divider" aria-hidden="true"></span>
                 @if (count > 1) {
-                  <button type="button" class="btn btn-secondary icon" (click)="move(account, -1)" [disabled]="busy() || first"
-                    [attr.aria-label]="'Move ' + account.label + ' up'" title="Move up">↑</button>
-                  <button type="button" class="btn btn-secondary icon" (click)="move(account, 1)" [disabled]="busy() || last"
-                    [attr.aria-label]="'Move ' + account.label + ' down'" title="Move down">↓</button>
+                  <button type="button" class="btn btn-secondary icon" (click)="move(account, -1)" [disabled]="busy()"
+                    [appTooltipDisabledReason]="first ? 'Already first in this list' : null"
+                    [attr.aria-label]="'Move ' + account.label + ' up'" appTooltip="Move up">↑</button>
+                  <button type="button" class="btn btn-secondary icon" (click)="move(account, 1)" [disabled]="busy()"
+                    [appTooltipDisabledReason]="last ? 'Already last in this list' : null"
+                    [attr.aria-label]="'Move ' + account.label + ' down'" appTooltip="Move down">↓</button>
                 }
                 <button type="button" class="btn btn-secondary" (click)="rename(account)" [disabled]="busy()">Rename</button>
                 @if (!account.isLegacy) {
@@ -331,7 +334,7 @@
 
   <app-prompt-modal
     [isOpen]="renameModalOpen()"
-    title="Rename account"
+    heading="Rename account"
     [initialValue]="renameInitial()"
     placeholder="Account name"
     confirmLabel="Rename"

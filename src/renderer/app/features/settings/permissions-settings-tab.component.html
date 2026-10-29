@@ -155,7 +155,7 @@
           <app-task-preflight-card
             [report]="defaultWorkspacePreflight()"
             [loading]="presetLoading()"
-            title="Default workspace check"
+            heading="Default workspace check"
             subtitle="A preview of what your current setting will allow or block when an agent works in your default folder."
             emptyMessage="Set a default working directory to preview what will be allowed or blocked."
           />
@@ -165,7 +165,7 @@
           <app-task-preflight-card
             [report]="defaultWorkspacePreflight()"
             [loading]="presetLoading()"
-            title="Default workspace check"
+            heading="Default workspace check"
             subtitle="A preview of what your current setting will allow or block when an agent works in your default folder."
             emptyMessage="Checking the default workspace..."
           />
@@ -238,7 +238,7 @@
                     class="btn-approve"
                     (click)="approvePattern(pattern.id)"
                     [disabled]="loading()"
-                    title="Turn this into an automatic rule"
+                    appTooltip="Turn this into an automatic rule"
                   >
                     Approve
                   </button>
@@ -246,7 +246,7 @@
                     class="btn-reject"
                     (click)="rejectPattern(pattern.id)"
                     [disabled]="loading()"
-                    title="Dismiss this suggestion"
+                    appTooltip="Dismiss this suggestion"
                   >
                     Dismiss
                   </button>

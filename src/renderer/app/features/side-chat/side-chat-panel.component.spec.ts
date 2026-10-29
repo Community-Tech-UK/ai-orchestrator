@@ -1,5 +1,8 @@
 import { Component, input, output, signal, ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { KeybindingService } from '../../core/services/keybinding.service';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -166,11 +169,12 @@ describe('SideChatPanelComponent', () => {
           useValue: { showThinking: signal(false), thinkingDefaultExpanded: signal(false), showToolMessages: signal(false) },
         },
         { provide: ViewLayoutService, useValue: { sideChatWidth: 360, setSideChatWidth: vi.fn() } },
+        { provide: KeybindingService, useValue: { formatBindingByAction: () => 'Ctrl+Alt+S', ariaShortcutsByAction: () => 'Control+Alt+S' } },
       ],
     })
       .overrideComponent(SideChatPanelComponent, {
         set: {
-          imports: [OutputStreamStub, PickerStub, ActivityStub, UserActionStub, BrowserApprovalStub],
+          imports: [OutputStreamStub, PickerStub, ActivityStub, UserActionStub, BrowserApprovalStub, AioTooltipDirective],
           template: PANEL_TEMPLATE,
           templateUrl: undefined,
           styles: [''],
@@ -344,6 +348,56 @@ describe('SideChatPanelComponent', () => {
     el().querySelector<HTMLButtonElement>('.archive-action')!.click();
     await settle();
     expect(TestBed.inject(ChatStore).archive).toHaveBeenCalledWith('s1');
+  });
+
+  it('shows the archive and stop consequences before either action is pressed', async () => {
+    lists.set('thread-a', [summary('s1', PARENT_A, 0, 0)]);
+    setDetail('s1', []);
+    vi.mocked(TestBed.inject(InstanceStore).getInstance).mockReturnValue({
+      id: 'side-runtime', displayName: 'Example sidechat', createdAt: 1, historyThreadId: 'example',
+      parentId: null, childrenIds: [], agentId: 'build', agentMode: 'build', provider: 'claude', status: 'busy',
+      contextUsage: { used: 0, total: 200000, percentage: 0 }, lastActivity: 1,
+      providerSessionId: 'example-provider-session', sessionId: 'example-session', restartEpoch: 0,
+      workingDirectory: '/example', yoloMode: false, launchMode: 'interactive', outputBuffer: [],
+    });
+    details.update(map => new Map(map).set('s1', {
+      ...map.get('s1')!,
+      chat: { ...map.get('s1')!.chat, currentInstanceId: 'side-runtime' },
+    }));
+    fixture.componentRef.setInput('parent', PARENT_A);
+    await settle();
+    expect(el().querySelector('.archive-action')?.textContent).toContain('Archive this sidechat (keeps history, removes it from the list)');
+    const stop = el().querySelector<HTMLButtonElement>('.composer-button.stop');
+    expect(stop?.textContent).toContain("Stop this sidechat's answer (the main session is not affected)");
+    const archive = el().querySelector<HTMLButtonElement>('.archive-action')!;
+    for (const [button, name, consequence] of [
+      [archive, 'Archive this sidechat', 'Archive this sidechat (keeps history, removes it from the list)'],
+      [stop!, "Stop this sidechat's answer", "Stop this sidechat's answer (the main session is not affected)"],
+    ] as const) {
+      expect(button.getAttribute('aria-label')).toBe(name);
+      const descriptionId = button.getAttribute('aria-describedby');
+      expect(descriptionId).toBeTruthy();
+      expect(el().querySelector(`[id="${descriptionId}"]`)?.textContent).toBe(consequence);
+    }
+    expect(el().querySelectorAll('[title]')).toHaveLength(0);
+    stop!.click();
+    expect(TestBed.inject(InstanceStore).interruptInstance).toHaveBeenCalledExactlyOnceWith('side-runtime');
+  });
+
+  it('opens the close reassurance and live shortcut on keyboard focus', async () => {
+    await settle();
+    const debug = fixture.debugElement.query(By.css('.header-close'));
+    const directive = debug.injector.get(AioTooltipDirective, null);
+    expect(directive?.appTooltip()).toBe('Close panel. Running sidechats keep going.');
+    expect(directive?.appTooltipShortcut()).toBe('toggle-side-chat');
+    const button: HTMLButtonElement = debug.nativeElement;
+    expect(button.getAttribute('aria-label')).toBe('Close sidechat panel; running sidechats keep going');
+    const matches = button.matches.bind(button);
+    vi.spyOn(button, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
+    button.dispatchEvent(new FocusEvent('focus'));
+    fixture.detectChanges();
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('Running sidechats keep going.');
+    expect(document.querySelector('[role="tooltip"] kbd')?.textContent).toBe('Ctrl+Alt+S');
   });
 
   it('offers an explicit stale-context retry when the parent cannot be read', async () => {

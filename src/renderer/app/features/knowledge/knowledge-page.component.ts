@@ -9,6 +9,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { KnowledgeStore } from '../../core/state/knowledge.store';
 import { SettingsStore } from '../../core/state/settings.store';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 import { WakeManagementComponent } from './wake-management.component';
 import { ConversationImportComponent } from './conversation-import.component';
 import type {
@@ -30,7 +31,7 @@ interface FolderPickerApi {
 @Component({
   selector: 'app-knowledge-page',
   standalone: true,
-  imports: [CommonModule, FormsModule, WakeManagementComponent, ConversationImportComponent],
+  imports: [CommonModule, FormsModule, WakeManagementComponent, ConversationImportComponent, AppIconButtonDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page">
@@ -44,7 +45,7 @@ interface FolderPickerApi {
       @if (store.error(); as err) {
         <div class="error-banner">
           <span>{{ err }}</span>
-          <button class="btn-dismiss" type="button" (click)="store.clearError()">x</button>
+          <button class="btn-dismiss" type="button" appIconButton="Dismiss error" (click)="store.clearError()">x</button>
         </div>
       }
 

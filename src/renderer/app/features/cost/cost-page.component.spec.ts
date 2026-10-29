@@ -11,12 +11,25 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import {
+  Component,
+  input,
   ɵresolveComponentResources as resolveComponentResources,
 } from '@angular/core';
 import { RouterTestingModule } from '@angular/router/testing';
+import { CommonModule } from '@angular/common';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { CostPageComponent, type CostSummaryData, type CostEntry } from './cost-page.component';
 import { CostIpcService } from '../../core/services/ipc/cost-ipc.service';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import type { EChartsOption } from 'echarts';
+
+@Component({ selector: 'app-echarts-themed', template: '' })
+class CostChartStubComponent {
+  readonly options = input<EChartsOption | null>(null);
+  readonly loading = input(false);
+  readonly height = input('300px');
+  readonly emptyMessage = input('No data available');
+}
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
 await resolveComponentResources((url) => {
@@ -155,6 +168,8 @@ describe('CostPageComponent — computed signals', () => {
     expect(component.hasEstimatedEntries()).toBe(true);
     expect(component.totalEstimatedCost()).toBeCloseTo(0.002, 6);
   });
+
+
 
   it('modelRows carries hasEstimated per model from the summary', () => {
     component.summary.set({
@@ -376,4 +391,40 @@ describe('CostPageComponent — computed signals', () => {
     expect(fixture.nativeElement.querySelector('[data-testid="historical-cost-footnote"]')).toBeNull();
   });
 
+});
+
+
+describe('Cost estimate focus hints', () => {
+  it('adds estimate-description tab stops only to costs that include estimates', async () => {
+    TestBed.resetTestingModule();
+    TestBed.overrideComponent(CostPageComponent, {
+      set: {
+        imports: [CommonModule, CostChartStubComponent, AioTooltipDirective],
+        template: readFileSync(resolve(specDirectory, 'cost-page.component.html'), 'utf8'),
+        templateUrl: undefined,
+        styles: [],
+        styleUrl: undefined,
+        styleUrls: [],
+      },
+    });
+    await TestBed.configureTestingModule({
+      imports: [CostPageComponent, RouterTestingModule],
+      providers: [{ provide: CostIpcService, useValue: buildMockIpc() }],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(CostPageComponent);
+    const component = fixture.componentInstance;
+    component.summary.set(MOCK_SUMMARY);
+    fixture.detectChanges();
+    const estimateHosts = () => fixture.nativeElement.querySelectorAll('.metric-value[tabindex="0"], td.num-col.mono[tabindex="0"]');
+    expect(estimateHosts()).toHaveLength(0);
+    component.summary.set({
+      ...MOCK_SUMMARY,
+      hasEstimatedEntries: true,
+      totalEstimatedCost: 0.002,
+      byModel: { ...MOCK_SUMMARY.byModel, 'claude-3-5-sonnet-20241022': { ...MOCK_SUMMARY.byModel['claude-3-5-sonnet-20241022'], hasEstimated: true } },
+      bySession: { ...MOCK_SUMMARY.bySession, 'sess-aaa': { ...MOCK_SUMMARY.bySession['sess-aaa'], hasEstimated: true } },
+    });
+    fixture.detectChanges();
+    expect(estimateHosts()).toHaveLength(3);
+  });
 });

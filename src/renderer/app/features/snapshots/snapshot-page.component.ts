@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 /**
  * Snapshot Page
  * File snapshot browser with diff viewing and revert operations.
@@ -57,7 +58,7 @@ interface SnapshotDiff {
 @Component({
   selector: 'app-snapshot-page',
   standalone: true,
-  imports: [CommonModule, DiffViewerComponent, EmptyStateComponent, SkeletonComponent],
+  imports: [CommonModule, DiffViewerComponent, EmptyStateComponent, SkeletonComponent, AioTooltipDirective],
   templateUrl: './snapshot-page.component.html',
   styleUrl: './snapshot-page.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

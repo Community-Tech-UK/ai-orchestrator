@@ -6,6 +6,8 @@
  * parent tab; this component only owns transient drafting UI state (which
  * config panel is open, the in-progress form values) and emits typed intents.
  */
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import { ChangeDetectionStrategy, Component, computed, effect, input, output, signal } from '@angular/core';
 import type { RemoteNodeRosterEntry } from '../../../../shared/types/worker-node.types';
 import type { BrowserAutomationConfigInput } from '../../core/services/ipc/remote-node-ipc.service';
@@ -50,12 +52,13 @@ export type RemoteNodeDetailAction =
 @Component({
   standalone: true,
   selector: 'app-remote-node-detail',
-  imports: [RemoteNodeAndroidConfigComponent, RemoteNodeRepairPanelComponent],
+  imports: [AioTooltipDirective, RemoteNodeAndroidConfigComponent, RemoteNodeRepairPanelComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './remote-node-detail.component.html',
   styleUrl: './remote-node-detail.component.scss',
 })
 export class RemoteNodeDetailComponent {
+  protected readonly copy = copyFor;
   readonly node = input.required<RemoteNodeRosterEntry>();
   /** Whether a browser/Android-automation apply or a login launch is in flight (parent-owned). */
   readonly baBusy = input(false);

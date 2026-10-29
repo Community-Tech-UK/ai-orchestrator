@@ -37,6 +37,9 @@ import {
 } from '@angular/core';
 import type { DisplayItem } from './display-item.types';
 import { runRestoreFrame } from './restore-frame';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
+import { shouldOpenOnFocus } from '../../shared/tooltip/tooltip-policy';
 import type { UserPromptRef } from '../../../../shared/types/prompt-index.types';
 import {
   MIN_JUMP_TARGETS,
@@ -69,10 +72,12 @@ const HOVER_SHOW_DELAY_MS = 120;
 const JUMP_SCROLL_MARGIN = 12;
 const PREVIEW_APPROX_HEIGHT = 132;
 const MAX_PREVIEW_FILE_CHIPS = 2;
+let nextPreviewId = 0;
 
 @Component({
   selector: 'app-transcript-jump-rail',
   standalone: true,
+  imports: [AioTooltipDirective, AppIconButtonDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { '[class.rail-visible]': 'visible()' },
   template: `
@@ -82,22 +87,29 @@ const MAX_PREVIEW_FILE_CHIPS = 2;
           <button
             class="older-cap"
             (click)="loadOlder.emit()"
-            title="Load earlier messages"
-            aria-label="Load earlier messages"
+            appIconButton="Load earlier messages"
           >⋯</button>
         }
         @for (marker of markers(); track marker.tick.messageId; let i = $index) {
           <button
             class="tick"
             [class.active]="i === activeIndex()"
+            [class.preview-focused]="focusedMessageId() === marker.tick.messageId"
             [style.top.px]="marker.top"
             (mouseenter)="onTickEnter(i)"
+            (focus)="onTickFocus(marker.tick.messageId, $event)"
+            (blur)="onTickBlur(marker.tick.messageId)"
+            (pointerdown)="onTickPointerDown()"
+            (keydown.escape)="dismissPreview()"
             (click)="jumpTo(i)"
             [attr.aria-label]="'Jump to: ' + marker.tick.promptExcerpt"
+            [appTooltip]="'Jump to: ' + marker.tick.promptExcerpt"
+            [appTooltipDisabled]="previewCovers(marker.tick.messageId)"
+            [attr.aria-describedby]="previewCovers(marker.tick.messageId) ? previewId : null"
           ></button>
         }
         @if (hoverPreview(); as preview) {
-          <div class="preview" [style.top.px]="preview.cardTop">
+          <div class="preview" [style.top.px]="preview.cardTop" role="tooltip" [id]="previewId">
             <div class="preview-prompt">{{ preview.tick.promptExcerpt }}</div>
             @if (preview.tick.target?.replyExcerpt) {
               <div class="preview-reply">{{ preview.tick.target?.replyExcerpt }}</div>
@@ -180,7 +192,8 @@ const MAX_PREVIEW_FILE_CHIPS = 2;
       background: var(--text-primary);
     }
 
-    .tick:hover::after {
+    .tick:hover::after,
+    .tick.preview-focused::after {
       width: 18px;
       background: var(--text-primary);
     }
@@ -302,7 +315,9 @@ export class TranscriptJumpRailComponent {
   /** One tick per session prompt; carries the loaded target when in-window. */
   protected ticks = computed(() => mergeSessionTicks(this.sessionPrompts(), this.targets()));
   private geometry = signal<RailGeometry>(EMPTY_GEOMETRY);
-  protected hoveredIndex = signal(-1);
+  private readonly hoveredMessageId = signal<string | null>(null);
+  protected readonly focusedMessageId = signal<string | null>(null);
+  protected readonly previewId = `transcript-preview-${++nextPreviewId}`;
   /** Latest stub-tick click; an older click still loading yields to it. */
   private latestStubJump: RailTick | null = null;
   /** Stub tick whose history reveal finished — the effect below lands it. */
@@ -336,9 +351,9 @@ export class TranscriptJumpRailComponent {
   });
 
   protected hoverPreview = computed(() => {
-    const index = this.hoveredIndex();
-    const marker = this.markers()[index];
-    if (index < 0 || !marker) return null;
+    const id = this.focusedMessageId() ?? this.hoveredMessageId();
+    const marker = this.markers().find(marker => marker.tick.messageId === id);
+    if (!marker) return null;
     const railHeight = this.geometry().railHeight;
     const cardTop = Math.max(0, Math.min(marker.top - 12, railHeight - PREVIEW_APPROX_HEIGHT));
     const files = marker.tick.target?.files ?? [];
@@ -354,6 +369,12 @@ export class TranscriptJumpRailComponent {
   private hoverTimer: number | null = null;
 
   constructor() {
+    effect(() => {
+      const ticks = this.ticks();
+      const visible = this.visible();
+      if (!visible || !ticks.some(tick => tick.messageId === this.focusedMessageId())) this.focusedMessageId.set(null);
+      if (!visible || !ticks.some(tick => tick.messageId === this.hoveredMessageId())) this.hoveredMessageId.set(null);
+    });
     // Re-measure whenever the rendered items or the viewport element change.
     // visibleItems() upstream is reference-stabilised, so this fires only on
     // real content changes (including streaming growth, which replaces the
@@ -461,15 +482,41 @@ export class TranscriptJumpRailComponent {
 
   protected onTickEnter(index: number): void {
     this.clearHoverTimer();
+    if (this.focusedMessageId()) return;
+    const id = this.ticks()[index]?.messageId;
+    if (!id) return;
     this.hoverTimer = window.setTimeout(() => {
-      this.hoveredIndex.set(index);
+      if (!this.focusedMessageId() && this.ticks().some(tick => tick.messageId === id)) this.hoveredMessageId.set(id);
       this.hoverTimer = null;
     }, HOVER_SHOW_DELAY_MS);
   }
 
   protected onRailLeave(): void {
     this.clearHoverTimer();
-    this.hoveredIndex.set(-1);
+    this.hoveredMessageId.set(null);
+  }
+
+  protected onTickFocus(messageId: string, event: FocusEvent): void {
+    if (!shouldOpenOnFocus(event.currentTarget as HTMLElement)) return;
+    this.clearHoverTimer();
+    this.hoveredMessageId.set(null);
+    this.focusedMessageId.set(messageId);
+  }
+
+  protected onTickBlur(messageId: string): void {
+    if (this.focusedMessageId() === messageId) this.dismissPreview();
+  }
+
+  protected onTickPointerDown(): void { this.dismissPreview(); }
+
+  protected dismissPreview(): void {
+    this.clearHoverTimer();
+    this.focusedMessageId.set(null);
+    this.hoveredMessageId.set(null);
+  }
+
+  protected previewCovers(messageId: string): boolean {
+    return this.hoverPreview()?.tick.messageId === messageId;
   }
 
   private clearHoverTimer(): void {

@@ -10,18 +10,19 @@ import {
 } from '@angular/core';
 import { SlicePipe } from '@angular/common';
 import type { ContextSection, QueryType } from '../../../../../shared/types/rlm.types';
+import { AppIconButtonDirective } from '../../../shared/tooltip/icon-button.directive';
 
 @Component({
   selector: 'app-context-section-detail',
   standalone: true,
-  imports: [SlicePipe],
+  imports: [SlicePipe, AppIconButtonDirective],
   template: `
     <div class="section-detail">
       <div class="detail-header">
         <span class="detail-type" [class]="'type-' + section().type">
           {{ section().type }}
         </span>
-        <button class="close-btn" (click)="closePanel.emit()">✕</button>
+        <button class="close-btn" appIconButton="Close section details" (click)="closePanel.emit()">✕</button>
       </div>
 
       <div class="detail-body">

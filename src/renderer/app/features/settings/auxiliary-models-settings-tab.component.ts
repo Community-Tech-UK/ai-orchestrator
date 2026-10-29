@@ -14,6 +14,8 @@
  * from the previous single-page layout — this is presentation only.
  */
 
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -94,12 +96,13 @@ interface SlotTestState {
 @Component({
   selector: 'app-auxiliary-models-settings-tab',
   standalone: true,
-  imports: [FormsModule, SettingsSectionTabsComponent],
+  imports: [AioTooltipDirective, FormsModule, SettingsSectionTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './auxiliary-models-settings-tab.component.html',
   styleUrl: './auxiliary-models-settings-tab.component.scss',
 })
 export class AuxiliaryModelsSettingsTabComponent implements OnInit {
+  protected readonly copy = copyFor;
   private readonly ipc = inject(AuxiliaryLlmIpcService);
   protected readonly settingsStore = inject(SettingsStore);
 

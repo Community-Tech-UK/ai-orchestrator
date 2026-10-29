@@ -49,4 +49,16 @@ describe('UI hint lint parity', () => {
     const outside = await eslint.lintText('<button title="Close">Close</button>', { filePath: 'scripts/probe.html' });
     expect(outside[0]?.messages.some(message => message.ruleId?.startsWith('ui-hints/'))).toBe(false);
   });
+  it.each([
+    ['<button appTooltip="Save (⌘S)">Save</button>', 'ui-hints/no-hardcoded-shortcut'],
+    ['<button title="x">Action</button>', 'ui-hints/no-native-title'],
+    ['<button type="button"><svg></svg></button>', 'ui-hints/icon-control-needs-name-and-tooltip'],
+    ['<div title="x">Text</div>', 'ui-hints/no-native-title'],
+  ])('the enabled real config rejects %s at its source line', async (html, ruleId) => {
+    const eslint = new ESLint({ overrideConfigFile: 'eslint.config.js' });
+    const results = await eslint.lintText('\n' + html, { filePath: 'src/renderer/app/tooltip-switch-on-probe.html' });
+    expect(results.flatMap(result => result.messages).filter(message => message.ruleId === ruleId))
+      .toEqual([expect.objectContaining({ line: 2 })]);
+  });
+
 });

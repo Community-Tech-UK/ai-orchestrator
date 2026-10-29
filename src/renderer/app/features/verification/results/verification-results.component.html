@@ -109,8 +109,8 @@
                     <button
                       class="copy-btn"
                       [class.copied]="isCopied('summary')"
-                      [disabled]="!r.synthesizedResponse"
-                      title="Copy synthesized response"
+                      [appTooltipDisabledReason]="!r.synthesizedResponse ? 'No synthesized response to copy' : null"
+                      appTooltip="Copy synthesized response"
                       (click)="copyContent('summary', r.synthesizedResponse)"
                     >
                       <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -167,8 +167,8 @@
                     <button
                       class="copy-btn"
                       [class.copied]="isCopied('agreements')"
-                      [disabled]="!r.analysis.agreements.length"
-                      title="Copy agreement summary"
+                      [appTooltipDisabledReason]="!r.analysis.agreements.length ? 'No agreements to copy' : null"
+                      appTooltip="Copy agreement summary"
                       (click)="
                         copyContent(
                           'agreements',
@@ -250,8 +250,8 @@
                           [class.copied]="
                             isCopied('comparison-' + response.agentId)
                           "
-                          [disabled]="!response.response"
-                          title="Copy full response"
+                          [appTooltipDisabledReason]="!response.response ? 'No response to copy' : null"
+                          appTooltip="Copy full response"
                           (click)="
                             copyContent(
                               'comparison-' + response.agentId,
@@ -361,7 +361,7 @@
                           [class.copied]="
                             isCopied('round-' + round.roundNumber)
                           "
-                          title="Copy round details"
+                          appTooltip="Copy round details"
                           (click)="
                             copyContent(
                               'round-' + round.roundNumber,
@@ -446,8 +446,8 @@
                       <button
                         class="copy-btn compact"
                         [class.copied]="isCopied('raw-' + response.agentId)"
-                        [disabled]="!response.response"
-                        title="Copy raw response"
+                        [appTooltipDisabledReason]="!response.response ? 'No response to copy' : null"
+                        appTooltip="Copy raw response"
                         (click)="
                           copyContent(
                             'raw-' + response.agentId,

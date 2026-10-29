@@ -1,3 +1,6 @@
+import { By } from '@angular/platform-browser';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { KeybindingService } from '../../core/services/keybinding.service';
 import { ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { readFileSync } from 'node:fs';
@@ -51,6 +54,7 @@ describe('InstanceHeaderComponent interrupt tooltip', () => {
     await TestBed.configureTestingModule({
       imports: [InstanceHeaderComponent],
       providers: [
+        { provide: KeybindingService, useValue: { formatBindingByAction: () => 'Escape', ariaShortcutsByAction: () => 'Escape' } },
         { provide: SettingsStore, useValue: { showCost: () => showCost, settings: () => ({}), update: vi.fn() } },
         { provide: InstanceStore, useValue: { getInstance: () => undefined } },
         {
@@ -92,8 +96,29 @@ describe('InstanceHeaderComponent interrupt tooltip', () => {
     fixture.detectChanges();
 
     const button = fixture.nativeElement.querySelector('.btn-interrupt') as HTMLButtonElement;
-    expect(button.title).toBe('Interrupt Codex (Esc)');
-    expect(button.title).not.toContain('Claude');
+    const hint = fixture.debugElement.query(By.css('.btn-interrupt')).injector.get(AioTooltipDirective);
+    expect(hint.appTooltip()).toBe('Interrupt Codex');
+    expect(hint.appTooltipShortcut()).toBe('cancel-operation');
+    expect(button.hasAttribute('title')).toBe(false);
+  });
+
+  it('shows the full waiting detail visibly and keeps locked controls focusable without emitting actions', () => {
+    fixture.componentRef.setInput('instance', { ...instance('codex'), waitReason: { kind: 'interrupt-ack', attempt: 2 } });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.wait-reason-detail').textContent).toBe('Attempt 2');
+    const changed = vi.fn();
+    fixture.componentInstance.cycleAgentMode.subscribe(changed);
+    const mode = fixture.nativeElement.querySelector('.mode-badge') as HTMLButtonElement;
+    expect(mode.disabled).toBe(false);
+    expect(mode.getAttribute('aria-disabled')).toBe('true');
+    mode.click();
+    expect(changed).not.toHaveBeenCalled();
+    const original = mode.matches.bind(mode);
+    vi.spyOn(mode, 'matches').mockImplementation(selector => selector === ':focus-visible' || original(selector));
+    mode.dispatchEvent(new FocusEvent('focus'));
+    fixture.detectChanges();
+    expect(document.getElementById(mode.getAttribute('aria-describedby')!)?.textContent).toContain('Cannot change mode while instance is running or recovering');
+    expect(fixture.nativeElement.querySelectorAll('[title]')).toHaveLength(0);
   });
 
   it('opens session help from the header action cluster', () => {

@@ -18,13 +18,14 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { AskCouncilStore } from './ask-council.store';
 import type { CouncilMember, CouncilSynthesisMethod } from '../../core/services/ipc/compare-ipc.service';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 type SynthesisChoice = 'consensus' | 'debate' | 'provider';
 
 @Component({
   selector: 'app-ask-council-page',
   standalone: true,
-  imports: [],
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './ask-council-page.component.html',
   styleUrl: './ask-council-page.component.scss',
@@ -74,6 +75,24 @@ export class AskCouncilPageComponent implements OnInit {
     return `Will ask ${this.selectedProviders().length} provider${this.selectedProviders().length !== 1 ? 's' : ''}.`;
   });
 
+  readonly startDisabledReason = computed(() =>
+    this.canStart() || this.starting() || this.isRunning() ? null : this.runHint(),
+  );
+
+  readonly allDisabledReason = computed(() =>
+    !this.isRunning() && !this.loadingProviders() && this.availableProviders().length === 0
+      ? 'No providers detected.'
+      : null,
+  );
+
+  readonly noneDisabledReason = computed(() =>
+    !this.isRunning() && this.selectedProviders().length === 0 ? 'No providers are selected.' : null,
+  );
+
+  readonly synthesizeDisabledReason = computed(() =>
+    this.canSynthesize() || this.synthesizing() ? null : 'Two providers need to answer before the council can be synthesized.',
+  );
+
   /** Providers eligible for the "pick a provider" synthesis method — only ones that answered. */
   readonly synthesisProviderChoices = computed(() => this.succeededMembers().map((m) => m.provider));
 
@@ -102,10 +121,12 @@ export class AskCouncilPageComponent implements OnInit {
   }
 
   selectAll(): void {
+    if (this.isRunning() || this.availableProviders().length === 0) return;
     this.selectedProviders.set([...this.availableProviders()]);
   }
 
   clearSelection(): void {
+    if (this.isRunning()) return;
     this.selectedProviders.set([]);
   }
 

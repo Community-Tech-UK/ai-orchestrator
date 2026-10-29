@@ -22,6 +22,7 @@ import {
   writeStorage,
   type StorageField,
 } from '../../shared/utils/typed-storage';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 const MAX_VISIBLE_TASKS = 5;
 const MAX_VISIBLE_OUTPUTS = 6;
@@ -47,6 +48,7 @@ export const PANEL_COLLAPSED_FIELD: StorageField<boolean> = {
 @Component({
   selector: 'app-session-progress-panel',
   standalone: true,
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (shouldRender()) {
@@ -63,7 +65,7 @@ export const PANEL_COLLAPSED_FIELD: StorageField<boolean> = {
               <button
                 type="button"
                 class="icon-button"
-                title="Minimize panel"
+                appTooltip="Minimize panel"
                 aria-label="Minimize progress panel"
                 (click)="collapsePanel()"
               >
@@ -116,7 +118,7 @@ export const PANEL_COLLAPSED_FIELD: StorageField<boolean> = {
                     type="button"
                     class="output-row"
                     [class.output-deleted]="entry.status === 'deleted'"
-                    [title]="outputTooltip(entry)"
+                    [appTooltip]="outputTooltip(entry)"
                     (click)="openOutput(entry)"
                     (contextmenu)="onOutputContextMenu($event, entry)"
                   >
@@ -189,7 +191,7 @@ export const PANEL_COLLAPSED_FIELD: StorageField<boolean> = {
         <button
           type="button"
           class="progress-tab"
-          title="Show progress panel"
+          appTooltip="Show progress panel"
           aria-label="Show progress panel"
           (click)="expandPanel()"
         >

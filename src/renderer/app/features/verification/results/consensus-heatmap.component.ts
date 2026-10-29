@@ -13,6 +13,7 @@ import {
   computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
+import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
 
 interface Agent {
   id: string;
@@ -22,6 +23,7 @@ interface Agent {
 @Component({
   selector: 'app-consensus-heatmap',
   standalone: true,
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="heatmap-container">
@@ -45,7 +47,8 @@ interface Agent {
                     class="matrix-cell"
                     [class]="getCellClass(rowIdx, colIdx)"
                     [class.diagonal]="rowIdx === colIdx"
-                    [title]="getCellTitle(rowAgent.name, colAgent.name, rowIdx, colIdx)"
+                    tabindex="0"
+                    [appTooltip]="getCellTitle(rowAgent.name, colAgent.name, rowIdx, colIdx)"
                   >
                     @if (rowIdx === colIdx) {
                       <span class="diagonal-text">—</span>
@@ -141,6 +144,11 @@ interface Agent {
     .matrix-cell:hover:not(.diagonal) {
       transform: scale(1.05);
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    }
+
+    .matrix-cell:focus-visible {
+      outline: 2px solid var(--accent-color, #3b82f6);
+      outline-offset: 2px;
     }
 
     .matrix-cell.diagonal {

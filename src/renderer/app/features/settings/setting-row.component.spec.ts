@@ -40,6 +40,36 @@ describe('SettingRowComponent', () => {
     const select = fixture.nativeElement.querySelector('select') as HTMLSelectElement;
     expect(select.value).toBe('unrestricted');
   });
+
+  it.each<SettingMetadata['type']>(['boolean', 'select', 'number', 'string', 'directory', 'json', 'multi-select'])(
+    'connects the visible description to every %s control, Browse and Reset', type => {
+      const value = type === 'multi-select' ? ['guarded'] : type === 'json' ? '[]' : type === 'boolean' ? false : 2;
+      const fixture = render({ ...autonomySetting, type }, value);
+      const description: HTMLParagraphElement = fixture.nativeElement.querySelector('.setting-description');
+      expect(description.id).toBeTruthy();
+      const controls: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll('input, select, textarea, .btn-browse, .setting-reset');
+      expect(controls.length).toBeGreaterThan(0);
+      for (const control of controls) {
+        expect(control.getAttribute('aria-describedby')?.split(/\s+/)).toContain(description.id);
+      }
+      if (type === 'directory') expect(fixture.nativeElement.querySelector('.btn-browse')).toBeTruthy();
+      expect(fixture.nativeElement.querySelector('.setting-reset')).toBeTruthy();
+    },
+  );
+
+  it('updates description references when the same row is reused for another setting', () => {
+    const fixture = render(autonomySetting, 'guarded');
+    const oldId = fixture.nativeElement.querySelector('.setting-description').id;
+    fixture.componentRef.setInput('setting', numberSetting);
+    fixture.componentRef.setInput('value', 2);
+    fixture.detectChanges();
+    const description: HTMLParagraphElement = fixture.nativeElement.querySelector('.setting-description');
+    expect(description.id).toBeTruthy();
+    expect(description.id).not.toBe(oldId);
+    expect(description.textContent).toContain(numberSetting.description);
+    expect(fixture.nativeElement.querySelector('input').getAttribute('aria-describedby')).toBe(description.id);
+    expect(fixture.nativeElement.querySelector('label').htmlFor).toBe(numberSetting.key);
+  });
 });
 
 const jsonSetting: SettingMetadata = {

@@ -89,7 +89,7 @@
   transition: all var(--transition-fast);
 }
 
-.header-action:hover,
+.header-action:hover:not(:disabled):not([aria-disabled='true']),
 .header-close:hover {
   color: var(--secondary-color);
   background: var(--bg-hover);
@@ -98,6 +98,7 @@
 
 .chat-meta {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
@@ -172,6 +173,7 @@
 
 .composer {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
   gap: 8px;
   padding: 10px;
@@ -182,6 +184,7 @@
 
 .composer-input {
   flex: 1;
+  min-width: 0;
   resize: none;
   min-height: 60px;
   max-height: 160px;
@@ -220,19 +223,31 @@
   flex-shrink: 0;
   transition: all var(--transition-fast);
 
-  &:hover:not(:disabled) {
+  &:hover:not(:disabled):not([aria-disabled='true']) {
     color: var(--secondary-color);
     border-color: var(--secondary-color);
   }
 
-  &:disabled {
+  &:disabled,
+  &[aria-disabled='true'] {
     opacity: 0.4;
     cursor: default;
   }
 
   &.stop {
     color: var(--error-color, #f66);
+    width: 100%;
+    height: auto;
+    min-height: 34px;
+    padding: 6px 8px;
+    text-align: left;
+    justify-content: flex-start;
   }
+}
+
+.composer-button.send:disabled {
+  width: auto;
+  padding-inline: 8px;
 }
 
 .sidechat-selector {
@@ -285,6 +300,11 @@
 }
 
 .archive-action {
+  width: 100%;
+  height: auto;
+  padding: 4px 6px;
+  text-align: left;
+  justify-content: flex-start;
   font-size: 11px;
   opacity: 0.6;
 
@@ -293,7 +313,8 @@
   }
 }
 
-.header-action:disabled {
+.header-action:disabled,
+.header-action[aria-disabled='true'] {
   opacity: 0.4;
   cursor: default;
 }

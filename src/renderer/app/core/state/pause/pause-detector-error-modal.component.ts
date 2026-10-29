@@ -1,10 +1,12 @@
 import { ChangeDetectionStrategy, Component, effect, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { PauseStore } from './pause.store';
+import { AppIconButtonDirective } from '../../../shared/tooltip/icon-button.directive';
 
 @Component({
   selector: 'app-pause-detector-error-modal',
   standalone: true,
+  imports: [AppIconButtonDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (store.detectorError() && !dismissed()) {
@@ -12,7 +14,7 @@ import { PauseStore } from './pause.store';
         <section class="modal" role="dialog" aria-modal="true" aria-labelledby="detector-error-title">
           <div class="modal-header">
             <h2 id="detector-error-title">Network detector paused traffic</h2>
-            <button type="button" class="icon-btn" aria-label="Dismiss" title="Dismiss" (click)="dismissed.set(true)">
+            <button type="button" class="icon-btn" appIconButton="Dismiss" (click)="dismissed.set(true)">
               <svg viewBox="0 0 16 16" aria-hidden="true">
                 <path d="M4.3 3.2 8 6.9l3.7-3.7 1.1 1.1L9.1 8l3.7 3.7-1.1 1.1L8 9.1l-3.7 3.7-1.1-1.1L6.9 8 3.2 4.3l1.1-1.1Z" />
               </svg>

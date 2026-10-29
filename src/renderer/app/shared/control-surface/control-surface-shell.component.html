@@ -32,7 +32,8 @@
         aria-controls="control-center-navigation"
         [attr.aria-label]="controlNavCollapsed() ? 'Expand Control Center navigation' : 'Collapse Control Center navigation'"
         [attr.aria-expanded]="!controlNavCollapsed()"
-        [title]="controlNavCollapsed() ? 'Expand navigation' : 'Collapse navigation'"
+        [appTooltip]="controlNavCollapsed() ? 'Expand navigation' : 'Collapse navigation'"
+        [appTooltipShowWhenExpanded]="true"
       >
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M15 18l-6-6 6-6" />
@@ -47,7 +48,7 @@
               [routerLink]="item.path"
               routerLinkActive="active"
               [routerLinkActiveOptions]="{ exact: isExactNavMatch(item.path) }"
-              [title]="item.label"
+              [appTooltip]="item.label"
               [attr.aria-label]="item.label"
             >
               <svg class="control-nav-icon" viewBox="0 0 24 24" aria-hidden="true" [innerHTML]="item.icon"></svg>

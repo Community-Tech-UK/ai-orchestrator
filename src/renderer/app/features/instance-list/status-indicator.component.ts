@@ -4,6 +4,7 @@
 
 import { Component, input, computed, ChangeDetectionStrategy } from '@angular/core';
 import { InstanceStatus } from '../../core/state/instance.store';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 const STATUS_COLORS: Record<InstanceStatus, string> = {
   initializing: '#f59e0b', // Amber
@@ -59,6 +60,7 @@ const STATUS_LABELS: Record<InstanceStatus, string> = {
 @Component({
   selector: 'app-status-indicator',
   standalone: true,
+  imports: [AioTooltipDirective],
   template: `
     <div class="status-wrapper" [class.with-label]="showLabel()">
       @if (showSpinnerIndicator()) {
@@ -67,7 +69,9 @@ const STATUS_LABELS: Record<InstanceStatus, string> = {
           role="img"
           [attr.aria-label]="label()"
           [style.--spinner-color]="color()"
-          [title]="label()"
+          [appTooltip]="label()"
+          [appTooltipDisabled]="showLabel()"
+          [attr.tabindex]="showLabel() ? null : 0"
         ></div>
       } @else {
         <div
@@ -77,7 +81,9 @@ const STATUS_LABELS: Record<InstanceStatus, string> = {
           [style.backgroundColor]="color()"
           [class.pulsing]="isPulsing()"
           [class.background-waiting]="isBackgroundWaiting()"
-          [title]="label()"
+          [appTooltip]="label()"
+          [appTooltipDisabled]="showLabel()"
+          [attr.tabindex]="showLabel() ? null : 0"
         ></div>
       }
       @if (showLabel()) {

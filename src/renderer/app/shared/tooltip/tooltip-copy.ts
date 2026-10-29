@@ -58,6 +58,22 @@
  *    use, so the registry cannot silently accumulate dead text.
  */
 
+import { RESUME_COMPOSER_COPY } from './tooltip-copy-resume-composer';
+import { RESUME_SHELL_COPY } from './tooltip-copy-resume-shell';
+import { RESUME_PLAN_QUEUE_COPY } from './tooltip-copy-resume-plan-queue';
+import { RESUME_LOOP_COPY } from './tooltip-copy-resume-loop';
+import { COST_INFO_COPY } from './tooltip-copy-cost-info';
+import { SHARED_IMAGES_COPY } from './tooltip-copy-shared-images';
+import { ROLLING_INSTANCE_COPY } from './tooltip-copy-rolling-instance';
+import { OUTPUT_COPY } from './tooltip-copy-output';
+import { CAMPAIGN_COPY } from './tooltip-copy-campaign';
+import { AUTOMATIONS_COPY } from './tooltip-copy-automations';
+import { VERIFICATION_CONFIG_COPY } from './tooltip-copy-verification-config';
+import { CONVERSATION_TOOLS_COPY } from './tooltip-copy-conversation-tools';
+import { SIDE_CHAT_COPY } from './tooltip-copy-side-chat';
+import { SOURCE_CONTROL_COPY } from './tooltip-copy-source-control';
+import { SETTINGS_TABS_COPY } from './tooltip-copy-settings-tabs';
+
 export interface TooltipCopyEntry {
   /** The control's own name, for reference in reviews. */
   label: string;
@@ -80,6 +96,22 @@ export function tooltipText(entry: TooltipCopyEntry): string {
  * control does not silently orphan its copy.
  */
 export const TOOLTIP_COPY = {
+  ...RESUME_COMPOSER_COPY,
+  ...RESUME_SHELL_COPY,
+  ...RESUME_PLAN_QUEUE_COPY,
+  ...RESUME_LOOP_COPY,
+  'codebase.hyde': { label: 'HyDE', meaning: 'Hypothetical Document Embedding - generates better semantic queries' },
+  ...CONVERSATION_TOOLS_COPY,
+  ...VERIFICATION_CONFIG_COPY,
+  ...CAMPAIGN_COPY,
+  ...AUTOMATIONS_COPY,
+  ...OUTPUT_COPY,
+  ...ROLLING_INSTANCE_COPY,
+  ...SHARED_IMAGES_COPY,
+  ...COST_INFO_COPY,
+  ...SIDE_CHAT_COPY,
+  ...SOURCE_CONTROL_COPY,
+  ...SETTINGS_TABS_COPY,
   'accounts.signIn': {
     label: 'Sign in',
     meaning: 'Opens a terminal already running the sign-in command',

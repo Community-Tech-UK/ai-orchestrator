@@ -40,6 +40,7 @@ import {
 import { ContextSectionsPanelComponent } from './context-browser/context-sections-panel.component';
 import { ContextSectionDetailComponent } from './context-browser/context-section-detail.component';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 
 /** Toast notification interface */
 interface ToastNotification {
@@ -58,7 +59,8 @@ interface ToastNotification {
     ContextQueryPanelComponent,
     ContextQueryResultsComponent,
     ContextSectionsPanelComponent,
-    ContextSectionDetailComponent
+    ContextSectionDetailComponent,
+    AppIconButtonDirective
   ],
   template: `
     <div class="rlm-container">
@@ -112,6 +114,7 @@ interface ToastNotification {
               <span class="toast-message">{{ toast.message }}</span>
               <button
                 class="toast-close"
+                appIconButton="Dismiss notification"
                 (click)="dismissToast(toast.id); $event.stopPropagation()"
               >
                 ✕

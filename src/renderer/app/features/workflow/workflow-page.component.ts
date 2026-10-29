@@ -124,7 +124,7 @@ interface GateAction {
             <app-task-preflight-card
               [report]="preflight()"
               [loading]="preflightLoading()"
-              title="Workflow Preflight"
+              heading="Workflow Preflight"
               subtitle="Instructions, permissions, and network/tool readiness for the selected instance."
               emptyMessage="Select an instance to inspect workflow readiness."
             />

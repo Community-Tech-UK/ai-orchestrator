@@ -203,3 +203,5 @@
 
   &:hover { background: rgba(247, 190, 124, 0.18); }
 }
+
+.queue-unsaved-warning { margin: 0; padding: var(--spacing-sm); font-size: 11px; color: var(--warning-color, #f59e0b); }

@@ -13,11 +13,13 @@ import {
   input,
   ChangeDetectionStrategy,
 } from '@angular/core';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import type { IndexStats, WatcherStatus } from '../../../../shared/types/codebase.types';
 
 @Component({
   selector: 'app-codebase-stats',
   standalone: true,
+  imports: [AioTooltipDirective],
   template: `
     <div class="stats-container">
       <!-- Stats Grid -->
@@ -39,7 +41,7 @@ import type { IndexStats, WatcherStatus } from '../../../../shared/types/codebas
       <!-- Meta Info -->
       <div class="stats-meta">
         @if (stats()?.lastIndexedAt) {
-          <span class="last-indexed" title="{{ formatFullDate(stats()!.lastIndexedAt) }}">
+          <span class="last-indexed" tabindex="0" [appTooltip]="formatFullDate(stats()!.lastIndexedAt)">
             Last indexed: {{ formatRelativeTime(stats()!.lastIndexedAt) }}
           </span>
         }

@@ -3,7 +3,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlanQueueItemDto, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
 import { PlanQueueRunControlsComponent } from './plan-queue-run-controls.component';
 
@@ -55,6 +55,17 @@ describe('PlanQueueRunControlsComponent', () => {
 
   beforeEach(() => {
     TestBed.resetTestingModule();
+  });
+
+  it('explains that Pause stops new work and pauses running work until resume on keyboard focus', async () => {
+    await render(makeRun());
+    const button = fixture.nativeElement.querySelector('button') as HTMLButtonElement;
+    const matches = button.matches.bind(button);
+    vi.spyOn(button, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
+    button.focus(); fixture.detectChanges();
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('Stops anything new from starting and pauses work already running. Paused work is saved and carries on when you resume.');
+    button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
   });
 
   it('shows Pause and Cancel for a running run', async () => {

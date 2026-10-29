@@ -306,9 +306,11 @@
               <span class="server-name">{{ srv.name }}</span>
               <div class="server-card-controls">
                 @if (srv.toggleable) {
-                  <label class="server-toggle" title="Enable or disable this MCP server">
+                  <label class="server-toggle">
                     <input
                       type="checkbox"
+                      aria-label="Enable or disable this MCP server"
+                      appTooltip="Enable or disable this MCP server"
                       [checked]="srv.enabled !== false"
                       [disabled]="working()"
                       (click)="$event.stopPropagation()"
@@ -520,7 +522,7 @@
     >
       <div class="dialog-header">
         <span class="dialog-title">Add MCP Server</span>
-        <button class="close-btn" type="button" (click)="closeAddDialog()">✕</button>
+        <button class="close-btn" type="button" appIconButton="Close add server dialog" (click)="closeAddDialog()">✕</button>
       </div>
 
       <div class="dialog-body">

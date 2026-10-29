@@ -3,7 +3,7 @@
     <div class="pq-run" [attr.data-status]="run.status">
       <div class="pq-run-head">
         <span class="pq-run-kind">{{ run.kind }}</span>
-        <span class="pq-run-cwd" [title]="run.workspaceCwd">{{ run.workspaceCwd }}</span>
+        <span class="pq-run-cwd" tabindex="0" [appTooltip]="run.workspaceCwd" appTooltipVariant="overflow">{{ run.workspaceCwd }}</span>
         <span class="pq-run-started">Started {{ formatStartedAt(run.startedAt) }}</span>
         <app-plan-queue-run-controls
           [run]="run"

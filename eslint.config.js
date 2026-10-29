@@ -100,11 +100,13 @@ module.exports = defineConfig([
   {
     // Keep severities linked to the ratchet: scripts/__tests__/ui-hints-lint-link.spec.ts.
     files: ["src/renderer/**/*.html"],
+    // This bridge regression deliberately renders a legacy title to test its migration path.
+    ignores: ["**/title-tooltip-bridge.spec.ts", "**/title-tooltip-bridge.spec.ts/**"],
     plugins: { "ui-hints": uiHints },
     rules: {
-      "ui-hints/no-hardcoded-shortcut": "off",
-      "ui-hints/no-native-title": ["off", { scope: "controls" }],
-      "ui-hints/icon-control-needs-name-and-tooltip": "off",
+      "ui-hints/no-hardcoded-shortcut": "error",
+      "ui-hints/no-native-title": ["error", { scope: "all" }],
+      "ui-hints/icon-control-needs-name-and-tooltip": "error",
     },
   }
 ]);

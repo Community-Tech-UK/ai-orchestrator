@@ -2,6 +2,7 @@
  * Instance Header Component - Header with status, badges, and actions
  */
 
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import {
   Component,
   input,
@@ -55,6 +56,7 @@ interface EditorMenuItem {
   changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class InstanceHeaderComponent implements OnInit {
+  protected readonly copy = copyFor;
   private skillStore = inject(SkillStore);
   private hookStore = inject(HookStore);
   private fileIpc = inject(FileIpcService);
@@ -87,7 +89,7 @@ export class InstanceHeaderComponent implements OnInit {
   // Skills and hooks counts
   /** Fast mode is only meaningful for Claude (Opus) and Codex (priority tier). */
   readonly interruptTitle = computed(
-    () => `Interrupt ${this.getProviderDisplayName(this.instance().provider)} (Esc)`,
+    () => `Interrupt ${this.getProviderDisplayName(this.instance().provider)}`,
   );
 
   readonly supportsFastMode = computed(() => {

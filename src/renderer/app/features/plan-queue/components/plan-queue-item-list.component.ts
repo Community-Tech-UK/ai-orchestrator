@@ -1,3 +1,5 @@
+import { copyFor } from '../../../shared/tooltip/tooltip-copy';
+import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
 import { queueItemSpendLabel } from './plan-queue-spend-label';
 import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
 import type {
@@ -80,12 +82,13 @@ export function planQueueVerdictSummary(verdict: PlanQueueVerdict | null): strin
 @Component({
   selector: 'app-plan-queue-item-list',
   standalone: true,
-  imports: [],
+  imports: [AioTooltipDirective],
   templateUrl: './plan-queue-item-list.component.html',
   styleUrl: './plan-queue-item-list.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PlanQueueItemListComponent {
+  protected readonly copy = copyFor;
   items = input<PlanQueueItemDto[]>([]);
   maxRounds = input.required<number>();
   /** The run's step-up choice, named on a document that was handed to it. */

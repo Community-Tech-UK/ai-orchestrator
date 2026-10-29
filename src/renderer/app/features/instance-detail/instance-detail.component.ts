@@ -54,6 +54,7 @@ import { QuickActionDispatcherService } from '../orchestration/quick-action-disp
 import { TodoStore } from '../../core/state/todo.store';
 import { AutomationStore } from '../../core/state/automation.store';
 import { RemoteBrowseModalComponent } from '../../shared/components/remote-browse-modal/remote-browse-modal.component';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { WelcomeCoordinatorService } from './welcome-coordinator.service';
 import { HistoryPreviewSessionService } from './history-preview-session.service';
 import { FileAttachmentService } from './file-attachment.service';
@@ -126,7 +127,8 @@ interface ResendEditedEvent {
     ChildDiagnosticBundleModalComponent,
     LoopControlComponent,
     LoopOutstandingPanelComponent,
-    CheckpointTimelineComponent
+    CheckpointTimelineComponent,
+    AioTooltipDirective
   ],
   templateUrl: './instance-detail.component.html',
   styleUrl: './instance-detail.component.scss',

@@ -1,3 +1,4 @@
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -13,7 +14,7 @@ import type { ChildDiagnosticOutputLine } from '../../../../shared/types/agent-t
 @Component({
   selector: 'app-child-diagnostic-bundle-modal',
   standalone: true,
-  imports: [JsonPipe],
+  imports: [JsonPipe, AppIconButtonDirective],
   templateUrl: './child-diagnostic-bundle.modal.component.html',
   styleUrl: './child-diagnostic-bundle.modal.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

@@ -637,7 +637,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   closeSideChat(): void {
     this.sideChatPreferredChatId.set(null);
     this.showSideChat.set(false);
-    queueMicrotask(() => document.querySelector<HTMLElement>('app-workspace-rail button[title^="Sidechats"]')?.focus());
+    queueMicrotask(() => document.querySelector<HTMLElement>('app-workspace-rail button[data-testid="sidechat-toggle"]')?.focus());
   }
 
   toggleSideChat(): void {

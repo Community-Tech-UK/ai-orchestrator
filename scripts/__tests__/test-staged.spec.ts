@@ -82,6 +82,51 @@ describe('test-staged: runStagedTests', () => {
     expect(calls[0].args.join(' ').length).toBeLessThan(6000);
   });
 
+  it('validates a generated Codex snapshot through its contract suites without expanding every importer', () => {
+    const inputs: string[][] = [];
+    expect(runStagedTests({
+      files: ['src/main/cli/adapters/codex/generated/app-server-protocol.gen.ts', 'src/renderer/tooltip.ts'],
+      log: () => {},
+      spawnSync: (_command, _args, opts) => {
+        inputs.push(JSON.parse((opts as { input: string }).input));
+        return { status: 0 };
+      },
+    })).toBe(0);
+    expect(inputs).toEqual([[
+      'src/main/cli/adapters/codex/generated/app-server-protocol.gen.spec.ts',
+      'src/main/cli/adapters/codex/app-server-client-protocol.spec.ts',
+      'src/main/cli/adapters/codex/app-server-client.spec.ts',
+      'src/main/cli/adapters/codex/codex-protocol-snapshot-check.spec.ts',
+      'scripts/__tests__/refresh-codex-protocol.spec.ts',
+      'src/renderer/tooltip.ts',
+    ]]);
+  });
+
+  it('still discovers transitive tests when a real Codex consumer changes alongside the snapshot', () => {
+    const inputs: string[][] = [];
+    runStagedTests({
+      files: ['src/main/cli/adapters/codex/generated/app-server-protocol.gen.ts', 'src/main/cli/adapters/codex/app-server-client.ts'],
+      log: () => {},
+      spawnSync: (_command, _args, opts) => {
+        inputs.push(JSON.parse((opts as { input: string }).input));
+        return { status: 0 };
+      },
+    });
+    expect(inputs[0]).toContain('src/main/cli/adapters/codex/app-server-client.ts');
+    expect(inputs[0]).toContain('src/main/cli/adapters/codex/app-server-client-protocol.spec.ts');
+    expect(inputs[0]).not.toContain('src/main/cli/adapters/codex/generated/app-server-protocol.gen.ts');
+  });
+
+  it('fails closed if a required generated-protocol contract suite is missing', () => {
+    const spawnSync = vi.fn();
+    expect(runStagedTests({
+      files: ['src/main/cli/adapters/codex/generated/app-server-protocol.gen.ts'],
+      existsSync: file => !file.endsWith('app-server-client.spec.ts'),
+      log: () => {}, spawnSync,
+    })).toBe(1);
+    expect(spawnSync).not.toHaveBeenCalled();
+  });
+
   it('skips vitest entirely when no source files are staged', () => {
     const spawnSync = vi.fn();
     const status = runStagedTests({ files: [], spawnSync, log: () => {} });

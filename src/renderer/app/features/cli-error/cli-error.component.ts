@@ -3,6 +3,7 @@
  */
 
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 export interface CliInstallInfo {
   name: string;
@@ -19,6 +20,7 @@ export interface NoCliError {
 @Component({
   selector: 'app-cli-error',
   standalone: true,
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="cli-error-container">
@@ -49,7 +51,7 @@ export interface NoCliError {
         </div>
 
         <div class="actions">
-          <button class="btn-retry" (click)="retry.emit()" title="Try detecting AI CLIs again">
+          <button class="btn-retry" (click)="retry.emit()" appTooltip="Try detecting AI CLIs again">
             ↻ Retry Detection
           </button>
         </div>

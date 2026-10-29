@@ -17,13 +17,15 @@ import type { FitAddon as XFitAddon } from '@xterm/addon-fit';
 import { NodePickerComponent } from '../../shared/components/node-picker/node-picker.component';
 import { TERMINAL_SESSION } from '../../core/services/terminal-session.service';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 
 type DrawerStatus = 'idle' | 'connecting' | 'running' | 'exited' | 'error';
 
 @Component({
   selector: 'app-terminal-drawer',
   standalone: true,
-  imports: [FormsModule, NodePickerComponent],
+  imports: [FormsModule, NodePickerComponent, AioTooltipDirective, AppIconButtonDirective],
   // The host element is an in-flow flex child of `.app-container`. Toggling
   // `.open` animates its height, which reflows the column and pushes the rest of
   // the app up rather than overlaying it (see `:host` styles below).
@@ -47,7 +49,7 @@ type DrawerStatus = 'idle' | 'connecting' | 'running' | 'exited' | 'error';
             [disabled]="isLive()"
             list="terminal-drawer-roots"
             aria-label="Working directory on the worker (must be inside an allowed root)"
-            [title]="selectedNodeRoots().length
+            [appTooltip]="selectedNodeRoots().length
               ? 'Allowed roots: ' + selectedNodeRoots().join(', ')
               : 'Pick a worker node first'"
           />
@@ -66,7 +68,7 @@ type DrawerStatus = 'idle' | 'connecting' | 'running' | 'exited' | 'error';
         <button
           type="button"
           class="terminal-drawer__close"
-          aria-label="Close terminal drawer"
+          appIconButton="Close terminal drawer"
           (click)="onClose()"
         >
           ×
