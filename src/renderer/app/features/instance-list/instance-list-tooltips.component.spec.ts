@@ -103,13 +103,19 @@ describe('Session list tooltip DOM', () => {
     expect(document.querySelector('[role="tooltip"]')).toBeNull();
     fixture.componentInstance.filterInput.set(''); fixture.detectChanges(); element.click(); expect(activation).toHaveBeenCalledOnce();
   });
-  it('shows state and archive consequences visibly before confirmation', () => {
+  it('keeps row markers compact with hover explanations, and shows the archive consequence before confirmation', () => {
     const fixture = TestBed.createComponent(InstanceListComponent); fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
-    expect(host.querySelector('.project-draft-pill')?.textContent).toBe('Draft saved');
-    expect(host.querySelector('.history-entry-provider-name')?.textContent).toBe('Claude');
-    expect(host.querySelector('.history-entry-unread-dot')?.textContent).toContain('Completed — click to view');
-    expect(host.querySelector('.history-entry-automation-clock')?.textContent).toContain('Started by a scheduled automation');
+    const hintOf = (selector: string) => fixture.debugElement.query(By.css(selector)).injector.get(AioTooltipDirective).appTooltip();
+    expect(host.querySelector('.project-draft-pill')?.textContent).toBe('Draft');
+    expect(hintOf('.project-draft-pill')).toBe('Draft saved');
+    expect(host.querySelector('.history-entry-provider-name')).toBeNull();
+    expect(hintOf('.history-entry-provider-badge')).toBe('Claude');
+    expect(host.querySelector('.history-entry-unread-dot')?.textContent).toBe('');
+    expect(hintOf('.history-entry-unread-dot')).toBe('Completed — click to view');
+    expect(host.querySelector('.history-entry-automation-clock')?.textContent?.trim()).toBe('');
+    expect(hintOf('.history-entry-automation-clock')).toBe('Started by a scheduled automation');
+    expect(host.querySelector('.history-entry-diff')).toBeTruthy();
     host.querySelector<HTMLButtonElement>('.history-entry-action')!.click(); fixture.detectChanges();
     expect(archiveEntry).not.toHaveBeenCalled();
     expect(host.querySelector('.archive-warning')?.textContent).toBe('Hides this thread from the project list. The conversation is kept in Archive.');

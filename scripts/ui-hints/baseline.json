@@ -46,7 +46,7 @@
     "src/renderer/app/features/instance-detail/plan-update-card.component.ts": 1,
     "src/renderer/app/features/instance-detail/session-computer-use-control.component.ts": 1,
     "src/renderer/app/features/instance-detail/session-progress-panel.component.ts": 1,
-    "src/renderer/app/features/instance-list/instance-list.component.ts": 1,
+    "src/renderer/app/features/instance-list/instance-list.component.ts": 3,
     "src/renderer/app/features/instance-list/instance-row.component.ts": 3,
     "src/renderer/app/features/instance-list/status-indicator.component.ts": 2,
     "src/renderer/app/features/local-ai-guard/local-ai-status-chip.component.ts": 1,

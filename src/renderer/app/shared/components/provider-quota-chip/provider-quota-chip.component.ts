@@ -130,7 +130,6 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
                   >
                     <path d="M13 3 4 14h6l-1 7 9-11h-6l1-7Z"/>
                   </svg>
-                  <span class="pacing-warning">{{ copy('shell.quotaPacing') }}</span>
                 }
               </span>
             }
@@ -222,7 +221,6 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
     .provider-entry { display: inline-flex; align-items: baseline; gap: 3px; }
     .provider-code { font-weight: 700; }
     .provider-value { opacity: 0.82; font-variant-numeric: tabular-nums; }
-    .pacing-warning { white-space: normal; max-width: 200px; font-size: 10px; }
     .pacing-badge { width: 11px; height: 11px; color: #f6c453; flex-shrink: 0; }
     .text { text-transform: none; }
     .account-rows { display: contents; }
@@ -273,7 +271,6 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
   `],
 })
 export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
-  protected readonly copy = copyFor;
   private store = inject(ProviderQuotaStore);
   private readonly elementRef = inject<ElementRef<HTMLElement>>(ElementRef);
 
@@ -358,7 +355,16 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
     return `resets in ${formatDuration(ms)}`;
   });
 
+  /** The pacing warning is explained here; the strip only shows its bolt so the bar stays one line. */
   readonly tooltip = computed<string>(() => {
+    const summary = this.quotaSummary();
+    const pacing = this.pacingProvider();
+    if (!pacing) return summary;
+    const warning = `${PROVIDER_LABELS[pacing]}: ${copyFor('shell.quotaPacing')}`;
+    return summary ? `${summary}\n${warning}` : warning;
+  });
+
+  private readonly quotaSummary = computed<string>(() => {
     const v = this.variant();
     if (v === 'empty') return 'No quota data yet';
     const w = this.store.mostConstrainedWindow();

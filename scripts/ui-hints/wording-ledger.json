@@ -1470,5 +1470,11 @@
     "owner": "src/renderer/app/features/plan-queue/components/plan-queue-run-controls.component.ts",
     "text": "Opens the confirmation to end this run and park work in progress.",
     "why": "long"
+  },
+  {
+    "id": "539adfaeb255fd9a",
+    "owner": "src/renderer/app/shared/components/provider-quota-chip/provider-quota-chip.component.ts",
+    "text": "Quota is being consumed ahead of this window's time budget",
+    "why": "long"
   }
 ]

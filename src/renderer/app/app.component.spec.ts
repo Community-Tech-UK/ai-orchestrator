@@ -246,13 +246,17 @@ describe('AppComponent startup banner', () => {
     expect(document.querySelector('[role="tooltip"]')).toBeNull();
   });
 
-  it('makes the resuming-traffic status visible instead of hover-only', () => {
+  it('keeps the resuming-traffic chip short and explains it on hover', () => {
     (component as unknown as { resumeToast: { set(value: { id: number; at: number; queuedTotal: number }): void } }).resumeToast.set({
       id: 1, at: Date.now(), queuedTotal: 3,
     });
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('.title-activity-chip').textContent).toContain('Queued paused traffic is resuming: 3');
-    expect(fixture.nativeElement.querySelector('.title-activity-chip').hasAttribute('title')).toBe(false);
+    const chip = fixture.debugElement.query(By.css('.title-activity-chip'));
+    expect(chip.nativeElement.textContent.trim()).toBe('Sending 3');
+    expect(chip.nativeElement.hasAttribute('title')).toBe(false);
+    expect(chip.injector.get(AioTooltipDirective).appTooltip()).toBe('Queued paused traffic is resuming');
+    // The visible "Sending 3 queued messages" status toast still carries the state.
+    expect(fixture.nativeElement.querySelector('.resume-toast').textContent).toContain('Sending 3 queued messages');
   });
 
   it('renders a dismiss control for degraded startup checks', () => {

@@ -208,7 +208,7 @@
                       <span class="project-pinned-pill">Pinned</span>
                     }
                     @if (group.hasDraft) {
-                      <span class="project-draft-pill">{{ getProjectDraftTitle(group) }}</span>
+                      <span class="project-draft-pill" [appTooltip]="getProjectDraftTitle(group)">Draft</span>
                     }
                   </div>
                   <span class="project-subtitle" tabindex="0" [appTooltip]="group.subtitle" appTooltipVariant="overflow">{{ group.subtitle }}</span>
@@ -468,12 +468,16 @@
                             <span
                               class="history-entry-unread-dot"
                               role="img"
+                              [appTooltip]="copy('shell.completedHistory')"
                               aria-label="Completed"
-                            >{{ copy('shell.completedHistory') }}</span>
+                            ></span>
                           }
                           <span
                             class="history-entry-provider-badge"
                             [style.color]="getHistoryProviderVisual(item.entry).color"
+                            role="img"
+                            [attr.aria-label]="getHistoryProviderVisual(item.entry).label"
+                            [appTooltip]="getHistoryProviderVisual(item.entry).label"
                           >
                             @switch (getHistoryProviderVisual(item.entry).icon) {
                               @case ('anthropic') {
@@ -533,7 +537,6 @@
                               }
                             }
                           </span>
-                          <span class="history-entry-provider-name">{{ getHistoryProviderVisual(item.entry).label }}</span>
                           <span class="history-entry-title" tabindex="0" [appTooltip]="getHistoryTitle(item.entry)" appTooltipVariant="overflow">
                             {{ isRestoringHistory(item.entry.id) ? 'Loading… ' : '' }}{{ getHistoryPreviewTitle(item.entry) }}
                           </span>
@@ -544,13 +547,13 @@
                       @if (item.entry.isAutomation) {
                         <span
                           class="history-entry-automation-clock"
+                          appTooltip="Started by a scheduled automation"
                           aria-label="Automation session"
                         >
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                             <circle cx="12" cy="12" r="9" />
                             <path d="M12 7v5l3.5 2" />
                           </svg>
-                          Started by a scheduled automation
                         </span>
                       }
                       @if (pendingArchiveId() === item.entry.id) {
@@ -577,8 +580,9 @@
                         } @else {
                           <span
                             class="history-entry-time"
+                            [appTooltip]="historySortMode() === 'created' ? 'Created' : 'Last interacted'"
                           >
-                            {{ historySortMode() === 'created' ? 'Created' : 'Last interacted' }} {{ formatHistoryTime(item.entry) }}
+                            {{ formatHistoryTime(item.entry) }}
                           </span>
                         }
                         <button

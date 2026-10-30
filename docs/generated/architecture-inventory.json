@@ -6778,15 +6778,15 @@
       "lines": 1146
     },
     {
+      "path": "src/renderer/app/features/instance-list/instance-list.component.scss",
+      "lines": 1146
+    },
+    {
       "path": "docs/plans/2026-10-20-oct2-phaseA-safety-and-truth_plan.md",
       "lines": 1145
     },
     {
       "path": "docs/plans/completed/claude2_completed.md",
-      "lines": 1145
-    },
-    {
-      "path": "src/renderer/app/features/instance-list/instance-list.component.scss",
       "lines": 1145
     },
     {
@@ -7446,16 +7446,16 @@
       "lines": 803
     },
     {
+      "path": "src/renderer/app/shared/components/provider-quota-chip/provider-quota-chip.component.spec.ts",
+      "lines": 802
+    },
+    {
       "path": "src/main/memory/procedural-store.ts",
       "lines": 801
     },
     {
       "path": "src/renderer/app/core/state/loop.store.ts",
       "lines": 801
-    },
-    {
-      "path": "src/renderer/app/shared/components/provider-quota-chip/provider-quota-chip.component.spec.ts",
-      "lines": 800
     }
   ]
 }

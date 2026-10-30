@@ -247,7 +247,7 @@ describe('ProviderQuotaChipComponent', () => {
       expect(pacingBadge?.querySelector('path')).toBeTruthy();
     });
 
-    it('shows the whole pacing warning as visible text without nested native titles', () => {
+    it('explains the pacing warning in the chip tooltip and keeps the strip to its bolt', () => {
       const window = makeWindow(90, 100, Date.now() + 90 * 60_000);
       store.setSnapshot('claude', makeSnapshot('claude', 'max', true, [window]));
       store.setPacingWarning({ provider: 'claude', window, utilizationPercent: 90, elapsedPercent: 70,
@@ -255,7 +255,9 @@ describe('ProviderQuotaChipComponent', () => {
       fixture.detectChanges();
       const host = fixture.nativeElement as HTMLElement;
       expect(host.querySelectorAll('[title], svg title')).toHaveLength(0);
-      expect(host.querySelector('.pacing-warning')?.textContent).toBe("Quota is being consumed ahead of this window's time budget");
+      expect(host.querySelector('[data-testid="quota-strip"]')?.textContent).not.toContain('Quota is being consumed');
+      expect(host.querySelector('[data-testid="quota-pacing-claude"]')).toBeTruthy();
+      expect(component.tooltip()).toContain("Claude: Quota is being consumed ahead of this window's time budget");
     });
 
     it('clears a stale pacing badge when a refreshed quota window has reset below its warning threshold', () => {
