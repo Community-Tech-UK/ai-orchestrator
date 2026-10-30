@@ -37,18 +37,32 @@ describe('plan queue prompts', () => {
   });
   it.each(['plans', 'livetests'] as const)('requires %s workers to clean up disposable evidence runtimes and retain receipts', (kind) => {
     const prompt = buildWorkerPrompt({ item, kind, repoRoot: '/repo', worktreePath: '/w' });
-    expect(prompt).toContain('After the report, seal and command receipts are written, delete the runtime you created: database clusters, browser binaries, dependency installs, compile caches and copied source trees. Leave the report, the seal and the receipts. Do not copy a checkout or node_modules into the plan folder or into a directory outside the worktree.');
+    expect(prompt).toContain('After the report, seal and command receipts are written, delete the runtime you created: database clusters, browser binaries, compile caches and copied source trees. Keep dependency installs inside the worktree (for example node_modules): the verifier runs its gates there, and the worktree is removed when the item ends. Leave the report, the seal and the receipts. Do not copy a checkout or node_modules into the plan folder or into a directory outside the worktree.');
   });
 
   it('repeats evidence runtime cleanup when a worker fixes verifier findings', () => {
     const prompt = buildFixPrompt(1, 3, [{ severity: 'high', confidence: 85, summary: 'Missing retry test.' }]);
-    expect(prompt).toContain('After the report, seal and command receipts are written, delete the runtime you created: database clusters, browser binaries, dependency installs, compile caches and copied source trees. Leave the report, the seal and the receipts. Do not copy a checkout or node_modules into the plan folder or into a directory outside the worktree.');
+    expect(prompt).toContain('After the report, seal and command receipts are written, delete the runtime you created: database clusters, browser binaries, compile caches and copied source trees. Keep dependency installs inside the worktree (for example node_modules): the verifier runs its gates there, and the worktree is removed when the item ends. Leave the report, the seal and the receipts. Do not copy a checkout or node_modules into the plan folder or into a directory outside the worktree.');
   });
 
   it.each(['plans', 'livetests'] as const)('requires %s verifiers to avoid leaving evidence runtimes beside plans', (kind) => {
     const prompt = buildVerifierPrompt({ item, kind, repoRoot: '/repo', worktreePath: '/w', baseBranch: 'main', gates: [] });
     expect(prompt).toContain('Build output and caches that git ignores are fine.');
     expect(prompt).toContain('Do not leave a copy of the worktree, a database cluster, a browser install or a compile cache beside the plan.');
+    expect(prompt).toContain('If the worktree is missing installed dependencies, install them with the repository\'s documented setup command before running the gates, using the form that installs exactly from the lockfile (for example npm ci) so no tracked file changes.');
+  });
+
+  it('never tells a worker to delete the dependency installs its verifier needs', () => {
+    const prompts = [
+      buildWorkerPrompt({ item, kind: 'plans', repoRoot: '/repo', worktreePath: '/w' }),
+      buildWorkerPrompt({ item, kind: 'livetests', repoRoot: '/repo', worktreePath: '/w' }),
+      buildFixPrompt(1, 3, [{ severity: 'high', confidence: 85, summary: 'Missing retry test.' }]),
+      buildStepUpInstruction(3, [{ severity: 'high', confidence: 85, summary: 'Missing retry test.' }]),
+    ];
+    for (const prompt of prompts) {
+      expect(prompt).not.toMatch(/delete[^.]*dependency installs/);
+      expect(prompt).toContain('Keep dependency installs inside the worktree');
+    }
   });
 
   it('tells the worker where the document and the worktree are, and what it must never do', () => {

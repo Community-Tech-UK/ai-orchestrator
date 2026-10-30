@@ -23,7 +23,10 @@ const VERDICT_DISCOVERY_STEPS: readonly string[] = [
   '- Search Harness for plan_queue_report_verdict, or describe that exact name. Follow the returned input schema and invocation route.',
   '- If the returned invocation names orchestrator.tool_execute, call it with name plan_queue_report_verdict and an arguments object containing your verdict fields; discover tool_execute through the provider mechanism if needed.',
 ];
-const WORKER_EVIDENCE_CLEANUP_RULE = '- After the report, seal and command receipts are written, delete the runtime you created: database clusters, browser binaries, dependency installs, compile caches and copied source trees. Leave the report, the seal and the receipts. Do not copy a checkout or node_modules into the plan folder or into a directory outside the worktree.';
+// Dependency installs stay: the verifier runs its gates in this same worktree,
+// and the coordinator deletes the whole worktree when the item ends. Deleting
+// them made every following gate fail on missing packages.
+const WORKER_EVIDENCE_CLEANUP_RULE = '- After the report, seal and command receipts are written, delete the runtime you created: database clusters, browser binaries, compile caches and copied source trees. Keep dependency installs inside the worktree (for example node_modules): the verifier runs its gates there, and the worktree is removed when the item ends. Leave the report, the seal and the receipts. Do not copy a checkout or node_modules into the plan folder or into a directory outside the worktree.';
 
 /** Wrap untrusted text in a named delimiter, neutralising any closing tag inside it. */
 function dataBlock(tag: string, text: string): string {
@@ -241,6 +244,7 @@ export function buildVerifierPrompt(ctx: VerifierPromptContext): string {
     `- The work is on branch \`${ctx.item.branchName ?? 'unknown'}\` in the worktree \`${ctx.worktreePath}\`. Review it with \`git diff $(git merge-base HEAD ${ctx.baseBranch})\` there.`,
     '- Do not edit, create or delete any tracked file, and do not commit. The coordinator compares the tree before and after your review and discards a verdict from a reviewer that changed it. Build output and caches that git ignores are fine.',
     '- Do not leave a copy of the worktree, a database cluster, a browser install or a compile cache beside the plan.',
+    '- If the worktree is missing installed dependencies, install them with the repository\'s documented setup command before running the gates, using the form that installs exactly from the lockfile (for example npm ci) so no tracked file changes. A gate that fails only because dependencies were not installed is a setup step, not a finding.',
     '',
     'Judge against these criteria:',
     ...criteria,
