@@ -10,6 +10,7 @@ import {
   getWorkerNodeConnectionServer,
   handleNodeFailover,
   handleLateNodeReconnect,
+  handleWorkerRestart,
   RpcEventRouter,
   getRemoteNodeConfig,
   hydrateRemoteNodeConfig,
@@ -106,6 +107,10 @@ export function createWorkerNodeSubsystemStep(
         tailscaleWatcher.noteNodeDisconnected();
         handleNodeFailover(nodeId, instanceManager);
         context.syncRemoteNodeMetricsToLoadBalancer(nodeId);
+      });
+
+      registry.on('node:worker-restarted', (nodeId: string) => {
+        handleWorkerRestart(nodeId, instanceManager);
       });
 
       // Pairs each announced disconnect with its reconnect so the operator

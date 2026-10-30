@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createWorkerNodeSubsystemStep } from './remote-gateway-initialization-steps';
 import type { AppInitializationContext } from './initialization-steps';
 import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
+import { handleWorkerRestart } from '../remote-node';
 
 // vi.hoisted runs before imports resolve, so this cannot use node:events.
 const fakes = vi.hoisted(() => {
@@ -52,6 +53,7 @@ vi.mock('../remote-node', () => ({
   }),
   handleNodeFailover: vi.fn(),
   handleLateNodeReconnect: vi.fn(),
+  handleWorkerRestart: vi.fn(),
   RpcEventRouter: class {
     start = fakes.rpcRouterStart;
   },
@@ -132,6 +134,15 @@ describe('createWorkerNodeSubsystemStep', () => {
 
     expect(fakes.rpcRouterStart).toHaveBeenCalledOnce();
     expect(fakes.connectionStart).not.toHaveBeenCalled();
+  });
+
+  it('puts the idle sessions of a node whose worker restarted to sleep', async () => {
+    const context = buildContext();
+    await createWorkerNodeSubsystemStep(context).fn();
+
+    fakes.registry.emit('node:worker-restarted', 'node-1');
+
+    expect(handleWorkerRestart).toHaveBeenCalledWith('node-1', context.instanceManager);
   });
 
   it('notifies with the node name when a node disconnects', async () => {

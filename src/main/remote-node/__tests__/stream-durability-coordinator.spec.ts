@@ -80,15 +80,16 @@ describe('StreamDurabilityCoordinator', () => {
 
   it('an epoch change resets cursors so a restarted worker is never deduped', () => {
     const { coordinator } = makeCoordinator();
-    coordinator.noteNodeEpoch('n1', 111);
+    expect(coordinator.noteNodeEpoch('n1', 111)).toBe(false); // first sighting is not a restart
     coordinator.accept('n1', 'inst-1', 500);
     // Same epoch re-announced — cursors survive, so a replay below them is
     // still deduped.
-    coordinator.noteNodeEpoch('n1', 111);
+    expect(coordinator.noteNodeEpoch('n1', 111)).toBe(false);
     expect(coordinator.accept('n1', 'inst-1', 400, true)).toBe(false);
     // New worker process — fresh counters must flow.
-    coordinator.noteNodeEpoch('n1', 222);
+    expect(coordinator.noteNodeEpoch('n1', 222)).toBe(true);
     expect(coordinator.accept('n1', 'inst-1', 1)).toBe(true);
+    expect(coordinator.noteNodeEpoch('n1', undefined)).toBe(false);
   });
 
   it('resumeNode replays after cursors and surfaces gap markers', async () => {

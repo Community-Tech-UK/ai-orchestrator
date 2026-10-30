@@ -351,8 +351,9 @@ export class RpcEventRouter {
 
     // WS15: epoch change invalidates cursors; then ask a durable worker to
     // replay everything we missed while the link was down.
-    this.streamDurability.noteNodeEpoch(nodeId, capabilities?.streamEpoch);
+    const workerRestarted = this.streamDurability.noteNodeEpoch(nodeId, capabilities?.streamEpoch);
     this.streamDurability.resumeNode(nodeId, capabilities?.streamDurability);
+    if (workerRestarted) this.registry.noteWorkerRestarted(nodeId);
 
     logger.info('Node registered via RPC', {
       node: name,

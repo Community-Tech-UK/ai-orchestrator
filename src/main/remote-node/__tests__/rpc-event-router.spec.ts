@@ -225,6 +225,21 @@ describe('RpcEventRouter', () => {
     expect(mockConnection.sendResponse).not.toHaveBeenCalled();
   });
 
+  it('announces a restarted worker after its registration, and only when the process changed', () => {
+    const events: string[] = [];
+    registry.on('node:connected', (node: WorkerNodeInfo) => events.push(`connected:${node.id}`));
+    registry.on('node:worker-restarted', (nodeId: string) => events.push(`restarted:${nodeId}`));
+    const register = (streamEpoch: number) => mockConnection.emit('rpc:request', 'node-r', makeRpcRequest('node.register', {
+      nodeId: 'node-r', name: 'Worker', capabilities: makeCapabilities({ streamEpoch }),
+    }));
+
+    register(100); // first sighting: nothing to compare against
+    register(100); // same worker process re-registering after a network blip
+    register(200); // a new worker process
+
+    expect(events).toEqual(['connected:node-r', 'connected:node-r', 'connected:node-r', 'restarted:node-r']);
+  });
+
   it('falls back to WebSocket nodeId when params.nodeId is missing', () => {
     const capabilities = makeCapabilities();
     const request = makeRpcRequest('node.register', {

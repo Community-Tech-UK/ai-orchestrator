@@ -600,6 +600,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
         nodeId: auth.session.nodeId,
         token: auth.session.token,
         recoveryToken: auth.session.recoveryToken,
+        sleepsIdleSessionsOnWorkerRestart: true,
       },
     });
     if (resetAfterRegistration) {

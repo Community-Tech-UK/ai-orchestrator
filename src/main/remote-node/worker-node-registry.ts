@@ -53,6 +53,16 @@ export class WorkerNodeRegistry extends EventEmitter {
     this.emit('node:disconnected', node);
   }
 
+  /**
+   * The node re-registered from a new worker process, which holds none of the
+   * sessions the old one ran. Emitted after its `node:connected`.
+   */
+  noteWorkerRestarted(nodeId: string): void {
+    const node = this.nodes.get(nodeId);
+    logger.info('Worker process restarted', { node: node?.name, nodeId });
+    this.emit('node:worker-restarted', nodeId);
+  }
+
   getNode(nodeId: string): WorkerNodeInfo | undefined {
     return this.nodes.get(nodeId);
   }

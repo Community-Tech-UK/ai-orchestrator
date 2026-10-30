@@ -88,12 +88,13 @@ export class StreamDurabilityCoordinator {
   /**
    * Record the worker process epoch from registration/heartbeat capabilities.
    * An epoch change means a fresh worker process (seq counters restarted) —
-   * all cursors for the node are invalid.
+   * all cursors for the node are invalid. Returns true for such a change.
    */
-  noteNodeEpoch(nodeId: string, epoch: unknown): void {
-    if (typeof epoch !== 'number') return;
+  noteNodeEpoch(nodeId: string, epoch: unknown): boolean {
+    if (typeof epoch !== 'number') return false;
     const state = this.stateFor(nodeId);
-    if (state.epoch !== undefined && state.epoch !== epoch) {
+    const restarted = state.epoch !== undefined && state.epoch !== epoch;
+    if (restarted) {
       logger.info('Worker stream epoch changed — resetting durable cursors', {
         nodeId,
         previousEpoch: state.epoch,
@@ -103,6 +104,7 @@ export class StreamDurabilityCoordinator {
       state.dirty.clear();
     }
     state.epoch = epoch;
+    return restarted;
   }
 
   /**

@@ -216,6 +216,46 @@ export function handleNodeFailover(nodeId: string, instanceManager: InstanceMana
 }
 
 /**
+ * The node's worker process restarted (an update, a crash, a reboot), so none
+ * of the sessions the coordinator placed there are running any more. Without
+ * this they read `idle` and the next message fails on the node.
+ *
+ * Idle sessions are put to sleep: their state is saved and the next message
+ * wakes them, which spawns them on the node again and resumes the provider
+ * session. The stale remote adapter's terminate is a no-op on the new worker.
+ * The worker self-updater relies on this to restart over idle sessions.
+ *
+ * A `ready` session (awake, no message yet) is idle too: the worker lets it
+ * through, so it is settled to `idle` first, which hibernation requires.
+ * A session that was mid-turn lost that turn; it is left as it is and logged.
+ */
+export function handleWorkerRestart(nodeId: string, instanceManager: InstanceManager): void {
+  for (const inst of instanceManager.getInstancesByNode(nodeId)) {
+    if (inst.status === 'idle' || inst.status === 'ready') {
+      logger.info('Worker restarted: putting idle session to sleep', { nodeId, instanceId: inst.id });
+      const warn = (error: unknown): void => logger.warn('Worker restarted: could not put idle session to sleep', {
+        nodeId,
+        instanceId: inst.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      try {
+        if (inst.status === 'ready') instanceManager.updateInstanceStatus(inst.id, 'idle', { reason: 'worker-restarted', nodeId });
+      } catch (error) {
+        warn(error); // A listener of registration: never throw into it.
+        continue;
+      }
+      instanceManager.hibernateInstance(inst.id).catch(warn);
+    } else if (!isTerminalFailoverStatus(inst.status) && inst.status !== 'hibernated' && inst.status !== 'hibernating') {
+      logger.warn('Worker restarted: session was not idle and has lost its running work', {
+        nodeId,
+        instanceId: inst.id,
+        status: inst.status,
+      });
+    }
+  }
+}
+
+/**
  * Handle late reconnection of a worker node (after the grace period has expired).
  *
  * When a node reboots, the grace period (30s) expires long before the machine

@@ -20,6 +20,18 @@ export function isSettledStatus(status: string): boolean {
 }
 
 /**
+ * A session a worker restart would cut off: mid-turn, or waiting on the user's
+ * answer. An idle one is not: the coordinator puts idle sessions to sleep when
+ * it sees the worker restarted, and the next message resumes them
+ * (`handleWorkerRestart` in node-failover.ts). A session still starting is
+ * covered by its in-flight spawn request (worker-activity.ts).
+ */
+export function blocksWorkerRestart(session: { lastStatus: string; adapter: { hasActiveTurn?: () => boolean } } | undefined): boolean {
+  if (!session) return false;
+  return (session.lastStatus !== 'idle' && session.lastStatus !== 'ready') || session.adapter.hasActiveTurn?.() === true;
+}
+
+/**
  * An interrupted exec turn ends without any status of its own: locally the
  * coordinator awaits the adapter's completion promise, which cannot cross the
  * RPC. Call `onInterrupted` once that completion reports the turn interrupted,

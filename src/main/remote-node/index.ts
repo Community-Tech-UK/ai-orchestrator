@@ -12,7 +12,7 @@ export {
   getWorkerNodeConnectionServer
 } from './worker-node-connection';
 export { WorkerNodeHealth, getWorkerNodeHealth } from './worker-node-health';
-export { handleNodeFailover, handleLateNodeReconnect } from './node-failover';
+export { handleNodeFailover, handleLateNodeReconnect, handleWorkerRestart } from './node-failover';
 export { RpcEventRouter } from './rpc-event-router';
 export {
   getRemoteNodeConfig,

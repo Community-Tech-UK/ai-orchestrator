@@ -137,6 +137,13 @@ export interface EnrollmentResult {
   nodeId: string;
   token: string;
   recoveryToken?: string;
+  /**
+   * The coordinator puts a node's idle sessions to sleep when that node's
+   * worker process restarts, so the next message resumes them. Only then may
+   * the worker restart for an update while idle sessions are open. Absent
+   * from older coordinators, whose idle sessions would silently break.
+   */
+  sleepsIdleSessionsOnWorkerRestart?: boolean;
 }
 
 // -- Standard JSON-RPC Error Codes --

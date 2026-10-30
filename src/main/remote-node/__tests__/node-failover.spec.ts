@@ -30,6 +30,7 @@ const mockInstanceManager = {
     mockInstances.find(i => i.id === id),
   ),
   updateInstanceStatus: vi.fn(),
+  hibernateInstance: vi.fn(async (_id: string) => undefined),
   emit: vi.fn(),
 };
 
@@ -38,7 +39,7 @@ vi.mock('../../instance/instance-manager', () => ({
 }));
 
 import { WorkerNodeRegistry } from '../worker-node-registry';
-import { handleNodeFailover, FAILOVER_GRACE_MS, FAILOVER_HARD_FAIL_MS } from '../node-failover';
+import { handleNodeFailover, handleWorkerRestart, FAILOVER_GRACE_MS, FAILOVER_HARD_FAIL_MS } from '../node-failover';
 import { InstanceStateMachine } from '../../instance/instance-state-machine';
 import type { WorkerNodeInfo, WorkerNodeCapabilities } from '../../../shared/types/worker-node.types';
 import type { InstanceStatus } from '../../../shared/types/instance.types';
@@ -350,5 +351,98 @@ describe('handleNodeFailover', () => {
       'idle',
       expect.any(Object),
     );
+  });
+});
+
+describe('handleWorkerRestart', () => {
+  beforeEach(() => {
+    mockInstances.length = 0;
+    mockInstanceManager.getInstancesByNode.mockImplementation((nodeId: string) =>
+      mockInstances.filter(i => i.nodeId === nodeId),
+    );
+    mockInstanceManager.hibernateInstance.mockReset();
+    mockInstanceManager.hibernateInstance.mockResolvedValue(undefined);
+    mockInstanceManager.updateInstanceStatus.mockReset();
+  });
+
+  it('puts only the idle sessions on the restarted node to sleep', () => {
+    mockInstances.push(
+      { id: 'idle-1', status: 'idle', nodeId: 'node-w' },
+      { id: 'busy-1', status: 'busy', nodeId: 'node-w' },
+      { id: 'asleep', status: 'hibernated', nodeId: 'node-w' },
+      { id: 'gone', status: 'failed', nodeId: 'node-w' },
+      { id: 'idle-other-node', status: 'idle', nodeId: 'node-x' },
+    );
+
+    handleWorkerRestart('node-w', mockInstanceManager as never);
+
+    expect(mockInstanceManager.hibernateInstance.mock.calls).toEqual([['idle-1']]);
+    expect(mockInstanceManager.updateInstanceStatus).not.toHaveBeenCalled();
+  });
+
+  it('settles a ready session to idle and puts it to sleep, since the worker let it through too', () => {
+    const ready = { id: 'ready-1', status: 'ready', nodeId: 'node-w' };
+    mockInstances.push(ready);
+    const stateMachine = new InstanceStateMachine('ready');
+    mockInstanceManager.updateInstanceStatus.mockImplementation((_id: string, status: string) => {
+      stateMachine.transition(status as InstanceStatus);
+      ready.status = status;
+    });
+
+    handleWorkerRestart('node-w', mockInstanceManager as never);
+
+    expect(mockInstanceManager.updateInstanceStatus).toHaveBeenCalledWith('ready-1', 'idle', expect.any(Object));
+    expect(ready.status).toBe('idle');
+    expect(mockInstanceManager.hibernateInstance.mock.calls).toEqual([['ready-1']]);
+  });
+
+  it('skips a session it cannot settle without throwing into node registration', () => {
+    mockInstances.push(
+      { id: 'ready-bad', status: 'ready', nodeId: 'node-w' },
+      { id: 'idle-ok', status: 'idle', nodeId: 'node-w' },
+    );
+    mockInstanceManager.updateInstanceStatus.mockImplementation(() => { throw new Error('illegal transition'); });
+
+    expect(() => handleWorkerRestart('node-w', mockInstanceManager as never)).not.toThrow();
+    expect(mockInstanceManager.hibernateInstance.mock.calls).toEqual([['idle-ok']]);
+  });
+
+  it('after a slow restart, restores the degraded session on reconnect and then puts it to sleep', () => {
+    vi.useFakeTimers();
+    WorkerNodeRegistry._resetForTesting();
+    const registry = WorkerNodeRegistry.getInstance();
+    const session = { id: 'idle-slow', status: 'idle', nodeId: 'node-slow' };
+    mockInstances.push(session);
+    const stateMachine = new InstanceStateMachine('idle');
+    mockInstanceManager.updateInstanceStatus.mockImplementation((_id: string, status: string) => {
+      stateMachine.transition(status as InstanceStatus);
+      session.status = status;
+    });
+    registry.on('node:worker-restarted', (nodeId: string) => handleWorkerRestart(nodeId, mockInstanceManager as never));
+
+    handleNodeFailover('node-slow', mockInstanceManager as never); // the worker was away longer than the grace window
+    expect(session.status).toBe('degraded');
+    vi.advanceTimersByTime(FAILOVER_GRACE_MS + 1_000);
+
+    // What the router does for a new worker process: register, then announce the restart.
+    registry.registerNode(makeNode('node-slow'));
+    registry.noteWorkerRestarted('node-slow');
+
+    expect(session.status).toBe('idle');
+    expect(mockInstanceManager.hibernateInstance.mock.calls).toEqual([['idle-slow']]);
+    vi.useRealTimers();
+  });
+
+  it('keeps going when one session cannot be put to sleep', async () => {
+    mockInstances.push(
+      { id: 'idle-a', status: 'idle', nodeId: 'node-w' },
+      { id: 'idle-b', status: 'idle', nodeId: 'node-w' },
+    );
+    mockInstanceManager.hibernateInstance.mockRejectedValueOnce(new Error('save failed'));
+
+    expect(() => handleWorkerRestart('node-w', mockInstanceManager as never)).not.toThrow();
+    await Promise.resolve();
+
+    expect(mockInstanceManager.hibernateInstance.mock.calls).toEqual([['idle-a'], ['idle-b']]);
   });
 });

@@ -157,6 +157,8 @@ class MockLocalInstanceManager extends EventEmitter {
   wake = vi.fn(async () => undefined);
   terminateAll = vi.fn(async () => undefined);
   getInstanceCount = vi.fn(() => 0);
+  getAllInstanceIds = vi.fn((): string[] => []);
+  getInstance = vi.fn((_id: string): { lastStatus: string; adapter: object } | undefined => undefined);
 }
 
 let mockInstanceManager: MockLocalInstanceManager;
@@ -336,6 +338,42 @@ describe('WorkerAgent', () => {
     expect(vi.mocked(reportCapabilities)).toHaveBeenCalled();
     // Process is still alive and the agent still usable.
     expect(agent).toBeDefined();
+  });
+
+  describe('idle sessions and the self-updater', () => {
+    async function registerWith(result: Record<string, unknown>): Promise<(typeof wsMockState.instances)[number]> {
+      agent = new WorkerAgent({ ...mockConfig });
+      const connect = agent.connect();
+      const socket = await waitForSocket();
+      socket.emit('open');
+      await connect;
+      const registration = JSON.parse(socket.send.mock.calls[0][0] as string) as { id: string };
+      socket.emit('message', JSON.stringify({ jsonrpc: '2.0', id: registration.id, result }));
+      // One idle session open on the node.
+      mockInstanceManager.getInstanceCount.mockReturnValue(1);
+      mockInstanceManager.getAllInstanceIds.mockReturnValue(['session-1']);
+      mockInstanceManager.getInstance.mockReturnValue({ lastStatus: 'idle', adapter: {} });
+      return socket;
+    }
+
+    it('lets an idle session through when the coordinator puts idle sessions to sleep on a restart', async () => {
+      await registerWith({ nodeId: 'test-node-1', token: 'accepted', sleepsIdleSessionsOnWorkerRestart: true });
+      expect(agent.activity.isBusy()).toBe(false);
+
+      mockInstanceManager.getInstance.mockReturnValue({ lastStatus: 'busy', adapter: {} });
+      expect(agent.activity.isBusy()).toBe(true);
+    });
+
+    it('treats an idle session as live work for a coordinator that would leave it broken', async () => {
+      await registerWith({ nodeId: 'test-node-1', token: 'accepted' });
+      expect(agent.activity.isBusy()).toBe(true);
+    });
+
+    it('treats an idle session as live work while no coordinator has accepted the worker', async () => {
+      const socket = await registerWith({ nodeId: 'test-node-1', token: 'accepted', sleepsIdleSessionsOnWorkerRestart: true });
+      socket.emit('close');
+      expect(agent.activity.isBusy()).toBe(true);
+    });
   });
 
   it('sets an explicit large CDP payload ceiling on coordinator WebSocket clients', async () => {

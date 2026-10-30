@@ -57,6 +57,7 @@ import {
 import type { RpcMessage } from './worker-rpc-types';
 import { INTERNAL_CONNECT_ERROR_MESSAGE, NO_SAVED_ADDRESS_MESSAGE, noAnswerMessage, SILENT_COORDINATOR_MESSAGE, type WorkerConnectionReporter } from './worker-connection-status';
 import { resolveWorkerChildCommand } from './worker-supervisor';
+import { blocksWorkerRestart } from './worker-exec-turn';
 import type { DiscoveredCoordinator } from './discovery-client';
 import {
   buildCoordinatorCandidates,
@@ -111,8 +112,12 @@ export class WorkerAgent extends EventEmitter {
   private readonly legacyNativeHostWarnedFailures = new Set<string>();
   private activeCoordinatorUrl: string | null = null;
   private retryRegistrationWithRecovery = false;
-  /** Read by the self-updater, which must never restart over live work. */
-  readonly activity = new WorkerActivity(() => this.instanceManager.getInstanceCount() + this.localModelSessionManager.getSessionCount()
+  /** EnrollmentResult.sleepsIdleSessionsOnWorkerRestart from the coordinator that accepted us. */
+  private coordinatorSleepsIdleSessions = false;
+  /** Read by the self-updater, which must never restart over live work, including idle sessions nobody would resume. */
+  readonly activity = new WorkerActivity(() => (this.registrationAccepted && this.coordinatorSleepsIdleSessions
+    ? this.instanceManager.getAllInstanceIds().filter((id) => blocksWorkerRestart(this.instanceManager.getInstance(id))).length
+    : this.instanceManager.getInstanceCount()) + this.localModelSessionManager.getSessionCount()
     + (this.terminalHandler?.sessionCount() ?? 0) + this.cdpTunnel.activeSessionCount(), () => this.extensionRelay.getLastCommandActivityAt());
 
   constructor(
@@ -821,6 +826,7 @@ export class WorkerAgent extends EventEmitter {
         this.retryRegistrationWithRecovery = false;
         this.pendingRegistrationId = null;
         this.registrationAccepted = true;
+        this.coordinatorSleepsIdleSessions = enrollment.sleepsIdleSessionsOnWorkerRestart === true;
         // Record when this connection became stable. Do NOT reset
         // `reconnectAttempt` here: that would defeat the stable-connection gate
         // in scheduleReconnect() and let a flapping link (drops seconds after
