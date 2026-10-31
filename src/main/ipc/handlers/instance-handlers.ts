@@ -238,7 +238,7 @@ export function registerInstanceHandlers(deps: {
           validatedPayload.instanceId,
           validatedPayload.message,
           toFileAttachments(validatedPayload.attachments),
-          { isRetry: validatedPayload.isRetry, automatedInput: validatedPayload.automatedInput }
+          { isRetry: validatedPayload.isRetry, automatedInput: validatedPayload.automatedInput, queuedAdmissionId: validatedPayload.queuedAdmissionId }
         );
 
         return { success: true };

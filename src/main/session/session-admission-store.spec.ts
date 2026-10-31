@@ -262,17 +262,23 @@ describe('SessionAdmissionStore', () => {
       expect(list.map((r) => r.admissionId)).toEqual(['q-r2', 'q-r1', 'q-r3']);
     });
 
-    it('findRecentPromoting matches instance+message within the window and ignores stale/other-instance/other-message rows', () => {
-      store.createQueued({ admissionId: 'q-fp', instanceId: 'i1', message: 'hello there' });
-      store.promoteQueued('q-fp');
-
-      expect(store.findRecentPromoting('i1', 'hello there', 30_000)).toMatchObject({ admissionId: 'q-fp' });
-      expect(store.findRecentPromoting('i1', 'different message', 30_000)).toBeUndefined();
-      expect(store.findRecentPromoting('i2', 'hello there', 30_000)).toBeUndefined();
-
-      // Force updated_at into the past to simulate an expired window.
-      db.prepare('UPDATE prompt_admissions SET updated_at = ? WHERE admission_id = ?').run(Date.now() - 60_000, 'q-fp');
-      expect(store.findRecentPromoting('i1', 'hello there', 30_000)).toBeUndefined();
+    it('claims only the identified user row for the matching instance, exactly once', () => {
+      store.createQueued({ admissionId: 'q-claim', instanceId: 'i1', message: 'original' });
+      expect(store.claimPromoting('i1', 'q-claim')).toBeUndefined();
+      store.promoteQueued('q-claim');
+      expect(store.claimPromoting('i2', 'q-claim')).toBeUndefined();
+      expect(store.get('q-claim')?.state).toBe('promoting');
+      // Long preparation and enriched text do not change ownership.
+      db.prepare('UPDATE prompt_admissions SET updated_at = ? WHERE admission_id = ?')
+        .run(Date.now() - 60_000, 'q-claim');
+      expect(store.claimPromoting('i1', 'q-claim')).toMatchObject({ admissionId: 'q-claim', state: 'recorded' });
+      expect(store.claimPromoting('i1', 'q-claim')).toBeUndefined();
+      expect(store.listQueued('i1')).toEqual([]);
+      store.updateState('q-claim', 'delivered');
+      expect(store.claimPromoting('i1', 'q-claim')).toBeUndefined();
+      store.create({ admissionId: 'automated', instanceId: 'i1', origin: 'automation', message: 'background', state: 'promoting' });
+      expect(store.claimPromoting('i1', 'automated')).toBeUndefined();
+      expect(store.claimPromoting('i1', 'missing')).toBeUndefined();
     });
 
     it('sweepExpired caps per-instance queued rows, expiring the oldest excess to cancelled', () => {

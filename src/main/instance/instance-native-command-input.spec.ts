@@ -22,11 +22,12 @@ describe('resolved native command transcript provenance', () => {
     const { context, emitted, history, instance } = fixture();
     const admission: string[] = [];
     await dispatchNativeOpenCodeCommand({ ...context, deferredCommit,
-      options: { beforeProviderDispatch: () => { admission.push('before'); },
+      options: { queuedAdmissionId: 'queued-native-command', beforeProviderDispatch: () => { admission.push('before'); },
         assertProviderDispatchCurrent: reason => { admission.push(reason ?? 'current'); } },
       send: async (prompt, options) => {
         expect(prompt).toBe('/fixture-native example');
         expect(options.providerNativeCommandId).toBe('acp:opencode:fixture-native');
+        expect(options.queuedAdmissionId).toBe('queued-native-command');
         expect(emitted).toHaveLength(deferredCommit ? 0 : 1);
         options.beforeProviderDispatch?.();
         options.assertProviderDispatchCurrent?.('unsupported-attachments');

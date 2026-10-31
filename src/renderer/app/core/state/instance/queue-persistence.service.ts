@@ -40,6 +40,8 @@ export class QueuePersistenceService {
   private settings = inject(SettingsStore);
   private toast = inject(ToastService);
   private admissionIdByEntry = new WeakMap<QueuedMessage, string>();
+  private promotedEntries = new WeakSet<QueuedMessage>();
+  private enqueuesInFlight = new Map<QueuedMessage, Promise<void>>();
   private readonly restoredAdmissionIds = new Set<string>();
   private initialPromptUnsubscribe: (() => void) | null = null;
 
@@ -128,7 +130,38 @@ export class QueuePersistenceService {
   notifyEnqueued(instanceId: string, entry: QueuedMessage, _position: 'front' | 'back' | 'steer'): Promise<void> {
     if (!this.canPersist() || this.admissionIdByEntry.has(entry)) return Promise.resolve();
     this.setDurabilityFlag(instanceId, entry, true);
-    return this.doEnqueue(instanceId, entry, 0);
+    const pending = this.doEnqueue(instanceId, entry, 0).finally(() => this.enqueuesInFlight.delete(entry));
+    this.enqueuesInFlight.set(entry, pending);
+    return pending;
+  }
+
+  /** An explicit main-process handoff must win the durable CAS before sending. */
+  async promoteReadyHandoff(instanceId: string, admissionId: string): Promise<QueuedMessage | undefined> {
+    await Promise.all((this.stateService.messageQueue().get(instanceId) ?? [])
+      .map(entry => this.enqueuesInFlight.get(entry)));
+    const entry = this.stateService.messageQueue().get(instanceId)?.[0];
+    if (!entry || this.admissionIdByEntry.get(entry) !== admissionId) return undefined;
+    try {
+      const result = await this.ipc.queuePromote(admissionId);
+      if (!result.success || !result.data) return undefined;
+      this.promotedEntries.add(entry);
+      return entry;
+    } catch (error) {
+      console.warn('QueuePersistenceService: ready handoff promotion failed', { instanceId, error });
+      return undefined;
+    }
+  }
+
+  /** Carry the authoritative durable identity into provider dispatch. */
+  getAdmissionId(entry: QueuedMessage): string | undefined {
+    return this.admissionIdByEntry.get(entry);
+  }
+
+  /** Release local ownership after the send IPC settles; the main receipt owns delivery. */
+  finishSend(instanceId: string, entry: QueuedMessage, succeeded: boolean): void {
+    if (!succeeded) this.notifyCancelled(instanceId, entry);
+    this.admissionIdByEntry.delete(entry);
+    this.promotedEntries.delete(entry);
   }
 
   /** Fire-and-forget durable cancel for entries leaving the queue without being sent. */
@@ -137,6 +170,7 @@ export class QueuePersistenceService {
       const admissionId = this.admissionIdByEntry.get(entry);
       if (!admissionId) continue;
       this.admissionIdByEntry.delete(entry);
+      this.promotedEntries.delete(entry);
       void this.ipc.queueCancel(admissionId).catch((error) => {
         console.warn('QueuePersistenceService: failed to cancel durable queue row', error);
       });
@@ -152,19 +186,23 @@ export class QueuePersistenceService {
    * Returns `true` when it is safe to proceed (either promoted successfully,
    * or nothing was tracked — e.g. persistence disabled/never durable, in
    * which case there is nothing to gate on). Returns `false` only when a
-   * TRACKED entry's promote call itself failed — the caller must leave the
+   * TRACKED entry did not win the promotion CAS — the caller must leave the
    * entry in the queue and retry later.
    */
   async notifyPromoting(instanceId: string, entry: QueuedMessage): Promise<boolean> {
+    await this.enqueuesInFlight.get(entry);
     const admissionId = this.admissionIdByEntry.get(entry);
     if (!admissionId) return true;
+    // This renderer already won the CAS, but Pause/Stop prevented removal.
+    // A restored promoting row has no such ownership and must win a new CAS.
+    if (this.promotedEntries.has(entry)) return true;
     try {
       const response = await this.ipc.queuePromote(admissionId);
-      if (!response.success) {
+      if (!response.success || !response.data) {
         console.warn('QueuePersistenceService: promote rejected', { instanceId, error: response.error });
         return false;
       }
-      this.admissionIdByEntry.delete(entry);
+      this.promotedEntries.add(entry);
       return true;
     } catch (error) {
       console.warn('QueuePersistenceService: failed to promote durable queue row', { instanceId, error });
@@ -178,6 +216,7 @@ export class QueuePersistenceService {
     if (!admissionId) return;
     this.admissionIdByEntry.delete(oldEntry);
     this.admissionIdByEntry.set(newEntry, admissionId);
+    if (this.promotedEntries.delete(oldEntry)) this.promotedEntries.add(newEntry);
     newEntry.notDurable = oldEntry.notDurable;
   }
 

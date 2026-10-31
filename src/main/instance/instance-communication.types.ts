@@ -28,6 +28,7 @@ export interface CommunicationDependencies {
   getInstance: (id: string) => Instance | undefined;
   isInstancePublished?: (id: string) => boolean;
   getAdapter: (id: string) => CliAdapter | undefined;
+  getQueuedInputReadyId?: (id: string) => string | undefined;
   setAdapter: (id: string, adapter: CliAdapter) => void;
   deleteAdapter: (id: string) => boolean;
   transitionState?: (instance: Instance, status: InstanceStatus) => void;

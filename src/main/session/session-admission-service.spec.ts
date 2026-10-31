@@ -10,7 +10,8 @@ import {
   type AdmitAutomatedWriteRequest,
   type RedeliveryContext,
 } from './session-admission-service';
-import { SessionAdmissionStore } from './session-admission-store';
+import { SessionAdmissionStore, STALE_PROMOTION_RECLAIM_MS } from './session-admission-store';
+import { createInstanceInputReceipt } from '../instance/instance-adapter-input-dispatch';
 
 let testDb: SqliteDriver;
 let rlmThrows = false;
@@ -639,6 +640,82 @@ describe('SessionAdmissionService', () => {
     });
   });
 
+  describe('queued dispatch ownership', () => {
+    it('settles the original promoted admission when provider enrichment changes its text', () => {
+      const store = SessionAdmissionStore.getInstance(testDb);
+      store.createQueued({ admissionId: 'queued-original', instanceId: 'i1', message: 'original question' });
+      store.promoteQueued('queued-original');
+      const receipt = getSessionAdmissionService().recordUserSend('i1', 'enriched provider prompt: original question', undefined, 'retrieved context', 'queued-original');
+      expect(receipt?.admissionId).toBe('queued-original');
+      getSessionAdmissionService().markDelivered(receipt!.admissionId);
+      expect(store.get('queued-original')).toMatchObject({ state: 'delivered', message: 'original question' });
+      expect(store.listQueued('i1')).toEqual([]);
+      expect(store.list({ instanceId: 'i1' })).toHaveLength(1);
+    });
+
+    it('receipt delivery clears durable recovery and cannot be replayed after reload', () => {
+      const store = SessionAdmissionStore.getInstance(testDb);
+      store.createQueued({ admissionId: 'receipt-original', instanceId: 'i1', message: 'original' });
+      store.promoteQueued('receipt-original');
+      const receipt = createInstanceInputReceipt('i1', () => ({ message: 'enriched original', contextBlock: 'context' }), 'receipt-original');
+      receipt.record(); receipt.delivered();
+      expect(store.get('receipt-original')?.state).toBe('delivered');
+      expect(store.listQueued()).toEqual([]);
+      const replay = createInstanceInputReceipt('i1', () => ({ message: 'enriched again' }), 'receipt-original');
+      expect(replay.record).toThrow('no longer available');
+      expect(store.list({ instanceId: 'i1' })).toHaveLength(1);
+      store.createQueued({ admissionId: 'later-independent', instanceId: 'i1', message: 'later' });
+      expect(store.listQueued('i1').map(row => row.admissionId)).toEqual(['later-independent']);
+    });
+
+    it('recovers a genuinely unsent stale promotion before its first provider receipt', () => {
+      const store = SessionAdmissionStore.getInstance(testDb);
+      store.createQueued({ admissionId: 'unsent', instanceId: 'i1', message: 'saved question' });
+      store.promoteQueued('unsent');
+      store.sweepExpired(Date.now() + STALE_PROMOTION_RECLAIM_MS + 1);
+      expect(store.listQueued('i1')[0]).toMatchObject({ admissionId: 'unsent', state: 'queued' });
+      store.promoteQueued('unsent');
+      const receipt = createInstanceInputReceipt('i1', () => ({ message: 'enriched saved question' }), 'unsent');
+      receipt.record(); receipt.delivered();
+      expect(store.get('unsent')?.state).toBe('delivered');
+      expect(store.listQueued('i1')).toEqual([]);
+    });
+
+    it('terminalizes locally consumed unsupported input without a second claim or restored queue row', () => {
+      const store = SessionAdmissionStore.getInstance(testDb);
+      store.createQueued({ admissionId: 'unsupported-only', instanceId: 'i1', message: '' });
+      store.promoteQueued('unsupported-only');
+      const receipt = createInstanceInputReceipt('i1', () => ({ message: '' }), 'unsupported-only');
+      receipt.record();
+      receipt.record();
+      receipt.failed(new Error('Unsupported attachment'));
+      expect(store.get('unsupported-only')).toMatchObject({ state: 'failed', errorText: 'Unsupported attachment' });
+      expect(store.listQueued('i1')).toEqual([]);
+      const replay = createInstanceInputReceipt('i1', () => ({ message: '' }), 'unsupported-only');
+      expect(replay.record).toThrow('no longer available');
+      expect(store.list({ instanceId: 'i1' })).toHaveLength(1);
+    });
+
+    it('fails closed for queued delivery if its durable store is unavailable', () => {
+      rlmThrows = true;
+      expect(() => getSessionAdmissionService().recordUserSend('i1', 'question', undefined, null, 'queued-unavailable')).toThrow('storage is not ready');
+    });
+
+    it('rejects another session, cancellation and repeated dispatch of an admission', () => {
+      const store = SessionAdmissionStore.getInstance(testDb);
+      store.createQueued({ admissionId: 'owned', instanceId: 'i1', message: 'question' });
+      store.promoteQueued('owned');
+      expect(() => getSessionAdmissionService().recordUserSend('i2', 'question', undefined, null, 'owned')).toThrow();
+      expect(store.get('owned')?.state).toBe('promoting');
+      getSessionAdmissionService().recordUserSend('i1', 'enriched question', undefined, null, 'owned');
+      expect(() => getSessionAdmissionService().recordUserSend('i1', 'question', undefined, null, 'owned')).toThrow();
+      store.createQueued({ admissionId: 'cancelled', instanceId: 'i1', message: 'question' });
+      store.promoteQueued('cancelled'); store.cancelQueued('cancelled');
+      expect(() => getSessionAdmissionService().recordUserSend('i1', 'question', undefined, null, 'cancelled')).toThrow();
+      expect(store.list({ instanceId: 'i2' })).toEqual([]);
+    });
+  });
+
   describe('recordUserSend (observe-only)', () => {
     it('records a user send and transitions it to delivered', () => {
       const rec = getSessionAdmissionService().recordUserSend('i1', 'hello there', undefined, null);
@@ -654,12 +731,12 @@ describe('SessionAdmissionService', () => {
       expect(() => getSessionAdmissionService().recordUserSend('i1', 'hello', undefined, null)).not.toThrow();
     });
 
-    it('dedupes against a recent promoting row for the same instance+message instead of inserting a second row', () => {
+    it('claims the explicitly identified promoting row instead of inserting a second row', () => {
       const store = SessionAdmissionStore.getInstance(testDb);
       const promoted = store.createQueued({ admissionId: 'promo-1', instanceId: 'i1', message: 'promoted text' });
       store.promoteQueued(promoted.admissionId);
 
-      const rec = getSessionAdmissionService().recordUserSend('i1', 'promoted text', undefined, null);
+      const rec = getSessionAdmissionService().recordUserSend('i1', 'promoted text', undefined, null, promoted.admissionId);
       expect(rec?.admissionId).toBe(promoted.admissionId);
 
       const rows = getSessionAdmissionService().listAdmissions({ instanceId: 'i1' });
@@ -680,12 +757,10 @@ describe('SessionAdmissionService', () => {
       expect(store.get(promoted.admissionId)?.state).toBe('promoting');
     });
 
-    it('does not dedupe against a stale promoting row outside the match window', () => {
+    it('keeps a new ordinary user submission separate from a queued row with identical text', () => {
       const store = SessionAdmissionStore.getInstance(testDb);
       const promoted = store.createQueued({ admissionId: 'promo-3', instanceId: 'i1', message: 'stale text' });
       store.promoteQueued(promoted.admissionId);
-      testDb.prepare('UPDATE prompt_admissions SET updated_at = ? WHERE admission_id = ?').run(Date.now() - 60_000, promoted.admissionId);
-
       const rec = getSessionAdmissionService().recordUserSend('i1', 'stale text', undefined, null);
       expect(rec?.admissionId).not.toBe(promoted.admissionId);
       expect(store.get(promoted.admissionId)?.state).toBe('promoting');

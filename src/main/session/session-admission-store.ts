@@ -54,8 +54,9 @@ export const MAX_PENDING_ADMISSIONS_PER_INSTANCE = 50;
 /**
  * A `promoting` row whose promotion was never followed by an actual send
  * (e.g. the renderer crashed between the promote call and `sendInput`) is
- * demoted back to `queued` on the next startup sweep so the message is not
- * silently lost. Real promotions resolve within milliseconds, so this stays
+ * reclaimed on a later promotion attempt, or demoted back to `queued` by a
+ * startup sweep, so unsent text survives a renderer crash. Real promotions
+ * resolve within milliseconds, so this stays
  * generous without risking reclaiming a genuinely in-flight send.
  */
 export const STALE_PROMOTION_RECLAIM_MS = 5 * 60 * 1000;
@@ -339,10 +340,9 @@ export class SessionAdmissionStore {
   }
 
   /**
-   * Compare-and-swap `queued` -> `promoting`. Returns `undefined` when the row
-   * is missing or already left the `queued` state — this is what makes
-   * promotion idempotent: a duplicate promote request for the same
-   * admissionId is a safe no-op instead of a second handoff.
+   * Claim a queued user row or renew a stale, still-unclaimed promotion after
+   * renderer loss. Refreshing updated_at in the same CAS prevents a second
+   * recovery winner; recorded and terminal rows can never be promoted again.
    */
   promoteQueued(admissionId: string): AdmissionRecord | undefined {
     const now = Date.now();
@@ -350,9 +350,10 @@ export class SessionAdmissionStore {
       .prepare(
         `UPDATE prompt_admissions
          SET state = 'promoting', updated_at = ?
-         WHERE admission_id = ? AND state = 'queued'`,
+         WHERE admission_id = ? AND origin = 'user'
+           AND (state = 'queued' OR (state = 'promoting' AND updated_at < ?))`,
       )
-      .run(now, admissionId);
+      .run(now, admissionId, now - STALE_PROMOTION_RECLAIM_MS);
     if (result.changes === 0) return undefined;
     return this.get(admissionId);
   }
@@ -389,21 +390,12 @@ export class SessionAdmissionStore {
     })();
   }
 
-  /**
-   * Dedupe hook for `SessionAdmissionService.recordUserSend()`: find a
-   * `promoting` row for this instance+message created recently enough to be
-   * the one the renderer just handed off, so the caller can update it in
-   * place instead of inserting a second row for the same send.
-   */
-  findRecentPromoting(instanceId: string, message: string, windowMs: number, now = Date.now()): AdmissionRecord | undefined {
-    const row = this.db
-      .prepare(
-        `SELECT * FROM prompt_admissions
-         WHERE instance_id = ? AND state = 'promoting' AND message = ? AND updated_at >= ?
-         ORDER BY updated_at DESC LIMIT 1`,
-      )
-      .get<AdmissionRow>(instanceId, message, now - windowMs);
-    return row ? toRecord(row) : undefined;
+  /** Claim a promoted user row exactly once at the provider dispatch boundary. */
+  claimPromoting(instanceId: string, admissionId: string): AdmissionRecord | undefined {
+    const result = this.db.prepare(`UPDATE prompt_admissions SET state = 'recorded', updated_at = ?
+      WHERE admission_id = ? AND instance_id = ? AND origin = 'user' AND state = 'promoting'`)
+      .run(Date.now(), admissionId, instanceId);
+    return result.changes === 0 ? undefined : this.get(admissionId);
   }
 
   updateState(

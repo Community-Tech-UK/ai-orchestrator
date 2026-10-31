@@ -159,13 +159,15 @@ export const CODEX_TIMEOUTS = {
    * 70s for a 107k-token thread (2026-09-23), and 565s for a controlled
    * recovery on 2026-09-24 that the earlier 180s window declared unconfirmed
    * six minutes before it succeeded. The provider streams keepalives to Codex
-   * throughout, but the app-server does not forward them, so this matches the
-   * silence budget an active turn already gets (`NOTIFICATION_IDLE_ACTIVE_MS`).
+   * throughout, but the app-server does not forward them. Observed compaction
+   * therefore gets a separate finite silence budget, long enough to span the
+   * normal 30-minute idle-hibernation threshold and 35-minute observation.
+   * Ordinary active turns keep `NOTIFICATION_IDLE_ACTIVE_MS`.
    * A compaction the provider ends early releases the wait at once; the
    * adapter emits liveness heartbeats while it runs so the stuck detector
    * does not restart the session mid-compaction.
    */
-  COMPACTION_RUNNING_MS: 900_000,
+  COMPACTION_RUNNING_MS: 2_400_000,
 } as const;
 
 /**

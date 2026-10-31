@@ -124,6 +124,98 @@ describe('InstanceMessagingStore', () => {
     expect(currentStore.getQueuedMessageCount('inst-1')).toBe(0);
   });
 
+  it('delivers a retained-busy ready handoff once and keeps the session busy', async () => {
+    const entry: QueuedMessage = { message: 'queued during inline compaction' };
+    stateService!.addInstance(createInstance({ status: 'busy', provider: 'codex', adapterGeneration: 1 }));
+    stateService!.messageQueue.set(new Map([['inst-1', [entry]]]));
+    const persistence = TestBed.inject(QueuePersistenceService);
+    const promote = vi.spyOn(persistence, 'promoteReadyHandoff').mockResolvedValue(entry);
+    vi.spyOn(persistence, 'getAdmissionId').mockReturnValue('admission');
+    ipcMock.sendInput.mockResolvedValue({ success: true });
+    await Promise.all([
+      store!.processReadyHandoff('inst-1', 'admission', 1),
+      store!.processReadyHandoff('inst-1', 'admission', 1),
+    ]);
+    expect(promote).toHaveBeenCalledTimes(1);
+    expect(ipcMock.sendInput).toHaveBeenCalledExactlyOnceWith('inst-1', entry.message, undefined, false, true, 'admission');
+    expect(store!.getMessageQueue('inst-1')).toEqual([]);
+    expect(stateService!.getInstance('inst-1')?.status).toBe('busy');
+  });
+
+  it('keeps the promoted object and admission when Pause wins after queue removal, then sends once on resume', async () => {
+    const entry: QueuedMessage = { message: 'pause before send', seededAlready: true, retryAfterAt: Date.now() - 1 };
+    stateService!.addInstance(createInstance({ status: 'idle' }));
+    const pause = TestBed.inject(PauseStore);
+    const persistence = TestBed.inject(QueuePersistenceService);
+    const enqueue = vi.spyOn(persistence, 'notifyEnqueued').mockResolvedValue(undefined);
+    vi.spyOn(persistence, 'notifyPromoting').mockResolvedValue(true);
+    vi.spyOn(persistence, 'getAdmissionId').mockReturnValue('owned-promoted-row');
+    pause.applyState({ isPaused: true, reasons: ['user'], pausedAt: Date.now(), lastChange: Date.now() });
+    await store!.sendInputImmediate('inst-1', entry.message, undefined, 0, { queuedEntry: entry, skipUserBubble: true, retryAfterAt: entry.retryAfterAt }, true);
+    expect(store!.getMessageQueue('inst-1')[0]).toBe(entry);
+    expect(entry.retryAfterAt).toBeLessThan(Date.now());
+    expect(ipcMock.sendInput).not.toHaveBeenCalled();
+    expect(enqueue).toHaveBeenCalledWith('inst-1', entry, 'front');
+    pause.applyState({ isPaused: false, reasons: [], pausedAt: null, lastChange: Date.now() });
+    ipcMock.sendInput.mockResolvedValue({ success: true });
+    store!.processMessageQueue('inst-1');
+    await vi.advanceTimersByTimeAsync(150);
+    expect(ipcMock.sendInput).toHaveBeenCalledExactlyOnceWith('inst-1', entry.message, undefined, true, true, 'owned-promoted-row');
+    expect(store!.getMessageQueue('inst-1')).toEqual([]);
+  });
+
+  it('keeps a provider-limit refusal behind backoff and waits for a later main-process ready edge', async () => {
+    const entry: QueuedMessage = { message: 'queued through provider limit' };
+    stateService!.addInstance(createInstance({ status: 'idle' }));
+    stateService!.messageQueue.set(new Map([['inst-1', [entry]]]));
+    const persistence = TestBed.inject(QueuePersistenceService);
+    vi.spyOn(persistence, 'notifyPromoting').mockResolvedValue(true);
+    vi.spyOn(persistence, 'getAdmissionId').mockReturnValueOnce('original-promotion').mockReturnValueOnce('retry-promotion');
+    const finish = vi.spyOn(persistence, 'finishSend');
+    ipcMock.sendInput.mockResolvedValueOnce({ success: false, error: { message: 'Queued input is waiting for the provider limit to clear' } })
+      .mockResolvedValue({ success: true });
+    store!.processMessageQueue('inst-1');
+    await vi.advanceTimersByTimeAsync(150);
+    expect(finish).toHaveBeenCalledWith('inst-1', entry, false);
+    const retry = store!.getMessageQueue('inst-1')[0];
+    expect(retry).toMatchObject({ message: entry.message, retryCount: 1 });
+    expect(retry.retryAfterAt).toBeGreaterThan(Date.now());
+    expect(stateService!.getInstance('inst-1')?.status).toBe('busy');
+    await vi.advanceTimersByTimeAsync(2_500);
+    expect(ipcMock.sendInput).toHaveBeenCalledTimes(1);
+    stateService!.updateInstance('inst-1', { status: 'idle' });
+    store!.processMessageQueue('inst-1');
+    await vi.advanceTimersByTimeAsync(150);
+    expect(ipcMock.sendInput).toHaveBeenLastCalledWith('inst-1', entry.message, undefined, true, true, 'retry-promotion');
+    expect(store!.getMessageQueue('inst-1')).toEqual([]);
+  });
+
+  it('retains the queued entry if Stop parks it while handoff promotion is awaiting', async () => {
+    const entry: QueuedMessage = { message: 'park during promotion' };
+    stateService!.addInstance(createInstance({ status: 'busy', provider: 'codex', adapterGeneration: 1 }));
+    stateService!.messageQueue.set(new Map([['inst-1', [entry]]]));
+    vi.spyOn(TestBed.inject(QueuePersistenceService), 'promoteReadyHandoff').mockImplementation(async () => {
+      store!.parkQueueAfterInterrupt('inst-1');
+      return entry;
+    });
+    await store!.processReadyHandoff('inst-1', 'admission', 1);
+    expect(ipcMock.sendInput).not.toHaveBeenCalled();
+    expect(store!.getMessageQueue('inst-1')).toEqual([entry]);
+  });
+
+  it('preserves a rejected ready handoff with backoff instead of retrying on every busy update', async () => {
+    const entry: QueuedMessage = { message: 'preserve rejected handoff' };
+    stateService!.addInstance(createInstance({ status: 'busy', provider: 'codex', adapterGeneration: 1 }));
+    stateService!.messageQueue.set(new Map([['inst-1', [entry]]]));
+    vi.spyOn(TestBed.inject(QueuePersistenceService), 'promoteReadyHandoff').mockResolvedValue(entry);
+    ipcMock.sendInput.mockResolvedValue({ success: false, error: { message: 'Cannot send while compacting' } });
+    await store!.processReadyHandoff('inst-1', 'admission', 1);
+    expect(store!.getMessageQueue('inst-1')[0]).toMatchObject({ message: entry.message, retryCount: 1 });
+    for (let index = 0; index < 10; index++) store!.processMessageQueue('inst-1');
+    await vi.advanceTimersByTimeAsync(250);
+    expect(ipcMock.sendInput).toHaveBeenCalledTimes(1);
+  });
+
   it('restores the text to the draft when waking a hibernated session fails', async () => {
     const currentStore = store!;
     const currentStateService = stateService!;
@@ -936,6 +1028,8 @@ describe('InstanceMessagingStore — durable queue wiring (WS-A1 Phase B)', () =
     notifyCancelled: vi.fn(),
     notifyPromoting: vi.fn().mockResolvedValue(true),
     rebindEntry: vi.fn(),
+    getAdmissionId: vi.fn(() => undefined as string | undefined),
+    finishSend: vi.fn(),
   };
 
   beforeEach(() => {
@@ -957,6 +1051,8 @@ describe('InstanceMessagingStore — durable queue wiring (WS-A1 Phase B)', () =
     queuePersistenceMock.notifyPromoting.mockReset();
     queuePersistenceMock.notifyPromoting.mockResolvedValue(true);
     queuePersistenceMock.rebindEntry.mockReset();
+    queuePersistenceMock.getAdmissionId.mockReset();
+    queuePersistenceMock.finishSend.mockReset();
 
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
@@ -1018,6 +1114,17 @@ describe('InstanceMessagingStore — durable queue wiring (WS-A1 Phase B)', () =
     const sendOrder = ipcMock.sendInput.mock.invocationCallOrder[0];
     expect(promoteOrder).toBeLessThan(sendOrder);
     expect(queuePersistenceMock.notifyCancelled).not.toHaveBeenCalled();
+  });
+
+  it('passes the original admission identity once despite concurrent drain timers', async () => {
+    stateService!.addInstance(createInstance({ status: 'idle' }));
+    const entry: QueuedMessage = { message: 'send original once' };
+    stateService!.messageQueue.set(new Map([['inst-1', [entry]]]));
+    queuePersistenceMock.getAdmissionId.mockReturnValueOnce('original-admission');
+    store!.processMessageQueue('inst-1'); store!.processMessageQueue('inst-1');
+    await vi.advanceTimersByTimeAsync(150);
+    expect(ipcMock.sendInput).toHaveBeenCalledExactlyOnceWith('inst-1', entry.message, undefined, false, true, 'original-admission');
+    expect(queuePersistenceMock.finishSend).toHaveBeenCalledExactlyOnceWith('inst-1', entry, true);
   });
 
   it('a failed durable promote leaves the message visibly queued instead of sending anyway (Finding 2)', async () => {

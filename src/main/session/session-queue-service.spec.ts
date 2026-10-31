@@ -27,7 +27,9 @@ vi.mock('./content-store', () => {
   };
 });
 
-import { SessionAdmissionStore } from './session-admission-store';
+import { SessionAdmissionStore, STALE_PROMOTION_RECLAIM_MS } from './session-admission-store';
+import { createInstanceInputReceipt } from '../instance/instance-adapter-input-dispatch';
+import { _resetSessionAdmissionServiceForTesting } from './session-admission-service';
 import { SessionQueueService, _resetSessionQueueServiceForTesting, getSessionQueueService } from './session-queue-service';
 
 describe('SessionQueueService', () => {
@@ -35,6 +37,7 @@ describe('SessionQueueService', () => {
     testDb = new Database(':memory:') as unknown as SqliteDriver;
     SessionAdmissionStore._resetForTesting();
     _resetSessionQueueServiceForTesting();
+    _resetSessionAdmissionServiceForTesting();
   });
 
   it('enqueueUserMessage is durable before ack: the row exists (queued) once the promise resolves', async () => {
@@ -48,6 +51,20 @@ describe('SessionQueueService', () => {
     const row = store.get(admissionId);
     expect(row?.state).toBe('queued');
     expect(row?.message).toBe('hello');
+  });
+
+  it('offers only an unclaimed fresh passive queue head for a retained-busy handoff', async () => {
+    const service = getSessionQueueService();
+    const first = await service.enqueueUserMessage({ instanceId: 'i1', message: 'first' });
+    await service.enqueueUserMessage({ instanceId: 'i1', message: 'second' });
+    expect(service.getReadyHandoffId('i1')).toBe(first.admissionId);
+    await service.promoteQueuedMessage(first.admissionId);
+    expect(service.getReadyHandoffId('i1')).toBeUndefined();
+    await service.enqueueUserMessage({ instanceId: 'retry', message: 'backoff', sourceMetadata: { retryCount: 1 } });
+    await service.enqueueUserMessage({ instanceId: 'steer', message: 'steer', sourceMetadata: { kind: 'steer' } });
+    expect(service.getReadyHandoffId('retry')).toBeUndefined();
+    expect(service.getReadyHandoffId('steer')).toBeUndefined();
+    expect(service.getReadyHandoffId('missing')).toBeUndefined();
   });
 
   it('enqueueUserMessage stages attachments durably and listQueue resolves them back', async () => {
@@ -137,6 +154,50 @@ describe('SessionQueueService', () => {
 
     const second = await service.promoteQueuedMessage(admissionId);
     expect(second).toBeNull();
+  });
+
+  it('recovers an unsent promotion through the live list/promote path after renderer reload', async () => {
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    try {
+      const service = getSessionQueueService();
+      const { admissionId } = await service.enqueueUserMessage({ instanceId: 'i1', message: 'unsent original' });
+      await service.promoteQueuedMessage(admissionId);
+      // Main keeps running; a new renderer restores this head without local ownership.
+      const restored = (await service.listQueue('i1'))['i1'][0];
+      expect(restored).toMatchObject({ admissionId, state: 'promoting' });
+      expect(await service.promoteQueuedMessage(restored.admissionId)).toBeNull();
+      now += STALE_PROMOTION_RECLAIM_MS;
+      expect(await service.promoteQueuedMessage(restored.admissionId)).toBeNull();
+      now++;
+      expect(await service.promoteQueuedMessage(restored.admissionId)).toMatchObject({ admissionId, state: 'promoting', updatedAt: now });
+      expect(await service.promoteQueuedMessage(restored.admissionId)).toBeNull();
+      const receipt = createInstanceInputReceipt('i1', () => ({ message: 'enriched unsent original' }), admissionId);
+      receipt.record();
+      now += STALE_PROMOTION_RECLAIM_MS + 1;
+      expect(await service.promoteQueuedMessage(admissionId)).toBeNull();
+      receipt.delivered();
+      expect(await service.listQueue('i1')).toEqual({});
+      now += STALE_PROMOTION_RECLAIM_MS + 1;
+      expect(await service.promoteQueuedMessage(admissionId)).toBeNull();
+      expect(SessionAdmissionStore.getInstance(testDb).list({ instanceId: 'i1' })).toHaveLength(1);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it('does not reclaim cancelled or non-user promotions through the live service', async () => {
+    const service = getSessionQueueService();
+    const { admissionId } = await service.enqueueUserMessage({ instanceId: 'i1', message: 'cancel me' });
+    await service.promoteQueuedMessage(admissionId);
+    service.cancelQueuedMessage(admissionId);
+    const store = SessionAdmissionStore.getInstance(testDb);
+    store.create({ admissionId: 'automated-promoting', instanceId: 'i1', message: 'background', origin: 'automation', state: 'promoting' });
+    testDb.prepare('UPDATE prompt_admissions SET updated_at = ?').run(Date.now() - STALE_PROMOTION_RECLAIM_MS - 1);
+    expect(await service.promoteQueuedMessage(admissionId)).toBeNull();
+    expect(await service.promoteQueuedMessage('automated-promoting')).toBeNull();
+    expect(store.get(admissionId)?.state).toBe('cancelled');
+    expect(store.get('automated-promoting')?.state).toBe('promoting');
   });
 
   it('promoteQueuedMessage on an unknown admissionId returns null', async () => {

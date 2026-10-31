@@ -38,6 +38,7 @@ import { InstanceStatusReconcilerService } from './instance-status-reconciler.se
 import { QueuePersistenceService } from './queue-persistence.service';
 import { createQueuePark } from './instance-queue-park';
 import { QueueRetryTimers } from './instance-queue-retry-timers';
+import { createReadyInputHandoff } from './instance-ready-input-handoff';
 // Max transient-failure retries before dropping a queued message. Sized so the
 // cumulative wait exceeds one large-context restart (resume failure → replay).
 // LT-652: a provider-compaction rejection uses its own larger budget in
@@ -56,6 +57,8 @@ export class InstanceMessagingStore {
   /** B7 — queues held back after a user-initiated Stop. Signal-backed, so the
    *  composer's parked banner updates without another change-detection trigger. */
   private readonly queuePark = createQueuePark();
+  readonly processReadyHandoff = createReadyInputHandoff(
+    this.stateService, this.pauseStore, this.globalPause, this.queuePark, this.queuePersistence, this);
   private queueWatchdog: ReturnType<typeof setInterval> | null = null;
   private interruptRequests = new Map<string, number>();
   private terminalRestartRequests = new Set<string>();
@@ -456,6 +459,7 @@ export class InstanceMessagingStore {
         steerMessage.files,
         steerMessage.retryCount ?? 0,
         {
+          queuedEntry: steerMessage,
           skipUserBubble: steerMessage.seededAlready === true,
           queuedMetadata: pickQueuedMetadata(steerMessage),
         }
@@ -521,15 +525,14 @@ export class InstanceMessagingStore {
     const previousStatus = target.instance.status;
 
     if (this.pauseStore.isPaused() || (automatedInput && this.globalPause.holdsAutomaticInput(targetInstanceId))) {
-      this.enqueueMessageFront(targetInstanceId, {
+      this.enqueueMessageFront(targetInstanceId, Object.assign(options.queuedEntry ?? {}, {
         message,
         files,
         retryCount,
-        // LT-652 (gate finding 3): keep the gate when a send that reached here
-        // is re-queued by losing a race to Pause.
+        // Preserve backoff when Pause wins before dispatch.
         retryAfterAt: options.retryAfterAt,
         ...createQueuedMetadata(options),
-      });
+      }));
       return;
     }
 
@@ -550,6 +553,7 @@ export class InstanceMessagingStore {
       });
     }
 
+    const queuedAdmissionId = options.queuedEntry ? this.queuePersistence.getAdmissionId(options.queuedEntry) : undefined;
     this.statusReconciler.noteSendStarted(targetInstanceId);
     let result: IpcResponse;
     try {
@@ -559,7 +563,7 @@ export class InstanceMessagingStore {
           message,
           attachments,
           retryCount > 0 || options.skipUserBubble === true,
-          ...(automatedInput ? [true] as const : [] as const)
+          ...(queuedAdmissionId ? [automatedInput, queuedAdmissionId] : automatedInput ? [true] : []) as [boolean?, string?]
         ),
         getSendInputTimeoutMs(target.instance.provider)
       );
@@ -567,7 +571,7 @@ export class InstanceMessagingStore {
       this.statusReconciler.noteSendSettled(targetInstanceId);
     }
 
-    // If send failed, decide whether to retry or drop
+    if (options.queuedEntry) this.queuePersistence.finishSend(targetInstanceId, options.queuedEntry, result.success);
     if (!result.success) {
       console.error('InstanceMessagingStore: sendInput failed', result.error);
 
@@ -704,6 +708,7 @@ export class InstanceMessagingStore {
     if (!removeQueuedEntry(this.stateService, instanceId, nextMessage)) return; // already gone (cancelled/sent elsewhere)
 
     await this.sendInputImmediate(instanceId, nextMessage.message, nextMessage.files, nextMessage.retryCount ?? 0, {
+      queuedEntry: nextMessage,
       skipUserBubble: nextMessage.seededAlready === true,
       queuedMetadata: pickQueuedMetadata(nextMessage),
       retryAfterAt: nextMessage.retryAfterAt,

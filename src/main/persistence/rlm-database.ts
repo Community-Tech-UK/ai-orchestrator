@@ -37,6 +37,7 @@ import { SCHEMA_VERSION, type RLMDatabaseConfig } from './rlm/rlm-types';
 import {
   createTables,
   createMigrationsTable,
+  enableRlmWal,
   runMigrations,
   getSchemaInfo
 } from './rlm/rlm-schema';
@@ -136,20 +137,25 @@ export class RLMDatabase extends EventEmitter {
   private initializeDatabase(): SqliteDriver {
     const db = defaultDriverFactory(this.config.dbPath!);
 
-    if (this.config.enableWAL) {
-      db.pragma('journal_mode = WAL');
-    }
-    db.pragma(`cache_size = -${this.config.cacheSize! * 1024}`);
-    db.pragma('foreign_keys = ON');
-    db.pragma('busy_timeout = 5000');
+    try {
+      db.pragma('busy_timeout = 5000');
+      if (this.config.enableWAL) {
+        enableRlmWal(db);
+      }
+      db.pragma(`cache_size = -${this.config.cacheSize! * 1024}`);
+      db.pragma('foreign_keys = ON');
 
-    createTables(db);
-    createMigrationsTable(db);
-    runMigrations(
-      db,
-      (name) => this.emit('migration:applied', { name }),
-      (applied) => this.emit('migrations:complete', { applied })
-    );
+      createTables(db);
+      createMigrationsTable(db);
+      runMigrations(
+        db,
+        (name) => this.emit('migration:applied', { name }),
+        (applied) => this.emit('migrations:complete', { applied })
+      );
+    } catch (error) {
+      db.close();
+      throw error;
+    }
     this.emit('database:initialized', { path: this.config.dbPath });
     return db;
   }

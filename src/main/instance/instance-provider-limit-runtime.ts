@@ -4,6 +4,8 @@ import { getInstanceProviderLimitHandler } from './instance-provider-limit-handl
 import { currentAccountProfileId } from '../providers/account-pool/account-failover-coordinator';
 import { detectErrorProviderLimit, readAdapterRateLimitTelemetry } from './instance-provider-limit-detection';
 import { getLogger } from '../logging/logger';
+import { assertGlobalPauseInputCurrent, runWithGlobalPauseInput } from '../global-pause/global-pause-input';
+import type { InstanceSendInputOptions } from './instance-input-cancellation';
 import { globalPauseHoldsAutomaticInput } from '../global-pause/global-pause-service';
 
 const logger = getLogger('InstanceProviderLimitRuntime');
@@ -87,19 +89,28 @@ function holdRejected(instance: Instance, adapter: unknown, error: Error): boole
 }
 
 /**
- * Pre-send hold for a queued orchestration response. Fails open, like the
- * admission check: an unreadable limit state must not fail a response that
- * may well be deliverable.
+ * Queued input keeps its durable admission while the session is parked or
+ * moving accounts. The handler receives no queued prompt to resend. An
+ * unreadable limit state fails open, matching queued orchestration delivery.
  */
-export function holdQueuedOrchestrationResponse(instanceId: string): boolean {
+export function holdQueuedInstanceInput(instanceId: string): boolean {
   if (globalPauseHoldsAutomaticInput(instanceId)) return true;
   try {
     return getInstanceProviderLimitHandler().holdAutomatedTurn(instanceId);
   } catch (checkError) {
-    logger.warn('Could not check a queued orchestration response against provider limits; sending it', {
+    logger.warn('Could not check queued input against provider limits; sending it', {
       instanceId,
       error: checkError instanceof Error ? checkError.message : String(checkError),
     });
     return false;
   }
+}
+
+
+/** Queued prompts wait in their durable queue instead of joining another turn's resender. */
+export async function assertQueuedInputProviderReady(instanceId: string, options: InstanceSendInputOptions): Promise<void> {
+  await runWithGlobalPauseInput(instanceId, options, async () => {
+    assertGlobalPauseInputCurrent(instanceId, options);
+    if (holdQueuedInstanceInput(instanceId)) throw new Error('Queued input is waiting for the provider limit to clear');
+  });
 }

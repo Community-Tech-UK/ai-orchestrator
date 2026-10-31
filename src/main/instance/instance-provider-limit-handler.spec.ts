@@ -5,7 +5,7 @@ import { LoopAccountFailover } from '../providers/account-pool/loop-account-fail
 import { defaultLoopConfig, type LoopState } from '../../shared/types/loop.types';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { ProviderLimitLedger, createProviderLimitLedgerSchema } from '../core/system/provider-limit-ledger';
-import { createProviderLimitCommunicationCallbacks } from './instance-provider-limit-runtime';
+import { createProviderLimitCommunicationCallbacks, holdQueuedInstanceInput } from './instance-provider-limit-runtime';
 import { shouldSkipKnownProviderLimitDispatch } from './instance-communication-provider-limit';
 import type { Instance } from '../../shared/types/instance.types';
 import { getInstanceProviderLimitHandler, _resetInstanceProviderLimitHandlerForTesting } from './instance-provider-limit-handler';
@@ -1099,5 +1099,75 @@ describe('regular OpenCode and MiMo durable scope isolation', () => {
       expect(h.ledger.getActive({ provider: 'opencode', model: null, accountProfileId: 'legacy' })).toMatchObject({ model: null });
       expect(h.ledger.getActive({ provider: 'opencode', model: 'opencode/big-pickle', includeAccountWideFallback: false })).toBeNull();
     } finally { h.cleanup(); }
+  });
+});
+
+
+describe('durable queued input provider-limit ownership', () => {
+  function setup() {
+    _resetInstanceProviderLimitHandlerForTesting();
+    const db = new Database(':memory:') as unknown as SqliteDriver;
+    createProviderLimitLedgerSchema(db);
+    const ledger = new ProviderLimitLedger(db);
+    const failover: NonNullable<InstanceProviderLimitHandlerDeps['accountFailover']> = {
+      plan: vi.fn(() => ({ kind: 'none' as const, reason: 'no-candidate' as const })),
+      perform: vi.fn(async () => ({ outcome: 'switched' as const, toProfileId: 'profile-b', continuity: 'native-resume' as const })),
+      offer: vi.fn(), shouldSwitchPreemptively: vi.fn(() => true), release: vi.fn(), observeInput: vi.fn(),
+    };
+    const h = makeHarness({ providerLimitLedger: ledger, accountFailover: failover,
+      getProviderModel: () => ({ provider: 'claude', model: null, accountProfileId: 'profile-a' }) });
+    const handler = getInstanceProviderLimitHandler();
+    handler.configure((h.handler as unknown as { deps: InstanceProviderLimitHandlerDeps }).deps);
+    const recordLimit = () => ledger.record({ provider: 'claude', model: null, accountProfileId: 'profile-a',
+      detectedAt: Date.now(), resumeAt: Date.now() + 600_000, source: 'test limit', instanceId: null });
+    const cleanup = () => { _resetInstanceProviderLimitHandlerForTesting(); h.handler._resetForTesting(); db.close(); };
+    return { handler, ledger, h, failover, recordLimit, cleanup };
+  }
+
+  it('parks with no queued prompt to replay and preserves an already parked turn', () => {
+    const fixture = setup();
+    try {
+      fixture.recordLimit();
+      expect(holdQueuedInstanceInput('queued-session')).toBe(true);
+      expect(fixture.h.waitReasons.get('queued-session')?.kind).toBe('quota-park');
+      expect(holdQueuedInstanceInput('queued-session')).toBe(true);
+      expect(fixture.h.scheduleCalls).toBe(1);
+      fixture.handler.resumeNow('queued-session');
+      expect(fixture.h.resends).toEqual([{ instanceId: 'queued-session', prompt: buildProviderLimitContinuationTurn() }]);
+      expect(holdQueuedInstanceInput('queued-session')).toBe(false);
+      expect(fixture.failover.shouldSwitchPreemptively).not.toHaveBeenCalled();
+      expect(fixture.failover.observeInput).not.toHaveBeenCalled();
+    } finally { fixture.cleanup(); }
+  });
+
+  it('does not overwrite another parked prompt with a queued input', () => {
+    const fixture = setup();
+    try {
+      fixture.handler.maybePark({ instanceId: 'queued-session', provider: 'claude', model: null, accountProfileId: 'profile-a',
+        reason: 'existing turn limited', resetAtHint: Date.now() + 600_000, resumePrompt: 'previous owned turn' });
+      expect(holdQueuedInstanceInput('queued-session')).toBe(true);
+      fixture.handler.resumeNow('queued-session');
+      expect(fixture.h.resends).toEqual([{ instanceId: 'queued-session', prompt: 'previous owned turn' }]);
+    } finally { fixture.cleanup(); }
+  });
+
+  it('keeps fresh and existing account-switch handoffs free of the queued prompt', async () => {
+    const fixture = setup();
+    let finish!: () => void;
+    vi.mocked(fixture.failover.plan).mockReturnValue({ kind: 'switch' });
+    vi.mocked(fixture.failover.perform).mockImplementation(() => new Promise(resolve => {
+      finish = () => resolve({ outcome: 'switched', toProfileId: 'profile-b', continuity: 'native-resume' });
+    }));
+    try {
+      fixture.recordLimit();
+      expect(holdQueuedInstanceInput('queued-session')).toBe(true);
+      expect(holdQueuedInstanceInput('queued-session')).toBe(true);
+      await Promise.resolve();
+      expect(fixture.failover.perform).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ resumePrompt: null }));
+      expect(fixture.h.resends).toEqual([]);
+      expect(fixture.failover.shouldSwitchPreemptively).not.toHaveBeenCalled();
+      finish();
+      await Promise.resolve();
+    } finally { fixture.cleanup(); }
   });
 });

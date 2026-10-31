@@ -54,8 +54,15 @@ export function getRetryDisposition(
   errorMessage: string,
 ): SendRetryDisposition {
   const normalized = errorMessage.toLowerCase();
+  if (normalized.includes('queued message is no longer available for delivery')) {
+    return { shouldRetry: false };
+  }
   if (normalized.includes('send input timed out')) {
     return { shouldRetry: false, nextStatus: 'idle' };
+  }
+
+  if (normalized.includes('queued input is waiting for the provider limit')) {
+    return { shouldRetry: true, nextStatus: 'busy' };
   }
 
   if (isProviderCompactingRejection(errorMessage)) {

@@ -76,8 +76,8 @@ export class CodexCliAdapter extends CodexAppServerTurnAdapter {
   }
 
   /**
-   * Codex owns an in-flight app-server turn's liveness through its 15-minute
-   * no-notification watchdog. Exec fallback keeps the generic silence clock.
+   * Codex owns an in-flight app-server turn's liveness through its bounded
+   * notification watchdog. Exec fallback keeps the generic silence clock.
    */
   hasActiveTurn(): boolean {
     return this.useAppServer && this.appServerRuntime.hasActiveTurn();
@@ -131,6 +131,9 @@ export class CodexCliAdapter extends CodexAppServerTurnAdapter {
    * Item boundaries are not liveness boundaries because Codex may reason
    * silently for minutes before emitting its next notification. */
   protected override resolveNotificationIdleTimeoutMs(turnEstablished: boolean): number {
+    if (this.contextCostController.runningCompactionTurnId() !== null) {
+      return this.capByDeadline(CODEX_TIMEOUTS.COMPACTION_RUNNING_MS);
+    }
     const base = turnEstablished
       ? CODEX_TIMEOUTS.NOTIFICATION_IDLE_ACTIVE_MS
       : CODEX_TIMEOUTS.NOTIFICATION_IDLE_MS;

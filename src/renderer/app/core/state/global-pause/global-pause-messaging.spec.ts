@@ -21,7 +21,7 @@ describe('restart pause message delivery', () => {
     TestBed.configureTestingModule({ providers: [
       { provide: IpcFacadeService, useValue: { sendInput, listInstances: vi.fn(async () => ({ success: true, data: [] })) } },
       { provide: InstanceListStore, useValue: {} },
-      { provide: QueuePersistenceService, useValue: { notifyPromoting: promote, notifyEnqueued: vi.fn(), notifyCancelled: vi.fn() } },
+      { provide: QueuePersistenceService, useValue: { notifyPromoting: promote, notifyEnqueued: vi.fn(), notifyCancelled: vi.fn(), getAdmissionId: vi.fn(), finishSend: vi.fn() } },
       { provide: GlobalPauseStore, useValue: { state: signal({ entries: [] }), holdsAutomaticInput: () => held(), pickUp } },
     ] });
     state = TestBed.inject(InstanceStateService);

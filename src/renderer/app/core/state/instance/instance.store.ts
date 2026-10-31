@@ -410,6 +410,9 @@ export class InstanceStore implements OnDestroy {
     }
 
     // Process queued messages AFTER state is updated
+    if (newStatus === 'busy' && update.queuedInputReadyId) {
+      void this.messagingStore.processReadyHandoff(update.instanceId, update.queuedInputReadyId, update.adapterGeneration);
+    }
     if (isReadyForInputStatus(newStatus)) {
       this.messagingStore.processMessageQueue(update.instanceId);
     }
@@ -536,6 +539,9 @@ export class InstanceStore implements OnDestroy {
       }
 
       // Process queued messages
+      if (newStatus === 'busy' && update.queuedInputReadyId) {
+        void this.messagingStore.processReadyHandoff(update.instanceId, update.queuedInputReadyId, update.adapterGeneration);
+      }
       if (isReadyForInputStatus(newStatus)) {
         this.messagingStore.processMessageQueue(update.instanceId);
       }

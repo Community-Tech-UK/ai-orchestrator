@@ -187,10 +187,11 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     if (!rootThreadId || notification.params['threadId'] !== rootThreadId) return;
     const turnId = (notification.params['turn'] as { id?: unknown } | undefined)?.id;
     if (typeof turnId !== 'string') return;
-    if (this.appServerRuntime.hasActiveTurn() || this.contextCostController.isCompactTurnExpected()) {
-      if (this.appServerRuntime.hasActiveTurn() && !this.contextCostController.isCompactTurnExpected()) {
-        this.pendingProviderFollow = notification;
-      }
+    if (this.contextCostController.isCompactTurnExpected()) return;
+    if (this.appServerRuntime.hasActiveTurn()) {
+      const activeTurnId = this.appServerRuntime.getCurrentTurnId();
+      // The current capture adopts its first turn/started, including before turn/start replies.
+      if (activeTurnId !== null && activeTurnId !== turnId) this.pendingProviderFollow = notification;
       return;
     }
     const capture = this.appServerRuntime.captureProviderTurn(turnId, this.turnCaptureCallbacks(), notification);

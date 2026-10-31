@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { EventEmitter } from 'node:events';
+import { GlobalPauseService } from '../global-pause/global-pause-service';
 import type { Instance } from '../../shared/types/instance.types';
 
 const handler = vi.hoisted(() => ({
@@ -11,7 +13,7 @@ vi.mock('../logging/logger', () => ({
 }));
 
 import { createCodexUsageLimitError } from '../cli/adapters/codex/app-server-runtime-errors';
-import { holdQueuedOrchestrationResponse, holdRejectedOrchestrationResponse } from './instance-provider-limit-runtime';
+import { holdQueuedInstanceInput, holdRejectedOrchestrationResponse, assertQueuedInputProviderReady } from './instance-provider-limit-runtime';
 
 const parent = { id: 'parent-1', provider: 'codex', currentModel: 'gpt-6.1-sol', accountProfileId: 'comtech' } as unknown as Instance;
 
@@ -61,15 +63,34 @@ describe('holdRejectedOrchestrationResponse', () => {
   });
 });
 
-describe('holdQueuedOrchestrationResponse', () => {
+describe('holdQueuedInstanceInput', () => {
   it('holds while the handler says the session is limited, parked or switching', () => {
     handler.holdAutomatedTurn.mockReturnValue(true);
-    expect(holdQueuedOrchestrationResponse('parent-1')).toBe(true);
+    expect(holdQueuedInstanceInput('parent-1')).toBe(true);
     expect(handler.holdAutomatedTurn).toHaveBeenCalledWith('parent-1');
   });
 
   it('fails open when the limit check throws', () => {
     handler.holdAutomatedTurn.mockImplementation(() => { throw new Error('ledger closed'); });
-    expect(holdQueuedOrchestrationResponse('parent-1')).toBe(false);
+    expect(holdQueuedInstanceInput('parent-1')).toBe(false);
   });
+});
+
+
+it('waits through a late global Pause instead of reporting a provider-limit refusal', async () => {
+  let held = true;
+  const pause = Object.assign(new EventEmitter(), { holdsAutomaticInput: () => held, manualInput: vi.fn() });
+  const peek = vi.spyOn(GlobalPauseService, 'peek').mockReturnValue(pause as unknown as GlobalPauseService);
+  try {
+    let settled = false;
+    const checking = assertQueuedInputProviderReady('parent-1', { queuedAdmissionId: 'queued-row', automatedInput: true })
+      .then(() => { settled = true; return null; }, error => { settled = true; return error; });
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(settled).toBe(false);
+    expect(handler.holdAutomatedTurn).not.toHaveBeenCalled();
+    held = false; pause.emit('state-changed');
+    expect(await checking).toBeNull();
+    expect(handler.holdAutomatedTurn).toHaveBeenCalledExactlyOnceWith('parent-1');
+    expect(pause.manualInput).not.toHaveBeenCalled();
+  } finally { peek.mockRestore(); }
 });

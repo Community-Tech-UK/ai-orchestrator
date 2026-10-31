@@ -18,6 +18,29 @@ class AdvertisedAttachmentCopilot extends CopilotCliAdapter {
   override getCapabilities() { return { ...super.getCapabilities(), vision: true, fileAccess: true }; }
 }
 describe('actual attachment fallback native boundary', () => {
+  it('claims and terminalizes attachment-only queued input before its unsupported warning, without a provider write', async () => {
+    receipts.record.mockClear(); receipts.delivered.mockClear(); receipts.failed.mockClear();
+    const adapter = new AdvertisedAttachmentCopilot({ accountProfileId: 'disposable-profile' });
+    Object.assign(adapter, { isSpawned: true });
+    const instance = { id: 'queued-attachment-only', provider: 'copilot', status: 'idle', sessionId: 'attachment-session',
+      adapterGeneration: 1, requestCount: 3, lastActivity: 0, outputBuffer: [] } as unknown as Instance;
+    const spawn = vi.fn();
+    (adapter as unknown as { spawnProcess: typeof spawn }).spawnProcess = spawn;
+    const manager = new InstanceCommunicationManager({ getInstance: () => instance, getAdapter: () => adapter as unknown as CliAdapter,
+      setAdapter: () => undefined, deleteAdapter: () => false, queueUpdate: () => undefined,
+      processOrchestrationOutput: () => undefined, onInterruptedExit: async () => undefined,
+      ingestToRLM: () => undefined, ingestToUnifiedMemory: () => undefined });
+    const warning = vi.fn(() => { expect(receipts.record).toHaveBeenCalledOnce(); expect(receipts.failed).toHaveBeenCalledOnce(); });
+    manager.on('output', warning);
+    await manager.sendInput(instance.id, '', [{ name: 'queued.png', type: 'image/png', size: 1, data: 'eA==' }], undefined,
+      { queuedAdmissionId: 'queued-attachment-admission' });
+    expect(spawn).not.toHaveBeenCalled();
+    expect(warning).toHaveBeenCalled();
+    expect(receipts.record).toHaveBeenCalledExactlyOnceWith(instance.id, '', expect.any(Array), undefined, 'queued-attachment-admission');
+    expect(receipts.failed).toHaveBeenCalledWith('disposable-attachment-admission', expect.stringContaining('attachment'));
+    expect(receipts.delivered).not.toHaveBeenCalled();
+  });
+
   it.each(['success', 'stop', 'new-input', 'auto-stop', 'auto-new-input'] as const)('retains one admission and receipt through %s', async mode => {
     receipts.record.mockClear(); receipts.delivered.mockClear(); receipts.failed.mockClear();
     const adapter = new AdvertisedAttachmentCopilot({ accountProfileId: 'disposable-profile' }); Object.assign(adapter, { isSpawned: true });

@@ -43,13 +43,6 @@ const logger = getLogger('SessionAdmissionService');
 /** Statuses a redelivery ready-edge listens for (mirrors mobile-input-queue's READY_STATUSES). */
 const READY_STATUSES = new Set<string>(['idle', 'ready', 'waiting_for_input']);
 
-/**
- * Window `recordUserSend()` searches for a matching `promoting` row (Phase B
- * durable queue handoff) before inserting a fresh audit row. Real promotions
- * are followed by `sendInput()` within milliseconds, so this only needs to
- * outlast normal IPC round-trip jitter.
- */
-const PROMOTED_SEND_MATCH_WINDOW_MS = 30_000;
 const MAX_COALESCED_MESSAGE_CHARS = 20_000;
 
 /** Origins for AUTOMATED writers routed through {@link admitAutomatedWrite}. */
@@ -431,28 +424,28 @@ export class SessionAdmissionService {
    * Returns `null` (instead of throwing) when persistence fails so the caller
    * doesn't need its own try/catch.
    *
-   * Dedupe with the Phase B durable queue: `instance-communication.ts` cannot
-   * be edited to thread an admissionId through from the renderer's promote
-   * call, so this matches on instanceId+message against a recent `promoting`
-   * row instead. A match means this send IS the promoted queued message —
-   * transition that row to `recorded` in place rather than inserting a
-   * second audit row for the same send.
+   * A queued send carries its explicit admission identity. Claiming that durable
+   * row is an authority check, so failure must reject dispatch rather than fall
+   * through to the fail-soft audit path for ordinary user submissions.
    */
   recordUserSend(
     instanceId: string,
     message: string,
     attachments?: FileAttachment[],
     contextBlock?: string | null,
+    queuedAdmissionId?: string,
   ): { admissionId: string } | null {
+    if (queuedAdmissionId) {
+      const store = this.getStore();
+      if (!store) throw new Error('Queued message storage is not ready');
+      if (!store.claimPromoting(instanceId, queuedAdmissionId)) {
+        throw new Error('Queued message is no longer available for delivery');
+      }
+      return { admissionId: queuedAdmissionId };
+    }
     try {
       const store = this.getStore();
       if (!store) return { admissionId: generateId() };
-
-      const promoted = store.findRecentPromoting(instanceId, message, PROMOTED_SEND_MATCH_WINDOW_MS);
-      if (promoted) {
-        store.updateState(promoted.admissionId, 'recorded');
-        return { admissionId: promoted.admissionId };
-      }
 
       const admissionId = generateId();
       store.create({

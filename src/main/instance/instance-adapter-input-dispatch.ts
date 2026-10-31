@@ -49,12 +49,15 @@ export function createInstanceAdapterInputDispatch(
 export function createInstanceInputReceipt(
   instanceId: string,
   getInput: () => { message: string; attachments?: FileAttachment[]; contextBlock?: string | null },
+  queuedAdmissionId?: string,
 ): { record: () => void; delivered: () => void; failed: (error: unknown) => void } {
   let admission: ReturnType<ReturnType<typeof getSessionAdmissionService>['recordUserSend']> = null;
   return {
     record: () => {
+      if (admission) return; // The same send may consume a preparation failure locally.
       const input = getInput();
-      admission = getSessionAdmissionService().recordUserSend(instanceId, input.message, input.attachments, input.contextBlock);
+      admission = getSessionAdmissionService().recordUserSend(instanceId, input.message, input.attachments, input.contextBlock,
+        ...(queuedAdmissionId ? [queuedAdmissionId] as const : [] as const));
     },
     delivered: () => { if (admission) getSessionAdmissionService().markDelivered(admission.admissionId); },
     failed: (error) => {

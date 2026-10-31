@@ -77,6 +77,8 @@ export interface InstanceCreatePayload {
 
 export interface InstanceStateUpdatePayload {
   instanceId: string;
+  /** Provider is ready for this queued admission while the session remains busy. */
+  queuedInputReadyId?: string;
   status: InstanceStatus;
   activityState?: ActivityState;
   contextUsage?: ContextUsage;
@@ -174,6 +176,7 @@ export interface InstanceSendInputPayload {
   instanceId: string;
   message: string;
   attachments?: FileAttachment[];
+  queuedAdmissionId?: string;
 }
 
 export interface InstanceTerminatePayload {

@@ -13,6 +13,7 @@ import type { AccountRouteSource } from '../../../../shared/types/provider-accou
 
 export interface StateUpdate {
   instanceId: string;
+  queuedInputReadyId?: string;
   /** Transient catalog invalidation; consumed by CommandStore, never persisted. */
   commandsChanged?: true;
   status?: string;
@@ -111,6 +112,7 @@ export class UpdateBatcherService {
     this.queue.set(update.instanceId, {
       ...existing,
       ...update,
+      queuedInputReadyId: update.queuedInputReadyId ?? existing?.queuedInputReadyId,
       // Preserve diffStats only when the new update doesn't carry them at all.
       diffStats: update.diffStats !== undefined ? update.diffStats : existing?.diffStats,
       // Preserve displayName if the new update doesn't carry it

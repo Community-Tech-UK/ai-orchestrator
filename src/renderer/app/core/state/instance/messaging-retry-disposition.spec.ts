@@ -15,6 +15,15 @@ describe('messaging-retry-disposition', () => {
     });
   });
 
+  it('never retries a rejected durable queue claim as a fresh message', () => {
+    expect(getRetryDisposition('idle', 'Queued message is no longer available for delivery')).toEqual({ shouldRetry: false });
+    expect(getRetryDisposition('idle', 'Queued message storage is not ready')).toEqual({ shouldRetry: true });
+  });
+
+  it('holds a queued provider-limit refusal for the next main-process ready edge', () => {
+    expect(getRetryDisposition('idle', 'Queued input is waiting for the provider limit to clear')).toEqual({ shouldRetry: true, nextStatus: 'busy' });
+  });
+
   it('retries an overlapping Codex turn as busy', () => {
     expect(getRetryDisposition('idle', 'previous turn is still running')).toEqual({
       shouldRetry: true,

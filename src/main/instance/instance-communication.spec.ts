@@ -105,6 +105,7 @@ import { getCacheAnalyticsService, CacheAnalyticsService } from '../context/cach
 import { getHandoffStateService, HandoffStateService } from '../session/handoff-state-service';
 import type { CliResponse } from '../cli/adapters/base-cli-adapter';
 import { ProviderAuthenticationError } from '../cli/adapters/provider-authentication-error';
+import { getInstanceProviderLimitHandler } from './instance-provider-limit-handler';
 
 const emitPluginHookMock = vi.mocked(emitPluginHook);
 
@@ -3326,6 +3327,27 @@ describe('SessionAdmissionService observability on the user send path (Phase A)'
     expect(admissionMocks.markFailed).not.toHaveBeenCalled();
   });
 
+  it('carries the durable queue identity while delivering the enriched provider prompt', async () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    await comm.sendInput(instance.id, 'original question', undefined, 'retrieved context', { queuedAdmissionId: 'queued-original' });
+    expect(adapter.sendInput).toHaveBeenCalledWith('retrieved context\n\noriginal question', undefined);
+    expect(admissionMocks.recordUserSend).toHaveBeenCalledWith(
+      instance.id, 'retrieved context\n\noriginal question', undefined, 'retrieved context', 'queued-original',
+    );
+    expect(admissionMocks.recordUserSend.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(adapter.sendInput).mock.invocationCallOrder[0]);
+  });
+
+  it('rejects provider dispatch if the durable queued admission can no longer be claimed', async () => {
+    admissionMocks.recordUserSend.mockImplementationOnce(() => { throw new Error('Queued message is no longer available for delivery'); });
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    await expect(comm.sendInput(instance.id, 'question', undefined, null, { queuedAdmissionId: 'cancelled-row' })).rejects.toThrow('no longer available');
+    expect(adapter.sendInput).not.toHaveBeenCalled();
+    expect(admissionMocks.markDelivered).not.toHaveBeenCalled();
+    expect(admissionMocks.markFailed).not.toHaveBeenCalled();
+  });
+
   it('marks the admission failed (without swallowing the original error) when the adapter send rejects', async () => {
     const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
     vi.mocked(adapter.sendInput).mockRejectedValue(new Error('adapter exploded'));
@@ -3654,6 +3676,39 @@ describe('provider-limit park on thrown sendInput errors', () => {
     });
 
     expect(manager.providerLimitGateForDirectTurn.holdBeforeSend(instance, 'run the daily workflow')).toBe(false);
+  });
+
+  it.each(['held', 'clear', 'unreadable'] as const)('keeps queued prompt ownership in admission when its provider limit is %s', async state => {
+    const adapter = new FakeAdapter('claude-cli');
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+    const hold = vi.spyOn(getInstanceProviderLimitHandler(), 'holdAutomatedTurn');
+    if (state === 'unreadable') hold.mockImplementation(() => { throw new Error('ledger unreadable'); });
+    else hold.mockReturnValue(state === 'held');
+    const checkKnownProviderLimitBeforeSend = vi.fn().mockReturnValue('parked');
+    const manager = new InstanceCommunicationManager({
+      getInstance: id => id === instance.id ? instance : undefined,
+      getAdapter: id => adapters.get(id), setAdapter: (id, next) => adapters.set(id, next),
+      deleteAdapter: id => adapters.delete(id), queueUpdate,
+      processOrchestrationOutput: vi.fn(), onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(), ingestToUnifiedMemory: vi.fn(), checkKnownProviderLimitBeforeSend,
+    });
+    admissionMocks.recordUserSend.mockReset().mockReturnValue({ admissionId: 'queued-limit-row' });
+    admissionMocks.markDelivered.mockClear();
+    try {
+      const sending = manager.sendInput(instance.id, 'new queued question', undefined, null, { queuedAdmissionId: 'queued-limit-row' });
+      if (state === 'held') {
+        await expect(sending).rejects.toThrow('Queued input is waiting for the provider limit');
+        expect(adapter.sendInput).not.toHaveBeenCalled();
+        expect(admissionMocks.recordUserSend).not.toHaveBeenCalled();
+        expect(admissionMocks.markDelivered).not.toHaveBeenCalled();
+      } else {
+        await sending;
+        expect(adapter.sendInput).toHaveBeenCalledOnce();
+        expect(admissionMocks.markDelivered).toHaveBeenCalledWith('queued-limit-row');
+      }
+      expect(hold).toHaveBeenCalledExactlyOnceWith(instance.id);
+      expect(checkKnownProviderLimitBeforeSend).not.toHaveBeenCalled();
+    } finally { hold.mockRestore(); }
   });
 
   it('does not dispatch a turn when the provider-limit preflight parks a known active gate', async () => {

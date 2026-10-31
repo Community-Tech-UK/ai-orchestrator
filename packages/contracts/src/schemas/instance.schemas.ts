@@ -270,6 +270,8 @@ export const InstanceSendInputPayloadSchema = z.object({
   isRetry: z.boolean().optional(),
   /** A queued user message being drained automatically, rather than a fresh submission. */
   automatedInput: z.boolean().optional(),
+  /** Explicit durable queue ownership; validated again at provider dispatch. */
+  queuedAdmissionId: z.string().min(1).max(200).optional(),
   /**
    * Optional stable key for at-most-once delivery (B2). A retried send carrying
    * the same key is recognised as a duplicate and skipped instead of dispatching

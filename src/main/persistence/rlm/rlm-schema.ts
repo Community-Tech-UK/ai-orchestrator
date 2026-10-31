@@ -44,6 +44,28 @@ export const MIGRATIONS: Migration[] = [
   ...RLM_MIGRATIONS_081_085,
 ];
 
+/** Enable WAL when main and the context worker open a fresh database together. */
+export function enableRlmWal(db: SqliteDriver): void {
+  // SQLite can reject simultaneous journal-mode changes immediately without
+  // invoking its busy handler. Retry only that expected contention, within the
+  // same five-second budget used by the connection's normal busy handler.
+  const deadline = performance.now() + 5_000;
+  const waitBuffer = new Int32Array(new SharedArrayBuffer(4));
+  while (true) {
+    try {
+      db.pragma('journal_mode = WAL');
+      return;
+    } catch (error) {
+      const remaining = deadline - performance.now();
+      if (typeof error !== 'object' || error === null || !('code' in error)
+          || error.code !== 'SQLITE_BUSY' || remaining <= 0) {
+        throw error;
+      }
+      Atomics.wait(waitBuffer, 0, 0, Math.min(25, remaining));
+    }
+  }
+}
+
 /**
  * Create all tables for the RLM database.
  * Uses better-sqlite3's exec method for SQL execution (not child_process).
@@ -283,32 +305,32 @@ export function runMigrations(
   onMigrationApplied?: (name: string) => void,
   onMigrationsComplete?: (applied: number) => void
 ): void {
-  const appliedMigrations = getAppliedMigrations(db);
-  const appliedNames = new Set(appliedMigrations.map(m => m.name));
+  // Main and the context worker can initialize the same fresh profile together.
+  // Acquire the writer lock before reading migration state so a waiting startup
+  // sees the other startup's committed migrations rather than a stale snapshot.
+  db.exec('BEGIN IMMEDIATE');
+  let appliedCount = 0;
+  try {
+    const appliedMigrations = getAppliedMigrations(db);
+    const appliedNames = new Set(appliedMigrations.map(m => m.name));
 
-  // Verify checksums of applied migrations haven't changed
-  for (const applied of appliedMigrations) {
-    const migration = MIGRATIONS.find(m => m.name === applied.name);
-    if (migration) {
-      const expectedChecksum = computeMigrationChecksum(migration);
-      if (applied.checksum !== expectedChecksum) {
-        throw new Error(
-          `Migration checksum mismatch for "${applied.name}". ` +
-          `Expected ${expectedChecksum}, got ${applied.checksum}. ` +
-          `Migration files should not be modified after being applied.`
-        );
+    // Verify checksums of applied migrations haven't changed
+    for (const applied of appliedMigrations) {
+      const migration = MIGRATIONS.find(m => m.name === applied.name);
+      if (migration) {
+        const expectedChecksum = computeMigrationChecksum(migration);
+        if (applied.checksum !== expectedChecksum) {
+          throw new Error(
+            `Migration checksum mismatch for "${applied.name}". ` +
+            `Expected ${expectedChecksum}, got ${applied.checksum}. ` +
+            `Migration files should not be modified after being applied.`
+          );
+        }
       }
     }
-  }
 
-  // Apply pending migrations in a transaction
-  const pendingMigrations = MIGRATIONS.filter(m => !appliedNames.has(m.name));
+    const pendingMigrations = MIGRATIONS.filter(m => !appliedNames.has(m.name));
 
-  if (pendingMigrations.length === 0) {
-    return;
-  }
-
-  const applyMigrations = db.transaction(() => {
     for (const migration of pendingMigrations) {
       try {
         db.exec(migration.up);
@@ -327,10 +349,14 @@ export function runMigrations(
         );
       }
     }
-  });
+    appliedCount = pendingMigrations.length;
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
 
-  applyMigrations();
-  onMigrationsComplete?.(pendingMigrations.length);
+  if (appliedCount > 0) onMigrationsComplete?.(appliedCount);
 }
 
 /**

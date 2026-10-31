@@ -132,6 +132,9 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
       case 'item/completed': {
         this.trackItemChildThreads(state, params);
         handleItemCompleted(this.itemNotificationHost(), state, params);
+        if (params['threadId'] === state.threadId && (params['item'] as ThreadItem | undefined)?.type === 'contextCompaction') {
+          this.scheduleInferredCompletion(state);
+        }
         break;
       }
 
@@ -523,6 +526,7 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
   private scheduleInferredCompletion(state: TurnCaptureState): void {
     if (state.completed || !state.finalAnswerSeen || state.steeredInputAccepted) return;
     if (state.activeSubagentTurns.size > 0 || state.pendingCollaborations.size > 0) return;
+    if (state.turnId && this.contextCostController.runningCompactionTurnId() === state.turnId) return;
 
     // Clear any existing timer
     if (state.completionTimer) {
@@ -530,6 +534,8 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
     }
 
     state.completionTimer = setTimeout(() => {
+      // Inline compaction can start after the final answer armed this timer.
+      if (state.turnId && this.contextCostController.runningCompactionTurnId() === state.turnId) return;
       if (!state.completed && !state.steeredInputAccepted) {
         logger.debug('Inferred turn completion after final answer + subagent drain');
         this.completeTurn(state, null);

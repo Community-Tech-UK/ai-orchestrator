@@ -4,6 +4,8 @@ import { validateAttachmentCount } from './instance-attachments';
 import type { InstanceStateService } from './instance-state.service';
 
 export interface SendInputImmediateOptions {
+  /** Original queued object retains its promotion ownership if Pause wins. */
+  queuedEntry?: QueuedMessage;
   skipUserBubble?: boolean;
   queuedMetadata?: Pick<QueuedMessage, 'kind' | 'hadAttachmentsDropped' | 'seededAlready'>;
   /**

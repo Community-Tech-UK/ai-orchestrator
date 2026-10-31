@@ -35,6 +35,7 @@ interface Harness {
   completions: string[];
   hasActiveTurn(): boolean;
   activeTurnOrigin(): string | null;
+  currentTurnId(): string | null;
 }
 
 /**
@@ -67,6 +68,7 @@ function createHarness(rpc: RpcHandler): Harness {
       attach(c: typeof client, binding: unknown, onNotification: (n: Notification) => void): void;
       hasActiveTurn(): boolean;
       getActiveTurnOrigin(): string | null;
+      getCurrentTurnId(): string | null;
     };
     handleIdleAppServerNotification(notification: Notification): void;
   };
@@ -97,6 +99,7 @@ function createHarness(rpc: RpcHandler): Harness {
     completions,
     hasActiveTurn: () => internals.appServerRuntime.hasActiveTurn(),
     activeTurnOrigin: () => internals.appServerRuntime.getActiveTurnOrigin(),
+    currentTurnId: () => internals.appServerRuntime.getCurrentTurnId(),
   };
 }
 
@@ -458,6 +461,39 @@ describe('CodexCliAdapter turns Codex starts by itself', () => {
     expect(h.completions).toEqual([]);
   });
 
+  it.each([true, false])('does not replay a completed Harness turn after raw compaction (notification before response: %s)', async (notificationFirst) => {
+    const h = createHarness((method) => {
+      if (method === 'turn/start') {
+        if (notificationFirst) h.emit('turn/started', { threadId: 'thread-1', turn: { id: 'user-turn', status: 'inProgress' } });
+        return { turn: { id: 'user-turn', status: 'inProgress' } };
+      }
+      if (method === 'thread/compact/start') {
+        h.emit('turn/started', { threadId: 'thread-1', turn: { id: 'compact-turn', status: 'inProgress' } });
+        h.emit('item/started', { threadId: 'thread-1', turnId: 'compact-turn', item: compactionItem });
+        h.emit('item/completed', { threadId: 'thread-1', turnId: 'compact-turn', item: compactionItem });
+        h.emit(...turnCompleted('compact-turn'));
+      }
+      return {};
+    });
+    try {
+      const send = h.adapter.sendInput('Read the entry.');
+      await vi.waitFor(() => expect(h.currentTurnId()).toBe('user-turn'));
+      if (!notificationFirst) h.emit('turn/started', { threadId: 'thread-1', turn: { id: 'user-turn', status: 'inProgress' } });
+      h.emit(...finalAnswer('user-turn', 'Read it.'));
+      h.emit(...turnCompleted('user-turn'));
+      await send;
+      expect(h.statuses.at(-1)).toBe('idle');
+
+      const { appServerClient } = h.adapter as unknown as { appServerClient: { request(method: string, params: Record<string, unknown>): Promise<unknown> } };
+      await appServerClient.request('thread/compact/start', { threadId: 'thread-1' });
+      await vi.waitFor(() => expect(h.hasActiveTurn()).toBe(false));
+      expect(h.statuses.at(-1)).toBe('idle');
+      expect(h.completions).toEqual(['Read it.', '']);
+    } finally {
+      await h.adapter.terminate(false);
+    }
+  });
+
   it('refuses to compact over a running provider turn, which Codex would replace', async () => {
     const h = createHarness(() => ({}));
     h.emit('turn/started', { threadId: 'thread-1', turn: { id: 'goal-turn', status: 'inProgress' } });
@@ -479,6 +515,62 @@ describe('CodexCliAdapter turns Codex starts by itself', () => {
     h.emit(...finalAnswer('goal-turn', 'Continued after compacting.'));
     h.emit(...turnCompleted('goal-turn'));
     await vi.waitFor(() => expect(h.completions).toEqual(['Continued after compacting.']));
+  });
+
+  it.each([true, false])('keeps a final answer busy through inline compaction (compaction starts first: %s)', async (compactionFirst) => {
+    const h = createHarness(() => ({}));
+    vi.useFakeTimers();
+    try {
+      h.emit('turn/started', { threadId: 'thread-1', turn: { id: 'goal-turn', status: 'inProgress' } });
+      if (compactionFirst) h.emit('item/started', { threadId: 'thread-1', turnId: 'goal-turn', item: compactionItem });
+      h.emit(...finalAnswer('goal-turn', 'Finished the work.'));
+      if (!compactionFirst) {
+        await vi.advanceTimersByTimeAsync(100);
+        h.emit('item/started', { threadId: 'thread-1', turnId: 'goal-turn', item: compactionItem });
+      }
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(h.hasActiveTurn()).toBe(true);
+      expect(h.statuses).not.toContain('idle');
+      expect(h.completions).toEqual([]);
+      expect(h.adapter.isProviderCompacting()).toBe(false);
+
+      h.emit('item/completed', { threadId: 'thread-1', turnId: 'goal-turn', item: compactionItem });
+      await vi.advanceTimersByTimeAsync(300);
+      expect(h.hasActiveTurn()).toBe(false);
+      expect(h.completions).toEqual(['Finished the work.']);
+      expect(h.statuses.at(-1)).toBe('idle');
+      h.emit(...turnCompleted('goal-turn'));
+      expect(h.completions).toEqual(['Finished the work.']);
+    } finally {
+      await h.adapter.terminate(false);
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(['completed', 'interrupted'])('honours a Harness turn %s while inline compaction is active', async (status) => {
+    const h = createHarness((method) => method === 'turn/start' ? { turn: { id: 'user-turn', status: 'inProgress' } } : {});
+    const send = h.adapter.sendInput('Read the entry.');
+    await vi.waitFor(() => expect(h.currentTurnId()).toBe('user-turn'));
+    vi.useFakeTimers();
+    try {
+      h.emit(...finalAnswer('user-turn', 'Finished the work.'));
+      h.emit('item/started', { threadId: 'thread-1', turnId: 'user-turn', item: compactionItem });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(h.hasActiveTurn()).toBe(true);
+      expect(h.statuses.at(-1)).toBe('busy');
+      expect(h.completions).toEqual([]);
+      expect(h.adapter.isProviderCompacting()).toBe(false);
+
+      h.emit(...turnCompleted('user-turn', status));
+      await send;
+      await vi.advanceTimersByTimeAsync(300);
+      expect(h.hasActiveTurn()).toBe(false);
+      expect(h.statuses.at(-1)).toBe('idle');
+      expect(h.completions).toEqual(status === 'completed' ? ['Finished the work.'] : []);
+    } finally {
+      await h.adapter.terminate(false);
+      vi.useRealTimers();
+    }
   });
 
   it('pauses an active goal on stop, and leaves an inactive one alone', async () => {

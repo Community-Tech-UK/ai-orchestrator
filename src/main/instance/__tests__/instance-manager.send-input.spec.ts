@@ -12,6 +12,11 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
+import Database from 'better-sqlite3';
+import type { SqliteDriver } from '../../db/sqlite-driver';
+import type { UserActionRequest } from '../../orchestration/orchestration-handler';
+
+let admissionTestDb: SqliteDriver | undefined;
 
 const {
   mockCreateCliAdapter,
@@ -470,6 +475,7 @@ vi.mock('../../orchestration/child-result-storage', () => ({
 // Routing mock
 // ---------------------------------------------------------------------------
 vi.mock('../../routing', () => ({
+  applyProviderResolution: (decision: import('../../routing').RoutingDecision) => decision,
   getModelRouter: vi.fn(() => ({
     route: vi.fn().mockReturnValue({ model: 'claude-sonnet', provider: 'claude' }),
   })),
@@ -818,7 +824,7 @@ vi.mock('../../persistence/rlm-database', () => {
     query: vi.fn().mockReturnValue([]),
     insert: vi.fn(),
     close: vi.fn(),
-    getRawDb: vi.fn(() => rawDb),
+    getRawDb: vi.fn(() => admissionTestDb ?? rawDb),
   };
   return {
     RLMDatabase: vi.fn().mockImplementation(() => rlmDatabase),
@@ -867,6 +873,10 @@ import { getAccountFailoverCoordinator, type AccountFailoverDeps } from '../../p
 import { buildReplayContinuityMessage } from '../../session/replay-continuity';
 import { buildFallbackHistoryMessage } from '../../session/fallback-history';
 import { WorkerNodeRegistry } from '../../remote-node/worker-node-registry';
+import { SessionAdmissionStore } from '../../session/session-admission-store';
+import { _resetSessionAdmissionServiceForTesting } from '../../session/session-admission-service';
+import { getContextEngine } from '../../context/context-engine';
+import { ProviderLimitLedger, createProviderLimitLedgerSchema } from '../../core/system/provider-limit-ledger';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -1079,6 +1089,146 @@ describe('InstanceManager', () => {
       const byId = new Map(manager.getIdleInstances(60_000).map((i) => [i.id, i]));
       expect(byId.get(withWork.id)?.hasConversation).toBe(true);
       expect(byId.get(empty.id)?.hasConversation).toBe(false);
+    });
+  });
+
+  describe('queued local action ownership', () => {
+    let db: Database.Database;
+    let store: SessionAdmissionStore;
+    beforeEach(() => {
+      db = new Database(':memory:');
+      admissionTestDb = db as unknown as SqliteDriver;
+      SessionAdmissionStore._resetForTesting();
+      _resetSessionAdmissionServiceForTesting();
+      store = SessionAdmissionStore.getInstance(admissionTestDb);
+      ProviderLimitLedger._resetForTesting();
+      createProviderLimitLedgerSchema(admissionTestDb);
+    });
+    afterEach(() => {
+      admissionTestDb = undefined;
+      SessionAdmissionStore._resetForTesting();
+      _resetSessionAdmissionServiceForTesting();
+      ProviderLimitLedger._resetForTesting();
+      db.close();
+      vi.restoreAllMocks();
+    });
+    function promote(instanceId: string, message: string): string {
+      const admissionId = 'queued-local-action';
+      store.createQueued({ admissionId, instanceId, message });
+      store.promoteQueued(admissionId);
+      return admissionId;
+    }
+    function pendingModeReply(instanceId: string): UserActionRequest {
+      const request: UserActionRequest = { id: 'pending-mode', instanceId, requestType: 'switch_mode',
+        title: 'Switch mode', message: 'Switch to build?', targetMode: 'build', createdAt: Date.now(),
+        context: { suppressInjectResponse: true } };
+      const handler = manager.getOrchestrationHandler() as unknown as { pendingUserActions: Map<string, UserActionRequest> };
+      handler.pendingUserActions.set(request.id, request);
+      return request;
+    }
+
+    it('claims and delivers a consumed mode reply before removing the pending request, without replay after reload', async () => {
+      const instance = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+      await instance.readyPromise;
+      const request = pendingModeReply(instance.id);
+      const admissionId = promote(instance.id, 'no');
+      const handler = manager.getOrchestrationHandler();
+      const respondToUserAction = handler.respondToUserAction.bind(handler);
+      const respond = vi.spyOn(handler, 'respondToUserAction');
+      respond.mockImplementation((...args) => {
+        expect(store.get(admissionId)?.state).toBe('recorded');
+        respondToUserAction(...args);
+      });
+      mockAdapterSendInput.mockClear();
+      await manager.sendInput(instance.id, 'no', undefined, { queuedAdmissionId: admissionId, automatedInput: true });
+      expect(respond).toHaveBeenCalledExactlyOnceWith(request.id, false);
+      expect(handler.getPendingUserActionsForInstance(instance.id)).toEqual([]);
+      expect(store.get(admissionId)?.state).toBe('delivered');
+      expect(store.listQueued(instance.id)).toEqual([]);
+      expect(mockAdapterSendInput).not.toHaveBeenCalled();
+      await expect(manager.sendInput(instance.id, 'no', undefined, { queuedAdmissionId: admissionId })).rejects.toThrow('no longer available');
+      expect(mockAdapterSendInput).not.toHaveBeenCalled();
+      expect(respond).toHaveBeenCalledTimes(1);
+      expect(store.promoteQueued(admissionId)).toBeUndefined();
+    });
+
+    it.each(['compact', 'ui', 'goal', 'subtask'] as const)('claims and settles a queued %s action exactly once before its side effect', async kind => {
+      const instance = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+      await instance.readyPromise;
+      const admissionId = promote(instance.id, `/${kind} status`);
+      const command = { command: { id: `builtin-${kind}`, name: kind, template: '', builtIn: true,
+        createdAt: 1, updatedAt: 1, source: 'builtin', ...(kind === 'subtask' ? { subtask: true } : {}) },
+        args: kind === 'goal' ? [] : ['status'], resolvedPrompt: kind === 'subtask' ? 'child task' : '',
+        execution: kind === 'ui' ? { type: 'ui', actionId: 'test-ui' } : { type: kind === 'subtask' ? 'prompt' : kind } };
+      mockCommandExecuteCommandString.mockResolvedValue(command);
+      const action = vi.fn(() => { expect(store.get(admissionId)?.state).toBe('recorded'); });
+      if (kind === 'compact') vi.spyOn(getContextEngine(), 'compactInstance').mockImplementation(async () => {
+        action(); return { success: true, method: 'native', blocking: false };
+      });
+      if (kind === 'goal') mockLoopCoordinator.getActiveLoops.mockImplementation(() => { action(); return []; });
+      if (kind === 'ui') {
+        const emit = manager.emitSystemMessage.bind(manager);
+        vi.spyOn(manager, 'emitSystemMessage').mockImplementation((...args) => { action(); emit(...args); });
+      }
+      if (kind === 'subtask') vi.spyOn(manager, 'createInstance').mockImplementation(async () => {
+        action(); return { ...instance, id: 'command-child', parentId: instance.id };
+      });
+      mockAdapterSendInput.mockClear();
+      await manager.sendInput(instance.id, `/${kind} status`, undefined, { queuedAdmissionId: admissionId });
+      expect(action).toHaveBeenCalledOnce();
+      expect(store.get(admissionId)?.state).toBe('delivered');
+      expect(store.listQueued(instance.id)).toEqual([]);
+      await expect(manager.sendInput(instance.id, `/${kind} status`, undefined, { queuedAdmissionId: admissionId })).rejects.toThrow('no longer available');
+      expect(action).toHaveBeenCalledOnce();
+      expect(mockAdapterSendInput).not.toHaveBeenCalled();
+    });
+
+    it('settles queued compaction on dispatcher acceptance while native compaction remains in progress', async () => {
+      const instance = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+      await instance.readyPromise;
+      const admissionId = promote(instance.id, '/compact');
+      mockCommandExecuteCommandString.mockResolvedValueOnce({ command: { id: 'builtin-compact', name: 'compact', template: '',
+        builtIn: true, createdAt: 1, updatedAt: 1, source: 'builtin' }, args: [], resolvedPrompt: '', execution: { type: 'compact' } });
+      vi.spyOn(getContextEngine(), 'compactInstance').mockReturnValue(new Promise(() => undefined));
+      await manager.sendInput(instance.id, '/compact', undefined, { queuedAdmissionId: admissionId });
+      expect(store.get(admissionId)?.state).toBe('delivered');
+      expect(store.listQueued(instance.id)).toEqual([]);
+    });
+
+    it('does not fall through to provider input when a claimed mode change outlasts preflight timeout', async () => {
+      const instance = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+      await instance.readyPromise;
+      const admissionId = promote(instance.id, 'yes');
+      pendingModeReply(instance.id);
+      let finishModeChange!: () => void;
+      vi.spyOn(manager, 'changeAgentMode').mockImplementation(() => new Promise(resolve => {
+        finishModeChange = () => resolve(instance);
+      }));
+      mockAdapterSendInput.mockClear();
+      vi.useFakeTimers();
+      try {
+        let settled = false;
+        const sending = manager.sendInput(instance.id, 'yes', undefined, { queuedAdmissionId: admissionId }).then(() => { settled = true; });
+        await vi.advanceTimersByTimeAsync(6_000);
+        expect(settled).toBe(false);
+        expect(store.get(admissionId)?.state).toBe('recorded');
+        expect(mockAdapterSendInput).not.toHaveBeenCalled();
+        finishModeChange();
+        await sending;
+        expect(store.get(admissionId)?.state).toBe('delivered');
+        expect(mockAdapterSendInput).not.toHaveBeenCalled();
+      } finally { vi.useRealTimers(); }
+    });
+
+    it('marks a claimed local action failed when its side effect rejects', async () => {
+      const instance = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+      await instance.readyPromise;
+      const admissionId = promote(instance.id, 'yes');
+      pendingModeReply(instance.id);
+      vi.spyOn(manager, 'changeAgentMode').mockRejectedValue(new Error('mode change failed'));
+      await expect(manager.sendInput(instance.id, 'yes', undefined, { queuedAdmissionId: admissionId })).rejects.toThrow('mode change failed');
+      expect(store.get(admissionId)).toMatchObject({ state: 'failed', errorText: 'mode change failed' });
+      expect(store.listQueued(instance.id)).toEqual([]);
     });
   });
 

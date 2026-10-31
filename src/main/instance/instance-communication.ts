@@ -108,13 +108,15 @@ import { getSelfWakeupTracker, appendLostSelfWakeupNotice } from './self-wakeup-
 import { getInstanceAsyncWorkRegistry } from './instance-async-work-registry';
 import { bindBackgroundWorkTerminationReporter, observeInstanceBackgroundWork } from './instance-background-work-runtime';
 import { isAutomaticInstanceInput, throwIfInstanceInputAborted, type InstanceSendInputOptions } from './instance-input-cancellation';
+import { assertQueuedInputProviderReady } from './instance-provider-limit-runtime';
 import { InstanceInputFailureScopes, type InstanceInputFailureScope } from './instance-input-failure-scope';
 import { OutputPublicationOrder, type OutputPublicationTicket } from './instance-communication-output-order';
 import { handleInstanceAdapterError } from './instance-adapter-error-handler';
 import { createInstanceAdapterInputDispatch, createInstanceInputReceipt } from './instance-adapter-input-dispatch';
 import { buildSpawnStallNotice } from './stall-notices';
 import { bindInstanceAcpHistoryReplay } from './instance-acp-history-replay';
-import { runWithGlobalPauseInput, waitForGlobalPauseInput } from '../global-pause/global-pause-input';
+import { assertGlobalPauseInputCurrent, runWithGlobalPauseInput, waitForGlobalPauseInput } from '../global-pause/global-pause-input';
+import { InstanceQueuedInputHandoff, transitionQueuedAdapterStatus } from './instance-queued-input-handoff';
 export type { CommunicationDependencies } from './instance-communication.types';
 const logger = getLogger('InstanceCommunication');
 export class InstanceCommunicationManager extends EventEmitter {
@@ -123,6 +125,7 @@ export class InstanceCommunicationManager extends EventEmitter {
   private hookManager = getHookManager();
   private deps: CommunicationDependencies;
   private continuityInputQueue = new InstanceContinuityInputQueue();
+  private queuedInputHandoff = new InstanceQueuedInputHandoff();
   private toolResultProcessor: InstanceToolResultProcessor;
   private interruptedInstances = new Set<string>();
   /** In-flight adapter `complete` handlers. Error cleanup waits for these (LT-674). */
@@ -402,6 +405,7 @@ export class InstanceCommunicationManager extends EventEmitter {
    * Clean up circuit breaker state for an instance
    */
   cleanupCircuitBreaker(instanceId: string): void {
+    this.queuedInputHandoff.clear(instanceId);
     this.circuitBreakers.delete(instanceId);
     this.overflow.cleanup(instanceId);
     this.inputFailureScopes.cleanup(instanceId);
@@ -453,26 +457,8 @@ export class InstanceCommunicationManager extends EventEmitter {
     }
   }
 
-  /**
-   * Some stateless adapters emit `busy` as the first status after `idle`.
-   * The lifecycle state machine forbids idle -> busy directly, so normalize
-   * through ready to keep strict transition rules while accepting adapter output.
-   */
-  private transitionAdapterStatus(instanceId: string, instance: Instance, nextStatus: InstanceStatus): InstanceStatus {
-    const previousStatus = instance.status;
-    if (previousStatus === 'idle' && nextStatus === 'busy') {
-      logger.debug('Normalizing adapter status transition via ready', {
-        instanceId,
-        from: previousStatus,
-        to: nextStatus,
-      });
-      this.transitionInstanceStatus(instance, 'ready');
-    }
-
-    const effectivePreviousStatus = instance.status;
-    this.transitionInstanceStatus(instance, nextStatus);
-    return effectivePreviousStatus;
-  }
+  private transitionAdapterStatus = (instanceId: string, instance: Instance, status: InstanceStatus): InstanceStatus =>
+    transitionQueuedAdapterStatus(instanceId, instance, status, (target, next) => this.transitionInstanceStatus(target, next));
 
   private shouldNotifyChildTurnCompleted(
     instance: Instance,
@@ -637,7 +623,7 @@ export class InstanceCommunicationManager extends EventEmitter {
     message: string,
     attachments?: FileAttachment[],
     contextBlock?: string | null,
-    options?: Pick<InstanceSendInputOptions, 'autoContinuation' | 'automatedInput' | 'signal' | 'beforeProviderDispatch' | 'assertProviderDispatchCurrent' | 'internalSource' | 'providerNativeCommandId' | 'crossSessionSourceId'>,
+    options?: Pick<InstanceSendInputOptions, 'autoContinuation' | 'automatedInput' | 'queuedAdmissionId' | 'signal' | 'beforeProviderDispatch' | 'assertProviderDispatchCurrent' | 'internalSource' | 'providerNativeCommandId' | 'crossSessionSourceId'>,
   ): Promise<void> {
     await waitForGlobalPauseInput(instanceId, options);
     throwIfInstanceInputAborted(options?.signal);
@@ -750,7 +736,8 @@ export class InstanceCommunicationManager extends EventEmitter {
       throw new Error('Cannot send empty message: no text content and no attachments');
     }
 
-    if (shouldSkipKnownProviderLimitDispatch(this.deps.checkKnownProviderLimitBeforeSend, {
+    if (options?.queuedAdmissionId) await assertQueuedInputProviderReady(instanceId, options);
+    if (!options?.queuedAdmissionId && shouldSkipKnownProviderLimitDispatch(this.deps.checkKnownProviderLimitBeforeSend, {
       instanceId,
       provider: instance.provider,
       model: instance.currentModel ?? null,
@@ -889,9 +876,9 @@ export class InstanceCommunicationManager extends EventEmitter {
     await waitForGlobalPauseInput(instanceId, options);
     logger.info('Sending message to adapter');
     // Observe admitted sends; commit context and watchdog state only while dispatch remains eligible.
-    const receipt = createInstanceInputReceipt(instanceId, () => ({ message: finalMessage, attachments, contextBlock: finalContextBlock }));
+    const receipt = createInstanceInputReceipt(instanceId, () => ({ message: finalMessage, attachments, contextBlock: finalContextBlock }), options?.queuedAdmissionId);
     let committed = false;
-    const deferredDispatch = (adapter instanceof BaseCliAdapter || adapter instanceof RemoteCliAdapter) && Boolean(options?.signal || options?.beforeProviderDispatch || options?.assertProviderDispatchCurrent || isAutomaticInstanceInput(options));
+    const deferredDispatch = (adapter instanceof BaseCliAdapter || adapter instanceof RemoteCliAdapter) && Boolean(options?.queuedAdmissionId || options?.signal || options?.beforeProviderDispatch || options?.assertProviderDispatchCurrent || isAutomaticInstanceInput(options));
     const commitDispatch = (): void => {
       throwIfInstanceInputAborted(options?.signal);
       if (committed) return;
@@ -944,9 +931,16 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (eventRecovery === 'handled') return;
       if (eventRecovery === 'failed') throw initialError;
       let sendError = initialError;
-
       if (attachments?.length && isUnsupportedOrchestratorAttachmentError(sendError)) {
-        this.emitAttachmentDropWarnings(instanceId, instance, adapter.getName(), attachments);
+        if (options?.queuedAdmissionId && !message.trim()) {
+          await runWithGlobalPauseInput(instanceId, options, async () => {
+            assertGlobalPauseInputCurrent(instanceId, options);
+            inputDispatch.assertCurrent?.();
+            receipt.record();
+            receipt.failed(initialError);
+            this.emitAttachmentDropWarnings(instanceId, instance, adapter.getName(), attachments!);
+          });
+        } else this.emitAttachmentDropWarnings(instanceId, instance, adapter.getName(), attachments);
         attachments = undefined;
         this.overflow.rememberLastSent(instanceId, { message, attachments, contextBlock: finalContextBlock, internalSource: options?.internalSource }, !isAutomaticInstanceInput(options) ? instance.requestCount : undefined);
 
@@ -1488,7 +1482,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       observeAsyncWork: (event) => observeInstanceBackgroundWork(instanceId, event, this.deps),
     });
 
-    adapter.on('status', (status: InstanceStatus) => {
+    const onAdapterStatus = (status: InstanceStatus): void => {
       if (isStaleAdapterEvent('status')) {
         return;
       }
@@ -1510,6 +1504,12 @@ export class InstanceCommunicationManager extends EventEmitter {
         logger.info('Ignoring advisory error status during recovery', { instanceId, adapter: adapter.getName(), status: instance.status });
         return;
       }
+      if (instance && this.queuedInputHandoff.retainBusy(instance, normalizedStatus,
+        this.deps.getQueuedInputReadyId, () => isStaleAdapterEvent('queued-input-handoff'),
+        payload => this.emit('queued-input-ready', payload), () => onAdapterStatus('idle'))) return;
+      // A new busy edge proves dispatch; watchdog processing/thinking updates
+      // do not. Keep the expiry armed across those advisory updates.
+      if (normalizedStatus === 'busy' || !ACTIVE_CHILD_TURN_STATUSES.has(normalizedStatus)) this.queuedInputHandoff.clear(instanceId);
       if (instance && instance.status === normalizedStatus) {
         this.transitionInstanceStatus(instance, normalizedStatus);
         if (normalizedStatus === 'idle' || normalizedStatus === 'ready' || normalizedStatus === 'waiting_for_input') {
@@ -1615,7 +1615,8 @@ export class InstanceCommunicationManager extends EventEmitter {
           this.notifyChildTurnCompleted(instanceId, instance);
         }
       }
-    });
+    };
+    adapter.on('status', onAdapterStatus);
 
     adapter.on('context', (usage: ContextUsage) => {
       if (isStaleAdapterEvent('context')) {

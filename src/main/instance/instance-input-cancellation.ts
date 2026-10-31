@@ -3,6 +3,8 @@ import type { AdapterInputRetryReason } from '../cli/adapters/base-cli-adapter.t
 
 export interface InstanceSendInputOptions {
   isRetry?: boolean;
+  /** Durable user queue row to claim exactly once at provider dispatch. */
+  queuedAdmissionId?: string;
   autoContinuation?: boolean;
   automatedInput?: boolean;
   signal?: AbortSignal;

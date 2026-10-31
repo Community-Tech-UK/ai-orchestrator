@@ -10,13 +10,12 @@
  * renderer crash can be recovered from `listQueue()`, attachments included.
  *
  * Promotion (`promoteQueuedMessage`) is the sole handoff point from "queued"
- * to "about to be sent" and is a compare-and-swap in the store — a duplicate
- * promote request for the same admissionId is a safe no-op, which is what
- * makes "renderer decides when to send" safe to call more than once (e.g. a
- * retried IPC call after a dropped response).
+ * to "about to be sent" and is a compare-and-swap in the store. Fresh duplicate
+ * requests are no-ops; an unclaimed stale promotion may be renewed after a
+ * renderer crash. Provider dispatch still claims that admission exactly once.
  *
- * `SessionAdmissionService.recordUserSend()` dedupes against a `promoting`
- * row directly at the store layer (see `findRecentPromoting`) rather than
+ * `SessionAdmissionService.recordUserSend()` claims an explicitly identified
+ * `promoting` row directly at the store layer rather than
  * depending on this service, so the two services do not depend on each
  * other — only on the shared `SessionAdmissionStore`.
  */
@@ -87,6 +86,14 @@ export class SessionQueueService {
     return SessionAdmissionStore.getInstance(getRLMDatabase().getRawDb());
   }
 
+  /** Only a fresh passive head may bridge two provider turns without an idle edge. */
+  getReadyHandoffId(instanceId: string): string | undefined {
+    const head = this.getStore().listQueued(instanceId)[0];
+    if (!head || head.state !== 'queued' || head.sourceMetadata?.['kind'] === 'steer'
+      || Number(head.sourceMetadata?.['retryCount'] ?? 0) > 0) return undefined;
+    return head.admissionId;
+  }
+
   /** Durable BEFORE ack: attachment staging and the SQLite insert both complete before this resolves. */
   async enqueueUserMessage(req: EnqueueUserMessageRequest): Promise<{ admissionId: string; queuePosition: number | null }> {
     const attachmentFiles = await stageQueuedAttachments(req.attachments);
@@ -137,7 +144,7 @@ export class SessionQueueService {
     return grouped;
   }
 
-  /** CAS queued -> promoting. Returns null when the row is missing or already left `queued` (idempotent). */
+  /** Promote a queued user row or recover a stale unsent promotion; null means no claim was acquired. */
   async promoteQueuedMessage(admissionId: string): Promise<QueuedMessageDTO | null> {
     const record = this.getStore().promoteQueued(admissionId);
     return record ? this.toDTO(record) : null;

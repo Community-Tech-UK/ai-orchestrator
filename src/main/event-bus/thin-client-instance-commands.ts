@@ -62,7 +62,11 @@ export async function sendInput(
     validated.instanceId,
     validated.message,
     validated.attachments as FileAttachment[] | undefined,
-    { isRetry: validated.isRetry },
+    {
+      isRetry: validated.isRetry,
+      automatedInput: validated.automatedInput,
+      queuedAdmissionId: validated.queuedAdmissionId,
+    },
   );
   return { success: true };
 }

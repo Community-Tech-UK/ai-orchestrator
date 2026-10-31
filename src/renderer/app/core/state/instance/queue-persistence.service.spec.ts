@@ -122,6 +122,40 @@ describe('QueuePersistenceService', () => {
       settingsValues['persistSessionContent'] = true;
     });
 
+    it('requires the exact admission and a successful CAS for a retained-busy handoff', async () => {
+      const service = TestBed.inject(QueuePersistenceService);
+      const entry: QueuedMessage = { message: 'deliver once' };
+      seedQueue('inst-1', entry);
+      await service.notifyEnqueued('inst-1', entry, 'back');
+      expect(await service.promoteReadyHandoff('inst-1', 'other-admission')).toBeUndefined();
+      expect(ipcMock.queuePromote).not.toHaveBeenCalled();
+      expect(await service.promoteReadyHandoff('inst-1', 'adm-1')).toBeUndefined();
+      ipcMock.queuePromote.mockResolvedValueOnce({ success: true, data: { admissionId: 'adm-1' } });
+      expect(await service.promoteReadyHandoff('inst-1', 'adm-1')).toBe(entry);
+      expect(await service.promoteReadyHandoff('inst-1', 'adm-1')).toBeUndefined();
+    });
+
+    it('keeps a promoted handoff cancellable if Pause wins before actual removal', async () => {
+      const service = TestBed.inject(QueuePersistenceService);
+      const entry: QueuedMessage = { message: 'pause before dispatch' };
+      seedQueue('inst-1', entry);
+      await service.notifyEnqueued('inst-1', entry, 'back');
+      ipcMock.queuePromote.mockResolvedValueOnce({ success: true, data: { admissionId: 'adm-1' } });
+      expect(await service.promoteReadyHandoff('inst-1', 'adm-1')).toBe(entry);
+      service.notifyCancelled('inst-1', entry);
+      expect(ipcMock.queueCancel).toHaveBeenCalledExactlyOnceWith('adm-1');
+    });
+
+    it('does not hand off an older passive row ahead of the renderer queue head', async () => {
+      const service = TestBed.inject(QueuePersistenceService);
+      const entry: QueuedMessage = { message: 'passive' };
+      seedQueue('inst-1', entry);
+      await service.notifyEnqueued('inst-1', entry, 'back');
+      queueSignal.set(new Map([['inst-1', [{ message: 'steer first', kind: 'steer' }, entry]]]));
+      expect(await service.promoteReadyHandoff('inst-1', 'adm-1')).toBeUndefined();
+      expect(ipcMock.queuePromote).not.toHaveBeenCalled();
+    });
+
     it('notifyEnqueued durably persists a text-only entry and tracks its admissionId', async () => {
       const service = TestBed.inject(QueuePersistenceService);
       const entry: QueuedMessage = { message: 'hello' };
@@ -161,8 +195,9 @@ describe('QueuePersistenceService', () => {
       expect(ipcMock.queueCancel).toHaveBeenCalledTimes(1);
     });
 
-    it('notifyPromoting awaits the promote IPC call for a tracked entry and clears tracking', async () => {
+    it('notifyPromoting awaits the CAS and retains ownership until the send settles', async () => {
       const service = TestBed.inject(QueuePersistenceService);
+      ipcMock.queuePromote.mockResolvedValue({ success: true, data: { admissionId: 'adm-1' } });
       const entry: QueuedMessage = { message: 'to promote' };
       service.notifyEnqueued('inst-1', entry, 'back');
       await flushMicrotasks();
@@ -170,9 +205,12 @@ describe('QueuePersistenceService', () => {
       await service.notifyPromoting('inst-1', entry);
       expect(ipcMock.queuePromote).toHaveBeenCalledWith('adm-1');
 
-      // Already untracked (cleared by the first promote) — second call is a no-op.
+      // Already owned by this renderer: no second CAS is needed.
       await service.notifyPromoting('inst-1', entry);
       expect(ipcMock.queuePromote).toHaveBeenCalledTimes(1);
+      expect(service.getAdmissionId(entry)).toBe('adm-1');
+      service.finishSend('inst-1', entry, true);
+      expect(service.getAdmissionId(entry)).toBeUndefined();
     });
 
     it('notifyPromoting swallows a rejected promote call and returns false (never throws)', async () => {
@@ -196,6 +234,29 @@ describe('QueuePersistenceService', () => {
       await expect(service.notifyPromoting('inst-1', entry)).resolves.toBe(false);
     });
 
+    it('rejects a null promotion CAS and retains the durable identity for cancellation', async () => {
+      const service = TestBed.inject(QueuePersistenceService);
+      const entry: QueuedMessage = { message: 'already claimed elsewhere' };
+      await service.notifyEnqueued('inst-1', entry, 'back');
+      ipcMock.queuePromote.mockResolvedValue({ success: true, data: null });
+      await expect(service.notifyPromoting('inst-1', entry)).resolves.toBe(false);
+      service.notifyCancelled('inst-1', entry);
+      expect(ipcMock.queueCancel).toHaveBeenCalledWith('adm-1');
+    });
+
+    it('retains a successful promotion for a later drain when Pause wins before send', async () => {
+      const service = TestBed.inject(QueuePersistenceService);
+      const entry: QueuedMessage = { message: 'paused before send' };
+      await service.notifyEnqueued('inst-1', entry, 'back');
+      ipcMock.queuePromote.mockResolvedValueOnce({ success: true, data: { admissionId: 'adm-1' } });
+      expect(await service.promoteReadyHandoff('inst-1', 'adm-1')).toBeUndefined();
+      seedQueue('inst-1', entry);
+      expect(await service.promoteReadyHandoff('inst-1', 'adm-1')).toBe(entry);
+      expect(await service.notifyPromoting('inst-1', entry)).toBe(true);
+      service.notifyCancelled('inst-1', entry);
+      expect(ipcMock.queueCancel).toHaveBeenCalledWith('adm-1');
+    });
+
     it('notifyPromoting returns true for an untracked entry (nothing to gate on)', async () => {
       const service = TestBed.inject(QueuePersistenceService);
       await expect(service.notifyPromoting('inst-1', { message: 'never queued' })).resolves.toBe(true);
@@ -217,6 +278,41 @@ describe('QueuePersistenceService', () => {
 
       await service.notifyPromoting('inst-1', steerVersion);
       expect(ipcMock.queuePromote).toHaveBeenCalledWith('adm-1'); // promotes under the ORIGINAL admissionId
+    });
+
+    it('preserves owned promotion and the original row when Pause requeues a new object', async () => {
+      const service = TestBed.inject(QueuePersistenceService);
+      const original: QueuedMessage = { message: 'pause after removal' };
+      await service.notifyEnqueued('inst-1', original, 'back');
+      ipcMock.queuePromote.mockResolvedValueOnce({ success: true, data: { admissionId: 'adm-1' } });
+      expect(await service.notifyPromoting('inst-1', original)).toBe(true);
+      const paused: QueuedMessage = { ...original, retryAfterAt: 12345 };
+      service.rebindEntry(original, paused);
+      await service.notifyEnqueued('inst-1', paused, 'front');
+      expect(await service.notifyPromoting('inst-1', paused)).toBe(true);
+      expect(service.getAdmissionId(paused)).toBe('adm-1');
+      expect(ipcMock.queuePromote).toHaveBeenCalledTimes(1);
+      expect(ipcMock.queueEnqueue).toHaveBeenCalledTimes(1);
+      service.notifyCancelled('inst-1', paused);
+      expect(ipcMock.queueCancel).toHaveBeenCalledWith('adm-1');
+    });
+
+    it('cancels an unsent provider-limit promotion and persists its retry under a new durable admission', async () => {
+      const service = TestBed.inject(QueuePersistenceService);
+      const original: QueuedMessage = { message: 'wait for provider' };
+      await service.notifyEnqueued('inst-1', original, 'back');
+      ipcMock.queuePromote.mockResolvedValueOnce({ success: true, data: { admissionId: 'adm-1' } });
+      expect(await service.notifyPromoting('inst-1', original)).toBe(true);
+      service.finishSend('inst-1', original, false);
+      expect(ipcMock.queueCancel).toHaveBeenCalledExactlyOnceWith('adm-1');
+      expect(service.getAdmissionId(original)).toBeUndefined();
+      const retry: QueuedMessage = { message: original.message, retryCount: 1, retryAfterAt: Date.now() + 2_000 };
+      ipcMock.queueEnqueue.mockResolvedValueOnce({ success: true, data: { admissionId: 'retry-admission', queuePosition: 1 } });
+      await service.notifyEnqueued('inst-1', retry, 'front');
+      expect(service.getAdmissionId(retry)).toBe('retry-admission');
+      expect(ipcMock.queueEnqueue).toHaveBeenLastCalledWith('inst-1', expect.objectContaining({
+        message: original.message, sourceMetadata: expect.objectContaining({ retryCount: 1 }),
+      }));
     });
 
     it('rebindEntry is a no-op when the source entry was never tracked', () => {
@@ -347,6 +443,21 @@ describe('QueuePersistenceService', () => {
       expect(restored[1]).toBe(later);
       await service.notifyPromoting('inst-1', restored[0]);
       expect(ipcMock.queuePromote).toHaveBeenCalledWith('initial-held');
+    });
+
+    it('does not inherit promotion ownership from a restored promoting row', async () => {
+      ipcMock.queueList.mockResolvedValue({ success: true, data: { queues: { 'inst-1': [{
+        admissionId: 'restored-promoting', instanceId: 'inst-1', message: 'previously promoted',
+        attachments: [], attachmentsDropped: false, contextBlock: null, queuePosition: 0,
+        state: 'promoting', sourceMetadata: null, createdAt: 1, updatedAt: 1,
+      }] } } });
+      const service = TestBed.inject(QueuePersistenceService);
+      await service.restoreFromDisk();
+      const restored = queueSignal().get('inst-1')![0];
+      expect(await service.notifyPromoting('inst-1', restored)).toBe(false);
+      expect(service.getAdmissionId(restored)).toBe('restored-promoting');
+      expect(queueSignal().get('inst-1')).toEqual([restored]);
+      expect(ipcMock.queuePromote).toHaveBeenCalledExactlyOnceWith('restored-promoting');
     });
 
     it('is a no-op when persistence is disabled', async () => {

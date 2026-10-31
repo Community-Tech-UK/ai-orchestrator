@@ -29,6 +29,7 @@ import { removeInstanceHardened } from './lifecycle/hardened-mode-scoping';
 import { removeInstanceSignalFence } from './lifecycle/signal-fence-scoping';
 import { removeInstanceContainedExecution } from './lifecycle/contained-execution-scoping';
 import { getHandoffStateService } from '../session/handoff-state-service';
+import { getSessionQueueService } from '../session/session-queue-service';
 import { getNotificationService } from '../notifications/notification-service';
 import {
   createAccountFailoverCoordinator,
@@ -102,7 +103,7 @@ import { getContextEngine } from '../context/context-engine.js';
 import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import { getProviderLimitLedgerPort } from '../core/system/provider-limit-ledger';
 import { getInstanceProviderLimitHandler } from './instance-provider-limit-handler';
-import { createProviderLimitCommunicationCallbacks, holdQueuedOrchestrationResponse, holdRejectedOrchestrationResponse } from './instance-provider-limit-runtime';
+import { createProviderLimitCommunicationCallbacks, holdQueuedInstanceInput, holdRejectedOrchestrationResponse } from './instance-provider-limit-runtime';
 import { createAuthRepairAccountDeps, createAuthRepairCommunicationCallbacks } from './instance-auth-repair-runtime';
 import { getInstanceAuthRepairHandler } from './instance-auth-repair-handler';
 import {
@@ -164,6 +165,7 @@ import { summarizeCreateInstanceConfig } from './lifecycle/instance-create-loggi
 import { automatedResendInput, formatInternalInputForProvider, internalInputMetadata } from './internal-input-provenance';
 import { resolveNativeOpenCodeCommandInput } from '../commands/provider-native-commands';
 import { dispatchNativeOpenCodeCommand } from './instance-native-command-input';
+import { runInstanceLocalInput } from './instance-local-input';
 import { parseSwitchModeApprovalReply } from './instance-switch-mode-reply';
 import { bindInstanceNativeCommandForwarding } from './instance-native-command-catalog';
 const logger = getLogger('InstanceManager');
@@ -301,7 +303,7 @@ export class InstanceManager extends EventEmitter {
       getAdapter: (id) => this.state.getAdapter(id),
       recordTaskOutcome: (taskId, success, score) => this.context.recordTaskOutcome(taskId, success, score),
       holdRejectedResponse: (id, adapter, error) => holdRejectedOrchestrationResponse(this.state.getInstance(id), adapter, error),
-      holdQueuedResponse: (id) => holdQueuedOrchestrationResponse(id),
+      holdQueuedResponse: (id) => holdQueuedInstanceInput(id),
     });
     this.childCompletion = new InstanceChildCompletionHandler({
       getInstance: (id) => this.state.getInstance(id),
@@ -352,6 +354,8 @@ export class InstanceManager extends EventEmitter {
       getInstance: (id) => this.state.getRuntimeInstance(id),
       isInstancePublished: (id) => this.state.isInstancePending?.(id) !== true,
       getAdapter: (id) => this.state.getRuntimeAdapter(id),
+      getQueuedInputReadyId: (id) => this.settings.get('persistSessionContent')
+        ? getSessionQueueService().getReadyHandoffId(id) : undefined,
       setAdapter: (id, adapter) => this.state.setAdapter(id, adapter),
       deleteAdapter: (id) => this.state.deleteRuntimeAdapter(id),
       transitionState: (instance, status) => this.lifecycle.transitionStatePublic(instance, status),
@@ -728,6 +732,9 @@ export class InstanceManager extends EventEmitter {
 
     // Communication events
     bindInstanceNativeCommandForwarding(this.communication, this);
+    this.communication.on('queued-input-ready', (payload) => {
+      this.emit('instance:state-update', { ...payload, status: 'busy', timestamp: Date.now() });
+    });
     this.communication.on('output', (payload) => this.publishOutput(payload.instanceId, payload.message, payload.raw));
     this.communication.on('history-replayed', (payload) => {
       if (this.state.isInstancePending?.(payload.instanceId) !== true) this.emit('history-replayed', payload);
@@ -819,7 +826,8 @@ export class InstanceManager extends EventEmitter {
 
   private async maybeHandleSwitchModeReply(
     instanceId: string,
-    message: string
+    message: string,
+    options: InstanceSendInputOptions | undefined,
   ): Promise<boolean> {
     const pendingRequest = this.getLatestPendingSwitchModeRequest(instanceId);
     if (!pendingRequest) return false;
@@ -827,40 +835,42 @@ export class InstanceManager extends EventEmitter {
     const approved = parseSwitchModeApprovalReply(message);
     if (approved === undefined) return false;
 
-    const orchestration = this.orchestrationMgr.getOrchestrationHandler();
-    orchestration.respondToUserAction(pendingRequest.id, approved);
+    return runInstanceLocalInput(instanceId, options, { message }, async () => {
+      const orchestration = this.orchestrationMgr.getOrchestrationHandler();
+      orchestration.respondToUserAction(pendingRequest.id, approved);
 
-    if (approved && pendingRequest.targetMode) {
-      await this.changeAgentMode(instanceId, pendingRequest.targetMode);
-    }
+      if (approved && pendingRequest.targetMode) {
+        await this.changeAgentMode(instanceId, pendingRequest.targetMode);
+      }
 
-    const instance = this.state.getInstance(instanceId);
-    if (instance) {
-      const feedback = approved
-        ? pendingRequest.targetMode
-          ? `Mode switch approved via chat reply. Switched to ${pendingRequest.targetMode} mode.`
-          : 'Action approved via chat reply.'
-        : 'Mode switch rejected via chat reply.';
+      const instance = this.state.getInstance(instanceId);
+      if (instance) {
+        const feedback = approved
+          ? pendingRequest.targetMode
+            ? `Mode switch approved via chat reply. Switched to ${pendingRequest.targetMode} mode.`
+            : 'Action approved via chat reply.'
+          : 'Mode switch rejected via chat reply.';
 
-      const systemMessage: OutputMessage = {
-        id: generateId(),
-        timestamp: Date.now(),
-        type: 'system',
-        content: feedback,
-        metadata: {
-          source: 'user-action-auto-response',
-          requestId: pendingRequest.id,
-          requestType: pendingRequest.requestType,
-          targetMode: pendingRequest.targetMode,
-          approved
-        }
-      };
+        const systemMessage: OutputMessage = {
+          id: generateId(),
+          timestamp: Date.now(),
+          type: 'system',
+          content: feedback,
+          metadata: {
+            source: 'user-action-auto-response',
+            requestId: pendingRequest.id,
+            requestType: pendingRequest.requestType,
+            targetMode: pendingRequest.targetMode,
+            approved
+          }
+        };
 
-      this.communication.addToOutputBuffer(instance, systemMessage);
-      this.publishOutput(instanceId, systemMessage);
-    }
+        this.communication.addToOutputBuffer(instance, systemMessage);
+        this.publishOutput(instanceId, systemMessage);
+      }
 
-    return true;
+      return true;
+    });
   }
 
   recordInputRequiredPermissionDecision(params: {
@@ -1554,13 +1564,15 @@ export class InstanceManager extends EventEmitter {
       throwIfInstanceInputAborted(options?.signal);
     }
 
-    const handledSwitchModeReply = !internalSource && await runInputPreflight({
-      instanceId,
-      phase: 'switch-mode-reply',
-      timeoutMs: INPUT_PREFLIGHT_DEADLINE_MS,
-      operation: () => this.maybeHandleSwitchModeReply(instanceId, message),
-      onTimeout: () => false,
-    });
+    const handledSwitchModeReply = !internalSource && await (options?.queuedAdmissionId
+      ? this.maybeHandleSwitchModeReply(instanceId, message, options)
+      : runInputPreflight({
+        instanceId,
+        phase: 'switch-mode-reply',
+        timeoutMs: INPUT_PREFLIGHT_DEADLINE_MS,
+        operation: () => this.maybeHandleSwitchModeReply(instanceId, message, options),
+        onTimeout: () => false,
+      }));
     throwIfInstanceInputAborted(options?.signal);
     if (handledSwitchModeReply) {
       return;
@@ -1740,41 +1752,45 @@ export class InstanceManager extends EventEmitter {
       };
     }
     if (resolvedCommandMeta?.executionType === 'compact') {
-      if (!options?.isRetry) {
-        this.communication.addToOutputBuffer(instance, userMessage);
-        this.publishOutput(instanceId, userMessage);
-      }
+      await runInstanceLocalInput(instanceId, options, { message, attachments }, () => {
+        if (!options?.isRetry) {
+          this.communication.addToOutputBuffer(instance, userMessage);
+          this.publishOutput(instanceId, userMessage);
+        }
 
-      void getContextEngine().compactInstance(instanceId).catch((error: unknown) =>
-        logger.error('Typed compaction command failed', error instanceof Error ? error : undefined, { instanceId }));
+        void getContextEngine().compactInstance(instanceId).catch((error: unknown) =>
+          logger.error('Typed compaction command failed', error instanceof Error ? error : undefined, { instanceId }));
+      });
       return;
     }
 
     if (resolvedCommandMeta?.executionType === 'ui') {
-      if (!options?.isRetry) {
-        this.communication.addToOutputBuffer(instance, userMessage);
-        this.publishOutput(instanceId, userMessage);
-      }
+      await runInstanceLocalInput(instanceId, options, { message, attachments }, () => {
+        if (!options?.isRetry) {
+          this.communication.addToOutputBuffer(instance, userMessage);
+          this.publishOutput(instanceId, userMessage);
+        }
 
-      this.emitSystemMessage(
-        instanceId,
-        `Command /${resolvedCommandName} must be executed through the UI command dispatcher.`,
-        {
-          source: 'command-dispatch',
-          commandName: resolvedCommandName,
-          uiActionId: resolvedCommandMeta.uiActionId,
-        },
-      );
+        this.emitSystemMessage(
+          instanceId,
+          `Command /${resolvedCommandName} must be executed through the UI command dispatcher.`,
+          {
+            source: 'command-dispatch',
+            commandName: resolvedCommandName,
+            uiActionId: resolvedCommandMeta.uiActionId,
+          },
+        );
+      });
       return;
     }
 
     if (resolvedCommandMeta?.executionType === 'goal') {
-      await executeGoalLoopCommandForInstanceInput({
+      await runInstanceLocalInput(instanceId, options, { message, attachments }, () => executeGoalLoopCommandForInstanceInput({
         instanceManager: this,
         instanceId,
         instance,
         executed: resolvedCommand,
-      });
+      }));
       return;
     }
 
@@ -1786,13 +1802,15 @@ export class InstanceManager extends EventEmitter {
         !!resolvedCommandMeta?.model ||
         !!resolvedCommandMeta?.agent);
     if (shouldRunAsSubtask) {
-      // Emit user message before spawning subtask (subtask path doesn't go through communication.sendInput)
-      this.communication.addToOutputBuffer(instance, userMessage);
-      this.publishOutput(instanceId, userMessage);
-      await this.spawnCommandSubtask(instanceId, resolvedMessage, {
-        commandName: resolvedCommandName!,
-        model: resolvedCommandMeta?.model,
-        agent: resolvedCommandMeta?.agent,
+      await runInstanceLocalInput(instanceId, options, { message, attachments }, async () => {
+        // Emit user message before spawning subtask (subtask path doesn't go through communication.sendInput)
+        this.communication.addToOutputBuffer(instance, userMessage);
+        this.publishOutput(instanceId, userMessage);
+        await this.spawnCommandSubtask(instanceId, resolvedMessage, {
+          commandName: resolvedCommandName!,
+          model: resolvedCommandMeta?.model,
+          agent: resolvedCommandMeta?.agent,
+        });
       });
       return;
     }
@@ -1879,6 +1897,7 @@ export class InstanceManager extends EventEmitter {
     await this.communication.sendInput(instanceId, resolvedMessage, attachments, contextBlock, {
       autoContinuation: options?.autoContinuation === true, automatedInput: options?.automatedInput === true,
       internalSource, crossSessionSourceId: options?.crossSessionSourceId,
+      queuedAdmissionId: options?.queuedAdmissionId,
       signal: options?.signal,
       beforeProviderDispatch,
       assertProviderDispatchCurrent: options?.assertProviderDispatchCurrent,
