@@ -65,6 +65,7 @@ interface BrowserExtensionBackgroundHarness {
   tabState: (tabId: number) => ReturnType<typeof makeWebTab> | undefined;
   sendMessage: (message: unknown) => Promise<unknown>;
   tabDebuggerChains: Map<number, Promise<void>>;
+  dialogWatches: Map<number, { dialogWaiters: unknown[] }>;
   chrome: BrowserExtensionChromeHarness;
   ports: Map<string, NativePortHarness>;
   failConnectHosts: Set<string>;
@@ -79,7 +80,9 @@ interface BrowserExtensionChromeHarness {
   debugger: {
     attach: ReturnType<typeof vi.fn>;
     detach: ReturnType<typeof vi.fn>;
-    sendCommand: ReturnType<typeof vi.fn>;
+    sendCommand: Mock<(
+      debuggee: unknown, method: string, params?: Record<string, unknown>,
+    ) => Promise<unknown>>;
     onEvent: { emit: (source: unknown, method: string, params: unknown) => void };
     onDetach: { emit: (source: unknown, reason: string) => void };
   };
@@ -140,8 +143,14 @@ interface BrowserExtensionChromeHarness {
     update: ReturnType<typeof vi.fn>;
   };
   windows: {
-    get: ReturnType<typeof vi.fn>;
-    update: ReturnType<typeof vi.fn>;
+    get: Mock<(windowId: number) => Promise<Record<string, unknown>>>;
+    update: Mock<(windowId: number, update: {
+      state?: string;
+      width?: number;
+      height?: number;
+      left?: number;
+      top?: number;
+    }) => Promise<Record<string, unknown> | undefined>>;
   };
 }
 
@@ -233,6 +242,8 @@ describe('browser extension assets', () => {
     // browser_dialog_open, answered by handle_dialog, and refuse further
     // commands on the tab until answered.
     '0.2.45': 'fd57f5c8f348',
+    // LT-997/998/999: named DOM keys, retained viewport sessions, Chrome window bounds.
+    '0.2.46': '2a06edc807d9',
   };
 
   it('ships each background bundle under its own manifest version', () => {
@@ -395,7 +406,7 @@ describe('browser extension assets', () => {
     expect(background).toContain('commandExecutionTimeoutMs(command)');
     expect(background).toContain('browser_extension_command_timeout');
     expect(background).toContain('function forceReleaseCommandResources');
-    expect(background).toContain('chrome.debugger.detach({ tabId })');
+    expect(background).toContain('detachDebuggerQuietly(debuggerAttachments.get(tabId)?.debuggee)');
   });
 
   it('bounds the accessibility tree CDP call and names the stalled step', async () => {
@@ -4083,16 +4094,144 @@ describe('browser extension assets', () => {
       return lastCommandResult(harness, commandId);
     }
 
+    // Chrome removes emulation on debugger detach and has no metrics getter.
+    // Model those browser effects rather than remembering a set call forever.
+    async function viewportHarness(debuggingBar = false) {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      let attached = false;
+      let external = false;
+      let metrics: { innerWidth: number; innerHeight: number } | undefined;
+      let ignoreMetrics = false;
+      let failKey = false;
+      const originalScript = harness.chrome.scripting.executeScript.getMockImplementation()!;
+      const dimensions = () => metrics ?? { innerWidth: 1280, innerHeight: attached && debuggingBar ? 760 : 800 };
+      harness.chrome.debugger.attach.mockImplementation(async () => {
+        if (attached || external) throw new Error('Another debugger is already attached');
+        attached = true;
+      });
+      harness.chrome.debugger.detach.mockImplementation(async () => {
+        if (external) throw new Error('Cannot detach another debugger');
+        attached = false;
+        metrics = undefined;
+      });
+      harness.chrome.debugger.sendCommand.mockImplementation(async (
+        _debuggee: unknown, method: string, params?: Record<string, unknown>,
+      ) => {
+        if (!attached) throw new Error('Debugger is not attached');
+        if (method === 'Emulation.getDeviceMetricsOverride') throw new Error('Method not found');
+        if (method === 'Emulation.setDeviceMetricsOverride' && !ignoreMetrics) {
+          metrics = { innerWidth: Number(params?.['width']), innerHeight: Number(params?.['height']) };
+        }
+        if (method === 'Emulation.clearDeviceMetricsOverride') metrics = undefined;
+        if (method === 'Input.dispatchKeyEvent' && failKey) throw new Error('Key transport failed');
+        if (method === 'Runtime.evaluate') return { result: { value: { focus: { tagName: 'A' } } } };
+        return { nodes: [] };
+      });
+      harness.chrome.scripting.executeScript.mockImplementation(async (input) => (
+        String(input.func).includes('innerWidth')
+          ? [{ result: dimensions() }]
+          : originalScript(input)
+      ));
+      return {
+        harness, dimensions,
+        ignoreMetrics: () => { ignoreMetrics = true; },
+        failKeys: () => { failKey = true; },
+        detach: (externalDebugger = false) => {
+          attached = false;
+          metrics = undefined;
+          external = externalDebugger;
+          harness.chrome.debugger.onDetach.emit({ tabId: 42 }, 'canceled_by_user');
+        },
+      };
+    }
+
+    it.each(['Tab', 'Enter', 'Space', 'Escape', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown', 'Backspace', 'Delete'])(
+      'includes DOM key/code on every native %s event', async (key) => {
+        const harness = loadBackgroundHarnessForTest();
+        await flushPromises();
+        const result = await dispatchControlCommand(harness, `named-${key}`, 'press_key', {
+          key, modifiers: ['Alt', 'Control', 'Meta'],
+        });
+        expect(result?.['ok']).toBe(true);
+        const events = harness.chrome.debugger.sendCommand.mock.calls
+          .filter((call: unknown[]) => call[1] === 'Input.dispatchKeyEvent')
+          .map((call: unknown[]) => call[2] as Record<string, unknown>);
+        const main = events.filter((event) => event['code'] === key);
+        expect(main.map((event) => event['type'])).toEqual(
+          key === 'Enter' || key === 'Space' ? ['rawKeyDown', 'char', 'keyUp'] : ['rawKeyDown', 'keyUp'],
+        );
+        expect(main.every((event) => event['key'] === (key === 'Space' ? ' ' : key))).toBe(true);
+        for (const modifier of ['Alt', 'Control', 'Meta']) {
+          expect(events.filter((event) => event['key'] === modifier)).toEqual([
+            expect.objectContaining({ type: 'rawKeyDown', code: `${modifier}Left` }),
+            expect.objectContaining({ type: 'keyUp', code: `${modifier}Left` }),
+          ]);
+        }
+      },
+    );
+
+    it('releases a modifier whose key-down applied before throwing, and all earlier modifiers', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      harness.chrome.debugger.sendCommand.mockImplementation((
+        _debuggee: unknown, method: string, params?: Record<string, unknown>,
+      ) => {
+        if (method === 'Input.dispatchKeyEvent' && params?.['windowsVirtualKeyCode'] === 17) {
+          // The release also rejects: this must not skip releasing Shift.
+          throw new Error('Ambiguous modifier dispatch');
+        }
+        return Promise.resolve({});
+      });
+      const result = await dispatchControlCommand(harness, 'modifier-partial', 'press_key', {
+        key: 'Tab', modifiers: ['Shift', 'Control'],
+      });
+      expect(result?.['ok']).toBe(false);
+      expect(harness.chrome.debugger.sendCommand.mock.calls
+        .filter((call: unknown[]) => call[1] === 'Input.dispatchKeyEvent')
+        .map((call: unknown[]) => call[2])).toEqual([
+        expect.objectContaining({ type: 'rawKeyDown', key: 'Shift', code: 'ShiftLeft', modifiers: 8 }),
+        expect.objectContaining({ type: 'rawKeyDown', key: 'Control', code: 'ControlLeft', modifiers: 10 }),
+        expect.objectContaining({ type: 'keyUp', key: 'Control', code: 'ControlLeft', modifiers: 8 }),
+        expect.objectContaining({ type: 'keyUp', key: 'Shift', code: 'ShiftLeft', modifiers: 0 }),
+      ]);
+    });
+
+    it('runs the focus expression without reading or returning any input value', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      const dom = new JSDOM('<input id="account"><input id="password" type="password">');
+      const fieldValue = 'PLACEHOLDER_FIELD_VALUE_DO_NOT_RETURN';
+      for (const field of dom.window.document.querySelectorAll('input')) {
+        Object.defineProperty(field, 'value', { get: () => { throw new Error(fieldValue); } });
+      }
+      harness.chrome.debugger.sendCommand.mockImplementation(async (
+        _debuggee: unknown, method: string, params?: Record<string, unknown>,
+      ) => method === 'Runtime.evaluate'
+        ? { result: { value: runInNewContext(String(params?.['expression']), { document: dom.window.document }) } }
+        : {});
+      for (const id of ['account', 'password']) {
+        (dom.window.document.getElementById(id) as HTMLInputElement).focus();
+        const result = await dispatchControlCommand(harness, `no-value-${id}`, 'press_key', { key: 'Tab' });
+        expect(result?.['ok']).toBe(true);
+        expect(result?.['result']).toMatchObject({ focus: { tagName: 'INPUT', id } });
+        expect(JSON.stringify(result)).not.toContain(fieldValue);
+        expect((result?.['result'] as Record<string, unknown>)['focus']).not.toHaveProperty('value');
+      }
+    });
+
     it('dispatches native key events with modifiers and reads the focus back secret-free', async () => {
       const harness = loadBackgroundHarnessForTest();
       await flushPromises();
-      const keyEvents: { type: string; vk: number | undefined; modifiers: number | undefined; text?: string }[] = [];
+      const keyEvents: { type: string; key: unknown; code: unknown; vk: number | undefined; modifiers: number | undefined; text?: string }[] = [];
       let focusExpression = '';
       harness.chrome.debugger.sendCommand.mockImplementation(
         async (_debuggee: unknown, method: string, params?: Record<string, unknown>) => {
           if (method === 'Input.dispatchKeyEvent') {
             keyEvents.push({
               type: String(params?.['type']),
+              key: params?.['key'],
+              code: params?.['code'],
               vk: params?.['windowsVirtualKeyCode'] as number | undefined,
               modifiers: params?.['modifiers'] as number | undefined,
               ...(typeof params?.['text'] === 'string' ? { text: params['text'] as string } : {}),
@@ -4139,6 +4278,9 @@ describe('browser extension assets', () => {
       ]);
       // The main key event carries the Shift modifier bit.
       expect(keyEvents[1].modifiers).toBe(8);
+      expect(keyEvents.map(({ key, code }) => [key, code])).toEqual([
+        ['Shift', 'ShiftLeft'], ['Tab', 'Tab'], ['Tab', 'Tab'], ['Shift', 'ShiftLeft'],
+      ]);
       // The in-page focus read-back must never touch field values.
       expect(focusExpression).toContain("type === 'password'");
       expect(focusExpression).not.toContain('el.value');
@@ -4219,16 +4361,23 @@ describe('browser extension assets', () => {
       expect(second?.['result']).toMatchObject({ applied: true, deduplicated: true });
       // The retry pressed nothing.
       expect(countKeyEvents()).toBe(eventsAfterFirst);
+      const next = await dispatchControlCommand(harness, 'press-3c', 'press_key', {
+        key: 'Enter', idempotencyKey: 'activate-next-2',
+      });
+      expect(next?.['result']).toMatchObject({ applied: true });
+      expect(countKeyEvents()).toBe(eventsAfterFirst * 2);
     });
 
     it('burns the idempotencyKey of a failed press so a retry cannot re-fire it', async () => {
       const harness = loadBackgroundHarnessForTest();
       await flushPromises();
       const sendCommand = harness.chrome.debugger.sendCommand;
+      let fail = true;
       sendCommand.mockImplementation(
         async (_debuggee: unknown, method: string, params?: Record<string, unknown>) => {
           if (method === 'Input.dispatchKeyEvent') {
-            if (String(params?.['type']) === 'keyUp') {
+            if (String(params?.['type']) === 'keyUp' && fail) {
+              fail = false;
               throw new Error('CDP hop failed after keyDown landed');
             }
             return {};
@@ -4261,6 +4410,12 @@ describe('browser extension assets', () => {
         deduplicated: true,
       });
       expect(countKeyEvents()).toBe(eventsAfterFailure);
+      const deliberate = await dispatchControlCommand(harness, 'press-5c', 'press_key', {
+        key: 'Enter', idempotencyKey: 'activate-fragile-2',
+      });
+      expect(deliberate?.['ok']).toBe(true);
+      expect(deliberate?.['result']).toMatchObject({ applied: true });
+      expect(countKeyEvents()).toBeGreaterThan(eventsAfterFailure);
     });
 
     it('refuses printable keys so credential typing cannot bypass the type hard stops', async () => {
@@ -4272,25 +4427,8 @@ describe('browser extension assets', () => {
       expect(String(result?.['error'])).toContain('Unsupported press_key key');
     });
 
-    it('emulates a tab-scoped viewport and clears it on reset', async () => {
-      const harness = loadBackgroundHarnessForTest();
-      await flushPromises();
-      const cdpCalls: { method: string; params?: Record<string, unknown> }[] = [];
-      harness.chrome.debugger.sendCommand.mockImplementation(
-        async (_debuggee: unknown, method: string, params?: Record<string, unknown>) => {
-          cdpCalls.push({ method, ...(params ? { params } : {}) });
-          if (method === 'Emulation.getDeviceMetricsOverride') {
-            const override = cdpCalls.find((call) => call.method === 'Emulation.setDeviceMetricsOverride');
-            return override
-              ? { width: override.params?.['width'], height: override.params?.['height'] }
-              : { width: 0, height: 0 };
-          }
-          return {};
-        },
-      );
-      harness.chrome.scripting.executeScript.mockImplementation(async () => [{
-        result: { innerWidth: 768, innerHeight: 1024 },
-      }]);
+    it('emulates a tab-scoped viewport across commands and clears it on reset', async () => {
+      const { harness, dimensions } = await viewportHarness();
 
       const set = await dispatchControlCommand(harness, 'vp-1', 'set_viewport', {
         width: 768,
@@ -4303,17 +4441,308 @@ describe('browser extension assets', () => {
         requested: { width: 768, height: 1024 },
         actual: { innerWidth: 768, innerHeight: 1024 },
       });
-      expect(cdpCalls.some((call) => call.method === 'Emulation.setDeviceMetricsOverride'
-        && call.params?.['width'] === 768 && call.params?.['height'] === 1024
-        && call.params?.['deviceScaleFactor'] === 1)).toBe(true);
+      expect(harness.chrome.debugger.sendCommand).toHaveBeenCalledWith(
+        { tabId: 42 }, 'Emulation.setDeviceMetricsOverride',
+        { width: 768, height: 1024, deviceScaleFactor: 1, mobile: false },
+      );
+      expect(dimensions()).toEqual({ innerWidth: 768, innerHeight: 1024 });
+      const read = await dispatchControlCommand(harness, 'vp-read', 'set_viewport');
+      expect(read?.['result']).toMatchObject({
+        emulation: { width: 768, height: 1024 },
+        previous: { emulationActive: true, emulationWidth: 768, emulationHeight: 1024 },
+        actual: { innerWidth: 768, innerHeight: 1024 },
+      });
+      expect(harness.chrome.debugger.attach).toHaveBeenCalledTimes(1);
+      expect(harness.chrome.debugger.detach).not.toHaveBeenCalled();
+      expect(harness.chrome.debugger.sendCommand.mock.calls.some(
+        (call: unknown[]) => call[1] === 'Emulation.getDeviceMetricsOverride',
+      )).toBe(false);
 
       const reset = await dispatchControlCommand(harness, 'vp-2', 'set_viewport', { reset: true });
       expect(reset?.['ok']).toBe(true);
       expect(reset?.['result']).toMatchObject({ mode: 'reset', scope: 'tab' });
-      expect(cdpCalls.some((call) => call.method === 'Emulation.clearDeviceMetricsOverride')).toBe(true);
+      expect(harness.chrome.debugger.sendCommand).toHaveBeenCalledWith(
+        { tabId: 42 }, 'Emulation.clearDeviceMetricsOverride',
+      );
+      expect(dimensions()).toEqual({ innerWidth: 1280, innerHeight: 800 });
+      expect(harness.chrome.debugger.detach).toHaveBeenCalledTimes(1);
+      const afterReset = await dispatchControlCommand(harness, 'vp-after-reset', 'set_viewport');
+      expect(afterReset?.['result']).toMatchObject({ previous: { emulationActive: false } });
     });
 
-    it('resizes the real Chrome window on window scope and restores the recorded bounds', async () => {
+    it('keeps viewport emulation through successful and failed watched key commands', async () => {
+      const fixture = await viewportHarness();
+      const { harness, dimensions } = fixture;
+      await dispatchControlCommand(harness, 'retain-set', 'set_viewport', { width: 768, height: 1024 });
+      const key = await dispatchControlCommand(harness, 'retain-key', 'press_key', { key: 'Tab' });
+      expect(key?.['ok']).toBe(true);
+      fixture.failKeys();
+      const failed = await dispatchControlCommand(harness, 'retain-failed-key', 'press_key', { key: 'Tab' });
+      expect(failed?.['ok']).toBe(false);
+      expect(dimensions()).toEqual({ innerWidth: 768, innerHeight: 1024 });
+      expect(harness.chrome.debugger.attach).toHaveBeenCalledTimes(1);
+      expect(harness.chrome.debugger.detach).not.toHaveBeenCalled();
+    });
+
+    it('removes completed command waiters from a retained viewport dialog watch', async () => {
+      const { harness } = await viewportHarness();
+      await dispatchControlCommand(harness, 'waiters-set', 'set_viewport', { width: 768, height: 1024 });
+      for (let index = 0; index < 5; index++) {
+        const result = await dispatchControlCommand(harness, `waiters-${index}`, 'press_key', { key: 'Tab' });
+        expect(result?.['ok']).toBe(true);
+      }
+      expect(harness.dialogWatches.get(42)?.dialogWaiters).toHaveLength(0);
+      expect(harness.chrome.debugger.detach).not.toHaveBeenCalled();
+    });
+
+    it('reads reset dimensions after releasing the debugger bar', async () => {
+      const { harness, dimensions } = await viewportHarness(true);
+      await dispatchControlCommand(harness, 'bar-set', 'set_viewport', { width: 768, height: 1024 });
+      const reset = await dispatchControlCommand(harness, 'bar-reset', 'set_viewport', { reset: true });
+      expect(reset?.['ok']).toBe(true);
+      expect(reset?.['result']).toMatchObject({ actual: { innerWidth: 1280, innerHeight: 800 } });
+      expect(dimensions()).toEqual({ innerWidth: 1280, innerHeight: 800 });
+    });
+
+    it.each(['chrome-detach', 'forced-cleanup'])(
+      'recovers desired metrics on the next debugger command after %s', async (cause) => {
+        const fixture = await viewportHarness();
+        const { harness, dimensions } = fixture;
+        await dispatchControlCommand(harness, 'recover-set', 'set_viewport', { width: 768, height: 1024 });
+        if (cause === 'chrome-detach') fixture.detach();
+        else await harness.forceReleaseCommandResources({ target: { tabId: 42 } });
+        expect(dimensions()).toEqual({ innerWidth: 1280, innerHeight: 800 });
+        const result = await dispatchControlCommand(harness, 'recover-key', 'press_key', { key: 'Tab' });
+        expect(result?.['ok']).toBe(true);
+        expect(dimensions()).toEqual({ innerWidth: 768, innerHeight: 1024 });
+        expect(harness.chrome.debugger.attach).toHaveBeenCalledTimes(2);
+        const read = await dispatchControlCommand(harness, 'recover-read', 'set_viewport');
+        expect(read?.['result']).toMatchObject({ emulation: { width: 768, height: 1024 } });
+      },
+    );
+
+    it('does not detach or take over an external debugger after losing its viewport session', async () => {
+      const fixture = await viewportHarness();
+      const { harness } = fixture;
+      await dispatchControlCommand(harness, 'external-set', 'set_viewport', { width: 768, height: 1024 });
+      fixture.detach(true);
+      const detachCount = harness.chrome.debugger.detach.mock.calls.length;
+      const work = harness.captureAccessibilitySnapshot(42, { limit: 10 });
+      const outcome = work.then(() => null, (error: unknown) => error as Error);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        await flushPromises();
+        const retry = harness.timers.setTimeout.mock.calls.filter((call: unknown[]) => call[1] === 300).at(-1);
+        (retry?.[0] as (() => void) | undefined)?.();
+      }
+      await flushPromises();
+      expect((await outcome)?.message).toContain('browser_tab_debugger_busy');
+      await harness.forceReleaseCommandResources({ target: { tabId: 42 } });
+      expect(harness.chrome.debugger.detach.mock.calls.length).toBe(detachCount);
+    });
+
+    it('fails honestly if Chrome ignores requested viewport metrics, including during recovery', async () => {
+      const fixture = await viewportHarness();
+      const { harness } = fixture;
+      fixture.ignoreMetrics();
+      const set = await dispatchControlCommand(harness, 'mismatch-set', 'set_viewport', { width: 768, height: 1024 });
+      expect(set?.['ok']).toBe(false);
+      expect(String(set?.['error'])).toContain('browser_tab_viewport_dimensions_mismatch');
+      fixture.detach();
+      const recovered = await dispatchControlCommand(harness, 'mismatch-recovery', 'press_key', { key: 'Tab' });
+      expect(recovered?.['ok']).toBe(false);
+      expect(harness.chrome.debugger.sendCommand.mock.calls.filter(
+        (call: unknown[]) => call[1] === 'Input.dispatchKeyEvent',
+      )).toHaveLength(0);
+    });
+
+    it('cancels desired viewport recovery on reset even when a previous set did not match', async () => {
+      const fixture = await viewportHarness();
+      const { harness } = fixture;
+      fixture.ignoreMetrics();
+      const set = await dispatchControlCommand(harness, 'bad-metrics-set', 'set_viewport', { width: 768, height: 1024 });
+      expect(set?.['ok']).toBe(false);
+      fixture.detach();
+      const setsBefore = harness.chrome.debugger.sendCommand.mock.calls
+        .filter((call: unknown[]) => call[1] === 'Emulation.setDeviceMetricsOverride').length;
+      const reset = await dispatchControlCommand(harness, 'bad-metrics-reset', 'set_viewport', { reset: true });
+      expect(reset?.['ok']).toBe(true);
+      expect(reset?.['result']).toMatchObject({
+        mode: 'reset', previous: { emulationActive: true }, emulation: { width: 0, height: 0 },
+        actual: { innerWidth: 1280, innerHeight: 800 },
+      });
+      expect(harness.chrome.debugger.sendCommand.mock.calls
+        .filter((call: unknown[]) => call[1] === 'Emulation.setDeviceMetricsOverride')).toHaveLength(setsBefore);
+    });
+
+    it('clears recovery intent and releases its session even if the clear-metrics transport fails', async () => {
+      const { harness, dimensions } = await viewportHarness();
+      await dispatchControlCommand(harness, 'clear-failure-set', 'set_viewport', { width: 768, height: 1024 });
+      const send = harness.chrome.debugger.sendCommand.getMockImplementation()!;
+      harness.chrome.debugger.sendCommand.mockImplementation(async (...args) => {
+        if (args[1] === 'Emulation.clearDeviceMetricsOverride') throw new Error('Clear transport failed');
+        return send(...args);
+      });
+      const reset = await dispatchControlCommand(harness, 'clear-failure-reset', 'set_viewport', { reset: true });
+      expect(reset?.['ok']).toBe(false);
+      expect(dimensions()).toEqual({ innerWidth: 1280, innerHeight: 800 });
+      const read = await dispatchControlCommand(harness, 'clear-failure-read', 'set_viewport');
+      expect(read?.['result']).toMatchObject({ previous: { emulationActive: false } });
+    });
+
+    it('does not let a late callback detach a recovered viewport session after forced cleanup', async () => {
+      const { harness, dimensions } = await viewportHarness();
+      await dispatchControlCommand(harness, 'late-set', 'set_viewport', { width: 768, height: 1024 });
+      const send = harness.chrome.debugger.sendCommand.getMockImplementation()!;
+      let finish: (value: unknown) => void = () => undefined;
+      let first = true;
+      harness.chrome.debugger.sendCommand.mockImplementation(async (...args) => {
+        if (args[1] === 'Accessibility.getFullAXTree' && first) {
+          first = false;
+          return new Promise((resolve) => { finish = resolve; });
+        }
+        return send(...args);
+      });
+      const late = harness.captureAccessibilitySnapshot(42, { limit: 10 });
+      await flushPromises();
+      await harness.forceReleaseCommandResources({ target: { tabId: 42 } });
+      await harness.captureAccessibilitySnapshot(42, { limit: 10 });
+      const detaches = harness.chrome.debugger.detach.mock.calls.length;
+      finish({ nodes: [] });
+      await late;
+      expect(harness.chrome.debugger.detach.mock.calls.length).toBe(detaches);
+      expect(dimensions()).toEqual({ innerWidth: 768, innerHeight: 1024 });
+    });
+
+    it('does not restore viewport intent when an in-flight set finishes after Gateway OFF', async () => {
+      const { harness, dimensions } = await viewportHarness();
+      const send = harness.chrome.debugger.sendCommand.getMockImplementation()!;
+      let finish: () => void = () => undefined;
+      harness.chrome.debugger.sendCommand.mockImplementation(async (...args) => {
+        const result = await send(...args);
+        if (args[1] === 'Emulation.setDeviceMetricsOverride') {
+          await new Promise<void>((resolve) => { finish = resolve; });
+        }
+        return result;
+      });
+      await dispatchControlCommand(harness, 'off-in-flight', 'set_viewport', { width: 768, height: 1024 });
+      expect(dimensions()).toEqual({ innerWidth: 768, innerHeight: 1024 });
+      await harness.setGatewayEnabled(false);
+      finish();
+      await flushPromises();
+      await harness.setGatewayEnabled(true);
+      const read = await dispatchControlCommand(harness, 'off-after-read', 'set_viewport');
+      expect(read?.['result']).toMatchObject({ previous: { emulationActive: false } });
+      expect(dimensions()).toEqual({ innerWidth: 1280, innerHeight: 800 });
+    });
+
+    it('refuses a stale callback after keep-alive finishes on an ended session', async () => {
+      const { harness } = await viewportHarness();
+      await dispatchControlCommand(harness, 'stale-set', 'set_viewport', { width: 768, height: 1024 });
+      const send = harness.chrome.debugger.sendCommand.getMockImplementation()!;
+      let finish: () => void = () => undefined;
+      let hold = true;
+      harness.chrome.debugger.sendCommand.mockImplementation(async (...args) => {
+        const result = await send(...args);
+        if (args[1] === 'Emulation.setFocusEmulationEnabled' && hold) {
+          hold = false;
+          await new Promise<void>((resolve) => { finish = resolve; });
+        }
+        return result;
+      });
+      const stale = harness.captureAccessibilitySnapshot(42, { limit: 10 })
+        .then(() => null, (error: unknown) => error as Error);
+      await flushPromises();
+      await harness.forceReleaseCommandResources({ target: { tabId: 42 } });
+      await harness.captureAccessibilitySnapshot(42, { limit: 10 });
+      finish();
+      const error = await stale;
+      expect(error).not.toBeNull();
+      expect(error?.message).toBe('browser_extension_debugger_session_ended');
+      expect(harness.chrome.debugger.sendCommand.mock.calls.filter(
+        (call: unknown[]) => call[1] === 'Accessibility.getFullAXTree',
+      )).toHaveLength(1);
+    });
+
+    it.each(['off', 'tab-removed'])(
+      'forgets desired viewport metrics on %s', async (cause) => {
+        const { harness, dimensions } = await viewportHarness();
+        await dispatchControlCommand(harness, 'cleanup-set', 'set_viewport', { width: 768, height: 1024 });
+        if (cause === 'off') {
+          await harness.setGatewayEnabled(false);
+          await harness.setGatewayEnabled(true);
+        } else {
+          harness.chrome.tabs.onRemoved.emit(42);
+          await flushPromises();
+        }
+        const read = await dispatchControlCommand(harness, 'cleanup-read', 'set_viewport');
+        expect(read?.['result']).toMatchObject({ previous: { emulationActive: false } });
+        expect(dimensions()).toEqual({ innerWidth: 1280, innerHeight: 800 });
+      },
+    );
+
+    it('preserves pop-up detection and session ownership until reset after answering', async () => {
+      const { harness } = await viewportHarness();
+      await dispatchControlCommand(harness, 'popup-set', 'set_viewport', { width: 768, height: 1024 });
+      // A snapshot capture can race another command: the watch's dialog owns
+      // the session even after the viewport no longer does.
+      harness.chrome.debugger.onEvent.emit({ tabId: 42 }, 'Page.javascriptDialogOpening', { type: 'alert' });
+      const blocked = await dispatchControlCommand(harness, 'popup-key', 'press_key', { key: 'Tab' });
+      expect(blocked?.['ok']).toBe(false);
+      expect(String(blocked?.['error'])).toContain('browser_dialog_open');
+      const answer = await dispatchControlCommand(harness, 'popup-answer', 'handle_dialog', { accept: true });
+      expect(answer?.['ok']).toBe(true);
+      expect(harness.chrome.debugger.detach).not.toHaveBeenCalled();
+      const reset = await dispatchControlCommand(harness, 'popup-reset', 'set_viewport', { reset: true });
+      expect(reset?.['ok']).toBe(true);
+      expect(harness.chrome.debugger.detach).toHaveBeenCalledTimes(1);
+    });
+
+    it('retains the dialog-owned session if a pop-up opens while reset clears metrics', async () => {
+      const { harness, dimensions } = await viewportHarness();
+      await dispatchControlCommand(harness, 'reset-dialog-set', 'set_viewport', { width: 768, height: 1024 });
+      const send = harness.chrome.debugger.sendCommand.getMockImplementation()!;
+      harness.chrome.debugger.sendCommand.mockImplementation(async (...args) => {
+        const result = await send(...args);
+        if (args[1] === 'Emulation.clearDeviceMetricsOverride') {
+          harness.chrome.debugger.onEvent.emit({ tabId: 42 }, 'Page.javascriptDialogOpening', { type: 'alert' });
+        }
+        return result;
+      });
+      const reset = await dispatchControlCommand(harness, 'reset-dialog-reset', 'set_viewport', { reset: true });
+      expect(reset?.['ok']).toBe(true);
+      expect(dimensions()).toEqual({ innerWidth: 1280, innerHeight: 800 });
+      expect(harness.chrome.debugger.detach).not.toHaveBeenCalled();
+      const answer = await dispatchControlCommand(harness, 'reset-dialog-answer', 'handle_dialog', { accept: false });
+      expect(answer?.['ok']).toBe(true);
+      expect(harness.chrome.debugger.detach).toHaveBeenCalledTimes(1);
+    });
+
+    it('reads actual top-level Chrome window bounds without resizing', async () => {
+      const harness = loadBackgroundHarnessForTest({ additionalTabs: [{ tabId: 43, groupId: -1 }] });
+      await flushPromises();
+      const read = await dispatchControlCommand(harness, 'window-read', 'set_viewport', { scope: 'window' });
+      expect(read?.['ok']).toBe(true);
+      expect(read?.['result']).toMatchObject({
+        window: { otherTabIds: [43], bounds: { left: 10, top: 20, width: 1280, height: 800 } },
+      });
+      expect(harness.chrome.windows.update).not.toHaveBeenCalled();
+    });
+
+    it.each(['width', 'height'].flatMap((field) => (
+      [undefined, 0, -1, NaN, Infinity].map((value) => ({ field, value }))
+    )))('rejects invalid Chrome window $field $value', async ({ field, value }) => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      harness.chrome.windows.get.mockResolvedValue({ id: 7, state: 'normal', left: 0, top: 0, width: 1280, height: 800, [field]: value });
+      for (const payload of [{ scope: 'window' }, { scope: 'window', width: 640, height: 480 }]) {
+        const result = await dispatchControlCommand(harness, `invalid-window-${field}-${String(value)}`, 'set_viewport', payload);
+        expect(result?.['ok']).toBe(false);
+        expect(String(result?.['error'])).toContain('browser_window_bounds_unavailable');
+      }
+      expect(harness.chrome.windows.update).not.toHaveBeenCalled();
+    });
+
+    it('resizes the mocked Chrome window on window scope and restores the recorded bounds', async () => {
       const harness = loadBackgroundHarnessForTest({ additionalTabs: [{ tabId: 43, groupId: -1 }] });
       await flushPromises();
       harness.chrome.scripting.executeScript.mockImplementation(async () => [{
@@ -4357,6 +4786,74 @@ describe('browser extension assets', () => {
         width: 1280,
         height: 800,
       });
+    });
+
+    it.each(['maximized', 'minimized', 'fullscreen'])(
+      'restores normal window bounds before original %s state and retries failed restoration', async (state) => {
+        const harness = loadBackgroundHarnessForTest();
+        await flushPromises();
+        await harness.chrome.windows.update(7, { state });
+        const set = await dispatchControlCommand(harness, 'state-set', 'set_viewport', {
+          scope: 'window', width: 1024, height: 768,
+        });
+        expect(set?.['ok']).toBe(true);
+        const normalUpdate = harness.chrome.windows.update.getMockImplementation()!;
+        let refuseState = true;
+        harness.chrome.windows.update.mockImplementation(async (id: number, update: Record<string, unknown>) => {
+          if (update['state'] === state && refuseState) throw new Error('Window state restore refused');
+          return normalUpdate(id, update);
+        });
+        const failed = await dispatchControlCommand(harness, 'state-reset-fail', 'set_viewport', {
+          scope: 'window', reset: true,
+        });
+        expect(failed?.['result']).toMatchObject({ restorationFailed: 'Window state restore refused' });
+        refuseState = false;
+        harness.chrome.windows.update.mockClear();
+        const reset = await dispatchControlCommand(harness, 'state-reset-retry', 'set_viewport', {
+          scope: 'window', reset: true,
+        });
+        expect(reset?.['ok']).toBe(true);
+        expect(reset?.['result']).not.toHaveProperty('restorationFailed');
+        expect(harness.chrome.windows.update.mock.calls).toEqual([
+          [7, { state: 'normal', left: 10, top: 20, width: 1280, height: 800 }],
+          [7, { state }],
+        ]);
+        expect(await harness.chrome.windows.get(7)).toMatchObject({ state, left: 10, top: 20, width: 1280, height: 800 });
+      },
+    );
+
+    it('retains a window baseline after mismatched readback and reports a failed resize honestly', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      const update = harness.chrome.windows.update.getMockImplementation()!;
+      harness.chrome.windows.update.mockImplementation(async () => ({}));
+      const mismatch = await dispatchControlCommand(harness, 'resize-ignored', 'set_viewport', {
+        scope: 'window', width: 1024, height: 768,
+      });
+      expect(mismatch?.['ok']).toBe(false);
+      expect(String(mismatch?.['error'])).toContain('browser_window_bounds_mismatch');
+      harness.chrome.windows.update.mockImplementation(update);
+      await dispatchControlCommand(harness, 'resize-retry', 'set_viewport', { scope: 'window', width: 1024, height: 768 });
+      harness.chrome.windows.update.mockImplementation(async () => ({}));
+      const resetMismatch = await dispatchControlCommand(harness, 'restore-ignored', 'set_viewport', { scope: 'window', reset: true });
+      expect(resetMismatch?.['result']).toMatchObject({ restorationFailed: 'browser_window_bounds_mismatch' });
+      harness.chrome.windows.update.mockImplementation(update);
+      const reset = await dispatchControlCommand(harness, 'restore-retry', 'set_viewport', { scope: 'window', reset: true });
+      expect(reset?.['result']).not.toHaveProperty('restorationFailed');
+      expect(reset?.['result']).toMatchObject({ window: { bounds: { left: 10, top: 20, width: 1280, height: 800 } } });
+    });
+
+    it('preserves the window baseline if final readback fails instead of returning stale bounds', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      const get = harness.chrome.windows.get.getMockImplementation()!;
+      harness.chrome.windows.get.mockImplementationOnce(get).mockRejectedValueOnce(new Error('Window readback failed'));
+      const failed = await dispatchControlCommand(harness, 'readback-fail', 'set_viewport', { scope: 'window', width: 1024, height: 768 });
+      expect(failed?.['ok']).toBe(false);
+      expect(String(failed?.['error'])).toContain('Window readback failed');
+      const reset = await dispatchControlCommand(harness, 'readback-retry', 'set_viewport', { scope: 'window', reset: true });
+      expect(reset?.['result']).not.toHaveProperty('restorationFailed');
+      expect(reset?.['result']).toMatchObject({ window: { bounds: { left: 10, top: 20, width: 1280, height: 800 } } });
     });
 
     it('reports a lost window-bounds baseline explicitly instead of claiming restoration', async () => {
@@ -5148,11 +5645,11 @@ function loadBackgroundHarnessForTest(options: {
   const windowsById = new Map<number, {
     id: number;
     state: string;
-    bounds: { left: number; top: number; width: number; height: number };
+    left: number; top: number; width: number; height: number;
   }>([[7, {
     id: 7,
     state: 'normal',
-    bounds: { left: 10, top: 20, width: 1280, height: 800 },
+    left: 10, top: 20, width: 1280, height: 800,
   }]]);
   const connectNative = vi.fn((hostName: string) => {
     if (failConnectHosts.has(hostName)) {
@@ -5195,7 +5692,10 @@ function loadBackgroundHarnessForTest(options: {
       debugger: {
         attach: vi.fn(async () => undefined),
         detach: vi.fn(async () => undefined),
-        sendCommand: vi.fn(async () => ({ nodes: [] })),
+        sendCommand: vi.fn(async (_debuggee: unknown, method: string) => {
+          if (method === 'Emulation.getDeviceMetricsOverride') throw new Error('Method not found');
+          return { nodes: [] };
+        }),
         onEvent: createChromeEvent<[unknown, string, unknown]>(),
         onDetach: createChromeEvent<[unknown, string]>(),
       },
@@ -5336,7 +5836,7 @@ function loadBackgroundHarnessForTest(options: {
         get: vi.fn(async (windowId: number) => windowsById.get(windowId) ?? {
           id: windowId,
           state: 'normal',
-          bounds: { left: 0, top: 0, width: 1280, height: 800 },
+          left: 0, top: 0, width: 1280, height: 800,
         }),
         update: vi.fn(async (windowId: number, update: {
           state?: string;
@@ -5345,21 +5845,22 @@ function loadBackgroundHarnessForTest(options: {
           left?: number;
           top?: number;
         }) => {
+          if (update.state && update.state !== 'normal'
+            && ['left', 'top', 'width', 'height'].some((key) => key in update)) {
+            throw new Error('Non-normal state cannot be combined with bounds');
+          }
           const existing = windowsById.get(windowId) ?? {
             id: windowId,
             state: 'normal',
-            bounds: { left: 0, top: 0, width: 1280, height: 800 },
-          };
-          const bounds = {
-            left: update.left ?? existing.bounds.left,
-            top: update.top ?? existing.bounds.top,
-            width: update.width ?? existing.bounds.width,
-            height: update.height ?? existing.bounds.height,
+            left: 0, top: 0, width: 1280, height: 800,
           };
           windowsById.set(windowId, {
             id: windowId,
             state: update.state ?? existing.state,
-            bounds,
+            left: update.left ?? existing.left,
+            top: update.top ?? existing.top,
+            width: update.width ?? existing.width,
+            height: update.height ?? existing.height,
           });
           return windowsById.get(windowId);
         }),
@@ -5370,7 +5871,7 @@ function loadBackgroundHarnessForTest(options: {
     }) | undefined,
   };
   runInNewContext(
-    `${background}\n;globalThis.__backgroundHarness = { applySecretObservationProtectionEnabled, bridges, buildTabPayload, captureAccessibilitySnapshot, captureTabScreenshot, clearHttpAuthChallenge, clearHttpAuthStage, deriveToolbarBadgeState, forceReleaseCommandResources, handleHttpAuthRequired, httpAuthChallengeForTab, httpAuthChallenges, httpAuthStages, markSecretTaint, pageBridgeScript, recordHttpAuthChallenge, reportTabInventory, selfHealIfWedged, setGatewayEnabled, startControlledTab, stopControlledTab, tabDebuggerChains, waitForTabComplete, activeCommandCount: () => activeBrowserCommandCount };`,
+    `${background}\n;globalThis.__backgroundHarness = { applySecretObservationProtectionEnabled, bridges, buildTabPayload, captureAccessibilitySnapshot, captureTabScreenshot, clearHttpAuthChallenge, clearHttpAuthStage, deriveToolbarBadgeState, forceReleaseCommandResources, handleHttpAuthRequired, httpAuthChallengeForTab, httpAuthChallenges, httpAuthStages, markSecretTaint, pageBridgeScript, recordHttpAuthChallenge, reportTabInventory, selfHealIfWedged, setGatewayEnabled, startControlledTab, stopControlledTab, tabDebuggerChains, dialogWatches, waitForTabComplete, activeCommandCount: () => activeBrowserCommandCount };`,
     context,
     { filename: 'resources/browser-extension/background.js' },
   );

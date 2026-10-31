@@ -400,10 +400,13 @@ async function setViewport(
       toolName: 'browser.set_viewport',
       actionClass: prepared.actionClass,
       decision: 'allowed',
-      outcome: 'succeeded',
-      summary: request.reset === true
-        ? `browser.set_viewport restored the previous ${scope} viewport state`
-        : `browser.set_viewport applied ${scope} viewport via ${data.mode}`,
+      outcome: data.restorationFailed ? 'failed' : 'succeeded',
+      ...(data.restorationFailed ? { reason: data.restorationFailed } : {}),
+      summary: data.restorationFailed
+        ? 'Could not restore the original viewport. The current dimensions are included in the result.'
+        : request.reset === true
+          ? `browser.set_viewport restored the previous ${scope} viewport state`
+          : `browser.set_viewport applied ${scope} viewport via ${data.mode}`,
       origin: prepared.origin,
       url: prepared.url,
       grantId: prepared.grant.id,
@@ -526,10 +529,13 @@ async function setZoom(
       toolName: 'browser.set_zoom',
       actionClass: prepared.actionClass,
       decision: 'allowed',
-      outcome: 'succeeded',
-      summary: request.reset === true
-        ? 'browser.set_zoom restored the recorded original browser zoom'
-        : `browser.set_zoom set real Chrome zoom to ${data.zoomPercent}%`,
+      outcome: data.restorationFailed ? 'failed' : 'succeeded',
+      ...(data.restorationFailed ? { reason: data.restorationFailed } : {}),
+      summary: data.restorationFailed
+        ? 'Could not restore the original browser zoom. The current zoom is included in the result.'
+        : request.reset === true
+          ? 'browser.set_zoom restored the recorded original browser zoom'
+          : `browser.set_zoom set real Chrome zoom to ${data.zoomPercent}%`,
       origin: prepared.origin,
       url: prepared.url,
       grantId: prepared.grant.id,

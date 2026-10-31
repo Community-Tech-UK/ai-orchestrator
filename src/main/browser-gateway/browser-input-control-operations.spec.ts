@@ -489,6 +489,51 @@ describe('browser input control operations', () => {
   });
 
   describe('browser.set_viewport', () => {
+    it.each(['browser_window_bounds_baseline_lost', 'browser_window_bounds_restore_mismatch'])(
+      'reports a failed window restore in the result and audit: %s', async (restorationFailed) => {
+        const sendCommand = vi.fn(async () => ({
+          mode: 'reset',
+          scope: 'window',
+          actual: { innerWidth: 1024, innerHeight: 768 },
+          restorationFailed,
+        }));
+        const { service, audits } = makeService({
+          existingTab: fixtureTab,
+          extensionCommandStore: { sendCommand },
+          grants: [inputGrant()],
+        });
+
+        const result = await service.setViewport({
+          instanceId: 'instance-1', provider: 'copilot',
+          profileId: fixtureTab.profileId, targetId: fixtureTab.targetId,
+          scope: 'window', reset: true,
+        });
+
+        expect(result).toMatchObject({
+          decision: 'allowed', outcome: 'failed', reason: restorationFailed,
+          data: { mode: 'reset', restorationFailed, actual: { innerWidth: 1024, innerHeight: 768 } },
+        });
+        expect(audits.at(-1)).toMatchObject({ outcome: 'failed', reason: restorationFailed });
+        expect(audits.at(-1)?.summary).toContain('Could not restore');
+      },
+    );
+
+    it('reports a confirmed viewport reset as successful', async () => {
+      const sendCommand = vi.fn(async () => ({
+        mode: 'reset', scope: 'tab', actual: { innerWidth: 1280, innerHeight: 800 },
+      }));
+      const { service, audits } = makeService({
+        existingTab: fixtureTab, extensionCommandStore: { sendCommand }, grants: [inputGrant()],
+      });
+      const result = await service.setViewport({
+        instanceId: 'instance-1', provider: 'copilot',
+        profileId: fixtureTab.profileId, targetId: fixtureTab.targetId, reset: true,
+      });
+      expect(result).toMatchObject({ outcome: 'succeeded', data: { mode: 'reset' } });
+      expect(result.reason).toBeUndefined();
+      expect(audits.at(-1)?.outcome).toBe('succeeded');
+    });
+
     it('emulates a tablet viewport on an existing tab and reports requested vs actual', async () => {
       const sendCommand = vi.fn(async () => ({
         mode: 'tab_emulation',
@@ -735,7 +780,7 @@ describe('browser input control operations', () => {
         viewport: { innerWidth: 1280, innerHeight: 800 },
         restorationFailed: 'browser_zoom_baseline_lost',
       }));
-      const { service } = makeService({
+      const { service, audits } = makeService({
         existingTab: fixtureTab,
         extensionCommandStore: { sendCommand },
         grants: [inputGrant()],
@@ -751,6 +796,11 @@ describe('browser input control operations', () => {
 
       expect(result.data?.restorationFailed).toBe('browser_zoom_baseline_lost');
       expect(result.data?.mode).toBe('reset');
+      expect(result).toMatchObject({ outcome: 'failed', reason: 'browser_zoom_baseline_lost' });
+      expect(audits.at(-1)).toMatchObject({
+        outcome: 'failed', reason: 'browser_zoom_baseline_lost',
+      });
+      expect(audits.at(-1)?.summary).toContain('Could not restore');
     });
   });
 });

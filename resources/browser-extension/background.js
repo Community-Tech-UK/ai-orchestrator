@@ -310,12 +310,14 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   // (press_key dedupe memory, zoom baselines).
   pressKeyMemory.delete(String(tabId));
   zoomBaselines.delete(tabId);
+  tabViewportOverrides.delete(tabId);
   unansweredPageReads.delete(tabId);
   // A destroyed tab can neither show nor answer an HTTP auth prompt.
   clearHttpAuthChallenge(tabId);
   clearHttpAuthStage(tabId);
   // Nor a page pop-up.
   forgetDialogWatch(tabId);
+  void detachDebuggerQuietly(debuggerAttachments.get(tabId)?.debuggee);
   if (!gatewayEnabled) {
     return;
   }
@@ -329,7 +331,10 @@ chrome.windows.onRemoved.addListener((windowId) => {
 chrome.debugger.onEvent.addListener(handleDialogDebuggerEvent);
 // Chrome ended the session itself: the tab closed, DevTools opened on it, or
 // the person cancelled the debugging bar. Chrome keeps showing any pop-up.
-chrome.debugger.onDetach.addListener((source) => forgetDialogWatch(source?.tabId));
+chrome.debugger.onDetach.addListener((source) => {
+  forgetDialogWatch(source?.tabId);
+  debuggerAttachments.delete(source?.tabId);
+});
 
 /**
  * Top-level named listener (source-extraction test harness binds to it) for
@@ -696,7 +701,11 @@ async function setGatewayEnabled(enabled) {
     stopAllBridges();
     // Off means no Browser Gateway session stays on any tab. A pop-up a watch
     // was holding stays open in Chrome for the person to answer.
+    tabViewportOverrides.clear();
     releaseAllDialogWatches();
+    for (const { debuggee } of debuggerAttachments.values()) {
+      void detachDebuggerQuietly(debuggee);
+    }
   }
   persistBridgeStatus();
   return getStatusPayload();
@@ -2176,9 +2185,7 @@ async function forceReleaseCommandResources(command) {
   // The detach below is this extension's own, so Chrome sends no onDetach.
   forgetDialogWatch(tabId);
   const controlledTabCleanup = stopControlledTab(tabId).catch(() => undefined);
-  const debuggerCleanup = chrome.debugger?.detach
-    ? chrome.debugger.detach({ tabId }).catch(() => undefined)
-    : Promise.resolve();
+  const debuggerCleanup = detachDebuggerQuietly(debuggerAttachments.get(tabId)?.debuggee);
   await Promise.all([controlledTabCleanup, debuggerCleanup]);
 }
 
@@ -2771,6 +2778,9 @@ async function downloadFileFromTargetTab(command) {
 // capture (e.g. the popup's share-tab screenshot racing a command, which does
 // NOT go through the command queue) waits its turn instead of double-attaching.
 const tabDebuggerChains = new Map();
+// Only this extension's attach attempts/sessions. Never detach an external
+// client after Chrome has ended our session or refused our attach.
+const debuggerAttachments = new Map();
 
 function withDebugger(tabId, callback) {
   assertGatewayEnabled();
@@ -2836,17 +2846,32 @@ function withCdpDeadline(work, label, timeoutMs) {
   });
 }
 
+function assertDebuggerSessionCurrent(debuggee) {
+  assertGatewayEnabled();
+  if (debuggerAttachments.get(debuggee.tabId)?.debuggee !== debuggee) {
+    throw new Error('browser_extension_debugger_session_ended');
+  }
+}
+
 async function attachAndRunDebugger(tabId, callback) {
+  assertGatewayEnabled();
   if (!chrome.debugger?.attach || !chrome.debugger?.sendCommand) {
     throw new Error('Chrome debugger API is unavailable.');
   }
   // A pop-up watch already holds this tab's one debugger session (Chrome
   // allows one per extension per tab), so work in it. Counted as the watch's
   // work so the watch cannot detach mid-callback.
+  if (tabViewportOverrides.has(tabId) && !dialogWatches.has(tabId)) {
+    createDialogWatch(tabId);
+  }
   const watch = await holdDialogWatch(tabId);
+  if (!watch && tabViewportOverrides.has(tabId)) {
+    throw new Error('browser_tab_debugger_busy: viewport session could not be restored.');
+  }
   if (watch) {
     try {
       await applyDebuggerKeepAlive(watch.debuggee);
+      assertDebuggerSessionCurrent(watch.debuggee);
       return await callback(watch.debuggee);
     } finally {
       watch.pendingWork -= 1;
@@ -2870,6 +2895,7 @@ async function attachAndRunDebugger(tabId, callback) {
   }
   try {
     await applyDebuggerKeepAlive(debuggee);
+    assertDebuggerSessionCurrent(debuggee);
     return await callback(debuggee);
   } finally {
     await detachDebuggerQuietly(debuggee);
@@ -2879,6 +2905,14 @@ async function attachAndRunDebugger(tabId, callback) {
 // Bounded and best-effort: a detach that never settles would hold this tab's
 // debugger chain open and stall every later CDP command queued behind it.
 function detachDebuggerQuietly(debuggee) {
+  if (!debuggee) {
+    return Promise.resolve();
+  }
+  const attachment = debuggerAttachments.get(debuggee.tabId);
+  if (!attachment || attachment.debuggee !== debuggee) {
+    return Promise.resolve();
+  }
+  debuggerAttachments.delete(debuggee.tabId);
   return withCdpDeadline(
     chrome.debugger.detach(debuggee),
     'detach',
@@ -2914,22 +2948,43 @@ async function applyDebuggerKeepAlive(debuggee) {
 // client (a DevTools window open on the tab, or another CDP-based tool), fail
 // with a clear, actionable error instead of the raw Chrome message.
 async function attachDebugger(debuggee) {
+  const attachment = { debuggee };
+  debuggerAttachments.set(debuggee.tabId, attachment);
   for (let attempt = 0; ; attempt++) {
     try {
       await chrome.debugger.attach(debuggee, '1.3');
+      if (debuggerAttachments.get(debuggee.tabId) !== attachment || !gatewayEnabled) {
+        // An attach can finish after its deadline, OFF, or forced cleanup.
+        // It just became ours, so release the late session without recording
+        // it as the owner of any newer work.
+        if (!debuggerAttachments.has(debuggee.tabId)) {
+          await withCdpDeadline(chrome.debugger.detach(debuggee), 'detach', CDP_CONTROL_TIMEOUT_MS)
+            .catch(() => undefined);
+        }
+        throw new Error('browser_extension_debugger_session_ended');
+      }
       return;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (!DEBUGGER_BUSY_PATTERN.test(message)) {
+        if (debuggerAttachments.get(debuggee.tabId) === attachment) {
+          debuggerAttachments.delete(debuggee.tabId);
+        }
         throw error;
       }
       if (attempt >= DEBUGGER_ATTACH_RETRIES) {
+        if (debuggerAttachments.get(debuggee.tabId) === attachment) {
+          debuggerAttachments.delete(debuggee.tabId);
+        }
         throw new Error(
           'browser_tab_debugger_busy: another debugger is attached to this tab '
           + '(a DevTools window or another automation client). Close it and retry.',
         );
       }
       await delay(DEBUGGER_ATTACH_RETRY_DELAY_MS);
+      if (debuggerAttachments.get(debuggee.tabId) !== attachment || !gatewayEnabled) {
+        throw new Error('browser_extension_debugger_session_ended');
+      }
     }
   }
 }
@@ -3016,6 +3071,12 @@ function commandWatchesForDialogs(command) {
 // another session mid-detach); the command then runs unwatched, as it did
 // before watches existed.
 async function acquireDialogWatch(tabId) {
+  if (!dialogWatches.has(tabId)) {
+    // A popup/share capture can be using a temporary session outside the
+    // command queue. Let its serialized work finish before taking ownership.
+    await tabDebuggerChains.get(tabId);
+    assertGatewayEnabled();
+  }
   if (!dialogWatches.has(tabId) && chrome.debugger?.attach && chrome.debugger?.sendCommand) {
     createDialogWatch(tabId);
   }
@@ -3070,6 +3131,27 @@ function createDialogWatch(tabId) {
       'Page.enable',
       DIALOG_PAGE_ENABLE_TIMEOUT_MS,
     ).catch(() => undefined);
+    if (!gatewayEnabled || dialogWatches.get(tabId) !== watch) {
+      await detachDebuggerQuietly(watch.debuggee);
+      return false;
+    }
+    const desired = tabViewportOverrides.get(tabId);
+    if (desired) {
+      try {
+        await applyTabViewportOverride(watch.debuggee, desired);
+        assertTabViewportDimensions(await readTabViewportMetrics(tabId), desired);
+      } catch (error) {
+        if (dialogWatches.get(tabId) === watch) {
+          dialogWatches.delete(tabId);
+        }
+        await detachDebuggerQuietly(watch.debuggee);
+        throw error;
+      }
+    }
+    if (!gatewayEnabled || dialogWatches.get(tabId) !== watch) {
+      await detachDebuggerQuietly(watch.debuggee);
+      return false;
+    }
     return true;
   })();
 }
@@ -3083,6 +3165,11 @@ function releaseAllDialogWatches() {
 
 async function endDialogWatchIfIdle(watch) {
   if (watch.pendingWork > 0 || watch.dialog || dialogWatches.get(watch.tabId) !== watch) {
+    return;
+  }
+  // Explicit per-tab emulation belongs to this attached session. Detaching
+  // here would silently return the page to desktop size between commands.
+  if (tabViewportOverrides.has(watch.tabId)) {
     return;
   }
   dialogWatches.delete(watch.tabId);
@@ -3156,12 +3243,20 @@ async function executeBrowserCommandWatchingDialogs(command, deadlineAt) {
     throw dialogOpenError(watch.dialog, false);
   }
   const work = executeBrowserCommand(command, deadlineAt);
+  let dialogWaiter;
   const outcome = await Promise.race([
     work.then((value) => ({ value }), (error) => ({ error })),
     new Promise((resolve) => {
-      watch.dialogWaiters.push((dialog) => resolve({ dialog }));
+      dialogWaiter = (dialog) => resolve({ dialog });
+      watch.dialogWaiters.push(dialogWaiter);
     }),
   ]);
+  // Viewport emulation can keep this watch across many completed commands.
+  // Only a command still waiting for a dialog needs its callback retained.
+  const waiterIndex = watch.dialogWaiters.indexOf(dialogWaiter);
+  if (waiterIndex >= 0) {
+    watch.dialogWaiters.splice(waiterIndex, 1);
+  }
   if (!outcome.dialog) {
     watch.pendingWork -= 1;
     await endDialogWatchIfIdle(watch);
@@ -3464,9 +3559,11 @@ const FOCUS_READ_EXPRESSION = `(() => {
 const VIEWPORT_READ_EXPRESSION = '(() => ({ innerWidth: window.innerWidth, innerHeight: window.innerHeight }))()';
 
 async function dispatchNamedKeyWithModifiers(debuggee, key, modifiers) {
-  const sendKey = (type, virtualKeyCode, text, modifiersMask) =>
+  const sendKey = (type, name, virtualKeyCode, text, modifiersMask) =>
     chrome.debugger.sendCommand(debuggee, 'Input.dispatchKeyEvent', {
       type,
+      key: name === 'Space' ? ' ' : name,
+      code: PRESS_KEY_MODIFIER_CODES[name] ? `${name}Left` : name,
       windowsVirtualKeyCode: virtualKeyCode,
       nativeVirtualKeyCode: virtualKeyCode,
       modifiers: modifiersMask,
@@ -3477,22 +3574,29 @@ async function dispatchNamedKeyWithModifiers(debuggee, key, modifiers) {
   try {
     for (const modifier of modifiers) {
       mask |= PRESS_KEY_MODIFIER_BITS[modifier];
-      await sendKey('rawKeyDown', PRESS_KEY_MODIFIER_CODES[modifier], undefined, mask);
+      // Chrome may apply key-down before the transport reports a failure.
+      // Record the attempt first so its key-up always runs in finally.
       pressed.push(modifier);
+      await sendKey('rawKeyDown', modifier, PRESS_KEY_MODIFIER_CODES[modifier], undefined, mask);
     }
     const keyCode = PRESS_KEY_CODES[key];
     const text = PRESS_KEY_TEXT[key];
-    await sendKey('rawKeyDown', keyCode, undefined, mask);
+    await sendKey('rawKeyDown', key, keyCode, undefined, mask);
     if (text) {
-      await sendKey('char', keyCode, text, mask);
+      await sendKey('char', key, keyCode, text, mask);
     }
-    await sendKey('keyUp', keyCode, text, mask);
+    await sendKey('keyUp', key, keyCode, text, mask);
   } finally {
     // Modifiers are real keyboard state: always released, including on
     // cancellation or failure, so nothing is left "stuck" in the user's Chrome.
     for (const modifier of pressed.reverse()) {
       mask &= ~PRESS_KEY_MODIFIER_BITS[modifier];
-      await sendKey('keyUp', PRESS_KEY_MODIFIER_CODES[modifier], undefined, mask).catch(() => undefined);
+      try {
+        await sendKey('keyUp', modifier, PRESS_KEY_MODIFIER_CODES[modifier], undefined, mask);
+      } catch {
+        // A synchronous Chrome failure or rejected release must not prevent
+        // the remaining attempted modifiers from being released.
+      }
     }
   }
 }
@@ -3563,6 +3667,9 @@ async function pressKeyCommand(command) {
 // window state for restoration.
 
 const viewportWindowBaselines = new Map();
+// CDP has no getDeviceMetricsOverride. Remember only our explicit requests;
+// a new owned session reapplies them after Chrome detaches the old one.
+const tabViewportOverrides = new Map();
 const VIEWPORT_WINDOW_BASELINE_MAX = 20;
 
 function rememberViewportWindowBaseline(windowId, baseline) {
@@ -3588,42 +3695,71 @@ async function readTabViewportMetrics(tabId) {
   }
 }
 
-async function readTabEmulation(debuggee) {
-  try {
-    const current = await chrome.debugger.sendCommand(debuggee, 'Emulation.getDeviceMetricsOverride');
-    const width = Number(current?.width ?? 0);
-    const height = Number(current?.height ?? 0);
-    return {
-      emulationActive: width > 0 && height > 0,
-      ...(width > 0 ? { emulationWidth: width } : {}),
-      ...(height > 0 ? { emulationHeight: height } : {}),
-    };
-  } catch {
-    return { emulationActive: false };
+function readTabEmulation(tabId) {
+  const desired = tabViewportOverrides.get(tabId);
+  return desired
+    ? { emulationActive: true, emulationWidth: desired.width, emulationHeight: desired.height }
+    : { emulationActive: false };
+}
+
+function applyTabViewportOverride(debuggee, size) {
+  return withCdpDeadline(
+    chrome.debugger.sendCommand(debuggee, 'Emulation.setDeviceMetricsOverride', {
+      width: size.width,
+      height: size.height,
+      deviceScaleFactor: 1,
+      mobile: false,
+    }),
+    'Emulation.setDeviceMetricsOverride',
+    CDP_CONTROL_TIMEOUT_MS,
+  );
+}
+
+function assertTabViewportDimensions(actual, desired) {
+  if (actual.innerWidth !== desired.width || actual.innerHeight !== desired.height) {
+    throw new Error('browser_tab_viewport_dimensions_mismatch');
   }
 }
 
 async function setTabViewportState(tabId, payload) {
   const reset = payload.reset === true;
   const hasSize = Number.isFinite(payload.width) && Number.isFinite(payload.height);
+  const previous = readTabEmulation(tabId);
+  // Reset also cancels recovery intent. In particular, a detached override
+  // whose read-back failed must not be reapplied before it can be cleared.
+  if (reset) {
+    tabViewportOverrides.delete(tabId);
+  }
   const controlToken = await startControlledTab(tabId);
+  let watch;
+  let result;
   try {
-    const result = await withDebugger(tabId, async (debuggee) => {
-      const previous = await readTabEmulation(debuggee);
+    // Use the existing owned session/watch lifecycle. It can be kept for
+    // emulation, a waiting dialog, or both, without double-attaching.
+    watch = await acquireDialogWatch(tabId);
+    if (!watch) {
+      throw new Error('browser_tab_debugger_busy: viewport session is unavailable.');
+    }
+    result = await withDebugger(tabId, async (debuggee) => {
       let mode = 'read';
       if (reset) {
-        await chrome.debugger.sendCommand(debuggee, 'Emulation.clearDeviceMetricsOverride');
+        await withCdpDeadline(
+          chrome.debugger.sendCommand(debuggee, 'Emulation.clearDeviceMetricsOverride'),
+          'Emulation.clearDeviceMetricsOverride', CDP_CONTROL_TIMEOUT_MS,
+        );
+        tabViewportOverrides.delete(tabId);
         mode = 'reset';
       } else if (hasSize) {
-        await chrome.debugger.sendCommand(debuggee, 'Emulation.setDeviceMetricsOverride', {
-          width: payload.width,
-          height: payload.height,
-          deviceScaleFactor: 1,
-          mobile: false,
-        });
+        const desired = { width: payload.width, height: payload.height };
+        await applyTabViewportOverride(debuggee, desired);
+        assertGatewayEnabled();
+        if (dialogWatches.get(tabId) !== watch) {
+          throw new Error('browser_extension_debugger_session_ended');
+        }
+        tabViewportOverrides.set(tabId, desired);
         mode = 'tab_emulation';
       }
-      const emulation = await readTabEmulation(debuggee);
+      const emulation = readTabEmulation(tabId);
       return {
         mode,
         scope: 'tab',
@@ -3636,10 +3772,33 @@ async function setTabViewportState(tabId, payload) {
         previous,
       };
     });
-    return { ...result, actual: await readTabViewportMetrics(tabId) };
   } finally {
+    if (watch) {
+      watch.pendingWork -= 1;
+      await endDialogWatchIfIdle(watch);
+    }
     await stopControlledTab(tabId, controlToken);
   }
+  // Reset/read can release the debugging bar, which changes the content box.
+  // Read the final dimensions after session cleanup, not before the detach.
+  const actual = await readTabViewportMetrics(tabId);
+  const desired = tabViewportOverrides.get(tabId);
+  if (desired) {
+    assertTabViewportDimensions(actual, desired);
+  }
+  return { ...result, actual };
+}
+
+function readChromeWindowBounds(windowInfo) {
+  const { left, top, width, height } = windowInfo ?? {};
+  if (![left, top, width, height].every(Number.isFinite) || width <= 0 || height <= 0) {
+    throw new Error('browser_window_bounds_unavailable');
+  }
+  return { left, top, width, height };
+}
+
+function sameWindowBounds(actual, expected) {
+  return ['left', 'top', 'width', 'height'].every((key) => actual[key] === expected[key]);
 }
 
 async function setWindowViewportState(tabId, payload) {
@@ -3654,23 +3813,26 @@ async function setWindowViewportState(tabId, payload) {
   const otherTabIds = (await chrome.tabs.query({ windowId }))
     .map((entry) => entry?.id)
     .filter((id) => Number.isInteger(id) && id !== tabId);
-  const currentBounds = {
-    left: windowInfo?.bounds?.left ?? 0,
-    top: windowInfo?.bounds?.top ?? 0,
-    width: windowInfo?.bounds?.width ?? 0,
-    height: windowInfo?.bounds?.height ?? 0,
-  };
+  const currentBounds = readChromeWindowBounds(windowInfo);
   let restorationFailed;
   let mode = 'read';
+  const baseline = viewportWindowBaselines.get(windowId);
   if (reset) {
     mode = 'reset';
-    const baseline = viewportWindowBaselines.get(windowId);
     if (!baseline) {
       restorationFailed = 'browser_window_bounds_baseline_lost';
     } else {
       try {
-        await chrome.windows.update(windowId, { state: baseline.state, ...baseline.bounds });
-        viewportWindowBaselines.delete(windowId);
+        // Chrome rejects non-normal states combined with dimensions. Restore
+        // the normal bounds first, then reapply the original window state.
+        await chrome.windows.update(windowId, { state: 'normal', ...baseline.bounds });
+        const normal = await chrome.windows.get(windowId);
+        if (normal.state !== 'normal' || !sameWindowBounds(readChromeWindowBounds(normal), baseline.bounds)) {
+          throw new Error('browser_window_bounds_mismatch');
+        }
+        if (baseline.state !== 'normal') {
+          await chrome.windows.update(windowId, { state: baseline.state });
+        }
       } catch (error) {
         restorationFailed = String((error && error.message) || error).slice(0, 500);
       }
@@ -3689,7 +3851,20 @@ async function setWindowViewportState(tabId, payload) {
     });
     mode = 'window_resize';
   }
-  const after = await chrome.windows.get(windowId).catch(() => windowInfo);
+  const after = await chrome.windows.get(windowId);
+  const afterBounds = readChromeWindowBounds(after);
+  if (reset && baseline && !restorationFailed) {
+    if (after.state !== baseline.state || !sameWindowBounds(afterBounds, baseline.bounds)) {
+      restorationFailed = 'browser_window_bounds_mismatch';
+    } else {
+      // Keep the baseline until the complete bounds/state restoration has
+      // been read back, so a failed or ignored restore remains retryable.
+      viewportWindowBaselines.delete(windowId);
+    }
+  } else if (mode === 'window_resize'
+    && (after.state !== 'normal' || afterBounds.width !== payload.width || afterBounds.height !== payload.height)) {
+    throw new Error('browser_window_bounds_mismatch');
+  }
   return {
     mode,
     scope: 'window',
@@ -3698,12 +3873,7 @@ async function setWindowViewportState(tabId, payload) {
     window: {
       windowId,
       otherTabIds,
-      bounds: {
-        left: after?.bounds?.left ?? 0,
-        top: after?.bounds?.top ?? 0,
-        width: after?.bounds?.width ?? 0,
-        height: after?.bounds?.height ?? 0,
-      },
+      bounds: afterBounds,
     },
     previous: { emulationActive: false, windowBounds: currentBounds },
     ...(restorationFailed ? { restorationFailed } : {}),
@@ -3714,31 +3884,6 @@ async function setViewportCommand(command) {
   const tabId = requireTargetTabId(command);
   const payload = command.payload ?? {};
   const scope = payload.scope === 'window' ? 'window' : 'tab';
-  const reset = payload.reset === true;
-  const hasSize = Number.isFinite(payload.width) && Number.isFinite(payload.height);
-  if (!reset && !hasSize && scope === 'window') {
-    // Reading makes no sense for window scope beyond tab metrics; report which
-    // mechanism would run so nothing silently stands in for the other.
-    const tab = await chrome.tabs.get(tabId);
-    const windowInfo = await chrome.windows.get(tab.windowId);
-    return {
-      mode: 'read',
-      scope: 'window',
-      actual: await readTabViewportMetrics(tabId),
-      window: {
-        windowId: tab.windowId,
-        otherTabIds: (await chrome.tabs.query({ windowId: tab.windowId }))
-          .map((entry) => entry?.id)
-          .filter((id) => Number.isInteger(id) && id !== tabId),
-        bounds: {
-          left: windowInfo?.bounds?.left ?? 0,
-          top: windowInfo?.bounds?.top ?? 0,
-          width: windowInfo?.bounds?.width ?? 0,
-          height: windowInfo?.bounds?.height ?? 0,
-        },
-      },
-    };
-  }
   if (scope === 'window') {
     return setWindowViewportState(tabId, payload);
   }
