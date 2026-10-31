@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signa
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
   ActivatedRoute,
+  type ActivatedRouteSnapshot,
   NavigationEnd,
   Router,
   RouterLink,
@@ -118,11 +119,13 @@ export class ControlSurfaceShellComponent {
   }
 
   private findActiveSurfaceId(): ControlSurfaceId | null {
-    let current: ActivatedRoute | null = this.route;
+    // The recognized snapshot tree is complete before the shell is constructed;
+    // live child routes receive their snapshots only as their outlets activate.
+    let current: ActivatedRouteSnapshot | null = this.route.snapshot;
     let lastId: ControlSurfaceId | null = null;
 
     while (current) {
-      const value = current.snapshot.data['controlSurfaceId'];
+      const value = current.data['controlSurfaceId'];
       if (typeof value === 'string' && tryGetControlSurface(value)) {
         lastId = value as ControlSurfaceId;
       }
