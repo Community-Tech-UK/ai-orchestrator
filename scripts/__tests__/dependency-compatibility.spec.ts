@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { unzipSync } from "fflate";
 import { describe, expect, it } from "vitest";
 
 interface LockEntry {
@@ -165,6 +166,7 @@ function everyRecordedRangeIsSatisfied(
 
 interface ArchiveStream {
   append(source: string, data: { name: string }): ArchiveStream;
+  directory(source: string, destination: false): ArchiveStream;
   finalize(): Promise<void>;
   on(event: "data", listener: (chunk: Buffer) => void): ArchiveStream;
 }
@@ -304,5 +306,30 @@ describe("dependency compatibility", () => {
     await archive.finalize();
 
     expect(Buffer.concat(chunks).subarray(0, 2).toString("ascii")).toBe("PK");
+  });
+
+  it("archives nested and hidden WhatsApp session files through the directory walker", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "whatsapp-archive-"));
+    try {
+      mkdirSync(path.join(root, "Default", "nested"), { recursive: true });
+      writeFileSync(path.join(root, "Default", "nested", "session.txt"), "session fixture");
+      writeFileSync(path.join(root, ".session-state"), "hidden fixture");
+      const archiver = require("archiver") as (format: "zip") => ArchiveStream;
+      const archive = archiver("zip");
+      const chunks: Buffer[] = [];
+      archive.on("data", (chunk) => chunks.push(chunk));
+      archive.directory(root, false);
+      await archive.finalize();
+
+      const entries = unzipSync(Buffer.concat(chunks));
+      expect(Object.keys(entries).filter((name) => !name.endsWith("/")).sort()).toEqual([
+        ".session-state",
+        "Default/nested/session.txt",
+      ]);
+      expect(Buffer.from(entries["Default/nested/session.txt"]).toString()).toBe("session fixture");
+      expect(Buffer.from(entries[".session-state"]).toString()).toBe("hidden fixture");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
