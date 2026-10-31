@@ -28,10 +28,7 @@ export type CodexAppServerConnectionPhase =
 
 export type CodexAppServerTurnPhase = 'idle' | 'starting' | 'running' | 'interrupting';
 
-/**
- * Who started the active turn. `provider` turns were started by Codex itself,
- * e.g. a thread-goal continuation, and are followed rather than requested.
- */
+/** Provider turns (e.g. native goal continuations) are followed rather than requested. */
 export type CodexAppServerTurnOrigin = 'harness' | 'provider';
 
 export interface CodexAppServerThreadBinding {
@@ -77,6 +74,9 @@ export interface CodexTurnCaptureCallbacks {
   hasPendingApproval(): boolean;
   onHeartbeat(): void;
   onAbandonedTurn(): void;
+  shouldDeferNotification?(notification: AppServerNotification): boolean;
+  /** Replays connection-level side effects withheld during an earlier publication. */
+  onBufferedNotification?(notification: AppServerNotification): void;
 }
 
 export interface CaptureCodexTurnOptions extends CodexTurnCaptureCallbacks {
@@ -387,15 +387,14 @@ export class CodexAppServerThreadRuntime {
   captureProviderTurn(
     turnId: string,
     options: CodexTurnCaptureCallbacks,
-    startedNotification?: AppServerNotification,
+    bufferedNotifications: readonly AppServerNotification[] = [],
   ): Promise<TurnCaptureState> | null {
     const client = this.client;
     const threadId = this.binding?.threadId;
     if (!client || !threadId || this.connectionPhase !== 'ready' || this.activeTurn) return null;
     const active = this.beginActiveTurn(options, 'provider');
     this.establishTurn(active, threadId, turnId);
-    if (startedNotification) options.handleNotification(active.state, startedNotification);
-    return this.runCapture(active, client, threadId, options, async () => undefined);
+    return this.runCapture(active, client, threadId, options, async () => undefined, bufferedNotifications);
   }
 
   async close(): Promise<void> {
@@ -467,6 +466,7 @@ export class CodexAppServerThreadRuntime {
     threadId: string,
     options: CodexTurnCaptureCallbacks,
     start: (capture: { flushBuffered(): void }) => Promise<void>,
+    bufferedNotifications: readonly AppServerNotification[] = [],
   ): Promise<TurnCaptureState> {
     const state = active.state;
     let idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -491,7 +491,8 @@ export class CodexAppServerThreadRuntime {
       idleTimer.unref?.();
     };
 
-    const unsubscribe = client.subscribeNotifications((notification) => {
+    const receiveNotification = (notification: AppServerNotification) => {
+      if (options.shouldDeferNotification?.(notification)) return;
       if (notification.method === 'thread/compacted') return;
       if (
         notification.method === 'turn/started'
@@ -518,10 +519,15 @@ export class CodexAppServerThreadRuntime {
       if (options.belongsToTurn(state, notification)) {
         options.handleNotification(state, notification);
       }
-    });
+    };
+    const unsubscribe = client.subscribeNotifications(receiveNotification);
 
     try {
       armIdleWatchdog();
+      for (const notification of bufferedNotifications) {
+        options.onBufferedNotification?.(notification);
+        receiveNotification(notification);
+      }
       await start({
         flushBuffered: () => {
           for (const buffered of state.bufferedNotifications) {

@@ -4,6 +4,7 @@ import type { ProviderContextCapabilities } from '@contracts/types/context-evide
 import { CodexContextCostController } from '../cli/adapters/codex/context-cost-controller';
 import { CompactionCoordinator, type ContextPolicyEvent } from '../context/compaction-coordinator';
 import { ProviderContextActionExecutor } from './provider-context-action-executor';
+import { getLogger } from '../logging/logger';
 
 const codexObserved: ProviderContextCapabilities = {
   toolResultControl: 'post-retention',
@@ -56,6 +57,8 @@ describe('shared context policy integration', () => {
   it('leaves a Codex session that compacts inline alone at every occupancy and spend', async () => {
     CompactionCoordinator._resetForTesting();
     const handler = vi.fn(async () => ({ proof: 'observed' as const }));
+    const log = vi.spyOn(getLogger('ContextSafetyPolicy'), 'info');
+    const events: ContextPolicyEvent[] = [];
     const coordinator = CompactionCoordinator.getInstance();
     let atBoundary = false;
     coordinator.configure({
@@ -68,6 +71,7 @@ describe('shared context policy integration', () => {
         'controlled-recovery': handler,
       }),
       getAtSafeProviderBoundary: () => atBoundary,
+      recordPolicyEvent: (event) => { events.push(event); },
     });
 
     for (const used of [32, 60, 70, 75, 80, 95]) {
@@ -81,6 +85,10 @@ describe('shared context policy integration', () => {
     }
 
     expect(handler).not.toHaveBeenCalled();
+    expect(events.filter((event) => event.eventKind === 'decision' && event.actionCode !== 'none')).toEqual([]);
+    expect(log.mock.calls.filter(([message, data]) => message === 'Context policy decision'
+      && (data as { action?: string })?.action !== 'none')).toEqual([]);
+    log.mockRestore();
   });
 
   it('records one content-free decision and distinct proof stages per threshold and epoch', async () => {

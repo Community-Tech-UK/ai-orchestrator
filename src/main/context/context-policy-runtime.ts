@@ -187,6 +187,9 @@ export class ContextPolicyRuntime {
       atSafeProviderBoundary: input.atSafeProviderBoundary,
     });
     this.states.set(input.instanceId, decision.nextState);
+    // Inline providers own their checkpoints. An advisory convergence review
+    // has no Harness executor and must not be reported as a competing action.
+    if (input.capabilities.providerAutoCompaction === 'inline' && decision.action.kind === 'convergence-review') return;
     const occupancyPercentage = input.usage.total > 0
       ? (input.usage.used / input.usage.total) * 100
       : null;

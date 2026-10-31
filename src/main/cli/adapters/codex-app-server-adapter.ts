@@ -98,7 +98,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
   private contextDiagnosticsSink: CodexContextDiagnosticSink | null;
   private contextDiagnosticsWarningLogged = false;
   private readonly providerCompactionPresentation = new CodexProviderCompactionPresentation({
-    hasActiveTurn: () => this.appServerRuntime.hasActiveTurn(),
+    hasActiveTurn: () => this.appServerRuntime.hasActiveTurn() || this.hasPendingProviderWork(),
     hasPendingHandoff: () => this.contextCostController.hasPendingCompactionHandoff(),
     emitStatus: (status) => this.emit('status', status),
     emitOutput: (message) => this.emit('output', message),
@@ -127,7 +127,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
       compactionRunningTimeoutMs: CODEX_TIMEOUTS.COMPACTION_RUNNING_MS,
       compactionHeartbeatMs: CODEX_TIMEOUTS.EXEC_LIVENESS_HEARTBEAT_MS,
       interrupt: () => this.interrupt(),
-      hasActiveTurn: () => this.appServerRuntime.hasActiveTurn(),
+      hasActiveTurn: () => this.appServerRuntime.hasActiveTurn() || this.hasPendingProviderWork(),
       getCompactionTarget: () => this.getAppServerClient() && this.getAppServerThreadId() && this.useAppServer
         ? {
             threadId: this.getAppServerThreadId()!,
@@ -249,7 +249,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
       emitPaused: (output) => this.emit('output', output),
     });
     const steered = await steer(() => this.appServerRuntime.steerActiveTurn());
-    if (!steered && !this.contextCostController.isCompactionRunning()) {
+    if (!steered && !this.hasPendingProviderWork() && !this.contextCostController.isCompactionRunning()) {
       this.emit('status', 'idle' as InstanceStatus);
     }
     return steered;
@@ -588,7 +588,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
       isSpawned: () => this.isSpawned,
       isAppServerMode: () => this.useAppServer,
       hasAppServerClient: () => !!this.getAppServerClient(),
-      hasActiveTurn: () => this.appServerRuntime.hasActiveTurn(),
+      hasActiveTurn: () => this.appServerRuntime.hasActiveTurn() || this.hasPendingProviderWork(),
       isProviderCompacting: () => this.contextCostController.isCompactionRunning(),
       isRecoverableTurnError: isRecoverableCodexTurnError,
       sendAppServer: () => this.appServerSendMessage(message, attachments, metadata, admission),
@@ -741,7 +741,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
       error ? { reason: error.message, degraded: true } : undefined,
     );
   }
-
+  protected abstract hasPendingProviderWork(): boolean;
 
   protected abstract appServerSendMessageInner(
     message: string,

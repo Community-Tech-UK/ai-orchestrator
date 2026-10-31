@@ -80,7 +80,7 @@ export class CodexCliAdapter extends CodexAppServerTurnAdapter {
    * notification watchdog. Exec fallback keeps the generic silence clock.
    */
   hasActiveTurn(): boolean {
-    return this.useAppServer && this.appServerRuntime.hasActiveTurn();
+    return this.useAppServer && (this.appServerRuntime.hasActiveTurn() || this.hasPendingProviderWork());
   }
 
   /**

@@ -28,7 +28,7 @@ export async function runCodexInputSend(deps: CodexInputSendLifecycleDeps): Prom
   try {
     if (deps.isAppServerMode() && deps.hasAppServerClient()) await deps.sendAppServer();
     else await deps.sendExec();
-    deps.emitStatus(deps.isProviderCompacting() ? 'busy' : 'idle');
+    deps.emitStatus(deps.hasActiveTurn() || deps.isProviderCompacting() ? 'busy' : 'idle');
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       if (isCancelledCodexExecInput(error)) throw error;

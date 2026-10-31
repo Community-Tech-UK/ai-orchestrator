@@ -427,7 +427,7 @@ describe('CodexAppServerThreadRuntime', () => {
       };
       const started = { method: 'turn/started', params: { threadId: 'thread-1', turn: { id: 'goal-turn' } } } as AppServerNotification;
 
-      const capture = runtime.captureProviderTurn('goal-turn', options, started);
+      const capture = runtime.captureProviderTurn('goal-turn', options, [started]);
       expect(capture).not.toBeNull();
       expect(runtime.getActiveTurnOrigin()).toBe('provider');
       expect(runtime.getSnapshot()).toMatchObject({ activeTurnId: 'goal-turn', turnPhase: 'running' });
