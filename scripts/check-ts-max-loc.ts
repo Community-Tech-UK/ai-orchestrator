@@ -474,6 +474,9 @@ const ALLOWLIST: Record<string, number> = {
   // Re-tightened 1849 -> 1713: migration + conversation-history normalization
   // extracted to session-continuity-state.ts.
   'src/main/session/session-continuity.ts': 1713,
+  // Scratch cleanup keeps Git history, configured checkouts and object-store
+  // dependencies safe; restored hardening from the parked queue branch.
+  'src/main/storage/scratch-sweep.ts': 1284,
   // Main process — workspace
   'src/main/workspace/git/vcs-manager.ts': 1296,
   // Raised for the worktree-isolation P4-P7 wiring (opt-in + shared

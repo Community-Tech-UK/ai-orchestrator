@@ -6366,6 +6366,10 @@
       "lines": 1830
     },
     {
+      "path": "src/main/storage/scratch-sweep.spec.ts",
+      "lines": 1806
+    },
+    {
       "path": "docs/superpowers/plans/2026-03-21-discord-channels_completed.md",
       "lines": 1803
     },
@@ -6608,6 +6612,10 @@
     {
       "path": "src/main/app/instance-event-forwarding.spec.ts",
       "lines": 1286
+    },
+    {
+      "path": "src/main/storage/scratch-sweep.ts",
+      "lines": 1285
     },
     {
       "path": "src/main/instance/__tests__/context-worker-client.spec.ts",
@@ -7360,6 +7368,10 @@
     {
       "path": "src/renderer/app/features/instance-detail/composer-toolbar.component.spec.ts",
       "lines": 832
+    },
+    {
+      "path": "docs/plans/2026-10-22-aio-tidies-up-after-itself_plan_completed.md",
+      "lines": 829
     },
     {
       "path": "docs/superpowers/plans/2026-07-04-back-navigation-hotfix-plan_completed.md",
