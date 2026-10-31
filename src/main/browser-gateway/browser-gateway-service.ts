@@ -1286,12 +1286,13 @@ export class BrowserGatewayService {
         });
       }
 
+      let commandId: string | undefined;
       try {
         const data = normalizeElementCandidates(
           await this.existingTabOperations.sendCommand(existingTab, 'query_elements', {
             ...(request.query ? { query: request.query } : {}),
             limit,
-          }, HEAVY_DOM_COMMAND_TIMEOUT_MS),
+          }, HEAVY_DOM_COMMAND_TIMEOUT_MS, undefined, undefined, (id) => { commandId = id; }),
         );
         return this.result({
           context: request,
@@ -1303,6 +1304,7 @@ export class BrowserGatewayService {
           decision: 'allowed',
           outcome: 'succeeded',
           summary: `Read ${data.length} selector candidates from selected existing Chrome tab`,
+          commandId,
           origin: originDecision.origin,
           url: existingTab.url,
           data,
@@ -1320,6 +1322,7 @@ export class BrowserGatewayService {
           outcome: 'failed',
           reason: message,
           summary: `Existing-tab element query failed: ${message}`,
+          commandId,
           origin: originDecision.origin,
           url: existingTab.url,
           data: null,

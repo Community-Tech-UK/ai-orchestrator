@@ -13,6 +13,7 @@ import {
 } from '../browser-gateway/remote-extension-bridge';
 import { StreamDurabilityCoordinator } from './stream-durability-coordinator';
 import { routeInstanceTelemetry } from './rpc-instance-telemetry-routing';
+import { recordBrowserCommandReplyArrival } from './rpc-browser-command-observability';
 const logger = getLogger('RpcEventRouter');
 export class RpcEventRouter {
   private readonly connection: WorkerNodeConnectionServer;
@@ -78,6 +79,7 @@ export class RpcEventRouter {
     this.onWsConnected = this.handleWsConnected.bind(this);
     this.onWsDisconnected = this.handleWsDisconnected.bind(this);
     this.onRpcRequest = (nodeId, request, respond) => {
+      recordBrowserCommandReplyArrival(nodeId, request);
       void this.handleRpcRequest(
         nodeId,
         request,

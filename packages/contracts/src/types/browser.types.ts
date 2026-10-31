@@ -230,6 +230,8 @@ export interface BrowserAuditEntry {
   reason?: string;
   redactionApplied: boolean;
   screenshotArtifactId?: string;
+  /** Content-free extension dispatch identity; distinct from an approval request. */
+  commandId?: string;
   requestId?: string;
   grantId?: string;
   autonomous?: boolean;

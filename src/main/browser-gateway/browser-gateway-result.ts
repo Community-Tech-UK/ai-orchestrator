@@ -24,6 +24,8 @@ export interface BrowserGatewayResultInput<T> {
   url?: string;
   data: T;
   requestId?: string;
+  /** Extension command identity, independent of approval request IDs. */
+  commandId?: string;
   grantId?: string;
   autonomous?: boolean;
   /**
@@ -64,6 +66,7 @@ export class BrowserGatewayResultRecorder {
       ...(safeReason ? { reason: safeReason } : {}),
       redactionApplied: true,
       requestId: params.requestId,
+      commandId: params.commandId,
       grantId: params.grantId,
       autonomous: params.autonomous,
     };

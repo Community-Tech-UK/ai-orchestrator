@@ -1,5 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { formatDeliveredCommandTimeout, isOriginBoundCredentialCommand, type BrowserExtensionCommandDelivery, type CommandPoller, type PendingCommand } from './browser-extension-command-delivery';
+import { getLogger } from '../logging/logger';
+import {
+  formatDeliveredCommandTimeout, isOriginBoundCredentialCommand, isBrowserExtensionCommandId,
+  type CommandPoller, type PendingCommand, type BrowserExtensionSendCommandRequest,
+  type BrowserExtensionQueueSnapshot, type BrowserExtensionPollRequest, type BrowserExtensionCommandResult,
+} from './browser-extension-command-delivery';
 import {
   BROWSER_EXTENSION_RUNTIME_INCOMPATIBLE,
   type BrowserDeliveryHealth,
@@ -14,6 +19,8 @@ import {
   SecretObservationTracker,
   type BrowserExtensionSecretObservationState,
 } from './browser-extension-secret-observation-state';
+
+const logger = getLogger('BrowserExtensionCommandStore');
 
 export type BrowserExtensionCommandName =
   | 'open_tab'
@@ -86,64 +93,10 @@ export function browserExtensionQueueKeyForNode(nodeId: string): BrowserExtensio
   return `node:${nodeId}`;
 }
 
-export interface BrowserExtensionSendCommandRequest {
-  queueKey?: BrowserExtensionCommandQueueKey;
-  command: BrowserExtensionCommandName;
-  target?: BrowserExtensionCommandTarget;
-  payload?: Record<string, unknown>;
-  timeoutMs?: number;
-  executionTimeoutMs?: number;
-  /**
-   * How long the command may wait in the queue for an extension poller before
-   * failing as `browser_extension_command_not_delivered`. Defaults to
-   * `timeoutMs`. Set LARGER than `timeoutMs` to ride out a transient extension
-   * channel gap (MV3 service-worker suspension recovers via a ≤60s alarm
-   * cycle): while undelivered the command has provably not run, so waiting —
-   * or retrying after `not_delivered` — is safe even for mutating commands.
-   * Once delivered, the command gets its full `timeoutMs` execution window.
-   */
-  undeliveredWaitMs?: number;
-  describeChannelState?: () => BrowserExtensionCommandChannelState;
-  /** Main-process only; retained through queue waits and safe redelivery, never serialized. */
-  beforeDelivery?: () => void;
-  /** Names the install (Chrome profile) each poll that takes the command came from;
-   * after a requeue the last call wins. Lets `open_tab` learn the new tab's profile. */
-  onDelivered?: (delivery: BrowserExtensionCommandDelivery) => void;
-}
-
-export interface BrowserExtensionCommandChannelState {
-  active: boolean;
-  summary: string;
-}
-
-export interface BrowserExtensionQueueSnapshot {
-  queueKey: BrowserExtensionCommandQueueKey;
-  queuedCount: number;
-  inFlightCount: number;
-  waitingPollerCount: number;
-}
-
-export interface BrowserExtensionPollRequest {
-  timeoutMs?: number;
-  /** The polling extension install (Chrome profile), when the build reports one. */
-  extensionInstanceId?: string;
-  /** Remote relay polls wait for the RPC transport to confirm socket handoff. */
-  deferHandoffConfirmation?: boolean;
-  /** False when this exact authenticated runtime is too old to enforce observation taint. */
-  allowBrowserCommands?: boolean;
-  /** Distinct fail-closed reason when `allowBrowserCommands` is false. */
-  denyBrowserCommandsReason?: string;
-  /** True only when this exact authenticated poll can enforce origin-bound credential writes. */
-  allowSecureCredentialCommands?: boolean;
-}
-
-export interface BrowserExtensionCommandResult {
-  queueKey?: BrowserExtensionCommandQueueKey;
-  commandId: string;
-  ok: boolean;
-  result?: unknown;
-  error?: string;
-}
+export type {
+  BrowserExtensionSendCommandRequest, BrowserExtensionCommandChannelState,
+  BrowserExtensionQueueSnapshot, BrowserExtensionPollRequest, BrowserExtensionCommandResult,
+} from './browser-extension-command-delivery';
 
 export class BrowserExtensionCommandStore {
   private static instance: BrowserExtensionCommandStore | null = null;
@@ -198,6 +151,7 @@ export class BrowserExtensionCommandStore {
     };
     if (command.command === 'report_inventory') this.secretObservation.expectReport(command.id, queueKey);
     return new Promise<unknown>((resolve, reject) => {
+      request.onQueued?.(command.id);
       // Phase 1: wait for delivery. If no poller takes the command within the
       // undelivered budget, it is removed from the queue BEFORE rejecting, so a
       // `not_delivered` failure guarantees the command never ran — callers may
@@ -216,9 +170,14 @@ export class BrowserExtensionCommandStore {
         timeout,
         executionWindowMs: timeoutMs,
         undeliveredDeadlineAt: command.createdAt + undeliveredWaitMs,
+        deliveryAttempt: 0,
         describeChannelState: request.describeChannelState,
         beforeDelivery: request.beforeDelivery,
         onDelivered: request.onDelivered,
+      });
+      logger.info('Browser command queued', {
+        queueKey, commandId: command.id, command: command.command,
+        createdAt: command.createdAt, undeliveredDeadlineAt: command.createdAt + undeliveredWaitMs,
       });
       this.enqueue(queueKey, command);
     });
@@ -304,6 +263,7 @@ export class BrowserExtensionCommandStore {
       return false;
     }
     this.handoffPending.delete(queueKey);
+    logger.info('Browser command handoff confirmed', { queueKey, commandId });
     this.dispatchQueuedCommands(queueKey);
     return true;
   }
@@ -313,6 +273,15 @@ export class BrowserExtensionCommandStore {
     // Before the `pending` check: a late report_inventory reply still counts (LT-617).
     if (result.ok) this.secretObservation.recordReport(result.commandId, resultQueueKey, result.result);
     const pending = this.pending.get(result.commandId);
+    // Unknown result IDs arrive from outside this process. Only log the UUID
+    // form we generate; never turn an arbitrary peer string into log content.
+    if (pending || isBrowserExtensionCommandId(result.commandId)) {
+      logger.info('Browser command result', {
+        queueKey: resultQueueKey, commandId: result.commandId, ok: result.ok,
+        accepted: Boolean(pending && pending.queueKey === resultQueueKey),
+        deliveryAttempt: pending?.deliveryAttempt,
+      });
+    }
     if (!pending) {
       return;
     }
@@ -372,6 +341,9 @@ export class BrowserExtensionCommandStore {
       || pending.dequeuedAt === undefined
       || pending.receivedAt !== undefined
     ) {
+      logger.info('Browser command requeue refused', {
+        queueKey, commandId, reason: pending?.receivedAt !== undefined ? 'receipt_received' : 'not_delivered_on_queue',
+      });
       return false;
     }
 
@@ -385,6 +357,7 @@ export class BrowserExtensionCommandStore {
       this.pending.delete(commandId);
       this.removeQueuedCommand(queueKey, commandId);
       pending.reject(new Error('browser_extension_command_not_delivered'));
+      logger.info('Browser command requeue refused', { queueKey, commandId, reason: 'delivery_deadline_expired' });
       this.dispatchQueuedCommands(queueKey);
       return false;
     }
@@ -395,7 +368,13 @@ export class BrowserExtensionCommandStore {
       pending.reject,
       remainingMs,
     );
-    this.queueFor(queueKey).unshift(pending.command);
+    const queue = this.queueFor(queueKey);
+    queue.unshift(pending.command);
+    logger.info('Browser command requeued at FIFO head', {
+      queueKey, commandId, queuePosition: queue.indexOf(pending.command), queuedCount: queue.length,
+      nextCommandId: queue[1]?.id, undeliveredDeadlineAt: pending.undeliveredDeadlineAt, remainingMs,
+      deliveryAttempt: pending.deliveryAttempt,
+    });
     this.dispatchQueuedCommands(queueKey);
     return true;
   }
@@ -553,7 +532,13 @@ export class BrowserExtensionCommandStore {
       return;
     }
     pending.dequeuedAt = Date.now();
+    pending.deliveryAttempt += 1;
     pending.deliveredToInstanceId = extensionInstanceId;
+    logger.info('Browser command dispatched', {
+      queueKey: pending.queueKey, commandId, command: pending.command.command,
+      deliveryAttempt: pending.deliveryAttempt, extensionInstanceId,
+      createdAt: pending.command.createdAt, undeliveredDeadlineAt: pending.undeliveredDeadlineAt,
+    });
     try {
       pending.onDelivered?.(extensionInstanceId ? { extensionInstanceId } : {});
     } catch {
@@ -619,6 +604,12 @@ export class BrowserExtensionCommandStore {
    */
   markReceived(queueKey: BrowserExtensionCommandQueueKey, commandId: string): void {
     const pending = this.pending.get(commandId);
+    if (pending || isBrowserExtensionCommandId(commandId)) {
+      logger.info('Browser command received', {
+        queueKey, commandId, deliveryAttempt: pending?.deliveryAttempt,
+        accepted: Boolean(pending && pending.queueKey === queueKey && pending.receivedAt === undefined),
+      });
+    }
     if (!pending || pending.queueKey !== queueKey) {
       return;
     }
@@ -627,6 +618,11 @@ export class BrowserExtensionCommandStore {
       return;
     }
     pending.receivedAt = Date.now();
+    // A delayed receipt of an earlier dispatch cancels its requeued copy.
+    if (pending.deliveryAttempt > 0 && pending.dequeuedAt === undefined) {
+      pending.dequeuedAt = pending.receivedAt;
+      this.removeQueuedCommand(queueKey, commandId);
+    }
     clearTimeout(pending.timeout);
     this.armExecutionTimeout(pending, commandId);
   }

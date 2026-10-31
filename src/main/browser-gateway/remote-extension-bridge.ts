@@ -1,4 +1,5 @@
 import type { z } from 'zod/v4';
+import { recordBrowserCommandReceiptRejection } from '../remote-node/rpc-browser-command-observability';
 import { getBrowserGatewayService } from './browser-gateway-service';
 import {
   browserExtensionQueueKeyForNode,
@@ -260,6 +261,7 @@ export class RemoteBrowserExtensionBridge {
   commandReceived(nodeId: string, params: BrowserExtCommandReceivedParams): { ok: true } {
     this.consumeRateLimit(nodeId, 'control');
     if (!this.recordExtensionContact(nodeId, params)) {
+      recordBrowserCommandReceiptRejection(nodeId, params.commandId);
       return { ok: true };
     }
     this.commandStore.markReceived(

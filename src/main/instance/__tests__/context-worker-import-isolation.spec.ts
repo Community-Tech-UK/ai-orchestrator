@@ -107,8 +107,14 @@ const WORKER_ENTRY = resolve(SPEC_DIR, '../context-worker-main.ts');
 // llm-service-ladder-recording, and shared/util/usage-normalization. Their
 // dependencies were already reachable; none imports Electron. In particular,
 // none of the new compaction handoff modules is reachable (guarded below).
-// Keep the same one-module margin as the audited 151-module baseline.
-const CLOSURE_SIZE_CEILING = 156;
+// 2026-10-31: 156 after `rlm-migrations-081-085.ts` (browser audit command ID)
+// joined the existing numbered migration graph. A merge-base (551bbc2a8)-to-
+// working-tree walk using this exact parser found that SQL-only batch as the
+// sole addition, no removals, and zero Electron value-importers in either graph.
+// Its only import is `import type { Migration }`, erased at runtime; the only
+// new edge is `rlm-schema.ts` -> `./rlm-migrations-081-085`.
+// Keep the same one-module margin as the audited 155-module baseline.
+const CLOSURE_SIZE_CEILING = 157;
 
 function resolveImport(spec: string, fromFile: string): string | null {
   if (!spec.startsWith('.')) return null; // bare module (electron, node:*, npm)

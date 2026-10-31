@@ -332,6 +332,7 @@ export const BrowserAuditEntrySchema = z
     reason: z.string().min(1).max(1000).optional(),
     redactionApplied: z.boolean(),
     screenshotArtifactId: idSchema.optional(),
+    commandId: idSchema.optional(),
     requestId: idSchema.optional(),
     grantId: idSchema.optional(),
     autonomous: z.boolean().optional(),

@@ -241,10 +241,11 @@ export class BrowserExistingTabOperations {
     timeoutMs = 30_000,
     onJournaled?: (seq: number) => void,
     beforeDispatch?: () => void,
+    onQueued?: (commandId: string) => void,
   ): Promise<unknown> {
     const sentinel = this.deps.persistenceSentinel;
     if (!sentinel || !isAppStateMutatingCommand(command)) {
-      return this.dispatchCommand(attachment, command, payload, timeoutMs, beforeDispatch);
+      return this.dispatchCommand(attachment, command, payload, timeoutMs, beforeDispatch, onQueued);
     }
     // Channel first: an unreachable node fails fast with the channel error —
     // scanning a dead channel would only add a slow, misleading timeout.
@@ -265,7 +266,7 @@ export class BrowserExistingTabOperations {
       attachment,
       command,
       payload,
-      () => this.dispatchCommand(attachment, command, payload, timeoutMs, beforeDispatch),
+      () => this.dispatchCommand(attachment, command, payload, timeoutMs, beforeDispatch, onQueued),
     );
   }
 
@@ -302,6 +303,7 @@ export class BrowserExistingTabOperations {
     payload?: Record<string, unknown>,
     timeoutMs = 30_000,
     beforeDispatch?: () => void,
+    onQueued?: (commandId: string) => void,
   ): Promise<unknown> {
     try {
       this.ensureChannelReachable(attachment);
@@ -326,6 +328,7 @@ export class BrowserExistingTabOperations {
       timeoutMs: callerTimeoutMs,
       executionTimeoutMs: timeoutMs,
       undeliveredWaitMs,
+      ...(onQueued ? { onQueued } : {}),
       ...(beforeDispatch ? { beforeDelivery: beforeDispatch } : {}),
       describeChannelState: () => ({
         active: attachment.nodeId

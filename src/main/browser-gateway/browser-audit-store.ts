@@ -25,6 +25,7 @@ interface BrowserAuditEntryRow {
   redaction_applied: number;
   screenshot_artifact_id: string | null;
   request_id: string | null;
+  command_id: string | null;
   grant_id: string | null;
   autonomous: number | null;
   created_at: number;
@@ -50,8 +51,8 @@ export class BrowserAuditStore {
         INSERT INTO browser_audit_entries
           (id, instance_id, provider, profile_id, target_id, action, tool_name,
            action_class, origin, url, decision, outcome, summary, reason, redaction_applied,
-           screenshot_artifact_id, request_id, grant_id, autonomous, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           screenshot_artifact_id, request_id, command_id, grant_id, autonomous, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       )
       .run(
@@ -72,6 +73,7 @@ export class BrowserAuditStore {
         entry.redactionApplied ? 1 : 0,
         entry.screenshotArtifactId ?? null,
         entry.requestId ?? null,
+        entry.commandId ?? null,
         entry.grantId ?? null,
         entry.autonomous === undefined ? null : entry.autonomous ? 1 : 0,
         now,
@@ -148,6 +150,7 @@ export class BrowserAuditStore {
       redactionApplied: row.redaction_applied === 1,
       screenshotArtifactId: row.screenshot_artifact_id ?? undefined,
       requestId: row.request_id ?? undefined,
+      commandId: row.command_id ?? undefined,
       grantId: row.grant_id ?? undefined,
       autonomous: row.autonomous === null ? undefined : row.autonomous === 1,
       createdAt: row.created_at,

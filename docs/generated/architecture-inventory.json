@@ -6219,7 +6219,7 @@
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
-      "lines": 2629
+      "lines": 2632
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service-existing-tabs.spec.ts",
@@ -7342,16 +7342,16 @@
       "lines": 838
     },
     {
+      "path": "packages/contracts/src/schemas/browser.schemas.ts",
+      "lines": 837
+    },
+    {
       "path": "src/renderer/app/features/rlm/context-browser/context-query-panel.component.ts",
       "lines": 837
     },
     {
       "path": "src/shared/types/history.types.spec.ts",
       "lines": 837
-    },
-    {
-      "path": "packages/contracts/src/schemas/browser.schemas.ts",
-      "lines": 836
     },
     {
       "path": "src/renderer/app/features/plan-queue/components/plan-queue-routing-panel.component.spec.ts",
