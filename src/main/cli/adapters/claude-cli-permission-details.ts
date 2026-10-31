@@ -27,6 +27,12 @@ export function isPermissionDenialContent(content: string): boolean {
     return false;
   }
 
+  // Current non-interactive Claude also uses this whole-message denial.
+  // Anchor it so approval wording in a command's output is not actionable.
+  if (/^this command requires approval\.?$/i.test(content.trim())) {
+    return true;
+  }
+
   // Mask Unix-style "<prefix>: Permission denied" occurrences before pattern
   // matching. That shape is always tool/command output (grep, sed, bash, ssh
   // "root@host: Permission denied (publickey)"); CLI denial messages never put

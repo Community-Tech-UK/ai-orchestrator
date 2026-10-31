@@ -11,12 +11,25 @@ describe('isPermissionDenialContent', () => {
       'This tool use is denied by permission rule Bash(rm:*).',
       'Tool use is not allowed in this session.',
       'You must grant permission to use this tool first.',
+      'This command requires approval',
+      'This command requires approval.',
+      '  THIS COMMAND REQUIRES APPROVAL\n',
     ])('matches: %s', (content) => {
       expect(isPermissionDenialContent(content)).toBe(true);
     });
   });
 
   describe('command output that merely contains denial-sounding text', () => {
+    it.each([
+      'Exit code 1\nThis command requires approval',
+      'deploy: This command requires approval',
+      'The server says: This command requires approval',
+      'This command requires approval from the deployment service',
+      'This command requires approval\nServer refused deployment',
+    ])('does not treat approval wording embedded in command output as a CLI denial: %s', (content) => {
+      expect(isPermissionDenialContent(content)).toBe(false);
+    });
+
     it('rejects executed Bash results (Exit code prefix) regardless of wording', () => {
       // Real incident (2026-07-17): remote grep on a root-owned .env produced a
       // Unix "Permission denied", got classified as a CLI denial, and restarted

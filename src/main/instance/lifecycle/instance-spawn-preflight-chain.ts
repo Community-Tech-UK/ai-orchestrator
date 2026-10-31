@@ -76,6 +76,9 @@ export class InstanceSpawnPreflightChain {
     // are launch-scoped, so reusing one for a yolo create would leave the
     // instance metadata saying yolo=true while the CLI still requests approval.
     const warmYoloMismatch = spawnOptions.yoloMode === true;
+    // Warm Claude processes have no per-instance permission hook. The hook is
+    // configured at launch, so adoption would silently lose deferred approvals.
+    const permissionHookRequired = provider === 'claude' && Boolean(spawnOptions.permissionHookPath);
     // Warm adapters are also spawned without the per-instance Seatbelt wrapper.
     // Its restrictions cannot be added to an already-running CLI process.
     // Equally, a warm adapter carries the default signal fence, which cannot
@@ -97,6 +100,7 @@ export class InstanceSpawnPreflightChain {
       || needsFreshConfiguredModel
       || warmEffortMismatch
       || warmYoloMismatch
+      || permissionHookRequired
       || copilotRouteRequired
       || accountRouteRequired
       || instance.bareMode === true,

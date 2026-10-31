@@ -62,6 +62,30 @@ describe('InstanceSpawnPreflightChain', () => {
     expect(deps.warmCodememWorkspace).not.toHaveBeenCalled();
   });
 
+  it.each([false, true])('keeps the per-instance Claude permission hook when a warm adapter is available: %s', async (warmAvailable) => {
+    const deps = makeDeps();
+    deps.consumeWarmAdapter.mockReturnValue(
+      warmAvailable ? { getName: () => 'claude' } as CliAdapter : null,
+    );
+    const spawnOptions = makeSpawnOptions({
+      browserGatewayMcp: undefined,
+      yoloMode: false,
+      permissionHookPath: '/tmp/defer-permission-hook.mjs',
+    });
+
+    const result = await new InstanceSpawnPreflightChain(deps).prepare({
+      config: { workingDirectory: '/tmp/project', provider: 'claude', yoloMode: false },
+      instance: { workingDirectory: '/tmp/project', bareMode: false },
+      provider: 'claude',
+      spawnOptions,
+    });
+
+    expect(result).toEqual({ kind: 'fresh', executionLocation: { type: 'local' }, spawnOptions });
+    expect(deps.consumeWarmAdapter).not.toHaveBeenCalled();
+    expect(deps.assertLocalModelRuntimeAvailable).toHaveBeenCalledWith(undefined);
+    expect(deps.warmCodememWorkspace).toHaveBeenCalledWith('/tmp/project');
+  });
+
   it('refuses the warm adapter when the create wants a different reasoning effort', async () => {
     // The warm adapter was spawned with the app default and its spawn options
     // can no longer be changed, so an explicit picker level must spawn fresh
