@@ -16,6 +16,7 @@ const {
   mockIndexedFormatContextBlock,
   mockPromptHistoryRecord,
   mockQueueContinuityPreamble,
+  mockQueueRetrievedContext,
   mockQueueUpdate,
   mockGetLaterTurnReminder,
   mockStateInstances,
@@ -27,6 +28,7 @@ const {
   mockIndexedFormatContextBlock: vi.fn(),
   mockPromptHistoryRecord: vi.fn(),
   mockQueueContinuityPreamble: vi.fn(),
+  mockQueueRetrievedContext: vi.fn(),
   mockQueueUpdate: vi.fn(),
   mockGetLaterTurnReminder: vi.fn(),
   mockStateInstances: new Map<string, Instance>(),
@@ -224,6 +226,7 @@ vi.mock('../instance-communication', () => {
   class InstanceCommunicationManager extends MockEmitter {
     sendInput = mockCommunicationSendInput;
     queueContinuityPreamble = mockQueueContinuityPreamble;
+    queueRetrievedContext = mockQueueRetrievedContext;
     setupAdapterEvents(): void { return undefined; }
     markInterrupted(): void { return undefined; }
     clearInterrupted(): void { return undefined; }
@@ -760,7 +763,7 @@ describe('InstanceManager context deadline', () => {
     await vi.advanceTimersByTimeAsync(0);
     await flushMicrotasks();
 
-    expect(mockQueueContinuityPreamble).toHaveBeenCalledWith(
+    expect(mockQueueRetrievedContext).toHaveBeenCalledWith(
       instance.id,
       expect.stringContaining('late rlm context'),
     );
@@ -810,7 +813,7 @@ describe('InstanceManager context deadline', () => {
     await vi.advanceTimersByTimeAsync(0);
     await flushMicrotasks();
 
-    expect(mockQueueContinuityPreamble).toHaveBeenCalledWith(
+    expect(mockQueueRetrievedContext).toHaveBeenCalledWith(
       instance.id,
       expect.stringContaining('late automatic context'),
     );

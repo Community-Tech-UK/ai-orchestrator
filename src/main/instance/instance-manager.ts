@@ -617,7 +617,8 @@ export class InstanceManager extends EventEmitter {
       clearInterrupted: (id) => this.communication.clearInterrupted(id),
       addToOutputBuffer: (inst, msg) => this.communication.addToOutputBuffer(inst, msg),
       queueContinuityPreamble: (id, preamble) => this.communication.queueContinuityPreamble(id, preamble),
-      holdContinuityUntilAnswered: (id, text) => this.communication.holdContinuityUntilAnswered(id, text),
+      queueRetrievedContext: (id, context) => this.communication.queueRetrievedContext(id, context),
+      holdContinuityUntilAnswered: (id, text, attachments) => this.communication.holdContinuityUntilAnswered(id, text, attachments),
       clearFirstMessageTracking: (id) => this.hasReceivedFirstMessage.delete(id),
       markFirstMessageReceived: (id) => this.hasReceivedFirstMessage.add(id),
       clearPendingState: (id) => this.clearPendingInteractiveState(id),
@@ -1685,7 +1686,7 @@ export class InstanceManager extends EventEmitter {
     // Anything slower than the deadline is queued for the next user turn.
     const inputContextDeps: InputContextAssemblyDeps = {
       context: this.context,
-      queueContinuityPreamble: (id, preamble) => this.communication.queueContinuityPreamble(id, preamble),
+      queueRetrievedContext: (id, retrieved) => this.communication.queueRetrievedContext(id, retrieved),
     };
     const contextPromise = buildInputContexts(inputContextDeps, instance, resolvedMessage);
     const inputContexts = await resolveInputContextsBeforeDeadline(

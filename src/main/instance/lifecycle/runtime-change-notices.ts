@@ -283,11 +283,12 @@ export async function announceRuntimeChangeSet(params: {
    */
   preamble?: string;
   /**
-   * Called with the preamble just before it is sent as its own turn. If that
-   * turn is stopped before the model replies, the provider may never store it;
-   * the holder sends it again with the next input.
+   * Called with the preamble (and the replayed images riding with it) just
+   * before it is sent as its own turn. If that turn is stopped before the model
+   * replies, the provider may never store it; the holder sends it again with
+   * the next input.
    */
-  holdUntilAnswered?(preamble: string): void;
+  holdUntilAnswered?(preamble: string, attachments?: FileAttachment[]): void;
   /** Runtime reconciliation supplies this to reject an owner lost during a callback or delivery. */
   assertCurrent?(): void;
 }): Promise<void> {
@@ -346,7 +347,10 @@ export async function announceRuntimeChangeSet(params: {
     params.assertCurrent?.();
     return;
   }
-  if (params.preamble?.trim()) params.holdUntilAnswered?.(params.preamble);
+  if (params.preamble?.trim()) {
+    const held = [params.preamble, imageCarryover?.note].filter((part): part is string => Boolean(part?.trim())).join('\n\n');
+    params.holdUntilAnswered?.(held, imageCarryover?.attachments);
+  }
   try {
     await sendInputWithoutWedging(params.adapter, body, {
       instanceId: params.instance.id,

@@ -2453,7 +2453,17 @@ async function executeBrowserCommand(command, deadlineAt) {
       return { reported: true, secretObservation: await secretObservationStatus() };
     case 'open_tab': {
       const url = requirePayloadString(command, 'url');
-      const tab = await chrome.tabs.create({ url, active: true });
+      // Open beside the existing Harness group, whichever window holds it, and
+      // put the tab in that group before taking control so it stays there
+      // afterwards: one lasting group to reuse, rather than a new group (and a
+      // new saved "Harness" entry in Chrome) for each command.
+      const groupWindowId = await findControlGroupWindowId();
+      const tab = groupWindowId === undefined
+        ? await chrome.tabs.create({ url, active: true })
+        // The window can close between the lookup and the create.
+        : await chrome.tabs.create({ url, active: true, windowId: groupWindowId })
+          .catch(() => chrome.tabs.create({ url, active: true }));
+      await markControlledTabGroup(tab.id);
       const controlToken = await startControlledTab(tab.id);
       try {
         await waitForTabComplete(tab.id);
@@ -2650,6 +2660,12 @@ async function executeBrowserCommand(command, deadlineAt) {
       const windowTabs = await chrome.tabs.query({ windowId: tab.windowId }).catch(() => []);
       if (windowTabs.length <= 1 && command.payload?.allowCloseLastInWindow !== true) {
         throw new Error('browser_close_last_tab_in_window_refused');
+      }
+      // Leave the Harness group before closing. Closing a group's last tab
+      // can leave Chrome holding a saved, closed group that this extension
+      // can neither see nor reuse, so the next command would start another.
+      if ((await findControlGroupIds(tab.windowId)).includes(tab.groupId)) {
+        await chrome.tabs.ungroup?.(tabId)?.catch(() => undefined);
       }
       try {
         await chrome.tabs.remove(tabId);
@@ -5754,8 +5770,11 @@ async function startControlledTab(tabId) {
     restoreGroup: inheritedLineage?.restoreGroup ?? null,
     restoreLineage: inheritedLineage,
     restoreStateCaptured: inheritedLineage !== null,
+    // A tab already in the Harness group when control began (one Harness
+    // opened itself, or one it worked on before) belongs there: it stays in
+    // the group when control ends, which keeps that group alive for reuse.
+    keepInControlGroup: inheritedLineage?.keepInControlGroup ?? false,
     controlledGroupId: noGroupId,
-    windowId: inheritedLineage?.windowId ?? null,
     retiring: false,
     cleanupPromise: null,
     ready: null,
@@ -5771,24 +5790,23 @@ async function startControlledTab(tabId) {
     if (lease.retiring) {
       return;
     }
-    if (tab) {
-      lease.windowId = tab.windowId;
-      if (!lease.restoreStateCaptured) {
-        const currentGroupId = typeof tab.groupId === 'number' ? tab.groupId : noGroupId;
-        const controlGroupIds = await findControlGroupIds(tab.windowId);
+    if (tab && !lease.restoreStateCaptured) {
+      const currentGroupId = typeof tab.groupId === 'number' ? tab.groupId : noGroupId;
+      const controlGroupIds = await findControlGroupIds(tab.windowId);
+      if (lease.retiring) {
+        return;
+      }
+      if (controlGroupIds.includes(currentGroupId)) {
+        lease.keepInControlGroup = true;
+      } else if (currentGroupId !== noGroupId) {
+        lease.restoreGroupId = currentGroupId;
+        lease.restoreGroup = await chrome.tabGroups?.get?.(currentGroupId)?.catch(() => null)
+          ?? null;
         if (lease.retiring) {
           return;
         }
-        if (currentGroupId !== noGroupId && !controlGroupIds.includes(currentGroupId)) {
-          lease.restoreGroupId = currentGroupId;
-          lease.restoreGroup = await chrome.tabGroups?.get?.(currentGroupId)?.catch(() => null)
-            ?? null;
-          if (lease.retiring) {
-            return;
-          }
-        }
-        lease.restoreStateCaptured = true;
       }
+      lease.restoreStateCaptured = true;
     }
     await preventTabDiscard(tabId);
     if (lease.retiring) {
@@ -5885,7 +5903,7 @@ function preserveControlledTabRestoreLineage(tabId, lease) {
     lease.restoreLineage = {
       restoreGroupId: lease.restoreGroupId,
       restoreGroup: lease.restoreGroup,
-      windowId: lease.windowId,
+      keepInControlGroup: lease.keepInControlGroup,
       latestLease: lease,
     };
   }
@@ -5910,7 +5928,6 @@ async function cleanupControlledTabLease(tabId, lease) {
     if (hasReplacementControlledTabLease(tabId, lease)) {
       return;
     }
-    await cleanupControlGroupsIfWindowIdle(lease.windowId, lease);
     if (controlledTabRestoreLineages.get(tabId) === lease.restoreLineage) {
       controlledTabRestoreLineages.delete(tabId);
     }
@@ -5934,45 +5951,12 @@ function hasReplacementControlledTabLease(tabId, retiredLease) {
   return Boolean(latestLineageLease && latestLineageLease !== retiredLease);
 }
 
-async function cleanupControlGroupsIfWindowIdle(windowId, completedLease) {
-  if (
-    typeof windowId !== 'number'
-    || !chrome.tabs?.query
-    || !chrome.tabs?.ungroup
-    || hasOtherControlledLeaseInWindow(windowId, completedLease)
-  ) {
-    return;
-  }
-  const controlGroupIds = await findControlGroupIds(windowId);
-  if (controlGroupIds.length === 0) {
-    return;
-  }
-  const controlGroupIdSet = new Set(controlGroupIds);
-  const tabs = await chrome.tabs.query({ windowId }).catch(() => []);
-  const tabIds = tabs
-    .filter((tab) => typeof tab.id === 'number' && controlGroupIdSet.has(tab.groupId))
-    .map((tab) => tab.id);
-  if (tabIds.length === 0 || hasOtherControlledLeaseInWindow(windowId, completedLease)) {
-    return;
-  }
-  await chrome.tabs.ungroup(tabIds).catch(() => undefined);
-}
-
-function hasOtherControlledLeaseInWindow(windowId, completedLease) {
-  for (const lease of controlledTabLeases.values()) {
-    if (lease !== completedLease && lease.windowId === windowId && lease.tokens.size > 0) {
-      return true;
-    }
-  }
-  return false;
-}
-
 async function restoreControlledTabGroup(tabId, lease) {
   if (!chrome.tabs?.get || hasReplacementControlledTabLease(tabId, lease)) {
     return;
   }
   const noGroupId = chrome.tabGroups?.TAB_GROUP_ID_NONE ?? -1;
-  if (lease.controlledGroupId === noGroupId) {
+  if (lease.controlledGroupId === noGroupId || lease.keepInControlGroup) {
     return;
   }
   const tab = await chrome.tabs.get(tabId).catch(() => null);
@@ -6082,6 +6066,24 @@ async function findControlGroupId(windowId, noGroupId) {
 }
 
 async function findControlGroupIds(windowId) {
+  const groups = await findControlGroups(windowId);
+  return groups.map((group) => group.id);
+}
+
+// The window holding the oldest open Harness group, or undefined when there is
+// none or that window is minimised (a new tab there would be out of sight).
+// Chrome's API cannot see a group that is only saved (closed, shown on the
+// bookmarks bar), so such a group cannot be reopened from here.
+async function findControlGroupWindowId() {
+  const [group] = await findControlGroups();
+  if (typeof group?.windowId !== 'number') {
+    return undefined;
+  }
+  const window = await chrome.windows?.get?.(group.windowId)?.catch(() => null);
+  return window && window.state !== 'minimized' ? group.windowId : undefined;
+}
+
+async function findControlGroups(windowId) {
   if (!chrome.tabGroups?.query) {
     return [];
   }
@@ -6089,17 +6091,12 @@ async function findControlGroupIds(windowId) {
     ? { windowId, title: CONTROL_GROUP_TITLE }
     : { title: CONTROL_GROUP_TITLE };
   const groups = await chrome.tabGroups.query(query).catch(() => []);
-  // Pick the oldest matching group (smallest id) so the canonical group is
-  // stable regardless of query ordering, avoiding group-thrash when multiple
-  // tabs are controlled at once.
-  const groupIds = [];
-  for (const group of groups) {
-    if (typeof group?.id !== 'number') {
-      continue;
-    }
-    groupIds.push(group.id);
-  }
-  return groupIds.sort((left, right) => left - right);
+  // Oldest first (smallest id) so the canonical group is stable regardless of
+  // query ordering, avoiding group-thrash when multiple tabs are controlled at
+  // once.
+  return groups
+    .filter((group) => typeof group?.id === 'number')
+    .sort((left, right) => left.id - right.id);
 }
 
 // Console/network capture for shared, extension-driven tabs.

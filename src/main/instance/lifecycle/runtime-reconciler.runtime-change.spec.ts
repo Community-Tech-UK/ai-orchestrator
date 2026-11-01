@@ -836,7 +836,7 @@ describe('RuntimeReconciler.applyRuntimeChange — resume-health policy (LT-008)
 
     await reconciler.applyRuntimeChange('inst-1', yoloOnly(true));
 
-    expect(deps.holdContinuityUntilAnswered).toHaveBeenCalledWith('inst-1', 'fallback history');
+    expect(deps.holdContinuityUntilAnswered).toHaveBeenCalledWith('inst-1', 'fallback history', undefined);
     const sent = (fresh as unknown as { sendInput: ReturnType<typeof vi.fn> }).sendInput.mock.calls;
     expect(sent).toHaveLength(1);
     expect(String(sent[0][0])).toContain('fallback history');

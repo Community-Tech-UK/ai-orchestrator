@@ -938,6 +938,12 @@ export class InstanceLifecycleManager extends EventEmitter {
     ).catch(() => { /* non-critical */ });
   }
 
+  /** Send condensed history as its own turn, held so a turn stopped before the reply cannot lose it. */
+  private async sendHeldHistory(instanceId: string, adapter: CliAdapter, history: string): Promise<void> {
+    this.deps.holdContinuityUntilAnswered?.(instanceId, history);
+    await adapter.sendInput(history);
+  }
+
   private async buildFallbackHistory(instance: Instance, reason: string): Promise<string> {
     return this.restartHelpers.buildFallbackHistory(instance, reason);
   }
@@ -1067,12 +1073,13 @@ export class InstanceLifecycleManager extends EventEmitter {
 
   /**
    * Queue a create-time enricher that exceeded its deadline into the next turn's
-   * continuity preamble instead of dropping it. Multiple late enrichers for the
-   * same instance are combined into one preamble (the continuity slot holds a
-   * single string). No-op for empty text or when no preamble sink is wired.
+   * retrieved context instead of dropping it. That slot, not continuity, so a
+   * late enricher never overwrites the history a restore queued. Multiple late
+   * enrichers for the same instance are combined (the slot holds a single
+   * string). No-op for empty text or when no sink is wired.
    */
   private deferEnricherPreamble(instanceId: string, label: string, text: string | null): void {
-    if (!text || !text.trim() || !this.deps.queueContinuityPreamble) {
+    if (!text || !text.trim() || !this.deps.queueRetrievedContext) {
       return;
     }
     let byLabel = this.lateEnricherPreambles.get(instanceId);
@@ -1082,7 +1089,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     }
     byLabel.set(label, text.trim());
     const combined = [...byLabel.values()].join('\n\n---\n\n');
-    this.deps.queueContinuityPreamble(instanceId, combined);
+    this.deps.queueRetrievedContext(instanceId, combined);
     logger.info('Deferred create-time enricher to next turn', { instanceId, label });
   }
 
@@ -2297,9 +2304,7 @@ export class InstanceLifecycleManager extends EventEmitter {
 
             if (hasConversation) {
               this.prepareStatusForAdapterInput(instance);
-              await adapter.sendInput(
-                this.buildReplayContinuityMessage(instance, fallbackReason)
-              );
+              await this.sendHeldHistory(instanceId, adapter, this.buildReplayContinuityMessage(instance, fallbackReason));
             }
 
             const fallbackNotice: OutputMessage = {
@@ -2317,7 +2322,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           }
         } else if (hasConversation) {
           this.prepareStatusForAdapterInput(instance);
-          await adapter.sendInput(this.buildReplayContinuityMessage(instance, fallbackReason));
+          await this.sendHeldHistory(instanceId, adapter, this.buildReplayContinuityMessage(instance, fallbackReason));
         }
 
         // Remove from HibernationManager tracking. Waking counts as activity:
@@ -2595,12 +2600,12 @@ export class InstanceLifecycleManager extends EventEmitter {
       const pid = await adapter.spawn();
       instance.processId = pid;
       await this.waitForAdapterWritable(instanceId, 3_000);
+      // Set before sending: Codex replies inside sendInput, and that reply ends the replay state.
+      instance.recoveryMethod = fallbackHistory ? 'replay' : 'fresh';
       if (fallbackHistory) {
         this.prepareStatusForAdapterInput(instance);
-        this.deps.holdContinuityUntilAnswered?.(instanceId, fallbackHistory);
-        await adapter.sendInput(fallbackHistory);
+        await this.sendHeldHistory(instanceId, adapter, fallbackHistory);
       }
-      instance.recoveryMethod = 'replay';
       return { success: true, method: 'replay-fallback' };
     } catch (error) {
       instance.processId = null;
@@ -3115,9 +3120,7 @@ export class InstanceLifecycleManager extends EventEmitter {
 
             if (hasConversation) {
               this.prepareStatusForAdapterInput(instance);
-              const fallbackHistory = await this.buildFallbackHistory(instance, 'resume-failed-fallback');
-              this.deps.holdContinuityUntilAnswered?.(instanceId, fallbackHistory);
-              await adapter.sendInput(fallbackHistory);
+              await this.sendHeldHistory(instanceId, adapter, await this.buildFallbackHistory(instance, 'resume-failed-fallback'));
             }
           } else {
             throw spawnError;
@@ -3129,7 +3132,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         logger.info('Agent mode changed successfully', { instanceId, newAgentId, pid, resumed: shouldResume });
 
         if (!shouldResume && hasConversation) {
-          await adapter.sendInput(this.buildReplayContinuityMessage(instance, 'agent-mode-change'));
+          await this.sendHeldHistory(instanceId, adapter, this.buildReplayContinuityMessage(instance, 'agent-mode-change'));
         }
 
         // Build a mode transition message. When resuming, the system prompt can't be changed,
@@ -3413,7 +3416,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       prepareStatusForAdapterInput: (instance) => this.prepareStatusForAdapterInput(instance),
       buildReplayContinuityMessage: (instance, reason) => this.buildReplayContinuityMessage(instance, reason),
       buildFallbackHistory: (instance, reason) => this.buildFallbackHistory(instance, reason),
-      holdContinuityUntilAnswered: (id, text) => this.deps.holdContinuityUntilAnswered?.(id, text),
+      holdContinuityUntilAnswered: (id, text, attachments) => this.deps.holdContinuityUntilAnswered?.(id, text, attachments),
       emitModelSelectionDegradation: (instance, degradation) =>
         this.emitModelSelectionDegradation(instance, degradation),
       emitSystemNotice: (instance, content, metadata) =>

@@ -39,7 +39,7 @@ export interface InputPreflightTimeoutOptions<T> {
 
 export interface InputContextAssemblyDeps {
   context: InstanceContextPort;
-  queueContinuityPreamble: (instanceId: string, preamble: string) => void;
+  queueRetrievedContext: (instanceId: string, context: string) => void;
 }
 
 export async function runInputPreflight<T>({
@@ -173,7 +173,7 @@ export function queueDeferredInputContexts(
       logInputContexts(instanceId, contexts, 'deferred');
       const contextBlock = buildContextBlock(deps, contexts);
       if (contextBlock) {
-        deps.queueContinuityPreamble(instanceId, contextBlock);
+        deps.queueRetrievedContext(instanceId, contextBlock);
       }
     })
     .catch((error) => {

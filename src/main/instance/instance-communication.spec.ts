@@ -3878,6 +3878,29 @@ describe('provider-limit park on thrown sendInput errors', () => {
     expect(adapter.sendInput).toHaveBeenLastCalledWith('thanks', undefined);
   });
 
+  it('resends the images held with unanswered history alongside the next input', async () => {
+    const adapter = new FakeAdapter('codex-cli');
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+    const manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, nextAdapter) => adapters.set(id, nextAdapter),
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+    });
+    const image = { name: 'who.png', type: 'image/png', size: 4, data: 'data:image/png;base64,AAAA' };
+    const userFile = { name: 'notes.txt', type: 'text/plain', size: 5, data: 'hello' };
+    manager.holdContinuityUntilAnswered(instance.id, 'History that showed who.png', [image]);
+
+    await manager.sendInput(instance.id, 'try again', [userFile]);
+
+    expect(adapter.sendInput).toHaveBeenLastCalledWith('History that showed who.png\n\ntry again', [image, userFile]);
+  });
+
   it('tells the user the conversation is moving accounts when a thrown limit starts a switch', async () => {
     const adapter = new FakeAdapter('codex-cli');
     adapter.sendInput.mockRejectedValue(new Error(LIVE_INCIDENT_MESSAGE));

@@ -121,6 +121,7 @@ interface BrowserExtensionChromeHarness {
     };
   };
   tabs: {
+    create: ReturnType<typeof vi.fn>;
     get: ReturnType<typeof vi.fn>;
     group: Mock<(input: { tabIds: number | number[]; groupId?: number }) => Promise<number>>;
     query: ReturnType<typeof vi.fn>;
@@ -244,6 +245,9 @@ describe('browser extension assets', () => {
     '0.2.45': 'fd57f5c8f348',
     // LT-997/998/999: named DOM keys, retained viewport sessions, Chrome window bounds.
     '0.2.46': '2a06edc807d9',
+    // One lasting Harness tab group: Harness's own tabs stay in it, new tabs
+    // open in the window that holds it, and a tab leaves it before closing.
+    '0.2.47': '3ce1bfc51afd',
   };
 
   it('ships each background bundle under its own manifest version', () => {
@@ -781,7 +785,7 @@ describe('browser extension assets', () => {
     expect(harness.tabState(42)?.groupId).toBe(77);
   });
 
-  it('consolidates historical Harness groups and removes them after final control', async () => {
+  it('consolidates historical Harness groups into one that stays after control', async () => {
     const harness = loadBackgroundHarnessForTest({
       additionalTabs: [{ tabId: 43, groupId: 11 }],
       initialTabGroupId: 10,
@@ -799,8 +803,119 @@ describe('browser extension assets', () => {
 
     await harness.stopControlledTab(42, token);
 
-    expect(harness.tabState(42)?.groupId).toBe(-1);
-    expect(harness.tabState(43)?.groupId).toBe(-1);
+    // Tab 42 was already in the Harness group, so the group lives on for the
+    // next command to reuse instead of a new one being started.
+    expect(harness.tabState(42)?.groupId).toBe(10);
+    expect(harness.tabState(43)?.groupId).toBe(10);
+    expect(harness.chrome.tabs.ungroup).not.toHaveBeenCalled();
+  });
+
+  it('opens a new tab in the existing Harness group, in whichever window holds it', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    harness.chrome.tabGroups.query.mockResolvedValue([
+      { id: 12, title: 'Harness', windowId: 9 },
+      { id: 10, title: 'Harness', windowId: 9 },
+    ]);
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    relayPort.postMessage.mockClear();
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: {
+        id: 'open-in-group', command: 'open_tab', payload: { url: 'https://example.test/new' },
+      },
+    });
+    await flushPromises();
+
+    expect(relayPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'command_result', commandId: 'open-in-group', ok: true,
+    }));
+    expect(harness.chrome.tabs.create).toHaveBeenCalledWith(
+      { url: 'https://example.test/new', active: true, windowId: 9 },
+    );
+    expect(harness.tabState(77)?.groupId).toBe(10);
+    // Never a fresh group (a group call with no groupId), and still grouped
+    // once the command has finished.
+    expect(harness.chrome.tabs.group.mock.calls.every(([input]) => input.groupId === 10))
+      .toBe(true);
+    expect(harness.chrome.tabs.ungroup).not.toHaveBeenCalled();
+  });
+
+  it('opens in the default window when the Harness group\'s window is minimised', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    harness.chrome.tabGroups.query.mockResolvedValue([{ id: 10, title: 'Harness', windowId: 9 }]);
+    harness.chrome.windows.get.mockImplementation(async (windowId: number) => ({
+      id: windowId, state: windowId === 9 ? 'minimized' : 'normal',
+    }));
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: {
+        id: 'open-minimised', command: 'open_tab', payload: { url: 'https://example.test/new' },
+      },
+    });
+    await flushPromises();
+
+    expect(harness.chrome.tabs.create).toHaveBeenCalledWith(
+      { url: 'https://example.test/new', active: true },
+    );
+  });
+
+  it('keeps the Harness group it had to create for a new tab', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    // Chrome reports the group once it exists and has its title.
+    harness.chrome.tabGroups.query.mockImplementation(async () => (
+      harness.chrome.tabGroups.update.mock.calls.length > 0
+        ? [{ id: 1, title: 'Harness', windowId: 7 }]
+        : []
+    ));
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    relayPort.postMessage.mockClear();
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: {
+        id: 'open-new-group', command: 'open_tab', payload: { url: 'https://example.test/new' },
+      },
+    });
+    await flushPromises();
+
+    expect(relayPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'command_result', commandId: 'open-new-group', ok: true,
+    }));
+    expect(harness.chrome.tabs.create).toHaveBeenCalledWith(
+      { url: 'https://example.test/new', active: true },
+    );
+    expect(harness.tabState(77)?.groupId).toBe(1);
+    expect(harness.chrome.tabs.ungroup).not.toHaveBeenCalled();
+  });
+
+  it('takes a tab out of the Harness group before closing it', async () => {
+    const harness = loadBackgroundHarnessForTest({
+      additionalTabs: [{ tabId: 43, groupId: 10 }],
+    });
+    await flushPromises();
+    harness.chrome.tabGroups.query.mockResolvedValue([{ id: 10, title: 'Harness', windowId: 7 }]);
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    relayPort.postMessage.mockClear();
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: { id: 'close-grouped', command: 'close_tab', target: { tabId: 43 } },
+    });
+    await flushPromises();
+
+    expect(relayPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'command_result', commandId: 'close-grouped', ok: true,
+    }));
+    expect(harness.chrome.tabs.ungroup).toHaveBeenCalledWith(43);
+    expect(harness.chrome.tabs.ungroup.mock.invocationCallOrder[0])
+      .toBeLessThan(harness.chrome.tabs.remove.mock.invocationCallOrder[0]);
+    expect(harness.tabState(43)).toBeUndefined();
   });
 
   it('keeps controlled tabs unfrozen and undiscarded against background throttling', () => {
@@ -5755,9 +5870,10 @@ function loadBackgroundHarnessForTest(options: {
         },
       },
       tabs: {
-        create: vi.fn(async (input: { url?: string }) => {
+        create: vi.fn(async (input: { url?: string; windowId?: number }) => {
           const tab = makeWebTab(77);
           tab.url = input.url ?? tab.url;
+          tab.windowId = input.windowId ?? tab.windowId;
           tabsById.set(77, tab);
           return tab;
         }),

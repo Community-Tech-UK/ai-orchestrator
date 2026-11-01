@@ -2,6 +2,7 @@ import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type { ExecutionLocation } from '../../shared/types/worker-node.types';
 import type {
   ContextUsage,
+  FileAttachment,
   Instance,
   InstanceCreateConfig,
   InstanceStatus,
@@ -107,8 +108,10 @@ export interface LifecycleDependencies {
   clearInterrupted: (instanceId: string) => void;
   addToOutputBuffer: (instance: Instance, message: OutputMessage) => void;
   queueContinuityPreamble?: (instanceId: string, preamble: string) => void;
-  /** Keep condensed history sent straight to an adapter until the model replies to it. */
-  holdContinuityUntilAnswered?: (instanceId: string, text: string) => void;
+  /** One-shot context for the next turn that must never displace continuity history. */
+  queueRetrievedContext?: (instanceId: string, context: string) => void;
+  /** Keep condensed history (and its images) sent straight to an adapter until the model replies to it. */
+  holdContinuityUntilAnswered?: (instanceId: string, text: string, attachments?: FileAttachment[]) => void;
   clearFirstMessageTracking: (instanceId: string) => void;
   markFirstMessageReceived: (instanceId: string) => void;
   clearPendingState?: (instanceId: string) => void;

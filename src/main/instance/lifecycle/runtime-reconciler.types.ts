@@ -9,6 +9,7 @@ import type { CliType } from '../../cli/cli-detection';
 import type { ExecutionLocation } from '../../../shared/types/worker-node.types';
 import type {
   DesiredRuntime,
+  FileAttachment,
   Instance,
   InstanceProvider,
   InstanceStatus,
@@ -147,7 +148,7 @@ export interface RuntimeReconcilerDeps {
   buildReplayContinuityMessage(instance: Instance, reason: string): string;
   buildFallbackHistory(instance: Instance, reason: string): Promise<string>;
   /** Keep condensed history sent as its own turn until the model replies, so a stopped turn cannot lose it. */
-  holdContinuityUntilAnswered(instanceId: string, text: string): void;
+  holdContinuityUntilAnswered(instanceId: string, text: string, attachments?: FileAttachment[]): void;
   emitModelSelectionDegradation(instance: Instance, degradation: ModelSelectionDegradation): void;
   /**
    * Append a `system` message to the instance transcript and push it to the

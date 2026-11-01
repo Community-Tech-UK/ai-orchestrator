@@ -2007,6 +2007,57 @@ describe('InstanceManager', () => {
         .toBe(true);
     });
 
+    it('resends the wake replay history with the next input when the model never replied to it', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Wake Replay Held',
+      });
+      await instance.readyPromise;
+      await manager.hibernateInstance(instance.id);
+      mockSessionContinuity.resumeSession.mockResolvedValueOnce({
+        instanceId: instance.id,
+        displayName: 'Wake Replay Held',
+        workingDirectory: TEST_WORKING_DIR,
+        conversationHistory: [
+          { id: 'ask', role: 'user', content: 'Review the branch.', timestamp: 1 },
+          { id: 'reply', role: 'assistant', content: 'Here is my review.', timestamp: 2 },
+        ],
+      });
+
+      await manager.wakeInstance(instance.id);
+      const replay = String(mockAdapterSendInput.mock.calls.at(-1)?.[0]);
+      expect(replay).toContain('Review the branch.');
+
+      // The replay turn was stopped before any reply, so the next input carries it.
+      const communication = (manager as unknown as {
+        communication: { sendInput(id: string, message: string): Promise<void> };
+      }).communication;
+      await communication.sendInput(instance.id, 'try again');
+      const next = String(mockAdapterSendInput.mock.calls.at(-1)?.[0]);
+      expect(next).toContain(replay);
+      expect(next).toContain('try again');
+    });
+
+    it('keeps restored history when a slow create-time lookup finishes late', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Late Enricher',
+      });
+      await instance.readyPromise;
+      const internals = manager as unknown as {
+        communication: { sendInput(id: string, message: string): Promise<void> };
+        lifecycle: { deferEnricherPreamble(id: string, label: string, text: string | null): void };
+      };
+      manager.queueContinuityPreamble(instance.id, 'Restored history: review the branch.');
+      internals.lifecycle.deferEnricherPreamble(instance.id, 'mcp', 'Late tool list');
+
+      await internals.communication.sendInput(instance.id, 'continue');
+
+      const sent = String(mockAdapterSendInput.mock.calls.at(-1)?.[0]);
+      expect(sent).toContain('Restored history: review the branch.');
+      expect(sent).toContain('Late tool list');
+    });
+
     it('keeps a name the user set while hibernated instead of the stale saved name', async () => {
       const instance = await manager.createInstance({
         workingDirectory: TEST_WORKING_DIR,
@@ -2180,6 +2231,50 @@ describe('InstanceManager', () => {
       expect(instance.status).toBe('error');
       expect(instance.recoveryMethod).toBe('failed');
       expect(mockAdapterTerminate).toHaveBeenCalled();
+    });
+
+    // Codex replies inside sendInput; marking replay after the send left the
+    // "condensed context will attach" notice up although the model had replied.
+    it('ends the replay state when the model replies to restart fallback history during the send', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Replay Fallback Reply',
+      });
+      await instance.readyPromise;
+      instance.outputBuffer.push({ id: 'user-1', type: 'user', content: 'Run the daily workflow', timestamp: 1 });
+
+      mockCreateCliAdapter.mockImplementation(() => {
+        const adapter = makeMockAdapter();
+        adapter.sendInput = vi.fn(async () => {
+          adapter.emit('output', { id: 'reply-1', type: 'assistant', content: 'Running it.', timestamp: 2 });
+        });
+        return adapter;
+      });
+
+      const lifecycle = (manager as unknown as {
+        lifecycle: { replayFallbackAfterRestart(id: string, sessionId: string): Promise<{ success: boolean }> };
+      }).lifecycle;
+      await expect(lifecycle.replayFallbackAfterRestart(instance.id, instance.sessionId)).resolves.toMatchObject({ success: true });
+
+      expect(instance.recoveryMethod).toBeUndefined();
+    });
+
+    // Nothing to replay, so nothing will attach: "fresh", not the replay notice.
+    it('marks a restart fallback with no conversation as fresh and sends nothing', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Replay Fallback Empty',
+      });
+      await instance.readyPromise;
+      mockAdapterSendInput.mockClear();
+
+      const lifecycle = (manager as unknown as {
+        lifecycle: { replayFallbackAfterRestart(id: string, sessionId: string): Promise<{ success: boolean }> };
+      }).lifecycle;
+      await expect(lifecycle.replayFallbackAfterRestart(instance.id, instance.sessionId)).resolves.toMatchObject({ success: true });
+
+      expect(instance.recoveryMethod).toBe('fresh');
+      expect(mockAdapterSendInput).not.toHaveBeenCalled();
     });
   });
 

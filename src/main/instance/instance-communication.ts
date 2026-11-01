@@ -492,8 +492,18 @@ export class InstanceCommunicationManager extends EventEmitter {
     }
   }
 
-  queueContinuityPreamble = (instanceId: string, preamble: string): void => { this.continuityInputQueue.queueContinuity(instanceId, preamble); };
-  holdContinuityUntilAnswered = (instanceId: string, text: string): void => this.continuityInputQueue.holdUntilAnswered(instanceId, text);
+  queueContinuityPreamble(instanceId: string, preamble: string): void {
+    this.continuityInputQueue.queueContinuity(instanceId, preamble);
+  }
+
+  queueRetrievedContext(instanceId: string, context: string): void {
+    this.continuityInputQueue.queueRetrievedContext(instanceId, context);
+  }
+
+  /** History sent straight to the adapter (with any images) rides with the next input until the model replies. */
+  holdContinuityUntilAnswered(instanceId: string, text: string, attachments?: FileAttachment[]): void {
+    this.continuityInputQueue.holdUntilAnswered(instanceId, text, attachments);
+  }
 
   private emitAttachmentDropWarnings(
     instanceId: string,
@@ -745,8 +755,9 @@ export class InstanceCommunicationManager extends EventEmitter {
       logger.info('Skipped adapter dispatch because the provider has an active known limit', { instanceId });
       return;
     }
-    const preparedContext = options?.providerNativeCommandId ? { contextBlock: null, commit: () => undefined } : this.continuityInputQueue.prepare(instanceId, contextBlock);
+    const preparedContext = options?.providerNativeCommandId ? { contextBlock: null, attachments, commit: () => undefined } : this.continuityInputQueue.prepare(instanceId, contextBlock, attachments);
     const finalContextBlock = preparedContext.contextBlock;
+    attachments = preparedContext.attachments;
 
     const isAutoContinuation = options?.autoContinuation === true;
     const finalMessageBase = finalContextBlock ? `${finalContextBlock}\n\n${message}` : message;

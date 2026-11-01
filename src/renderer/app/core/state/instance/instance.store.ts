@@ -212,6 +212,12 @@ export class InstanceStore implements OnDestroy {
           }
         }
 
+        // A reply means the model has any condensed history it was sent.
+        if (message.type === 'assistant' || message.type === 'tool_use') {
+          const replying = this.stateService.getInstance(instanceId);
+          if (replying) this.messagingStore.clearRecoveryMarkers(instanceId, replying);
+        }
+
         // Queue output with throttling
         this.outputStore.queueOutput(instanceId, message);
       })

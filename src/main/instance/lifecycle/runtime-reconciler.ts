@@ -570,7 +570,7 @@ export class RuntimeReconciler {
             ? this.deps.describeLoopProviderDivergence?.(instanceId, instance.provider)
             : null,
           preamble,
-          holdUntilAnswered: (text) => this.deps.holdContinuityUntilAnswered(instanceId, text),
+          holdUntilAnswered: (text, attachments) => this.deps.holdContinuityUntilAnswered(instanceId, text, attachments),
         });
         assertCurrent();
       } catch (error) {

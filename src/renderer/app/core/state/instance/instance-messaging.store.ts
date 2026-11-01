@@ -284,7 +284,7 @@ export class InstanceMessagingStore {
 
     if (this.globalPause.holdsAutomaticInput(targetInstanceId) && !await this.globalPause.pickUp(targetInstanceId)) return;
 
-    this.clearRecoveryMarkersOnUserInput(targetInstanceId, instance);
+    this.clearRecoveryMarkers(targetInstanceId, instance);
 
     if (isTerminalStatus(instance.status)) {
       if (this.canRestartForTerminalSend(instance.status)) {
@@ -350,7 +350,7 @@ export class InstanceMessagingStore {
 
     if (this.globalPause.holdsAutomaticInput(targetInstanceId) && !await this.globalPause.pickUp(targetInstanceId)) return;
 
-    this.clearRecoveryMarkersOnUserInput(targetInstanceId, instance);
+    this.clearRecoveryMarkers(targetInstanceId, instance);
 
     if (isTerminalStatus(instance.status)) {
       console.warn('InstanceMessagingStore: Cannot steer instance in terminal state', {
@@ -415,7 +415,7 @@ export class InstanceMessagingStore {
 
     if (this.globalPause.holdsAutomaticInput(instanceId) && !await this.globalPause.pickUp(instanceId)) return;
 
-    this.clearRecoveryMarkersOnUserInput(instanceId, instance);
+    this.clearRecoveryMarkers(instanceId, instance);
 
     if (isTerminalStatus(instance.status)) {
       console.warn('InstanceMessagingStore: Cannot steer queued message for instance in terminal state', {
@@ -489,7 +489,7 @@ export class InstanceMessagingStore {
     }
   }
 
-  private clearRecoveryMarkersOnUserInput(instanceId: string, instance: Instance): void {
+  clearRecoveryMarkers(instanceId: string, instance: Instance): void {
     if (!instance.restoreMode && instance.recoveryMethod !== 'replay') {
       return;
     }

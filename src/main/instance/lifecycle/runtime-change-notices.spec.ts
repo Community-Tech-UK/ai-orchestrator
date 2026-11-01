@@ -170,7 +170,7 @@ describe('announceRuntimeChangeSet (LT-030)', () => {
       instance, adapter, emitSystemNotice: vi.fn(),
       notices: [notice('ACCOUNT', 'account-changed')], preamble: 'REPLAY', holdUntilAnswered,
     });
-    expect(holdUntilAnswered).toHaveBeenCalledWith('REPLAY');
+    expect(holdUntilAnswered).toHaveBeenCalledWith('REPLAY', undefined);
   });
 
   it('holds nothing for notices without history, or when no turn is started', async () => {
@@ -304,6 +304,28 @@ describe('announceRuntimeChangeSet (LT-030)', () => {
     expect(String(sent[0]?.[0])).toContain('please suspend this user.');
     expect(String(sent[0]?.[0])).toContain('who.png');
     expect(sent[0]?.[1]).toEqual([
+      { name: 'who.png', type: 'image/png', size: 4, data: 'data:image/png;base64,AAAA' },
+    ]);
+  });
+
+  it('holds the replayed images with the history so a stopped turn resends them too', async () => {
+    const holdUntilAnswered = vi.fn();
+    const adapter = { sendInput: vi.fn(async () => undefined), getCapabilities: () => ({ vision: true }) };
+    await announceRuntimeChangeSet({
+      instance: imageInstance(workspace()),
+      adapter,
+      emitSystemNotice: vi.fn(),
+      notices: [notice('ACCOUNT', 'account-changed')],
+      preamble: 'replay preamble',
+      holdUntilAnswered,
+    });
+
+    expect(holdUntilAnswered).toHaveBeenCalledTimes(1);
+    const [heldText, heldImages] = holdUntilAnswered.mock.calls[0] as [string, unknown];
+    expect(heldText.startsWith('replay preamble\n\n')).toBe(true);
+    expect(heldText).toContain('who.png');
+    expect(heldText).not.toContain('ACCOUNT');
+    expect(heldImages).toEqual([
       { name: 'who.png', type: 'image/png', size: 4, data: 'data:image/png;base64,AAAA' },
     ]);
   });

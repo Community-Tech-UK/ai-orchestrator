@@ -6093,7 +6093,7 @@
     },
     {
       "path": "resources/browser-extension/background.js",
-      "lines": 7422
+      "lines": 7419
     },
     {
       "path": "docs/plans/2026-10-10-oct-phase1-token-levers_plan.md",
@@ -6101,7 +6101,7 @@
     },
     {
       "path": "src/main/browser-gateway/browser-extension-assets.spec.ts",
-      "lines": 6090
+      "lines": 6206
     },
     {
       "path": "docs/superpowers/plans/2026-04-21-mcp-multi-provider-management_completed.md",
@@ -6124,12 +6124,12 @@
       "lines": 4447
     },
     {
-      "path": "docs/superpowers/plans/2026-04-28-wave6-doctor-diagnostics-updates-artifacts-plan_completed.md",
-      "lines": 4321
+      "path": "src/main/instance/instance-communication.spec.ts",
+      "lines": 4332
     },
     {
-      "path": "src/main/instance/instance-communication.spec.ts",
-      "lines": 4309
+      "path": "docs/superpowers/plans/2026-04-28-wave6-doctor-diagnostics-updates-artifacts-plan_completed.md",
+      "lines": 4321
     },
     {
       "path": "docs/plans/2026-10-10-oct-phase2-loops-converge_plan_completed.md",
@@ -6149,7 +6149,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3647
+      "lines": 3650
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
@@ -6241,7 +6241,7 @@
     },
     {
       "path": "src/main/instance/instance-communication.ts",
-      "lines": 2547
+      "lines": 2558
     },
     {
       "path": "docs/superpowers/plans/2026-04-07-remote-folder-browsing_completed.md",
@@ -6249,7 +6249,7 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2498
+      "lines": 2499
     },
     {
       "path": "src/main/app/orchestrator-tools-step.spec.ts",
@@ -6272,12 +6272,12 @@
       "lines": 2348
     },
     {
-      "path": "docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md",
-      "lines": 2339
+      "path": "src/main/instance/__tests__/instance-manager.lifecycle.spec.ts",
+      "lines": 2346
     },
     {
-      "path": "src/main/instance/__tests__/instance-manager.lifecycle.spec.ts",
-      "lines": 2251
+      "path": "docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md",
+      "lines": 2339
     },
     {
       "path": "docs/plans/2026-10-10-oct-housekeeping_plan_completed.md",
@@ -7100,6 +7100,10 @@
       "lines": 938
     },
     {
+      "path": "src/main/instance/__tests__/instance-manager-context-deadline.spec.ts",
+      "lines": 938
+    },
+    {
       "path": "src/renderer/app/features/editor/editor-page.component.ts",
       "lines": 937
     },
@@ -7113,10 +7117,6 @@
     },
     {
       "path": "docs/superpowers/plans/2026-06-05-auxiliary-local-model-routing_completed.md",
-      "lines": 935
-    },
-    {
-      "path": "src/main/instance/__tests__/instance-manager-context-deadline.spec.ts",
       "lines": 935
     },
     {
@@ -7268,6 +7268,10 @@
       "lines": 867
     },
     {
+      "path": "src/renderer/app/core/state/instance/instance.store.ts",
+      "lines": 865
+    },
+    {
       "path": "docs/superpowers/specs/2026-08-25-copilot-account-routing_spec_completed.md",
       "lines": 864
     },
@@ -7278,10 +7282,6 @@
     {
       "path": "src/main/orchestration/loop-stage-machine.spec.ts",
       "lines": 860
-    },
-    {
-      "path": "src/renderer/app/core/state/instance/instance.store.ts",
-      "lines": 859
     },
     {
       "path": "docs/superpowers/plans/2026-05-10-main-process-multicore-offload_completed.md",

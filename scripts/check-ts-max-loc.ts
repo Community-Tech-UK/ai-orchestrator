@@ -253,7 +253,11 @@ const ALLOWLIST: Record<string, number> = {
   // instance-communication-overflow-tracker.ts (architecture-quality 2.2).
   // Tightened 2666 -> 2496 after extracting compact/retry policy to
   // instance-communication-overflow-policy.ts (architecture-quality remaining).
-  'src/main/instance/instance-communication.ts': 2496,
+  // Raised 2496 -> 2557 (2026-11-01): held continuity and the retrieved-context
+  // slot (unanswered history and its images ride with the next input). The file
+  // was already at ceiling + full slack; the logic lives in
+  // instance-continuity-input-queue.ts.
+  'src/main/instance/instance-communication.ts': 2557,
   'src/main/instance/instance-context.ts': 1265,
   // Raised 3450 -> 3528 for the queue-aware YOLO toggle (park-while-busy +
   // auto-apply-on-idle); the bulk lives in lifecycle/yolo-mode-queue.ts.
