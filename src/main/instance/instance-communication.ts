@@ -101,7 +101,7 @@ import { InstanceCommunicationOverflowTracker } from './instance-communication-o
 import { InstanceCommunicationOverflowPolicy } from './instance-communication-overflow-policy';
 import { reconcileClaudeSafetyRouteModel } from './claude-model-routing';
 import { bindRawAdapterProviderEvents } from './instance-communication-provider-events';
-import { InstanceContinuityInputQueue } from './instance-continuity-input-queue';
+import { InstanceContinuityInputQueue, noteModelReplied } from './instance-continuity-input-queue';
 import { InstanceToolResultProcessor } from './instance-tool-result-processor';
 import { readClaudeSelfWakeupNotice } from '../cli/adapters/claude-cli-self-wakeup';
 import { getSelfWakeupTracker, appendLostSelfWakeupNotice } from './self-wakeup-tracker';
@@ -492,9 +492,8 @@ export class InstanceCommunicationManager extends EventEmitter {
     }
   }
 
-  queueContinuityPreamble(instanceId: string, preamble: string): void {
-    this.continuityInputQueue.queueContinuity(instanceId, preamble);
-  }
+  queueContinuityPreamble = (instanceId: string, preamble: string): void => { this.continuityInputQueue.queueContinuity(instanceId, preamble); };
+  holdContinuityUntilAnswered = (instanceId: string, text: string): void => this.continuityInputQueue.holdUntilAnswered(instanceId, text);
 
   private emitAttachmentDropWarnings(
     instanceId: string,
@@ -1464,6 +1463,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       }
       const failureScope = message.type === 'error' ? this.inputFailureScopes.find(instanceId, adapter) : undefined;
       if (failureScope && !failureScope.isCurrent()) return;
+      if (message.type === 'assistant' || message.type === 'tool_use') noteModelReplied(this.continuityInputQueue, instanceId, this.deps.getInstance(instanceId));
       const ticket = outputOrder.enter();
       void handleOutput(message, failureScope, ticket).finally(ticket.release);
     });

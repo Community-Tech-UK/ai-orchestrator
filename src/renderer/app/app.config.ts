@@ -17,6 +17,7 @@ import { CLIPBOARD_TOAST } from './core/services/clipboard-toast.token';
 import { ToastService } from './core/services/toast.service';
 import { RendererErrorHandler } from './core/services/renderer-error-handler';
 import { RendererHeartbeatService } from './core/services/renderer-heartbeat.service';
+import { MobileCompletionSyncService } from './core/services/mobile-completion-sync.service';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -37,6 +38,9 @@ export const appConfig: ApplicationConfig = {
     }),
 
     provideAppInitializer(() => { inject(TitleTooltipBridge).start(); }),
+
+    // Reading a finished session on the desktop or the phone clears it on both.
+    provideAppInitializer(() => { inject(MobileCompletionSyncService); }),
 
     {
       provide: CLIPBOARD_TOAST,

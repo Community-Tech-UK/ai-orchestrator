@@ -48,9 +48,16 @@ export function credentialAccessChoice(
 }
 
 export function credentialAccessPurpose(approval: BrowserApprovalRequest): string {
-  return approval.credentialAccess?.purposes.map((purpose) =>
-    purpose === 'totp' ? 'use a one-time sign-in code' : 'sign in with this saved login',
-  ).join(' and ') ?? '';
+  const access = approval.credentialAccess;
+  return access?.purposes.map((purpose) => {
+    if (purpose === 'totp') return 'use a one-time sign-in code';
+    if (purpose === 'email_code') {
+      return access.senderDomains?.length
+        ? `read sign-in codes emailed from ${access.senderDomains.join(', ')}`
+        : 'read sign-in codes this website emails';
+    }
+    return 'sign in with this saved login';
+  }).join(' and ') ?? '';
 }
 
 export function credentialAccessMovement(approval: BrowserApprovalRequest): string {

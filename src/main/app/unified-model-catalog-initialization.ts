@@ -1,5 +1,6 @@
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
+import { getAntigravityCliDiscoveryService } from '../providers/antigravity-cli-discovery-service';
 import { getCatalogOverrideSource, type CatalogOverrideEntry } from '../providers/catalog-override-source';
 import { getCodexCliDiscoveryService } from '../providers/codex-cli-discovery-service';
 import { getCursorCopilotCliDiscoveryService } from '../providers/cursor-copilot-cli-discovery-service';
@@ -61,6 +62,10 @@ interface OpenCodeDiscoveryRuntimeService {
   start(): void;
 }
 
+interface AntigravityDiscoveryRuntimeService {
+  start(): void;
+}
+
 interface LocalModelInventoryRuntimeService {
   list(): LocalModelInventoryEntry[];
   refresh?(): Promise<LocalModelInventoryEntry[]> | LocalModelInventoryEntry[];
@@ -84,6 +89,7 @@ export interface UnifiedModelCatalogRuntimeOptions {
   cursorCopilotDiscoveryService?: CursorCopilotDiscoveryRuntimeService;
   grokDiscoveryService?: GrokDiscoveryRuntimeService;
   openCodeDiscoveryService?: OpenCodeDiscoveryRuntimeService;
+  antigravityDiscoveryService?: AntigravityDiscoveryRuntimeService;
   localModelInventoryService?: LocalModelInventoryRuntimeService;
   logger?: RuntimeLogger;
 }
@@ -100,6 +106,8 @@ export async function initializeUnifiedModelCatalogRuntime(
     ?? getCursorCopilotCliDiscoveryService();
   const grokDiscoveryService = options.grokDiscoveryService ?? getGrokCliDiscoveryService();
   const openCodeDiscoveryService = options.openCodeDiscoveryService ?? getOpenCodeCliDiscoveryService();
+  const antigravityDiscoveryService = options.antigravityDiscoveryService
+    ?? getAntigravityCliDiscoveryService();
   const localModelInventoryService = options.localModelInventoryService ?? getLocalModelInventoryService();
   const logger = options.logger ?? getLogger('AppInitialization');
 
@@ -135,6 +143,7 @@ export async function initializeUnifiedModelCatalogRuntime(
   cursorCopilotDiscoveryService.start();
   grokDiscoveryService.start();
   openCodeDiscoveryService.start();
+  antigravityDiscoveryService.start();
 
   modelsDevService.refresh().catch(() => {
     // Suppressed; failure is already logged inside ModelsDevService.

@@ -825,7 +825,10 @@ it('opens the context-ring explanation on keyboard focus and shows queued model 
   element.dispatchEvent(new FocusEvent('focus'));
   fixture.detectChanges();
   expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('Context window: no data');
-  expect(fixture.nativeElement.querySelector('.pending-model-detail').textContent).toBe('Will switch to Codex · next-model when the current turn finishes. Click to cancel.');
+  // The queued change is a chip; its explanation is the chip's hover text, not a sentence beside it.
+  expect(fixture.nativeElement.querySelector('.pending-model-detail')).toBeNull();
+  expect(fixture.debugElement.query(By.css('.pending-model-chip')).injector.get(AioTooltipDirective).appTooltip())
+    .toBe('Will switch to Codex · next-model when the current turn finishes. Click to cancel.');
   expect(fixture.nativeElement.querySelectorAll('[title]')).toHaveLength(0);
   fixture.destroy();
 });

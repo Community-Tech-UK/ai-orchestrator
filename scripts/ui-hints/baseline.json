@@ -40,7 +40,7 @@
     "src/renderer/app/features/instance-detail/context-bar.component.ts": 1,
     "src/renderer/app/features/instance-detail/cross-model-review-indicator.component.ts": 1,
     "src/renderer/app/features/instance-detail/input-panel.component.ts": 1,
-    "src/renderer/app/features/instance-detail/instance-header.component.ts": 8,
+    "src/renderer/app/features/instance-detail/instance-header.component.ts": 9,
     "src/renderer/app/features/instance-detail/instance-welcome.component.ts": 1,
     "src/renderer/app/features/instance-detail/output-stream.component.ts": 1,
     "src/renderer/app/features/instance-detail/plan-update-card.component.ts": 1,

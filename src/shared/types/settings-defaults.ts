@@ -51,7 +51,7 @@ export const DEFAULT_CONTEXT_EVIDENCE_MODE_BY_PROVIDER = Object.freeze({
 export const DEFAULT_REVIEWER_MODEL_BY_PROVIDER: Readonly<Record<Exclude<RemoteReviewerProvider, 'opencode'>, string>> = {
   claude: CLAUDE_MODELS.SONNET,
   codex: OPENAI_MODELS.GPT56_TERRA,
-  antigravity: 'Gemini 3.5 Flash (Medium)',
+  antigravity: 'Gemini 3.8 Flash (Medium)',
   copilot: COPILOT_MODELS.CLAUDE_SONNET_46,
   cursor: 'composer-2.5',
   grok: GROK_MODELS.GROK_47,

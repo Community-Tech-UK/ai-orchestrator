@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
+import {
+  clearKnownModelCatalogSnapshotForTesting,
+  replaceKnownModelCatalogSnapshot,
+} from '../../../shared/types/provider-model-catalog-snapshot';
 import { AntigravityCliAdapter } from './antigravity-cli-adapter';
 import type { CliMessage } from './base-cli-adapter';
 
@@ -12,13 +16,47 @@ function buildArgs(adapter: AntigravityCliAdapter, content = 'hello'): string[] 
   return (adapter as unknown as BuildArgsAccess).buildArgs({ role: 'user', content });
 }
 
+function forwardedModel(adapter: AntigravityCliAdapter): string | undefined {
+  const args = buildArgs(adapter);
+  const modelIdx = args.indexOf('--model');
+  return modelIdx >= 0 ? args[modelIdx + 1] : undefined;
+}
+
 describe('AntigravityCliAdapter buildArgs model forwarding', () => {
+  afterEach(() => {
+    clearKnownModelCatalogSnapshotForTesting();
+  });
+
   it('forwards a known agy label as --model <label>', () => {
-    const adapter = new AntigravityCliAdapter({ model: 'Gemini 3.1 Pro (High)' });
-    const args = buildArgs(adapter);
-    const modelIdx = args.indexOf('--model');
-    expect(modelIdx).toBeGreaterThanOrEqual(0);
-    expect(args[modelIdx + 1]).toBe('Gemini 3.1 Pro (High)');
+    const adapter = new AntigravityCliAdapter({ model: 'Gemini 4 Argon (High)' });
+    expect(forwardedModel(adapter)).toBe('Gemini 4 Argon (High)');
+  });
+
+  it('moves a retired label from a saved session to its successor', () => {
+    // agy 1.4 exits 1 on "Gemini 3.5 Flash (Medium)"; wake/restart rebuild the
+    // config from the persisted model, so the spawn boundary must repair it.
+    const adapter = new AntigravityCliAdapter({ model: 'Gemini 3.5 Flash (Medium)' });
+    expect(forwardedModel(adapter)).toBe('Gemini 3.8 Flash (Medium)');
+  });
+
+  it('keeps a replaced label while it is still on the known list', () => {
+    replaceKnownModelCatalogSnapshot([
+      { provider: 'antigravity', id: 'Gemini 3.5 Flash (Medium)' },
+    ]);
+
+    expect(forwardedModel(new AntigravityCliAdapter({ model: 'Gemini 3.5 Flash (Medium)' })))
+      .toBe('Gemini 3.5 Flash (Medium)');
+  });
+
+  it('forwards a label only the live agy list has, and drops one it no longer lists', () => {
+    replaceKnownModelCatalogSnapshot([
+      { provider: 'antigravity', id: 'Gemini 5 Boron (Medium)', pinned: true },
+    ]);
+
+    expect(forwardedModel(new AntigravityCliAdapter({ model: 'Gemini 5 Boron (Medium)' })))
+      .toBe('Gemini 5 Boron (Medium)');
+    expect(buildArgs(new AntigravityCliAdapter({ model: 'Gemini 4 Argon (High)' })))
+      .not.toContain('--model');
   });
 
   it('omits --model for a stale cross-provider id so agy uses its default', () => {

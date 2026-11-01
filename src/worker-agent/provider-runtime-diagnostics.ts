@@ -370,7 +370,19 @@ const ANTIGRAVITY_AUTH_FAILURE_PATTERNS = [
   /\b(?:401|403)\b/,
   /\b(?:error|fatal)\b/,
 ] as const;
+// Exact `agy models` rows accepted as proof of a signed-in CLI. Rows from older
+// agy releases stay so a worker that has not updated still passes; add each new
+// release's rows rather than replacing them.
 const ANTIGRAVITY_MODEL_CATALOGUE = new Map<string, string>([
+  ['gemini-4-argon-medium', 'Gemini 4 Argon (Medium)'],
+  ['gemini-4-argon-high', 'Gemini 4 Argon (High)'],
+  ['gemini-4-argon-low', 'Gemini 4 Argon (Low)'],
+  ['claude-opus-5-5-low', 'Claude Opus 5.5 (Low)'],
+  ['claude-opus-5-5-medium', 'Claude Opus 5.5 (Medium)'],
+  ['claude-opus-5-5-high', 'Claude Opus 5.5 (High)'],
+  ['claude-sonnet-5-5-low', 'Claude Sonnet 5.5 (Low)'],
+  ['claude-sonnet-5-5-medium', 'Claude Sonnet 5.5 (Medium)'],
+  ['claude-sonnet-5-5-high', 'Claude Sonnet 5.5 (High)'],
   ['gemini-3.8-flash-high', 'Gemini 3.8 Flash (High)'],
   ['gemini-3.8-flash-medium', 'Gemini 3.8 Flash (Medium)'],
   ['gemini-3.8-flash-low', 'Gemini 3.8 Flash (Low)'],

@@ -25,6 +25,7 @@ import {
 } from '../remote-node/coordinator-tailscale-watcher';
 import { NodeOutageTracker, formatRecoveryNotification } from '../remote-node/node-outage-tracker';
 import type { InstanceManager } from '../instance/instance-manager';
+import type { WindowManager } from '../window-manager';
 import type { AppInitializationContext, AppInitializationStep } from './initialization-steps';
 import type { RemoteFsEventNotification } from '../../shared/types/remote-fs.types';
 
@@ -249,7 +250,10 @@ export function createThinClientWsStep(): AppInitializationStep {
   };
 }
 
-export function createMobileGatewayStep(instanceManager: InstanceManager): AppInitializationStep {
+export function createMobileGatewayStep(
+  instanceManager: InstanceManager,
+  windowManager: WindowManager,
+): AppInitializationStep {
   return {
     name: 'Mobile gateway',
     fn: async () => {
@@ -257,7 +261,12 @@ export function createMobileGatewayStep(instanceManager: InstanceManager): AppIn
       // Always initialize so the runtime start/stop IPC handlers work even
       // when the gateway is toggled on later from Settings -> Mobile.
       const gateway = getMobileGatewayServer();
-      gateway.initialize({ instanceManager });
+      gateway.initialize({
+        instanceManager,
+        // The phone opened or dismissed a session: clear the desktop's unread dot too.
+        onCompletionViewed: (instanceId) =>
+          windowManager.sendToRenderer(IPC_CHANNELS.MOBILE_GATEWAY_COMPLETION_VIEWED, { instanceId }),
+      });
       // Unattended browser campaigns page the phone when they park a hard
       // stop (captcha, failed re-login, …). Wired here — not inside the
       // escalation service — so the browser gateway stays free of a

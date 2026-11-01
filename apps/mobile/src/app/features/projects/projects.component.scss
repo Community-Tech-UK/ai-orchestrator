@@ -8,6 +8,10 @@
   padding: var(--space-2) var(--mobile-gutter) calc(var(--dock-height) + var(--space-10));
 }
 
+.projects-usage {
+  margin-top: var(--space-4);
+}
+
 .projects-heading {
   display: flex;
   min-height: var(--control-size);

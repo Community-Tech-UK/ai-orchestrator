@@ -385,3 +385,27 @@ describe('browser-credentials error remediation', () => {
     )).rejects.toThrow(/^something else entirely$/);
   });
 });
+
+describe('browser-credentials request with emailed codes', () => {
+  it('sends the email_code purpose and sender domains (the service lowercases and de-duplicates them)', async () => {
+    const h = harness({});
+    await runBrowserCredentialsCli([
+      'request', '--profile', 'p', '--target', 't', '--item', 'British Council MyProcurement',
+      '--reason', 'Register for the UK_1552 tender', '--purpose', 'login', '--purpose', 'email_code',
+      '--sender-domain', 'britishcouncil.org', '--sender-domain', 'BritishCouncil.org',
+    ], h.deps).catch(() => undefined);
+
+    expect(h.call).toHaveBeenCalledWith(BROWSER_CREDENTIALS_CLI_METHODS.request, expect.objectContaining({
+      purposes: ['login', 'email_code'], senderDomains: ['britishcouncil.org', 'britishcouncil.org'],
+    }));
+  });
+
+  it('refuses sender domains without the email_code purpose', async () => {
+    const h = harness({});
+    await expect(runBrowserCredentialsCli([
+      'request', '--profile', 'p', '--target', 't', '--item', 'x', '--reason', 'y',
+      '--sender-domain', 'britishcouncil.org',
+    ], h.deps)).rejects.toThrow(/email_code/);
+    expect(h.call).not.toHaveBeenCalled();
+  });
+});

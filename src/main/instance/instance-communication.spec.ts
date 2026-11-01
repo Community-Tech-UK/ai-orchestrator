@@ -2435,6 +2435,57 @@ describe('InstanceCommunicationManager', () => {
     expect(instance.outputBuffer.some(message => message.metadata?.['contextOverflow'] === true)).toBe(true);
   });
 
+  it('retries a Codex context overflow from idle under the real lifecycle rules', async () => {
+    // Codex settles a failed overflow turn on idle before rejecting the send.
+    // The retry must reach busy through ready, as ordinary adapter sends do;
+    // a direct idle → busy write is illegal and failed the send instead.
+    const overflow = '{"type":"error","error":{"message":"Your input exceeds the context window of this model. '
+      + 'Please adjust your input and try again.","type":"invalid_request_error","param":"input","code":"context_length_exceeded"},'
+      + '"status":400,"sequence_number":3} - [codex_error_info: other]';
+    const adapter = new FakeAdapter('codex-cli');
+    adapter.sendInput
+      .mockImplementationOnce(async () => {
+        adapter.emit('status', 'busy');
+        adapter.emit('status', 'idle');
+        throw new Error(overflow);
+      })
+      .mockImplementationOnce(async () => {
+        adapter.emit('status', 'busy');
+      });
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+    instance.status = 'idle';
+    const stateMachine = new InstanceStateMachine('idle');
+    const compactContext = vi.fn().mockResolvedValue(undefined);
+
+    manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, currentAdapter) => {
+        adapters.set(id, currentAdapter);
+      },
+      deleteAdapter: (id) => adapters.delete(id),
+      transitionState: (target, status) => {
+        stateMachine.transition(status);
+        target.status = stateMachine.current;
+      },
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+      compactContext,
+      emitProviderRuntimeEvent,
+    });
+    manager.setupAdapterEvents(instance.id, adapter as unknown as CliAdapter);
+
+    await manager.sendInput(instance.id, 'continue');
+
+    expect(compactContext).toHaveBeenCalledWith(instance.id);
+    expect(adapter.sendInput).toHaveBeenCalledTimes(2);
+    expect(adapter.sendInput.mock.calls[1][0]).toBe('continue');
+    expect(instance.status).toBe('busy');
+  });
+
   it('compacts immediately on a silent empty assistant response near the context ceiling', async () => {
     const adapter = new FakeAdapter('codex-cli') as unknown as CliAdapter;
     const compactContext = vi.fn().mockResolvedValue(undefined);
@@ -3790,6 +3841,41 @@ describe('provider-limit park on thrown sendInput errors', () => {
       'Prior context that must survive the park.\n\ncontinue the task',
       undefined,
     );
+  });
+
+  // Session xwgiekaw5: after an account switch the condensed history went out
+  // as its own turn, "try again" interrupted it before Codex stored it, and the
+  // retry reached Codex alone.
+  it('sends held history with the next input until the model replies to it', async () => {
+    const adapter = new FakeAdapter('codex-cli');
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+    instance.recoveryMethod = 'replay';
+    const manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, nextAdapter) => adapters.set(id, nextAdapter),
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+    });
+    manager.setupAdapterEvents(instance.id, adapter as unknown as CliAdapter);
+    manager.holdContinuityUntilAnswered(instance.id, 'Condensed history with the original request');
+
+    await manager.sendInput(instance.id, 'try again');
+    expect(adapter.sendInput).toHaveBeenLastCalledWith(
+      'Condensed history with the original request\n\ntry again',
+      undefined,
+    );
+    expect(instance.recoveryMethod).toBe('replay');
+
+    adapter.emit('output', { id: 'reply-1', type: 'assistant', content: 'Running it now.', timestamp: Date.now() });
+    expect(instance.recoveryMethod).toBeUndefined();
+
+    await manager.sendInput(instance.id, 'thanks');
+    expect(adapter.sendInput).toHaveBeenLastCalledWith('thanks', undefined);
   });
 
   it('tells the user the conversation is moving accounts when a thrown limit starts a switch', async () => {

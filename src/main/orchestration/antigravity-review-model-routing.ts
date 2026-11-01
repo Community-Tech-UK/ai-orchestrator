@@ -3,7 +3,7 @@ import type { ProviderQuotaSnapshot, ProviderQuotaWindow } from '../../shared/ty
 const MAX_QUOTA_SNAPSHOT_AGE_MS = 15 * 60_000;
 
 export const ANTIGRAVITY_REVIEW_FALLBACK_MODELS = {
-  SONNET: 'Claude Sonnet 4.6 (Thinking)',
+  SONNET: 'Claude Sonnet 5.5 (Medium)',
   GPT_OSS: 'GPT-OSS 120B (Medium)',
 } as const;
 

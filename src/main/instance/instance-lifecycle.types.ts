@@ -107,6 +107,8 @@ export interface LifecycleDependencies {
   clearInterrupted: (instanceId: string) => void;
   addToOutputBuffer: (instance: Instance, message: OutputMessage) => void;
   queueContinuityPreamble?: (instanceId: string, preamble: string) => void;
+  /** Keep condensed history sent straight to an adapter until the model replies to it. */
+  holdContinuityUntilAnswered?: (instanceId: string, text: string) => void;
   clearFirstMessageTracking: (instanceId: string) => void;
   markFirstMessageReceived: (instanceId: string) => void;
   clearPendingState?: (instanceId: string) => void;

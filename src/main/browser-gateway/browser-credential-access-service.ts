@@ -1,5 +1,6 @@
 import type { BrowserApprovalRequest, BrowserCredentialAccessChoice, BrowserCredentialAccessMetadata, BrowserGatewayResult, BrowserPermissionGrant, BrowserRequestCredentialAccess as BrowserRequestCredentialAccessPayload } from '@contracts/types/browser';
 import { BrowserCredentialAccessChoiceSchema, BrowserRequestCredentialAccessSchema, BrowserProviderSchema, TASK_CREDENTIAL_ACCESS_MS } from '@contracts/schemas/browser';
+import { getDomain } from 'tldts';
 import { generateId } from '../../shared/utils/id-generator';
 import { BrowserApprovalStore } from './browser-approval-store';
 import type { BrowserGrantStore } from './browser-grant-store';
@@ -33,7 +34,7 @@ export class BrowserCredentialAccessService {
   constructor(private readonly deps: BrowserCredentialAccessDependencies) {}
 
   request(input: BrowserRequestCredentialAccessPayload, context: BrowserGatewayContext): Promise<BrowserGatewayResult<BrowserApprovalRequest | null>> {
-    const key = JSON.stringify([context.instanceId, input.profileId, input.targetId, input.item, input.purposes]);
+    const key = JSON.stringify([context.instanceId, input.profileId, input.targetId, input.item, input.purposes, input.senderDomains]);
     const existing = this.requests.get(key);
     if (existing) return existing;
     const run = this.createRequest(input, context).finally(() => this.requests.delete(key));
@@ -49,12 +50,13 @@ export class BrowserCredentialAccessService {
       if (!session) return this.report(null, context, 'denied', 'session_unavailable');
       const target = await this.deps.readTarget(input.profileId, input.targetId, context);
       const inspected = await this.deps.vault.inspectExistingCredential({ item: input.item, origin: target.origin });
-      const purposes = [...new Set(input.purposes ?? ['login'])].sort() as ('login' | 'totp')[];
+      const purposes: BrowserCredentialAccessMetadata['purposes'] = [...new Set(input.purposes ?? ['login' as const])].sort();
+      const senderDomains = requestedSenderDomains(input.senderDomains);
       const metadata: BrowserCredentialAccessMetadata = {
         taskScope: session.taskScope, sessionName: session.sessionName, reason: input.reason,
         origin: target.origin, scope: target.scope, computerName: target.computerName, computerId: target.computerId ?? target.scope,
         vaultItemRef: inspected.vaultItemRef, itemTitle: inspected.title, vaultFolder: inspected.folderName,
-        moveIntoFolder: inspected.requiresMoveIntoFolder, purposes, permission: 'task',
+        moveIntoFolder: inspected.requiresMoveIntoFolder, purposes, ...(senderDomains ? { senderDomains } : {}), permission: 'task',
       };
       const existing = this.deps.store.findCredentialAccessRequest(metadata);
       if (existing) {
@@ -78,7 +80,10 @@ export class BrowserCredentialAccessService {
       if (!inspected.requiresMoveIntoFolder && inspected.existingBinding?.origin === metadata.origin) {
         const decisions = purposes.map((purpose) => this.deps.authorizations.check({ profileId: target.scope, origin: target.origin, purpose, taskScope: session.taskScope, vaultItemRef: inspected.vaultItemRef, computerId: metadata.computerId }));
         const id = decisions[0]?.authorizationId;
-        if (id && decisions.every((decision) => decision.authorized && decision.authorizationId === id)) {
+        // Standing consent must already name every requested sender; otherwise ask.
+        const sendersCovered = (senderDomains ?? []).every((domain) =>
+          decisions.some((decision) => decision.allowedSenderDomains?.includes(domain)));
+        if (id && sendersCovered && decisions.every((decision) => decision.authorized && decision.authorizationId === id)) {
           const auth = this.deps.authorizations.find(id)!;
           this.deps.store.updateCredentialAccess(approval.requestId, { ...metadata, authorizationId: id, permission: auth.taskScope ? 'task' : 'remember', permissionExpiresAt: auth.expiresAt });
           approval = this.deps.store.resolveCredentialAccessRequest(approval.requestId, 'pending', { status: 'approved' })!;
@@ -163,7 +168,7 @@ export class BrowserCredentialAccessService {
           if (auth && (auth.revokedAt || auth.expiresAt <= this.deps.now())) throw new Error('authorization_revoked');
           if (!auth) auth = this.deps.authorizations.create({
             profileId: m.scope, allowedOrigins: [{ scheme: new URL(m.origin).protocol.slice(0, -1) as 'http' | 'https', hostPattern: new URL(m.origin).host, includeSubdomains: false }], purposes: m.purposes, computerId: m.computerId,
-            vaultFolder: m.vaultFolder, vaultItemRef: m.vaultItemRef,
+            vaultFolder: m.vaultFolder, vaultItemRef: m.vaultItemRef, ...(m.senderDomains ? { allowedSenderDomains: m.senderDomains } : {}),
             ...(choice.permission === 'task' ? { taskScope: m.taskScope } : {}), expiresAt: accepted.permissionExpiresAt!,
           }, accepted.authorizationId!);
           createdAuthorizationId = auth.id;
@@ -278,6 +283,18 @@ export class BrowserCredentialAccessService {
       action: 'credential_access', toolName: 'browser.request_credential_access', actionClass: 'credential', summary: 'Saved login access decision',
       requestId: request?.requestId, profileId: request?.profileId, targetId: request?.targetId, origin: request?.origin });
   }
+}
+
+/**
+ * Sorted, de-duplicated sender domains. Each must be an organisation's own
+ * domain: a public suffix such as `co.uk` would let any sender's mail through.
+ */
+function requestedSenderDomains(domains: string[] | undefined): string[] | undefined {
+  if (!domains) return undefined;
+  if (domains.some((domain) => getDomain(domain, { allowPrivateDomains: true }) === null)) {
+    throw new Error('sender_domain_invalid');
+  }
+  return [...new Set(domains)].sort();
 }
 
 let service: BrowserCredentialAccessService | undefined;

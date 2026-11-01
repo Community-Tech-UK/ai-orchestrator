@@ -13,6 +13,7 @@ import type { BrowserProfileStore } from './browser-profile-store';
 import type { PuppeteerBrowserDriver } from './puppeteer-browser-driver';
 import type { BrowserTargetRegistry } from './browser-target-registry';
 import type { BrowserPageChallengeProbe } from './browser-page-challenge-probe';
+import type { BrowserOneTimeCodeFillLedger } from './browser-one-time-code-submit';
 
 export interface BrowserGatewayPreparedMutation {
   grant: BrowserPermissionGrant;
@@ -37,6 +38,8 @@ export interface BrowserGatewayActionGuardOptions {
   escalations?: Pick<BrowserEscalationService, 'raise'>;
   /** Live CAPTCHA evidence for page-acting tools (click/evaluate). */
   probePageChallenge?: BrowserPageChallengeProbe;
+  /** One-time codes fill_credential typed; releases the click that submits one. */
+  oneTimeCodeFills?: Pick<BrowserOneTimeCodeFillLedger, 'has' | 'consume'>;
   result: <T>(params: BrowserGatewayResultInput<T>) => BrowserGatewayResult<T>;
   onGrantedMutation?: (info: {
     grant: BrowserPermissionGrant;

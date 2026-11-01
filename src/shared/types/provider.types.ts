@@ -238,6 +238,20 @@ export const PROVIDER_MODEL_REPLACEMENTS: Readonly<
   claude: {
     [CLAUDE_LEGACY_PRICING_ALIASES.FABLE_5]: CLAUDE_PINNED_MODELS.FABLE_51,
   },
+  // agy labels it no longer lists (checked against agy 1.4.11). agy exits 1 on
+  // an unknown --model, so saved sessions, automations and reviewer settings
+  // still holding these must move to the successor at the same effort.
+  // `(Thinking)` was agy's only effort for the 4.6 Claude models, so it maps
+  // to `(High)`.
+  antigravity: {
+    'Gemini 3.1 Pro (High)': 'Gemini 4 Argon (High)',
+    'Gemini 3.1 Pro (Low)': 'Gemini 4 Argon (Low)',
+    'Gemini 3.5 Flash (High)': 'Gemini 3.8 Flash (High)',
+    'Gemini 3.5 Flash (Medium)': 'Gemini 3.8 Flash (Medium)',
+    'Gemini 3.5 Flash (Low)': 'Gemini 3.8 Flash (Low)',
+    'Claude Opus 4.6 (Thinking)': 'Claude Opus 5.5 (High)',
+    'Claude Sonnet 4.6 (Thinking)': 'Claude Sonnet 5.5 (High)',
+  },
 };
 
 /**
@@ -597,22 +611,29 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     { id: COPILOT_MODELS.KIMI_K27_CODE, name: 'Kimi K2.7 Code', tier: 'balanced', family: 'Kimi' },
   ],
   ollama: [],
-  // Antigravity (`agy`, verified v1.0.14): `agy --model <label>` accepts the
-  // EXACT display label from `agy models` (confirmed via model_config_manager
-  // "Propagating selected model override" logs); an unrecognized value is
-  // silently ignored and agy uses its default. So each `id` is the verbatim
-  // label forwarded to `--model` and must match `agy models`. The
-  // `(Low|Medium|High|Thinking)` suffix is agy's per-model reasoning tier, part
-  // of the label. The adapter only forwards ids present here (isAntigravityModelId).
+  // Antigravity (`agy`, verified v1.4.11): `agy models` prints `<id>\t<label>`
+  // rows and `--model` accepts either form. AIO stores and forwards the LABEL.
+  // An unknown `--model` is NOT ignored: agy exits 1 with "not recognized as a
+  // known model" and the turn never runs. The live list comes from
+  // `AntigravityCliDiscoveryService` (`agy models`); this static copy is only
+  // the offline fallback, in agy's own order, and must match what
+  // `toAntigravityModelDisplayInfos` builds from that output (tier, family,
+  // `(Medium)` rows pinned). Retired labels resolve through
+  // PROVIDER_MODEL_REPLACEMENTS.antigravity.
   antigravity: [
-    { id: 'Gemini 3.1 Pro (High)', name: 'Gemini 3.1 Pro (High)', tier: 'powerful', pinned: true, family: 'Gemini Pro' },
-    { id: 'Gemini 3.5 Flash (Medium)', name: 'Gemini 3.5 Flash (Medium)', tier: 'balanced', pinned: true, family: 'Gemini Flash' },
-    { id: 'Claude Opus 4.6 (Thinking)', name: 'Claude Opus 4.6 (Thinking)', tier: 'powerful', pinned: true, family: 'Claude' },
-    { id: 'Claude Sonnet 4.6 (Thinking)', name: 'Claude Sonnet 4.6 (Thinking)', tier: 'balanced', pinned: true, family: 'Claude' },
+    { id: 'Gemini 4 Argon (Medium)', name: 'Gemini 4 Argon (Medium)', tier: 'powerful', pinned: true, family: 'Gemini Pro' },
+    { id: 'Gemini 4 Argon (High)', name: 'Gemini 4 Argon (High)', tier: 'powerful', family: 'Gemini Pro' },
+    { id: 'Gemini 4 Argon (Low)', name: 'Gemini 4 Argon (Low)', tier: 'powerful', family: 'Gemini Pro' },
+    { id: 'Gemini 3.8 Flash (High)', name: 'Gemini 3.8 Flash (High)', tier: 'balanced', family: 'Gemini Flash' },
+    { id: 'Gemini 3.8 Flash (Medium)', name: 'Gemini 3.8 Flash (Medium)', tier: 'balanced', pinned: true, family: 'Gemini Flash' },
+    { id: 'Gemini 3.8 Flash (Low)', name: 'Gemini 3.8 Flash (Low)', tier: 'fast', family: 'Gemini Flash' },
+    { id: 'Claude Opus 5.5 (Low)', name: 'Claude Opus 5.5 (Low)', tier: 'powerful', family: 'Claude' },
+    { id: 'Claude Opus 5.5 (Medium)', name: 'Claude Opus 5.5 (Medium)', tier: 'powerful', pinned: true, family: 'Claude' },
+    { id: 'Claude Opus 5.5 (High)', name: 'Claude Opus 5.5 (High)', tier: 'powerful', family: 'Claude' },
+    { id: 'Claude Sonnet 5.5 (Low)', name: 'Claude Sonnet 5.5 (Low)', tier: 'balanced', family: 'Claude' },
+    { id: 'Claude Sonnet 5.5 (Medium)', name: 'Claude Sonnet 5.5 (Medium)', tier: 'balanced', pinned: true, family: 'Claude' },
+    { id: 'Claude Sonnet 5.5 (High)', name: 'Claude Sonnet 5.5 (High)', tier: 'balanced', family: 'Claude' },
     { id: 'GPT-OSS 120B (Medium)', name: 'GPT-OSS 120B (Medium)', tier: 'balanced', pinned: true, family: 'GPT' },
-    { id: 'Gemini 3.1 Pro (Low)', name: 'Gemini 3.1 Pro (Low)', tier: 'powerful', family: 'Gemini Pro' },
-    { id: 'Gemini 3.5 Flash (High)', name: 'Gemini 3.5 Flash (High)', tier: 'balanced', family: 'Gemini Flash' },
-    { id: 'Gemini 3.5 Flash (Low)', name: 'Gemini 3.5 Flash (Low)', tier: 'fast', family: 'Gemini Flash' },
   ],
   cursor: [
     // The live picker (instance-detail dropdown, CLI settings) queries

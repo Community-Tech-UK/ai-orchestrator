@@ -337,6 +337,7 @@ describe('MobileGatewayServer', () => {
   let loopSource: FakeLoopSource;
   let automationEvents: EventEmitter;
   let automationFire: ReturnType<typeof vi.fn>;
+  let completionViewed: ReturnType<typeof vi.fn<(instanceId: string) => void>>;
   let port: number;
 
   function initServer(apnsConfigured = false): { posts: { deviceToken: string; payload: string }[] } {
@@ -354,6 +355,7 @@ describe('MobileGatewayServer', () => {
       automationModelDefaults: () => ({
         automationDefaultCli: 'auto', automationDefaultModel: '', modelPickerFavorites: [],
       }),
+      onCompletionViewed: completionViewed,
     });
     return { posts };
   }
@@ -361,6 +363,7 @@ describe('MobileGatewayServer', () => {
   beforeEach(async () => {
     _resetIdempotencyStoreForTesting();
     source = new FakeInstanceSource();
+    completionViewed = vi.fn<(instanceId: string) => void>();
     source.instances = [inst({ id: 'a', status: 'busy' })];
     registry = new MobileDeviceRegistry(memPersistence());
     pause = new FakePause();
@@ -2057,6 +2060,73 @@ describe('MobileGatewayServer', () => {
     expect((await snapshotInstance(token, 'a'))?.hasUnreadCompletion).toBe(true);
   });
 
+  it.each([
+    ['an automation run', { metadata: { automationId: 'auto-1', automationHidden: true } }],
+    ['a visible automation run', { metadata: { automationId: 'auto-2', spendPurpose: 'automation' } }],
+    ['a Plan Queue worker', { metadata: { planQueueRunId: 'run-1', planQueueRole: 'worker' } }],
+    ['a child agent', { parentId: 'parent' }],
+    ['an internal reviewer', { metadata: { spendPurpose: 'review', hideFromProjectRail: true } }],
+    ['a channel reply', { metadata: { spendPurpose: 'channel' } }],
+    ['a repo job', { metadata: { repoJobId: 'job-1', spendPurpose: 'repo-job' } }],
+  ] as const)('does not flag or push %s finishing a turn', async (_label, partial) => {
+    const { posts } = await setupPushDevice();
+    const token = await pairToken();
+    source.instances.push(inst({ id: 'background', status: 'busy', ...(partial as Partial<Instance>) }));
+
+    source.emit('instance:state-update', { instanceId: 'background', status: 'busy' });
+    source.emit('instance:state-update', { instanceId: 'background', status: 'idle' });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(posts).toHaveLength(0);
+    expect((await snapshotInstance(token, 'background'))?.hasUnreadCompletion ?? false).toBe(false);
+  });
+
+  it('flags an automation session once the operator has taken it over', async () => {
+    const token = await pairToken();
+    source.instances.push(inst({
+      id: 'taken-over', status: 'busy',
+      metadata: { automationId: 'auto-1', automationHidden: true, automationRevealed: true },
+    }));
+    source.emit('instance:state-update', { instanceId: 'taken-over', status: 'busy' });
+    source.emit('instance:state-update', { instanceId: 'taken-over', status: 'idle' });
+    expect((await snapshotInstance(token, 'taken-over'))?.hasUnreadCompletion).toBe(true);
+  });
+
+  it('does not flag a turn ending inside a running loop', async () => {
+    const token = await pairToken();
+    loopSource.loops = [{ chatId: 'a', status: 'running', endedAt: null }];
+    source.emit('instance:state-update', { instanceId: 'a', status: 'busy' });
+    source.emit('instance:state-update', { instanceId: 'a', status: 'idle' });
+    expect((await snapshotInstance(token, 'a'))?.hasUnreadCompletion).toBe(false);
+  });
+
+  it('leaves sessions the desktop list hides out of the snapshot', async () => {
+    const token = await pairToken();
+    source.instances.push(
+      inst({ id: 'hidden-run', status: 'idle', metadata: { automationId: 'auto-1', automationHidden: true } }),
+      inst({ id: 'hidden-failed', status: 'failed', metadata: { automationId: 'auto-1', automationHidden: true } }),
+      inst({ id: 'reviewer', status: 'idle', metadata: { hideFromProjectRail: true } }),
+      inst({ id: 'queue-worker', status: 'idle', metadata: { planQueueRole: 'worker' } }),
+    );
+    const res = await authed(token, '/api/snapshot');
+    const ids = ((await res.json()) as { instances: { id: string }[] }).instances.map((i) => i.id);
+    expect(ids).toEqual(expect.arrayContaining(['a', 'hidden-failed', 'queue-worker']));
+    expect(ids).not.toContain('hidden-run');
+    expect(ids).not.toContain('reviewer');
+  });
+
+  it('still lists a hidden session while it has a question waiting', async () => {
+    const token = await pairToken();
+    source.instances.push(inst({ id: 'reviewer', status: 'busy', metadata: { hideFromProjectRail: true } }));
+    source.emit('instance:input-required', {
+      instanceId: 'reviewer', requestId: 'req-hidden',
+      metadata: { type: 'deferred_permission', tool_name: 'Bash', tool_input: { command: 'ls' } },
+    });
+    const res = await authed(token, '/api/snapshot');
+    const ids = ((await res.json()) as { instances: { id: string }[] }).instances.map((i) => i.id);
+    expect(ids).toContain('reviewer');
+  });
+
   it('does not raise hasUnreadCompletion for idle without a prior working status', async () => {
     const token = await pairToken();
     source.instances.push(inst({ id: 'idle-only', status: 'idle' }));
@@ -2072,6 +2142,38 @@ describe('MobileGatewayServer', () => {
 
     await authed(token, '/api/instances/a/messages');
     expect((await snapshotInstance(token, 'a'))?.hasUnreadCompletion).toBe(false);
+  });
+
+  it('clears hasUnreadCompletion when the phone dismisses it without opening the session', async () => {
+    const token = await pairToken();
+    source.emit('instance:state-update', { instanceId: 'a', status: 'busy' });
+    source.emit('instance:state-update', { instanceId: 'a', status: 'idle' });
+    expect((await snapshotInstance(token, 'a'))?.hasUnreadCompletion).toBe(true);
+
+    const res = await authed(token, '/api/instances/a/viewed', { method: 'POST' });
+    expect(res.status).toBe(200);
+    expect((await snapshotInstance(token, 'a'))?.hasUnreadCompletion).toBe(false);
+    expect((await authed(token, '/api/instances/missing/viewed', { method: 'POST' })).status).toBe(404);
+  });
+
+  it('tells the desktop when the phone opens or dismisses a session', async () => {
+    const token = await pairToken();
+    await authed(token, '/api/instances/a/messages');
+    await authed(token, '/api/instances/a/viewed', { method: 'POST' });
+    expect(completionViewed).toHaveBeenCalledWith('a');
+    expect(completionViewed).toHaveBeenCalledTimes(2);
+  });
+
+  it('clears the phone item when the session is opened on the desktop, without echoing back', async () => {
+    const token = await pairToken();
+    source.emit('instance:state-update', { instanceId: 'a', status: 'busy' });
+    source.emit('instance:state-update', { instanceId: 'a', status: 'idle' });
+    expect((await snapshotInstance(token, 'a'))?.hasUnreadCompletion).toBe(true);
+
+    server.markViewedOnDesktop('a');
+
+    expect((await snapshotInstance(token, 'a'))?.hasUnreadCompletion).toBe(false);
+    expect(completionViewed).not.toHaveBeenCalled();
   });
 
   it('clears a stale hasUnreadCompletion dot when a new turn starts', async () => {

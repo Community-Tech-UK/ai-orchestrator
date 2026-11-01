@@ -224,6 +224,7 @@ export class CredentialAuthorizationService {
     let sawTaskScope = false;
     let sawVaultItem = false;
     let sawComputer = false;
+    const matches: CredentialAuthorization[] = [];
     for (const auth of candidates) {
       const taskScopeOk = auth.taskScope === undefined || (auth.taskScope !== '' && auth.taskScope === input.taskScope);
       const vaultItemOk = auth.vaultItemRef === undefined || (auth.vaultItemRef !== '' && auth.vaultItemRef === input.vaultItemRef);
@@ -280,12 +281,18 @@ export class CredentialAuthorizationService {
       if (auth.expiresAt <= now) {
         continue; // an expired-but-otherwise-matching auth is reported below
       }
+      matches.push(auth);
+    }
+
+    if (matches.length > 0) {
+      // Every live match was granted by a human for this exact use, so their
+      // declared senders combine. Otherwise an older grant without senders,
+      // listed first, would hide a newer one that names the real sender.
+      const senders = [...new Set(matches.flatMap((auth) => auth.allowedSenderDomains ?? []))];
       return {
         authorized: true,
-        authorizationId: auth.id,
-        ...(auth.allowedSenderDomains && auth.allowedSenderDomains.length > 0
-          ? { allowedSenderDomains: auth.allowedSenderDomains }
-          : {}),
+        authorizationId: matches[0].id,
+        ...(senders.length > 0 ? { allowedSenderDomains: senders } : {}),
       };
     }
 

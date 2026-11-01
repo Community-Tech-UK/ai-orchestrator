@@ -274,4 +274,52 @@ describe('NeedsYouStore cross-host probes', () => {
     expect(setActive).toHaveBeenCalledWith(HOST_B.id);
     expect(navigate).toHaveBeenLastCalledWith(['/projects', '/work/remote', 'sessions', 'remote']);
   });
+
+  it('marks finished sessions read on every host and drops them without waiting for the next probe', async () => {
+    const posts: string[] = [];
+    const { store, fetch } = setup({
+      activeSnapshot: snapshot(HOST_A.name, 'active', true),
+      fetch: async (input, init) => {
+        const url = String(input);
+        if (init?.method === 'POST') { posts.push(url); return json(200, { ok: true }); }
+        if (url.endsWith('/health')) return json(200, { ok: true });
+        if (url.endsWith('/api/prompts')) return json(200, []);
+        return json(200, snapshot(HOST_B.name, 'remote', true));
+      },
+    });
+    await runImmediateProbe();
+    expect(store.items().filter((item) => item.kind === 'completion')).toHaveLength(2);
+
+    await store.clearFinished();
+
+    expect(posts.sort()).toEqual([
+      'http://a.example.test:4879/api/instances/active/viewed',
+      'http://b.example.test:4879/api/instances/remote/viewed',
+    ]);
+    const postInit = fetch.mock.calls.find(([, init]) => init?.method === 'POST')?.[1];
+    expect(postInit?.headers).toEqual({ authorization: expect.stringMatching(/^Bearer PLACEHOLDER_/) });
+    // The active host's broadcast clears its own item; the probed host is patched locally.
+    expect(store.items().map((item) => item.instanceId)).toEqual(['active']);
+    expect(store.clearStatus()).toBe('idle');
+  });
+
+  it('reports a failed clear so the screen can say so', async () => {
+    const { store } = setup({
+      activeSnapshot: snapshot(HOST_A.name, 'active', true),
+      fetch: async (input, init) => {
+        if (init?.method === 'POST') return json(404, { error: 'Instance not found' });
+        const url = String(input);
+        if (url.endsWith('/health')) return json(200, { ok: true });
+        if (url.endsWith('/api/prompts')) return json(200, []);
+        return json(200, snapshot(HOST_B.name, 'remote', false));
+      },
+    });
+    await runImmediateProbe();
+
+    await store.clearFinished();
+
+    expect(store.clearStatus()).toBe('failed');
+    store.forgetClearFailure();
+    expect(store.clearStatus()).toBe('idle');
+  });
 });

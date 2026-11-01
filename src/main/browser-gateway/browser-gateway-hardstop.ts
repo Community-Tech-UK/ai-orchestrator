@@ -39,6 +39,19 @@ type DeclarationTextContext =
   | undefined;
 
 /**
+ * A parked one-time code cannot be resumed later: the code expires in minutes.
+ * Say so to the human in the queue and point the agent at the path that works.
+ */
+const TWO_FACTOR_QUEUE_REASON =
+  'A sign-in code was needed and the agent could not enter it. Codes expire within minutes, so this step '
+  + 'cannot be picked up later. Sign in yourself, or approve a saved-login permission for this website that '
+  + 'covers emailed or authenticator codes so agents can finish it.';
+const TWO_FACTOR_AGENT_GUIDANCE =
+  ' The code will expire before anyone can resume this. If it arrives by email or comes from a saved '
+  + 'authenticator secret, fill it with browser.fill_credential (an email_code or totp field) under a '
+  + 'credential authorization, then click the submit button straight away; that click is then checked as an ordinary submit, once.';
+
+/**
  * Map a credential-class hard-stop reason to the batch-queue escalation kind.
  * Only captcha and 2FA are parked; a real password/token hard stop (or any
  * other reason) returns null and stays on the per-action approval path.
@@ -80,7 +93,7 @@ export function escalationResultForChallenge(
     profileId: scope.profileId,
     targetId: scope.targetId,
     kind,
-    reason: classification.reason ?? kind,
+    reason: kind === 'two_factor_unavailable' ? TWO_FACTOR_QUEUE_REASON : classification.reason ?? kind,
     url: scope.url,
   });
   return deps.result({
@@ -93,7 +106,8 @@ export function escalationResultForChallenge(
     decision: 'requires_user',
     outcome: 'not_run',
     reason: `${kind}_parked_to_escalation_queue`,
-    summary: `${toolName} parked to the escalation queue (${kind}) for batch handling`,
+    summary: `${toolName} parked to the escalation queue (${kind}) for batch handling.`
+      + (kind === 'two_factor_unavailable' ? TWO_FACTOR_AGENT_GUIDANCE : ''),
     origin: scope.origin,
     url: scope.url,
     data: null,

@@ -111,16 +111,31 @@ describe('Session list tooltip DOM', () => {
     expect(hintOf('.project-draft-pill')).toBe('Draft saved');
     expect(host.querySelector('.history-entry-provider-name')).toBeNull();
     expect(hintOf('.history-entry-provider-badge')).toBe('Claude');
+    expect(host.querySelector('.history-entry-provider-badge')?.getAttribute('role')).toBe('img');
+    expect(host.querySelector('.history-entry-provider-badge')?.getAttribute('aria-label')).toBe('Claude');
     expect(host.querySelector('.history-entry-unread-dot')?.textContent).toBe('');
     expect(hintOf('.history-entry-unread-dot')).toBe('Completed — click to view');
     expect(host.querySelector('.history-entry-automation-clock')?.textContent?.trim()).toBe('');
     expect(hintOf('.history-entry-automation-clock')).toBe('Started by a scheduled automation');
-    expect(host.querySelector('.history-entry-diff')).toBeTruthy();
+    expect(host.querySelector('.history-entry-automation-clock')?.getAttribute('role')).toBe('img');
     host.querySelector<HTMLButtonElement>('.history-entry-action')!.click(); fixture.detectChanges();
     expect(archiveEntry).not.toHaveBeenCalled();
     expect(host.querySelector('.archive-warning')?.textContent).toBe('Hides this thread from the project list. The conversation is kept in Archive.');
+    // Its own grid line under the row, not inside the narrow meta column beside the title.
+    expect(host.querySelector('.history-entry > .archive-warning')).toBeTruthy();
+    expect(host.querySelector('.history-entry-meta .archive-warning')).toBeNull();
     host.querySelector<HTMLButtonElement>('.history-entry-confirm-btn')!.click();
     expect(archiveEntry).toHaveBeenCalledWith('history-1');
+  });
+  it('shows only the time in the row and names which time it is on hover', () => {
+    const rail = TestBed.inject(HistoryRailService) as unknown as { getHistoryChangeSummary: () => null };
+    rail.getHistoryChangeSummary = () => null;
+    const fixture = TestBed.createComponent(InstanceListComponent); fixture.detectChanges();
+    const time = fixture.debugElement.query(By.css('.history-entry-time'));
+    expect(time.nativeElement.textContent.trim()).toBe('1m');
+    expect(time.injector.get(AioTooltipDirective).appTooltip()).toBe('Last interacted');
+    fixture.componentInstance.historySortMode.set('created'); fixture.detectChanges();
+    expect(time.injector.get(AioTooltipDirective).appTooltip()).toBe('Created');
   });
   it('uses the full thread name for overflow, and retains native disabled with visible progress during loading', () => {
     const fixture = TestBed.createComponent(InstanceListComponent); fixture.detectChanges();

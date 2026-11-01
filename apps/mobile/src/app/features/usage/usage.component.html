@@ -1,6 +1,18 @@
-<button class="usage-row" type="button" aria-haspopup="dialog" (click)="open.set(true)">
-  <app-mobile-icon name="provider" />
-  <span><strong>Usage</strong><small>{{ summary() }}</small></span>
+<button class="usage-strip" type="button" aria-haspopup="dialog" [attr.aria-label]="stripLabel()" (click)="open.set(true)">
+  <span class="usage-strip__entries">
+    @if (showsLastKnown()) { <span class="usage-strip__note">Last known</span> }
+    @for (entry of strip(); track entry.provider) {
+      <span class="usage-strip__entry">
+        <span class="usage-strip__name">{{ entry.name }}</span>
+        @for (part of entry.parts; track $index) {
+          @if (!$first) { <span class="usage-strip__separator">·</span> }
+          <span class="usage-strip__value" [attr.data-band]="part.band" [class.usage-strip__value--stale]="part.stale">{{ part.text }}</span>
+        }
+      </span>
+    } @empty {
+      <span class="usage-strip__empty">{{ summary() }}</span>
+    }
+  </span>
   <app-mobile-icon name="chevron-down" />
 </button>
 @if (open()) {
@@ -13,18 +25,31 @@
     @for (provider of usage.providers(); track provider.provider) {
       <section class="usage-provider" [attr.aria-label]="providerName(provider.provider) + ' usage'">
         <h3>{{ providerName(provider.provider) }}</h3>
-        <p class="usage-freshness">{{ provider.freshness === 'fresh' ? 'Current' : provider.freshness === 'stale' ? 'Stale · not confirmed' : 'Unavailable' }}
-          @if (provider.updatedAt) { · Updated {{ provider.updatedAt | date:'shortTime' }} }
-        </p>
-        @for (window of provider.windows; track window.id) {
-          <div class="usage-window">
-            <span>{{ window.label }}</span>
-            <strong>{{ window.percentUsed === null ? 'Usage unknown' : window.percentUsed + '%' }}</strong>
-            @if (window.exhausted) { <span class="usage-limit">Limit reached</span> }
-            <small>{{ window.resetsAt ? 'Resets ' + (window.resetsAt | date:'short') : 'Reset time unknown' }}</small>
+        @for (account of provider.accounts; track account.id) {
+          <div class="usage-account">
+            @if (account.label) { <h4>{{ account.label }}</h4> }
+            <p class="usage-freshness">{{ freshnessText(account) }}
+              @if (account.plan) { · {{ planLabel(account.plan) }} }
+              @if (account.updatedAt) { · Updated {{ account.updatedAt | date:'shortTime' }} }
+            </p>
+            @if (account.disabled) { <p class="usage-freshness">Turned off. New sessions do not use this account.</p> }
+            @if (account.needsReauth) { <p class="usage-limit">Signed out. Sign in again on your Mac to see current usage.</p> }
+            @for (window of account.windows; track window.id) {
+              <div class="usage-window">
+                <span>{{ window.label }}</span>
+                <strong>{{ window.percentUsed === null ? 'Usage unknown' : window.percentUsed + '%' }}</strong>
+                @if (window.percentUsed !== null) {
+                  <span class="usage-bar" aria-hidden="true"><span [style.width.%]="window.percentUsed" [attr.data-band]="window.percentUsed >= 90 ? 'critical' : window.percentUsed >= 75 ? 'high' : 'normal'"></span></span>
+                }
+                @if (window.exhausted) { <span class="usage-limit">Limit reached</span> }
+                <small>{{ window.resetsAt ? 'Resets ' + (window.resetsAt | date:'short') : 'Reset time unknown' }}</small>
+              </div>
+            } @empty { <p class="usage-freshness">Usage unknown</p> }
           </div>
-        } @empty { <p class="usage-freshness">Usage unknown</p> }
+        }
       </section>
+    } @empty {
+      @if (usage.status() === 'loaded') { <p class="usage-freshness">No usage measured yet on this host.</p> }
     }
   </app-mobile-sheet>
 }

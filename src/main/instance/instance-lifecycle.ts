@@ -2597,6 +2597,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       await this.waitForAdapterWritable(instanceId, 3_000);
       if (fallbackHistory) {
         this.prepareStatusForAdapterInput(instance);
+        this.deps.holdContinuityUntilAnswered?.(instanceId, fallbackHistory);
         await adapter.sendInput(fallbackHistory);
       }
       instance.recoveryMethod = 'replay';
@@ -3114,7 +3115,9 @@ export class InstanceLifecycleManager extends EventEmitter {
 
             if (hasConversation) {
               this.prepareStatusForAdapterInput(instance);
-              await adapter.sendInput(await this.buildFallbackHistory(instance, 'resume-failed-fallback'));
+              const fallbackHistory = await this.buildFallbackHistory(instance, 'resume-failed-fallback');
+              this.deps.holdContinuityUntilAnswered?.(instanceId, fallbackHistory);
+              await adapter.sendInput(fallbackHistory);
             }
           } else {
             throw spawnError;
@@ -3410,6 +3413,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       prepareStatusForAdapterInput: (instance) => this.prepareStatusForAdapterInput(instance),
       buildReplayContinuityMessage: (instance, reason) => this.buildReplayContinuityMessage(instance, reason),
       buildFallbackHistory: (instance, reason) => this.buildFallbackHistory(instance, reason),
+      holdContinuityUntilAnswered: (id, text) => this.deps.holdContinuityUntilAnswered?.(id, text),
       emitModelSelectionDegradation: (instance, degradation) =>
         this.emitModelSelectionDegradation(instance, degradation),
       emitSystemNotice: (instance, content, metadata) =>

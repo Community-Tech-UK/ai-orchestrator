@@ -102,10 +102,15 @@ describe('InstanceHeaderComponent interrupt tooltip', () => {
     expect(button.hasAttribute('title')).toBe(false);
   });
 
-  it('shows the full waiting detail visibly and keeps locked controls focusable without emitting actions', () => {
+  it('explains the waiting state on a focusable hover and keeps locked controls focusable without emitting actions', () => {
     fixture.componentRef.setInput('instance', { ...instance('codex'), waitReason: { kind: 'interrupt-ack', attempt: 2 } });
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('.wait-reason-detail').textContent).toBe('Attempt 2');
+    const wait = fixture.debugElement.query(By.css('.wait-reason-label'));
+    expect(wait.nativeElement.tabIndex).toBe(0);
+    expect(wait.nativeElement.textContent).not.toContain('Attempt 2');
+    expect(wait.injector.get(AioTooltipDirective).appTooltip()).toBe('Attempt 2');
+    const header = fixture.nativeElement as HTMLElement;
+    expect(header.querySelector('.header-action-detail')).toBeNull();
     const changed = vi.fn();
     fixture.componentInstance.cycleAgentMode.subscribe(changed);
     const mode = fixture.nativeElement.querySelector('.mode-badge') as HTMLButtonElement;

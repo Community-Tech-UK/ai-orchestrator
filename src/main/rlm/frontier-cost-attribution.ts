@@ -33,8 +33,13 @@ function pricingIdentity(provider: string, model?: string): {
   if (normalizedProvider === 'gemini') return { provider: 'google', model };
   if (normalizedProvider !== 'antigravity') return { provider, model };
 
-  if (model?.startsWith('Gemini 3.5 Flash')) {
-    return { provider: 'google', model: GOOGLE_MODELS.GEMINI_35_FLASH };
+  // agy labels carry their version (`Gemini 3.8 Flash (Medium)`), which maps
+  // straight onto Google's id. The rate comes from the models.dev overlay
+  // (bundled snapshot at startup, then the 6h sync), so a new Flash release is
+  // priced as soon as models.dev lists it, with no edit here.
+  const flashVersion = model?.match(/^Gemini (\d+(?:\.\d+)*) Flash\b/)?.[1];
+  if (flashVersion) {
+    return { provider: 'google', model: `gemini-${flashVersion}-flash` };
   }
   if (model?.startsWith('Gemini 3.1 Pro')) {
     return { provider: 'google', model: GOOGLE_MODELS.GEMINI_3_1_PRO };
@@ -44,6 +49,12 @@ function pricingIdentity(provider: string, model?: string): {
   }
   if (model?.startsWith('Claude Sonnet 4.6')) {
     return { provider: 'anthropic', model: CLAUDE_PINNED_MODELS.SONNET_46 };
+  }
+  if (model?.startsWith('Claude Opus 5.5')) {
+    return { provider: 'anthropic', model: 'claude-opus-5-5' };
+  }
+  if (model?.startsWith('Claude Sonnet 5.5')) {
+    return { provider: 'anthropic', model: 'claude-sonnet-5-5' };
   }
   return { provider, model };
 }

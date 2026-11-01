@@ -115,6 +115,7 @@ async function startRuntimeChange(crashRecovery = false) {
     prepareStatusForAdapterInput: vi.fn(),
     buildReplayContinuityMessage: () => 'Example continuity',
     buildFallbackHistory: vi.fn().mockResolvedValue('Example history'),
+    holdContinuityUntilAnswered: vi.fn(),
     emitModelSelectionDegradation: vi.fn(),
     emitSystemNotice: vi.fn(),
     emitRuntimeChanged: vi.fn(),

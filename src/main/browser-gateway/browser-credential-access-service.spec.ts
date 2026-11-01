@@ -290,3 +290,69 @@ describe('saved login access workflow', () => {
     expect(h.createGrant).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('saved login access for emailed sign-in codes', () => {
+  const emailInput = (h: ReturnType<typeof harness>, senderDomains?: string[]) => ({
+    ...h.input, purposes: ['login' as const, 'email_code' as const], ...(senderDomains ? { senderDomains } : {}),
+  });
+  const codeCheck = { profileId: 'node-placeholder', origin: 'https://login.example.test', purpose: 'email_code' as const,
+    taskScope: 'conversation:placeholder', vaultItemRef: 'vault-placeholder', computerId: 'node-placeholder' };
+
+  it('shows the declared senders and grants exactly them on approval', async () => {
+    const h = harness();
+    const pending = (await h.service.request(emailInput(h, ['Mailer.Example.org', 'mailer.example.org']), h.context())).data!;
+
+    expect(pending.credentialAccess).toMatchObject({ purposes: ['email_code', 'login'], senderDomains: ['mailer.example.org'] });
+    expect(await h.service.approve(pending)).toMatchObject({ decision: 'allowed', outcome: 'succeeded' });
+    expect(h.auth.check(codeCheck)).toMatchObject({ authorized: true, allowedSenderDomains: ['mailer.example.org'] });
+  });
+
+  it('grants email codes without extra senders when none are declared', async () => {
+    const h = harness();
+    const pending = (await h.service.request(emailInput(h), h.context())).data!;
+    await h.service.approve(pending);
+
+    const decision = h.auth.check(codeCheck);
+    expect(decision.authorized).toBe(true);
+    expect(decision.allowedSenderDomains).toBeUndefined();
+  });
+
+  it('treats a different sender list as a separate request', async () => {
+    const h = harness();
+    const first = (await h.service.request(emailInput(h, ['mailer.example.org']), h.context())).data!;
+    const second = (await h.service.request(emailInput(h, ['other.example.net']), h.context())).data!;
+
+    expect(second.requestId).not.toBe(first.requestId);
+    expect(h.store.listRequests({ status: 'pending' })).toHaveLength(2);
+  });
+
+  it('refuses a public suffix as a sender', async () => {
+    const h = harness();
+    const result = await h.service.request(emailInput(h, ['co.uk']), h.context());
+
+    expect(result).toMatchObject({ decision: 'denied', reason: 'sender_domain_invalid' });
+    expect(h.store.listRequests({ status: 'pending' })).toHaveLength(0);
+  });
+
+  it('does not reuse standing consent that lacks a requested sender', async () => {
+    const h = harness();
+    h.inspect.mockResolvedValue({
+      vaultItemRef: 'vault-placeholder', title: 'Saved test login', folderName: 'AIO-Agent', requiresMoveIntoFolder: false,
+      existingBinding: { origin: 'https://login.example.test' },
+    } as never);
+    h.auth.create({
+      profileId: 'node-placeholder', allowedOrigins: [{ scheme: 'https', hostPattern: 'login.example.test', includeSubdomains: false }],
+      purposes: ['login', 'email_code'], vaultFolder: 'AIO-Agent', expiresAt: Date.now() + 86_400_000,
+    }, 'standing-placeholder');
+
+    const withoutSender = await h.service.request(emailInput(h), h.context());
+    expect(withoutSender).toMatchObject({ decision: 'allowed', reason: 'existing_permission' });
+
+    const withSender = await h.service.request(emailInput(h, ['mailer.example.org']), h.context());
+    expect(withSender).toMatchObject({ decision: 'requires_user', reason: 'awaiting_approval' });
+
+    // Once approved, the fill-time check carries the new sender despite the older grant.
+    expect(await h.service.approve(withSender.data!)).toMatchObject({ decision: 'allowed' });
+    expect(h.auth.check(codeCheck)).toMatchObject({ authorized: true, allowedSenderDomains: ['mailer.example.org'] });
+  });
+});

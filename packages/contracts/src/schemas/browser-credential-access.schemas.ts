@@ -1,7 +1,15 @@
 import { z } from 'zod';
 
 const id = z.string().trim().min(1).max(200);
-const purpose = z.enum(['login', 'totp']);
+const purpose = z.enum(['login', 'totp', 'email_code']);
+/**
+ * A domain that sends this website's emailed sign-in codes when it is not the
+ * website's own (British Council MyProcurement on tap.tcsapps.com mails from
+ * britishcouncil.org). The person approving sees and grants each one.
+ */
+const senderDomain = z.string().trim().toLowerCase().min(3).max(253)
+  .regex(/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/);
+const senderDomains = z.array(senderDomain).min(1).max(5);
 /**
  * Explicit "remember" consent is long-lived but never indefinite. One year
  * matches MAX_AUTHORIZATION_LIFETIME_MS in
@@ -17,8 +25,12 @@ export const BrowserRequestCredentialAccessSchema = z.object({
   targetId: id,
   item: z.string().trim().min(1).max(500),
   reason: z.string().trim().min(1).max(1000),
-  purposes: z.array(purpose).min(1).max(2).optional(),
-}).strict();
+  purposes: z.array(purpose).min(1).max(3).optional(),
+  senderDomains: senderDomains.optional(),
+}).strict().refine((input) => !input.senderDomains || input.purposes?.includes('email_code'), {
+  message: 'senderDomains apply only to the email_code purpose',
+  path: ['senderDomains'],
+});
 
 export const BrowserCredentialAccessLookupSchema = z.object({ requestId: id }).strict();
 
@@ -42,7 +54,8 @@ export const BrowserCredentialAccessMetadataSchema = z.object({
   itemTitle: z.string().min(1).max(500),
   vaultFolder: z.string().min(1).max(500),
   moveIntoFolder: z.boolean(),
-  purposes: z.array(purpose).min(1).max(2),
+  purposes: z.array(purpose).min(1).max(3),
+  senderDomains: senderDomains.optional(),
   permission: z.enum(['task', 'remember']),
   permissionExpiresAt: z.number().int().positive().optional(),
   authorizationId: id.optional(),

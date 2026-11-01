@@ -50,6 +50,18 @@ export class MobileGatewayIpcService {
     return res?.success ? (res.data as MobileDeviceSummary[]) : [];
   }
 
+  /** The user opened this session on the desktop, so the phone's "finished" item goes. */
+  async markViewed(instanceId: string): Promise<void> {
+    await this.ipc.getApi()?.mobileGatewayMarkViewed({ instanceId });
+  }
+
+  /** Called when the phone opens or dismisses a session. */
+  onCompletionViewed(callback: (instanceId: string) => void): () => void {
+    const api = this.ipc.getApi();
+    if (!api) return () => { /* not in Electron */ };
+    return api.onMobileGatewayCompletionViewed(({ instanceId }) => callback(instanceId));
+  }
+
   async revokeDevice(deviceId: string): Promise<boolean> {
     const res = await this.ipc.getApi()?.mobileGatewayRevokeDevice({ deviceId });
     return Boolean(res?.success && (res.data as { revoked?: boolean })?.revoked);

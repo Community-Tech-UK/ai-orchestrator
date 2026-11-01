@@ -13,6 +13,8 @@ import {
 import type { GatewayInstanceSource } from "./mobile-gateway-instance-routes";
 import type { MobileGatewayPromptStore } from "./mobile-gateway-prompt-store";
 import type { MobileGatewayStreamCursor } from "./mobile-gateway-stream-cursor";
+import { isOperatorSession } from "./mobile-gateway-session-visibility";
+import { isActiveLoopRuntimeState } from "../orchestration/loop-runtime-status";
 
 /** Minimal EventEmitter surface the gateway subscribes to and detaches from. */
 export interface EmitterLike {
@@ -49,6 +51,7 @@ export interface MobileGatewayEventDeps {
   drainQueue(instanceId: string): void;
   drainAllQueues(): void;
   sendCompletionPush(instanceId: string): void;
+  notifyDesktopViewed(instanceId: string): void;
   sendLiveActivityPush(
     instanceId: string,
     status: string,
@@ -172,7 +175,14 @@ export class MobileGatewayEvents {
     return this.unreadCompletions.has(instanceId);
   }
 
+  /** The phone opened or dismissed this session, so the desktop's dot clears too. */
   markCompletionViewed(instanceId: string): void {
+    this.clearCompletion(instanceId);
+    this.deps.notifyDesktopViewed(instanceId);
+  }
+
+  /** The desktop opened this session, so the phone's "finished" item goes. */
+  clearCompletion(instanceId: string): void {
     if (this.unreadCompletions.delete(instanceId))
       this.deps.scheduleSnapshotBroadcast();
   }
@@ -232,9 +242,23 @@ export class MobileGatewayEvents {
     }
     if (!previous || !WORKING_STATUSES.has(previous) || status !== "idle")
       return;
+    if (!this.awaitsOperator(instanceId)) return;
     if (!this.deps.isInstanceBeingViewed(instanceId))
       this.unreadCompletions.add(instanceId);
     this.deps.sendCompletionPush(instanceId);
+  }
+
+  /**
+   * Only the operator's own sessions finishing a turn count as "finished and
+   * ready to read". Background sessions and loop iterations report through
+   * their own screens and pushes, so flagging them buried real questions.
+   */
+  private awaitsOperator(instanceId: string): boolean {
+    const instance = this.deps.getInstanceSource().getInstance(instanceId);
+    if (!instance || !isOperatorSession(instance)) return false;
+    return !(this.attachedLoop?.getActiveLoops() ?? []).some(
+      (loop) => loop.chatId === instanceId && isActiveLoopRuntimeState(loop),
+    );
   }
 
   private handleProviderEvent(envelope: ProviderRuntimeEventEnvelope): void {

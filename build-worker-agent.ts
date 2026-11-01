@@ -1,6 +1,7 @@
 import * as esbuild from 'esbuild';
 import { randomBytes } from 'node:crypto';
 import * as fs from 'node:fs';
+import { WORKER_NATIVE_MODULES } from './src/worker-agent/worker-self-update-dependencies';
 
 const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8')) as { version?: string };
 const workerAgentVersion = packageJson.version ?? '0.1.0';
@@ -25,7 +26,8 @@ async function build(): Promise<void> {
       target: 'node22',
       outfile: workerOutfile,
       format: 'cjs',
-      external: ['electron', 'better-sqlite3', 'node-pty'],
+      // Loaded from node_modules at runtime; the self-updater checks them before an npm install.
+      external: ['electron', ...WORKER_NATIVE_MODULES],
       tsconfig: 'tsconfig.worker.json',
       define: {
         'process.env.AIO_WORKER_AGENT_VERSION': JSON.stringify(workerAgentVersion),

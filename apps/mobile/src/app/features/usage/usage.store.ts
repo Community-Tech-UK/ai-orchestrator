@@ -1,7 +1,44 @@
 import { DestroyRef, Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import { GatewayClient } from '../../core/gateway-client.service';
 import { HostStore } from '../../core/host-store';
-import type { MobileQuotaProviderDto, MobileQuotaStateDto } from '../../core/models';
+import type { MobileQuotaAccountDto, MobileQuotaProviderDto, MobileQuotaStateDto } from '../../core/models';
+
+export interface UsageAccountView extends MobileQuotaAccountDto {
+  /** The account's one-number summary, or null when no window has a known percentage. */
+  readonly headlinePercent: number | null;
+}
+
+export interface UsageProviderView extends MobileQuotaProviderDto {
+  readonly accounts: UsageAccountView[];
+}
+
+type UsageEvidence = Pick<MobileQuotaAccountDto, 'freshness' | 'validUntil' | 'windows' | 'exhausted'>;
+
+/** Re-ages host evidence with phone-elapsed time; exhaustion needs fresh, unexpired evidence. */
+function current<T extends UsageEvidence>(item: T, now: number, online: boolean): T {
+  const fresh = online && item.freshness === 'fresh' && item.validUntil !== null && item.validUntil > now;
+  const windows = item.windows.map(window => ({ ...window,
+    exhausted: fresh && window.exhausted && window.resetsAt !== null && window.resetsAt > now,
+  }));
+  return { ...item, windows,
+    freshness: item.freshness === 'unavailable' ? 'unavailable' : fresh ? 'fresh' : 'stale',
+    exhausted: windows.some(window => window.exhausted),
+  };
+}
+
+function headlinePercent(account: MobileQuotaAccountDto): number | null {
+  const chosen = account.windows.find(window => window.id === account.summaryWindowId && window.percentUsed !== null);
+  if (chosen) return chosen.percentUsed;
+  const known = account.windows.flatMap(window => window.percentUsed === null ? [] : [window.percentUsed]);
+  return known.length ? Math.max(...known) : null;
+}
+
+/** Hosts built before account usage send only the existing sign-in, at provider level. */
+function accountsOf(provider: MobileQuotaProviderDto): MobileQuotaAccountDto[] {
+  if (provider.accounts?.length) return provider.accounts;
+  const { freshness, updatedAt, validUntil, exhausted, windows } = provider;
+  return [{ id: 'legacy', label: null, freshness, updatedAt, validUntil, exhausted, windows }];
+}
 
 @Injectable({ providedIn: 'root' })
 export class UsageStore {
@@ -15,19 +52,22 @@ export class UsageStore {
   readonly online = this.gateway.online;
   readonly hostName = computed(() => this.hosts.activeHost()?.name ?? 'Host');
   readonly status = this.loadState.asReadonly();
-  readonly providers = computed<MobileQuotaProviderDto[]>(() => {
+  readonly providers = computed<UsageProviderView[]>(() => {
     const value = this.value();
     if (!value || value.hostId !== this.hosts.activeHost()?.id || value.hostId !== this.gateway.dataHostId()) return [];
     // Use elapsed phone time plus server time, avoiding phone/host clock skew.
     const now = value.data.serverTime + Math.max(0, this.now() - value.receivedAt);
+    const online = this.online();
     return value.data.providers.map(provider => {
-      const fresh = this.online() && provider.freshness === 'fresh' && provider.validUntil !== null && provider.validUntil > now;
-      const windows = provider.windows.map(window => ({ ...window,
-        exhausted: fresh && window.exhausted && window.resetsAt !== null && window.resetsAt > now,
-      }));
-      return { ...provider, windows,
-        freshness: provider.freshness === 'unavailable' ? 'unavailable' : fresh ? 'fresh' : 'stale',
-        exhausted: windows.some(window => window.exhausted),
+      const accounts = accountsOf(provider).map(account => {
+        const aged = current(account, now, online);
+        return { ...aged, headlinePercent: headlinePercent(aged) };
+      });
+      // Harness moves work to another account when one runs out, so a
+      // provider is only out of usage once every account it may use is.
+      const usable = accounts.filter(account => !account.disabled);
+      return { ...current(provider, now, online), accounts,
+        exhausted: usable.length > 0 && usable.every(account => account.exhausted),
       };
     });
   });

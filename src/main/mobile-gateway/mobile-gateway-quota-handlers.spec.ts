@@ -4,6 +4,7 @@ import { WebSocket } from 'ws';
 import { MobileGatewayServer, type GatewayInstanceSource } from './mobile-gateway-server';
 import { MobileDeviceRegistry } from './mobile-device-registry';
 import type { ProviderQuotaSnapshot, ProviderQuotaState, ProviderQuotaWindow } from '../../shared/types/provider-quota.types';
+import type { ProviderAccountProfile } from '../../shared/types/provider-account.types';
 import { claudeUsageAccess, parseUsagePayload } from '../core/system/provider-quota/claude-usage-endpoint-probe';
 
 const now = () => Date.now();
@@ -36,8 +37,9 @@ describe('mobile quota authenticated runtime projection and lifecycle', () => {
   let token: string;
   let pushes: unknown[];
   let sockets: WebSocket[];
+  let profiles: ProviderAccountProfile[];
   beforeEach(async () => {
-    quota = new QuotaSource(); pushes = []; sockets = [];
+    quota = new QuotaSource(); pushes = []; sockets = []; profiles = [];
     const source = Object.assign(new EventEmitter(), { getAllInstances: () => [], getInstance: () => undefined, getOrchestrationHandler: () => new EventEmitter() });
     const registry = new MobileDeviceRegistry({ load: () => undefined, save: () => undefined });
     const paired = registry.pair({ pairingToken: registry.issuePairing().pairingToken });
@@ -47,6 +49,7 @@ describe('mobile quota authenticated runtime projection and lifecycle', () => {
     server = new MobileGatewayServer();
     server.initialize({ instanceManager: source as unknown as GatewayInstanceSource, registry,
       quotaSource: quota,
+      accountProfiles: () => profiles,
       pauseCoordinator: Object.assign(new EventEmitter(), { toPayload: () => ({ isPaused: false, reasons: [], pausedAt: null, lastChange: 0 }), addReason: vi.fn(), removeReason: vi.fn() }),
       loopCoordinator: Object.assign(new EventEmitter(), { getActiveLoops: () => [] }),
       apnsSender: { isConfigured: () => true, send: async (_tokens: string[], alert: unknown) => { pushes.push(alert); return []; } } as never,
@@ -61,17 +64,62 @@ describe('mobile quota authenticated runtime projection and lifecycle', () => {
     return response.json();
   }
 
-  it('projects multiple windows and omits account-pool details from the authenticated response', async () => {
-    quota.update(snapshot({ accountProfileId: 'private-profile-placeholder', plan: 'private-plan-placeholder',
-      windows: [window(60), window(20, { id: 'codex.weekly', label: 'Weekly' })] }));
-    quota.state.accountSnapshots = [snapshot({ accountProfileId: 'pooled-profile-placeholder' })];
+  function profile(id: string, label: string, overrides: Partial<ProviderAccountProfile> = {}): ProviderAccountProfile {
+    return {
+      id, provider: 'codex', label, expectedIdentity: `${id}@example.invalid`, expectedAccountKey: `${id}-key`,
+      planLabel: null, priority: 0, enabled: true, automationPolicy: 'allow-routed', isLegacy: false,
+      createdAt: 1, updatedAt: 1, ...overrides,
+    };
+  }
+
+  it('projects multiple windows for the existing sign-in', async () => {
+    quota.update(snapshot({ windows: [window(60), window(20, { id: 'codex.weekly', label: 'Weekly' })] }));
     expect((await fetch(`${base}/api/quota`)).status).toBe(401);
     const body = await read();
     expect(body.providers.find((p: { provider: string }) => p.provider === 'codex')).toMatchObject({
       freshness: 'fresh', exhausted: false,
       windows: [{ percentUsed: 60, exhausted: false }, { percentUsed: 20, exhausted: false }],
+      accounts: [{ id: 'legacy', label: null, summaryWindowId: 'codex.weekly', windows: [{ percentUsed: 60 }, { percentUsed: 20 }] }],
     });
-    expect(JSON.stringify(body)).not.toMatch(/private-|pooled-|accountProfile|accountSnapshots|usageAccess/);
+  });
+
+  it('lists every account under its own name, existing sign-in first, without sign-in identities', async () => {
+    profiles = [
+      profile('legacy', 'Main', { isLegacy: true }),
+      profile('second', 'Max B', { priority: 2, enabled: false }),
+      profile('first', 'Max A', { priority: 1 }),
+    ];
+    quota.update(snapshot({ plan: 'pro', windows: [window(40)] }));
+    quota.state.accountSnapshots = [
+      snapshot({ accountProfileId: 'second', windows: [window(90)] }),
+      snapshot({ accountProfileId: 'first', ok: false, needsReauth: true, error: 'probe-detail-placeholder', windows: [window(10)] }),
+      snapshot({ accountProfileId: 'removed', windows: [window(5)] }),
+    ];
+    const body = await read();
+    const codex = body.providers.find((p: { provider: string }) => p.provider === 'codex');
+    expect(codex.accounts).toEqual([
+      expect.objectContaining({ id: 'legacy', label: 'Main', plan: 'pro', windows: [expect.objectContaining({ percentUsed: 40 })] }),
+      expect.objectContaining({ id: 'first', label: 'Max A', needsReauth: true, freshness: 'unavailable' }),
+      expect.objectContaining({ id: 'second', label: 'Max B (disabled)', disabled: true }),
+    ]);
+    expect(codex.accounts[0]).not.toHaveProperty('disabled');
+    expect(JSON.stringify(body)).not.toMatch(/example\.invalid|-key|probe-detail|removed|usageAccess|accountProfileId/);
+  });
+
+  it.each([
+    ['not installed', { cliNotInstalled: true }],
+    ['not applicable', { notApplicable: true }],
+  ] as const)('leaves out a provider whose quota is %s, as the desktop chip does', async (_label, overrides) => {
+    quota.update(snapshot(overrides));
+    const body = await read();
+    expect(body.providers.map((p: { provider: string }) => p.provider)).not.toContain('codex');
+    expect(pushes).toHaveLength(0);
+  });
+
+  it('leaves out providers that have never been measured', async () => {
+    quota.update(snapshot());
+    const body = await read();
+    expect(body.providers.map((p: { provider: string }) => p.provider)).toEqual(['codex']);
   });
 
   it.each([
@@ -81,8 +129,6 @@ describe('mobile quota authenticated runtime projection and lifecycle', () => {
     ['expired reset', { windows: [window(100, { resetsAt: 1 })] }],
     ['stale', { takenAt: 1 }],
     ['reauth', { needsReauth: true }],
-    ['not installed', { cliNotInstalled: true }],
-    ['not applicable', { notApplicable: true }],
     ['failed', { ok: false }],
     ['credits', { usageAccess: { ordinaryUsageAllowed: false, creditsAvailable: true } }],
     ['unknown credits', { usageAccess: { ordinaryUsageAllowed: false, creditsAvailable: null } }],
@@ -136,6 +182,91 @@ describe('mobile quota authenticated runtime projection and lifecycle', () => {
     expect(pushes).toHaveLength(4);
     quota.update(snapshot({ windows: [window(100, { resetsAt: later }), window(100, { id: 'weekly', resetsAt: later })] }));
     expect(pushes).toHaveLength(4);
+  });
+
+  it('only pushes once every usable account for the provider has run out', async () => {
+    profiles = [profile('legacy', 'Main', { isLegacy: true }), profile('spare', 'Spare', { priority: 1 }), profile('old', 'Old', { priority: 2, enabled: false })];
+    quota.state.accountSnapshots = [
+      snapshot({ accountProfileId: 'spare', windows: [window(20)] }),
+      snapshot({ accountProfileId: 'old', windows: [window(100)] }),
+    ];
+    quota.update(snapshot({ windows: [window(100)] }));
+    expect(pushes).toHaveLength(0);
+
+    quota.state.accountSnapshots = [
+      snapshot({ accountProfileId: 'spare', windows: [window(100)] }),
+      snapshot({ accountProfileId: 'old', windows: [window(100)] }),
+    ];
+    quota.update(snapshot({ windows: [window(100)] }));
+    expect(pushes).toHaveLength(1);
+    quota.update(snapshot({ windows: [window(100, { label: '5 hours (still out)' })] }));
+    expect(pushes).toHaveLength(1);
+  });
+
+  it('ignores a turned-off account with room left', async () => {
+    profiles = [profile('legacy', 'Main', { isLegacy: true }), profile('old', 'Old', { priority: 1, enabled: false })];
+    quota.state.accountSnapshots = [snapshot({ accountProfileId: 'old', windows: [window(10)] })];
+    quota.update(snapshot({ windows: [window(100)] }));
+    expect(pushes).toHaveLength(1);
+  });
+
+  it('does not let a signed-out account hold back the push', async () => {
+    profiles = [profile('legacy', 'Main', { isLegacy: true }), profile('spare', 'Spare', { priority: 1 })];
+    quota.state.accountSnapshots = [snapshot({ accountProfileId: 'spare', ok: false, needsReauth: true, windows: [window(10)] })];
+    quota.update(snapshot({ windows: [window(100)] }));
+    expect(pushes).toHaveLength(1);
+  });
+
+  it('still pushes when the account that ran out first is no longer freshly measured', async () => {
+    profiles = [profile('legacy', 'Main', { isLegacy: true }), profile('spare', 'Spare', { priority: 1 })];
+    quota.state.accountSnapshots = [snapshot({ accountProfileId: 'spare', windows: [window(100)] })];
+    quota.update(snapshot({ windows: [window(20)] }));
+    expect(pushes).toHaveLength(0);
+    // Eight minutes later the spare's probe is stale (probed every 15 minutes) when Main runs out.
+    quota.state.accountSnapshots = [snapshot({ accountProfileId: 'spare', takenAt: now() - 8 * 60_000, windows: [window(100)] })];
+    quota.update(snapshot({ windows: [window(100)] }));
+    expect(pushes).toHaveLength(1);
+  });
+
+  it('does not push again when a turned-off account runs out', async () => {
+    profiles = [profile('legacy', 'Main', { isLegacy: true }), profile('old', 'Old', { priority: 1, enabled: false })];
+    quota.state.accountSnapshots = [snapshot({ accountProfileId: 'old', windows: [window(10)] })];
+    quota.update(snapshot({ windows: [window(100)] }));
+    expect(pushes).toHaveLength(1);
+    quota.state.accountSnapshots = [snapshot({ accountProfileId: 'old', windows: [window(100)] })];
+    quota.update(snapshot({ windows: [window(100)], takenAt: now() - 1 }));
+    expect(pushes).toHaveLength(1);
+  });
+
+  it('counts an account as out while it is still exhausted after its first reset estimate passed', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      profiles = [profile('legacy', 'Main', { isLegacy: true }), profile('spare', 'Spare', { priority: 1 })];
+      const firstReset = now() + 60_000;
+      quota.state.accountSnapshots = [snapshot({ accountProfileId: 'spare', windows: [window(100, { resetsAt: firstReset })] })];
+      quota.update(snapshot({ windows: [window(20)] }));
+      vi.setSystemTime(firstReset + 60_000);
+      // The spare's reset estimate slid later; it is still out when Main runs out.
+      quota.state.accountSnapshots = [snapshot({ accountProfileId: 'spare', windows: [window(100)] })];
+      quota.update(snapshot({ windows: [window(100)] }));
+      expect(pushes).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ['its limit was raised', { windows: [window(30)] }],
+    ['credits were topped up', { usageAccess: { ordinaryUsageAllowed: false, creditsAvailable: true } }],
+  ] as const)('trusts a fresh reading showing room after a spare ran out (%s)', async (_label, recovered) => {
+    profiles = [profile('legacy', 'Main', { isLegacy: true }), profile('spare', 'Spare', { priority: 1 })];
+    const resetsAt = now() + 3_600_000;
+    quota.state.accountSnapshots = [snapshot({ accountProfileId: 'spare', windows: [window(100, { resetsAt })] })];
+    quota.update(snapshot({ windows: [window(20)] }));
+    const spare = snapshot({ accountProfileId: 'spare', windows: [window(100, { resetsAt })], ...recovered });
+    quota.state.accountSnapshots = [{ ...spare, windows: spare.windows.map(item => ({ ...item, resetsAt })) }];
+    quota.update(snapshot({ windows: [window(100)] }));
+    expect(pushes).toHaveLength(0);
   });
 
   it('broadcasts typed state and pushes at most once per provider/window until reset, then tears down', async () => {

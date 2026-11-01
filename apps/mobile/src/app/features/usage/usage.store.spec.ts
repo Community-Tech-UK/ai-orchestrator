@@ -61,4 +61,35 @@ describe('host-scoped UsageStore', () => {
     gateway.online.set(true); TestBed.tick();
     await vi.waitFor(() => expect(store.providers()[0]?.windows[0].percentUsed).toBe(30));
   });
+  it('lists every account and only reports a provider out of usage when every usable account is', async () => {
+    const { store, gateway } = setup();
+    const base = quotaState(true);
+    const exhausted = base.providers[0]!;
+    const account = (id: string, label: string | null, isExhausted: boolean, extra = {}) => ({
+      id, label, freshness: 'fresh' as const, updatedAt: exhausted.updatedAt, validUntil: exhausted.validUntil,
+      exhausted: isExhausted, summaryWindowId: 'codex.weekly',
+      windows: [
+        { ...exhausted.windows[0]!, percentUsed: isExhausted ? 100 : 10, exhausted: isExhausted },
+        { id: 'codex.weekly', label: 'Weekly', percentUsed: 55, resetsAt: null, exhausted: false },
+      ],
+      ...extra,
+    });
+    gateway.quota.mockResolvedValue({ ...base, providers: [{ ...exhausted,
+      accounts: [account('legacy', 'Main', true), account('spare', 'Spare', false)] }] });
+    TestBed.tick();
+    await vi.waitFor(() => expect(store.providers()[0]?.accounts).toHaveLength(2));
+    expect(store.providers()[0]!.accounts.map(item => [item.label, item.headlinePercent])).toEqual([['Main', 55], ['Spare', 55]]);
+    expect(store.isExhausted('codex')).toBe(false);
+
+    gateway.quotaEvent.set({ hostId: 'a', data: { ...base, providers: [{ ...exhausted,
+      accounts: [account('legacy', 'Main', true), account('spare', 'Spare (disabled)', false, { disabled: true })] }] } });
+    TestBed.tick();
+    expect(store.isExhausted('codex')).toBe(true);
+  });
+
+  it('treats a host without account usage as one unnamed account', async () => {
+    const { store } = setup(); TestBed.tick();
+    await vi.waitFor(() => expect(store.providers()[0]?.accounts).toHaveLength(1));
+    expect(store.providers()[0]!.accounts[0]).toMatchObject({ id: 'legacy', label: null, headlinePercent: 100, exhausted: true });
+  });
 });

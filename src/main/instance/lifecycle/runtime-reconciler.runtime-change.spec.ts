@@ -129,6 +129,7 @@ interface Harness {
     evaluateResumeHealth: ReturnType<typeof vi.fn>;
     transitionState: ReturnType<typeof vi.fn>;
     buildFallbackHistory: ReturnType<typeof vi.fn>;
+    holdContinuityUntilAnswered: ReturnType<typeof vi.fn>;
     emitSystemNotice: ReturnType<typeof vi.fn>;
     emitModelSelectionDegradation: ReturnType<typeof vi.fn>;
   };
@@ -152,6 +153,7 @@ function makeHarness(
       (inst as unknown as { status: string }).status = status;
     }),
     buildFallbackHistory: vi.fn().mockResolvedValue('fallback history'),
+    holdContinuityUntilAnswered: vi.fn(),
     emitSystemNotice: vi.fn(),
     emitModelSelectionDegradation: vi.fn(),
   };
@@ -182,6 +184,7 @@ function makeHarness(
     prepareStatusForAdapterInput: vi.fn(),
     buildReplayContinuityMessage: () => 'replay preamble',
     buildFallbackHistory: deps.buildFallbackHistory,
+    holdContinuityUntilAnswered: deps.holdContinuityUntilAnswered,
     emitModelSelectionDegradation: deps.emitModelSelectionDegradation,
     emitSystemNotice: deps.emitSystemNotice,
     emitRuntimeChanged: vi.fn(),
@@ -823,6 +826,22 @@ describe('RuntimeReconciler.applyRuntimeChange — resume-health policy (LT-008)
     expect(createCalls[1].options['resume']).toBe(false);
     expect(createCalls[1].options['forkSession']).toBe(false);
     expect(deps.buildFallbackHistory).toHaveBeenCalled();
+  });
+
+  // Session xwgiekaw5: the history turn was interrupted before Codex stored it.
+  it('holds the fallback history it sends so a stopped turn cannot lose it', async () => {
+    const fresh = makeAdapter(99);
+    const { reconciler, deps } = makeHarness(makeInstance(), [makeAdapter(88), fresh]);
+    deps.evaluateResumeHealth.mockResolvedValue('unrecoverable');
+
+    await reconciler.applyRuntimeChange('inst-1', yoloOnly(true));
+
+    expect(deps.holdContinuityUntilAnswered).toHaveBeenCalledWith('inst-1', 'fallback history');
+    const sent = (fresh as unknown as { sendInput: ReturnType<typeof vi.fn> }).sendInput.mock.calls;
+    expect(sent).toHaveLength(1);
+    expect(String(sent[0][0])).toContain('fallback history');
+    expect(deps.holdContinuityUntilAnswered.mock.invocationCallOrder[0])
+      .toBeLessThan((fresh as unknown as { sendInput: ReturnType<typeof vi.fn> }).sendInput.mock.invocationCallOrder[0]);
   });
 });
 

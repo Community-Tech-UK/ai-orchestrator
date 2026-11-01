@@ -282,6 +282,12 @@ export async function announceRuntimeChangeSet(params: {
    * the loop's.
    */
   preamble?: string;
+  /**
+   * Called with the preamble just before it is sent as its own turn. If that
+   * turn is stopped before the model replies, the provider may never store it;
+   * the holder sends it again with the next input.
+   */
+  holdUntilAnswered?(preamble: string): void;
   /** Runtime reconciliation supplies this to reject an owner lost during a callback or delivery. */
   assertCurrent?(): void;
 }): Promise<void> {
@@ -340,6 +346,7 @@ export async function announceRuntimeChangeSet(params: {
     params.assertCurrent?.();
     return;
   }
+  if (params.preamble?.trim()) params.holdUntilAnswered?.(params.preamble);
   try {
     await sendInputWithoutWedging(params.adapter, body, {
       instanceId: params.instance.id,
@@ -350,7 +357,7 @@ export async function announceRuntimeChangeSet(params: {
     // its identity written through by the time we get here, so a refused send
     // — e.g. a provider whose runtime "already has an active turn" — must not
     // propagate and make the caller revert it. The user has the transcript
-    // entries either way; only the model's copy is missing.
+    // entries either way, and a held preamble goes out with the next input.
     logger.warn('Runtime-change announcement rendered but not delivered', {
       instanceId: params.instance.id,
       error: error instanceof Error ? error.message : String(error),

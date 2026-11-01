@@ -15,6 +15,10 @@ const MobileGatewayRevokeDevicePayloadSchema = z.object({
   deviceId: z.string().min(1).max(200),
 });
 
+const MobileGatewayMarkViewedPayloadSchema = z.object({
+  instanceId: z.string().min(1).max(200),
+});
+
 function fail(code: string, error: unknown): IpcResponse {
   return {
     success: false,
@@ -122,6 +126,20 @@ export function registerMobileGatewayHandlers(): void {
         data: { revoked: getMobileDeviceRegistry().revokeDevice(deviceId) },
       }),
       { errorCode: 'MOBILE_GATEWAY_REVOKE_DEVICE_FAILED' },
+    ),
+  );
+
+  // Opening a session on the desktop clears its "finished" item on the phone.
+  ipcMain.handle(
+    IPC_CHANNELS.MOBILE_GATEWAY_MARK_VIEWED,
+    validatedHandler(
+      IPC_CHANNELS.MOBILE_GATEWAY_MARK_VIEWED,
+      MobileGatewayMarkViewedPayloadSchema,
+      async ({ instanceId }): Promise<IpcResponse> => {
+        getMobileGatewayServer().markViewedOnDesktop(instanceId);
+        return { success: true };
+      },
+      { errorCode: 'MOBILE_GATEWAY_MARK_VIEWED_FAILED' },
     ),
   );
 

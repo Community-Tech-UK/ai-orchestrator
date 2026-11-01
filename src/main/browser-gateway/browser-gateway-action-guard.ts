@@ -12,7 +12,7 @@ import type { BrowserGatewayContext } from './browser-gateway-service-types';
 import type { PuppeteerBrowserDriver } from './puppeteer-browser-driver';
 import { autoApproveBrowserApproval, type BrowserAutoApprovePredicate } from './browser-auto-approve';
 import { LEGAL_DECLARATION_REASON, type BrowserActionClassification } from './browser-action-classifier';
-import { classifyGuardedBrowserAction, type BrowserPageChallengeProbe } from './browser-page-challenge-probe';
+import type { BrowserPageChallengeProbe } from './browser-page-challenge-probe';
 import type { BrowserEscalationService } from './browser-escalation-store';
 import {
   escalationResultForChallenge,
@@ -33,6 +33,7 @@ import { providerFromContext } from './browser-provider';
 import { refreshRegisteredBrowserTarget } from './browser-live-target';
 import { prepareReusableCredentialApproval } from './browser-reusable-credential-approval';
 import { browserMutationResult } from './browser-mutation-result';
+import { classifyGuardedActionWithCodeFill, type OneTimeCodeFillHolder } from './browser-one-time-code-submit';
 import type {
   BrowserGatewayActionGuardOptions,
   BrowserGatewayMutationPreparation,
@@ -57,6 +58,7 @@ export class BrowserGatewayActionGuard {
   private readonly autoApproveRequests?: BrowserAutoApprovePredicate;
   private readonly escalations?: Pick<BrowserEscalationService, 'raise'>;
   private readonly probePageChallenge?: BrowserPageChallengeProbe;
+  private readonly oneTimeCodeFills: BrowserGatewayActionGuardOptions['oneTimeCodeFills'];
   private readonly result: BrowserGatewayActionGuardOptions['result'];
   private readonly onGrantedMutation?: BrowserGatewayActionGuardOptions['onGrantedMutation'];
   private readonly exactApprovalRedeemer: BrowserExactApprovalRedeemer;
@@ -71,6 +73,7 @@ export class BrowserGatewayActionGuard {
     this.autoApproveRequests = options.autoApproveRequests;
     this.escalations = options.escalations;
     this.probePageChallenge = options.probePageChallenge;
+    this.oneTimeCodeFills = options.oneTimeCodeFills;
     this.result = options.result;
     this.onGrantedMutation = options.onGrantedMutation;
     this.exactApprovalRedeemer = new BrowserExactApprovalRedeemer(
@@ -88,18 +91,27 @@ export class BrowserGatewayActionGuard {
     actionHint?: string,
     classificationOverride?: BrowserActionClassification,
   ): Promise<BrowserGatewayMutationPreparation> {
+    const codeFill: OneTimeCodeFillHolder = {};
     const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
-    if (existingTab) {
-      return this.prepareExistingTabMutatingAction(
-        request,
-        existingTab,
-        action,
-        toolName,
-        selector,
-        actionHint,
-        classificationOverride,
-      );
-    }
+    const prepared = existingTab
+      ? await this.prepareExistingTabMutatingAction(
+        request, existingTab, action, toolName, selector, codeFill, actionHint, classificationOverride)
+      : await this.prepareManagedMutatingAction(
+        request, action, toolName, selector, codeFill, actionHint, classificationOverride);
+    // Spend a gateway-filled code only when its submit click is actually released.
+    if (!prepared.result && codeFill.scope) this.oneTimeCodeFills?.consume(codeFill.scope);
+    return prepared;
+  }
+
+  private async prepareManagedMutatingAction(
+    request: BrowserGatewayContext & { profileId: string; targetId: string; requestId?: string },
+    action: string,
+    toolName: string,
+    selector: string,
+    codeFill: OneTimeCodeFillHolder,
+    actionHint?: string,
+    classificationOverride?: BrowserActionClassification,
+  ): Promise<BrowserGatewayMutationPreparation> {
 
     const profile = this.profileStore.getProfile(request.profileId);
     const { target, error } = profile
@@ -214,9 +226,10 @@ export class BrowserGatewayActionGuard {
         }),
       };
     }
-    const classification = await classifyGuardedBrowserAction({
-      probe: this.probePageChallenge, profileId: profile.id, targetId: target.id, toolName, actionHint,
-      elementContext, elementContextSource: 'inspected', override: classificationOverride,
+    const classification = await classifyGuardedActionWithCodeFill({
+      probe: this.probePageChallenge, ledger: this.oneTimeCodeFills, result: this.result, request, action, toolName,
+      actionHint, override: classificationOverride, elementContext, elementContextSource: 'inspected', codeFill,
+      scope: { profileId: profile.id, targetId: target.id, origin: originDecision.origin, url: currentUrl },
     });
     const grants = this.grantStore.listGrants({
       instanceId: request.instanceId,
@@ -493,6 +506,7 @@ export class BrowserGatewayActionGuard {
     action: string,
     toolName: string,
     selector: string,
+    codeFill: OneTimeCodeFillHolder,
     actionHint?: string,
     classificationOverride?: BrowserActionClassification,
   ): Promise<BrowserGatewayMutationPreparation> {
@@ -520,9 +534,10 @@ export class BrowserGatewayActionGuard {
       visibleText: actionHint,
       nearbyText: actionHint,
     });
-    const classification = await classifyGuardedBrowserAction({
-      probe: this.probePageChallenge, profileId: attachment.profileId, targetId: attachment.targetId, toolName,
-      actionHint, elementContext, elementContextSource: 'agent_hint', override: classificationOverride,
+    const classification = await classifyGuardedActionWithCodeFill({
+      probe: this.probePageChallenge, ledger: this.oneTimeCodeFills, result: this.result, request, action, toolName,
+      actionHint, override: classificationOverride, elementContext, elementContextSource: 'agent_hint', codeFill,
+      scope: { profileId: attachment.profileId, targetId: attachment.targetId, origin: originDecision.origin, url: attachment.url },
     });
     const nodeId = existingTabGrantNodeId(attachment.profileId, attachment.nodeId);
     const grants = this.grantStore.listGrants({

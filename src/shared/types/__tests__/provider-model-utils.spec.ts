@@ -1,10 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
-  ANTIGRAVITY_HOUSE_DEFAULT_MODEL_ID,
   getDefaultModelForCli,
   isAntigravityModelId,
   resolveModelForTier,
 } from '../provider-model-utils';
+import {
+  clearKnownModelCatalogSnapshotForTesting,
+  replaceKnownModelCatalogSnapshot,
+} from '../provider-model-catalog-snapshot';
 import { DEFAULT_LOOP_MODEL_BY_PROVIDER } from '../settings-defaults';
 
 
@@ -14,20 +17,42 @@ import { DEFAULT_LOOP_MODEL_BY_PROVIDER } from '../settings-defaults';
  * picked its own.
  */
 describe('getDefaultModelForCli for antigravity (T41)', () => {
+  afterEach(() => {
+    clearKnownModelCatalogSnapshotForTesting();
+  });
+
   it('returns a default rather than undefined', () => {
     expect(getDefaultModelForCli('antigravity')).toBeTruthy();
   });
 
-  it('names the house default explicitly rather than taking whichever balanced row is first', () => {
-    // The antigravity catalog has three pinned `balanced` rows; a `.find()` on
-    // tier alone would make the default an accident of array order.
-    expect(getDefaultModelForCli('antigravity')).toBe(ANTIGRAVITY_HOUSE_DEFAULT_MODEL_ID);
+  it('picks the balanced Gemini Flash at Medium effort, not agy\'s flagship default', () => {
+    expect(getDefaultModelForCli('antigravity')).toBe('Gemini 3.8 Flash (Medium)');
+  });
+
+  it('follows the newest Flash on the live agy list without a code edit', () => {
+    replaceKnownModelCatalogSnapshot([
+      { provider: 'antigravity', id: 'Gemini 5 Boron (Medium)', pinned: true },
+      { provider: 'antigravity', id: 'Gemini 3.9 Flash (Medium)', pinned: true },
+      { provider: 'antigravity', id: 'Gemini 3.10 Flash (Medium)', pinned: true },
+      { provider: 'antigravity', id: 'Gemini 3.10 Flash (High)' },
+    ]);
+
+    // Versions compare numerically: 3.10 is newer than 3.9.
+    expect(getDefaultModelForCli('antigravity')).toBe('Gemini 3.10 Flash (Medium)');
+  });
+
+  it('falls back to agy\'s first pinned model when it lists no Flash model', () => {
+    replaceKnownModelCatalogSnapshot([
+      { provider: 'antigravity', id: 'Gemini 5 Boron (Medium)', pinned: true },
+    ]);
+
+    expect(getDefaultModelForCli('antigravity')).toBe('Gemini 5 Boron (Medium)');
   });
 
   it('returns an EXACT agy display label, not a gemini-* wire id', () => {
     const model = getDefaultModelForCli('antigravity')!;
-    // agy ignores an unknown --model without warning (G35), so the value must
-    // be a label the catalog itself lists.
+    // agy exits 1 on an unknown --model, so the value must be a label the
+    // catalog itself lists.
     expect(isAntigravityModelId(model)).toBe(true);
     expect(model).not.toMatch(/^gemini-/);
   });

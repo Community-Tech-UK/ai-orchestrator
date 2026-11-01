@@ -10,6 +10,8 @@ vi.mock('../../../../shared/types/provider.types', async (importOriginal) => ({
       ? [{ id: 'opus', name: 'Opus Curated', tier: 'powerful', pinned: true, family: 'Opus' }]
       : provider === 'grok'
         ? [{ id: 'grok-4.7', name: 'Grok 4.7 curated', tier: 'powerful', pinned: true, family: 'Grok' }]
+      : provider === 'antigravity'
+        ? [{ id: 'Gemini 3.8 Flash (Medium)', name: 'Gemini 3.8 Flash (Medium)', tier: 'balanced', pinned: true, family: 'Gemini Flash' }]
       : provider === 'local-model'
         ? [{ id: 'lm://worker-node/node-win/ollama/ollama/qwen', name: 'Wrong Curated', tier: 'powerful' }]
       : [],
@@ -154,6 +156,35 @@ describe('UnifiedCatalogStore', () => {
       // Static list still pins 4.7, but the live CLI default owns Latest.
       { id: 'grok-4.7', name: 'Grok 4.7 curated', tier: 'powerful', family: 'Grok' },
     ]);
+  });
+
+  it('takes Antigravity pins from the live agy list, not the static copy', async () => {
+    ipc = makeIpc([
+      entry({
+        id: 'Gemini 3.9 Flash (Medium)',
+        provider: 'antigravity',
+        name: 'Gemini 3.9 Flash (Medium)',
+        source: 'cli-discovered',
+        family: 'Gemini Flash',
+        pinned: true,
+      }),
+      entry({
+        id: 'Gemini 3.8 Flash (Medium)',
+        provider: 'antigravity',
+        name: 'Gemini 3.8 Flash (Medium)',
+        source: 'cli-discovered',
+        family: 'Gemini Flash',
+      }),
+    ]);
+    const store = setup();
+
+    await store.refresh();
+
+    expect(store.displayModelsForProvider('antigravity').map((row) => [row.id, row.pinned === true]))
+      .toEqual([
+        ['Gemini 3.9 Flash (Medium)', true],
+        ['Gemini 3.8 Flash (Medium)', false],
+      ]);
   });
 
   it('uses catalog override display names when no curated static name exists', async () => {

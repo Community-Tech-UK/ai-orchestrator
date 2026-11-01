@@ -516,6 +516,18 @@ describe('InputPanelComponent composer autocomplete integration', () => {
     expect(fastButton.textContent).toContain('FAST ON');
   });
 
+  it('explains new-session toggles and an empty Send on hover, not as text under the composer', () => {
+    fixture.componentRef.setInput('instanceId', 'new');
+    fixture.detectChanges();
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).not.toContain('auto-approve all actions');
+    expect(text).not.toContain('will prompt for approvals');
+    expect(text).not.toContain('Click to enable faster output');
+    expect(text).not.toContain('Write a message or attach a file or folder before sending');
+    expect(hintFor('.fast-toggle').appTooltip()).toBe('Fast Mode OFF — standard output. Click to enable faster output');
+    expect(hintFor('.btn-send').appTooltipDisabledReason()).toBe('Write a message or attach a file or folder before sending');
+  });
+
   it('shows the remembered fast preference only for supported draft providers', () => {
     fixture.componentRef.setInput('instanceId', 'new');
     providerState.fastModeByProvider.set({ claude: false, codex: true });

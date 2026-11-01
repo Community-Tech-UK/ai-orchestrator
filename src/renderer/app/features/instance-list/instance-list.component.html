@@ -547,6 +547,7 @@
                       @if (item.entry.isAutomation) {
                         <span
                           class="history-entry-automation-clock"
+                          role="img"
                           appTooltip="Started by a scheduled automation"
                           aria-label="Automation session"
                         >
@@ -557,7 +558,6 @@
                         </span>
                       }
                       @if (pendingArchiveId() === item.entry.id) {
-                        <span class="archive-warning">{{ copy('shell.archiveHistory') }}</span>
                         <button
                           type="button"
                           class="history-entry-confirm-btn"
@@ -598,6 +598,9 @@
                         </button>
                       }
                     </div>
+                    @if (pendingArchiveId() === item.entry.id) {
+                      <span class="archive-warning">{{ copy('shell.archiveHistory') }}</span>
+                    }
                   </div>
                   @if (item.hasChildren && item.isExpanded) {
                     <ng-container

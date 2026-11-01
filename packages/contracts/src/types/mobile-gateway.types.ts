@@ -194,7 +194,10 @@ export interface MobilePauseDto {
   lastChange: number;
 }
 
-/** Usage only: no account identifiers, probe errors, credentials, or spend data. */
+/**
+ * Usage only: no sign-in identities, probe errors, credentials, or spend data.
+ * Accounts are named with the operator's own labels for them.
+ */
 export interface MobileQuotaWindowDto {
   id: string;
   label: string;
@@ -203,6 +206,28 @@ export interface MobileQuotaWindowDto {
   exhausted: boolean;
 }
 
+/** Usage for one sign-in to a provider. */
+export interface MobileQuotaAccountDto {
+  /** `legacy` for the provider's existing sign-in, otherwise the account-pool profile id. */
+  id: string;
+  /** Null when the existing sign-in is the provider's only account. */
+  label: string | null;
+  /** Switched off in the account pool, so new sessions never use it. */
+  disabled?: true;
+  /** Plan tier when the probe knows it, e.g. "max". */
+  plan?: string;
+  /** The sign-in has expired; any windows are last-known numbers. */
+  needsReauth?: true;
+  /** The window a one-number summary shows (the desktop quota strip's choice). */
+  summaryWindowId?: string;
+  freshness: 'fresh' | 'stale' | 'unavailable';
+  updatedAt: number | null;
+  validUntil: number | null;
+  exhausted: boolean;
+  windows: MobileQuotaWindowDto[];
+}
+
+/** Provider-level fields describe the existing sign-in. */
 export interface MobileQuotaProviderDto {
   provider: string;
   freshness: 'fresh' | 'stale' | 'unavailable';
@@ -211,6 +236,8 @@ export interface MobileQuotaProviderDto {
   validUntil: number | null;
   exhausted: boolean;
   windows: MobileQuotaWindowDto[];
+  /** Every sign-in, existing sign-in first. Absent from hosts built before account usage. */
+  accounts?: MobileQuotaAccountDto[];
 }
 
 export interface MobileQuotaStateDto {

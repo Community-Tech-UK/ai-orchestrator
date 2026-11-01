@@ -18,8 +18,10 @@ const items: NeedsYouItem[] = [
   },
 ];
 
-function render(rows = items) {
+function render(rows = items, clearState: 'idle' | 'clearing' | 'failed' = 'idle') {
   const open = vi.fn();
+  const clearFinished = vi.fn();
+  const forgetClearFailure = vi.fn();
   const navigate = vi.fn();
   const inboxItems = signal(rows);
   const hostStates = signal([
@@ -27,13 +29,13 @@ function render(rows = items) {
     { id: 'host-b', name: 'Studio', status: 'offline' as const },
   ]);
   TestBed.configureTestingModule({ imports: [InboxComponent], providers: [
-    { provide: NeedsYouStore, useValue: { items: inboxItems, hostStates, open } },
+    { provide: NeedsYouStore, useValue: { items: inboxItems, hostStates, open, clearFinished, clearStatus: signal(clearState), forgetClearFailure } },
     { provide: Router, useValue: { navigate } },
   ] });
   TestBed.overrideComponent(InboxComponent, { set: { imports: [], schemas: [NO_ERRORS_SCHEMA] } });
   const fixture = TestBed.createComponent(InboxComponent);
   fixture.detectChanges();
-  return { fixture, open, navigate, inboxItems };
+  return { fixture, open, navigate, inboxItems, clearFinished, forgetClearFailure };
 }
 
 describe('InboxComponent', () => {
@@ -57,5 +59,38 @@ describe('InboxComponent', () => {
   it('shows an explicit empty state', () => {
     const { fixture } = render([]);
     expect(fixture.nativeElement.textContent).toContain('Nothing needs you right now');
+  });
+
+  it('puts questions above finished sessions even when a session finished more recently', () => {
+    const { fixture } = render([{ ...items[1]!, createdAt: 9 }, items[0]!]);
+    const root = fixture.nativeElement as HTMLElement;
+    const headings = [...root.querySelectorAll('.inbox-title')].map((heading) => heading.textContent?.trim());
+    expect(headings).toEqual(['Waiting for your answer', 'Finished']);
+    expect(root.querySelectorAll('.inbox-row')[0].textContent).toContain('Allow edit');
+  });
+
+  it('marks every finished session read from one button, and says so when that fails', () => {
+    const { fixture, clearFinished } = render();
+    const button = [...fixture.nativeElement.querySelectorAll('button')]
+      .find((candidate: HTMLButtonElement) => candidate.textContent?.includes('Mark all read')) as HTMLButtonElement;
+    button.click();
+    expect(clearFinished).toHaveBeenCalledOnce();
+    TestBed.resetTestingModule();
+
+    const failed = render(items, 'failed');
+    expect(failed.fixture.nativeElement.querySelector('[role="alert"]')?.textContent).toContain('Some could not be marked read. Check the connection, or update Harness on that Mac');
+    failed.fixture.destroy();
+    expect(failed.forgetClearFailure).toHaveBeenCalledOnce();
+  });
+
+  it('keeps one page heading for screen readers above the sections', () => {
+    const { fixture } = render();
+    expect(fixture.nativeElement.querySelectorAll('h1')).toHaveLength(1);
+    expect(fixture.nativeElement.querySelector('h1')?.textContent).toBe('Needs you');
+  });
+
+  it('offers no Mark all read button when only questions are waiting', () => {
+    const { fixture } = render([items[0]!]);
+    expect(fixture.nativeElement.textContent).not.toContain('Mark all read');
   });
 });

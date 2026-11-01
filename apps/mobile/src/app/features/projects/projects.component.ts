@@ -136,7 +136,6 @@ export function projectsEmptyStateTitle(
 
           <span class="projects-menu__separator"></span>
           <span class="projects-menu__caption">Manage</span>
-          <app-usage />
           <button type="button" class="projects-menu__attention" (click)="openInbox()">
             <span class="projects-menu__icon"></span>
             <app-mobile-icon name="warning" />
@@ -179,6 +178,8 @@ export function projectsEmptyStateTitle(
           </button>
         </aside>
       }
+
+      <app-usage class="projects-usage" />
 
       <div class="projects-heading">
         <h1 class="projects-title">{{ mode() === 'project' ? 'Projects' : 'Sessions' }}</h1>

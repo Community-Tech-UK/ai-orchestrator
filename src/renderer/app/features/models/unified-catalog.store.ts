@@ -105,12 +105,14 @@ export class UnifiedCatalogStore {
     }
     const curated = new Map(getModelsForProvider(provider).map((m) => [m.id, m]));
     const rows = this.modelsForProvider(norm);
-    // Once `grok models` has marked a default, that pin is Latest. A stale
-    // static pin on the previous release must not keep the old id on top.
-    const grokLivePin = norm === 'grok' && rows.some((entry) => entry.pinned === true);
+    // Once `grok models` / `agy models` discovery has pinned rows, those pins
+    // are Latest. A stale static pin on the previous release must not keep the
+    // old id on top.
+    const livePins = (norm === 'grok' || norm === 'antigravity')
+      && rows.some((entry) => entry.pinned === true);
     return rows.map((entry) => {
       const known = curated.get(entry.id);
-      const pinned = grokLivePin ? entry.pinned === true : known?.pinned === true;
+      const pinned = livePins ? entry.pinned === true : known?.pinned === true;
       return {
         id: entry.id,
         name: known?.name ?? entry.name ?? humanizeModelId(entry.id),

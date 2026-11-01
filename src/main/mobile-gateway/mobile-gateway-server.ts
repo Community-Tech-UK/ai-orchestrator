@@ -83,6 +83,8 @@ import { MobileGatewaySnapshotService } from "./mobile-gateway-snapshot";
 import { MobileGatewayStreamCursor } from "./mobile-gateway-stream-cursor";
 import { MobileGatewayQuotaHandlers, type GatewayQuotaSource } from "./mobile-gateway-quota-handlers";
 import { getProviderQuotaService } from "../core/system/provider-quota-service";
+import { getProviderAccountStore } from "../providers/account-pool/provider-account-store";
+import type { QuotaAccountProfile } from "../../shared/utils/provider-quota-account-sections";
 import { sendMobileQuotaPush } from "./mobile-gateway-push";
 import {
   MobileAutomationRequestError,
@@ -150,6 +152,9 @@ export interface MobileGatewayDeps {
   listDynamicModels?: MobileModelLister;
   nodeResolver?: (nameOrId: string) => string | null;
   quotaSource?: GatewayQuotaSource;
+  accountProfiles?: () => readonly QuotaAccountProfile[];
+  /** Tells the desktop the phone has seen a session, so its unread dot clears. */
+  onCompletionViewed?: (instanceId: string) => void;
   automationStore?: GatewayAutomationStore;
   automationRunner?: GatewayAutomationRunner;
   automationEvents?: GatewayAutomationEvents;
@@ -191,6 +196,7 @@ export class MobileGatewayServer {
   private readonly streamCursor = new MobileGatewayStreamCursor();
   private readonly quota = new MobileGatewayQuotaHandlers({
     getSource: () => this.deps?.quotaSource ?? getProviderQuotaService(),
+    getAccountProfiles: () => this.deps?.accountProfiles?.() ?? getProviderAccountStore().listProfiles(),
     broadcast: event => this.snapshots.broadcast(event),
     sendExhaustedPush: () => sendMobileQuotaPush(this.pushDeps()),
   });
@@ -273,12 +279,15 @@ export class MobileGatewayServer {
     drainAllQueues: () => this.instanceRoutes.drainAll(),
     sendCompletionPush: (instanceId) =>
       sendMobileCompletionPush(this.pushDeps(), instanceId),
+    notifyDesktopViewed: (instanceId) => this.deps?.onCompletionViewed?.(instanceId),
     sendLiveActivityPush: (instanceId, status, event) =>
       sendMobileLiveActivityPush(this.pushDeps(), instanceId, status, event),
     clearLiveActivityTokens: (instanceId) =>
       this.registry.clearLiveActivityTokensForInstance(instanceId),
     warn: (message, data) => logger.warn(message, data),
   });
+
+  markViewedOnDesktop(instanceId: string): void { this.events.clearCompletion(instanceId); }
 
   static getInstance(): MobileGatewayServer {
     if (!this.instance) this.instance = new MobileGatewayServer();

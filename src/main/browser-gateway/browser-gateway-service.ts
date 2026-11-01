@@ -173,6 +173,7 @@ import {
   type FillOperationDeps,
 } from './browser-form-fill-operations';
 import { fillHttpAuthOperation } from './browser-http-auth-fill-operation';
+import { BrowserOneTimeCodeFillLedger } from './browser-one-time-code-submit';
 import { fillSecretOperation } from './browser-secret-fill-operation';
 import {
   normalizeExistingTabControlReadback,
@@ -279,6 +280,7 @@ export class BrowserGatewayService {
   private credentialVault?: BrowserGatewayServiceOptions['credentialVault'];
   private credentialAuthorizations?: BrowserGatewayServiceOptions['credentialAuthorizations'];
   private emailCodeReader?: BrowserGatewayServiceOptions['emailCodeReader'];
+  private readonly oneTimeCodeFills = new BrowserOneTimeCodeFillLedger();
   private allowSharedTabCredentialFill: (profileId: string) => boolean;
   private autoApproveRequests?: BrowserGatewayServiceOptions['autoApproveRequests'];
   private resolvePreferredDebugPort?: BrowserGatewayServiceOptions['resolvePreferredDebugPort'];
@@ -402,6 +404,7 @@ export class BrowserGatewayService {
       grantStore: this.grantStore, approvalStore: this.approvalStore,
       autoApproveRequests: (request) => Boolean(this.autoApproveRequests?.(request)),
       escalations: { raise: (input) => getBrowserEscalationService().raise(input) },
+      oneTimeCodeFills: this.oneTimeCodeFills,
       result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
       // Campaign budget enforcement: count every mutation executed under a
       // campaign lease; a tripped budget pauses the campaign + revokes leases.
@@ -1799,6 +1802,7 @@ export class BrowserGatewayService {
       ...(this.credentialVault ? { credentialVault: this.credentialVault } : {}),
       ...(this.credentialAuthorizations ? { credentialAuthorizations: this.credentialAuthorizations } : {}),
       ...(this.emailCodeReader ? { emailCodeReader: this.emailCodeReader } : {}),
+      recordOneTimeCodeFill: (scope) => this.oneTimeCodeFills.record(scope),
       recordNewAccount: (request) => getBrowserCampaignRuntime()?.recordNewAccount(request),
     };
   }

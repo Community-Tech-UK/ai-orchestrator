@@ -1,3 +1,5 @@
+export type BrowserCredentialAccessPurpose = 'login' | 'totp' | 'email_code';
+
 /** Non-secret, trusted main-process metadata for a saved-login decision. */
 export interface BrowserCredentialAccessMetadata {
   taskScope: string;
@@ -11,7 +13,9 @@ export interface BrowserCredentialAccessMetadata {
   itemTitle: string;
   vaultFolder: string;
   moveIntoFolder: boolean;
-  purposes: ('login' | 'totp')[];
+  purposes: BrowserCredentialAccessPurpose[];
+  /** Declared senders of this website's emailed codes (email_code only). */
+  senderDomains?: string[];
   permission: 'task' | 'remember';
   permissionExpiresAt?: number;
   authorizationId?: string;
@@ -28,5 +32,6 @@ export interface BrowserRequestCredentialAccess {
   targetId: string;
   item: string;
   reason: string;
-  purposes?: ('login' | 'totp')[];
+  purposes?: BrowserCredentialAccessPurpose[];
+  senderDomains?: string[];
 }

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "generatedBy": "scripts/generate-architecture-inventory.js",
   "ipc": {
-    "channelCount": 1197,
+    "channelCount": 1199,
     "channels": [
       {
         "name": "INSTANCE_CREATE",
@@ -5475,519 +5475,529 @@
         "line": 1411
       },
       {
+        "name": "MOBILE_GATEWAY_MARK_VIEWED",
+        "value": "mobile-gateway:mark-viewed",
+        "line": 1413
+      },
+      {
+        "name": "MOBILE_GATEWAY_COMPLETION_VIEWED",
+        "value": "mobile-gateway:completion-viewed",
+        "line": 1415
+      },
+      {
         "name": "TERMINAL_SPAWN",
         "value": "terminal:spawn",
-        "line": 1414
+        "line": 1418
       },
       {
         "name": "TERMINAL_WRITE",
         "value": "terminal:write",
-        "line": 1415
+        "line": 1419
       },
       {
         "name": "TERMINAL_RESIZE",
         "value": "terminal:resize",
-        "line": 1416
+        "line": 1420
       },
       {
         "name": "TERMINAL_KILL",
         "value": "terminal:kill",
-        "line": 1417
+        "line": 1421
       },
       {
         "name": "TERMINAL_GET_BUFFER",
         "value": "terminal:get-buffer",
-        "line": 1419
+        "line": 1423
       },
       {
         "name": "TERMINAL_OUTPUT",
         "value": "terminal:output",
-        "line": 1422
+        "line": 1426
       },
       {
         "name": "TERMINAL_EXIT",
         "value": "terminal:exit",
-        "line": 1423
+        "line": 1427
       },
       {
         "name": "TERMINAL_SPAWNED",
         "value": "terminal:spawned",
-        "line": 1424
+        "line": 1428
       },
       {
         "name": "AUXILIARY_LLM_LIST_CANDIDATES",
         "value": "auxiliary-llm:list-candidates",
-        "line": 1426
+        "line": 1430
       },
       {
         "name": "AUXILIARY_LLM_PROBE_ENDPOINT",
         "value": "auxiliary-llm:probe-endpoint",
-        "line": 1427
+        "line": 1431
       },
       {
         "name": "AUXILIARY_LLM_TEST_GENERATE",
         "value": "auxiliary-llm:test-generate",
-        "line": 1428
+        "line": 1432
       },
       {
         "name": "AUXILIARY_LLM_SAVE_SETTINGS",
         "value": "auxiliary-llm:save-settings",
-        "line": 1429
+        "line": 1433
       },
       {
         "name": "AUXILIARY_LLM_EXTRACT_WEB",
         "value": "auxiliary-llm:extract-web",
-        "line": 1430
+        "line": 1434
       },
       {
         "name": "CAMPAIGN_START",
         "value": "campaign:start",
-        "line": 1433
+        "line": 1437
       },
       {
         "name": "CAMPAIGN_GET",
         "value": "campaign:get",
-        "line": 1434
+        "line": 1438
       },
       {
         "name": "CAMPAIGN_LIST",
         "value": "campaign:list",
-        "line": 1435
+        "line": 1439
       },
       {
         "name": "CAMPAIGN_HALT",
         "value": "campaign:halt",
-        "line": 1436
+        "line": 1440
       },
       {
         "name": "CAMPAIGN_RESUME",
         "value": "campaign:resume",
-        "line": 1437
+        "line": 1441
       },
       {
         "name": "CAMPAIGN_VALIDATE",
         "value": "campaign:validate",
-        "line": 1438
+        "line": 1442
       },
       {
         "name": "CAMPAIGN_IMPORT_PLAN_PREVIEW",
         "value": "campaign:import-plan-preview",
-        "line": 1440
+        "line": 1444
       },
       {
         "name": "CAMPAIGN_STATE_CHANGED",
         "value": "campaign:state-changed",
-        "line": 1443
+        "line": 1447
       },
       {
         "name": "DOC_REVIEW_LIST",
         "value": "doc-review:list",
-        "line": 1447
+        "line": 1451
       },
       {
         "name": "DOC_REVIEW_GET",
         "value": "doc-review:get",
-        "line": 1449
+        "line": 1453
       },
       {
         "name": "DOC_REVIEW_READ_ARTIFACT",
         "value": "doc-review:read-artifact",
-        "line": 1451
+        "line": 1455
       },
       {
         "name": "DOC_REVIEW_SUBMIT_DECISION",
         "value": "doc-review:submit-decision",
-        "line": 1455
+        "line": 1459
       },
       {
         "name": "DOC_REVIEW_DISMISS",
         "value": "doc-review:dismiss",
-        "line": 1457
+        "line": 1461
       },
       {
         "name": "DOC_REVIEW_OPEN_EXTERNAL",
         "value": "doc-review:open-external",
-        "line": 1459
+        "line": 1463
       },
       {
         "name": "DOC_REVIEW_RETRY_DELIVERY",
         "value": "doc-review:retry-delivery",
-        "line": 1461
+        "line": 1465
       },
       {
         "name": "DOC_REVIEW_CHANGED",
         "value": "doc-review:changed",
-        "line": 1465
+        "line": 1469
       },
       {
         "name": "PLAN_QUEUE_LIST",
         "value": "plan-queue:list",
-        "line": 1469
+        "line": 1473
       },
       {
         "name": "PLAN_QUEUE_GET",
         "value": "plan-queue:get",
-        "line": 1471
+        "line": 1475
       },
       {
         "name": "PLAN_QUEUE_ALERTS",
         "value": "plan-queue:alerts",
-        "line": 1473
+        "line": 1477
       },
       {
         "name": "PLAN_QUEUE_DIFFSTAT",
         "value": "plan-queue:diffstat",
-        "line": 1475
+        "line": 1479
       },
       {
         "name": "PLAN_QUEUE_START",
         "value": "plan-queue:start",
-        "line": 1479
+        "line": 1483
       },
       {
         "name": "PLAN_QUEUE_ANSWER",
         "value": "plan-queue:answer",
-        "line": 1481
+        "line": 1485
       },
       {
         "name": "PLAN_QUEUE_CONTROL",
         "value": "plan-queue:control",
-        "line": 1483
+        "line": 1487
       },
       {
         "name": "PLAN_QUEUE_STATE_CHANGED",
         "value": "plan-queue:state-changed",
-        "line": 1487
+        "line": 1491
       },
       {
         "name": "NOTIFICATION_LIST",
         "value": "notification:list",
-        "line": 1489
+        "line": 1493
       },
       {
         "name": "NOTIFICATION_DELTA",
         "value": "notification:delta",
-        "line": 1490
+        "line": 1494
       },
       {
         "name": "NOTIFICATION_DISMISS",
         "value": "notification:dismiss",
-        "line": 1491
+        "line": 1495
       },
       {
         "name": "NOTIFICATION_CLEAR",
         "value": "notification:clear",
-        "line": 1492
+        "line": 1496
       },
       {
         "name": "CONTEXT_EVIDENCE_LIST",
         "value": "context-evidence:list",
-        "line": 1494
+        "line": 1498
       },
       {
         "name": "CONTEXT_EVIDENCE_GET_CARD",
         "value": "context-evidence:get-card",
-        "line": 1495
+        "line": 1499
       },
       {
         "name": "CONTEXT_EVIDENCE_SEARCH",
         "value": "context-evidence:search",
-        "line": 1496
+        "line": 1500
       },
       {
         "name": "CONTEXT_EVIDENCE_READ",
         "value": "context-evidence:read",
-        "line": 1497
+        "line": 1501
       },
       {
         "name": "CONTEXT_EVIDENCE_COMPARE",
         "value": "context-evidence:compare",
-        "line": 1498
+        "line": 1502
       },
       {
         "name": "CONTEXT_EVIDENCE_VERIFY",
         "value": "context-evidence:verify",
-        "line": 1499
+        "line": 1503
       },
       {
         "name": "CONTEXT_EVIDENCE_GET_METRICS",
         "value": "context-evidence:get-metrics",
-        "line": 1500
+        "line": 1504
       },
       {
         "name": "CONTEXT_EVIDENCE_STATE_CHANGED",
         "value": "context-evidence:state-changed",
-        "line": 1501
+        "line": 1505
       },
       {
         "name": "LOCAL_AI_GUARD_RETRY_HELPER_NOW",
         "value": "local-ai-guard:retry-helper-now",
-        "line": 1503
+        "line": 1507
       },
       {
         "name": "LOCAL_AI_GUARD_GET_SNAPSHOT",
         "value": "local-ai-guard:get-snapshot",
-        "line": 1504
+        "line": 1508
       },
       {
         "name": "LOCAL_AI_GUARD_TARGET_CREATE",
         "value": "local-ai-guard:target-create",
-        "line": 1505
+        "line": 1509
       },
       {
         "name": "LOCAL_AI_GUARD_TARGET_UPDATE",
         "value": "local-ai-guard:target-update",
-        "line": 1506
+        "line": 1510
       },
       {
         "name": "LOCAL_AI_GUARD_TARGET_SET_LIFECYCLE",
         "value": "local-ai-guard:target-set-lifecycle",
-        "line": 1507
+        "line": 1511
       },
       {
         "name": "LOCAL_AI_GUARD_DISCOVER",
         "value": "local-ai-guard:discover",
-        "line": 1508
+        "line": 1512
       },
       {
         "name": "LOCAL_AI_GUARD_VALIDATE",
         "value": "local-ai-guard:validate",
-        "line": 1509
+        "line": 1513
       },
       {
         "name": "LOCAL_AI_GUARD_RECHECK",
         "value": "local-ai-guard:recheck",
-        "line": 1510
+        "line": 1514
       },
       {
         "name": "LOCAL_AI_GUARD_INCIDENT_ACKNOWLEDGE",
         "value": "local-ai-guard:incident-acknowledge",
-        "line": 1511
+        "line": 1515
       },
       {
         "name": "LOCAL_AI_GUARD_DIAGNOSE",
         "value": "local-ai-guard:diagnose",
-        "line": 1512
+        "line": 1516
       },
       {
         "name": "LOCAL_AI_GUARD_REPAIR",
         "value": "local-ai-guard:repair",
-        "line": 1513
+        "line": 1517
       },
       {
         "name": "LOCAL_AI_GUARD_SUMMARY_QUERY",
         "value": "local-ai-guard:summary-query",
-        "line": 1514
+        "line": 1518
       },
       {
         "name": "LOCAL_AI_GUARD_PENDING_FALLBACK_LIST",
         "value": "local-ai-guard:pending-fallback-list",
-        "line": 1515
+        "line": 1519
       },
       {
         "name": "LOCAL_AI_GUARD_PENDING_FALLBACK_RESOLVE",
         "value": "local-ai-guard:pending-fallback-resolve",
-        "line": 1516
+        "line": 1520
       },
       {
         "name": "LOCAL_AI_GUARD_STATUS_DELTA",
         "value": "local-ai-guard:status-delta",
-        "line": 1517
+        "line": 1521
       },
       {
         "name": "WORKBOARD_DECISIONS_FOR_ITEM",
         "value": "workboard:decisions-for-item",
-        "line": 1519
+        "line": 1523
       },
       {
         "name": "PERMISSION_REGISTRY_LIST_PENDING",
         "value": "permission-registry:list-pending",
-        "line": 1521
+        "line": 1525
       },
       {
         "name": "PERMISSION_REGISTRY_RESOLVE",
         "value": "permission-registry:resolve",
-        "line": 1522
+        "line": 1526
       },
       {
         "name": "PERMISSION_REGISTRY_EXTEND",
         "value": "permission-registry:extend",
-        "line": 1523
+        "line": 1527
       },
       {
         "name": "SECRET_CARD_SUBMIT",
         "value": "secret-card:submit",
-        "line": 1526
+        "line": 1530
       },
       {
         "name": "SECRET_CARD_DECLINE",
         "value": "secret-card:decline",
-        "line": 1528
+        "line": 1532
       },
       {
         "name": "SECRET_CARD_LIST",
         "value": "secret-card:list",
-        "line": 1530
+        "line": 1534
       },
       {
         "name": "SECRET_CARD_FORGET",
         "value": "secret-card:forget",
-        "line": 1532
+        "line": 1536
       },
       {
         "name": "SECRET_CARD_AUDIT",
         "value": "secret-card:audit",
-        "line": 1534
+        "line": 1538
       },
       {
         "name": "COPILOT_ACCOUNT_LIST",
         "value": "copilot-account:list",
-        "line": 1537
+        "line": 1541
       },
       {
         "name": "COPILOT_ACCOUNT_CREATE",
         "value": "copilot-account:create",
-        "line": 1539
+        "line": 1543
       },
       {
         "name": "COPILOT_ACCOUNT_RENAME",
         "value": "copilot-account:rename",
-        "line": 1541
+        "line": 1545
       },
       {
         "name": "COPILOT_ACCOUNT_UPDATE_POLICY",
         "value": "copilot-account:update-policy",
-        "line": 1543
+        "line": 1547
       },
       {
         "name": "COPILOT_ACCOUNT_REMOVE",
         "value": "copilot-account:remove",
-        "line": 1545
+        "line": 1549
       },
       {
         "name": "COPILOT_ACCOUNT_SET_DEFAULT",
         "value": "copilot-account:set-default",
-        "line": 1547
+        "line": 1551
       },
       {
         "name": "COPILOT_ACCOUNT_VERIFY_BINDING",
         "value": "copilot-account:verify-binding",
-        "line": 1549
+        "line": 1553
       },
       {
         "name": "COPILOT_ACCOUNT_ADOPT_IDENTITY",
         "value": "copilot-account:adopt-identity",
-        "line": 1551
+        "line": 1555
       },
       {
         "name": "COPILOT_ACCOUNT_RULE_LIST",
         "value": "copilot-account:rule-list",
-        "line": 1553
+        "line": 1557
       },
       {
         "name": "COPILOT_ACCOUNT_RULE_CREATE",
         "value": "copilot-account:rule-create",
-        "line": 1555
+        "line": 1559
       },
       {
         "name": "COPILOT_ACCOUNT_RULE_REMOVE",
         "value": "copilot-account:rule-remove",
-        "line": 1557
+        "line": 1561
       },
       {
         "name": "COPILOT_ACCOUNT_PREVIEW_ROUTE",
         "value": "copilot-account:preview-route",
-        "line": 1559
+        "line": 1563
       },
       {
         "name": "COPILOT_ACCOUNT_SUGGEST_RULES",
         "value": "copilot-account:suggest-rules",
-        "line": 1561
+        "line": 1565
       },
       {
         "name": "COPILOT_ACCOUNT_NODE_MATRIX",
         "value": "copilot-account:node-matrix",
-        "line": 1563
+        "line": 1567
       },
       {
         "name": "COPILOT_ACCOUNT_DISCOVER",
         "value": "copilot-account:discover",
-        "line": 1569
+        "line": 1573
       },
       {
         "name": "COPILOT_ACCOUNT_DIAGNOSTICS",
         "value": "copilot-account:diagnostics",
-        "line": 1571
+        "line": 1575
       },
       {
         "name": "PROVIDER_ACCOUNT_LIST",
         "value": "provider-account:list",
-        "line": 1574
+        "line": 1578
       },
       {
         "name": "PROVIDER_ACCOUNT_CREATE",
         "value": "provider-account:create",
-        "line": 1576
+        "line": 1580
       },
       {
         "name": "PROVIDER_ACCOUNT_UPDATE",
         "value": "provider-account:update",
-        "line": 1578
+        "line": 1582
       },
       {
         "name": "PROVIDER_ACCOUNT_SET_PRIORITY_ORDER",
         "value": "provider-account:set-priority-order",
-        "line": 1580
+        "line": 1584
       },
       {
         "name": "PROVIDER_ACCOUNT_REMOVE",
         "value": "provider-account:remove",
-        "line": 1582
+        "line": 1586
       },
       {
         "name": "PROVIDER_ACCOUNT_VERIFY",
         "value": "provider-account:verify",
-        "line": 1584
+        "line": 1588
       },
       {
         "name": "PROVIDER_ACCOUNT_LAUNCH_LOGIN",
         "value": "provider-account:launch-login",
-        "line": 1586
+        "line": 1590
       },
       {
         "name": "PROVIDER_ACCOUNT_QUOTA_SESSION",
         "value": "provider-account:quota-session",
-        "line": 1588
+        "line": 1592
       },
       {
         "name": "PROVIDER_ACCOUNT_POOL_READ",
         "value": "provider-account:pool-read",
-        "line": 1590
+        "line": 1594
       },
       {
         "name": "PROVIDER_ACCOUNT_POOL_UPDATE",
         "value": "provider-account:pool-update",
-        "line": 1592
+        "line": 1596
       },
       {
         "name": "PROVIDER_ACCOUNT_ACKNOWLEDGE_OWNERSHIP",
         "value": "provider-account:acknowledge-ownership",
-        "line": 1594
+        "line": 1598
       },
       {
         "name": "PROVIDER_ACCOUNT_DOCTOR",
         "value": "provider-account:doctor",
-        "line": 1596
+        "line": 1600
       },
       {
         "name": "PROVIDER_ACCOUNT_RESOLVE_PREVIEW",
         "value": "provider-account:resolve-preview",
-        "line": 1598
+        "line": 1602
       },
       {
         "name": "PROVIDER_ACCOUNT_SWITCH_SESSION",
         "value": "provider-account:switch-session",
-        "line": 1600
+        "line": 1604
       }
     ]
   },
@@ -6118,12 +6128,12 @@
       "lines": 4321
     },
     {
-      "path": "docs/plans/2026-10-10-oct-phase2-loops-converge_plan_completed.md",
-      "lines": 4301
+      "path": "src/main/instance/instance-communication.spec.ts",
+      "lines": 4309
     },
     {
-      "path": "src/main/instance/instance-communication.spec.ts",
-      "lines": 4223
+      "path": "docs/plans/2026-10-10-oct-phase2-loops-converge_plan_completed.md",
+      "lines": 4301
     },
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
@@ -6139,7 +6149,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3643
+      "lines": 3647
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
@@ -6219,7 +6229,7 @@
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
-      "lines": 2632
+      "lines": 2636
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service-existing-tabs.spec.ts",
@@ -6239,7 +6249,7 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2497
+      "lines": 2498
     },
     {
       "path": "src/main/app/orchestrator-tools-step.spec.ts",
@@ -6258,16 +6268,16 @@
       "lines": 2357
     },
     {
+      "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
+      "lines": 2348
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md",
       "lines": 2339
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.lifecycle.spec.ts",
       "lines": 2251
-    },
-    {
-      "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
-      "lines": 2246
     },
     {
       "path": "docs/plans/2026-10-10-oct-housekeeping_plan_completed.md",
@@ -6502,6 +6512,10 @@
       "lines": 1408
     },
     {
+      "path": "src/main/instance/lifecycle/runtime-reconciler.runtime-change.spec.ts",
+      "lines": 1402
+    },
+    {
       "path": "src/tests/renderer-integration/history-preview-session.service.spec.ts",
       "lines": 1398
     },
@@ -6512,10 +6526,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-10-cross-project-improvements_completed.md",
       "lines": 1394
-    },
-    {
-      "path": "src/main/instance/lifecycle/runtime-reconciler.runtime-change.spec.ts",
-      "lines": 1383
     },
     {
       "path": "src/main/browser-gateway/browser-extension-accessibility-frames.spec.ts",
@@ -6582,16 +6592,16 @@
       "lines": 1319
     },
     {
+      "path": "src/main/instance/auto-title-service.spec.ts",
+      "lines": 1315
+    },
+    {
       "path": "src/renderer/app/features/knowledge/knowledge-page.component.ts",
       "lines": 1315
     },
     {
       "path": "src/main/plugins/plugin-manager.ts",
       "lines": 1314
-    },
-    {
-      "path": "src/main/instance/auto-title-service.spec.ts",
-      "lines": 1306
     },
     {
       "path": "claude_oct-2-todo.md",
@@ -6711,7 +6721,7 @@
     },
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.scss",
-      "lines": 1210
+      "lines": 1209
     },
     {
       "path": "src/main/security/permission-manager.ts",
@@ -6790,11 +6800,11 @@
       "lines": 1154
     },
     {
-      "path": "src/main/providers/__tests__/unified-model-catalog-service.spec.ts",
-      "lines": 1146
+      "path": "src/renderer/app/features/instance-list/instance-list.component.scss",
+      "lines": 1148
     },
     {
-      "path": "src/renderer/app/features/instance-list/instance-list.component.scss",
+      "path": "src/main/providers/__tests__/unified-model-catalog-service.spec.ts",
       "lines": 1146
     },
     {
@@ -7082,6 +7092,10 @@
       "lines": 949
     },
     {
+      "path": "src/worker-agent/provider-runtime-diagnostics.spec.ts",
+      "lines": 944
+    },
+    {
       "path": "docs/plans/2026-10-14-local-model-plan-execute-ab_plan.md",
       "lines": 938
     },
@@ -7118,20 +7132,16 @@
       "lines": 930
     },
     {
+      "path": "src/renderer/app/features/instance-detail/input-panel.component.spec.ts",
+      "lines": 928
+    },
+    {
       "path": "src/renderer/app/features/memory/memory-browser.component.ts",
       "lines": 928
     },
     {
       "path": "docs/plans/2026-10-11-oct-followups_history.md",
       "lines": 924
-    },
-    {
-      "path": "src/worker-agent/provider-runtime-diagnostics.spec.ts",
-      "lines": 922
-    },
-    {
-      "path": "src/renderer/app/features/instance-detail/input-panel.component.spec.ts",
-      "lines": 916
     },
     {
       "path": "src/shared/types/instance.types.ts",
@@ -7162,7 +7172,15 @@
       "lines": 900
     },
     {
+      "path": "src/main/browser-gateway/browser-mcp-tools.ts",
+      "lines": 899
+    },
+    {
       "path": "src/renderer/app/features/replay/session-replay-page.component.ts",
+      "lines": 899
+    },
+    {
+      "path": "src/worker-agent/worker-self-update.spec.ts",
       "lines": 899
     },
     {
@@ -7190,12 +7208,12 @@
       "lines": 888
     },
     {
-      "path": "src/main/browser-gateway/browser-mcp-tools.ts",
-      "lines": 885
-    },
-    {
       "path": "src/main/memory/skills-loader.spec.ts",
       "lines": 883
+    },
+    {
+      "path": "src/main/browser-gateway/browser-form-fill-operations.spec.ts",
+      "lines": 882
     },
     {
       "path": "src/main/ipc/handlers/mcp-handlers.ts",
@@ -7260,10 +7278,6 @@
     {
       "path": "src/main/orchestration/loop-stage-machine.spec.ts",
       "lines": 860
-    },
-    {
-      "path": "docs/plans/2026-10-10-oct-phase4b-tooltips-migration_plan.md",
-      "lines": 859
     },
     {
       "path": "src/renderer/app/core/state/instance/instance.store.ts",
@@ -7354,6 +7368,10 @@
       "lines": 837
     },
     {
+      "path": "src/renderer/app/features/instance-detail/composer-toolbar.component.spec.ts",
+      "lines": 835
+    },
+    {
       "path": "src/renderer/app/features/plan-queue/components/plan-queue-routing-panel.component.spec.ts",
       "lines": 835
     },
@@ -7364,10 +7382,6 @@
     {
       "path": "docs/plans/2026-07-30-sibling-audit-round2_plan_completed.md",
       "lines": 833
-    },
-    {
-      "path": "src/renderer/app/features/instance-detail/composer-toolbar.component.spec.ts",
-      "lines": 832
     },
     {
       "path": "docs/plans/2026-10-22-aio-tidies-up-after-itself_plan_completed.md",
@@ -7418,6 +7432,10 @@
       "lines": 812
     },
     {
+      "path": "src/main/instance/lifecycle/runtime-reconciler.ts",
+      "lines": 810
+    },
+    {
       "path": "src/main/orchestration/orchestration-protocol.spec.ts",
       "lines": 810
     },
@@ -7427,14 +7445,6 @@
     },
     {
       "path": "docs/superpowers/specs/2026-07-08-desktop-computer-use-gateway-design_completed.md",
-      "lines": 809
-    },
-    {
-      "path": "src/main/browser-gateway/browser-form-fill-operations.spec.ts",
-      "lines": 809
-    },
-    {
-      "path": "src/main/instance/lifecycle/runtime-reconciler.ts",
       "lines": 809
     },
     {

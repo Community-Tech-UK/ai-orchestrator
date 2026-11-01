@@ -60,6 +60,7 @@ export type {
   MobilePlanQueueRunDto,
   MobilePlanQueueRunStatus,
   MobileQuotaStateDto,
+  MobileQuotaAccountDto,
   MobileQuotaProviderDto,
   MobileQuotaWindowDto,
   MobileProjectDto,

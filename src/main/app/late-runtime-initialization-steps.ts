@@ -416,7 +416,7 @@ export function createLateRuntimeInitializationSteps(
     { name: 'Load balancer', fn: () => { getLoadBalancer(); } },
     createThinClientWsStep(),
     createWorkerNodeSubsystemStep(context),
-    createMobileGatewayStep(instanceManager),
+    createMobileGatewayStep(instanceManager, windowManager),
     {
       name: 'Cross-model review',
       fn: async () => {

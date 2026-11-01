@@ -120,7 +120,9 @@ const ALLOWLIST: Record<string, number> = {
   // browser-http-auth-fill-operation.ts).
   // Raised 2613 -> 2628 for the handleDialog delegate (browser.handle_dialog,
   // 2026-10-28; the operation lives in browser-dialog-operations.ts).
-  'src/main/browser-gateway/browser-gateway-service.ts': 2628,
+  // Raised 2628 -> 2635 for the one-time-code fill ledger wiring (2026-11-01;
+  // the logic lives in browser-one-time-code-submit.ts).
+  'src/main/browser-gateway/browser-gateway-service.ts': 2635,
   // Thin pressKey/viewport delegates; page-level impl in browser-input-control-driver.ts.
   'src/main/browser-gateway/puppeteer-browser-driver.ts': 717,
   // Self-allowlisted: the registry below grows one line per documented ceiling.
@@ -139,7 +141,9 @@ const ALLOWLIST: Record<string, number> = {
   // Raised 762 -> 825 for browser.close_tab / close_matching schemas.
   // Raised 825 -> 878 for the browser.fill_http_auth schema + description.
   // Raised 878 -> 884 for the browser.handle_dialog name + description.
-  'src/main/browser-gateway/browser-mcp-tools.ts': 884,
+  // Raised 884 -> 898 for email_code + senderDomains on request_credential_access
+  // and the one-time-code submit note on fill_credential (2026-11-01).
+  'src/main/browser-gateway/browser-mcp-tools.ts': 898,
   // Declarative Zod request/response schema catalog for the browser domain;
   // crossed 700 with the snapshot/assert_persisted/write_journal schemas.
   // Raised 731 -> 796 for close + inspection-state request schemas.

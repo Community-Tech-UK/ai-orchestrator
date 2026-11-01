@@ -208,13 +208,6 @@
           }
         </div>
       </div>
-      <p class="composer-mode-detail">{{ effectiveYoloMode() ? copy('composer.yoloOn') : copy('composer.yoloOff') }}</p>
-      @if (showDraftFastModeToggle()) {
-        <p class="composer-mode-detail">{{ effectiveDraftFastMode() ? copy('composer.fastOn') : copy('composer.fastOff') }}</p>
-      }
-      @if (showHardenedToggle()) {
-        <p class="composer-mode-detail">{{ hardenedTitle() }}. {{ fenceTitle() }}</p>
-      }
     </div>
   }
 
@@ -552,9 +545,6 @@
       </div>
     </div>
 
-    @if (sendDisabledReason(); as reason) {
-      <p class="composer-disabled-reason" role="status">{{ reason }}</p>
-    }
     @if (voiceStatusLabel(); as label) {
       <div
         class="voice-status-row"

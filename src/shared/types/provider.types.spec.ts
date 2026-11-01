@@ -433,22 +433,32 @@ describe('catalog-backed model normalization', () => {
 });
 
 describe('antigravity model selection', () => {
-  it('exposes the agy display labels as its model catalog', () => {
+  it('exposes the agy display labels as its offline model catalog', () => {
     const ids = PROVIDER_MODEL_LIST['antigravity'].map((model) => model.id);
-    // ids must be the verbatim `agy models` labels — they are forwarded to
-    // `agy --model` as-is, and agy silently ignores anything it does not know.
-    expect(ids).toContain('Gemini 3.1 Pro (High)');
-    expect(ids).toContain('Claude Opus 4.6 (Thinking)');
+    // ids are the verbatim `agy models` labels — forwarded to `agy --model`
+    // as-is, and agy exits 1 on a label it does not list.
+    expect(ids).toContain('Gemini 4 Argon (Medium)');
+    expect(ids).toContain('Gemini 3.8 Flash (Medium)');
+    expect(ids).toContain('Claude Opus 5.5 (High)');
     expect(ids).toContain('GPT-OSS 120B (Medium)');
-    expect(ids.length).toBeGreaterThan(0);
+    expect(ids).not.toContain('Gemini 3.1 Pro (High)');
   });
 
-  it('uses Gemini 3.1 Pro (High) as the primary antigravity default', () => {
-    expect(getPrimaryModelForProvider('antigravity')).toBe('Gemini 3.1 Pro (High)');
+  it('uses agy\'s own first model as the primary before discovery', () => {
+    expect(getPrimaryModelForProvider('antigravity')).toBe('Gemini 4 Argon (Medium)');
+  });
+
+  it('follows the live agy list\'s first pinned row once discovery has run', () => {
+    replaceKnownModelCatalogSnapshot([
+      { provider: 'antigravity', id: 'Gemini 5 Boron (Medium)', pinned: true },
+      { provider: 'antigravity', id: 'Gemini 3.9 Flash (Medium)', pinned: true },
+    ]);
+
+    expect(getPrimaryModelForProvider('antigravity')).toBe('Gemini 5 Boron (Medium)');
   });
 
   it('recognizes known agy labels and rejects everything else', () => {
-    expect(isAntigravityModelId('Gemini 3.1 Pro (High)')).toBe(true);
+    expect(isAntigravityModelId('Gemini 4 Argon (High)')).toBe(true);
     expect(isAntigravityModelId('GPT-OSS 120B (Medium)')).toBe(true);
     // Stale cross-provider id, tier name, and empty must not be treated as agy models.
     expect(isAntigravityModelId('gemini-3-pro-preview')).toBe(false);
@@ -457,21 +467,54 @@ describe('antigravity model selection', () => {
     expect(isAntigravityModelId(undefined)).toBe(false);
   });
 
-  it('recognizes catalog-only agy labels so custom/live entries can be forwarded', () => {
+  it('trusts only the live agy list once the catalog holds one', () => {
+    // A label agy has released since the static list was written is accepted,
+    // and a static label agy has since dropped is not: agy would exit 1 on it.
     replaceKnownModelCatalogSnapshot([
       { provider: 'antigravity', id: 'Gemini 4 Pro (Thinking)' },
     ]);
 
     expect(isAntigravityModelId('Gemini 4 Pro (Thinking)')).toBe(true);
+    expect(isAntigravityModelId('Gemini 4 Argon (High)')).toBe(false);
+  });
+
+  it('keeps the static list while only remembered ids have been merged in', () => {
+    // The renderer merges remembered defaults before its first full catalog
+    // load. One stale remembered label must not hide every other agy model.
+    mergeKnownModelCatalogSnapshot([
+      { provider: 'antigravity', id: 'Gemini 3.1 Pro (High)' },
+    ]);
+
+    expect(isAntigravityModelId('Gemini 4 Argon (High)')).toBe(true);
+    expect(normalizeModelForProvider('antigravity', 'Gemini 3.1 Pro (High)')).toBe(
+      'Gemini 4 Argon (High)'
+    );
+  });
+
+  it('resolves the balanced tier to the Medium-effort Flash, not the first balanced row', () => {
+    expect(resolveModelForTier('balanced', 'antigravity')).toBe('Gemini 3.8 Flash (Medium)');
+    expect(normalizeModelForProvider('antigravity', 'balanced')).toBe('Gemini 3.8 Flash (Medium)');
+    expect(resolveModelForTier('fast', 'antigravity')).toBe('Gemini 3.8 Flash (Low)');
+    expect(resolveModelForTier('powerful', 'antigravity')).toBe('Gemini 4 Argon (Medium)');
   });
 
   it('keeps valid agy labels and falls back stale ids to the default', () => {
-    expect(normalizeModelForProvider('antigravity', 'Claude Sonnet 4.6 (Thinking)')).toBe(
-      'Claude Sonnet 4.6 (Thinking)'
+    expect(normalizeModelForProvider('antigravity', 'Claude Sonnet 5.5 (Low)')).toBe(
+      'Claude Sonnet 5.5 (Low)'
     );
     // A legacy gemini id inherited from a normalized Gemini instance falls back.
     expect(normalizeModelForProvider('antigravity', 'gemini-3-pro-preview')).toBe(
-      'Gemini 3.1 Pro (High)'
+      'Gemini 4 Argon (Medium)'
+    );
+  });
+
+  it('moves every retired agy label to a successor agy lists', () => {
+    for (const [retired, successor] of Object.entries(PROVIDER_MODEL_REPLACEMENTS['antigravity'])) {
+      expect(isAntigravityModelId(successor)).toBe(true);
+      expect(normalizeModelForProvider('antigravity', retired)).toBe(successor);
+    }
+    expect(normalizeModelForProvider('antigravity', 'Claude Opus 4.6 (Thinking)')).toBe(
+      'Claude Opus 5.5 (High)'
     );
   });
 });

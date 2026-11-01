@@ -94,6 +94,26 @@ describe('CredentialAuthorizationService.check', () => {
     });
   });
 
+  it('combines senders across live matches so an older grant without them cannot hide a newer one', () => {
+    const { service } = makeService();
+    service.create({ ...baseAuth(), purposes: ['login', 'email_code'] }, 'older-without-senders');
+    service.create(
+      { ...baseAuth(), purposes: ['login', 'email_code'], allowedSenderDomains: ['britishcouncil.org'] },
+      'newer-with-sender',
+    );
+    service.create(
+      { ...baseAuth(), purposes: ['email_code'], allowedSenderDomains: ['other.example.org'], revokedAt: 500 },
+      'revoked',
+    );
+    service.create(
+      { ...baseAuth(), purposes: ['email_code'], allowedSenderDomains: ['expired.example.org'], expiresAt: 10 },
+      'expired',
+    );
+
+    expect(service.check({ profileId: 'profile-1', origin: 'https://portal.example.gov.uk', purpose: 'email_code' }))
+      .toEqual({ authorized: true, authorizationId: 'older-without-senders', allowedSenderDomains: ['britishcouncil.org'] });
+  });
+
   it('omits the sender list when the authorization declares none', () => {
     const { service } = makeService();
     service.create({ ...baseAuth(), purposes: ['email_code'] }, 'auth-plain');

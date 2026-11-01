@@ -1,9 +1,10 @@
 /**
- * Account sections for the provider quota chip.
+ * Account sections for provider quota views (the desktop quota chip and the
+ * phone's usage sheet).
  *
  * A provider can be signed in more than once: its existing sign-in (the
  * provider-level snapshot) plus extra account-pool profiles (account
- * snapshots). Both the collapsed strip and the popover answer the same
+ * snapshots). Every quota view answers the same
  * question — which accounts are shown, in what order, under what name — so
  * those rules live here once, matching the standalone token-usage-monitor:
  *
@@ -17,14 +18,10 @@
  * - Once the account list has loaded, accounts no longer in it are dropped.
  */
 
-import { POOLED_PROVIDERS } from '../../../../../shared/types/provider-account.types';
-import type {
-  ProviderId,
-  ProviderQuotaSnapshot,
-} from '../../../../../shared/types/provider-quota.types';
-import type { ProviderAccountView } from '../../../core/services/ipc/provider-account-ipc.service';
+import { POOLED_PROVIDERS, type ProviderAccountProfile } from '../types/provider-account.types';
+import type { ProviderId, ProviderQuotaSnapshot, ProviderQuotaWindow } from '../types/provider-quota.types';
 
-export type QuotaAccountProfile = Pick<ProviderAccountView, 'id' | 'provider' | 'label' | 'enabled' | 'isLegacy' | 'priority'>;
+export type QuotaAccountProfile = Pick<ProviderAccountProfile, 'id' | 'provider' | 'label' | 'enabled' | 'isLegacy' | 'priority'>;
 
 export interface QuotaAccountSection {
   /** `legacy` for the existing sign-in, otherwise the account profile id. */
@@ -78,4 +75,33 @@ export function quotaAccountSections(
     });
   }
   return sections;
+}
+
+/** The headline window per provider; the rest fall back to their most used window. */
+const PREFERRED_SUMMARY_WINDOW_IDS: Partial<Record<ProviderId, readonly string[]>> = {
+  claude: ['claude.weekly'],
+  codex: ['codex.weekly'],
+  antigravity: ['antigravity.gemini-5h', 'antigravity.gemini-weekly'],
+  opencode: ['opencode.plan'],
+};
+
+/** The window a one-number summary of this snapshot shows, or null when none has a limit. */
+export function quotaSummaryWindow(snapshot: ProviderQuotaSnapshot): ProviderQuotaWindow | null {
+  const preferredIds = PREFERRED_SUMMARY_WINDOW_IDS[snapshot.provider] ?? [];
+  return mostUsedWindow(snapshot.windows.filter((window) => preferredIds.includes(window.id)))
+    ?? mostUsedWindow(snapshot.windows);
+}
+
+function mostUsedWindow(windows: readonly ProviderQuotaWindow[]): ProviderQuotaWindow | null {
+  let best: ProviderQuotaWindow | null = null;
+  let bestRatio = -1;
+  for (const window of windows) {
+    if (window.limit <= 0) continue;
+    const ratio = Math.max(0, Math.min(1, window.used / window.limit));
+    if (ratio > bestRatio) {
+      best = window;
+      bestRatio = ratio;
+    }
+  }
+  return best;
 }

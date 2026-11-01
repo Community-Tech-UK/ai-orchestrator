@@ -11,6 +11,7 @@ import {
   buildBannerGrant,
   credentialAccessChoice,
   credentialAccessErrorText,
+  credentialAccessPurpose,
 } from './browser-approvals-banner.rules';
 
 function makeApproval(overrides: Partial<BrowserApprovalRequest> = {}): BrowserApprovalRequest {
@@ -320,5 +321,23 @@ describe('browser-approvals-banner.rules', () => {
     expect(credentialAccessErrorText('target_closed')).toContain('open a fresh sign-in tab');
     expect(credentialAccessErrorText('vault_relock_failed:placeholder_reason')).toContain('could not be unlocked again');
     expect(credentialAccessErrorText('placeholder_unknown_reason')).toBe('placeholder unknown reason');
+  });
+});
+
+describe('credentialAccessPurpose', () => {
+  const access = (purposes: ('login' | 'totp' | 'email_code')[], senderDomains?: string[]) => makeApproval({ credentialAccess: {
+    taskScope: 'conversation:placeholder-task', sessionName: 'Example session', reason: 'Register',
+    origin: 'https://tap.tcsapps.com', computerName: 'windows-pc', computerId: 'placeholder-computer', scope: 'placeholder-scope',
+    vaultItemRef: 'placeholder-item', itemTitle: 'Example login', vaultFolder: 'AgentVault',
+    moveIntoFolder: false, purposes, ...(senderDomains ? { senderDomains } : {}), permission: 'task',
+  } });
+
+  it('names the senders whose emailed codes the agent may read', () => {
+    expect(credentialAccessPurpose(access(['email_code', 'login'], ['britishcouncil.org'])))
+      .toBe('read sign-in codes emailed from britishcouncil.org and sign in with this saved login');
+  });
+
+  it('says the website itself sends the codes when no sender is declared', () => {
+    expect(credentialAccessPurpose(access(['email_code']))).toBe('read sign-in codes this website emails');
   });
 });

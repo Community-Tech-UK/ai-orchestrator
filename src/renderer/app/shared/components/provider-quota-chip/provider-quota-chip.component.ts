@@ -42,9 +42,10 @@ import { formatQuotaAmount } from '../../../../../shared/util/provider-quota-for
 import {
   LEGACY_SECTION_ID,
   quotaAccountSections,
+  quotaSummaryWindow,
   type QuotaAccountProfile,
   type QuotaAccountSection,
-} from './provider-quota-account-sections';
+} from '../../../../../shared/utils/provider-quota-account-sections';
 
 export type QuotaChipVariant = 'window' | 'plan' | 'empty';
 export type QuotaChipBand = 'green' | 'yellow' | 'orange' | 'red';
@@ -402,7 +403,7 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
       const parts: QuotaStripPart[] = [];
       for (const snap of family) {
         const summary = snap.ok || (snap.needsReauth && snap.windows.length > 0)
-          ? this.summaryWindow(snap)
+          ? quotaSummaryWindow(snap)
           : null;
         if (summary) {
           const percent = this.windowPercent(summary);
@@ -540,26 +541,6 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
     }
     return null;
   }
-
-  private summaryWindow(snapshot: ProviderQuotaSnapshot): ProviderQuotaWindow | null {
-    const preferredIds = PREFERRED_SUMMARY_WINDOW_IDS[snapshot.provider] ?? [];
-    const preferredWindows = snapshot.windows.filter((window) => preferredIds.includes(window.id));
-    return this.mostUsedWindow(preferredWindows) ?? this.mostUsedWindow(snapshot.windows);
-  }
-
-  private mostUsedWindow(windows: ProviderQuotaWindow[]): ProviderQuotaWindow | null {
-    let best: ProviderQuotaWindow | null = null;
-    let bestPercent = -1;
-    for (const window of windows) {
-      if (window.limit <= 0) continue;
-      const percent = this.windowPercent(window);
-      if (percent > bestPercent) {
-        best = window;
-        bestPercent = percent;
-      }
-    }
-    return best;
-  }
 }
 
 /** Format a positive ms duration as "1d 2h 3m" / "1h 23m" / "47m" / "0m". */
@@ -615,12 +596,6 @@ const PROVIDER_CODES: Record<ProviderId, string> = {
   cursor: 'CU',
   grok: 'GX',
   opencode: 'OC',
-};
-const PREFERRED_SUMMARY_WINDOW_IDS: Partial<Record<ProviderId, string[]>> = {
-  claude: ['claude.weekly'],
-  codex: ['codex.weekly'],
-  antigravity: ['antigravity.gemini-5h', 'antigravity.gemini-weekly'],
-  opencode: ['opencode.plan'],
 };
 /** Fallback reauth instruction when a probe didn't supply its own. */
 const PROVIDER_REAUTH_HINTS: Record<ProviderId, string> = {

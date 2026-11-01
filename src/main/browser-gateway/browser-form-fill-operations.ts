@@ -23,6 +23,7 @@ import { buildCredentialAuthorizationDenial } from './browser-credential-authori
 import { resolveCredentialTaskScope } from './browser-credential-access-session';
 import { resolveCredentialComputerId } from './browser-credential-access-runtime';
 import type { BrowserEmailCodeReader } from './browser-email-code-reader';
+import type { OneTimeCodeFillScope } from './browser-one-time-code-submit';
 import {
   executeFillPlan as runFillPlan,
   validateFillPlan,
@@ -158,6 +159,8 @@ export interface FillOperationDeps {
   };
   /** Mailbox one-time-code reader; absent = email_code fills unavailable. */
   emailCodeReader?: Pick<BrowserEmailCodeReader, 'fetchCode'>;
+  /** Note a completed email_code/totp fill so the click that submits it is released. */
+  recordOneTimeCodeFill?: (scope: OneTimeCodeFillScope) => void;
   /** Count successful agent-owned account creation against a campaign lease. */
   recordNewAccount?: (request: BrowserGatewayCreateAgentCredentialRequest & { url: string }) => void;
   /**
@@ -538,6 +541,9 @@ export async function fillCredentialOperation(
     });
   }
 
+  if (request.fields.some((field) => field.kind === 'email_code' || field.kind === 'totp')) {
+    deps.recordOneTimeCodeFill?.({ instanceId: request.instanceId, profileId: request.profileId, targetId: request.targetId, origin: pageOrigin });
+  }
   return deps.result({
     context,
     profileId: request.profileId,

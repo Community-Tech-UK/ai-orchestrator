@@ -50,11 +50,12 @@ export async function runBrowserCredentialsCli(
 
   switch (command) {
     case 'request': {
-      assertAccessFlags(flags, ['profile', 'target', 'item', 'reason', 'purpose']);
+      assertAccessFlags(flags, ['profile', 'target', 'item', 'reason', 'purpose', 'sender-domain']);
       const payload = BrowserCredentialsCliRequestPayloadSchema.parse({
         profileId: requireOne(flags, 'profile'), targetId: requireOne(flags, 'target'),
         item: requireOne(flags, 'item'), reason: requireOne(flags, 'reason'),
         ...(flags.values.has('purpose') ? { purposes: [...new Set(flags.values.get('purpose'))] } : {}),
+        ...(flags.values.has('sender-domain') ? { senderDomains: [...new Set(flags.values.get('sender-domain'))] } : {}),
       });
       await reportAccessResult(deps, BROWSER_CREDENTIALS_CLI_METHODS.request, payload, flags.json, stdout);
       return;
@@ -407,7 +408,8 @@ function formatHelp(): string {
     '',
     'Commands:',
     '  request    --profile <id> --target <id> --item <saved login name|id>',
-    '             --reason <task reason> [--purpose login|totp]',
+    '             --reason <task reason> [--purpose login|totp|email_code]',
+    '             [--sender-domain <domain> ...]   (email_code only)',
     '  status     --id <requestId>',
     '  cancel     --id <requestId>',
     '             Access stays pending until James approves in Harness, including',

@@ -101,6 +101,7 @@ function harness(
     waitForInputReadinessBoundary: vi.fn().mockResolvedValue(undefined), prepareStatusForAdapterInput: vi.fn(),
     buildReplayContinuityMessage: () => 'Example conversation continuity',
     buildFallbackHistory: async () => 'Example fallback continuity',
+    holdContinuityUntilAnswered: vi.fn(),
     emitModelSelectionDegradation: vi.fn(), emitSystemNotice: vi.fn(),
     emitRuntimeChanged: vi.fn(), emitYoloToggled: vi.fn(),
     getSettings: () => ({ defaultCli: 'auto', ...settings } as ReturnType<RuntimeReconcilerDeps['getSettings']>),

@@ -5,6 +5,7 @@ import type {
   WorkerAgentAutoUpdateState as WorkerAutoUpdateState,
   WorkerAgentAutoUpdateSummary as WorkerAutoUpdateSummary,
 } from '../shared/types/worker-node.types';
+import * as deps from './worker-self-update-dependencies';
 
 /**
  * Automatic self-update for a worker that runs from a git checkout.
@@ -22,6 +23,7 @@ import type {
  * the supervisor respawns the child on the new bundle. The new relay then tells
  * the extension which version it expects, and the extension reloads itself.
  *
+ * Changed dependencies are installed before the build (worker-self-update-dependencies.ts).
  * Any failure up to and including the swap undoes the fast-forward (back to the
  * commit HEAD was on before this update) and leaves the live bundle untouched,
  * so a bad commit can never take the node down. A failed commit is remembered
@@ -41,6 +43,7 @@ const DEFAULT_FIRST_CHECK_DELAY_MS = 2 * 60_000;
 const DEFAULT_QUIET_MS = 3 * 60_000;
 const GIT_TIMEOUT_MS = 60_000;
 const BUILD_TIMEOUT_MS = 10 * 60_000;
+const INSTALL_TIMEOUT_MS = 20 * 60_000;
 const SELF_CHECK_TIMEOUT_MS = 60_000;
 const MAX_REASON_CHARS = 300;
 const RETRY_FAILED_AFTER_MS = 2 * 60 * 60_000;
@@ -84,6 +87,8 @@ export interface WorkerSelfUpdaterOptions {
   /** Disconnect cleanly, then exit with WORKER_UPDATE_RESTART_EXIT_CODE. */
   restart: () => Promise<void>;
   nodeExecutable?: string;
+  npmCli?: string | null;
+  nativeModulesLoaded?: () => boolean;
   run?: RunCommand;
   fs?: SelfUpdateFs;
   now?: () => number;
@@ -119,6 +124,7 @@ export class WorkerSelfUpdater {
   private readonly nodeExecutable: string;
   private readonly stampPath: string;
   private readonly failedPath: string;
+  private readonly depsPath: string;
   private readonly candidatePath: string;
   private readonly previousPath: string;
   private readonly quietMs: number;
@@ -147,6 +153,7 @@ export class WorkerSelfUpdater {
     const bundleDir = path.dirname(options.bundlePath);
     this.stampPath = path.join(bundleDir, '.source-commit');
     this.failedPath = path.join(bundleDir, '.auto-update-failed');
+    this.depsPath = path.join(bundleDir, '.deps-commit');
     this.candidatePath = path.join(bundleDir, 'index.next.js');
     this.previousPath = path.join(bundleDir, 'index.prev.js');
     this.quietMs = options.quietMs ?? DEFAULT_QUIET_MS;
@@ -254,6 +261,13 @@ export class WorkerSelfUpdater {
   }
 
   private async apply(plan: GitPlan): Promise<void> {
+    const installedFor = readCommit(this.fs.readText(this.depsPath)) ?? this.diskCommit;
+    const install = await deps.dependenciesMayDiffer((args) => this.git(args), installedFor, plan.target);
+    if (install && (this.options.nativeModulesLoaded ?? deps.workerNativeModulesLoaded)()) {
+      await this.restartForCleanInstall(plan.target);
+      return;
+    }
+    if (install) deps.clearCleanInstallRestart(this.fs, path.dirname(this.options.bundlePath));
     this.setSummary('updating', undefined, plan.target);
     this.logger.info('[WorkerSelfUpdate] Updating worker', {
       from: this.diskCommit ? short(this.diskCommit) : 'unknown',
@@ -266,6 +280,7 @@ export class WorkerSelfUpdater {
         if (merge.code !== 0) throw new UpdateStepError('git merge --ff-only', merge);
         moved = true;
       }
+      if (install) await this.installDependencies(plan.target);
       this.fs.remove(this.candidatePath);
       const build = await this.run(
         this.nodeExecutable,
@@ -340,6 +355,29 @@ export class WorkerSelfUpdater {
     this.logger.info('[WorkerSelfUpdate] New bundle in place', { commit: short(plan.target) });
     this.clearFailed();
     await this.restartWhenQuiet();
+  }
+
+  private async installDependencies(target: string): Promise<void> {
+    const npmCli = this.options.npmCli !== undefined ? this.options.npmCli : deps.resolveNpmCli(this.nodeExecutable);
+    if (!npmCli) throw new Error(`new dependencies are needed but npm was not found beside ${this.nodeExecutable}`);
+    const run = { cwd: this.options.repoRoot, timeoutMs: INSTALL_TIMEOUT_MS };
+    const result = await this.run(this.nodeExecutable, [npmCli, ...deps.NPM_INSTALL_ARGS], run);
+    if (result.code !== 0) throw new UpdateStepError('npm install', result);
+    this.fs.writeText(this.depsPath, `${target}\n`);
+  }
+
+  /** A loaded native module blocks npm on Windows: restart into a fresh process, which installs first. */
+  private async restartForCleanInstall(target: string): Promise<void> {
+    try {
+      const blocked = deps.prepareCleanInstallRestart(this.fs, path.dirname(this.options.bundlePath), target);
+      if (blocked) return this.setSummary('blocked', blocked, target);
+      this.setSummary('updating', 'restarting to install new dependencies', target);
+      this.restarting = true;
+      await this.options.restart();
+    } catch (error) {
+      this.restarting = false;
+      this.setSummary('blocked', `restart for a dependency install failed: ${errorMessage(error)}`, target);
+    }
   }
 
   private async restartWhenQuiet(): Promise<void> {

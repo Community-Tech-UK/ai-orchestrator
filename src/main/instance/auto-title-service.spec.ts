@@ -409,11 +409,20 @@ describe('AutoTitleService', () => {
   it.each([
     ['claude', 'claude', 'anthropic', 'haiku'],
     ['codex', 'codex', 'openai', 'gpt-5.6-luna'],
-    ['antigravity', 'antigravity', 'google', 'gemini-3.5-flash'],
+    ['antigravity', 'antigravity', 'google', 'gemini-3.8-flash'],
     ['antigravity', 'gemini', 'google', 'gemini-2.5-flash'],
   ] as const)(
     'patches a missing-cost %s CLI winner as pricing provider %s',
     async (availableCandidate, resolvedCli, expectedProvider, expectedModel) => {
+      // gemini-3.8-flash (agy's current Flash) is priced only by the models.dev
+      // overlay, which the app seeds from its bundled snapshot at startup.
+      const { clearModelRateOverlay, registerProviderModelRates } = await import(
+        '../../shared/data/model-pricing'
+      );
+      clearModelRateOverlay();
+      registerProviderModelRates([
+        { provider: 'google', id: 'gemini-3.8-flash', rate: { input: 0.75, output: 3.75 } },
+      ]);
       mockAuxGenerate.mockResolvedValue({
         text: '',
         decision: {

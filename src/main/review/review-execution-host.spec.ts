@@ -195,7 +195,7 @@ describe('ProviderReviewExecutionHost', () => {
   });
 
   it('routes an exhausted Antigravity Gemini override to Sonnet', async () => {
-    hostTestState.modelByProvider = { antigravity: 'Gemini 3.5 Flash (Medium)' };
+    hostTestState.modelByProvider = { antigravity: 'Gemini 3.8 Flash (Medium)' };
     hostTestState.quotaSnapshot = {
       ok: true,
       takenAt: Date.now(),
@@ -220,6 +220,6 @@ describe('ProviderReviewExecutionHost', () => {
       new AbortController().signal,
     );
 
-    expect(capturedModel).toBe('Claude Sonnet 4.6 (Thinking)');
+    expect(capturedModel).toBe('Claude Sonnet 5.5 (Medium)');
   });
 });

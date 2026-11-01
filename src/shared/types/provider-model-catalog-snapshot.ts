@@ -8,6 +8,12 @@ export interface KnownProviderModelId {
 let knownModelCatalogIdsByProvider = new Map<string, Set<string>>();
 /** First pinned id per provider. Grok uses this as the live primary. */
 let pinnedModelIdByProvider = new Map<string, string>();
+/**
+ * True once a whole catalog has been published (`replace…`). Before that the
+ * renderer may have merged in a few remembered or custom ids, which say nothing
+ * about the rest of a provider's list.
+ */
+let fullCatalogSnapshotLoaded = false;
 
 /**
  * Replace the process-local live catalog snapshot used by synchronous model
@@ -26,6 +32,7 @@ export function replaceKnownModelCatalogSnapshot(
 
   knownModelCatalogIdsByProvider = next;
   pinnedModelIdByProvider = pinned;
+  fullCatalogSnapshotLoaded = true;
 }
 
 export function mergeKnownModelCatalogSnapshot(
@@ -49,6 +56,12 @@ export function mergeKnownModelCatalogSnapshot(
 export function clearKnownModelCatalogSnapshotForTesting(): void {
   knownModelCatalogIdsByProvider = new Map<string, Set<string>>();
   pinnedModelIdByProvider = new Map<string, string>();
+  fullCatalogSnapshotLoaded = false;
+}
+
+/** Whether a whole catalog (not just merged fragments) has been published. */
+export function hasFullModelCatalogSnapshot(): boolean {
+  return fullCatalogSnapshotLoaded;
 }
 
 /** Live catalog's pinned id for a provider, when discovery marked one. */

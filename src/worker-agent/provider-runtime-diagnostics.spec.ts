@@ -502,6 +502,28 @@ describe('diagnoseProviderRuntime', () => {
     expect(result.provider.authenticated).toBe(true);
   });
 
+  it('accepts the agy 1.4.11 catalogue, which shares no row with agy 1.0', async () => {
+    const result = await diagnoseProviderRuntime('antigravity', {
+      env: { HOME: '/tmp/worker-home' },
+      exec: makeExec({
+        'whoami': { stdout: 'worker-user\n' },
+        'agy --version': { stdout: '1.4.11\n' },
+        'agy models': {
+          stdout: [
+            'Fetching available models...',
+            'gemini-4-argon-medium\tGemini 4 Argon (Medium)',
+            'claude-opus-5-5-high\tClaude Opus 5.5 (High)',
+            'claude-sonnet-5-5-low\tClaude Sonnet 5.5 (Low)',
+            '',
+          ].join('\n'),
+        },
+      }),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.provider.authenticated).toBe(true);
+  });
+
   it('accepts a CSI-coloured exact current catalogue row', async () => {
     const result = await diagnoseProviderRuntime('antigravity', {
       env: { HOME: '/tmp/worker-home' },

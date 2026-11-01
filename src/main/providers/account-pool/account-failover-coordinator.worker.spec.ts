@@ -162,6 +162,7 @@ async function harness(options: {
     evaluateResumeHealth: async () => 'healthy', waitForInputReadinessBoundary: async () => undefined,
     prepareStatusForAdapterInput: () => undefined,
     buildReplayContinuityMessage: () => 'synthetic history', buildFallbackHistory: async () => 'synthetic history',
+    holdContinuityUntilAnswered: () => undefined,
     emitModelSelectionDegradation: () => undefined,
     emitSystemNotice: (_instance, content) => { state.notices.push(content); },
     emitRuntimeChanged: () => { state.runtimeChanged++; }, emitYoloToggled: () => undefined,

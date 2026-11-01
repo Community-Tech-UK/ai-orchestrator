@@ -491,7 +491,7 @@ export class RuntimeReconciler {
           newModel: validatedModel || 'provider-default',
           provider: instance.provider,
           reasoningEffort: nextReasoningEffort ?? 'provider-default',
-          continuity,
+          continuity: actuallyResumed ? continuity : 'replay',
         });
 
         if (isProviderSwap) {
@@ -570,6 +570,7 @@ export class RuntimeReconciler {
             ? this.deps.describeLoopProviderDivergence?.(instanceId, instance.provider)
             : null,
           preamble,
+          holdUntilAnswered: (text) => this.deps.holdContinuityUntilAnswered(instanceId, text),
         });
         assertCurrent();
       } catch (error) {

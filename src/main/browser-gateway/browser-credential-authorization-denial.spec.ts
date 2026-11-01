@@ -71,6 +71,21 @@ describe('formatCredentialAuthorizationDenial', () => {
     expect(denial.reason.length).toBeLessThanOrEqual(1000);
   });
 
+  it('points a missing email_code permission at the approval request, not the refused CLI', () => {
+    const denial = formatCredentialAuthorizationDenial({
+      toolName: 'browser.fill_credential',
+      origin: 'https://tap.tcsapps.com',
+      purpose: 'email_code',
+      reason: 'origin_not_authorized',
+      scope: NODE_ID,
+    });
+
+    expect(denial.reason).toContain('browser.request_credential_access');
+    expect(denial.reason).toContain('email_code');
+    expect(denial.reason).toContain('senderDomains');
+    expect(denial.reason).not.toContain('browser-credentials authorize');
+  });
+
   it('does not advertise the CLI for secret_fill (the CLI cannot mint it)', () => {
     const denial = formatCredentialAuthorizationDenial({
       toolName: 'browser.fill_secret',

@@ -351,7 +351,7 @@ describe('CrossModelReviewService headless review', () => {
   });
 
   it('falls back from Sonnet to GPT-OSS for a headless review after Gemini quota is exhausted', async () => {
-    localReviewState.modelByProvider = { antigravity: 'Gemini 3.5 Flash (Medium)' };
+    localReviewState.modelByProvider = { antigravity: 'Gemini 3.8 Flash (Medium)' };
     localReviewState.quotaSnapshot = {
       provider: 'antigravity',
       takenAt: Date.now(),
@@ -390,7 +390,7 @@ describe('CrossModelReviewService headless review', () => {
 
     expect(dispatchReviewerPrompt).toHaveBeenCalledTimes(2);
     expect(dispatchReviewerPrompt.mock.calls.map((call) => call[4]?.modelOverride)).toEqual([
-      'Claude Sonnet 4.6 (Thinking)',
+      'Claude Sonnet 5.5 (Medium)',
       'GPT-OSS 120B (Medium)',
     ]);
     // WS-B9: antigravity's multi-model fallback plan means cache participation

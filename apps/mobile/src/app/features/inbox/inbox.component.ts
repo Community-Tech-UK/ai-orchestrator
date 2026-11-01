@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { MobileHeaderComponent } from '../../shared/mobile-header.component';
 import { MobileIconComponent } from '../../shared/mobile-icon.component';
@@ -26,34 +26,50 @@ import { NeedsYouStore, type NeedsYouItem } from './needs-you.store';
         <div class="mobile-empty-state inbox-empty">
           <app-mobile-icon name="check" />
           <h1>Nothing needs you right now</h1>
-          <p>Pending approvals and completed sessions from paired hosts appear here.</p>
+          <p>Questions from your sessions, and sessions you started that have finished, appear here.</p>
         </div>
       } @else {
-        <h1 class="inbox-title">Attention across hosts</h1>
-        <ul class="inbox-list">
-          @for (item of inbox.items(); track item.key) {
-            <li>
-              <button class="inbox-row mobile-pressable" type="button" (click)="open(item)"
-                [attr.aria-label]="item.title + ' on ' + item.hostName">
-                <span class="inbox-row__icon" [class.inbox-row__icon--completion]="item.kind === 'completion'">
-                  <app-mobile-icon [name]="item.kind === 'prompt' ? 'warning' : 'check'" />
-                </span>
-                <span class="inbox-row__copy">
-                  <strong>{{ item.title }}</strong>
-                  <span>{{ item.message }}</span>
-                  <small>{{ item.hostName }}</small>
-                </span>
-                <app-mobile-icon name="chevron-down" />
+        <h1 class="sr-only">Needs you</h1>
+        @for (section of sections(); track section.kind) {
+          <div class="inbox-section-heading">
+            <h2 class="inbox-title">{{ section.title }}</h2>
+            @if (section.kind === 'completion') {
+              <button class="inbox-clear" type="button" (click)="clearFinished()" [disabled]="clearing()">
+                {{ clearing() ? 'Marking read…' : 'Mark all read' }}
               </button>
-            </li>
+            }
+          </div>
+          @if (section.kind === 'completion' && inbox.clearStatus() === 'failed') {
+            <p class="inbox-status" role="alert">Some could not be marked read. Check the connection, or update Harness on that Mac, then try again.</p>
           }
-        </ul>
+          <ul class="inbox-list">
+            @for (item of section.items; track item.key) {
+              <li>
+                <button class="inbox-row mobile-pressable" type="button" (click)="open(item)"
+                  [attr.aria-label]="item.title + ' on ' + item.hostName">
+                  <span class="inbox-row__icon" [class.inbox-row__icon--completion]="item.kind === 'completion'">
+                    <app-mobile-icon [name]="item.kind === 'prompt' ? 'warning' : 'check'" />
+                  </span>
+                  <span class="inbox-row__copy">
+                    <strong>{{ item.title }}</strong>
+                    <span>{{ item.message }}</span>
+                    <small>{{ item.hostName }}</small>
+                  </span>
+                  <app-mobile-icon name="chevron-down" />
+                </button>
+              </li>
+            }
+          </ul>
+        }
       }
     </section>
   `,
   styles: [`
     .inbox-screen { min-height: 100%; padding: var(--space-3) var(--mobile-gutter) var(--space-8); }
-    .inbox-title { margin: var(--space-7) var(--space-3) var(--space-3); font-size: var(--font-size-xl); }
+    .inbox-section-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin: var(--space-7) var(--space-3) var(--space-3); }
+    .inbox-title { margin: 0; font-size: var(--font-size-xl); }
+    .inbox-clear { min-height: var(--control-size); flex-shrink: 0; border: 0; background: transparent; color: var(--accent-action); padding-inline: var(--space-2); }
+    .inbox-clear:disabled { color: var(--text-secondary); }
     .inbox-status { margin: var(--space-4) var(--space-3) 0; color: var(--text-secondary); font-size: var(--font-size-sm); }
     .inbox-list { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
     .inbox-row { display: grid; grid-template-columns: 36px minmax(0, 1fr) 18px; width: 100%; min-height: 72px; align-items: center; gap: var(--space-3); border: 0; border-radius: var(--radius-md); padding: var(--space-3); background: var(--surface-raised); color: var(--text); text-align: left; }
@@ -75,6 +91,17 @@ export class InboxComponent {
     const count = this.inbox.items().length;
     return `${count} ${count === 1 ? 'item' : 'items'} · ${this.inbox.hostStates().length} ${this.inbox.hostStates().length === 1 ? 'host' : 'hosts'}`;
   });
+  /** Questions block work, so they come first; finished sessions only wait to be read. */
+  protected readonly sections = computed(() => [
+    { kind: 'prompt' as const, title: 'Waiting for your answer', items: this.inbox.items().filter((item) => item.kind === 'prompt') },
+    { kind: 'completion' as const, title: 'Finished', items: this.inbox.items().filter((item) => item.kind === 'completion') },
+  ].filter((section) => section.items.length > 0));
+  protected readonly clearing = computed(() => this.inbox.clearStatus() === 'clearing');
+
+  constructor() {
+    // A failure is about the last attempt; it should not greet the next visit.
+    inject(DestroyRef).onDestroy(() => this.inbox.forgetClearFailure());
+  }
   protected readonly statusSummary = computed(() => {
     const states = this.inbox.hostStates();
     const offline = states.filter((host) => host.status === 'offline').length;
@@ -88,5 +115,6 @@ export class InboxComponent {
   });
 
   protected open(item: NeedsYouItem): void { void this.inbox.open(item); }
+  protected clearFinished(): void { void this.inbox.clearFinished(); }
   protected back(): void { void this.router.navigate(['/projects']); }
 }

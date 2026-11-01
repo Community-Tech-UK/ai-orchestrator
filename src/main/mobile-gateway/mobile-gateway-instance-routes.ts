@@ -206,6 +206,16 @@ export class MobileGatewayInstanceRoutes {
         await this.handleRename(req, res, instanceId);
         return true;
       }
+      // Dismisses a "finished" item without opening the conversation.
+      if (action === "viewed" && method === "POST") {
+        if (!this.source().getInstance(instanceId)) {
+          sendJsonResponse(res, 404, { error: "Instance not found" });
+          return true;
+        }
+        this.deps.markCompletionViewed(instanceId);
+        sendJsonResponse(res, 200, { ok: true });
+        return true;
+      }
     }
 
     return handleMobileQueueRoutes(this.inputQueue, res, segments, method);

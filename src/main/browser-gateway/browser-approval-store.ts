@@ -142,8 +142,10 @@ export class BrowserApprovalStore {
         AND json_extract(credential_access_json, '$.computerId') = ?
         AND json_extract(credential_access_json, '$.vaultItemRef') = ?
         AND json_extract(credential_access_json, '$.purposes') = ?
+        AND json_extract(credential_access_json, '$.senderDomains') IS ?
       ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END, created_at DESC, id DESC LIMIT 1`).get<BrowserApprovalRequestRow>(metadata.taskScope,
-        metadata.origin, metadata.scope, metadata.computerId, metadata.vaultItemRef, JSON.stringify(metadata.purposes));
+        metadata.origin, metadata.scope, metadata.computerId, metadata.vaultItemRef, JSON.stringify(metadata.purposes),
+        metadata.senderDomains ? JSON.stringify(metadata.senderDomains) : null);
     return row ? this.map(row) : null;
   }
 

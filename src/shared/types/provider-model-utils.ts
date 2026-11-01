@@ -17,7 +17,9 @@ import {
   type ProviderType,
 } from './provider.types';
 import {
+  getKnownCatalogModelIdsForProvider,
   getPinnedCatalogModelId,
+  hasFullModelCatalogSnapshot,
   isKnownCatalogModelForProvider,
 } from './provider-model-catalog-snapshot';
 
@@ -29,16 +31,31 @@ export function getModelsForProvider(provider: string): ModelDisplayInfo[] {
 }
 
 /**
- * True when `modelId` is a known Antigravity (`agy`) model — an exact display
- * label from `agy models` present in PROVIDER_MODEL_LIST.antigravity. The
- * adapter gates `--model` forwarding on this so stale ids (a `gemini-*` id, a
- * tier name, etc.) are dropped and agy uses its default rather than a bogus value.
+ * The agy labels AIO may forward to `agy --model`. Once a whole catalog has
+ * been published it is the only authority: the main catalog seeds it with the
+ * static list, then `agy models` discovery replaces those rows, and agy exits 1
+ * on a label it no longer lists, so a static row the live list dropped must not
+ * be forwarded. Until then (worker agent, renderer before its first catalog
+ * load, when it has merged only a few remembered ids) the static list stands
+ * in, plus whatever was merged.
+ */
+function knownAntigravityModelIds(): string[] {
+  const catalogIds = getKnownCatalogModelIdsForProvider('antigravity');
+  if (hasFullModelCatalogSnapshot() && catalogIds.length > 0) return catalogIds;
+  const staticIds = (PROVIDER_MODEL_LIST['antigravity'] ?? []).map((model) => model.id);
+  return [...new Set([...staticIds, ...catalogIds])];
+}
+
+/**
+ * True when `modelId` is an Antigravity (`agy`) label agy currently accepts.
+ * The adapter gates `--model` forwarding on this so a stale id (a `gemini-*`
+ * id, a tier name, a label agy has retired) is dropped and agy uses its own
+ * default rather than failing the turn.
  */
 export function isAntigravityModelId(modelId?: string | null): boolean {
   const trimmed = modelId?.trim();
   if (!trimmed) return false;
-  return (PROVIDER_MODEL_LIST['antigravity'] ?? []).some((model) => model.id === trimmed)
-    || isKnownCatalogModelForProvider('antigravity', trimmed);
+  return knownAntigravityModelIds().includes(trimmed);
 }
 
 function normalizeProviderModelNamespace(provider: string): string {
@@ -160,11 +177,12 @@ export function normalizeModelAliasForProvider(
  */
 export function getPrimaryModelForProvider(provider: string): string | undefined {
   const normalizedProvider = normalizeProviderModelNamespace(provider);
-  // Grok's installed CLI is the source of truth for "current". Once `grok models`
-  // has pinned its `(default)` row into the live catalog, that id is the primary
-  // so a new release is what new sessions and retired-id repair spawn. Before
-  // discovery, the static list's first row remains the offline fallback.
-  if (normalizedProvider === 'grok') {
+  // Grok's and Antigravity's installed CLIs are the source of truth for
+  // "current". Once discovery has pinned a row into the live catalog (Grok's
+  // `(default)` row, Antigravity's first `(Medium)` row), that id is the
+  // primary so a new release is what new sessions and retired-id repair spawn.
+  // Before discovery, the static list's first row remains the offline fallback.
+  if (normalizedProvider === 'grok' || normalizedProvider === 'antigravity') {
     const liveDefault = getPinnedCatalogModelId(normalizedProvider);
     if (liveDefault) return liveDefault;
   }
@@ -175,8 +193,8 @@ export function getPrimaryModelForProvider(provider: string): string | undefined
  * Normalize a model selection so stale cross-provider values do not leak into
  * a different CLI.
  *
- * Strict providers (Claude, Gemini, Antigravity, Grok) accept static or
- * live-catalog model ids.
+ * Strict providers (Claude, Gemini, Grok) accept static or live-catalog model
+ * ids; Antigravity accepts only labels agy currently lists.
  * Codex accepts any OpenAI/Codex-style model id because its list evolves
  * faster than our static allowlist.
  * Dynamic providers (Copilot, Cursor, Auto) preserve explicit non-empty ids.
@@ -209,19 +227,20 @@ export function normalizeModelForProvider(
 
   switch (normalizedProvider) {
     case 'claude':
-    case 'gemini':
-    case 'antigravity': {
-      // Antigravity is validated against its static label list like the other
-      // fixed-catalog providers: agy accepts only the exact display labels, and
-      // a stale cross-provider id (e.g. a legacy `gemini-*` id inherited when a
-      // Gemini instance is normalized to antigravity) must fall back to the
-      // default rather than be forwarded as a bogus --model value.
+    case 'gemini': {
       const providerModels = getModelsForProvider(normalizedProvider);
       return providerModels.some((model) => model.id === normalizedModel)
         || isKnownCatalogModelForProvider(normalizedProvider, normalizedModel)
         ? normalizedModel
         : fallback;
     }
+    case 'antigravity':
+      // agy exits 1 on a label it does not list, so a stale cross-provider id
+      // (a legacy `gemini-*` id inherited when a Gemini instance is normalized
+      // to antigravity) or a label agy has since dropped falls back to the
+      // default. Retired labels with a known successor were already mapped by
+      // normalizeModelAliasForProvider above.
+      return isAntigravityModelId(normalizedModel) ? normalizedModel : fallback;
     case 'codex':
       return looksLikeCodexModelId(normalizedModel)
         || isKnownCatalogModelForProvider(normalizedProvider, normalizedModel)
@@ -303,6 +322,10 @@ export function resolveModelForTier(
   tier: 'fast' | 'balanced' | 'powerful',
   provider: string
 ): string | undefined {
+  // agy lists Flash as High, Medium, Low, so the first balanced row would be
+  // `Flash (High)`. Balanced means the house default (`Flash (Medium)`), which
+  // also tracks the live list.
+  if (provider === 'antigravity' && tier === 'balanced') return antigravityDefaultModel();
   const models = PROVIDER_MODEL_LIST[provider];
   if (!models || models.length === 0) return undefined;
   const match = models.find(m => m.tier === tier);
@@ -337,34 +360,42 @@ const CLI_TO_PROVIDER_TYPE: Record<string, ProviderType> = {
   opencode: 'opencode',
 };
 
+/** The newest Gemini Flash at Medium effort, e.g. `Gemini 3.8 Flash (Medium)`. */
+const ANTIGRAVITY_HOUSE_DEFAULT_PATTERN = /^Gemini (\d+(?:\.\d+)*) Flash \(Medium\)$/;
+
 /**
  * T41 — Antigravity's house default.
  *
  * `antigravity` is a CLI-only provider with no `ProviderType` member, so it had
  * no `CLI_TO_PROVIDER_TYPE` entry and `getDefaultModelForCli('antigravity')`
  * returned `undefined`: a router-off Antigravity spawn passed no `--model` and
- * agy silently picked its own. This must be an EXACT `agy models` display
- * label (G35) — agy ignores an unknown `--model` without warning — so it is
- * read from the catalog rather than written out by hand.
+ * agy picked its own (its flagship, not the balanced Flash model).
+ *
+ * The default is a rule, not a typed-in label: the newest `Gemini <version>
+ * Flash (Medium)` agy currently lists. A hard-coded label went stale the day
+ * agy dropped it, and agy exits 1 on a label it does not list. Falls back to
+ * the provider primary if agy ever lists no Flash model.
  */
 export function antigravityDefaultModel(): string | undefined {
-  // Named explicitly, not picked by tier: the antigravity catalog has three
-  // pinned `balanced` rows (Gemini Flash, Claude Sonnet, GPT-OSS), so a
-  // `.find()` would make the house default an accident of array order. This is
-  // the same row `DEFAULT_REVIEWER_MODEL_BY_PROVIDER.antigravity` uses.
-  //
-  // Resolved lazily and validated against the catalog: `provider.types` and
-  // this module import each other, so a module-eval read of
-  // PROVIDER_MODEL_LIST sees `undefined`; and agy ignores an unknown --model
-  // without warning (G35), so a catalog rename must fall back to the first
-  // balanced row rather than forward a label agy no longer accepts.
-  const models = PROVIDER_MODEL_LIST['antigravity'] ?? [];
-  const preferred = models.find((model) => model.id === ANTIGRAVITY_HOUSE_DEFAULT_MODEL_ID);
-  return (preferred ?? models.find((model) => model.tier === 'balanced' && model.pinned))?.id;
+  let best: { id: string; version: number[] } | undefined;
+  for (const id of knownAntigravityModelIds()) {
+    const match = ANTIGRAVITY_HOUSE_DEFAULT_PATTERN.exec(id);
+    if (!match) continue;
+    const version = match[1].split('.').map(Number);
+    if (!best || compareVersionParts(version, best.version) > 0) {
+      best = { id, version };
+    }
+  }
+  return best?.id ?? getPrimaryModelForProvider('antigravity');
 }
 
-/** The agy display label AIO picks when nothing else pins one. */
-export const ANTIGRAVITY_HOUSE_DEFAULT_MODEL_ID = 'Gemini 3.5 Flash (Medium)';
+function compareVersionParts(a: number[], b: number[]): number {
+  for (let index = 0; index < Math.max(a.length, b.length); index++) {
+    const difference = (a[index] ?? 0) - (b[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
 
 /**
  * Get the default model for a CLI type.

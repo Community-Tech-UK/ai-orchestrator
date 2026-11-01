@@ -190,4 +190,34 @@ describe('ImapMcpMailboxReader', () => {
     // The unrelated sender's newer mail is ignored; the site's code wins.
     expect(result).toMatchObject({ code: '335577', messageId: '21' });
   });
+
+  it('reads the code from an HTML-only British Council MyProcurement mail', async () => {
+    // Shape of the real 2026-10-30 registration mail: empty text part, the code
+    // alone in an <h1>, other numbers (validity, charity numbers) in prose.
+    const html = '<p><img src="data:image/png;base64,iVBORw0KGgo"></p><p>Dear Supplier,</p>'
+      + '<p>To complete your email verification for British Council MyProcurement, please enter the '
+      + 'One-Time Password (OTP) provided below:</p><h1><strong>481516</strong></h1>'
+      + '<p>This OTP is valid for 10 minutes.</p><p>A registered charity: 209131 (England and Wales) '
+      + 'SC037733 (Scotland).</p>';
+    const client = makeClient(
+      [{
+        uid: 31,
+        from: 'noreplyProcurement <noreply.procurement@britishcouncil.org>',
+        subject: 'British Council MyProcurement - Supplier Registration Email Verification OTP',
+        date: new Date(T0 - 20_000).toISOString(),
+        snippet: '',
+      }],
+      { 31: { text: '', html } },
+    );
+    const mailbox = new ImapMcpMailboxReader({ server: { command: 'node', args: [] }, client, now: () => T0 });
+    const codeReader = new BrowserEmailCodeReader({ reader: mailbox, now: () => T0 });
+
+    const result = await codeReader.fetchCode({
+      expectedSenderDomains: ['tap.tcsapps.com', 'britishcouncil.org'],
+      sinceMs: T0 - 10 * 60_000,
+      withinMs: 10 * 60_000,
+    });
+
+    expect(result).toMatchObject({ code: '481516', messageId: '31' });
+  });
 });

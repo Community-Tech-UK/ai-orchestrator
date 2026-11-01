@@ -129,6 +129,8 @@ export class NeedsYouStore {
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly controllers = new Map<string, AbortController>();
   private unsubscribeForeground: (() => void) | null = null;
+  private readonly clearState = signal<'idle' | 'clearing' | 'failed'>('idle');
+  readonly clearStatus = this.clearState.asReadonly();
 
   readonly hostStates = computed<HostAttentionView[]>(() => this.hosts.hosts().map((host) => ({
     id: host.id,
@@ -200,6 +202,45 @@ export class NeedsYouStore {
     await this.router.navigate([
       '/projects', item.workingDirectory || '__no_workspace__', 'sessions', item.instanceId,
     ]);
+  }
+
+  /** Marks every finished session as read on its host, without opening each one. */
+  async clearFinished(): Promise<void> {
+    if (this.clearState() === 'clearing') return;
+    const finished = this.items().filter((item) => item.kind === 'completion');
+    if (finished.length === 0) return;
+    this.clearState.set('clearing');
+    const results = await Promise.allSettled(finished.map((item) => this.markViewed(item)));
+    this.clearState.set(results.every((result) => result.status === 'fulfilled') ? 'idle' : 'failed');
+  }
+
+  forgetClearFailure(): void {
+    if (this.clearState() === 'failed') this.clearState.set('idle');
+  }
+
+  private async markViewed(item: NeedsYouItem): Promise<void> {
+    const host = this.hosts.hosts().find((candidate) => candidate.id === item.hostId);
+    if (!host) return;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+    try {
+      const response = await this.environment.fetch(
+        `${endpoint(host)}/api/instances/${encodeURIComponent(item.instanceId)}/viewed`,
+        { method: 'POST', headers: { authorization: `Bearer ${host.token}` }, signal: controller.signal },
+      );
+      if (!response.ok) throw new Error(`Clearing failed (${response.status})`);
+    } finally {
+      clearTimeout(timeout);
+    }
+    // The active host broadcasts a fresh snapshot; probed hosts are patched until their next probe.
+    if (host.id === this.hosts.activeId()) return;
+    this.probeResults.update((results) => {
+      const result = results[host.id];
+      if (!result) return results;
+      const instances = result.instances.map((instance) =>
+        instance.id === item.instanceId ? { ...instance, hasUnreadCompletion: false } : instance);
+      return { ...results, [host.id]: { ...result, instances } };
+    });
   }
 
   private syncTargets(hosts: readonly PairedHost[], activeId: string | null): void {

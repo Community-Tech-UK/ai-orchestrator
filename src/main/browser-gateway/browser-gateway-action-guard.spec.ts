@@ -17,6 +17,11 @@ import {
 } from './browser-action-classifier';
 import type { BrowserExistingTabAttachment } from './browser-extension-tab-store';
 import type { BrowserGatewayResultInput } from './browser-gateway-result';
+import {
+  BrowserOneTimeCodeFillLedger,
+  ONE_TIME_CODE_SUBMIT_REASON,
+  ONE_TIME_CODE_SUBMIT_WINDOW_MS,
+} from './browser-one-time-code-submit';
 
 const CAMPAIGN_SUBMIT_GRANT: BrowserPermissionGrant = {
   id: 'g1',
@@ -46,6 +51,8 @@ function makeGuard(opts: {
   approvals?: BrowserApprovalRequest[];
   probe?: BrowserGatewayActionGuardOptions['probePageChallenge'];
   managed?: boolean;
+  oneTimeCodeFills?: BrowserGatewayActionGuardOptions['oneTimeCodeFills'];
+  elementText?: string;
 } = {}) {
   const withEscalations = opts.withEscalations ?? true;
   const grants = opts.grants ?? [];
@@ -78,7 +85,7 @@ function makeGuard(opts: {
     targetRegistry: { listTargets: vi.fn(() => opts.managed ? [{ id: 't1' }] : []) } as unknown as BrowserGatewayActionGuardOptions['targetRegistry'],
     driver: {
       refreshTarget: vi.fn(async () => ({ id: 't1', url: attachment.url, origin: attachment.origin })),
-      inspectElement: vi.fn(async () => ({ visibleText: 'ordinary field' })),
+      inspectElement: vi.fn(async () => ({ visibleText: opts.elementText ?? 'ordinary field' })),
     } as unknown as BrowserGatewayActionGuardOptions['driver'],
     extensionTabStore: { getTab: vi.fn(() => opts.managed ? undefined : attachment) } as unknown as BrowserGatewayActionGuardOptions['extensionTabStore'],
     grantStore: {
@@ -97,6 +104,7 @@ function makeGuard(opts: {
     result: result as unknown as BrowserGatewayActionGuardOptions['result'],
     ...(withEscalations ? { escalations: { raise } } : {}),
     ...(opts.probe ? { probePageChallenge: opts.probe } : {}),
+    ...(opts.oneTimeCodeFills ? { oneTimeCodeFills: opts.oneTimeCodeFills } : {}),
   };
 
   return { guard: new BrowserGatewayActionGuard(options), raise, createRequest, consumeGrant, result };
@@ -586,5 +594,158 @@ describe('BrowserGatewayActionGuard CAPTCHA evidence (2026-09-15 §3.4)', () => 
 
     expect(probe).not.toHaveBeenCalled();
     expect(raise).not.toHaveBeenCalled();
+  });
+});
+
+describe('BrowserGatewayActionGuard one-time code submit (British Council TAP, 2026-10-30)', () => {
+  it('parks the "Validate OTP" click when Harness did not fill the code', async () => {
+    const { guard, raise, result: audit } = makeGuard({ grants: [CAMPAIGN_SUBMIT_GRANT] });
+
+    const result = resultOf(await guard.prepareMutatingAction(
+      CONTEXT, 'click', 'browser.click', '#validate-otp', 'Validate OTP',
+    ));
+
+    expect(raise).toHaveBeenCalledWith(expect.objectContaining({ kind: 'two_factor_unavailable' }));
+    expect(result.reason).toBe('two_factor_unavailable_parked_to_escalation_queue');
+    // The parked step says the code will expire and names the path that works.
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({
+      reason: 'two_factor_unavailable_parked_to_escalation_queue',
+      summary: expect.stringMatching(/expire[\s\S]*browser\.fill_credential/),
+    }));
+    expect(raise).toHaveBeenCalledWith(expect.objectContaining({ reason: expect.stringContaining('expire') }));
+  });
+
+  const PORTAL = 'https://portal.example.gov.uk';
+  const clickValidate = (guard: BrowserGatewayActionGuard, context = CONTEXT) =>
+    guard.prepareMutatingAction(context, 'click', 'browser.click', '#validate-otp', 'Validate OTP');
+
+  it('checks the click as an ordinary submit after Harness filled the code on this tab', async () => {
+    const ledger = new BrowserOneTimeCodeFillLedger();
+    ledger.record({ instanceId: 'i1', profileId: 'p1', targetId: 't1', origin: PORTAL });
+    const { guard, raise, createRequest, result } = makeGuard({ grants: [CAMPAIGN_SUBMIT_GRANT], oneTimeCodeFills: ledger });
+
+    const prep = await clickValidate(guard);
+
+    expect(prep).toMatchObject({ grant: { id: 'g1' }, actionClass: 'submit', origin: PORTAL });
+    expect(raise).not.toHaveBeenCalled();
+    expect(createRequest).not.toHaveBeenCalled();
+    expect(result).toHaveBeenCalledWith(expect.objectContaining({
+      reason: ONE_TIME_CODE_SUBMIT_REASON, actionClass: 'submit', decision: 'allowed', toolName: 'browser.click',
+    }));
+  });
+
+  it('does the same on a managed profile, where the element itself is inspected', async () => {
+    const ledger = new BrowserOneTimeCodeFillLedger();
+    ledger.record({ instanceId: 'i1', profileId: 'p1', targetId: 't1', origin: PORTAL });
+    const { guard, raise } = makeGuard({
+      grants: [CAMPAIGN_SUBMIT_GRANT], oneTimeCodeFills: ledger, managed: true, elementText: 'Submit verification code',
+    });
+
+    const prep = await clickValidate(guard);
+
+    expect(prep).toMatchObject({ grant: { id: 'g1' }, actionClass: 'submit' });
+    expect(raise).not.toHaveBeenCalled();
+
+    // Without the fill, the same inspected element parks.
+    const unfilled = makeGuard({ grants: [CAMPAIGN_SUBMIT_GRANT], managed: true, elementText: 'Submit verification code' });
+    expect(resultOf(await clickValidate(unfilled.guard)).reason).toBe('two_factor_unavailable_parked_to_escalation_queue');
+  });
+
+  it('releases only one click per fill', async () => {
+    const ledger = new BrowserOneTimeCodeFillLedger();
+    ledger.record({ instanceId: 'i1', profileId: 'p1', targetId: 't1', origin: PORTAL });
+    const { guard, raise } = makeGuard({ grants: [CAMPAIGN_SUBMIT_GRANT], oneTimeCodeFills: ledger });
+
+    await clickValidate(guard);
+    const second = resultOf(await clickValidate(guard));
+
+    expect(second.reason).toBe('two_factor_unavailable_parked_to_escalation_queue');
+    expect(raise).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['another tab', { instanceId: 'i1', profileId: 'p1', targetId: 't2', origin: PORTAL }],
+    ['another origin', { instanceId: 'i1', profileId: 'p1', targetId: 't1', origin: 'https://evil.example' }],
+    ['another session', { instanceId: 'i2', profileId: 'p1', targetId: 't1', origin: PORTAL }],
+  ])('keeps parking when the fill was on %s', async (_label, scope) => {
+    const ledger = new BrowserOneTimeCodeFillLedger();
+    ledger.record(scope);
+    const { guard, raise } = makeGuard({ grants: [CAMPAIGN_SUBMIT_GRANT], oneTimeCodeFills: ledger });
+
+    const result = resultOf(await clickValidate(guard));
+
+    expect(result.reason).toBe('two_factor_unavailable_parked_to_escalation_queue');
+    expect(raise).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps parking when the fill is older than the window', async () => {
+    let now = 1_000;
+    const ledger = new BrowserOneTimeCodeFillLedger(() => now);
+    ledger.record({ instanceId: 'i1', profileId: 'p1', targetId: 't1', origin: PORTAL });
+    now += ONE_TIME_CODE_SUBMIT_WINDOW_MS + 1;
+    const { guard, raise } = makeGuard({ grants: [CAMPAIGN_SUBMIT_GRANT], oneTimeCodeFills: ledger });
+
+    const result = resultOf(await clickValidate(guard));
+
+    expect(result.reason).toBe('two_factor_unavailable_parked_to_escalation_queue');
+    expect(raise).toHaveBeenCalledTimes(1);
+  });
+
+  it('never releases typing into a two-factor field, and does not spend the fill on it', async () => {
+    const ledger = new BrowserOneTimeCodeFillLedger();
+    ledger.record({ instanceId: 'i1', profileId: 'p1', targetId: 't1', origin: PORTAL });
+    const { guard, raise } = makeGuard({ grants: [CAMPAIGN_SUBMIT_GRANT], oneTimeCodeFills: ledger });
+
+    const typed = resultOf(await guard.prepareMutatingAction(CONTEXT, 'type', 'browser.type', '#otp', 'Enter OTP'));
+    expect(typed.reason).toBe('two_factor_unavailable_parked_to_escalation_queue');
+    expect(raise).toHaveBeenCalledTimes(1);
+
+    expect(await clickValidate(guard)).toMatchObject({ grant: { id: 'g1' }, actionClass: 'submit' });
+  });
+
+  it('still parks a live captcha after a code fill', async () => {
+    const ledger = new BrowserOneTimeCodeFillLedger();
+    ledger.record({ instanceId: 'i1', profileId: 'p1', targetId: 't1', origin: PORTAL });
+    const { guard, raise } = makeGuard({
+      grants: [CAMPAIGN_SUBMIT_GRANT], oneTimeCodeFills: ledger, probe: async () => ({ detected: true }),
+    });
+
+    const result = resultOf(await clickValidate(guard));
+
+    expect(raise).toHaveBeenCalledWith(expect.objectContaining({ kind: 'captcha' }));
+    expect(result.reason).toContain('captcha_parked');
+  });
+
+  it('still needs a submit grant: without one the click goes to approval, and the retry is released', async () => {
+    const ledger = new BrowserOneTimeCodeFillLedger();
+    ledger.record({ instanceId: 'i1', profileId: 'p1', targetId: 't1', origin: PORTAL });
+    const grants: BrowserPermissionGrant[] = [];
+    const { guard, raise, createRequest } = makeGuard({ grants, oneTimeCodeFills: ledger });
+
+    const result = resultOf(await clickValidate(guard));
+
+    expect(result.decision).toBe('requires_user');
+    expect(raise).not.toHaveBeenCalled();
+    expect(createRequest).toHaveBeenCalledWith(expect.objectContaining({ actionClass: 'submit' }));
+
+    // The approval is granted; the agent retries the same click.
+    grants.push(CAMPAIGN_SUBMIT_GRANT);
+    expect(await clickValidate(guard)).toMatchObject({ grant: { id: 'g1' }, actionClass: 'submit' });
+    expect(raise).not.toHaveBeenCalled();
+  });
+
+  it('keeps parking a code click that also sets a password', async () => {
+    const ledger = new BrowserOneTimeCodeFillLedger();
+    ledger.record({ instanceId: 'i1', profileId: 'p1', targetId: 't1', origin: PORTAL });
+    const { guard, raise } = makeGuard({ grants: [CAMPAIGN_SUBMIT_GRANT], oneTimeCodeFills: ledger });
+
+    const result = resultOf(await guard.prepareMutatingAction(
+      CONTEXT, 'click', 'browser.click', '#verify', 'Verify OTP and set new password',
+    ));
+
+    expect(result.reason).toBe('two_factor_unavailable_parked_to_escalation_queue');
+    expect(raise).toHaveBeenCalledTimes(1);
+    // The fill was not spent, so the real verify button still works.
+    expect(await clickValidate(guard)).toMatchObject({ grant: { id: 'g1' }, actionClass: 'submit' });
   });
 });

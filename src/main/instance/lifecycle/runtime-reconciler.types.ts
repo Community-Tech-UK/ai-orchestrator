@@ -146,6 +146,8 @@ export interface RuntimeReconcilerDeps {
   prepareStatusForAdapterInput(instance: Instance): void;
   buildReplayContinuityMessage(instance: Instance, reason: string): string;
   buildFallbackHistory(instance: Instance, reason: string): Promise<string>;
+  /** Keep condensed history sent as its own turn until the model replies, so a stopped turn cannot lose it. */
+  holdContinuityUntilAnswered(instanceId: string, text: string): void;
   emitModelSelectionDegradation(instance: Instance, degradation: ModelSelectionDegradation): void;
   /**
    * Append a `system` message to the instance transcript and push it to the

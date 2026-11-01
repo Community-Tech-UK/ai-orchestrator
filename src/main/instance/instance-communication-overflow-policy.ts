@@ -7,6 +7,7 @@ import type { AdapterInputDispatch } from '../cli/adapters/base-cli-adapter.type
 import { assertAdapterInputCurrent } from '../cli/adapters/adapter-input-dispatch';
 import type { FileAttachment, Instance, InstanceStatus, OutputMessage } from '../../shared/types/instance.types';
 import type { InstanceCommunicationOverflowTracker, LastSentTurn } from './instance-communication-overflow-tracker';
+import { transitionQueuedAdapterStatus } from './instance-queued-input-handoff';
 import { captureInstanceRecoveryEpoch, invalidateInstanceRecoveryEpoch, isInstanceRecoveryEpochCurrent, recordInstanceTurnEnding } from './instance-turn-ending-state';
 
 const logger = getLogger('InstanceCommunication');
@@ -207,7 +208,9 @@ export class InstanceCommunicationOverflowPolicy {
         this.host.addToOutputBuffer(opts.instance, retryNote);
         this.host.emitOutput(opts.instanceId, retryNote);
         if (!current()) return true;
-        this.host.transitionInstanceStatus(opts.instance, 'busy');
+        // A failed turn usually settled idle first; idle reaches busy only via ready.
+        transitionQueuedAdapterStatus(opts.instanceId, opts.instance, 'busy',
+          (target, status) => this.host.transitionInstanceStatus(target, status));
         this.host.queueUpdate(opts.instanceId, 'busy');
         opts.beforeRetry?.();
         if (!current()) return true;

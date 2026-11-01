@@ -677,8 +677,8 @@ describe('CrossModelReviewService', () => {
   });
 
   describe('Antigravity quota-aware reviewer model routing', () => {
-    const GEMINI_MODEL = 'Gemini 3.5 Flash (Medium)';
-    const SONNET_MODEL = 'Claude Sonnet 4.6 (Thinking)';
+    const GEMINI_MODEL = 'Gemini 3.8 Flash (Medium)';
+    const SONNET_MODEL = 'Claude Sonnet 5.5 (Medium)';
     const GPT_OSS_MODEL = 'GPT-OSS 120B (Medium)';
     const validReview = JSON.stringify({
       correctness: { reasoning: 'ok', score: 4, issues: [] },

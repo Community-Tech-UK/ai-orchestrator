@@ -150,6 +150,44 @@ describe('announceRuntimeChangeSet (LT-030)', () => {
     expect(order.slice(0, 2)).toEqual(['render:MODEL', 'render:YOLO']);
   });
 
+  // The history turn can be stopped before the provider stores it (a send
+  // while it is still starting interrupts it), so it is held for the next input.
+  it('holds the replay history before sending it as its own turn', async () => {
+    const order: string[] = [];
+    const adapter = { sendInput: vi.fn(async () => { order.push('send'); }) };
+    await announceRuntimeChangeSet({
+      instance, adapter, emitSystemNotice: vi.fn(),
+      notices: [notice('ACCOUNT', 'account-changed')], preamble: 'REPLAY',
+      holdUntilAnswered: (text) => { order.push(`hold:${text}`); },
+    });
+    expect(order).toEqual(['hold:REPLAY', 'send']);
+  });
+
+  it('holds the replay history when the send is refused', async () => {
+    const holdUntilAnswered = vi.fn();
+    const adapter = { sendInput: vi.fn(async () => { throw new Error('runtime already has an active turn'); }) };
+    await announceRuntimeChangeSet({
+      instance, adapter, emitSystemNotice: vi.fn(),
+      notices: [notice('ACCOUNT', 'account-changed')], preamble: 'REPLAY', holdUntilAnswered,
+    });
+    expect(holdUntilAnswered).toHaveBeenCalledWith('REPLAY');
+  });
+
+  it('holds nothing for notices without history, or when no turn is started', async () => {
+    const holdUntilAnswered = vi.fn();
+    const adapter = { sendInput: vi.fn(async () => undefined), queueNextPromptContext: vi.fn() };
+    await announceRuntimeChangeSet({
+      instance, adapter, emitSystemNotice: vi.fn(), notices: [notice('MODEL', 'model-changed')], holdUntilAnswered,
+    });
+    for (const delivery of ['next-prompt', 'transcript-only'] as const) {
+      await announceRuntimeChangeSet({
+        instance, adapter, emitSystemNotice: vi.fn(), delivery,
+        notices: [notice('ACCOUNT', 'account-changed')], preamble: 'REPLAY', holdUntilAnswered,
+      });
+    }
+    expect(holdUntilAnswered).not.toHaveBeenCalled();
+  });
+
   it('queues account notice and replay context with the next prompt without starting a turn', async () => {
     const emitted: string[] = [];
     const queued: string[] = [];

@@ -15,6 +15,12 @@ export interface BrowserActionClassificationInput {
    * plain click on 2026-09-15.
    */
   elementContextSource?: 'inspected' | 'agent_hint';
+  /**
+   * Skip the two-factor words. Only for re-checking a click that submits a code
+   * the gateway itself filled, so the checks the two-factor match would have
+   * hidden (password, declaration, destructive) still apply to it.
+   */
+  ignoreTwoFactor?: boolean;
 }
 
 export interface BrowserFieldClassificationInput {
@@ -260,7 +266,7 @@ export function classifyBrowserAction(
   if (input.elementContextSource !== 'agent_hint' && hasCaptchaElementEvidence(input.elementContext)) {
     return { actionClass: 'credential', hardStop: true, reason: CAPTCHA_CHALLENGE_REASON };
   }
-  if (hasAny(contextText, TWO_FACTOR_WORDS)) {
+  if (!input.ignoreTwoFactor && hasAny(contextText, TWO_FACTOR_WORDS)) {
     return { actionClass: 'credential', hardStop: true, reason: TWO_FACTOR_CHALLENGE_REASON };
   }
   if (hasAny(contextText, PASSWORD_WORDS)) {

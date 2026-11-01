@@ -169,6 +169,10 @@ Legend: ✅ Implemented · ⚠️ Partial · ❌ Not supported · 🔲 Untested
 - `antigravity`: print-mode adapter (`agy --print`) — no native streaming (full response
   on close), no resume/session ID (stateless per message), no token usage (estimated from
   length), no permission prompts (yolo only), and no vision/attachment support.
+  Models come from `agy models` via `AntigravityCliDiscoveryService` (every 30 min),
+  with `PROVIDER_MODEL_LIST.antigravity` as the offline fallback. agy exits 1 on a
+  `--model` it does not list, so the adapter forwards only labels on the live list;
+  retired labels map to successors through `PROVIDER_MODEL_REPLACEMENTS.antigravity`.
 - `copilot` / `cursor`: no attachment support — CLI APIs do not expose file input paths.
 - `grok`: ACP-transport adapter (`grok agent … stdio`) with no vision/image support.
   Models come from `grok models` via `GrokCliDiscoveryService`, with

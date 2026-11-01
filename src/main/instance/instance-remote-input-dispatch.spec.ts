@@ -169,6 +169,9 @@ describe('communication to remote prompt admission', () => {
       expect(admission.markFailed).toHaveBeenCalledExactlyOnceWith('retry-admission', expect.stringContaining('does not support attachments'));
       expect(admission.markDelivered).toHaveBeenCalledExactlyOnceWith('retry-admission');
       for (const call of add.mock.calls) expect(remove).toHaveBeenCalledWith(call[0], call[1]);
+      // Continuity is held until the model replies; once it has, it is not sent again.
+      manager.setupAdapterEvents(instance.id, adapter as unknown as CliAdapter);
+      adapter.emit('output', { id: 'reply-1', type: 'assistant', content: 'Done.', timestamp: 2 });
       await manager.sendInput(instance.id, 'next');
       expect(sendRpc).toHaveBeenLastCalledWith('worker', 'instance.sendInput', { instanceId: instance.id, message: 'next', attachments: undefined }, 0);
     } finally { adapter.forceCleanup(); manager.cleanupCircuitBreaker(instance.id); }

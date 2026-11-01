@@ -141,9 +141,6 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
           ⏳ {{ pendingLabel }} <span class="pending-model-chip__x" aria-hidden="true">✕</span>
         </button>
       }
-      @if (desiredRuntimeLabel(); as pendingLabel) {
-        <span class="pending-model-detail">{{ copy('composer.pendingModelPrefix') + ' ' + pendingLabel + ' ' + copy('composer.pendingModelSuffix') }}</span>
-      }
     </div>
   `,
   styles: [`

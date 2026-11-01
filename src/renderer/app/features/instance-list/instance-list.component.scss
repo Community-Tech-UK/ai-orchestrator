@@ -691,6 +691,8 @@
     }
 
     .archive-warning, .filter-help { font-size: 10px; color: var(--text-secondary); }
+    /* Shown on its own line under the row while an archive waits for Confirm, so the title keeps its room. */
+    .archive-warning { grid-column: 1 / -1; justify-self: end; text-align: right; }
 
     .history-entry {
       display: grid;

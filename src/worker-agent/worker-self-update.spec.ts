@@ -59,6 +59,9 @@ interface FakeRepo {
   buildCode: number;
   selfCheckCode: number;
   resetCode: number;
+  /** `git diff --quiet` over the dependency files: 0 unchanged, 1 changed. */
+  depsDiffCode: number;
+  installCode: number;
 }
 
 function harness(overrides: {
@@ -68,6 +71,7 @@ function harness(overrides: {
 } = {}) {
   let clock = 1_000_000;
   let busy = false;
+  let nativeLoaded = false;
   const repo: FakeRepo = {
     head: C1,
     upstream: C1,
@@ -77,6 +81,8 @@ function harness(overrides: {
     buildCode: 0,
     selfCheckCode: 0,
     resetCode: 0,
+    depsDiffCode: 0,
+    installCode: 0,
     ...overrides.repo,
   };
   const fs = memoryFs({ [BUNDLE]: 'bundle:C1', [STAMP]: `${C1}\n`, ...overrides.files });
@@ -89,7 +95,8 @@ function harness(overrides: {
   const run: RunCommand = async (file, args, runOptions) => {
     invocations.push({ file, args, env: runOptions.env });
     if (file === 'git' && args[0] === 'config') return ok(sshCommandConfig ? `${sshCommandConfig}\n` : '');
-    const label = file === 'git' ? `git ${args[0]}` : args.includes('--self-check') ? 'self-check' : 'build';
+    const label = file === 'git' ? `git ${args[0]}` : args.includes('--self-check') ? 'self-check'
+      : args[1] === 'install' ? 'npm install' : 'build';
     calls.push(label === 'git merge' || label === 'git reset' ? `${label} ${args[args.length - 1]?.slice(0, 1)}` : label);
     if (file === 'git') {
       switch (args[0]) {
@@ -110,6 +117,8 @@ function harness(overrides: {
           if (repo.mergeCode !== 0) return fail(repo.mergeCode, 'error: Your local changes would be overwritten');
           repo.head = args[args.length - 1] ?? repo.head;
           return ok();
+        case 'diff':
+          return repo.depsDiffCode === 0 ? ok() : fail(repo.depsDiffCode, '');
         case 'reset':
           if (repo.resetCode !== 0) return fail(repo.resetCode, 'error: Entry not uptodate');
           repo.head = args[args.length - 1] ?? repo.head;
@@ -117,6 +126,9 @@ function harness(overrides: {
         default:
           return fail(1, `unexpected git ${args[0]}`);
       }
+    }
+    if (label === 'npm install') {
+      return repo.installCode === 0 ? ok('added 1 package') : fail(repo.installCode, 'npm ERR! EBUSY: resource busy or locked');
     }
     if (args.includes('--self-check')) {
       return repo.selfCheckCode === 0 ? ok('Worker self-check ok') : fail(repo.selfCheckCode, 'Error: Cannot find module');
@@ -134,6 +146,8 @@ function harness(overrides: {
     configPath: '/cfg.json',
     isBusy: () => busy,
     restart,
+    npmCli: '/node/npm-cli.js',
+    nativeModulesLoaded: () => nativeLoaded,
     run,
     fs,
     now: () => clock,
@@ -160,6 +174,9 @@ function harness(overrides: {
     },
     setBusy: (value: boolean) => {
       busy = value;
+    },
+    setNativeLoaded: (value: boolean) => {
+      nativeLoaded = value;
     },
   };
 }
@@ -189,6 +206,7 @@ describe('WorkerSelfUpdater', () => {
       'git rev-parse',
       'git rev-parse',
       'git merge-base',
+      'git diff',
       'git merge b',
       'build',
       'self-check',
@@ -204,6 +222,136 @@ describe('WorkerSelfUpdater', () => {
     expect(updater.getSummary()).toMatchObject({ state: 'restart_pending', targetCommit: C2 });
     // The running process still reports what it was built from until it restarts.
     expect(updater.getRunningCommit()).toBe(C1);
+  });
+
+  describe('new dependencies', () => {
+    const DEPS = path.join(DIR, '.deps-commit');
+    const RESTART_MARKER = path.join(DIR, '.deps-restart');
+
+    it('installs them between the fast-forward and the build, and records what it installed', async () => {
+      const h = harness({ repo: { upstream: C2, depsDiffCode: 1 } });
+      const updater = h.make();
+      h.advance(10 * MINUTE);
+
+      await updater.tick();
+
+      expect(h.calls).toEqual([
+        'git fetch', 'git rev-parse', 'git rev-parse', 'git merge-base', 'git diff', 'git merge b',
+        'npm install', 'build', 'self-check',
+      ]);
+      const install = h.invocations.find((call) => call.args[1] === 'install');
+      expect(install?.args).toEqual(['/node/npm-cli.js', 'install', '--no-save', '--no-audit', '--no-fund', '--loglevel=error']);
+      expect(h.fs.files.get(DEPS)).toBe(`${C2}\n`);
+      expect(h.fs.files.get(BUNDLE)).toBe('bundle:b');
+      expect(h.restart).toHaveBeenCalledOnce();
+    });
+
+    it('does not install again for dependencies it already installed', async () => {
+      const h = harness({ repo: { upstream: C2, depsDiffCode: 1 }, files: { [DEPS]: `${C2}\n` } });
+      const updater = h.make();
+      h.advance(10 * MINUTE);
+
+      await updater.tick();
+
+      expect(h.calls).not.toContain('npm install');
+      expect(h.calls).not.toContain('git diff'); // installed for the target itself
+      expect(h.fs.files.get(BUNDLE)).toBe('bundle:b');
+    });
+
+    it('installs when it cannot tell what node_modules holds', async () => {
+      const h = harness({ repo: { upstream: C2 }, files: { [STAMP]: 'not a commit' } });
+      const updater = h.make();
+      h.advance(10 * MINUTE);
+
+      await updater.tick();
+
+      expect(h.calls).toContain('npm install');
+    });
+
+    it('rolls back and remembers the commit when the install fails, leaving the live bundle alone', async () => {
+      const h = harness({ repo: { upstream: C2, depsDiffCode: 1, installCode: 1 } });
+      const updater = h.make();
+      h.advance(10 * MINUTE);
+
+      await updater.tick();
+
+      expect(h.calls).not.toContain('build');
+      expect(h.repo.head).toBe(C1);
+      expect(h.fs.files.get(BUNDLE)).toBe('bundle:C1');
+      expect(h.fs.files.has(DEPS)).toBe(false);
+      expect(updater.getSummary()).toMatchObject({ state: 'blocked', targetCommit: C2 });
+      expect(updater.getSummary().reason).toContain('npm install failed (exit 1): npm ERR! EBUSY');
+      expect(JSON.parse(h.fs.files.get(FAILED) ?? '{}')).toMatchObject({ commit: C2 });
+      expect(h.restart).not.toHaveBeenCalled();
+    });
+
+    it('rolls back with a clear reason when npm cannot be found', async () => {
+      const h = harness({ repo: { upstream: C2, depsDiffCode: 1 }, options: { npmCli: null } });
+      const updater = h.make();
+      h.advance(10 * MINUTE);
+
+      await updater.tick();
+
+      expect(h.repo.head).toBe(C1);
+      expect(updater.getSummary().reason).toContain('npm was not found');
+    });
+
+    it('restarts into a fresh process first when a native module is loaded, without touching the checkout', async () => {
+      const h = harness({ repo: { upstream: C2, depsDiffCode: 1 }, files: { [`${STAMP}.swapped`]: `${C1}\n` } });
+      const updater = h.make();
+      h.setNativeLoaded(true);
+      h.advance(10 * MINUTE);
+
+      await updater.tick();
+
+      expect(h.calls).not.toContain('npm install');
+      expect(h.calls).not.toContain('git merge b');
+      expect(h.restart).toHaveBeenCalledOnce();
+      // The running bundle is proven, so a crash after this restart must not restore index.prev.js.
+      expect(h.fs.files.has(`${STAMP}.swapped`)).toBe(false);
+      expect(h.fs.files.get(RESTART_MARKER)).toBe(`${C2}\n`);
+    });
+
+    it('stops instead of restarting again when the fresh process has a native module loaded too', async () => {
+      const h = harness({ repo: { upstream: C2, depsDiffCode: 1 }, files: { [RESTART_MARKER]: `${C2}\n` } });
+      const updater = h.make();
+      h.setNativeLoaded(true);
+      h.advance(10 * MINUTE);
+
+      await updater.tick();
+
+      expect(h.restart).not.toHaveBeenCalled();
+      expect(updater.getSummary()).toMatchObject({ state: 'blocked', targetCommit: C2 });
+      expect(updater.getSummary().reason).toContain('install-worker-dependencies.bat');
+    });
+
+    it('installs in-process once the fresh process has no native module loaded', async () => {
+      const h = harness({ repo: { upstream: C2, depsDiffCode: 1 }, files: { [RESTART_MARKER]: `${C2}\n` } });
+      const updater = h.make();
+      h.advance(10 * MINUTE);
+
+      await updater.tick();
+
+      expect(h.calls).toContain('npm install');
+      expect(h.fs.files.get(BUNDLE)).toBe('bundle:b');
+    });
+
+    it('may restart again for the same commit after a clean install attempt failed', async () => {
+      const h = harness({ repo: { upstream: C2, depsDiffCode: 1, installCode: 1 }, files: { [RESTART_MARKER]: `${C2}\n` } });
+      const updater = h.make();
+      h.advance(10 * MINUTE);
+
+      await updater.tick(); // nothing loaded: installs, npm fails (EBUSY), rolled back
+      expect(h.fs.files.has(RESTART_MARKER)).toBe(false);
+
+      h.setNativeLoaded(true);
+      h.repo.installCode = 0;
+      h.advance(2 * 60 * MINUTE + 5 * MINUTE); // past the retry-after for the failed commit
+      await updater.tick();
+
+      expect(h.restart).toHaveBeenCalledOnce();
+      expect(updater.getSummary().state).not.toBe('blocked');
+    });
   });
 
   it('rebuilds when an older launcher already pulled without building', async () => {

@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
+import { PROVIDER_MODEL_LIST } from '../../shared/types/provider.types';
+import { DEFAULT_REVIEWER_MODEL_BY_PROVIDER } from '../../shared/types/settings-defaults';
 import {
   ANTIGRAVITY_REVIEW_FALLBACK_MODELS,
   resolveAntigravityReviewModelPlan,
 } from './antigravity-review-model-routing';
 
-const GEMINI_MODEL = 'Gemini 3.5 Flash (Medium)';
+const GEMINI_MODEL = 'Gemini 3.8 Flash (Medium)';
 
 function snapshot(gemini5h: number, geminiWeekly: number, thirdParty = 0): ProviderQuotaSnapshot {
   return {
@@ -61,5 +63,15 @@ describe('resolveAntigravityReviewModelPlan', () => {
     expect(resolveAntigravityReviewModelPlan(GEMINI_MODEL, snapshot(100, 20, 100))).toEqual([
       ANTIGRAVITY_REVIEW_FALLBACK_MODELS.SONNET,
     ]);
+  });
+
+  it('only names labels agy currently lists', () => {
+    // Hand-typed agy labels rot when agy drops them; this catches the drift
+    // when the static list is refreshed.
+    const labels = PROVIDER_MODEL_LIST['antigravity'].map((model) => model.id);
+    expect(labels).toEqual(expect.arrayContaining([
+      ...Object.values(ANTIGRAVITY_REVIEW_FALLBACK_MODELS),
+      DEFAULT_REVIEWER_MODEL_BY_PROVIDER.antigravity,
+    ]));
   });
 });

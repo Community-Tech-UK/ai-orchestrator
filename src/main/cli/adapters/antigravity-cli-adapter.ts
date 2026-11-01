@@ -52,7 +52,10 @@ import type {
 } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
 import { computeTokenCost } from '../../../shared/data/model-pricing';
-import { isAntigravityModelId } from '../../../shared/types/provider.types';
+import {
+  isAntigravityModelId,
+  resolveModelReplacementForProvider,
+} from '../../../shared/types/provider.types';
 import { extractThinkingContent, ThinkingBlock } from '../../../shared/utils/thinking-extractor';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
 import { probeVersionStatus } from './cli-status-probe';
@@ -317,18 +320,23 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
   protected buildArgs(message: CliMessage): string[] {
     const args: string[] = [];
 
-    // Forward the selected model iff it's a known agy label. agy's `--model`
-    // accepts the EXACT display label from `agy models` (e.g.
-    // "Gemini 3.1 Pro (High)"); an unrecognized value is silently ignored and
-    // agy uses its configured default. isAntigravityModelId gates on the static
-    // catalog so stale cross-provider ids (e.g. a legacy `gemini-*` id inherited
-    // when a Gemini instance is normalized to antigravity) are dropped rather
-    // than forwarded as a bogus --model value.
-    if (isAntigravityModelId(this.cliConfig.model)) {
-      args.push('--model', this.cliConfig.model as string);
-    } else if (this.cliConfig.model) {
-      logger.debug('Ignoring non-antigravity model id; letting agy use its default', {
-        model: this.cliConfig.model,
+    // Forward the selected model iff agy currently lists it. agy's `--model`
+    // takes the display label from `agy models` (e.g. "Gemini 3.8 Flash
+    // (Medium)"), and since agy 1.4 an unknown value fails the turn outright
+    // (exit 1, "not recognized as a known model"). Resolved here, at the spawn
+    // boundary, because wake/restart/resume rebuild the config from the
+    // persisted model: a label on the known list is kept as-is, a retired label
+    // maps to its successor, and anything else agy does not list (a legacy
+    // `gemini-*` id inherited from a normalized Gemini instance, a label dropped
+    // since the last release) is left off so agy uses its own default.
+    const model = isAntigravityModelId(this.cliConfig.model)
+      ? this.cliConfig.model?.trim()
+      : resolveModelReplacementForProvider('antigravity', this.cliConfig.model);
+    if (model && isAntigravityModelId(model)) {
+      args.push('--model', model);
+    } else if (model) {
+      logger.warn('Antigravity does not list this model; letting agy use its default', {
+        model,
       });
     }
 

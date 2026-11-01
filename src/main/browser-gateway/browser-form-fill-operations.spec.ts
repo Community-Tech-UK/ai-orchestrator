@@ -806,3 +806,76 @@ describe('fillHttpAuthOperation', () => {
       .toBe('http_auth_rejected');
   });
 });
+
+describe('fillCredentialOperation one-time code fill record', () => {
+  const PAGE = 'https://tap.tcsapps.com';
+  const TAB = { profileId: 'existing-tab:n.node-1:7:42', targetId: 'existing-tab:n.node-1:7:42:target' };
+
+  function makeDeps(driverType: FillOperationDeps['driverType'] = vi.fn(async () => undefined)) {
+    const recordOneTimeCodeFill = vi.fn();
+    const deps: FillOperationDeps = {
+      result: (<T>(input: unknown) => input as BrowserGatewayResult<T>) as FillOperationDeps['result'],
+      hasExistingTab: () => true,
+      sharedTabCredentialFillAllowed: () => true,
+      sharedTabSecureCredentialFillSupported: () => true,
+      resolveCredentialProfileScope: () => 'node-1',
+      type: vi.fn(),
+      select: vi.fn(),
+      click: vi.fn(),
+      readControl: vi.fn(),
+      driverType,
+      httpAuthNavigate: vi.fn(),
+      refreshTargetOrigin: vi.fn(async () => PAGE),
+      credentialVault: {
+        getSecretForFill: vi.fn(async () => 'NON_SECRET_TEST_PLACEHOLDER'),
+        createAgentCredential: vi.fn(),
+        getGenericSecretForFill: vi.fn(),
+      } as unknown as FillOperationDeps['credentialVault'],
+      credentialAuthorizations: {
+        check: vi.fn(() => ({ authorized: true as const, allowedSenderDomains: ['britishcouncil.org'] })),
+      } as unknown as FillOperationDeps['credentialAuthorizations'],
+      emailCodeReader: {
+        fetchCode: vi.fn(async () => ({ code: '000000', messageId: 'm1', matchedSender: 'noreply@britishcouncil.org' })),
+      },
+      recordOneTimeCodeFill,
+    };
+    return { deps, recordOneTimeCodeFill };
+  }
+
+  const fill = (deps: FillOperationDeps, kinds: Array<'username' | 'password' | 'totp' | 'email_code'>) =>
+    fillCredentialOperation(deps, {
+      instanceId: 'instance-1', provider: 'codex', ...TAB, vaultItemRef: 'opaque-vault-ref',
+      fields: kinds.map((kind, index) => ({ selector: `#field-${index}`, kind })),
+    });
+
+  it.each([[['email_code']], [['totp']], [['username', 'password', 'totp']]] as const)(
+    'records the tab and page origin after a successful %j fill',
+    async (kinds) => {
+      const { deps, recordOneTimeCodeFill } = makeDeps();
+
+      const result = await fill(deps, [...kinds]);
+
+      expect(result).toMatchObject({ decision: 'allowed', outcome: 'succeeded' });
+      expect(recordOneTimeCodeFill).toHaveBeenCalledExactlyOnceWith({ instanceId: 'instance-1', ...TAB, origin: PAGE });
+    },
+  );
+
+  it('records nothing for a login without a code field', async () => {
+    const { deps, recordOneTimeCodeFill } = makeDeps();
+
+    await fill(deps, ['username', 'password']);
+
+    expect(recordOneTimeCodeFill).not.toHaveBeenCalled();
+  });
+
+  it('records nothing when the code could not be typed', async () => {
+    const { deps, recordOneTimeCodeFill } = makeDeps(vi.fn(async () => {
+      throw new Error('extension_write_failed');
+    }));
+
+    const result = await fill(deps, ['email_code']);
+
+    expect(result).toMatchObject({ decision: 'denied', outcome: 'failed' });
+    expect(recordOneTimeCodeFill).not.toHaveBeenCalled();
+  });
+});

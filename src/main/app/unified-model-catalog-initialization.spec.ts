@@ -55,6 +55,7 @@ describe('initializeUnifiedModelCatalogRuntime', () => {
       }),
     };
     const openCodeDiscovery = { start: vi.fn() };
+    const antigravityDiscovery = { start: vi.fn() };
 
     await initializeUnifiedModelCatalogRuntime({
       userDataPath: '/tmp/aio-user-data',
@@ -66,6 +67,7 @@ describe('initializeUnifiedModelCatalogRuntime', () => {
       cursorCopilotDiscoveryService: cursorCopilotDiscovery,
       grokDiscoveryService: grokDiscovery,
       openCodeDiscoveryService: openCodeDiscovery,
+      antigravityDiscoveryService: antigravityDiscovery,
       localModelInventoryService: localModelInventoryService(),
       logger: { warn: vi.fn() },
     });
@@ -84,6 +86,7 @@ describe('initializeUnifiedModelCatalogRuntime', () => {
     // unit test, making the run depend on what happens to be installed.
     expect(grokDiscovery.start).toHaveBeenCalledOnce();
     expect(openCodeDiscovery.start).toHaveBeenCalledOnce();
+    expect(antigravityDiscovery.start).toHaveBeenCalledOnce();
     expect(attachedEntries.map((entry) => `${entry.provider}:${entry.id}`)).toEqual([
       'claude:claude-local-opus',
       'gemini:gemini-remote-pro',
@@ -129,6 +132,7 @@ describe('initializeUnifiedModelCatalogRuntime', () => {
       cursorCopilotDiscoveryService: { start: vi.fn() },
       grokDiscoveryService: { start: vi.fn() },
       openCodeDiscoveryService: { start: vi.fn() },
+      antigravityDiscoveryService: { start: vi.fn() },
       localModelInventoryService,
       logger: { warn: vi.fn() },
     });
@@ -184,6 +188,7 @@ describe('initializeUnifiedModelCatalogRuntime', () => {
       cursorCopilotDiscoveryService: { start: vi.fn() },
       grokDiscoveryService: { start: vi.fn() },
       openCodeDiscoveryService: { start: vi.fn() },
+      antigravityDiscoveryService: { start: vi.fn() },
       localModelInventoryService,
       logger,
     });

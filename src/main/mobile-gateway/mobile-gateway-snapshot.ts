@@ -12,6 +12,7 @@ import type {
 } from "../../shared/types/mobile-gateway.types";
 import { isActiveLoopRuntimeState } from "../orchestration/loop-runtime-status";
 import { buildProjects, serializeInstance } from "./mobile-gateway-serializers";
+import { isHiddenFromMobile } from "./mobile-gateway-session-visibility";
 
 const SNAPSHOT_COALESCE_MS = 100;
 
@@ -54,7 +55,9 @@ export class MobileGatewaySnapshotService {
     const activeLoopChatIds = this.activeLoopChatIds();
     const instances = this.deps
       .getInstances()
-      .filter((instance) => instance.status !== "terminated")
+      // A session with a question waiting is always listed, so its prompt can be answered in context.
+      .filter((instance) => instance.status !== "terminated"
+        && (!isHiddenFromMobile(instance) || promptCounts.has(instance.id)))
       .map((instance) => this.serializeInstance(instance, activeLoopChatIds))
       .map((dto) => this.withTransientState(dto, promptCounts));
 

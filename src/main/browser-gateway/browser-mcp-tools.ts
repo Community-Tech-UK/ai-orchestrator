@@ -183,7 +183,17 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
     profileId: profileIdProp, targetId: targetIdProp,
     item: { ...stringProp, description: 'Exact saved login title or opaque vault item reference. Never a password.' },
     reason: { ...stringProp, description: 'Why this session needs to sign in. Do not include credentials.' },
-    purposes: { type: 'array', items: { type: 'string', enum: ['login', 'totp'] } },
+    purposes: {
+      type: 'array',
+      items: { type: 'string', enum: ['login', 'totp', 'email_code'] },
+      description: 'Default login. email_code lets browser.fill_credential read this website\'s emailed sign-in codes from the agent mailbox.',
+    },
+    senderDomains: {
+      type: 'array',
+      items: stringProp,
+      description: 'With email_code only: domains that send this website\'s codes when they are not the website\'s own '
+        + '(read the From address of a real code email, e.g. britishcouncil.org for tap.tcsapps.com). The approver sees each one.',
+    },
   }, ['profileId', 'targetId', 'item', 'reason']),
   'browser.get_credential_access_status': objectSchema({ requestId: requestIdProp }, ['requestId']),
   'browser.cancel_credential_access': objectSchema({ requestId: requestIdProp }, ['requestId']),
@@ -420,7 +430,10 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
             'Which secret to type: a vault item field, or email_code — a one-time '
             + 'verification code read from the agent mailbox (newest recent message from '
             + "a sender domain related to the live page origin). Requires an 'email_code' "
-            + 'credential authorization.',
+            + 'credential authorization. Never type a one-time code with browser.type: after an '
+            + 'email_code or totp fill succeeds, the next browser.click on the same tab within 10 '
+            + 'minutes that submits the code is checked as an ordinary submit instead of a parked '
+            + 'two-factor step. It is allowed once; if that click is refused, fill again first.',
         },
       }, ['selector', 'kind']),
     },
@@ -430,8 +443,9 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
         items: stringProp,
         description:
           'Expected verification-mail sender domains. Each must be the live page origin '
-          + 'host, a parent domain of it, or a subdomain of it (enforced server-side). '
-          + 'Default: the origin host.',
+          + 'host, a parent domain of it, a subdomain of it, or a sender the credential '
+          + 'authorization declares (enforced server-side). Default: the origin host plus '
+          + 'any declared senders.',
       },
       sinceMs: {
         ...numberProp,

@@ -1,3 +1,4 @@
+import { isContextOverflowError } from '../../../context/ptl-retry';
 import { isCodexInputTooLargeError } from './exec-error-classifier';
 import {
   classifyCodexAppServerFailure,
@@ -51,9 +52,16 @@ export function planCodexAppServerRecovery(error: unknown): CodexAppServerRecove
   return { action: 'restart-runtime', failure, keepInstanceUsable: false };
 }
 
+/**
+ * True when a failed turn leaves the app-server runtime and thread usable.
+ * Oversized input and context-window overflow are turn-level rejections: the
+ * instance must settle idle so Harness's overflow owner can compact and retry
+ * (it uses the same `isContextOverflowError` classifier) instead of finding
+ * the instance in `error`, which cannot go back to busy.
+ */
 export function isRecoverableCodexTurnError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  if (isCodexInputTooLargeError(message) || /per-turn size limit/i.test(message)) {
+  if (isCodexInputTooLargeError(message) || /per-turn size limit/i.test(message) || isContextOverflowError(message)) {
     return true;
   }
   return planCodexAppServerRecovery(error).keepInstanceUsable;

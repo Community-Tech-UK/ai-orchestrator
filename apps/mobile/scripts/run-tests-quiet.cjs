@@ -10,8 +10,13 @@ fs.mkdirSync(scratch, { recursive: true });
 const log = path.join(scratch, `mobile-tests-${process.pid}.log`);
 const reportPath = path.join(scratch, `mobile-tests-${process.pid}.json`);
 const fd = fs.openSync(log, 'w');
+// `vitest/vitest.mjs` is not in the package's exports map, so resolve the bin from its manifest.
+const vitestBin = path.resolve(
+  path.dirname(require.resolve('vitest/package.json')),
+  require('vitest/package.json').bin.vitest,
+);
 const result = spawnSync(process.execPath, [
-  require.resolve('vitest/vitest.mjs'), 'run', '--config', 'vitest.config.ts',
+  vitestBin, 'run', '--config', 'vitest.config.ts',
   ...process.argv.slice(2), '--reporter=default', '--reporter=json', `--outputFile.json=${reportPath}`,
 ], { cwd: mobile, stdio: ['ignore', fd, fd] });
 fs.closeSync(fd);

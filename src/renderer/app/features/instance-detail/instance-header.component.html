@@ -36,7 +36,7 @@
               <span class="remote-connecting">Connecting to {{ remoteNodeName() }}...</span>
             }
             @if (waitReasonLabel()) {
-              <span class="wait-reason-label">{{ waitReasonLabel() }} <span class="wait-reason-detail">{{ waitReasonDetail() }}</span></span>
+              <span class="wait-reason-label" tabindex="0" [appTooltip]="waitReasonDetail()">{{ waitReasonLabel() }}</span>
             }
           </div>
         </div>
@@ -205,7 +205,6 @@
               >
                 {{ pendingLabel }} <span aria-hidden="true">✕</span>
               </button>
-              <span class="header-action-detail">{{ copy('composer.pendingModelPrefix') + ' ' + pendingLabel + ' ' + copy('composer.pendingModelSuffix') }}</span>
             }
           }
           <button
@@ -249,10 +248,6 @@
             {{ isTogglingYolo() ? 'Changing…' : 'YOLO' }} {{ instance().yoloMode ? 'ON' : 'OFF'
             }}{{ yoloPending() ? (instance().pendingYoloMode ? ' → ON' : ' → OFF') : '' }}
           </button>
-          <span class="header-action-detail">{{ instance().yoloMode ? copy('header.yoloOn') : copy('header.yoloOff') }}</span>
-          @if (yoloPending()) {
-            <span class="header-action-detail">{{ instance().pendingYoloMode ? copy('header.yoloPendingOn') : copy('header.yoloPendingOff') }}</span>
-          }
           <app-session-computer-use-control [instance]="instance()" />
           @if (supportsFastMode()) {
             <button
@@ -271,9 +266,6 @@
             >
               {{ isTogglingFastMode() ? 'Changing…' : 'FAST' }} {{ instance().fastMode ? 'ON' : 'OFF' }}
             </button>
-          }
-          @if (supportsFastMode()) {
-            <span class="header-action-detail">{{ instance().fastMode ? copy('header.fastOn') : copy('header.fastOff') }}</span>
           }
           @if (activeSkillCount() > 0) {
             <span class="skills-badge" tabindex="0" [appTooltip]="activeSkillsTooltip()">
