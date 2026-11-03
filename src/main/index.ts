@@ -7,7 +7,7 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 require('./register-aliases');
 
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, dialog } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { WindowManager } from './window-manager';
@@ -323,6 +323,21 @@ if (!gotSingleInstanceLock) {
 }
 
 // App ready handler
+function handleStartupFailure(error: unknown): void {
+  logger.error('Harness startup failed', error instanceof Error ? error : undefined);
+  recordShutdownTrigger('startup-failed');
+  try {
+    dialog.showErrorBox(
+      'Harness could not start',
+      'Harness could not finish starting and will close. Try opening Harness again. ' +
+      'If it still will not open, check the application logs for details.',
+    );
+  } finally {
+    // Use the normal shutdown path to stop workers and release database handles.
+    app.quit();
+  }
+}
+
 app.whenReady().then(async () => {
   // Set dock icon on macOS (only in development mode - packaged app uses icon from Info.plist)
   if (process.platform === 'darwin' && app.dock && !app.isPackaged) {
@@ -344,10 +359,14 @@ app.whenReady().then(async () => {
   // macOS: Re-create window when dock icon is clicked
   app.on('activate', async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      await orchestratorApp?.initialize();
+      try {
+        await orchestratorApp?.initialize();
+      } catch (error) {
+        handleStartupFailure(error);
+      }
     }
   });
-});
+}).catch(handleStartupFailure);
 
 // Quit when all windows are closed (except on macOS)
 app.on('window-all-closed', () => {
