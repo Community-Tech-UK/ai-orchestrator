@@ -56,6 +56,28 @@ function fakeCacheHook(hit?: { review: ReviewResult; activationReason: string })
 }
 
 describe('runHeadlessReviewCommand — WS-B9 coverage + cache', () => {
+  it('identifies its own deadline and does not cache a timed-out review', async () => {
+    vi.useFakeTimers();
+    const { hook, store } = fakeCacheHook();
+    let reviewSignal: AbortSignal | undefined;
+    const dispatchReviewerPrompt = vi.fn((_provider: string, _prompt: string, _cwd: string, signal: AbortSignal) => {
+      reviewSignal = signal;
+      return new Promise<string>((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      });
+    });
+    try {
+      const pending = runHeadlessReviewCommand(baseRequest({ timeoutSeconds: 2, reviewCache: hook }),
+        baseDeps({ host: { dispatchReviewerPrompt } as unknown as ReviewExecutionHost }));
+      await vi.advanceTimersByTimeAsync(2000);
+      const result = await pending;
+      expect(reviewSignal?.reason).toMatchObject({ name: 'TimeoutError', message: 'Review timed out after 2 seconds' });
+      expect(result.infrastructureErrors).toEqual(['gemini: Review timed out after 2 seconds']);
+      expect(result.reviewers).toEqual([expect.objectContaining({ status: 'failed', required: true })]);
+      expect(store).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+
   it.each(['structured', 'tiered'] as const)('adds the screen section to every %s reviewer without extra required angles', async (reviewDepth) => {
     const dispatchReviewerPrompt = vi.fn(async () => reviewerJson('UI: missing tooltip'));
     const deps = baseDeps({

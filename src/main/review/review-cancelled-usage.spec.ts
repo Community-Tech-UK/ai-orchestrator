@@ -9,7 +9,7 @@ vi.mock('../providers/provider-runtime-service', () => ({ getProviderRuntimeServ
 vi.mock('../core/config/settings-manager', () => ({ getSettingsManager: vi.fn() }));
 vi.mock('../core/system/provider-quota-service', () => ({ getProviderQuotaService: vi.fn() }));
 
-describe('cancelled reviewer native usage settlement', () => {
+describe.each(['caller', 'deadline'] as const)('cancelled reviewer native usage settlement (%s)', abortKind => {
   let rows: CostAttributionRecord[];
   let unsubscribe: () => void;
   beforeEach(() => {
@@ -37,8 +37,10 @@ describe('cancelled reviewer native usage settlement', () => {
     const pending = sendAbortableReviewerMessage(adapter, { role: 'user', content: 'review fixture' }, abort.signal,
       undefined, { purpose: 'cross-model-review', provider: 'claude', model: 'fixture-model', instanceId: 'fixture-instance' });
     const cancelled = pending.catch(error => error);
-    abort.abort();
-    expect((await cancelled).message).toBe('Review cancelled');
+    abort.abort(abortKind === 'deadline'
+      ? Object.assign(new Error('Review timed out after 90 seconds'), { name: 'TimeoutError' })
+      : undefined);
+    expect((await cancelled).message).toBe(abortKind === 'deadline' ? 'Review timed out after 90 seconds' : 'Review cancelled');
     expect(removeAbort).toHaveBeenCalledWith('abort', addAbort.mock.calls.find(call => call[0] === 'abort')?.[1]);
     expect(rows).toHaveLength(0);
 

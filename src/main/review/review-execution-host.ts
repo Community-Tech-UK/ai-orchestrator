@@ -137,6 +137,12 @@ function cancelAdapter(adapter: unknown): void {
   }
 }
 
+function reviewAbortError(signal: AbortSignal): Error {
+  return signal.reason instanceof Error && signal.reason.name === 'TimeoutError'
+    ? signal.reason
+    : new Error('Review cancelled');
+}
+
 export async function sendAbortableReviewerMessage(
   adapter: { sendMessage: (message: CliMessage) => Promise<CliResponse> },
   message: CliMessage,
@@ -144,13 +150,13 @@ export async function sendAbortableReviewerMessage(
   onAbort?: () => void,
   record?: Omit<ModelCallRecordInput, 'usage' | 'outcome'>,
 ): Promise<CliResponse> {
-  if (signal.aborted) throw new Error('Review cancelled');
+  if (signal.aborted) throw reviewAbortError(signal);
   let removeAbortListener: (() => void) | undefined;
   const cancelled = new Promise<never>((_resolve, reject) => {
     const handleAbort = () => {
       onAbort?.();
       cancelAdapter(adapter);
-      reject(new Error('Review cancelled'));
+      reject(reviewAbortError(signal));
     };
     signal.addEventListener('abort', handleAbort, { once: true });
     removeAbortListener = () => signal.removeEventListener('abort', handleAbort);
@@ -212,7 +218,7 @@ export class ProviderReviewExecutionHost implements ReviewExecutionHost {
     options?: ReviewerDispatchOptions,
   ): Promise<string> {
     if (signal.aborted) {
-      throw new Error('Review cancelled');
+      throw reviewAbortError(signal);
     }
 
     const resolvedCli = await resolveCliType(provider as SettingsCliType);
@@ -256,7 +262,7 @@ export class ProviderReviewExecutionHost implements ReviewExecutionHost {
         throw new Error(`CLI adapter "${provider}" does not support sendMessage`);
       }
       if (signal.aborted) {
-        throw new Error('Review cancelled');
+        throw reviewAbortError(signal);
       }
       const response = await sendAbortableReviewerMessage(
         adapter,

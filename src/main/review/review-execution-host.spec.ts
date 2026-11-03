@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { ProviderReviewExecutionHost, resolveReviewerModelOverride } from './review-execution-host';
+import { ProviderReviewExecutionHost, resolveReviewerModelOverride, sendAbortableReviewerMessage } from './review-execution-host';
 import { subscribeCostAttribution, type CostAttributionRecord } from '../core/system/cost-attribution';
 import { pauseConsults } from '../work-admission/consult-admission';
 
@@ -78,6 +78,55 @@ describe('ProviderReviewExecutionHost', () => {
     hostTestState.modelByProvider = {};
     hostTestState.createAdapter.mockReset();
     hostTestState.quotaSnapshot = null;
+  });
+
+  it('preserves a deadline while stopping the owned adapter exactly once', async () => {
+    const abort = new AbortController();
+    const deadline = Object.assign(new Error('Review timed out after 90 seconds'), { name: 'TimeoutError' });
+    let rejectSend!: (error: Error) => void;
+    const sendMessage = vi.fn(() => new Promise<never>((_resolve, reject) => { rejectSend = reject; }));
+    const interrupt = vi.fn();
+    const terminate = vi.fn(async () => { rejectSend(new Error('native process stopped')); });
+    hostTestState.createAdapter.mockReturnValue({ sendMessage, interrupt, terminate });
+    const pending = new ProviderReviewExecutionHost().dispatchReviewerPrompt('claude', 'review', '/repo', abort.signal);
+    const rejected = expect(pending).rejects.toBe(deadline);
+    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledOnce());
+    abort.abort(deadline);
+    await rejected;
+    await pauseConsults();
+    expect(interrupt).toHaveBeenCalledOnce();
+    expect(terminate).toHaveBeenCalledExactlyOnceWith(false);
+  });
+
+  it('preserves a deadline before dispatch without creating an adapter', async () => {
+    const abort = new AbortController();
+    const deadline = Object.assign(new Error('Review timed out after 90 seconds'), { name: 'TimeoutError' });
+    abort.abort(deadline);
+    await expect(new ProviderReviewExecutionHost().dispatchReviewerPrompt('claude', 'review', '/repo', abort.signal)).rejects.toBe(deadline);
+    expect(hostTestState.createAdapter).not.toHaveBeenCalled();
+    const sendMessage = vi.fn();
+    await expect(sendAbortableReviewerMessage({ sendMessage }, { role: 'user', content: 'review' }, abort.signal)).rejects.toBe(deadline);
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('keeps ordinary caller cancellation text even with a custom abort reason', async () => {
+    const abort = new AbortController();
+    abort.abort(new Error('caller stopped the loop'));
+    await expect(new ProviderReviewExecutionHost().dispatchReviewerPrompt('claude', 'review', '/repo', abort.signal)).rejects.toThrow('Review cancelled');
+  });
+
+  it('preserves a deadline during preflight and tears down without sending', async () => {
+    const abort = new AbortController();
+    const deadline = Object.assign(new Error('Review timed out after 90 seconds'), { name: 'TimeoutError' });
+    const sendMessage = vi.fn();
+    const terminate = vi.fn(async () => undefined);
+    hostTestState.createAdapter.mockImplementation(() => {
+      abort.abort(deadline);
+      return { sendMessage, terminate };
+    });
+    await expect(new ProviderReviewExecutionHost().dispatchReviewerPrompt('claude', 'review', '/repo', abort.signal)).rejects.toBe(deadline);
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(terminate).toHaveBeenCalledExactlyOnceWith(false);
   });
 
   it('keeps cancellation immediate but waits for actual adapter teardown before restart is safe', async () => {

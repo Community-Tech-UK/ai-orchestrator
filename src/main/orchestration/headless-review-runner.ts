@@ -77,7 +77,9 @@ export async function runHeadlessReviewCommand(
   } else {
     externalSignal?.addEventListener('abort', abortFromExternal, { once: true });
   }
-  const timeout = setTimeout(() => abort.abort(), timeoutMs);
+  const timeout = setTimeout(() => abort.abort(Object.assign(
+    new Error(`Review timed out after ${timeoutMs / 1000} seconds`), { name: 'TimeoutError' },
+  )), timeoutMs);
   let batch: Awaited<ReturnType<typeof runReviewExecutionBatch>>;
   try {
     batch = await runReviewExecutionBatch({
