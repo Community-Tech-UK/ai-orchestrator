@@ -1,9 +1,9 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ChangeDetectionStrategy, Component, provideZonelessChangeDetection, ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
-import { ActivatedRoute, provideRouter, Router, RouterOutlet, type Routes } from '@angular/router';
+import { ActivatedRoute, NavigationEnd, provideRouter, Router, RouterOutlet, type Routes } from '@angular/router';
 import { RouterTestingHarness, RouterTestingModule } from '@angular/router/testing';
 import { By } from '@angular/platform-browser';
-import { config } from 'rxjs';
+import { config, filter, firstValueFrom } from 'rxjs';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -153,6 +153,48 @@ describe('ControlSurfaceShellComponent router lifecycle', () => {
         }
         if (title && url !== '/nested/logs') {
           expect(harness.routeNativeElement?.querySelector('.control-nav-item.active')?.getAttribute('href')).toBe(url);
+        }
+      }
+    } finally {
+      config.onUnhandledError = previousHandler;
+    }
+  });
+
+  it('follows the rendered Settings, Automations and Back controls without route errors', async () => {
+    const errors: unknown[] = [];
+    const previousHandler = config.onUnhandledError;
+    config.onUnhandledError = (error) => errors.push(error);
+    try {
+      const harness = await RouterTestingHarness.create('/automations');
+      const router = TestBed.inject(Router);
+      for (let visit = 0; visit < 2; visit++) {
+        if (visit > 0) await harness.navigateByUrl('/automations');
+
+        for (const [selector, url, title] of [
+          ['a[href="/settings"]', '/settings', 'Settings'],
+          ['a[href="/automations"]', '/automations', 'Automations'],
+          ['.control-back', '/', null],
+        ] as const) {
+          const control = harness.routeNativeElement?.querySelector<HTMLElement>(selector);
+          expect(control).toBeTruthy();
+          const navigation = firstValueFrom(router.events.pipe(filter((event) => event instanceof NavigationEnd)));
+          control!.click();
+          await navigation;
+          await harness.fixture.whenStable();
+          harness.detectChanges();
+          await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+          expect(errors).toEqual([]);
+          expect(router.url).toBe(url);
+          expect(harness.routeNativeElement?.querySelector('h1')?.textContent ?? null).toBe(title);
+          expect(harness.routeNativeElement?.querySelector('.control-nav-item.active')?.getAttribute('href') ?? null)
+            .toBe(title ? url : null);
+          const help = harness.routeDebugElement?.query(By.directive(HelpPaneComponent));
+          if (title === 'Automations') {
+            expect(help?.componentInstance.entry()).toBe(CONTROL_SURFACE_HELP['automations']);
+          } else {
+            expect(help).toBeNull();
+          }
         }
       }
     } finally {
