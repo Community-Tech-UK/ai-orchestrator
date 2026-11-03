@@ -345,14 +345,24 @@ export function runMigrations(
         onMigrationApplied?.(migration.name);
       } catch (error) {
         throw new Error(
-          `Failed to apply migration "${migration.name}": ${error instanceof Error ? error.message : String(error)}`
+          `Failed to apply migration "${migration.name}": ${error instanceof Error ? error.message : String(error)}`,
+          { cause: error }
         );
       }
     }
     appliedCount = pendingMigrations.length;
     db.exec('COMMIT');
   } catch (error) {
-    db.exec('ROLLBACK');
+    try {
+      db.exec('ROLLBACK');
+    } catch (rollbackError) {
+      // SQLite may already have rolled back (for example on SQLITE_FULL).
+      // Keep both failures so rollback cannot hide the migration diagnosis.
+      throw new AggregateError([error, rollbackError],
+        `${error instanceof Error ? error.message : String(error)}; ` +
+        `Rollback failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+        { cause: error });
+    }
     throw error;
   }
 

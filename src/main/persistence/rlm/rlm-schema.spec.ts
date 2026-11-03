@@ -119,4 +119,55 @@ describe('RLM migration startup', () => {
       .run(computeMigrationChecksum(first), first.name);
     expect(() => runMigrations(db)).not.toThrow();
   });
+
+  it('preserves migration errors when SQLite has already rolled back a full database', () => {
+    const electronPath = createRequire(import.meta.url)('electron') as string;
+    const output = execFileSync(electronPath, ['-e', String.raw`
+      require('tsx/cjs');
+      const { defaultDriverFactory } = require('./src/main/db/better-sqlite3-driver.ts');
+      const { createTables, createMigrationsTable, getAppliedMigrations, MIGRATIONS, runMigrations } =
+        require('./src/main/persistence/rlm/rlm-schema.ts');
+      const db = defaultDriverFactory(':memory:');
+      try {
+        createTables(db);
+        createMigrationsTable(db);
+        runMigrations(db);
+        const before = getAppliedMigrations(db);
+        const pages = db.pragma('page_count', { simple: true });
+        db.pragma('max_page_count = ' + (pages + 1));
+        MIGRATIONS.push({ name: 'test_full_database', up:
+          'CREATE TABLE test_full_database (data BLOB);' +
+          'INSERT INTO test_full_database VALUES (zeroblob(65536));' });
+        let failure;
+        try { runMigrations(db); } catch (error) { failure = error; }
+        MIGRATIONS.pop();
+        const rolledBack = !db.prepare(
+          "SELECT name FROM sqlite_master WHERE name = 'test_full_database'"
+        ).get();
+        const unchanged = JSON.stringify(getAppliedMigrations(db)) === JSON.stringify(before);
+        runMigrations(db);
+        console.log(JSON.stringify({
+          message: failure?.message,
+          sqlCode: failure?.cause?.cause?.code,
+          rollbackMessage: failure?.errors?.[1]?.message,
+          rolledBack, unchanged,
+        }));
+      } finally { db.close(); }
+    `], {
+      cwd: process.cwd(),
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+      encoding: 'utf8',
+      timeout: 20000,
+    });
+    const result = JSON.parse(output) as {
+      message: string; sqlCode: string; rollbackMessage: string;
+      rolledBack: boolean; unchanged: boolean;
+    };
+    expect(result.message).toContain('Failed to apply migration "test_full_database"');
+    expect(result.message).toContain('database or disk is full');
+    expect(result.sqlCode).toBe('SQLITE_FULL');
+    expect(result.rollbackMessage).toContain('no transaction is active');
+    expect(result.rolledBack).toBe(true);
+    expect(result.unchanged).toBe(true);
+  });
 });
