@@ -1,6 +1,6 @@
 # Control Center route snapshot exception — remediation plan
 
-Status: implementation ready for queue verification (2026-10-31); not independently verified or closed.
+Status: verifier findings repaired, awaiting queue verification (2026-11-03); not independently verified or closed.
 
 Source: the Settings exception recorded as branch-local LT-723 in
 [the host-process/fence live test](2026-10-16-host-process-tools-and-fence-switch_livetest.md#evidence-run--2026-10-27).
@@ -60,3 +60,37 @@ Generator runs produce no tracked changes. Renderer wording review: All clear.
 This plan and the related active report remain untracked in the root checkout. Neither is
 copied into the worktree, committed or renamed. The queue coordinator owns final verification,
 closure and integration. No independent PASS is claimed by this worker.
+
+## As-built notes — verifier follow-up, 2026-11-03
+
+This resumption uses the coordinator-supplied worktree
+`.worktrees/queue/2026-10-27-control-surface-rou-2fbd68`. The preceding notes describe
+the earlier worker run. The supplied document already has its current filename;
+no document rename or closure is performed in this repair turn.
+
+- Reproduced all three failing tests reported by verification round 1 before editing.
+- Replaced the two concrete Claude identifiers in the Antigravity attribution mapper
+  with `CLAUDE_PINNED_MODELS.OPUS_55` and `.SONNET_55`. Their values and prices remain
+  unchanged. The pricing-only list and rates reuse the same constants; selectable
+  models and the route snapshot implementation are unchanged.
+- Replaced this worktree's linked dependency install with a private lockfile-exact
+  install using `npm ci --ignore-scripts --no-audit --no-fund`. The local glob version
+  is now 14.0.3 and its locked nested minimatch copy exists. The shared checkout's
+  install remains unchanged. Package manifests, tests and configuration are unchanged.
+- Seven focused spec files pass without cached results, including both dependency
+  checks, the model-token guard and the shell's real-router regressions. A direct
+  runtime smoke also confirms both Antigravity Claude mappings retain their model
+  identifiers and expected token costs, without calling a provider or writing costs.
+- Both typechecks, lint, TypeScript size and UI-hint checks, and main/renderer builds
+  pass. The renderer retains its initial-bundle size warning. An extra full uncached
+  suite run was interrupted for the requested targeted-check handoff; its execution
+  session exited 130. Full-suite acceptance remains the queue verifier's responsibility.
+- A fresh task-completion-gate source review found no actionable source defects, but
+  its shell requested approval for Git and test commands, preventing independent
+  execution. This is a limited review, not an independent PASS. Live Electron
+  navigation remains unverified under the original deferral; this repair does not
+  close either live-test report.
+
+The [follow-up report](evidence/2026-11-03-control-surface-verifier-remediation/report.md)
+records reproduction, repairs, command receipts, review boundaries and cleanup.
+The coordinator retains responsibility for the next independent queue verdict.
