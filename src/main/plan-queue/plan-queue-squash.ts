@@ -24,8 +24,9 @@ import { runInProcessGroup } from './plan-queue-process';
 import { LANDING_MARKER_FILE } from './plan-queue-landing-leftover';
 import { PlanQueueCheckoutOwnershipError, readProvisionedPaths, recoverLeftover } from './plan-queue-worktree';
 
-/** Hooks run generators and related tests; give them the same budget as a gate command. */
-const HOOK_TIMEOUT_MS = 15 * 60_000;
+/** Related tests can approach a full suite and exceed 15 minutes on a busy host.
+ * Per-test deadlines and cancellation still apply within this aggregate limit. */
+const HOOK_TIMEOUT_MS = 60 * 60_000;
 const OUTPUT_TAIL = 6_000;
 
 /** The same rule as the global plan-spec guard (~/.config/git/hooks/plan-spec-guard.sh). */
