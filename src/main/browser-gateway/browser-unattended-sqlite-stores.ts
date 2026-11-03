@@ -28,9 +28,9 @@ import type {
 
 /**
  * SQLite-backed implementations of the unattended browser-automation stores
- * (tables from migration 040; login recipes from 065). Each mirrors its in-memory default and can be
- * dropped into the corresponding service. Only references/scopes/status are
- * persisted — never secrets (those live in Bitwarden).
+ * (tables from migration 040; portal login recipes from 081). Each mirrors its
+ * in-memory default and can be dropped into the corresponding service. Only
+ * references/scopes/status are persisted — never secrets (those live in Bitwarden).
  */
 
 function db(): SqliteDriver {
@@ -508,9 +508,12 @@ function mapCampaign(row: CampaignRow): BrowserCampaign {
   };
 }
 
-// ── Login recipes (migration 065) ───────────────────────────────────────────
+// ── Login recipes (migration 081) ───────────────────────────────────────────
 
 interface LoginRecipeRow {
+  id: string;
+  portal_path: string | null;
+  account_ref: string;
   scope: string;
   scope_kind: string;
   origin: string;
@@ -530,11 +533,13 @@ export class SqliteLoginRecipeStore implements LoginRecipeRecordStore {
   put(recipe: LoginRecipe): void {
     this.driver
       .prepare(
-        `INSERT INTO browser_login_recipes
-           (scope, scope_kind, origin, login_url, logged_in_markers_json, relogin_json,
+        `INSERT INTO browser_login_portal_recipes
+           (id, portal_path, account_ref, scope, scope_kind, origin, login_url, logged_in_markers_json, relogin_json,
             created_at, updated_at, last_outcome, last_outcome_reason, last_outcome_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(scope, origin) DO UPDATE SET
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           portal_path = excluded.portal_path,
+           account_ref = excluded.account_ref,
            scope_kind = excluded.scope_kind,
            login_url = excluded.login_url,
            logged_in_markers_json = excluded.logged_in_markers_json,
@@ -546,6 +551,9 @@ export class SqliteLoginRecipeStore implements LoginRecipeRecordStore {
            last_outcome_at = excluded.last_outcome_at`,
       )
       .run(
+        recipe.id,
+        recipe.portalPath,
+        recipe.accountRef,
         recipe.scope,
         recipe.scopeKind,
         recipe.origin,
@@ -558,13 +566,6 @@ export class SqliteLoginRecipeStore implements LoginRecipeRecordStore {
         recipe.lastOutcomeReason ?? null,
         recipe.lastOutcomeAt ?? null,
       );
-  }
-
-  get(scope: string, origin: string): LoginRecipe | undefined {
-    const row = this.driver
-      .prepare(`SELECT * FROM browser_login_recipes WHERE scope = ? AND origin = ?`)
-      .get<LoginRecipeRow>(scope, origin);
-    return row ? mapLoginRecipe(row) : undefined;
   }
 
   list(filter?: { scope?: string; origin?: string }): LoginRecipe[] {
@@ -580,32 +581,31 @@ export class SqliteLoginRecipeStore implements LoginRecipeRecordStore {
     }
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
     return this.driver
-      .prepare(`SELECT * FROM browser_login_recipes ${where} ORDER BY scope, origin`)
+      .prepare(`SELECT * FROM browser_login_portal_recipes ${where} ORDER BY scope, origin, portal_path, account_ref, id`)
       .all<LoginRecipeRow>(...params)
       .map(mapLoginRecipe);
   }
 
-  delete(scope: string, origin: string): boolean {
+  delete(id: string): boolean {
     const result = this.driver
-      .prepare(`DELETE FROM browser_login_recipes WHERE scope = ? AND origin = ?`)
-      .run(scope, origin);
+      .prepare(`DELETE FROM browser_login_portal_recipes WHERE id = ?`)
+      .run(id);
     return result.changes > 0;
   }
 
   recordOutcome(
-    scope: string,
-    origin: string,
+    id: string,
     outcome: LoginRecipeOutcome,
     reason: string,
     at: number,
   ): void {
     this.driver
       .prepare(
-        `UPDATE browser_login_recipes
+        `UPDATE browser_login_portal_recipes
            SET last_outcome = ?, last_outcome_reason = ?, last_outcome_at = ?
-         WHERE scope = ? AND origin = ?`,
+         WHERE id = ?`,
       )
-      .run(outcome, reason, at, scope, origin);
+      .run(outcome, reason, at, id);
   }
 }
 
@@ -626,6 +626,9 @@ function reloginColumns(relogin: LoginReloginDetails): LoginReloginDetails {
 
 function mapLoginRecipe(row: LoginRecipeRow): LoginRecipe {
   return {
+    id: row.id,
+    portalPath: row.portal_path,
+    accountRef: row.account_ref,
     scope: row.scope,
     scopeKind: row.scope_kind === 'node' ? 'node' : 'profile',
     origin: row.origin,

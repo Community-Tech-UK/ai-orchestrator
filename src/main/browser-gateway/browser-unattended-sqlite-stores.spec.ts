@@ -268,6 +268,7 @@ describe('unattended SQLite stores (migration 040)', () => {
       profileId: 'existing-tab:n.node-1:5:6',
       origin: `${origin}/some/page`,
       loginUrl: `${origin}/home`,
+      portalPath: '/',
       loggedInMarkers: ['Logout'],
       relogin: {
         vaultItemRef: 'vault-item-1',
@@ -280,8 +281,11 @@ describe('unattended SQLite stores (migration 040)', () => {
     // A fresh service over the same database is what the app sees after a
     // restart. Nothing process-local survives.
     const afterRestart = new LoginFingerprintStore(new SqliteLoginRecipeStore(db), () => 200);
-    const recipe = afterRestart.find('existing-tab:n.node-1:9:77', origin);
+    const recipe = afterRestart.resolve('existing-tab:n.node-1:9:77', `${origin}/home`).recipe;
     expect(recipe).toEqual({
+      id: expect.any(String),
+      portalPath: '/',
+      accountRef: 'vault-item-1',
       scope: 'node-1',
       scopeKind: 'node',
       origin,
@@ -296,8 +300,8 @@ describe('unattended SQLite stores (migration 040)', () => {
       createdAt: 100,
       updatedAt: 100,
     });
-    expect(afterRestart.find('existing-tab:n.node-2:9:77', origin)).toBeUndefined();
-    expect(afterRestart.find('existing-tab:n.node-1:9:77', 'https://other.example')).toBeUndefined();
+    expect(afterRestart.resolve('existing-tab:n.node-2:9:77', origin).recipe).toBeUndefined();
+    expect(afterRestart.resolve('existing-tab:n.node-1:9:77', 'https://other.example').recipe).toBeUndefined();
   });
 
   it('keeps the relogin recipe on a markers-only refresh and records outcomes', () => {
@@ -306,12 +310,12 @@ describe('unattended SQLite stores (migration 040)', () => {
     store.remember({
       profileId: 'managed-1',
       origin,
-      loginUrl: `${origin}/login`,
+      loginUrl: `${origin}/login`, portalPath: '/',
       loggedInMarkers: ['Sign out'],
       relogin: { vaultItemRef: 'item', passwordSelector: '#pw' },
     });
-    store.remember({ profileId: 'managed-1', origin, loginUrl: `${origin}/login`, loggedInMarkers: ['Account'] });
-    store.recordOutcome('managed-1', origin, 'relogin_failed', 'relogin submit refused: grant_required');
+    store.remember({ profileId: 'managed-1', origin, loginUrl: `${origin}/login`, portalPath: '/', loggedInMarkers: ['Account'] });
+    store.recordOutcome(store.list({ profileId: 'managed-1' })[0].id, 'relogin_failed', 'relogin submit refused: grant_required');
 
     expect(store.list({ profileId: 'managed-1' })).toEqual([
       expect.objectContaining({
@@ -325,17 +329,20 @@ describe('unattended SQLite stores (migration 040)', () => {
       }),
     ]);
     // An outcome for a scope with no row writes nothing.
-    store.recordOutcome('managed-2', origin, 'logged_in', 'fingerprint_matched');
+    store.recordOutcome('missing-recipe', 'logged_in', 'fingerprint_matched');
     expect(store.list()).toHaveLength(1);
 
-    expect(store.forget('managed-1', `${origin}/`)).toBe(true);
-    expect(store.forget('managed-1', origin)).toBe(false);
+    expect(store.forget({ scope: 'managed-1', origin: `${origin}/` })).toBe(true);
+    expect(store.forget({ scope: 'managed-1', origin })).toBe(false);
     expect(store.list()).toEqual([]);
   });
 
   it('persists only reference and selector fields of a relogin recipe', () => {
     const records = new SqliteLoginRecipeStore(db);
     records.put({
+      id: 'recipe-1',
+      portalPath: '/',
+      accountRef: 'item',
       scope: 'local',
       scopeKind: 'node',
       origin: 'https://a.example',
@@ -351,7 +358,7 @@ describe('unattended SQLite stores (migration 040)', () => {
       updatedAt: 1,
     });
     const raw = db
-      .prepare(`SELECT relogin_json FROM browser_login_recipes WHERE scope = 'local'`)
+      .prepare(`SELECT relogin_json FROM browser_login_portal_recipes WHERE scope = 'local'`)
       .get<{ relogin_json: string }>();
     expect(JSON.parse(raw!.relogin_json)).toEqual({ vaultItemRef: 'item', passwordSelector: '#pw' });
   });

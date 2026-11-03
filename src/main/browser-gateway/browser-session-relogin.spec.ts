@@ -35,6 +35,7 @@ function makeDeps(page: PageState, fingerprints = new LoginFingerprintStore(new 
     navigate: vi.fn(async () => allowed(null)),
     fillCredential: vi.fn(async () => allowed({ filled: 1 })),
     click: vi.fn(async () => allowed(null)),
+    waitFor: vi.fn(async () => allowed(null)),
     sleep: vi.fn(async () => undefined),
   };
   return { deps, fingerprints, escalations, page };
@@ -55,6 +56,7 @@ describe('checkSessionOperation', () => {
       profileId: 'profile-1',
       origin: ORIGIN,
       loginUrl: `${ORIGIN}/login`,
+      portalPath: '/',
       loggedInMarkers: ['log out'],
       relogin: {
         vaultItemRef: 'item-1',
@@ -88,6 +90,7 @@ describe('checkSessionOperation', () => {
     harness.page.hasPasswordField = true;
     harness.deps.snapshot = vi.fn()
       .mockResolvedValueOnce(allowed({ title: 'Login', url: `${ORIGIN}/login`, text: 'Sign in' }))
+      .mockResolvedValueOnce(allowed({ title: 'Login', url: `${ORIGIN}/login`, text: 'Sign in' }))
       .mockResolvedValue(allowed({ title: 'Portal', url: `${ORIGIN}/dashboard`, text: '', textUnavailableReason: reason }));
 
     const outcome = await checkSessionOperation(harness.deps, REQUEST);
@@ -119,12 +122,12 @@ describe('checkSessionOperation', () => {
     let probes = 0;
     harness.deps.snapshot = vi.fn(async () => {
       probes += 1;
-      return probes >= 2
+      return probes >= 3
         ? allowed({ title: 'Portal', url: `${ORIGIN}/dashboard`, text: 'Log out' })
         : allowed({ title: 'Login', url: `${ORIGIN}/login`, text: 'Please sign in' });
     });
     harness.deps.queryElements = vi.fn(async () =>
-      allowed(probes >= 2 ? [] : [{ selector: '#pw', tagName: 'input', inputType: 'password' }]),
+      allowed(probes >= 3 ? [] : [{ selector: '#pw', tagName: 'input', inputType: 'password' }]),
     );
 
     const outcome = await checkSessionOperation(harness.deps, REQUEST);
@@ -208,6 +211,7 @@ describe('checkSessionOperation', () => {
       profileId: 'profile-1',
       origin: ORIGIN,
       loginUrl: `${ORIGIN}/login`,
+      portalPath: '/',
       loggedInMarkers: ['log out'],
       relogin: {
         vaultItemRef: 'item-1',
@@ -221,12 +225,12 @@ describe('checkSessionOperation', () => {
     let probes = 0;
     harness.deps.snapshot = vi.fn(async () => {
       probes += 1;
-      return probes >= 2
+      return probes >= 3
         ? allowed({ title: 'Portal', url: `${ORIGIN}/dashboard`, text: 'Log out' })
         : allowed({ title: 'Login', url: `${ORIGIN}/login`, text: 'Sign in' });
     });
     harness.deps.queryElements = vi.fn(async () =>
-      allowed(probes >= 2 ? [] : [{ selector: '#pw', tagName: 'input', inputType: 'password' }]),
+      allowed(probes >= 3 ? [] : [{ selector: '#pw', tagName: 'input', inputType: 'password' }]),
     );
 
     const outcome = await checkSessionOperation(harness.deps, REQUEST);
@@ -253,12 +257,12 @@ describe('checkSessionOperation', () => {
     let probes = 0;
     harness.deps.snapshot = vi.fn(async () => {
       probes += 1;
-      return probes >= 2
+      return probes >= 3
         ? allowed({ title: 'Portal home', url: `${ORIGIN}/dashboard`, text: 'Log out' })
         : allowed({ title: 'Login', url: `${ORIGIN}/login`, text: 'Sign in' });
     });
     harness.deps.queryElements = vi.fn(async () =>
-      allowed(probes >= 2 ? [] : [{ selector: '#pw', tagName: 'input', inputType: 'password' }]),
+      allowed(probes >= 3 ? [] : [{ selector: '#pw', tagName: 'input', inputType: 'password' }]),
     );
 
     const outcome = await checkSessionOperation(harness.deps, REQUEST);
@@ -280,14 +284,14 @@ describe('checkSessionOperation', () => {
     let probes = 0;
     harness.deps.snapshot = vi.fn(async () => {
       probes += 1;
-      // Probe 1 is the initial check; probes 2-3 are the login form still
-      // showing while the submit redirects.
-      return probes >= 4
+      // Probe 1 checks the session, probe 2 checks the navigation destination;
+      // probes 3-4 are the login form still showing while the submit redirects.
+      return probes >= 5
         ? allowed({ title: 'Portal', url: `${ORIGIN}/dashboard`, text: 'Log out' })
         : allowed({ title: 'Login', url: `${ORIGIN}/login`, text: 'Sign in' });
     });
     harness.deps.queryElements = vi.fn(async () =>
-      allowed(probes >= 4 ? [] : [{ selector: '#pw', tagName: 'input', inputType: 'password' }]),
+      allowed(probes >= 5 ? [] : [{ selector: '#pw', tagName: 'input', inputType: 'password' }]),
     );
 
     const outcome = await checkSessionOperation(harness.deps, REQUEST);
@@ -302,7 +306,7 @@ describe('checkSessionOperation', () => {
     let probes = 0;
     harness.deps.snapshot = vi.fn(async () => {
       probes += 1;
-      return probes >= 2
+      return probes >= 3
         ? allowed({
             title: 'Secret-filled tab',
             url: `${ORIGIN}/`,
@@ -337,7 +341,7 @@ describe('checkSessionOperation', () => {
     let probes = 0;
     harness.deps.snapshot = vi.fn(async () => {
       probes += 1;
-      return probes >= 2
+      return probes >= 3
         ? ({ decision: 'allowed', outcome: 'failed', reason: 'browser_extension_command_timeout', data: null } as never)
         : allowed({ title: 'Login', url: `${ORIGIN}/login`, text: 'Sign in' });
     });
@@ -366,7 +370,7 @@ describe('checkSessionOperation', () => {
     const outcome = await checkSessionOperation(harness.deps, REQUEST);
 
     expect(outcome).toMatchObject({ reason: 'relogin_failed', attempts: 2 });
-    expect(harness.deps.snapshot).toHaveBeenCalledTimes(1);
+    expect(harness.deps.snapshot).toHaveBeenCalledTimes(3);
     expect(harness.escalations.raise).toHaveBeenCalledWith(
       expect.objectContaining({ reason: expect.stringContaining('relogin submit refused: grant_required') }),
     );
@@ -438,6 +442,7 @@ describe('checkSessionOperation', () => {
       profileId: 'profile-1',
       origin: ORIGIN,
       loginUrl: `${ORIGIN}/login`,
+      portalPath: '/',
       loggedInMarkers: ['log out'],
     });
 
@@ -454,6 +459,7 @@ describe('checkSessionOperation', () => {
       profileId: 'existing-tab:n.node-a:10:11',
       origin: ORIGIN,
       loginUrl: `${ORIGIN}/login`,
+      portalPath: '/',
       loggedInMarkers: ['log out'],
       relogin: { vaultItemRef: 'item-1', passwordSelector: '#pass', submitSelector: '#submit' },
     });
@@ -461,12 +467,12 @@ describe('checkSessionOperation', () => {
     const next = makeDeps({ url: `${ORIGIN}/login`, text: 'Sign in', hasPasswordField: true }, fingerprints);
     next.deps.snapshot = vi.fn(async () => {
       probes += 1;
-      return probes >= 2
+      return probes >= 3
         ? allowed({ title: 'Portal', url: `${ORIGIN}/dashboard`, text: 'Log out' })
         : allowed({ title: 'Login', url: `${ORIGIN}/login`, text: 'Sign in' });
     });
     next.deps.queryElements = vi.fn(async () =>
-      allowed(probes >= 2 ? [] : [{ selector: '#pw', tagName: 'input', inputType: 'password' }]),
+      allowed(probes >= 3 ? [] : [{ selector: '#pw', tagName: 'input', inputType: 'password' }]),
     );
 
     const outcome = await checkSessionOperation(next.deps, {

@@ -19,6 +19,7 @@ import { getBrowserCampaignRuntime } from './browser-campaign-runtime';
 import { checkSessionOperation } from './browser-session-relogin';
 import { BrowserRequestCredentialAccessSchema, BrowserCredentialAccessLookupSchema } from '@contracts/schemas/browser';
 import { getBrowserCredentialAccessService } from './browser-credential-access-service';
+import { loginPortalPath, portalPathMatches } from './browser-login-recipe-store';
 
 /**
  * Agent-facing (MCP) runtime surfaces for the unattended layer, dispatched by
@@ -60,7 +61,7 @@ const LOGIN_MARKER_GUIDANCE =
 async function assertLoginMarkersOnLivePage(
   service: Partial<BrowserGatewayService>,
   request: { profileId: string; targetId: string; loggedInMarkers: readonly string[] },
-): Promise<void> {
+): Promise<string> {
   if (typeof service.snapshot !== 'function') {
     throw new Error(`Cannot record login markers until the live page can be read. ${LOGIN_MARKER_GUIDANCE}`);
   }
@@ -84,6 +85,7 @@ async function assertLoginMarkersOnLivePage(
   if (missing.length > 0) {
     throw new Error(`Login markers are not on the live page (${missing.join(', ')}). ${LOGIN_MARKER_GUIDANCE}`);
   }
+  return snap.data.url;
 }
 
 export function isUnattendedRpcMethod(method: string): method is UnattendedRpcMethod {
@@ -171,15 +173,20 @@ export async function handleUnattendedRpcMethod(
           `browser.remember_login_fingerprint needs targetId for the page being viewed. ${LOGIN_MARKER_GUIDANCE}`,
         );
       }
-      await assertLoginMarkersOnLivePage(context.service, {
+      const liveUrl = new URL(await assertLoginMarkersOnLivePage(context.service, {
         profileId: request.profileId,
         targetId: request.targetId,
         loggedInMarkers: request.loggedInMarkers,
-      });
+      }));
+      const portalPath = loginPortalPath(request.loginUrl, request.portalPath);
+      if (liveUrl.origin !== new URL(request.origin).origin || !portalPathMatches(portalPath, liveUrl.pathname)) {
+        throw new Error('Cannot record login recipe: the live page belongs to another origin or portal');
+      }
       const recipe = getBrowserLoginRecipeStore().remember({
         profileId: request.profileId,
         origin: request.origin,
         loginUrl: request.loginUrl,
+        portalPath,
         loggedInMarkers: request.loggedInMarkers,
         ...(request.relogin ? { relogin: request.relogin } : {}),
       });
@@ -188,6 +195,9 @@ export async function handleUnattendedRpcMethod(
         scope: recipe.scope,
         scopeKind: recipe.scopeKind,
         origin: recipe.origin,
+        recipeId: recipe.id,
+        portalPath: recipe.portalPath,
+        accountRef: recipe.accountRef,
         hasRelogin: recipe.relogin !== undefined,
       };
     }
@@ -200,12 +210,12 @@ export async function handleUnattendedRpcMethod(
     }
     case 'browser.forget_login_recipe': {
       const request = parse(BrowserForgetLoginRecipeRequestSchema, payload);
-      return { forgotten: getBrowserLoginRecipeStore().forget(request.scope, request.origin) };
+      return { forgotten: getBrowserLoginRecipeStore().forget(request) };
     }
     case 'browser.check_session': {
       const request = parse(BrowserCheckSessionRequestSchema, payload);
       const service = context.service;
-      const required = ['snapshot', 'queryElements', 'navigate', 'fillCredential', 'click'] as const;
+      const required = ['snapshot', 'queryElements', 'navigate', 'fillCredential', 'click', 'waitFor'] as const;
       for (const name of required) {
         if (typeof service[name] !== 'function') {
           throw new Error(`Browser Gateway service method unavailable: ${name}`);
@@ -220,6 +230,7 @@ export async function handleUnattendedRpcMethod(
           navigate: (req) => service.navigate!(req),
           fillCredential: (req) => service.fillCredential!(req),
           click: (req) => service.click!(req),
+          waitFor: (req) => service.waitFor!(req),
         },
         {
           ...request,

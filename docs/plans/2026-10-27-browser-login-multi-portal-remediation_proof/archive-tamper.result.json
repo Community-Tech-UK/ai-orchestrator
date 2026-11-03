@@ -1,0 +1,24 @@
+{
+  "pid": 27020,
+  "startedAt": "2026-11-03T06:13:35.522Z",
+  "endedAt": "2026-11-03T06:13:35.992Z",
+  "status": null,
+  "signal": "SIGTRAP",
+  "timedOut": false,
+  "events": [
+    {
+      "stage": "ready",
+      "electron": "42.11.18",
+      "sqlite": true
+    },
+    {
+      "stage": "before",
+      "content": "ORIGINAL",
+      "visible": false
+    },
+    {
+      "stage": "archive-modified-in-place"
+    }
+  ],
+  "stderr": "[27020:1103/061335.987772:FATAL:electron/shell/browser/net/asar/asar_file_validator.cc:129] Failed to validate block while ending ASAR file stream: 0\n"
+}

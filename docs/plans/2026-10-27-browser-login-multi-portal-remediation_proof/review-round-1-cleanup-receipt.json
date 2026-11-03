@@ -1,0 +1,32 @@
+{
+  "runtime": [
+    {
+      "path": "dist",
+      "existed": true,
+      "absent": true
+    },
+    {
+      "path": ".angular",
+      "existed": false,
+      "absent": true
+    },
+    {
+      "path": "node_modules/.vite",
+      "existed": true,
+      "absent": true
+    },
+    {
+      "path": "_scratch/portal-review-checks.py",
+      "existed": true,
+      "absent": true
+    }
+  ],
+  "databaseOrBrowserRuntimeCreated": false,
+  "workerVerificationCommandCount": 8,
+  "allWorkerCommandsExitedZero": true,
+  "dependenciesRetainedInsideWorktree": true,
+  "reportsSealsReceiptsAndSmallRawLogsRetained": true,
+  "stagedPaths": [],
+  "diffCheckExitCode": 0,
+  "fullSuite": "Reserved for queue verifier by active plan."
+}

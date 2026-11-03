@@ -1,0 +1,68 @@
+[
+  {
+    "command": "npm run rebuild:native",
+    "exitCode": 0,
+    "seconds": 2.6,
+    "log": "post-install-native.log.txt"
+  },
+  {
+    "command": "node scripts/verify-native-abi.js",
+    "exitCode": 0,
+    "seconds": 0.3,
+    "log": "post-install-native-abi.log.txt"
+  },
+  {
+    "command": "npm run generate:aliases",
+    "exitCode": 0,
+    "seconds": 0.4,
+    "log": "post-install-aliases.log.txt"
+  },
+  {
+    "command": "npm run generate:ipc",
+    "exitCode": 0,
+    "seconds": 0.4,
+    "log": "post-install-ipc.log.txt"
+  },
+  {
+    "command": "npx tsc --noEmit",
+    "exitCode": 0,
+    "seconds": 22.2,
+    "log": "post-install-tsc.log.txt"
+  },
+  {
+    "command": "npm run typecheck:spec",
+    "exitCode": 0,
+    "seconds": 49.5,
+    "log": "post-install-spec.log.txt"
+  },
+  {
+    "command": "npm run lint",
+    "exitCode": 0,
+    "seconds": 16.2,
+    "log": "post-install-lint.log.txt"
+  },
+  {
+    "command": "npm run check:ts-max-loc",
+    "exitCode": 0,
+    "seconds": 1.4,
+    "log": "post-install-loc.log.txt"
+  },
+  {
+    "command": "npm run check:ui-hints",
+    "exitCode": 0,
+    "seconds": 4.7,
+    "log": "post-install-hints.log.txt"
+  },
+  {
+    "command": "npm run build:main",
+    "exitCode": 0,
+    "seconds": 34.8,
+    "log": "post-install-main.log.txt"
+  },
+  {
+    "command": "npm run build:renderer",
+    "exitCode": 0,
+    "seconds": 21.4,
+    "log": "post-install-renderer.log.txt"
+  }
+]

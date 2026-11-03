@@ -1,0 +1,6 @@
+{
+  "command": "npm run smoke:asar-integrity",
+  "exitCode": 0,
+  "seconds": 5.5,
+  "log": "native-archive-smoke.log.txt"
+}

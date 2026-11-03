@@ -1,0 +1,15 @@
+{
+  "command": "npm ci --ignore-scripts --no-audit --no-fund",
+  "exitCode": 0,
+  "seconds": 9.2,
+  "previousInstallMarker": "/Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/.package-lock.json",
+  "currentInstallMarker": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-27-browser-login-multi-e62e93/node_modules/.package-lock.json",
+  "manifestsBefore": {
+    "package.json": "3393f191f632f01d931b80c15817610d7d40ced49ede3bcbeed70f43bbe8daa9",
+    "package-lock.json": "98971ed6605f01cb77c51ce10fa0c8aa71b6c9607d545c10038ea594ccf2626c"
+  },
+  "manifestsAfter": {
+    "package.json": "3393f191f632f01d931b80c15817610d7d40ced49ede3bcbeed70f43bbe8daa9",
+    "package-lock.json": "98971ed6605f01cb77c51ce10fa0c8aa71b6c9607d545c10038ea594ccf2626c"
+  }
+}

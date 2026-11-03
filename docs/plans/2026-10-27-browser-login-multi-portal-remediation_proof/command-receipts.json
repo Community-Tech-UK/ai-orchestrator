@@ -1,0 +1,86 @@
+[
+  {
+    "command": "AIO_TEST_SUMMARY=0 npm run test:quiet -- browser-session-relogin.spec.ts browser-unattended-sqlite-stores.spec.ts browser-remember-login-fingerprint.spec.ts rlm-migrations-081-085.spec.ts context-worker-import-isolation.spec.ts",
+    "exitCode": 0,
+    "result": "5 files, 43 tests passed",
+    "log": "baseline.log.txt"
+  },
+  {
+    "command": "AIO_TEST_SUMMARY=0 npm run test:quiet -- src/main/browser-gateway/browser-login-multi-portal.spec.ts -t retains both buyer portals",
+    "exitCode": 1,
+    "expectedFailure": true,
+    "result": "Both stores return 1 row, expected 2",
+    "log": "red-portal-collision.log.txt"
+  },
+  {
+    "command": "AIO_TEST_SUMMARY=0 npm run test:quiet -- src/main/browser-gateway/browser-login-multi-portal.spec.ts",
+    "exitCode": 0,
+    "result": "38 tests passed",
+    "log": "green-portals.log.txt"
+  },
+  {
+    "command": "npm run generate:aliases",
+    "exitCode": 0,
+    "seconds": 0.4,
+    "log": "aliases.log.txt"
+  },
+  {
+    "command": "npm run generate:ipc",
+    "exitCode": 0,
+    "seconds": 0.4,
+    "log": "ipc.log.txt"
+  },
+  {
+    "command": "npx tsc --noEmit",
+    "exitCode": 0,
+    "seconds": 27.7,
+    "log": "tsc.log.txt"
+  },
+  {
+    "command": "npm run typecheck:spec",
+    "exitCode": 0,
+    "seconds": 51.0,
+    "log": "spec.log.txt"
+  },
+  {
+    "command": "npm run lint",
+    "exitCode": 0,
+    "seconds": 12.5,
+    "log": "lint.log.txt"
+  },
+  {
+    "command": "npm run check:ts-max-loc",
+    "exitCode": 0,
+    "seconds": 1.1,
+    "log": "loc.log.txt"
+  },
+  {
+    "command": "npm run check:ui-hints",
+    "exitCode": 0,
+    "seconds": 3.1,
+    "log": "hints.log.txt"
+  },
+  {
+    "command": "npm run build:main",
+    "exitCode": 0,
+    "seconds": 36.7,
+    "log": "main.log.txt"
+  },
+  {
+    "command": "npm run build:renderer",
+    "exitCode": 0,
+    "seconds": 25.8,
+    "log": "renderer.log.txt"
+  },
+  {
+    "command": "uncached focused selection including dependency compatibility (13 files)",
+    "exitCode": 1,
+    "result": "2 dependency-compatibility failures, 201 passed",
+    "log": "linked-install-focused-failures.log.txt"
+  },
+  {
+    "command": "Electron Node-mode native persistence probe (linked install)",
+    "exitCode": 0,
+    "log": "linked-install-native-runtime-receipt.json"
+  }
+]

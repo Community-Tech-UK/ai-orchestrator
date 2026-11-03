@@ -2,6 +2,7 @@ import type { CostAttributionUsage } from '../core/system/cost-attribution';
 import { recordModelCall } from '../core/system/model-call-recorder';
 import {
   CLAUDE_PINNED_MODELS,
+  CLAUDE_PRICING_MODELS,
   GOOGLE_MODELS,
 } from '../../shared/types/provider.types';
 import { getTokenCounter } from './token-counter';
@@ -51,10 +52,10 @@ function pricingIdentity(provider: string, model?: string): {
     return { provider: 'anthropic', model: CLAUDE_PINNED_MODELS.SONNET_46 };
   }
   if (model?.startsWith('Claude Opus 5.5')) {
-    return { provider: 'anthropic', model: 'claude-opus-5-5' };
+    return { provider: 'anthropic', model: CLAUDE_PRICING_MODELS.OPUS_55 };
   }
   if (model?.startsWith('Claude Sonnet 5.5')) {
-    return { provider: 'anthropic', model: 'claude-sonnet-5-5' };
+    return { provider: 'anthropic', model: CLAUDE_PRICING_MODELS.SONNET_55 };
   }
   return { provider, model };
 }

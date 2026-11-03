@@ -379,9 +379,16 @@ export const RETIRED_PROVIDER_MODELS: Readonly<Record<string, readonly string[]>
   grok: [GROK_MODELS.GROK_45],
 };
 
+/** Claude IDs used for accounting without offering them in the model picker. */
+export const CLAUDE_PRICING_MODELS = {
+  OPUS_55: 'claude-opus-5-5',
+  SONNET_55: 'claude-sonnet-5-5',
+  HAIKU_55: 'claude-haiku-5-5',
+} as const;
+
 /** IDs priced for accounting, without offering them in the model picker. */
 export const PRICED_ONLY_PROVIDER_MODELS: Readonly<Record<string, readonly string[]>> = {
-  claude: ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'],
+  claude: Object.values(CLAUDE_PRICING_MODELS),
 };
 
 /**
@@ -431,9 +438,9 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
   [CLAUDE_MODELS.OPUS_1M]: { input: 4.0, output: 20.0 },
   [CLAUDE_MODELS.HAIKU]: { input: 0.10, output: 0.50 },
   // Haiku 5.5 prompts over 100K cost five times more; this flat table cannot express that.
-  'claude-opus-5-5': { input: 4.0, output: 20.0 },
-  'claude-sonnet-5-5': { input: 2.0, output: 10.0 },
-  'claude-haiku-5-5': { input: 0.10, output: 0.50 },
+  [CLAUDE_PRICING_MODELS.OPUS_55]: { input: 4.0, output: 20.0 },
+  [CLAUDE_PRICING_MODELS.SONNET_55]: { input: 2.0, output: 10.0 },
+  [CLAUDE_PRICING_MODELS.HAIKU_55]: { input: 0.10, output: 0.50 },
   // Claude models (full IDs for API-level pricing lookups)
   [CLAUDE_PINNED_MODELS.FABLE_51]: { input: 10.0, output: 50.0 },
   [CLAUDE_LEGACY_PRICING_ALIASES.FABLE_5]: { input: 10.0, output: 50.0 },

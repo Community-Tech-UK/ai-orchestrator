@@ -1,0 +1,20 @@
+{
+  "command": [
+    "rtk",
+    "proxy",
+    "env",
+    "AIO_TEST_SUMMARY=0",
+    "AIO_TEST_NO_CACHE=1",
+    "npm",
+    "run",
+    "test:quiet",
+    "--",
+    "src/shared/types/model-token-guard.spec.ts"
+  ],
+  "exitCode": 1,
+  "failedTests": 1,
+  "observed": "Existing model-token guard rejects the two concrete Claude 5.5 IDs in frontier-cost-attribution.ts before the fix.",
+  "log": "_scratch/test-run.pid-6922.log",
+  "logSha256": "91b1b4f968fe531abc236c54a3d58d2b2bbba909716bf2cf361949269f6855e4",
+  "testIntegrity": "The existing guard and all other tests/configuration remain unchanged."
+}

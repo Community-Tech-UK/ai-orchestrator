@@ -1,0 +1,58 @@
+{
+  "runtime": [
+    {
+      "path": "dist",
+      "existed": true,
+      "absent": true
+    },
+    {
+      "path": ".angular",
+      "existed": false,
+      "absent": true
+    },
+    {
+      "path": "node_modules/.vite",
+      "existed": false,
+      "absent": true
+    },
+    {
+      "path": "_scratch/portal-native-probe",
+      "existed": true,
+      "absent": true
+    },
+    {
+      "path": "_scratch/asar-integrity-smoke-qMQoi0",
+      "existed": true,
+      "absent": true
+    }
+  ],
+  "ownedProcesses": [
+    {
+      "pid": 58160,
+      "absent": true
+    },
+    {
+      "pid": 58667,
+      "absent": true
+    },
+    {
+      "pid": 27020,
+      "absent": true
+    },
+    {
+      "pid": 25730,
+      "absent": true
+    },
+    {
+      "pid": 26524,
+      "absent": true
+    }
+  ],
+  "dependenciesRetained": true,
+  "installMarker": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-27-browser-login-multi-e62e93/node_modules/.package-lock.json",
+  "rootPlanStatus": "?? docs/plans/2026-10-27-browser-login-multi-portal-remediation_livetest.md\n?? docs/plans/2026-10-27-browser-login-multi-portal-remediation_plan.md\n",
+  "branch": "queue/2026-10-27-browser-login-multi-e62e93",
+  "stagedPaths": [],
+  "unmergedIndexEntries": [],
+  "diffCheckExitCode": 0
+}

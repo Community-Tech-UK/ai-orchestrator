@@ -1,0 +1,31 @@
+{
+  "command": [
+    "rtk",
+    "proxy",
+    "npm",
+    "run",
+    "test:quiet",
+    "--",
+    "src/main/instance/__tests__/context-worker-import-isolation.spec.ts",
+    "scripts/__tests__/dependency-compatibility.spec.ts",
+    "src/main/browser-gateway/browser-login-multi-portal.spec.ts",
+    "src/main/browser-gateway/browser-session-relogin.spec.ts",
+    "src/main/browser-gateway/browser-unattended-sqlite-stores.spec.ts",
+    "src/main/browser-gateway/browser-remember-login-fingerprint.spec.ts",
+    "src/main/persistence/rlm/browser-login-portal-migration.spec.ts",
+    "src/main/persistence/rlm/rlm-migrations-061-065.spec.ts",
+    "src/main/persistence/rlm/rlm-migrations-076-080.spec.ts",
+    "src/main/persistence/rlm/rlm-migrations-081-085.spec.ts",
+    "src/main/browser-gateway/browser-mcp-tools.spec.ts",
+    "src/main/browser-gateway/browser-gateway-service.credentials.spec.ts",
+    "src/main/browser-gateway/browser-credential-vault.spec.ts"
+  ],
+  "environment": {
+    "AIO_TEST_SUMMARY": "0",
+    "AIO_TEST_NO_CACHE": "1"
+  },
+  "exitCode": 0,
+  "seconds": 25.7,
+  "log": "focused-final.log.txt",
+  "fullLog": "focused-final-full.log.txt"
+}

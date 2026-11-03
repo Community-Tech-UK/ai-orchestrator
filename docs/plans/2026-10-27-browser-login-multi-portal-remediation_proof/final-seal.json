@@ -1,0 +1,53 @@
+{
+  "status": "Verification-round-1 worker checks pass; queue full-suite rerun/formal gate and Windows live checks pending.",
+  "head": "365cd099e7481d3d3e601e5b86158f6543c437af",
+  "source": {
+    "packages/contracts/src/schemas/browser-unattended.schemas.ts": "aae4364437c0220b3a8e88cbca902c4bf4d4160edc11c138c138057006fbd98c",
+    "src/main/browser-gateway/browser-login-multi-portal.spec.ts": "2ca6c7173c31452c011edb34c57e437e6db99b9fa07c656325d784004157d888",
+    "src/main/browser-gateway/browser-login-recipe-store.ts": "f278bffade14834a0936648f4d63b827fdd5d3b7f22234c98d479dfea4e93cf2",
+    "src/main/browser-gateway/browser-mcp-session-tools.ts": "be86e037ed409dfb5c4651b2de7406fdcf82ad21167095da18228b90e05be86c",
+    "src/main/browser-gateway/browser-remember-login-fingerprint.spec.ts": "8a6891fc0f7d5c7d09e51c8902b5d96bb4455c5e776e41dfcbce5691cffbe5ab",
+    "src/main/browser-gateway/browser-session-relogin.spec.ts": "5367df7b4acb7ca336c7153239c9c9f2a00ef75040ff958f2368dafc11863783",
+    "src/main/browser-gateway/browser-session-relogin.ts": "e28bd1688c62431b6ccfef8a22faf3ac6a747c7d3504f0d0e0f5c376a9d71b70",
+    "src/main/browser-gateway/browser-unattended-rpc-operations.ts": "97c74e6174bde8348f7b8a9b06bb9ec414694f01ca4edccb11337cb8fe241ddf",
+    "src/main/browser-gateway/browser-unattended-sqlite-stores.spec.ts": "9566aa810243dcee9ecff4ea240287b1f109cf36bad9a5db7b930b16fab55418",
+    "src/main/browser-gateway/browser-unattended-sqlite-stores.ts": "bb97d59b4a9b694880feb5c2b94674716e633bd5433d2937f6e8616972a58903",
+    "src/main/persistence/rlm/browser-login-portal-migration.spec.ts": "6cd722887a95114a0ca9273c7f66ec92777b02173bcfecf5add6eb00be3a9839",
+    "src/main/persistence/rlm/rlm-migrations-081-085.spec.ts": "cdb048d0b34786546736975da6ef53d58b898e0ea3d9d9548da2668bd690fd69",
+    "src/main/persistence/rlm/rlm-migrations-081-085.ts": "c93f9f9cf2c3868cf0924b5a2110dab6b6a3d977ada95666df9bea60756cad4c",
+    "src/main/rlm/frontier-cost-attribution.ts": "c135e25dfe9d72a55f4841f6feb0c1a269b577374f8b5483ba4c1ce824f3d710",
+    "src/shared/types/provider.types.ts": "35776769b522732fda9f3bf9bdbcd266ca507764cd2a5e5eb7b5895c27f222db"
+  },
+  "rootDocuments": {
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-27-browser-login-multi-portal-remediation_plan.md": "ac62105941fb0d7c01e2ddd4b46223cdf8f7bcf8f002b57f184a45c5353f225d",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-27-browser-login-multi-portal-remediation_livetest.md": "448765786386a0e1290267cc3307d082d11a8e2f7dcb531ef961cf2466f86532"
+  },
+  "evidence": {
+    "REPORT.md": "4c5f1a52d1dc312dfc87fcefd83156dbfdf3f09426c672aa5ae9dabc7b1b2c89",
+    "archive-control.process.json": "21d4a4506862a6c55eb2352766fc744920abd919aa76e510a20971497bee74fd",
+    "archive-control.result.json": "7fe3d5e72ab1cd23d29069d5b6730550cac13e9b39ed6d24ecad19bc8a85f05a",
+    "archive-result.json": "d3071bcb9c5dee4782c02e570c3490b17b6e75aa14ea80455ee6654c2c4e8c45",
+    "archive-setup.json": "986935f6e40d368892e1f834a84ddaac4c5750ffc95ca59b5f5613de776f0621",
+    "archive-swap.process.json": "14a57861fdbc758c95f89afcddb1a9e91ce9520d02e876759d85e966233df148",
+    "archive-swap.result.json": "96e61c9cecd39e0a80d9c8d4fc4eb0d1d9ec4f1f1294fd09f3c48229440f5847",
+    "archive-tamper.process.json": "8a4f814a9ccffcdfcefe9b2ebab3356ce48110225a6c6cc5f964a0e18ba9abec",
+    "archive-tamper.result.json": "076fa4437efae3a6922cce689ec6f143fa4998e71caf51e244f137599ce189b7",
+    "cleanup-receipt.json": "84751408bba6a5b955bc885f5ce42eafb756948829570d1e28ba8f796bd276a0",
+    "command-receipts.json": "1ad327e1c05db4ea590377b43a0834e4f7dd1c089943776263dc9f1d04483e8e",
+    "evidence-retention-receipt.json": "b37a06c033b06b884e1e6ede6a8037331232c7286874c7fec53064052718dfe6",
+    "focused-final-receipt.json": "a5151e77e30935b7b2676fc14cab5f73940a72efe6e9d266ced05f954b8c7681",
+    "fresh-review.txt": "3ba6faec00908a06064d78285b5310298cbee1a0ceb58e5a9efa01fd17dd6502",
+    "install-receipt.json": "07d8af83c6f3f968fc44c5b8162a8b222bd6aedd9d487db78cb9b1149a75c273",
+    "linked-install-native-runtime-receipt.json": "c7366085ad94d70d769877ead81d130c6f05633f8add6dc687922e5f5c171f0d",
+    "migration-integrity-receipt.json": "21b32d5675c751896ad726221b09734c95f9aad5cdd0192cdca96a0894b823e1",
+    "native-archive-smoke-receipt.json": "0fd0177b7c53b8ecd8fc13df6b1c4adbee1127a09248751b960ba2367554a836",
+    "native-runtime-receipt.json": "a2d3845c5244be3b7c35b569c008f9b3a68a609bae596676768b4ad9f7264808",
+    "post-install-command-receipts.json": "4d659c6d81582c91ba7971ce3dc806e49585433dc851a19b18cbee5f3d97b38a",
+    "review-round-1-baseline-receipt.json": "b7e5bc2f6585377be1c3e4c4ce4607fc3ab8e2eb95297406498b4669011bf6fd",
+    "review-round-1-cleanup-receipt.json": "bab0596e00219e4a6a0add8fa2d678805953023b433d54b0b0b168cbd28d76fa",
+    "review-round-1-command-receipts.json": "0c65d14447f759128ead18d61043e28494ee8b0f70174df6f38361316333319c",
+    "review-round-1-fresh-review.txt": "75651048dbf2882cf0d17e7d44ac77cd834b8d22168d19bd3859f3f27d018dbf",
+    "seal.json": "5ed7730a6fc153e9ae0b4dac198fcc6650ba0a592325d071b7fcc3d5740beb9c",
+    "source-inventory.json": "e42876bd47f1cdfdcc24056a09892a62bbd5526bfc77efb4f1064cb4005dcf26"
+  }
+}

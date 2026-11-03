@@ -238,6 +238,7 @@ export const BrowserCheckSessionRequestSchema = z
     profileId: idSchema,
     targetId: idSchema,
     autoRelogin: z.boolean().optional(),
+    vaultItemRef: idSchema.optional(),
     campaignId: idSchema.optional(),
   })
   .strict();
@@ -250,6 +251,7 @@ export const BrowserRememberLoginFingerprintRequestSchema = z
     targetId: idSchema.optional(),
     origin: z.string().url().max(2000),
     loginUrl: z.string().url().max(2000),
+    portalPath: z.string().min(1).max(2000).optional(),
     loggedInMarkers: z.array(z.string().min(1).max(200)).min(1).max(10),
     relogin: z
       .object({
@@ -283,6 +285,8 @@ export const BrowserForgetLoginRecipeRequestSchema = z
     // The `scope` value exactly as browser.list_login_recipes returns it.
     scope: z.string().min(1).max(500),
     origin: z.string().url().max(2000),
+    // Optional for existing clients; omission refuses ambiguous deletion.
+    recipeId: idSchema.optional(),
   })
   .strict();
 export type BrowserForgetLoginRecipeRequest = z.infer<typeof BrowserForgetLoginRecipeRequestSchema>;

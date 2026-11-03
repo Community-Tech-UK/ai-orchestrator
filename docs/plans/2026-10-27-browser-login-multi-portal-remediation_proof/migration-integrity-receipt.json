@@ -1,0 +1,16 @@
+[
+  {
+    "migration": "081_browser_audit_command_id",
+    "comparedRef": "HEAD",
+    "upAndDownByteIdentical": true,
+    "upSha256": "1aee93782293077a6e32f0338d79598d28299c160e6ccf623486e3f72683208c",
+    "downSha256": "13f6aea13ff3abae25151dd7486917b464e304dd9c9519c1470c254fc978ea02"
+  },
+  {
+    "migration": "081_browser_login_portal_accounts",
+    "comparedRef": "queue/2026-10-27-browser-login-multi-6006f1",
+    "upAndDownByteIdentical": true,
+    "upSha256": "74d106ff7ccf44332c5a04ee74a56927fd6441a43e3abf1b65d7203b711dc590",
+    "downSha256": "17db4fd369edb9244b9f91d9aeed145c3d04ad8ba6e95d06247f07a63527d11a"
+  }
+]

@@ -1,0 +1,39 @@
+{
+  "runtime": "Electron Node mode, native better-sqlite3; no browser or app window",
+  "phases": [
+    {
+      "phase": "write",
+      "exitCode": 0,
+      "evidence": {
+        "phase": "write",
+        "pid": 58160,
+        "rows": 3,
+        "legacySafe": true
+      }
+    },
+    {
+      "phase": "reopen",
+      "exitCode": 0,
+      "evidence": {
+        "phase": "reopen",
+        "pid": 58667,
+        "rows": 3,
+        "results": [
+          {
+            "portal": "cpcatapult",
+            "state": "logged_in",
+            "reference": "TEST_ONLY_cpcatapult",
+            "recipeScope": "windows-pc"
+          },
+          {
+            "portal": "publicagroup",
+            "state": "logged_in",
+            "reference": "TEST_ONLY_publicagroup",
+            "recipeScope": "windows-pc"
+          }
+        ]
+      }
+    }
+  ],
+  "passed": true
+}

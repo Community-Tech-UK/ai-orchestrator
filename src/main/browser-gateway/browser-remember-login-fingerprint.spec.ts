@@ -20,17 +20,18 @@ const request = {
   targetId: 'target-1',
   origin: 'https://portal.example',
   loginUrl: 'https://portal.example/login',
+  portalPath: '/',
   loggedInMarkers: ['My Tenders', 'Current'],
 };
 
-function snapshot(text: string, textUnavailableReason?: string) {
+function snapshot(text: string, textUnavailableReason?: string, url = 'https://portal.example/home') {
   return vi.fn(async () => ({
     decision: 'allowed' as const,
     outcome: 'succeeded' as const,
     auditId: 'audit-1',
     data: {
       title: 'Portal',
-      url: 'https://portal.example/home',
+      url,
       text,
       ...(textUnavailableReason ? { textUnavailableReason } : {}),
     },
@@ -76,5 +77,25 @@ describe('browser.remember_login_fingerprint live-page marker check (LT-666)', (
     expect(remember).toHaveBeenCalledWith(expect.objectContaining({
       loggedInMarkers: ['James', 'Log out'],
     }));
+  });
+
+  it.each(['https://other.example/home', 'https://portal.example/cpcatapult/home'])(
+    'refuses recording another portal or origin using the visible markers on %s', async (url) => {
+      await expect(handleUnattendedRpcMethod('browser.remember_login_fingerprint', {
+        ...request, portalPath: '/publicagroup', loginUrl: 'https://portal.example/publicagroup/home', loggedInMarkers: ['Logout'],
+      }, { instanceId: 'inst-1', service: { snapshot: snapshot('Logout', undefined, url) } }))
+        .rejects.toThrow(/another origin or portal/);
+      expect(remember).not.toHaveBeenCalled();
+    },
+  );
+
+  it('passes the observed portal path when recording a login recipe', async () => {
+    await handleUnattendedRpcMethod('browser.remember_login_fingerprint', {
+      ...request, loginUrl: 'https://portal.example/publicagroup/aspx/login',
+      portalPath: '/publicagroup', loggedInMarkers: ['Logout'],
+    }, { instanceId: 'inst-1', service: {
+      snapshot: snapshot('Logout', undefined, 'https://portal.example/publicagroup/tenders/current'),
+    } });
+    expect(remember).toHaveBeenCalledWith(expect.objectContaining({ portalPath: '/publicagroup' }));
   });
 });

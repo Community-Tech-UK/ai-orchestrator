@@ -1,0 +1,142 @@
+{
+  "environment": {
+    "AIO_TEST_SUMMARY": "0",
+    "AIO_TEST_NO_CACHE": "1"
+  },
+  "scope": "Worker focused tests and static/build gates; full suite remains with queue verifier.",
+  "checks": [
+    {
+      "name": "focused",
+      "command": [
+        "rtk",
+        "proxy",
+        "npm",
+        "run",
+        "test:quiet",
+        "--",
+        "src/main/instance/__tests__/context-worker-import-isolation.spec.ts",
+        "scripts/__tests__/dependency-compatibility.spec.ts",
+        "src/main/browser-gateway/browser-login-multi-portal.spec.ts",
+        "src/main/browser-gateway/browser-session-relogin.spec.ts",
+        "src/main/browser-gateway/browser-unattended-sqlite-stores.spec.ts",
+        "src/main/browser-gateway/browser-remember-login-fingerprint.spec.ts",
+        "src/main/persistence/rlm/browser-login-portal-migration.spec.ts",
+        "src/main/persistence/rlm/rlm-migrations-061-065.spec.ts",
+        "src/main/persistence/rlm/rlm-migrations-076-080.spec.ts",
+        "src/main/persistence/rlm/rlm-migrations-081-085.spec.ts",
+        "src/main/browser-gateway/browser-mcp-tools.spec.ts",
+        "src/main/browser-gateway/browser-gateway-service.credentials.spec.ts",
+        "src/main/browser-gateway/browser-credential-vault.spec.ts",
+        "src/shared/types/model-token-guard.spec.ts",
+        "src/shared/types/provider.types.spec.ts",
+        "src/shared/types/__tests__/provider.types.spec.ts",
+        "src/shared/data/model-pricing.spec.ts",
+        "src/main/core/system/model-call-recorder.spec.ts",
+        "src/main/instance/auto-title-service.spec.ts",
+        "src/main/rlm/__tests__/hyde-service-fallback.spec.ts"
+      ],
+      "exitCode": 0,
+      "seconds": 29.08,
+      "log": "_scratch/portal-review-round-1/focused.log",
+      "logSha256": "b53420a14bfe02164c89ee624089e34ec3a66aa8cea1b2f2c1e7770aaf293ad1"
+    },
+    {
+      "name": "tsc",
+      "command": [
+        "rtk",
+        "proxy",
+        "npx",
+        "tsc",
+        "--noEmit"
+      ],
+      "exitCode": 0,
+      "seconds": 25.84,
+      "log": "_scratch/portal-review-round-1/tsc.log",
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "spec",
+      "command": [
+        "rtk",
+        "proxy",
+        "npm",
+        "run",
+        "typecheck:spec"
+      ],
+      "exitCode": 0,
+      "seconds": 47.18,
+      "log": "_scratch/portal-review-round-1/spec.log",
+      "logSha256": "4e31c408e8be4057c1075f658596af0cb057c7a9329948cca2022b8326a00133"
+    },
+    {
+      "name": "lint",
+      "command": [
+        "rtk",
+        "proxy",
+        "npm",
+        "run",
+        "lint"
+      ],
+      "exitCode": 0,
+      "seconds": 12.02,
+      "log": "_scratch/portal-review-round-1/lint.log",
+      "logSha256": "a9f86453985a02868554a836eef151dc9a361f1e39714fc833e0933028e09a98"
+    },
+    {
+      "name": "loc",
+      "command": [
+        "rtk",
+        "proxy",
+        "npm",
+        "run",
+        "check:ts-max-loc"
+      ],
+      "exitCode": 0,
+      "seconds": 0.49,
+      "log": "_scratch/portal-review-round-1/loc.log",
+      "logSha256": "ff98b222b0e35e734385575e52d637f061804384c5fdf669a726bd70acc00e6a"
+    },
+    {
+      "name": "hints",
+      "command": [
+        "rtk",
+        "proxy",
+        "npm",
+        "run",
+        "check:ui-hints"
+      ],
+      "exitCode": 0,
+      "seconds": 2.36,
+      "log": "_scratch/portal-review-round-1/hints.log",
+      "logSha256": "cfae05f028036aa875793a50f5e5465f68de5c3350dcd79a90d6b964e57bbd6b"
+    },
+    {
+      "name": "main",
+      "command": [
+        "rtk",
+        "proxy",
+        "npm",
+        "run",
+        "build:main"
+      ],
+      "exitCode": 0,
+      "seconds": 28.31,
+      "log": "_scratch/portal-review-round-1/main.log",
+      "logSha256": "721a8f89de6c01c91d1116e8207850251058a19227d1934599653dc590c8763b"
+    },
+    {
+      "name": "renderer",
+      "command": [
+        "rtk",
+        "proxy",
+        "npm",
+        "run",
+        "build:renderer"
+      ],
+      "exitCode": 0,
+      "seconds": 19.46,
+      "log": "_scratch/portal-review-round-1/renderer.log",
+      "logSha256": "741174ae089bb4367c96e1eac173ad526bf45ca4816549294f5fc945b577c44e"
+    }
+  ]
+}

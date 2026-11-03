@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../../db/sqlite-driver';
-import { createMigrationsTable, createTables, runMigrations } from './rlm-schema';
+import { computeMigrationChecksum, createMigrationsTable, createTables, MIGRATIONS, runMigrations } from './rlm-schema';
 import { RLM_MIGRATIONS_081_085 } from './rlm-migrations-081-085';
 
 describe('081_browser_audit_command_id', () => {
   let db: SqliteDriver;
-  const migration = RLM_MIGRATIONS_081_085[0]!;
+  const migration = RLM_MIGRATIONS_081_085.find((m) => m.name === '081_browser_audit_command_id')!;
 
   beforeEach(() => {
     db = defaultDriverFactory(':memory:');
@@ -46,5 +46,32 @@ describe('081_browser_audit_command_id', () => {
     db.exec(migration.up);
     expect(db.prepare("PRAGMA table_info('browser_audit_entries')").all<{ name: string }>().map((row) => row.name))
       .toContain('command_id');
+  });
+});
+
+describe('merged browser migrations', () => {
+  it.each(RLM_MIGRATIONS_081_085.map((m) => m.name))('upgrades a database already containing %s', (appliedName) => {
+    const db = defaultDriverFactory(':memory:');
+    try {
+      createTables(db);
+      createMigrationsTable(db);
+      for (const migration of MIGRATIONS.filter((m) => m.name < '081' || m.name === appliedName)) {
+        db.exec(migration.up);
+        db.prepare('INSERT INTO _migrations(name, applied_at, checksum) VALUES (?, ?, ?)')
+          .run(migration.name, 1, computeMigrationChecksum(migration));
+      }
+
+      const applied: string[] = [];
+      runMigrations(db, (name) => applied.push(name));
+      runMigrations(db, (name) => applied.push(name));
+
+      expect(applied).toEqual(RLM_MIGRATIONS_081_085.filter((m) => m.name !== appliedName).map((m) => m.name));
+      expect(db.prepare("PRAGMA table_info('browser_audit_entries')").all<{ name: string }>().map((row) => row.name))
+        .toContain('command_id');
+      expect(db.prepare("PRAGMA table_info('browser_login_portal_recipes')").all<{ name: string }>().map((row) => row.name))
+        .toContain('portal_path');
+    } finally {
+      db.close();
+    }
   });
 });

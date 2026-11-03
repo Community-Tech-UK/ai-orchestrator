@@ -1,0 +1,21 @@
+{
+  "head": "365cd099e7481d3d3e601e5b86158f6543c437af",
+  "state": "Uncommitted verification-round-1 repair over the queue worker checkpoint.",
+  "files": {
+    "packages/contracts/src/schemas/browser-unattended.schemas.ts": "aae4364437c0220b3a8e88cbca902c4bf4d4160edc11c138c138057006fbd98c",
+    "src/main/browser-gateway/browser-login-multi-portal.spec.ts": "2ca6c7173c31452c011edb34c57e437e6db99b9fa07c656325d784004157d888",
+    "src/main/browser-gateway/browser-login-recipe-store.ts": "f278bffade14834a0936648f4d63b827fdd5d3b7f22234c98d479dfea4e93cf2",
+    "src/main/browser-gateway/browser-mcp-session-tools.ts": "be86e037ed409dfb5c4651b2de7406fdcf82ad21167095da18228b90e05be86c",
+    "src/main/browser-gateway/browser-remember-login-fingerprint.spec.ts": "8a6891fc0f7d5c7d09e51c8902b5d96bb4455c5e776e41dfcbce5691cffbe5ab",
+    "src/main/browser-gateway/browser-session-relogin.spec.ts": "5367df7b4acb7ca336c7153239c9c9f2a00ef75040ff958f2368dafc11863783",
+    "src/main/browser-gateway/browser-session-relogin.ts": "e28bd1688c62431b6ccfef8a22faf3ac6a747c7d3504f0d0e0f5c376a9d71b70",
+    "src/main/browser-gateway/browser-unattended-rpc-operations.ts": "97c74e6174bde8348f7b8a9b06bb9ec414694f01ca4edccb11337cb8fe241ddf",
+    "src/main/browser-gateway/browser-unattended-sqlite-stores.spec.ts": "9566aa810243dcee9ecff4ea240287b1f109cf36bad9a5db7b930b16fab55418",
+    "src/main/browser-gateway/browser-unattended-sqlite-stores.ts": "bb97d59b4a9b694880feb5c2b94674716e633bd5433d2937f6e8616972a58903",
+    "src/main/persistence/rlm/browser-login-portal-migration.spec.ts": "6cd722887a95114a0ca9273c7f66ec92777b02173bcfecf5add6eb00be3a9839",
+    "src/main/persistence/rlm/rlm-migrations-081-085.spec.ts": "cdb048d0b34786546736975da6ef53d58b898e0ea3d9d9548da2668bd690fd69",
+    "src/main/persistence/rlm/rlm-migrations-081-085.ts": "c93f9f9cf2c3868cf0924b5a2110dab6b6a3d977ada95666df9bea60756cad4c",
+    "src/main/rlm/frontier-cost-attribution.ts": "c135e25dfe9d72a55f4841f6feb0c1a269b577374f8b5483ba4c1ce824f3d710",
+    "src/shared/types/provider.types.ts": "35776769b522732fda9f3bf9bdbcd266ca507764cd2a5e5eb7b5895c27f222db"
+  }
+}

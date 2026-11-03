@@ -30,8 +30,8 @@ import { getLogger } from '../logging/logger';
  * re-verify), max 2 attempts, then parks a `relogin_failed` escalation.
  *
  * Recipes are persisted and keyed by the stable credential scope (see
- * browser-login-recipe-store.ts), so any tab on the same computer and origin
- * finds the recipe, and it survives a restart.
+ * browser-login-recipe-store.ts), so any tab on the same computer and portal
+ * can find its account recipe, and it survives a restart.
  *
  * Every page judgement uses a LIVE snapshot. A cached copy describes the page
  * as it was before the sign-in, and an opaque (secret-tainted) page cannot
@@ -53,6 +53,8 @@ export interface CheckSessionRequest extends BrowserGatewayContext {
   targetId: string;
   /** Attempt the auto re-login when logged out (default true). */
   autoRelogin?: boolean;
+  /** Select an account within the live portal; this does not authorize a fill. */
+  vaultItemRef?: string;
   /** Campaign to attribute a parked escalation to. */
   campaignId?: string;
 }
@@ -95,6 +97,12 @@ export interface CheckSessionDeps {
     targetId: string;
     selector: string;
   } & BrowserGatewayContext) => ServiceResult<unknown>;
+  waitFor: (req: {
+    profileId: string;
+    targetId: string;
+    selector: string;
+    timeoutMs: number;
+  } & BrowserGatewayContext) => ServiceResult<unknown>;
   /** Injected for tests; defaults to a real timer. */
   sleep?: (ms: number) => Promise<void>;
 }
@@ -124,7 +132,7 @@ export async function checkSessionOperation(
   const base = { recipeScope, ...pageOf(evaluation) };
   if (evaluation.state !== 'logged_out') {
     if (evaluation.recipe) {
-      record(deps, request, evaluation.recipe.origin, outcomeForEvaluation(evaluation), evaluation.reason);
+      record(deps, evaluation.recipe.id, outcomeForEvaluation(evaluation), evaluation.reason);
     }
     return {
       state: evaluation.state,
@@ -142,7 +150,7 @@ export async function checkSessionOperation(
   const relogin = recipe?.relogin;
   if (!recipe || !relogin) {
     if (recipe) {
-      record(deps, request, recipe.origin, 'no_relogin_recipe', evaluation.reason);
+      record(deps, recipe.id, 'no_relogin_recipe', evaluation.reason);
     }
     const parked = park(
       deps,
@@ -167,13 +175,13 @@ export async function checkSessionOperation(
   let lastPage = base.page;
   for (let attempt = 1; attempt <= MAX_RELOGIN_ATTEMPTS; attempt++) {
     try {
-      await attemptRelogin(deps, request, recipe.loginUrl, relogin);
-      const settled = await waitForSettledSession(deps, request);
+      await attemptRelogin(deps, request, recipe, relogin);
+      const settled = await waitForSettledSession(deps, request, recipe);
       lastReason = settled.reason;
       lastPage = pageOf(settled).page ?? lastPage;
       if (settled.state === 'logged_in') {
         logger.info('Auto re-login succeeded', { profileId: request.profileId, attempt });
-        record(deps, request, recipe.origin, 'relogged_in', settled.reason);
+        record(deps, recipe.id, 'relogged_in', settled.reason);
         return {
           state: 'logged_in',
           reason: settled.reason,
@@ -187,7 +195,7 @@ export async function checkSessionOperation(
         // The form was submitted but the page cannot be read, so the sign-in
         // cannot be confirmed. Retrying would refill the credential into a page
         // we still cannot see; hand it to a human with the cause instead.
-        record(deps, request, recipe.origin, 'observation_blocked', settled.reason);
+        record(deps, recipe.id, 'observation_blocked', settled.reason);
         const parked = park(
           deps,
           request,
@@ -207,7 +215,7 @@ export async function checkSessionOperation(
         };
       }
       if (settled.state === 'unknown') {
-        record(deps, request, recipe.origin, 'unknown', settled.reason);
+        record(deps, recipe.id, 'unknown', settled.reason);
         return {
           state: 'unknown',
           reason: settled.reason,
@@ -219,11 +227,11 @@ export async function checkSessionOperation(
       }
     } catch (error) {
       if (error instanceof LoginFormUnreadable) {
-        record(deps, request, recipe.origin, 'unknown', error.message);
+        record(deps, recipe.id, 'unknown', error.message);
         return { state: 'unknown', reason: error.message, reloggedIn: false, attempts: attempt, recipeScope };
       }
       if (error instanceof MarkersNotMatchedOnSignedInPage) {
-        record(deps, request, recipe.origin, 'unknown', MARKERS_NOT_MATCHED);
+        record(deps, recipe.id, 'unknown', MARKERS_NOT_MATCHED);
         return {
           state: 'unknown',
           reason: MARKERS_NOT_MATCHED,
@@ -241,7 +249,7 @@ export async function checkSessionOperation(
     }
   }
 
-  record(deps, request, recipe.origin, 'relogin_failed', lastReason);
+  record(deps, recipe.id, 'relogin_failed', lastReason);
   const parked = park(
     deps,
     request,
@@ -270,6 +278,7 @@ interface LiveSessionEvaluation extends SessionEvaluation {
 async function evaluateLiveSession(
   deps: CheckSessionDeps,
   request: CheckSessionRequest,
+  expectedRecipe?: LoginRecipe,
 ): Promise<LiveSessionEvaluation> {
   const base = contextOf(request);
   const snap = await deps.snapshot({
@@ -289,7 +298,10 @@ async function evaluateLiveSession(
   }
   const { url, title, text } = snap.data;
   const origin = getOrigin(url);
-  const recipe = origin ? deps.fingerprints.find(request.profileId, origin) : undefined;
+  const selection = origin ? deps.fingerprints.resolve(
+    request.profileId, url, expectedRecipe?.accountRef || request.vaultItemRef,
+  ) : undefined;
+  const recipe = selection?.recipe;
   const inspection = deriveBrowserTargetInspectionState({
     title,
     url,
@@ -327,6 +339,12 @@ async function evaluateLiveSession(
   if (!origin) {
     return { state: 'unknown', reason: 'origin_unknown', url, title, origin };
   }
+  if (selection?.reason && selection.reason !== 'no_fingerprint') {
+    return { state: 'unknown', reason: selection.reason, url, title, origin };
+  }
+  if (expectedRecipe && recipe?.id !== expectedRecipe.id) {
+    return { state: 'unknown', reason: 'login_recipe_portal_changed', url, title, origin };
+  }
   const elements = await deps.queryElements({
     ...base,
     profileId: request.profileId,
@@ -356,15 +374,16 @@ async function evaluateLiveSession(
 async function waitForSettledSession(
   deps: CheckSessionDeps,
   request: CheckSessionRequest,
+  recipe: LoginRecipe,
 ): Promise<LiveSessionEvaluation> {
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
-  let latest = await evaluateLiveSession(deps, request);
+  let latest = await evaluateLiveSession(deps, request, recipe);
   for (let poll = 1; poll < SETTLE_POLLS; poll++) {
     if (latest.state === 'logged_in' || (latest.state === 'unknown' && latest.reason !== 'fingerprint_markers_missing')) {
       return latest;
     }
     await sleep(SETTLE_INTERVAL_MS);
-    latest = await evaluateLiveSession(deps, request);
+    latest = await evaluateLiveSession(deps, request, recipe);
   }
   return latest;
 }
@@ -378,13 +397,12 @@ function outcomeForEvaluation(evaluation: LiveSessionEvaluation): LoginRecipeOut
 
 function record(
   deps: CheckSessionDeps,
-  request: CheckSessionRequest,
-  origin: string,
+  recipeId: string,
   outcome: LoginRecipeOutcome,
   reason: string,
 ): void {
   try {
-    deps.fingerprints.recordOutcome(request.profileId, origin, outcome, reason.slice(0, 500));
+    deps.fingerprints.recordOutcome(recipeId, outcome, reason.slice(0, 500));
   } catch (error) {
     // Diagnostics only; a failed write must not change the session verdict.
     logger.warn('Could not record login recipe outcome', {
@@ -400,15 +418,17 @@ function pageOf(evaluation: LiveSessionEvaluation): { page?: { title: string; ur
 async function attemptRelogin(
   deps: CheckSessionDeps,
   request: CheckSessionRequest,
-  loginUrl: string,
+  recipe: LoginRecipe,
   relogin: LoginReloginDetails,
 ): Promise<void> {
   const base = { ...contextOf(request), profileId: request.profileId, targetId: request.targetId };
 
-  const nav = await deps.navigate({ ...base, url: loginUrl });
-  if (nav.decision !== 'allowed') {
+  const nav = await deps.navigate({ ...base, url: recipe.loginUrl });
+  if (nav.decision !== 'allowed' || nav.outcome !== 'succeeded') {
     throw new Error(`relogin navigate refused: ${nav.reason ?? nav.decision}`);
   }
+
+  await assertLiveRecipe(deps, request, recipe);
 
   const loginForm = await deps.queryElements({ ...base, limit: 100 });
   if (loginForm.decision !== 'allowed' || loginForm.outcome !== 'succeeded' || loginForm.data == null) {
@@ -440,6 +460,13 @@ async function attemptRelogin(
   // Optional second factor: fill the code input on a second pass (the code
   // mail/TOTP only exists after the password submit).
   if (relogin.codeSelector && relogin.codeKind) {
+    const ready = await deps.waitFor({
+      ...base, selector: relogin.codeSelector, timeoutMs: SETTLE_POLLS * SETTLE_INTERVAL_MS,
+    });
+    if (ready.decision !== 'allowed' || ready.outcome !== 'succeeded') {
+      throw new LoginFormUnreadable(ready.reason ?? 'relogin_code_input_unavailable');
+    }
+    await assertLiveRecipe(deps, request, recipe);
     const codeFill = await deps.fillCredential({
       ...base,
       vaultItemRef: relogin.vaultItemRef,
@@ -451,6 +478,28 @@ async function attemptRelogin(
     if (relogin.submitSelector) {
       await submit(deps, base, relogin.submitSelector);
     }
+  }
+}
+
+async function assertLiveRecipe(
+  deps: CheckSessionDeps,
+  request: CheckSessionRequest,
+  recipe: LoginRecipe,
+): Promise<void> {
+  const base = { ...contextOf(request), profileId: request.profileId, targetId: request.targetId };
+  // A same-origin redirect can still land in another buyer portal. Check the
+  // live destination before any secret fill; the fill service then independently
+  // enforces its existing origin binding and credential authorization.
+  const destination = await deps.snapshot({ ...base, requireLive: true });
+  if (destination.decision !== 'allowed' || destination.outcome !== 'succeeded' || !destination.data) {
+    throw new LoginFormUnreadable(destination.reason ?? 'snapshot_unavailable');
+  }
+  if (destination.data.textUnavailableReason) {
+    throw new LoginFormUnreadable(destination.data.textUnavailableReason);
+  }
+  const selected = deps.fingerprints.resolve(request.profileId, destination.data.url, recipe.accountRef || undefined);
+  if (selected.recipe?.id !== recipe.id) {
+    throw new LoginFormUnreadable('login_recipe_portal_changed');
   }
 }
 
@@ -490,7 +539,8 @@ function park(
 
 function getOrigin(url: string): string | null {
   try {
-    return new URL(url).origin;
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:' ? parsed.origin : null;
   } catch {
     return null;
   }

@@ -1,0 +1,16 @@
+Understood — I’ll run a scoped, read-only forensic review against the pending diff and specified untracked specs, using the task-completion-gate guidance and plan acceptance criteria.
+
+I’m loading the gate runbook and plan criteria, then auditing the exact pending diff and caller paths without running full-suite checks.
+
+I’ve got the raw diff; next I’m tracing the runtime call path and interface consumers to check for deterministic selection/migration and any hidden regressions.
+
+VERDICT: PASS (scoped review, no actionable findings)  
+Task: 2026-10-27 browser login multi-portal remediation (pending worker diff, read-only forensic review)  
+Range: `git diff HEAD` (uncommitted tracked changes) + untracked specs `src/main/browser-gateway/browser-login-multi-portal.spec.ts`, `src/main/persistence/rlm/browser-login-portal-migration.spec.ts`  
+Gate 0 evidence: **Not run by instruction** (no install/build/lint/full-suite execution in this scoped worker review).  
+Claims vs reality: No claim/diff mismatches found within reviewed scope (formal reproducibility still pending full verifier run).  
+Findings: **No actionable defects** in reviewed changes. No test-tampering/suppression/dependency/config drift patterns detected in diff-forensics scan.
+
+Acceptance criteria mapping: portal/account deterministic selection and sibling-account non-replacement are implemented in `browser-login-recipe-store.ts` (`resolve`, `remember`, overlap/ambiguity guards) and covered by `browser-login-multi-portal.spec.ts`; legacy fail-closed migration with data preservation/checksum-safe coexistence is implemented in `rlm-migrations-081-085.ts` and covered by `browser-login-portal-migration.spec.ts` plus merged-migration checks in `rlm-migrations-081-085.spec.ts`; new-tab/restart and per-recipe outcome persistence are covered in `browser-unattended-sqlite-stores.spec.ts`; redirect + code-step handling and portal revalidation before each fill are in `browser-session-relogin.ts` and exercised in `browser-session-relogin.spec.ts` / `browser-login-multi-portal.spec.ts`; authorization remains guarded because credential fill still goes only through existing `fillCredential` service path (no bypass added).
+
+Escalation: Security-sensitive browser-auth/session surfaces were touched, so a full independent completion gate remains required; scoped review has no actionable findings, **full gate/live validation pending**.

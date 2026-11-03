@@ -1,0 +1,31 @@
+{
+  "pid": 25730,
+  "startedAt": "2026-11-03T06:13:32.189Z",
+  "endedAt": "2026-11-03T06:13:34.878Z",
+  "status": 0,
+  "signal": null,
+  "timedOut": false,
+  "events": [
+    {
+      "stage": "ready",
+      "electron": "42.11.18",
+      "sqlite": true
+    },
+    {
+      "stage": "before",
+      "content": "ORIGINAL",
+      "visible": false
+    },
+    {
+      "stage": "after",
+      "content": "ORIGINAL",
+      "visible": false
+    },
+    {
+      "stage": "finished",
+      "before": "ORIGINAL",
+      "after": "ORIGINAL"
+    }
+  ],
+  "stderr": ""
+}

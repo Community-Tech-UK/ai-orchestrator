@@ -1,0 +1,23 @@
+{
+  "verdict": "PASS",
+  "results": [
+    {
+      "mode": "control",
+      "electron": "42.11.18",
+      "status": 0,
+      "signal": null
+    },
+    {
+      "mode": "swap",
+      "electron": "42.11.18",
+      "status": 0,
+      "signal": null
+    },
+    {
+      "mode": "tamper",
+      "electron": "42.11.18",
+      "status": null,
+      "signal": "SIGTRAP"
+    }
+  ]
+}

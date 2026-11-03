@@ -1,0 +1,26 @@
+VERDICT: PASS for the verification-round-1 repair only. This is not a full Gate 0 or formal completion claim.
+
+Limits: Bash was refused in this session (every shell form returned "requires approval"), so I could not run `git diff`, recompute any hash, or run a test. My checks are by reading files and the parent's logs. The full suite and formal completion remain with the queue verifier.
+
+**Finding 1, the model-token guard (resolved)**
+- `src/main/rlm/frontier-cost-attribution.ts:54-58` now uses `CLAUDE_PRICING_MODELS.OPUS_55` and `SONNET_55`. The file has no quoted Claude 5.5 literal left.
+- `src/shared/types/provider.types.ts:382-387` defines `CLAUDE_PRICING_MODELS` with the same three IDs. `PRICED_ONLY_PROVIDER_MODELS.claude` is built from it, so the pricing-allowlist behaviour is unchanged.
+- The guard (`src/shared/types/model-token-guard.spec.ts`) scans only `src/main` and `src/renderer`. Its focused run is in `_scratch/portal-review-round-1/focused.log`: "20 files · 863 tests passed", and the receipt shows exit 0. The baseline receipt records the pre-fix failure on the two `frontier-cost-attribution.ts` IDs.
+- The guard's allowlist and assertions are unchanged, and the spec was not edited.
+
+**Finding 2, proof retention (resolved as described)**
+- `evidence-retention-receipt.json` lists 37 `.log.txt` files and the native probe, moved to the ignored `_scratch/portal-review-round-1/raw-evidence/`. The `.log.txt` names were not covered by the `*.log` ignore rule, which is why they were git-visible.
+- `review-round-1-command-receipts.json` references logs under `_scratch/portal-review-round-1/`, and `focused.log` exists there.
+- I could not list the proof directory (Read rejects directories), so the residual file set is per the receipt only.
+
+**Non-blocking suggestion**
+- `src/shared/data/model-pricing.ts:188-189` still hard-codes `'claude-opus-5-5'` and `'claude-sonnet-5-5'` in `CACHE_READ_MULTIPLIERS`. The guard does not scan `src/shared`, so this does not fail. It is inconsistent with the repair's stated centralisation. Switching to `CLAUDE_PRICING_MODELS` (the file already imports from `provider.types`) would not add a module. This is optional and does not block the verdict.
+
+**Not verified by me**
+- That the pre-repair literal values were identical to the new constants and that the portal implementation is unchanged. I could not run `git diff` to confirm this.
+- The accounting registry file that the parent says uses the constant. I did not locate or read it.
+- Source hashes, the import-isolation ceiling, and the lint/build results beyond what the receipts state.
+
+Files read: `/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-27-browser-login-multi-e62e93/src/shared/types/provider.types.ts`, `.../src/main/rlm/frontier-cost-attribution.ts`, `.../src/shared/types/model-token-guard.spec.ts`, `.../src/shared/data/model-pricing.ts`, `.../docs/plans/2026-10-27-browser-login-multi-portal-remediation_proof/` receipts, `.../_scratch/portal-review-round-1/focused.log`, and `/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-27-browser-login-multi-portal-remediation_plan.md`.
+
+I made no code, document, git, or browser changes.
