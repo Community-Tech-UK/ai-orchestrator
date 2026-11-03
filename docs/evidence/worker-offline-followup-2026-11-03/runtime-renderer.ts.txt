@@ -1,0 +1,26 @@
+import '@angular/compiler';
+import {Component,inject,provideZonelessChangeDetection,signal} from '@angular/core';
+import {bootstrapApplication} from '@angular/platform-browser';
+import {Router} from '@angular/router';
+import {RemoteNodesPageComponent} from '../../src/renderer/app/features/remote-nodes/remote-nodes-page.component';
+import {RemoteNodesSettingsTabComponent} from '../../src/renderer/app/features/settings/remote-nodes-settings-tab.component';
+import {SettingsStore} from '../../src/renderer/app/core/state/settings.store';
+import {RemoteNodeIpcService} from '../../src/renderer/app/core/services/ipc/remote-node-ipc.service';
+import {CLIPBOARD_SERVICE} from '../../src/renderer/app/core/services/clipboard.service';
+
+const settings={remoteNodesServerPort:signal(4878),remoteNodesServerHost:signal('127.0.0.1'),remoteNodesNamespace:signal('default'),remoteNodesRequireTls:signal(false),remoteNodesTlsMode:signal('auto'),remoteNodesAutoOffloadBrowser:signal(true),remoteNodesAutoOffloadAndroid:signal(true),remoteNodesAutoOffloadGpu:signal(false),remoteNodesRegisteredNodes:signal({}),remoteNodesEnrollmentToken:signal(''),remoteNodesEnabled:signal(true),harnessRole:signal('coordinator'),workerMode:signal({role:'coordinator'}),set:async()=>{throw Error('Fixture settings are read-only');}};
+const received:any[]=[];
+@Component({selector:'runtime-fixture',standalone:true,imports:[RemoteNodesPageComponent,RemoteNodesSettingsTabComponent],template:'<section id="workers"><app-remote-nodes-page /></section><section id="settings"><app-remote-nodes-settings-tab /></section>'})
+class Fixture {
+ constructor(){inject(RemoteNodeIpcService).onNodeEvent(e=>received.push(e));}
+}
+bootstrapApplication(Fixture,{providers:[provideZonelessChangeDetection(),{provide:Router,useValue:{navigateByUrl:async()=>{throw Error('Fixture must not navigate');}}},{provide:SettingsStore,useValue:settings},{provide:CLIPBOARD_SERVICE,useValue:{copyText:async()=>{throw Error('Clipboard must not be used');}}}]}).then(async app=>{
+ await app.whenStable();
+ const computers=Array.from(document.querySelectorAll('#settings [role="tab"]')).find(e=>e.textContent?.trim()==='Computers') as HTMLButtonElement;
+ if(!computers)throw Error('Computers tab absent');
+ computers.click();
+ await app.whenStable();
+ const workerHost=document.querySelector('app-remote-nodes-page'),settingsHost=document.querySelector('app-remote-nodes-settings-tab');
+ (window as any).runtimeSnapshot=async()=>{await app.whenStable();return {workerHints:Array.from(document.querySelectorAll('#workers .connectivity-hint')).map(e=>e.textContent?.trim()),settingsHints:Array.from(document.querySelectorAll('#settings .node-list-hint')).map(e=>e.textContent?.trim()),workerText:document.querySelector('#workers')?.textContent?.replace(/\s+/g,' ').trim(),settingsText:document.querySelector('#settings')?.textContent?.replace(/\s+/g,' ').trim(),received:[...received],workersMounted:!!document.querySelector('app-remote-nodes-page'),settingsMounted:!!document.querySelector('#remote-nodes-panel-computers'),sameWorkerHost:workerHost===document.querySelector('app-remote-nodes-page'),sameSettingsHost:settingsHost===document.querySelector('app-remote-nodes-settings-tab')};};
+ (window as any).runtimeReady=true;
+}).catch(error=>{(window as any).runtimeError=String(error?.stack??error);console.error(error);});

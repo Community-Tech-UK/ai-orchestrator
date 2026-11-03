@@ -1,0 +1,5 @@
+
+> harness@0.1.0 check:ui-hints
+> tsx scripts/check-ui-hints.ts
+
+UI hints OK {"H11":8}; 14 markers; 245 wording entries (8 retired); 225 advisory reports

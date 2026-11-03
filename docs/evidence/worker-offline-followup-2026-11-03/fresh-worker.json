@@ -1,0 +1,11 @@
+{
+  "started": "2026-11-03T22:09:20.696Z",
+  "ready": true,
+  "rpc": true,
+  "appliedMigrations": 75,
+  "pendingMigrations": [],
+  "uniqueMigrations": true,
+  "migrationFailureInWorkerOutput": false,
+  "workerExitObserved": true,
+  "finished": "2026-11-03T22:09:21.016Z"
+}

@@ -1,0 +1,50 @@
+LT-711 automated Electron runtime verification, 2026-11-03
+
+RESULT: PASS for stopped hint appearance and running hint removal in both existing open views. Prior-schema negative control reproduces missing refresh.
+
+Observed final positive run (Electron 42.11.18, Node 24.19.0):
+- Actual RemoteNodesPageComponent with NodeCardComponent and actual RemoteNodesSettingsTabComponent on Computers, with actual RemoteNodeListComponent, were mounted together.
+- A synthetic paired Windows worker remained disconnected, with an empty live registry throughout. No connected/disconnected/metrics or bulk roster events were emitted.
+- Initial running state: zero hint elements in either view. Each view fetched its initial roster once.
+- Watcher changed running to stopped: production main roster gained the conditional Tailscale hint; the actual .connectivity-hint and .node-list-hint elements each appeared, once, with the expected full text. Roster calls rose from 2 to 4.
+- Watcher changed stopped to running: both actual hint elements disappeared. Roster calls rose from 4 to 6. Both parent DOM hosts were the same objects throughout. Neither view was reopened and no Refresh button was clicked.
+- Renderer saw exactly the stopped and running coordinator-route events. Captured transport sends contain only those events.
+- Watcher notification callback was captured in memory. No OS notification was sent.
+- Final console contains only Angular development-mode notice and Electron development CSP warning. Earlier failed fixture iterations are not used as successful evidence.
+
+Executing path:
+CoordinatorTailscaleWatcher.checkNow -> production onStateChange callback shape -> MainEventBus.emitRendererEvent -> ElectronWindowTransport.send -> production validateRendererEventPayload with changed compiled contract -> actual webContents.send -> full production dist/preload/preload.js (createCommunicationDomain and real ipcRenderer listener) -> production ElectronIpcService and RemoteNodeIpcService -> production RemoteNodesStore and Settings listener -> real ipcRenderer.invoke/main IPC -> production RemoteNodeRosterService.list -> watcher.getDisconnectedNodeHint -> actual Angular parent/child template DOM.
+
+The fixture supplied the initialization callback with the same coordinator-route shape as src/main/app/remote-gateway-initialization-steps.ts:67. It registered isolated read-only main IPC handlers for list/status/pairings/service/repair. The list handler called production RemoteNodeRosterService, with fake registry/auth providers and watcher hint dependency. SettingsStore was replaced by read-only fixture signals; Router and clipboard were navigation/action-denying fixture providers. Production event bus, validation, Electron transport, full preload, renderer IPC services, remote-node store, both actual parent components and their real child templates were used without code replacements.
+
+Negative control:
+The previous schema was read using git show HEAD:packages/contracts/src/schemas/remote-node.schemas.ts, bundled in owned scratch with its original schema directory as resolveDir, and assigned only to that module export in the disposable process require cache before importing the compiled transport. No dist or source file was modified. With the same watcher, fixture, transport, IPC and views, running -> stopped changed the main roster hint, but renderer validation logged an invalid discriminator. No send reached Electron, no renderer event arrived, roster calls stayed at 2 and both hint elements stayed absent. runtime-negative-results.json and runtime-negative.log.txt record this. This confirms the schema change causes the refresh rather than merely correlating with unrelated worker events.
+
+Limits:
+- This was an automated offscreen test, BrowserWindow show:false, contextIsolation:true, nodeIntegration:false, with app dock hidden; no visible Mac browser or interactive desktop was used.
+- The host denied Chromium child sandbox initialization (Operation not permitted). The initial attempt is retained in runtime-sandbox-failure.log.txt. Successful fixture runs used --no-sandbox; sandbox:true was requested on BrowserWindow but Chromium sandbox enforcement was disabled. This validates IPC delivery and UI behavior, not sandbox isolation.
+- Components used the project test Angular JIT transform with real templates, not the production AOT renderer bundle. External SCSS resources were omitted, so screenshots are behavioral evidence, not final app visual-design evidence.
+- Normal full application startup, real network/Tailscale transitions, worker reconnection, real pairing/auth persistence and production IPC handler registration were not exercised. No live node, Tailscale setting, network service, credential or external system was touched. Synthetic running/stopped probes and paired/disconnected roster dependencies keep this test deterministic and safe.
+- No full test suite or build was run by this subagent. Parent owns builds and project gates.
+
+Retained evidence:
+runtime-results.json: positive DOM readbacks, unchanged host identities, event sends/receives, state transitions, roster call counts and console.
+runtime-negative-results.json: previous-schema negative control.
+runtime-stopped.png and runtime-recovered.png: offscreen screenshots.
+runtime-positive.log.txt, runtime-negative.log.txt and runtime-sandbox-failure.log.txt: raw logs.
+runtime-build.mjs.txt, runtime-renderer.ts.txt, runtime-main.cjs.txt: exact small fixture source.
+runtime-receipts.json: SHA-256 hashes of production input files, compiled modules, disposable bundle, prior schema and evidence, plus command results.
+
+Reproduction from repository root after normal build:main:
+1. Create _scratch/worker-offline-runtime and copy runtime-build.mjs.txt to build.mjs, runtime-renderer.ts.txt to renderer.ts, runtime-main.cjs.txt to main.cjs there.
+2. rtk proxy node _scratch/worker-offline-runtime/build.mjs
+3. rtk proxy git show HEAD:packages/contracts/src/schemas/remote-node.schemas.ts > _scratch/worker-offline-runtime/old-schema.ts
+   (HEAD must be the pre-fix revision represented by the receipt, or use that explicit historical revision.)
+4. Bundle old schema with this Node module script via rtk proxy node --input-type=module:
+   import {build} from 'esbuild'; import fs from 'node:fs';
+   await build({stdin:{contents:fs.readFileSync('_scratch/worker-offline-runtime/old-schema.ts','utf8'),resolveDir:process.cwd()+'/packages/contracts/src/schemas',sourcefile:'remote-node.schemas.ts',loader:'ts'},bundle:true,platform:'node',format:'cjs',external:['zod'],outfile:'_scratch/worker-offline-runtime/old-schema.cjs'});
+5. rtk proxy env -u ELECTRON_RUN_AS_NODE RUNTIME_OLD_SCHEMA=1 node_modules/.bin/electron --no-sandbox _scratch/worker-offline-runtime/main.cjs
+6. rtk proxy env -u ELECTRON_RUN_AS_NODE node_modules/.bin/electron --no-sandbox _scratch/worker-offline-runtime/main.cjs
+Both commands exited 0. Successful final positive run was at 22:13:10 UTC and negative at 22:12:53 UTC. Build fixture command exited 0. Full command receipts are retained.
+
+Cleanup: owned runtime process list was empty after both successful runs. The disposable runtime/profile/bundles/scripts were removed after retaining source, screenshots, receipts and logs. No source/test/plan/dist file was edited by this subagent.

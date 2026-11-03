@@ -1,0 +1,22 @@
+[2026-11-03T22:12:53.135Z] [INFO] [CoordinatorTailscaleWatcher] Coordinator Tailscale state changed { from: 'unknown', to: 'running', backendState: undefined }
+renderer: Angular is running in development mode.
+renderer: %cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security
+  Policy set or a policy with "unsafe-eval" enabled. This exposes users of
+  this app to unnecessary security risks.
+
+For more information and help, consult
+https://electronjs.org/docs/tutorial/security.
+This warning will not show up
+once the app is packaged.
+[2026-11-03T22:12:53.648Z] [INFO] [CoordinatorTailscaleWatcher] Coordinator Tailscale state changed { from: 'running', to: 'stopped', backendState: undefined }
+[2026-11-03T22:12:53.649Z] [WARN] [CoordinatorTailscaleWatcher] Coordinator Tailscale is not running while worker nodes are paired { backendState: undefined, tailscaleNodes: [] }
+[2026-11-03T22:12:53.650Z] [WARN] [RendererEventValidation] Blocked invalid renderer event payload {
+  channel: 'remote-node:event',
+  issues: [
+    {
+      path: 'type',
+      message: "Invalid discriminator value. Expected 'connected' | 'updated' | 'disconnected' | 'flap-storm'"
+    }
+  ]
+}
+PASS negative control: previous schema blocks event, both open views stay stale despite main roster containing hint.

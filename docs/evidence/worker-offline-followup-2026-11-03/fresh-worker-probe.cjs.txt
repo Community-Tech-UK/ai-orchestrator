@@ -1,0 +1,71 @@
+const { app, utilityProcess } = require('electron');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { once } = require('node:events');
+const root = process.cwd();
+const profile = path.join(__dirname, 'fresh-worker-profile');
+const evidence = path.join(root, 'docs/evidence/worker-offline-followup-2026-11-03/fresh-worker.json');
+assert(!fs.existsSync(profile), 'Probe needs a fresh profile');
+fs.mkdirSync(profile);
+app.setPath('userData', profile);
+app.dock?.hide();
+app.disableHardwareAcceleration();
+let child;
+let db;
+let timer;
+const result = { started: new Date().toISOString(), ready: false, rpc: false };
+async function run() {
+  await app.whenReady();
+  require(path.join(root, 'dist/main/register-aliases.js'));
+  const { RLMDatabase } = require(path.join(root, 'dist/main/persistence/rlm-database.js'));
+  child = utilityProcess.fork(path.join(root, 'dist/main/instance/context-worker-main.js'), [], {
+    env: { ...process.env, AIO_USER_DATA_PATH: profile }, stdio: 'pipe',
+  });
+  const output = [];
+  child.stdout.on('data', chunk => output.push(chunk.toString()));
+  child.stderr.on('data', chunk => output.push(chunk.toString()));
+  const response = new Promise((resolve, reject) => {
+    timer = setTimeout(() => reject(new Error('Worker readiness/RPC timed out')), 30000);
+    child.on('exit', code => { if (!result.rpc) reject(new Error('Worker exited before RPC: ' + code)); });
+    child.on('message', msg => {
+      if (msg.type === 'ready') {
+        result.ready = true;
+        child.postMessage({ type: 'rlm-request', id: 1, request: { kind: 'list-stores' } });
+      }
+      if (msg.type === 'rpc-response' && msg.id === 1) {
+        if (msg.error) return reject(new Error(msg.error));
+        assert.deepEqual(msg.result, []);
+        result.rpc = true;
+        resolve();
+      }
+    });
+  });
+  db = RLMDatabase.getInstance({
+    dbPath: path.join(profile, 'rlm/rlm.db'), contentDir: path.join(profile, 'rlm/content'),
+  });
+  await response;
+  const schema = db.getSchemaInfo();
+  assert.equal(schema.pendingMigrations.length, 0);
+  assert.equal(new Set(schema.appliedMigrations.map(m => m.name)).size, schema.appliedMigrations.length);
+  result.appliedMigrations = schema.appliedMigrations.length;
+  result.pendingMigrations = schema.pendingMigrations;
+  result.uniqueMigrations = true;
+  result.migrationFailureInWorkerOutput = /Failed to apply migration|SQLITE_BUSY|UNIQUE constraint/.test(output.join(''));
+  assert.equal(result.migrationFailureInWorkerOutput, false);
+}
+run().then(() => finish(0), error => { result.error = error.stack; return finish(1); });
+async function finish(code) {
+  clearTimeout(timer);
+  if (child) {
+    const exited = once(child, 'exit');
+    child.kill();
+    await exited;
+    result.workerExitObserved = true;
+  }
+  db?.close();
+  result.finished = new Date().toISOString();
+  fs.writeFileSync(evidence, JSON.stringify(result, null, 2) + '\n');
+  console.log(JSON.stringify(result));
+  app.exit(code);
+}

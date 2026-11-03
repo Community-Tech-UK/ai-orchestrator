@@ -1,0 +1,6 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/persistence/rlm/rlm-schema.spec.ts packages/contracts/src/schemas/__tests__/remote-node.schemas.spec.ts src/main/event-bus/coordinator-route-delivery.spec.ts src/renderer/app/features/remote-nodes/remote-nodes.store.spec.ts src/renderer/app/core/state/remote-node.store.spec.ts
+
+✓ 5 files · 28 tests passed in 9.1s
+  full log: _scratch/test-run.pid-8233.log

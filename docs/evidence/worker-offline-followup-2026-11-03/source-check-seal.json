@@ -1,0 +1,72 @@
+{
+  "sealedAt": "2026-11-03T22:18:06.111245+00:00",
+  "head": "2d210df7a867cb970dade9d4672657525e75f27c",
+  "branch": "queue/2026-10-27-worker-offline-find-26fd34",
+  "fullSuiteRunByWorker": false,
+  "sourceHashes": {
+    "packages/contracts/src/schemas/remote-node.schemas.ts": "9d5b97f59f6313c061ce8e9ddb010748ec233b9ff0c4b66fd0a54e5218d295c2",
+    "packages/contracts/src/schemas/__tests__/remote-node.schemas.spec.ts": "a251132cb68a288d35c6f3637d417c21224bddf13ecf65bcbe97b75495df7128",
+    "src/main/event-bus/coordinator-route-delivery.spec.ts": "cbde30fc6ac453e043ff92128d518b8b27897d5e122a240aad988775a7034299",
+    "src/main/persistence/rlm/rlm-schema.ts": "cd65ec79ec79665e0d477c6cb191280540a88d255e6c7f0de1cfc6ed8d1af0fb",
+    "src/main/persistence/rlm/rlm-schema.spec.ts": "93ad87cae765a8a8e2947dd8b1abd283fabdf191838192ab703921afa0ad6e42",
+    "src/main/persistence/rlm-database.ts": "3ee137e61ba5dd80b1a1db3e7c0a1fc663fd28f665788e2078305ec78de4c168",
+    "src/main/instance/context-worker-main.ts": "781b21cebd79aa909f8a8e59de8e15caba4e67703a4fee6bd1d46ede861499cd",
+    "src/main/app/remote-gateway-initialization-steps.ts": "7e61eccafcdce686f8068882c4ba93ae0a3e99836621f8884df13ce8f1460f76",
+    "src/main/window-manager.ts": "8c9ba2b37ebc252fc4e421c9ed1d938ae2d4b47a2538d26b8878201665a4d6aa",
+    "src/main/event-bus/main-event-bus.ts": "e09622ecb5ac31705f293dd883c835bc265197f307e885d1bc7949d5e9596177",
+    "src/main/event-bus/electron-window-transport.ts": "6c72b4b4e011afcc88e22c72ef92386d99aa24248b0efe74edc73e2925ec85d3",
+    "src/main/event-bus/renderer-event-validation.ts": "dee84f5e91650972f17b32f23a9578204a4cb9e6dc7a7b239a676fd19e85d7e3",
+    "src/preload/domains/communication.preload.ts": "ad1828b56d1f70031d72f3bb8c6e1c216cba985a72b28b4e77773bae87985a14",
+    "src/renderer/app/core/services/ipc/remote-node-ipc.service.ts": "40560568815bd58231d0443c959f3c8ef9e2187414ed4e7c1bd339c1394f8129",
+    "src/renderer/app/features/remote-nodes/remote-nodes.store.ts": "750d6f194b795cd32b3b098b87039ebbb2dd3c51ef944027e0b10eee5b442e5c",
+    "src/renderer/app/features/settings/remote-nodes-settings-tab.component.ts": "0784d9349ac2983d511ec25a9f6d05da63e849de5cbf38c7540a4d096528e493"
+  },
+  "rootPlan": {
+    "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-27-worker-offline-findings_plan.md",
+    "sha256": "bd4e0510dd409737f8132a54f1dd90d19257412f450b6d48f24227414039a894"
+  },
+  "compiledProbeInputs": {
+    "dist/main/instance/context-worker-main.js": "db05566668feef04e0c432984be26a7935150c18be562dbbd59982674c05676c",
+    "dist/main/persistence/rlm/rlm-schema.js": "ac8a250bf6f833e233d5e69cc7eff60598325764335419daeed50b54027cb763",
+    "dist/main/persistence/rlm-database.js": "84a074aeccfc0937495f553b76463f877bb74c770f05b74351d7a0f2c0c042a1",
+    "dist/main/db/better-sqlite3-driver.js": "d57dd85098954fb35973a5682d6d2335fe6800cf83c93db03e8301f16ba3fde1"
+  },
+  "artifacts": {
+    "command-receipts.jsonl": "8f39c3a2f06070fea47413b45356cbdd5a479c9a482f1dc5c8964cbfd1192b68",
+    "contract-probe.cjs": "0ec44674f0ea69272fe7c84ef99ab2fd530139506b192fd7b40f5aa732ca26eb",
+    "fresh-review.md": "6cf12a3db092d23d0bc751d7767946b37bc0c85cce0b1a9794952192a0956b4b",
+    "fresh-worker-probe.cjs.txt": "a86ee16b0709b664600abbcbb67946430e0afb072ef5e45b237e12186a807160",
+    "fresh-worker.json": "852ac931d2d935b891e185b1b36d9256ce43329de426b9db2f5eacb601346817",
+    "logs/build-main.log.txt": "9309a998ae8d1ecd94aef5a2b90d10f9b9c7dc5ac0cc14105f4df14ee39443ac",
+    "logs/build-renderer.log.txt": "6257ab21c88c0069029b727a1264654d564b8aeae53171a70b5269386a64c133",
+    "logs/contract-red-green-pinned.log.txt": "8dbd54f80f5461386a39c4e58345066c4b13a602954052cbe78c8d8d0524fb61",
+    "logs/contract-red-green.log.txt": "8dbd54f80f5461386a39c4e58345066c4b13a602954052cbe78c8d8d0524fb61",
+    "logs/focused-tests.log.txt": "dd2eece2aeb357937b92ca63c75efe33ecba99358f587a26bec1f0b816d0c949",
+    "logs/focused-vitest-raw.log.txt": "2a151fde348786b728d3d62265222b4fa0e988a3c7def2e2e1ab908aa8407677",
+    "logs/focused-vitest-results.json": "5364bdb7eff35c05881e93825ab8a8068606a75d4871e224d326c0b5890cdc80",
+    "logs/fresh-worker.log.txt": "9b3156a3b0d0a90f31ce2e75986410844e472f726f532362923fe19eac75c3fc",
+    "logs/generators.log.txt": "b09b380c5ab446e041ab459b22429864d9879a21c61303f7bbd5d4291918585c",
+    "logs/lint.log.txt": "a9f86453985a02868554a836eef151dc9a361f1e39714fc833e0933028e09a98",
+    "logs/ts-max-loc.log.txt": "876700301d667a5d1a00eb2ffadce48c1e7c48916920fdcd168b36c94df2a280",
+    "logs/typecheck-spec.log.txt": "4e31c408e8be4057c1075f658596af0cb057c7a9329948cca2022b8326a00133",
+    "logs/typecheck.log.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "logs/ui-hints.log.txt": "cfae05f028036aa875793a50f5e5465f68de5c3350dcd79a90d6b964e57bbd6b",
+    "report.md": "ca5e7df1efb8dd897419edaae8ac39eaa04d048af9176cf3e7a830e5cb765cb8",
+    "runtime-build.mjs.txt": "43f593b8dcc843a454cc9f38394345762dafe4171a0fec99c77af3e0d939d74f",
+    "runtime-main.cjs.txt": "194b106e29bc04318824c2ddcfd11f7b33f328cd90c3c74cc677bdf915bc89e4",
+    "runtime-negative-results.json": "53b84b9d8740c70745814acc6c151e3a5c5e6f17f7730cf6200d2af401b80526",
+    "runtime-negative.log.txt": "b8e7722aad919b807cd0bfd0e96032e8e6f25d92dabdc0dff93d828458e49eca",
+    "runtime-positive.log.txt": "315f0bdb1e1fe2880868e3d5f195c743ca72af73252b3164db20945bc9eb019e",
+    "runtime-receipts.json": "ba1ab8199f730cccbc2d22bfd3f8da0a2bc865629bbc930e60fe0c8dd6abf0ad",
+    "runtime-recovered.png": "1338a72d8d394de1403526f86d9f2b337946d7ef1837c3167da911a81e09c3bd",
+    "runtime-renderer.ts.txt": "46180eccc67eb86d05d2c067e83843f438a2089237afade97799809ea09039b4",
+    "runtime-report.txt": "0eb801e6d60d1311175d51373d668b83bbdf7bc5a5dd70933f1aef7023f5b877",
+    "runtime-results.json": "8643fdc5aea9bbd29a52aff7a06ef745b8fefc041dc47cef23b4604f74c59167",
+    "runtime-sandbox-failure.log.txt": "ac8dd0ec1718edef90c67b73d50618913d2aab426ce4f64357a1021ff928cf95",
+    "runtime-stopped.png": "11c3d78e9c13656a1ed7d8c5d676af824bc4fbbda49729d9b08953d834a0cee5"
+  },
+  "preCleanupChecks": {
+    "diffCheckExit": 0,
+    "stagedPaths": []
+  }
+}

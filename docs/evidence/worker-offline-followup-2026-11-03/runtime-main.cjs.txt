@@ -1,0 +1,64 @@
+const {app,BrowserWindow,ipcMain}=require('electron');
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
+const root=process.cwd(),dir=__dirname,evidence=path.join(root,'docs/evidence/worker-offline-followup-2026-11-03');
+app.setPath('userData',path.join(dir,'profile'));
+app.commandLine.appendSwitch('disable-gpu');
+app.dock?.hide();
+require(path.join(root,'dist/main/register-aliases.js'));
+const negative=process.env.RUNTIME_OLD_SCHEMA==='1';
+if(negative){const schema=require(path.join(root,'dist/packages/contracts/src/schemas/remote-node.schemas.js'));schema.RemoteNodeEventSchema=require(path.join(dir,'old-schema.cjs')).RemoteNodeEventSchema;}
+const {MainEventBus}=require(path.join(root,'dist/main/event-bus/main-event-bus.js'));
+const {ElectronWindowTransport}=require(path.join(root,'dist/main/event-bus/electron-window-transport.js'));
+const {CoordinatorTailscaleWatcher}=require(path.join(root,'dist/main/remote-node/coordinator-tailscale-watcher.js'));
+const {RemoteNodeRosterService}=require(path.join(root,'dist/main/remote-node/remote-node-roster-service.js'));
+const {IPC_CHANNELS}=require(path.join(root,'dist/packages/contracts/src/channels/index.js'));
+let win,probeState='running',listCalls=0;const emitted=[],sent=[],notifications=[],rendererConsole=[];
+const bus=new MainEventBus();
+const paired=[{nodeId:'fixture-paired-worker',nodeName:'Fixture Windows worker',platform:'win32',issuedAt:1,lastSeenAt:1}];
+const watcher=new CoordinatorTailscaleWatcher({probe:async()=>({state:probeState}),listPairedNodes:()=>paired.map(n=>({id:n.nodeId,name:n.nodeName})),notify:n=>notifications.push(n),onStateChange:state=>{const e={type:'coordinator-route',coordinatorTailscale:state};emitted.push(e);bus.emitRendererEvent(IPC_CHANNELS.REMOTE_NODE_EVENT,e);}});
+const roster=new RemoteNodeRosterService({registry:{getAllNodes:()=>[]},authService:{listSessions:()=>paired},getDisconnectedNodeHint:id=>watcher.getDisconnectedNodeHint(id)});
+ipcMain.handle(IPC_CHANNELS.REMOTE_NODE_LIST,()=>{listCalls++;return {success:true,data:roster.list()};});
+ipcMain.handle(IPC_CHANNELS.REMOTE_NODE_GET_SERVER_STATUS,()=>({success:true,data:{running:false,registeredCount:1}}));
+ipcMain.handle(IPC_CHANNELS.REMOTE_NODE_LIST_PAIRINGS,()=>({success:true,data:[]}));
+ipcMain.handle(IPC_CHANNELS.REMOTE_NODE_SERVICE_STATUS,()=>({success:true,data:null}));
+ipcMain.handle(IPC_CHANNELS.REMOTE_NODE_REPAIR_DIAGNOSE,()=>({success:true,data:null}));
+async function poll(fn,label){const end=Date.now()+20000;while(Date.now()<end){const r=await fn();if(r)return r;await new Promise(r=>setTimeout(r,50));}throw Error('Timed out: '+label);}
+async function snap(){return win.webContents.executeJavaScript('window.runtimeSnapshot()');}
+const timeout=setTimeout(()=>{console.error('fixture timeout');app.exit(1)},60000);
+app.whenReady().then(async()=>{
+ await watcher.checkNow();
+ win=new BrowserWindow({show:false,width:1600,height:1800,webPreferences:{offscreen:true,contextIsolation:true,nodeIntegration:false,sandbox:true,preload:path.join(root,'dist/preload/preload.js')}});
+ win.webContents.on('console-message',event=>{rendererConsole.push(event.message);console.log('renderer:',event.message)});
+ const transport=new ElectronWindowTransport(()=>({isDestroyed:()=>win.webContents.isDestroyed(),send:(channel,...args)=>{sent.push({channel,args});win.webContents.send(channel,...args);}}));
+ bus.addTransport(transport);
+ await win.loadFile(path.join(dir,'index.html'));
+ await poll(async()=>{const r=await win.webContents.executeJavaScript('({ready:!!window.runtimeReady,error:window.runtimeError})');if(r.error)throw Error(r.error);return r.ready;},'Angular fixture readiness');
+ const initial=await snap();
+ assert(initial.workersMounted&&initial.settingsMounted);assert.equal(initial.workerHints.length,0);assert.equal(initial.settingsHints.length,0);assert.equal(listCalls,2);
+ const initialCalls=listCalls;
+ probeState='stopped';await watcher.checkNow();
+ if(negative){
+  await new Promise(r=>setTimeout(r,300));const stale=await snap();
+  assert.equal(stale.workerHints.length,0);assert.equal(stale.settingsHints.length,0);assert.equal(listCalls,initialCalls);assert.equal(sent.length,0);assert.equal(stale.received.length,0);
+  assert(roster.list()[0].connectivityHint.includes('Tailscale is off'));
+  fs.writeFileSync(path.join(evidence,'runtime-negative-results.json'),JSON.stringify({result:'PASS: previous schema reproduces missing refresh',when:new Date().toISOString(),initial,stale,mainRosterHint:roster.list()[0].connectivityHint,listCalls,emitted,sent,rendererConsole},null,2)+'\n');
+  console.log('PASS negative control: previous schema blocks event, both open views stay stale despite main roster containing hint.');
+  bus.clearTransports();watcher.stop();win.destroy();clearTimeout(timeout);app.exit(0);return;
+ }
+ const stopped=await poll(async()=>{const r=await snap();return r.workerText.includes('Tailscale is off on this computer.')&&r.settingsText.includes('Tailscale is off on this computer.')?r:null},'both open views showing hint');
+ const stoppedCalls=listCalls;assert.equal(stoppedCalls,initialCalls+2);
+ assert.equal(stopped.workerHints.length,1);assert.equal(stopped.settingsHints.length,1);assert(stopped.sameWorkerHost&&stopped.sameSettingsHost);
+ assert.equal(roster.list()[0].connected,false);
+ await win.webContents.capturePage().then(i=>fs.writeFileSync(path.join(evidence,'runtime-stopped.png'),i.toPNG()));
+ probeState='running';await watcher.checkNow();
+ const recovered=await poll(async()=>{const r=await snap();return !r.workerText.includes('Tailscale is off on this computer.')&&!r.settingsText.includes('Tailscale is off on this computer.')?r:null},'both open views clearing hint');
+ assert.equal(listCalls,stoppedCalls+2);assert.equal(roster.list()[0].connected,false);
+ assert.equal(recovered.workerHints.length,0);assert.equal(recovered.settingsHints.length,0);assert(recovered.sameWorkerHost&&recovered.sameSettingsHost);
+ assert.deepEqual(sent.map(s=>s.args[0].coordinatorTailscale),['stopped','running']);
+ assert.deepEqual(recovered.received.map(e=>e.coordinatorTailscale),['stopped','running']);
+ await win.webContents.capturePage().then(i=>fs.writeFileSync(path.join(evidence,'runtime-recovered.png'),i.toPNG()));
+ const result={result:'PASS',when:new Date().toISOString(),electron:process.versions.electron,node:process.versions.node,window:{show:false,offscreen:true,sandboxRequested:true,chromiumSandboxEnforcement:false,reason:'Host denies Chromium child sandbox initialization; launched --no-sandbox',contextIsolation:true},initial,stopped,recovered,listCalls:{initial:initialCalls,stopped:stoppedCalls,recovered:listCalls},emitted,sent,notificationCalls:notifications.length,notifications:'Captured in memory only; no OS notifications',workerStatusThroughout:'paired, disconnected; registry empty throughout',bulkRosterBroadcasts:0,nodeLifecycleEvents:0,rendererConsole};
+ fs.writeFileSync(path.join(evidence,'runtime-results.json'),JSON.stringify(result,null,2)+'\n');
+ console.log('PASS: actual Worker Nodes and Settings Computers show and clear hints through production Electron transport/preload; roster calls 2 -> 4 -> 6.');
+ bus.clearTransports();watcher.stop();win.destroy();clearTimeout(timeout);app.exit(0);
+}).catch(error=>{console.error(error.stack);fs.writeFileSync(path.join(dir,'failure.txt'),String(error.stack));win?.destroy();watcher.stop();clearTimeout(timeout);app.exit(1);});

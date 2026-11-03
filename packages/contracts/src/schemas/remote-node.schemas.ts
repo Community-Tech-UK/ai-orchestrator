@@ -139,6 +139,10 @@ const WorkerNodeInfoEventSchema = z.object({
 
 export const RemoteNodeEventSchema = z.discriminatedUnion('type', [
   z.object({
+    type: z.literal('coordinator-route'),
+    coordinatorTailscale: z.enum(['running', 'stopped', 'absent', 'unknown']),
+  }).strict(),
+  z.object({
     type: z.enum(['connected', 'updated']),
     node: WorkerNodeInfoEventSchema,
   }).strict(),

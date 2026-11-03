@@ -1,0 +1,46 @@
+
+ RUN  v4.1.12 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-27-worker-offline-find-26fd34
+
+(node:27105) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:27098) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:27089) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |main| packages/contracts/src/schemas/__tests__/remote-node.schemas.spec.ts (14 tests) 10ms
+stdout | src/main/event-bus/coordinator-route-delivery.spec.ts > coordinator route renderer delivery (LT-711) > delivers outage and recovery from the watcher through renderer validation
+[2026-11-03T22:08:22.793Z] [INFO] [CoordinatorTailscaleWatcher] Coordinator Tailscale state changed { from: 'unknown', to: 'running', backendState: undefined }
+
+stdout | src/main/event-bus/coordinator-route-delivery.spec.ts > coordinator route renderer delivery (LT-711) > delivers outage and recovery from the watcher through renderer validation
+[2026-11-03T22:08:22.796Z] [INFO] [CoordinatorTailscaleWatcher] Coordinator Tailscale state changed { from: 'running', to: 'stopped', backendState: undefined }
+
+stdout | src/main/event-bus/coordinator-route-delivery.spec.ts > coordinator route renderer delivery (LT-711) > delivers outage and recovery from the watcher through renderer validation
+[2026-11-03T22:08:22.797Z] [INFO] [CoordinatorTailscaleWatcher] Coordinator Tailscale state changed { from: 'stopped', to: 'running', backendState: undefined }
+
+stderr | src/main/event-bus/coordinator-route-delivery.spec.ts > coordinator route renderer delivery (LT-711) > blocks an invalid state before sending to webContents
+[2026-11-03T22:08:22.799Z] [WARN] [RendererEventValidation] Blocked invalid renderer event payload {
+  channel: 'remote-node:event',
+  issues: [
+    {
+      path: 'coordinatorTailscale',
+      message: 'Invalid option: expected one of "running"|"stopped"|"absent"|"unknown"'
+    }
+  ]
+}
+
+ ✓ |main| src/main/event-bus/coordinator-route-delivery.spec.ts (2 tests) 9ms
+(node:29575) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |main| src/main/persistence/rlm/rlm-schema.spec.ts (4 tests) 892ms
+     ✓ refreshes pending migrations after another process wins the startup lock  531ms
+ ✓ |renderer| src/renderer/app/features/remote-nodes/remote-nodes.store.spec.ts (7 tests) 75ms
+(node:30835) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |renderer| src/renderer/app/core/state/remote-node.store.spec.ts (1 test) 15ms
+
+ Test Files  5 passed (5)
+      Tests  28 passed (28)
+   Start at  22:08:21
+   Duration  3.32s (transform 2.05s, setup 790ms, import 2.19s, tests 1.00s, environment 2.56s)
+
+JSON report written to /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-27-worker-offline-find-26fd34/_scratch/test-results.pid-8233.json

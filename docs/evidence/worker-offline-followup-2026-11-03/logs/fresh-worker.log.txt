@@ -1,0 +1,2 @@
+sandbox_extension_issue_file_to_process failed for /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-27-worker-offline-find-26fd34/node_modules/electron/dist/Electron.app: 1 (Operation not permitted)
+{"started":"2026-11-03T22:09:20.696Z","ready":true,"rpc":true,"appliedMigrations":75,"pendingMigrations":[],"uniqueMigrations":true,"migrationFailureInWorkerOutput":false,"workerExitObserved":true,"finished":"2026-11-03T22:09:21.016Z"}

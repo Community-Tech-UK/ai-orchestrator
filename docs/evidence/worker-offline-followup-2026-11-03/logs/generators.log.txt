@@ -1,0 +1,20 @@
+
+> harness@0.1.0 generate:aliases
+> node scripts/generate-register-aliases.js
+
+generate-register-aliases: wrote 62 exact aliases and 3 prefix aliases to src/main/register-aliases.ts
+
+> harness@0.1.0 generate:ipc
+> node scripts/generate-preload-channels.js
+
+Generating preload IPC channels from contracts package...
+
+Extracted 1199 channels from contracts package
+Wrote 1199 channels to src/preload/generated/channels.ts
+Done.
+
+
+> harness@0.1.0 check:contracts
+> tsx scripts/check-contracts-aliases.ts
+
+Contracts alias sync OK: 39 schema subpaths verified.

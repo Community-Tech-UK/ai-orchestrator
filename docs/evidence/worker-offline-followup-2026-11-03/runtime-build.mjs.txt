@@ -1,0 +1,30 @@
+import {build} from 'esbuild';
+import ts from 'typescript';
+import {angularJitApplicationTransform} from '@angular/compiler-cli';
+import fs from 'node:fs';
+import path from 'node:path';
+const root=process.cwd(), dir=path.join(root,'_scratch/worker-offline-runtime');
+const config=ts.readConfigFile('tsconfig.json',ts.sys.readFile);
+const parsed=ts.parseJsonConfigFileContent(config.config,ts.sys,root);
+const program=ts.createProgram([
+ path.join(root,'src/renderer/app/features/remote-nodes/remote-nodes-page.component.ts'),
+ path.join(root,'src/renderer/app/features/settings/remote-nodes-settings-tab.component.ts')
+],parsed.options);
+await build({entryPoints:[path.join(dir,'renderer.ts')],outfile:path.join(dir,'renderer.js'),bundle:true,format:'iife',platform:'browser',target:'chrome144',tsconfig:path.join(root,'tsconfig.json'),plugins:[{
+ name:'fixture-jit',setup(b){
+  b.onResolve({filter:/settings\.store$/},()=>({path:'settings-store-fixture',namespace:'fixture'}));
+  b.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:'export class SettingsStore {}',loader:'js'}));
+  b.onLoad({filter:/\.ts$/},args=>{
+   if(!args.path.includes('/src/renderer/'))return;
+   const sf=program.getSourceFile(args.path)??ts.createSourceFile(args.path,fs.readFileSync(args.path,'utf8'),ts.ScriptTarget.ES2022,true);
+   const result=ts.transform(sf,[angularJitApplicationTransform(program)]);
+   let contents=ts.createPrinter().printFile(result.transformed[0]);
+   contents=contents.replace(/templateUrl:\s*(['"])(.*?)\1/g,(_m,_q,url)=>'template:'+JSON.stringify(fs.readFileSync(path.resolve(path.dirname(args.path),url),'utf8')));
+   contents=contents.replace(/styleUrls:\s*\[[\s\S]*?\]/g,'styles:[]').replace(/styleUrl:\s*(['"])(.*?)\1/g,'styles:[]');
+   result.dispose();
+   return {contents,loader:'ts'};
+  });
+ }
+}]});
+fs.writeFileSync(path.join(dir,'index.html'),'<!doctype html><html><head><meta charset="utf-8"></head><body><runtime-fixture></runtime-fixture><script src="renderer.js"></script></body></html>');
+console.log('Fixture bundle built');

@@ -1,0 +1,14 @@
+[2026-11-03T22:10:44.969Z] [INFO] [CoordinatorTailscaleWatcher] Coordinator Tailscale state changed { from: 'unknown', to: 'running', backendState: undefined }
+sandbox initialization failed: Operation not permitted
+Failed to initialize sandbox.sandbox initialization failed: Operation not permitted
+Failed to initialize sandbox.[26397:1103/221045.087208:ERROR:content/browser/gpu/gpu_process_host.cc:1017] GPU process exited unexpectedly: exit_code=6
+[26397:1103/221045.088181:ERROR:content/browser/network_service_instance_impl.cc:703] Network service crashed or was terminated, restarting service.
+Failed to initialize sandbox.sandbox initialization failed: Operation not permitted
+Failed to initialize sandbox.[26397:1103/221045.145303:ERROR:content/browser/gpu/gpu_process_host.cc:1017] GPU process exited unexpectedly: exit_code=6
+sandbox initialization failed: Operation not permitted
+Failed to initialize sandbox.[26397:1103/221045.148170:ERROR:content/browser/network_service_instance_impl.cc:703] Network service crashed or was terminated, restarting service.
+sandbox initialization failed: Operation not permitted
+Failed to initialize sandbox.sandbox initialization failed: Operation not permitted
+Failed to initialize sandbox.[26397:1103/221045.205992:ERROR:content/browser/gpu/gpu_process_host.cc:1017] GPU process exited unexpectedly: exit_code=6
+[26397:1103/221045.206014:FATAL:content/browser/gpu/gpu_data_manager_impl_private.cc:418] GPU process isn't usable. Goodbye.
+/Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron exited with signal SIGTERM

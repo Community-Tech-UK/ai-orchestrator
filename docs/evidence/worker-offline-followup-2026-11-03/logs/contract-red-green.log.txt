@@ -1,0 +1,1 @@
+{"states":[{"state":"running","baseline":false,"fixed":true},{"state":"stopped","baseline":false,"fixed":true},{"state":"absent","baseline":false,"fixed":true},{"state":"unknown","baseline":false,"fixed":true}],"invalidStatesRejected":true}

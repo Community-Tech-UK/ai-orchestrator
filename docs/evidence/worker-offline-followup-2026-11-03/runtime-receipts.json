@@ -1,0 +1,78 @@
+{
+  "inputs": {
+    "packages/contracts/src/schemas/remote-node.schemas.ts": "9d5b97f59f6313c061ce8e9ddb010748ec233b9ff0c4b66fd0a54e5218d295c2",
+    "src/main/remote-node/coordinator-tailscale-watcher.ts": "0d42a64533a693fe805b140b401d096db48b5df85677165065ab05cd97e579ce",
+    "src/main/remote-node/remote-node-roster-service.ts": "b811f513b05a967823e00da7ec0feca17c89c7f34ee90faab60434897fdfcbb6",
+    "src/main/event-bus/main-event-bus.ts": "e09622ecb5ac31705f293dd883c835bc265197f307e885d1bc7949d5e9596177",
+    "src/main/event-bus/electron-window-transport.ts": "6c72b4b4e011afcc88e22c72ef92386d99aa24248b0efe74edc73e2925ec85d3",
+    "src/main/event-bus/renderer-event-validation.ts": "dee84f5e91650972f17b32f23a9578204a4cb9e6dc7a7b239a676fd19e85d7e3",
+    "src/preload/preload.ts": "44bb568e5974d29a274409ba3a5e1e075cf8e00f893b084c8eb0726b2482b36e",
+    "src/preload/domains/communication.preload.ts": "ad1828b56d1f70031d72f3bb8c6e1c216cba985a72b28b4e77773bae87985a14",
+    "src/renderer/app/core/services/ipc/remote-node-ipc.service.ts": "40560568815bd58231d0443c959f3c8ef9e2187414ed4e7c1bd339c1394f8129",
+    "src/renderer/app/core/services/ipc/electron-ipc.service.ts": "278c62333626f119e073c5c6ef8057ba7ae8d511271051cf8c757be6d43dccd7",
+    "src/renderer/app/features/remote-nodes/remote-nodes.store.ts": "750d6f194b795cd32b3b098b87039ebbb2dd3c51ef944027e0b10eee5b442e5c",
+    "src/renderer/app/features/remote-nodes/remote-nodes-page.component.ts": "623bbfae5630dfc81a23697a957b8cfcfd4e035775e6d4a1265de81b8fd0932d",
+    "src/renderer/app/features/remote-nodes/node-card.component.ts": "208b22bf83edac3a506d4c5232e9fdda6412f31b86c30be49412200974a98660",
+    "src/renderer/app/features/settings/remote-nodes-settings-tab.component.ts": "0784d9349ac2983d511ec25a9f6d05da63e849de5cbf38c7540a4d096528e493",
+    "src/renderer/app/features/settings/remote-nodes-settings-tab.component.html": "fb8c6bd799f39c2394545a1759d46b6bd49462c9fc5925107657346788617c82",
+    "src/renderer/app/features/settings/remote-node-list.component.ts": "b8bd3719dd8bf9d792ec9c81a19649f69be0dfbde12962ae06039e6edfba5146",
+    "dist/main/remote-node/coordinator-tailscale-watcher.js": "e6583d224722ddb7d1031a07d800feea4abb6f359ce91817b26110265ce81b2b",
+    "dist/main/remote-node/remote-node-roster-service.js": "4b0f0887e2be62da878cde993891005bd0dfbbfbef12b50a4ffcc8a6a39fb8d7",
+    "dist/main/event-bus/main-event-bus.js": "5aff80c9ac8aa74c1c415ba3d86a7f971c5e13e57f899bc92f5abab56e8d2ec7",
+    "dist/main/event-bus/electron-window-transport.js": "b092bbf3c79a495af29c9fbb70f6f1c4893d83ff833f2e580d2766be10fe14bc",
+    "dist/main/event-bus/renderer-event-validation.js": "a5b01edc68fcf3bd72c795c7e98958b0b1f908eedaea92126c0aaaf2ad847da0",
+    "dist/packages/contracts/src/schemas/remote-node.schemas.js": "79fb6a44a6858a01462d02d333bbf2556c621aa8bd6cfc82505f67c6d68f33f9",
+    "dist/preload/preload.js": "45fe904ee5d65f1423d8c5e6a9a0eb88bd05eb2192509fc2fa6e5227ce5bb31e",
+    "_scratch/worker-offline-runtime/renderer.js": "795660ec8dcc48e17a7f2c22506427d93730eac8fb65d5b9037fbc1a7499d838",
+    "_scratch/worker-offline-runtime/old-schema.ts": "329d9eb3b4ab59a2193f382a1a0304709f646d980b7a818fb0f04d5197c1538e",
+    "_scratch/worker-offline-runtime/old-schema.cjs": "e98030d17d7e903f0dbe649111f65acde233abcbc72e0fa2c7456617f77cef9c"
+  },
+  "retainedArtifacts": {
+    "runtime-build.mjs.txt": "43f593b8dcc843a454cc9f38394345762dafe4171a0fec99c77af3e0d939d74f",
+    "runtime-main.cjs.txt": "194b106e29bc04318824c2ddcfd11f7b33f328cd90c3c74cc677bdf915bc89e4",
+    "runtime-negative-results.json": "53b84b9d8740c70745814acc6c151e3a5c5e6f17f7730cf6200d2af401b80526",
+    "runtime-negative.log.txt": "b8e7722aad919b807cd0bfd0e96032e8e6f25d92dabdc0dff93d828458e49eca",
+    "runtime-positive.log.txt": "315f0bdb1e1fe2880868e3d5f195c743ca72af73252b3164db20945bc9eb019e",
+    "runtime-recovered.png": "1338a72d8d394de1403526f86d9f2b337946d7ef1837c3167da911a81e09c3bd",
+    "runtime-renderer.ts.txt": "46180eccc67eb86d05d2c067e83843f438a2089237afade97799809ea09039b4",
+    "runtime-report.txt": "0eb801e6d60d1311175d51373d668b83bbdf7bc5a5dd70933f1aef7023f5b877",
+    "runtime-results.json": "8643fdc5aea9bbd29a52aff7a06ef745b8fefc041dc47cef23b4604f74c59167",
+    "runtime-sandbox-failure.log.txt": "ac8dd0ec1718edef90c67b73d50618913d2aab426ce4f64357a1021ff928cf95",
+    "runtime-stopped.png": "11c3d78e9c13656a1ed7d8c5d676af824bc4fbbda49729d9b08953d834a0cee5"
+  },
+  "commands": [
+    {
+      "command": "rtk proxy node _scratch/worker-offline-runtime/build.mjs",
+      "exitCode": 0
+    },
+    {
+      "command": "rtk proxy git show HEAD:packages/contracts/src/schemas/remote-node.schemas.ts > _scratch/worker-offline-runtime/old-schema.ts",
+      "exitCode": 0
+    },
+    {
+      "command": "esbuild API bundle old-schema.ts stdin with original schema directory as resolveDir; see runtime-report.txt",
+      "exitCode": 0
+    },
+    {
+      "command": "rtk proxy env -u ELECTRON_RUN_AS_NODE RUNTIME_OLD_SCHEMA=1 node_modules/.bin/electron --no-sandbox _scratch/worker-offline-runtime/main.cjs",
+      "exitCode": 0
+    },
+    {
+      "command": "rtk proxy env -u ELECTRON_RUN_AS_NODE node_modules/.bin/electron --no-sandbox _scratch/worker-offline-runtime/main.cjs",
+      "exitCode": 0
+    }
+  ],
+  "initialSandboxAttempt": "Chromium sandbox initialization failed: Operation not permitted. Its owned process was terminated before retry; runtime-sandbox-failure.log records the failure.",
+  "cleanup": {
+    "processCheck": "pgrep -fl [E]lectron.*_scratch/worker-offline-runtime/main.cjs",
+    "processCheckExit": 1,
+    "processCheckOutput": "",
+    "ownedRuntimeRemoved": true,
+    "compiledProductionFilesNotModifiedByFixture": true
+  },
+  "logArchiveNames": {
+    "runtime-positive.log": "runtime-positive.log.txt",
+    "runtime-negative.log": "runtime-negative.log.txt",
+    "runtime-sandbox-failure.log": "runtime-sandbox-failure.log.txt"
+  }
+}

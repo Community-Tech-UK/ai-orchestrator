@@ -1,0 +1,14 @@
+[2026-11-03T22:13:10.005Z] [INFO] [CoordinatorTailscaleWatcher] Coordinator Tailscale state changed { from: 'unknown', to: 'running', backendState: undefined }
+renderer: Angular is running in development mode.
+renderer: %cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security
+  Policy set or a policy with "unsafe-eval" enabled. This exposes users of
+  this app to unnecessary security risks.
+
+For more information and help, consult
+https://electronjs.org/docs/tutorial/security.
+This warning will not show up
+once the app is packaged.
+[2026-11-03T22:13:10.433Z] [INFO] [CoordinatorTailscaleWatcher] Coordinator Tailscale state changed { from: 'running', to: 'stopped', backendState: undefined }
+[2026-11-03T22:13:10.434Z] [WARN] [CoordinatorTailscaleWatcher] Coordinator Tailscale is not running while worker nodes are paired { backendState: undefined, tailscaleNodes: [] }
+[2026-11-03T22:13:10.527Z] [INFO] [CoordinatorTailscaleWatcher] Coordinator Tailscale state changed { from: 'stopped', to: 'running', backendState: undefined }
+PASS: actual Worker Nodes and Settings Computers show and clear hints through production Electron transport/preload; roster calls 2 -> 4 -> 6.

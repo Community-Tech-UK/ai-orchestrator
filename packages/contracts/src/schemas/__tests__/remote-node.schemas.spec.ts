@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   PairBothCandidateSchema,
+  RemoteNodeEventSchema,
   RemoteNodeIssuePairingPayloadSchema,
   RemoteNodeRepairCommandPayloadSchema,
   RemoteNodeRepairDiagnosePayloadSchema,
@@ -9,6 +10,24 @@ import {
 
 describe('remote-node.schemas', () => {
   const nodeId = '11111111-1111-4111-8111-111111111111';
+
+  it.each(['running', 'stopped', 'absent', 'unknown'])(
+    'accepts the coordinator route state %s without requiring a worker node',
+    (coordinatorTailscale) => {
+      const event = { type: 'coordinator-route', coordinatorTailscale };
+      expect(RemoteNodeEventSchema.parse(event)).toEqual(event);
+    },
+  );
+
+  it.each([
+    { type: 'coordinator-route' },
+    { type: 'coordinator-route', coordinatorTailscale: 'invalid' },
+    { type: 'coordinator-route', coordinatorTailscale: null },
+    { type: 'coordinator-route', coordinatorTailscale: 1 },
+    { type: 'coordinator-route', coordinatorTailscale: 'running', nodeId },
+  ])('rejects malformed coordinator route events: %j', (event) => {
+    expect(RemoteNodeEventSchema.safeParse(event).success).toBe(false);
+  });
 
   it('keeps quick-pairing payload public-only', () => {
     expect(RemoteNodeIssuePairingPayloadSchema.safeParse({

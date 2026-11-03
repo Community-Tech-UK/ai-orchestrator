@@ -1,0 +1,113 @@
+{
+  "result": "PASS",
+  "when": "2026-11-03T22:13:10.618Z",
+  "electron": "42.11.18",
+  "node": "24.19.0",
+  "window": {
+    "show": false,
+    "offscreen": true,
+    "sandboxRequested": true,
+    "chromiumSandboxEnforcement": false,
+    "reason": "Host denies Chromium child sandbox initialization; launched --no-sandbox",
+    "contextIsolation": true
+  },
+  "initial": {
+    "workerHints": [],
+    "settingsHints": [],
+    "workerText": "Worker Nodes 0 connected Refresh Start Server Fixture Windows workerWindowsCPU0 coresMemory0/0 GBInstances0 / 0Fixture Windows workerfixture-paired-worker · disconnectedBrowser runtimeUnavailableBrowser MCPUnavailableWorking directories0Browsable roots0Discovered ProjectsNo projects advertised by this node.Working DirectoriesLocal ModelsNo local model endpoints advertised by this node.CLI versions on this computerUpdate the CLI on Fixture Windows worker to meet these minimum versions.Claude 2.1.300 or newer: Reliable resumed sessionsClaude 2.1.299 or newer: Side questionsClaude 2.1.302 or newer: Stable tool-search cachingCopilot 1.0.100 or newerServiceRefreshNo status yet — the node may not be running as a service.",
+    "settingsText": "Remote Nodes Let another computer on your network do work for this app — running a web browser, using its GPU, or adding extra AI CLI capacity. OverviewPairingComputersAdvancedConnected Computers 0 nodes connected Fixture Windows workerWindows0/0 capacitydisconnected ← Back to computers Fixture Windows workerfixture-paired-workerWindows0/0 capacitydisconnected Copy diagnostics Revoke Registered 20761d agoLast authenticated 20761d ago Browser automation: off Extension relay: off Android automation: off",
+    "received": [],
+    "workersMounted": true,
+    "settingsMounted": true,
+    "sameWorkerHost": true,
+    "sameSettingsHost": true
+  },
+  "stopped": {
+    "workerHints": [
+      "Tailscale is off on this computer. If this worker connects over Tailscale, it cannot reach Harness until Tailscale is back on."
+    ],
+    "settingsHints": [
+      "Tailscale is off on this computer. If this worker connects over Tailscale, it cannot reach Harness until Tailscale is back on."
+    ],
+    "workerText": "Worker Nodes 0 connected Refresh Start Server Fixture Windows workerWindowsTailscale is off on this computer. If this worker connects over Tailscale, it cannot reach Harness until Tailscale is back on.CPU0 coresMemory0/0 GBInstances0 / 0Fixture Windows workerfixture-paired-worker · disconnectedBrowser runtimeUnavailableBrowser MCPUnavailableWorking directories0Browsable roots0Discovered ProjectsNo projects advertised by this node.Working DirectoriesLocal ModelsNo local model endpoints advertised by this node.CLI versions on this computerUpdate the CLI on Fixture Windows worker to meet these minimum versions.Claude 2.1.300 or newer: Reliable resumed sessionsClaude 2.1.299 or newer: Side questionsClaude 2.1.302 or newer: Stable tool-search cachingCopilot 1.0.100 or newerServiceRefreshNo status yet — the node may not be running as a service.",
+    "settingsText": "Remote Nodes Let another computer on your network do work for this app — running a web browser, using its GPU, or adding extra AI CLI capacity. OverviewPairingComputersAdvancedConnected Computers 0 nodes connected Fixture Windows workerWindows0/0 capacityTailscale is off on this computer. If this worker connects over Tailscale, it cannot reach Harness until Tailscale is back on.disconnected ← Back to computers Fixture Windows workerfixture-paired-workerWindows0/0 capacitydisconnected Copy diagnostics Revoke Registered 20761d agoLast authenticated 20761d ago Browser automation: off Extension relay: off Android automation: off",
+    "received": [
+      {
+        "type": "coordinator-route",
+        "coordinatorTailscale": "stopped"
+      }
+    ],
+    "workersMounted": true,
+    "settingsMounted": true,
+    "sameWorkerHost": true,
+    "sameSettingsHost": true
+  },
+  "recovered": {
+    "workerHints": [],
+    "settingsHints": [],
+    "workerText": "Worker Nodes 0 connected Refresh Start Server Fixture Windows workerWindowsCPU0 coresMemory0/0 GBInstances0 / 0Fixture Windows workerfixture-paired-worker · disconnectedBrowser runtimeUnavailableBrowser MCPUnavailableWorking directories0Browsable roots0Discovered ProjectsNo projects advertised by this node.Working DirectoriesLocal ModelsNo local model endpoints advertised by this node.CLI versions on this computerUpdate the CLI on Fixture Windows worker to meet these minimum versions.Claude 2.1.300 or newer: Reliable resumed sessionsClaude 2.1.299 or newer: Side questionsClaude 2.1.302 or newer: Stable tool-search cachingCopilot 1.0.100 or newerServiceRefreshNo status yet — the node may not be running as a service.",
+    "settingsText": "Remote Nodes Let another computer on your network do work for this app — running a web browser, using its GPU, or adding extra AI CLI capacity. OverviewPairingComputersAdvancedConnected Computers 0 nodes connected Fixture Windows workerWindows0/0 capacitydisconnected ← Back to computers Fixture Windows workerfixture-paired-workerWindows0/0 capacitydisconnected Copy diagnostics Revoke Registered 20761d agoLast authenticated 20761d ago Browser automation: off Extension relay: off Android automation: off",
+    "received": [
+      {
+        "type": "coordinator-route",
+        "coordinatorTailscale": "stopped"
+      },
+      {
+        "type": "coordinator-route",
+        "coordinatorTailscale": "running"
+      }
+    ],
+    "workersMounted": true,
+    "settingsMounted": true,
+    "sameWorkerHost": true,
+    "sameSettingsHost": true
+  },
+  "listCalls": {
+    "initial": 2,
+    "stopped": 4,
+    "recovered": 6
+  },
+  "emitted": [
+    {
+      "type": "coordinator-route",
+      "coordinatorTailscale": "running"
+    },
+    {
+      "type": "coordinator-route",
+      "coordinatorTailscale": "stopped"
+    },
+    {
+      "type": "coordinator-route",
+      "coordinatorTailscale": "running"
+    }
+  ],
+  "sent": [
+    {
+      "channel": "remote-node:event",
+      "args": [
+        {
+          "type": "coordinator-route",
+          "coordinatorTailscale": "stopped"
+        }
+      ]
+    },
+    {
+      "channel": "remote-node:event",
+      "args": [
+        {
+          "type": "coordinator-route",
+          "coordinatorTailscale": "running"
+        }
+      ]
+    }
+  ],
+  "notificationCalls": 1,
+  "notifications": "Captured in memory only; no OS notifications",
+  "workerStatusThroughout": "paired, disconnected; registry empty throughout",
+  "bulkRosterBroadcasts": 0,
+  "nodeLifecycleEvents": 0,
+  "rendererConsole": [
+    "Angular is running in development mode.",
+    "%cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security\n  Policy set or a policy with \"unsafe-eval\" enabled. This exposes users of\n  this app to unnecessary security risks.\n\nFor more information and help, consult\nhttps://electronjs.org/docs/tutorial/security.\nThis warning will not show up\nonce the app is packaged."
+  ]
+}
