@@ -36,6 +36,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   rmSync(repo, { recursive: true, force: true });
   GitWriteQueue._resetForTesting();
 });
@@ -90,7 +91,7 @@ describe('landing ownership error boundaries', () => {
     });
     await expect(buildLandingCommit({ repoRoot: repo, worktreePath: wt, branchName: branch, itemId: 'item',
       baseTip: git(['rev-parse', 'HEAD']), message: 'Plan: owned',
-      documents: [{ relativePath: 'copied_completed.md', content: 'Retain this copied evidence.\n' }] })).rejects.toBe(failure);
+      documents: [{ relativePath: 'copied_completed.md', content: 'Retain this copied evidence.\n' }], greenTestedTree: null })).rejects.toBe(failure);
     expect(existsSync(join(wt, 'copied_completed.md'))).toBe(true);
   });
 
@@ -100,7 +101,7 @@ describe('landing ownership error boundaries', () => {
     vi.spyOn(gitCommands, 'gitExec').mockImplementation((args, cwd, timeout) =>
       args[0] === 'read-tree' ? Promise.reject(failure) : execute(args, cwd, timeout));
     const error = await buildLandingCommit({ repoRoot: repo, worktreePath: wt, branchName: branch, itemId: 'item',
-      baseTip: git(['rev-parse', 'HEAD']), message: 'Plan: owned', documents: [] }).catch(error => error);
+      baseTip: git(['rev-parse', 'HEAD']), message: 'Plan: owned', documents: [], greenTestedTree: null }).catch(error => error);
     expect(error.message).toContain('Landing stopped part-way');
     expect(error.cause).toBe(failure);
   });
@@ -117,10 +118,78 @@ describe('landing ownership error boundaries', () => {
     });
     const error = await buildLandingCommit({ repoRoot: repo, worktreePath: wt, branchName: branch, itemId: 'item',
       baseTip: git(['rev-parse', 'HEAD']), message: 'Plan: owned',
-      documents: [{ relativePath: 'copied_completed.md', content: 'Retain this copied evidence.\n' }] }).catch(error => error);
+      documents: [{ relativePath: 'copied_completed.md', content: 'Retain this copied evidence.\n' }], greenTestedTree: null }).catch(error => error);
     expect(error).toBeInstanceOf(PlanQueueCheckoutOwnershipError);
     expect(error.cause).toBeInstanceOf(InvalidQueueCheckoutError);
     expect(readFileSync(join(wt, 'copied_completed.md'), 'utf8')).toBe('Retain this copied evidence.\n');
+  });
+});
+
+describe('landing duplicate-test evidence', () => {
+  let wt: string;
+  let baseTip: string;
+  let greenTestedTree: string;
+  const branchName = 'queue/checked';
+  beforeEach(() => {
+    git(['commit', '--no-verify', '-qm', 'base']);
+    baseTip = git(['rev-parse', 'HEAD']);
+    wt = join(repo, '.worktrees', branchName);
+    git(['worktree', 'add', '-qb', branchName, wt]);
+    writeFileSync(join(wt, 'feature.txt'), 'checked code\n');
+    git(['add', '.'], wt); git(['commit', '--no-verify', '-qm', 'checked'], wt);
+    greenTestedTree = git(['rev-parse', 'HEAD^{tree}'], wt);
+    const hooks = join(repo, '.git', 'proof-hooks'); mkdirSync(hooks);
+    writeFileSync(join(hooks, 'pre-commit'), '#!/bin/sh\nprintf "%s\\n%s\\n" "${AIO_PLAN_QUEUE_TESTS_COVERED:-unset}" "${AIO_PLAN_QUEUE_TESTS_COVERED_TREE:-unset}" > "$(git rev-parse --git-common-dir)/captured-proof"\n');
+    chmodSync(join(hooks, 'pre-commit'), 0o755); git(['config', 'core.hooksPath', hooks]);
+  });
+
+  it('passes proof for identical checked code plus only explicit closed documents', async () => {
+    const result = await buildLandingCommit({ repoRoot: repo, worktreePath: wt, branchName, itemId: 'item', baseTip,
+      message: 'Plan: checked', greenTestedTree, documents: [
+        { relativePath: 'docs/checked_plan_completed.md', content: '# Done\n' },
+        { relativePath: 'docs/checked_plan_closure_completed.json', content: '{}\n' },
+      ] });
+    expect(result.status).toBe('committed');
+    const proof = readFileSync(join(repo, '.git', 'captured-proof'), 'utf8').trim().split('\n');
+    expect(proof[0]).toBe('1');
+    expect(proof[1]).toBe(git(['rev-parse', `${result.status === 'committed' ? result.commit : ''}^{tree}`]));
+  });
+
+  it.each(['feature.txt', 'unrelated_plan_completed.md'])('keeps hook tests when an unapproved path differs: %s', async file => {
+    writeFileSync(join(wt, file), 'later untested bytes\n');
+    git(['add', file], wt); git(['commit', '--no-verify', '-qm', 'changed after checks'], wt);
+    const result = await buildLandingCommit({ repoRoot: repo, worktreePath: wt, branchName, itemId: 'item', baseTip,
+      message: 'Plan: changed', greenTestedTree, documents: [] });
+    expect(result.status).toBe('committed');
+    expect(readFileSync(join(repo, '.git', 'captured-proof'), 'utf8')).toBe('unset\nunset\n');
+  });
+
+  it('freezes the proved tree before a racing index change can be included', async () => {
+    const execute = gitCommands.gitExec;
+    vi.spyOn(gitCommands, 'gitExec').mockImplementation(async (args, cwd, timeout) => {
+      const result = await execute(args, cwd, timeout);
+      if (args[0] === 'diff-index' || args[0] === 'diff-tree') {
+        writeFileSync(join(wt, 'feature.txt'), 'changed after the comparison\n');
+        git(['add', 'feature.txt'], wt);
+      }
+      return result;
+    });
+    const result = await buildLandingCommit({ repoRoot: repo, worktreePath: wt, branchName, itemId: 'item', baseTip,
+      message: 'Plan: racing index', greenTestedTree, documents: [] });
+    expect(result.status).toBe('committed');
+    const proof = readFileSync(join(repo, '.git', 'captured-proof'), 'utf8').trim().split('\n');
+    expect(proof[0]).toBe('1');
+    // The real hook rejects this mismatch and runs its tests (covered in the hook runner spec).
+    expect(proof[1]).not.toBe(git(['rev-parse', `${result.status === 'committed' ? result.commit : ''}^{tree}`]));
+  });
+
+  it('does not trust inherited duplicate-test flags when evidence is absent', async () => {
+    vi.stubEnv('AIO_PLAN_QUEUE_TESTS_COVERED', '1');
+    vi.stubEnv('AIO_PLAN_QUEUE_TESTS_COVERED_TREE', greenTestedTree);
+    const result = await buildLandingCommit({ repoRoot: repo, worktreePath: wt, branchName, itemId: 'item', baseTip,
+      message: 'Plan: no evidence', greenTestedTree: null, documents: [] });
+    expect(result.status).toBe('committed');
+    expect(readFileSync(join(repo, '.git', 'captured-proof'), 'utf8')).toBe('unset\nunset\n');
   });
 });
 
@@ -135,7 +204,7 @@ describe('commitWithHooks', () => {
     git(['config', 'core.hooksPath', hooks]);
 
     const started = Date.now();
-    const result = await commitWithHooks(repo, 'timed out', 1_500);
+    const result = await commitWithHooks(repo, 'timed out', null, 1_500);
 
     expect(result.exitCode).not.toBe(0);
     expect(result.output).toContain('timed out after 1500ms');
@@ -148,7 +217,7 @@ describe('commitWithHooks', () => {
   }, 20_000);
 
   it('commits when the hook passes', async () => {
-    const result = await commitWithHooks(repo, 'ok');
+    const result = await commitWithHooks(repo, 'ok', null);
 
     expect(result.exitCode).toBe(0);
     expect(result.timedOut).toBeUndefined();

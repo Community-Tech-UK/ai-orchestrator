@@ -29,6 +29,7 @@
       }
 
       @if (run.spend) { <div class="pq-run-spend">{{ spendLabel(run) }}</div> }
+      @if (checksLabel(run.checks); as label) { <div class="pq-run-checks">{{ label }}</div> }
       <details class="pq-run-documents">
         <summary>
           <span class="pq-run-item-count">{{ pluralise(run.items.length, 'document') }}</span>

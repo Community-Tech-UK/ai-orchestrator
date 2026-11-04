@@ -10,6 +10,7 @@ import { readPlanPin, comparePinnedUnchecked, extractChecklistItems } from './pl
 import { buildGateFailurePrompt, buildVerifierPrompt } from './plan-queue-prompts';
 import { decideNoProgress, documentContentSha256, progressFingerprint, recordRepeatedFindingObservation, repeatedFindingIds } from './plan-queue-progress';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
+import { PlanQueueCheckGroups, type CheckGroupFlow } from './plan-queue-check-groups';
 
 type Preparation = { kind: 'ready' } | { kind: 'wait'; detail: string }
   | { kind: 'fix'; prompt: string; detail: string } | { kind: 'park'; detail: string; reason: 'no-progress' | 'round-limit' };
@@ -19,12 +20,15 @@ export class PlanQueueVerification {
   private readonly receipts = new Map<string, PlanQueueGateReceipt[]>();
   private readonly controllers = new Map<string, AbortController>();
   private readonly checkedDocuments = new Map<string, DocumentReview>();
-  constructor(private readonly host: PlanQueueFlowHost, private readonly gates: PlanQueueGateRunner) {}
+  readonly groups: PlanQueueCheckGroups;
+  constructor(private readonly host: PlanQueueFlowHost, private readonly gates: PlanQueueGateRunner, flow: CheckGroupFlow) {
+    this.groups = new PlanQueueCheckGroups(host, gates, flow);
+  }
 
-  cancel(itemId: string): void { this.controllers.get(itemId)?.abort(); }
+  cancel(itemId: string): void { this.groups.cancel(itemId); this.controllers.get(itemId)?.abort(); }
   /** Called under the item lock once its review has stopped. */
   forgetCheck(itemId: string): void { this.checkedDocuments.delete(itemId); this.receipts.delete(itemId); }
-  cancelAll(): void { for (const controller of this.controllers.values()) controller.abort(); }
+  cancelAll(): void { this.groups.cancelAll(); for (const controller of this.controllers.values()) controller.abort(); }
 
   rememberWorkerClaim(item: PlanQueueItem, text: string): void {
     if (!text.trim()) return;
@@ -57,16 +61,18 @@ export class PlanQueueVerification {
       return { kind: 'fix', prompt: progress.prompt, detail: 'Nothing changed since the last failed check.' };
     }
     if (!run.config.verifierGates.length) { this.receipts.set(item.id, []); return { kind: 'ready' }; }
-    const controller = new AbortController();
+    const controller = this.groups.controllerFor(item.id) ?? new AbortController();
     this.controllers.set(item.id, controller);
     try {
       const head = await gitExec(['rev-parse', 'HEAD'], item.worktreePath!);
       const baseSha = await gitExec(['rev-parse', `refs/heads/${run.config.baseBranch}`], run.workspaceCwd);
       if (!this.host.checksAdmitted(run)) return { kind: 'wait', detail: 'Checks are paused or the computer is busy.' };
       this.host.save({ ...this.host.getItem(item.id), detail: 'Running checks' });
-      const receipts = await this.gates.run({ cwd: item.worktreePath!, head, commands: run.config.verifierGates,
+      const input = { cwd: item.worktreePath!, head, commands: run.config.verifierGates,
         signal: controller.signal, baseSha, scope: run.workspaceCwd,
-        withBaseline: action => this.host.worktrees.withBaseline(run.workspaceCwd, baseSha, action) });
+        onExecution: () => this.host.history.recordChecklistRun(item, [item.id]),
+        withBaseline: <T>(action: (cwd: string) => Promise<T>) => this.host.worktrees.withBaseline(run.workspaceCwd, baseSha, action) };
+      const receipts = this.gates.cached(input) ?? await this.groups.run(item, run, input) ?? await this.gates.run(input);
       controller.signal.throwIfAborted();
       if (await gitExec(['rev-parse', 'HEAD'], item.worktreePath!) !== head) {
         return { kind: 'wait', detail: 'The work changed while checks ran; waiting to check it again.' };

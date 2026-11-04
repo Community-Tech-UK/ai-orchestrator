@@ -79,7 +79,7 @@ async function checkedItem(id = 'item', content = reviewed): Promise<PlanQueueIt
   const item = newPlanQueueItem(id, 'run', documentPath, 1, { state: 'verifying', branchName: `queue/${id}`,
     worktreePath, checkpointCommit: 'head', verifiedMainCommit: 'base' });
   store.upsertItem(item);
-  const verification = new PlanQueueVerification(host, new PlanQueueGateRunner());
+  const verification = new PlanQueueVerification(host, new PlanQueueGateRunner(), { lock: async (_id, action) => action(), waiting: () => false });
   await verification.prompt(item, host.getRun('run'), 'main');
   const verdict = await verification.record(item, pass);
   expect(verdict.verdict).toBe('PASS');

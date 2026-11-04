@@ -11,6 +11,18 @@ vi.mock('../core/config/settings-manager', () => ({
 }));
 
 describe('Plan Queue tool operation adoption routing', () => {
+  it('maps the requested batch size into the new run configuration', async () => {
+    const coordinator = new PlanQueueCoordinator();
+    const startRun = vi.spyOn(coordinator, 'startRun').mockResolvedValue({ run: { id: 'batch-run', parentInstanceId: 'caller', kind: 'plans',
+      workspaceCwd: '/repo', status: 'running', config: DEFAULT_PLAN_QUEUE_CONFIG.plans,
+      workerProvider: 'claude', relaxedSettings: [], startedAt: 1, endedAt: null, items: [] },
+    excluded: [], routingSetAside: [], accountNotes: [] });
+    await createPlanQueueToolOperations(() => coordinator).start('caller', { kind: 'plans', check_batch_size: 3 });
+    expect(startRun).toHaveBeenCalledWith(expect.objectContaining({
+      parentInstanceId: 'caller', config: expect.objectContaining({ checkBatchSize: 3 }),
+    }));
+  });
+
   it('maps adopt to a run action and keeps authenticated caller identity', async () => {
     const coordinator = new PlanQueueCoordinator();
     const control = vi.spyOn(coordinator, 'control').mockResolvedValue();

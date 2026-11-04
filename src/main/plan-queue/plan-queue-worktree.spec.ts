@@ -40,6 +40,7 @@ function makeItem(overrides: Partial<PlanQueueItem> = {}): PlanQueueItem {
     round: 0,
     erroredRounds: 0,
     landingRefusals: 0,
+    baseConflicts: 0,
     branchName: null,
     worktreePath: null,
     baseCommit: null,
@@ -271,7 +272,7 @@ describe('PlanQueueWorktreeService', () => {
     writeFileSync(join(item.worktreePath ?? '', 'a.txt'), 'first version\n');
     item = await service.checkpoint(item, 'first version');
     writeFileSync(join(repo, 'a.txt'), 'operator work\n');
-    const result = await landItemBranch(item, repo, 'main', 'first candidate', [], (commit) => {
+    const result = await landItemBranch(item, repo, 'main', 'first candidate', [], [], (commit) => {
       item = { ...item, landedCommit: commit };
     });
     expect(result.status).toBe('blocked');

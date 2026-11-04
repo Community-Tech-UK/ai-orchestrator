@@ -12,6 +12,7 @@ import type { PlanQueueWorktreeService } from './plan-queue-worktree';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import type { InternalInputSource } from '../../shared/types/input-provenance.types';
 import type { PlanQueueHistoryStore } from './plan-queue-history-store';
+import type { PlanQueueStore } from './plan-queue-store';
 
 export interface PlanQueueInstanceRecord {
   id: string;
@@ -64,6 +65,7 @@ export type PlanQueueRoleRecord =
 
 /** What the flow needs from the coordinator. */
 export interface PlanQueueFlowHost {
+  readonly store: PlanQueueStore;
   readonly history: PlanQueueHistoryStore;
   checksAdmitted(run: PlanQueueRun): boolean;
   pauseForSharedError(runId: string, detail: string): void;
@@ -85,6 +87,8 @@ export interface PlanQueueFlowHost {
   liveParentId(run: PlanQueueRun): string | undefined;
   resolveRunParent(run: PlanQueueRun): string | undefined;
 
+  /** Dev-app ports recorded on other items still in play (livetest port allocation). */
+  livetestPortsInUse(exceptItemId: string): readonly number[];
   requestPump(): void;
   consumeUserClose?(instanceId: string): boolean;
 }

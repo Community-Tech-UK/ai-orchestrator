@@ -42,6 +42,12 @@ export async function recoverPlanQueue(host: PlanQueueRecoveryHost, flow: PlanQu
   }
 
   try {
+    await host.worktrees.cleanupScratchCopies(host.store.listWorkspaceRoots());
+  } catch (error) {
+    logger.warn('Plan queue check-copy cleanup failed', { error: errorMessage(error) });
+  }
+
+  try {
     await host.refreshAlerts();
   } catch (error) {
     logger.warn('Plan queue reconciler failed', { error: errorMessage(error) });

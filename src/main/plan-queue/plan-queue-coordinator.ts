@@ -19,7 +19,6 @@ import { EventEmitter } from 'events';
 import * as os from 'os';
 import * as path from 'path';
 import {
-  DEFAULT_PLAN_QUEUE_CONFIG,
   type PlanQueueAccountRules,
   type PlanQueueAlert,
   type PlanQueueControlPayload,
@@ -41,6 +40,7 @@ import { adoptRunParent } from './plan-queue-run-parent';
 import { requestRunHandover, handoverRunParent } from './plan-queue-handover';
 import { PlanQueueParentMessenger } from './plan-queue-parent-messenger';
 import { discoverPlanQueueDocuments } from './plan-queue-discovery';
+import { defaultRunConfigFor } from './plan-queue-default-gates';
 import { isExactPlanQueueSelection } from './plan-queue-discovery-paths';
 import { currentBranch, diffStat, repositoryRoot } from './plan-queue-git';
 import {
@@ -347,6 +347,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   notifyParent(run: PlanQueueRun, message: string, questions?: readonly PlanQueueItem[]): void {
     this.require(this.parentMessenger).notify(run, message, questions);
   }
+  livetestPortsInUse(exceptItemId: string): readonly number[] { return this.requireDeps().store.listLivetestPortsInUse(exceptItemId); }
   /** The run's parent session, followed across a restart; undefined while it is gone. */
   liveParentId(run: PlanQueueRun): string | undefined { return this.require(this.parents).liveParentId(run); }
   resolveRunParent(run: PlanQueueRun): string | undefined {
@@ -389,7 +390,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     await preflightPlanQueueRun({ routing, workspaceCwd: repoRoot, workerProvider: parent.provider ?? 'claude', workerModel: parent.currentModel ?? null,
       selectVerifier: input => this.selectVerifier(input) });
     const glob = input.glob ?? input.config?.glob;
-    const config: PlanQueueRunConfig = { ...DEFAULT_PLAN_QUEUE_CONFIG[input.kind], ...input.config, glob, baseBranch, routing, startingSessionRoute: { provider: parent.provider, currentModel: parent.currentModel, accountProfileId: parent.accountProfileId, copilotAccountProfileId: parent.copilotAccountProfileId } };
+    const config: PlanQueueRunConfig = { ...await defaultRunConfigFor(repoRoot, input.kind), ...input.config, glob, baseBranch, routing, startingSessionRoute: { provider: parent.provider, currentModel: parent.currentModel, accountProfileId: parent.accountProfileId, copilotAccountProfileId: parent.copilotAccountProfileId } };
     const documents = await discoverPlanQueueDocuments(repoRoot, input.kind, glob);
     // No await from here until the items are written: reading the owned set and
     // claiming documents is atomic on the main thread, so two concurrent starts
@@ -417,15 +418,15 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     logger.info('Plan queue run started', { runId: run.id, kind: run.kind, items: items.length, excluded: excluded.length });
     this.announce({ runId: run.id });
     this.requestPump();
-    return { run: runToDto(this.getRun(run.id), items), excluded, routingSetAside: setAside, accountNotes };
+    return { run: runToDto(this.getRun(run.id), items, deps.store.history.checksSummary(run.id)), excluded, routingSetAside: setAside, accountNotes };
   }
   getRunDto(runId: string): PlanQueueRunDto | null {
     const run = this.requireDeps().store.getRun(runId);
-    return run ? runToDto(run, this.requireDeps().store.listItems(run.id)) : null;
+    return run ? runToDto(run, this.requireDeps().store.listItems(run.id), this.history.checksSummary(run.id)) : null;
   }
   listRunDtos(limit = 20): PlanQueueRunDto[] {
     const store = this.requireDeps().store;
-    return store.listRunSnapshots(limit).map(({ run, items }) => runToDto(run, items));
+    return store.listRunSnapshots(limit).map(({ run, items, checks }) => runToDto(run, items, checks));
   }
 
   getAlerts(): PlanQueueAlert[] { return [...this.alerts]; }
@@ -670,7 +671,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     if (this.triage && !this.triage.finish(run.id)) return;
     const ended = this.releaseRelaxation({ ...run, status, endedAt: this.requireDeps().now() });
     this.saveRun(ended);
-    this.notifyParent(ended, buildRunSummaryMessage(ended, this.requireDeps().store.listItems(run.id)));
+    this.notifyParent(ended, buildRunSummaryMessage(ended, this.requireDeps().store.listItems(run.id), this.history.checksSummary(run.id)));
     this.parentMessenger?.clear(run.id);
     logger.info('Plan queue run ended', { runId: run.id, status });
   }

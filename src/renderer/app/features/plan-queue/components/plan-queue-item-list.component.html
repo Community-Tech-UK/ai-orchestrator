@@ -30,6 +30,8 @@
           </div>
         }
 
+        @if (checkGroupLabel(item); as label) { <div class="pq-item-check-group">{{ label }}</div> }
+
         @if (item.verdict) {
           <div class="pq-item-verdict">{{ verdictSummary(item.verdict) }}</div>
           @if (item.verdict.gatesRun.length) {

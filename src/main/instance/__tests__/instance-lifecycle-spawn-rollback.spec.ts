@@ -529,6 +529,21 @@ describe('createInstance spawn transaction rollback', () => {
     mocks.settings.defaultModelByProvider = {};
   });
 
+  it('starts a Plan Queue session with the push guard in its environment, and no other session', async () => {
+    const harness = makeHarness();
+    mocks.createAdapter.mockReturnValue(makeFakeAdapter());
+    await (await harness.manager.createInstance({ workingDirectory: '/tmp', provider: 'claude', metadata: { planQueueRole: 'worker', planQueueRunId: 'run-1' } })).readyPromise;
+    const queueOptions = (mocks.createAdapter.mock.calls.at(-1)?.[0] as { options: { env?: Record<string, string> } }).options;
+    expect(queueOptions.env).toMatchObject({ AIO_QUEUE_SESSION: '1' });
+    expect(queueOptions.env?.['GIT_CONFIG_KEY_0']).toMatch(/pushInsteadOf/);
+    expect((queueOptions as { disallowedTools?: string[] }).disallowedTools).toContain('Bash(git push:*)');
+
+    await (await harness.manager.createInstance({ workingDirectory: '/tmp', provider: 'claude' })).readyPromise;
+    const plainOptions = (mocks.createAdapter.mock.calls.at(-1)?.[0] as { options: { env?: Record<string, string> } }).options;
+    expect(plainOptions.env?.['AIO_QUEUE_SESSION']).toBeUndefined();
+    expect((plainOptions as { disallowedTools?: string[] }).disallowedTools ?? []).not.toContain('Bash(git push:*)');
+  });
+
   it.each([false, true])('waits for a public chat without inventing an unfinished task (History-only reopen: %s)', async restored => {
     const harness = makeHarness();
     const adapter = makeFakeAdapter(); mocks.createAdapter.mockReturnValue(adapter);

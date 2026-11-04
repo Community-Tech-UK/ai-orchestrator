@@ -16,7 +16,6 @@
 import * as fs from 'fs/promises';
 import { existsSync } from 'fs';
 import * as path from 'path';
-import { randomUUID } from 'node:crypto';
 import { sanitizeBranchName, type WorktreeSession } from '../../shared/types/worktree.types';
 import { getLogger } from '../logging/logger';
 import { gitExec, WORKTREE_CHECKOUT_TIMEOUT_MS } from '../workspace/git/git-exec';
@@ -35,6 +34,8 @@ import type { PlanQueueHistoryStore } from './plan-queue-history-store';
 import { dietAtCheckpoint } from './plan-queue-plan-diet';
 import { getCodemem } from '../codemem';
 import { stopAttributedLeftoversIn } from '../process/leftover-process-sweeper';
+import { cleanupPlanQueueCheckCopies, provisionPlanQueueCheckCopy, withPlanQueueCheckCopy,
+  withPlanQueueCombinedCopy, type PlanQueueCheckMember, type PlanQueueCombinedCopy } from './plan-queue-check-copies';
 
 const logger = getLogger('PlanQueueWorktree');
 
@@ -124,19 +125,20 @@ export class PlanQueueWorktreeService {
 
   /** The pump's check slots bound these temporary queue-owned comparison folders. */
   async withBaseline<T>(repoRoot: string, baseSha: string, action: (cwd: string) => Promise<T>): Promise<T> {
-    const session = await this.deps.creator.createWorktree('plan-queue-base', 'base gate checks', {
-      repoRoot, baseBranch: baseSha, branchName: `base-gate-checks-${randomUUID()}`, skipInstall: true, countsTowardLimit: false,
+    const options = { repoRoot, baseTip: baseSha, creator: this.deps.creator, skipInstall: this.deps.skipInstall };
+    return withPlanQueueCheckCopy({ ...options, kind: 'base' }, async cwd => {
+      await provisionPlanQueueCheckCopy(options, cwd);
+      return action(cwd);
     });
-    try {
-      if (!this.deps.skipInstall) await provisionWorktreeDependencies(repoRoot, session.worktreePath, { installCommand: 'npm ci' });
-      const head = await gitExec(['rev-parse', 'HEAD'], session.worktreePath);
-      if (head !== baseSha || await gitExec(['status', '--porcelain', '--untracked-files=no'], session.worktreePath)) {
-        throw new Error('The base checkout is not clean at the requested commit');
-      }
-      return await action(session.worktreePath);
-    } finally {
-      await this.deps.creator.cleanupWorktree(session.id, { force: true, retainBranch: false, deleteBranch: true });
-    }
+  }
+
+  withCombinedCopy<T>(repoRoot: string, baseTip: string, members: readonly PlanQueueCheckMember[],
+    action: (copy: PlanQueueCombinedCopy) => Promise<T>, signal?: AbortSignal): Promise<T | undefined> {
+    return withPlanQueueCombinedCopy({ repoRoot, baseTip, creator: this.deps.creator, skipInstall: this.deps.skipInstall, signal }, members, action);
+  }
+
+  cleanupScratchCopies(workspaceRoots: readonly string[]): Promise<void> {
+    return cleanupPlanQueueCheckCopies(workspaceRoots);
   }
 
   /**

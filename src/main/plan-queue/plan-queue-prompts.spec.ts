@@ -32,7 +32,7 @@ function lastJsonBlock(prompt: string): unknown {
 
 describe('plan queue prompts', () => {
   it('accepts an unfamiliar successful receipt in both admission and the emitted checker instructions', async () => {
-    const receipts = await new PlanQueueGateRunner(async () => ({ exitCode: 0, output: 'All specifications satisfied.' }))
+    const receipts = await new PlanQueueGateRunner(async () => ({ exitCode: 0, output: 'All specifications satisfied.' }), () => 'prompt-test-tree')
       .run({ cwd: '/w', head: 'candidate', commands: ['custom-test'] });
     expect(receipts[0].classification).toBe('not-recognised');
     expect(blockingGateReceipts(receipts)).toEqual([]);
@@ -193,6 +193,12 @@ describe('plan queue prompts', () => {
     expect(livetestEnvironmentFor({ id: 'item-bbbb2222' }).userDataPath).not.toBe(a.userDataPath);
     expect(a.debugPort).toBeGreaterThanOrEqual(9500);
     expect(a.debugPort).toBeLessThan(9900);
+  });
+
+  it('gives the livetest worker the port recorded on its item, not one derived from the id', () => {
+    expect(livetestEnvironmentFor({ id: 'item-aaaa1111', livetestPort: 9876 }).debugPort).toBe(9876);
+    const prompt = buildWorkerPrompt({ item: { ...item, livetestPort: 9876 }, kind: 'livetests', repoRoot: '/repo', worktreePath: '/w' });
+    expect(prompt).toContain('--remote-debugging-port=9876');
   });
 });
 

@@ -34,7 +34,7 @@ function fixture(groups: { folder: string; slots: number; jobs: number }[]) {
     started.push(cwd);
     await held;
     return { exitCode: 0, output: '' };
-  });
+  }, () => 'admission-test-tree');
   const host: Parameters<typeof pumpPlanQueue>[0] = {
     store: { listActiveRuns: () => runs, listItems: (id: string) => items.filter(item => item.runId === id), listItemsWithKeptFolders: () => [] } as unknown as PlanQueueStore,
     flow: {
@@ -49,7 +49,7 @@ function fixture(groups: { folder: string; slots: number; jobs: number }[]) {
         pending.push(result);
         return result;
       },
-      isWaitingForUsage: () => false, keptFolders: { retryDue: () => undefined },
+      isWaitingForUsage: () => false, isClaimed: () => false, keptFolders: { retryDue: () => undefined },
     },
     triage: null, getRun: id => runs.find(run => run.id === id)!, getItem: id => items.find(item => item.id === id)!,
     transition: (item, state, patch) => Object.assign(item, patch, { state }),

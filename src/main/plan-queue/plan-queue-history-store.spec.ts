@@ -11,6 +11,53 @@ beforeAll(() => initSqliteWasm());
 afterEach(() => db?.close());
 
 describe('queue round history', () => {
+  it('counts actual checklist runs and unique jobs in each participating run across retries', () => {
+    db = createSqliteWasmDatabase(':memory:'); runLoopMigrations(db);
+    const store = new PlanQueueStore(db);
+    for (const id of ['first-run', 'second-run', 'untested-run']) store.upsertRun({
+      id, parentInstanceId: 'parent', parentHistoryThreadId: null, kind: 'plans', workspaceCwd: '/repo',
+      status: 'running', config: DEFAULT_PLAN_QUEUE_CONFIG.plans, relaxation: null,
+      workerProvider: 'claude', workerModel: null, startedAt: 1, endedAt: null,
+    });
+    const first = newPlanQueueItem('first', 'first-run', '/repo/first_plan.md', 1);
+    const second = newPlanQueueItem('second', 'first-run', '/repo/second_plan.md', 2);
+    const third = newPlanQueueItem('third', 'second-run', '/repo/third_plan.md', 3);
+    for (const item of [first, second, third]) store.upsertItem(item);
+    store.history.recordChecklistRun(first, [first.id, second.id, third.id], 'group');
+    store.history.recordChecklistRun(first, [first.id]);
+    store.history.recordChecklistRun(second, [second.id]);
+    expect(store.history.checksSummary('first-run')).toEqual({ runs: 3, jobs: 2 });
+    expect(store.history.checksSummary('second-run')).toEqual({ runs: 1, jobs: 1 });
+    expect(store.history.checksSummary('untested-run')).toBeUndefined();
+    const snapshots = new Map(new PlanQueueStore(db).listRunSnapshots().map(entry => [entry.run.id, entry.checks]));
+    expect(snapshots.get('first-run')).toEqual({ runs: 3, jobs: 2 });
+    expect(snapshots.get('second-run')).toEqual({ runs: 1, jobs: 1 });
+    expect(snapshots.get('untested-run')).toBeUndefined();
+  });
+
+  it('remembers a failed group for the exact commit beyond the recent history window', () => {
+    db = createSqliteWasmDatabase(':memory:'); runLoopMigrations(db);
+    const store = new PlanQueueStore(db);
+    const event = { itemId: 'item', runId: 'run', fromState: null, toState: 'awaiting-slot' as const, round: 0, tokens: 0 };
+    store.history.recordEvent({ ...event, reason: 'check-group-failed', detailHead: JSON.stringify({ head: 'failed-head' }) });
+    for (let i = 0; i < 60; i++) store.history.recordEvent({ ...event, reason: 'note', detailHead: 'Later history' });
+    expect(store.history.hasFailedCheckGroup('item', 'failed-head')).toBe(true);
+    expect(store.history.hasFailedCheckGroup('item', 'new-head')).toBe(false);
+    expect(store.history.hasFailedCheckGroup('other', 'failed-head')).toBe(false);
+  });
+
+  it('invalidates a group after any member leaves its round, even when it returns', () => {
+    db = createSqliteWasmDatabase(':memory:'); runLoopMigrations(db);
+    const history = new PlanQueueStore(db).history;
+    const item = newPlanQueueItem('leader', 'run', '/repo/plan.md', 1, { state: 'verifying' });
+    history.recordChecklistRun(item, ['leader', 'member'], 'group');
+    expect(history.checkGroupRoundIntact('group', ['leader', 'member'])).toBe(true);
+    history.recordEvent({ itemId: 'member', runId: 'run', fromState: 'verifying', toState: 'fixing', reason: null, detailHead: null, round: 1, tokens: 0 });
+    history.recordEvent({ itemId: 'member', runId: 'run', fromState: 'fixing', toState: 'verifying', reason: null, detailHead: null, round: 1, tokens: 0 });
+    expect(history.checkGroupRoundIntact('group', ['leader', 'member'])).toBe(false);
+    expect(history.checkGroupRoundIntact('unknown', ['leader', 'member'])).toBe(false);
+  });
+
   it('keeps all verdicts across Resume and records path-free state events atomically', () => {
     db = createSqliteWasmDatabase(':memory:');
     runLoopMigrations(db);

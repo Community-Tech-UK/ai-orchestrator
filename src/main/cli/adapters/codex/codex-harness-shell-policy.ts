@@ -9,6 +9,16 @@ const HARNESS_CLI_KEYS = [
   'AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_CAPABILITY',
 ] as const;
 
+/** Plan Queue push guard (src/main/plan-queue/plan-queue-push-guard.ts): the marker and the numbered git settings. */
+const QUEUE_GUARD_KEY = /^(AIO_QUEUE_SESSION|GIT_CONFIG_COUNT|GIT_CONFIG_KEY_\d+|GIT_CONFIG_VALUE_\d+)$/;
+
+/** The variables this spawn needs through Codex's filter: the bridge when complete, the push guard when marked. */
+function keysToKeep(env: Record<string, string>): string[] {
+  const bridge = HARNESS_CLI_KEYS.every((key) => env[key]) ? [...HARNESS_CLI_KEYS] : [];
+  const guard = env['AIO_QUEUE_SESSION'] ? Object.keys(env).filter((key) => QUEUE_GUARD_KEY.test(key) && env[key] !== undefined) : [];
+  return [...bridge, ...guard];
+}
+
 interface ValueSpan { path: string[]; start: number; end: number; inline: boolean }
 interface TableSpan { path: string[]; end: number }
 interface Edit { start: number; end: number; text: string }
@@ -155,7 +165,7 @@ function readSpans(text: string): { values: ValueSpan[]; tables: TableSpan[] } {
   return { values, tables };
 }
 
-function extendIncludeOnly(raw: string): string {
+function extendIncludeOnly(raw: string, keys: readonly string[]): string {
   if (!raw.startsWith('[') || !raw.endsWith(']')) {
     throw new Error('Could not preserve Codex shell policy: include_only must be an array');
   }
@@ -173,14 +183,15 @@ function extendIncludeOnly(raw: string): string {
   }
   // An empty array means no allow-only filter; adding names would narrow it.
   if (entries.length === 0) return raw;
-  for (const key of HARNESS_CLI_KEYS) {
+  for (const key of keys) {
     if (!entries.includes(JSON.stringify(key)) && !entries.includes(`'${key}'`)) entries.push(JSON.stringify(key));
   }
   return `[${entries.join(', ')}]`;
 }
 
 export function preserveHarnessCliShellPolicy(config: string, env?: Record<string, string>): string {
-  if (!env || HARNESS_CLI_KEYS.some((key) => !env[key])) return config;
+  const keys = env ? keysToKeep(env) : [];
+  if (!env || keys.length === 0) return config;
   const { values, tables } = readSpans(config);
   const edits: Edit[] = [];
   const insertions = new Map<number, string[]>();
@@ -190,8 +201,8 @@ export function preserveHarnessCliShellPolicy(config: string, env?: Record<strin
     insertions.set(at, existing);
   };
   const includeOnly = values.find((span) => samePath(span.path, ['shell_environment_policy', 'include_only']));
-  if (includeOnly) edits.push({ ...includeOnly, text: extendIncludeOnly(config.slice(includeOnly.start, includeOnly.end)) });
-  for (const key of HARNESS_CLI_KEYS) {
+  if (includeOnly) edits.push({ ...includeOnly, text: extendIncludeOnly(config.slice(includeOnly.start, includeOnly.end), keys) });
+  for (const key of keys) {
     const target = ['shell_environment_policy', 'set', key];
     const value = JSON.stringify(env[key]);
     const existing = values.find((span) => samePath(span.path, target));

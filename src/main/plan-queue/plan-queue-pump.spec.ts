@@ -29,7 +29,7 @@ describe('Plan Queue admission wiring', () => {
       const starts: string[] = [];
       const host: Parameters<typeof pumpPlanQueue>[0] = {
         store: { listActiveRuns: () => [run], listItems: () => items, listItemsWithKeptFolders: () => [] } as unknown as PlanQueueStore,
-        flow: { startItem: async item => { starts.push(item.id); }, startVerification: async item => { starts.push(item.id); }, isWaitingForUsage: () => false, keptFolders: { retryDue: () => undefined } },
+        flow: { startItem: async item => { starts.push(item.id); }, startVerification: async item => { starts.push(item.id); }, isWaitingForUsage: () => false, isClaimed: () => false, keptFolders: { retryDue: () => undefined } },
         triage: { isStopping: () => false, maybeStart: () => { starts.push('triage'); } },
         getRun: () => run, getItem: id => items.find(item => item.id === id)!,
         transition: (item, state, patch) => Object.assign(item, patch, { state }),
@@ -63,7 +63,7 @@ describe('Plan Queue admission wiring', () => {
       const checks: string[] = [];
       const host: Parameters<typeof pumpPlanQueue>[0] = {
         store: { listActiveRuns: () => runs, listItems: (runId: string) => items.filter(item => item.runId === runId), listItemsWithKeptFolders: () => [] } as unknown as PlanQueueStore,
-        flow: { startItem: async () => undefined, startVerification: async item => { checks.push(item.id); }, isWaitingForUsage: () => false, keptFolders: { retryDue: () => undefined } },
+        flow: { startItem: async () => undefined, startVerification: async item => { checks.push(item.id); }, isWaitingForUsage: () => false, isClaimed: () => false, keptFolders: { retryDue: () => undefined } },
         triage: null,
         getRun: id => runs.find(run => run.id === id)!, getItem: id => items.find(item => item.id === id)!,
         transition: (item, state, patch) => Object.assign(item, patch, { state }),

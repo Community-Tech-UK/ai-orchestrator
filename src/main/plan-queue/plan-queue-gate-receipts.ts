@@ -1,5 +1,6 @@
 /** Machine-owned evidence, taken before a read-only checker sees the worktree. */
 import { stripVTControlCharacters } from 'node:util';
+import { gitExec } from '../workspace/git/git-exec';
 import { buildCliEnv } from '../cli/cli-environment';
 import { extractVerifyFailureKeys } from '../orchestration/verify-failure-keys';
 import { runInProcessGroup } from './plan-queue-process';
@@ -8,6 +9,8 @@ export type GateEvidence = 'passed' | 'failed' | 'no-tests-found' | 'not-recogni
 export interface PlanQueueGateReceipt {
   command: string;
   head: string;
+  testedTree: string;
+  checkGroup?: { id: string; baseTip: string; memberItemIds: string[] };
   exitCode: number;
   durationMs: number;
   timedOut: boolean;
@@ -18,9 +21,10 @@ export interface PlanQueueGateReceipt {
 }
 interface GateExecution { exitCode: number; output: string; timedOut?: boolean }
 type ExecuteGate = (command: string, cwd: string, signal?: AbortSignal) => Promise<GateExecution>;
-interface GateInput {
+export interface GateInput {
   cwd: string; head: string; commands: readonly string[]; signal?: AbortSignal;
   scope?: string;
+  onExecution?: () => void;
   baseSha?: string;
   withBaseline?: <T>(action: (cwd: string) => Promise<T>) => Promise<T>;
 }
@@ -49,27 +53,70 @@ export class PlanQueueGateRunner {
   private readonly cache = new Map<string, PlanQueueGateReceipt[]>();
   private readonly baseCache = new Map<string, PlanQueueGateReceipt[]>();
   private readonly pendingBases = new Map<string, { result: Promise<PlanQueueGateReceipt[]>; signal?: AbortSignal }>();
-  constructor(private readonly execute: ExecuteGate = executeGate) {}
+  constructor(
+    private readonly execute: ExecuteGate = executeGate,
+    private readonly readTree: (cwd: string) => string | Promise<string> = cwd => gitExec(['rev-parse', 'HEAD^{tree}'], cwd),
+  ) {}
+
+  cached(input: GateInput): PlanQueueGateReceipt[] | undefined {
+    input.signal?.throwIfAborted();
+    const cached = this.cache.get(this.key(input));
+    return cached ? structuredClone(cached) : undefined;
+  }
+
+  forget(input: GateInput): void {
+    this.cache.delete(this.key(input));
+  }
+
+  seed(input: GateInput, receipts: readonly PlanQueueGateReceipt[]): void {
+    input.signal?.throwIfAborted();
+    if (receipts.length !== input.commands.length || receipts.some((receipt, index) =>
+      receipt.head !== input.head || receipt.command !== input.commands[index] || !receipt.testedTree)) {
+      throw new Error('Gate receipts do not describe this member commit and checklist.');
+    }
+    if (this.cache.size >= 100) this.cache.delete(this.cache.keys().next().value!);
+    this.cache.set(this.key(input), structuredClone(receipts).map(receipt => ({ ...receipt, failureKeyCounts: {} })));
+  }
+
+  private key(input: GateInput): string {
+    return JSON.stringify([input.cwd, input.head, input.baseSha, input.commands]);
+  }
 
   async run(input: GateInput): Promise<PlanQueueGateReceipt[]> {
-    const key = JSON.stringify([input.cwd, input.head, input.baseSha, input.commands]);
+    const cached = this.cached(input);
+    if (cached) return cached;
+    const receipts = await this.compareWithBase(input, await this.executeCommands(input));
+    this.seed(input, receipts);
+    return receipts;
+  }
+
+  async executeCommands(input: GateInput): Promise<PlanQueueGateReceipt[]> {
     input.signal?.throwIfAborted();
-    const cached = this.cache.get(key);
-    if (cached) return structuredClone(cached);
+    if (!input.commands.length) return [];
+    const tree = this.readTree(input.cwd);
+    const testedTree = typeof tree === 'string' ? tree : await tree;
+    input.signal?.throwIfAborted();
     const receipts: PlanQueueGateReceipt[] = [];
     for (const command of input.commands) {
       input.signal?.throwIfAborted();
+      if (!receipts.length) input.onExecution?.();
       const started = Date.now();
       const result = await this.execute(command, input.cwd, input.signal);
       input.signal?.throwIfAborted();
       const timedOut = result.timedOut === true;
-      receipts.push({ command, head: input.head, exitCode: timedOut ? 1 : result.exitCode, timedOut,
+      receipts.push({ command, head: input.head, testedTree, exitCode: timedOut ? 1 : result.exitCode, timedOut,
         durationMs: Date.now() - started, tail: Buffer.from(result.output).subarray(-2048).toString('utf8').replace(/^\uFFFD+/, ''),
         classification: timedOut ? 'failed' : classifyGateEvidence(command, result.exitCode, result.output), baseline: 'new',
         failureKeyCounts: Object.fromEntries(extractVerifyFailureKeys(result.output.replaceAll(input.cwd, ''), {
           truncated: result.output.length >= 256_000, failureKind: 'command',
         }).keys) });
     }
+    return receipts;
+  }
+
+  async compareWithBase(input: GateInput, raw: readonly PlanQueueGateReceipt[]): Promise<PlanQueueGateReceipt[]> {
+    input.signal?.throwIfAborted();
+    const receipts = structuredClone([...raw]);
     if (input.withBaseline && input.baseSha && receipts.some(receipt => receipt.classification === 'failed')) {
       const base = await this.baseline(input);
       for (const receipt of receipts) {
@@ -81,11 +128,8 @@ export class PlanQueueGateRunner {
         }
       }
     }
-    // Bound the lifetime cache; completed items must not grow it indefinitely.
     input.signal?.throwIfAborted();
     for (const receipt of receipts) receipt.failureKeyCounts = {};
-    if (this.cache.size >= 100) this.cache.delete(this.cache.keys().next().value!);
-    this.cache.set(key, structuredClone(receipts));
     return receipts;
   }
 
@@ -104,20 +148,9 @@ export class PlanQueueGateRunner {
         throw error;
       }
     }
-    const result = input.withBaseline!(async cwd => {
-      const collected: PlanQueueGateReceipt[] = [];
-      for (const command of input.commands) {
-        input.signal?.throwIfAborted();
-        const result = await this.execute(command, cwd, input.signal);
-        input.signal?.throwIfAborted();
-        collected.push({ command, head: input.baseSha!, exitCode: result.exitCode, timedOut: result.timedOut === true,
-          durationMs: 0, tail: '', classification: classifyGateEvidence(command, result.exitCode, result.output), baseline: 'new',
-          failureKeyCounts: Object.fromEntries(extractVerifyFailureKeys(result.output.replaceAll(cwd, ''), {
-            truncated: result.output.length >= 256_000, failureKind: 'command',
-          }).keys) });
-      }
-      return collected;
-    });
+    const result = input.withBaseline!(cwd => this.executeCommands({
+      cwd, head: input.baseSha!, commands: input.commands, signal: input.signal,
+    }));
     this.pendingBases.set(key, { result, signal: input.signal });
     try {
       const base = await result;

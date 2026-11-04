@@ -26,7 +26,7 @@ function git(args: string[], cwd = repo): string {
 function makeItem(): PlanQueueItem {
   return {
     id: 'item-abc123', runId: 'run-1', documentPath: join(repo, 'docs/plans/2026-01-01-sample_plan.md'),
-    state: 'preparing', round: 0, erroredRounds: 0, landingRefusals: 0, branchName: null, worktreePath: null,
+    state: 'preparing', round: 0, erroredRounds: 0, landingRefusals: 0, baseConflicts: 0, branchName: null, worktreePath: null,
     baseCommit: null, checkpointCommit: null, verifiedMainCommit: null, landedCommit: null,
     workerInstanceId: null, verifierInstanceId: null, question: null, answer: null, parkReason: null,
     detail: null, verdict: null, createdAt: 1, updatedAt: 1,
@@ -242,7 +242,7 @@ describe('landing', () => {
       repoRoot: repo,
       worktreePath: wt, branchName: item.branchName!, itemId: item.id, baseTip: git(['rev-parse', 'main']),
       message: `Plan: sample\n\nLanded by Plan Queue after 1 verification round(s).\nItem: ${item.id}`,
-      documents: [{ relativePath: 'docs/plans/sample_plan_completed.md', content: '# done\n' }],
+      documents: [{ relativePath: 'docs/plans/sample_plan_completed.md', content: '# done\n' }], greenTestedTree: null,
     })).rejects.toThrow(/Its work is safe on the branch/);
     vi.restoreAllMocks();
     expect(existsSync(join(wt, 'docs/plans/sample_plan_completed.md'))).toBe(false);
@@ -261,7 +261,7 @@ describe('landing', () => {
     const item = await itemWithWork();
     git(['reset', '-q', '--hard', base]);
 
-    const result = await landItemBranch(item, repo, 'main', 'Plan: sample');
+    const result = await landItemBranch(item, repo, 'main', 'Plan: sample', []);
 
     expect(result).toEqual({ status: 'blocked', reason: expect.stringContaining('("stray"), which is not on main') });
     expect(git(['rev-parse', 'main'])).toBe(base);
@@ -277,7 +277,7 @@ describe('landing', () => {
     git(['merge', '-q', '--no-edit', 'main'], item.worktreePath!);
     git(['reset', '-q', '--hard', base]);
 
-    const result = await landItemBranch(item, repo, 'main', 'Plan: sample');
+    const result = await landItemBranch(item, repo, 'main', 'Plan: sample', []);
 
     expect(result).toEqual({ status: 'blocked', reason: expect.stringContaining('("stray"), which is not on main') });
     expect(git(['rev-parse', 'main'])).toBe(base);
@@ -289,7 +289,7 @@ describe('landing', () => {
     git(['commit', '-q', '-am', 'main moved']);
     git(['merge', '-q', '--no-edit', 'main'], item.worktreePath!);
 
-    const result = await landItemBranch(item, repo, 'main', `Plan: sample\n\nItem: ${item.id}`);
+    const result = await landItemBranch(item, repo, 'main', `Plan: sample\n\nItem: ${item.id}`, []);
 
     expect(result.status).toBe('landed');
     expect(git(['show', 'main:one.txt'])).toBe('one');

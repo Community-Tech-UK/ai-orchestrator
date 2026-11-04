@@ -3,6 +3,7 @@ import { getLogger } from '../logging/logger';
 import type { PlanQueueFlowHost, PlanQueueInstancePort } from './plan-queue-host';
 import { hasCheckout } from './plan-queue-orphan-checkout';
 import { unresolvedMergeFiles } from './plan-queue-git';
+import { allocateLivetestPort } from './plan-queue-livetest-port';
 import { buildConflictPrompt, buildParkedCarryOver } from './plan-queue-prompts';
 import type { PlanQueueRun, PlanQueueItem } from './plan-queue.types';
 const logger = getLogger('PlanQueueWorkerSessions');
@@ -23,6 +24,22 @@ export class PlanQueueWorkerSessions {
   isReopening(id: string): boolean { return this.reopeningWorkers.has(id); }
   rememberFailure(id: string, reason: string): void { this.startupFailures.set(id, reason); }
   forget(id: string): void { this.reopeningWorkers.delete(id); this.startupFailures.delete(id); }
+  /**
+   * A livetest item's dev-app port, checked free and recorded before its worker is prompted.
+   * Any other kind of item is returned untouched. `keepRecorded` leaves a port already recorded alone, for a
+   * restart: the worker that died may still hold it, so checking it free would wrongly pick another.
+   */
+  async withLivetestPort(item: PlanQueueItem, run: PlanQueueRun, keepRecorded = false): Promise<PlanQueueItem> {
+    if (run.kind !== 'livetests' || (keepRecorded && item.livetestPort)) return item;
+    const { host } = this.deps;
+    let saved = item;
+    await allocateLivetestPort(item.id, item.livetestPort, {
+      portsInUse: (except) => host.livetestPortsInUse(except),
+      persist: (port) => { saved = host.save({ ...host.getItem(item.id), livetestPort: port }); },
+    });
+    return saved;
+  }
+
   promptContext(run: PlanQueueRun, item: PlanQueueItem) {
     return {
       item,

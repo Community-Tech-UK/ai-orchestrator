@@ -75,6 +75,12 @@ export const PlanQueueGateRunSchema = z.object({
   command: z.string().min(1).max(2000),
   exitCode: z.number().int(),
   head: z.string().max(64).optional(),
+  testedTree: z.string().min(1).max(64).optional(),
+  checkGroup: z.object({
+    id: IdSchema,
+    baseTip: z.string().min(1).max(64),
+    memberItemIds: z.array(IdSchema).min(2).max(8),
+  }).optional(),
   durationMs: z.number().nonnegative().optional(),
   timedOut: z.boolean().optional(),
   tail: z.string().max(2048).optional(),
@@ -220,6 +226,7 @@ export const PlanQueueRunConfigSchema = z.object({
   glob: z.string().max(1000).optional(),
   workerSlots: z.number().int().min(1).max(8),
   verificationSlots: z.number().int().min(1).max(8),
+  checkBatchSize: z.number().int().min(1).max(8).optional(),
   maxRounds: z.number().int().min(1).max(10),
   maxLoadAverage: z.number().positive().max(1000),
   /** Deterministic commands the coordinator runs after merging a moved `main`. */
@@ -274,6 +281,7 @@ export const PlanQueueItemDtoSchema = z.object({
 
 export const PlanQueueRunDtoSchema = z.object({
   spend: PlanQueueSpendSchema.nullable().optional(),
+  checks: z.object({ runs: z.number().int().nonnegative(), jobs: z.number().int().nonnegative() }).optional(),
   id: IdSchema,
   parentInstanceId: IdSchema,
   kind: PlanQueueKindSchema,
@@ -384,6 +392,7 @@ export const PlanQueueStartArgsSchema = z.object({
   glob: z.string().max(1000).optional(),
   worker_slots: z.number().int().min(1).max(8).optional(),
   verification_slots: z.number().int().min(1).max(8).optional(),
+  check_batch_size: z.number().int().min(1).max(8).optional(),
   max_rounds: z.number().int().min(1).max(10).optional(),
   relax_settings: z.boolean().optional(),
   verifier_gates: z.array(z.string().min(1).max(2000)).max(20).optional(),
@@ -475,6 +484,7 @@ export const DEFAULT_PLAN_QUEUE_CONFIG: Record<PlanQueueKind, PlanQueueRunConfig
   plans: {
     workerSlots: 3,
     verificationSlots: 2,
+    checkBatchSize: 4,
     maxRounds: 3,
     maxLoadAverage: 30,
     postMergeGate: ['npx tsc --noEmit', 'npm run typecheck:spec'],
@@ -484,6 +494,7 @@ export const DEFAULT_PLAN_QUEUE_CONFIG: Record<PlanQueueKind, PlanQueueRunConfig
   livetests: {
     workerSlots: 1,
     verificationSlots: 1,
+    checkBatchSize: 1,
     maxRounds: 3,
     maxLoadAverage: 30,
     postMergeGate: ['npx tsc --noEmit', 'npm run typecheck:spec'],

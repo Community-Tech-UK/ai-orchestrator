@@ -19,6 +19,31 @@ describe('preserveHarnessCliShellPolicy', () => {
     }
   });
 
+  describe('the Plan Queue push guard', () => {
+    const guard = { AIO_QUEUE_SESSION: '1', GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'url.x.pushInsteadOf', GIT_CONFIG_VALUE_0: 'https://', GIT_CONFIG_KEY_1: 'remote.o.pushurl', GIT_CONFIG_VALUE_1: '' };
+
+    it('is written into the shell policy even when the bridge is incomplete, and an empty value survives', () => {
+      const result = preserveHarnessCliShellPolicy('[shell_environment_policy]\ninherit = "core"\n', guard);
+      expect(result).toContain('AIO_QUEUE_SESSION = "1"');
+      expect(result).toContain('GIT_CONFIG_KEY_0 = "url.x.pushInsteadOf"');
+      expect(result).toContain('GIT_CONFIG_VALUE_1 = ""');
+      expect(result).not.toContain('AIO_MCP');
+      expect(preserveHarnessCliShellPolicy(result, guard)).toBe(result);
+    });
+
+    it('is added to an existing allow-list so a restrictive policy cannot drop it', () => {
+      const result = preserveHarnessCliShellPolicy('[shell_environment_policy]\ninclude_only = ["PATH"]\n', { ...bridge, ...guard });
+      expect(result).toContain('"AIO_QUEUE_SESSION"');
+      expect(result).toContain('"GIT_CONFIG_COUNT"');
+      expect(result).toContain('"GIT_CONFIG_VALUE_1"');
+    });
+
+    it('does not force a person\'s own git settings through when the session is not a queue session', () => {
+      const input = '[shell_environment_policy]\ninherit = "core"\n';
+      expect(preserveHarnessCliShellPolicy(input, { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: 'x' })).toBe(input);
+    });
+  });
+
   it.each([
     '[shell_environment_policy]\ninherit = "core"\n',
     'shell_environment_policy.inherit = "core"\n',

@@ -82,6 +82,18 @@ describe('coordinator document selection', () => {
     expect(new PlanQueueStore(db).listItems(run.id)[0].state).toBe('queued');
   });
 
+  it('exposes persisted checklist coverage through both single and bulk run reads', async () => {
+    vi.spyOn(coordinator, 'requestPump').mockImplementation(() => undefined);
+    write('docs/plans/summary_plan.md');
+    const { run } = await coordinator.startRun({ parentInstanceId: 'parent', kind: 'plans', glob: 'docs/plans/summary_plan.md' });
+    expect(run).not.toHaveProperty('checks');
+    const [item] = store.listItems(run.id);
+    store.history.recordChecklistRun(item, [item.id]);
+    store.history.recordChecklistRun(item, [item.id]);
+    expect(coordinator.getRunDto(run.id)?.checks).toEqual({ runs: 2, jobs: 1 });
+    expect(coordinator.listRunDtos().find(entry => entry.id === run.id)?.checks).toEqual({ runs: 2, jobs: 1 });
+  });
+
   it('queues the selected plan behind 5,000 ignored plans and claims it only once', async () => {
     for (let i = 0; i < 5_000; i++) write(`docs/plans/a-${String(i).padStart(5, '0')}_plan.md`);
     write('.planqueueignore', 'docs/plans/a-*\n');

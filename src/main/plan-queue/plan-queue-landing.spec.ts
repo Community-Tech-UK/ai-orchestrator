@@ -71,6 +71,7 @@ function makeItemWithWork(files: Record<string, string>, id = 'item-abc123'): Pl
     round: 1,
     erroredRounds: 0,
     landingRefusals: 0,
+    baseConflicts: 0,
     branchName,
     worktreePath,
     baseCommit: git(['rev-parse', 'main']),
@@ -165,7 +166,7 @@ describe('landItemBranch', () => {
     writeFileSync(join(repo, 'docs/sample_plan.md'), '# untracked plan\n');
     const mainBefore = git(['rev-parse', 'main']);
 
-    const result = await landItemBranch(item, repo, 'main', 'feat: sample (plan queue)');
+    const result = await landItemBranch(item, repo, 'main', 'feat: sample (plan queue)', []);
 
     expect(result.status).toBe('landed');
     expect(git(['rev-list', '--count', `${mainBefore}..main`])).toBe('1');
@@ -180,7 +181,7 @@ describe('landItemBranch', () => {
     const item = makeItemWithWork({});
     const mainBefore = git(['rev-parse', 'main']);
 
-    const result = await landItemBranch(item, repo, 'main', 'unused');
+    const result = await landItemBranch(item, repo, 'main', 'unused', []);
 
     expect(result).toEqual({ status: 'landed', commit: mainBefore });
     expect(git(['rev-parse', 'main'])).toBe(mainBefore);
@@ -193,7 +194,7 @@ describe('landItemBranch', () => {
     const item = makeItemWithWork({});
     const mainBefore = git(['rev-parse', 'main']);
 
-    const result = await landItemBranch(item, repo, 'main', 'Livetest: sample (plan queue)', [
+    const result = await landItemBranch(item, repo, 'main', 'Livetest: sample (plan queue)', [], [
       { relativePath: 'docs/plans/sample_livetest_completed.md', content: 'evidence\n' },
     ]);
 
@@ -210,7 +211,7 @@ describe('landItemBranch', () => {
     writeFileSync(join(repo, 'clash.txt'), 'operator copy\n');
     const mainBefore = git(['rev-parse', 'main']);
 
-    const result = await landItemBranch(item, repo, 'main', 'feat: clash');
+    const result = await landItemBranch(item, repo, 'main', 'feat: clash', []);
 
     expect(result).toEqual({
       status: 'blocked',
@@ -227,7 +228,7 @@ describe('landItemBranch', () => {
     commitOnMain('a.txt', 'main version\n');
     const mainBefore = git(['rev-parse', 'main']);
 
-    const result = await landItemBranch(item, repo, 'main', 'feat: conflict');
+    const result = await landItemBranch(item, repo, 'main', 'feat: conflict', []);
 
     expect(result).toEqual({ status: 'conflict', conflictFiles: ['a.txt'] });
     expect(git(['rev-parse', 'main'])).toBe(mainBefore);
@@ -236,12 +237,12 @@ describe('landItemBranch', () => {
 
   it('converges when re-run after a crash that followed promotion', async () => {
     const item = makeItemWithWork({ 'one.txt': '1\n' });
-    const first = await landItemBranch(item, repo, 'main', 'feat: once');
+    const first = await landItemBranch(item, repo, 'main', 'feat: once', []);
     expect(first.status).toBe('landed');
     const landedCommit = first.status === 'landed' ? first.commit : '';
     const mainAfter = git(['rev-parse', 'main']);
 
-    const again = await landItemBranch({ ...item, landedCommit }, repo, 'main', 'feat: once');
+    const again = await landItemBranch({ ...item, landedCommit }, repo, 'main', 'feat: once', []);
 
     expect(again).toEqual({ status: 'landed', commit: landedCommit });
     expect(git(['rev-parse', 'main'])).toBe(mainAfter);
@@ -253,7 +254,7 @@ describe('landItemBranch', () => {
     commitOnMain('other.txt', 'main moved\n');
     await syncItemWithBase(item, 'main', repo);
 
-    const result = await landItemBranch(item, repo, 'main', 'feat: after stale');
+    const result = await landItemBranch(item, repo, 'main', 'feat: after stale', []);
 
     expect(result.status).toBe('landed');
     expect(existsSync(join(repo, 'one.txt'))).toBe(true);
@@ -280,11 +281,33 @@ describe('landItemBranch', () => {
       };
     }
 
+    it.each(['green', 'missing-command', 'wrong-command', 'failed', 'timeout', 'empty-tests', 'legacy', 'mixed-tree', 'failed-verdict'] as const)(
+      'grants duplicate-test proof only for a complete green checklist: %s', async evidence => {
+        installHook('printf "%s\\n" "${AIO_PLAN_QUEUE_TESTS_COVERED:-unset}" > "$(git rev-parse --git-common-dir)/hook-test-proof"');
+        const item = makeItemWithWork({ 'one.txt': '1\n' });
+        const tree = git(['rev-parse', 'HEAD^{tree}'], item.worktreePath!);
+        const commands = ['first-check', 'second-check'];
+        item.verdict = { verdict: evidence === 'failed-verdict' ? 'FAIL' : 'PASS', findings: [], documentComplete: true,
+          needJames: [], gatesRun: commands.map(command => ({ command, exitCode: 0, testedTree: tree, classification: 'passed' })) };
+        const first = item.verdict.gatesRun[0];
+        if (evidence === 'missing-command') item.verdict.gatesRun.pop();
+        if (evidence === 'wrong-command') first.command = 'a-different-check';
+        if (evidence === 'failed') first.exitCode = 1;
+        if (evidence === 'timeout') first.timedOut = true;
+        if (evidence === 'empty-tests') first.classification = 'no-tests-found';
+        if (evidence === 'legacy') delete first.testedTree;
+        if (evidence === 'mixed-tree') first.testedTree = git(['rev-parse', 'main^{tree}']);
+        const result = await landItemBranch(item, repo, 'main', 'Plan: checked', commands);
+        expect(result.status).toBe('landed');
+        expect(readFileSync(join(repo, '.git', 'hook-test-proof'), 'utf8').trim()).toBe(evidence === 'green' ? '1' : 'unset');
+      },
+    );
+
     it('runs the pre-commit hook, and what the hook stages lands with the commit', async () => {
       installHook('echo generated > generated.txt && git add generated.txt');
       const item = makeItemWithWork({ 'one.txt': '1\n' });
 
-      const result = await landItemBranch(item, repo, 'main', 'feat: hooked');
+      const result = await landItemBranch(item, repo, 'main', 'feat: hooked', []);
 
       expect(result.status).toBe('landed');
       expect(git(['show', '--name-only', '--format=', 'main']).split('\n').sort()).toEqual(['generated.txt', 'one.txt']);
@@ -296,7 +319,7 @@ describe('landItemBranch', () => {
       const item = makeItemWithWork({ 'one.txt': '1\n' });
       const mainBefore = git(['rev-parse', 'main']);
 
-      const result = await landItemBranch(item, repo, 'main', 'feat: refused', [
+      const result = await landItemBranch(item, repo, 'main', 'feat: refused', [], [
         { relativePath: 'docs/x_plan_completed.md', content: 'closed\n' },
       ]);
 
@@ -312,7 +335,7 @@ describe('landItemBranch', () => {
       const item = makeItemWithWork({ 'one.txt': '1\n' });
       const mainBefore = git(['rev-parse', 'main']);
 
-      const result = await landItemBranch(item, repo, 'main', 'feat: slow hook');
+      const result = await landItemBranch(item, repo, 'main', 'feat: slow hook', []);
 
       expect(result).toMatchObject({ status: 'hook-failed', timedOut: true, output: expect.stringContaining('timed out after 1500ms') });
       expect(git(['rev-parse', 'main'])).toBe(mainBefore);
@@ -323,17 +346,17 @@ describe('landItemBranch', () => {
       const item = makeItemWithWork({ 'one.txt': '1\n', [document]: '# active\n' });
       const mainBefore = git(['rev-parse', 'main']);
 
-      expect(await landItemBranch(item, repo, 'main', 'feat: docs')).toEqual({ status: 'active-documents', paths: [document] });
+      expect(await landItemBranch(item, repo, 'main', 'feat: docs', [])).toEqual({ status: 'active-documents', paths: [document] });
       expect(git(['rev-parse', 'main'])).toBe(mainBefore);
 
       const register = makeItemWithWork({ 'r_livetest.md': '# R\n**Type: standing register**\n' }, 'item-reg999');
-      expect((await landItemBranch(register, repo, 'main', 'feat: register')).status).toBe('landed');
+      expect((await landItemBranch(register, repo, 'main', 'feat: register', [])).status).toBe('landed');
     });
 
     it('lands the closed documents in the same commit as the code', async () => {
       const item = makeItemWithWork({ 'one.txt': '1\n' });
 
-      const result = await landItemBranch(item, repo, 'main', 'Plan: x', [
+      const result = await landItemBranch(item, repo, 'main', 'Plan: x', [], [
         { relativePath: 'docs/plans/x_plan_completed.md', content: 'spec: x_spec_completed.md\n' },
         { relativePath: 'docs/plans/x_spec_completed.md', content: 'plan: x_plan_completed.md\n' },
       ]);
@@ -351,12 +374,12 @@ describe('landItemBranch', () => {
       const item = makeItemWithWork({ 'clash.txt': 'from item\n' });
       writeFileSync(join(repo, 'clash.txt'), 'operator copy\n');
       let built = '';
-      const first = await landItemBranch(item, repo, 'main', 'feat: once', [], (commit) => { built = commit; });
+      const first = await landItemBranch(item, repo, 'main', 'feat: once', [], [], (commit) => { built = commit; });
       expect(first.status).toBe('blocked');
       expect(built).not.toBe('');
       rmSync(join(repo, 'clash.txt'));
 
-      const again = await landItemBranch({ ...item, landedCommit: built }, repo, 'main', 'feat: once');
+      const again = await landItemBranch({ ...item, landedCommit: built }, repo, 'main', 'feat: once', []);
 
       expect(again).toEqual({ status: 'landed', commit: built });
       expect(git(['rev-parse', 'main'])).toBe(built);
@@ -369,7 +392,7 @@ describe('landItemBranch', () => {
       git(['checkout', '-q', '--detach', git(['rev-parse', 'main'])], wt);
       git(['merge', '--squash', '-q', item.branchName ?? ''], wt);
 
-      const result = await landItemBranch(item, repo, 'main', 'feat: after crash');
+      const result = await landItemBranch(item, repo, 'main', 'feat: after crash', []);
 
       expect(result.status).toBe('landed');
       expect(checkoutState(item)).toEqual({ head: item.checkpointCommit, branch: item.branchName, status: '' });
@@ -397,7 +420,7 @@ describe('landItemBranch', () => {
       const mainBefore = git(['rev-parse', 'main']);
       hook.beforeWrite = async () => { throw new Error('disk full'); };
 
-      const result = await landItemBranch(item, repo, 'main', 'feat: merge');
+      const result = await landItemBranch(item, repo, 'main', 'feat: merge', []);
 
       expect(result).toMatchObject({ status: 'landed', mergedPaths: ['register.md', 'second.md'] });
       const landed = result.status === 'landed' ? result.commit : '';
@@ -413,7 +436,7 @@ describe('landItemBranch', () => {
       const mainBefore = git(['rev-parse', 'main']);
       hook.beforeWrite = async () => { writeFileSync(join(repo, 'second.md'), 'Later human edit.\n'); };
 
-      const result = await landItemBranch(item, repo, 'main', 'feat: merge');
+      const result = await landItemBranch(item, repo, 'main', 'feat: merge', []);
 
       expect(result).toMatchObject({ status: 'blocked', reason: expect.stringContaining('second.md') });
       expect(result.status === 'blocked' ? result.reason : '').toContain('doc-merge/item-merge1');

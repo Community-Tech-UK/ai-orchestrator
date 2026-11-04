@@ -69,7 +69,7 @@ beforeEach(() => {
   writeFileSync(join(source, 'untracked.txt'), 'retained work\n');
   item = {
     id: 'item-abc123', runId: 'run', documentPath: join(repo, 'docs/sample_plan.md'),
-    state: 'parked', round: 0, erroredRounds: 0, landingRefusals: 0,
+    state: 'parked', round: 0, erroredRounds: 0, landingRefusals: 0, baseConflicts: 0,
     branchName: 'queue/sample-abc123', worktreePath: source, baseCommit: git(['rev-parse', 'HEAD']),
     checkpointCommit: null, verifiedMainCommit: null, landedCommit: null,
     workerInstanceId: null, verifierInstanceId: null, question: null, answer: null,

@@ -92,6 +92,28 @@ describe('PlanQueueItemListComponent', () => {
     fixture.componentRef.setInput('maxRounds', 3);
   });
 
+  it.each([
+    [['item-1', 'other'], 'Checked together with 1 other job'],
+    [['item-1', 'second', 'third'], 'Checked together with 2 other jobs'],
+  ])('renders group coverage without exposing its internal identifiers: %s', (memberItemIds, label) => {
+    fixture.componentRef.setInput('items', [makeItem({ verdict: {
+      verdict: 'PASS', findings: [], documentComplete: true, needJames: [],
+      gatesRun: [{ command: 'check', exitCode: 0, checkGroup: { id: 'internal-group', baseTip: 'base-tip', memberItemIds } }],
+    } })]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.pq-item-check-group')?.textContent?.trim()).toBe(label);
+    expect(fixture.nativeElement.textContent).not.toContain('internal-group');
+    expect(fixture.nativeElement.textContent).not.toContain('base-tip');
+  });
+
+  it('omits group coverage for receipts from a solo or legacy check', () => {
+    fixture.componentRef.setInput('items', [makeItem({ verdict: {
+      verdict: 'PASS', findings: [], documentComplete: true, needJames: [], gatesRun: [{ command: 'check', exitCode: 0 }],
+    } })]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.pq-item-check-group')).toBeNull();
+  });
+
   it('reveals the whole document path on keyboard focus even when the basename fits', () => {
     const item = makeItem(); fixture.componentRef.setInput('items', [item]); fixture.detectChanges();
     const documentName = fixture.nativeElement.querySelector('.pq-item-doc') as HTMLElement;

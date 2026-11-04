@@ -163,17 +163,41 @@ async function preserveActiveHistories(worktreePath: string, baseTip: string, do
 export function commitWithHooks(
   worktreePath: string,
   message: string,
+  testedIndexTree: string | null,
   timeoutMs = HOOK_TIMEOUT_MS,
   signal?: AbortSignal,
 ): Promise<GroupRunResult> {
+  const env = hermeticGitEnv(buildCliEnv());
+  delete env['AIO_PLAN_QUEUE_TESTS_COVERED'];
+  delete env['AIO_PLAN_QUEUE_TESTS_COVERED_TREE'];
+  if (testedIndexTree) {
+    env['AIO_PLAN_QUEUE_TESTS_COVERED'] = '1';
+    env['AIO_PLAN_QUEUE_TESTS_COVERED_TREE'] = testedIndexTree;
+  }
   return runInProcessGroup('git', ['commit', '--no-gpg-sign', '-q', '-m', message], {
     cwd: worktreePath,
-    env: hermeticGitEnv(buildCliEnv()),
+    env,
     timeoutMs,
     outputTail: OUTPUT_TAIL,
     label: 'the pre-commit hook',
     signal,
   });
+}
+
+/** Ignore only the exact closed evidence this landing adds, never all documentation. */
+async function testedLandingIndex(cwd: string, testedTree: string | null, documents: readonly LandingDocument[]): Promise<string | null> {
+  if (!testedTree) return null;
+  if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(testedTree)) throw new Error('Invalid tested Git tree');
+  const exclusions = documents.filter(doc => /(?:_completed\.md|_closure_completed\.json)$/i.test(doc.relativePath)
+    && !path.isAbsolute(doc.relativePath) && !doc.relativePath.includes('\0') && !doc.relativePath.split(/[\\/]/).includes('..'))
+    .map(doc => `:(exclude,literal)${doc.relativePath}`);
+  const stagedTree = await gitExec(['write-tree'], cwd);
+  try { await gitExec(['diff-tree', '-r', '--quiet', testedTree, stagedTree, '--', '.', ...exclusions], cwd); }
+  catch (error) {
+    if ((error as { code?: unknown }).code === 1) return null;
+    throw error;
+  }
+  return stagedTree;
 }
 
 /**
@@ -189,6 +213,7 @@ export async function buildLandingCommit(params: {
   baseTip: string;
   message: string;
   documents: readonly LandingDocument[];
+  greenTestedTree: string | null;
   signal?: AbortSignal;
 }): Promise<LandingCommitResult> {
   const { repoRoot, worktreePath, branchName, itemId, baseTip, message, documents } = params;
@@ -221,7 +246,8 @@ export async function buildLandingCommit(params: {
     if (await run(['diff', '--cached', '--quiet'], worktreePath, TREE_REWRITE_TIMEOUT_MS)) return { status: 'nothing-to-land' };
 
     params.signal?.throwIfAborted();
-    const { exitCode, output, timedOut } = await commitWithHooks(worktreePath, message, HOOK_TIMEOUT_MS, params.signal);
+    const testedIndexTree = await testedLandingIndex(worktreePath, params.greenTestedTree, documents);
+    const { exitCode, output, timedOut } = await commitWithHooks(worktreePath, message, testedIndexTree, HOOK_TIMEOUT_MS, params.signal);
     if (exitCode !== 0) return { status: 'hook-failed', output, ...(timedOut ? { timedOut } : {}) };
     return { status: 'committed', commit: await gitExec(['rev-parse', 'HEAD'], worktreePath) };
   } finally {

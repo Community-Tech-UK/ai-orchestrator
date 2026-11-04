@@ -47,11 +47,12 @@ export function itemToDto(item: PlanQueueItem): PlanQueueItemDto {
   };
 }
 
-export function runToDto(run: PlanQueueRun, items: readonly PlanQueueItem[]): PlanQueueRunDto {
+export function runToDto(run: PlanQueueRun, items: readonly PlanQueueItem[], checks: PlanQueueRunDto['checks']): PlanQueueRunDto {
   const spends = [run.spend, ...items.map(item => item.spend)].filter(spend => spend !== undefined);
   const spend = spends.length ? spends.reduce((total, entry) => ({ tokens: total.tokens + entry.tokens, costUsd: total.costUsd + entry.costUsd, exactUsd: total.exactUsd + entry.exactUsd, unpricedTokens: (total.unpricedTokens ?? 0) + (entry.unpricedTokens ?? 0) }), { tokens: 0, costUsd: 0, exactUsd: 0, unpricedTokens: 0 }) : undefined;
   return {
     ...(spend ? { spend } : {}),
+    ...(checks?.runs ? { checks } : {}),
     id: run.id,
     parentInstanceId: run.parentInstanceId,
     kind: run.kind,
@@ -105,13 +106,14 @@ function needJamesLines(items: readonly PlanQueueItem[]): { real: string[]; poli
   return { real, policyGated };
 }
 
-export function buildRunSummaryMessage(run: PlanQueueRun, items: readonly PlanQueueItem[]): string {
+export function buildRunSummaryMessage(run: PlanQueueRun, items: readonly PlanQueueItem[], checks: PlanQueueRunDto['checks']): string {
   const count = (state: PlanQueueItem['state']) => items.filter((item) => item.state === state).length;
   const parked = items.filter((item) => item.state === 'parked');
   const notReached = items.filter(isNotReachedItem).length;
   const lines = [
     `Plan Queue run ${run.id} (${run.kind}) ended: ${run.status}. Landed ${count('landed')}, parked ${parked.length}, skipped ${count('skipped') - notReached}, not reached ${notReached}.`,
   ];
+  if (checks?.runs) lines.push(`${checks.runs} test ${checks.runs === 1 ? 'run' : 'runs'} covered ${checks.jobs} ${checks.jobs === 1 ? 'job' : 'jobs'}.`);
   if (parked.length) {
     lines.push('', 'Parked (retained branches are named below; Resume, Land anyway or Discard in the Plan Queue panel):');
     for (const item of parked) {

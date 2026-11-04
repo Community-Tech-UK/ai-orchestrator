@@ -14,7 +14,8 @@ import { PlanQueueStore } from './plan-queue-store';
 import { PlanQueueVerification } from './plan-queue-verification';
 import type { PlanQueueItem } from './plan-queue.types';
 
-vi.mock('../workspace/git/git-exec', () => ({ gitExec: vi.fn(async (args: string[]) => args.some(arg => arg.startsWith('refs/heads/')) ? 'base' : 'head') }));
+vi.mock('../workspace/git/git-exec', async original => ({ ...await original<typeof import('../workspace/git/git-exec')>(),
+  gitExec: vi.fn(async (args: string[]) => args.some(arg => arg.startsWith('refs/heads/')) ? 'base' : 'head') }));
 let root: string;
 let db: SqliteDriver;
 let store: PlanQueueStore;
@@ -42,7 +43,7 @@ describe('queue verification policy', () => {
   it('returns to pump admission when checks are paused or load has changed', async () => {
     host.checksAdmitted = () => false;
     const execute = vi.fn(async () => ({ exitCode: 0, output: '' }));
-    const policy = new PlanQueueVerification(host, new PlanQueueGateRunner(execute));
+    const policy = createPolicy(createGates(execute));
     expect(await policy.prepare(host.getItem('item'))).toEqual({ kind: 'wait', detail: 'Checks are paused or the computer is busy.' });
     expect(execute).not.toHaveBeenCalled();
     host.checksAdmitted = () => true;
@@ -61,7 +62,7 @@ describe('queue verification policy', () => {
       signal?.addEventListener('abort', abort, { once: true });
       releases.set(cwd, () => { signal?.removeEventListener('abort', abort); resolve({ exitCode: 0, output: '' }); });
     }));
-    const policy = new PlanQueueVerification(host, new PlanQueueGateRunner(execute));
+    const policy = createPolicy(createGates(execute));
     const first = policy.prepare(host.getItem('item'));
     const other = policy.prepare(host.getItem('other'));
     try {
@@ -79,7 +80,7 @@ describe('queue verification policy', () => {
   });
 
   it.each(['x', 'X'])('keeps a pinned criterion present when its checkbox is marked [%s]', async mark => {
-    const policy = new PlanQueueVerification(host, new PlanQueueGateRunner(async () => ({ exitCode: 0, output: '' })));
+    const policy = createPolicy(createGates(async () => ({ exitCode: 0, output: '' })));
     await policy.pin(host.getItem('item'));
     writeFileSync(host.getItem('item').documentPath, `# Work\n- [${mark}] Keep this criterion\n`);
     expect(await policy.prompt(host.getItem('item'), host.getRun('run'), 'main')).toContain('"changes":[]');
@@ -87,17 +88,17 @@ describe('queue verification policy', () => {
     expect(await policy.prompt(host.getItem('item'), host.getRun('run'), 'main')).toContain('"status":"reworded"');
   });
   it('records red gates before spawning a checker and refuses an unbacked PASS afterward', async () => {
-    const gates = new PlanQueueGateRunner(async (_command, cwd) => cwd === '/baseline'
+    const gates = createGates(async (_command, cwd) => cwd === '/baseline'
       ? { exitCode: 0, output: '' } : { exitCode: 1, output: 'src/work.ts(1,1): error TS2322: New failure' });
-    const policy = new PlanQueueVerification(host, gates);
+    const policy = createPolicy(gates);
     expect(await policy.prepare(host.getItem('item'))).toMatchObject({ kind: 'fix' });
     expect(await policy.record(host.getItem('item'), pass)).toMatchObject({ verdict: 'FAIL', documentComplete: false });
     expect(store.history.listVerdicts('item').map(row => row.verdict)).toEqual(['FAIL', 'FAIL']);
   });
 
   it('allows only a proven existing base failure and gives its machine receipts to the checker', async () => {
-    const gates = new PlanQueueGateRunner(async () => ({ exitCode: 1, output: 'src/work.ts(1,1): error TS2322: Existing failure' }));
-    const policy = new PlanQueueVerification(host, gates);
+    const gates = createGates(async () => ({ exitCode: 1, output: 'src/work.ts(1,1): error TS2322: Existing failure' }));
+    const policy = createPolicy(gates);
     expect(await policy.prepare(host.getItem('item'))).toEqual({ kind: 'ready' });
     const prompt = await policy.prompt(host.getItem('item'), host.getRun('run'), 'main');
     expect(await policy.record(host.getItem('item'), pass)).toMatchObject({ verdict: 'PASS', gatesRun: [{ baseline: 'also-failing-on-base', head: 'head' }] });
@@ -107,16 +108,16 @@ describe('queue verification policy', () => {
   });
 
   it('warns once for an unchanged fix, then parks even after a new policy instance', async () => {
-    const gates = new PlanQueueGateRunner(async (_command, cwd) => ({ exitCode: cwd === '/baseline' ? 0 : 1, output: 'src/work.ts(1,1): error TS2322: Failure' }));
-    const policy = new PlanQueueVerification(host, gates);
+    const gates = createGates(async (_command, cwd) => ({ exitCode: cwd === '/baseline' ? 0 : 1, output: 'src/work.ts(1,1): error TS2322: Failure' }));
+    const policy = createPolicy(gates);
     await policy.prepare(host.getItem('item'));
     expect(await policy.prepare(host.getItem('item'))).toMatchObject({ kind: 'fix', prompt: expect.stringContaining('Nothing changed') });
-    expect(await new PlanQueueVerification(host, gates).prepare(host.getItem('item'))).toMatchObject({ kind: 'park', reason: 'no-progress' });
+    expect(await createPolicy(gates).prepare(host.getItem('item'))).toMatchObject({ kind: 'park', reason: 'no-progress' });
   });
 
   it.each([false, true])('rechecks a changed source after invalidating a PASS (new policy: %s)', async restart => {
-    const gates = new PlanQueueGateRunner(async () => ({ exitCode: 0, output: '' }));
-    const policy = new PlanQueueVerification(host, gates);
+    const gates = createGates(async () => ({ exitCode: 0, output: '' }));
+    const policy = createPolicy(gates);
     expect(await policy.prepare(host.getItem('item'))).toEqual({ kind: 'ready' });
     await policy.prompt(host.getItem('item'), host.getRun('run'), 'main');
     const reviewedHash = await documentContentSha256(host.getItem('item').documentPath);
@@ -125,7 +126,7 @@ describe('queue verification policy', () => {
       { summary: 'The source document changed while the checker was reviewing it.' },
     ] });
     expect(store.history.listVerdicts('item')[0].documentSha256).toBe(reviewedHash);
-    const next = restart ? new PlanQueueVerification(host, gates) : policy;
+    const next = restart ? createPolicy(gates) : policy;
     expect(await next.prepare(host.getItem('item'))).toEqual({ kind: 'ready' });
     expect(store.history.listEvents('item').some(event => event.reason === 'no-progress-warning')).toBe(false);
     await next.prompt(host.getItem('item'), host.getRun('run'), 'main');
@@ -133,9 +134,9 @@ describe('queue verification policy', () => {
   });
 
   it('records fresh gate evidence against the current document after an interrupted checker', async () => {
-    const gates = new PlanQueueGateRunner(async (_command, cwd) => ({ exitCode: cwd === '/baseline' ? 0 : 1,
+    const gates = createGates(async (_command, cwd) => ({ exitCode: cwd === '/baseline' ? 0 : 1,
       output: 'src/work.ts(1,1): error TS2322: Failure' }));
-    const policy = new PlanQueueVerification(host, gates);
+    const policy = createPolicy(gates);
     await policy.prompt(host.getItem('item'), host.getRun('run'), 'main');
     writeFileSync(host.getItem('item').documentPath, '# Updated after the checker was closed\n');
     expect(await policy.prepare(host.getItem('item'))).toMatchObject({ kind: 'fix' });
@@ -144,14 +145,14 @@ describe('queue verification policy', () => {
   });
 
   it('refuses a PASS without a recorded checker document identity', async () => {
-    const policy = new PlanQueueVerification(host, new PlanQueueGateRunner(async () => ({ exitCode: 0, output: '' })));
+    const policy = createPolicy(createGates(async () => ({ exitCode: 0, output: '' })));
     await policy.prepare(host.getItem('item'));
     expect(await policy.record(host.getItem('item'), pass)).toMatchObject({ verdict: 'FAIL', documentComplete: false,
       findings: [{ summary: 'The checker did not record which source document it reviewed.' }] });
   });
 
   it.each([false, true])('keeps prepared check evidence while other jobs are admitted (checker prompted: %s)', async prompted => {
-    const policy = new PlanQueueVerification(host, new PlanQueueGateRunner(async () => ({ exitCode: 0, output: '' })));
+    const policy = createPolicy(createGates(async () => ({ exitCode: 0, output: '' })));
     await policy.prepare(host.getItem('item'));
     if (prompted) await policy.prompt(host.getItem('item'), host.getRun('run'), 'main');
     for (let index = 0; index < 100; index++) {
@@ -165,7 +166,7 @@ describe('queue verification policy', () => {
   });
 
   it('does not erase an in-flight review identity when a hold cancels checks before acquiring the item lock', async () => {
-    const policy = new PlanQueueVerification(host, new PlanQueueGateRunner(async () => ({ exitCode: 0, output: '' })));
+    const policy = createPolicy(createGates(async () => ({ exitCode: 0, output: '' })));
     await policy.prepare(host.getItem('item'));
     await policy.prompt(host.getItem('item'), host.getRun('run'), 'main');
     const recording = policy.record(host.getItem('item'), pass);
@@ -182,11 +183,18 @@ describe('queue verification policy', () => {
       withBaseline: async (_repo: string, _sha: string, action: (cwd: string) => Promise<unknown>) => { order.push('base'); return action('/baseline'); },
       reattach: async () => { order.push('reattach'); return host.save({ ...host.getItem('item'), worktreePath: root }); },
     });
-    const gates = new PlanQueueGateRunner(async (_command, cwd) => ({ exitCode: cwd === '/baseline' ? 0 : 1, output: 'src/work.ts(1,1): error TS2322: Failure' }));
-    const policy = new PlanQueueVerification(host, gates);
+    const gates = createGates(async (_command, cwd) => ({ exitCode: cwd === '/baseline' ? 0 : 1, output: 'src/work.ts(1,1): error TS2322: Failure' }));
+    const policy = createPolicy(gates);
     expect(await policy.prepare(item)).toMatchObject({ kind: 'fix' });
     expect(order).toEqual(['base']);
     expect(host.getItem('item').worktreePath).toBe(root);
     expect(host.getItem('item').workerInstanceId).toBe('worker');
   });
 });
+
+function createGates(execute: ConstructorParameters<typeof PlanQueueGateRunner>[0]) {
+  return new PlanQueueGateRunner(execute, () => 'verification-test-tree');
+}
+function createPolicy(gates: PlanQueueGateRunner) {
+  return new PlanQueueVerification(host, gates, { lock: async (_id, action) => action(), waiting: () => false });
+}

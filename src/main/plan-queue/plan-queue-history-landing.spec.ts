@@ -140,7 +140,7 @@ describe.skipIf(!existsSync(guard))('coordinator history closure with the instal
     writeFileSync(join(repo, history), `${rootHistory}## Later\nDo not overwrite.\n`);
     installGuard();
 
-    const result = await landItemBranch(item, repo, 'main', 'Plan: shared', documents);
+    const result = await landItemBranch(item, repo, 'main', 'Plan: shared', [], documents);
 
     expect(result.status).toBe('landed');
     const immutable = documents.find(doc => /_history_[a-f0-9]{64}_completed.md$/.test(doc.relativePath))!;
@@ -164,7 +164,7 @@ describe.skipIf(!existsSync(guard))('coordinator history closure with the instal
     const documents = await prepare();
     const main = git(['rev-parse', 'main']);
     installGuard(true);
-    expect(await landItemBranch(item, repo, 'main', 'Plan: shared', documents))
+    expect(await landItemBranch(item, repo, 'main', 'Plan: shared', [], documents))
       .toMatchObject({ status: 'hook-failed', output: expect.stringContaining('interrupted-after-guard') });
     expect(git(['rev-parse', 'main'])).toBe(main);
     expect(git(['status', '--porcelain'], item.worktreePath!)).toBe('');
@@ -172,12 +172,12 @@ describe.skipIf(!existsSync(guard))('coordinator history closure with the instal
     installGuard();
     const stop = new AbortController();
     let built = '';
-    await expect(landItemBranch(item, repo, 'main', 'Plan: shared', documents, commit => {
+    await expect(landItemBranch(item, repo, 'main', 'Plan: shared', [], documents, commit => {
       built = commit; stop.abort(new Error('interrupted before promotion'));
     }, stop.signal)).rejects.toThrow('interrupted before promotion');
     expect(git(['rev-parse', 'main'])).toBe(main);
     expect(built).not.toBe('');
-    const result = await landItemBranch({ ...item, landedCommit: built }, repo, 'main', 'Plan: shared');
+    const result = await landItemBranch({ ...item, landedCommit: built }, repo, 'main', 'Plan: shared', []);
     expect(result).toEqual({ status: 'landed', commit: built });
     const immutable = documents.find(doc => /_history_[a-f0-9]{64}_completed.md$/.test(doc.relativePath))!;
     expect(readFileSync(join(repo, immutable.relativePath), 'utf8')).toBe(immutable.content);
@@ -210,7 +210,7 @@ describe('candidate history preservation boundaries', () => {
     writeFileSync(join(repo, history), rootHistory);
     item = await service.checkpoint(item, 'new history');
     const documents = await prepare();
-    const result = await landItemBranch(item, repo, 'main', 'Plan: shared', documents);
+    const result = await landItemBranch(item, repo, 'main', 'Plan: shared', [], documents);
     expect(result.status).toBe('landed');
     expect(git(['ls-tree', 'main', '--', history])).toBe('');
     const immutable = documents.find(doc => /_history_[a-f0-9]{64}_completed.md$/.test(doc.relativePath))!;
@@ -221,7 +221,7 @@ describe('candidate history preservation boundaries', () => {
   it('keeps the shared base history when the candidate deleted its active copy', async () => {
     rmSync(join(item.worktreePath!, history));
     item = await service.checkpoint(item, 'removed history');
-    const result = await landItemBranch(item, repo, 'main', 'Plan: shared', await prepare());
+    const result = await landItemBranch(item, repo, 'main', 'Plan: shared', [], await prepare());
     expect(result.status).toBe('landed');
     expect(git(['show', `main:${history}`])).toBe(baseHistory.trim());
     expect(readFileSync(join(repo, history), 'utf8')).toBe(baseHistory);
@@ -234,7 +234,7 @@ describe('candidate history preservation boundaries', () => {
     writeFileSync(join(item.worktreePath!, history), `${candidateHistory}later candidate\n`);
     item = await service.checkpoint(item, 'second');
     const main = git(['rev-parse', 'main']);
-    await expect(landItemBranch(item, repo, 'main', 'Plan: shared', documents)).rejects.toThrow('Candidate history changed');
+    await expect(landItemBranch(item, repo, 'main', 'Plan: shared', [], documents)).rejects.toThrow('Candidate history changed');
     expect(git(['rev-parse', 'main'])).toBe(main);
     expect(readFileSync(join(item.worktreePath!, history), 'utf8')).toBe(`${candidateHistory}later candidate\n`);
     const rebuilt = await prepare();
@@ -247,7 +247,7 @@ describe('candidate history preservation boundaries', () => {
     writeFileSync(join(item.worktreePath!, 'unrelated_history.md'), 'not part of this closure\n');
     item = await service.checkpoint(item, 'active documents');
     const main = git(['rev-parse', 'main']);
-    expect(await landItemBranch(item, repo, 'main', 'Plan: shared', await prepare()))
+    expect(await landItemBranch(item, repo, 'main', 'Plan: shared', [], await prepare()))
       .toEqual({ status: 'active-documents', paths: ['unrelated_history.md'] });
     expect(git(['rev-parse', 'main'])).toBe(main);
     expect(readFileSync(join(item.worktreePath!, 'unrelated_history.md'), 'utf8')).toBe('not part of this closure\n');
@@ -260,7 +260,7 @@ describe('candidate history preservation boundaries', () => {
     const immutable = documents.find(doc => doc.historySource)!;
     immutable.content = 'incomplete evidence\n';
     const main = git(['rev-parse', 'main']);
-    await expect(landItemBranch(item, repo, 'main', 'Plan: shared', documents)).rejects.toThrow('missing from its completed snapshot');
+    await expect(landItemBranch(item, repo, 'main', 'Plan: shared', [], documents)).rejects.toThrow('missing from its completed snapshot');
     expect(git(['rev-parse', 'main'])).toBe(main);
     expect(readFileSync(join(item.worktreePath!, history), 'utf8')).toBe(candidateHistory);
   });

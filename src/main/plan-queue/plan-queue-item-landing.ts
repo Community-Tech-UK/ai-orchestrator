@@ -35,6 +35,7 @@ import { buildActiveDocumentsPrompt, buildConflictPrompt, buildGateFailurePrompt
 import { returnToItemCheckout } from './plan-queue-squash';
 import { PlanQueueCheckoutOwnershipError, rescueNote } from './plan-queue-worktree';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
+import { groupCoversMovedBase, groupRoundStillIntact } from './plan-queue-group-landing';
 
 const logger = getLogger('PlanQueueItemLanding');
 
@@ -43,6 +44,9 @@ const logger = getLogger('PlanQueueItemLanding');
  * The count is on the item row, so a restart between refusals does not reset it.
  */
 const MAX_LANDING_REFUSALS = 2;
+
+/** Returns to the worker for the base branch moving under the item (conflict or failed post-merge check) before it parks. */
+const MAX_BASE_RETURNS = 3;
 
 export interface PlanQueueLandingContext {
   readonly host: PlanQueueFlowHost;
@@ -133,7 +137,7 @@ export class PlanQueueItemLanding {
       if (!landed) return;
       item = landed;
     }
-    if (item.landingRefusals) item = host.save({ ...item, landingRefusals: 0 });
+    if (item.landingRefusals || item.baseConflicts) item = host.save({ ...item, landingRefusals: 0, baseConflicts: 0 });
 
     const notes: string[] = [];
     if (item.detail?.startsWith('Merged with your uncommitted edits to ')) notes.push(item.detail);
@@ -197,18 +201,21 @@ export class PlanQueueItemLanding {
 
     if (!item.landedCommit && item.verifiedMainCommit !== baseTip) {
       // Another item landed while this one was being verified: its PASS is stale.
+      const group = await groupCoversMovedBase(item, run, baseTip, host) ? item.verdict?.gatesRun[0]?.checkGroup : undefined;
       const sync = await syncItemWithBase(item, baseBranch, repoRoot);
       if (sync.status === 'conflict') {
-        await this.ctx.toFixing(item, buildConflictPrompt(baseBranch, sync.conflictFiles),
-          `Not landed: merging ${baseBranch} before landing conflicted (${sync.conflictFiles.join(', ')}); sent back to the worker.`);
+        await this.returnForBase(item, baseBranch, buildConflictPrompt(baseBranch, sync.conflictFiles),
+          `merging ${baseBranch} before landing conflicted (${sync.conflictFiles.join(', ')})`);
         return null;
       }
       if (sync.status === 'merged') {
         item = await host.worktrees.checkpoint(item, `merge ${baseBranch} before landing`);
-        const gate = await runPostMergeGate(run.config.postMergeGate, item.worktreePath!, signal);
+        const covered = group && await gitExec(['rev-parse', `refs/heads/${baseBranch}`], repoRoot) === baseTip
+          && groupRoundStillIntact(group, host);
+        const gate = covered ? { ok: true } as const : await runPostMergeGate(run.config.postMergeGate, item.worktreePath!, signal);
         if (!gate.ok) {
-          await this.ctx.toFixing(item, buildGateFailurePrompt(gate.command, gate.output),
-            `Not landed: \`${gate.command}\` failed after merging ${baseBranch}; sent back to the worker.`);
+          await this.returnForBase(item, baseBranch, buildGateFailurePrompt(gate.command, gate.output),
+            `\`${gate.command}\` failed after merging ${baseBranch}`);
           return null;
         }
       }
@@ -236,6 +243,7 @@ export class PlanQueueItemLanding {
       repoRoot,
       baseBranch,
       message,
+      run.config.verifierGates,
       prepared.mode === 'commit' ? prepared.documents : [],
       (commit) => { item = host.save({ ...host.getItem(item.id), landedCommit: commit }); },
       signal,
@@ -249,8 +257,8 @@ export class PlanQueueItemLanding {
         // conflict is in the worker's tree, where it can be resolved.
         const sync = await syncItemWithBase(item, baseBranch, repoRoot);
         const files = sync.status === 'conflict' ? sync.conflictFiles : result.conflictFiles;
-        await this.ctx.toFixing(item, buildConflictPrompt(baseBranch, files),
-          `Not landed: ${baseBranch} moved during landing and conflicts (${files.join(', ')}); sent back to the worker.`);
+        await this.returnForBase(item, baseBranch, buildConflictPrompt(baseBranch, files),
+          `${baseBranch} moved during landing and conflicts (${files.join(', ')})`);
         return null;
       }
       case 'blocked':
@@ -271,6 +279,17 @@ export class PlanQueueItemLanding {
           buildActiveDocumentsPrompt(result.paths), result.paths.join(', '));
         return null;
     }
+  }
+
+  /** Back to the worker while the base branch keeps moving under the item; parked on the fourth return, so it cannot loop. */
+  private async returnForBase(item: PlanQueueItem, baseBranch: string, prompt: string, summary: string): Promise<void> {
+    const count = item.baseConflicts + 1;
+    if (count > MAX_BASE_RETURNS) {
+      await this.ctx.park({ ...item, baseConflicts: 0 }, 'merge-conflict',
+        `Not landed: ${summary}, and ${baseBranch} has already sent this back to the worker ${MAX_BASE_RETURNS} times. Resume gives it a fresh start once ${baseBranch} has settled.`);
+      return;
+    }
+    await this.ctx.toFixing({ ...item, baseConflicts: count }, prompt, `Not landed: ${summary}; sent back to the worker.`);
   }
 
   /** Back to the worker the first time; parked the second, so a refusal cannot loop. */

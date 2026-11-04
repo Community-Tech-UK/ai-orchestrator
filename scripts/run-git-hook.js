@@ -88,7 +88,26 @@ function runHook(hookName, options = {}) {
   const cwd = options.cwd ?? process.cwd();
   const env = options.env ?? process.env;
 
+  // Plan Queue sessions never push (src/main/plan-queue/plan-queue-push-guard.ts sets this). Refuse
+  // before the slow checks; a person's own pushes never carry the variable.
+  if (hookName === 'pre-push' && env.AIO_QUEUE_SESSION) {
+    console.error('Refusing to push: this is a Plan Queue session, and queue sessions never push. James pushes.');
+    return 1;
+  }
+
   for (const { command, args } of commands) {
+    if (hookName === 'pre-commit' && command === 'npm' && args[0] === 'run' && args[1] === 'test:staged'
+      && env.AIO_PLAN_QUEUE_TESTS_COVERED === '1'
+      && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(env.AIO_PLAN_QUEUE_TESTS_COVERED_TREE ?? '')) {
+      // Earlier generators may have staged different code. Reuse evidence only
+      // after ALL those steps, against the exact index the tests would judge.
+      const tree = run('git', ['write-tree'], { cwd, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+      if (!tree.error && !tree.signal && tree.status === 0
+        && String(tree.stdout).trim() === env.AIO_PLAN_QUEUE_TESTS_COVERED_TREE) {
+        console.log('Skipping related tests: this exact staged tree already passed the queue checklist.');
+        continue;
+      }
+    }
     const result = run(command, args, {
       cwd,
       env,

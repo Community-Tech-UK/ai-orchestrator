@@ -63,6 +63,8 @@ export interface PlanQueueItem {
   erroredRounds: number;
   /** Landing refusals (hook or active documents) since the item last landed or parked. */
   landingRefusals: number;
+  /** Returns to the worker for a base-branch conflict or failed post-merge check since the item last landed or was resumed. */
+  baseConflicts: number;
   branchName: string | null;
   worktreePath: string | null;
   baseCommit: string | null;
@@ -76,6 +78,8 @@ export interface PlanQueueItem {
   /** Provider and model the latest worker session ran on; checkers are chosen against them. */
   workerProvider?: string;
   workerModel?: string;
+  /** Debugging port of the dev app a livetest worker launches; checked free when its worker starts. */
+  livetestPort?: number | null;
   /** When the document was handed to the run's step-up worker; set once, never cleared. */
   steppedUpAt?: number | null;
   question: PlanQueueQuestion | null;

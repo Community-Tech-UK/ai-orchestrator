@@ -11,7 +11,7 @@ import type {
 import { PlanQueueItemListComponent, planQueueStateLabel } from './plan-queue-item-list.component';
 import { PlanQueueRoutingPanelComponent } from './plan-queue-routing-panel.component';
 import { PlanQueueRunControlsComponent } from './plan-queue-run-controls.component';
-import { planQueueKindLabel, pluralise } from '../plan-queue-item-display';
+import { planQueueChecksLabel, planQueueKindLabel, pluralise } from '../plan-queue-item-display';
 import { isNotReachedItem, PLAN_QUEUE_NOT_REACHED_LABEL } from '../../../../../shared/utils/plan-queue-item-outcome';
 
 /**
@@ -107,6 +107,7 @@ export class PlanQueueRunListComponent {
   }
 
   protected readonly spendLabel = queueRunSpendLabel;
+  protected readonly checksLabel = planQueueChecksLabel;
   protected readonly kindLabel = planQueueKindLabel;
   protected readonly pluralise = pluralise;
   protected readonly formatStartedAt = formatStartedAt;

@@ -3,7 +3,7 @@
  * from displayed details, fold long ones, and small plain-English word rules.
  * Never touches stored data.
  */
-import type { PlanQueueKind } from '@contracts/schemas/plan-queue';
+import type { PlanQueueItemDto, PlanQueueKind, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
 
 const UNIX_ABSOLUTE_PATH = /(?<![\w.~:/])((?:\/[\w.+-]+){2,})/g;
 const WINDOWS_ABSOLUTE_PATH = /(?<![\w])[A-Za-z]:[\\/](?:[\w.+-]+[\\/])*([\w.+-]+)/g;
@@ -59,4 +59,16 @@ const KIND_LABELS: Record<PlanQueueKind, string> = {
 /** The run kind in plain words; the raw code never reaches the screen. */
 export function planQueueKindLabel(kind: PlanQueueKind): string {
   return KIND_LABELS[kind] ?? kind;
+}
+
+/** The checked group is useful context; its internal identifiers stay off the card. */
+export function planQueueCheckGroupLabel(item: PlanQueueItemDto): string | null {
+  const group = item.verdict?.gatesRun.find(gate => gate.checkGroup)?.checkGroup;
+  if (!group?.memberItemIds.includes(item.id)) return null;
+  const others = new Set(group.memberItemIds.filter(id => id !== item.id)).size;
+  return others ? `Checked together with ${pluralise(others, 'other job')}` : null;
+}
+
+export function planQueueChecksLabel(checks: PlanQueueRunDto['checks']): string | null {
+  return checks?.runs ? `${pluralise(checks.runs, 'test run')} covered ${pluralise(checks.jobs, 'job')}` : null;
 }

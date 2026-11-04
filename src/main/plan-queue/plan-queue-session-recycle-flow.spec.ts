@@ -11,6 +11,7 @@ import { PlanQueueInstanceTracker } from './plan-queue-instance-tracker';
 import { newPlanQueueItem } from './plan-queue-state';
 import { PlanQueueWorktreeService } from './plan-queue-worktree';
 import type { PlanQueueRun } from './plan-queue.types';
+import { PlanQueueStore } from './plan-queue-store';
 
 let db: SqliteDriver;
 beforeAll(() => initSqliteWasm());
@@ -39,12 +40,13 @@ describe('queue continuation after Copilot compaction', () => {
     db = createSqliteWasmDatabase(':memory:'); runLoopMigrations(db);
     const history = new PlanQueueHistoryStore(db);
     const host: PlanQueueFlowHost = {
+      store: new PlanQueueStore(db),
       history,
       worktrees: new PlanQueueWorktreeService({ repoRootForItem: () => run.workspaceCwd, history, saveItem: next => { item = next; },
         creator: { createWorktree: unused, cleanupWorktree: unused, getAllSessions: unused } }),
       checksAdmitted: unused, pauseForSharedError: unused, selectVerifier: unused,
       transition: unused, unregisterRole: unused, roleOf: unused, notifyParent: unused,
-      liveParentId: unused, resolveRunParent: unused, requestPump: unused,
+      liveParentId: unused, resolveRunParent: unused, requestPump: unused, livetestPortsInUse: unused,
       getRun: () => run, getItem: () => item, save: next => (item = next), tracker,
       instances: {
         getInstance: id => id === worker.id ? worker : undefined,

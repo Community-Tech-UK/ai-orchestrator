@@ -48,6 +48,18 @@ const call = (s: OrchestratorToolsRpcServer, instanceId: string, tool: string, p
   s.handleRequest({ jsonrpc: '2.0', id: 1, method: `orchestrator_tools.${tool}`, params: { instanceId, payload } });
 
 describe('plan queue MCP tools', () => {
+  it('advertises batch limits and forwards a validated batch size from the authenticated caller', async () => {
+    const ops = fakeOps();
+    const start = createPlanQueueToolDefinitions({ instanceId: PARENT, planQueueTools: ops }).find(tool => tool.name === 'plan_queue_start')!;
+    const properties = start.inputSchema['properties'] as Record<string, unknown>;
+    expect(properties['check_batch_size']).toMatchObject({ type: 'integer', minimum: 1, maximum: 8 });
+    const rpc = server(ops);
+    await call(rpc, PARENT, 'plan_queue_start', { kind: 'plans', check_batch_size: 3 });
+    expect(ops.calls).toEqual([['start', PARENT, { kind: 'plans', check_batch_size: 3 }]]);
+    await expect(call(rpc, PARENT, 'plan_queue_start', { kind: 'plans', check_batch_size: 9 })).rejects.toThrow();
+    expect(ops.start).toHaveBeenCalledTimes(1);
+  });
+
   it('advertises and accepts authenticated adoption of a stranded run', async () => {
     const ops = fakeOps();
     const tool = createPlanQueueToolDefinitions({ instanceId: PARENT, planQueueTools: ops }).find((tool) => tool.name === 'plan_queue_control')!;

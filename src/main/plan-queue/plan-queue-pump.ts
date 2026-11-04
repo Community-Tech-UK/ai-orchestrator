@@ -13,7 +13,7 @@ import { pathCompareKey } from '../util/path-helpers';
 
 interface QueuePumpHost extends Pick<PlanQueueFlowHost, 'getRun' | 'getItem' | 'transition' | 'notifyParent' | 'resolveRunParent'> {
   store: PlanQueueStore;
-  flow: Pick<PlanQueueItemFlow, 'startItem' | 'startVerification' | 'isWaitingForUsage'> & { keptFolders: Pick<PlanQueueKeptFolders, 'retryDue'> };
+  flow: Pick<PlanQueueItemFlow, 'startItem' | 'startVerification' | 'isWaitingForUsage' | 'isClaimed'> & { keptFolders: Pick<PlanQueueKeptFolders, 'retryDue'> };
   triage: Pick<PlanQueueTriage, 'isStopping' | 'maybeStart'> | null;
   loadAverage(): number[];
   followParent(run: PlanQueueRun): PlanQueueRun;
@@ -63,6 +63,7 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
           let runVerifying = items.filter((item) => item.state === 'verifying').length;
           const folder = pathCompareKey(run.workspaceCwd);
           for (const item of items.filter((candidate) => candidate.state === 'awaiting-slot' && !flow.isWaitingForUsage(candidate.id))) {
+            if (flow.isClaimed(item.id)) continue;
             const folderVerifying = folderChecks.get(folder) ?? 0;
             if (folderVerifying >= folderCaps.get(folder)! || !queueAdmission(run.config, totalJobs, verifying).canStartCheck(runVerifying)) break;
             verifying += 1;

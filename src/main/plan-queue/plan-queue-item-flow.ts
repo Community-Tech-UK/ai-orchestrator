@@ -40,12 +40,11 @@ import type { PlanQueueFlowHost } from './plan-queue-host';
 import { relaxedSettingsFor } from './plan-queue-relaxation';
 import { unreportedVerifierReason, type PlanQueueTurnOutcome } from './plan-queue-instance-tracker';
 import { hasPendingLandingCleanup, PlanQueueItemLanding } from './plan-queue-item-landing';
-import { syncItemWithBase } from './plan-queue-landing';
+import { startQueueVerification } from './plan-queue-start-verification';
 import { hasCheckout, InvalidQueueCheckoutError, quarantineOrphanCheckout, retainedQueuePathExists } from './plan-queue-orphan-checkout';
 import { PlanQueueKeptFolders } from './plan-queue-kept-folders';
 import { planQueueBranchName } from './plan-queue-worktree';
 import {
-  buildConflictPrompt,
   buildContinuePrompt,
   buildFixPrompt,
   buildResumePrompt,
@@ -94,7 +93,9 @@ export class PlanQueueItemFlow {
   readonly keptFolders: PlanQueueKeptFolders;
 
   constructor(private readonly host: PlanQueueFlowHost) {
-    this.verification = new PlanQueueVerification(host, new PlanQueueGateRunner());
+    this.verification = new PlanQueueVerification(host, new PlanQueueGateRunner(), {
+      lock: (id, action) => this.withItemLock(id, action), waiting: id => this.isWaitingForUsage(id),
+    });
     this.preparationErrors = new PlanQueuePreparationErrors(host);
     this.retries = new PlanQueueTurnRetries(host);
     this.keptFolders = new PlanQueueKeptFolders(host, (id, action) => this.withItemLock(id, action));
@@ -161,9 +162,8 @@ export class PlanQueueItemFlow {
       const run = this.host.getRun(item.runId);
       const resuming = Boolean(item.branchName) && (await branchExists(run.workspaceCwd, item.branchName!));
       try {
-        item = resuming
-          ? await this.host.worktrees.reattach(item, run.workspaceCwd)
-          : await this.host.worktrees.prepare(item, run.workspaceCwd);
+        const checkout = await (resuming ? this.host.worktrees.reattach(item, run.workspaceCwd) : this.host.worktrees.prepare(item, run.workspaceCwd));
+        item = await this.workerSessions.withLivetestPort(checkout, run);
       } catch (error) {
         if (this.preparationErrors.defer(this.host.getItem(item.id), error)) return;
         await this.parkUnlocked(this.host.getItem(item.id), 'worktree-error', `Could not prepare the worktree: ${errorMessage(error)}`);
@@ -202,6 +202,7 @@ export class PlanQueueItemFlow {
         } else {
           item = await this.host.worktrees.prepare(item, run.workspaceCwd);
         }
+        item = await this.workerSessions.withLivetestPort(item, run, true);
       } catch (error) {
         if (this.preparationErrors.defer(this.host.getItem(item.id), error)) return;
         await this.parkUnlocked(this.host.getItem(item.id), 'worktree-error', `Could not recover the worktree: ${errorMessage(error)}`);
@@ -430,48 +431,18 @@ export class PlanQueueItemFlow {
 
   // Verification
   /** awaiting-slot → verifying. Synchronous first transition reserves the slot. */
-  startVerification(waiting: PlanQueueItem): Promise<void> {
-    this.host.transition(waiting, 'verifying', { verdict: null, landedCommit: null });
-    return this.withItemLock(waiting.id, async () => {
-      let item = this.host.getItem(waiting.id);
-      if (item.state !== 'verifying' || item.verifierInstanceId) return;
-      if (this.host.getRun(item.runId).status === 'paused') { await this.holdUnlocked(item); return; }
-      const run = this.host.getRun(item.runId);
-      const baseBranch = requireBaseBranch(run);
-      if (!item.worktreePath || !(await hasCheckout(item.worktreePath))) {
-        // Removed, or half-removed, while the item waited: its work is on the branch.
-        try {
-          item = await this.host.worktrees.reattach(item, run.workspaceCwd);
-        } catch (error) {
-          await this.parkUnlocked(this.host.getItem(item.id), 'worktree-error', `The item worktree is missing and could not be checked out again from its branch: ${errorMessage(error)}`);
-          return;
-        }
-      }
-      try {
-        const sync = await syncItemWithBase(item, baseBranch, run.workspaceCwd);
-        if (sync.status === 'conflict') {
-          await this.toFixing(item, buildConflictPrompt(baseBranch, sync.conflictFiles),
-            `Merging ${baseBranch} before verification conflicted (${sync.conflictFiles.join(', ')}); sent back to the worker.`);
-          return;
-        }
-        if (sync.status === 'merged') item = await this.host.worktrees.checkpoint(item, `merge ${baseBranch}`);
-      } catch (error) {
-        await this.parkUnlocked(this.host.getItem(item.id), 'merge-conflict', `Keeping the branch current failed: ${errorMessage(error)}`);
-        return;
-      }
+  isClaimed(itemId: string): boolean { return this.verification.groups.isClaimed(itemId); }
 
-      const checks = await this.verification.prepare(item).catch(async (error: unknown) => {
-        await this.parkUnlocked(this.host.getItem(item.id), 'worktree-error', `Could not run Harness checks: ${errorMessage(error)}`);
-        return null;
-      });
-      if (!checks) return;
-      item = this.host.getItem(item.id);
-      if (this.host.getRun(item.runId).status === 'paused') { await this.holdUnlocked(item); return; }
-      if (checks.kind === 'wait') { this.host.transition(item, 'awaiting-slot', { detail: checks.detail }); return; }
-      if (checks.kind === 'park') { await this.parkUnlocked(item, checks.reason, checks.detail); return; }
-      if (checks.kind === 'fix') { await this.toFixing(item, checks.prompt, checks.detail); return; }
-      await this.selectAndSpawnVerifier(item, baseBranch);
-    });
+  startVerification(waiting: PlanQueueItem): Promise<void> {
+    this.verification.groups.reserve(waiting, this.host.getRun(waiting.runId));
+    try { this.host.transition(waiting, 'verifying', { verdict: null, landedCommit: null }); }
+    catch (error) { this.verification.groups.release(waiting.id); throw error; }
+    return this.withItemLock(waiting.id, () => startQueueVerification({
+      host: this.host, verification: this.verification, hold: item => this.holdUnlocked(item),
+      park: (item, reason, detail) => this.parkUnlocked(item, reason, detail),
+      fix: (item, prompt, detail) => this.toFixing(item, prompt, detail),
+      spawn: (item, base) => this.selectAndSpawnVerifier(item, base),
+    }, waiting.id)).finally(() => this.verification.groups.release(waiting.id));
   }
 
   private async selectAndSpawnVerifier(item: PlanQueueItem, baseBranch: string): Promise<void> {
@@ -618,7 +589,7 @@ export class PlanQueueItemFlow {
       await Promise.all([item.workerInstanceId, item.verifierInstanceId].filter((id): id is string => Boolean(id)).map(id => this.stopInstance(id)));
       this.preparationErrors.succeeded(item.runId, item.id);
       // `steppedUpAt` stays: a handed-over document resumes on the step-up choice and is never handed over twice.
-      this.host.transition(this.host.getItem(itemId), 'queued', { parkReason: null, detail: null, heldAt: null, round: 0, erroredRounds: 0, landingRefusals: 0, question: null, landedCommit: null, verdict: null, verifiedMainCommit: null, pendingInstruction: this.workerSessions.carryOverForResume(itemId) });
+      this.host.transition(this.host.getItem(itemId), 'queued', { parkReason: null, detail: null, heldAt: null, round: 0, erroredRounds: 0, landingRefusals: 0, baseConflicts: 0, question: null, landedCommit: null, verdict: null, verifiedMainCommit: null, pendingInstruction: this.workerSessions.carryOverForResume(itemId) });
     });
   }
 
@@ -748,9 +719,4 @@ export class PlanQueueItemFlow {
     void stopped.finally(() => { this.stopping.delete(instanceId); }).catch(() => undefined);
     return stopped;
   }
-}
-
-function requireBaseBranch(run: PlanQueueRun): string {
-  if (!run.config.baseBranch) throw new Error(`Plan queue run ${run.id} has no base branch`);
-  return run.config.baseBranch;
 }

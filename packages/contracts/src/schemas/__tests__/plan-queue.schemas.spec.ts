@@ -3,6 +3,7 @@ import {
   PlanQueueAlertSchema, PlanQueueQuestionSchema, PlanQueueReportTriageArgsSchema, PlanQueueControlPayloadSchema, PlanQueueControlArgsSchema,
   PlanQueueItemDtoSchema, PlanQueueRoutingSchema, PlanQueueStartArgsSchema,
   PlanQueueReportVerdictArgsSchema,
+  DEFAULT_PLAN_QUEUE_CONFIG, PlanQueueRunConfigSchema, PlanQueueGateRunSchema, PlanQueueRunDtoSchema,
 } from '../plan-queue.schemas';
 
 const question = {
@@ -13,7 +14,31 @@ const technical = {
   kind: 'technical', recommendedOptionId: 'quiet', reason: 'The project requires this runner.', evidence: 'AGENTS.md documents npm run test:quiet.',
 };
 
+describe('Plan Queue check batch size', () => {
+  it.each([1, 2, 3, 4, 5, 6, 7, 8])('preserves a batch size of %s at the run and tool boundaries', checkBatchSize => {
+    expect(PlanQueueRunConfigSchema.parse({ ...DEFAULT_PLAN_QUEUE_CONFIG.plans, checkBatchSize }))
+      .toMatchObject({ checkBatchSize });
+    expect(PlanQueueStartArgsSchema.parse({ kind: 'plans', check_batch_size: checkBatchSize }))
+      .toEqual({ kind: 'plans', check_batch_size: checkBatchSize });
+  });
+
+  it.each([0, 9, 1.5])('rejects an invalid batch size of %s at both boundaries', checkBatchSize => {
+    expect(PlanQueueRunConfigSchema.safeParse({ ...DEFAULT_PLAN_QUEUE_CONFIG.plans, checkBatchSize }).success).toBe(false);
+    expect(PlanQueueStartArgsSchema.safeParse({ kind: 'plans', check_batch_size: checkBatchSize }).success).toBe(false);
+  });
+});
+
 describe('Plan Queue verification coverage', () => {
+  it('preserves combined evidence while accepting legacy receipts and absent summaries', () => {
+    const receipt = { command: 'check', exitCode: 0, head: 'member-head', testedTree: 'tested-tree',
+      checkGroup: { id: 'group', baseTip: 'base', memberItemIds: ['first', 'second'] } };
+    expect(PlanQueueGateRunSchema.parse(receipt)).toEqual(receipt);
+    expect(PlanQueueGateRunSchema.parse({ command: 'check', exitCode: 0 })).toEqual({ command: 'check', exitCode: 0 });
+    const run = { id: 'run', parentInstanceId: 'parent', kind: 'plans', workspaceCwd: '/repo', status: 'running',
+      config: DEFAULT_PLAN_QUEUE_CONFIG.plans, workerProvider: null, relaxedSettings: [], startedAt: 1, endedAt: null, items: [] };
+    expect(PlanQueueRunDtoSchema.parse({ ...run, checks: { runs: 3, jobs: 10 } })).toMatchObject({ checks: { runs: 3, jobs: 10 } });
+    expect(PlanQueueRunDtoSchema.parse(run)).not.toHaveProperty('checks');
+  });
   it('requires explicit coverage and rejects meaningless entries', () => {
     const args = { item_id: 'item', verdict: 'PASS' };
     expect(PlanQueueReportVerdictArgsSchema.safeParse(args).success).toBe(false);

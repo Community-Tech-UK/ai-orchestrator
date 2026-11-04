@@ -18,12 +18,13 @@ import type {
   PlanQueueParkReason,
   PlanQueueQuestion,
   PlanQueueRunConfig,
+  PlanQueueRunDto,
   PlanQueueRunStatus,
   PlanQueueVerdict,
 } from '@contracts/schemas/plan-queue';
 import { upgradePlanQueueRouting, type StoredPlanQueueRouting } from '../../shared/utils/plan-queue-routing-upgrade';
 import type { PlanQueueItem, PlanQueueRelaxationSnapshot, PlanQueueRun, PlanQueueSpendEntry } from './plan-queue.types';
-import { PlanQueueHistoryStore } from './plan-queue-history-store';
+import { PlanQueueHistoryStore, PLAN_QUEUE_CHECK_SUMMARIES_SQL } from './plan-queue-history-store';
 
 interface RunRow {
   unpriced_tokens: number;
@@ -66,6 +67,8 @@ interface ItemRow {
   worker_model: string | null;
   stepped_up_at: number | null;
   worker_session_json: string | null;
+  livetest_port: number | null;
+  base_conflicts: number;
   question_json: string | null;
   answer: string | null;
   park_reason: string | null;
@@ -188,14 +191,16 @@ export class PlanQueueStore {
    * Both bulk reads share a SQLite snapshot, with no per-run item queries or
    * per-active-run bound parameters. The ordinary listRuns limit is unchanged.
    */
-  listRunSnapshots(limit = 50): { run: PlanQueueRun; items: PlanQueueItem[] }[] {
+  listRunSnapshots(limit = 50): { run: PlanQueueRun; items: PlanQueueItem[]; checks?: PlanQueueRunDto['checks'] }[] {
     const selectedIds = `SELECT id FROM plan_queue_runs
       WHERE status IN ${ACTIVE_RUN_STATUSES}
         OR id IN (SELECT run_id FROM plan_queue_items WHERE state = 'parked')
         OR id IN (SELECT id FROM plan_queue_runs ORDER BY started_at DESC, id DESC LIMIT ?)`;
     return this.db.transaction(() => {
-      const runs = this.db.prepare(`SELECT * FROM plan_queue_runs WHERE id IN (${selectedIds})
-        ORDER BY started_at DESC, id DESC`).all<RunRow>(limit);
+      const runs = this.db.prepare(`SELECT runs.*, checks.runs AS check_runs, checks.jobs AS check_jobs
+        FROM plan_queue_runs runs LEFT JOIN (${PLAN_QUEUE_CHECK_SUMMARIES_SQL}) checks ON checks.run_id = runs.id
+        WHERE runs.id IN (${selectedIds}) ORDER BY runs.started_at DESC, runs.id DESC`)
+        .all<RunRow & { check_runs: number | null; check_jobs: number | null }>(limit);
       const items = this.db.prepare(`SELECT * FROM plan_queue_items WHERE run_id IN (${selectedIds})
         ORDER BY created_at, id`).all<ItemRow>(limit);
       const itemsByRun = new Map<string, PlanQueueItem[]>();
@@ -204,7 +209,9 @@ export class PlanQueueStore {
         group.push(rowToItem(row));
         itemsByRun.set(row.run_id, group);
       }
-      return runs.map(row => ({ run: rowToRun(row), items: itemsByRun.get(row.id) ?? [] }));
+      return runs.map(row => ({ run: rowToRun(row), items: itemsByRun.get(row.id) ?? [],
+        ...(row.check_runs ? { checks: { runs: row.check_runs, jobs: row.check_jobs! } } : {}),
+      }));
     })();
   }
 
@@ -245,8 +252,8 @@ export class PlanQueueStore {
         id, run_id, document_path, state, round, errored_rounds, landing_refusals, branch_name, worktree_path,
         base_commit, checkpoint_commit, verified_main_commit, landed_commit,
         worker_instance_id, verifier_instance_id, question_json, answer, park_reason, detail,
-        verdict_json, created_at, updated_at, held_at, pending_instruction, worker_provider, worker_model, stepped_up_at, worker_session_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        verdict_json, created_at, updated_at, held_at, pending_instruction, worker_provider, worker_model, stepped_up_at, worker_session_json, livetest_port, base_conflicts
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         state                = excluded.state,
         round                = excluded.round,
@@ -271,6 +278,8 @@ export class PlanQueueStore {
         worker_model         = excluded.worker_model,
         stepped_up_at        = excluded.stepped_up_at,
         worker_session_json  = excluded.worker_session_json,
+        livetest_port        = excluded.livetest_port,
+        base_conflicts       = excluded.base_conflicts,
         updated_at           = excluded.updated_at
     `).run(
       item.id,
@@ -301,6 +310,8 @@ export class PlanQueueStore {
       item.workerModel ?? null,
       item.steppedUpAt ?? null,
       item.workerSession ? JSON.stringify(item.workerSession) : null,
+      item.livetestPort ?? null,
+      item.baseConflicts,
     );
   }
 
@@ -323,6 +334,17 @@ export class PlanQueueStore {
       .prepare('SELECT * FROM plan_queue_items WHERE run_id = ? ORDER BY created_at, id')
       .all<ItemRow>(runId)
       .map(rowToItem);
+  }
+
+  /** Dev-app ports recorded on items that are still in play (not landed, skipped or parked), except one item's own. */
+  listLivetestPortsInUse(exceptItemId: string): number[] {
+    return this.db
+      .prepare(`
+        SELECT livetest_port FROM plan_queue_items
+        WHERE livetest_port IS NOT NULL AND id != ? AND state NOT IN ('landed', 'skipped', 'parked')
+      `)
+      .all<{ livetest_port: number }>(exceptItemId)
+      .map((row) => row.livetest_port);
   }
 
   /** Parked or landed items that still record a worktree folder, across all runs. */
@@ -395,6 +417,7 @@ function rowToRun(row: RunRow): PlanQueueRun {
     config: {
       ...DEFAULT_PLAN_QUEUE_CONFIG[row.kind as PlanQueueKind],
       ...stored,
+      checkBatchSize: stored.checkBatchSize ?? 1,
       ...(routing ? { routing: upgradePlanQueueRouting(routing) } : {}),
     },
     relaxation: row.relaxation_json
@@ -431,6 +454,7 @@ function rowToItem(row: ItemRow): PlanQueueItem {
   return {
     ...(row.tokens || row.cost_usd || row.exact_cost_usd ? { spend: { tokens: row.tokens, costUsd: row.cost_usd, exactUsd: row.exact_cost_usd, ...(row.unpriced_tokens ? { unpricedTokens: row.unpriced_tokens } : {}) } } : {}),
     workerSession: readWorkerSession(row),
+    ...(row.livetest_port === null || row.livetest_port === undefined ? {} : { livetestPort: row.livetest_port }),
     id: row.id,
     runId: row.run_id,
     documentPath: row.document_path,
@@ -440,6 +464,7 @@ function rowToItem(row: ItemRow): PlanQueueItem {
     round: row.round,
     erroredRounds: row.errored_rounds,
     landingRefusals: row.landing_refusals,
+    baseConflicts: row.base_conflicts ?? 0,
     branchName: row.branch_name,
     worktreePath: row.worktree_path,
     baseCommit: row.base_commit,

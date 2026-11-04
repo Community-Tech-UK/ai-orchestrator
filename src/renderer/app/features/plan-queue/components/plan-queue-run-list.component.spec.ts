@@ -95,6 +95,23 @@ describe('PlanQueueRunListComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('/repo-b');
   });
 
+  it.each([
+    [{ runs: 3, jobs: 10 }, '3 test runs covered 10 jobs'],
+    [{ runs: 1, jobs: 1 }, '1 test run covered 1 job'],
+  ])('renders checklist coverage outside the collapsed documents: %s', (checks, label) => {
+    fixture.componentRef.setInput('runs', [makeRun({ checks })]);
+    fixture.detectChanges();
+    const summary = fixture.nativeElement.querySelector('.pq-run-checks') as HTMLElement;
+    expect(summary?.textContent?.trim()).toBe(label);
+    expect(summary?.closest('details')).toBeNull();
+  });
+
+  it('omits checklist coverage for a run with no recorded checklist runs', () => {
+    fixture.componentRef.setInput('runs', [makeRun()]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.pq-run-checks')).toBeNull();
+  });
+
   it('keeps unpriced usage visible and averages only fully priced merges', () => {
     fixture.componentRef.setInput('runs', [makeRun({
       spend: { tokens: 17_200_400, costUsd: 109, exactUsd: 8, unpricedTokens: 17_200_000 },

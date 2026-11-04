@@ -9,12 +9,12 @@
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { PLAN_QUEUE_MIGRATIONS } from '../plan-queue/plan-queue-migrations';
 
-export const LOOP_SCHEMA_VERSION = 32;
+export const LOOP_SCHEMA_VERSION = 42;
 
 interface LoopMigration {
   version: number;
   name: string;
-  up: string;
+  up: string | ((db: SqliteDriver) => void);
 }
 
 const MIGRATIONS: LoopMigration[] = [
@@ -488,6 +488,62 @@ const MIGRATIONS: LoopMigration[] = [
     up: `ALTER TABLE plan_queue_items ADD COLUMN worker_session_json TEXT;`,
   },
   ...PLAN_QUEUE_MIGRATIONS,
+  {
+    // Plan Queue: the debugging port a livetest item's dev app uses, checked free when its worker
+    // starts and kept so a restart or resume reuses it. 40, not 31: three unmerged queue branches each use 031
+    // for a different change (plan step 0.4 reconciles the numbers).
+    version: 40,
+    name: '040_plan_queue_item_livetest_port',
+    up: (db) => {
+      const existing = db.prepare('PRAGMA table_info(plan_queue_items)').all<{ name: string; type: string; notnull: number }>()
+        .find(column => column.name === 'livetest_port');
+      if (!existing) {
+        db.exec('ALTER TABLE plan_queue_items ADD COLUMN livetest_port INTEGER;');
+        return;
+      }
+      const legacy = db.prepare('SELECT name FROM loop_migrations WHERE version = 31').get<{ name: string }>();
+      if (legacy?.name !== '031_plan_queue_item_livetest_port' || existing.type !== 'INTEGER' || existing.notnull !== 0) {
+        throw new Error('The existing livetest_port column does not match the legacy queue migration');
+      }
+    },
+  },
+  {
+    // Plan Queue: returns to the worker for a base-branch conflict or a failed post-merge check, so the
+    // loop can be limited and the count survives a restart.
+    version: 41,
+    name: '041_plan_queue_item_base_conflicts',
+    up: `ALTER TABLE plan_queue_items ADD COLUMN base_conflicts INTEGER NOT NULL DEFAULT 0;`,
+  },
+  {
+    // A local pre-Phase-C build recorded the port at version 31. Preserve that receipt and repair
+    // the history schema its version caused the runner to skip, including already-upgraded profiles.
+    version: 42,
+    name: '042_plan_queue_legacy_history',
+    up: `
+      CREATE TABLE IF NOT EXISTS plan_queue_item_events (
+        id TEXT PRIMARY KEY, item_id TEXT NOT NULL REFERENCES plan_queue_items(id) ON DELETE CASCADE,
+        run_id TEXT NOT NULL, at INTEGER NOT NULL, from_state TEXT, to_state TEXT NOT NULL,
+        reason TEXT, detail_head TEXT, round INTEGER NOT NULL, tokens INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_queue_events_item ON plan_queue_item_events(item_id, at);
+      CREATE TABLE IF NOT EXISTS plan_queue_verdicts (
+        id TEXT PRIMARY KEY, item_id TEXT NOT NULL REFERENCES plan_queue_items(id) ON DELETE CASCADE,
+        run_id TEXT NOT NULL, round INTEGER NOT NULL, at INTEGER NOT NULL, verdict TEXT NOT NULL,
+        findings_json TEXT NOT NULL, gates_json TEXT NOT NULL, not_checked_json TEXT NOT NULL,
+        worktree_head TEXT, document_sha256 TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_queue_verdicts_item ON plan_queue_verdicts(item_id, at);
+      CREATE INDEX IF NOT EXISTS idx_queue_parked_doc ON plan_queue_items(document_path, state, updated_at DESC);
+      CREATE TABLE IF NOT EXISTS plan_queue_item_pins (
+        item_id TEXT PRIMARY KEY REFERENCES plan_queue_items(id) ON DELETE CASCADE,
+        document_sha256 TEXT NOT NULL, document_bytes INTEGER NOT NULL,
+        unchecked_json TEXT NOT NULL, recorded_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS plan_queue_triage_decisions (
+        document_sha256 TEXT PRIMARY KEY, decision_json TEXT NOT NULL, decided_at INTEGER NOT NULL
+      );
+    `,
+  },
 ];
 
 export function createLoopMigrationsTable(db: SqliteDriver): void {
@@ -523,7 +579,8 @@ export function runLoopMigrationsUpTo(db: SqliteDriver, maxVersion: number): voi
     for (const m of MIGRATIONS) {
       if (m.version > maxVersion) continue;
       if (applied.has(m.version)) continue;
-      db.exec(m.up);
+      if (typeof m.up === 'string') db.exec(m.up);
+      else m.up(db);
       db.prepare(`
         INSERT INTO loop_migrations (version, name, applied_at)
         VALUES (?, ?, ?)

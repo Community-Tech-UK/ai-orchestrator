@@ -13,10 +13,11 @@
 
 import { randomUUID } from 'node:crypto';
 import { documentReviewSchema, type DocumentReview } from './plan-queue-document-review';
-import type { PlanQueueFinding, PlanQueueItemState, PlanQueueQuestion } from '@contracts/schemas/plan-queue';
+import type { PlanQueueFinding, PlanQueueItemState, PlanQueueQuestion, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { planQueueFindingId } from './plan-queue-progress';
 import type { PlanQueueItemPin } from './plan-queue-plan-pins';
+import type { PlanQueueItem } from './plan-queue.types';
 
 export interface PlanQueueItemEvent {
   id: string;
@@ -79,6 +80,16 @@ export interface PlanQueueTriageDecision {
 
 const DETAIL_HEAD_LIMIT = 500;
 
+/** One execution may cover jobs in several runs; each participating run counts it once. */
+export const PLAN_QUEUE_CHECK_SUMMARIES_SQL = `
+  SELECT items.run_id, COUNT(DISTINCT events.id) AS runs, COUNT(DISTINCT items.id) AS jobs
+  FROM plan_queue_item_events events
+  JOIN json_each(CASE WHEN events.reason = 'checklist-run' THEN events.detail_head ELSE '{}' END,
+    '$.memberItemIds') members
+  JOIN plan_queue_items items ON items.id = members.value
+  WHERE events.reason = 'checklist-run'
+  GROUP BY items.run_id`;
+
 export class PlanQueueHistoryStore {
   constructor(
     private readonly db: SqliteDriver,
@@ -93,6 +104,37 @@ export class PlanQueueHistoryStore {
       randomUUID(), event.itemId, event.runId, event.at ?? this.now(),
       event.fromState, event.toState, event.reason, detailHead(event.detailHead), event.round, event.tokens,
     );
+  }
+
+  recordChecklistRun(item: PlanQueueItem, memberItemIds: readonly string[], groupId?: string): void {
+    const detail = JSON.stringify({ ...(groupId ? { groupId } : {}), memberItemIds });
+    if (detail.length > DETAIL_HEAD_LIMIT) throw new Error('Checklist history exceeds its detail limit');
+    this.recordEvent({ itemId: item.id, runId: item.runId, fromState: item.state, toState: item.state,
+      reason: 'checklist-run', detailHead: detail, round: item.round, tokens: 0 });
+  }
+
+  checksSummary(runId: string): PlanQueueRunDto['checks'] {
+    return this.db.prepare(`SELECT runs, jobs FROM (${PLAN_QUEUE_CHECK_SUMMARIES_SQL}) WHERE run_id = ?`)
+      .get<NonNullable<PlanQueueRunDto['checks']>>(runId);
+  }
+
+  hasFailedCheckGroup(itemId: string, head: string): boolean {
+    return this.db.prepare(`SELECT 1 FROM plan_queue_item_events
+      WHERE item_id = ? AND reason = 'check-group-failed' AND detail_head = ? LIMIT 1`)
+      .get(itemId, JSON.stringify({ head })) !== undefined;
+  }
+
+  /** Use the complete event history, including a member that left and later returned. */
+  checkGroupRoundIntact(groupId: string, memberItemIds: readonly string[]): boolean {
+    if (memberItemIds.length < 2 || memberItemIds.length > 8) return false;
+    const started = this.db.prepare(`SELECT rowid AS sequence FROM plan_queue_item_events
+      WHERE reason = 'checklist-run' AND json_valid(detail_head)
+        AND json_extract(detail_head, '$.groupId') = ? ORDER BY rowid DESC LIMIT 1`)
+      .get<{ sequence: number }>(groupId);
+    if (!started) return false;
+    return this.db.prepare(`SELECT 1 FROM plan_queue_item_events WHERE rowid > ?
+      AND item_id IN (${memberItemIds.map(() => '?').join(',')})
+      AND to_state IN ('fixing', 'parked', 'skipped') LIMIT 1`).get(started.sequence, ...memberItemIds) === undefined;
   }
 
   recordVerdict(record: PlanQueueVerdictInput): void {

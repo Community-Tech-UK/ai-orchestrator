@@ -40,13 +40,15 @@ const fail: PlanQueueVerdict = { verdict: 'FAIL', findings: [{ severity: 'high',
 beforeEach(() => {
   directory = mkdtempSync(join(tmpdir(), 'queue-hold-'));
   run = { id: 'run', parentInstanceId: 'parent', parentHistoryThreadId: null, kind: 'plans', workspaceCwd: directory,
-    status: 'paused', config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, baseBranch: 'main' }, relaxation: null,
+    status: 'paused', config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, checkBatchSize: 1, baseBranch: 'main' }, relaxation: null,
     workerProvider: 'claude', workerModel: null, startedAt: 1, endedAt: null };
   item = newPlanQueueItem('item', run.id, join(directory, 'example_plan.md'), 1, {
     state: 'verifying', branchName: 'queue/example', worktreePath: directory, checkpointCommit: 'checkpoint', workerInstanceId: 'worker', verifierInstanceId: 'checker',
   });
   roles = new Map([['worker', { role: 'worker', runId: run.id, itemId: item.id }], ['checker', { role: 'verifier', runId: run.id, itemId: item.id }]]);
   host = {
+    store: { listActiveRuns: () => [run], listItems: () => [item], listWorkspaceRoots: () => [directory],
+      listRunsWithRelaxation: () => [] } as unknown as PlanQueueFlowHost['store'],
     history: { getPin: () => null, recordPinIfAbsent: vi.fn(), listEvents: () => [], listVerdicts: () => [] } as unknown as PlanQueueFlowHost['history'],
     checksAdmitted: () => true, pauseForSharedError: vi.fn(),
     getRun: () => run, getItem: () => item,
@@ -54,10 +56,11 @@ beforeEach(() => {
     instances: { createInstance: vi.fn(async () => ({ id: 'fresh' })), sendInput: vi.fn(async () => undefined),
       restartFreshInstance: vi.fn(async () => undefined),
       terminateInstance: vi.fn(async () => undefined), getInstance: vi.fn((id: string) => ({ id, status: 'idle' as const, outputBuffer: [] })), getAllInstances: () => [] },
-    worktrees: { checkpoint: vi.fn(async (next: PlanQueueItem) => (item = next)), reattach: vi.fn(async (next: PlanQueueItem) => next) } as unknown as PlanQueueFlowHost['worktrees'],
+    worktrees: { checkpoint: vi.fn(async (next: PlanQueueItem) => (item = next)), reattach: vi.fn(async (next: PlanQueueItem) => next),
+      cleanupScratchCopies: vi.fn(async () => undefined) } as unknown as PlanQueueFlowHost['worktrees'],
     tracker: { untrack: vi.fn(), track: vi.fn(), beginTurn: vi.fn(), isShuttingDown: vi.fn(() => false) } as unknown as PlanQueueFlowHost['tracker'],
     registerRole: (id, role) => { roles.set(id, role); }, unregisterRole: (id) => { roles.delete(id); }, roleOf: (id) => roles.get(id),
-    notifyParent: vi.fn(), liveParentId: () => 'parent', resolveRunParent: () => 'parent', requestPump: vi.fn(), selectVerifier: vi.fn(),
+    notifyParent: vi.fn(), liveParentId: () => 'parent', resolveRunParent: () => 'parent', requestPump: vi.fn(), selectVerifier: vi.fn(), livetestPortsInUse: () => [],
   };
   writeFileSync(item.documentPath, '# Test plan\n');
   flow = new PlanQueueItemFlow(host);
@@ -65,6 +68,28 @@ beforeEach(() => {
 afterEach(() => { rmSync(directory, { recursive: true, force: true }); vi.restoreAllMocks(); vi.clearAllMocks(); });
 
 describe('paused runs never continue work or park it', () => {
+  it('cleans abandoned check copies before reconciling and recovering jobs', async () => {
+    const order: string[] = [];
+    vi.mocked(host.worktrees.cleanupScratchCopies).mockImplementation(async roots => {
+      expect(roots).toEqual([directory]); order.push('copies');
+    });
+    const recoveryHost = Object.assign(host, { refreshAlerts: async () => { order.push('reconcile'); },
+      applyRelaxation: vi.fn(), restoreRelaxation: (saved: PlanQueueRun) => saved }) as PlanQueueRecoveryHost;
+    await recoverPlanQueue(recoveryHost, flow);
+    expect(order).toEqual(['copies', 'reconcile']);
+  });
+
+  it('reports a failed abandoned-copy cleanup and still recovers jobs', async () => {
+    const warning = vi.spyOn(getLogger('PlanQueueRecovery'), 'warn');
+    vi.mocked(host.worktrees.cleanupScratchCopies).mockRejectedValueOnce(new Error('Ownership read failed'));
+    const recoveryHost = Object.assign(host, { refreshAlerts: vi.fn(async () => undefined),
+      applyRelaxation: vi.fn(), restoreRelaxation: (saved: PlanQueueRun) => saved }) as PlanQueueRecoveryHost;
+    await recoverPlanQueue(recoveryHost, flow);
+    expect(warning).toHaveBeenCalledWith('Plan queue check-copy cleanup failed', { error: 'Ownership read failed' });
+    expect(recoveryHost.refreshAlerts).toHaveBeenCalled();
+    expect(item).toMatchObject({ state: 'awaiting-slot', workerInstanceId: null, verifierInstanceId: null });
+  });
+
   it.each(['park', 'hold'] as const)('sets aside a refused verifier restore without writes during %s', async action => {
     vi.spyOn(queueGit, 'isOwnCheckout').mockResolvedValue(true);
     vi.mocked(queueGit.revertToSnapshot).mockRejectedValueOnce(new InvalidQueueCheckoutError());
@@ -354,7 +379,7 @@ describe('paused runs never continue work or park it', () => {
     item = { ...item, state, worktreePath: null, verifierInstanceId: null };
     vi.mocked(host.instances.getInstance).mockReturnValue(undefined);
     const recoveryHost = Object.assign(host, {
-      store: { listRunsWithRelaxation: () => [], listActiveRuns: () => [run], listItems: () => [item] },
+      store: { listRunsWithRelaxation: () => [], listActiveRuns: () => [run], listItems: () => [item], listWorkspaceRoots: () => [directory] },
       refreshAlerts: vi.fn(), applyRelaxation: vi.fn(), restoreRelaxation: (r: PlanQueueRun) => r,
     }) as unknown as PlanQueueRecoveryHost;
     await recoverPlanQueue(recoveryHost, flow);
@@ -369,7 +394,7 @@ describe('paused runs never continue work or park it', () => {
     vi.spyOn(queueGit, 'isOwnCheckout').mockResolvedValueOnce(true);
     vi.mocked(queueGit.revertToSnapshot).mockRejectedValueOnce(new Error('The saved queue checkout is invalid'));
     const recoveryHost = Object.assign(host, {
-      store: { listRunsWithRelaxation: () => [], listActiveRuns: () => [run], listItems: () => [item] },
+      store: { listRunsWithRelaxation: () => [], listActiveRuns: () => [run], listItems: () => [item], listWorkspaceRoots: () => [directory] },
       refreshAlerts: vi.fn(), applyRelaxation: vi.fn(), restoreRelaxation: (r: PlanQueueRun) => r,
     }) as unknown as PlanQueueRecoveryHost;
     await recoverPlanQueue(recoveryHost, flow);
@@ -386,7 +411,7 @@ describe('paused runs never continue work or park it', () => {
     host.history.recordEvent = vi.fn();
     vi.mocked(host.instances.terminateInstance).mockRejectedValueOnce(new Error('checker stop failed'));
     const recoveryHost = Object.assign(host, {
-      store: { listRunsWithRelaxation: () => [], listActiveRuns: () => [run], listItems: () => [item] },
+      store: { listRunsWithRelaxation: () => [], listActiveRuns: () => [run], listItems: () => [item], listWorkspaceRoots: () => [directory] },
       refreshAlerts: vi.fn(), applyRelaxation: vi.fn(), restoreRelaxation: (r: PlanQueueRun) => r,
     }) as unknown as PlanQueueRecoveryHost;
     await recoverPlanQueue(recoveryHost, flow);

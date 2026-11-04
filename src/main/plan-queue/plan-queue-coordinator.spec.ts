@@ -3,9 +3,10 @@ import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readdirS
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
+import * as net from 'node:net';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PlanQueueRouting } from '@contracts/schemas/plan-queue';
+import { DEFAULT_PLAN_QUEUE_CONFIG, type PlanQueueRouting } from '@contracts/schemas/plan-queue';
 import type { InstanceCreateConfig } from '../../shared/types/instance.types';
 import type { ProviderAccountProfile } from '../../shared/types/provider-account.types';
 import type { SqliteDriver } from '../db/sqlite-driver';
@@ -36,7 +37,7 @@ vi.mock('./plan-queue-gate-receipts', async original => {
   } };
 });
 
-const landing = vi.hoisted(() => ({ active: 0, max: 0, hang: false, hung: false, hangPromotion: false, hookTimeout: false }));
+const landing = vi.hoisted(() => ({ active: 0, max: 0, hang: false, hung: false, hangPromotion: false, hookTimeout: false, conflict: false }));
 vi.mock('./plan-queue-landing', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./plan-queue-landing')>();
   return {
@@ -46,6 +47,7 @@ vi.mock('./plan-queue-landing', async (importOriginal) => {
         landing.hung = true;
         return new Promise<never>(() => undefined);
       }
+      if (landing.conflict) return { status: 'conflict' as const, conflictFiles: ['shared.txt'] };
       if (landing.hookTimeout) {
         return { status: 'hook-failed' as const, output: '[plan queue] the pre-commit hook timed out after 3600000ms', timedOut: true };
       }
@@ -296,6 +298,7 @@ beforeEach(() => {
   landing.hung = false;
   landing.hangPromotion = false;
   landing.hookTimeout = false;
+  landing.conflict = false;
   repo = realpathSync(mkdtempSync(join(tmpdir(), 'plan-queue-coord-')));
   git(['init', '-q', '-b', 'main']);
   git(['config', 'user.name', 'Plan Queue Test']);
@@ -1256,6 +1259,37 @@ describe('PlanQueueCoordinator — boot recovery', { timeout: 30_000 }, () => {
     expect(git(['show', 'main:2026-01-01-alpha_plan.feature.txt'])).toBe('built 2026-01-01-alpha_plan');
   });
 
+  it.each([
+    { label: 'records a checked port for a livetest item that had none', recorded: null },
+    { label: 'keeps the port a livetest item already had, without re-checking it', recorded: 9123 },
+  ])('after a restart, $label', async ({ recorded }) => {
+    writeDoc('docs/plans/2026-01-01-alpha_livetest.md', '# L\n');
+    const parent = fake.addParent();
+    fake.scripts.worker = never;
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'livetests' });
+    await waitForState(0, run.id, 'working');
+    const itemId = coordinator.getRunDto(run.id)!.items[0].id;
+    // As if the app died before the port was saved (null), or with it saved (a number).
+    store.upsertItem({ ...store.getItem(itemId)!, livetestPort: recorded });
+    // The worker that died may still hold its dev app's port; a check-free would wrongly move the item off it.
+    const holder = recorded === null ? null : net.createServer();
+    await new Promise<void>((resolve, reject) => { if (!holder) return resolve(); holder.once('error', reject); holder.listen({ port: recorded!, host: '127.0.0.1' }, resolve); });
+    try {
+      const next = await restart();
+      await vi.waitFor(() => { if (!next.created.some((i) => i.role === 'worker')) throw new Error('no respawned worker yet'); });
+      verifyRestartPort(next);
+    } finally { await new Promise<void>((resolve) => { if (!holder) return resolve(); holder.close(() => resolve()); }); }
+
+    function verifyRestartPort(next: FakeInstances): void {
+      const port = store.getItem(itemId)!.livetestPort;
+      if (recorded === null) {
+        expect(port).toBeGreaterThanOrEqual(9500);
+        expect(port).toBeLessThan(9900);
+      } else expect(port).toBe(recorded);
+      expect(next.created.find((i) => i.role === 'worker')!.config.initialPrompt).toContain(`--remote-debugging-port=${port}`);
+    }
+  });
+
   it('follows a parent restored under a new id: adopts the respawned worker and nests and reports to it', async () => {
     planDoc('2026-01-01-alpha');
     const parent = fake.addParent();
@@ -1696,6 +1730,11 @@ describe('PlanQueueCoordinator — livetest mode', { timeout: 30_000 }, () => {
     const worker = fake.created.find((i) => i.role === 'worker')!;
     expect(worker.config.initialPrompt).toContain('AIO_DEV_USER_DATA_PATH=/tmp/aio-lt-queue-');
     expect(worker.config.initialPrompt).toContain('livetest-campaign-runbook.md');
+    // The dev app's port is one the queue checked free and recorded on the item.
+    const recorded = store.getItem(coordinator.getRunDto(run.id)!.items[0].id)!.livetestPort;
+    expect(recorded).toBeGreaterThanOrEqual(9500);
+    expect(recorded).toBeLessThan(9900);
+    expect(worker.config.initialPrompt).toContain(`--remote-debugging-port=${recorded}`);
 
     const summary = fake.inputs.filter((m) => m.instanceId === parent.id).at(-1)!.message;
     expect(summary).toContain('Checks that genuinely need James:');
@@ -1722,7 +1761,24 @@ describe('PlanQueueCoordinator — livetest mode', { timeout: 30_000 }, () => {
     ]);
   });
 
+  it('starts a project that lacks the default scripts with no checklist, so the verifier uses its documented checks', async () => {
+    writeDoc('docs/plans/2026-01-01-alpha_livetest.md', '# L\n');
+    const parent = fake.addParent();
+    fake.scripts.verifier = livetestVerdict(false);
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'livetests' });
+    expect(run.config).toMatchObject({ verifierGates: [], postMergeGate: [] });
+    // A caller who names its own gates still gets them.
+    const named = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'livetests', config: { verifierGates: ['make check'] } });
+    expect(named.run.config.verifierGates).toEqual(['make check']);
+  });
+
   it('uses the livetest defaults: one worker at a time and the light verifier gate list', async () => {
+    // A project that defines the scripts and a tsconfig keeps this repository's checklists.
+    writeFileSync(join(repo, 'package.json'), JSON.stringify({ scripts: { lint: 'true', typecheck: 'true', 'typecheck:spec': 'true' } }));
+    writeFileSync(join(repo, 'tsconfig.json'), '{}');
+    git(['add', 'package.json', 'tsconfig.json']);
+    git(['commit', '-qm', 'project scripts']);
     writeDoc('docs/plans/2026-01-01-alpha_livetest.md', '# L\n');
     writeDoc('docs/plans/2026-01-02-beta_livetest.md', '# L\n');
     const parent = fake.addParent();
@@ -2173,6 +2229,23 @@ describe('PlanQueueCoordinator — the landing commit runs the repository hooks'
     const bounce = fake.inputs.find((m) => m.instanceId === worker.id);
     expect(bounce?.message).toContain('related test failed: retry.spec.ts');
     expect(git(['log', '--format=%s', 'main']).split('\n')).toEqual(['Plan: 2026-01-01-alpha_plan', 'base']);
+  });
+
+  it('sends a landing that keeps hitting a base conflict back to the worker three times, then parks it', async () => {
+    landing.conflict = true;
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans', config: { maxRounds: 10 } });
+    await waitForRun(run.id);
+
+    const item = coordinator.getRunDto(run.id)!.items[0];
+    expect(item).toMatchObject({ state: 'parked', parkReason: 'merge-conflict' });
+    expect(item.detail).toContain('already sent this back to the worker 3 times');
+    expect(store.getItem(item.id)!.baseConflicts).toBe(0);
+    const worker = fake.created.find((i) => i.role === 'worker')!;
+    expect(fake.inputs.filter((m) => m.instanceId === worker.id && m.message.includes('shared.txt'))).toHaveLength(3);
+    expect(git(['log', '--format=%s', 'main'])).toBe('base');
   });
 
   it('parks at once, with no worker round, when the hook runs out of time', async () => {
@@ -2806,7 +2879,8 @@ describe('queue spend reductions', { timeout: 30_000 }, () => {
   it('never spawns a checker or lands work when Harness finds a new red gate', async () => {
     planDoc('2026-01-01-red-checks');
     machineGates.failItem = true;
-    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans', config: { maxRounds: 1 } });
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans',
+      config: { maxRounds: 1, verifierGates: DEFAULT_PLAN_QUEUE_CONFIG.plans.verifierGates } });
     await waitForRun(run.id);
     expect(store.listItems(run.id)[0]).toMatchObject({ state: 'parked', parkReason: 'round-limit', verdict: { verdict: 'FAIL' } });
     expect(fake.created.filter(instance => instance.role === 'verifier')).toEqual([]);
@@ -2855,7 +2929,7 @@ describe('queue spend reductions', { timeout: 30_000 }, () => {
     machineGates.failItem = true;
     WorktreeManager.getInstance().configure({ maxConcurrent: 1 });
     const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans',
-      config: { workerSlots: 2, maxRounds: 1 } });
+      config: { workerSlots: 2, maxRounds: 1, verifierGates: DEFAULT_PLAN_QUEUE_CONFIG.plans.verifierGates } });
     await waitForRun(run.id);
     expect(store.listItems(run.id)).toHaveLength(2);
     for (const item of store.listItems(run.id)) {

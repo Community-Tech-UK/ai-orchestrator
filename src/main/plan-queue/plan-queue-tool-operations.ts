@@ -88,6 +88,7 @@ export function createPlanQueueToolOperations(coordinator: () => PlanQueueCoordi
         config: {
           ...(args.worker_slots ? { workerSlots: args.worker_slots } : {}),
           ...(args.verification_slots ? { verificationSlots: args.verification_slots } : {}),
+          ...(args.check_batch_size !== undefined ? { checkBatchSize: args.check_batch_size } : {}),
           ...(args.max_rounds ? { maxRounds: args.max_rounds } : {}),
           ...(args.relax_settings !== undefined ? { relaxSettings: args.relax_settings } : {}),
           ...(args.verifier_gates ? { verifierGates: args.verifier_gates } : {}),

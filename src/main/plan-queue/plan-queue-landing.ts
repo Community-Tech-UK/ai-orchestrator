@@ -202,6 +202,17 @@ async function strayHistoryReason(item: PlanQueueItem, branchName: string, baseB
     + `its own changes need moving onto the current ${baseBranch} before it can land.`;
 }
 
+/** Only complete, green machine receipts for this checklist may cover a hook's tests. */
+function checkedTreeForLanding(item: PlanQueueItem, commands: readonly string[]): string | null {
+  const verdict = item.verdict;
+  if (verdict?.verdict !== 'PASS' || !commands.length || verdict.gatesRun.length !== commands.length) return null;
+  const tree = verdict.gatesRun[0].testedTree;
+  if (!tree || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(tree)) return null;
+  return verdict.gatesRun.every((receipt, index) => receipt.command === commands[index] && receipt.testedTree === tree
+    && receipt.exitCode === 0 && !receipt.timedOut
+    && (receipt.classification === 'passed' || receipt.classification === 'not-recognised')) ? tree : null;
+}
+
 /**
  * Squash the item branch, with its closed documents, into one commit made with
  * the repository's hooks, and fast-forward the base branch to it. Promotion
@@ -217,6 +228,7 @@ export async function landItemBranch(
   repoRoot: string,
   baseBranch: string,
   commitMessage: string,
+  configuredCommands: readonly string[],
   documents: readonly LandingDocument[] = [],
   onCommitBuilt?: (commit: string) => void,
   signal?: AbortSignal,
@@ -251,6 +263,7 @@ export async function landItemBranch(
     baseTip,
     message: commitMessage,
     documents,
+    greenTestedTree: checkedTreeForLanding(item, configuredCommands),
     signal,
   });
   switch (built.status) {

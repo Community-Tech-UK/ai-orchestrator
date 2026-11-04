@@ -77,6 +77,7 @@ export function newPlanQueueItem(
     round: 0,
     erroredRounds: 0,
     landingRefusals: 0,
+    baseConflicts: 0,
     branchName: null,
     worktreePath: null,
     baseCommit: null,

@@ -1,6 +1,6 @@
 import { planQueueDisplayParkReason } from '../plan-queue-park-reason-help';
 import { isNotReachedItem, PLAN_QUEUE_NOT_REACHED_LABEL } from '../../../../../shared/utils/plan-queue-item-outcome';
-import { foldDetail, pluralise } from '../plan-queue-item-display';
+import { foldDetail, planQueueCheckGroupLabel, pluralise } from '../plan-queue-item-display';
 import { copyFor } from '../../../shared/tooltip/tooltip-copy';
 import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
 import { queueItemSpendLabel } from './plan-queue-spend-label';
@@ -96,6 +96,7 @@ export class PlanQueueItemListComponent {
   protected readonly verdictSummary = planQueueVerdictSummary;
   protected readonly parkHelp = planQueueDisplayParkReason;
   protected readonly foldedDetail = foldDetail;
+  protected readonly checkGroupLabel = planQueueCheckGroupLabel;
   protected readonly pluralise = pluralise;
 
   /** Readiness questions (needs-answer) and a waiting worker's question (working / fixing). */

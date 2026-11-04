@@ -164,6 +164,7 @@ import {
   deleteTurnSupervisor,
   getOrCreateTurnSupervisor,
 } from '../session/session-turn-supervisor';
+import { buildQueuePushGuardEnv, isQueueSession, QUEUE_DENIED_TOOLS } from '../plan-queue/plan-queue-push-guard';
 import { applyInstanceSpawnPolicy } from './lifecycle/instance-spawn-policy';
 import { normalizeOpenCodeAdditionalDirectories } from '../../shared/utils/opencode-additional-directories';
 import { getLocalModelInventoryService } from '../local-models/local-model-inventory-service';
@@ -829,14 +830,16 @@ export class InstanceLifecycleManager extends EventEmitter {
     routing?: Pick<AttachAccountRouteOptions, 'moveOffLimitedAccount'>,
   ): Promise<CliAdapter> {
     const instance = options.instanceId ? this.deps.getInstance(options.instanceId) : undefined;
-    const harnessCliEnv = this.spawnConfigBuilder.getHarnessCliEnv(
-      executionLocation,
-      options.instanceId,
-      options.env,
-    );
+    // Queue sessions never push: every start, respawn and resume passes through here (plan-queue-push-guard.ts).
+    const queueSession = isQueueSession(instance, (id) => this.deps.getInstance(id));
+    const queueEnv = queueSession && executionLocation?.type !== 'remote'
+      ? await buildQueuePushGuardEnv(options.workingDirectory ?? process.cwd(), options.env) : undefined;
+    const baseEnv = queueEnv ? { ...options.env, ...queueEnv } : options.env;
+    const harnessCliEnv = this.spawnConfigBuilder.getHarnessCliEnv(executionLocation, options.instanceId, baseEnv);
     const durableOptions = applyInstanceSpawnPolicy(cliType, instance, {
       ...options,
-      ...(harnessCliEnv ? { env: harnessCliEnv } : {}),
+      ...(harnessCliEnv ?? (queueEnv ? baseEnv : undefined) ? { env: harnessCliEnv ?? baseEnv } : {}),
+      ...(queueSession ? { disallowedTools: [...(options.disallowedTools ?? []), ...QUEUE_DENIED_TOOLS] } : {}),
     });
     const routeOrigin = instance?.accountRouteOrigin ?? 'interactive';
     const routedOptions = await attachCopilotRoute(cliType, durableOptions, routeOrigin, {

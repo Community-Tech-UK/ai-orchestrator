@@ -10,6 +10,7 @@
 
 import * as path from 'path';
 import type { PlanQueueFinding, PlanQueueKind } from '@contracts/schemas/plan-queue';
+import { derivedLivetestPort } from './plan-queue-livetest-port';
 import type { PlanQueueItem } from './plan-queue.types';
 import type { PlanQueueGateReceipt } from './plan-queue-gate-receipts';
 
@@ -36,14 +37,13 @@ function dataBlock(tag: string, text: string): string {
 }
 
 /**
- * Isolated dev-app environment for one livetest item, derived from its id so
- * it is stable across restarts and distinct between items.
+ * Isolated dev-app environment for one livetest item. The data folder comes from its id; the debugging
+ * port is the one recorded when its worker started (a free one, see plan-queue-livetest-port.ts). An item
+ * saved before ports were recorded falls back to the port its id derives.
  */
-export function livetestEnvironmentFor(item: Pick<PlanQueueItem, 'id'>): { userDataPath: string; debugPort: number } {
-  let hash = 0;
-  for (const char of item.id) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+export function livetestEnvironmentFor(item: Pick<PlanQueueItem, 'id' | 'livetestPort'>): { userDataPath: string; debugPort: number } {
   const suffix = item.id.replace(/[^a-z0-9]/gi, '').slice(-8).toLowerCase();
-  return { userDataPath: `/tmp/aio-lt-queue-${suffix}`, debugPort: 9500 + (hash % 400) };
+  return { userDataPath: `/tmp/aio-lt-queue-${suffix}`, debugPort: item.livetestPort ?? derivedLivetestPort(item.id) };
 }
 
 interface ItemPromptContext {
@@ -122,7 +122,7 @@ function buildLivetestWorkerPrompt(ctx: ItemPromptContext, answer: string[]): st
 function findingsBlock(findings: readonly PlanQueueFinding[]): string {
   const rendered = findings.length
     ? findings.map((f, i) => `${i + 1}. [${f.severity}, confidence ${f.confidence}] ${f.summary}${f.file ? ` (${f.file})` : ''}${f.evidence ? `\n   Evidence: ${f.evidence}` : ''}`).join('\n')
-    : '(The verifier failed the work without listing findings. Re-check the plan\'s acceptance criteria and the canonical gates.)';
+    : '(The verifier failed the work without listing findings. Re-check the plan\'s acceptance criteria and the checks it was asked to run.)';
   return dataBlock('verifier_findings', rendered);
 }
 
