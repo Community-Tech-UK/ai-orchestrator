@@ -94,6 +94,19 @@ describe('queue failure safeguards', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it.each([
+    'Codex turn stalled: no notifications received for 900000ms',
+    'Codex went silent for 900000ms during turn after 974 bytes of output',
+    'Selected model is at capacity. Please try a different model.',
+  ])('gives a worker that failed with "%s" the same two retries instead of parking it', async (reason) => {
+    store.upsertItem({ ...host.getItem('one'), state: 'working' });
+    const retries = new PlanQueueTurnRetries(host);
+    const retry = retries.retry(host.getItem('one'), 'worker-one', reason);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(await retry).toBe(true);
+    expect(host.instances.sendInput).toHaveBeenCalledTimes(1);
+  });
+
   it('preflights routes independently of folder capacity but refuses an impossible checker', async () => {
     const input = { routing: { workers: [{ provider: 'claude' }], verifiers: [] }, workspaceCwd: root,
       workerProvider: 'claude', workerModel: null,

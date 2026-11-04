@@ -56,6 +56,10 @@ import { PlanQueueVerifierReminders } from './plan-queue-verifier-reminder';
 import type { VerifierSelection } from './plan-queue-verifier-select';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 
+/** A worker that hits a usage limit mid-turn waits for usage this many times in an item's life, then parks for James. */
+const MAX_USAGE_LIMIT_HOLDS = 3;
+const USAGE_LIMIT_HOLD = 'worker-usage-limit-hold';
+
 const logger = getLogger('PlanQueueItemFlow');
 
 /** Two verifier rounds that end without a usable verdict park the item. */
@@ -384,9 +388,18 @@ export class PlanQueueItemFlow {
         case 'needs-input':
           this.askJamesForWorker(item, outcome.lastAssistantOutput);
           return;
-        case 'provider-limit':
-          await this.parkUnlocked(item, 'provider-limit', outcome.notice);
+        case 'provider-limit': {
+          // A usage limit passes, so the item waits for usage like a worker that could not start. The count is in the
+          // persisted history: a limit the usage data does not track would otherwise loop here with nobody told.
+          const holds = this.host.history.listEvents(item.id).filter((event) => event.reason === USAGE_LIMIT_HOLD).length;
+          if (holds >= MAX_USAGE_LIMIT_HOLDS) { await this.parkUnlocked(item, 'provider-limit', outcome.notice); return; }
+          this.host.history.recordEvent({ itemId: item.id, runId: item.runId, fromState: item.state, toState: 'queued',
+            reason: USAGE_LIMIT_HOLD, detailHead: null, round: item.round, tokens: 0 });
+          const waiting = new PlanQueueSpawnOutOfUsage(null, "this worker's provider");
+          this.usageWaits.start(item.id, waiting);
+          await this.holdUnlocked(item, usageWaitNote(waiting.message));
           return;
+        }
         case 'failed':
           if (this.host.consumeUserClose?.(instanceId)) await this.parkUnlocked(item, 'cancelled', 'Stopped: you closed its session. Resume carries on from the same branch.');
           else await this.parkUnlocked(item, 'worker-error', outcome.reason);

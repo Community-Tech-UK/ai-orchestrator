@@ -11,8 +11,15 @@ export function classifyQueuePreparationError(error: unknown): 'transient-capaci
     || /Maximum concurrent worktrees|resource governor|load gate|provider.*(?:at capacity|concurrency)|too many concurrent/i.test(message)
     ? 'transient-capacity' : 'this-job';
 }
+/**
+ * A worker turn that failed for a reason that passes by itself, so it is retried in the same session
+ * before the item parks. The wording is what the queue's own records show workers parking with: a Codex
+ * turn that stalled or went silent (900000 ms) and a model at capacity. (A resource governor pause arrives
+ * when the worker starts, not mid-turn, and is already deferred by `PlanQueuePreparationErrors`.)
+ * A sign-in expiry is not here: it needs James.
+ */
 export function isTransientQueueTurnFailure(reason: string): boolean {
-  return /transport closed|provider (?:returned )?5\d\d|adapter not spawned|timed out waiting for the turn to accept/i.test(reason);
+  return /transport closed|provider (?:returned )?5\d\d|adapter not spawned|timed out waiting for the turn to accept|model is at capacity|codex turn stalled|codex went silent for/i.test(reason);
 }
 
 export class PlanQueuePreparationErrors {

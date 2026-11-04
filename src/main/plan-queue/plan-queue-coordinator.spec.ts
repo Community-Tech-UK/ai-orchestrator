@@ -103,6 +103,14 @@ function git(args: string[], cwd = repo): string {
   }
 }
 
+/** A project that defines every npm script the default checklists name, as this repository does. */
+function defineDefaultScripts(): void {
+  const names = [...DEFAULT_PLAN_QUEUE_CONFIG.plans.verifierGates, ...DEFAULT_PLAN_QUEUE_CONFIG.plans.postMergeGate]
+    .flatMap((command) => /^npm run (\S+)/.exec(command)?.[1] ?? []);
+  writeFileSync(join(repo, 'package.json'), JSON.stringify({ scripts: Object.fromEntries(names.map((name) => [name, 'true'])) }));
+  writeFileSync(join(repo, 'tsconfig.json'), '{}');
+}
+
 type Role = 'parent' | 'worker' | 'verifier' | 'triage';
 type Script = (instance: FakeInstance, message: string, fake: FakeInstances) => void | Promise<void>;
 
@@ -1761,6 +1769,15 @@ describe('PlanQueueCoordinator — livetest mode', { timeout: 30_000 }, () => {
     ]);
   });
 
+  it('refuses to start a run whose checks would use a different Node than the project pins, before creating any work', async () => {
+    writeFileSync(join(repo, '.nvmrc'), 'v1.0.0\n');
+    writeDoc('docs/plans/2026-01-01-alpha_livetest.md', '# L\n');
+    const parent = fake.addParent();
+
+    await expect(coordinator.startRun({ parentInstanceId: parent.id, kind: 'livetests' })).rejects.toThrow(/This run cannot start: the project's checks would run on Node v\d+.*asks for Node v1\.0\.0/);
+    expect(coordinator.listRunDtos()).toEqual([]);
+  });
+
   it('starts a project that lacks the default scripts with no checklist, so the verifier uses its documented checks', async () => {
     writeDoc('docs/plans/2026-01-01-alpha_livetest.md', '# L\n');
     const parent = fake.addParent();
@@ -2878,6 +2895,7 @@ describe('queue spend reductions', { timeout: 30_000 }, () => {
 
   it('never spawns a checker or lands work when Harness finds a new red gate', async () => {
     planDoc('2026-01-01-red-checks');
+    defineDefaultScripts();
     machineGates.failItem = true;
     const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans',
       config: { maxRounds: 1, verifierGates: DEFAULT_PLAN_QUEUE_CONFIG.plans.verifierGates } });
@@ -2924,6 +2942,7 @@ describe('queue spend reductions', { timeout: 30_000 }, () => {
   });
 
   it('finishes failed gate comparisons when queue folders exceed the shared worktree limit', async () => {
+    defineDefaultScripts();
     planDoc('2026-01-01-gates-one');
     planDoc('2026-01-01-gates-two');
     machineGates.failItem = true;
@@ -2970,6 +2989,50 @@ describe('queue spend reductions', { timeout: 30_000 }, () => {
     expect(store.listItems(run.id)[0]).toMatchObject({ state: 'parked', parkReason: 'worktree-error', detail: 'Could not prepare the worktree: disk unavailable' });
   });
 });
+
+it('holds a worker that hits a usage limit mid-turn to wait for usage instead of parking it for James', async () => {
+  planDoc('2026-01-01-worker-usage-limit');
+  fake.scripts.worker = (instance, _message, source) => {
+    source.say(instance, 'Claude usage limit reached.');
+    source.setStatus(instance, 'idle');
+  };
+  const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
+  const itemId = store.listItems(run.id)[0].id;
+  await vi.waitFor(() => expect(store.getItem(itemId)?.detail).toMatch(/^Waiting for usage: /), { timeout: 15_000, interval: 50 });
+  expect(store.getItem(itemId)).toMatchObject({ state: 'queued', parkReason: null });
+  // The wait is not a round, and the pump leaves the item alone until it ends.
+  expect(store.getItem(itemId)!.round).toBe(0);
+  expect(fake.created.filter((i) => i.role === 'worker')).toHaveLength(1);
+  // The limited session was stopped, and the wait is recorded so it can be counted.
+  expect(store.getItem(itemId)!.workerInstanceId).toBeNull();
+  expect(store.history.listEvents(itemId).filter((event) => event.reason === 'worker-usage-limit-hold')).toHaveLength(1);
+  // Pause clears the wait: Resume tries the item at once, and the worker gets the work again.
+  await coordinator.control({ action: 'pause', runId: run.id });
+  fake.scripts.worker = implement;
+  fake.scripts.verifier = pass;
+  await coordinator.control({ action: 'resume', runId: run.id });
+  await waitForRun(run.id);
+  expect(store.getItem(itemId)).toMatchObject({ state: 'landed' });
+  expect(fake.created.filter((i) => i.role === 'worker').length).toBeGreaterThan(1);
+}, 30_000);
+
+it('parks a worker for James once it has waited for usage three times in one item', async () => {
+  planDoc('2026-01-01-worker-usage-limit-repeats');
+  fake.scripts.worker = (instance, _message, source) => {
+    source.say(instance, 'Claude usage limit reached.');
+    source.setStatus(instance, 'idle');
+  };
+  const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
+  const itemId = store.listItems(run.id)[0].id;
+  for (let hold = 1; hold <= 3; hold += 1) {
+    await vi.waitFor(() => expect(store.history.listEvents(itemId).filter((e) => e.reason === 'worker-usage-limit-hold')).toHaveLength(hold), { timeout: 15_000, interval: 50 });
+    await vi.waitFor(() => expect(store.getItem(itemId)).toMatchObject({ state: 'queued', workerInstanceId: null }), { timeout: 15_000, interval: 50 });
+    // Pause then Resume gives the item a fresh try at once, which hits the limit again.
+    await coordinator.control({ action: 'pause', runId: run.id });
+    await coordinator.control({ action: 'resume', runId: run.id });
+  }
+  await vi.waitFor(() => expect(store.getItem(itemId)).toMatchObject({ state: 'parked', parkReason: 'provider-limit' }), { timeout: 15_000, interval: 50 });
+}, 60_000);
 
 it.each([
   ['provider-limit', 'the verifier stopped at a usage limit before reporting a verdict'],

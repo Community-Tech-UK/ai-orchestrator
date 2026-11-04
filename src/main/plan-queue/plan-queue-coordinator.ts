@@ -13,6 +13,7 @@
  */
 import { randomUUID } from 'crypto';
 import { preflightPlanQueueRun } from './plan-queue-run-preflight';
+import { assertRunReady } from './plan-queue-run-readiness';
 import { claimDocumentsAndCreateItems } from './plan-queue-run-start';
 import { rememberJamesAnswer } from './plan-queue-triage-memory';
 import { EventEmitter } from 'events';
@@ -391,6 +392,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       selectVerifier: input => this.selectVerifier(input) });
     const glob = input.glob ?? input.config?.glob;
     const config: PlanQueueRunConfig = { ...await defaultRunConfigFor(repoRoot, input.kind), ...input.config, glob, baseBranch, routing, startingSessionRoute: { provider: parent.provider, currentModel: parent.currentModel, accountProfileId: parent.accountProfileId, copilotAccountProfileId: parent.copilotAccountProfileId } };
+    await assertRunReady(repoRoot, [...config.verifierGates, ...config.postMergeGate]);
     const documents = await discoverPlanQueueDocuments(repoRoot, input.kind, glob);
     // No await from here until the items are written: reading the owned set and
     // claiming documents is atomic on the main thread, so two concurrent starts

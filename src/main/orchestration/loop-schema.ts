@@ -490,8 +490,8 @@ const MIGRATIONS: LoopMigration[] = [
   ...PLAN_QUEUE_MIGRATIONS,
   {
     // Plan Queue: the debugging port a livetest item's dev app uses, checked free when its worker
-    // starts and kept so a restart or resume reuses it. 40, not 31: three unmerged queue branches each use 031
-    // for a different change (plan step 0.4 reconciles the numbers).
+    // starts and kept so a restart or resume reuses it. A local build recorded this column at version 31
+    // before Phase C took 31 for its history tables, so this entry adopts that column when it is already there.
     version: 40,
     name: '040_plan_queue_item_livetest_port',
     up: (db) => {
