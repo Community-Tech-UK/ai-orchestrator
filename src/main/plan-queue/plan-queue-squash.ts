@@ -20,7 +20,7 @@ import { buildCliEnv } from '../cli/cli-environment';
 import { gitExec, WORKTREE_CHECKOUT_TIMEOUT_MS } from '../workspace/git/git-exec';
 import { hermeticGitEnv } from '../workspace/git/git-env';
 import { assertOwnCheckout, CONFLICT_CODES } from './plan-queue-git';
-import { runInProcessGroup } from './plan-queue-process';
+import { runInProcessGroup, type GroupRunResult } from './plan-queue-process';
 import { LANDING_MARKER_FILE } from './plan-queue-landing-leftover';
 import { PlanQueueCheckoutOwnershipError, readProvisionedPaths, recoverLeftover } from './plan-queue-worktree';
 
@@ -43,7 +43,7 @@ export type LandingCommitResult =
   | { status: 'committed'; commit: string }
   | { status: 'nothing-to-land' }
   | { status: 'conflict'; conflictFiles: string[] }
-  | { status: 'hook-failed'; output: string }
+  | { status: 'hook-failed'; output: string; timedOut?: boolean }
   | { status: 'active-documents'; paths: string[] };
 
 /**
@@ -129,7 +129,7 @@ export function commitWithHooks(
   message: string,
   timeoutMs = HOOK_TIMEOUT_MS,
   signal?: AbortSignal,
-): Promise<{ exitCode: number; output: string }> {
+): Promise<GroupRunResult> {
   return runInProcessGroup('git', ['commit', '--no-gpg-sign', '-q', '-m', message], {
     cwd: worktreePath,
     env: hermeticGitEnv(buildCliEnv()),
@@ -183,8 +183,8 @@ export async function buildLandingCommit(params: {
     if (await run(['diff', '--cached', '--quiet'], worktreePath, TREE_REWRITE_TIMEOUT_MS)) return { status: 'nothing-to-land' };
 
     params.signal?.throwIfAborted();
-    const { exitCode, output } = await commitWithHooks(worktreePath, message, HOOK_TIMEOUT_MS, params.signal);
-    if (exitCode !== 0) return { status: 'hook-failed', output };
+    const { exitCode, output, timedOut } = await commitWithHooks(worktreePath, message, HOOK_TIMEOUT_MS, params.signal);
+    if (exitCode !== 0) return { status: 'hook-failed', output, ...(timedOut ? { timedOut } : {}) };
     return { status: 'committed', commit: await gitExec(['rev-parse', 'HEAD'], worktreePath) };
   } finally {
     await restoreAfterLanding(worktreePath, branchName, documentPaths);

@@ -544,6 +544,7 @@ it('Cancel arriving during Git promotion retries a subsequent failed landed-work
 
 it('keeps late worker edits after normal landing when clean-tree proof refuses removal', async () => {
   const stop = deferred();
+  const removals = vi.spyOn(coordinator.worktrees, 'removeWithProof');
   instances.terminateInstance.mockImplementation(async id => { if (id === 'worker') await stop.promise; instances.live.delete(id); });
   try {
     const landedCommit = await normalPassLanding();
@@ -554,6 +555,13 @@ it('keeps late worker edits after normal landing when clean-tree proof refuses r
       worktreePath: item.worktreePath, branchName: item.branchName, detail: expect.stringContaining('dirty-tree') });
     expect(readFileSync(join(item.worktreePath!, 'late-edit.txt'), 'utf8')).toBe('keep this unlanded work\n');
     expect(git(['rev-parse', 'main'])).toBe(landedCommit);
+
+    // The kept-folder retry never checkpoints a landed folder, so the late edit still refuses removal.
+    coordinator.requestPump();
+    await vi.waitFor(() => expect(removals.mock.calls.length).toBeGreaterThanOrEqual(2), waitBudget);
+    await coordinator._whenSettledForTesting();
+    expect(store.getItem(item.id)).toMatchObject({ state: 'landed', worktreePath: item.worktreePath });
+    expect(readFileSync(join(item.worktreePath!, 'late-edit.txt'), 'utf8')).toBe('keep this unlanded work\n');
   } finally { stop.release(); await coordinator._whenSettledForTesting(); }
 });
 
@@ -568,4 +576,80 @@ it('lands a legitimately parked stopped worker through operator override', async
     worktreePath: null, detail: expect.stringContaining('without a verifier PASS') });
   expect(git(['show', 'main:feature.txt'])).toBe('operator accepted work');
   expect(instances.created).toEqual([]);
+});
+
+it('retries a parked folder that its first removal had to keep, saving its work to the kept branch', async () => {
+  const remove = vi.spyOn(coordinator.worktrees, 'removeWithProof')
+    .mockResolvedValueOnce({ removed: false, reason: 'not-owned', detail: 'git was busy' });
+  writeFileSync(join(item.worktreePath!, 'feature.txt'), 'parked work\n');
+  await control('cancel');
+  expect(store.getItem(item.id)).toMatchObject({ state: 'parked', worktreePath: item.worktreePath,
+    detail: expect.stringContaining('Worktree kept (not-owned: git was busy).') });
+  writeFileSync(join(item.worktreePath!, 'later.txt'), 'edited after parking\n');
+
+  coordinator.requestPump();
+  await vi.waitFor(() => expect(store.getItem(item.id)?.worktreePath).toBeNull(), waitBudget);
+  await coordinator._whenSettledForTesting();
+  expect(existsSync(item.worktreePath!)).toBe(false);
+  expect(store.getItem(item.id)).toMatchObject({ state: 'parked', branchName: 'queue/example' });
+  expect(store.getItem(item.id)?.detail ?? '').not.toContain('Worktree kept');
+  expect(git(['show', 'queue/example:feature.txt'])).toBe('parked work');
+  expect(git(['show', 'queue/example:later.txt'])).toBe('edited after parking');
+  expect(remove).toHaveBeenCalledTimes(2);
+});
+
+it('tries a kept folder again only after an hour', async () => {
+  const remove = vi.spyOn(coordinator.worktrees, 'removeWithProof')
+    .mockResolvedValue({ removed: false, reason: 'not-owned', detail: 'git was busy' });
+  await control('cancel');
+  coordinator.requestPump();
+  await vi.waitFor(() => expect(remove).toHaveBeenCalledTimes(2), waitBudget);
+  coordinator.requestPump();
+  await tick(); await coordinator._whenSettledForTesting();
+  expect(remove).toHaveBeenCalledTimes(2);
+  expect(store.getItem(item.id)?.worktreePath).toBe(item.worktreePath);
+});
+
+it('never removes a parked folder whose merge is still unresolved', async () => {
+  writeFileSync(join(repo, 'feature.txt'), 'main side\n'); git(['commit', '-qam', 'main side']);
+  writeFileSync(join(item.worktreePath!, 'feature.txt'), 'branch side\n'); git(['commit', '-qam', 'branch side'], item.worktreePath!);
+  expect(() => git(['merge', 'main'], item.worktreePath!)).toThrow();
+  await control('cancel');
+  expect(store.getItem(item.id)?.detail).toContain('Worktree kept with the merge');
+  const remove = vi.spyOn(coordinator.worktrees, 'removeWithProof');
+  const checkpoint = vi.spyOn(coordinator.worktrees, 'checkpoint');
+
+  coordinator.requestPump();
+  await vi.waitFor(() => expect(checkpoint).toHaveBeenCalled(), waitBudget);
+  await coordinator._whenSettledForTesting();
+  expect(remove).not.toHaveBeenCalled();
+  expect(store.getItem(item.id)).toMatchObject({ state: 'parked', worktreePath: item.worktreePath, detail: expect.stringContaining('Worktree kept with the merge') });
+  expect(readFileSync(join(item.worktreePath!, 'feature.txt'), 'utf8')).toContain('<<<<<<<');
+});
+
+it('removes a clean landed folder an earlier clean-up kept, then deletes the landed branch', async () => {
+  instances.live.delete('worker');
+  store.upsertItem({ ...item, state: 'landed', workerInstanceId: null, detail: 'Landed. Worktree kept (not-owned: git was busy).' });
+
+  coordinator.requestPump();
+  await vi.waitFor(() => expect(store.getItem(item.id)?.branchName).toBeNull(), waitBudget);
+  await coordinator._whenSettledForTesting();
+
+  expect(existsSync(item.worktreePath!)).toBe(false);
+  expect(store.getItem(item.id)).toMatchObject({ state: 'landed', worktreePath: null, detail: 'Landed.' });
+  expect(git(['branch', '--list', 'queue/example'])).toBe('');
+});
+
+it('clears the record of a kept folder that is already gone, keeping the parked branch', async () => {
+  instances.live.delete('worker');
+  git(['worktree', 'remove', '--force', item.worktreePath!]);
+  store.upsertItem({ ...item, state: 'parked', parkReason: 'worker-error', workerInstanceId: null,
+    detail: 'Worker failed. Worktree kept: Command failed: git add -A.' });
+
+  coordinator.requestPump();
+  await vi.waitFor(() => expect(store.getItem(item.id)?.worktreePath).toBeNull(), waitBudget);
+  await coordinator._whenSettledForTesting();
+
+  expect(store.getItem(item.id)).toMatchObject({ state: 'parked', branchName: 'queue/example', detail: 'Worker failed.' });
+  expect(git(['branch', '--list', 'queue/example'])).toContain('queue/example');
 });

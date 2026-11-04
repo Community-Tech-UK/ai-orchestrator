@@ -47,8 +47,8 @@ export type LandResult =
    * fast-forward and the document writes would.
    */
   | { status: 'blocked'; reason: string }
-  /** The repository's pre-commit hook refused the landing commit. */
-  | { status: 'hook-failed'; output: string }
+  /** The repository's pre-commit hook refused the landing commit, or ran out of time (`timedOut`). */
+  | { status: 'hook-failed'; output: string; timedOut?: boolean }
   /** The item branch carries active plan/spec/livetest documents, which never land. */
   | { status: 'active-documents'; paths: string[] };
 

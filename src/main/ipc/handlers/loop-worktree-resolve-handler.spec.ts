@@ -38,10 +38,11 @@ describe('LOOP_RESOLVE_BLOCKED_WORKTREE handler', () => {
 
   function register(lifecycle?: LoopWorktreeLifecycle): void {
     const store: LoopWorktreeResolveStore = {
-      getWorktreeRecord: () => ({ worktreePath: null, lifecycle }),
+      getWorktreeRecord: () => ({ worktreePath: null, workspaceCwd: null, lifecycle }),
       updateWorktreeLifecycle: (_id, next) => {
         updates.push(next);
       },
+      clearWorktreeInfo: () => undefined,
     };
     registerLoopWorktreeResolveHandler(store);
   }

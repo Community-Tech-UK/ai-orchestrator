@@ -5,6 +5,7 @@ import { getChildResultStorage } from '../orchestration/child-result-storage';
 import { getTaskManager } from '../orchestration/task-manager';
 import { emitPluginHook } from '../plugins/hook-emitter';
 import { getLogger } from '../logging/logger';
+import { ownedByEngine } from '../work-admission/engine-ownership';
 
 const logger = getLogger('InstanceChildCompletion');
 
@@ -83,7 +84,10 @@ export class InstanceChildCompletionHandler {
   constructor(private readonly deps: InstanceChildCompletionDeps) {}
 
   async handleChildExit(childId: string, child: Instance, exitCode: number | null): Promise<void> {
-    if (!child.parentId) return;
+    // Engine sessions (Plan Queue workers and checkers, loops, automations) can sit
+    // under a parent, but their engine owns their lifetime: a finished turn is not
+    // a finished helper, so it must not be reported or closed here.
+    if (!child.parentId || ownedByEngine(child, false)) return;
     if (this.completedChildNotifications.has(childId)) {
       logger.debug('Ignoring duplicate child completion notification', {
         childId,

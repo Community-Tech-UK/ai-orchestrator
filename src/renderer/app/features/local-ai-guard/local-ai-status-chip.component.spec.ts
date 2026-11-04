@@ -4,7 +4,12 @@ import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { LocalAiAggregateStatus } from '../../../../shared/types/local-ai-guard.types';
+import type {
+  LocalAiAggregateStatus,
+  LocalAiFailureCode,
+  LocalAiHealthLayer,
+  LocalAiTargetStatus,
+} from '../../../../shared/types/local-ai-guard.types';
 import { LocalAiGuardStore } from '../../core/state/local-ai-guard.store';
 import { LocalAiStatusChipComponent } from './local-ai-status-chip.component';
 
@@ -22,6 +27,25 @@ function aggregate(
   };
 }
 
+function target(
+  targetId: string,
+  state: LocalAiTargetStatus['state'],
+  failures: Partial<Record<LocalAiHealthLayer, LocalAiFailureCode>>,
+  lifecycle: LocalAiTargetStatus['lifecycle'] = 'enrolled',
+): LocalAiTargetStatus {
+  const layers: LocalAiTargetStatus['layers'] = {};
+  for (const [layer, failureCode] of Object.entries(failures) as [LocalAiHealthLayer, LocalAiFailureCode][]) {
+    layers[layer] = {
+      targetId, layer, checkType: 'lightweight', ok: false, required: true,
+      affectedRoles: [], checkedAt: 1, durationMs: 1, failureCode, evidence: {},
+    };
+  }
+  return {
+    targetId, lifecycle, state, routableRoles: [], layers,
+    consecutiveFailures: 1, consecutiveSuccesses: 0, flapping: false, checkedAt: 1,
+  };
+}
+
 describe('LocalAiStatusChipComponent', () => {
   const initialized = signal(true);
   const hasAuthoritativeSnapshot = signal(true);
@@ -31,6 +55,7 @@ describe('LocalAiStatusChipComponent', () => {
     hasAuthoritativeSnapshot: hasAuthoritativeSnapshot.asReadonly(),
     aggregate: currentAggregate.asReadonly(),
     helperPauses: signal<import('../../../../shared/types/auxiliary-llm.types').AuxiliaryHelperPause[]>([]),
+    targets: signal<LocalAiTargetStatus[]>([]),
   };
   const router = { navigateByUrl: vi.fn(async () => true) };
 
@@ -41,6 +66,7 @@ describe('LocalAiStatusChipComponent', () => {
     hasAuthoritativeSnapshot.set(true);
     currentAggregate.set(aggregate('not-configured'));
     store.helperPauses.set([]);
+    store.targets.set([]);
     TestBed.configureTestingModule({
       imports: [LocalAiStatusChipComponent],
       providers: [
@@ -68,6 +94,39 @@ describe('LocalAiStatusChipComponent', () => {
     expect(button.getAttribute('aria-label')).toBe(
       `Local AI Guard: ${label}. ${state === 'not-configured' ? 0 : 2} enrolled targets. Open Local AI health centre.`,
     );
+  });
+
+  it('says why every unwell target is unavailable, using the first failed check', () => {
+    currentAggregate.set(aggregate('unavailable', 2));
+    store.targets.set([
+      target('a', 'unavailable', { model: 'insufficient-context' }),
+      target('b', 'unavailable', { model: 'insufficient-context' }),
+      target('old', 'unavailable', { worker: 'worker-offline' }, 'retired'),
+    ]);
+    const fixture = TestBed.createComponent(LocalAiStatusChipComponent);
+    fixture.detectChanges();
+    const button = fixture.nativeElement.querySelector('button') as HTMLButtonElement;
+    expect(button.textContent).toContain('Local AI: Unavailable, model context too small');
+    expect(button.getAttribute('aria-label')).toBe(
+      'Local AI Guard: Unavailable, model context too small. 2 enrolled targets. Open Local AI health centre.',
+    );
+
+    store.targets.set([target('a', 'unavailable', { worker: 'worker-offline', endpoint: 'endpoint-timeout' })]);
+    fixture.detectChanges();
+    expect(button.textContent).toContain('Local AI: Unavailable, remote computer offline');
+  });
+
+  it('keeps the plain state when unwell targets fail for different reasons', () => {
+    currentAggregate.set(aggregate('unavailable', 2));
+    store.targets.set([
+      target('a', 'unavailable', { model: 'insufficient-context' }),
+      target('b', 'unavailable', { endpoint: 'connection-refused' }),
+    ]);
+    const fixture = TestBed.createComponent(LocalAiStatusChipComponent);
+    fixture.detectChanges();
+    const text = (fixture.nativeElement.querySelector('button') as HTMLButtonElement).textContent ?? '';
+    expect(text).toContain('Local AI: Unavailable');
+    expect(text).not.toContain(',');
   });
 
   it('preserves the complete helper pause explanation and name on the real directive', () => {

@@ -1,9 +1,15 @@
 import { parseTOML, type AST } from 'toml-eslint-parser';
 
-/** These Claude callbacks cannot deliver a continuation to a Codex session. */
-const CALLBACK_TOOLS = [
+/** Claude tools that cannot work when a Codex session calls them. */
+const TOOLS_CODEX_CANNOT_USE = [
+  // These callbacks cannot deliver a continuation to a Codex session.
   'Monitor', 'ScheduleWakeup', 'CronCreate', 'CronDelete', 'CronList', 'RemoteTrigger',
   'Workflow', 'PushNotification', 'SendMessage', 'ListAgents', 'TaskStop',
+  // A Claude subagent started through `claude mcp serve` runs under Claude's
+  // own permission rules with nobody to answer its prompts, so it is refused
+  // every shell command (2026-11-03: a Codex automation's helper agent could
+  // not run any). Codex's own subagents can run commands.
+  'Agent',
 ];
 
 interface Property {
@@ -57,8 +63,8 @@ function collectServers(program: AST.TOMLProgram): Map<string, ServerProperties>
   return servers;
 }
 
-/** Narrow only Claude's callback tools, retaining every other source range verbatim. */
-export function disableClaudeCallbackTools(config: string): string {
+/** Narrow only those Claude tools, retaining every other source range verbatim. */
+export function disableClaudeToolsCodexCannotUse(config: string): string {
   const edits: Edit[] = [];
   const newline = config.includes('\r\n') ? '\r\n' : '\n';
   // Codex 0.164 accepts TOML 1.1, including multiline inline tables and \x escapes.
@@ -71,7 +77,7 @@ export function disableClaudeCallbackTools(config: string): string {
     const disabled = server.get('disabled_tools');
     const existing = disabled ? stringArray(disabled.node.value) : [];
     if (!existing) throw new Error('Expected a string array for Claude disabled_tools');
-    const tools = [...new Set([...existing, ...CALLBACK_TOOLS])];
+    const tools = [...new Set([...existing, ...TOOLS_CODEX_CANNOT_USE])];
     const array = `[${tools.map((tool) => JSON.stringify(tool)).join(', ')}]`;
     if (disabled) {
       edits.push({ start: disabled.node.value.range[0], end: disabled.node.value.range[1], text: array });

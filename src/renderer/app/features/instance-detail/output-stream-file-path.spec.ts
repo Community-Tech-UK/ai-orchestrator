@@ -1,5 +1,43 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { ContextMenuItem } from '../../shared/components/context-menu/context-menu.component';
 import { OutputStreamComponent } from './output-stream.component';
+import type { LinkedFileTarget } from './output-stream.types';
+
+describe('transcript file path "Copy path"', () => {
+  function setup(fileStats: unknown) {
+    const copyText = vi.fn().mockResolvedValue({ ok: true });
+    const getFileStats = vi.fn().mockResolvedValue(fileStats);
+    // Same prototype seam as the activation specs below: the production menu
+    // builder and copy chain, without the component's streaming effects.
+    const component = Object.assign(Object.create(OutputStreamComponent.prototype), {
+      instanceId: () => 'local-session',
+      instanceStore: { getInstance: () => ({ workingDirectory: '/tmp/project' }) },
+      fileIpc: { getFileStats },
+      clipboard: { copyText },
+    }) as {
+      buildLinkedFileTarget(rawPath: string): LinkedFileTarget;
+      buildFileContextMenuItems(target: LinkedFileTarget): ContextMenuItem[];
+    };
+    const [copyPath] = component.buildFileContextMenuItems(component.buildLinkedFileTarget('src/app.ts'));
+    return { copyPath, copyText, getFileStats };
+  }
+
+  it('copies the full location when the file is there', async () => {
+    const { copyPath, copyText, getFileStats } = setup({ name: 'app.ts', path: '/tmp/project/src/app.ts' });
+    expect(copyPath.label).toBe('Copy path');
+    void copyPath.action();
+    await vi.waitFor(() => expect(copyText).toHaveBeenCalled());
+    expect(getFileStats).toHaveBeenCalledExactlyOnceWith('/tmp/project/src/app.ts');
+    expect(copyText).toHaveBeenCalledExactlyOnceWith('/tmp/project/src/app.ts', { label: 'path' });
+  });
+
+  it('copies the path as written when the file is not in the session folder', async () => {
+    const { copyPath, copyText } = setup(null);
+    void copyPath.action();
+    await vi.waitFor(() => expect(copyText).toHaveBeenCalled());
+    expect(copyText).toHaveBeenCalledExactlyOnceWith('src/app.ts', { label: 'path' });
+  });
+});
 
 describe('delegated transcript file path activation', () => {
   function setup() {

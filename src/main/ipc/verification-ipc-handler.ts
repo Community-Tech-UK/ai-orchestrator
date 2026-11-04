@@ -50,6 +50,8 @@ export function registerVerificationHandlers(): void {
         const options = {
           baseBranch: validated.baseBranch,
           ...validated.config,
+          // Only the Plan Queue, which limits itself, may skip the shared limit.
+          countsTowardLimit: true,
         };
         const session = await getWorktreeManager().createWorktree(
           validated.instanceId,

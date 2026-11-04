@@ -9,6 +9,9 @@ const SECRET_TAINTED_TITLE = 'Secret-filled tab';
  */
 const PAGE_TEXT_UNREADABLE_REASONS = new Set([
   'host_permission_denied',
+  // Chrome has unloaded the tab to save memory (or never loaded it after a
+  // session restore). The next command aimed at the tab loads it.
+  'tab_discarded',
   'page_text_read_failed',
   // The page did not answer within the extension's page-text time limit.
   'page_not_responding',
@@ -18,7 +21,12 @@ const PAGE_TEXT_UNREADABLE_REASONS = new Set([
 
 export function isPageTextUnreadableReason(
   reason: string | undefined,
-): reason is 'host_permission_denied' | 'page_text_read_failed' | 'page_not_responding' | 'dialog_open' {
+): reason is
+  | 'host_permission_denied'
+  | 'tab_discarded'
+  | 'page_text_read_failed'
+  | 'page_not_responding'
+  | 'dialog_open' {
   return reason !== undefined && PAGE_TEXT_UNREADABLE_REASONS.has(reason);
 }
 

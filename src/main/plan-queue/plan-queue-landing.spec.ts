@@ -22,6 +22,18 @@ vi.mock('node:fs/promises', async (original) => {
   };
 });
 
+/** Shrinks the landing hook's 60-minute budget so a real sleeping hook can time out in a test. */
+const hookBudget = vi.hoisted(() => ({ timeoutMs: null as number | null }));
+vi.mock('./plan-queue-process', async (original) => {
+  const actual = await original<typeof import('./plan-queue-process')>();
+  return {
+    ...actual,
+    runInProcessGroup: (...args: Parameters<typeof actual.runInProcessGroup>) => actual.runInProcessGroup(
+      args[0], args[1], hookBudget.timeoutMs === null ? args[2] : { ...args[2], timeoutMs: hookBudget.timeoutMs },
+    ),
+  };
+});
+
 // Every test drives real git through dozens of child processes. Alone each takes
 // about a second, but under the full suite's load one exceeded the 5s default
 // budget, so give the file the same generous budget as the other real-git specs.
@@ -79,6 +91,7 @@ function makeItemWithWork(files: Record<string, string>, id = 'item-abc123'): Pl
 
 beforeEach(() => {
   GitWriteQueue._resetForTesting();
+  hookBudget.timeoutMs = null;
   hook.beforeWrite = null;
   hook.target = '';
   repo = realpathSync(mkdtempSync(join(tmpdir(), 'plan-queue-land-')));
@@ -291,6 +304,19 @@ describe('landItemBranch', () => {
       expect(git(['rev-parse', 'main'])).toBe(mainBefore);
       expect(checkoutState(item)).toEqual({ head: item.checkpointCommit, branch: item.branchName, status: '' });
       expect(existsSync(join(item.worktreePath ?? '', 'docs/x_plan_completed.md'))).toBe(false);
+    });
+
+    it.skipIf(process.platform === 'win32')('reports a hook that runs out of time as timed out, not as a refusal, and restores the checkout', async () => {
+      installHook('sleep 30');
+      hookBudget.timeoutMs = 1_500;
+      const item = makeItemWithWork({ 'one.txt': '1\n' });
+      const mainBefore = git(['rev-parse', 'main']);
+
+      const result = await landItemBranch(item, repo, 'main', 'feat: slow hook');
+
+      expect(result).toMatchObject({ status: 'hook-failed', timedOut: true, output: expect.stringContaining('timed out after 1500ms') });
+      expect(git(['rev-parse', 'main'])).toBe(mainBefore);
+      expect(checkoutState(item)).toEqual({ head: item.checkpointCommit, branch: item.branchName, status: '' });
     });
 
     it('refuses an item branch carrying active planning documents, but not a standing register', async () => {

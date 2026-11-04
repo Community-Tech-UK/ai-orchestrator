@@ -205,7 +205,7 @@ export const DEFAULT_PLAN_QUEUE_ACCOUNT_RULES: PlanQueueAccountRules = { never: 
 
 export const PlanQueueRunConfigSchema = z.object({
   workerSlots: z.number().int().min(1).max(8),
-  verificationSlots: z.number().int().min(1).max(4),
+  verificationSlots: z.number().int().min(1).max(8),
   maxRounds: z.number().int().min(1).max(10),
   maxLoadAverage: z.number().positive().max(1000),
   /** Deterministic commands the coordinator runs after merging a moved `main`. */
@@ -356,7 +356,7 @@ export const PlanQueueStartArgsSchema = z.object({
   kind: PlanQueueKindSchema,
   glob: z.string().max(1000).optional(),
   worker_slots: z.number().int().min(1).max(8).optional(),
-  verification_slots: z.number().int().min(1).max(4).optional(),
+  verification_slots: z.number().int().min(1).max(8).optional(),
   max_rounds: z.number().int().min(1).max(10).optional(),
   relax_settings: z.boolean().optional(),
   verifier_gates: z.array(z.string().min(1).max(2000)).max(20).optional(),

@@ -29,6 +29,8 @@ const KILL_SETTLE_MS = 2_000;
 export interface GroupRunResult {
   exitCode: number;
   output: string;
+  /** True only when the run was killed for exceeding `timeoutMs` (not for a pause or an ordinary failure). */
+  timedOut?: boolean;
 }
 
 export async function runInProcessGroup(
@@ -51,6 +53,7 @@ export async function runInProcessGroup(
     const unregister = registerCleanup(killGroup);
     let output = '';
     let exitCode: number | null = null;
+    let timedOut = false;
     let settled = false;
     let grace: ReturnType<typeof setTimeout> | null = null;
     let settle: ReturnType<typeof setTimeout> | null = null;
@@ -65,7 +68,7 @@ export async function runInProcessGroup(
       if (settle) clearTimeout(settle);
       options.signal?.removeEventListener('abort', aborted);
       unregister();
-      resolve({ exitCode: result.exitCode, output: result.output.slice(-options.outputTail) });
+      resolve({ exitCode: result.exitCode, output: result.output.slice(-options.outputTail), ...(timedOut ? { timedOut } : {}) });
     };
     child.stdout.on('data', append);
     child.stderr.on('data', append);
@@ -82,6 +85,7 @@ export async function runInProcessGroup(
     };
 
     const timer = setTimeout(() => {
+      timedOut = true;
       output += `\n[plan queue] ${options.label} timed out after ${options.timeoutMs}ms`;
       killAndSettle();
     }, options.timeoutMs);

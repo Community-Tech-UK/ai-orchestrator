@@ -346,6 +346,7 @@ export const SETTINGS_TOOL_POLICY = {
   workloadLevel: open(z.number().int().min(1).max(5)),
   maxChildrenPerParent: open(numberSettingSchema('maxChildrenPerParent')),
   maxTotalInstances: open(numberSettingSchema('maxTotalInstances')),
+  maxConcurrentWorktrees: open(numberSettingSchema('maxConcurrentWorktrees')),
   concurrencyLimitByProvider: open(concurrencyLimitByProviderSchema),
   autoTerminateIdleMinutes: open(numberSettingSchema('autoTerminateIdleMinutes')),
   allowNestedOrchestration: readOnly(),

@@ -110,6 +110,13 @@ export interface AppSettings extends DesktopComputerUseSettings, ObservationSett
   maxChildrenPerParent: number;
   maxTotalInstances: number; // 0 = unlimited
   /**
+   * Worktrees Harness may have in use at once across all projects (loops,
+   * repo jobs, campaigns, branch-select candidates, the Worktrees page).
+   * Plan Queue checkouts are limited by the queue's own worker slots instead.
+   * 0 = unlimited.
+   */
+  maxConcurrentWorktrees: number;
+  /**
    * Per-provider ceiling on concurrently running CLI children for the
    * ACP-backed CLIs (Copilot, Cursor, Grok, OpenCode). Every entry with an
    * integer cap of 1-100 is applied, including keys that no CLI gates on

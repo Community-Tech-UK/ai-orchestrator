@@ -27,7 +27,7 @@ export function limitsFor(level: WorkloadLevel, cpuCount: number): WorkloadLimit
     loadPerCore: level === 1 ? 0.75 : 1,
   };
   if (level >= 4) return {
-    ...limits, queueWorkerMinimum: level, queueCheckMinimum: level - 2,
+    ...limits, queueWorkerMinimum: level, queueCheckMinimum: level - 1,
     queueLoadMinimum: Math.max(1, cpuCount) * (level === 4 ? 2.5 : 3),
     backgroundMultiplier: level === 5 ? 2 : null,
   };

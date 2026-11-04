@@ -127,6 +127,23 @@ export function buildLinkedFileTarget(
   };
 }
 
+/**
+ * The path "Copy path" puts on the clipboard: the full location when the file
+ * really is there, so it can be pasted into Finder; otherwise the path exactly
+ * as written. A path the agent wrote relative to some other folder therefore
+ * never becomes a made-up location. Remote sessions' files can't be checked
+ * here, so they keep the path as written.
+ */
+export async function pathToCopy(
+  target: LinkedFileTarget,
+  fileExists: (path: string) => Promise<boolean>,
+): Promise<string> {
+  if (!target.canUseLocalFileActions || target.resolvedPath === target.displayPath) {
+    return target.displayPath;
+  }
+  return (await fileExists(target.resolvedPath)) ? target.resolvedPath : target.displayPath;
+}
+
 export function getSystemFileManagerLabel(): string {
   if (navigator.userAgent.includes('Windows')) {
     return 'Explorer';

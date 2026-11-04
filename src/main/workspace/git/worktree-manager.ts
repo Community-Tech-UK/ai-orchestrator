@@ -62,6 +62,8 @@ export class WorktreeCapacityError extends Error {}
 export class WorktreeManager extends EventEmitter {
   private static instance: WorktreeManager | null = null;
   private sessions: Map<string, WorktreeSession> = new Map();
+  /** Sessions whose caller limits its own concurrency; they never count toward `maxConcurrent`. */
+  private readonly uncountedSessionIds = new Set<string>();
   private config: WorktreeConfig;
   private healthCheckInterval?: NodeJS.Timeout;
   /** P5: cycle counter so we run gc at most once per 12 health-check intervals (~1h). */
@@ -108,18 +110,26 @@ export class WorktreeManager extends EventEmitter {
       skipInstall?: boolean;
       repoRoot?: string;
       onPrepared?: (session: WorktreeSession) => void | Promise<void>;
+      /**
+       * False when the caller already limits how many worktrees it runs (the
+       * Plan Queue's worker slots). Such a worktree skips the shared limit and
+       * does not use up a place in it, so a paused queue cannot block a loop.
+       */
+      countsTowardLimit?: boolean;
     }
   ): Promise<WorktreeSession> {
-    // Check concurrent limit
-    const activeCount = Array.from(this.sessions.values()).filter((s) =>
-      ['active', 'creating', 'installing'].includes(s.status)
-    ).length;
-
-    if (activeCount >= this.config.maxConcurrent) {
-      throw new WorktreeCapacityError(
-        `Maximum concurrent worktrees (${this.config.maxConcurrent}) reached. ` +
-          `Complete or abandon existing worktrees before creating new ones.`
-      );
+    const countsTowardLimit = options?.countsTowardLimit ?? true;
+    const limit = this.config.maxConcurrent;
+    if (countsTowardLimit && limit > 0) {
+      const inUse = Array.from(this.sessions.values()).filter((s) =>
+        !this.uncountedSessionIds.has(s.id) && ['active', 'creating', 'installing'].includes(s.status)
+      ).length;
+      if (inUse >= limit) {
+        throw new WorktreeCapacityError(
+          `Harness allows ${limit} worktrees in use at once and all ${limit} are taken. ` +
+            `Finish or remove one, or raise the "Worktrees in use at once" setting (maxConcurrentWorktrees).`
+        );
+      }
     }
 
     const repoRoot = options?.repoRoot || (await gitExec(['rev-parse', '--show-toplevel'], process.cwd()));
@@ -151,6 +161,7 @@ export class WorktreeManager extends EventEmitter {
     };
 
     this.sessions.set(session.id, session);
+    if (!countsTowardLimit) this.uncountedSessionIds.add(session.id);
     this.emit('worktree:creating', session);
 
     try {
@@ -783,6 +794,7 @@ export class WorktreeManager extends EventEmitter {
       }
 
       this.sessions.delete(worktreeId);
+      this.uncountedSessionIds.delete(worktreeId);
       this.emit('worktree:cleaned', session);
     } catch (error) {
       logger.error('Failed to cleanup worktree', error instanceof Error ? error : undefined, { worktreeId });
@@ -901,18 +913,6 @@ export class WorktreeManager extends EventEmitter {
   }
 
   // ============ Helper Methods ============
-
-  private async getRepoRoot(cwd?: string): Promise<string> {
-    return gitExec(['rev-parse', '--show-toplevel'], cwd || process.cwd());
-  }
-
-  private async getCurrentBranch(cwd?: string): Promise<string> {
-    return gitExec(['branch', '--show-current'], cwd || process.cwd());
-  }
-
-  private async getHeadCommit(cwd?: string): Promise<string> {
-    return gitExec(['rev-parse', 'HEAD'], cwd || process.cwd());
-  }
 
   private async getCommitsSince(session: WorktreeSession, since: string): Promise<WorktreeCommit[]> {
     try {

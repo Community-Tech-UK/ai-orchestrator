@@ -714,7 +714,8 @@
     "id": "d7bcd0f3fa42c25c",
     "owner": "src/renderer/app/features/loop/loop-past-runs-panel.component.ts",
     "text": "Record that you have dealt with this blocked workspace yourself, so AIO stops retrying it. Nothing is deleted.",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Mark resolved now removes a clean working copy, so the old promise that nothing is deleted became false (2026-11-02)"
   },
   {
     "id": "ec3ddecadd784f83",
@@ -1476,5 +1477,11 @@
     "owner": "src/renderer/app/shared/components/provider-quota-chip/provider-quota-chip.component.ts",
     "text": "Quota is being consumed ahead of this window's time budget",
     "why": "long"
+  },
+  {
+    "id": "6c1a191cc6d1633f",
+    "owner": "src/renderer/app/features/loop/loop-past-runs-panel.component.ts",
+    "text": "Stop retrying this blocked run",
+    "why": "consequence"
   }
 ]

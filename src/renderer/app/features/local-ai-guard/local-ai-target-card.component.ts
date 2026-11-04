@@ -23,6 +23,7 @@ import type {
   LocalAiPublicRecoveryAttempt,
 } from '../../../../shared/types/local-ai-guard.types';
 import { LocalAiGuardStore } from '../../core/state/local-ai-guard.store';
+import { LOCAL_AI_FAILURE_REASONS } from './local-ai-failure-copy';
 import { LOCAL_AI_GUARD_CLOCK } from './local-ai-guard-clock';
 import { LocalAiModalCoordinator } from './local-ai-modal-coordinator';
 
@@ -453,7 +454,7 @@ export class LocalAiTargetCardComponent {
     if (!result) return 'Not checked';
     if (result.ok) return `${result.durationMs} ms`;
     return result.failureCode
-      ? result.failureCode.split('-').map(capitalize).join(' ')
+      ? LOCAL_AI_FAILURE_REASONS[result.failureCode]
       : 'Needs attention';
   }
 

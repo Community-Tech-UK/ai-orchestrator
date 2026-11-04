@@ -24,7 +24,7 @@ import * as readiness from './plan-queue-readiness';
 import { PlanQueueStore } from './plan-queue-store';
 import type { VerifierSelectInput } from './plan-queue-verifier-select';
 
-const landing = vi.hoisted(() => ({ active: 0, max: 0, hang: false, hung: false, hangPromotion: false }));
+const landing = vi.hoisted(() => ({ active: 0, max: 0, hang: false, hung: false, hangPromotion: false, hookTimeout: false }));
 vi.mock('./plan-queue-landing', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./plan-queue-landing')>();
   return {
@@ -33,6 +33,9 @@ vi.mock('./plan-queue-landing', async (importOriginal) => {
       if (landing.hang) {
         landing.hung = true;
         return new Promise<never>(() => undefined);
+      }
+      if (landing.hookTimeout) {
+        return { status: 'hook-failed' as const, output: '[plan queue] the pre-commit hook timed out after 3600000ms', timedOut: true };
       }
       landing.active += 1;
       landing.max = Math.max(landing.max, landing.active);
@@ -278,6 +281,7 @@ beforeEach(() => {
   landing.hang = false;
   landing.hung = false;
   landing.hangPromotion = false;
+  landing.hookTimeout = false;
   repo = realpathSync(mkdtempSync(join(tmpdir(), 'plan-queue-coord-')));
   git(['init', '-q', '-b', 'main']);
   git(['config', 'user.name', 'Plan Queue Test']);
@@ -1733,6 +1737,29 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     expect(git(['show', 'main:2026-01-01-alpha_plan.feature.txt'])).toBe('built 2026-01-01-alpha_plan');
   });
 
+  it('Resume sends the worker the findings the item was parked with', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.verifier = (instance) => {
+      coordinator.reportVerdict(instance.id, {
+        item_id: itemIdOf(instance), verdict: 'FAIL', gates_run: [], document_complete: false, need_james: [],
+        findings: [{ severity: 'high', confidence: 90, summary: 'The retry path never resets the attempt counter.' }],
+      });
+    };
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans', config: { maxRounds: 1 } });
+    await waitForRun(run.id);
+    const parked = coordinator.getRunDto(run.id)!.items[0];
+    expect(parked.state).toBe('parked');
+    fake.scripts.verifier = pass;
+
+    await coordinator.control({ action: 'resume-item', itemId: parked.id });
+    await waitForRun(run.id);
+
+    const resumedWorker = fake.created.filter((i) => i.role === 'worker').at(-1)!;
+    expect(resumedWorker.config.initialPrompt).toContain('James resumed this parked item');
+    expect(resumedWorker.config.initialPrompt).toContain('The retry path never resets the attempt counter.');
+  });
+
   it('Resume checks a held item out again when its folder was half-removed, then checks and lands it', async () => {
     appendFileSync(join(repo, '.gitignore'), '_scratch/\n');
     git(['commit', '-qam', 'ignore scratch']);
@@ -2117,6 +2144,25 @@ describe('PlanQueueCoordinator — the landing commit runs the repository hooks'
     const bounce = fake.inputs.find((m) => m.instanceId === worker.id);
     expect(bounce?.message).toContain('related test failed: retry.spec.ts');
     expect(git(['log', '--format=%s', 'main']).split('\n')).toEqual(['Plan: 2026-01-01-alpha_plan', 'base']);
+  });
+
+  it('parks at once, with no worker round, when the hook runs out of time', async () => {
+    landing.hookTimeout = true;
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForRun(run.id);
+
+    const item = coordinator.getRunDto(run.id)!.items[0];
+    expect(item).toMatchObject({ state: 'parked', parkReason: 'land-blocked', round: 1 });
+    expect(item.detail).toContain('ran out of time');
+    expect(store.getItem(item.id)!.landingRefusals).toBe(0);
+    // Only the first worker turn: nothing was sent back to a worker for the timeout.
+    const workers = fake.created.filter((i) => i.role === 'worker');
+    expect(workers).toHaveLength(1);
+    expect(fake.inputs.filter((m) => m.instanceId === workers[0].id)).toHaveLength(0);
+    expect(git(['log', '--format=%s', 'main'])).toBe('base');
   });
 
   it('parks, landing nothing, when the hook refuses the landing a second time', async () => {
@@ -2720,19 +2766,37 @@ describe('PlanQueueCoordinator — handing a stuck document to the step-up worke
 });
 
 describe('queue spend reductions', { timeout: 30_000 }, () => {
-  it('waits for capacity and starts on a later pump, while real preparation failures still park', async () => {
-    planDoc('2026-01-01-capacity');
+  it('starts queue work while the shared worktree limit is full, and its checkouts never use that limit up', async () => {
+    planDoc('2026-01-01-limit-one');
+    planDoc('2026-01-01-limit-two');
     fake.scripts.worker = never;
-    const prepare = vi.spyOn(coordinator.worktrees, 'prepare').mockRejectedValue(new WorktreeCapacityError('Maximum concurrent worktrees (5) reached'));
-    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
+    const manager = WorktreeManager.getInstance();
+    manager.configure({ maxConcurrent: 1 });
+    const options = { repoRoot: repo, baseBranch: 'main', skipInstall: true };
+    // Something else (a loop, say) already holds the only shared place.
+    const holder = await manager.createWorktree('loop-holder', 'loop holder', options);
+
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans', config: { workerSlots: 2 } });
+    await vi.waitFor(() => expect(store.listItems(run.id).map((item) => item.state)).toEqual(['working', 'working']), { timeout: 15_000, interval: 50 });
+
+    // With two queue checkouts in use, the place the loop frees is still available to the next loop.
+    await expect(manager.createWorktree('loop-blocked', 'loop blocked', options)).rejects.toBeInstanceOf(WorktreeCapacityError);
+    await manager.cleanupWorktree(holder.id, { force: true });
+    await expect(manager.createWorktree('loop-next', 'loop next', options)).resolves.toBeDefined();
+  });
+
+  it('clears the note older builds saved while waiting for a worktree when the item starts', async () => {
+    planDoc('2026-01-01-legacy-note');
+    fake.scripts.worker = never;
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans', config: { workerSlots: 1 } });
+    await vi.waitFor(() => expect(store.listItems(run.id)[0].state).toBe('working'), { timeout: 15_000, interval: 50 });
+    await coordinator.control({ action: 'pause', runId: run.id });
     await coordinator._whenSettledForTesting();
-    const waiting = store.listItems(run.id)[0];
-    expect(waiting).toMatchObject({ state: 'queued', round: 0, parkReason: null, detail: 'Waiting for a free worktree (Harness allows 5 at once).' });
-    prepare.mockRestore();
-    coordinator.requestPump();
-    await coordinator._whenSettledForTesting();
-    expect(store.getItem(waiting.id)).toMatchObject({ state: 'working', detail: null });
-    prepare.mockRestore();
+    const held = store.listItems(run.id)[0];
+    store.upsertItem({ ...held, detail: 'Waiting for a free worktree (Harness allows 5 at once).' });
+
+    await coordinator.control({ action: 'resume', runId: run.id });
+    await vi.waitFor(() => expect(store.getItem(held.id)).toMatchObject({ state: 'working', detail: null }), { timeout: 15_000, interval: 50 });
   });
 
   it('keeps genuine preparation errors parked', async () => {
@@ -2791,4 +2855,55 @@ it('clears the former conversation before handing work to the step-up worker', a
   expect(sawInitialSession).toBe(true);
   expect(sawClearedSession).toBe(true);
   expect(store.listItems(run.id)[0].workerSession).toBeUndefined();
+}, 30_000);
+
+it('closes a worker with a saved conversation while its work waits for a check, and reopens it for the fix', async () => {
+  planDoc('2026-01-01-close-while-checking');
+  fake.scripts.worker = async (instance, message, source) => {
+    instance.providerSessionId = `conversation-${instance.id}`;
+    await implement(instance, message, source);
+  };
+  let checks = 0;
+  fake.scripts.verifier = (instance) => {
+    checks += 1;
+    const item = store.getItem(itemIdOf(instance))!;
+    // The first worker is gone and no session is left linked to the item while it is checked.
+    expect(item.workerInstanceId).toBeNull();
+    expect(fake.getAllInstances().filter((i) => i.role === 'worker')).toEqual([]);
+    coordinator.reportVerdict(instance.id, {
+      item_id: itemIdOf(instance), verdict: checks === 1 ? 'FAIL' : 'PASS',
+      findings: checks === 1 ? [{ severity: 'high', confidence: 90, summary: 'Retry guard is missing.' }] : [],
+      gates_run: [], document_complete: true, need_james: [],
+    });
+  };
+  const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans', config: { maxRounds: 3 } });
+  await waitForRun(run.id);
+
+  expect(store.listItems(run.id)[0]).toMatchObject({ state: 'landed', round: 2 });
+  const workers = fake.created.filter((i) => i.role === 'worker');
+  expect(workers).toHaveLength(2);
+  // The fix round reopened the first worker's conversation with the findings, rather than starting over.
+  expect(workers[1].config).toMatchObject({ sessionId: `conversation-${workers[0].id}`, resume: true });
+  expect(workers[1].config.initialPrompt).toContain('Retry guard is missing.');
+  expect(fake.inputs.filter((m) => workers.some((w) => w.id === m.instanceId))).toEqual([]);
+}, 30_000);
+
+it('parks the item, rather than leaving it stuck, when its worker cannot be closed for the check', async () => {
+  planDoc('2026-01-01-close-fails');
+  fake.scripts.worker = async (instance, message, source) => {
+    instance.providerSessionId = `conversation-${instance.id}`;
+    await implement(instance, message, source);
+  };
+  const terminate = fake.terminateInstance.bind(fake);
+  vi.spyOn(fake, 'terminateInstance').mockImplementation(async (id) => {
+    if (fake.getInstance(id)?.role === 'worker') throw new Error('archive failed');
+    await terminate(id);
+  });
+  const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
+  await vi.waitFor(() => expect(store.listItems(run.id)[0].state).toBe('parked'), { timeout: 15_000, interval: 50 });
+
+  const item = store.listItems(run.id)[0];
+  expect(item).toMatchObject({ parkReason: 'worker-error', workerInstanceId: fake.created.find((i) => i.role === 'worker')!.id });
+  expect(item.detail).toContain('Could not close the worker while its work waits for a check: archive failed');
+  expect(fake.created.filter((i) => i.role === 'verifier')).toEqual([]);
 }, 30_000);

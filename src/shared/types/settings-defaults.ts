@@ -141,6 +141,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   workloadLevel: 3,
   maxChildrenPerParent: 10,
   maxTotalInstances: 20,
+  maxConcurrentWorktrees: 20,
   concurrencyLimitByProvider: { copilot: 10, cursor: 8, grok: 6, opencode: 20 },
   autoTerminateIdleMinutes: 30,
   allowNestedOrchestration: false,

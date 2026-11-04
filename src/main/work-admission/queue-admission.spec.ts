@@ -21,7 +21,7 @@ describe('queue admission', () => {
     admission.setWorkloadLevel(5);
     const policy = queueAdmission({ workerSlots: 3, verificationSlots: 2, maxLoadAverage: 30 }, 10, 10);
     expect(policy.workerSlots).toBe(5);
-    expect(policy.verificationSlots).toBe(3);
+    expect(policy.verificationSlots).toBe(4);
     expect(policy.canStartWorker(4)).toBe(true);
   });
 });

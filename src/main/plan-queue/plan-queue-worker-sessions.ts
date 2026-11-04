@@ -3,7 +3,7 @@ import { getLogger } from '../logging/logger';
 import type { PlanQueueFlowHost, PlanQueueInstancePort } from './plan-queue-host';
 import { hasCheckout } from './plan-queue-orphan-checkout';
 import { unresolvedMergeFiles } from './plan-queue-git';
-import { buildConflictPrompt } from './plan-queue-prompts';
+import { buildConflictPrompt, buildParkedCarryOver } from './plan-queue-prompts';
 import type { PlanQueueRun, PlanQueueItem } from './plan-queue.types';
 const logger = getLogger('PlanQueueWorkerSessions');
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
@@ -33,6 +33,15 @@ export class PlanQueueWorkerSessions {
     };
   }
 
+  /**
+   * Resume clears a parked item's verdict and park note, which its next worker still needs:
+   * keep them as the pending instruction (one that is already pending wins).
+   */
+  carryOverForResume(id: string): string | null {
+    const item = this.deps.host.getItem(id);
+    return item.pendingInstruction ?? (item.state === 'parked' ? buildParkedCarryOver(item) : null);
+  }
+
   /** The conflict prompt again, when the worktree holds a merge the worker never finished. */
   async conflictAddendum(item: PlanQueueItem, run: PlanQueueRun): Promise<string> {
     if (!item.worktreePath || !(await hasCheckout(item.worktreePath))) return '';
@@ -51,6 +60,26 @@ export class PlanQueueWorkerSessions {
       accountProfileId: instance.accountProfileId ?? instance.copilotAccountProfileId ?? null,
       providerSessionId: instance.providerSessionId, workingDirectory: instance.workingDirectory, recordedAt: Date.now(),
     } });
+  }
+
+  /**
+   * Close a worker whose conversation is saved, so it does not sit idle while its
+   * work waits for a check; a fix round reopens that conversation. One that could
+   * not be reopened stays open. True when the worker was closed; null when closing
+   * failed and the item was parked, since an untracked worker would leave it stuck.
+   */
+  async closeIfSaved(item: PlanQueueItem, instanceId: string): Promise<boolean | null> {
+    const sessionId = this.deps.host.instances.getInstance(instanceId)?.providerSessionId?.trim();
+    if (!sessionId || item.workerSession?.providerSessionId !== sessionId) return false;
+    try { await this.deps.stop(instanceId); }
+    catch (error) {
+      this.deps.host.transition(this.deps.host.getItem(item.id), 'parked', {
+        parkReason: 'worker-error',
+        detail: `Could not close the worker while its work waits for a check: ${errorMessage(error)}. Its session is retained. Resume retries stopping it before starting another worker.`,
+      });
+      return null;
+    }
+    return true;
   }
 
   watch(instance: Awaited<ReturnType<PlanQueueInstancePort['createInstance']>>, item: PlanQueueItem, prompt: string): void {

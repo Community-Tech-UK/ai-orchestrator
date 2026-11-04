@@ -3,6 +3,8 @@
  * Based on validated patterns from CodeRabbit git-worktree-runner, Nx, incident.io
  */
 
+import { DEFAULT_SETTINGS } from './settings-defaults';
+
 export type WorktreeStatus =
   | 'creating' // Being set up
   | 'installing' // Running npm install
@@ -34,7 +36,8 @@ export interface WorktreeConfig {
   installCommand?: string; // Custom install command (default: npm install --prefer-offline)
 
   // Limits
-  maxConcurrent: number; // Max simultaneous worktrees (recommended: 3-5)
+  /** Max worktrees counted as in use at once; 0 = unlimited. Kept in sync with the `maxConcurrentWorktrees` setting. */
+  maxConcurrent: number;
   maxAgeHours: number; // Auto-cleanup abandoned worktrees after N hours
 }
 
@@ -178,7 +181,7 @@ export function createDefaultWorktreeConfig(): WorktreeConfig {
     copyExclude: ['node_modules/**', '.git/**', 'dist/**', 'build/**', 'coverage/**'],
     installDeps: true,
     installCommand: 'npm install --prefer-offline',
-    maxConcurrent: 5,
+    maxConcurrent: DEFAULT_SETTINGS.maxConcurrentWorktrees,
     maxAgeHours: 48,
   };
 }

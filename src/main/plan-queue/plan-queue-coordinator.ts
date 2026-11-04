@@ -8,7 +8,8 @@
  * caller-checked MCP tools. See docs/plans/2026-09-18-plan-queue_spec_completed.md.
  *
  * Concurrency: worker slots per run (items holding a worktree), verification
- * slots shared by every run, and one landing at a time (PlanQueueItemFlow).
+ * slots shared by the runs in one project folder, and one landing at a time
+ * (PlanQueueItemFlow).
  */
 import { randomUUID } from 'crypto';
 import { EventEmitter } from 'events';

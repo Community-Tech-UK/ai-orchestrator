@@ -237,8 +237,10 @@ describe('reconcileManagedWorktreeLifecycles', () => {
       lastError: 'Managed integration branch identity could not be verified',
     });
     expect(await git(['rev-parse', 'main'], repo)).toBe(mainBefore);
-    expect(existsSync(worktreePath)).toBe(true);
-    expect(cleared).toEqual([]);
+    // The blocked run keeps its branch for review; its clean folder holds nothing more and is released.
+    expect(await git(['rev-parse', branchName], repo)).toBe(originalSessionTip);
+    expect(existsSync(worktreePath)).toBe(false);
+    expect(cleared).toEqual([row.id]);
   });
 
   it('blocks and retains a worktree when its live ownership cannot be inspected', async () => {
@@ -328,7 +330,7 @@ describe('reconcileManagedWorktreeLifecycles', () => {
     expect(await git(['ls-tree', '--name-only', 'main'], repo)).toContain('late-output.txt');
   });
 
-  it('keeps a blocked run blocked when its clean session branch moved outside AIO', async () => {
+  it('keeps a blocked run blocked when its clean session branch moved outside AIO, releasing only its folder', async () => {
     const { store, row, cleared } = fakeStore();
     await git(['branch', '-D', 'integration/main'], repo);
     await git(['update-ref', '-d', 'refs/aio/managed-integrations/integration/main'], repo);
@@ -357,7 +359,35 @@ describe('reconcileManagedWorktreeLifecycles', () => {
     expect(await git(['rev-parse', 'main'], repo)).toBe(mainBefore);
     expect(await git(['branch', '--list', 'integration/main'], repo)).toBe('');
     expect(await git(['rev-parse', branchName], repo)).toBe(rescuedTip);
-    expect(existsSync(worktreePath)).toBe(true);
+    // Review reads the branch, so the clean folder goes; the branch and the block stay.
+    expect(existsSync(worktreePath)).toBe(false);
+    expect(cleared).toEqual([row.id]);
+
+    // A later start keeps the run blocked with the same reason James was shown.
+    const again = await reconcileManagedWorktreeLifecycles(store);
+    expect(again).toEqual({ reconciled: 0, blocked: 1, total: 1 });
+    expect(row.lifecycle).toMatchObject({
+      phase: 'blocked',
+      lastError: 'Session branch changed outside AIO; review it before landing',
+    });
+    expect(await git(['rev-parse', branchName], repo)).toBe(rescuedTip);
+    expect(await git(['rev-parse', 'main'], repo)).toBe(mainBefore);
+  });
+
+  it('keeps the folder of a blocked run while it still holds work that is not on the branch', async () => {
+    const { store, row, cleared } = fakeStore();
+    writeFileSync(join(worktreePath, 'unsaved.txt'), 'not committed\n');
+    // Harvest cannot commit while the checkout's index is locked.
+    const gitDir = await git(['rev-parse', '--absolute-git-dir'], worktreePath);
+    writeFileSync(join(gitDir, 'index.lock'), '');
+    row.lifecycle = { ...row.lifecycle, phase: 'blocked', lastError: 'Harvest failed with uncommitted work' };
+
+    const result = await reconcileManagedWorktreeLifecycles(store);
+
+    unlinkSync(join(gitDir, 'index.lock'));
+    expect(result.blocked).toBe(1);
+    expect(row.lifecycle.phase).toBe('blocked');
+    expect(existsSync(join(worktreePath, 'unsaved.txt'))).toBe(true);
     expect(cleared).toEqual([]);
   });
 

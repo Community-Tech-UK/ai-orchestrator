@@ -111,7 +111,7 @@ export const PLAN_QUEUE_TOOL_SPECS = {
         kind: { type: 'string', enum: ['plans', 'livetests'], description: '"plans" for *_plan.md documents, "livetests" for *_livetest.md documents.' },
         glob: { type: 'string', description: 'Optional repo-relative filter, for example "docs/plans/2026-09-*". Defaults to every matching document under docs/.' },
         worker_slots: { type: 'integer', minimum: 1, maximum: 8, description: 'Documents worked at once. Default 3 for plans, 1 for livetests.' },
-        verification_slots: { type: 'integer', minimum: 1, maximum: 4, description: 'Verifications at once across all runs. Default 2 for plans.' },
+        verification_slots: { type: 'integer', minimum: 1, maximum: 8, description: 'Verifications at once in this project folder, shared by its runs. Default 2 for plans.' },
         max_rounds: { type: 'integer', minimum: 1, maximum: 10, description: 'Verification rounds before an item is parked, or handed to the step-up worker when one is set. Default 3.' },
         relax_settings: { type: 'boolean', description: 'Temporarily relax computerUseAutonomyLevel and providersExcludedFromAutomation for this run only. Only when James asked for it.' },
         verifier_gates: { type: 'array', items: { type: 'string' }, description: 'Commands every verifier must run and report. Defaults to this app\'s canonical checklist; pass the target repository\'s own commands for any other repository, or [] to let the verifier use the repository\'s documented checks.' },

@@ -124,13 +124,21 @@ export function getPendingLoopWorktreeLifecycles(
 export function getLoopWorktreeRecord(
   db: SqliteDriver,
   loopRunId: string,
-): { worktreePath: string | null; lifecycle?: LoopWorktreeLifecycle } | null {
+): { worktreePath: string | null; workspaceCwd: string | null; lifecycle?: LoopWorktreeLifecycle } | null {
   const row = db.prepare(
-    'SELECT worktree_path, worktree_lifecycle_json FROM loop_runs WHERE id = ?',
-  ).get<{ worktree_path: string | null; worktree_lifecycle_json: string | null }>(loopRunId);
+    'SELECT worktree_path, worktree_lifecycle_json, config_json FROM loop_runs WHERE id = ?',
+  ).get<{ worktree_path: string | null; worktree_lifecycle_json: string | null; config_json: string }>(loopRunId);
   if (!row) return null;
+  let workspaceCwd: string | null = null;
+  try {
+    const config = JSON.parse(row.config_json) as { workspaceCwd?: unknown };
+    if (typeof config.workspaceCwd === 'string') workspaceCwd = config.workspaceCwd;
+  } catch {
+    // A row with unreadable settings still reports its lifecycle; it just cannot have its folder removed.
+  }
   return {
     worktreePath: row.worktree_path,
+    workspaceCwd,
     lifecycle: parseWorktreeLifecycle(row.worktree_lifecycle_json),
   };
 }

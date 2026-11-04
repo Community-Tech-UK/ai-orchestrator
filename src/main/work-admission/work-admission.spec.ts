@@ -63,7 +63,7 @@ describe('work admission', () => {
     expect(admission.check('loop-round')).toMatchObject({ allowed: false, reason: 'computer-busy' });
     admission.setWorkloadLevel(5);
     expect(admission.check('loop-round')).toEqual({ allowed: true });
-    expect(limitsFor(5, 18)).toMatchObject({ queueWorkerMinimum: 5, queueCheckMinimum: 3, queueLoadMinimum: 54, backgroundMultiplier: 2 });
+    expect(limitsFor(5, 18)).toMatchObject({ queueWorkerMinimum: 5, queueCheckMinimum: 4, queueLoadMinimum: 54, backgroundMultiplier: 2 });
   });
 
   it('replays a wake-up after the load drops without losing it', () => {

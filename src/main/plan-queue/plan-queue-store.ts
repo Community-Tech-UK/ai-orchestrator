@@ -294,6 +294,18 @@ export class PlanQueueStore {
       .map(rowToItem);
   }
 
+  /** Parked or landed items that still record a worktree folder, across all runs. */
+  listItemsWithKeptFolders(): PlanQueueItem[] {
+    return this.db
+      .prepare(`
+        SELECT * FROM plan_queue_items
+        WHERE state IN ('parked', 'landed') AND worktree_path IS NOT NULL
+        ORDER BY created_at, id
+      `)
+      .all<ItemRow>()
+      .map(rowToItem);
+  }
+
   /** Every item that has ever been given a branch or worktree, across all runs. */
   listItemsWithGitOwnership(): PlanQueueItem[] {
     return this.db

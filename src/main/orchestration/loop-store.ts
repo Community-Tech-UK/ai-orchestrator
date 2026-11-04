@@ -32,7 +32,7 @@ import {
   upsertLoopCheckpoint,
 } from './loop-store-checkpoints';
 import { countLoopIterations, insertLoopIteration, selectLoopIterations } from './loop-store-iterations';
-import { closeStoredLoopRun } from './loop-store-close';
+import { closeStaleProviderLimitParks, closeStoredLoopRun } from './loop-store-close';
 import {
   getLoopWorktreeRecord,
   getPendingLoopWorktreeLifecycles,
@@ -156,6 +156,8 @@ interface LoopTerminalIntentRow {
 export class LoopStore {
   constructor(private readonly db: SqliteDriver) {}
   closeStoredRun(loopRunId: string): boolean { return closeStoredLoopRun(this.db, loopRunId); }
+  /** Boot only, before worktree reconcile. */
+  closeStaleProviderLimitParks(scheduledResumes: ReadonlySet<string>): string[] { return closeStaleProviderLimitParks(this.db, scheduledResumes); }
 
   /**
    * Insert / overwrite a loop run row from in-memory state.

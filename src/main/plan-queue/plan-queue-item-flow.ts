@@ -18,7 +18,6 @@ import type { InstanceProvider } from '../../shared/types/instance.types';
 import { AUTOMATION_FAILURE_STATUSES } from '../../shared/types/instance-status-policy';
 import { getLogger } from '../logging/logger';
 import { holdFromReclaim, releaseReclaimHold } from '../process/reclaim-holds';
-import { WorktreeCapacityError } from '../workspace/git/worktree-manager';
 import { gitExec } from '../workspace/git/git-exec';
 import { appendParkedNote, removeParkedNote } from './plan-queue-doc-close';
 import {
@@ -37,6 +36,7 @@ import { unreportedVerifierReason, type PlanQueueTurnOutcome } from './plan-queu
 import { hasPendingLandingCleanup, PlanQueueItemLanding } from './plan-queue-item-landing';
 import { syncItemWithBase } from './plan-queue-landing';
 import { hasCheckout, quarantineOrphanCheckout, retainedQueuePathExists } from './plan-queue-orphan-checkout';
+import { PlanQueueKeptFolders } from './plan-queue-kept-folders';
 import { planQueueBranchName } from './plan-queue-worktree';
 import {
   buildConflictPrompt,
@@ -82,7 +82,11 @@ export class PlanQueueItemFlow {
   private landingChain: Promise<void> = Promise.resolve();
   private readonly landing: PlanQueueItemLanding;
 
+  /** Folders an earlier park or landing had to keep; the scheduler retries them. */
+  readonly keptFolders: PlanQueueKeptFolders;
+
   constructor(private readonly host: PlanQueueFlowHost) {
+    this.keptFolders = new PlanQueueKeptFolders(host, (id, action) => this.withItemLock(id, action));
     this.workerSessions = new PlanQueueWorkerSessions({
       host, lock: (id, action) => this.withItemLock(id, action),
       stop: (id) => this.stopInstance(id), spawn: (item, prompt) => this.spawnWorker(item, prompt, null),
@@ -148,11 +152,6 @@ export class PlanQueueItemFlow {
           ? await this.host.worktrees.reattach(item, run.workspaceCwd)
           : await this.host.worktrees.prepare(item, run.workspaceCwd);
       } catch (error) {
-        if (error instanceof WorktreeCapacityError || (error instanceof Error && error.cause instanceof WorktreeCapacityError)) {
-          logger.info('Plan queue: waiting for a free worktree', { itemId: item.id });
-          this.host.transition(this.host.getItem(item.id), 'queued', { detail: 'Waiting for a free worktree (Harness allows 5 at once).' });
-          return;
-        }
         await this.parkUnlocked(this.host.getItem(item.id), 'worktree-error', `Could not prepare the worktree: ${errorMessage(error)}`);
         return;
       }
@@ -323,11 +322,13 @@ export class PlanQueueItemFlow {
       switch (outcome.kind) {
         case 'turn-complete':
           try {
-            // What did this round's work, read before the checkpoint can yield, for its checker once the session is gone ('auto' only before startup resolves it).
+            // What did this round's work, read before the session closes, for its checker ('auto' only before startup resolves it).
             const live = this.host.instances.getInstance(instanceId);
             const ranOn = live?.provider && live.provider !== 'auto' ? { workerProvider: live.provider, workerModel: live.currentModel } : {};
+            const closed = await this.workerSessions.closeIfSaved(item, instanceId);
+            if (closed === null) return;
             const checkpointed = await this.host.worktrees.checkpoint(item, `round ${item.round + 1} work`);
-            this.host.transition(checkpointed, 'awaiting-slot', { question: null, detail: null, pendingInstruction: null, ...ranOn });
+            this.host.transition(checkpointed, 'awaiting-slot', { question: null, detail: null, pendingInstruction: null, ...ranOn, ...(closed ? { workerInstanceId: null } : {}) });
             this.host.requestPump();
           } catch (error) {
             if (error instanceof UnresolvedMergeError) {
@@ -617,7 +618,7 @@ export class PlanQueueItemFlow {
       const item = this.host.getItem(itemId);
       await Promise.all([item.workerInstanceId, item.verifierInstanceId].filter((id): id is string => Boolean(id)).map(id => this.stopInstance(id)));
       // `steppedUpAt` stays: a handed-over document resumes on the step-up choice and is never handed over twice.
-      this.host.transition(this.host.getItem(itemId), 'queued', { parkReason: null, detail: null, heldAt: null, round: 0, erroredRounds: 0, landingRefusals: 0, question: null, landedCommit: null, verdict: null, verifiedMainCommit: null });
+      this.host.transition(this.host.getItem(itemId), 'queued', { parkReason: null, detail: null, heldAt: null, round: 0, erroredRounds: 0, landingRefusals: 0, question: null, landedCommit: null, verdict: null, verifiedMainCommit: null, pendingInstruction: this.workerSessions.carryOverForResume(itemId) });
     });
   }
 

@@ -17,6 +17,7 @@ import { WorktreeCapacityError, WorktreeManager, _resetWorktreeManagerForTesting
 import { GitWriteQueue } from './git-write-queue';
 import { hermeticGitEnv } from './git-env';
 import * as gitCommands from './git-exec';
+import { DEFAULT_SETTINGS } from '../../../shared/types/settings.types';
 
 const execFileAsync = promisify(execFile);
 async function git(args: string[], cwd: string): Promise<string> {
@@ -166,14 +167,47 @@ describe('WorktreeManager.integrateWorktree — auto-integration (real git)', ()
     }
   });
 
-  it('rejects a sixth active worktree with a typed capacity error', async () => {
+  it('defaults to the setting default and names the setting when the limit is reached', async () => {
     const mgr = WorktreeManager.getInstance();
-    for (let n = 0; n < 5; n++) await mgr.createWorktree(`capacity-${n}`, `capacity ${n}`, {
-      repoRoot: repo, baseBranch: 'main', skipInstall: true,
-    });
-    await expect(mgr.createWorktree('capacity-sixth', 'sixth', { repoRoot: repo, baseBranch: 'main', skipInstall: true }))
-      .rejects.toBeInstanceOf(WorktreeCapacityError);
-    expect(mgr.getConfig().maxConcurrent).toBe(5);
+    expect(mgr.getConfig().maxConcurrent).toBe(DEFAULT_SETTINGS.maxConcurrentWorktrees);
+    mgr.configure({ maxConcurrent: 2 });
+    const options = { repoRoot: repo, baseBranch: 'main', skipInstall: true };
+    for (let n = 0; n < 2; n++) await mgr.createWorktree(`capacity-${n}`, `capacity ${n}`, options);
+
+    const refused = mgr.createWorktree('capacity-third', 'third', options);
+    await expect(refused).rejects.toBeInstanceOf(WorktreeCapacityError);
+    await expect(refused).rejects.toThrow('Harness allows 2 worktrees in use at once and all 2 are taken. '
+      + 'Finish or remove one, or raise the "Worktrees in use at once" setting (maxConcurrentWorktrees).');
+  });
+
+  it('keeps worktrees whose caller limits itself out of the count, before and after cleanup', async () => {
+    const mgr = WorktreeManager.getInstance();
+    mgr.configure({ maxConcurrent: 1 });
+    const options = { repoRoot: repo, baseBranch: 'main', skipInstall: true };
+    const queued = [
+      await mgr.createWorktree('queue-1', 'queue one', { ...options, countsTowardLimit: false }),
+      await mgr.createWorktree('queue-2', 'queue two', { ...options, countsTowardLimit: false }),
+    ];
+
+    // A full limit does not stop an uncounted worktree, and uncounted ones never use up the limit.
+    const counted = await mgr.createWorktree('loop-1', 'loop one', options);
+    await expect(mgr.createWorktree('loop-2', 'loop two', options)).rejects.toBeInstanceOf(WorktreeCapacityError);
+    await expect(mgr.createWorktree('queue-3', 'queue three', { ...options, countsTowardLimit: false })).resolves.toBeDefined();
+
+    // Cleanup frees the counted place; removing uncounted ones changes nothing for the limit.
+    for (const session of queued) await mgr.cleanupWorktree(session.id, { force: true });
+    await expect(mgr.createWorktree('loop-3', 'loop three', options)).rejects.toBeInstanceOf(WorktreeCapacityError);
+    await mgr.cleanupWorktree(counted.id, { force: true });
+    await expect(mgr.createWorktree('loop-4', 'loop four', options)).resolves.toBeDefined();
+  });
+
+  it('treats a limit of 0 as no limit', async () => {
+    const mgr = WorktreeManager.getInstance();
+    mgr.configure({ maxConcurrent: 0 });
+    for (let n = 0; n < 3; n++) {
+      await expect(mgr.createWorktree(`unlimited-${n}`, `unlimited ${n}`, { repoRoot: repo, baseBranch: 'main', skipInstall: true }))
+        .resolves.toBeDefined();
+    }
   });
 
   it('merges a session worktree branch into integration/main and marks it merged', async () => {

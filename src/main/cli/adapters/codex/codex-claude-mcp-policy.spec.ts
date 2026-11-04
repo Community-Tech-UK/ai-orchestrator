@@ -1,17 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { disableClaudeCallbackTools } from './codex-claude-mcp-policy';
+import { disableClaudeToolsCodexCannotUse } from './codex-claude-mcp-policy';
 
-describe('Claude callback tools in generated Codex configuration', () => {
+describe('Claude tools Codex cannot use in generated Codex configuration', () => {
+  it('disables the Claude subagent tool alongside Bash for the Claude Code server', () => {
+    const config = '[mcp_servers.claude-code]\ncommand = "/Users/me/.local/bin/claude"\nargs = ["mcp", "serve"]\n'
+      + 'disabled_tools = ["Bash"]\n';
+    const filtered = disableClaudeToolsCodexCannotUse(config);
+    expect(filtered).toMatch(/disabled_tools = \["Bash", "Monitor", [^\n]*"TaskStop", "Agent"\]/);
+    expect(disableClaudeToolsCodexCannotUse(filtered)).toBe(filtered);
+  });
   it('supports native Codex TOML 1.1 escapes and multiline inline tables with trailing commas', () => {
     const config = String.raw`mcp_servers.fixture = {
 command = "claude",
 args = ["mcp", "serve", "\e", "\x1b"],
 }
 `;
-    const filtered = disableClaudeCallbackTools(config);
+    const filtered = disableClaudeToolsCodexCannotUse(config);
     expect(filtered).toContain('disabled_tools = ["Monitor", "ScheduleWakeup"');
     expect(filtered).toContain(String.raw`args = ["mcp", "serve", "\e", "\x1b"],`);
-    expect(disableClaudeCallbackTools(filtered)).toBe(filtered);
+    expect(disableClaudeToolsCodexCannotUse(filtered)).toBe(filtered);
   });
   it('handles prototype-like server names and decoded keys without mutating object prototypes', () => {
     const before = Object.getOwnPropertyDescriptors(Object.prototype);
@@ -20,11 +27,11 @@ mcp_servers.constructor.command = "claude"
 mcp_servers.constructor.args = ["mcp", "serve"]
 unrelated.__proto__.codexPolicyProbe = "keep me"
 `;
-    const filtered = disableClaudeCallbackTools(config);
+    const filtered = disableClaudeToolsCodexCannotUse(config);
     expect(filtered.match(/"Monitor", "ScheduleWakeup"/g)).toHaveLength(2);
     expect(filtered).toContain('unrelated.__proto__.codexPolicyProbe = "keep me"');
     expect(Object.getOwnPropertyDescriptors(Object.prototype)).toEqual(before);
-    expect(disableClaudeCallbackTools(filtered)).toBe(filtered);
+    expect(disableClaudeToolsCodexCannotUse(filtered)).toBe(filtered);
   });
   it.each([
     ['root dotted inline', 'mcp_servers.fixture = { command = "claude", args = ["mcp", "serve"], unknown = "keep me" }\n'],
@@ -36,10 +43,10 @@ unrelated.__proto__.codexPolicyProbe = "keep me"
     ['quoted dotted inline', '"mcp_servers"."fixture.name" = { "command" = "claude", \'args\' = ["mcp", "serve"], unknown = "keep me" }\n'],
     ['existing inline denial', 'mcp_servers.fixture = { command = "claude", args = ["mcp", "serve"], disabled_tools = ["Existing"], unknown = "keep me" }\n'],
   ])('filters the native-valid %s representation without rewriting unrelated text', (_name, config) => {
-    const filtered = disableClaudeCallbackTools(config);
+    const filtered = disableClaudeToolsCodexCannotUse(config);
     expect(filtered).toContain('"Monitor", "ScheduleWakeup"');
     expect(filtered).toContain('unknown = "keep me"');
-    expect(disableClaudeCallbackTools(filtered)).toBe(filtered);
+    expect(disableClaudeToolsCodexCannotUse(filtered)).toBe(filtered);
     expect(filtered.replace(/(?:[A-Za-z_".]+\.)?disabled_tools = \[(?:"[^"]+"(?:, )?)+\](?:, |\n)?/, '')).toBe(
       config.replace(/disabled_tools = \["Existing"\], /, ''),
     );
@@ -49,12 +56,12 @@ unrelated.__proto__.codexPolicyProbe = "keep me"
 command = "node"
 args = ["\U0001F600"]
 `;
-    expect(disableClaudeCallbackTools(config)).toBe(config);
+    expect(disableClaudeToolsCodexCannotUse(config)).toBe(config);
   });
 
   it('recognizes quoted keys and table names without changing their spelling', () => {
     const config = '["mcp_servers"."claude]server"] # ] in a comment\n"command" = "claude"\n\'args\' = ["mcp", "serve"]\n';
-    const filtered = disableClaudeCallbackTools(config);
+    const filtered = disableClaudeToolsCodexCannotUse(config);
     expect(filtered).toContain('["mcp_servers"."claude]server"] # ] in a comment');
     expect(filtered).toContain('disabled_tools = ["Monitor"');
   });
@@ -65,7 +72,7 @@ command = "\U00000063laude"
 args = ["\U0000006Dcp", "\u0073erve", "\U0001F600"]
 disabled_tools = ["Existing\U0001F600"]
 `;
-    const filtered = disableClaudeCallbackTools(config);
+    const filtered = disableClaudeToolsCodexCannotUse(config);
     expect(filtered).toContain('disabled_tools = ["Existing😀", "Monitor", "ScheduleWakeup"');
     expect(filtered).toContain(String.raw`args = ["\U0000006Dcp", "\u0073erve", "\U0001F600"]`);
   });
@@ -84,25 +91,25 @@ m\
  cp""", '''serve''', '''literal \U0001F600 [ ] # text''']
 disabled_tools = ["""Existing\U0001F600""", '''Literal\U0001F600''']
 `;
-    const filtered = disableClaudeCallbackTools(config);
+    const filtered = disableClaudeToolsCodexCannotUse(config);
     expect(filtered).toContain('disabled_tools = ["Existing😀", "Literal\\\\U0001F600", "Monitor"');
     expect(filtered).toContain('description =');
     expect(filtered).toContain('[mcp_servers.unrelated]\ncommand = "node"');
-    expect(disableClaudeCallbackTools(filtered)).toBe(filtered);
+    expect(disableClaudeToolsCodexCannotUse(filtered)).toBe(filtered);
   });
   it('handles comments and quoted brackets while retaining existing disabled tools', () => {
     const config = '[mcp_servers.claude]\ncommand = "claude"\nargs = ["--label", "# ]", "mcp", "serve"]\ndisabled_tools = [\n"Existing]Tool", # "comment is not a tool"\n]\n';
-    const filtered = disableClaudeCallbackTools(config);
+    const filtered = disableClaudeToolsCodexCannotUse(config);
     expect(filtered).toContain('disabled_tools = ["Existing]Tool", "Monitor"');
     expect(filtered).not.toContain('"comment is not a tool"');
     expect(filtered).toContain('args = ["--label", "# ]", "mcp", "serve"]');
   });
   it('adds a deny list for a literal-quoted Windows Claude executable and remains idempotent', () => {
     const config = "[mcp_servers.claude]\ncommand = 'C:\\Tools\\claude.exe'\nargs = ['mcp', 'serve']\n";
-    const filtered = disableClaudeCallbackTools(config);
+    const filtered = disableClaudeToolsCodexCannotUse(config);
     expect(filtered).toContain('disabled_tools = ["Monitor", "ScheduleWakeup"');
     expect(filtered).toContain("command = 'C:\\Tools\\claude.exe'");
-    expect(disableClaudeCallbackTools(filtered)).toBe(filtered);
+    expect(disableClaudeToolsCodexCannotUse(filtered)).toBe(filtered);
   });
 
   it.each([
@@ -110,6 +117,6 @@ disabled_tools = ["""Existing\U0001F600""", '''Literal\U0001F600''']
     '[mcp_servers.claude]\ncommand = "claude"\nargs = ["mcp", "list"]\n',
     '[mcp_servers.claude]\nurl = "https://example.invalid/mcp"\n',
   ])('preserves unrelated server configuration verbatim', (config) => {
-    expect(disableClaudeCallbackTools(config)).toBe(config);
+    expect(disableClaudeToolsCodexCannotUse(config)).toBe(config);
   });
 });

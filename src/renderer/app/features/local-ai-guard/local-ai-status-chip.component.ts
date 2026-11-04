@@ -3,6 +3,7 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import { Router } from '@angular/router';
 import type { LocalAiAggregateStatus } from '../../../../shared/types/local-ai-guard.types';
 import { LocalAiGuardStore } from '../../core/state/local-ai-guard.store';
+import { localAiTargetFailureReason } from './local-ai-failure-copy';
 
 const STATE_LABELS: Record<LocalAiAggregateStatus['state'], string> = {
   'not-configured': 'Not configured',
@@ -121,7 +122,20 @@ export class LocalAiStatusChipComponent {
     if (!this.store.hasAuthoritativeSnapshot()) return 'Status unavailable';
     const pauses = this.store.helperPauses();
     if (pauses.length) return `helpers paused until ${this.formatRetry(Math.min(...pauses.map(pause => pause.pausedUntil)))}`;
-    return STATE_LABELS[this.store.aggregate().state];
+    const reason = this.failureReason();
+    const label = STATE_LABELS[this.store.aggregate().state];
+    return reason ? `${label}, ${reason.charAt(0).toLowerCase()}${reason.slice(1)}` : label;
+  });
+  /** Says why when every unwell target shares one reason, so "Unavailable" is not read as unreachable. */
+  private readonly failureReason = computed(() => {
+    const state = this.store.aggregate().state;
+    if (state !== 'unavailable' && state !== 'degraded') return undefined;
+    const reasons = new Set(this.store.targets()
+      .filter(target => target.state === state
+        && target.lifecycle !== 'retired' && target.lifecycle !== 'unmanaged')
+      .map(localAiTargetFailureReason)
+      .filter(reason => reason !== undefined));
+    return reasons.size === 1 ? [...reasons][0] : undefined;
   });
   private formatRetry(at: number): string {
     return new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });

@@ -66,6 +66,24 @@ describe('LocalAiTargetCardComponent', () => {
     fixture.componentRef.setInput('now', NOW);
   });
 
+  it('names a failed check in plain words rather than its code', () => {
+    fixture.componentRef.setInput('status', {
+      ...status(),
+      state: 'unavailable',
+      layers: {
+        model: {
+          targetId: 'target-1', layer: 'model', checkType: 'lightweight', ok: false,
+          required: true, affectedRoles: [], checkedAt: NOW - 1_000, durationMs: 3,
+          failureCode: 'insufficient-context', evidence: {},
+        },
+      },
+    });
+    fixture.detectChanges();
+    const rail = (fixture.nativeElement.querySelector('[data-layer="model"]') as HTMLElement).textContent ?? '';
+    expect(rail).toContain('Model context too small');
+    expect(rail).not.toContain('Insufficient Context');
+  });
+
   function fallbackImpactText(): string {
     fixture.detectChanges();
     const strongs = Array.from(

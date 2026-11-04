@@ -71,6 +71,7 @@ import {
   buildClipboardMessagePayload,
   buildLinkedFileTarget as createLinkedFileTarget,
   getSystemFileManagerLabel,
+  pathToCopy,
 } from './output-stream.utils';
 import { TranscriptFindBarComponent } from './transcript-find-bar.component';
 import { TranscriptFindController } from './transcript-find-controller';
@@ -1158,7 +1159,9 @@ export class OutputStreamComponent {
 
   private buildFileContextMenuItems(target: LinkedFileTarget): ContextMenuItem[] {
     return buildFileMenuItems(target, getSystemFileManagerLabel(), {
-      copyPath: () => void this.copyPlainText(target.displayPath, 'path'),
+      copyPath: () => void pathToCopy(target, async (path) => (await this.fileIpc.getFileStats(path)) !== null)
+        .then((path) => this.copyPlainText(path, 'path'))
+        .catch((cause: unknown) => console.error('Failed to copy path:', cause)),
       copyFile: () => void this.runLinkedFileAction(target, 'copy'),
       openInFileManager: () => void this.runLinkedFileAction(target, 'reveal'),
     });

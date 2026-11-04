@@ -23,6 +23,8 @@ const RISK_BY_ACTION: Record<string, PermissionRiskInfo> = {
   store_release_mutation: { label: 'Public app store release', tier: 'critical' },
   calendar_mutation: { label: 'Calendar change', tier: 'warning' },
   calendar_account_connect: { label: 'Microsoft account connection', tier: 'warning' },
+  microsoft365_add_account: { label: 'Add a Microsoft 365 account', tier: 'warning' },
+  microsoft365_mutation: { label: 'Microsoft 365 change', tier: 'warning' },
 };
 
 export function classifyPermissionRisk(action: string): PermissionRiskInfo {

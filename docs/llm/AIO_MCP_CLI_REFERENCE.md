@@ -501,6 +501,8 @@ $AIO_MCP pause hold [--json]
 $AIO_MCP pause release [--json]
 $AIO_MCP settings get workloadLevel --json
 $AIO_MCP settings set workloadLevel 1 --json
+$AIO_MCP settings get maxConcurrentWorktrees --json
+$AIO_MCP settings set maxConcurrentWorktrees 30 --json
 ```
 
 Hold lets running work finish and keeps new unattended work waiting. It survives a restart and never expires automatically.
@@ -509,3 +511,27 @@ in the Work panel. Status reports the phase, time and reason; it does not expose
 
 The workload setting accepts whole numbers 1–5, with 3 (Balanced) preserving the existing limits. Lowering it changes
 what starts next; it never stops running work. Remote work does not count against local capacity.
+
+`maxConcurrentWorktrees` (default 20, 0 = no limit, applies at once) caps the worktrees that loops, repo jobs,
+campaigns, branch-select and the Worktrees page may have in use together. Plan Queue checkouts do not count and are not
+held to it; the queue's worker slots limit them. When a loop fails with "Harness allows N worktrees in use at once",
+finish or remove one, or raise this setting.
+
+## Microsoft 365 accounts
+
+```bash
+$AIO_MCP microsoft365 add <connector-name> [--mail] [--json]
+```
+
+Adds one Microsoft 365 account as a connector, for example `m365-fortitude`. Harness first asks James to approve the
+request (five minutes to answer; automatic approval never counts). Only after he approves does Microsoft sign-in open in
+his browser on the Mac, and he completes it himself. The command blocks until then, for up to 30 minutes, so run it
+in the background or with your longest command timeout. If it is stopped before James approves, the request disappears
+from Harness and must be run again; if it is stopped after he approves, a sign-in he finishes still adds the connector,
+so check before retrying. `--mail`
+adds email search, reading, drafting and sending to the calendar tools. Run it only when James asked for that account.
+
+The new connector reaches sessions started afterwards, not ones already running. Whether agents may write (calendar
+changes, sending mail) stays James's switch on the connector; this command cannot set it, and the Microsoft sign-in
+settings remain operator-only. Another organisation may require its IT administrator to approve the app before anyone
+there can sign in, and the sign-in then fails. Report what Microsoft said; do not try to work around it.

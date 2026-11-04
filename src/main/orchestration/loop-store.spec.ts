@@ -819,6 +819,7 @@ describe('managed worktree lifecycle persistence', () => {
 
     expect(store.getWorktreeRecord('loop-blocked')).toEqual({
       worktreePath: config.executionCwd,
+      workspaceCwd: '/tmp/project',
       lifecycle,
     });
     expect(store.getWorktreeRecord('missing')).toBeNull();

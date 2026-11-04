@@ -57,6 +57,11 @@ const REVIEWER_MODEL_DEFAULTS_MIGRATION_KEY =
   '__migration_reviewer_model_defaults_20260712';
 const COPILOT_LEGACY_PROFILE_MIGRATION_KEY =
   '__migration_copilot_legacy_profile_20260825';
+const GRAPH_AUTHORITY_ORGANIZATIONS_MIGRATION_KEY =
+  '__migration_graph_authority_organizations_20261103';
+/** The single-tenant Community Tech authority that shipped as the default until 2026-10-26. */
+const LEGACY_GRAPH_AUTHORITY = 'https://login.microsoftonline.com/60b0a25e-b75d-4d9e-b797-1805ec311dfb';
+const ORGANIZATIONS_GRAPH_AUTHORITY = 'https://login.microsoftonline.com/organizations';
 
 /**
  * Narrow store surface the migrations need. `get` reads both AppSettings keys
@@ -531,6 +536,25 @@ function migratePlanQueueRoutingWorkers(store: SettingsMigrationStore): void {
   logger.info('Moved the saved Plan Queue worker choice into a ranked list');
 }
 
+/**
+ * Microsoft sign-in moved from the Community Tech directory to any
+ * organisation on 2026-10-26 so several Microsoft 365 accounts can connect.
+ * electron-store had already persisted the old default, which still sent every
+ * new sign-in to Community Tech. Only that exact old default is replaced, once;
+ * any other saved authority is a deliberate choice and stays. Connected
+ * accounts are unaffected because token refresh uses each account's own tenant.
+ */
+function migrateGraphAuthorityToOrganizations(store: SettingsMigrationStore): void {
+  if (store.get(GRAPH_AUTHORITY_ORGANIZATIONS_MIGRATION_KEY) === true) {
+    return;
+  }
+  if (store.get('graphAuthority') === LEGACY_GRAPH_AUTHORITY) {
+    store.persistSetting('graphAuthority', ORGANIZATIONS_GRAPH_AUTHORITY);
+    logger.info('Moved Microsoft sign-in from the Community Tech directory to any organisation');
+  }
+  store.persistRawSetting(GRAPH_AUTHORITY_ORGANIZATIONS_MIGRATION_KEY, true);
+}
+
 export function runSettingsMigrations(store: SettingsMigrationStore): void {
   const observationOffMarker = '__migration_observation_memory_off_20261020';
   if (store.get(observationOffMarker) !== true) {
@@ -578,6 +602,7 @@ export function runSettingsMigrations(store: SettingsMigrationStore): void {
   // Seed per-provider model memory from existing defaultModel/defaultCli.
   seedDefaultModelByProvider(store);
   migratePlanQueueRoutingWorkers(store);
+  migrateGraphAuthorityToOrganizations(store);
   // Bind the pre-existing Copilot state directory to an account profile so
   // routing has something to resolve to, without moving any files.
   migrateCopilotLegacyProfile(store);

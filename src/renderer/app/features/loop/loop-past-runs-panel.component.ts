@@ -161,13 +161,20 @@ export function deriveReattemptSeed(
                       <button
                         type="button"
                         class="pr-action-btn pr-action-resolve"
-                        (click)="onResolveBlocked(run)"
+                        (click)="pendingResolve.set(run)"
                         [disabled]="resolvingRunId() !== null"
-                        appTooltip="Record that you have dealt with this blocked workspace yourself, so AIO stops retrying it. Nothing is deleted."
+                        [appTooltip]="copy('loop.markResolved')"
                       >{{ resolvingRunId() === run.id ? 'Resolving…' : 'Mark resolved' }}</button>
                     }
                   </span>
                 </div>
+                @if (pendingResolve()?.id === run.id) {
+                  <div role="group" aria-label="Confirm marking this loop run resolved">
+                    <p>Mark this run resolved? Its working copy is removed if nothing in it is unsaved. Its branch is kept.</p>
+                    <button type="button" class="pr-action-btn" (click)="pendingResolve.set(null)">Keep blocked</button>
+                    <button type="button" class="pr-action-btn" (click)="onResolveBlocked(run)" [disabled]="resolvingRunId() !== null">{{ resolvingRunId() === run.id ? 'Resolving…' : 'Mark resolved' }}</button>
+                  </div>
+                }
                 @if (pendingClose()?.id === run.id) {
                   <div role="group" aria-label="Confirm closing this loop run">
                     <p>Close this run? It will not be resumed.</p>
@@ -345,6 +352,8 @@ export class LoopPastRunsPanelComponent implements OnDestroy {
   protected expandedRowIds = signal<ReadonlySet<string>>(new Set());
   protected copiedRunId = signal<string | null>(null);
   protected resolvingRunId = signal<string | null>(null);
+  /** Mark resolved removes a clean working copy, so it is confirmed beside the row first. */
+  protected readonly pendingResolve = signal<LoopRunSummaryPayload | null>(null);
   protected resolveError = signal<{ runId: string; message: string } | null>(null);
   private copiedClearHandle: ReturnType<typeof setTimeout> | null = null;
 
@@ -528,7 +537,8 @@ export class LoopPastRunsPanelComponent implements OnDestroy {
   }
 
   /** Operator dealt with a blocked managed workspace by hand. Main refuses a
-   *  folder that still holds uncommitted work and deletes nothing. */
+   *  folder that still holds uncommitted work; otherwise it removes a folder it
+   *  can prove is the run's and keeps the branch. */
   protected async onResolveBlocked(run: LoopRunSummaryPayload): Promise<void> {
     if (this.resolvingRunId() !== null) return;
     this.resolvingRunId.set(run.id);
@@ -542,6 +552,7 @@ export class LoopPastRunsPanelComponent implements OnDestroy {
         });
         return;
       }
+      this.pendingResolve.set(null);
       await this.store.refreshHistory(run.chatId);
     } finally {
       this.resolvingRunId.set(null);

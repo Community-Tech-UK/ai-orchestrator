@@ -32,6 +32,7 @@ import { runCopilotAccountCli } from './copilot-account-cli';
 import { runLoopCli } from './loop-cli';
 import { runConnectorForwarder } from './connector-forwarder';
 import { runPauseCli } from './pause-cli';
+import { runMicrosoft365Cli } from './microsoft365-cli';
 
 type AioMcpRunner = (argv: readonly string[]) => Promise<void>;
 
@@ -50,6 +51,7 @@ const SUBCOMMANDS = {
   loop: runLoopCli,
   pause: runPauseCli,
   connector: runConnectorForwarder,
+  microsoft365: runMicrosoft365Cli,
 } as const;
 
 export type AioMcpSubcommand = keyof typeof SUBCOMMANDS;
@@ -100,6 +102,7 @@ function formatHelp(): string {
     '  loop                List parked loops and resume one',
     '  pause               Check, hold or release new work',
     '  connector           Connect a session to an assigned connector',
+    '  microsoft365        Ask James to approve adding a Microsoft 365 account connector',
     '',
   ].join('\n');
 }

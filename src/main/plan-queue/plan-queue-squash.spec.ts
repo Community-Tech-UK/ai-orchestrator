@@ -48,6 +48,7 @@ describe('commitWithHooks', () => {
 
     expect(result.exitCode).not.toBe(0);
     expect(result.output).toContain('timed out after 1500ms');
+    expect(result.timedOut).toBe(true);
     // Resolves at the timeout, not when an orphan finally lets go of the output pipe.
     expect(Date.now() - started).toBeLessThan(20_000);
     const grandchild = Number(readFileSync(pidFile, 'utf-8').trim());
@@ -59,6 +60,7 @@ describe('commitWithHooks', () => {
     const result = await commitWithHooks(repo, 'ok');
 
     expect(result.exitCode).toBe(0);
+    expect(result.timedOut).toBeUndefined();
     expect(git(['log', '--format=%s'])).toBe('ok');
   });
 });

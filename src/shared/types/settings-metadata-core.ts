@@ -131,6 +131,16 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
     max: 100,
   },
   {
+    key: 'maxConcurrentWorktrees',
+    label: 'Worktrees in use at once',
+    description: 'How many separate working copies loops and other Harness work may use at the same time, across all projects. The Plan Queue follows its own worker limit instead. 0 means no limit.',
+    type: 'number',
+    category: 'orchestration',
+    min: 0,
+    max: 100,
+    keywords: ['worktree', 'worktrees', 'working copy', 'checkout', 'limit', 'parallel', 'loop'],
+  },
+  {
     key: 'concurrencyLimitByProvider',
     label: 'Concurrent CLI agents per provider',
     description: 'Per-provider concurrency limit: how many agents one CLI (OpenCode, Copilot, Cursor, Grok) may run in parallel at the same time. Changes apply immediately. The Orchestration tab shows one box per provider; the JSON form is {"opencode": 20}.',

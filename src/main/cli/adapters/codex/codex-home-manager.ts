@@ -16,7 +16,7 @@ import { execFileSync } from 'node:child_process';
 import { join } from 'path';
 import { getLogger } from '../../../logging/logger';
 import { preserveHarnessCliShellPolicy } from './codex-harness-shell-policy';
-import { disableClaudeCallbackTools } from './codex-claude-mcp-policy';
+import { disableClaudeToolsCodexCannotUse } from './codex-claude-mcp-policy';
 import { mergeCodexMcpConfig } from './codex-mcp-config-merge';
 
 const logger = getLogger('CodexHomeManager');
@@ -104,7 +104,7 @@ export class CodexHomeManager {
       const configContent = existsSync(configPath) ? readFileSync(configPath, 'utf-8') : null;
       const stripConfig = opts.stripUserMcp && configContent !== null;
       const nextConfig = preserveHarnessCliShellPolicy(
-        stripConfig ? stripMcpServers(configContent) : disableClaudeCallbackTools(configContent ?? ''),
+        stripConfig ? stripMcpServers(configContent) : disableClaudeToolsCodexCannotUse(configContent ?? ''),
         this.options.harnessCliEnv,
       );
       const writePrivateConfig = stripConfig || nextConfig !== (configContent ?? '');
@@ -155,7 +155,7 @@ export class CodexHomeManager {
         ? readFileSync(configPath, 'utf-8')
         : '';
       const nextConfig = preserveHarnessCliShellPolicy(
-        disableClaudeCallbackTools(mergeCodexMcpConfig(baseConfig, mcpConfigToml, mode === 'exec')), this.options.harnessCliEnv,
+        disableClaudeToolsCodexCannotUse(mergeCodexMcpConfig(baseConfig, mcpConfigToml, mode === 'exec')), this.options.harnessCliEnv,
       );
       writeFileSync(join(tempDir, 'config.toml'), nextConfig, { encoding: 'utf-8', mode: 0o600 });
       this.linkSessionStore(tempDir);

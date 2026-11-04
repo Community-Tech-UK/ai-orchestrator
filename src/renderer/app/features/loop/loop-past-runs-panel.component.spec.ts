@@ -124,6 +124,7 @@ describe('LoopPastRunsPanelComponent.onResolveBlocked', () => {
     const panel = TestBed.runInInjectionContext(() => new LoopPastRunsPanelComponent());
     const internals = panel as unknown as {
       onResolveBlocked(run: LoopRunSummaryPayload): Promise<void>;
+      pendingResolve: { (): LoopRunSummaryPayload | null; set(run: LoopRunSummaryPayload | null): void };
       resolvingRunId(): string | null;
       resolveError(): { runId: string; message: string } | null;
     };
@@ -135,10 +136,12 @@ describe('LoopPastRunsPanelComponent.onResolveBlocked', () => {
   it('resolves through IPC and refreshes the chat history', async () => {
     const { internals, refreshHistory, resolveBlockedWorktree } = setup({ success: true });
 
+    internals.pendingResolve.set(run);
     await internals.onResolveBlocked(run);
 
     expect(resolveBlockedWorktree).toHaveBeenCalledWith('loop-1');
     expect(refreshHistory).toHaveBeenCalledWith('chat-1');
+    expect(internals.pendingResolve()).toBeNull();
     expect(internals.resolveError()).toBeNull();
     expect(internals.resolvingRunId()).toBeNull();
   });
@@ -149,7 +152,10 @@ describe('LoopPastRunsPanelComponent.onResolveBlocked', () => {
       error: { message: 'The worktree folder still has uncommitted changes; commit or discard them first' },
     });
 
+    internals.pendingResolve.set(run);
     await internals.onResolveBlocked(run);
+    // The confirmation stays open beside the refusal, so James can read both.
+    expect(internals.pendingResolve()).toBe(run);
 
     expect(internals.resolveError()).toEqual({
       runId: 'loop-1',

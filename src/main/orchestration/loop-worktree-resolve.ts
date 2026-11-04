@@ -1,13 +1,16 @@
 import { stat } from 'node:fs/promises';
 import type { LoopWorktreeLifecycle } from '../../shared/types/loop.types';
 import { gitExec } from '../workspace/git/git-exec';
+import { removeOrphanWorktree } from './loop-worktree-reconcile';
 
 export interface LoopWorktreeResolveStore {
   getWorktreeRecord(loopRunId: string): {
     worktreePath: string | null;
+    workspaceCwd: string | null;
     lifecycle?: LoopWorktreeLifecycle;
   } | null;
   updateWorktreeLifecycle(loopRunId: string, lifecycle: LoopWorktreeLifecycle): void;
+  clearWorktreeInfo(loopRunId: string): void;
 }
 
 export type ResolveBlockedWorktreeResult =
@@ -24,9 +27,11 @@ async function isDirectory(target: string): Promise<boolean> {
 
 /**
  * Record that the operator dealt with a blocked managed worktree by hand, so
- * boot recovery stops retrying it (it skips `cleaned` rows). Nothing on disk or
- * in Git is changed. A worktree folder that still holds uncommitted work is
- * refused: resolving it would leave that work unmanaged and unseen.
+ * boot recovery stops retrying it (it skips `cleaned` rows). The branch is
+ * never touched. A clean folder that is provably the run's is removed, since
+ * boot recovery will no longer come back for it; one whose ownership cannot be
+ * shown is left where it is. A worktree folder that still holds uncommitted
+ * work is refused: resolving it would leave that work unmanaged and unseen.
  */
 export async function resolveBlockedLoopWorktree(
   store: LoopWorktreeResolveStore,
@@ -53,6 +58,14 @@ export async function resolveBlockedLoopWorktree(
         reason: 'The worktree folder still has uncommitted changes; commit or discard them first',
       };
     }
+  }
+
+  if (
+    lifecycle.managedByAio === true && record.worktreePath && record.workspaceCwd && lifecycle.sessionBranch
+    && await isDirectory(record.worktreePath)
+    && await removeOrphanWorktree(record.workspaceCwd, record.worktreePath, lifecycle.sessionBranch)
+  ) {
+    store.clearWorktreeInfo(loopRunId);
   }
 
   const resolved: LoopWorktreeLifecycle = {

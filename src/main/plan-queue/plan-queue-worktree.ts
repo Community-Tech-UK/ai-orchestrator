@@ -63,6 +63,7 @@ export interface PlanQueueWorktreeCreator {
       skipInstall?: boolean;
       repoRoot?: string;
       onPrepared?: (session: WorktreeSession) => void | Promise<void>;
+      countsTowardLimit?: boolean;
     },
   ): Promise<WorktreeSession>;
   getAllSessions(): WorktreeSession[];
@@ -101,7 +102,10 @@ export class PlanQueueWorktreeService {
 
   /**
    * Create the item's worktree. Branch and path are saved through `onPrepared`,
-   * which WorktreeManager calls before it touches git.
+   * which WorktreeManager calls before it touches git. The queue's worker slots
+   * already limit its checkouts, and a paused item keeps its checkout, so they
+   * stay outside the app-wide worktree limit (they used to fill it and starve
+   * every other run).
    */
   async prepare(item: PlanQueueItem, repoRoot: string): Promise<PlanQueueItem> {
     const branchName = planQueueBranchName(item);
@@ -110,6 +114,7 @@ export class PlanQueueWorktreeService {
       branchName,
       repoRoot,
       skipInstall: this.deps.skipInstall,
+      countsTowardLimit: false,
       onPrepared: (session) => {
         prepared = {
           ...item,

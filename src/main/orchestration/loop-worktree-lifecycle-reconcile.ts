@@ -80,6 +80,32 @@ async function isBranchContained(
 }
 
 /**
+ * An ended run that waits for review keeps its branch, not its folder: review
+ * and landing read the branch. A clean folder that is provably this run's is
+ * removed, so blocked runs stop piling up folders; the run stays blocked with
+ * its reason. Uncommitted work, or a folder whose ownership cannot be shown,
+ * stays for James.
+ */
+async function releaseBlockedFolder(
+  store: ManagedLifecycleReconcileStore,
+  row: PendingManagedWorktreeLifecycle,
+): Promise<void> {
+  const sessionBranch = row.lifecycle.sessionBranch || row.branchName;
+  if (row.lifecycle.managedByAio !== true || !row.worktreePath || !sessionBranch || !(await exists(row.worktreePath))) return;
+  try {
+    if ((await gitExec(['status', '--porcelain'], row.worktreePath)).trim()) return;
+    if (!(await removeOrphanWorktree(row.workspaceCwd, row.worktreePath, sessionBranch))) return;
+    store.clearWorktreeInfo(row.id);
+    logger.info('Removed the folder of a run waiting for review; its branch is kept', { loopRunId: row.id, sessionBranch });
+  } catch (error) {
+    logger.warn('Could not remove the folder of a run waiting for review', {
+      loopRunId: row.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
  * Retry persisted managed-worktree finalization after a crash or forced quit.
  * Git operations are idempotent: harvest rechecks cleanliness, integration
  * skips an already-contained session branch, and promotion only fast-forwards.
@@ -220,7 +246,8 @@ export async function reconcileManagedWorktreeLifecycles(
           currentTip
           && (!lifecycle.sessionTip || currentTip !== lifecycle.sessionTip)
         ) {
-          transition('blocked', {
+          // A run already blocked keeps the reason James was shown: its folder may simply have been released.
+          transition('blocked', lifecycle.phase === 'blocked' && lifecycle.lastError ? {} : {
             lastError: 'Managed session branch identity could not be verified',
           });
           blocked++;
@@ -425,6 +452,8 @@ export async function reconcileManagedWorktreeLifecycles(
         loopRunId: row.id,
         error: error instanceof Error ? error.message : String(error),
       });
+    } finally {
+      if (lifecycle.phase === 'blocked') await releaseBlockedFolder(store, row);
     }
   }
 

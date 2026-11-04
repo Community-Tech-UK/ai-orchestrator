@@ -13,6 +13,9 @@ import { registerDefaultLoopInvoker } from '../orchestration/default-invokers';
 import { getLoopStoreService } from '../orchestration/loop-store';
 import { reconcileManagedWorktreeLifecycles } from '../orchestration/loop-worktree-lifecycle-reconcile';
 import { reconcileOrphanedWorktrees } from '../orchestration/loop-worktree-reconcile';
+import { getWorktreeManager } from '../workspace/git/worktree-manager';
+import { getRepoJobService } from '../repo-jobs';
+import { getAutomationStore } from '../automations';
 import { getOrchestratorPluginManager } from '../plugins/plugin-manager';
 import { getReflectorAgent } from '../observation';
 import { initializeObservationRuntime } from '../observation/observation-runtime';
@@ -104,12 +107,33 @@ function safeFileSize(filePath: string): number {
   }
 }
 
+/** Loops a still-pending automation will try to resume (missed one-off runs are caught up at start). */
+export function scheduledLoopResumes(): Set<string> {
+  return new Set(getAutomationStore().listSchedulable().flatMap((automation) => {
+    const action = automation.action.systemAction;
+    return action?.type === 'loopProviderLimitResume' ? [action.loopRunId] : [];
+  }));
+}
+
 export function createLateRuntimeInitializationSteps(
   context: AppInitializationContext,
 ): AppInitializationStep[] {
   const { instanceManager, windowManager } = context;
 
   return [
+    {
+      // Before the loop store and plan queue, which may create worktrees while recovering.
+      name: 'Worktree limit',
+      fn: () => {
+        const settings = getSettingsManager();
+        const apply = (value: unknown): void => {
+          getWorktreeManager().configure({ maxConcurrent: value as number });
+        };
+        // Live-apply so the settings UI and `aio-mcp settings set` take effect without a restart.
+        apply(settings.get('maxConcurrentWorktrees'));
+        settings.on('setting:maxConcurrentWorktrees', apply);
+      },
+    },
     {
       name: 'Loop store',
       fn: async () => {
@@ -119,6 +143,17 @@ export function createLateRuntimeInitializationSteps(
           const interrupted = service.store.markRunningAsInterruptedOnBoot();
           if (interrupted > 0) {
             logger.info(`Loop store: marked ${interrupted} previously-running loop(s) as paused on boot`);
+          }
+          // A loop parked on a usage limit with no resume left scheduled will never wake on its own;
+          // closing it lets the reconcile below remove its folder, keeping its branch. If the
+          // schedule cannot be read, nothing is closed.
+          try {
+            const closedParks = service.store.closeStaleProviderLimitParks(scheduledLoopResumes());
+            if (closedParks.length > 0) {
+              logger.info('Loop store: closed loops parked on a usage limit for over two weeks', { loopRunIds: closedParks });
+            }
+          } catch (error) {
+            logger.warn('Loop store: parked loops were not checked', { error: error instanceof Error ? error.message : String(error) });
           }
 
           // Resume AIO-managed lifecycle rows first: these may still need
@@ -212,6 +247,19 @@ export function createLateRuntimeInitializationSteps(
             error: error instanceof Error ? error.message : String(error),
           });
         }
+      },
+    },
+    {
+      name: 'Repository job folders',
+      // Not awaited: removing folders must not hold up the window. Jobs live by now are skipped.
+      fn: () => {
+        void getRepoJobService().releaseFinishedJobFolders().then((removed) => {
+          if (removed > 0) logger.info('Removed finished repository job folders; their branches are kept', { removed });
+        }, (error: unknown) => {
+          logger.warn('Finished repository job folders could not be checked', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
       },
     },
     { name: 'Keep awake', fn: () => initializeKeepAwakeRuntime(instanceManager) },

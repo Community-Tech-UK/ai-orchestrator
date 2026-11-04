@@ -13,7 +13,7 @@ vi.mock('electron', () => ({ ipcMain: { handle: (channel: string, handler: (even
 vi.mock('../../../mcp/mcp-manager', () => ({ getMcpManager: () => ({ on: vi.fn(), getServerStatus: vi.fn(), addServer: vi.fn(), upsertServer: vi.fn(), removeServer: async (id: string) => { state.managedServers.delete(id); } }) }));
 vi.mock('../../../mcp/mcp-lifecycle-manager', () => ({ getMcpLifecycleManager: () => ({}) }));
 vi.mock('../../../mcp/connector-auth-service', () => ({ getConnectorAuthService: () => state }));
-vi.mock('../../../graph/graph-connector-service', () => ({ getGraphConnectorService: () => ({ connectAccount: state.connectAccount }) }));
+vi.mock('../../../graph/graph-connector-service', () => ({ getGraphConnectorService: () => ({ connectAccount: state.connectAccount, isWritable: async () => false }) }));
 vi.mock('../../../mcp/mcp-multi-provider-singletons', () => ({
   getOrchestratorMcpRepository: () => ({ list: () => state.records, get: () => ({ record: { id: 'connector', name: 'remote-example', kind: 'remote', authType: 'bearer' } }) }),
   getCliMcpConfigService: () => ({

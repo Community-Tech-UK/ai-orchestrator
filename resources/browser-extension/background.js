@@ -5360,7 +5360,14 @@ async function buildTabPayloadLocked(tab, options = {}) {
     // No page-controlled metadata is safe while inspection is unavailable.
     inspectionUnavailable = true;
   }
-  let page = options.includeText && !secretTainted
+  // Chrome unloads background tabs to save memory, and a restored session
+  // leaves tabs unloaded until they are shown. Such a tab has no page to read,
+  // and Chrome refuses an injection into it with its missing-host-permission
+  // message, which is misleading. Name it instead, and do not wake it here:
+  // inventory reads every tab, and loading them all would undo Chrome's memory
+  // saving. A command aimed at the tab wakes it (startControlledTab).
+  const tabDiscarded = tab.discarded === true;
+  let page = options.includeText && !secretTainted && !tabDiscarded
     // capturePageText() no longer rejects on a permission failure (see below),
     // so this catch only covers unexpected errors upstream of that call (e.g.
     // assertGatewayEnabled() throwing if the gateway was disabled mid-flight).
@@ -5375,7 +5382,8 @@ async function buildTabPayloadLocked(tab, options = {}) {
     }))
     : {
       title: tab.title, text: '', selectorText: undefined,
-      selectorFingerprint: undefined, textUnavailableReason: null,
+      selectorFingerprint: undefined,
+      textUnavailableReason: options.includeText && !secretTainted ? 'tab_discarded' : null,
     };
   let screenshotBase64 = undefined;
   const screenshotLeftMs = pageWorkLeftMs();
@@ -5384,6 +5392,7 @@ async function buildTabPayloadLocked(tab, options = {}) {
   if (
     options.includeScreenshot
     && !secretTainted
+    && !tabDiscarded
     && screenshotLeftMs !== 0
     && page.textUnavailableReason !== 'page_not_responding'
     && page.textUnavailableReason !== 'dialog_open'
@@ -5468,6 +5477,7 @@ async function buildTabPayloadLocked(tab, options = {}) {
   // URL/title; only the inspection state changes. Same reasons as
   // isPageTextUnreadableReason in browser-target-inspection.ts.
   const pageUnreadable = page.textUnavailableReason === 'host_permission_denied'
+    || page.textUnavailableReason === 'tab_discarded'
     || page.textUnavailableReason === 'page_text_read_failed'
     || page.textUnavailableReason === 'page_not_responding'
     || page.textUnavailableReason === 'dialog_open';
@@ -5661,14 +5671,101 @@ function computeDownscale(width, height, maxWidth, maxHeight) {
   return scale > 0 && scale <= 1 ? scale : 1;
 }
 
+// A minimised Chrome window draws nothing, so Page.captureScreenshot waits for
+// a frame that never comes and the capture can only time out. Background tabs
+// and windows covered by other apps are fine; minimised is not. Reproduced on
+// windows-pc 2026-11-02: every capture timed out while the everyday window was
+// minimised and the same capture succeeded at once with the window shown.
+// So a capture shows a minimised window without focusing it, and the window is
+// minimised again when the last capture holding it finishes. Captures in other
+// tabs of the same window share one hold so none re-minimises under another,
+// and a capture arriving while a hold is minimising the window waits for that
+// to finish rather than capturing a window on its way down.
+const captureWindowHolds = new Map();
+
+async function holdTabWindowShownForCapture(tabId) {
+  const tab = await chrome.tabs.get(tabId);
+  const windowId = tab?.windowId;
+  if (!Number.isInteger(windowId)) {
+    return undefined;
+  }
+  let hold = captureWindowHolds.get(windowId);
+  while (hold?.releasing) {
+    await hold.releasing;
+    hold = captureWindowHolds.get(windowId);
+  }
+  if (!hold) {
+    hold = { windowId, holders: 0, shown: showWindowIfMinimized(windowId), releasing: null };
+    captureWindowHolds.set(windowId, hold);
+  }
+  hold.holders += 1;
+  try {
+    await hold.shown;
+  } catch (error) {
+    await releaseCaptureWindowHold(hold);
+    throw error;
+  }
+  return hold;
+}
+
+async function showWindowIfMinimized(windowId) {
+  const windowInfo = await chrome.windows.get(windowId);
+  if (windowInfo?.state !== 'minimized') {
+    return false;
+  }
+  await chrome.windows.update(windowId, { state: 'normal', focused: false });
+  return true;
+}
+
+async function releaseCaptureWindowHold(hold) {
+  if (!hold) {
+    return;
+  }
+  hold.holders -= 1;
+  if (hold.holders > 0) {
+    return;
+  }
+  hold.releasing = minimizeShownCaptureWindow(hold).finally(() => {
+    if (captureWindowHolds.get(hold.windowId) === hold) {
+      captureWindowHolds.delete(hold.windowId);
+    }
+  });
+  await hold.releasing;
+}
+
+// Never rejects: callers waiting on a release only need it to be over.
+async function minimizeShownCaptureWindow(hold) {
+  const shown = await hold.shown.catch(() => false);
+  if (!shown) {
+    return;
+  }
+  // Someone at the computer may have brought the window up meanwhile; a
+  // focused window is theirs now, so leave it showing.
+  const windowInfo = await chrome.windows.get(hold.windowId).catch(() => null);
+  if (!windowInfo || windowInfo.focused || windowInfo.state === 'minimized') {
+    return;
+  }
+  await chrome.windows.update(hold.windowId, { state: 'minimized' }).catch(() => undefined);
+}
+
 // Capture via the DevTools protocol so the screenshot does not depend on the
-// tab being the active/focused tab of a focused OS window. Defaults to a
-// downscaled JPEG so the base64 payload stays within the MCP inline budget.
+// tab being the active/focused tab of a focused OS window (a minimised window
+// is the exception, handled above). Defaults to a downscaled JPEG so the base64
+// payload stays within the MCP inline budget.
 async function captureTabScreenshot(tabId, options = {}) {
   assertGatewayEnabled();
   if (typeof tabId !== 'number') {
     throw new Error('Browser screenshot requires a Chrome tab id.');
   }
+  const windowHold = await holdTabWindowShownForCapture(tabId);
+  try {
+    return await captureShownTabScreenshot(tabId, options);
+  } finally {
+    await releaseCaptureWindowHold(windowHold);
+  }
+}
+
+async function captureShownTabScreenshot(tabId, options) {
   const format = options.format === 'png' ? 'png' : 'jpeg';
   const quality = clampNumber(options.quality, 1, 100, SCREENSHOT_DEFAULT_QUALITY);
   const fullPage = options.fullPage === true;
@@ -5807,6 +5904,15 @@ async function startControlledTab(tabId) {
         }
       }
       lease.restoreStateCaptured = true;
+    }
+    // An unloaded tab (see buildTabPayloadLocked) has no page for this command
+    // to read or drive. Load it, as Chrome does when the tab is shown.
+    if (tab?.discarded === true) {
+      await chrome.tabs.reload(tabId);
+      await waitForTabComplete(tabId);
+      if (lease.retiring) {
+        return;
+      }
     }
     await preventTabDiscard(tabId);
     if (lease.retiring) {

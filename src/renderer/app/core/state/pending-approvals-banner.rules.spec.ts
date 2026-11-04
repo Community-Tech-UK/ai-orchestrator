@@ -13,6 +13,11 @@ describe('classifyPermissionRisk', () => {
     expect(classifyPermissionRisk('desktop_computer_use_grant').tier).toBe('warning');
   });
 
+  it('labels Microsoft 365 account additions and changes plainly, as warnings', () => {
+    expect(classifyPermissionRisk('microsoft365_add_account')).toEqual({ label: 'Add a Microsoft 365 account', tier: 'warning' });
+    expect(classifyPermissionRisk('microsoft365_mutation')).toEqual({ label: 'Microsoft 365 change', tier: 'warning' });
+  });
+
   it('falls back to a humanized label and info tier for unknown actions', () => {
     expect(classifyPermissionRisk('some_future_action')).toEqual({
       label: 'some future action',

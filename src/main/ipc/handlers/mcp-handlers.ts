@@ -42,8 +42,8 @@ import {
   getOrchestratorMcpRepository,
 } from '../../mcp/mcp-multi-provider-singletons';
 import { getConnectorAuthService } from '../../mcp/connector-auth-service';
-import { assertConnectorName } from '../../mcp/connector-storage';
 import { getGraphConnectorService } from '../../graph/graph-connector-service';
+import { addMicrosoft365Connector } from '../../mcp/microsoft365-connector-add';
 import { getLogger } from '../../logging/logger';
 
 const logger = getLogger('McpHandlers');
@@ -734,17 +734,7 @@ export function registerMcpHandlers(deps: {
     async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
       try {
         const validated = validateIpcPayload(McpConnectorAddMicrosoft365Schema, payload, 'MCP_CONNECTOR_ADD_MICROSOFT365');
-        assertConnectorName(validated.name);
-        if (getOrchestratorMcpRepository().list().some(({ record }) => record.name.toLowerCase() === validated.name.toLowerCase())) {
-          throw new Error('A connector already uses that name. Choose a different name before signing in.');
-        }
-        const account = await getGraphConnectorService().connectAccount(validated.mailEnabled);
-        getCliMcpConfigService().orchestratorUpsert({
-          name: validated.name, kind: 'microsoft365', accountId: account.accountKey,
-          description: account.username, transport: 'stdio', authType: 'none',
-          mailEnabled: validated.mailEnabled, injectInto: validated.injectInto, autoConnect: true,
-        });
-        await broadcastMultiProviderState();
+        await addMicrosoft365Connector(validated);
         return { success: true };
       } catch (error) {
         return { success: false, error: { code: 'MCP_CONNECTOR_MICROSOFT365_FAILED', message: (error as Error).message, timestamp: Date.now() } };

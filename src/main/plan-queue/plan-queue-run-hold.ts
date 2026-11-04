@@ -8,6 +8,12 @@ import { PlanQueueCheckoutOwnershipError, readProvisionedPaths } from './plan-qu
 import type { PlanQueueItem } from './plan-queue.types';
 
 const USAGE_WAIT_PREFIX = 'Waiting for usage: ';
+/**
+ * Saved on items by builds before 2026-11-02, when queue checkouts counted toward
+ * the app-wide worktree limit. The queue no longer writes it, but queued rows
+ * still carry it and must not reach a worker as an instruction.
+ */
+const LEGACY_WORKTREE_WAIT_NOTE = 'Waiting for a free worktree (Harness allows 5 at once).';
 
 /** The note on work held because its route has no usage left; the queue tries it again later. */
 export function usageWaitNote(reason: string): string {
@@ -16,7 +22,7 @@ export function usageWaitNote(reason: string): string {
 
 /** A hold's note on the item: a status for James, never an instruction to send the worker, and cleared when held work restarts. */
 export function isHoldNote(detail: string | null | undefined): boolean {
-  return detail === 'Waiting for a free worktree (Harness allows 5 at once).' || detail === 'Paused' || detail === NEVER_USE_HOLD_REASON || !!detail?.startsWith(USAGE_WAIT_PREFIX);
+  return detail === LEGACY_WORKTREE_WAIT_NOTE || detail === 'Paused' || detail === NEVER_USE_HOLD_REASON || !!detail?.startsWith(USAGE_WAIT_PREFIX);
 }
 
 /** Why a held or parked item is resumed: James's action, the queue moving it off a never-use account, or usage coming back. */

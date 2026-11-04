@@ -14,6 +14,7 @@ import type {
   LocalAiRepairResult,
 } from '../../../../shared/types/local-ai-guard.types';
 import { LocalAiGuardStore } from '../../core/state/local-ai-guard.store';
+import { LOCAL_AI_FAILURE_REASONS } from './local-ai-failure-copy';
 import { LocalAiModalCoordinator } from './local-ai-modal-coordinator';
 
 const ACTION_LABELS: Record<LocalAiRepairAction, string> = {
@@ -281,7 +282,7 @@ export class LocalAiIncidentPanelComponent {
   }
 
   protected failureLabel(): string {
-    return this.incident().failureCode.split('-').map(capitalize).join(' ');
+    return LOCAL_AI_FAILURE_REASONS[this.incident().failureCode];
   }
 
   protected actionLabel(action: LocalAiRepairAction): string {
@@ -397,10 +398,6 @@ export class LocalAiIncidentPanelComponent {
         return assertNever(result.outcome);
     }
   }
-}
-
-function capitalize(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function assertNever(value: never): never {

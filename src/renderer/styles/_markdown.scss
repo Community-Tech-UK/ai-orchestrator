@@ -128,6 +128,14 @@
     cursor: pointer;
     transition: all var(--transition-fast);
 
+    // A path written as inline code would otherwise look like plain code, so it
+    // carries a link's underline at rest. Solid, because dotted marks glossary terms.
+    &.inline-code {
+      text-decoration: underline;
+      text-decoration-color: rgba(var(--primary-rgb), 0.5);
+      text-underline-offset: 0.2em;
+    }
+
     &:hover {
       background: rgba(var(--primary-rgb), 0.2);
       border-color: var(--primary-color);

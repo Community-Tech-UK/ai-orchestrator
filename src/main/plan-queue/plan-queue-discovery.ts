@@ -36,6 +36,13 @@ const SKIPPED_DIRS = new Set([
 ]);
 
 const STANDING_REGISTER_RE = /^\**Type:\**\s*standing register/im;
+/**
+ * A programme document that is not itself a queue job (each of its phases is
+ * queued separately). Only the first lines are read, so a stray mention of the
+ * phrase further down never hides a real plan.
+ */
+const NOT_AN_ITEM_RE = /^Queue:[ \t]*not an item[ \t]*$/im;
+const NOT_AN_ITEM_HEADER_LINES = 8;
 const SPEC_LINE_RE = /^\*\*Spec:\*\*(.*)$/m;
 const MARKDOWN_LINK_TARGET_RE = /\]\(([^)\s]+\.md)\)/;
 const HEADER_LINES = 40;
@@ -153,6 +160,7 @@ export async function discoverPlanQueueDocuments(
 
     const header = await readHeader(file);
     if (STANDING_REGISTER_RE.test(header)) continue;
+    if (NOT_AN_ITEM_RE.test(header.split('\n').slice(0, NOT_AN_ITEM_HEADER_LINES).join('\n'))) continue;
 
     if (state === 'spec-unplanned') {
       const planned = await Promise.all(planPathsFor(file).map(exists));

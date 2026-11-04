@@ -147,6 +147,7 @@ interface BrowserExtensionChromeHarness {
     get: Mock<(windowId: number) => Promise<Record<string, unknown>>>;
     update: Mock<(windowId: number, update: {
       state?: string;
+      focused?: boolean;
       width?: number;
       height?: number;
       left?: number;
@@ -248,6 +249,13 @@ describe('browser extension assets', () => {
     // One lasting Harness tab group: Harness's own tabs stay in it, new tabs
     // open in the window that holds it, and a tab leaves it before closing.
     '0.2.47': '3ce1bfc51afd',
+    // A screenshot shows a minimised window unfocused and minimises it again;
+    // a minimised window draws nothing, so captures used to hang until timeout.
+    '0.2.48': '3aa50cfa4ebc',
+    // A tab Chrome has unloaded to save memory reports tab_discarded instead
+    // of a misleading host-permission failure, and a command aimed at it
+    // loads it first.
+    '0.2.49': '6529b4644a4a',
   };
 
   it('ships each background bundle under its own manifest version', () => {
@@ -540,6 +548,190 @@ describe('browser extension assets', () => {
     const error = await settled;
     expect(error?.message).toContain('browser_extension_cdp_timeout:Page.captureScreenshot');
     expect(harness.chrome.debugger.detach).toHaveBeenCalledWith({ tabId: 42 });
+  });
+
+  describe('screenshot of a tab in a minimised window', () => {
+    // Reproduced on windows-pc 2026-11-02: a minimised Chrome window draws
+    // nothing, so every Page.captureScreenshot timed out until it was shown.
+    function minimiseWindow(harness: BrowserExtensionBackgroundHarness, windowId: number): Promise<unknown> {
+      return harness.chrome.windows.update(windowId, { state: 'minimized' });
+    }
+
+    function windowStateUpdates(harness: BrowserExtensionBackgroundHarness): unknown[] {
+      return harness.chrome.windows.update.mock.calls.map((call) => call[1]);
+    }
+
+    it('shows the window unfocused for the capture and minimises it again after', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      await minimiseWindow(harness, 7);
+      harness.chrome.windows.update.mockClear();
+      const order: string[] = [];
+      const storeWindowUpdate = harness.chrome.windows.update.getMockImplementation()!;
+      harness.chrome.windows.update.mockImplementationOnce(async (windowId, update) => {
+        order.push('show');
+        return storeWindowUpdate(windowId, update);
+      });
+      harness.chrome.debugger.sendCommand.mockImplementation(async (_debuggee, method) => {
+        if (method === 'Page.captureScreenshot') {
+          order.push('capture');
+          return { data: 'aW1hZ2U=' };
+        }
+        return {};
+      });
+
+      await expect(harness.captureTabScreenshot(42, {})).resolves.toBe('aW1hZ2U=');
+
+      expect(order).toEqual(['show', 'capture']);
+      expect(windowStateUpdates(harness)).toEqual([
+        { state: 'normal', focused: false },
+        { state: 'minimized' },
+      ]);
+    });
+
+    it('leaves a window that is not minimised alone', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      harness.chrome.debugger.sendCommand.mockImplementation(async (_debuggee, method) => (
+        method === 'Page.captureScreenshot' ? { data: 'aW1hZ2U=' } : {}
+      ));
+
+      await harness.captureTabScreenshot(42, {});
+
+      expect(harness.chrome.windows.update).not.toHaveBeenCalled();
+    });
+
+    it('minimises again only when the last capture in that window finishes', async () => {
+      const harness = loadBackgroundHarnessForTest({ additionalTabs: [{ tabId: 43, groupId: -1 }] });
+      await flushPromises();
+      await minimiseWindow(harness, 7);
+      harness.chrome.windows.update.mockClear();
+      const finishCapture = new Map<number, (value: unknown) => void>();
+      harness.chrome.debugger.sendCommand.mockImplementation(async (debuggee, method) => {
+        if (method === 'Page.captureScreenshot') {
+          const tabId = (debuggee as { tabId: number }).tabId;
+          return new Promise((resolve) => finishCapture.set(tabId, resolve));
+        }
+        return {};
+      });
+
+      const first = harness.captureTabScreenshot(42, {});
+      await flushPromises();
+      const second = harness.captureTabScreenshot(43, {});
+      await flushPromises();
+      expect([...finishCapture.keys()].sort()).toEqual([42, 43]);
+
+      finishCapture.get(42)?.({ data: 'Zmlyc3Q=' });
+      await first;
+      expect(windowStateUpdates(harness)).toEqual([{ state: 'normal', focused: false }]);
+
+      finishCapture.get(43)?.({ data: 'c2Vjb25k' });
+      await second;
+      expect(windowStateUpdates(harness)).toEqual([
+        { state: 'normal', focused: false },
+        { state: 'minimized' },
+      ]);
+    });
+
+    it('makes a capture that arrives while the window is being minimised show it again', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      await minimiseWindow(harness, 7);
+      harness.chrome.windows.update.mockClear();
+      const storeWindowUpdate = harness.chrome.windows.update.getMockImplementation()!;
+      let finishMinimise: (() => void) | undefined;
+      harness.chrome.windows.update.mockImplementation(async (windowId, update) => {
+        if (update.state === 'minimized' && !finishMinimise) {
+          await new Promise<void>((resolve) => { finishMinimise = resolve; });
+        }
+        return storeWindowUpdate(windowId, update);
+      });
+      let captures = 0;
+      harness.chrome.debugger.sendCommand.mockImplementation(async (_debuggee, method) => {
+        if (method === 'Page.captureScreenshot') {
+          captures += 1;
+          return { data: 'aW1hZ2U=' };
+        }
+        return {};
+      });
+
+      const first = harness.captureTabScreenshot(42, {});
+      await flushPromises();
+      expect(finishMinimise).toBeDefined();
+      const second = harness.captureTabScreenshot(42, {});
+      await flushPromises();
+      expect(captures).toBe(1);
+
+      finishMinimise?.();
+      await Promise.all([first, second]);
+
+      expect(captures).toBe(2);
+      expect(windowStateUpdates(harness)).toEqual([
+        { state: 'normal', focused: false },
+        { state: 'minimized' },
+        { state: 'normal', focused: false },
+        { state: 'minimized' },
+      ]);
+    });
+
+    it('does not minimise a window someone brought up and focused meanwhile', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      await minimiseWindow(harness, 7);
+      harness.chrome.windows.update.mockClear();
+      harness.chrome.debugger.sendCommand.mockImplementation(async (_debuggee, method) => {
+        if (method === 'Page.captureScreenshot') {
+          harness.chrome.windows.get.mockResolvedValue({ id: 7, state: 'maximized', focused: true });
+          return { data: 'aW1hZ2U=' };
+        }
+        return {};
+      });
+
+      await harness.captureTabScreenshot(42, {});
+
+      expect(windowStateUpdates(harness)).toEqual([{ state: 'normal', focused: false }]);
+    });
+
+    it('fails the capture when the window cannot be shown, and lets the next capture try again', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      await minimiseWindow(harness, 7);
+      harness.chrome.windows.update.mockClear();
+      harness.chrome.windows.update.mockRejectedValueOnce(new Error('window update refused'));
+      harness.chrome.debugger.sendCommand.mockImplementation(async (_debuggee, method) => (
+        method === 'Page.captureScreenshot' ? { data: 'aW1hZ2U=' } : {}
+      ));
+
+      await expect(harness.captureTabScreenshot(42, {})).rejects.toThrow('window update refused');
+      expect(harness.chrome.debugger.attach).not.toHaveBeenCalled();
+
+      await expect(harness.captureTabScreenshot(42, {})).resolves.toBe('aW1hZ2U=');
+      expect(windowStateUpdates(harness)).toEqual([
+        { state: 'normal', focused: false },
+        { state: 'normal', focused: false },
+        { state: 'minimized' },
+      ]);
+    });
+
+    it('minimises the window again when the capture fails', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      await minimiseWindow(harness, 7);
+      harness.chrome.windows.update.mockClear();
+      harness.chrome.debugger.sendCommand.mockImplementation(async (_debuggee, method) => {
+        if (method === 'Page.captureScreenshot') {
+          throw new Error('capture failed');
+        }
+        return {};
+      });
+
+      await expect(harness.captureTabScreenshot(42, {})).rejects.toThrow('capture failed');
+
+      expect(windowStateUpdates(harness)).toEqual([
+        { state: 'normal', focused: false },
+        { state: 'minimized' },
+      ]);
+    });
   });
 
   it('releases a stuck per-tab debugger chain when the command watchdog fires', async () => {
@@ -2351,6 +2543,87 @@ describe('browser extension assets', () => {
         textUnavailableReason: 'host_permission_denied',
       }),
     }));
+  });
+
+  // 2026-11-03 on windows-pc: Chrome had unloaded dozens of background tabs to
+  // save memory, refused every page read on them with its missing-host-
+  // permission message, and an agent took the page as blocked.
+  it('reports an unloaded tab as tab_discarded without injecting into it or waking it', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    harness.chrome.scripting.executeScript.mockClear();
+    harness.chrome.tabs.reload.mockClear();
+    harness.chrome.debugger.attach.mockClear();
+    const tab = { ...harness.tabState(42)!, status: 'unloaded', discarded: true };
+
+    const payload = await harness.buildTabPayload(tab, {
+      includeText: true,
+      includeScreenshot: true,
+    });
+
+    expect(payload).toEqual(expect.objectContaining({
+      text: '',
+      url: 'https://example.test/42',
+      title: 'Example 42',
+      inspectionState: 'inspection_unavailable',
+      textUnavailableReason: 'tab_discarded',
+    }));
+    expect(payload).not.toHaveProperty('screenshotBase64');
+    expect(harness.chrome.scripting.executeScript).not.toHaveBeenCalled();
+    expect(harness.chrome.debugger.attach).not.toHaveBeenCalled();
+    expect(harness.chrome.tabs.reload).not.toHaveBeenCalled();
+  });
+
+  it('loads an unloaded tab before a snapshot reads it', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    relayPort.postMessage.mockClear();
+    const tab = harness.tabState(42)! as ReturnType<typeof harness.tabState> & { discarded?: boolean };
+    tab.status = 'unloaded';
+    tab.discarded = true;
+    harness.chrome.tabs.reload.mockImplementation(async (tabId: number) => {
+      const reloaded = harness.tabState(tabId) as typeof tab;
+      reloaded.status = 'complete';
+      reloaded.discarded = false;
+    });
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: { id: 'snapshot-discarded', command: 'snapshot', target: { tabId: 42 } },
+    });
+    await flushPromises();
+
+    expect(harness.chrome.tabs.reload).toHaveBeenCalledWith(42);
+    const result = relayPort.postMessage.mock.calls
+      .map(([message]) => message as {
+        type?: string; commandId?: string; ok?: boolean; result?: Record<string, unknown>;
+      })
+      .find((message) => message.type === 'command_result' && message.commandId === 'snapshot-discarded');
+    expect(result).toEqual(expect.objectContaining({
+      ok: true,
+      result: expect.objectContaining({ text: 'Example page', inspectionState: 'readable' }),
+    }));
+    expect(result?.result).not.toHaveProperty('textUnavailableReason');
+  });
+
+  it('does not reload a loaded tab before a snapshot', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    await flushPromises();
+    const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
+    relayPort.postMessage.mockClear();
+    harness.chrome.tabs.reload.mockClear();
+
+    relayPort.emitMessage({
+      type: 'browser_command',
+      command: { id: 'snapshot-loaded', command: 'snapshot', target: { tabId: 42 } },
+    });
+    await flushPromises();
+
+    expect(relayPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      commandId: 'snapshot-loaded', ok: true,
+    }));
+    expect(harness.chrome.tabs.reload).not.toHaveBeenCalled();
   });
 
   it('flags browser.snapshot text as unavailable with a generic reason for a non-permission injection failure', async () => {

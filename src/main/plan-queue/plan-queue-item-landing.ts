@@ -253,6 +253,12 @@ export class PlanQueueItemLanding {
         await this.ctx.park(host.getItem(item.id), 'land-blocked', result.reason);
         return null;
       case 'hook-failed':
+        // A timeout is not something a worker can fix, and another round would hold every project's landings again.
+        if (result.timedOut) {
+          await this.ctx.park({ ...host.getItem(item.id), landingRefusals: 0 }, 'land-blocked',
+            `Not landed: the pre-commit check ran out of time, so nothing changed on ${baseBranch}. A worker cannot fix a timeout; press Try merging again once the machine is less busy. ${result.output.slice(-1000)}`);
+          return null;
+        }
         await this.refused(host.getItem(item.id), 'the pre-commit hook refused the landing commit',
           buildGateFailurePrompt('git commit (the repository pre-commit hook)', result.output), result.output);
         return null;

@@ -499,6 +499,13 @@
         cursor: pointer;
         transition: all var(--transition-fast);
 
+        /* Same at-rest underline as src/renderer/styles/_markdown.scss, for paths outside .markdown-content */
+        &.inline-code {
+          text-decoration: underline;
+          text-decoration-color: rgba(var(--primary-rgb), 0.5);
+          text-underline-offset: 0.2em;
+        }
+
         &:hover {
           background: rgba(var(--primary-rgb), 0.2);
           border-color: var(--primary-color);

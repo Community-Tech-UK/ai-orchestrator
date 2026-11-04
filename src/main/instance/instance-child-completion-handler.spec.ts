@@ -116,6 +116,33 @@ describe('InstanceChildCompletionHandler', () => {
     expect(storedSuccess).toBe(true);
   });
 
+  it('leaves an engine-owned child alone: no report to the parent and no close', async () => {
+    const child = instance({
+      metadata: { planQueueRunId: 'run-1', planQueueItemId: 'item-1', planQueueRole: 'worker' },
+      outputBuffer: [message('assistant', 'Round finished.')],
+    });
+    orchestration.notifyChildTerminated.mockReturnValue({ remainingChildren: 0 });
+    orchestration.getCompletedChildIds.mockReturnValue([child.id]);
+    const handler = createHandler();
+
+    await handler.handleChildExit(child.id, child, 0);
+
+    expect(storage.storeFromOutputBuffer).not.toHaveBeenCalled();
+    expect(orchestration.notifyChildTerminated).not.toHaveBeenCalled();
+    expect(orchestration.notifyAllChildrenCompleted).not.toHaveBeenCalled();
+    expect(terminateInstance).not.toHaveBeenCalled();
+  });
+
+  it('closes an ordinary helper child once its turn is reported', async () => {
+    const child = instance({ outputBuffer: [message('assistant', 'Done.')] });
+    const handler = createHandler();
+
+    await handler.handleChildExit(child.id, child, 0);
+
+    expect(orchestration.notifyChildTerminated.mock.calls[0]?.slice(0, 2)).toEqual(['parent-1', child.id]);
+    expect(terminateInstance).toHaveBeenCalledWith(child.id, false);
+  });
+
   it('persists a summary when the child exits with an empty buffer', async () => {
     const child = instance({ outputBuffer: [] });
     const handler = createHandler();

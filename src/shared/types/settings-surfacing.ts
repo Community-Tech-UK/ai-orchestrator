@@ -57,6 +57,7 @@ export const SETTING_SURFACING = {
   workloadLevel: 'bespoke', // Shared slider in the Work panel and Orchestration settings.
   maxChildrenPerParent: 'tab',
   maxTotalInstances: 'tab',
+  maxConcurrentWorktrees: 'tab',
   // Edited by hand-coded per-provider boxes in the Orchestration tab.
   concurrencyLimitByProvider: 'bespoke',
   autoTerminateIdleMinutes: 'tab',

@@ -337,6 +337,7 @@ export class BrowserTargetDiscoveryOperations {
       }
     }
     if (existing) {
+      const unreadableNote = unreadableExistingTabNote(existing);
       return this.deps.result({
         context: request,
         profileId: existing.profileId,
@@ -346,7 +347,9 @@ export class BrowserTargetDiscoveryOperations {
         actionClass: 'read',
         decision: 'allowed',
         outcome: 'succeeded',
-        summary: 'Selected an existing Chrome tab matching the browser task',
+        summary: 'Selected an existing Chrome tab matching the browser task'
+          + `${unreadableNote ? ` (${unreadableNote})` : ''}`,
+        ...(unreadableNote ? { reason: unreadableNote } : {}),
         origin: existing.origin,
         url: existing.url,
         data: safeTargetFromExistingTab(existing),
@@ -604,5 +607,24 @@ export class BrowserTargetDiscoveryOperations {
       url,
       data: null,
     });
+  }
+}
+
+/**
+ * The selected tab's page could not be read when it was last reported. Say
+ * what clears it, so an agent does not take the tab as blocked. Agents see
+ * `reason`, not `summary`.
+ */
+function unreadableExistingTabNote(tab: BrowserExistingTabAttachment): string | undefined {
+  switch (tab.textUnavailableReason) {
+    case 'tab_discarded':
+      return 'tab_discarded: Chrome has unloaded this tab to save memory. '
+        + 'The next snapshot or action on the tab loads it again.';
+    case 'host_permission_denied':
+      // Older extension builds report an unloaded tab this way.
+      return 'host_permission_denied: Chrome also reports this for a tab it has unloaded. '
+        + 'browser.reload loads the tab; then read it again.';
+    default:
+      return undefined;
   }
 }

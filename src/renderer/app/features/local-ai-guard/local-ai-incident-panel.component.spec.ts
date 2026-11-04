@@ -76,6 +76,11 @@ describe('LocalAiIncidentPanelComponent', () => {
     fixture.detectChanges();
   });
 
+  it('titles the incident with its plain-English reason', () => {
+    const heading = (fixture.nativeElement.querySelector('h3') as HTMLElement).textContent?.trim();
+    expect(heading).toBe('Model server not responding');
+  });
+
   it('acknowledges, diagnoses, and exposes named guided recovery actions', async () => {
     click('Acknowledge');
     await fixture.whenStable();

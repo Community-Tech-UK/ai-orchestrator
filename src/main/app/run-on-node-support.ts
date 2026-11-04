@@ -113,27 +113,28 @@ function promptWithoutOsConfigurationExemptions(prompt: string): string {
   );
 }
 
-function namesProtectedBrowserSurface(prompt: string): boolean {
-  return /\b(?:browsers?|chrome|tabs?|sessions?|windows?|profiles?|pages?|webpages?|edge)\b/.test(
+const PROTECTED_SURFACE_NOUN = /\b(?:browsers?|chrome|tabs?|sessions?|windows?|profiles?|pages?|webpages?|edge)\b/;
+const PROTECTED_SESSION_MARKER = /\b(?:shared|existing|authenticated|personal|everyday|real)\b|\b(?:logged\s+(?:in|on)|signed\s+in)\b|\boperator(?:['’]s)?\b|\b(?:already|currently)\s+open\b|\buser\s+owned\b|\b(?:user['’]s|users['’])/;
+
+function findProtectedBrowserSurface(prompt: string): string | undefined {
+  return PROTECTED_SURFACE_NOUN.exec(
     normalizeBrowserPolicyPrompt(prompt).replace(WINDOWS_OS_REFERENCE, ' '),
-  );
+  )?.[0];
 }
 
-function namesProtectedSessionMarker(prompt: string): boolean {
-  const normalizedPrompt = normalizeBrowserPolicyPrompt(prompt);
-  return /\b(?:shared|existing|authenticated|personal|everyday|real)\b/.test(normalizedPrompt)
-    || /\b(?:logged\s+(?:in|on)|signed\s+in)\b/.test(normalizedPrompt)
-    || /\boperator(?:['’]s)?\b/.test(normalizedPrompt)
-    || /\b(?:already|currently)\s+open\b/.test(normalizedPrompt)
-    || /\buser\s+owned\b/.test(normalizedPrompt)
-    || /\b(?:user['’]s|users['’])/.test(normalizedPrompt);
+function findProtectedSessionMarker(prompt: string): string | undefined {
+  return PROTECTED_SESSION_MARKER.exec(normalizeBrowserPolicyPrompt(prompt))?.[0];
 }
 
-function namesExplicitSharedSessionSurface(prompt: string): boolean {
-  const normalizedPrompt = normalizeBrowserPolicyPrompt(prompt);
-  const hasAnyProtectedSurfaceNoun = namesProtectedBrowserSurface(normalizedPrompt);
-  const hasAnyProtectedMarker = namesProtectedSessionMarker(normalizedPrompt);
-  return hasAnyProtectedMarker && hasAnyProtectedSurfaceNoun;
+/**
+ * Fails closed: a protected marker and a protected surface noun anywhere in
+ * the prompt count, however far apart. Returns the matched words so the
+ * refusal can name them.
+ */
+function findExplicitSharedSessionSurface(prompt: string): string[] | undefined {
+  const marker = findProtectedSessionMarker(prompt);
+  const surface = findProtectedBrowserSurface(prompt);
+  return marker && surface ? [marker, surface] : undefined;
 }
 
 type RecoveryAntecedent = 'process' | 'protected' | undefined;
@@ -219,46 +220,54 @@ export function assertRunOnNodeUsesWorkerBrowserSurface(
 ): void {
   const prompt = args.prompt.toLowerCase().replace(/\s+/g, ' ').trim();
   const nativeHostRecovery = isNativeHostRelayRecoveryRequest(prompt);
+  let matchedWords: string[] | undefined;
   if (nativeHostRecovery) {
     if (isSafeNativeHostRecoveryPrompt(prompt)) {
       return;
     }
   } else {
     const policyPrompt = promptWithoutOsConfigurationExemptions(prompt);
-    const namesBrowserGatewayTool = /\bbrowser\.(?:\*|[a-z][a-z0-9_]*\b)/.test(policyPrompt);
-    const explicitlyShared = EXPLICIT_SHARED_BROWSER_MARKERS.some(
+    const browserGatewayTool = /\bbrowser\.(?:\*|[a-z][a-z0-9_]*\b)/.exec(policyPrompt)?.[0];
+    const sharedBrowserMarker = EXPLICIT_SHARED_BROWSER_MARKERS.find(
       (marker) => policyPrompt.includes(marker),
     );
     const explicitlyManaged = MANAGED_BROWSER_MARKERS.some(
       (marker) => policyPrompt.includes(marker),
     );
     const mentionsTab = /\btabs?\b/.test(policyPrompt);
-    const requestsTabControl = BROWSER_ACTION.test(policyPrompt);
-    const mentionsBrowserSurface = /\b(?:browser|chrome|tabs?)\b/.test(policyPrompt);
+    const tabControlAction = BROWSER_ACTION.exec(policyPrompt)?.[0];
+    const browserSurface = /\b(?:browser|chrome|tabs?)\b/.exec(policyPrompt)?.[0];
     const withoutManagedExistingTab = policyPrompt.replace(MANAGED_EXISTING_TAB, ' ');
     const removedManagedExistingTab = withoutManagedExistingTab !== policyPrompt;
-    const namesSharedSessionSurface = namesExplicitSharedSessionSurface(withoutManagedExistingTab)
-      || (removedManagedExistingTab && namesProtectedSessionMarker(withoutManagedExistingTab));
-    const hasSharedTabIntent = requestsTabControl
-      && mentionsBrowserSurface
+    const managedTabMarker = removedManagedExistingTab
+      ? findProtectedSessionMarker(withoutManagedExistingTab)
+      : undefined;
+    const sharedSessionWords = findExplicitSharedSessionSurface(withoutManagedExistingTab)
+      ?? (managedTabMarker ? [managedTabMarker] : undefined);
+    const hasSharedTabIntent = tabControlAction !== undefined
+      && browserSurface !== undefined
       && (
-        explicitlyShared
+        sharedBrowserMarker !== undefined
         || (mentionsTab && /\bchrome\b/.test(policyPrompt) && !explicitlyManaged)
       );
-    if (
-      !namesBrowserGatewayTool
-      && !namesSharedSessionSurface
-      && !explicitlyShared
-      && !hasSharedTabIntent
-    ) {
+    matchedWords = browserGatewayTool ? [browserGatewayTool]
+      : sharedSessionWords
+        ?? (sharedBrowserMarker ? [sharedBrowserMarker]
+          : hasSharedTabIntent ? [tabControlAction, browserSurface] : undefined);
+    if (!matchedWords) {
       return;
     }
   }
   const target = args.node?.trim() || 'the target worker';
+  const matchedDetail = matchedWords
+    ? ` It was read as shared-browser work because it contains ${matchedWords.map((word) => `"${word}"`).join(' and ')}; `
+      + 'if the task needs no browser, reword it without those words.'
+    : '';
   throw new Error(
     `run_on_node cannot access Browser Gateway or existing/shared Chrome tabs on ${target}. `
     + `The agent must stay on the coordinator and call Browser Gateway tools with computer: "${target}". `
-    + 'Use run_on_node only for the worker-managed Chrome profile exposed through chrome-devtools.',
+    + 'Use run_on_node only for the worker-managed Chrome profile exposed through chrome-devtools.'
+    + matchedDetail,
   );
 }
 

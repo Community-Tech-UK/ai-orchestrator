@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import type { BrowserExistingTabAttachment } from './browser-extension-tab-store';
 import { tryParseWebUrl } from './browser-gateway-service-helpers';
+import { isPageTextUnreadableReason } from './browser-target-inspection';
 
 export function findExistingTabCandidate(
   tabs: BrowserExistingTabAttachment[],
@@ -9,9 +10,11 @@ export function findExistingTabCandidate(
   options: { minUpdatedAt?: number } = {},
 ): BrowserExistingTabAttachment | null {
   const parsedUrl = url ? tryParseWebUrl(url) : null;
+  // Within each match below, a copy of the page Chrome can read beats a newer
+  // one it cannot, such as a tab Chrome has unloaded to save memory.
   const candidates = tabs
     .filter((tab) => options.minUpdatedAt === undefined || tab.updatedAt >= options.minUpdatedAt)
-    .sort((a, b) => b.updatedAt - a.updatedAt);
+    .sort((a, b) => unreadableRank(a) - unreadableRank(b) || b.updatedAt - a.updatedAt);
 
   if (parsedUrl && url) {
     const exactOrPrefix = candidates.find((tab) =>
@@ -33,6 +36,10 @@ export function findExistingTabCandidate(
   }
 
   return null;
+}
+
+function unreadableRank(tab: BrowserExistingTabAttachment): number {
+  return isPageTextUnreadableReason(tab.textUnavailableReason) ? 1 : 0;
 }
 
 function isSameOriginUrlPrefix(

@@ -167,6 +167,21 @@ export function buildActiveDocumentsPrompt(paths: readonly string[]): string {
   ].join('\n');
 }
 
+/**
+ * What a parked item's next worker must still hear: why it parked and, after a FAIL, the last
+ * verifier findings. Saved as the item's pending instruction when it is resumed, because the
+ * resume clears the verdict that `resumeData` would otherwise read. The park note comes first so
+ * the data-block length cap can never cut it off.
+ */
+export function buildParkedCarryOver(item: Pick<PlanQueueItem, 'verdict' | 'detail'>): string | null {
+  const findings = item.verdict?.verdict === 'FAIL' ? item.verdict.findings : [];
+  const parts = [
+    ...(item.detail ? ['Why the item was parked:', dataBlock('park_detail', item.detail)] : []),
+    ...(findings.length ? ["The last verifier's findings:", findingsBlock(findings)] : []),
+  ];
+  return parts.length ? parts.join('\n') : null;
+}
+
 function resumeData(ctx: ItemPromptContext): string[] {
   if (ctx.item.pendingInstruction) return ['', 'Pending work from the previous session (data):', dataBlock('pending_instruction', ctx.item.pendingInstruction)];
   return ctx.item.verdict?.findings.length

@@ -1184,6 +1184,52 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
     expect(sendCommand).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['tab_discarded', /next snapshot or action on the tab loads it/],
+    ['host_permission_denied', /browser\.reload loads the tab/],
+  ] as const)('tells the agent how to read a selected tab reported as %s', async (textUnavailableReason, note) => {
+    const sendCommand = vi.fn();
+    const existingTab = {
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      tabId: 42,
+      windowId: 7,
+      title: 'Bin Collection Dates',
+      url: 'https://council.example/bins',
+      origin: 'https://council.example',
+      textUnavailableReason,
+      allowedOrigins: [
+        {
+          scheme: 'https' as const,
+          hostPattern: 'council.example',
+          includeSubdomains: false,
+        },
+      ],
+    };
+    const { service } = makeService({
+      existingTab,
+      extensionCommandStore: { sendCommand },
+    });
+
+    const result = await service.findOrOpen({
+      instanceId: 'instance-1',
+      provider: 'codex',
+      url: 'https://council.example/bins',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: {
+        id: existingTab.targetId,
+        inspectionState: 'inspection_unavailable',
+        textUnavailableReason,
+      },
+    });
+    expect(result.reason).toMatch(note);
+    expect(sendCommand).not.toHaveBeenCalled();
+  });
+
   it('filters existing-tab matches by requested remote node before opening', async () => {
     const sendCommand = vi.fn(async () => ({
       tab: {

@@ -90,6 +90,13 @@ describe('discoverPlanQueueDocuments', () => {
     expect(rel(docs)).toEqual(['docs/superpowers/plans/2026-07-26-local-ai-guard_plan_livetest.md']);
   });
 
+  it('skips a programme document marked "Queue: not an item" in its first 8 lines only', async () => {
+    write('docs/plans/2026-11-03-programme_plan.md', '# Programme\n\nQueue: not an item\n\n**Status:** Draft\n');
+    write('docs/plans/2026-11-03-late-mention_plan.md', `${'line\n'.repeat(8)}Queue: not an item\n`);
+    const docs = await discoverPlanQueueDocuments(root, 'plans', 'docs/plans/2026-11-03-*');
+    expect(rel(docs)).toEqual(['docs/plans/2026-11-03-late-mention_plan.md']);
+  });
+
   it('does not treat a spec as unplanned when its plan exists', async () => {
     write('docs/plans/2026-09-05-loop-child-transcript-prune_plan.md');
     const docs = await discoverPlanQueueDocuments(root, 'plans', 'docs/plans/2026-09-05-*');

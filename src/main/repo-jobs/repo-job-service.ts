@@ -22,6 +22,7 @@ import { getReactionEngine } from '../reactions';
 import { getRepoJobStore } from './repo-job-store';
 import { getWorkAdmission } from '../work-admission/work-admission';
 import { pauseRepoJobForRestart, restoreRepoJobWorktree, resumeRepoJobAfterRestart } from './repo-job-global-pause';
+import { finishedRepoJobs, releaseFinishedRepoJobFolders } from './repo-job-worktree-release';
 
 const logger = getLogger('RepoJobService');
 
@@ -225,6 +226,11 @@ export class RepoJobService extends EventEmitter {
       timeout: DEFAULT_TIMEOUTS_MS[job.type],
       cancellable: true,
     });
+  }
+
+  /** Startup only: finished jobs' folders (crash leftovers included) are saved to their branches and removed. */
+  releaseFinishedJobFolders(): Promise<number> {
+    return releaseFinishedRepoJobFolders(finishedRepoJobs(this.store.loadAll().values(), this.jobs), (job) => this.persistJob(job));
   }
 
   rerunJob(jobId: string): RepoJobRecord {
