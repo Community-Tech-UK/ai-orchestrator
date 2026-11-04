@@ -1,3 +1,4 @@
+import { assertLoopExecutionAuthority } from './loop-execution-authority';
 import * as path from 'path';
 import { createHash } from 'crypto';
 import { existsSync, readdirSync, type Dirent } from 'fs';
@@ -42,6 +43,7 @@ function normalizeLoopCaps(
 export function materializeLoopConfig(
   p: Partial<LoopConfig> & { initialPrompt: string; workspaceCwd: string },
 ): LoopConfig {
+  assertLoopExecutionAuthority(p);
   const base = defaultLoopConfig(p.workspaceCwd, p.initialPrompt);
   if (p.planFile && p.completion?.requireCompletedFileRename === undefined) {
     base.completion.requireCompletedFileRename = true;

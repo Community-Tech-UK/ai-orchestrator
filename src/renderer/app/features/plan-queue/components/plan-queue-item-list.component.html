@@ -6,10 +6,10 @@
       <div class="pq-item" [attr.data-state]="item.state">
         <div class="pq-item-head">
           <span class="pq-item-doc" tabindex="0" [appTooltip]="item.documentPath">{{ documentBasename(item.documentPath) }}</span>
-          <span class="pq-item-state" [attr.data-state]="item.state">{{ item.heldAt !== null && item.heldAt !== undefined ? 'Paused' : stateLabel(item.state) }}</span>
-          <span class="pq-item-round">Round {{ item.round }} of {{ maxRounds() }}@if (item.spend) { · {{ spendLabel(item.spend.costUsd) }} }</span>
+          <span class="pq-item-state" [attr.data-state]="item.state">{{ item.heldAt !== null && item.heldAt !== undefined ? 'Paused' : isNotReached(item) ? notReachedLabel : stateLabel(item.state) }}</span>
+          <span class="pq-item-round">Round {{ item.round }} of {{ maxRounds() }}@if (item.spend) { · {{ spendLabel(item.spend) }} }</span>
           @if (item.erroredRounds > 0) {
-            <span class="pq-item-errored-rounds">{{ item.erroredRounds }} errored round(s)</span>
+            <span class="pq-item-errored-rounds">{{ pluralise(item.erroredRounds, 'round ended with an error', 'rounds ended with an error') }}</span>
           }
           @if (isSkippable(item)) {
             <button type="button" class="pq-item-skip" [appTooltip]="copy('planQueue.skip')" (click)="onSkip(item.id)">Skip</button>
@@ -32,14 +32,26 @@
 
         @if (item.verdict) {
           <div class="pq-item-verdict">{{ verdictSummary(item.verdict) }}</div>
+          @if (item.verdict.gatesRun.length) {
+            <details><summary>Checks ({{ item.verdict.gatesRun.length }})</summary>
+              @for (gate of item.verdict.gatesRun; track $index) {
+                <p>{{ gate.command }}: {{ gate.timedOut ? 'Timed out' : gate.classification === 'no-tests-found' ? 'No tests found' : gate.classification === 'not-recognised' ? 'Could not confirm the result' : gate.exitCode === 0 ? 'Passed' : 'Failed' }}
+                  @if (gate.baseline === 'also-failing-on-base') { (also failing on the base version) }
+                </p>
+              }
+            </details>
+          }
         }
 
-        @if (item.parkReason) {
-          <div class="pq-item-park-reason">Parked: {{ parkReasonLabel(item.parkReason) }}</div>
+        @if (parkHelp(item, { maxRounds: maxRounds() }); as help) {
+          <div class="pq-item-park-reason">Set aside: {{ help.label }}</div>
+          <p>{{ help.meaning }} {{ help.next }}</p>
         }
-
-        @if (item.detail) {
-          <div class="pq-item-detail">{{ item.detail }}</div>
+        @if (item.verdict?.notChecked?.length) {
+          <p>Not checked: {{ item.verdict?.notChecked?.join('; ') }}</p>
+        }
+        @if (foldedDetail(item.detail); as detail) {
+          <details class="pq-item-detail"><summary>Details</summary>{{ detail.text }}</details>
         }
 
         @if (item.question && hasOpenQuestion(item.state)) {

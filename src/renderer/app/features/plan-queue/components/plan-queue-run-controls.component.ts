@@ -1,6 +1,7 @@
 import { copyFor } from '../../../shared/tooltip/tooltip-copy';
 import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
 import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
+import { pluralise } from '../plan-queue-item-display';
 import type { PlanQueueRunDto, PlanQueueRunStatus } from '@contracts/schemas/plan-queue';
 import { planQueueDocumentBasename } from './plan-queue-item-list.component';
 
@@ -32,7 +33,7 @@ export class PlanQueueRunControlsComponent {
   protected readonly confirmingCancel = signal(false);
   protected readonly statusLabel = computed(() => {
     const run = this.run();
-    if (run.status === 'paused') return `Paused · ${run.items.filter(item => item.heldAt != null).length} documents waiting to resume`;
+    if (run.status === 'paused') return `Paused · ${pluralise(run.items.filter(item => item.heldAt != null).length, 'document')} waiting to resume`;
     if (run.status !== 'running') return STATUS_LABELS[run.status];
     const current = run.items.find(item => ['preparing', 'working', 'fixing', 'verifying', 'landing'].includes(item.state));
     const next = run.items.find(item => item.state === 'queued');

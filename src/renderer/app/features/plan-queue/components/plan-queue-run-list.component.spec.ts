@@ -95,6 +95,41 @@ describe('PlanQueueRunListComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('/repo-b');
   });
 
+  it('keeps unpriced usage visible and averages only fully priced merges', () => {
+    fixture.componentRef.setInput('runs', [makeRun({
+      spend: { tokens: 17_200_400, costUsd: 109, exactUsd: 8, unpricedTokens: 17_200_000 },
+      items: [
+        makeItem({ id: 'first', state: 'landed', spend: { tokens: 100, costUsd: 3, exactUsd: 3 } }),
+        makeItem({ id: 'second', state: 'landed', spend: { tokens: 100, costUsd: 5, exactUsd: 5 } }),
+        makeItem({ id: 'partial', state: 'landed', spend: { tokens: 17_200_100, costUsd: 2, exactUsd: 0, unpricedTokens: 17_200_000 } }),
+        makeItem({ id: 'unfinished', state: 'working', spend: { tokens: 100, costUsd: 99, exactUsd: 0 } }),
+      ],
+    })]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.pq-run-spend')?.textContent)
+      .toBe('$109.00 known (estimated) · 17.2M tokens not priced across 4 documents · 3 merged ($4.00 each among fully priced merges)');
+    expect(fixture.nativeElement.textContent).toContain('$2.00 known (estimated) · 17.2M tokens not priced');
+  });
+
+  it('does not present an entirely unpriced merge as a free one', () => {
+    const spend = { tokens: 10, costUsd: 0, exactUsd: 0, unpricedTokens: 10 };
+    fixture.componentRef.setInput('runs', [makeRun({ spend, items: [makeItem({ state: 'landed', spend })] })]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.pq-run-spend')?.textContent)
+      .toBe('10 tokens not priced across 1 document · 1 merged (cost per merge not known)');
+    expect(fixture.nativeElement.textContent).not.toContain('$0.00');
+  });
+
+  it('labels the average estimated when a fully priced merge includes an estimate', () => {
+    fixture.componentRef.setInput('runs', [makeRun({ spend: { tokens: 20, costUsd: 6, exactUsd: 4 }, items: [
+      makeItem({ id: 'exact', state: 'landed', spend: { tokens: 10, costUsd: 3, exactUsd: 3 } }),
+      makeItem({ id: 'estimate', state: 'landed', spend: { tokens: 10, costUsd: 3, exactUsd: 1 } }),
+    ] })]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.pq-run-spend')?.textContent)
+      .toBe('$6.00 (estimated) across 2 documents · 2 merged ($3.00 (estimated) each among fully priced merges)');
+  });
+
   it('forwards a run control action with the correct run id', () => {
     fixture.componentRef.setInput('runs', [makeRun({ id: 'run-x', status: 'running' })]);
     fixture.detectChanges();
@@ -123,12 +158,23 @@ describe('PlanQueueRunListComponent', () => {
 
     const details = fixture.nativeElement.querySelector('details.pq-run-documents') as HTMLDetailsElement;
     expect(details.open).toBe(false);
-    expect(details.querySelector('summary')?.textContent).toContain('4 document(s)');
-    expect(details.querySelector('summary')?.textContent).toContain('2 Needs your answer, 1 Landed, 1 Parked');
+    expect(details.querySelector('summary')?.textContent).toContain('4 documents');
+    expect(details.querySelector('summary')?.textContent).toContain('2 Needs your answer, 1 Merged, 1 Set aside');
     expect(fixture.nativeElement.querySelectorAll('input[type="radio"]')).toHaveLength(0);
     // The run controls stay outside the collapsed list.
     expect(details.querySelector('.pq-run-controls')).toBeNull();
     expect(fixture.nativeElement.querySelector('.pq-run-head .pq-run-controls')).not.toBeNull();
+  });
+
+  it('distinguishes cancellation leftovers from deliberate skips in the summary and document cards', () => {
+    fixture.componentRef.setInput('runs', [makeRun({ status: 'cancelled', items: [
+      makeItem({ id: 'unreached', state: 'skipped', detail: 'Run cancelled by James.' }),
+      makeItem({ id: 'skipped', state: 'skipped', detail: 'Skipped by James.' }),
+    ] })]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.pq-run-documents summary')?.textContent).toContain('1 Skipped, 1 Not reached');
+    expect(Array.from(fixture.nativeElement.querySelectorAll('.pq-item-state'), (node: Element) => node.textContent?.trim()))
+      .toEqual(['Not reached', 'Skipped']);
   });
 
   it('shows current providers and accounts, falling back to the stored worker for older runs', () => {

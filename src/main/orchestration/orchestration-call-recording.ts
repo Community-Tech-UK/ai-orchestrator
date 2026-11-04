@@ -4,6 +4,8 @@ import { isModelCallCancelled, observeModelCallUsage } from '../core/system/obse
 import { purposeOf } from '../core/system/cost-attribution';
 import { recordModelCall } from '../core/system/model-call-recorder';
 import type { ModelCallOutcome } from '../../shared/types/cost-attribution.types';
+import { deferUntilResponseUsageSettled } from '../cli/adapters/deferred-response-usage';
+export { waitForCompletionUsage } from '../instance/communication-completion-cost';
 
 interface CallContext {
   taskType: string;
@@ -26,10 +28,15 @@ export async function sendRecordedOrchestrationCall(
   const observed = observeModelCallUsage(adapter);
   try {
     const response = await send();
-    observed.observe(response.usage);
-    recordModelCall({ ...record, usage: observed.usage, isEstimated: observed.usage?.isEstimated,
-      outcome: outcomeForResponse?.(response) ?? (response.metadata?.['budgetExceeded'] === true ? 'budget-exceeded'
-        : response.degradedReason === 'cancelled' ? 'cancelled' : 'success') });
+    const recordSettled = () => {
+      const settled = observeModelCallUsage(undefined);
+      settled.observe(observed.usage);
+      settled.observe(response.usage);
+      recordModelCall({ ...record, usage: settled.usage, isEstimated: settled.usage?.isEstimated,
+        outcome: outcomeForResponse?.(response) ?? (response.metadata?.['budgetExceeded'] === true ? 'budget-exceeded'
+          : response.degradedReason === 'cancelled' ? 'cancelled' : 'success') });
+    };
+    if (!deferUntilResponseUsageSettled(response, recordSettled)) recordSettled();
     return response;
   } catch (error) {
     observed.observeError(error);

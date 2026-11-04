@@ -4,6 +4,8 @@ import type {
   PlanQueueControlPayload,
   PlanQueueKind,
   PlanQueueRunDto,
+  PlanQueuePreviewPayload,
+  PlanQueueDiscoveryPreview,
 } from '@contracts/schemas/plan-queue';
 import { ElectronIpcService, type IpcResponse } from './electron-ipc.service';
 
@@ -29,6 +31,11 @@ export class PlanQueueIpcService {
   private base = inject(ElectronIpcService);
   private get api() { return this.base.getApi(); }
   private get zone() { return this.base.getNgZone(); }
+
+  async preview(payload: PlanQueuePreviewPayload): Promise<IpcResponse<PlanQueueDiscoveryPreview>> {
+    if (!this.api) return notInElectron();
+    return (await this.api.planQueuePreview(payload)) as IpcResponse<PlanQueueDiscoveryPreview>;
+  }
 
   async list(limit?: number): Promise<IpcResponse<{ runs: PlanQueueRunDto[]; alerts: PlanQueueAlert[] }>> {
     if (!this.api) return notInElectron();

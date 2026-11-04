@@ -88,6 +88,18 @@ describe('CliHealthSettingsTabComponent', () => {
   let fixture: ComponentFixture<CliHealthSettingsTabComponent>;
   let component: CliHealthSettingsTabComponent;
 
+  it.each(['1.0.99', '1.0.9', '0.99.100'])('warns about old Copilot %s beside its active version', async version => {
+    diagnoseAllClis.mockResolvedValue({ success: true, data: { entries: [{ ...okEntry('copilot') as object, activeVersion: version }] } });
+    await component.refresh(); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Copilot below 1.0.100 may stall for minutes on a hung tool server.');
+  });
+
+  it.each(['1.0.100', '1.0.101', '1.1.0', '2.0.0'])('does not warn for fixed Copilot %s', async version => {
+    diagnoseAllClis.mockResolvedValue({ success: true, data: { entries: [{ ...okEntry('copilot') as object, activeVersion: version }] } });
+    await component.refresh(); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).not.toContain('Copilot below 1.0.100');
+  });
+
   beforeEach(async () => {
     vi.clearAllMocks();
     settingsSignal.set({ ...DEFAULT_SETTINGS });

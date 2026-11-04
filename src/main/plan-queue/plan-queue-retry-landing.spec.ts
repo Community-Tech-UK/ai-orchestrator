@@ -1,8 +1,14 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { readFileSync, realpathSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { SqliteDriver } from '../db/sqlite-driver';
+import { createSqliteWasmDatabase, initSqliteWasm } from '../db/sqlite-wasm-driver';
+import { runLoopMigrations } from '../orchestration/loop-schema';
+import { PlanQueueStore } from './plan-queue-store';
 import { DEFAULT_PLAN_QUEUE_CONFIG } from '@contracts/schemas/plan-queue';
 import { GitWriteQueue } from '../workspace/git/git-write-queue';
 import { appendParkedNote } from './plan-queue-doc-close';
@@ -13,13 +19,16 @@ import { newPlanQueueItem } from './plan-queue-state';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 
 let repo: string;
+let db: SqliteDriver;
+beforeAll(() => initSqliteWasm());
 const git = (args: string[], cwd = repo) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 beforeEach(async () => {
   GitWriteQueue._resetForTesting();
-  repo = await mkdtemp(join(tmpdir(), 'queue-retry-landing-'));
+  db = createSqliteWasmDatabase(':memory:'); runLoopMigrations(db);
+  repo = realpathSync(await mkdtemp(join(tmpdir(), 'queue-retry-landing-')));
   await writeFile(join(repo, 'x_plan.md'), '# Plan\n');
 });
-afterEach(async () => { vi.restoreAllMocks(); await rm(repo, { recursive: true, force: true }); GitWriteQueue._resetForTesting(); });
+afterEach(async () => { db.close(); vi.restoreAllMocks(); await rm(repo, { recursive: true, force: true }); GitWriteQueue._resetForTesting(); });
 vi.setConfig({ testTimeout: 30_000 });
 
 function fixture(patch: Partial<PlanQueueItem> = {}) {
@@ -33,11 +42,16 @@ function fixture(patch: Partial<PlanQueueItem> = {}) {
     status: 'running', config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, baseBranch: 'main', postMergeGate: [], verifierGates: [] },
     relaxation: null, workerProvider: null, workerModel: null, startedAt: 1, endedAt: null,
   };
-  const save = (next: PlanQueueItem) => { item = next; return item; };
+  const store = new PlanQueueStore(db); store.upsertRun(run); store.upsertItem(item);
+  store.history.recordVerdict({ itemId: item.id, runId: item.runId, round: item.round, verdict: 'PASS',
+    findings: [], gatesRun: [], notChecked: [], worktreeHead: item.checkpointCommit,
+    documentReview: { version: 1, documentSha256: createHash('sha256').update(readFileSync(item.documentPath)).digest('hex'), linkedSpecSha256: [null, null] },
+    documentSha256: createHash('sha256').update(readFileSync(item.documentPath)).digest('hex') });
+  const save = (next: PlanQueueItem) => { item = next; store.upsertItem(next); return item; };
   const reattach = vi.fn(async (next: PlanQueueItem) => save({ ...next, worktreePath: join(repo, 'wt') }));
   const worktrees = { reattach, checkpoint: async (next: PlanQueueItem) => next };
   const host = {
-    instances: { getInstance: () => undefined }, tracker: {}, worktrees,
+    history: store.history, instances: { getInstance: () => undefined }, tracker: {}, worktrees,
     getRun: () => run, getItem: () => item, save,
     transition: (next: PlanQueueItem, state: PlanQueueItem['state'], values: Partial<PlanQueueItem> = {}) => save({ ...next, ...values, state }),
     requestPump: vi.fn(), resolveRunParent: () => undefined,
@@ -85,7 +99,7 @@ describe('verified retry landing', () => {
   it('reattaches first, retains PASS/round/base/commit, and enqueues without an operator override', async () => {
     const test = fixture();
     const enqueue = vi.spyOn(test.flow, 'enqueueLanding').mockResolvedValue(undefined);
-    await appendParkedNote(test.get().documentPath, { branchName: 'queue/item-1', reason: 'land-blocked', commitCount: 2 });
+    test.host.history.recordDocumentTransformation(test.get(), await appendParkedNote(test.get().documentPath, { branchName: 'queue/item-1', reason: 'land-blocked', commitCount: 2 }));
     await test.flow.retryLanding('item-1');
     expect(test.get()).toMatchObject({ state: 'landing', verdict: { verdict: 'PASS' }, round: 2,
       verifiedMainCommit: 'base-verified', landedCommit: 'recorded-commit', worktreePath: join(repo, 'wt'), parkReason: null, detail: null });
@@ -129,7 +143,7 @@ describe('verified retry landing', () => {
       removeWithProof: async () => { git(['worktree', 'remove', '-f', join(repo, 'wt')]); test.save({ ...test.get(), worktreePath: null }); return { removed: true }; },
       deleteBranchWithProof: async () => { git(['branch', '-D', 'queue/item-1']); },
     });
-    await appendParkedNote(test.get().documentPath, { branchName: 'queue/item-1', reason: 'land-blocked', commitCount: 1 });
+    test.host.history.recordDocumentTransformation(test.get(), await appendParkedNote(test.get().documentPath, { branchName: 'queue/item-1', reason: 'land-blocked', commitCount: 1 }));
     await test.flow.retryLanding('item-1'); await test.flow.whenSettled();
     expect(test.get().state).toBe('landed');
     expect(test.get().verdict?.verdict).toBe('PASS');

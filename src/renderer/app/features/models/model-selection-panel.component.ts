@@ -33,6 +33,7 @@ import { ModelFavoritesService } from './model-favorites.service';
 import { DEFAULT_FAVORITE_MODEL_KEYS } from './default-favorites';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
+import { copilotModelLabel } from '../../../../shared/utils/copilot-model-label';
 
 type ActiveModelTab = 'favorites' | PickerProvider;
 type ProviderLabelMap = Partial<Record<PickerProvider, string>>;
@@ -769,7 +770,8 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
       const providerColor = this.providerColor(provider);
       const providerDisabledReason = disabledReasonForProvider(provider);
 
-      return modelsForProvider(provider).map((model) => {
+      return modelsForProvider(provider).map((entry) => {
+        const model = provider === 'copilot' ? { ...entry, name: copilotModelLabel(entry.id, entry.name) } : entry;
         const availableReasoningOptions = reasoningOptionsForProvider(provider, model);
         const key = modelKey(provider, model.id);
         const selected = provider === selectedProvider && model.id === selectedModelId;

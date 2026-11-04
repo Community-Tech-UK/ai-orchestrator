@@ -14,6 +14,7 @@ export const ORCHESTRATOR_TOOL_SEARCH_NAME = 'orchestrator.tool_search';
 export const ORCHESTRATOR_TOOL_DESCRIBE_NAME = 'orchestrator.tool_describe';
 
 export const ORCHESTRATOR_CORE_TOOL_NAMES: readonly string[] = [
+  'automation_result',
   'list_remote_nodes',
   'run_on_node',
   'read_node_output',

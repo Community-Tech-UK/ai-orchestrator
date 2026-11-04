@@ -30,15 +30,16 @@ export function resolveOrchestratorForwarderTools(
   client: OrchestratorToolsRpcClientLike,
   onReveal: (names: string[]) => void,
 ) {
-  const all = createOrchestratorToolsForwarderTools(
+  const tools = createOrchestratorToolsForwarderTools(
     client,
     resolveOrchestratorToolsForwarderOptions(),
   );
+  if (process.env['AI_ORCHESTRATOR_AUTOMATION_INVOCATION'] === '1') return tools.filter(tool => tool.name === 'automation_result');
   if (process.env[ORCHESTRATOR_TOOL_STABLE_ENV] === '1') {
-    return createStableOrchestratorTools(all);
+    return createStableOrchestratorTools(tools);
   }
   if (process.env[ORCHESTRATOR_TOOL_DEFERRAL_ENV] === '1') {
-    return createDeferredOrchestratorTools(all, { onReveal });
+    return createDeferredOrchestratorTools(tools, { onReveal });
   }
-  return all;
+  return tools;
 }

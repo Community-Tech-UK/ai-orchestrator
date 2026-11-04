@@ -17,6 +17,7 @@ import type { PlanQueueItemFlow } from './plan-queue-item-flow';
 import type { PlanQueueStore } from './plan-queue-store';
 import { restoreCheckpointAfterVerification } from './plan-queue-run-hold';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
+import { recordQueueRestart } from './plan-queue-restart-progress';
 export { recoverInterruptedDocumentMerges } from './plan-queue-doc-merge';
 
 const logger = getLogger('PlanQueueRecovery');
@@ -78,8 +79,18 @@ async function recoverItem(host: PlanQueueRecoveryHost, flow: PlanQueueItemFlow,
       else await flow.resumeAfterRestart(item);
       break;
     case 'verifying':
-      if (item.verifierInstanceId) flow.retireInstance(item.verifierInstanceId);
-      await restoreCheckpointAfterVerification(item);
+      if (await recordQueueRestart(host, item) >= 3) {
+        await flow.park(item.id, 'restart-loop', 'Restarted 3 times without progress. Check the saved work, then Resume.');
+        break;
+      }
+      if (item.verifierInstanceId) await flow.stopInstance(item.verifierInstanceId);
+      try { await restoreCheckpointAfterVerification(item, host.getRun(item.runId).workspaceCwd); }
+      catch (error) {
+        if (item.workerInstanceId) await flow.stopInstance(item.workerInstanceId);
+        host.transition(item, 'parked', { parkReason: 'worktree-error', workerInstanceId: null, verifierInstanceId: null, heldAt: null,
+          detail: `Could not restore the saved work after restart. Review the work folder before choosing Resume. ${errorMessage(error)}` });
+        break;
+      }
       host.transition(item, 'awaiting-slot', { verifierInstanceId: null });
       break;
     case 'landing':

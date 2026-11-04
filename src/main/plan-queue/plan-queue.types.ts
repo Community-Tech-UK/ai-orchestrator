@@ -1,4 +1,9 @@
-export interface PlanQueueSpend { tokens: number; costUsd: number; exactUsd: number }
+export interface PlanQueueSpend { tokens: number; costUsd: number; exactUsd: number; unpricedTokens?: number }
+export interface PlanQueueSpendEntry {
+  id: string; runId: string; itemId: string | null; role: string; round: number | null;
+  provider: string | null; model: string | null; processed: number; output: number;
+  costUsd: number | null; costBasis: 'exact' | 'estimated' | 'unknown'; createdAt: number;
+}
 import type {
   PlanQueueItemState,
   PlanQueueKind,

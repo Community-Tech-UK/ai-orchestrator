@@ -1,3 +1,6 @@
+import { planQueueDisplayParkReason } from '../plan-queue-park-reason-help';
+import { isNotReachedItem, PLAN_QUEUE_NOT_REACHED_LABEL } from '../../../../../shared/utils/plan-queue-item-outcome';
+import { foldDetail, pluralise } from '../plan-queue-item-display';
 import { copyFor } from '../../../shared/tooltip/tooltip-copy';
 import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
 import { queueItemSpendLabel } from './plan-queue-spend-label';
@@ -5,7 +8,6 @@ import { ChangeDetectionStrategy, Component, computed, input, output, signal } f
 import type {
   PlanQueueItemDto,
   PlanQueueItemState,
-  PlanQueueParkReason,
   PlanQueueRouteChoice,
   PlanQueueVerdict,
 } from '@contracts/schemas/plan-queue';
@@ -19,23 +21,10 @@ const STATE_LABELS: Record<PlanQueueItemState, string> = {
   fixing: 'Fixing findings',
   'awaiting-slot': 'Awaiting a slot',
   verifying: 'Verifying',
-  landing: 'Landing',
-  landed: 'Landed',
-  parked: 'Parked',
+  landing: 'Merging',
+  landed: 'Merged',
+  parked: 'Set aside',
   skipped: 'Skipped',
-};
-
-const PARK_REASON_LABELS: Record<PlanQueueParkReason, string> = {
-  'round-limit': 'Still failing after the last check',
-  'verifier-unreliable': 'The checker kept failing',
-  'no-diverse-verifier': 'No second model free to check it',
-  'worker-error': 'The worker stopped with an error',
-  'triage-failed': "Couldn't check if it's ready",
-  'worktree-error': "Couldn't set up its working copy",
-  'merge-conflict': 'Merge clash to resolve',
-  'land-blocked': "Couldn't merge",
-  'provider-limit': 'Usage limit reached',
-  cancelled: 'Stopped',
 };
 
 /**
@@ -57,20 +46,16 @@ export function planQueueStateLabel(state: PlanQueueItemState): string {
   return STATE_LABELS[state] ?? state;
 }
 
-export function planQueueParkReasonLabel(reason: PlanQueueParkReason | null): string {
-  if (!reason) return '';
-  return PARK_REASON_LABELS[reason] ?? reason;
-}
-
 export function planQueueVerdictSummary(verdict: PlanQueueVerdict | null): string {
   if (!verdict) return '';
-  if (verdict.findings.length === 0) return `${verdict.verdict} — no findings`;
+  const label = verdict.verdict === 'PASS' ? 'Passed' : 'Changes needed';
+  if (verdict.findings.length === 0) return `${label} — no findings`;
   const counts = new Map<string, number>();
   for (const finding of verdict.findings) {
     counts.set(finding.severity, (counts.get(finding.severity) ?? 0) + 1);
   }
   const parts = Array.from(counts, ([severity, count]) => `${count} ${severity}`).join(', ');
-  return `${verdict.verdict} — ${parts}`;
+  return `${label} — ${parts}`;
 }
 
 /**
@@ -98,7 +83,7 @@ export class PlanQueueItemListComponent {
   protected readonly steppedUpLabel = computed(() => {
     const choice = this.stepUp();
     const named = choice ? ` (${choice.provider}${choice.model ? ` / ${choice.model}` : ''})` : '';
-    return `Handed to a stronger worker${named} after ${this.maxRounds()} failed check(s)`;
+    return `Handed to a stronger worker${named} after ${pluralise(this.maxRounds(), 'failed check')}`;
   });
 
   skipItem = output<string>();
@@ -106,8 +91,12 @@ export class PlanQueueItemListComponent {
   protected readonly spendLabel = queueItemSpendLabel;
   protected readonly documentBasename = planQueueDocumentBasename;
   protected readonly stateLabel = planQueueStateLabel;
-  protected readonly parkReasonLabel = planQueueParkReasonLabel;
+  protected readonly isNotReached = isNotReachedItem;
+  protected readonly notReachedLabel = PLAN_QUEUE_NOT_REACHED_LABEL;
   protected readonly verdictSummary = planQueueVerdictSummary;
+  protected readonly parkHelp = planQueueDisplayParkReason;
+  protected readonly foldedDetail = foldDetail;
+  protected readonly pluralise = pluralise;
 
   /** Readiness questions (needs-answer) and a waiting worker's question (working / fixing). */
   hasOpenQuestion(state: PlanQueueItemState): boolean {

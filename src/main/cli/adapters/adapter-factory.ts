@@ -60,6 +60,7 @@ import {
 import type { UnifiedSpawnOptions, CliAdapter } from './adapter-factory.types';
 import { COPILOT_LEGACY_PROFILE_ID } from '../../../shared/types/copilot-account.types';
 import { resolveCopilotProfileHome } from './copilot/copilot-account-home-resolver';
+import { CopilotAcpAdapter } from './copilot/copilot-acp-adapter';
 import { prepareCopilotSpawn } from './copilot/copilot-session-sync-args';
 import {
   assertRoutableCopilotLaunchShape,
@@ -283,6 +284,8 @@ export function createCodexAdapter(options: UnifiedSpawnOptions): CodexCliAdapte
   const codexEnv = mergeSpawnEnv(options);
   extendEnvWithRtk(codexEnv, options.rtk);
   const codexConfig: CodexCliConfig = {
+    instanceId: options.instanceId, jobId: options.jobId,
+    onEphemeralUsage: options.onCodexEphemeralUsage,
     sessionKind: options.sessionKind, trialKey: options.trialKey, trialArm: options.trialArm,
     // Harness owns its own session/history surface. Codex threads
     // created here should not leak into the standalone Codex desktop app
@@ -478,7 +481,7 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
     ...modelArgs,
     ...(privateMcpConfig ? ['--additional-mcp-config', privateMcpConfig.argument] : []),
   ];
-  return new AcpCliAdapter({
+  return new CopilotAcpAdapter({
     adapterName: 'copilot-acp',
     contextCapabilityProfile: 'copilot-acp',
     promptUsageReporting: 'session-cumulative-gross',
@@ -517,7 +520,7 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
     concurrencyKey: 'copilot',
     prepareSpawn: prepareCopilotSpawn(args, launch, isolateProviderState, privateMcpConfig?.prepare),
     ...(options.concurrencyPriority === 'overflow' ? { concurrencyPriority: 'overflow' as const } : {}),
-  });
+  }, copilotHomeDir);
 }
 
 /**

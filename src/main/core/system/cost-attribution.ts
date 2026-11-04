@@ -48,7 +48,16 @@ export interface CostAttributionUsage {
   cost?: number;
 }
 
+/** Captured queue ownership survives deferred usage after session removal. */
+export interface PlanQueueCostContext {
+  runId: string;
+  itemId: string | null;
+  role: string;
+  round: number | null;
+}
+
 export interface CostAttributionRecord {
+  planQueue?: PlanQueueCostContext;
   sessionId?: string;
   subagentUsage?: true;
   finalContextTokens?: number;
@@ -229,6 +238,7 @@ export function subscribeCostAttribution(
  * already-normalized token counts from `recordCompletionCost`.
  */
 export function recordInstanceTurnAttribution(args: {
+  planQueue?: PlanQueueCostContext;
   purpose?: string;
   instanceId: string;
   parentId?: string | null;
@@ -244,6 +254,7 @@ export function recordInstanceTurnAttribution(args: {
   const role = args.spendPurpose ?? (args.parentId ? 'child' : 'chat');
   recordCostAttribution({
     source: 'instance-turn',
+    ...(args.planQueue ? { planQueue: args.planQueue } : {}),
     purpose: args.purpose ?? role,
     taskType: `${role}:${args.agentId ?? 'unknown'}`,
     costSource: args.costSource ?? (args.costKnown ? 'provider' : 'unknown'),

@@ -7,6 +7,7 @@ import type { ActivityState } from '../../../../../shared/types/activity.types';
 import type { HistoryRestoreMode } from '../../../../../shared/types/history.types';
 import type { ReasoningEffort } from '../../../../../shared/types/provider.types';
 import type { CopilotRouteSource } from '../../../../../shared/types/copilot-account.types';
+import type { CopilotNumericUsage } from '../../../../../shared/utils/copilot-usage';
 import type { AccountRouteSource } from '../../../../../shared/types/provider-account.types';
 import type {
   InstanceRuntimeSummary,
@@ -37,6 +38,7 @@ import type { ComputerUseAutonomyLevel } from '../../../../../shared/types/deskt
 export type InstanceStatus = SharedInstanceStatus;
 
 export interface ContextUsage {
+  copilotUsage?: CopilotNumericUsage;
   /** Current context-window occupancy (tokens used in the latest API call). */
   used: number;
   /** Total context-window capacity (tokens). */

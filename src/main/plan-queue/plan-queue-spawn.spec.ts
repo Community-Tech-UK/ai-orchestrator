@@ -29,6 +29,7 @@ beforeEach(() => {
   };
   instances = {
     createInstance: vi.fn(async () => ({ id: 'created' })), terminateInstance: vi.fn(async () => undefined),
+    restartFreshInstance: vi.fn(async () => undefined),
     sendInput: vi.fn(async () => undefined), getInstance: vi.fn(), getAllInstances: () => [],
   };
   config = { workingDirectory: '/queue-test', provider: 'claude', metadata: { planQueueRunId: run.id, planQueueRole: 'worker' } };

@@ -209,7 +209,7 @@ describe('PlanQueueStore', () => {
     ]);
   });
 
-  it('exposes parked items that still have a branch (a discarded one has none)', async () => {
+  it('keeps branchless readiness failures visible and excludes explicitly discarded work', async () => {
     ipc.list.mockResolvedValue({
       success: true,
       data: {
@@ -217,7 +217,8 @@ describe('PlanQueueStore', () => {
           makeRun({
             items: [
               makeItem({ id: 'item-parked', state: 'parked', parkReason: 'round-limit', branchName: 'queue/a-1' }),
-              makeItem({ id: 'item-discarded', state: 'parked', parkReason: 'round-limit', branchName: null }),
+              makeItem({ id: 'item-discarded', state: 'parked', parkReason: 'round-limit', branchName: null, detail: 'Discarded by James.' }),
+              makeItem({ id: 'branchless', state: 'parked', parkReason: 'triage-failed' }),
               makeItem({ id: 'item-landed', state: 'landed' }),
             ],
           }),
@@ -228,7 +229,7 @@ describe('PlanQueueStore', () => {
     const store = TestBed.inject(PlanQueueStore);
     await store.load();
 
-    expect(store.parkedItems().map((i) => i.id)).toEqual(['item-parked']);
+    expect(store.parkedItems().map((i) => i.id)).toEqual(['item-parked', 'branchless']);
   });
 
   it('collects real need-James entries from livetest runs only, and counts policy-gated ones', async () => {

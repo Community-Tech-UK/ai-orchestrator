@@ -302,7 +302,7 @@ describe('retry routing at the final asynchronous dispatch boundary', () => {
       accountProfileIds: [...input.choices[0].accountProfileIds],
     } }));
     const dispatch = vi.fn().mockResolvedValue({ id: 'current-retry' });
-    const port = { createInstance: dispatch, terminateInstance: vi.fn() } as unknown as PlanQueueInstancePort;
+    const port = { createInstance: dispatch, terminateInstance: vi.fn(), restartFreshInstance: vi.fn(async () => undefined) } as unknown as PlanQueueInstancePort;
     let changePending = true;
     create.mockImplementation((config: InstanceCreateConfig) => {
       if (changePending) {
@@ -371,7 +371,7 @@ it('keeps the first-triage worker route fallback when retry checker selection is
   select.mockResolvedValueOnce({ ok: false, reason: 'no checker installed' });
   const dispatch = vi.fn().mockResolvedValue({ id: 'fallback' });
   create.mockImplementation((config: InstanceCreateConfig) => spawnQueueInstance(config, {
-    ready: Promise.resolve(), instances: { createInstance: dispatch } as unknown as PlanQueueInstancePort,
+    ready: Promise.resolve(), instances: { createInstance: dispatch, restartFreshInstance: vi.fn(async () => undefined) } as unknown as PlanQueueInstancePort,
     getRun: () => run, getItem: () => null, clearWorkerSession: vi.fn(), isShuttingDown: () => false, userCloseEpoch: () => 0, readAccountRules: () => ({ never: [], last: [] }), isProviderExcluded: () => false, routeUsage: async () => ({ usable: true, resumeAt: null }),
   }));
   triage.maybeStart(run, items);

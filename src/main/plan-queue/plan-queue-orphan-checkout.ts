@@ -80,19 +80,56 @@ async function quarantineContainer(root: string, checkout: string): Promise<stri
 }
 
 export async function assertQueueCheckout(worktreePath: string, branchName: string, repoRoot: string): Promise<void> {
-  try {
-    const gitfile = await fs.lstat(path.join(worktreePath, '.git'));
-    if (!gitfile.isFile() || gitfile.isSymbolicLink()) throw new Error('Invalid gitfile');
-    const root = await gitExec(['rev-parse', '--show-toplevel'], worktreePath);
-    const branch = await gitExec(['symbolic-ref', '--short', 'HEAD'], worktreePath);
-    const actualCommon = await gitExec(['rev-parse', '--path-format=absolute', '--git-common-dir'], worktreePath);
-    const expectedCommon = await gitExec(['rev-parse', '--path-format=absolute', '--git-common-dir'], repoRoot);
-    if (pathCompareKey(await fs.realpath(root)) !== pathCompareKey(await fs.realpath(worktreePath)) || branch !== branchName
-      || pathCompareKey(await fs.realpath(actualCommon)) !== pathCompareKey(await fs.realpath(expectedCommon))) {
-      throw new Error('Checkout identity differs from its owning item');
-    }
-  } catch {
-    throw new Error('The saved queue checkout is invalid or belongs to another branch. Its files are unchanged. An explicitly approved Discard can preserve an item-owned orphan checkout before retrying; foreign or registered checkouts are refused.');
+  await assertQueueCheckoutOwnership(worktreePath, repoRoot);
+  const branch = await gitExec(['symbolic-ref', '-q', '--short', 'HEAD'], worktreePath).catch((error: unknown) => {
+    // Exit 1 is Git's documented detached-HEAD result, not a failed read.
+    if ((error as { code?: unknown }).code === 1) throw invalidCheckout(error);
+    throw error;
+  });
+  if (branch !== branchName) throw invalidCheckout(new Error(`Expected branch ${branchName}, found ${branch}`));
+}
+
+/** Independent ownership proof permits a detached landing, but never a foreign or unregistered checkout. */
+export async function assertQueueCheckoutOwnership(worktreePath: string, repoRoot: string): Promise<void> {
+  const gitfilePath = path.join(worktreePath, '.git');
+  const gitfile = await checkoutRead(() => fs.lstat(gitfilePath));
+  if (!gitfile.isFile() || gitfile.isSymbolicLink()) throw invalidCheckout(new Error('Invalid gitfile'));
+  const pointer = /^gitdir: ([^\r\n]+)\r?\n?$/.exec(await checkoutRead(() => fs.readFile(gitfilePath, 'utf8')))?.[1];
+  if (!pointer) throw invalidCheckout(new Error('Invalid gitfile pointer'));
+  // Missing metadata is an actual broken checkout. A failed Git process alone
+  // cannot prove that: ENOENT may mean the executable is unavailable.
+  const metadata = await checkoutRead(() => fs.stat(path.resolve(worktreePath, pointer)));
+  if (!metadata.isDirectory()) throw invalidCheckout(new Error('Invalid checkout metadata'));
+  const root = await gitExec(['rev-parse', '--show-toplevel'], worktreePath);
+  const actualCommon = await gitExec(['rev-parse', '--path-format=absolute', '--git-common-dir'], worktreePath);
+  const expectedCommon = await gitExec(['rev-parse', '--path-format=absolute', '--git-common-dir'], repoRoot);
+  const checkout = pathCompareKey(await checkoutRead(() => fs.realpath(worktreePath)));
+  const registered = (await gitExec(['worktree', 'list', '--porcelain', '-z'], repoRoot)).split('\0\0')
+    .some(entry => entry.split('\0').some(field => field.startsWith('worktree ') && pathCompareKey(field.slice(9)) === checkout));
+  if (!registered || pathCompareKey(await checkoutRead(() => fs.realpath(root))) !== checkout
+    || pathCompareKey(await checkoutRead(() => fs.realpath(actualCommon))) !== pathCompareKey(await checkoutRead(() => fs.realpath(expectedCommon)))) {
+    throw invalidCheckout(new Error('Checkout identity differs from its owning item'));
+  }
+}
+
+export class InvalidQueueCheckoutError extends Error {
+  constructor(options?: ErrorOptions) {
+    super('The saved queue checkout is invalid or belongs to another branch. Its files are unchanged. An explicitly approved Discard can preserve an item-owned orphan checkout before retrying; foreign or registered checkouts are refused.', options);
+    this.name = 'InvalidQueueCheckoutError';
+  }
+}
+
+function invalidCheckout(cause: unknown): InvalidQueueCheckoutError {
+  return new InvalidQueueCheckoutError({ cause });
+}
+
+/** Only missing on-disk identity proves an invalid checkout; I/O errors propagate. */
+async function checkoutRead<T>(read: () => Promise<T>): Promise<T> {
+  try { return await read(); }
+  catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'ENOTDIR') throw invalidCheckout(error);
+    throw error;
   }
 }
 

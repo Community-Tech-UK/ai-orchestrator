@@ -14,7 +14,9 @@
  */
 
 import * as fs from 'fs/promises';
+import { existsSync } from 'fs';
 import * as path from 'path';
+import { randomUUID } from 'node:crypto';
 import { sanitizeBranchName, type WorktreeSession } from '../../shared/types/worktree.types';
 import { getLogger } from '../logging/logger';
 import { gitExec, WORKTREE_CHECKOUT_TIMEOUT_MS } from '../workspace/git/git-exec';
@@ -26,9 +28,11 @@ import {
   removeManagedWorktreeDirectory,
 } from '../workspace/git/worktree-cleanup';
 import { UnresolvedMergeError, unresolvedMergeFiles } from './plan-queue-git';
-import { assertQueueCheckout, retainedQueuePathExists, setAsideHalfRemovedCheckout } from './plan-queue-orphan-checkout';
+import { assertQueueCheckout, assertQueueCheckoutOwnership, InvalidQueueCheckoutError, retainedQueuePathExists, setAsideHalfRemovedCheckout } from './plan-queue-orphan-checkout';
 import { recoverLandingLeftover } from './plan-queue-landing-leftover';
 import type { PlanQueueItem } from './plan-queue.types';
+import type { PlanQueueHistoryStore } from './plan-queue-history-store';
+import { dietAtCheckpoint } from './plan-queue-plan-diet';
 import { getCodemem } from '../codemem';
 import { stopAttributedLeftoversIn } from '../process/leftover-process-sweeper';
 
@@ -39,8 +43,8 @@ export const PLAN_QUEUE_WORKTREE_BASE_DIR = '.worktrees';
 
 /** A checkpoint refused checkout ownership before staging or committing anything. */
 export class PlanQueueCheckoutOwnershipError extends Error {
-  constructor(worktreePath: string, branchName: string) {
-    super(`${worktreePath} is not this item's checkout of ${branchName}, so nothing was committed`);
+  constructor(worktreePath: string, branchName: string, options: ErrorOptions) {
+    super(`${worktreePath} is not this item's checkout of ${branchName}, so nothing was committed`, options);
     this.name = 'PlanQueueCheckoutOwnershipError';
   }
 }
@@ -54,6 +58,7 @@ const PROVISIONED_PATHS_FILE = 'plan-queue-provisioned';
 
 /** The slice of WorktreeManager this service needs; injected for tests. */
 export interface PlanQueueWorktreeCreator {
+  getConfig?(): { maxConcurrent: number };
   createWorktree(
     instanceId: string,
     taskDescription: string,
@@ -69,11 +74,15 @@ export interface PlanQueueWorktreeCreator {
   getAllSessions(): WorktreeSession[];
   cleanupWorktree(
     worktreeId: string,
-    options?: { force?: boolean; retainBranch?: boolean },
+    options?: { force?: boolean; retainBranch?: boolean; deleteBranch?: boolean },
   ): Promise<void>;
 }
 
 export interface PlanQueueWorktreeDeps {
+  /** Trusted owning run, never inferred from the checkout being checked. */
+  repoRootForItem: (item: PlanQueueItem) => string;
+  history?: PlanQueueHistoryStore;
+  retainedWorktreePaths?: () => readonly string[];
   creator: PlanQueueWorktreeCreator;
   /** Persist the item. Must throw on failure. */
   saveItem: (item: PlanQueueItem) => void;
@@ -98,7 +107,37 @@ export function planQueueBranchName(item: Pick<PlanQueueItem, 'id' | 'documentPa
 }
 
 export class PlanQueueWorktreeService {
+  private readonly retainedPaths = new Set<string>();
   constructor(private readonly deps: PlanQueueWorktreeDeps) {}
+
+  worktreeUsage(): { inUse: number; maxConcurrent: number } {
+    const paths = new Set(this.deps.creator.getAllSessions().map(session => pathCompareKey(session.worktreePath)));
+    for (const retained of this.retainedPaths) {
+      if (existsSync(retained)) paths.add(retained);
+      else this.retainedPaths.delete(retained);
+    }
+    for (const retained of this.deps.retainedWorktreePaths?.() ?? []) {
+      if (existsSync(retained)) paths.add(pathCompareKey(retained));
+    }
+    return { inUse: paths.size, maxConcurrent: this.deps.creator.getConfig?.().maxConcurrent ?? 5 };
+  }
+
+  /** The pump's check slots bound these temporary queue-owned comparison folders. */
+  async withBaseline<T>(repoRoot: string, baseSha: string, action: (cwd: string) => Promise<T>): Promise<T> {
+    const session = await this.deps.creator.createWorktree('plan-queue-base', 'base gate checks', {
+      repoRoot, baseBranch: baseSha, branchName: `base-gate-checks-${randomUUID()}`, skipInstall: true, countsTowardLimit: false,
+    });
+    try {
+      if (!this.deps.skipInstall) await provisionWorktreeDependencies(repoRoot, session.worktreePath, { installCommand: 'npm ci' });
+      const head = await gitExec(['rev-parse', 'HEAD'], session.worktreePath);
+      if (head !== baseSha || await gitExec(['status', '--porcelain', '--untracked-files=no'], session.worktreePath)) {
+        throw new Error('The base checkout is not clean at the requested commit');
+      }
+      return await action(session.worktreePath);
+    } finally {
+      await this.deps.creator.cleanupWorktree(session.id, { force: true, retainBranch: false, deleteBranch: true });
+    }
+  }
 
   /**
    * Create the item's worktree. Branch and path are saved through `onPrepared`,
@@ -140,6 +179,7 @@ export class PlanQueueWorktreeService {
   async reattach(item: PlanQueueItem, repoRoot: string): Promise<PlanQueueItem> {
     const branchName = requireBranch(item);
     const worktreePath = path.join(repoRoot, PLAN_QUEUE_WORKTREE_BASE_DIR, branchName);
+    this.retainedPaths.add(pathCompareKey(worktreePath));
     const withPath = { ...item, worktreePath };
     this.deps.saveItem(withPath);
     let alreadyThere = await retainedQueuePathExists(worktreePath);
@@ -150,7 +190,8 @@ export class PlanQueueWorktreeService {
         logger.warn('Plan queue: moved a half-removed checkout aside before checking its branch out again', { itemId: item.id, movedTo });
         alreadyThere = false;
       } else {
-        rescueRef = await recoverLeftover(worktreePath, branchName, item.id);
+        await assertQueueCheckoutOwnership(worktreePath, repoRoot);
+        rescueRef = await recoverLeftover(worktreePath, branchName, item.id, repoRoot);
         await assertQueueCheckout(worktreePath, branchName, repoRoot);
       }
     }
@@ -189,12 +230,18 @@ export class PlanQueueWorktreeService {
   async checkpoint(item: PlanQueueItem, label: string): Promise<PlanQueueItem> {
     const worktreePath = requireWorktree(item);
     const branchName = requireBranch(item);
-    const scope = await workPathspec(worktreePath);
     let rescueRef: string | null = null;
     const hash = await getGitWriteQueue().enqueue('plan-queue-checkpoint', async () => {
+      try { await assertQueueCheckoutOwnership(worktreePath, this.deps.repoRootForItem(item)); }
+      catch (error) {
+        if (error instanceof InvalidQueueCheckoutError) throw new PlanQueueCheckoutOwnershipError(worktreePath, branchName, { cause: error });
+        throw error;
+      }
       // `??`: the write queue reruns a job after a Git lock error, and a rerun finds nothing left to recover.
       rescueRef = (await recoverLeftoverUnqueued(worktreePath, branchName, item.id)) ?? rescueRef;
-      await assertItemCheckout(worktreePath, branchName);
+      await assertItemCheckout(worktreePath, branchName, this.deps.repoRootForItem(item));
+      await dietAtCheckpoint(item, this.deps.history);
+      const scope = await workPathspec(worktreePath);
       // A resolved merge is completed by this commit (that is the worker
       // contract); an unresolved one must never be, or the conflict markers
       // would be committed and could land.
@@ -227,6 +274,11 @@ export class PlanQueueWorktreeService {
   async removeWithProof(item: PlanQueueItem, repoRoot: string): Promise<RemovalResult> {
     const worktreePath = requireWorktree(item);
     const branchName = requireBranch(item);
+    try { await assertQueueCheckout(worktreePath, branchName, repoRoot); }
+    catch (error) {
+      if (error instanceof InvalidQueueCheckoutError) return refuse('not-owned', error.message);
+      throw error;
+    }
 
     const status = await gitExec(
       ['status', '--porcelain', ...(await workPathspec(worktreePath))],
@@ -268,7 +320,7 @@ export class PlanQueueWorktreeService {
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       logger.warn('Plan queue worktree removal refused', { itemId: item.id, detail });
-      return refuse('not-owned', detail);
+      throw error;
     }
 
     // The filesystem removal is authoritative. A failed index-worker cleanup
@@ -282,6 +334,7 @@ export class PlanQueueWorktreeService {
       logger.warn('Retired worktree code-index cleanup failed', { error: String(error) });
     }
     this.deps.saveItem({ ...item, worktreePath: null });
+    this.retainedPaths.delete(pathCompareKey(worktreePath));
     return { removed: true };
   }
 
@@ -361,11 +414,11 @@ async function workPathspec(worktreePath: string): Promise<string[]> {
  * git resolve the enclosing repository instead, where `add -A` and `commit`
  * would sweep that repository's whole working tree onto its current branch.
  */
-async function assertItemCheckout(worktreePath: string, branchName: string): Promise<void> {
-  const root = await gitExec(['rev-parse', '--show-toplevel'], worktreePath);
-  const branch = await gitExec(['symbolic-ref', '-q', '--short', 'HEAD'], worktreePath).catch(() => '');
-  if (pathCompareKey(await fs.realpath(root)) !== pathCompareKey(await fs.realpath(worktreePath)) || branch !== branchName) {
-    throw new PlanQueueCheckoutOwnershipError(worktreePath, branchName);
+async function assertItemCheckout(worktreePath: string, branchName: string, repoRoot: string): Promise<void> {
+  try { await assertQueueCheckout(worktreePath, branchName, repoRoot); }
+  catch (error) {
+    if (error instanceof InvalidQueueCheckoutError) throw new PlanQueueCheckoutOwnershipError(worktreePath, branchName, { cause: error });
+    throw error;
   }
 }
 
@@ -374,8 +427,15 @@ async function assertItemCheckout(worktreePath: string, branchName: string): Pro
  * (plan-queue-landing-leftover.ts); returns the rescue ref when some files
  * were set aside. Takes the Git write queue, so never call it from inside it.
  */
-export function recoverLeftover(worktreePath: string, branchName: string, itemId: string): Promise<string | null> {
-  return getGitWriteQueue().enqueue('plan-queue-recover-landing-leftover', () => recoverLeftoverUnqueued(worktreePath, branchName, itemId));
+export function recoverLeftover(worktreePath: string, branchName: string, itemId: string, repoRoot: string): Promise<string | null> {
+  return getGitWriteQueue().enqueue('plan-queue-recover-landing-leftover', async () => {
+    try { await assertQueueCheckoutOwnership(worktreePath, repoRoot); }
+    catch (error) {
+      if (error instanceof InvalidQueueCheckoutError) throw new PlanQueueCheckoutOwnershipError(worktreePath, branchName, { cause: error });
+      throw error;
+    }
+    return recoverLeftoverUnqueued(worktreePath, branchName, itemId);
+  });
 }
 
 async function recoverLeftoverUnqueued(worktreePath: string, branchName: string, itemId: string): Promise<string | null> {

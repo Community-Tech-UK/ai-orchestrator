@@ -9,12 +9,14 @@ import { DEFAULT_PLAN_QUEUE_CONFIG } from '@contracts/schemas/plan-queue';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { runLoopMigrations } from '../orchestration/loop-schema';
 import { GitWriteQueue } from '../workspace/git/git-write-queue';
+import * as gitCommands from '../workspace/git/git-exec';
+import { assertQueueCheckout, assertQueueCheckoutOwnership, InvalidQueueCheckoutError } from './plan-queue-orphan-checkout';
 import { PlanQueueCoordinator } from './plan-queue-coordinator';
 import { PlanQueueStore } from './plan-queue-store';
 import { PlanQueueItemFlow } from './plan-queue-item-flow';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { PlanQueueWorktreeService } from './plan-queue-worktree';
-import type { PlanQueueItem } from './plan-queue.types';
+import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>();
@@ -76,7 +78,7 @@ beforeEach(() => {
   saves = [];
   onSave = () => undefined;
   const save = (next: PlanQueueItem) => { onSave(next); saves.push(next); item = next; return item; };
-  service = new PlanQueueWorktreeService({ creator: {} as never, saveItem: save, skipInstall: true });
+  service = new PlanQueueWorktreeService({ repoRootForItem: () => repo, creator: {} as never, saveItem: save, skipInstall: true });
   flow = newFlow();
 });
 
@@ -305,5 +307,78 @@ describe('explicit orphan Discard through the real queue flow', () => {
     expect(existsSync(source)).toBe(true);
     expect(readFileSync(join(source, 'untracked.txt'), 'utf8')).toBe('retained work\n');
     expect(git(['rev-parse', 'queue/sample-abc123'])).toBe(item.baseCommit);
+  });
+});
+
+describe('ownership proof failures retain their real cause', () => {
+  it.each([
+    ['rev-parse', 'EMFILE'], ['worktree', 'EACCES'], ['symbolic-ref', 'ENOENT'],
+    ['symbolic-ref', 'ETIMEDOUT'], ['rev-parse', 128],
+  ])('propagates operational %s failure %s instead of claiming foreign ownership', async (command, code) => {
+    const failure = Object.assign(new Error('Ownership read temporarily unavailable'), { code });
+    const execute = gitCommands.gitExec;
+    vi.spyOn(gitCommands, 'gitExec').mockImplementation((args, cwd, timeout) =>
+      args[0] === command ? Promise.reject(failure) : execute(args, cwd, timeout));
+    await expect(assertQueueCheckout(source, item.branchName!, repo)).rejects.toBe(failure);
+    expect(readFileSync(join(source, 'untracked.txt'), 'utf8')).toBe('retained work\n');
+  });
+
+  it.each(['lstat', 'readFile', 'realpath'] as const)('propagates a temporary filesystem %s failure', async operation => {
+    const failure = Object.assign(new Error('Too many open files'), { code: 'EMFILE' });
+    vi.spyOn(fs, operation).mockRejectedValueOnce(failure);
+    await expect(assertQueueCheckoutOwnership(source, repo)).rejects.toBe(failure);
+  });
+
+  it('treats detached HEAD exit 1 as an actual branch mismatch and retains its cause', async () => {
+    git(['checkout', '-q', '--detach', 'HEAD'], source);
+    const error = await assertQueueCheckout(source, item.branchName!, repo).catch(error => error);
+    expect(error).toBeInstanceOf(InvalidQueueCheckoutError);
+    expect(error.cause).toMatchObject({ code: 1 });
+    await expect(assertQueueCheckoutOwnership(source, repo)).resolves.toBeUndefined();
+  });
+
+  it('keeps a missing gitfile refusal distinct from an unavailable Git executable', async () => {
+    rmSync(join(source, '.git'));
+    const error = await assertQueueCheckoutOwnership(source, repo).catch(error => error);
+    expect(error).toBeInstanceOf(InvalidQueueCheckoutError);
+    expect(error.cause).toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('retains the real checker snapshot across a transient ownership failure during Pause', async () => {
+    git(['restore', 'base.txt'], source);
+    item = { ...item, documentPath: join(repo, 'sample_plan.md'), state: 'awaiting-slot', checkpointCommit: item.baseCommit, parkReason: null };
+    writeFileSync(item.documentPath, '# Plan\n');
+    const run: PlanQueueRun = { id: item.runId, parentInstanceId: 'parent', parentHistoryThreadId: null,
+      kind: 'plans', workspaceCwd: repo, status: 'running',
+      config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, baseBranch: 'main', verifierGates: [] },
+      workerProvider: 'claude', workerModel: null, relaxation: null, startedAt: 1, endedAt: null };
+    const host = {
+      getItem: () => item, getRun: () => run, worktrees: service,
+      save: (next: PlanQueueItem) => (item = next),
+      transition: (next: PlanQueueItem, state: PlanQueueItem['state'], patch: Partial<PlanQueueItem>) => (item = { ...next, ...patch, state }),
+      history: { listEvents: () => [], listVerdicts: () => [], getPin: () => null },
+      instances: { createInstance: vi.fn(async () => ({ id: 'checker' })), getInstance: () => ({ id: 'checker', status: 'idle', outputBuffer: [] }),
+        terminateInstance: vi.fn(async () => undefined) },
+      selectVerifier: async () => ({ ok: true, choice: { provider: 'codex' } }),
+      registerRole: vi.fn(), unregisterRole: vi.fn(), liveParentId: () => 'parent',
+      tracker: { track: vi.fn(), untrack: vi.fn() }, requestPump: vi.fn(),
+    } as unknown as PlanQueueFlowHost;
+    flow = new PlanQueueItemFlow(host);
+    await flow.startVerification(item);
+    expect(item).toMatchObject({ state: 'verifying', verifierInstanceId: 'checker' });
+    writeFileSync(join(source, 'base.txt'), 'checker edit\n');
+    writeFileSync(join(source, 'checker-note.txt'), 'checker scratch\n');
+    run.status = 'paused';
+    const failure = Object.assign(new Error('Git timed out reading ownership'), { code: 'ETIMEDOUT' });
+    const proof = vi.spyOn(gitCommands, 'gitExec').mockRejectedValueOnce(failure);
+    await expect(flow.hold(item.id)).rejects.toBe(failure);
+    expect(item).toMatchObject({ state: 'verifying', verifierInstanceId: 'checker' });
+    expect(readFileSync(join(source, 'base.txt'), 'utf8')).toBe('checker edit\n');
+    proof.mockRestore();
+    await flow.hold(item.id);
+    expect(item).toMatchObject({ state: 'awaiting-slot', verifierInstanceId: null, heldAt: expect.any(Number) });
+    expect(readFileSync(join(source, 'untracked.txt'), 'utf8')).toBe('retained work\n');
+    expect(readFileSync(join(source, 'base.txt'), 'utf8')).toBe('base\n');
+    expect(existsSync(join(source, 'checker-note.txt'))).toBe(false);
   });
 });

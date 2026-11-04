@@ -4,8 +4,6 @@ import * as path from 'path';
 import type { CliType } from '../main/cli/cli-detection';
 import type { CliResponse, InterruptResult } from '../main/cli/adapters/base-cli-adapter';
 import type { StatelessExecClassifiable } from '../main/cli/adapters/stateless-exec-adapter';
-// Type-only: `adapter-factory.types` carries no runtime deps, so this cannot
-// pull `electron` into the worker (adapter-factory itself stays a lazy import).
 import type { UnifiedSpawnOptions } from '../main/cli/adapters/adapter-factory.types';
 import type { FileAttachment } from '../shared/types/instance.types';
 import { observeAdapterRuntimeEvents } from '../main/providers/adapter-runtime-event-bridge';
@@ -21,11 +19,12 @@ import { resolveNativeOpenCodeCommandInput } from '../main/commands/provider-nat
 import { observeWorkerInstanceTelemetry } from './worker-instance-telemetry';
 import type { RemoteClaudeSpawnPolicy } from '../main/remote-node/claude-spawn-policy-schema';
 import { endsOnlyTheTurn, isSettledStatus, onExecTurnInterrupted } from './worker-exec-turn';
+import { workerSpawnMetadata, type RemoteSpawnMetadata } from '../main/remote-node/remote-spawn-metadata';
 
 const ACTIVITY_WATCHDOG_INTERVAL_MS = 5_000;
 type MobileMcpSpawnAttach = Omit<WorkerAndroidAttach, 'mobileMcpVersion'> & { version?: string };
 
-export interface SpawnParams {
+export interface SpawnParams extends RemoteSpawnMetadata {
   instanceId: string;
   sessionId?: string;
   interactionId?: string;
@@ -77,10 +76,7 @@ type WorkerManagedAdapter = EventEmitter & Partial<StatelessExecClassifiable> & 
   hasActiveToolCalls?: () => boolean;
 };
 
-interface DeferredCompletion {
-  promise: Promise<void>;
-  resolve: () => void;
-}
+type PendingSpawnFailure = { error: unknown } | undefined;
 
 export interface ManagedInstance {
   instanceId: string;
@@ -104,7 +100,7 @@ export class LocalInstanceManager extends EventEmitter {
   private readonly pendingSpawns = new Set<string>();
   private readonly cancelledSpawns = new Set<string>();
   private readonly pendingSpawnAdapters = new Map<string, WorkerManagedAdapter>();
-  private readonly pendingSpawnCompletions = new Map<string, Promise<void>>();
+  private readonly pendingSpawnCompletions = new Map<string, Promise<PendingSpawnFailure>>();
   private readonly hibernatedInstances = new Map<string, SpawnParams>();
   /** Last resume proof relayed to the coordinator, per instance (P2.9 dedup). */
   private readonly relayedResumeProof = new Map<string, string>();
@@ -334,6 +330,8 @@ export class LocalInstanceManager extends EventEmitter {
 
     let mobileMcp: MobileMcpSpawnAttach | null = null;
     let runtimeObserverCleanup: () => void = () => undefined;
+    let pendingInstance: ManagedInstance | undefined;
+    let pendingFailure: PendingSpawnFailure;
     try {
       // Resolve browser automation before building the adapter so the
       // chrome-devtools MCP server is baked into the spawn config. Lazy: this
@@ -375,6 +373,8 @@ export class LocalInstanceManager extends EventEmitter {
       this.assertSpawnNotShuttingDown(params.instanceId);
       const adapter: WorkerManagedAdapter = createCliAdapter(params.cliType, {
         sessionId: params.sessionId ?? params.instanceId,
+        ...workerSpawnMetadata(params, () => this.pendingSpawnAdapters.get(params.instanceId) === adapter || this.instances.get(params.instanceId)?.adapter === adapter,
+          telemetry => this.emit('instance:telemetry', params.instanceId, telemetry)),
         workingDirectory: params.workingDirectory,
         systemPrompt: this.appendAndroidLeasePrompt(params.systemPrompt, mobileMcp),
         model: params.model,
@@ -506,26 +506,7 @@ export class LocalInstanceManager extends EventEmitter {
         }
       });
 
-      // Spawn the process
-      await adapter.spawn();
-      interaction.catalog();
-      if (this.terminateAllInProgress || this.cancelledSpawns.has(params.instanceId)) {
-        runtimeObserverCleanup();
-        await adapter.terminate().catch((error: unknown) => {
-          console.warn(
-            '[LocalInstanceManager] failed to terminate instance after startup was cancelled',
-            error instanceof Error ? error.message : String(error),
-          );
-        });
-        runtimeObserverCleanup = () => undefined;
-        throw new Error(
-          this.terminateAllInProgress
-            ? `Instance spawn cancelled during shutdown: ${params.instanceId}`
-            : `Instance spawn cancelled: ${params.instanceId}`,
-        );
-      }
-
-      this.instances.set(params.instanceId, {
+      pendingInstance = {
         instanceId: params.instanceId,
         cliType: params.cliType,
         workingDirectory: params.workingDirectory,
@@ -535,20 +516,41 @@ export class LocalInstanceManager extends EventEmitter {
         createdAt: Date.now(),
         watchdogTimer: null,
         lastStatus: 'busy',
-      });
+      };
+
+      // A cancelled startup still owns this exact adapter until its stop succeeds.
+      await adapter.spawn();
+      interaction.catalog();
+      if (this.terminateAllInProgress || this.cancelledSpawns.has(params.instanceId)) {
+        await adapter.terminate();
+        pendingInstance = undefined;
+        throw new Error(
+          this.terminateAllInProgress
+            ? `Instance spawn cancelled during shutdown: ${params.instanceId}`
+            : `Instance spawn cancelled: ${params.instanceId}`,
+        );
+      }
+
+      this.instances.set(params.instanceId, pendingInstance);
 
       this.startWatchdog(params.instanceId);
     } catch (error) {
       this.interactions.get(params.instanceId)?.cleanup(); this.interactions.delete(params.instanceId);
-      runtimeObserverCleanup();
-      this.releaseAndroidLease(params.instanceId);
+      if (pendingInstance && (this.terminateAllInProgress || this.cancelledSpawns.has(params.instanceId))) {
+        // Keep capacity and retry ownership when cancellation could not stop the provider.
+        this.instances.set(params.instanceId, pendingInstance);
+        pendingFailure = { error };
+      } else {
+        runtimeObserverCleanup();
+        this.releaseAndroidLease(params.instanceId);
+      }
       throw error;
     } finally {
       this.pendingSpawns.delete(params.instanceId);
       this.cancelledSpawns.delete(params.instanceId);
       this.pendingSpawnAdapters.delete(params.instanceId);
       this.pendingSpawnCompletions.delete(params.instanceId);
-      pendingCompletion.resolve();
+      pendingCompletion.resolve(pendingFailure);
     }
   }
 
@@ -581,23 +583,20 @@ export class LocalInstanceManager extends EventEmitter {
     this.interactions.get(instanceId)?.cleanup(); this.interactions.delete(instanceId);
     if (this.pendingSpawns.has(instanceId)) {
       this.cancelledSpawns.add(instanceId);
+      const completion = this.pendingSpawnCompletions.get(instanceId);
       const adapter = this.pendingSpawnAdapters.get(instanceId);
       if (adapter) {
-        await adapter.terminate().catch((error: unknown) => {
-          console.warn(
-            '[LocalInstanceManager] failed to terminate pending instance',
-            error instanceof Error ? error.message : String(error),
-          );
-        });
+        await adapter.terminate();
       }
-      await this.pendingSpawnCompletions.get(instanceId);
+      const failure = await completion;
+      if (failure) throw failure.error;
       return;
     }
     const inst = this.instances.get(instanceId);
     if (!inst) return;
     this.clearWatchdog(instanceId);
-    inst.runtimeObserverCleanup();
     await inst.adapter.terminate();
+    inst.runtimeObserverCleanup();
     this.instances.delete(instanceId);
     this.relayedResumeProof.delete(instanceId);
     this.releaseAndroidLease(instanceId);
@@ -683,9 +682,9 @@ export class LocalInstanceManager extends EventEmitter {
   }
 }
 
-function createDeferredCompletion(): DeferredCompletion {
-  let resolve: () => void = () => undefined;
-  const promise = new Promise<void>((done) => {
+function createDeferredCompletion() {
+  let resolve: (failure?: PendingSpawnFailure) => void = () => undefined;
+  const promise = new Promise<PendingSpawnFailure>((done) => {
     resolve = done;
   });
   return { promise, resolve };

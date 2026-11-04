@@ -202,6 +202,8 @@ export interface WorkerNodeCapabilities {
    * would silently drop it, so policy-bearing Claude is refused there.
    */
   claudeSpawnPolicy?: 1;
+  /** 1 = preserves semantic Codex ownership and explicit ephemeral:false. Absent on older workers. */
+  codexSpawnMetadata?: 1;
   /**
    * GitHub Copilot account profiles this node is signed in to.
    *

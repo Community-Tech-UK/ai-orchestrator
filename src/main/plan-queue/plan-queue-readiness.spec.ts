@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, promises as realFs, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, promises as realFs, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { syncBuiltinESMExports } from 'node:module';
@@ -167,6 +167,17 @@ describe('applyTriageRecords', () => {
 });
 
 describe('reconcileWaitingDocuments', () => {
+  it('refuses a regular document reached through a directory link outside the workspace', async () => {
+    const external = mkdtempSync(path.join(tmpdir(), 'aio-readiness-outside-'));
+    try {
+      writeFileSync(path.join(external, 'a_plan.md'), 'outside');
+      symlinkSync(external, path.join(workspace, 'linked'));
+      const item = addItem({ state: 'queued', documentPath: path.join(workspace, 'linked', 'a_plan.md') });
+      await reconcileWaitingDocuments(host, run);
+      expect(host.getItem(item.id)).toMatchObject({ state: 'parked', parkReason: 'worker-error' });
+      expect(host.getItem(item.id).detail).toMatch(/outside/i);
+    } finally { rmSync(external, { recursive: true, force: true }); }
+  });
   it('parks inspection permission errors instead of interpreting them as a missing document', async () => {
     const item = addItem({ state: 'needs-answer', question: technicalQuestion() });
     writeFileSync(item.documentPath, 'Active plan');
@@ -226,7 +237,7 @@ describe('reconcileWaitingDocuments', () => {
     const item = addItem();
     writeFileSync(path.join(workspace, 'a_plan_followup_completed.md'), 'Different completed document');
     await reconcileWaitingDocuments(host, run);
-    expect(host.getItem(item.id)).toMatchObject({ state: 'parked', parkReason: 'worker-error', verdict: null });
+    expect(host.getItem(item.id)).toMatchObject({ state: 'parked', parkReason: 'missing-document', verdict: null });
     expect(host.getItem(item.id).detail).toContain('no exact completed replacement');
   });
 

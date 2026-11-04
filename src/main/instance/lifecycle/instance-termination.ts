@@ -21,6 +21,7 @@ import { deleteCircuitBreaker } from './respawn-circuit-breaker';
 import { mergeSessionBranchToMain } from './session-branch-merge';
 import { appendLostSelfWakeupNotice } from '../self-wakeup-tracker';
 import { getAutoTitleService } from '../auto-title-service';
+import { markAdapterStopping } from '../../providers/adapter-stop-state';
 
 const logger = getLogger('InstanceTermination');
 
@@ -114,17 +115,10 @@ export class InstanceTerminationCoordinator {
     if (instance) this.warnLostWakeup(instanceId, instance);
 
     if (adapter) {
-      // LT-013: a deliberate terminate must not be observed as an *unexpected*
-      // exit. markTerminated() only runs after archiving below, so the adapter's
-      // SIGTERM exit (code 143) would otherwise reach the still-attached
-      // instance-communication listener while the instance is still 'idle' and
-      // fire respawnAfterUnexpectedExit — which assigns a freshly generated fork
-      // id to instance.sessionId before it spawns anything. archiveInstance then
-      // persisted that never-spawned id as the history entry's resume anchor, so
-      // no transcript existed for it and every later restore missed the
-      // native-resume rung. Same fix as the LT-008 fresh-fallback path and the
-      // long-standing spawn rollback: detach before terminating.
-      (adapter as { removeAllListeners?: () => void }).removeAllListeners?.();
+      // LT-013: deliberate exit must not respawn and overwrite the archive's
+      // provider-session anchor. Fence recovery before requesting the stop,
+      // while preserving error/output/usage observers if termination refuses.
+      markAdapterStopping(adapter);
 
       // §4.G/E1: a graceful terminate can sit in a SIGTERM→SIGKILL wait for up
       // to TERMINATE_GRACE_MS. Surface that wait so the user sees a reason, then
@@ -136,10 +130,11 @@ export class InstanceTerminationCoordinator {
         deadlineAt: graceful ? Date.now() + TERMINATE_GRACE_MS : undefined,
       });
       try {
-        await this.terminateAdapter(instanceId, adapter, graceful);
+        await this.terminateAdapter(adapter, graceful);
       } finally {
         this.deps.setWaitReason?.(instanceId, null);
       }
+      (adapter as { removeAllListeners?: () => void }).removeAllListeners?.();
       this.deps.deleteAdapter(instanceId);
     }
 
@@ -226,25 +221,11 @@ export class InstanceTerminationCoordinator {
   }
 
   private async terminateAdapter(
-    instanceId: string,
     adapter: CliAdapter,
     graceful: boolean,
   ): Promise<void> {
-    try {
-      await adapter.terminate(graceful);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      if (adapter instanceof RemoteCliAdapter) {
-        logger.warn('Remote adapter terminate failed, proceeding with cleanup', {
-          instanceId,
-          error: errorMessage,
-        });
-      } else {
-        logger.error('Local adapter terminate failed, proceeding with cleanup', error instanceof Error ? error : undefined, {
-          instanceId,
-        });
-      }
-    }
+    // A failed stop must retain the runtime and session so its owner can retry.
+    await adapter.terminate(graceful);
 
     if (adapter instanceof RemoteCliAdapter) {
       adapter.forceCleanup();

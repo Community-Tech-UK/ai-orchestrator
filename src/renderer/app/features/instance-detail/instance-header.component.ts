@@ -20,6 +20,7 @@ import {
 import { StatusIndicatorComponent } from '../instance-list/status-indicator.component';
 import { RecentDirectoriesDropdownComponent } from '../../shared/components/recent-directories-dropdown/recent-directories-dropdown.component';
 import { ContextBarComponent } from './context-bar.component';
+import { CopilotPremiumUsageComponent } from './copilot-premium-usage.component';
 import { CrossModelReviewIndicatorComponent } from './cross-model-review-indicator.component';
 import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
 import { DEFAULT_INSTANCE_PROVIDERS, PROVIDER_MENU_LABELS } from '../models/provider-menu.constants';
@@ -50,7 +51,7 @@ interface EditorMenuItem {
 @Component({
   selector: 'app-instance-header',
   standalone: true,
-  imports: [StatusIndicatorComponent, RecentDirectoriesDropdownComponent, ContextBarComponent, CrossModelReviewIndicatorComponent, CompactModelPickerComponent, SessionSkillsBadgeComponent, SessionComputerUseControlComponent, AioTooltipDirective, ProviderAccountChipComponent, HelpLinkComponent],
+  imports: [StatusIndicatorComponent, RecentDirectoriesDropdownComponent, ContextBarComponent, CopilotPremiumUsageComponent, CrossModelReviewIndicatorComponent, CompactModelPickerComponent, SessionSkillsBadgeComponent, SessionComputerUseControlComponent, AioTooltipDirective, ProviderAccountChipComponent, HelpLinkComponent],
   templateUrl: './instance-header.component.html',
   styleUrl: './instance-header.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush

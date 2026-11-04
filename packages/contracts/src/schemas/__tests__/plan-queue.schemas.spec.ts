@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   PlanQueueAlertSchema, PlanQueueQuestionSchema, PlanQueueReportTriageArgsSchema, PlanQueueControlPayloadSchema, PlanQueueControlArgsSchema,
   PlanQueueItemDtoSchema, PlanQueueRoutingSchema, PlanQueueStartArgsSchema,
+  PlanQueueReportVerdictArgsSchema,
 } from '../plan-queue.schemas';
 
 const question = {
@@ -11,6 +12,19 @@ const question = {
 const technical = {
   kind: 'technical', recommendedOptionId: 'quiet', reason: 'The project requires this runner.', evidence: 'AGENTS.md documents npm run test:quiet.',
 };
+
+describe('Plan Queue verification coverage', () => {
+  it('requires explicit coverage and rejects meaningless entries', () => {
+    const args = { item_id: 'item', verdict: 'PASS' };
+    expect(PlanQueueReportVerdictArgsSchema.safeParse(args).success).toBe(false);
+    expect(PlanQueueReportVerdictArgsSchema.safeParse({ ...args, not_checked: [] }).success).toBe(true);
+    for (const entry of ['TODO', 'n/a', 'not run', '   ']) {
+      expect(PlanQueueReportVerdictArgsSchema.safeParse({ ...args, not_checked: [entry] }).success).toBe(false);
+    }
+    expect(PlanQueueReportVerdictArgsSchema.parse({ ...args, not_checked: ['Windows sign-in requires an authenticated worker.'] }).not_checked)
+      .toEqual(['Windows sign-in requires an authenticated worker.']);
+  });
+});
 
 describe('Plan Queue checkout alerts', () => {
   it('preserves bounded invalid-checkout advice and keeps legacy alerts valid', () => {

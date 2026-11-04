@@ -1,3 +1,4 @@
+import { AutomationResultSchema } from '@contracts/schemas/automation';
 import type {
   Automation,
   AutomationAction,
@@ -107,8 +108,11 @@ export function mapAutomationRow(row: AutomationRow, destination: AutomationDest
 
 export function mapRunRow(row: AutomationRunRow): AutomationRun {
   return {
+    nextRetryAt: row.next_retry_at ?? null,
     id: row.id,
     automationId: row.automation_id,
+    processedTokens: row.processed_tokens ?? 0,
+    result: row.result_json ? AutomationResultSchema.parse(JSON.parse(row.result_json)) : null,
     status: row.status,
     trigger: row.trigger,
     scheduledAt: row.scheduled_at,

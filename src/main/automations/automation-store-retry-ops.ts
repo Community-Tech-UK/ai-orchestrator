@@ -1,3 +1,5 @@
+import { readRunFacts } from './automation-run-facts';
+import { unchangedRestartJob, RESTART_INTERRUPTION, RESTART_CONTINUATION } from './automation-restart-retry';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import type {
   Automation,
@@ -69,6 +71,10 @@ export function insertRetryRun(
       return null;
     }
     const automation = deps.mapAutomationSync(automationRow);
+    const restart = originalRun.error === RESTART_INTERRUPTION && readRunFacts(deps.db, originalRun.id).restartRetryUsed;
+    if (!automation.enabled || !automation.active) return null;
+    if (restart && (!unchangedRestartJob(automation, originalRun)
+      || readRunFacts(deps.db, originalRun.id).deliveryStartedAt !== null)) return null;
     // Preserve the original action/snapshot: use attachments from the original
     // snapshot if available, otherwise fall through to the live automation.
     if (originalRun.configSnapshot) {
@@ -77,10 +83,12 @@ export function insertRetryRun(
       automation.missedRunPolicy = originalRun.configSnapshot.missedRunPolicy;
       automation.concurrencyPolicy = originalRun.configSnapshot.concurrencyPolicy;
       automation.destination = originalRun.configSnapshot.destination;
-      automation.action = originalRun.configSnapshot.action;
+      automation.action = { ...originalRun.configSnapshot.action,
+        ...(restart ? { prompt: `${originalRun.configSnapshot.action.prompt}\n\n${RESTART_CONTINUATION}` } : {}),
+      };
     }
 
-    return deps.insertRun(
+    const inserted = deps.insertRun(
       automation,
       'running',
       originalRun.trigger,
@@ -94,6 +102,13 @@ export function insertRetryRun(
         maxAttempts,
       },
     );
+    clearPendingRetry(deps.db, originalRun.id);
+    if (restart) {
+      deps.db.prepare(`INSERT INTO automation_run_facts(run_id, restart_retry_used, restart_source_run_id) VALUES (?, 1, ?)`)
+        .run(inserted.id, originalRun.id);
+      if (automation.schedule.type === 'oneTime') deps.db.prepare('UPDATE automations SET next_fire_at = NULL WHERE id = ?').run(automation.id);
+    }
+    return inserted;
   });
   return tx();
 }
@@ -116,14 +131,24 @@ export function markPendingRetry(
 }
 
 export function clearPendingRetry(db: SqliteDriver, runId: string): void {
-  db.prepare(`
-    UPDATE automation_runs
-    SET next_retry_at = NULL,
-        next_retry_attempt = NULL,
-        next_retry_max_attempts = NULL,
-        updated_at = ?
-    WHERE id = ?
-  `).run(Date.now(), runId);
+  db.transaction(() => {
+    const now = Date.now();
+    // A restart temporarily restores a one-time fire for its retry. Clear only
+    // that owned timestamp; a newly chosen fire time must survive cancellation.
+    db.prepare(`UPDATE automations SET next_fire_at = NULL, updated_at = ?
+      WHERE schedule_type = 'oneTime'
+        AND id = (SELECT automation_id FROM automation_runs WHERE id = ? AND error = ? AND next_retry_at IS NOT NULL)
+        AND next_fire_at = (SELECT next_retry_at FROM automation_runs WHERE id = ?)`)
+      .run(now, runId, RESTART_INTERRUPTION, runId);
+    db.prepare(`
+      UPDATE automation_runs
+      SET next_retry_at = NULL,
+          next_retry_attempt = NULL,
+          next_retry_max_attempts = NULL,
+          updated_at = ?
+      WHERE id = ?
+    `).run(now, runId);
+  })();
 }
 
 export function listPendingRetries(db: SqliteDriver): PendingRetryRecord[] {
@@ -176,16 +201,22 @@ export function insertPendingRetryRun(
       return null;
     }
     const automation = deps.mapAutomationSync(automationRow);
+    const restart = originalRun.error === RESTART_INTERRUPTION && readRunFacts(deps.db, originalRun.id).restartRetryUsed;
+    if (!automation.enabled || !automation.active) return null;
+    if (restart && (!unchangedRestartJob(automation, originalRun)
+      || readRunFacts(deps.db, originalRun.id).deliveryStartedAt !== null)) return null;
     if (originalRun.configSnapshot) {
       automation.name = originalRun.configSnapshot.name;
       automation.schedule = originalRun.configSnapshot.schedule;
       automation.missedRunPolicy = originalRun.configSnapshot.missedRunPolicy;
       automation.concurrencyPolicy = originalRun.configSnapshot.concurrencyPolicy;
       automation.destination = originalRun.configSnapshot.destination;
-      automation.action = originalRun.configSnapshot.action;
+      automation.action = { ...originalRun.configSnapshot.action,
+        ...(restart ? { prompt: `${originalRun.configSnapshot.action.prompt}\n\n${RESTART_CONTINUATION}` } : {}),
+      };
     }
 
-    return deps.insertRun(
+    const inserted = deps.insertRun(
       automation,
       'pending',
       originalRun.trigger,
@@ -198,6 +229,13 @@ export function insertPendingRetryRun(
         maxAttempts,
       },
     );
+    clearPendingRetry(deps.db, originalRun.id);
+    if (restart) {
+      deps.db.prepare(`INSERT INTO automation_run_facts(run_id, restart_retry_used, restart_source_run_id) VALUES (?, 1, ?)`)
+        .run(inserted.id, originalRun.id);
+      if (automation.schedule.type === 'oneTime') deps.db.prepare('UPDATE automations SET next_fire_at = NULL WHERE id = ?').run(automation.id);
+    }
+    return inserted;
   });
   return tx();
 }

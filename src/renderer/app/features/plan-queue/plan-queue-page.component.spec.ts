@@ -1,11 +1,13 @@
 import { signal, ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlanQueueItemDto, PlanQueueRouting, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
 import { CopilotAccountIpcService } from '../../core/services/ipc/copilot-account-ipc.service';
+import { PlanQueueIpcService } from '../../core/services/ipc/plan-queue-ipc.service';
 import { ProviderAccountIpcService } from '../../core/services/ipc/provider-account-ipc.service';
 import { InstanceStore } from '../../core/state/instance.store';
 import { PlanQueueStore } from '../../core/state/plan-queue.store';
@@ -115,6 +117,12 @@ describe('PlanQueuePageComponent', () => {
   let settings: ReturnType<typeof signal<{ planQueueRouting: PlanQueueRouting; providersExcludedFromAutomation: string[] }>>;
   let providerAccounts: ReturnType<typeof vi.fn>;
 
+  function clickTab(label: string): void {
+    const tab = Array.from(fixture.nativeElement.querySelectorAll('[role="tab"]') as NodeListOf<HTMLButtonElement>)
+      .find(button => button.textContent?.trim() === label)!;
+    tab.click(); fixture.detectChanges();
+  }
+
   beforeEach(async () => {
     settings = signal({ planQueueRouting: { workers: [], verifiers: [] }, providersExcludedFromAutomation: [] });
     providerAccounts = vi.fn().mockResolvedValue({ profiles: [], pools: {} });
@@ -140,7 +148,9 @@ describe('PlanQueuePageComponent', () => {
     await TestBed.configureTestingModule({
       imports: [PlanQueuePageComponent],
       providers: [
+        provideRouter([]),
         { provide: PlanQueueStore, useValue: store },
+        { provide: PlanQueueIpcService, useValue: { preview: vi.fn().mockResolvedValue({ success: true, data: { found: 1, hiddenCopies: 0, hiddenCountComplete: true } }) } },
         {
           provide: SettingsStore,
           useValue: {
@@ -173,6 +183,18 @@ describe('PlanQueuePageComponent', () => {
     expect(store.load).toHaveBeenCalledTimes(1);
   });
 
+  it('opens Now, hides empty alerts, and switches to Setup with the keyboard', () => {
+    const tabs = Array.from(fixture.nativeElement.querySelectorAll('[role="tab"]')) as HTMLButtonElement[];
+    expect(tabs.map(tab => tab.textContent?.trim())).toEqual(['Now', 'Set aside', 'Setup']);
+    expect(tabs[0].getAttribute('aria-selected')).toBe('true');
+    expect(fixture.nativeElement.querySelector('.pq-section-alerts')).toBeNull();
+    tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+    fixture.detectChanges();
+    expect(tabs[2].getAttribute('aria-selected')).toBe('true');
+    expect(fixture.nativeElement.querySelector('app-plan-queue-account-rules-panel')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('.pq-section-start')).toBeNull();
+  });
+
   it('maps root instances into parent session options for the start form', () => {
     const text = fixture.nativeElement.textContent as string;
     expect(text).toContain('Root session (claude)');
@@ -187,8 +209,24 @@ describe('PlanQueuePageComponent', () => {
     await fixture.whenStable();
 
     (fixture.nativeElement.querySelector('button[type="submit"]') as HTMLButtonElement).click();
-
+    await fixture.whenStable();
     expect(store.startRun).toHaveBeenCalledWith({ parentInstanceId: 'inst-1', kind: 'plans', workspaceCwd: '/repo-a' });
+  });
+
+  it('previews bulk skip and leaves a job that starts before confirmation alone', async () => {
+    const queued = { ...NEEDS_ANSWER_ITEM, state: 'queued' as const, question: null };
+    store.allRuns.set([makeRun({ items: [queued, { ...queued, id: 'other', documentPath: 'other_plan.md' }] })]);
+    fixture.detectChanges(); await fixture.whenStable();
+    const button = Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>)
+      .find(b => b.textContent?.includes('Skip all not started'));
+    expect(button).toBeDefined(); button!.click(); fixture.detectChanges();
+    expect(store.control).not.toHaveBeenCalled();
+    expect(fixture.nativeElement.textContent).toContain('Will change');
+    store.allRuns.set([makeRun({ items: [{ ...queued, state: 'working', workerInstanceId: 'worker' }, { ...queued, id: 'other', documentPath: 'other_plan.md' }] })]);
+    fixture.detectChanges();
+    const confirm = fixture.nativeElement.querySelector('.pq-confirm-skip') as HTMLButtonElement;
+    confirm.click();
+    expect(store.control).toHaveBeenCalledExactlyOnceWith({ action: 'skip-item', itemId: 'other' });
   });
 
   it('shows an attention banner when items need an answer', async () => {
@@ -196,7 +234,7 @@ describe('PlanQueuePageComponent', () => {
     fixture.detectChanges();
     await fixture.whenStable();
 
-    expect(fixture.nativeElement.textContent).toContain('1 item(s) need your answer');
+    expect(fixture.nativeElement.textContent).toContain('1 item needs your answer');
   });
 
   it('owns its scrolling, because the Control Center content cell clips overflow', () => {
@@ -205,28 +243,15 @@ describe('PlanQueuePageComponent', () => {
     expect(host.height).toBe('100%');
   });
 
-  it('leads with the questions, then runs, providers, start, livetest checks, parked work and alerts, each with a purpose line', async () => {
+  it('keeps questions and current work in Now, retained work in Set aside, and accounts in Setup', async () => {
     store.needsAnswerItems.set([NEEDS_ANSWER_ITEM]);
     store.questionGroups.set([{ runId: 'run-x', kind: 'plans', workspaceCwd: '/repo', items: [NEEDS_ANSWER_ITEM] }]);
     store.needJamesReal.set([{ runId: 'run-1', itemId: 'item-1', documentPath: 'docs/x.md', check: 'c', reason: 'r' }]);
-    store.parkedItems.set([PARKED_ITEM]);
-    fixture.detectChanges();
-    await fixture.whenStable();
-
-    const sections = Array.from(fixture.nativeElement.querySelectorAll('section.pq-section') as NodeListOf<HTMLElement>);
-    expect(sections.map((section) => section.querySelector('h2')?.textContent?.trim())).toEqual([
-      'Needs your answer',
-      'Providers and accounts',
-      'Account rules',
-      'Runs',
-      'Start a run',
-      'Needs James (livetests)',
-      'Parked work',
-      'Reconciler alerts',
-    ]);
-    for (const section of sections) {
-      expect(section.querySelector('.pq-purpose, .pq-routing-purpose')?.textContent?.trim()).toBeTruthy();
-    }
+    store.parkedItems.set([PARKED_ITEM]); fixture.detectChanges(); await fixture.whenStable();
+    const headings = () => Array.from(fixture.nativeElement.querySelectorAll('section.pq-section h2') as NodeListOf<HTMLElement>).map(h => h.textContent?.trim());
+    expect(headings()).toEqual(['Needs your answer', 'Runs', 'Start a run', 'Live checks that need you']);
+    clickTab('Set aside'); expect(headings()).toEqual(['Set aside']);
+    clickTab('Setup'); expect(headings()).toEqual(['Providers and accounts', 'Account rules']);
   });
 
   it('shows the surfaced error from the store', async () => {
@@ -237,13 +262,22 @@ describe('PlanQueuePageComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Failed to start plan queue run');
   });
 
-  it('refreshes alerts via the store when the alerts panel asks', () => {
-    (fixture.nativeElement.querySelector('.pq-alerts-head button') as HTMLButtonElement).click();
+  it('links alerts to the existing housekeeping card and refreshes them', () => {
+    store.reconcilerAlerts.set([{ kind: 'unowned-worktree', path: '/tmp/test' }]);
+    clickTab('Set aside');
+    const panel = fixture.nativeElement.querySelector('.pq-section-alerts') as HTMLElement;
+    expect(panel.querySelector('a')?.getAttribute('href')).toBe('/settings?tab=doctor');
+    panel.querySelector('button')!.click();
     expect(store.refreshAlerts).toHaveBeenCalledTimes(1);
   });
 
   it('renders the empty-runs message with no runs loaded', () => {
     expect(fixture.nativeElement.textContent).toContain('No plan queue runs yet.');
+  });
+
+  it('shows the empty state when Set aside has no retained work', () => {
+    clickTab('Set aside');
+    expect(fixture.nativeElement.querySelector('#pq-panel-aside')?.textContent).toContain('No work set aside.');
   });
 
   it('renders loaded runs and forwards a pause action to the store control call', async () => {
@@ -255,6 +289,47 @@ describe('PlanQueuePageComponent', () => {
     (runButtons[0] as HTMLButtonElement).click();
 
     expect(store.control).toHaveBeenCalledWith({ action: 'pause', runId: 'run-x' });
+  });
+
+  it('forwards Setup controls after Choose a checker, retaining Cancel and Skip confirmations', async () => {
+    const parked = { ...PARKED_ITEM, parkReason: 'no-diverse-verifier' as const };
+    const working = { ...NEEDS_ANSWER_ITEM, id: 'working', state: 'working' as const, question: null, workerInstanceId: 'worker-live' };
+    const queued = { ...NEEDS_ANSWER_ITEM, id: 'queued', state: 'queued' as const, question: null };
+    store.allRuns.set([makeRun({ id: 'run-x', items: [parked, working, queued] })]);
+    store.parkedItems.set([parked]);
+    clickTab('Set aside');
+    const choose = Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>)
+      .find(button => button.textContent?.trim() === 'Choose a checker')!;
+    choose.click(); fixture.detectChanges(); await fixture.whenStable();
+    expect(fixture.nativeElement.querySelector('#pq-tab-setup').getAttribute('aria-selected')).toBe('true');
+    const setup = fixture.nativeElement.querySelector('#pq-panel-setup') as HTMLElement;
+    const pause = Array.from(setup.querySelectorAll('.pq-run-controls button')).find(button => button.textContent?.trim() === 'Pause') as HTMLButtonElement;
+    pause.click();
+    expect(store.control).toHaveBeenCalledExactlyOnceWith({ action: 'pause', runId: 'run-x' });
+    store.control.mockClear();
+    store.allRuns.set([makeRun({ id: 'run-x', status: 'paused', items: [parked, working, queued] })]);
+    fixture.detectChanges();
+    (setup.querySelector('.pq-resume') as HTMLButtonElement).click();
+    expect(store.control).toHaveBeenCalledExactlyOnceWith({ action: 'resume', runId: 'run-x' });
+    store.control.mockClear();
+    (setup.querySelector('.pq-cancel') as HTMLButtonElement).click(); fixture.detectChanges();
+    expect(store.control).not.toHaveBeenCalled();
+    (setup.querySelector('.pq-confirm-yes') as HTMLButtonElement).click();
+    expect(store.control).toHaveBeenCalledExactlyOnceWith({ action: 'cancel', runId: 'run-x' });
+    store.control.mockClear();
+    const documents = setup.querySelector('.pq-run-documents') as HTMLDetailsElement;
+    documents.open = true; fixture.detectChanges();
+    (setup.querySelector('.pq-item-skip') as HTMLButtonElement).click(); fixture.detectChanges();
+    expect(store.control).not.toHaveBeenCalled();
+    (setup.querySelector('.pq-skip-confirm-yes') as HTMLButtonElement).click();
+    expect(store.control).toHaveBeenCalledExactlyOnceWith({ action: 'skip-item', itemId: 'queued' });
+    store.control.mockClear();
+    store.allRuns.set([makeRun({ id: 'run-x', items: [parked, working] })]);
+    clickTab('Now');
+    const nowPause = Array.from(fixture.nativeElement.querySelectorAll('.pq-run-controls button') as NodeListOf<HTMLButtonElement>)
+      .find(button => button.textContent?.trim() === 'Pause')!;
+    nowPause.click();
+    expect(store.control).toHaveBeenCalledExactlyOnceWith({ action: 'pause', runId: 'run-x' });
   });
 
   it('forwards an answer from the questions section to store.answer with the item and option ids', async () => {
@@ -276,6 +351,7 @@ describe('PlanQueuePageComponent', () => {
     fixture.detectChanges();
     await fixture.whenStable();
 
+    clickTab('Set aside');
     (fixture.nativeElement.querySelector('.pq-discard') as HTMLButtonElement).click();
     fixture.detectChanges();
     (fixture.nativeElement.querySelector('.pq-confirm-yes') as HTMLButtonElement).click();
@@ -296,6 +372,7 @@ describe('PlanQueuePageComponent', () => {
     store.parkedItems.set([{ ...PARKED_ITEM, parkReason: 'land-blocked',
       verdict: { verdict: 'PASS', findings: [], gatesRun: [], documentComplete: true, needJames: [] },
     }]); fixture.detectChanges(); await fixture.whenStable();
+    clickTab('Set aside');
     fixture.nativeElement.querySelector('.pq-retry-landing').click();
     expect(store.control).toHaveBeenCalledWith({ action: 'retry-landing', itemId: 'item-parked' });
   });
@@ -326,33 +403,33 @@ describe('PlanQueuePageComponent', () => {
     const resume = fixture.nativeElement.querySelector('.pq-resume-all') as HTMLButtonElement;
     expect(pause.textContent).toContain('Pause all (1 running)');
     expect(resume.textContent).toContain('Resume all (1 paused)');
-    expect(fixture.nativeElement.querySelectorAll('.pq-run')).toHaveLength(52);
+    expect(fixture.nativeElement.querySelectorAll('.pq-run')).toHaveLength(2);
+    expect(fixture.nativeElement.querySelector('.pq-history summary').textContent).toContain('History (50)');
     pause.click(); resume.click();
     expect(store.control).toHaveBeenCalledWith({ action: 'pause-all' });
     expect(store.control).toHaveBeenCalledWith({ action: 'resume-all' });
   });
 
-  it('offers Change immediately for old completed and cancelled parked runs while bulk counts stay active-only', async () => {
+  it('folds terminal runs into history and preserves routing changes when an old run is opened', async () => {
     const history = Array.from({ length: 50 }, (_, index) => makeRun({ id: `inert-${index}`, status: 'completed', startedAt: 100 + index }));
     const completed = makeRun({ id: 'old-completed', status: 'completed', startedAt: 2,
       items: [{ ...PARKED_ITEM, runId: 'old-completed' }] });
     const cancelled = makeRun({ id: 'old-cancelled', status: 'cancelled', kind: 'livetests', startedAt: 1,
       items: [{ ...PARKED_ITEM, runId: 'old-cancelled', branchName: null, parkReason: 'triage-failed' }] });
-    store.allRuns.set([...history, completed, cancelled,
-      makeRun({ id: 'running' }), makeRun({ id: 'paused', status: 'paused' }),
-    ]);
+    store.allRuns.set([...history, completed, cancelled, makeRun({ id: 'running' }), makeRun({ id: 'paused', status: 'paused' })]);
     fixture.detectChanges(); await fixture.whenStable();
-    const cards = Array.from(fixture.nativeElement.querySelectorAll('.pq-run') as NodeListOf<HTMLElement>);
-    expect(cards).toHaveLength(54);
-    expect(cards.slice(0, 50).every(card => card.querySelector('.pq-run-change') === null)).toBe(true);
+    expect(fixture.nativeElement.querySelectorAll('.pq-run')).toHaveLength(2);
     expect(fixture.nativeElement.querySelector('.pq-pause-all').textContent).toContain('Pause all (1 running)');
     expect(fixture.nativeElement.querySelector('.pq-resume-all').textContent).toContain('Resume all (1 paused)');
-    for (const card of cards.slice(50, 52)) {
-      const change = card.querySelector('.pq-run-change') as HTMLButtonElement;
+    const rows = fixture.nativeElement.querySelectorAll('.pq-history-run') as NodeListOf<HTMLDetailsElement>;
+    expect(rows).toHaveLength(52);
+    for (const row of [rows[50], rows[51]]) {
+      row.open = true; row.dispatchEvent(new Event('toggle')); fixture.detectChanges(); await fixture.whenStable();
+      const change = row.querySelector('.pq-run-change') as HTMLButtonElement;
       expect(change.textContent?.trim()).toBe('Change');
       change.click(); fixture.detectChanges(); await fixture.whenStable();
-      expect(card.querySelector('app-plan-queue-routing-panel')).not.toBeNull();
-      expect(card.querySelector('.pq-routing-move-progress')).toBeNull();
+      expect(row.querySelector('app-plan-queue-routing-panel')).not.toBeNull();
+      expect(row.querySelector('.pq-routing-move-progress')).toBeNull();
     }
     expect(store.control).not.toHaveBeenCalled();
   });
@@ -376,15 +453,15 @@ describe('PlanQueuePageComponent', () => {
     expect(editor.querySelector('.pq-routing-move-progress')).toBeNull();
   });
 
-  it('shows the saved choice as one line above the runs, opening its editor with Change', async () => {
+  it('keeps the saved choice in Setup and opens its editor with Change', async () => {
     store.allRuns.set(Array.from({ length: 30 }, (_, index) => makeRun({ id: `run-${index}` })));
     settings.set({ planQueueRouting: { workers: [{ provider: 'codex', model: 'gpt-6.1-sol' }, { provider: 'claude' }], verifiers: [] }, providersExcludedFromAutomation: [] });
     fixture.detectChanges();
     await fixture.whenStable();
 
+    clickTab('Setup');
     const section = fixture.nativeElement.querySelector('.pq-section-routing') as HTMLElement;
-    const runs = fixture.nativeElement.querySelector('.pq-section-runs') as HTMLElement;
-    expect(section.compareDocumentPosition(runs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(fixture.nativeElement.querySelector('.pq-section-runs')).toBeNull();
     expect(section.querySelector('.pq-defaults-summary')?.textContent?.trim())
       .toBe('Workers: codex/gpt-6.1-sol, then claude · Checkers: automatic');
     expect(section.querySelector('app-plan-queue-routing-panel')).toBeNull();
@@ -415,8 +492,10 @@ describe('PlanQueuePageComponent', () => {
     fixture.detectChanges();
     await fixture.whenStable();
 
+    clickTab('Setup');
     expect(fixture.nativeElement.querySelector('.pq-defaults-summary')?.textContent?.trim())
       .toBe('Workers: codex (accounts: ChatGPT SUAS) · Checkers: automatic');
+    clickTab('Now');
     expect(fixture.nativeElement.querySelector('.pq-run-routing')?.textContent?.trim())
       .toBe('Workers: codex (accounts: ChatGPT SUAS) · Checkers: automatic');
   });

@@ -41,6 +41,11 @@ export const PlanQueueParkReasonSchema = z.enum([
   'land-blocked',
   'provider-limit',
   'cancelled',
+  'no-progress',
+  'restart-loop',
+  'stuck-on-same-finding',
+  'missing-document',
+  'stopped-by-harness',
 ]);
 
 export const PlanQueueRoleSchema = z.enum(['triage', 'worker', 'verifier']);
@@ -69,6 +74,12 @@ export const PlanQueueFindingSchema = z.object({
 export const PlanQueueGateRunSchema = z.object({
   command: z.string().min(1).max(2000),
   exitCode: z.number().int(),
+  head: z.string().max(64).optional(),
+  durationMs: z.number().nonnegative().optional(),
+  timedOut: z.boolean().optional(),
+  tail: z.string().max(2048).optional(),
+  classification: z.enum(['passed', 'failed', 'no-tests-found', 'not-recognised']).optional(),
+  baseline: z.enum(['new', 'also-failing-on-base']).optional(),
 });
 
 export const PlanQueueNeedJamesEntrySchema = z.object({
@@ -89,6 +100,8 @@ export const PlanQueueVerdictSchema = z.object({
   documentComplete: z.boolean().default(true),
   /** Livetest runs only: every check left as "needs James", classified. */
   needJames: z.array(PlanQueueNeedJamesEntrySchema).max(200).default([]),
+  /** Optional only for verdicts persisted by earlier app versions. */
+  notChecked: z.array(z.string().trim().min(1).max(2000)).max(200).optional(),
 });
 
 /** A recommendation records reasoning, never new permission to take an action. */
@@ -204,13 +217,14 @@ export const PlanQueueAccountRulesSchema = z.object({
 export const DEFAULT_PLAN_QUEUE_ACCOUNT_RULES: PlanQueueAccountRules = { never: [], last: [] };
 
 export const PlanQueueRunConfigSchema = z.object({
+  glob: z.string().max(1000).optional(),
   workerSlots: z.number().int().min(1).max(8),
   verificationSlots: z.number().int().min(1).max(8),
   maxRounds: z.number().int().min(1).max(10),
   maxLoadAverage: z.number().positive().max(1000),
   /** Deterministic commands the coordinator runs after merging a moved `main`. */
   postMergeGate: z.array(z.string().min(1).max(2000)).max(10),
-  /** Gates the verifier must run and report (the canonical checklist by default). */
+  /** Checks Harness runs before independent review (the canonical checklist by default). */
   verifierGates: z.array(z.string().min(1).max(2000)).max(20),
   relaxSettings: z.boolean(),
   /** Branch verified work lands on; fixed when the run starts. */
@@ -228,7 +242,7 @@ export const PlanQueueRunConfigSchema = z.object({
 // DTOs (main → renderer)
 // -------------------------------------------------------------------------
 
-export const PlanQueueSpendSchema = z.object({ tokens: z.number().int().nonnegative(), costUsd: z.number().nonnegative().finite(), exactUsd: z.number().nonnegative().finite() });
+export const PlanQueueSpendSchema = z.object({ tokens: z.number().int().nonnegative(), costUsd: z.number().nonnegative().finite(), exactUsd: z.number().nonnegative().finite(), unpricedTokens: z.number().int().nonnegative().optional() });
 
 export const PlanQueueItemDtoSchema = z.object({
   spend: PlanQueueSpendSchema.nullable().optional(),
@@ -298,6 +312,15 @@ export const PlanQueueStartPayloadSchema = z.object({
   config: PlanQueueRunConfigSchema.partial().optional(),
 });
 
+export const PlanQueuePreviewPayloadSchema = PlanQueueStartPayloadSchema.pick({ workspaceCwd: true, kind: true, glob: true });
+export const PlanQueueDiscoveryPreviewSchema = z.object({
+  found: z.number().int().nonnegative(),
+  hiddenCopies: z.number().int().nonnegative().nullable(),
+  hiddenCountComplete: z.boolean(),
+});
+export type PlanQueueDiscoveryPreview = z.infer<typeof PlanQueueDiscoveryPreviewSchema>;
+export type PlanQueuePreviewPayload = z.infer<typeof PlanQueuePreviewPayloadSchema>;
+
 export const PlanQueueGetPayloadSchema = z.object({ runId: IdSchema });
 
 export const PlanQueueDiffstatPayloadSchema = z.object({ itemId: IdSchema });
@@ -336,6 +359,10 @@ export const PlanQueueReportVerdictArgsSchema = z.object({
   gates_run: z.array(PlanQueueGateRunSchema).max(50).default([]),
   document_complete: z.boolean().default(true),
   need_james: z.array(PlanQueueNeedJamesEntrySchema).max(200).default([]),
+  not_checked: z.array(z.string().trim().min(1).max(2000).refine(
+    value => !/^(?:todo|n\/?a|not run)[.!]?$/i.test(value),
+    'Explain what was not checked and why.',
+  )).max(200),
 });
 
 export const PlanQueueReportTriageArgsSchema = z.object({
@@ -438,6 +465,7 @@ const CANONICAL_GATES = [
   'npm run typecheck:spec',
   'npm run lint',
   'npm run check:ts-max-loc',
+  'npm run check:ui-hints',
   'npm run build:main',
   'npm run build:renderer',
   'npm run test:quiet',

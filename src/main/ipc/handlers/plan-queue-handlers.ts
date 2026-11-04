@@ -14,11 +14,14 @@ import {
   PlanQueueGetPayloadSchema,
   PlanQueueListPayloadSchema,
   PlanQueueStartPayloadSchema,
+  PlanQueuePreviewPayloadSchema,
   type PlanQueueStateChangedEvent,
 } from '@contracts/schemas/plan-queue';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { getPlanQueueCoordinator } from '../../plan-queue/plan-queue-coordinator';
 import type { WindowManager } from '../../window-manager';
+import { previewPlanQueueDocuments } from '../../plan-queue/plan-queue-discovery';
+import { repositoryRoot } from '../../plan-queue/plan-queue-git';
 
 function fail(code: string, error: unknown): IpcResponse {
   return { success: false, error: { code, message: (error as Error).message, timestamp: Date.now() } };
@@ -65,6 +68,11 @@ export function registerPlanQueueHandlers(deps: { windowManager: WindowManager }
   handle(IPC_CHANNELS.PLAN_QUEUE_START, 'PLAN_QUEUE_START_FAILED', async (payload) => {
     const validated = validateIpcPayload(PlanQueueStartPayloadSchema, payload, 'PLAN_QUEUE_START');
     return coordinator.startRun(validated);
+  });
+
+  handle(IPC_CHANNELS.PLAN_QUEUE_PREVIEW, 'PLAN_QUEUE_PREVIEW_FAILED', async (payload) => {
+    const validated = validateIpcPayload(PlanQueuePreviewPayloadSchema, payload, 'PLAN_QUEUE_PREVIEW');
+    return previewPlanQueueDocuments(await repositoryRoot(validated.workspaceCwd), validated.kind, validated.glob);
   });
 
   handle(IPC_CHANNELS.PLAN_QUEUE_ANSWER, 'PLAN_QUEUE_ANSWER_FAILED', async (payload) => {

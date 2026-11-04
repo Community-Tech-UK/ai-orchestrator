@@ -22,9 +22,11 @@ import type {
   PlanQueueVerdict,
 } from '@contracts/schemas/plan-queue';
 import { upgradePlanQueueRouting, type StoredPlanQueueRouting } from '../../shared/utils/plan-queue-routing-upgrade';
-import type { PlanQueueItem, PlanQueueRelaxationSnapshot, PlanQueueRun } from './plan-queue.types';
+import type { PlanQueueItem, PlanQueueRelaxationSnapshot, PlanQueueRun, PlanQueueSpendEntry } from './plan-queue.types';
+import { PlanQueueHistoryStore } from './plan-queue-history-store';
 
 interface RunRow {
+  unpriced_tokens: number;
   tokens: number; cost_usd: number; exact_cost_usd: number;
   id: string;
   parent_instance_id: string;
@@ -41,6 +43,7 @@ interface RunRow {
 }
 
 interface ItemRow {
+  unpriced_tokens: number;
   held_at: number | null;
   pending_instruction: string | null;
   tokens: number; cost_usd: number; exact_cost_usd: number;
@@ -75,19 +78,34 @@ interface ItemRow {
 const ACTIVE_RUN_STATUSES = "('running', 'paused')";
 
 export class PlanQueueStore {
+  readonly history: PlanQueueHistoryStore;
   constructor(
     private readonly db: SqliteDriver,
     private readonly now: () => number = Date.now,
-  ) {}
+  ) { this.history = new PlanQueueHistoryStore(db, now); }
 
-  addSpend(target: { itemId: string; runId?: string } | { runId: string }, delta: { tokens: number; costUsd: number; exactUsd: number }): void {
-    const clean = (value: number) => Number.isFinite(value) && value >= 0 ? value : 0;
-    const item = 'itemId' in target;
-    const table = item ? 'plan_queue_items' : 'plan_queue_runs';
-    const fence = item && target.runId ? ' AND run_id = ?' : '';
-    const args: unknown[] = [Math.floor(clean(delta.tokens)), clean(delta.costUsd), Math.min(clean(delta.exactUsd), clean(delta.costUsd)), item ? target.itemId : target.runId];
-    if (item && target.runId) args.push(target.runId);
-    this.db.prepare(`UPDATE ${table} SET tokens = tokens + ?, cost_usd = cost_usd + ?, exact_cost_usd = exact_cost_usd + ? WHERE id = ?${fence}`).run(...args);
+  recordSpend(entry: PlanQueueSpendEntry): void {
+    if (![entry.processed, entry.output].every(value => Number.isSafeInteger(value) && value >= 0)
+      || entry.costUsd !== null && (!Number.isFinite(entry.costUsd) || entry.costUsd < 0)) throw new Error('Invalid queue spend');
+    this.db.transaction(() => {
+      if (!this.getRun(entry.runId) || entry.itemId !== null && this.getItem(entry.itemId)?.runId !== entry.runId) throw new Error('Queue spend has no matching job');
+      this.db.prepare(`INSERT INTO plan_queue_spend
+        (id, item_id, run_id, role, round, provider, model, processed, output, cost_usd, cost_basis, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(entry.id, entry.itemId, entry.runId, entry.role, entry.round,
+        entry.provider, entry.model, entry.processed, entry.output, entry.costUsd, entry.costBasis, entry.createdAt);
+      const tokens = entry.processed + entry.output;
+      const table = entry.itemId ? 'plan_queue_items' : 'plan_queue_runs';
+      this.db.prepare(`UPDATE ${table} SET tokens = tokens + ?, cost_usd = cost_usd + ?, exact_cost_usd = exact_cost_usd + ?,
+        unpriced_tokens = unpriced_tokens + ? WHERE id = ?`).run(tokens, entry.costUsd ?? 0,
+        entry.costBasis === 'exact' ? entry.costUsd ?? 0 : 0, entry.costUsd === null ? tokens : 0, entry.itemId ?? entry.runId);
+    })();
+  }
+
+  listSpend(runId: string, limit = 100): PlanQueueSpendEntry[] {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error('Queue spend limit must be between 1 and 1000');
+    return this.db.prepare(`SELECT id, item_id AS itemId, run_id AS runId, role, round, provider, model, processed, output,
+      cost_usd AS costUsd, cost_basis AS costBasis, created_at AS createdAt FROM plan_queue_spend
+      WHERE run_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?`).all<PlanQueueSpendEntry>(runId, limit);
   }
 
   upsertRun(run: PlanQueueRun): void {
@@ -211,9 +229,13 @@ export class PlanQueueStore {
     // Read the durable row, not a caller's possibly stale item snapshot, in the
     // same transaction as the write so another save cannot lose a receipt.
     this.db.transaction(() => {
-      const previous = this.db.prepare('SELECT detail FROM plan_queue_items WHERE id = ?')
-        .get<{ detail: string | null }>(item.id);
+      const previous = this.db.prepare('SELECT detail, state FROM plan_queue_items WHERE id = ?')
+        .get<{ detail: string | null; state: PlanQueueItemState }>(item.id);
       this.writeItem({ ...item, detail: preserveRecoveryReceipts(previous?.detail ?? null, item.detail) });
+      if (!previous || previous.state !== item.state) this.history.recordEvent({
+        itemId: item.id, runId: item.runId, fromState: previous?.state ?? null, toState: item.state,
+        reason: item.parkReason, detailHead: item.detail, round: item.round, tokens: item.spend?.tokens ?? 0,
+      });
     })();
   }
 
@@ -287,6 +309,15 @@ export class PlanQueueStore {
     return row ? rowToItem(row) : null;
   }
 
+  findLatestParkedItem(documentPath: string, parentInstanceId: string): PlanQueueItem | null {
+    const row = this.db.prepare(`SELECT item.* FROM plan_queue_items item
+      JOIN plan_queue_runs run ON run.id = item.run_id
+      WHERE item.document_path = ? AND item.state = 'parked' AND item.branch_name IS NOT NULL
+        AND run.parent_instance_id = ? ORDER BY item.updated_at DESC, item.created_at DESC, item.id DESC LIMIT 1`)
+      .get<ItemRow>(documentPath, parentInstanceId);
+    return row ? rowToItem(row) : null;
+  }
+
   listItems(runId: string): PlanQueueItem[] {
     return this.db
       .prepare('SELECT * FROM plan_queue_items WHERE run_id = ? ORDER BY created_at, id')
@@ -353,7 +384,7 @@ function preserveRecoveryReceipts(previous: string | null, next: string | null):
 function rowToRun(row: RunRow): PlanQueueRun {
   const { routing, ...stored } = JSON.parse(row.config_json) as Partial<Omit<PlanQueueRunConfig, 'routing'>> & { routing?: StoredPlanQueueRouting };
   return {
-    ...(row.tokens || row.cost_usd || row.exact_cost_usd ? { spend: { tokens: row.tokens, costUsd: row.cost_usd, exactUsd: row.exact_cost_usd } } : {}),
+    ...(row.tokens || row.cost_usd || row.exact_cost_usd ? { spend: { tokens: row.tokens, costUsd: row.cost_usd, exactUsd: row.exact_cost_usd, ...(row.unpriced_tokens ? { unpricedTokens: row.unpriced_tokens } : {}) } } : {}),
     id: row.id,
     parentInstanceId: row.parent_instance_id,
     parentHistoryThreadId: row.parent_history_thread_id ?? null,
@@ -398,7 +429,7 @@ function readWorkerSession(row: ItemRow): PlanQueueItem['workerSession'] {
 
 function rowToItem(row: ItemRow): PlanQueueItem {
   return {
-    ...(row.tokens || row.cost_usd || row.exact_cost_usd ? { spend: { tokens: row.tokens, costUsd: row.cost_usd, exactUsd: row.exact_cost_usd } } : {}),
+    ...(row.tokens || row.cost_usd || row.exact_cost_usd ? { spend: { tokens: row.tokens, costUsd: row.cost_usd, exactUsd: row.exact_cost_usd, ...(row.unpriced_tokens ? { unpricedTokens: row.unpriced_tokens } : {}) } } : {}),
     workerSession: readWorkerSession(row),
     id: row.id,
     runId: row.run_id,

@@ -26,6 +26,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import type { CodexEphemeralUsageResult } from '../../../../shared/types/codex-ephemeral-usage.types';
 import { CommonModule } from '@angular/common';
 import { CostIpcService } from '../../core/services/ipc/cost-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
@@ -165,6 +166,7 @@ export class CostPageComponent implements OnInit, OnDestroy {
   readonly entries = signal<CostEntry[]>([]);
   readonly budgetStatus = signal<BudgetStatusData>(EMPTY_BUDGET_STATUS);
   readonly purposeSummary = signal<CostPurposeSummary | null>(null);
+  readonly ephemeralUsage = signal<CodexEphemeralUsageResult | null>(null);
   readonly purposeGrouping = signal<'purpose' | 'provider'>('purpose');
   readonly purposeRows = computed(() => this.purposeGrouping() === 'purpose'
     ? this.purposeSummary()?.byPurpose ?? [] : this.purposeSummary()?.byProvider ?? []);
@@ -314,15 +316,18 @@ export class CostPageComponent implements OnInit, OnDestroy {
 
     try {
       const now = Date.now();
-      const [summaryResp, entriesResp, budgetResp, purposeResp] = await Promise.all([
+      const [summaryResp, entriesResp, budgetResp, purposeResp, ephemeralResp] = await Promise.all([
         this.costIpc.costGetSummary(),
         this.costIpc.costGetEntries(100),
+
         this.costIpc.costGetBudgetStatus(),
         this.costIpc.costGetPurposeSummary({startTime:now - 30 * 86400000,endTime:now}),
+        this.costIpc.costGetEphemeralUsage(100),
       ]);
 
       this.summary.set(this.unwrapData<CostSummaryData>(summaryResp, EMPTY_SUMMARY));
       this.entries.set(this.unwrapData<CostEntry[]>(entriesResp, []));
+      this.ephemeralUsage.set(this.unwrapData<CodexEphemeralUsageResult | null>(ephemeralResp, null));
       this.purposeSummary.set(this.unwrapData<CostPurposeSummary | null>(purposeResp, null));
 
       const budget = this.unwrapData<BudgetStatusData>(budgetResp, EMPTY_BUDGET_STATUS);
@@ -395,6 +400,10 @@ export class CostPageComponent implements OnInit, OnDestroy {
       hour: '2-digit',
       minute: '2-digit',
     });
+  }
+
+  formatUsage(n: number | null): string {
+    return n === null ? 'Unavailable' : this.formatTokens(n);
   }
 
   formatTokens(n: number): string {

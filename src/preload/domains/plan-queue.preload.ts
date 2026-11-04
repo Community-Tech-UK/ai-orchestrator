@@ -1,10 +1,11 @@
 import { IpcRenderer, IpcRendererEvent } from 'electron';
 import { IPC_CHANNELS } from '../generated/channels';
 import type { IpcResponse } from './types';
-import type { PlanQueueControlPayload, PlanQueueKind } from '@contracts/schemas/plan-queue';
+import type { PlanQueueControlPayload, PlanQueueKind, PlanQueuePreviewPayload } from '@contracts/schemas/plan-queue';
 
 export function createPlanQueueDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNELS) {
   return {
+    planQueuePreview: (payload: PlanQueuePreviewPayload): Promise<IpcResponse> => ipcRenderer.invoke(ch.PLAN_QUEUE_PREVIEW, payload),
     planQueueList: (payload?: { limit?: number }): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.PLAN_QUEUE_LIST, payload ?? {}),
 

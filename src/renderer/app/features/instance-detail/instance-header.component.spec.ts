@@ -102,6 +102,18 @@ describe('InstanceHeaderComponent interrupt tooltip', () => {
     expect(button.hasAttribute('title')).toBe(false);
   });
 
+  it('shows measured Copilot premium usage and explicitly marks missing data unavailable', () => {
+    fixture.componentRef.setInput('instance', instance('copilot'));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Premium requests used: unavailable');
+    fixture.componentRef.setInput('contextUsage', { used: 0, total: 0, percentage: 0, copilotUsage: { compactions: 0, premiumRequests: 15.5 } });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Premium requests used: 15.5');
+    fixture.componentRef.setInput('instance', instance('claude'));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).not.toContain('Premium requests used:');
+  });
+
   it('explains the waiting state on a focusable hover and keeps locked controls focusable without emitting actions', () => {
     fixture.componentRef.setInput('instance', { ...instance('codex'), waitReason: { kind: 'interrupt-ack', attempt: 2 } });
     fixture.detectChanges();

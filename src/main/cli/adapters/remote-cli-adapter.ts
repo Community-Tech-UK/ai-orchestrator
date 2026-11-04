@@ -17,15 +17,20 @@ import type { UnifiedSpawnOptions } from './adapter-factory';
 import type { AdapterInputOptions, AdapterRuntimeCapabilities, CliResponse, CliSpawnMode, InterruptResult, ResumeAttemptResult, TurnInterruptCompletion } from './base-cli-adapter';
 import type { FileAttachment, OutputMessage } from '../../../shared/types/instance.types';
 import { getPauseCoordinator } from '../../pause/pause-coordinator';
-import { isRemoteUsageFinalization, RemoteResponseUsageSettlement } from './remote-response-usage-settlement';
+import { RemoteResponseUsageSettlement } from './remote-response-usage-settlement';
+import { clearAdapterStopping, isAdapterStopping, markAdapterStopping } from '../../providers/adapter-stop-state';
 import { OrchestratorPausedError } from '../../pause/orchestrator-paused-error';
 import { RPC_ERROR_CODES } from '../../remote-node/worker-node-rpc';
-import { InstanceSendRawParamsSchema, InputRequiredResolvedSchema, ProviderSessionSchema, ProviderTurnSchema, NativeHistoryReplaySchema, RemoteInputRequiredSchema, boundedRemoteCommands, inputNotPending, interactionPayload, type RemoteNativeCommand } from '../../remote-node/instance-interaction-schemas';
+import { InstanceSendRawParamsSchema, InputRequiredResolvedSchema, ProviderSessionSchema, ProviderTurnSchema, NativeHistoryReplaySchema, RemoteInputRequiredSchema, boundedRemoteCommands, inputNotPending, interactionPayload, remoteContextDetails, type RemoteNativeCommand } from '../../remote-node/instance-interaction-schemas';
+import type { CopilotNumericUsage } from '../../../shared/utils/copilot-usage';
 import { assertAdapterInputCurrent, createAdapterInputDispatch } from './adapter-input-dispatch';
 import { JsonChunkAssembler } from '../../../shared/utils/json-chunks';
 import type { AcpHistoryReplay } from './acp-session-replay';
 import type { RemoteInstanceTelemetry } from '../../remote-node/instance-telemetry-rpc';
 import { remoteClaudeSpawnPolicyFor } from './remote-claude-spawn-policy';
+import { remoteCliCapabilities } from './remote-cli-capabilities';
+import { remoteSpawnMetadata } from '../../remote-node/remote-spawn-metadata';
+import { observeRemoteCodexUsage } from './remote-codex-usage';
 const logger = getLogger('RemoteCliAdapter');
 /**
  * Max time to wait for a terminal remote event after an interrupt before the
@@ -68,13 +73,14 @@ interface RemoteCompleteEvent {
 }
 export class RemoteCliAdapter extends EventEmitter {
   private remoteInstanceId: string | null = null;
+  private copilotUsage: CopilotNumericUsage | undefined;
   private interactionId = randomUUID();
   private availableCommands: RemoteNativeCommand[] = [];
   private providerSessionId: string | null = null;
   private providerTurn: { active: boolean; activeToolCalls: boolean; at: number } | null = null;
   private readonly pendingInputs = new Set<string>();
   private readonly usageSettlement = new RemoteResponseUsageSettlement();
-  private usageFinalizationCleanup?: () => void;
+  private codexUsageCleanup?: () => void;
   private readonly nextPromptContexts: string[] = [];
   private contextDispatchPending: object | null = null;
   private readonly historyChunks = new JsonChunkAssembler({ maxCharacters: 40 * 1024 * 1024, maxTransfers: 1 });
@@ -181,6 +187,7 @@ export class RemoteCliAdapter extends EventEmitter {
   };
   private readonly onRemoteTelemetryEvent = (event: RemoteInstanceTelemetry): void => {
     if (!this.matchesRemoteInstance(event.nodeId, event.instanceId)) return;
+    if (event.telemetry.event === 'codex_ephemeral_usage') return; // Consumed by the ownership-validated numeric store only.
     this.emit(event.telemetry.event, event.telemetry.payload);
   };
   constructor(
@@ -199,6 +206,9 @@ export class RemoteCliAdapter extends EventEmitter {
    * Returns -1 as PID since the process runs on a remote machine.
    */
   async spawn(): Promise<number> {
+    if (this.remoteInstanceId) this.assertNotStopping();
+    else clearAdapterStopping(this);
+    this.copilotUsage = undefined;
     if (!this.spawnOptions.sessionId) {
       throw new Error('RemoteCliAdapter requires spawnOptions.sessionId for remote execution');
     }
@@ -213,11 +223,22 @@ export class RemoteCliAdapter extends EventEmitter {
       }
     }
     const claudeSpawnPolicy = remoteClaudeSpawnPolicyFor(this.requestedCliType, this.spawnOptions, this.registry.getNode?.(this.targetNodeId)?.capabilities);
+    if (this.requestedCliType === 'codex' && this.spawnOptions.ephemeral === false
+      && this.registry.getNode?.(this.targetNodeId)?.capabilities.codexSpawnMetadata !== 1) {
+      throw new Error('Persistent Codex requires an updated worker that preserves its session policy. Update the worker or use local execution.');
+    }
+    const metadata = remoteSpawnMetadata(this.spawnOptions, this.requestedCliType === 'codex');
     // Set the expected remote instance ID and attach registry listeners BEFORE
     // sending the spawn RPC. This eliminates the window where early output from
     // the remote instance could be missed because listeners weren't registered yet.
     this.remoteInstanceId = this.spawnOptions.sessionId;
     this.interactionId = randomUUID();
+    const interactionId = this.interactionId;
+    this.codexUsageCleanup?.();
+    const codexUsageCleanup = this.requestedCliType === 'codex' && this.spawnOptions.ephemeral !== false
+      ? observeRemoteCodexUsage(this.registry, this.targetNodeId, this.remoteInstanceId, interactionId, this.spawnOptions)
+      : undefined;
+    this.codexUsageCleanup = codexUsageCleanup;
     this.spawnPending = true;
     this.attachRegistryListeners();
     let acknowledged = false;
@@ -227,6 +248,7 @@ export class RemoteCliAdapter extends EventEmitter {
         'instance.spawn',
         {
           instanceId: this.spawnOptions.sessionId,
+          ...metadata,
           interactionId: this.interactionId,
           cliType: this.requestedCliType,
           usageSettlementProtocol: 1,
@@ -277,6 +299,8 @@ export class RemoteCliAdapter extends EventEmitter {
           ...(claudeSpawnPolicy ? { claudeSpawnPolicy } : {}),
         },
       );
+      // A stop or a newer spawn invalidates this asynchronous acknowledgement.
+      if (this.interactionId !== interactionId || !this.remoteInstanceId) throw new Error('Remote instance changed before spawn acknowledgement.');
       acknowledged = true;
       const expectsHistory = this.requestedCliType === 'opencode' && this.spawnOptions.resume
         && !this.spawnOptions.transcriptKnown && this.registry.getNode?.(this.targetNodeId)?.capabilities.openCodeMajor === 2;
@@ -289,15 +313,14 @@ export class RemoteCliAdapter extends EventEmitter {
       });
       this.markActivity();
     } catch (err) {
-      if (acknowledged) await this.terminate(false);
-      // The spawn RPC itself failed — the worker never acknowledged the child,
-      // so reset the adapter and rethrow. A later rollback terminate() is then a
-      // no-op (correct: there is no remote child to kill).
-      this.remoteInstanceId = null;
-      this.detachRegistryListeners();
+      if (this.interactionId !== interactionId) throw err;
+      if (acknowledged) { await this.terminate(false); throw err; }
+      // A rejected spawn can leave a worker-owned child whose cleanup failed.
+      // Keep its identity and observation until rollback or a later stop confirms absence.
+      markAdapterStopping(this);
       throw err;
     } finally {
-      this.spawnPending = false;
+      if (this.interactionId === interactionId) this.spawnPending = false;
     }
 
     // Emit outside the catch: a throwing listener must retain the acknowledged
@@ -316,6 +339,7 @@ export class RemoteCliAdapter extends EventEmitter {
 
   /** Remote nodes receive the Harness envelope in the text; admission controls stay in-process. */
   async sendInput(message: string, attachments?: FileAttachment[], options?: AdapterInputOptions): Promise<void> {
+    this.assertNotStopping();
     if (!this.remoteInstanceId) {
       throw new Error('RemoteCliAdapter: not spawned — call spawn() before sendInput()');
     }
@@ -335,6 +359,7 @@ export class RemoteCliAdapter extends EventEmitter {
     const instanceId = this.remoteInstanceId;
     const dispatch = createAdapterInputDispatch(options?.dispatch);
     const assertCurrent = (): void => {
+      this.assertNotStopping();
       assertAdapterInputCurrent(dispatch);
       if (this.remoteInstanceId !== instanceId || this.interactionId !== interactionId || this.contextDispatchPending !== owner) throw new Error('Remote instance changed before provider dispatch.');
       if (getPauseCoordinator().isPaused()) throw new OrchestratorPausedError('Remote input refused while orchestrator is paused');
@@ -372,6 +397,10 @@ export class RemoteCliAdapter extends EventEmitter {
   getResumeAttemptResult(): ResumeAttemptResult | null {
     return this.lastResumeAttemptResult;
   }
+  getCopilotUsage(): CopilotNumericUsage | undefined {
+    if (isAdapterStopping(this)) return undefined; // A stopping runtime must not trigger context recycling.
+    return this.copilotUsage ? { ...this.copilotUsage } : undefined;
+  }
   getAvailableCommands(): readonly RemoteNativeCommand[] { return this.availableCommands.map(command => ({ ...command })); }
   hasActiveTurn(): boolean {
     return Boolean(this.remoteInstanceId && this.providerTurn?.active && Date.now() - this.providerTurn.at < 15_000
@@ -380,6 +409,7 @@ export class RemoteCliAdapter extends EventEmitter {
   hasActiveToolCalls(): boolean { return this.hasActiveTurn() && this.providerTurn?.activeToolCalls === true; }
 
   async sendRaw(response: string, permissionKey?: string): Promise<void> {
+    this.assertNotStopping();
     const params = InstanceSendRawParamsSchema.parse({ instanceId: this.remoteInstanceId, response, permissionKey });
     if (!this.pendingInputs.has(params.permissionKey)) throw inputNotPending();
     if (getPauseCoordinator().isPaused()) throw new OrchestratorPausedError('Permission response refused while orchestrator is paused');
@@ -451,51 +481,46 @@ export class RemoteCliAdapter extends EventEmitter {
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async terminate(graceful?: boolean): Promise<void> {
-    // Lifecycle events stop immediately. Pending billing alone can still receive
-    // native finalization while the worker drains the termination RPC.
-    this.detachRegistryListeners();
+    const codexUsageCleanup = this.codexUsageCleanup;
+    // Keep worker observation and its interaction/session identity until a stop
+    // is acknowledged. The runtime fence prevents input and lifecycle recovery.
+    markAdapterStopping(this);
     if (!this.remoteInstanceId) {
-      if (!this.usageFinalizationCleanup) this.usageSettlement.settleAll();
+      codexUsageCleanup?.();
+      if (this.codexUsageCleanup === codexUsageCleanup) this.codexUsageCleanup = undefined;
+      this.usageSettlement.settleAll();
       return;
     }
 
     const instanceId = this.remoteInstanceId;
-    this.remoteInstanceId = null;
-    if (this.usageSettlement.hasPending) {
-      const finalize = (event: RemoteCompleteEvent): void => {
-        if (event.nodeId === this.targetNodeId && event.instanceId === instanceId && isRemoteUsageFinalization(event.response)) {
-          this.usageSettlement.accept(event.response);
-        }
-      };
-      this.registry.on('remote:instance-complete', finalize);
-      this.usageFinalizationCleanup = () => this.registry.off('remote:instance-complete', finalize);
-    }
-
+    const interactionId = this.interactionId;
     try {
       await this.nodeConnection.sendRpc(
         this.targetNodeId,
         'instance.terminate',
         { instanceId },
       );
+      if (this.interactionId === interactionId && this.remoteInstanceId === instanceId) this.remoteInstanceId = null;
       logger.info('Remote instance terminated', { nodeId: this.targetNodeId, instanceId });
     } catch (err) {
-      // Log but don't throw — caller needs cleanup to proceed regardless
       logger.warn('Remote terminate RPC failed', {
         nodeId: this.targetNodeId,
         instanceId,
         error: err instanceof Error ? err.message : String(err),
       });
+      throw err;
     } finally {
-      this.usageFinalizationCleanup?.();
-      this.usageFinalizationCleanup = undefined;
-      this.usageSettlement.settleAll();
+      if (!this.remoteInstanceId || this.codexUsageCleanup !== codexUsageCleanup) {
+        codexUsageCleanup?.();
+        if (this.codexUsageCleanup === codexUsageCleanup) this.codexUsageCleanup = undefined;
+      }
+      if (!this.remoteInstanceId) this.forceCleanup();
     }
   }
 
   /** Force cleanup after interrupted termination or error recovery. */
   forceCleanup(): void {
-    this.usageFinalizationCleanup?.();
-    this.usageFinalizationCleanup = undefined;
+    this.codexUsageCleanup?.(); this.codexUsageCleanup = undefined;
     this.usageSettlement.settleAll();
     this.remoteInstanceId = null;
     this.detachRegistryListeners();
@@ -532,50 +557,7 @@ export class RemoteCliAdapter extends EventEmitter {
    * are determined by the CLI provider, not by the transport layer.
    */
   getRuntimeCapabilities(): AdapterRuntimeCapabilities {
-    switch (this.requestedCliType) {
-      case 'claude':
-        return {
-          supportsResume: true,
-          supportsForkSession: true,
-          // Remote proxies to a Claude CLI on the worker node, which runs in
-          // headless `--input-format stream-json` mode. Slash commands are not
-          // intercepted in that mode — there's no programmatic compaction hook
-          // we can call. Mirror the local Claude adapter: no native hook, but
-          // the remote Claude self-manages its own internal auto-compaction.
-          supportsNativeCompaction: false,
-          supportsPermissionPrompts: true,
-          supportsDeferPermission: false, // Remote doesn't run local hooks
-          selfManagedAutoCompaction: true,
-        };
-      case 'opencode':
-        return {
-          supportsResume: true,
-          // Remote source-clone RPC is not available; preserve snapshot replay.
-          supportsForkSession: false,
-          supportsNativeCompaction: false,
-          supportsPermissionPrompts: true,
-          supportsDeferPermission: false,
-          selfManagedAutoCompaction: true,
-        };
-      case 'codex':
-        return {
-          supportsResume: true,
-          supportsForkSession: false,
-          supportsNativeCompaction: false,
-          supportsPermissionPrompts: false,
-          supportsDeferPermission: false,
-          selfManagedAutoCompaction: false,
-        };
-      default:
-        return {
-          supportsResume: false,
-          supportsForkSession: false,
-          supportsNativeCompaction: false,
-          supportsPermissionPrompts: false,
-          supportsDeferPermission: false,
-          selfManagedAutoCompaction: false,
-        };
-    }
+    return remoteCliCapabilities(this.requestedCliType);
   }
 
   // ---------------------------------------------------------------------------
@@ -614,8 +596,7 @@ export class RemoteCliAdapter extends EventEmitter {
   }
 
   handleRemoteExit(code: number | null, signal: string | null): void {
-    this.usageFinalizationCleanup?.();
-    this.usageFinalizationCleanup = undefined;
+    this.codexUsageCleanup?.(); this.codexUsageCleanup = undefined;
     this.usageSettlement.settleAll();
     this.remoteInstanceId = null;
     this.detachRegistryListeners();
@@ -642,7 +623,9 @@ export class RemoteCliAdapter extends EventEmitter {
   }
 
   handleRemoteContext(usage: unknown): void {
+    if (!this.remoteInstanceId || !this.registryListenersAttached) return;
     this.markActivity();
+    this.copilotUsage = this.requestedCliType === 'copilot' ? remoteContextDetails(usage).copilotUsage : undefined;
     this.emit('context', usage);
   }
 
@@ -665,6 +648,10 @@ export class RemoteCliAdapter extends EventEmitter {
     );
   }
 
+  private assertNotStopping(): void {
+    if (isAdapterStopping(this)) throw new Error('The remote session is still stopping. Finish stopping it before starting more work.');
+  }
+
   private attachRegistryListeners(): void {
     if (this.registryListenersAttached) {
       return;
@@ -681,6 +668,9 @@ export class RemoteCliAdapter extends EventEmitter {
   }
 
   private detachRegistryListeners(): void {
+    this.copilotUsage = undefined;
+    this.interactionId = randomUUID();
+    this.spawnPending = false;
     this.contextDispatchPending = null;
     this.historyChunks.clear(); this.pendingHistoryReplay = null; this.historyReplayFailure = null;
     this.availableCommands = []; this.pendingInputs.clear(); this.providerSessionId = null; this.providerTurn = null;

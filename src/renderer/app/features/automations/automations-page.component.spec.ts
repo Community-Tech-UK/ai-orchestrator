@@ -406,7 +406,7 @@ describe('AutomationsPageComponent row actions', () => {
   });
 
   it.each([undefined, 'auto', 'claude'] as const)(
-    'keeps the standard Opus default when a generated draft requests provider %s',
+    'defaults a generated check to Sonnet and low effort for provider %s',
     (provider) => {
       const component = fixture.componentInstance;
       component.startChat();
@@ -422,7 +422,8 @@ describe('AutomationsPageComponent row actions', () => {
       component.useDraft();
 
       expect(component.form().provider).toBe('claude');
-      expect(component.form().model).toBe(CLAUDE_MODELS.OPUS);
+      expect(component.form().model).toBe(CLAUDE_MODELS.SONNET);
+      expect(component.form().reasoningEffort).toBe('low');
     },
   );
 
@@ -476,6 +477,57 @@ describe('AutomationsPageComponent row actions', () => {
     const action = store.update.mock.calls[0][1].action as { provider?: string; model?: string };
     expect(action.provider).toBe('claude');
     expect(action.model).toBeUndefined();
+  });
+
+  it('greys semantic quiet runs and gives a dismissible model suggestion after ten quiet runs', async () => {
+    const a = { ...makeAutomation(), nextFireAt: Date.now() + 40 * 60_000, monitorState: { quietRuns: 10, modelHintDismissed: false, unchangedChecks: 3, intervalMultiplier: 4 } };
+    automations.set([a]);
+    store.runs.set([{ id: 'run-quiet', automationId: a.id, status: 'succeeded', trigger: 'manual', scheduledAt: 1000,
+      result: { outcome: 'no_change', notify: false } }]);
+    fixture.componentInstance.select(a); fixture.detectChanges();
+    const row = fixture.nativeElement.querySelector('.run-row--quiet') as HTMLElement;
+    expect(row).not.toBeNull();
+    expect(getComputedStyle(row).color).toBe('var(--text-muted)');
+    expect(fixture.nativeElement.textContent).toContain('Nothing needed action');
+    expect(fixture.nativeElement.textContent).toContain('Next check in 40 min (no change for 3 checks)');
+    expect(fixture.nativeElement.textContent).toContain('Sonnet at low effort');
+    const dismiss = [...fixture.nativeElement.querySelectorAll('button')].find((button: unknown) => (button as HTMLButtonElement).textContent?.trim() === 'Dismiss suggestion') as HTMLButtonElement;
+    expect(dismiss).toBeDefined(); dismiss.click(); await fixture.whenStable(); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).not.toContain('Sonnet at low effort');
+    expect(store.update).toHaveBeenCalledWith(a.id, { dismissModelHint: true });
+  });
+  it('shows the actual pending retry on an interrupted run and removes the promise when it clears', () => {
+    const automation = automations()[0];
+    const run = { id: 'interrupted', automationId: automation.id, status: 'failed', trigger: 'scheduled',
+      scheduledAt: 1000, error: 'Interrupted by an app restart', nextRetryAt: 1_900_000_015_000 };
+    store.runs.set([run]); fixture.componentInstance.select(automation); fixture.detectChanges();
+    const row = fixture.nativeElement.querySelector('.run-row') as HTMLElement;
+    expect(row.textContent).toContain('Interrupted by an app restart');
+    expect(row.querySelector('.run-retry')?.textContent).toContain('Will run again');
+    expect(getComputedStyle(row.querySelector('.run-retry')!).gridColumn).toBe('1 / -1');
+    expect(row.querySelector('.run-retry')?.textContent).toContain(fixture.componentInstance.formatTime(run.nextRetryAt));
+    store.runs.set([{ ...run, nextRetryAt: null }]); fixture.detectChanges();
+    expect(row.querySelector('.run-retry')).toBeNull();
+    store.runs.set([{ ...run, nextRetryAt: undefined }]); fixture.detectChanges();
+    expect(row.querySelector('.run-retry')).toBeNull();
+  });
+  it('saves run limits and opting in to fewer unchanged checks from the human form', async () => {
+    const component = fixture.componentInstance;
+    component.select(automations()[0]); component.editSelected();
+    component.patchForm({ maxRunMinutes: 120, maxProcessedTokens: 50_000_000, slowWhenUnchanged: true });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('input[name="maxRunMinutes"]')).not.toBeNull();
+    await component.save();
+    expect(store.update).toHaveBeenCalledWith('automation-1', expect.objectContaining({ action: expect.objectContaining({ maxRunMinutes: 120, maxProcessedTokens: 50_000_000, slowWhenUnchanged: true }) }));
+  });
+
+  it('defaults new manual checks to Sonnet low and preserves a deliberate human model choice', () => {
+    const component = fixture.componentInstance;
+    component.startCreate(); component.patchForm({ name: 'Server monitor', prompt: 'Check server health' });
+    expect(component.form()).toMatchObject({ model: 'sonnet', reasoningEffort: 'low' });
+    component.onModelPicked({ provider: 'claude', model: 'opus', reasoning: 'ultra' });
+    component.patchForm({ prompt: 'Check the server again' });
+    expect(component.form()).toMatchObject({ model: 'opus', reasoningEffort: 'ultra' });
   });
 
   function findButton(label: string): HTMLButtonElement {

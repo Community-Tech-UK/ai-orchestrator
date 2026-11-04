@@ -2,7 +2,7 @@
   @for (run of runs(); track run.id) {
     <div class="pq-run" [attr.data-status]="run.status">
       <div class="pq-run-head">
-        <span class="pq-run-kind">{{ run.kind }}</span>
+        <span class="pq-run-kind">{{ kindLabel(run.kind) }}</span>
         <span class="pq-run-cwd" tabindex="0" [appTooltip]="run.workspaceCwd" appTooltipVariant="overflow">{{ run.workspaceCwd }}</span>
         <span class="pq-run-started">Started {{ formatStartedAt(run.startedAt) }}</span>
         <app-plan-queue-run-controls
@@ -31,7 +31,7 @@
       @if (run.spend) { <div class="pq-run-spend">{{ spendLabel(run) }}</div> }
       <details class="pq-run-documents">
         <summary>
-          <span class="pq-run-item-count">{{ run.items.length }} document(s)</span>
+          <span class="pq-run-item-count">{{ pluralise(run.items.length, 'document') }}</span>
           @if (run.items.length > 0) {
             <span class="pq-run-state-counts">{{ stateCounts(run.items) }}</span>
           }

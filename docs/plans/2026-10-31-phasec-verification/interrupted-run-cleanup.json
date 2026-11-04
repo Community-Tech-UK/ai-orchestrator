@@ -1,0 +1,102 @@
+{
+  "wrapper": 82499,
+  "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-20-oct2-phasec-queue-t-f2749a",
+  "wrapperProof": "82347 rtk proxy python3 _scratch/phasec-run-checks.py integrated-2\n82499 /opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python _scratch/phasec-run-checks.py integrated-2\n",
+  "cwdProof": "p82499\nfcwd\nn/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-20-oct2-phasec-queue-t-f2749a\n",
+  "processes": [
+    {
+      "pid": 62999,
+      "parentPid": 82499,
+      "command": "rtk proxy npm run test:quiet"
+    },
+    {
+      "pid": 63052,
+      "parentPid": 62999,
+      "command": "npm run test:quiet AIO_MCP=/Applications/Harness.app/Contents/Resources/aio-mcp-cli/aio-mcp AI_ORCHESTRATOR_INSTANCE_ID=xg2ychook AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_CAPABILITY=<redacted>"
+    },
+    {
+      "pid": 63473,
+      "parentPid": 63052,
+      "command": "node scripts/run-tests-quiet.js"
+    },
+    {
+      "pid": 66283,
+      "parentPid": 63473,
+      "command": "/Users/suas/.nvm/versions/node/v24.22.1/bin/node /Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/vitest/vitest.mjs run --no-cache --reporter=default --reporter=json --outputFile.json=/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-20-oct2-phasec-queue-t-f2749a/_scratch/test-results.phasec-full-pinned-integrated-2.json"
+    },
+    {
+      "pid": 2483,
+      "parentPid": 66283,
+      "command": "/Users/suas/.nvm/versions/node/v24.22.1/bin/node --experimental-import-meta-resolve --require /Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/vitest/suppress-warnings.cjs --conditions node --conditions development --max-old-space-size=8192 /Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/vitest/dist/workers/forks.js"
+    },
+    {
+      "pid": 14206,
+      "parentPid": 66283,
+      "command": "/Users/suas/.nvm/versions/node/v24.22.1/bin/node --experimental-import-meta-resolve --require /Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/vitest/suppress-warnings.cjs --conditions node --conditions development --max-old-space-size=8192 /Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/vitest/dist/workers/forks.js"
+    },
+    {
+      "pid": 59719,
+      "parentPid": 66283,
+      "command": "/Users/suas/.nvm/versions/node/v24.22.1/bin/node --experimental-import-meta-resolve --require /Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/vitest/suppress-warnings.cjs --conditions node --conditions development --max-old-space-size=8192 /Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/vitest/dist/workers/forks.js"
+    },
+    {
+      "pid": 66829,
+      "parentPid": 66283,
+      "command": "/Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/@esbuild/darwin-arm64/bin/esbuild --service=0.28.2 --ping"
+    },
+    {
+      "pid": 14436,
+      "parentPid": 59719,
+      "command": "/Users/suas/.nvm/versions/node/v24.22.1/bin/node --import file:///Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/tsx/dist/loader.mjs /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-20-oct2-phasec-queue-t-f2749a/src/main/context-evidence/secure-directory-operation-child.ts rename 16777229 1688324414 .staging-a2b6dd610c0e8dd4965b20ea81cff9bb.tmp f4556271d3fcf4f622c4980212c345f9.aioev1"
+    }
+  ],
+  "psProbe": "EPERM; no signals sent",
+  "redaction": "Credential-like argv assignments redacted immediately; no value retained in this receipt.",
+  "stopRequest": {
+    "pid": 66283,
+    "signal": "SIGINT",
+    "at": "2026-10-31T04:30:08.451571+00:00",
+    "reason": "Superseded by reproduced late-stop acknowledgement defect; not a test failure or pass."
+  },
+  "afterInterrupt": {
+    "at": "2026-10-31T04:31:02.300851+00:00",
+    "states": [
+      {
+        "pid": 62999,
+        "running": false
+      },
+      {
+        "pid": 63052,
+        "running": false
+      },
+      {
+        "pid": 63473,
+        "running": false
+      },
+      {
+        "pid": 66283,
+        "running": false
+      },
+      {
+        "pid": 2483,
+        "running": false
+      },
+      {
+        "pid": 14206,
+        "running": false
+      },
+      {
+        "pid": 59719,
+        "running": false
+      },
+      {
+        "pid": 66829,
+        "running": false
+      },
+      {
+        "pid": 14436,
+        "running": false
+      }
+    ]
+  }
+}

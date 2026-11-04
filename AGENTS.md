@@ -101,7 +101,7 @@ Before renaming the plan:
 
 The livetest doc is itself a plan: run it against the rebuilt app (typically by dragging `*_livetest.md` files into a loop) and rename it `_livetest_completed.md` only when every check passes with evidence. Searching for `*_livetest.md` lists all pending live testing.
 
-Every `*_livetest.md` carries a header block pointing at the remediation flow — include it when you create a new one. A **reproduced** defect goes into `docs/plans/livetest-remediation-register.md` as a new `LT-NNN` item (index row plus observed behaviour, root cause, required behaviour, acceptance), with a matching implementation-status section in `docs/plans/2026-07-19-livetest-failure-remediation_plan.md`. Per-check evidence stays in the owning livetest doc. Before running a campaign, read `docs/plans/livetest-campaign-runbook.md`.
+Every `*_livetest.md` carries a header block pointing at the remediation flow — include it when you create a new one. A **reproduced** defect goes into `docs/plans/livetest-remediation-register.md` as a new `LT-NNN` item (index row plus observed behaviour, root cause, required behaviour, acceptance). Run `node scripts/next-lt-id.mjs` for the next identifier and recheck before adding the row; the command does not reserve it. The register's index row is the defect's status; implementation notes go in the plan or livetest document that fixes it. Per-check evidence stays in the owning livetest doc. Before running a campaign, read `docs/plans/livetest-campaign-runbook.md`. Agents do not read `livetest-remediation-register-archive-2026.md` unless an index row points there. Never add new work to a closed plan.
 
 ## TypeScript and Angular Conventions
 

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { classifyFilename, discoverPlanQueueDocuments, globToRegExp } from './plan-queue-discovery';
+import { classifyFilename, discoverPlanQueueDocuments, globToRegExp, previewPlanQueueDocuments } from './plan-queue-discovery';
 
 let root: string;
 
@@ -62,6 +62,14 @@ describe('globToRegExp', () => {
 });
 
 describe('discoverPlanQueueDocuments', () => {
+  it('previews real documents separately from matching copies without reading their content', async () => {
+    write('docs/plans/evidence/snapshot/docs/plans/copied_plan.md');
+    write('docs/plans/nested/plans/also-copied_plan.md');
+    write('docs/plans/observations/unrelated.txt');
+    expect(await previewPlanQueueDocuments(root, 'plans')).toEqual({ found: 4, hiddenCopies: 2, hiddenCountComplete: true });
+    expect(await previewPlanQueueDocuments(root, 'plans', 'docs/plans/2026-08-28-settings-ux-remediation_plan.md'))
+      .toEqual({ found: 1, hiddenCopies: null, hiddenCountComplete: true });
+  });
   it('lists plans, reports a missing linked spec and an unplanned spec as not ready', async () => {
     const docs = await discoverPlanQueueDocuments(root, 'plans');
     expect(rel(docs)).toEqual([

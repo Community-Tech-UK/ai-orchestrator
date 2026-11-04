@@ -7,6 +7,8 @@ import { PermissionRegistry } from '../../../orchestration/permission-registry';
 import { CHROME_DEVTOOLS_MCP_VERSION } from '../../../browser-gateway/chrome-devtools-mcp-config';
 import type { CliAdapterConfig } from '../base-cli-adapter.types';
 import type { ResolvedCopilotAccountRoute } from '../../../../shared/types/copilot-account.types';
+import { AcpCliAdapter } from '../acp-cli-adapter';
+import { CopilotAcpAdapter } from '../copilot/copilot-acp-adapter';
 
 /**
  * Every Copilot spawn now requires a resolved account route — the factory
@@ -49,7 +51,7 @@ vi.mock('child_process', async (importOriginal) => {
 type PrepareSpawn = () => Promise<() => void>;
 
 describe('adapter factory — copilot', () => {
-  const preparedConfigCleanups: Array<() => void> = [];
+  const preparedConfigCleanups: (() => void)[] = [];
   const testCopilotHome = join(tmpdir(), 'ai-orchestrator-test-copilot-home');
   const testAioMcp = '/tmp/aio-mcp';
   const originalOrchestratorCopilotHome = process.env['AI_ORCHESTRATOR_COPILOT_HOME'];
@@ -132,7 +134,8 @@ describe('adapter factory — copilot', () => {
 
   it('createCliAdapter(copilot, ...) instantiates AcpCliAdapter with a copilot provider name', () => {
     const adapter = createCliAdapter('copilot', { workingDirectory: '/tmp', copilotAccountRoute: legacyRoute() });
-    expect(adapter.constructor.name).toBe('AcpCliAdapter');
+    expect(adapter).toBeInstanceOf(AcpCliAdapter);
+    expect(adapter).toBeInstanceOf(CopilotAcpAdapter);
     expect(adapter.getName()).toBe('copilot-acp');
   });
 

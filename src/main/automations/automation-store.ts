@@ -1,3 +1,9 @@
+import { isDeepStrictEqual } from 'node:util';
+import { readMonitorState, recordMonitorOutcome, dismissMonitorHint } from './automation-monitor';
+import { interruptRunningJobs, RESTART_INTERRUPTION } from './automation-restart-retry';
+import { withRunLimits } from './automation-run-policy';
+import { readRunFacts, writeRunResult, markDeliveryStarted, addProcessedUsage, recordStopFailure } from './automation-run-facts';
+import type { AutomationResult } from '@contracts/schemas/automation';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { generateId } from '../../shared/utils/id-generator';
 import { toWorkspaceId } from '../../shared/utils/workspace-key';
@@ -89,7 +95,7 @@ export class AutomationStore {
         JSON.stringify(trigger),
         missedRunPolicy,
         concurrencyPolicy,
-        JSON.stringify(stripAttachmentData(input.action)),
+        JSON.stringify(stripAttachmentData(withRunLimits(input.action, schedule))),
         nextFireAt,
         now,
         now,
@@ -109,7 +115,7 @@ export class AutomationStore {
 
   async update(
     id: string,
-    updates: UpdateAutomationInput,
+    updates: UpdateAutomationInput & { dismissModelHint?: boolean },
     nextFireAt: number | null | undefined,
     now = Date.now(),
   ): Promise<Automation> {
@@ -165,6 +171,10 @@ export class AutomationStore {
         id,
       );
       this.writeDestination(id, destination);
+      if (updates.dismissModelHint) dismissMonitorHint(this.db, id);
+      if ((updates.schedule && !isDeepStrictEqual(updates.schedule, existing.schedule)) || (updates.action && updates.action.prompt !== existing.action.prompt)) {
+        this.db.prepare('DELETE FROM automation_monitor_state WHERE automation_id = ?').run(id);
+      }
       if (prepared) {
         this.attachmentService.replacePrepared(id, prepared);
       }
@@ -374,7 +384,7 @@ export class AutomationStore {
     status: Exclude<AutomationRunStatus, 'pending' | 'running'>,
     error?: string,
     outputSummary?: string,
-    nowOrOptions: number | { now?: number; outputFullRef?: string } = Date.now(),
+    nowOrOptions: number | { now?: number; outputFullRef?: string; monitorOutput?: string } = Date.now(),
   ): AutomationRun | null {
     const now = typeof nowOrOptions === 'number' ? nowOrOptions : nowOrOptions.now ?? Date.now();
     const outputFullRef = typeof nowOrOptions === 'number' ? undefined : nowOrOptions.outputFullRef;
@@ -405,7 +415,9 @@ export class AutomationStore {
         `).run(active, now, row.automation_id);
       }
 
-      return this.getRun(runId);
+      const terminal = this.getRun(runId);
+      if (terminal) recordMonitorOutcome(this.db, terminal, now, typeof nowOrOptions === 'number' ? outputSummary : nowOrOptions.monitorOutput ?? outputSummary);
+      return terminal;
     });
     return tx();
   }
@@ -565,16 +577,14 @@ export class AutomationStore {
     const limit = options.limit ?? 100;
     const rows = options.automationId
       ? this.db.prepare(`
-          SELECT *
-          FROM automation_runs
-          WHERE automation_id = ?
-          ORDER BY scheduled_at DESC, created_at DESC
+          SELECT r.*, f.result_json, f.processed_tokens FROM automation_runs r LEFT JOIN automation_run_facts f ON f.run_id = r.id
+          WHERE r.automation_id = ?
+          ORDER BY r.scheduled_at DESC, r.created_at DESC
           LIMIT ?
         `).all<AutomationRunRow>(options.automationId, limit)
       : this.db.prepare(`
-          SELECT *
-          FROM automation_runs
-          ORDER BY scheduled_at DESC, created_at DESC
+          SELECT r.*, f.result_json, f.processed_tokens FROM automation_runs r LEFT JOIN automation_run_facts f ON f.run_id = r.id
+          ORDER BY r.scheduled_at DESC, r.created_at DESC
           LIMIT ?
         `).all<AutomationRunRow>(limit);
 
@@ -589,16 +599,23 @@ export class AutomationStore {
     if (ids.length === 0) return new Map();
     const rows = this.db.prepare(`
       SELECT * FROM (
-        SELECT r.*, ROW_NUMBER() OVER (
+        SELECT r.*, f.result_json, f.processed_tokens, ROW_NUMBER() OVER (
           PARTITION BY automation_id
           ORDER BY scheduled_at DESC, created_at DESC, id DESC
         ) AS latest_rank
-        FROM automation_runs r
+        FROM automation_runs r LEFT JOIN automation_run_facts f ON f.run_id = r.id
         WHERE automation_id IN (${ids.map(() => '?').join(', ')})
       ) WHERE latest_rank = 1
     `).all<AutomationRunRow>(...ids);
     return new Map(rows.map(row => [row.automation_id, this.mapRun(row)]));
   }
+
+  addProcessedUsage(runId: string, instanceId: string, source: 'provider' | 'attributed', tokens: number): number { return addProcessedUsage(this.db, runId, instanceId, source, tokens); }
+  recordStopFailure(runId: string): void { recordStopFailure(this.db, runId); }
+  dismissModelHint(id: string): void { dismissMonitorHint(this.db, id); }
+  recordResult(runId: string, result: AutomationResult): void { writeRunResult(this.db, runId, result); }
+  getRunFacts(runId: string) { return readRunFacts(this.db, runId); }
+  markDeliveryStarted(runId: string, now = Date.now()): boolean { return markDeliveryStarted(this.db, runId, now); }
 
   getRun(runId: string): AutomationRun | null {
     const row = this.getRunRow(runId);
@@ -683,44 +700,8 @@ export class AutomationStore {
   }
 
   failRunningRuns(reason: string, now = Date.now(), excludeRunIds: readonly string[] = []): AutomationRun[] {
-    const exclusion = excludeRunIds.length ? ` AND id NOT IN (${excludeRunIds.map(() => '?').join(',')})` : '';
-    const tx = this.db.transaction(() => {
-      const rows = this.db.prepare(`
-        SELECT *
-        FROM automation_runs
-        WHERE status = 'running' AND loop_run_id IS NULL ${exclusion}
-      `).all<AutomationRunRow>(...excludeRunIds);
-
-      this.db.prepare(`
-        UPDATE automation_runs
-        SET status = 'failed',
-            finished_at = ?,
-            error = ?,
-            updated_at = ?
-        WHERE status = 'running' AND loop_run_id IS NULL ${exclusion}
-      `).run(now, reason, now, ...excludeRunIds);
-
-      for (const row of rows) {
-        const automation = this.getAutomationRow(row.automation_id);
-        if (automation?.schedule_type === 'oneTime') {
-          this.db.prepare(`
-            UPDATE automations
-            SET next_fire_at = NULL,
-                updated_at = ?
-            WHERE id = ?
-          `).run(now, row.automation_id);
-        }
-      }
-
-      return rows.map((row) => ({
-        ...this.mapRun(row),
-        status: 'failed' as const,
-        finishedAt: now,
-        error: reason,
-        updatedAt: now,
-      }));
-    });
-    return tx();
+    return interruptRunningJobs({ db: this.db, mapRun: row => this.mapRun(row), mapAutomation: row => this.mapAutomationSync(row) },
+      reason, now, excludeRunIds, reason === RESTART_INTERRUPTION);
   }
 
   markPendingRetry(
@@ -856,7 +837,7 @@ export class AutomationStore {
   }
 
   private getRunRow(id: string): AutomationRunRow | undefined {
-    return this.db.prepare(`SELECT * FROM automation_runs WHERE id = ?`).get<AutomationRunRow>(id);
+    return this.db.prepare(`SELECT r.*, f.result_json, f.processed_tokens FROM automation_runs r LEFT JOIN automation_run_facts f ON f.run_id = r.id WHERE r.id = ?`).get<AutomationRunRow>(id);
   }
 
   private getDestination(automationId: string): AutomationDestination {
@@ -921,7 +902,8 @@ export class AutomationStore {
   }
 
   private mapAutomationSync(row: AutomationRow): Automation {
-    return mapAutomationRow(row, this.getDestination(row.id));
+    const automation = { ...mapAutomationRow(row, this.getDestination(row.id)), monitorState: readMonitorState(this.db, row.id) };
+    return automation;
   }
 
   private mapRun(row: AutomationRunRow): AutomationRun {

@@ -7,8 +7,9 @@
  */
 
 import type { SqliteDriver } from '../db/sqlite-driver';
+import { PLAN_QUEUE_MIGRATIONS } from '../plan-queue/plan-queue-migrations';
 
-export const LOOP_SCHEMA_VERSION = 30;
+export const LOOP_SCHEMA_VERSION = 32;
 
 interface LoopMigration {
   version: number;
@@ -486,6 +487,7 @@ const MIGRATIONS: LoopMigration[] = [
     name: '030_plan_queue_item_worker_session',
     up: `ALTER TABLE plan_queue_items ADD COLUMN worker_session_json TEXT;`,
   },
+  ...PLAN_QUEUE_MIGRATIONS,
 ];
 
 export function createLoopMigrationsTable(db: SqliteDriver): void {

@@ -42,6 +42,7 @@ export class PlanQueueRunControl {
           break;
         case 'resume':
           if (run.status !== 'paused') break;
+          await host.preflightRun(run);
           // Retry an interrupted checkpoint/revert before allowing the scheduler to run.
           await host.holdRun(run);
           host.upsertRun({ ...host.getRun(run.id), status: 'running' });

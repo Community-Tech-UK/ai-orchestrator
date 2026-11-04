@@ -1440,7 +1440,8 @@
     "id": "e5094b5eef74cd08",
     "owner": "src/renderer/app/features/plan-queue/components/plan-queue-alerts-list.component.ts",
     "text": "Checks for leftover workspaces and branches again.",
-    "why": "long"
+    "why": "long",
+    "retired": "The unused alerts-list component was removed as requested. Its Refresh action and the identical planQueue.refresh wording now belong to the existing leftover-folders card on plan-queue-page.component.ts."
   },
   {
     "id": "8a62c1ab8d4f02f1",
@@ -1476,6 +1477,18 @@
     "id": "539adfaeb255fd9a",
     "owner": "src/renderer/app/shared/components/provider-quota-chip/provider-quota-chip.component.ts",
     "text": "Quota is being consumed ahead of this window's time budget",
+    "why": "long"
+  },
+  {
+    "id": "afd7924a554f2b10",
+    "owner": "src/renderer/app/features/instance-detail/cross-model-review-indicator.component.ts",
+    "text": "All automatic second opinions used today. Resets at midnight. You can still ask for one from a reply's menu.",
+    "why": "consequence"
+  },
+  {
+    "id": "ac75b889aeeb944f",
+    "owner": "src/renderer/app/features/plan-queue/plan-queue-page.component.ts",
+    "text": "Checks for leftover workspaces and branches again.",
     "why": "long"
   },
   {

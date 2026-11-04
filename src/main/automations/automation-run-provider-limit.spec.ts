@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'events';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../persistence/rlm/rlm-schema';
@@ -11,8 +13,9 @@ import { AutomationRunner } from './automation-runner';
 import { getAutomationEvents, resetAutomationEventsForTesting } from './automation-events';
 import { classifyFinalOutputProviderLimit } from './automation-run-provider-limit';
 
+const output = vi.hoisted(() => ({ dir: '' }));
 vi.mock('electron', () => ({
-  app: { getPath: vi.fn(() => '/tmp/ai-orchestrator-test') },
+  app: { getPath: vi.fn(() => output.dir) },
   powerMonitor: new EventEmitter(),
 }));
 vi.mock('../plugins/hook-emitter', () => ({ emitPluginHook: vi.fn() }));
@@ -134,9 +137,11 @@ describe('AutomationRunner final-output provider-limit detection', () => {
   let store: AutomationStore;
   let manager: InstanceManager & EventEmitter;
   let retries: { nextAttempt: number; delayMs: number }[];
+  let runners: AutomationRunner[];
 
   beforeEach(() => {
     resetAutomationEventsForTesting();
+    output.dir = mkdtempSync(join(process.cwd(), '_scratch', 'automation-provider-limit-'));
     db = createDb();
     store = new AutomationStore(db, {
       prepare: async () => [],
@@ -144,14 +149,19 @@ describe('AutomationRunner final-output provider-limit detection', () => {
       listForAutomation: async () => [],
     } as unknown as AutomationAttachmentService, 5);
     retries = [];
+    runners = [];
+    const instance = { id: 'instance-1', outputBuffer: [], status: 'busy', parentId: null,
+      childrenIds: [], requestCount: 1, adapterGeneration: 1, restartEpoch: 0 };
     manager = Object.assign(new EventEmitter(), {
-      createInstance: vi.fn(async () => ({ id: 'instance-1', outputBuffer: [], status: 'busy' })),
-      getInstance: vi.fn(() => undefined),
+      createInstance: vi.fn(async () => instance),
+      getInstance: vi.fn((id: string) => id === instance.id ? instance : undefined),
     }) as unknown as InstanceManager & EventEmitter;
   });
 
   afterEach(() => {
+    for (const runner of runners) runner.untrackInstances(['instance-1']);
     db.close();
+    rmSync(output.dir, { recursive: true, force: true });
   });
 
   async function createAutomation(): Promise<string> {
@@ -181,6 +191,7 @@ describe('AutomationRunner final-output provider-limit detection', () => {
       100,
       () => ({ automationDefaultCli: 'auto', automationDefaultModel: '', modelPickerFavorites: [] }),
     );
+    runners.push(runner);
     runner.setRetryScheduler((_run, nextAttempt, _max, delayMs) => retries.push({ nextAttempt, delayMs }));
     runner.initialize(manager);
 
@@ -192,7 +203,14 @@ describe('AutomationRunner final-output provider-limit detection', () => {
         event: { kind: 'output', messageType: 'assistant', content },
       });
     }
+    // Idle, clean exit and an unbound completion cannot certify the current turn.
+    manager.emit('instance:event', { instanceId: 'instance-1', event: { kind: 'status_changed', status: 'idle' } });
+    manager.emit('provider:normalized-event', { instanceId: 'instance-1', event: { kind: 'exit', code: 0 } });
     manager.emit('provider:normalized-event', { instanceId: 'instance-1', event: { kind: 'complete' } });
+    expect(store.listRuns({ automationId })[0]?.status).toBe('running');
+    // InstanceCommunication publishes this marker only after response usage settles.
+    manager.emit('provider:normalized-event', { instanceId: 'instance-1', adapterGeneration: 1,
+      event: { kind: 'complete', requestCountAtCompletion: 1 } });
 
     const runs = store.listRuns({ automationId });
     return { run: runs[0]!, automationId };

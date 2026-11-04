@@ -1,7 +1,12 @@
 import { z } from 'zod';
+import { CodexEphemeralUsageSchema } from '../../shared/validation/codex-ephemeral-usage.schemas';
 
 /** Only bounded diagnostics and numeric usage cross the worker boundary. */
 export const InstanceTelemetrySchema = z.discriminatedUnion('event', [
+  z.object({
+    event: z.literal('codex_ephemeral_usage'),
+    payload: z.object({ interactionId: z.string().uuid(), receipt: CodexEphemeralUsageSchema }).strict(),
+  }).strict(),
   z.object({
     event: z.literal('system_prompt_delivered'),
     payload: z.object({

@@ -1,7 +1,7 @@
 <form class="pq-start-form" (submit)="$event.preventDefault(); onSubmit()">
   <label class="pq-start-field">
     Parent session
-    <select [ngModel]="selectedParentId()" name="parentSession" (ngModelChange)="selectedParentId.set($event)">
+    <select [ngModel]="selectedParentId()" name="parentSession" (ngModelChange)="selectedParentId.set($event); onSelectionChange()">
       <option value="">Choose a session…</option>
       @for (session of parentSessions(); track session.id) {
         <option [value]="session.id">{{ session.label }} — {{ session.workingDirectory }}</option>
@@ -13,22 +13,31 @@
     <legend>Document kind</legend>
     @for (k of kinds; track k) {
       <label class="pq-start-kind-option">
-        <input type="radio" name="pqStartKind" [value]="k" [checked]="kind() === k" (change)="kind.set(k)" />
-        {{ k }}
+        <input type="radio" name="pqStartKind" [value]="k" [checked]="kind() === k" (change)="kind.set(k); onSelectionChange()" />
+        {{ kindLabel(k) }}
       </label>
     }
   </fieldset>
 
   <label class="pq-start-field">
-    Glob (optional)
+    Which files (pattern, optional)
     <input
       type="text"
       placeholder="docs/plans/**/*_plan.md"
       [ngModel]="glob()"
       name="glob"
-      (ngModelChange)="glob.set($event)"
+      (ngModelChange)="glob.set($event); onSelectionChange()"
     />
   </label>
 
-  <button type="submit" [appTooltip]="copy('planQueue.start')" [appTooltipDisabledReason]="canStart() ? null : copy('planQueue.chooseParent')">Start run</button>
+  @if (preview(); as result) {
+    <p role="status">{{ pluralise(result.found, 'document') }} found@if (result.hiddenCopies !== null) { ({{ result.hiddenCountComplete ? '' : 'at least ' }}{{ result.hiddenCopies }} {{ result.hiddenCopies === 1 ? 'looks like a copy' : 'look like copies' }}, hidden) }</p>
+  }
+  @if (error(); as message) { <p role="alert">{{ message }}</p> }
+  @if (confirming() && preview(); as result) {
+    <p>This will start work on all {{ result.found }} documents.</p>
+    <button type="button" (click)="confirmStart()">Start all {{ result.found }} documents</button>
+    <button type="button" (click)="onSelectionChange()">Cancel</button>
+  }
+  <button type="submit" [appTooltip]="copy('planQueue.start')" [appTooltipDisabledReason]="canStart() ? null : checking() ? 'Checking the selected files.' : confirming() ? 'Confirm the documents above first.' : copy('planQueue.chooseParent')">{{ checking() ? 'Checking files…' : 'Start run' }}</button>
 </form>

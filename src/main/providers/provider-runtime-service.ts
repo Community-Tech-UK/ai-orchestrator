@@ -1,3 +1,4 @@
+import { boundAutomationSpawnOptions, refuseAutomationAuthority } from '../automations/automation-execution-authority';
 import {
   createCliAdapter,
   type CliAdapter,
@@ -31,6 +32,7 @@ import {
 } from './provider-runtime-registry';
 import { isInstanceHardened } from '../instance/lifecycle/hardened-mode-scoping';
 import { isInstanceSignalFenceDisabled } from '../instance/lifecycle/signal-fence-scoping';
+import { automationInvocations } from '../automations/automation-invocation-context';
 
 export interface ProviderRuntimeStartInput {
   cliType: CliType;
@@ -81,10 +83,17 @@ export class ProviderRuntimeService implements ProviderRuntimeContract {
   }
 
   createAdapter(input: ProviderRuntimeStartInput): CliAdapter {
+    if (input.options.automationAuthority) {
+      if (input.executionLocation?.type === 'remote') refuseAutomationAuthority('remote execution cannot enforce the saved limits');
+      input = { ...input, options: boundAutomationSpawnOptions(input.options.automationAuthority, input.cliType, input.options) };
+    }
+    const invocation = automationInvocations.prepare(input.options, input.cliType);
+    if (invocation) input = { ...input, options: invocation.options };
     try {
       const adapter = this.shouldUseSpawnWorker(input)
         ? this.createSpawnWorkerProxy(input)
         : this.createAdapterFn(input);
+      invocation?.bind(adapter);
       rememberAdapterAccountRoute(adapter, input.options.accountRoute);
       if (input.options.accountRoute && typeof (adapter as { on?: unknown }).on === 'function') {
         // Live sessions on a pool route feed their account's quota snapshot (spec §10).
@@ -122,6 +131,7 @@ export class ProviderRuntimeService implements ProviderRuntimeContract {
       }
       return adapter;
     } catch (error) {
+      invocation?.release();
       this.registry.recordUnavailable({
         provider: input.cliType,
         runtime: runtimeDescriptorForSpawn(
@@ -137,6 +147,7 @@ export class ProviderRuntimeService implements ProviderRuntimeContract {
   }
 
   private shouldUseSpawnWorker(input: ProviderRuntimeStartInput): boolean {
+    if (input.options.automationAuthority) return false;
     if (this.readSpawnWorkerSetting() !== true) {
       return false;
     }

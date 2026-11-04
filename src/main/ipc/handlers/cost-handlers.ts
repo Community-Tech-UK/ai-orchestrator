@@ -3,6 +3,8 @@
  * Handles cost recording, budget management, and cost reporting
  */
 
+import { CodexEphemeralUsageQuerySchema } from '../../../shared/validation/codex-ephemeral-usage.schemas';
+import { readCodexEphemeralUsage } from '../../core/system/codex-ephemeral-usage-store';
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { z } from 'zod';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
@@ -49,8 +51,18 @@ const COST_BUDGET_EXCEEDED_CHANNEL = IPC_CHANNELS.COST_BUDGET_EXCEEDED;
 
 export function registerCostHandlers(deps: {
   windowManager: WindowManager;
+  ephemeralUsageFile?: string;
 }): void {
   const costTracker = getCostTracker();
+  ipcMain.handle(IPC_CHANNELS.COST_GET_EPHEMERAL_USAGE, async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const query = validateIpcPayload(CodexEphemeralUsageQuerySchema, payload, 'COST_GET_EPHEMERAL_USAGE');
+      return { success: true, data: readCodexEphemeralUsage(deps.ephemeralUsageFile, query?.limit) };
+    } catch {
+      return { success: false, error: { code: 'COST_GET_EPHEMERAL_USAGE_FAILED',
+        message: 'Temporary Codex usage is unavailable', timestamp: Date.now() } };
+    }
+  });
   ipcMain.handle(IPC_CHANNELS.COST_GET_PURPOSE_SUMMARY, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
       const range = validateIpcPayload(CostPurposeRangeSchema, payload, 'COST_GET_PURPOSE_SUMMARY');

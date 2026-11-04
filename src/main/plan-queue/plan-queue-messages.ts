@@ -14,6 +14,7 @@ import type {
   PlanQueueRunDto,
 } from '@contracts/schemas/plan-queue';
 import { documentStem } from './plan-queue-item-flow';
+import { isNotReachedItem } from '../../shared/utils/plan-queue-item-outcome';
 import { relaxedSettingsFor } from './plan-queue-relaxation';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 
@@ -48,7 +49,7 @@ export function itemToDto(item: PlanQueueItem): PlanQueueItemDto {
 
 export function runToDto(run: PlanQueueRun, items: readonly PlanQueueItem[]): PlanQueueRunDto {
   const spends = [run.spend, ...items.map(item => item.spend)].filter(spend => spend !== undefined);
-  const spend = spends.length ? spends.reduce((total, entry) => ({ tokens: total.tokens + entry.tokens, costUsd: total.costUsd + entry.costUsd, exactUsd: total.exactUsd + entry.exactUsd }), { tokens: 0, costUsd: 0, exactUsd: 0 }) : undefined;
+  const spend = spends.length ? spends.reduce((total, entry) => ({ tokens: total.tokens + entry.tokens, costUsd: total.costUsd + entry.costUsd, exactUsd: total.exactUsd + entry.exactUsd, unpricedTokens: (total.unpricedTokens ?? 0) + (entry.unpricedTokens ?? 0) }), { tokens: 0, costUsd: 0, exactUsd: 0, unpricedTokens: 0 }) : undefined;
   return {
     ...(spend ? { spend } : {}),
     id: run.id,
@@ -107,8 +108,9 @@ function needJamesLines(items: readonly PlanQueueItem[]): { real: string[]; poli
 export function buildRunSummaryMessage(run: PlanQueueRun, items: readonly PlanQueueItem[]): string {
   const count = (state: PlanQueueItem['state']) => items.filter((item) => item.state === state).length;
   const parked = items.filter((item) => item.state === 'parked');
+  const notReached = items.filter(isNotReachedItem).length;
   const lines = [
-    `Plan Queue run ${run.id} (${run.kind}) ended: ${run.status}. Landed ${count('landed')}, parked ${parked.length}, skipped ${count('skipped')}.`,
+    `Plan Queue run ${run.id} (${run.kind}) ended: ${run.status}. Landed ${count('landed')}, parked ${parked.length}, skipped ${count('skipped') - notReached}, not reached ${notReached}.`,
   ];
   if (parked.length) {
     lines.push('', 'Parked (retained branches are named below; Resume, Land anyway or Discard in the Plan Queue panel):');

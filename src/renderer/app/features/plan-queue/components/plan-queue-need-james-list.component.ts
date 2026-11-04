@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import type { PlanQueueNeedJamesRecord } from '../../../core/state/plan-queue.store';
+import { pluralise } from '../plan-queue-item-display';
 
 export interface PlanQueueNeedJamesGroup {
   readonly runId: string;
@@ -20,6 +21,7 @@ export interface PlanQueueNeedJamesGroup {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PlanQueueNeedJamesListComponent {
+  protected readonly pluralise = pluralise;
   records = input<PlanQueueNeedJamesRecord[]>([]);
   policyGatedCount = input<number>(0);
 

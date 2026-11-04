@@ -111,25 +111,25 @@ describe('syncItemWithBase', () => {
   it('reports up-to-date when main has not moved', async () => {
     const item = makeItemWithWork({ 'work.txt': 'work\n' });
 
-    expect(await syncItemWithBase(item, 'main')).toEqual({ status: 'up-to-date' });
+    expect(await syncItemWithBase(item, 'main', repo)).toEqual({ status: 'up-to-date' });
   });
 
   it('merges a moved main into the item branch', async () => {
     const item = makeItemWithWork({ 'work.txt': 'work\n' });
     commitOnMain('other.txt', 'landed by someone else\n');
 
-    const result = await syncItemWithBase(item, 'main');
+    const result = await syncItemWithBase(item, 'main', repo);
 
     expect(result.status).toBe('merged');
     expect(existsSync(join(item.worktreePath ?? '', 'other.txt'))).toBe(true);
-    expect(await syncItemWithBase(item, 'main')).toEqual({ status: 'up-to-date' });
+    expect(await syncItemWithBase(item, 'main', repo)).toEqual({ status: 'up-to-date' });
   });
 
   it('leaves a conflict in the worktree for the worker and names the files', async () => {
     const item = makeItemWithWork({ 'a.txt': 'item version\n' });
     commitOnMain('a.txt', 'main version\n');
 
-    const result = await syncItemWithBase(item, 'main');
+    const result = await syncItemWithBase(item, 'main', repo);
 
     expect(result).toEqual({ status: 'conflict', conflictFiles: ['a.txt'] });
     expect(readFileSync(join(item.worktreePath ?? '', 'a.txt'), 'utf8')).toContain('<<<<<<<');
@@ -251,7 +251,7 @@ describe('landItemBranch', () => {
     const item = makeItemWithWork({ 'one.txt': '1\n' });
     git(['branch', `integration/${item.branchName}`, 'main']);
     commitOnMain('other.txt', 'main moved\n');
-    await syncItemWithBase(item, 'main');
+    await syncItemWithBase(item, 'main', repo);
 
     const result = await landItemBranch(item, repo, 'main', 'feat: after stale');
 
@@ -319,11 +319,11 @@ describe('landItemBranch', () => {
       expect(checkoutState(item)).toEqual({ head: item.checkpointCommit, branch: item.branchName, status: '' });
     });
 
-    it('refuses an item branch carrying active planning documents, but not a standing register', async () => {
-      const item = makeItemWithWork({ 'one.txt': '1\n', 'q_plan.md': '# active\n' });
+    it.each(['q_plan.md', 'q_history.md'])('refuses active %s, but not a standing register', async (document) => {
+      const item = makeItemWithWork({ 'one.txt': '1\n', [document]: '# active\n' });
       const mainBefore = git(['rev-parse', 'main']);
 
-      expect(await landItemBranch(item, repo, 'main', 'feat: docs')).toEqual({ status: 'active-documents', paths: ['q_plan.md'] });
+      expect(await landItemBranch(item, repo, 'main', 'feat: docs')).toEqual({ status: 'active-documents', paths: [document] });
       expect(git(['rev-parse', 'main'])).toBe(mainBefore);
 
       const register = makeItemWithWork({ 'r_livetest.md': '# R\n**Type: standing register**\n' }, 'item-reg999');

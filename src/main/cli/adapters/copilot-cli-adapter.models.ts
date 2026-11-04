@@ -10,6 +10,7 @@ import {
   type ModelDisplayInfo,
 } from '../../../shared/types/provider.types';
 import { COPILOT_AUTO_MODEL_ID, type CopilotModelInfo } from './copilot-cli-adapter.types';
+import { copilotModelLabel } from '../../../shared/utils/copilot-model-label';
 
 /** Default context window when we don't know the model. Matches the old SDK adapter. */
 export const DEFAULT_CONTEXT_WINDOW = 128_000;
@@ -136,7 +137,7 @@ export function copilotModelInfosToDisplayInfo(models: CopilotModelInfo[]): Mode
 export function toCopilotModelInfo(modelId: string): CopilotModelInfo {
   return {
     id: modelId,
-    name: formatCopilotModelDisplayName(modelId),
+    name: copilotModelLabel(modelId, formatCopilotModelDisplayName(modelId)),
     supportsVision: normalizedCopilotVisionModel(modelId),
     contextWindow: estimateCopilotModelContextWindow(modelId),
     enabled: true,

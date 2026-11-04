@@ -1,3 +1,5 @@
+import { assertLoopExecutionAuthority, hasPinnedLoopExecution, loopExecutionSpawnOptions, loopAdapterHonorsAuthority, rememberLoopExecutionSettings } from './loop-execution-authority';
+import type { LoopConfig } from '../../shared/types/loop.types';
 /**
  * Default Orchestration Invokers
  *
@@ -27,7 +29,7 @@ import { getProviderRuntimeService } from '../providers/provider-runtime-service
 import { readCodexAuthMode } from '../providers/codex-auth-mode';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
 import { getSettingsManager } from '../core/config/settings-manager';
-import { sendRecordedOrchestrationCall } from './orchestration-call-recording';
+import { sendRecordedOrchestrationCall, waitForCompletionUsage } from './orchestration-call-recording';
 import { getProviderLimitLedgerPort } from '../core/system/provider-limit-ledger';
 import { getCircuitBreakerRegistry } from '../core/circuit-breaker';
 import type { ProviderId, ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
@@ -124,11 +126,9 @@ function getCallbackFromPayload<T extends (...args: never[]) => unknown>(
 
 async function invokeCliTextResponse(params: {
   instanceManager: InstanceManager;
+  executionConfig?: Partial<LoopConfig>;
   instanceId?: string;
-  /** Overrides the working directory for the spawned CLI. Required for
-   *  fresh-child invocations (e.g. Loop Mode) where there's no instance
-   *  to inherit it from — without this we'd fall back to `process.cwd()`,
-   *  which is the Electron app's launch directory, not the user's project. */
+  /** Fresh children need their project directory; process.cwd() belongs to Electron. */
   workingDirectory?: string;
   requestedProvider?: string;
   payloadModel?: string;
@@ -144,6 +144,9 @@ async function invokeCliTextResponse(params: {
    *  passes its own so per-profile automation policy can distinguish them. */
   copilotOrigin?: CopilotInvocationOrigin;
   machineSessionTrialKey?: string;
+  /** Runtime-owned job and chat IDs, independent of trial grouping and adapter borrowing. */
+  jobId?: string;
+  ownerInstanceId?: string;
   /**
    * Which orchestration gate this is, for the operator routing policy
    * (`orchestrationRoutingPolicyJson`). Finer-grained than `routingIntent`:
@@ -274,13 +277,15 @@ async function invokeCliTextResponse(params: {
 
   const spawnOptions: UnifiedSpawnOptions = {
     workingDirectory,
-    model,
+    ...loopExecutionSpawnOptions({ ...params.executionConfig, model }, cliType),
     systemPrompt: params.systemPrompt,
-    yoloMode: params.yoloMode ?? false,
+    yoloMode: params.executionConfig ? (params.executionConfig.yoloMode ?? params.executionConfig.executionAuthority?.yoloMode ?? params.yoloMode ?? false) : params.yoloMode ?? false,
     permissionHookPath: params.permissionHookPath,
     env: params.env,
     rtk: params.rtk,
     trialKey: params.machineSessionTrialKey,
+    jobId: params.jobId,
+    instanceId: params.ownerInstanceId ?? params.instanceId,
     timeout: params.timeoutMs ?? 300000,
     maxTurns: params.maxTurns,
     ...(params.routingIntent === 'loop' ? { concurrencyPriority: 'overflow' as const } : {}),
@@ -318,12 +323,13 @@ async function invokeCliTextResponse(params: {
     const ownsAdapter = !params.reusedAdapter;
     const adapter: CliAdapter = (params.reusedAdapter as CliAdapter | undefined)
       ?? getProviderRuntimeService().createAdapter({ cliType, options: routedSpawnOptions });
+    if (params.executionConfig && !params.reusedAdapter) rememberLoopExecutionSettings(adapter, params.executionConfig);
     const cleanup = params.cleanupAdapter ?? terminateCliAdapter;
     const finishConsult = isLoop ? undefined : trackConsultAdapter(adapter, () => ownsAdapter ? cleanup(adapter, false) : Promise.resolve());
     const untrackAdapter = params.onAdapterReady?.(adapter, model, cliType) ?? (() => { /* noop */ });
     const detachActivity = params.activity
       ? attachInvocationActivity(adapter, params.activity, {
-          autoAnswerInputRequired: params.autoAnswerInputRequired,
+          autoAnswerInputRequired: params.autoAnswerInputRequired && (!params.executionConfig || spawnOptions.yoloMode === true),
         })
       : () => { /* noop */ };
     // D2 (#6): adapter-enforced tools-disable for the cap wrap-up send; reused
@@ -406,6 +412,7 @@ async function invokeCliTextResponse(params: {
     }
   });
 
+  await waitForCompletionUsage(response);
   const reportedCost = typeof response.usage?.cost === 'number' && Number.isFinite(response.usage.cost)
     ? Math.max(0, response.usage.cost)
     : null;
@@ -476,6 +483,8 @@ export function registerDefaultMultiVerifyInvoker(instanceManager: InstanceManag
       const result = await invokeCliTextResponse({
         instanceManager,
         instanceId: parsed.instanceId,
+        jobId: parsed.requestId,
+        copilotOrigin: 'verification',
         payloadModel: parsed.model,
         systemPrompt: parsed.systemPrompt,
         prompt: parsed.userPrompt,
@@ -527,6 +536,8 @@ export function registerDefaultReviewInvoker(instanceManager: InstanceManager): 
       const result = await invokeCliTextResponse({
         instanceManager,
         instanceId: parsed.instanceId,
+        jobId: parsed.reviewId,
+        copilotOrigin: 'review',
         payloadModel: parsed.model,
         systemPrompt: parsed.systemPrompt,
         prompt: parsed.userPrompt,
@@ -601,6 +612,8 @@ export function registerDefaultDebateInvoker(instanceManager: InstanceManager): 
         const result = await invokeCliTextResponse({
           instanceManager,
           instanceId: parsed.instanceId,
+          jobId: parsed.debateId,
+          copilotOrigin: 'consensus',
           requestedProvider: parsed.provider,
           payloadModel: parsed.model,
           systemPrompt: parsed.systemPrompt,
@@ -689,6 +702,7 @@ export function registerDefaultWorkflowInvoker(instanceManager: InstanceManager)
       const result = await invokeCliTextResponse({
         instanceManager,
         instanceId: instance?.id,
+        jobId: parsed.executionId,
         payloadModel: parsed.model,
         systemPrompt,
         prompt: parsed.prompt,
@@ -769,7 +783,6 @@ export {
   parseTestCounts,
 } from './default-loop-invoker-helpers';
 
-
 /**
  * LF-5 — real branch-and-select I/O deps: isolate each candidate in a git
  * worktree, run a CLI turn there, verify it, then (on a winner) merge it back
@@ -821,6 +834,8 @@ export function buildLoopBranchSelectorDeps(instanceManager: InstanceManager): B
             }),
             breakerKey: `loop-branch:${provider}`,
             correlationId: `${input.loopRunId}::branch::${i}`,
+            jobId: input.loopRunId,
+            copilotOrigin: 'loop',
             timeoutMs: input.iterationTimeoutMs,
             yoloMode: true,
             allowPartialOnTimeout: true,
@@ -1178,16 +1193,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       prompt: string;
       /** T2: goal-bearing prompt for model routing when `prompt` omitted the goal. */
       routingPrompt?: string;
-      config: {
-        contextStrategy?: string;
-        // LF-1 context-discipline block (optional; defaults applied below).
-        context?: { compaction?: { enabled: boolean; resetAtUtilization: number; clearToolResults: boolean } };
-        // LF-5 branch-and-select enables B7's delegated retrieval hint for offloaded output.
-        exploration?: { enabled?: boolean };
-        phase4?: { toolRwLocks?: { enabled?: boolean } };
-        // Agentic-turn backstop per iteration; null disables, undefined → default.
-        maxTurnsPerIteration?: number | null;
-      };
+      config: Partial<LoopConfig>;
       callback: (result: LoopChildResult | LoopChildInvocationError) => void;
       // Forwarded from LoopConfig — overrides the invoker's defaults.
       iterationTimeoutMs?: number;
@@ -1207,6 +1213,8 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       logger.warn('loop:invoke-iteration payload missing callback');
       return;
     }
+    try { assertLoopExecutionAuthority({ ...p.config, provider: p.provider }); }
+    catch (error) { p.callback({ error: (error as Error).message }); return; }
     const workspaceDir = loopExecutionCwd(p);
     const capture = createLoopInvocationCapture({
       workspaceDir,
@@ -1288,7 +1296,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     // borrow the parent instance's live adapter, and take the LT-020 loan on
     // the same tick. Priorities 2 (persistent loop adapter) and 3 (fresh child)
     // are handled below and inside invokeCliTextResponse respectively.
-    const borrow = await decideAdapterBorrow(instanceManager, {
+    const borrow = await decideAdapterBorrow(hasPinnedLoopExecution(p.config) ? {} : instanceManager, {
       chatId: p.chatId,
       loopRunId: p.loopRunId,
       provider: p.provider,
@@ -1333,7 +1341,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       const existing = persistentLoopAdapters.get(p.loopRunId);
       if (existing) {
         const existingModel = persistentLoopAdapterModels.get(p.loopRunId);
-        if (!canReuseLoopAdapter(p.loopRunId, existing, persistentCliType, persistentModel, persistentLoopAdapterModels)) {
+        if (!loopAdapterHonorsAuthority(existing, p.config ?? {}) || !canReuseLoopAdapter(p.loopRunId, existing, persistentCliType, persistentModel, persistentLoopAdapterModels)) {
           await recyclePersistentLoopAdapter(p.loopRunId);
           oneShotContextReset = true;
           emitActivity({
@@ -1346,15 +1354,10 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         }
       }
       if (!reusedAdapter) {
-        // The first iteration creates the adapter. We let invokeCliTextResponse
-        // do that the normal way, then capture the resulting adapter ref via
-        // the breaker by routing through a small helper. Simpler approach:
-        // create here directly, then pass it in for subsequent iters too.
-        // Resolve the model through the SAME loop routing as fresh-child
-        // iterations — previously this path hard-coded the house default
-        // (Opus-1M), silently bypassing cost-tier routing for every
-        // same-session loop.
+        // Create once and reuse across iterations, with the same model routing
+        // and explicit ownership metadata as a fresh child.
         reusedAdapter = await createPersistentLoopAdapter({
+          executionConfig: p.config,
           provider: p.provider,
           model: persistentModel,
           workingDirectory: loopExecutionCwd(p),
@@ -1363,6 +1366,8 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
           maxTurns: loopMaxTurns,
           env: p.loopControlEnv,
           trialKey: p.loopRunId,
+          jobId: p.loopRunId,
+          instanceId: p.chatId,
         }).catch((err: unknown) => {
           logger.warn('Failed to create same-session loop adapter, falling back to fresh-child', {
             loopRunId: p.loopRunId,
@@ -1384,16 +1389,11 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     try {
       const result = await invokeCliTextResponse({
         instanceManager,
-        // When borrowing the parent instance's adapter, pass the instance id so
-        // invokeCliTextResponse can pick up workspace/provider defaults from it
-        // rather than relying solely on the loop's workspaceCwd. The adapter
-        // itself is already the one wired to the instance's outputBuffer, so
-        // assistant stream events flow into the instance's transcript as a
-        // normal turn would.
+        executionConfig: p.config,
+        // Borrowed adapters inherit the instance's defaults and transcript.
+        // Fresh children receive their owning chat separately below.
         instanceId: borrowedFromInstance ? p.chatId : undefined,
-        // Spawn the CLI inside the loop's execution directory. When worktree
-        // isolation is active, executionCwd is the per-session worktree path;
-        // otherwise it falls back to workspaceCwd (the repo root).
+        // Use the loop's worktree when isolated, otherwise its workspace root.
         workingDirectory: loopExecutionCwd(p),
         requestedProvider: p.provider,
         payloadModel: p.model,
@@ -1403,6 +1403,8 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         routingIntent: 'loop',
         routingPolicyKey: 'loop',
         machineSessionTrialKey: p.loopRunId,
+        jobId: p.loopRunId,
+        ownerInstanceId: p.chatId,
         systemPrompt: undefined,
         prompt: p.prompt,
         routingPrompt: p.routingPrompt ?? p.prompt,

@@ -10,6 +10,7 @@
  */
 
 import type { ContextUsageObservation } from '../cli/adapters/base-cli-adapter.types';
+import { copilotNeedsContextRecycle, type CopilotNumericUsage } from '../../shared/utils/copilot-usage';
 import {
   shouldRecycleLoopContext,
   type ContextRecycleDecision,
@@ -40,9 +41,16 @@ export function evaluateLoopContextDiscipline(
   input: LoopContextDisciplineInput,
 ): LoopContextDisciplineOutcome {
   const source = input.adapter as {
+    getName?: () => string;
+    getCopilotUsage?: () => CopilotNumericUsage | undefined;
     getLastContextUsage?: () => ContextUsageObservation;
     getRuntimeCapabilities?: () => { supportsResume?: boolean };
   } | undefined;
+  const copilot = source?.getName?.()?.includes('copilot') ? source.getCopilotUsage?.() : undefined;
+  if (copilotNeedsContextRecycle(copilot)) {
+    return { decision: { recycle: true, utilization: copilot!.postCompactionTokens! / copilot!.tokenLimit!,
+      reason: 'Copilot compaction left root context above 90%', occupancyUnavailable: false }, notifyUnavailable: false };
+  }
   const observation: ContextUsageObservation = source?.getLastContextUsage?.()
     ?? { status: 'unknown', reason: 'not-reported' };
   const supportsResume = source?.getRuntimeCapabilities?.()?.supportsResume === true;

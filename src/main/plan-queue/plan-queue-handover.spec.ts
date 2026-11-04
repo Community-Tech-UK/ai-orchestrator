@@ -24,6 +24,7 @@ function fixture() {
   let stored = run;
   const deps = {
     instances: { createInstance: vi.fn(), terminateInstance: vi.fn(), getInstance: (id: string) => sessions.find(s => s.id === id), getAllInstances: () => sessions,
+      restartFreshInstance: vi.fn(async () => { throw new Error('Unexpected fresh restart during handover'); }),
       sendInput: vi.fn().mockResolvedValue(undefined) },
     isQueueInstance: (id: string) => sessions.find(s => s.id === id)?.metadata?.['planQueueRole'] !== undefined,
     getRun: () => stored, hasActiveWork: () => false,
@@ -148,7 +149,7 @@ it('replays the unchanged pending question through the existing messenger after 
 it('keeps verdict submission exclusive to the assigned independent verifier after handover', () => {
   const coordinator = new PlanQueueCoordinator();
   vi.spyOn(coordinator, 'getItem').mockReturnValue({ id: 'item', state: 'verifying', verifierInstanceId: 'assigned-reviewer' } as PlanQueueItem);
-  expect(() => coordinator.reportVerdict('owner', { item_id: 'item', verdict: 'PASS', findings: [], gates_run: [], document_complete: true, need_james: [] }))
+  expect(() => coordinator.reportVerdict('owner', { item_id: 'item', verdict: 'PASS', findings: [], gates_run: [], document_complete: true, need_james: [], not_checked: [] }))
     .toThrow('Only the verifier currently assigned');
 });
 
@@ -191,7 +192,7 @@ it('allows the notified owner to hand over within the same awaited input turn', 
     getRun: deps.getRun, authorize: (current: PlanQueueRun, action: Parameters<typeof authorizePlanQueueControl>[1], caller?: string) => authorizePlanQueueControl(current, action, caller, lookup),
     requestHandover: (current: PlanQueueRun, caller?: string) => requestRunHandover(current, caller, deps),
     handover: (current: PlanQueueRun, target: string, caller?: string) => handoverRunParent(current, target, caller, deps),
-    adopt: vi.fn(), cancel: vi.fn(), upsertRun: vi.fn(), hasParkedWork: () => true, parentRoute: () => ({}),
+    preflightRun: vi.fn(async () => undefined), adopt: vi.fn(), cancel: vi.fn(), upsertRun: vi.fn(), hasParkedWork: () => true, parentRoute: () => ({}),
     holdRun: vi.fn(), requestPump: vi.fn(), notifyParent: vi.fn(),
   };
   deps.instances.sendInput.mockImplementation(async () => {

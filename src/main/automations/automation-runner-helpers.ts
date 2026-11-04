@@ -6,6 +6,7 @@ import { getLogger } from '../logging/logger';
 import { getArtifactAttributionStore } from '../session/artifact-attribution-store';
 import { getChannelManager } from '../channels/channel-manager';
 import type { AutomationRun } from '../../shared/types/automation.types';
+import type { CompletionReceipt } from './automation-completion-receipts';
 import type { ChannelPlatform } from '../../shared/types/channels';
 
 const logger = getLogger('AutomationRunner');
@@ -15,6 +16,7 @@ export interface RunTracking {
   runId: string;
   automationId: string;
   seenAssistantOutput: boolean;
+  completionReceipt?: CompletionReceipt;
   lastAssistantOutput?: string;
   outputChunks: {
     kind: string;
@@ -28,6 +30,15 @@ function getUserDataPath(): string {
   return typeof electronApp?.getPath === 'function'
     ? electronApp.getPath('userData')
     : path.join(os.tmpdir(), 'ai-orchestrator');
+}
+
+/** Reuse captured output transiently; retain no second transcript for monitoring. */
+export function monitorAssistantOutput(tracking: RunTracking): string | undefined {
+  const assistant = tracking.outputChunks
+    .filter(chunk => chunk.kind === 'assistant' && chunk.content?.trim())
+    .map(chunk => chunk.content)
+    .join('\n');
+  return assistant || tracking.lastAssistantOutput;
 }
 
 export function writeFullOutput(tracking: RunTracking): string | undefined {
@@ -62,7 +73,8 @@ export function writeFullOutput(tracking: RunTracking): string | undefined {
   }
 }
 
-export async function deliverRunSummaryToChannel(run: AutomationRun): Promise<void> {
+export async function deliverRunSummaryToChannel(run: AutomationRun, claimDelivery: () => boolean): Promise<void> {
+  if (run.status === 'succeeded' && run.result?.notify === false) return;
   if (run.deliveryMode !== 'notify') {
     return;
   }
@@ -76,6 +88,7 @@ export async function deliverRunSummaryToChannel(run: AutomationRun): Promise<vo
     return;
   }
 
+  if (!claimDelivery()) return;
   const content = formatChannelRunSummary(run);
   const sent = await adapter.sendMessage(target.chatId, content, target.replyToMessageId
     ? { replyTo: target.replyToMessageId }

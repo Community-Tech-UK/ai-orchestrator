@@ -51,6 +51,7 @@ export interface CodexExecProcessOptions {
   isActiveProcess: (process: ChildProcess) => boolean;
   message: CliMessage;
   onThreadId: (threadId: string) => void;
+  onUsageEvent?: (event: Record<string, unknown>) => void;
   phase: CodexExecPhase;
   recordActivity?: (chunk: string) => Promise<void>;
   setProcess: (process: ChildProcess | null) => void;
@@ -98,6 +99,14 @@ export function runCodexExecProcess(
     const inputError = (): Error => writePhase.cancelled && !writePhase.accepted
       ? cancelCodexExecInputFailure(inputFailure!) : inputFailure!;
 
+    const flushUsageTail = (): void => {
+      if (!writePhase.accepted || !state.partialStdout.trim()) return;
+      // Only complete JSON counts as numeric evidence. Never repair an interrupted sample.
+      let value: unknown;
+      try { value = JSON.parse(state.partialStdout); } catch { return; }
+      if (value && typeof value === 'object' && !Array.isArray(value)) options.onUsageEvent?.(value as Record<string, unknown>);
+    };
+
     const clearIdleTimer = () => {
       if (!idleTimer) return;
       clearTimeout(idleTimer);
@@ -122,6 +131,7 @@ export function runCodexExecProcess(
     };
     const cancel = (error: unknown) => {
       if (finished) return;
+      flushUsageTail();
       finished = true;
       clearTimers();
       terminateProcessTree(childProcess.pid);
@@ -138,6 +148,7 @@ export function runCodexExecProcess(
       try { assertAdapterInputCurrent(options.dispatch); }
       catch (error) { cancel(error); return; }
       if (inputFailure) { cancel(inputError()); return; }
+      flushUsageTail();
       finished = true;
       const budgetMs = kind === 'deadline' ? options.deadlineMs ?? currentBudgetMs : currentBudgetMs;
       const elapsedMs = Date.now() - startedAt;
@@ -279,6 +290,7 @@ export function runCodexExecProcess(
 
     childProcess.on('error', (error) => {
       if (finished) return;
+      flushUsageTail();
       finished = true;
       clearTimers();
       if (!writePhase.accepted) stdin?.destroy();
@@ -404,6 +416,7 @@ function processStdoutLine(
   const event = parsedLine.value;
   const eventType = typeof event['type'] === 'string' ? event['type'] : '';
   options.emitHeartbeat();
+  options.onUsageEvent?.(event);
   if (!state.threadId) {
     const id = event['thread_id'] ?? event['session_id'] ?? event['id'];
     if (

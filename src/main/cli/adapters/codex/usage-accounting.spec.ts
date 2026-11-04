@@ -4,6 +4,13 @@ import { CodexUsageAccounting } from './usage-accounting';
 const raw = (input: number, output: number, cached = 0, reasoning = 0) => ({ inputTokens: input, outputTokens: output, cachedInputTokens: cached, reasoningOutputTokens: reasoning, totalTokens: input + output });
 
 describe('CodexUsageAccounting protocol fallbacks', () => {
+  it('keeps absent token subsets unavailable after drains and total-only reports', () => {
+    const tracker = new CodexUsageAccounting();
+    tracker.beginTurn('root'); tracker.observe('root', { totalTokens: 100 }); tracker.observe('root', { totalTokens: 123 }); tracker.take(undefined);
+    expect(tracker.threadTokens('root')).toEqual({ input: null, cache: null, output: null, reasoning: null, total: 123, estimated: true });
+    tracker.beginTurn('other'); tracker.fallback('other', { input_tokens: 10, output_tokens: 2 }); tracker.take(undefined);
+    expect(tracker.threadTokens('other')).toMatchObject({ input: 10, output: 2, cache: null, reasoning: null, total: 12 });
+  });
   it('counts identical last-only calls in distinct child turns but preserves ongoing-turn deduplication', () => {
     const tracker = new CodexUsageAccounting();
     tracker.beginTurn('root');

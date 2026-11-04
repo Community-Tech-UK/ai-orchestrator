@@ -28,6 +28,7 @@ import {
   type PreparedDocuments,
 } from './plan-queue-doc-close';
 import { recoverDocumentMergeForItem } from './plan-queue-doc-merge';
+import { assertDocumentReview, readDocumentReview, type DocumentReview } from './plan-queue-document-review';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { landItemBranch, runPostMergeGate, syncItemWithBase } from './plan-queue-landing';
 import { buildActiveDocumentsPrompt, buildConflictPrompt, buildGateFailurePrompt } from './plan-queue-prompts';
@@ -120,7 +121,7 @@ export class PlanQueueItemLanding {
     if (item.worktreePath && item.branchName && existsSync(item.worktreePath)) {
       // A crash while the squash was being built leaves the worktree off its
       // branch; restore the item branch before anything checkpoints.
-      rescueRef = await returnToItemCheckout(item.worktreePath, item.branchName, item.id);
+      rescueRef = await returnToItemCheckout(item.worktreePath, item.branchName, item.id, repoRoot);
       if (rescueRef) item = host.save({ ...item, detail: rescueNote(rescueRef) });
     }
 
@@ -196,7 +197,7 @@ export class PlanQueueItemLanding {
 
     if (!item.landedCommit && item.verifiedMainCommit !== baseTip) {
       // Another item landed while this one was being verified: its PASS is stale.
-      const sync = await syncItemWithBase(item, baseBranch);
+      const sync = await syncItemWithBase(item, baseBranch, repoRoot);
       if (sync.status === 'conflict') {
         await this.ctx.toFixing(item, buildConflictPrompt(baseBranch, sync.conflictFiles),
           `Not landed: merging ${baseBranch} before landing conflicted (${sync.conflictFiles.join(', ')}); sent back to the worker.`);
@@ -212,13 +213,16 @@ export class PlanQueueItemLanding {
         }
       }
     }
+    if (closeDocuments && !item.landedCommit) {
+      assertDocumentReview(await readDocumentReview(item.documentPath), this.reviewedDocuments(item));
+    }
     if (!item.landedCommit) item = await host.worktrees.checkpoint(item, 'final');
 
     // A recorded commit already carries its closed documents; only a new build needs them.
     let prepared: PreparedDocuments = { mode: 'commit', documents: [] };
     if (closeDocuments && !item.landedCommit) {
       try {
-        prepared = await prepareClosedDocuments(item.documentPath, repoRoot);
+        prepared = await prepareClosedDocuments(item.documentPath, repoRoot, item.worktreePath, this.reviewedDocuments(item));
       } catch (error) {
         await this.ctx.park(item, 'land-blocked', `Nothing was landed: the documents could not be closed (${errorMessage(error)}).`);
         return null;
@@ -243,7 +247,7 @@ export class PlanQueueItemLanding {
       case 'conflict': {
         // Base moved between the check above and the squash; bring it in so the
         // conflict is in the worker's tree, where it can be resolved.
-        const sync = await syncItemWithBase(item, baseBranch);
+        const sync = await syncItemWithBase(item, baseBranch, repoRoot);
         const files = sync.status === 'conflict' ? sync.conflictFiles : result.conflictFiles;
         await this.ctx.toFixing(item, buildConflictPrompt(baseBranch, files),
           `Not landed: ${baseBranch} moved during landing and conflicts (${files.join(', ')}); sent back to the worker.`);
@@ -279,23 +283,29 @@ export class PlanQueueItemLanding {
     await this.ctx.toFixing({ ...item, landingRefusals: count }, prompt, `Not landed: ${summary}; sent back to the worker.`);
   }
 
+  private reviewedDocuments(item: PlanQueueItem): DocumentReview {
+    const hash = this.ctx.host.history.reviewedDocuments(item.id);
+    if (!hash) throw new Error('The source document has no recorded checker identity; check it again before closing it.');
+    return hash;
+  }
+
   /** Retire the root copies the landing commit superseded, or rename never-committed documents in place. */
   private async finishDocuments(item: PlanQueueItem, repoRoot: string, baseBranch: string): Promise<string[]> {
+    const reviewedSha256 = this.reviewedDocuments(item);
     if (await documentsAreCommitted(item.documentPath, repoRoot)) {
       try {
-        return await retireActiveDocuments(item.documentPath, repoRoot, baseBranch);
+        return await retireActiveDocuments(item.documentPath, repoRoot, baseBranch, reviewedSha256);
       } catch (error) {
-        return [`The closed documents landed with the code; removing the old root copies failed: ${errorMessage(error)}`];
+        throw new Error(`The closed documents landed with the code; removing the old root copies failed: ${errorMessage(error)}`, { cause: error });
       }
     }
-    // Never committed (outside the repository or ignored): renamed in place.
-    // prepareClosedDocuments already checked the files exist and the names are
-    // free, so this can only fail on a filesystem error.
+    // Never committed (outside the repository or ignored): close in place,
+    // revalidating the accepted bytes rather than adopting a later snapshot.
     try {
-      await renameDocumentsInPlace(item.documentPath);
+      await renameDocumentsInPlace(item.documentPath, reviewedSha256);
       return [];
     } catch (error) {
-      return [`Landed, but renaming the uncommitted documents to _completed failed: ${errorMessage(error)}`];
+      throw new Error(`Code landed, but the uncommitted documents remain open: ${errorMessage(error)}`, { cause: error });
     }
   }
 }

@@ -19,6 +19,7 @@ export interface ReviewerInfo {
 
 export class ReviewerPool {
   private reviewers = new Map<string, ReviewerInfo>();
+  private readonly validationFailures = new Map<string, { day: string; count: number }>();
 
   setAvailable(cliTypes: string[]): void {
     const now = Date.now();
@@ -37,7 +38,7 @@ export class ReviewerPool {
         });
       } else {
         const existing = this.reviewers.get(cliType)!;
-        if (!existing.available && now >= existing.unavailableUntil) {
+        if (!existing.available && now >= existing.unavailableUntil && !this.isValidationRetired(cliType)) {
           existing.available = true;
           existing.consecutiveFailures = 0;
           existing.unavailableUntil = 0;
@@ -75,7 +76,7 @@ export class ReviewerPool {
     const rankOf = (cliType: string): number => orderRank.get(cliType) ?? Number.MAX_SAFE_INTEGER;
 
     const candidates = Array.from(this.reviewers.values())
-      .filter(r => r.available && !r.rateLimited && r.cliType !== primaryProvider && !excluded.has(r.cliType))
+      .filter(r => r.available && !this.isValidationRetired(r.cliType) && !r.rateLimited && r.cliType !== primaryProvider && !excluded.has(r.cliType))
       .sort((a, b) => {
         const rankDelta = rankOf(a.cliType) - rankOf(b.cliType);
         // Configured order wins; LRU only breaks ties (or drives the auto pool).
@@ -98,7 +99,7 @@ export class ReviewerPool {
     if (!reviewer) return;
     reviewer.consecutiveFailures = 0;
     reviewer.totalReviewsCompleted++;
-    reviewer.available = true;
+    reviewer.available = !this.isValidationRetired(cliType);
     reviewer.unavailableUntil = 0;
   }
 
@@ -115,6 +116,21 @@ export class ReviewerPool {
         unavailableUntil: reviewer.unavailableUntil,
       });
     }
+  }
+
+  isValidationRetired(cliType: string): boolean {
+    const failures = this.validationFailures.get(cliType);
+    return failures?.day === new Date().toDateString() && failures.count >= 2;
+  }
+
+  /** Count one invalid operation, including its format-repair attempt. */
+  recordValidationFailure(cliType: string): void {
+    const day = new Date().toDateString();
+    const previous = this.validationFailures.get(cliType);
+    const count = previous?.day === day ? previous.count + 1 : 1;
+    this.validationFailures.set(cliType, { day, count });
+    const reviewer = this.reviewers.get(cliType);
+    if (reviewer && count >= 2) reviewer.available = false;
   }
 
   markRateLimited(cliType: string, cooldownMs = DEFAULT_RATE_LIMIT_COOLDOWN_MS): void {
@@ -153,7 +169,7 @@ export class ReviewerPool {
   getStatus(): { cliType: string; available: boolean; rateLimited: boolean; totalReviews: number }[] {
     return Array.from(this.reviewers.values()).map(r => ({
       cliType: r.cliType,
-      available: r.available,
+      available: r.available && !this.isValidationRetired(r.cliType),
       rateLimited: r.rateLimited,
       totalReviews: r.totalReviewsCompleted,
     }));
@@ -161,7 +177,7 @@ export class ReviewerPool {
 
   hasAvailableReviewers(primaryProvider: string): boolean {
     return Array.from(this.reviewers.values()).some(r =>
-      r.available && !r.rateLimited && r.cliType !== primaryProvider
+      r.available && !this.isValidationRetired(r.cliType) && !r.rateLimited && r.cliType !== primaryProvider
     );
   }
 }

@@ -23,6 +23,7 @@ import { SettingsStore } from '../../core/state/settings.store';
 import { SegmentedControlComponent, type SegmentOption } from './ui/segmented-control.component';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import type { CliUpdatePolicy } from '../../../../shared/types/settings.types';
+import { copilotVersionWarning } from '../../../../shared/utils/copilot-version-warning';
 
 interface CliInstall {
   path: string;
@@ -227,6 +228,7 @@ interface CliUpdateResult {
               }
             </div>
 
+            @if (copilotWarning(entry); as warning) { <p class="shadow-warning">{{ warning }}</p> }
             @if (hasVersionMismatch(entry)) {
               <div class="shadow-warning">
                 <strong>{{ otherCopyCount(entry) }} other
@@ -345,6 +347,10 @@ export class CliHealthSettingsTabComponent implements OnInit {
 
   async ngOnInit(): Promise<void> {
     await this.refresh();
+  }
+
+  copilotWarning(entry: CliDiagnosisEntry): string | undefined {
+    return entry.cli === 'copilot' ? copilotVersionWarning(entry.activeVersion) : undefined;
   }
 
   async refresh(): Promise<void> {

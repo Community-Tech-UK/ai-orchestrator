@@ -341,6 +341,19 @@
                   }
                 </label>
 
+                <div class="form-grid">
+                  <label><span>Stop after (minutes)</span>
+                    <input name="maxRunMinutes" type="number" min="1" [ngModel]="form().maxRunMinutes" (ngModelChange)="patchForm({ maxRunMinutes: $event })" required />
+                  </label>
+                  <label><span>Token limit (including cached input)</span>
+                    <input name="maxProcessedTokens" type="number" min="1" max="1000000000" [ngModel]="form().maxProcessedTokens" (ngModelChange)="patchForm({ maxProcessedTokens: $event })" required />
+                  </label>
+                </div>
+                <p class="hint">At either limit, Harness stops the job and its child sessions, keeps partial output and does not retry it.</p>
+                <label class="checkbox">
+                  <input name="slowWhenUnchanged" type="checkbox" [ngModel]="form().slowWhenUnchanged" (ngModelChange)="patchForm({ slowWhenUnchanged: $event })" />
+                  <span>Check less often while nothing changes (up to four times the usual interval)</span>
+                </label>
                 <label class="checkbox">
                   <input name="loopEnabled" type="checkbox" [ngModel]="form().loopEnabled" (ngModelChange)="patchForm({ loopEnabled: $event })" />
                   <span>Run as autonomous loop (issue in, worked branch out)</span>
@@ -566,6 +579,11 @@
                   <div><span>Status</span><strong>{{ automation.enabled && automation.active ? 'Active' : 'Paused' }}</strong></div>
                 </div>
 
+                <p>{{ nextCheckExplanation(automation) }}</p>
+                @if (showMonitorSuggestion(automation)) {
+                  <p class="hint">The last ten checks needed no action. Consider Sonnet at low effort for this monitor. Harness will leave the model as you chose it.</p>
+                  <button type="button" class="btn" (click)="dismissMonitorSuggestion(automation)">Dismiss suggestion</button>
+                }
                 <pre class="prompt">{{ automation.action.prompt }}</pre>
 
                 @if (selectedAuthorityInput(); as authorityInput) {
@@ -575,11 +593,14 @@
                 <h3>Recent Runs</h3>
                 <div class="runs">
                   @for (run of selectedRuns(); track run.id) {
-                    <div class="run-row" [class]="'run-row run-row--' + run.status">
-                      <span>{{ run.status }}</span>
+                    <div [class]="'run-row run-row--' + run.status" [class.run-row--quiet]="isQuietRun(run)">
+                      <span>{{ isQuietRun(run) ? 'Nothing needed action' : run.status }}</span>
                       <span>{{ run.trigger }}</span>
                       <span>{{ formatTime(run.scheduledAt) }}</span>
                       <span class="run-error">{{ run.error || run.outputSummary || '' }}</span>
+                      @if (run.status === 'failed' && run.nextRetryAt !== null && run.nextRetryAt !== undefined) {
+                        <span class="run-retry">Will run again {{ formatTime(run.nextRetryAt) }}</span>
+                      }
                     </div>
                   } @empty {
                     <div class="empty">No runs yet.</div>

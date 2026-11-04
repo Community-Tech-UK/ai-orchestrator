@@ -8,6 +8,7 @@ import type {
 } from '@contracts/schemas/plan-queue';
 import type { IpcResponse } from '../services/ipc/electron-ipc.service';
 import { PlanQueueIpcService, type PlanQueueStateChangedPush } from '../services/ipc/plan-queue-ipc.service';
+import { planQueueIsDiscarded } from './plan-queue-item-state';
 
 /**
  * One "real" open check from a livetest verdict — the classification a worker
@@ -79,11 +80,11 @@ export class PlanQueueStore {
   );
 
   /**
-   * Parked items that still have work to act on. A discarded item keeps its
-   * `parked` state but has no branch left, so it drops out of this list.
+   * Keep branchless readiness failures visible too. Only an explicit discard
+   * receipt removes a set-aside job from the action list.
    */
   readonly parkedItems = computed<PlanQueueItemDto[]>(() =>
-    this.runsSignal().flatMap((run) => run.items.filter((item) => item.state === 'parked' && item.branchName !== null)),
+    this.runsSignal().flatMap((run) => run.items.filter((item) => item.state === 'parked' && !planQueueIsDiscarded(item))),
   );
 
   /**

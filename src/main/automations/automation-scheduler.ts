@@ -6,6 +6,7 @@ import { AutomationRunner } from './automation-runner';
 import { CatchUpCoordinator } from './catch-up-coordinator';
 import { computeNextFireAt } from './automation-schedule';
 import { getAutomationEvents } from './automation-events';
+import { RESTART_INTERRUPTION } from './automation-restart-retry';
 import { defaultAutomationNetworkGate, type AutomationNetworkGate } from './automation-network-gate';
 import type { Automation, AutomationRun } from '../../shared/types/automation.types';
 
@@ -71,7 +72,7 @@ export class AutomationScheduler {
       const originalRun = this.store.getRun(pending.runId);
       if (!originalRun) {
         // Run was deleted — clear the marker so it doesn't reappear.
-        this.store.clearPendingRetry(pending.runId);
+        this.clearPendingRetry(pending.runId);
         continue;
       }
       const timeout = setTimeout(() => {
@@ -85,6 +86,7 @@ export class AutomationScheduler {
         maxAttempts: pending.nextRetryMaxAttempts,
         originalRunId: pending.runId,
       });
+      this.emitRetrySource(pending.runId);
       logger.info('Re-armed durable retry timer after restart', {
         automationId: pending.automationId,
         originalRunId: pending.runId,
@@ -183,6 +185,8 @@ export class AutomationScheduler {
       return;
     }
 
+    // Restart retries have their own durable timer; nextFireAt is also restored for the human-facing next check.
+    if (this.store.listPendingRetries().some(retry => retry.automationId === automation.id)) return;
     const delay = Math.max(0, automation.nextFireAt - this.now());
     const timeout = setTimeout(() => {
       void this.onTimer(automation.id);
@@ -224,7 +228,7 @@ export class AutomationScheduler {
         this.retryHandles.delete(runId);
         // BUG 4 FIX: clear persisted pending-retry so it won't be re-armed on
         // the next restart.
-        this.store.clearPendingRetry(runId);
+        this.clearPendingRetry(runId);
       }
     }
   }
@@ -250,7 +254,7 @@ export class AutomationScheduler {
       this.retryHandles.delete(originalRunId);
       // BUG 4 FIX: clear persisted pending-retry fields so the timer won't be
       // re-armed on the next restart.
-      this.store.clearPendingRetry(originalRunId);
+      this.clearPendingRetry(originalRunId);
     }
   }
 
@@ -278,6 +282,7 @@ export class AutomationScheduler {
     const nextRetryAt = this.now() + Math.min(delayMs, MAX_TIMEOUT_MS);
     // BUG 2: persist so the timer can be re-armed after restart.
     this.store.markPendingRetry(originalRun.id, nextRetryAt, nextAttempt, maxAttempts);
+    this.emitRetrySource(originalRun.id);
 
     const timeout = setTimeout(() => {
       void this.onRetryTimer(originalRun, nextAttempt, maxAttempts);
@@ -305,11 +310,6 @@ export class AutomationScheduler {
     }
     this.retryHandles.delete(originalRun.id);
 
-    // BUG 2 FIX: clear the persisted pending-retry fields now that the timer
-    // has fired.  We do this before inserting the new run so that even if
-    // insertRetryRun throws the durability marker is cleared.
-    this.store.clearPendingRetry(originalRun.id);
-
     const retryAt = this.now();
 
     // BUG 3 FIX: respect the automation's concurrencyPolicy before dispatching.
@@ -333,13 +333,17 @@ export class AutomationScheduler {
     // do not need an async lookup and the code works even if the automation row
     // was updated in the interim (snapshot-based isolation is consistent with
     // the rest of the retry path).
-    const concurrencyPolicy = originalRun.configSnapshot?.concurrencyPolicy ?? 'skip';
+    const concurrencyPolicy = originalRun.error === RESTART_INTERRUPTION ? 'queue' : originalRun.configSnapshot?.concurrencyPolicy ?? 'skip';
 
     // Check whether a run is already active for this automation.
     const activeRuns = this.store.listRuns({ automationId: originalRun.automationId, limit: 10 });
-    const hasActiveRun = activeRuns.some((r) => r.status === 'running' || r.status === 'pending');
+    // A terminal run may still own sessions whose stop failed. Create a durable
+    // refused attempt instead of dropping it as a collision or queueing forever.
+    const hasActiveRun = !this.runner.hasStoppingRun(originalRun.automationId)
+      && activeRuns.some((r) => r.status === 'running' || r.status === 'pending');
 
     if (hasActiveRun && concurrencyPolicy === 'skip') {
+      this.releaseRetry(originalRun);
       logger.info('Automation retry skipped — concurrencyPolicy=skip and a run is active', {
         automationId: originalRun.automationId,
         originalRunId: originalRun.id,
@@ -348,7 +352,7 @@ export class AutomationScheduler {
       });
       // If this was the last attempt, record the give-up so the failure streak
       // advances.  We use the original run's error as the reason.
-      if (nextAttempt >= maxAttempts) {
+      if (nextAttempt >= maxAttempts && originalRun.error !== RESTART_INTERRUPTION) {
         this.runner.recordGiveUpOutcome(originalRun);
       }
       return;
@@ -364,13 +368,16 @@ export class AutomationScheduler {
         retryAt,
       );
       if (!pendingRun) {
-        logger.warn('Automation retry aborted during queue insert — automation no longer exists', {
+        this.releaseRetry(originalRun);
+        logger.warn('Automation retry aborted during queue insert — job is no longer eligible', {
           automationId: originalRun.automationId,
           originalRunId: originalRun.id,
           nextAttempt,
         });
         return;
       }
+      this.releaseRetry(originalRun);
+      this.events.emitRunChanged({ automationId: pendingRun.automationId, run: pendingRun });
       logger.info('Queued automation retry run (concurrencyPolicy=queue)', {
         automationId: originalRun.automationId,
         originalRunId: originalRun.id,
@@ -390,13 +397,16 @@ export class AutomationScheduler {
       retryAt,
     );
     if (!retryRun) {
-      logger.warn('Automation retry aborted — automation no longer exists', {
+      this.releaseRetry(originalRun);
+      logger.warn('Automation retry aborted — job is no longer eligible', {
         automationId: originalRun.automationId,
         originalRunId: originalRun.id,
         nextAttempt,
       });
       return;
     }
+    this.releaseRetry(originalRun);
+    this.events.emitRunChanged({ automationId: retryRun.automationId, run: retryRun });
 
     logger.info('Firing automation retry', {
       automationId: originalRun.automationId,
@@ -407,6 +417,7 @@ export class AutomationScheduler {
     });
 
     try {
+      if (!this.runner.prepareRetryRun(retryRun)) return;
       // Retries are unattended; hold them until DNS works so a post-wake outage
       // cannot burn every attempt (see automation-network-gate.ts).
       await this.networkGate(retryRun, this.store, () => this.runner.dispatchRetryRun(retryRun));
@@ -417,6 +428,24 @@ export class AutomationScheduler {
         { automationId: originalRun.automationId, retryRunId: retryRun.id },
       );
     }
+  }
+
+  /** Release retry-owned timing, then arm the job's surviving current schedule. */
+  private releaseRetry(originalRun: AutomationRun): void {
+    this.clearPendingRetry(originalRun.id);
+    if (originalRun.error !== RESTART_INTERRUPTION) return;
+    const automation = this.store.listSchedulable().find(job => job.id === originalRun.automationId);
+    if (automation) this.schedule(automation);
+  }
+
+  private clearPendingRetry(runId: string): void {
+    this.store.clearPendingRetry(runId);
+    this.emitRetrySource(runId);
+  }
+
+  private emitRetrySource(runId: string): void {
+    const run = this.store.getRun(runId);
+    if (run) this.events.emitRunChanged({ automationId: run.automationId, run });
   }
 
   private async onTimer(automationId: string): Promise<void> {

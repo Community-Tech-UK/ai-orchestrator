@@ -2,7 +2,8 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as gitIo from '../workspace/git/git-exec';
 import { reconcilePlanQueueWorktrees } from './plan-queue-reconciler';
 import type { PlanQueueItem } from './plan-queue.types';
 
@@ -58,10 +59,36 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   rmSync(repo, { recursive: true, force: true });
 });
 
 describe('reconcilePlanQueueWorktrees', () => {
+  it('preserves a temporary root inspection failure rather than reporting an empty healthy result', async () => {
+    const failure = Object.assign(new Error('Synthetic Git process unavailable'), { code: 'ENOENT' });
+    const before = git(['status', '--porcelain']) + git(['for-each-ref']);
+    vi.spyOn(gitIo, 'gitExec').mockRejectedValueOnce(failure);
+    await expect(reconcilePlanQueueWorktrees([repo], [])).rejects.toBe(failure);
+    expect(git(['status', '--porcelain']) + git(['for-each-ref'])).toBe(before);
+  });
+
+  it('propagates a temporary parked-copy proof failure without declaring it a foreign checkout', async () => {
+    const branchName = 'queue/inspection-abc123';
+    const worktreePath = addWorktree(branchName);
+    const failure = Object.assign(new Error('Synthetic Git read unavailable'), { code: 'EMFILE' });
+    const original = gitIo.gitExec;
+    vi.spyOn(gitIo, 'gitExec').mockImplementation((args, cwd, timeout) =>
+      cwd === worktreePath && args[0] === 'rev-parse' ? Promise.reject(failure) : original(args, cwd, timeout));
+    const before = git(['for-each-ref']) + git(['status', '--porcelain'], worktreePath);
+    await expect(reconcilePlanQueueWorktrees([repo], [makeItem({ state: 'parked', branchName, worktreePath })])).rejects.toBe(failure);
+    expect(git(['for-each-ref']) + git(['status', '--porcelain'], worktreePath)).toBe(before);
+  });
+
+  it('still skips a directory which Git identifies as no longer belonging to a repository', async () => {
+    const outside = mkdtempSync(join(tmpdir(), 'plan-queue-not-git-'));
+    try { expect(await reconcilePlanQueueWorktrees([outside], [])).toEqual([]); }
+    finally { rmSync(outside, { recursive: true, force: true }); }
+  });
   it('reports nothing when every queue worktree and branch has a row', async () => {
     const worktreePath = addWorktree('queue/owned-abc123');
 

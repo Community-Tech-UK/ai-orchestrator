@@ -137,7 +137,9 @@ it.each(['partial-timeout', 'meaningful-stop'] as const)('accepted actual child 
   getLogManager().updateConfig({ enableConsole: false, enableFile: false });
   const dir = mkdtempSync(join(tmpdir(), 'codex-exec-positive-'));
   const file = join(dir, 'fixture.cjs');
-  writeFileSync(file, String.raw`let prompt='';process.stdin.on('data',chunk=>prompt+=chunk);process.stdin.on('end',()=>{process.stderr.write('LOCAL_ACK='+Buffer.byteLength(prompt)+'\n');process.stdout.write(JSON.stringify({type:'thread.started',thread_id:'LOCAL_POSITIVE_THREAD'})+'\n');const emit=()=>process.stdout.write(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:'LOCAL_POSITIVE_ANSWER'}})+'\n');` + (scenario === 'partial-timeout' ? `emit();setInterval(()=>{},1000);` : `const timer=setInterval(()=>{},1000);process.on('SIGINT',()=>{emit();clearInterval(timer);});`) + `});`);
+  // Announce readiness only after the answer or signal handler is ready.
+  // Otherwise the parent can interrupt between the acknowledgement and setup.
+  writeFileSync(file, String.raw`let prompt='';process.stdin.on('data',chunk=>prompt+=chunk);process.stdin.on('end',()=>{process.stdout.write(JSON.stringify({type:'thread.started',thread_id:'LOCAL_POSITIVE_THREAD'})+'\n');const emit=()=>process.stdout.write(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:'LOCAL_POSITIVE_ANSWER'}})+'\n');` + (scenario === 'partial-timeout' ? `emit();setInterval(()=>{},1000);` : `const timer=setInterval(()=>{},1000);process.on('SIGINT',()=>{emit();clearInterval(timer);});`) + String.raw`process.stderr.write('LOCAL_ACK='+Buffer.byteLength(prompt)+'\n');});`);
   const adapter = new CodexCliAdapter({ workingDir: dir, timeout: scenario === 'partial-timeout' ? 200 : 1000 });
   Object.assign(adapter, { useAppServer: false, isSpawned: true });
   const access = adapter as unknown as {

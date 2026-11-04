@@ -1,3 +1,4 @@
+import { assertLoopModelRoleAuthority } from './loop-execution-authority';
 import { randomUUID } from 'node:crypto';
 import { applyOutstandingCompletionGate } from './loop-outstanding-completion';
 import { reviewBudgetExceeded, type LoopReviewBudgetExceeded } from './loop-review-budget';
@@ -320,6 +321,7 @@ export async function runFreshEyesReviewGate(args: {
   if (!effectiveCfg) {
     return { blocked: false, ran: false, errored: false };
   }
+  assertLoopModelRoleAuthority(state.config);
   if (forcedByContradiction && !reviewCfg?.enabled) {
     logger.info('Running forced fresh-eyes review after verify contradiction', { loopRunId: state.id });
   }
@@ -342,7 +344,6 @@ export async function runFreshEyesReviewGate(args: {
     state.reviewEffort = effort.level;
     emit('loop:activity', { loopRunId: state.id, seq: iteration.seq, stage: iteration.stage, timestamp: Date.now(), kind: 'status', message: `Review depth: ${effort.level} (${effort.reason})` });
   }
-
 
   // D6 (#7) part 3: instant ALLOW for non-edit turns. A clean cross-model
   // verdict is cached on state and reused by a later completion attempt that

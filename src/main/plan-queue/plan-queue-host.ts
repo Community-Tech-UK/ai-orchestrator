@@ -5,12 +5,13 @@
 
 import type { PlanQueueItemState } from '@contracts/schemas/plan-queue';
 import type { InstanceStatus } from '@contracts/types/instance-events';
-import type { AccountPreferences, InstanceCreateConfig } from '../../shared/types/instance.types';
+import type { AccountPreferences, ContextUsage, InstanceCreateConfig } from '../../shared/types/instance.types';
 import type { PlanQueueInstanceTracker } from './plan-queue-instance-tracker';
 import type { VerifierSelectInput, VerifierSelection } from './plan-queue-verifier-select';
 import type { PlanQueueWorktreeService } from './plan-queue-worktree';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import type { InternalInputSource } from '../../shared/types/input-provenance.types';
+import type { PlanQueueHistoryStore } from './plan-queue-history-store';
 
 export interface PlanQueueInstanceRecord {
   id: string;
@@ -19,6 +20,7 @@ export interface PlanQueueInstanceRecord {
   provider?: string;
   currentModel?: string;
   providerSessionId?: string;
+  contextUsage?: Pick<ContextUsage, 'copilotUsage'>;
   /** The session's pool account / Copilot account, inherited by a run's workers. */
   accountProfileId?: string;
   copilotAccountProfileId?: string;
@@ -50,6 +52,8 @@ export interface PlanQueueInstancePort {
     options?: { automatedInput?: boolean; internalSource?: InternalInputSource },
   ): Promise<void>;
   terminateInstance(instanceId: string, graceful?: boolean): Promise<void>;
+  /** Archive the provider conversation and start fresh while keeping the same owning instance ID. */
+  restartFreshInstance(instanceId: string): Promise<string | undefined>;
   getInstance(instanceId: string): PlanQueueInstanceRecord | undefined;
   getAllInstances(): PlanQueueInstanceRecord[];
 }
@@ -60,6 +64,9 @@ export type PlanQueueRoleRecord =
 
 /** What the flow needs from the coordinator. */
 export interface PlanQueueFlowHost {
+  readonly history: PlanQueueHistoryStore;
+  checksAdmitted(run: PlanQueueRun): boolean;
+  pauseForSharedError(runId: string, detail: string): void;
   readonly instances: PlanQueueInstancePort;
   readonly worktrees: PlanQueueWorktreeService;
   readonly tracker: PlanQueueInstanceTracker;

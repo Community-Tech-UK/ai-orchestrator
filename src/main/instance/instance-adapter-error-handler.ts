@@ -18,6 +18,8 @@ import { generateId } from '../../shared/utils/id-generator';
 import { classifyContextOverflow } from '../context/ptl-retry';
 import { dispatchInstanceLifecycleHook } from './instance-lifecycle-hooks';
 import { errorIdentityOf } from '../util/error-utils';
+import { isAdapterStopping } from '../providers/adapter-stop-state';
+import { RECENT_ADAPTER_ERROR_OUTPUT_DEDUP_MS } from './instance-communication.constants';
 
 const logger = getLogger('InstanceCommunication');
 export interface InstanceAdapterErrorHost {
@@ -27,7 +29,6 @@ export interface InstanceAdapterErrorHost {
   emitInvalidSessionNotice(instanceId: string, instance: Instance): void;
   tryParkOnProviderLimit(instanceId: string, instance: Instance, adapter: CliAdapter, error: unknown, message: string): boolean;
   reportAuthFailureTurn(instanceId: string, error: unknown): void;
-  hasRecentMatchingErrorOutput(instance: Instance, content: string): boolean;
   addToOutputBuffer(instance: Instance, message: OutputMessage): void;
   emitOutput(instanceId: string, message: OutputMessage): void;
   transitionInstanceStatus(instance: Instance, status: InstanceStatus): void;
@@ -47,13 +48,22 @@ export async function handleInstanceAdapterError(
   const errorMessage = error instanceof Error ? error.message : String(error);
   const recoverableStatelessExecError = isRecoverableStatelessExecTurnError(adapter, error);
   const recoverableAcpPromptTurnError = isRecoverableAcpPromptTurnError(errorMessage);
-  const recoverableTurnError = recoverableStatelessExecError || recoverableAcpPromptTurnError;
+  const recoverableTurnError = !isAdapterStopping(adapter) && (recoverableStatelessExecError || recoverableAcpPromptTurnError);
   const instance = host.deps.getInstance(instanceId);
   const safeError = emitRecoverySafeAdapterError(instanceId, instance, error, recoverableTurnError, emitProviderRuntimeEvent);
   const safeErrorMessage = safeError.message;
   if (scope && !scope.isCurrent()) return true;
 
   if (!instance) return false;
+
+  if (isAdapterStopping(adapter)) {
+    // A refused stop is still owned by termination. Publish the failure, but
+    // never replay, re-park or silently delete the runtime needed for retry.
+    publishAdapterError(host, instanceId, instance, safeErrorMessage, error);
+    instance.errorCount++;
+    host.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
+    return false;
+  }
 
   // Guard: EPIPE errors are expected when a CLI process dies while we have
   // buffered writes. Swallow them — the exit handler will take care of
@@ -138,22 +148,7 @@ export async function handleInstanceAdapterError(
 
   // Add error message to output buffer so user sees it in the UI
   const errorContent = safeErrorMessage;
-  if (host.hasRecentMatchingErrorOutput(instance, errorContent)) {
-    logger.debug('Skipping duplicate UI error message after adapter error event', {
-      instanceId,
-      ...textDiagnostic(errorContent),
-    });
-  } else {
-    const errorMessage: OutputMessage = {
-      id: generateId(),
-      timestamp: Date.now(),
-      type: 'error',
-      content: errorContent,
-      metadata: errorIdentityOf(error),
-    };
-    host.addToOutputBuffer(instance, errorMessage);
-    host.emitOutput(instanceId, errorMessage);
-  }
+  publishAdapterError(host, instanceId, instance, errorContent, error);
 
   if (recoverableTurnError) {
     instance.errorCount++;
@@ -196,4 +191,19 @@ export async function handleInstanceAdapterError(
   }
 
   return false;
+}
+
+function publishAdapterError(host: InstanceAdapterErrorHost, instanceId: string, instance: Instance, content: string, error: Error): void {
+  const now = Date.now();
+  for (let index = instance.outputBuffer.length - 1; index >= 0; index--) {
+    const candidate = instance.outputBuffer[index];
+    if (!candidate || now - candidate.timestamp > RECENT_ADAPTER_ERROR_OUTPUT_DEDUP_MS) break;
+    if (candidate.type === 'error' && candidate.content === content) {
+      logger.debug('Skipping duplicate UI error message after adapter error event', { instanceId, ...textDiagnostic(content) });
+      return;
+    }
+  }
+  const message: OutputMessage = { id: generateId(), timestamp: now, type: 'error', content, metadata: errorIdentityOf(error) };
+  host.addToOutputBuffer(instance, message);
+  host.emitOutput(instanceId, message);
 }

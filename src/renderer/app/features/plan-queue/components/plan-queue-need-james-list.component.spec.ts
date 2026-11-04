@@ -31,7 +31,7 @@ describe('PlanQueueNeedJamesListComponent', () => {
     fixture.componentRef.setInput('policyGatedCount', 0);
     fixture.detectChanges();
 
-    expect(fixture.nativeElement.textContent).toContain('No open livetest checks need you right now');
+    expect(fixture.nativeElement.textContent).toContain('No open live checks need you right now');
   });
 
   it('groups records by run and shows each check with its document and reason', () => {
@@ -56,6 +56,6 @@ describe('PlanQueueNeedJamesListComponent', () => {
     fixture.componentRef.setInput('policyGatedCount', 3);
     fixture.detectChanges();
 
-    expect(fixture.nativeElement.textContent).toContain('3 further check(s) are policy-gated');
+    expect(fixture.nativeElement.textContent).toContain('3 further checks are blocked by a setting or approval rule');
   });
 });

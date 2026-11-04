@@ -25,6 +25,8 @@ export interface GraphClientOptions {
 }
 
 export interface GraphRequestContext {
+  /** Durable delivery intent immediately before a non-read request leaves the process. */
+  beforeMutation?: () => void;
   signal?: AbortSignal;
   /** Synchronous ownership/policy check, including immediately before fetch. */
   assertActive?: () => void;
@@ -192,6 +194,7 @@ export class GraphClient {
     for (let attempt = 0; attempt < GRAPH_MAX_RETRY_ATTEMPTS; attempt++) {
       signal.throwIfAborted();
       this.requestContext.assertActive?.();
+      if (method !== 'GET') this.requestContext.beforeMutation?.();
       const response = await this.fetchImpl(url, {
         method,
         headers,

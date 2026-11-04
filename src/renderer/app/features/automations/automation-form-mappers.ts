@@ -1,3 +1,6 @@
+import type { z } from 'zod';
+import type { AutomationActionSchema } from '@contracts/schemas/automation';
+import { CLAUDE_MODELS } from '../../../../shared/types/provider.types';
 /**
  * Pure form/label mappers for the automations page.
  *
@@ -79,12 +82,17 @@ export function draftToForm(draft: AutomationDraft, workingDirectory: string): A
       : base.runAtLocal,
     prompt: draft.prompt,
     ...newAutomationFormModelSelection(draft.provider),
+    ...((!draft.provider || draft.provider === 'auto' || draft.provider === 'claude') && /\b(check|monitor|watch|poll)\b/i.test(`${draft.name} ${draft.prompt}`)
+      ? { provider: 'claude' as const, model: CLAUDE_MODELS.SONNET, reasoningEffort: 'low' as const } : {}),
+    maxProcessedTokens: draft.scheduleType === 'oneTime' ? 100_000_000 : 30_000_000,
   };
 }
 
 export function automationToForm(automation: Automation): AutomationFormModel {
+  const policy = automation.action as z.infer<typeof AutomationActionSchema>;
   return {
     id: automation.id,
+    modelExplicitlyChosen: true,
     name: automation.name,
     description: automation.description ?? '',
     enabled: automation.enabled,
@@ -115,6 +123,9 @@ export function automationToForm(automation: Automation): AutomationFormModel {
     loopMaxIterations: automation.action.loop?.maxIterations != null ? String(automation.action.loop.maxIterations) : '',
     loopMaxCostCents: automation.action.loop?.maxCostCents != null ? String(automation.action.loop.maxCostCents) : '',
     executionProfile: automation.action.executionProfile ?? 'standard',
+    maxRunMinutes: policy.maxRunMinutes ?? 90,
+    maxProcessedTokens: policy.maxProcessedTokens ?? (automation.schedule.type === 'oneTime' ? 100_000_000 : 30_000_000),
+    slowWhenUnchanged: policy.slowWhenUnchanged ?? false,
   };
 }
 

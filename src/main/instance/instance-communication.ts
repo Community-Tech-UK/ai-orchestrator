@@ -9,13 +9,14 @@ import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type { CliMcpServerStatus } from '../../shared/types/cli.types';
 import type { DeferredToolUse } from '../cli/adapters/claude-cli-adapter.types';
 import { RemoteCliAdapter } from '../cli/adapters/remote-cli-adapter';
+import { remoteContextDetails } from '../remote-node/instance-interaction-schemas';
 import { BaseCliAdapter, type CliResponse } from '../cli/adapters/base-cli-adapter';
 // History archiving moved exclusively to instance-lifecycle.ts terminateInstance()
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
 import { errorDiagnostic, textDiagnostic } from '../logging/source-diagnostics';
 import { getOutputStorageManager } from '../memory/output-storage';
-import { captureCompletionCostIdentity, type CompletionCostIdentity, recordCompletionCost as recordCompletionCostImpl, recordEstimationTelemetry as recordEstimationTelemetryImpl } from './communication-completion-cost';
+import { InstanceCompletionTasks, captureCompletionCostIdentity, toProviderCompleteEvent, waitForCompletionUsage, type CompletionCostIdentity, recordCompletionCost as recordCompletionCostImpl, recordEstimationTelemetry as recordEstimationTelemetryImpl } from './communication-completion-cost';
 import { getHandoffStateService } from '../session/handoff-state-service';
 import { noteSandboxDenialOnExit } from './lifecycle/sandbox-exit-advice';
 import { getHookManager } from '../hooks/hook-manager';
@@ -50,7 +51,6 @@ import type { CommunicationDependencies } from './instance-communication.types';
 import { getPauseCoordinator } from '../pause/pause-coordinator';
 import { OrchestratorPausedError } from '../pause/orchestrator-paused-error';
 import { extractTodoToolItems } from './todo-tool-parser';
-import { extractProviderErrorDiagnostics } from './instance-communication.diagnostics';
 import { detectCompletionProviderLimit, readAdapterRateLimitTelemetry } from './instance-provider-limit-detection';
 import { detectAuthFailureSignal } from './instance-auth-failure-detection';
 import {
@@ -91,7 +91,6 @@ import { getStreamingStatusMergePolicy, nextMonotonicStreamingContent } from '..
 import {
   ACTIVE_CHILD_TURN_STATUSES,
   CHILD_TURN_COMPLETE_STATUSES,
-  RECENT_ADAPTER_ERROR_OUTPUT_DEDUP_MS,
   resolveSettledTurnOutcome,
   summarizeInputResponse,
   getAccumulatedStreamingContent,
@@ -116,6 +115,7 @@ import { createInstanceAdapterInputDispatch, createInstanceInputReceipt } from '
 import { buildSpawnStallNotice } from './stall-notices';
 import { bindInstanceAcpHistoryReplay } from './instance-acp-history-replay';
 import { assertGlobalPauseInputCurrent, runWithGlobalPauseInput, waitForGlobalPauseInput } from '../global-pause/global-pause-input';
+import { isAdapterStopping } from '../providers/adapter-stop-state';
 import { InstanceQueuedInputHandoff, transitionQueuedAdapterStatus } from './instance-queued-input-handoff';
 export type { CommunicationDependencies } from './instance-communication.types';
 const logger = getLogger('InstanceCommunication');
@@ -128,8 +128,7 @@ export class InstanceCommunicationManager extends EventEmitter {
   private queuedInputHandoff = new InstanceQueuedInputHandoff();
   private toolResultProcessor: InstanceToolResultProcessor;
   private interruptedInstances = new Set<string>();
-  /** In-flight adapter `complete` handlers. Error cleanup waits for these (LT-674). */
-  private adapterCompletions = new Map<string, Set<Promise<void>>>();
+  private readonly completionTasks = new InstanceCompletionTasks(id => this.deps.getInstance(id)?.parentId);
 
   private circuitBreakers = new InstanceCommunicationCircuitBreakers();
   private overflow = new InstanceCommunicationOverflowTracker();
@@ -320,24 +319,6 @@ export class InstanceCommunicationManager extends EventEmitter {
       },
     };
   }
-
-  private toProviderCompleteEvent(
-    response: CliResponse,
-    requestCountAtCompletion?: number,
-  ): ProviderRuntimeEvent {
-    return {
-      kind: 'complete',
-      ...(requestCountAtCompletion !== undefined ? { requestCountAtCompletion } : {}),
-      ...(response.usage?.totalTokens !== undefined ? { tokensUsed: response.usage.totalTokens } : {}),
-      ...(response.usage?.cost !== undefined ? { costUsd: response.usage.cost } : {}),
-      ...(response.usage?.duration !== undefined ? { durationMs: response.usage.duration } : {}),
-      // A3: surface the adapter-layer degraded-output tag onto the normalized
-      // event so downstream consumers (renderer, coordinator) can see it.
-      ...(response.degradedReason ? { degradedReason: response.degradedReason } : {}),
-      ...extractProviderErrorDiagnostics(response.metadata),
-    };
-  }
-
   /**
    * Record per-turn provider token usage into the cost tracker.
    *
@@ -1117,9 +1098,9 @@ export class InstanceCommunicationManager extends EventEmitter {
       (message) => this.emitSystemOutput(instanceId, this.withRuntimeMetadata(message, adapterGenerationAtSubscribe)));
     // Notify the turn supervisor so it mirrors the generation for the interruptSeq fence.
     getOrCreateTurnSupervisor(instanceId).recordAdapterSetup(adapterGenerationAtSubscribe);
-    const isStaleAdapterEvent = (eventName: string): boolean => {
+    const isStaleAdapterEvent = (eventName: string, completedBeforeDetach = false): boolean => {
       const currentAdapter = this.deps.getAdapter(instanceId);
-      if (currentAdapter !== adapter) {
+      if (currentAdapter !== adapter && !(completedBeforeDetach && !currentAdapter)) {
         return true;
       }
       const instance = this.deps.getInstance(instanceId);
@@ -1288,6 +1269,11 @@ export class InstanceCommunicationManager extends EventEmitter {
           );
         }
 
+        if (isAdapterStopping(adapter)) {
+          this.addToOutputBuffer(instance, message, { countAsProcessOutput: true });
+          this.emit('output', { instanceId, message, raw: { source: 'adapter-event:output', payload: rawAdapterPayload } });
+          return;
+        }
         // Reset circuit breaker counter on tool activity — tool-use sequences
         // naturally produce empty assistant text between calls and shouldn't trip it
         if (message.type === 'tool_use' || message.type === 'tool_result') {
@@ -1574,6 +1560,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         ) {
           instance.providerSessionPersisted = true;
         }
+        if (isAdapterStopping(adapter)) { this.deps.queueUpdate(instanceId, normalizedStatus, instance.contextUsage); return; }
         const notifyChildTurnCompleted = this.shouldNotifyChildTurnCompleted(
           instance,
           previousStatus,
@@ -1669,6 +1656,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       // by forgetting to set a flag. See `isAggregateOnlyOccupancy` for the
       // exact gate and why remote adapters are deliberately excluded.
       const occupancyIsAggregate = isAggregateOnlyOccupancy(adapter);
+      const copilotUsage = remoteContextDetails(usage).copilotUsage;
 
       emitProviderRuntimeEvent(
         {
@@ -1677,6 +1665,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           total: usage.total,
           percentage: usage.percentage,
           occupancyReported,
+          ...(copilotUsage !== undefined ? { copilotUsage } : {}),
           ...(occupancyIsAggregate ? { occupancyIsAggregate: true } : {}),
           ...(usage.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
           ...(usage.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
@@ -1729,7 +1718,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         // carries no `occupancyReported` — pushing it would make a *reporting*
         // provider render as "no data" for most of an active turn.
         this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
-        if (!isStatelessExecAdapter(adapter)) {
+        if (!isAdapterStopping(adapter) && !isStatelessExecAdapter(adapter)) {
           // Must be `instance.contextUsage`, NOT the raw `usage`: the assignment
           // above clones, so only the clone carries `occupancyIsAggregate`.
           // Passing `usage` here would leave the LT-034 guard reading undefined
@@ -1776,6 +1765,8 @@ export class InstanceCommunicationManager extends EventEmitter {
     });
 
     adapter.on('complete', (response: CliResponse) => {
+      let releaseCleanup!: () => void;
+      const cleanupReady = new Promise<void>(resolve => { releaseCleanup = resolve; });
       const run = (async () => {
         if (isStaleAdapterEvent('complete')) {
           return;
@@ -1819,7 +1810,17 @@ export class InstanceCommunicationManager extends EventEmitter {
             adapterGenerationAtSubscribe,
           );
         }
-        emitProviderRuntimeEvent(this.toProviderCompleteEvent(
+        // Accounting observers enforce run-wide caps before any success listener runs.
+        if (completedInstance) this.recordCompletionCost(instanceId, completedInstance, response, billingIdentity);
+        releaseCleanup();
+        const settledUsage = waitForCompletionUsage(response);
+        if (settledUsage) await settledUsage;
+        let descendants: Promise<void> | undefined;
+        while ((descendants = this.completionTasks.descendants(instanceId))) await descendants;
+        // Cleanup may have detached the completed adapter while finalizing usage.
+        // Preserve its completion only if the instance's epoch/generation still match.
+        if (isStaleAdapterEvent('complete', true)) return;
+        emitProviderRuntimeEvent(toProviderCompleteEvent(
           response,
           requestCountAtProviderCompletion,
         ), {
@@ -1828,8 +1829,9 @@ export class InstanceCommunicationManager extends EventEmitter {
             payload: toJsonSafeProviderEventPayload(response),
           },
         });
+        if (isAdapterStopping(adapter)) return;
+        const isCurrentRequest = completedInstance?.requestCount === requestCountAtProviderCompletion;
         if (completedInstance) {
-          this.recordCompletionCost(instanceId, completedInstance, response, billingIdentity);
           this.recordEstimationTelemetry(completedInstance, response);
           // Spec item 5 / LT-046: maintain the rolling handoff document as turns
           // complete (cheap, no LLM; only when the feature is enabled). Must not
@@ -1841,7 +1843,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           if (getSettingsManager().getAll().sessionHandoffStateEnabled) {
             getHandoffStateService().noteTurnCompleted(completedInstance);
           }
-          if (!providerLimitSignal && !turnErrored && completedInstance.provider !== 'auto') {
+          if (isCurrentRequest && !providerLimitSignal && !turnErrored && completedInstance.provider !== 'auto') {
             this.deps.clearProviderLimitAfterSuccessfulTurn?.({
               provider: completedInstance.provider,
               model: completedInstance.currentModel ?? null,
@@ -1859,14 +1861,16 @@ export class InstanceCommunicationManager extends EventEmitter {
             transcript: response.content,
           }, logger, this.hookManager);
         }
-        this.deps.onToolStateChange?.(instanceId, 'idle');
-        this.deps.onAuthRepairReplayComplete?.(instanceId);
+        if (isCurrentRequest) {
+          this.deps.onToolStateChange?.(instanceId, 'idle');
+          this.deps.onAuthRepairReplayComplete?.(instanceId);
+        }
 
         // Regular-session provider-limit auto-resume (opt-in). A throttled CLI
         // often exits 0 with the limit *notice as the assistant content*
         // ("You've hit your session limit · resets 6:30pm") rather than throwing.
         // Park + schedule a resume so the turn is re-sent after the window resets.
-        if (this.deps.onProviderLimitTurn) {
+        if (isCurrentRequest && this.deps.onProviderLimitTurn) {
           if (providerLimitSignal) {
             this.deps.onProviderLimitTurn({
               instanceId,
@@ -1878,13 +1882,17 @@ export class InstanceCommunicationManager extends EventEmitter {
           }
         }
       })();
-      // LT-674: error cleanup must not delete this adapter until the completion
-      // above has recorded capture, cost and hooks.
-      this.trackAdapterCompletion(instanceId, run);
+      // Teardown may itself settle deferred usage. Wait for capture and billing
+      // registration before cleanup, never for usage that needs that cleanup.
+      void run.then(releaseCleanup, (error: unknown) => {
+        releaseCleanup();
+        logger.error('Adapter completion failed', undefined, { instanceId, ...errorDiagnostic(error) });
+      });
+      this.completionTasks.track(instanceId, run, cleanupReady);
     });
 
     adapter.on('input_required', (payload: { id: string; prompt: string; timestamp: number; metadata?: Record<string, unknown> }) => {
-      if (isStaleAdapterEvent('input_required')) {
+      if (isStaleAdapterEvent('input_required') || isAdapterStopping(adapter)) {
         return;
       }
       if (this.deps.isInstancePublished?.(instanceId) === false) return;
@@ -1957,7 +1965,6 @@ export class InstanceCommunicationManager extends EventEmitter {
         emitInvalidSessionNotice: (id, instance) => this.emitInvalidSessionNotice(id, instance),
         tryParkOnProviderLimit: (id, instance, currentAdapter, failure, message) => this.tryParkOnProviderLimit(id, instance, currentAdapter, failure, message),
         reportAuthFailureTurn: (id, failure) => this.reportAuthFailureTurn(id, failure),
-        hasRecentMatchingErrorOutput: (instance, content) => this.hasRecentMatchingErrorOutput(instance, content),
         addToOutputBuffer: (instance, message) => this.addToOutputBuffer(instance, message),
         emitOutput: (id, message) => this.emit('output', { instanceId: id, message }),
         transitionInstanceStatus: (instance, status) => this.transitionInstanceStatus(instance, status),
@@ -1994,7 +2001,7 @@ export class InstanceCommunicationManager extends EventEmitter {
     });
 
     adapter.on('mcp_servers', (servers: CliMcpServerStatus[]) => {
-      if (isStaleAdapterEvent('mcp_servers')) return;
+      if (isStaleAdapterEvent('mcp_servers') || isAdapterStopping(adapter)) return;
       this.deps.onMcpServersStatus?.(instanceId, adapterGenerationAtSubscribe, servers);
     });
 
@@ -2019,6 +2026,14 @@ export class InstanceCommunicationManager extends EventEmitter {
 
     const handleExit = (code: number | null, signal: string | null): void => {
       if (isStaleAdapterEvent('exit')) {
+        return;
+      }
+      if (isAdapterStopping(adapter)) {
+        emitProviderRuntimeEvent({ kind: 'exit', code, signal }, { raw: { source: 'adapter-event:exit', payload: { code, signal } } });
+        const instance = this.deps.getInstance(instanceId);
+        if (instance) instance.processId = null;
+        this.interruptedInstances.delete(instanceId);
+        getInstanceAsyncWorkRegistry().clearInstance(instanceId);
         return;
       }
       if (this.deps.isInstancePublished?.(instanceId) === false) {
@@ -2191,7 +2206,7 @@ export class InstanceCommunicationManager extends EventEmitter {
             {
               getInstance: this.deps.getInstance,
               queueUpdate: this.deps.queueUpdate,
-              onUnexpectedExit: this.deps.onUnexpectedExit!,
+              onUnexpectedExit: (id) => isAdapterStopping(adapter) ? Promise.resolve() : this.deps.onUnexpectedExit!(id),
               transitionInstanceStatus: (inst, status) => this.transitionInstanceStatus(inst, status),
               buildCrashError,
             },
@@ -2496,30 +2511,16 @@ export class InstanceCommunicationManager extends EventEmitter {
   // ============================================
   // Cleanup
   // ============================================
-
-  private trackAdapterCompletion(instanceId: string, run: Promise<void>): void {
-    let pending = this.adapterCompletions.get(instanceId);
-    if (!pending) {
-      pending = new Set();
-      this.adapterCompletions.set(instanceId, pending);
-    }
-    pending.add(run);
-    void run.finally(() => {
-      pending.delete(run);
-      if (pending.size === 0) this.adapterCompletions.delete(instanceId);
-    });
-  }
-
   /**
    * Force cleanup an adapter when errors occur.
    * A completion emitted in the same turn is recorded first (LT-674).
    */
   async forceCleanupAdapter(instanceId: string): Promise<void> {
     await Promise.resolve();
-    const pending = [...(this.adapterCompletions.get(instanceId) ?? [])];
+    const pending = this.completionTasks.cleanupReady(instanceId);
     if (pending.length > 0) await Promise.all(pending);
     const adapter = this.deps.getAdapter(instanceId);
-    if (!adapter) return;
+    if (!adapter || isAdapterStopping(adapter)) return;
 
     logger.info('Force cleaning up adapter', { instanceId });
 
@@ -2532,26 +2533,4 @@ export class InstanceCommunicationManager extends EventEmitter {
     }
   }
 
-  private hasRecentMatchingErrorOutput(
-    instance: Instance,
-    content: string,
-    now = Date.now(),
-  ): boolean {
-    for (let index = instance.outputBuffer.length - 1; index >= 0; index--) {
-      const candidate = instance.outputBuffer[index];
-      if (!candidate) {
-        break;
-      }
-
-      if ((now - candidate.timestamp) > RECENT_ADAPTER_ERROR_OUTPUT_DEDUP_MS) {
-        break;
-      }
-
-      if (candidate.type === 'error' && candidate.content === content) {
-        return true;
-      }
-    }
-
-    return false;
-  }
 }

@@ -66,7 +66,7 @@ beforeEach(() => {
   git(['add', '-A']);
   git(['commit', '-q', '-m', 'base']);
   saved = [];
-  service = new PlanQueueWorktreeService({ creator: WorktreeManager.getInstance(), saveItem: (item) => saved.push(item), skipInstall: true });
+  service = new PlanQueueWorktreeService({ repoRootForItem: () => repo, creator: WorktreeManager.getInstance(), saveItem: (item) => saved.push(item), skipInstall: true });
 });
 
 afterEach(() => {
@@ -221,7 +221,7 @@ describe('a checkout an interrupted landing left detached', () => {
     git(['checkout', '-q', '--detach', 'main'], wt);
     writeFileSync(join(wt, 'edit.txt'), 'edit\n');
 
-    await expect(returnToItemCheckout(wt, item.branchName!, item.id)).rejects.toBeInstanceOf(PlanQueueCheckoutOwnershipError);
+    await expect(returnToItemCheckout(wt, item.branchName!, item.id, repo)).rejects.toBeInstanceOf(PlanQueueCheckoutOwnershipError);
 
     expect(git(['rev-parse', 'HEAD'], wt)).toBe(git(['rev-parse', 'main']));
     expect(readFileSync(join(wt, 'edit.txt'), 'utf8')).toBe('edit\n');
@@ -239,6 +239,7 @@ describe('landing', () => {
         : runGit(args, cwd, deadline));
 
     await expect(buildLandingCommit({
+      repoRoot: repo,
       worktreePath: wt, branchName: item.branchName!, itemId: item.id, baseTip: git(['rev-parse', 'main']),
       message: `Plan: sample\n\nLanded by Plan Queue after 1 verification round(s).\nItem: ${item.id}`,
       documents: [{ relativePath: 'docs/plans/sample_plan_completed.md', content: '# done\n' }],

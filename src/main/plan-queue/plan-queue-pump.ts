@@ -9,6 +9,7 @@ import { reconcileWaitingDocuments } from './plan-queue-readiness';
 import { hasPendingLandingCleanup } from './plan-queue-item-landing';
 import { isTerminalItemState, itemHoldsWorktree } from './plan-queue-state';
 import { queueAdmission } from '../work-admission/queue-admission';
+import { pathCompareKey } from '../util/path-helpers';
 
 interface QueuePumpHost extends Pick<PlanQueueFlowHost, 'getRun' | 'getItem' | 'transition' | 'notifyParent' | 'resolveRunParent'> {
   store: PlanQueueStore;
@@ -26,20 +27,17 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
     const { store, loadAverage, flow } = host;
     const runs = store.listActiveRuns();
     const [oneMinute = 0, fiveMinute = 0] = loadAverage();
-    // Verification slots are shared by the runs in one project folder (the full
-    // gate list is the expensive part): a folder's total is bounded by the
-    // largest cap among its active runs, and each run is also held to its own
-    // cap. Comparing the shared count with one run's smaller cap would starve
-    // that run. Other folders' checks never hold a folder's checks back; the
-    // load-average gate and the workload level still bound the machine.
-    const folderCap = new Map<string, number>();
-    const folderVerifying = new Map<string, number>();
+    // Runs in one project folder share its largest effective check cap; each
+    // run also keeps its own cap, so a smaller run is not starved by its peers.
+    // Other folders have their own cap; Lightest/Light still use the machine count.
+    const folderCaps = new Map<string, number>();
+    const folderChecks = new Map<string, number>();
     for (const run of runs) {
-      const cwd = run.workspaceCwd;
-      folderCap.set(cwd, Math.max(folderCap.get(cwd) ?? 0, queueAdmission(run.config, 0, 0).verificationSlots));
-      folderVerifying.set(cwd, (folderVerifying.get(cwd) ?? 0) + store.listItems(run.id).filter((item) => item.state === 'verifying').length);
+      const folder = pathCompareKey(run.workspaceCwd);
+      folderCaps.set(folder, Math.max(folderCaps.get(folder) ?? 0, queueAdmission(run.config, 0, 0).verificationSlots));
+      folderChecks.set(folder, (folderChecks.get(folder) ?? 0) + store.listItems(run.id).filter(item => item.state === 'verifying').length);
     }
-    let verifying = [...folderVerifying.values()].reduce((total, count) => total + count, 0);
+    let verifying = runs.flatMap((run) => store.listItems(run.id)).filter((item) => item.state === 'verifying').length;
     let totalJobs = runs.flatMap(run => store.listItems(run.id)).filter(item => itemHoldsWorktree(item.state)).length;
     for (const snapshot of runs) {
       await reconcileWaitingDocuments(host, snapshot);
@@ -63,12 +61,13 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
             void flow.startItem(item).catch((error: unknown) => host.logItemError(item, error));
           }
           let runVerifying = items.filter((item) => item.state === 'verifying').length;
+          const folder = pathCompareKey(run.workspaceCwd);
           for (const item of items.filter((candidate) => candidate.state === 'awaiting-slot' && !flow.isWaitingForUsage(candidate.id))) {
-            const inFolder = folderVerifying.get(run.workspaceCwd) ?? 0;
-            if (inFolder >= (folderCap.get(run.workspaceCwd) ?? 0) || !queueAdmission(run.config, totalJobs, verifying).canStartCheck(runVerifying)) break;
-            folderVerifying.set(run.workspaceCwd, inFolder + 1);
+            const folderVerifying = folderChecks.get(folder) ?? 0;
+            if (folderVerifying >= folderCaps.get(folder)! || !queueAdmission(run.config, totalJobs, verifying).canStartCheck(runVerifying)) break;
             verifying += 1;
             runVerifying += 1;
+            folderChecks.set(folder, folderVerifying + 1);
             void flow.startVerification(item).catch((error: unknown) => host.logItemError(item, error));
           }
         }

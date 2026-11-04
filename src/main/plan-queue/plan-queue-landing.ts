@@ -18,7 +18,8 @@ import { getLogger } from '../logging/logger';
 import { gitExec, gitExecSafe } from '../workspace/git/git-exec';
 import { getGitWriteQueue } from '../workspace/git/git-write-queue';
 import { integrationOwnershipRef, promoteIntegrationBranch } from '../workspace/git/worktree-integration';
-import { assertOwnCheckout, CONFLICT_CODES } from './plan-queue-git';
+import { CONFLICT_CODES } from './plan-queue-git';
+import { assertQueueCheckout } from './plan-queue-orphan-checkout';
 import { runInProcessGroup } from './plan-queue-process';
 import { buildLandingCommit, type LandingDocument } from './plan-queue-squash';
 import type { PlanQueueItem } from './plan-queue.types';
@@ -69,12 +70,12 @@ function requireGit(item: PlanQueueItem): { branchName: string } {
  * PLACE in the worktree for the worker to resolve — aborting it would throw the
  * resolution context away. The caller checkpoints after a clean merge.
  */
-export async function syncItemWithBase(item: PlanQueueItem, baseBranch: string): Promise<SyncResult> {
+export async function syncItemWithBase(item: PlanQueueItem, baseBranch: string, repoRoot: string): Promise<SyncResult> {
   if (!item.worktreePath) throw new Error(`Plan queue item ${item.id} has no worktree`);
   const worktreePath = item.worktreePath;
 
   return getGitWriteQueue().enqueue('plan-queue-sync', async () => {
-    await assertOwnCheckout(worktreePath);
+    await assertQueueCheckout(worktreePath, requireGit(item).branchName, repoRoot);
     const baseTip = await gitExec(['rev-parse', `refs/heads/${baseBranch}`], worktreePath);
     if (await succeeds(['merge-base', '--is-ancestor', baseTip, 'HEAD'], worktreePath)) {
       return { status: 'up-to-date' };
@@ -243,6 +244,7 @@ export async function landItemBranch(
   if (stray) return { status: 'blocked', reason: stray };
 
   const built = await buildLandingCommit({
+    repoRoot,
     worktreePath: item.worktreePath,
     branchName,
     itemId: item.id,

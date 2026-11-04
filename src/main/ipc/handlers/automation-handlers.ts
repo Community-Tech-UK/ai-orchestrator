@@ -1,4 +1,5 @@
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
+import { isDeepStrictEqual } from 'node:util';
 import { IPC_CHANNELS } from '@contracts/channels';
 import { validateIpcPayload } from '@contracts/schemas/common';
 import {
@@ -89,13 +90,21 @@ export function registerAutomationHandlers(): void {
         const enabled = validated.updates.enabled ?? existing.enabled;
         const active = validated.updates.active ?? existing.active;
         const trigger = validated.updates.trigger ?? existing.trigger;
+        const scheduleChanged = !isDeepStrictEqual(schedule, existing.schedule);
+        const triggerChanged = !isDeepStrictEqual(trigger, existing.trigger);
+        const reactivating = enabled && active && (!existing.enabled || !existing.active);
+        const actionChanged = validated.updates.action !== undefined
+          && !isDeepStrictEqual({ ...existing.action, ...validated.updates.action, executionAuthority: undefined },
+            { ...existing.action, executionAuthority: undefined });
         const nextFireAt = enabled && active && trigger.kind === 'schedule'
-          ? computeNextFireAt(schedule, Date.now())
+          ? scheduleChanged || triggerChanged || reactivating
+            ? computeNextFireAt(schedule, Date.now()) : existing.nextFireAt
           : null;
         const automation = await store.update(validated.id, validated.updates, nextFireAt);
         scheduler.schedule(automation);
         events.emitChanged({ automation, automationId: automation.id, type: 'updated' });
-        if (automation.trigger.kind === 'schedule') {
+        if (enabled && active && automation.trigger.kind === 'schedule'
+          && (scheduleChanged || triggerChanged || reactivating || actionChanged)) {
           await handlePastOneTimeAutomation(automation);
         }
         return { success: true, data: await store.get(automation.id) };

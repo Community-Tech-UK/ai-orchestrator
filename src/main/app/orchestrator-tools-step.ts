@@ -64,6 +64,7 @@ import { createDefaultHostProcessRuntime, listHostProcesses, stopLeftoverProcess
 import { createInstanceManagerHostProcessHooks } from '../process/host-process-instance-hooks';
 import { getWorkAdmission } from '../work-admission/work-admission';
 import { runAutomaticStartup } from '../work-admission/automatic-startup';
+import { configureAutomationInvocationMcp } from '../automations/automation-invocation-mcp';
 const logger = getLogger('AppInitialization');
 const nodeControl = () => ({ server: getWorkerNodeConnectionServer(), registry: getWorkerNodeRegistry() });
 // Worker Copilot diagnosis can spend 3s on identity, 5s on version, and 30s
@@ -122,6 +123,7 @@ export function createOrchestratorToolsStep(
         events: getAutomationEvents(),
         createWithScheduling: createAutomationWithScheduling,
         handlePastOneTime: handlePastOneTimeAutomation,
+        resolveCaller: id => instanceManager.getInstance(id),
         resolveWorkingDirectory: (callerInstanceId) =>
           callerInstanceId
             ? instanceManager.getInstance(callerInstanceId)?.workingDirectory
@@ -550,6 +552,8 @@ export function createOrchestratorToolsStep(
         stopLeftoverProcesses: (args) => stopLeftoverProcesses(hostProcessRuntime, args),
         // Automation MCP tools (create/list/delete/update/postpone) — logic
         // lives in ../automations/automation-tool-impl.ts (integration-tested).
+        automationResult: (result, meta) => getAutomationRunner().recordResult(meta.callerInstanceId, result),
+        beforeExternalMutation: id => getAutomationRunner().markDeliveryStartedForCaller(id),
         createAutomation: automationTools.createAutomation,
         listAutomations: automationTools.listAutomations,
         deleteAutomation: automationTools.deleteAutomation,
@@ -596,6 +600,7 @@ export function createOrchestratorToolsStep(
           return effectiveSpawnDepth(inst) + 1 <= max;
         },
       });
+      configureAutomationInvocationMcp();
     },
   };
 }

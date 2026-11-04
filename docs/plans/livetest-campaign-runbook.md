@@ -23,9 +23,10 @@ lifecycle. Keep it current; delete anything that stops being true.
 > Any defect you reproduce goes into
 > `docs/plans/livetest-remediation-register.md` as a new `LT-NNN` item
 > (index row + a section with observed behaviour, root cause, required behaviour, acceptance), and
-> a matching implementation-status section in
-> `docs/plans/2026-07-19-livetest-failure-remediation_plan_completed.md`. Per-check evidence still goes in
-> the owning `*_livetest.md`.
+> implementation notes in the plan or livetest document that fixes it. The register index row owns
+> the defect status. Run `node scripts/next-lt-id.mjs` and recheck before adding a row; it does not
+> reserve the number. Per-check evidence still goes in the owning `*_livetest.md`.
+> Read the register archive only when an index row points there; never add work to closed plans.
 >
 > Finish by updating `docs/plans/livetest-backlog.md`. Do **not** create a new dated
 > status report — the fifteen that existed were merged into that one living document on
@@ -255,15 +256,17 @@ matrix from active `*_livetest.md` files and the remediation register when the l
 “Needs James” is reserved for a real operator-only boundary: login/OAuth/MFA, credential entry,
 TCC/System Settings, a hard-denied app, a physical device, destructive/release action, production
 routing change, or an unresolved product choice. Local UI in general is not in that category: use
-`windows-pc` first and, after a failed preflight, the standing local fallback authorization. A
+`windows-pc` first. After a failed preflight, report the result and ask whether to use the Mac,
+wait or skip the browser step. Unattended campaigns must leave that step blocked; no answer means no. A
 disconnected worker, missing fixture, open defect, absent read surface, or unimplemented feature is
 a technical/external prerequisite, not a James action.
 
 - **Per-check evidence** → the owning `*_livetest.md`, as a new dated `## Evidence run — <date>`
   section. Preserve prior dated sections; never rewrite history.
 - **Reproduced defects** → `docs/plans/livetest-remediation-register.md`
-  (index row + full section) and a status section in
-  `docs/plans/2026-07-19-livetest-failure-remediation_plan_completed.md`. This is the spec's own rule 6.
+  (index row + full section). The index row owns status; implementation notes go in the plan or
+  livetest document that fixes it. Use `node scripts/next-lt-id.mjs`, then recheck before adding
+  the row because it does not reserve the number. Read the archive only when an index row points there.
 - **Cross-cutting rollup** → `docs/plans/livetest-backlog.md` (update in place). **Not
   `_scratch/`** — that is disposable and the user will not find it there. `_scratch/` is fine for
   the working matrix and scratch scripts.
@@ -316,7 +319,7 @@ renderer bundle plus an unused preload wrapper.
 - [ ] Stop the dev app (it holds the `harness-dev` single-instance lock and will block the user).
 - [ ] `git status --short` — confirm only intended changes, nothing staged, no `_completed` rename.
 - [ ] `git worktree list` / `git branch --list` — confirm you created nothing.
-- [ ] Run the gates: `npx tsc --noEmit`, `npx tsc --noEmit -p tsconfig.spec.json`, and the targeted
+- [ ] Run the gates: `npx tsc --noEmit`, `npm run typecheck:spec`, and the targeted
       suites for anything you touched.
 
 ---

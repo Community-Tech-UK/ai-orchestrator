@@ -22,6 +22,7 @@ class Instances extends EventEmitter {
   live = new Map<string, PlanQueueInstanceRecord>();
   sendInput = vi.fn(async () => undefined);
   terminateInstance = vi.fn(async (id: string) => { this.live.delete(id); });
+  restartFreshInstance = vi.fn(async () => undefined);
   getInstance = (id: string) => this.live.get(id);
   getAllInstances = () => [...this.live.values()];
   adoptOrphanInstance = () => false;
@@ -122,6 +123,32 @@ function refusedCheckoutSnapshot() {
 }
 
 describe('run hold checkpoint ownership', () => {
+  it('sets aside an invalid interrupted checker without checkpointing or removing its refused checkout', async () => {
+    const cwd = unsafe.worktreePath!;
+    git(['checkout', '-q', '--detach', 'HEAD'], cwd);
+    writeFileSync(join(cwd, 'feature.txt'), 'checker edits retained for inspection\n');
+    writeFileSync(join(cwd, 'untracked.txt'), 'untracked evidence\n');
+    unsafe = { ...unsafe, state: 'verifying', workerInstanceId: 'worker', verifierInstanceId: 'checker',
+      pendingInstruction: 'Keep the remaining work' };
+    for (const [id, role] of [['worker', 'worker'], ['checker', 'verifier']] as const) {
+      instances.live.set(id, { id, status: 'busy', outputBuffer: [] });
+      coordinator.registerRole(id, { role, runId: run.id, itemId: unsafe.id });
+    }
+    store.upsertItem(unsafe);
+    const checkpoint = vi.spyOn(coordinator.worktrees, 'checkpoint');
+    const removal = vi.spyOn(coordinator.worktrees, 'removeWithProof');
+    const before = refusedCheckoutSnapshot();
+    await coordinator.control({ action: 'resume', runId: run.id });
+    await coordinator._whenSettledForTesting();
+    expect(store.getItem(unsafe.id)).toMatchObject({ state: 'parked', parkReason: 'worktree-error', worktreePath: cwd,
+      verifierInstanceId: null, workerInstanceId: null, pendingInstruction: unsafe.pendingInstruction,
+      detail: expect.stringContaining('Could not restore the saved work.') });
+    expect(checkpoint.mock.calls.filter(([candidate]) => candidate.id === unsafe.id)).toHaveLength(0);
+    expect(removal.mock.calls.filter(([candidate]) => candidate.id === unsafe.id)).toHaveLength(0);
+    expect(refusedCheckoutSnapshot()).toEqual(before);
+    expect(store.getItem('healthy')).toMatchObject({ state: 'working', workerInstanceId: 'fresh-healthy' });
+  });
+
   // Removing the typed refusal catch strands Resume; weakening the guard changes this snapshot.
   it.each(['queued', 'working'] as const)('parks only a refused %s checkout and resumes healthy work without modifying refused work', async state => {
     const cwd = unsafe.worktreePath!;

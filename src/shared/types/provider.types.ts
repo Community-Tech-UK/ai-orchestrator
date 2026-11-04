@@ -197,12 +197,14 @@ export const CLAUDE_MODELS = {
  */
 export const CLAUDE_PINNED_MODELS = {
   FABLE_51: 'claude-fable-5-1',
+  OPUS_55: 'claude-opus-5-5',
   OPUS_5: 'claude-opus-5',
   OPUS_48: 'claude-opus-4-8',
   OPUS_47: 'claude-opus-4-7',
   OPUS_46: 'claude-opus-4-6-20260401',
   OPUS_45: 'claude-opus-4-5-20250918',
   OPUS_4: 'claude-opus-4-20250514',
+  SONNET_55: 'claude-sonnet-5-5',
   SONNET_5: 'claude-sonnet-5',
   SONNET_46: 'claude-sonnet-4-6-20260401',
   SONNET_45: 'claude-sonnet-4-5-20250929',

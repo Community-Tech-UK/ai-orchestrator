@@ -24,6 +24,18 @@ import * as readiness from './plan-queue-readiness';
 import { PlanQueueStore } from './plan-queue-store';
 import type { VerifierSelectInput } from './plan-queue-verifier-select';
 
+const machineGates = vi.hoisted(() => ({ failItem: false }));
+// These repositories exercise Git and session ownership. Command execution is
+// controlled here; the gate runner has its own execution and receipt coverage.
+vi.mock('./plan-queue-gate-receipts', async original => {
+  const actual = await original<typeof import('./plan-queue-gate-receipts')>();
+  return { ...actual, PlanQueueGateRunner: class extends actual.PlanQueueGateRunner {
+    constructor() { super(async (_command, cwd) => machineGates.failItem && cwd.includes('/queue/')
+      ? { exitCode: 1, output: 'src/feature.ts(1,1): error TS2322: New failure', timedOut: false }
+      : { exitCode: 0, output: '✓ 1 files · 1 tests passed in 0s', timedOut: false }); }
+  } };
+});
+
 const landing = vi.hoisted(() => ({ active: 0, max: 0, hang: false, hung: false, hangPromotion: false, hookTimeout: false }));
 vi.mock('./plan-queue-landing', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./plan-queue-landing')>();
@@ -113,6 +125,7 @@ class FakeInstances extends EventEmitter {
   readonly adoptions: { childId: string; parentId: string }[] = [];
   readonly scripts: Partial<Record<Role, Script>> = {};
   maxLive: Partial<Record<Role, number>> = {};
+  restartFreshInstance = vi.fn(async () => undefined);
 
   addParent(): FakeInstance {
     const parent = this.make('parent', { workingDirectory: repo } as InstanceCreateConfig, 'claude', 'claude-sonnet-5');
@@ -251,7 +264,7 @@ const implement: Script = (instance) => {
 const itemIdOf = (instance: FakeInstance) => instance.config.metadata?.['planQueueItemId'] as string;
 const pass: Script = (instance) => {
   coordinator.reportVerdict(instance.id, {
-    item_id: itemIdOf(instance), verdict: 'PASS', findings: [], gates_run: [], document_complete: true, need_james: [],
+    item_id: itemIdOf(instance), verdict: 'PASS', findings: [], gates_run: [], document_complete: true, need_james: [], not_checked: [],
   });
 };
 const triageAllReady: Script = (instance) => {
@@ -272,6 +285,7 @@ async function waitForRun(runId: string, timeout = 30_000): Promise<void> {
 }
 
 beforeEach(() => {
+  machineGates.failItem = false;
   WorktreeManager._resetForTesting();
   GitWriteQueue._resetForTesting();
   PlanQueueCoordinator._resetForTesting();
@@ -820,7 +834,7 @@ describe('PlanQueueCoordinator — autonomous readiness and current documents', 
     rmSync(doc);
     coordinator.requestPump();
     await vi.waitFor(() => expect(store.getItem(run.items[0].id)?.state).toBe('parked'), { timeout: 5_000 });
-    expect(store.getItem(run.items[0].id)).toMatchObject({ parkReason: 'worker-error', question: null, verdict: null });
+    expect(store.getItem(run.items[0].id)).toMatchObject({ parkReason: 'missing-document', question: null, verdict: null });
     expect(store.getItem(run.items[0].id)!.detail).toContain('missing');
     expect(fake.created.some((i) => i.role === 'worker')).toBe(false);
   });
@@ -934,14 +948,27 @@ describe('PlanQueueCoordinator — whole run against a temp repo', { timeout: 30
     expect(log).toEqual(['Plan: 2026-01-01-alpha_plan', 'base']);
     expect(git(['show', '--name-only', '--format=', 'main']).split('\n').sort()).toEqual([
       '2026-01-01-alpha_plan.feature.txt',
+      'docs/plans/2026-01-01-alpha_plan_closure_completed.json',
       'docs/plans/2026-01-01-alpha_plan_completed.md',
       'docs/plans/2026-01-01-alpha_spec_completed.md',
     ]);
     expect(git(['show', 'main:docs/plans/2026-01-01-alpha_spec_completed.md'])).toContain('2026-01-01-alpha_plan_completed.md');
-    // The superseded untracked root copies were retired; the working tree is clean.
+    // Active names are retired; retain exactly the original inodes for late writers.
     expect(existsSync(join(repo, 'docs/plans/2026-01-01-alpha_plan.md'))).toBe(false);
     expect(existsSync(join(repo, 'docs/plans/2026-01-01-alpha_spec_planned.md'))).toBe(false);
-    expect(git(['status', '--porcelain'])).toBe('');
+    const retained = readdirSync(join(repo, 'docs/plans')).filter(name => name.includes('.aio-retained-')).sort();
+    expect(retained).toEqual([
+      expect.stringMatching(/^\.2026-01-01-alpha_plan\.md\.aio-retained-[0-9a-f-]{36}$/),
+      expect.stringMatching(/^\.2026-01-01-alpha_spec_planned\.md\.aio-retained-[0-9a-f-]{36}$/),
+    ]);
+    expect(retained.map(name => readFileSync(join(repo, 'docs/plans', name), 'utf8'))).toEqual([
+      '# Plan\n\n**Spec:** [spec](./2026-01-01-alpha_spec_planned.md)\n\n- [ ] build it\n\nAs built: done.\n',
+      '# Spec\n\n**Plan:** [plan](./2026-01-01-alpha_plan.md)\n',
+    ]);
+    expect(git(['status', '--porcelain', '--untracked-files=all']).split('\n').sort())
+      .toEqual(retained.map(name => `?? docs/plans/${name}`));
+    expect(readFileSync(join(repo, 'docs/plans/2026-01-01-alpha_plan_completed.md'), 'utf8'))
+      .toBe('# Plan\n\n**Spec:** [spec](./2026-01-01-alpha_spec_completed.md)\n\n- [ ] build it\n\nAs built: done.\n');
     expect(queueWorktrees()).toEqual([]);
     expect(git(['for-each-ref', '--format=%(refname:short)', 'refs/heads/queue/'])).toBe('');
 
@@ -1005,7 +1032,7 @@ describe('PlanQueueCoordinator — whole run against a temp repo', { timeout: 30
         item_id: itemIdOf(instance),
         verdict: verifications === 1 ? 'FAIL' : 'PASS',
         findings: verifications === 1 ? [{ severity: 'high', confidence: 85, summary: 'Missing retry test.', file: 'a.txt:1' }] : [],
-        gates_run: [], document_complete: true, need_james: [],
+        gates_run: [], document_complete: true, need_james: [], not_checked: [],
       });
     };
 
@@ -1032,7 +1059,7 @@ describe('PlanQueueCoordinator — whole run against a temp repo', { timeout: 30
     fake.scripts.verifier = (instance) => {
       coordinator.reportVerdict(instance.id, {
         item_id: itemIdOf(instance), verdict: 'FAIL',
-        findings: [{ severity: 'medium', confidence: 70, summary: 'Still wrong.' }], gates_run: [], document_complete: true, need_james: [],
+        findings: [{ severity: 'medium', confidence: 70, summary: 'Still wrong.' }], gates_run: [], document_complete: true, need_james: [], not_checked: [],
       });
     };
 
@@ -1116,7 +1143,7 @@ describe('PlanQueueCoordinator — whole run against a temp repo', { timeout: 30
       for (const caller of [worker.id, parent.id]) {
         try {
           coordinator.reportVerdict(caller, {
-            item_id: itemIdOf(instance), verdict: 'PASS', findings: [], gates_run: [], document_complete: true, need_james: [],
+            item_id: itemIdOf(instance), verdict: 'PASS', findings: [], gates_run: [], document_complete: true, need_james: [], not_checked: [],
           });
           attempts.push('accepted');
         } catch (error) {
@@ -1124,7 +1151,7 @@ describe('PlanQueueCoordinator — whole run against a temp repo', { timeout: 30
         }
       }
       coordinator.reportVerdict(instance.id, {
-        item_id: itemIdOf(instance), verdict: 'FAIL', findings: [], gates_run: [], document_complete: true, need_james: [],
+        item_id: itemIdOf(instance), verdict: 'FAIL', findings: [], gates_run: [], document_complete: true, need_james: [], not_checked: [],
       });
     };
 
@@ -1645,6 +1672,7 @@ describe('PlanQueueCoordinator — livetest mode', { timeout: 30_000 }, () => {
         findings: [],
         gates_run: [{ command: 'npx tsc --noEmit', exitCode: 0 }],
         document_complete: documentComplete,
+        not_checked: [],
         need_james: [
           { check: 'Check 2: Face ID unlock', classification: 'real', reason: 'Needs a physical iPhone.' },
           { check: 'Check 3: Computer Use click', classification: 'policy-gated', reason: 'Blocked by computerUseAutonomyLevel.' },
@@ -1689,6 +1717,7 @@ describe('PlanQueueCoordinator — livetest mode', { timeout: 30_000 }, () => {
     expect(git(['log', '-1', '--format=%s', 'main'])).toBe('Livetest: 2026-01-01-alpha_livetest');
     expect(git(['show', '--name-only', '--format=', 'main']).split('\n').sort()).toEqual([
       '2026-01-01-alpha_livetest.feature.txt',
+      'docs/plans/2026-01-01-alpha_livetest_closure_completed.json',
       'docs/plans/2026-01-01-alpha_livetest_completed.md',
     ]);
   });
@@ -1712,7 +1741,7 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     const parent = fake.addParent();
     fake.scripts.verifier = (instance) => {
       coordinator.reportVerdict(instance.id, {
-        item_id: itemIdOf(instance), verdict: 'FAIL', findings: [], gates_run: [], document_complete: true, need_james: [],
+        item_id: itemIdOf(instance), verdict: 'FAIL', findings: [], gates_run: [], document_complete: true, need_james: [], not_checked: [],
       });
     };
     const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans', config: { maxRounds: 1 } });
@@ -1742,7 +1771,7 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     const parent = fake.addParent();
     fake.scripts.verifier = (instance) => {
       coordinator.reportVerdict(instance.id, {
-        item_id: itemIdOf(instance), verdict: 'FAIL', gates_run: [], document_complete: false, need_james: [],
+        item_id: itemIdOf(instance), verdict: 'FAIL', gates_run: [], document_complete: false, need_james: [], not_checked: [],
         findings: [{ severity: 'high', confidence: 90, summary: 'The retry path never resets the attempt counter.' }],
       });
     };
@@ -2429,7 +2458,7 @@ describe('PlanQueueCoordinator — providers and accounts', { timeout: 30_000 },
     const worker = fake.created.find((i) => i.role === 'worker')!;
     expect(worker.config).toMatchObject({ provider: 'codex', modelOverride: 'gpt-6.1-sol' });
     // The checker is chosen against the worker that actually ran, not the run's first choice.
-    expect(verifierInputs[0]).toMatchObject({ workerProvider: 'codex', workerModel: 'gpt-6.1-sol' });
+    expect(verifierInputs.at(-1)).toMatchObject({ workerProvider: 'codex', workerModel: 'gpt-6.1-sol' });
     expect(store.listItems(run.id)[0]).toMatchObject({ workerProvider: 'codex', workerModel: 'gpt-6.1-sol' });
   });
 
@@ -2575,7 +2604,7 @@ describe('PlanQueueCoordinator — handing a stuck document to the step-up worke
   const fail: Script = (instance) => {
     coordinator.reportVerdict(instance.id, {
       item_id: itemIdOf(instance), verdict: 'FAIL',
-      findings: [{ severity: 'high', confidence: 80, summary: 'Retry never resets.' }], gates_run: [], document_complete: false, need_james: [],
+      findings: [{ severity: 'high', confidence: 80, summary: 'Retry never resets.' }], gates_run: [], document_complete: false, need_james: [], not_checked: [],
     });
   };
   /** FAIL the first `failures` checks, then PASS. */
@@ -2610,7 +2639,7 @@ describe('PlanQueueCoordinator — handing a stuck document to the step-up worke
     expect(second.config.initialPrompt).toContain('An earlier, cheaper attempt did not pass after 1 verification round(s).');
     expect(second.config.initialPrompt).toContain('Retry never resets.');
     // Its checker was chosen against what the step-up worker ran on.
-    expect(verifierInputs.map((input) => [input.workerProvider, input.workerModel])).toEqual([['claude', 'haiku'], ['claude', 'opus']]);
+    expect(verifierInputs.map((input) => [input.workerProvider, input.workerModel])).toEqual([['claude', 'haiku'], ['claude', 'haiku'], ['claude', 'opus']]);
 
     const item = coordinator.getRunDto(run.id)!.items[0];
     expect(item).toMatchObject({ state: 'landed', round: 1, erroredRounds: 0 });
@@ -2766,6 +2795,41 @@ describe('PlanQueueCoordinator — handing a stuck document to the step-up worke
 });
 
 describe('queue spend reductions', { timeout: 30_000 }, () => {
+  it('refuses an impossible checker before persisting or spawning any work', async () => {
+    planDoc('2026-01-01-no-checker');
+    vi.spyOn(coordinator, 'selectVerifier').mockResolvedValue({ ok: false, reason: 'No allowed second model' });
+    await expect(coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' })).rejects.toThrow('No allowed second model');
+    expect(store.listRuns()).toEqual([]);
+    expect(fake.created.filter(instance => instance.role !== 'parent')).toEqual([]);
+  });
+
+  it('never spawns a checker or lands work when Harness finds a new red gate', async () => {
+    planDoc('2026-01-01-red-checks');
+    machineGates.failItem = true;
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans', config: { maxRounds: 1 } });
+    await waitForRun(run.id);
+    expect(store.listItems(run.id)[0]).toMatchObject({ state: 'parked', parkReason: 'round-limit', verdict: { verdict: 'FAIL' } });
+    expect(fake.created.filter(instance => instance.role === 'verifier')).toEqual([]);
+    expect(store.history.listVerdicts(run.items[0].id)).toMatchObject([{ verdict: 'FAIL' }]);
+    expect(git(['log', '--format=%s', 'main'])).toBe('base');
+  });
+  it('waits for capacity and starts on a later pump, while real preparation failures still park', async () => {
+    planDoc('2026-01-01-capacity');
+    fake.scripts.worker = never;
+    const prepare = vi.spyOn(coordinator.worktrees, 'prepare').mockRejectedValue(new WorktreeCapacityError('Maximum concurrent worktrees (5) reached'));
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
+    await coordinator._whenSettledForTesting();
+    const waiting = store.listItems(run.id)[0];
+    expect(waiting).toMatchObject({ state: 'queued', round: 0, parkReason: null, detail: 'Waiting for a free work folder (0 in use)' });
+    prepare.mockRestore();
+    const later = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 31_000);
+    coordinator.requestPump();
+    await coordinator._whenSettledForTesting();
+    expect(store.getItem(waiting.id)).toMatchObject({ state: 'working', detail: null });
+    later.mockRestore();
+    prepare.mockRestore();
+  });
+
   it('starts queue work while the shared worktree limit is full, and its checkouts never use that limit up', async () => {
     planDoc('2026-01-01-limit-one');
     planDoc('2026-01-01-limit-two');
@@ -2783,6 +2847,31 @@ describe('queue spend reductions', { timeout: 30_000 }, () => {
     await expect(manager.createWorktree('loop-blocked', 'loop blocked', options)).rejects.toBeInstanceOf(WorktreeCapacityError);
     await manager.cleanupWorktree(holder.id, { force: true });
     await expect(manager.createWorktree('loop-next', 'loop next', options)).resolves.toBeDefined();
+  });
+
+  it('finishes failed gate comparisons when queue folders exceed the shared worktree limit', async () => {
+    planDoc('2026-01-01-gates-one');
+    planDoc('2026-01-01-gates-two');
+    machineGates.failItem = true;
+    WorktreeManager.getInstance().configure({ maxConcurrent: 1 });
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans',
+      config: { workerSlots: 2, maxRounds: 1 } });
+    await waitForRun(run.id);
+    expect(store.listItems(run.id)).toHaveLength(2);
+    for (const item of store.listItems(run.id)) {
+      expect(item).toMatchObject({ state: 'parked', parkReason: 'round-limit', round: 1, verdict: { verdict: 'FAIL' } });
+      expect(store.history.listVerdicts(item.id)[0].gatesRun).toEqual(expect.arrayContaining([
+        expect.objectContaining({ baseline: 'new', exitCode: 1 }),
+      ]));
+    }
+  });
+
+  it('starts queue work when the shared worktree limit is unlimited', async () => {
+    planDoc('2026-01-01-unlimited');
+    fake.scripts.worker = never;
+    WorktreeManager.getInstance().configure({ maxConcurrent: 0 });
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
+    await vi.waitFor(() => expect(store.listItems(run.id)[0].state).toBe('working'), { timeout: 15_000, interval: 50 });
   });
 
   it('clears the note older builds saved while waiting for a worktree when the item starts', async () => {
@@ -2843,7 +2932,7 @@ it('clears the former conversation before handing work to the step-up worker', a
   const verify: Script = (instance) => {
     verificationCount++;
     coordinator.reportVerdict(instance.id, { item_id: itemIdOf(instance),
-      verdict: verificationCount === 1 ? 'FAIL' : 'PASS', findings: [], gates_run: [], document_complete: true, need_james: [] });
+      verdict: verificationCount === 1 ? 'FAIL' : 'PASS', findings: [], gates_run: [], document_complete: true, need_james: [], not_checked: [] });
   };
   fake.scripts.verifier = async (instance, message, source) => {
     expect(store.getItem(itemIdOf(instance))?.workerSession?.providerSessionId).toBeTruthy();
@@ -2873,7 +2962,7 @@ it('closes a worker with a saved conversation while its work waits for a check, 
     coordinator.reportVerdict(instance.id, {
       item_id: itemIdOf(instance), verdict: checks === 1 ? 'FAIL' : 'PASS',
       findings: checks === 1 ? [{ severity: 'high', confidence: 90, summary: 'Retry guard is missing.' }] : [],
-      gates_run: [], document_complete: true, need_james: [],
+      gates_run: [], document_complete: true, need_james: [], not_checked: [],
     });
   };
   const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans', config: { maxRounds: 3 } });

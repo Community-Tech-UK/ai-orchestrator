@@ -17,6 +17,7 @@ export interface ReviewDispatchRequest {
   reviewDepth: 'structured' | 'tiered';
   sourceUserMessageId?: string;
   sourceUserMessageTimestamp?: number;
+  sourceUserTurnEpoch?: number;
   timestamp: number;
   /**
    * Model the implementing session ran on, when known. Needed so a checker

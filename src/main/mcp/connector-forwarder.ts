@@ -71,6 +71,7 @@ export class ConnectorForwarder {
       throw error;
     });
     const client = await this.client;
+    if (method === 'tools/call') await this.rpc.call('connectors.before_tool_call', { name: this.name }, { signal: requestSignal });
     return client.request({ method, params }, CONNECTOR_RESULTS[method], { signal: requestSignal });
   }
   async close(): Promise<void> {

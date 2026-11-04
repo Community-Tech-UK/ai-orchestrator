@@ -167,6 +167,13 @@ export interface ProviderStatusEvent {
 /** Context window usage update. */
 export interface ProviderContextEvent {
   kind: 'context';
+  /** Optional numeric-only Copilot billing and root compaction evidence; older workers omit it. */
+  copilotUsage?: {
+    premiumRequests?: number;
+    compactions: number;
+    postCompactionTokens?: number;
+    tokenLimit?: number;
+  };
   /** Tokens used so far. */
   used: number;
   /** Total context window size. */

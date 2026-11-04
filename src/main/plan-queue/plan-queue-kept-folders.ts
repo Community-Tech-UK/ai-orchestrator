@@ -6,7 +6,7 @@
 import { getLogger } from '../logging/logger';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { hasPendingLandingCleanup } from './plan-queue-item-landing';
-import { hasCheckout, retainedQueuePathExists } from './plan-queue-orphan-checkout';
+import { assertQueueCheckout, hasCheckout, retainedQueuePathExists } from './plan-queue-orphan-checkout';
 import type { PlanQueueItem } from './plan-queue.types';
 
 const logger = getLogger('PlanQueueKeptFolders');
@@ -40,6 +40,8 @@ export async function retryKeptFolder(host: PlanQueueFlowHost, itemId: string): 
     if (!(await retainedQueuePathExists(worktreePath))) host.save({ ...item, worktreePath: null, detail: withoutKeptNote(item.detail) });
     return;
   }
+  // A checkout set aside by an ownership refusal stays untouched for inspection.
+  await assertQueueCheckout(worktreePath, item.branchName!, repoRoot);
   if (item.state === 'parked') item = await host.worktrees.checkpoint(item, 'parked: folder removal retried');
   const removal = await host.worktrees.removeWithProof(item, repoRoot);
   if (!removal.removed) {

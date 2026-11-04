@@ -24,7 +24,8 @@ describe('retry admission', () => {
     if (decision.kind !== 'started') throw new Error('Fixture did not create a run');
     const failed = store.terminalizeRun(decision.run.id, 'failed', 'retryable')!;
     let fired = 0;
-    const runner = { setRetryScheduler: () => undefined, dispatchRetryRun: async () => { fired++; } } as unknown as AutomationRunner;
+    const runner = { setRetryScheduler: () => undefined, hasStoppingRun: () => false, prepareRetryRun: () => true,
+      dispatchRetryRun: async () => { fired++; } } as unknown as AutomationRunner;
     const scheduler = new AutomationScheduler(store, runner, {} as CatchUpCoordinator, undefined, Date.now, async (_run, _store, dispatch) => dispatch());
     getWorkAdmission().setGlobalPhase('holding');
     scheduler.scheduleRetry(failed, 2, 3, 10);

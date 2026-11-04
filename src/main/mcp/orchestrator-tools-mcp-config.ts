@@ -32,6 +32,7 @@ export interface OrchestratorToolsMcpConfigOptions {
    * server rejects any real socket request that lacks a matching one.
    */
   capabilityToken?: string;
+  automationInvocation?: boolean;
   provider?: string;
   /**
    * Request a compact surface: Codex uses fixed search/describe/execute wrappers;
@@ -81,6 +82,7 @@ export function resolveOrchestratorToolsBridgeSpec(
     env: {
       AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET: options.socketPath,
       AI_ORCHESTRATOR_INSTANCE_ID: options.instanceId,
+      ...(options.automationInvocation ? { AI_ORCHESTRATOR_AUTOMATION_INVOCATION: '1' } : {}),
       ...(options.capabilityToken
         ? { AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_CAPABILITY: options.capabilityToken }
         : {}),

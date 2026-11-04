@@ -108,6 +108,7 @@ function buildMockIpc(
   entriesData: CostEntry[] = MOCK_ENTRIES,
 ) {
   return {
+    costGetEphemeralUsage: vi.fn().mockResolvedValue({success:true,data:{entries:[],truncated:false,skippedLines:0}}),
     costGetPurposeSummary: vi.fn().mockResolvedValue({success:true,data:null}),
     costGetSummary: vi.fn().mockResolvedValue({ success: true, data: summaryData }),
     costGetEntries: vi.fn().mockResolvedValue({ success: true, data: entriesData }),
@@ -146,6 +147,33 @@ describe('CostPageComponent — computed signals', () => {
 
     fixture = TestBed.createComponent(CostPageComponent);
     component = fixture.componentInstance;
+  });
+
+  it('loads temporary Codex receipts and displays missing metrics without claiming an exact price', async () => {
+    mockIpc.costGetEphemeralUsage.mockResolvedValue({ success: true, data: { entries: [{
+      threadId: 'example-thread', jobId: 'example-job', instanceId: 'example-instance', kind: 'plan-queue',
+      trialKey: 'group-example', trialArm: 'candidate', requests: null, requestsAvailable: false,
+      tokens: { input: 100, cache: 80, output: 20, reasoning: null, total: 120, estimated: false },
+      helpers: { count: 1, tokens: { input: 30, cache: 10, output: 5, reasoning: 0, total: 35, estimated: false } },
+      compactions: 2, durationMs: 2500, endedAt: 1000,
+    }], truncated: true, skippedLines: 1 } } as never);
+    await component.refreshAll(false); fixture.detectChanges();
+    const section: HTMLElement = fixture.nativeElement.querySelector('[aria-label="Temporary Codex sessions"]');
+    expect(section).not.toBeNull();
+    expect(section.textContent).toContain('100'); expect(section.textContent).toContain('80');
+    expect(section.textContent).toContain('Unavailable'); expect(section.textContent).toContain('Price unavailable');
+    expect(section.textContent).toContain('Helper agent tokens');
+    expect(section.textContent).toContain('Latest records only');
+    expect(section.textContent).not.toContain('$0.00');
+    expect(section.querySelector('details')?.textContent).toContain('example-thread');
+  });
+  it('shows an unavailable receipt log separately from an empty receipt log', async () => {
+    mockIpc.costGetEphemeralUsage.mockResolvedValue({ success: false, error: { message: 'read failed' } } as never);
+    await component.refreshAll(false); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Temporary Codex usage is unavailable');
+    mockIpc.costGetEphemeralUsage.mockResolvedValue({success:true,data:{entries:[],truncated:false,skippedLines:0}});
+    await component.refreshAll(false); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('No finished temporary Codex sessions recorded');
   });
 
   // ── Total cost ──────────────────────────────────────────────────────────

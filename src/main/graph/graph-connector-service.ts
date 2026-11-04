@@ -115,6 +115,7 @@ export class GraphConnectorService {
     requestContext: GraphRequestContext = {},
   ): Promise<unknown> {
     const context: GraphRequestContext = {
+      beforeMutation: requestContext.beforeMutation,
       signal: requestContext.signal,
       assertActive: () => {
         requestContext.signal?.throwIfAborted();

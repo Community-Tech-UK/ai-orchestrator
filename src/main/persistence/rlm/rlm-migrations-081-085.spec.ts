@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../../db/sqlite-driver';
-import { computeMigrationChecksum, createMigrationsTable, createTables, MIGRATIONS, runMigrations } from './rlm-schema';
+import { computeMigrationChecksum, createMigrationsTable, createTables, getAppliedMigrations, MIGRATIONS, runMigrations } from './rlm-schema';
 import { RLM_MIGRATIONS_081_085 } from './rlm-migrations-081-085';
 
 describe('081_browser_audit_command_id', () => {
@@ -55,17 +55,42 @@ describe('merged browser migrations', () => {
     try {
       createTables(db);
       createMigrationsTable(db);
-      for (const migration of MIGRATIONS.filter((m) => m.name < '081' || m.name === appliedName)) {
+      const preapplied = MIGRATIONS.filter((m) => m.name < '081' || m.name === appliedName);
+      for (const migration of preapplied) {
         db.exec(migration.up);
         db.prepare('INSERT INTO _migrations(name, applied_at, checksum) VALUES (?, ?, ?)')
           .run(migration.name, 1, computeMigrationChecksum(migration));
       }
 
+      db.prepare(`INSERT INTO browser_audit_entries
+        (id, provider, action, tool_name, action_class, decision, outcome, summary, request_id, created_at)
+        VALUES ('audit-placeholder', 'codex', 'click', 'browser.click', 'input', 'requires_user', 'not_run',
+          'Approval required', 'approval-placeholder', 1)`).run();
+      db.prepare(`INSERT INTO automations
+        (id, name, schedule_type, schedule_json, missed_run_policy, concurrency_policy, action_json, created_at, updated_at)
+        VALUES ('job-placeholder', 'Job placeholder', 'cron', '{}', 'skip', 'skip', ?, 1, 1)`)
+        .run(JSON.stringify({ prompt: 'Placeholder', workingDirectory: '/repo' }));
+      const preappliedNames = new Set(preapplied.map((m) => m.name));
+      const expectedPending = MIGRATIONS.filter((m) => !preappliedNames.has(m.name)).map((m) => m.name);
       const applied: string[] = [];
       runMigrations(db, (name) => applied.push(name));
-      runMigrations(db, (name) => applied.push(name));
 
-      expect(applied).toEqual(RLM_MIGRATIONS_081_085.filter((m) => m.name !== appliedName).map((m) => m.name));
+      expect(applied).toEqual(expectedPending);
+      const ledger = getAppliedMigrations(db);
+      expect(ledger.map(({ name, checksum }) => ({ name, checksum })).sort((a, b) => a.name.localeCompare(b.name)))
+        .toEqual(MIGRATIONS.map((migration) => ({ name: migration.name, checksum: computeMigrationChecksum(migration) }))
+          .sort((a, b) => a.name.localeCompare(b.name)));
+      const afterRestart: string[] = [];
+      runMigrations(db, (name) => afterRestart.push(name));
+      expect(afterRestart).toEqual([]);
+      expect(getAppliedMigrations(db)).toEqual(ledger);
+      expect(db.prepare('SELECT id, request_id, command_id FROM browser_audit_entries').get()).toEqual({
+        id: 'audit-placeholder', request_id: 'approval-placeholder', command_id: null,
+      });
+      const action = db.prepare('SELECT action_json FROM automations').get<{ action_json: string }>()!;
+      expect(JSON.parse(action.action_json)).toEqual({
+        prompt: 'Placeholder', workingDirectory: '/repo', maxRunMinutes: 30, maxProcessedTokens: 30_000_000,
+      });
       expect(db.prepare("PRAGMA table_info('browser_audit_entries')").all<{ name: string }>().map((row) => row.name))
         .toContain('command_id');
       expect(db.prepare("PRAGMA table_info('browser_login_portal_recipes')").all<{ name: string }>().map((row) => row.name))

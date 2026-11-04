@@ -539,6 +539,11 @@ export type NextObjectivePlanner = (context: {
 }) => Promise<string | null | undefined>;
 
 export interface LoopConfig {
+  /** Explicit scheduled execution settings; absent on ordinary user-started loops. */
+  model?: string;
+  reasoningEffort?: import('./automation.types').AutomationReasoningEffort;
+  yoloMode?: boolean;
+  executionAuthority?: Readonly<import('./automation.types').AutomationExecutionAuthority>;
   /** Interactive starts may pause an unreplayable failed step; absent stays terminal. */
   onFailedStep?: 'stop' | 'pause';
   /** The goal/ask. Sent on iteration 0 — anchors what the loop drives toward. */

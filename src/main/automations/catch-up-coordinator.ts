@@ -31,12 +31,19 @@ export class CatchUpCoordinator {
     until: number;
   }): Promise<void> {
     const automations = await this.store.list();
+    const awaitingRetry = new Set(this.store.listPendingRetries().map(retry => retry.automationId));
     for (const automation of automations) {
-      if (!automation.active || !automation.enabled) {
+      if (!automation.active || !automation.enabled || awaitingRetry.has(automation.id)) {
         continue;
       }
 
-      const since = this.getSweepBaseline(automation, params.sinceFallback);
+      let since = this.getSweepBaseline(automation, params.sinceFallback);
+      // The persisted next check already skips nominal cron occurrences on
+      // purpose. Waking or restarting must not undo the monitor's slowdown.
+      if (automation.schedule.type === 'cron' && automation.action.slowWhenUnchanged
+        && (automation.monitorState?.intervalMultiplier ?? 1) > 1 && automation.nextFireAt !== null) {
+        since = Math.max(since, automation.nextFireAt - 1);
+      }
       const missed = computeMissedFireTimes(automation.schedule, since, params.until);
       if (missed.length === 0) {
         continue;

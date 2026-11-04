@@ -73,7 +73,14 @@ export const AutomationConfiguredTriggerSchema = z.discriminatedUnion('kind', [
   }),
 ]);
 
+export const AutomationExecutionAuthoritySchema = z.object({
+  provider: z.enum(['claude', 'codex']), model: ModelIdSchema,
+  modelTier: z.enum(['fast', 'balanced', 'powerful']),
+  reasoningEffort: AutomationReasoningEffortSchema, yoloMode: z.boolean(),
+}).strict();
+
 export const AutomationActionSchema = z.object({
+  executionAuthority: AutomationExecutionAuthoritySchema.optional(),
   prompt: z.string().min(1).max(500000),
   workingDirectory: WorkingDirectorySchema,
   provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode']).optional(),
@@ -83,6 +90,9 @@ export const AutomationActionSchema = z.object({
   reasoningEffort: AutomationReasoningEffortSchema.optional(),
   forceNodeId: z.string().uuid().optional(),
   attachments: z.array(AutomationFileAttachmentSchema).max(10).optional(),
+  maxRunMinutes: z.number().int().min(1).optional(),
+  maxProcessedTokens: z.number().int().min(1).max(1_000_000_000).optional(),
+  slowWhenUnchanged: z.boolean().optional(),
   // WS5: spawn-loop action — the prompt becomes an autonomous loop goal.
   // verifyCommand may be blank: the WS6 verification-authority policy is
   // enforced at dispatch, where `prepareLoopStartConfig` adopts the working
@@ -160,7 +170,7 @@ export const AutomationCreatePayloadSchema = z.object({
   missedRunPolicy: AutomationMissedRunPolicySchema.optional(),
   concurrencyPolicy: z.enum(['skip', 'queue']).optional(),
   destination: AutomationDestinationSchema.default({ kind: 'newInstance' }),
-  action: AutomationActionSchema,
+  action: AutomationActionSchema.omit({ executionAuthority: true }),
   hidden: z.boolean().optional(),
 });
 
@@ -175,9 +185,12 @@ export const AutomationUpdatePayloadSchema = z.object({
     missedRunPolicy: AutomationMissedRunPolicySchema.optional(),
     concurrencyPolicy: z.enum(['skip', 'queue']).optional(),
     destination: AutomationDestinationSchema.optional(),
-    action: AutomationActionSchema.optional(),
+    // Explicit undefined also clears a saved ceiling when the store merges human form edits.
+    action: AutomationActionSchema.omit({ executionAuthority: true })
+      .transform(action => ({ ...action, executionAuthority: undefined })).optional(),
     active: z.boolean().optional(),
     hidden: z.boolean().optional(),
+    dismissModelHint: z.literal(true).optional(),
   }),
 });
 
@@ -222,6 +235,13 @@ export const AutomationPreflightPayloadSchema = z.object({
   expectedUnattended: z.boolean().optional(),
 });
 
+export const AutomationMonitorStateSchema = z.object({
+  unchangedChecks: z.number().int().nonnegative(),
+  intervalMultiplier: z.number().int().min(1).max(4),
+  quietRuns: z.number().int().nonnegative(),
+  modelHintDismissed: z.boolean(),
+});
+
 export const AutomationSchema = z.object({
   id: AutomationIdSchema,
   name: z.string().min(1).max(200),
@@ -245,6 +265,7 @@ export const AutomationSchema = z.object({
   lastFailureAt: z.number().int().nonnegative().nullable().optional(),
   lastFailureReason: z.string().nullable().optional(),
   hidden: z.boolean().optional(),
+  monitorState: AutomationMonitorStateSchema.optional(),
 });
 
 const AutomationConfigSnapshotSchema = z.object({
@@ -258,7 +279,16 @@ const AutomationConfigSnapshotSchema = z.object({
   hidden: z.boolean().optional(),
 });
 
+export const AutomationResultSchema = z.object({
+  outcome: z.enum(['no_change', 'done', 'needs_attention']),
+  notify: z.boolean(),
+}).strict();
+export type AutomationResult = z.infer<typeof AutomationResultSchema>;
+
+
+
 export const AutomationRunSchema = z.object({
+  nextRetryAt: z.number().int().nonnegative().nullable().optional(),
   id: AutomationRunIdSchema,
   automationId: AutomationIdSchema,
   status: z.enum(['pending', 'running', 'succeeded', 'failed', 'skipped', 'cancelled']),
@@ -280,6 +310,8 @@ export const AutomationRunSchema = z.object({
   configSnapshot: AutomationConfigSnapshotSchema.nullable(),
   attempt: z.number().int().positive(),
   maxAttempts: z.number().int().positive(),
+  result: AutomationResultSchema.nullable().optional(),
+  processedTokens: z.number().nonnegative().optional(),
 });
 
 export const AutomationChangedEventSchema = z.object({

@@ -2,6 +2,7 @@ import { z } from 'zod/v4';
 import { InstanceSendRawParamsSchema } from './instance-interaction-schemas';
 import { REASONING_EFFORTS } from '../../shared/types/provider.types';
 import { RemoteClaudeSpawnPolicySchema } from './claude-spawn-policy-schema';
+import { RemoteSpawnMetadataSchema } from './remote-spawn-metadata';
 import {
   FsReadDirectoryParamsSchema,
   FsStatParamsSchema,
@@ -96,6 +97,7 @@ const WorkerNodeCapabilitiesSchema = z.object({
   supportedClis: z.array(z.string()),
   openCodeMajor: z.union([z.literal(1), z.literal(2)]).optional(),
   claudeSpawnPolicy: z.literal(1).optional().catch(undefined), // Malformed reads as absent: policy-bearing Claude is refused.
+  codexSpawnMetadata: z.literal(1).optional().catch(undefined),
   hasBrowserRuntime: z.boolean(),
   hasBrowserMcp: z.boolean(),
   browserAutomation: z.object({
@@ -218,17 +220,14 @@ export const InstancePermissionRequestParamsSchema = z.object({
 
 // -- Coordinator -> Node schemas -----------------------------------------------
 export const InstanceSpawnParamsSchema = z.object({
+  ...RemoteSpawnMetadataSchema.shape,
   instanceId: z.string().min(1), sessionId: z.string().min(1).max(512).optional(), interactionId: z.string().uuid().optional(),
   cliType: z.string().min(1),
   workingDirectory: z.string().min(1),
   usageSettlementProtocol: z.literal(1).optional(), // Per-instance opt-in; legacy workers strip it.
   systemPrompt: z.string().optional(),
   model: ProviderModelIdSchema.optional(),
-  /**
-   * Optional for wire compatibility: the worker's dispatcher casts rather than
-   * re-parsing these params, so an older worker build simply ignores the extra
-   * field and degrades to the CLI's own default, as before.
-   */
+  /** Optional for compatibility: older worker schemas strip this field and retain the provider default. */
   reasoningEffort: z.enum(REASONING_EFFORTS).optional(),
   yoloMode: z.boolean().optional(),
   allowedTools: z.array(z.string()).optional(),

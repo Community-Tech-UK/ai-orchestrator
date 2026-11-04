@@ -14,7 +14,7 @@ import { gitExec } from '../workspace/git/git-exec';
 import { isInsideOrEqual } from '../util/path-helpers';
 import { pathCompareKey } from '../workspace/git/worktree-cleanup';
 import { itemHoldsWorktree } from './plan-queue-state';
-import { assertQueueCheckout } from './plan-queue-orphan-checkout';
+import { assertQueueCheckout, InvalidQueueCheckoutError } from './plan-queue-orphan-checkout';
 import { PLAN_QUEUE_BRANCH_PREFIX, PLAN_QUEUE_WORKTREE_BASE_DIR } from './plan-queue-worktree';
 import type { PlanQueueItem } from './plan-queue.types';
 
@@ -68,8 +68,11 @@ export async function reconcilePlanQueueWorktrees(
     if (!existsSync(workspace)) continue;
     try {
       repoRoots.add(await gitExec(['rev-parse', '--show-toplevel'], workspace));
-    } catch {
-      // Not a git repository any more; nothing of ours can be in it.
+    } catch (error) {
+      const failure = error as { code?: unknown; stderr?: unknown };
+      if (failure.code !== 128 || typeof failure.stderr !== 'string'
+        || !failure.stderr.startsWith('fatal: not a git repository')) throw error;
+      // Git explicitly confirmed that this directory is no longer a repository.
     }
   }
 
@@ -116,7 +119,8 @@ export async function reconcilePlanQueueWorktrees(
     if (valid && item.state === 'parked' && item.branchName && listed?.repoRoot) {
       try {
         await assertQueueCheckout(item.worktreePath, item.branchName, listed.repoRoot);
-      } catch {
+      } catch (error) {
+        if (!(error instanceof InvalidQueueCheckoutError)) throw error;
         valid = false;
       }
     }

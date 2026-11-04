@@ -17,6 +17,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CreateAutomationArgsSchema,
+  createAutomationToolDefinitions,
   UpdateAutomationArgsSchema,
 } from './orchestrator-automation-tools';
 import { AutomationSchema } from '@contracts/schemas/automation';
@@ -76,4 +77,14 @@ describe('MCP automation arg bounds agree with the entity/event bounds (LT-031)'
     // fields are added to AutomationSchema.
     expect(AutomationSchema.shape.description.safeParse(atWriteCap).success).toBe(true);
   });
+});
+
+it('passes authenticated caller identity through update_automation', async () => {
+  let caller: string | null | undefined;
+  const tools = createAutomationToolDefinitions({ instanceId: 'example-caller', updateAutomation: async (_args, meta) => {
+    caller = meta?.callerInstanceId;
+    return { id: 'example', name: 'Example', scheduleSummary: 'Hourly', nextRunAt: null, enabled: false, workingDirectory: '/repo' };
+  } });
+  await tools.find(tool => tool.name === 'update_automation')!.handler({ id: 'example', enabled: false });
+  expect(caller).toBe('example-caller');
 });

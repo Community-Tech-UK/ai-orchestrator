@@ -39,6 +39,12 @@ export function inputNotPending(): Error {
   return Object.assign(new Error('No matching pending input request is waiting for a response.'), { code: 'INPUT_REQUIRED_NOT_PENDING' });
 }
 const ContextDetailsSchema = z.object({
+  copilotUsage: z.object({
+    premiumRequests: z.number().finite().nonnegative().optional(),
+    compactions: z.number().int().nonnegative(),
+    postCompactionTokens: z.number().finite().nonnegative().optional(),
+    tokenLimit: z.number().finite().positive().optional(),
+  }).optional(),
   cumulativeTokens: z.number().finite().nonnegative().optional(), isEstimated: z.boolean().optional(),
   inputTokens: z.number().finite().nonnegative().optional(), outputTokens: z.number().finite().nonnegative().optional(),
   costEstimate: z.number().finite().nonnegative().optional(), source: z.string().max(100).optional(),

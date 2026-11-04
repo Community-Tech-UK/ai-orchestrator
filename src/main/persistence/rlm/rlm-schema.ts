@@ -25,6 +25,45 @@ import { RLM_MIGRATIONS_071_075 } from './rlm-migrations-071-075';
 import { RLM_MIGRATIONS_076_080 } from './rlm-migrations-076-080';
 import { RLM_MIGRATIONS_081_085 } from './rlm-migrations-081-085';
 
+/** Keep the persisted 083 migration name stable; 082 remains reserved. */
+export const AUTOMATION_RUN_POLICY_MIGRATION: Migration = {
+  name: '083_automation_run_policy',
+  up: `
+    UPDATE automations SET action_json = json_set(action_json,
+      '$.maxRunMinutes', MAX(30, CAST(ceil(COALESCE((SELECT MAX((r.finished_at - r.started_at) / 60000.0) * 1.5
+        FROM automation_runs r WHERE r.automation_id = automations.id AND r.status = 'succeeded'
+          AND r.started_at IS NOT NULL AND r.finished_at >= r.started_at), 0)) AS INTEGER)))
+      WHERE json_extract(action_json, '$.maxRunMinutes') IS NULL;
+    UPDATE automations SET action_json = json_set(action_json, '$.maxProcessedTokens',
+      CASE schedule_type WHEN 'oneTime' THEN 100000000 ELSE 30000000 END)
+      WHERE json_extract(action_json, '$.maxProcessedTokens') IS NULL;
+    CREATE TABLE automation_run_facts (
+      run_id TEXT PRIMARY KEY REFERENCES automation_runs(id) ON DELETE CASCADE,
+      result_json TEXT,
+      processed_tokens INTEGER NOT NULL DEFAULT 0,
+      delivery_started_at INTEGER,
+      restart_retry_used INTEGER NOT NULL DEFAULT 0,
+      restart_source_run_id TEXT
+    );
+    CREATE TABLE automation_run_usage (
+      run_id TEXT NOT NULL REFERENCES automation_runs(id) ON DELETE CASCADE,
+      instance_id TEXT NOT NULL,
+      provider_tokens INTEGER NOT NULL DEFAULT 0,
+      attributed_tokens INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY(run_id, instance_id)
+    );
+    CREATE TABLE automation_monitor_state (
+      automation_id TEXT PRIMARY KEY REFERENCES automations(id) ON DELETE CASCADE,
+      fingerprint TEXT,
+      unchanged_checks INTEGER NOT NULL DEFAULT 0,
+      interval_multiplier INTEGER NOT NULL DEFAULT 1,
+      quiet_runs INTEGER NOT NULL DEFAULT 0,
+      model_hint_dismissed INTEGER NOT NULL DEFAULT 0
+    );
+  `,
+  down: `DROP TABLE automation_monitor_state; DROP TABLE automation_run_usage; DROP TABLE automation_run_facts;`,
+};
+
 /**
  * Migrations to be applied in order
  */
@@ -42,6 +81,7 @@ export const MIGRATIONS: Migration[] = [
   ...RLM_MIGRATIONS_071_075,
   ...RLM_MIGRATIONS_076_080,
   ...RLM_MIGRATIONS_081_085,
+  AUTOMATION_RUN_POLICY_MIGRATION,
 ];
 
 /** Enable WAL when main and the context worker open a fresh database together. */

@@ -7,7 +7,8 @@ import { GitWriteQueue } from '../workspace/git/git-write-queue';
 import { WorktreeManager } from '../workspace/git/worktree-manager';
 import { UnresolvedMergeError } from './plan-queue-git';
 import { landItemBranch } from './plan-queue-landing';
-import { PlanQueueWorktreeService, planQueueBranchName } from './plan-queue-worktree';
+import { PlanQueueCheckoutOwnershipError, PlanQueueWorktreeService, planQueueBranchName, recoverLeftover } from './plan-queue-worktree';
+import { InvalidQueueCheckoutError } from './plan-queue-orphan-checkout';
 import type { PlanQueueItem } from './plan-queue.types';
 import * as gitCommands from '../workspace/git/git-exec';
 
@@ -81,7 +82,7 @@ beforeEach(() => {
   git(['commit', '-q', '-m', 'base']);
 
   saved = [];
-  service = new PlanQueueWorktreeService({
+  service = new PlanQueueWorktreeService({ repoRootForItem: () => repo,
     creator: WorktreeManager.getInstance(),
     saveItem: (item) => saved.push(item),
     skipInstall: true,
@@ -105,9 +106,60 @@ describe('planQueueBranchName', () => {
 });
 
 describe('PlanQueueWorktreeService', () => {
+  it.each(['checkpoint-proof', 'checkpoint-branch', 'recover', 'remove-proof', 'remove-cleanup'] as const)(
+    'propagates an operational %s error without claiming foreign ownership or writing files', async operation => {
+      const item = await service.prepare(makeItem(), repo);
+      const wt = item.worktreePath!;
+      writeFileSync(join(wt, 'a.txt'), 'unsaved worker evidence\n');
+      git(['add', 'a.txt'], wt);
+      const before = { head: git(['rev-parse', 'HEAD'], wt),
+        index: readFileSync(join(git(['rev-parse', '--absolute-git-dir'], wt), 'index')),
+        file: readFileSync(join(wt, 'a.txt')) };
+      saved = [];
+      const failure = Object.assign(new Error('Temporary Git read failure'), { code: 'ETIMEDOUT' });
+      const execute = gitCommands.gitExec;
+      vi.spyOn(gitCommands, 'gitExec').mockImplementation((args, cwd, timeout) => {
+        const targeted = operation === 'checkpoint-branch' ? args[0] === 'symbolic-ref' && args.includes('--short')
+          : operation === 'remove-cleanup' ? args[0] === 'status' : args[0] === 'rev-parse' && args.includes('--show-toplevel');
+        return targeted ? Promise.reject(failure) : execute(args, cwd, timeout);
+      });
+      await expect(operation.startsWith('checkpoint') ? service.checkpoint(item, 'paused')
+        : operation === 'recover' ? recoverLeftover(wt, item.branchName!, item.id, repo)
+          : service.removeWithProof(item, repo)).rejects.toBe(failure);
+      expect(git(['rev-parse', 'HEAD'], wt)).toBe(before.head);
+      expect(readFileSync(join(git(['rev-parse', '--absolute-git-dir'], wt), 'index'))).toEqual(before.index);
+      expect(readFileSync(join(wt, 'a.txt'))).toEqual(before.file);
+      expect(saved).toEqual([]);
+    },
+  );
+
+  it('retains the actual ownership refusal as the checkpoint error cause', async () => {
+    const orphan = join(repo, '.worktrees', 'queue', 'missing-gitfile');
+    mkdirSync(orphan, { recursive: true });
+    const item = makeItem({ worktreePath: orphan, branchName: 'queue/missing-gitfile' });
+    const error = await service.checkpoint(item, 'paused').catch(error => error);
+    expect(error).toBeInstanceOf(PlanQueueCheckoutOwnershipError);
+    expect(error.cause).toBeInstanceOf(InvalidQueueCheckoutError);
+    expect(error.cause.cause).toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('reports temporary cleanup failure without labelling a proven checkout as foreign', async () => {
+    const item = await service.checkpoint(await service.prepare(makeItem(), repo), 'ready to remove');
+    const failure = Object.assign(new Error('Cleanup read temporarily unavailable'), { code: 'EMFILE' });
+    const manager = WorktreeManager.getInstance();
+    vi.spyOn(manager, 'cleanupWorktree').mockRejectedValueOnce(failure);
+    service = new PlanQueueWorktreeService({ repoRootForItem: () => repo, creator: manager,
+      saveItem: next => saved.push(next), skipInstall: true, stopLeftoversIn: async () => 0 });
+    saved = [];
+    await expect(service.removeWithProof(item, repo)).rejects.toBe(failure);
+    expect(existsSync(item.worktreePath!)).toBe(true);
+    expect(git(['rev-parse', item.branchName!])).toBe(item.checkpointCommit);
+    expect(saved).toEqual([]);
+  });
+
   it('saves branch and path before the worktree directory exists', async () => {
     let existedAtSave: boolean | undefined;
-    service = new PlanQueueWorktreeService({
+    service = new PlanQueueWorktreeService({ repoRootForItem: () => repo,
       creator: WorktreeManager.getInstance(),
       saveItem: (item) => {
         existedAtSave ??= existsSync(item.worktreePath ?? '');
@@ -126,7 +178,7 @@ describe('PlanQueueWorktreeService', () => {
   });
 
   it('creates no worktree when the ownership row cannot be written', async () => {
-    service = new PlanQueueWorktreeService({
+    service = new PlanQueueWorktreeService({ repoRootForItem: () => repo,
       creator: WorktreeManager.getInstance(),
       saveItem: () => {
         throw new Error('db down');
@@ -283,8 +335,8 @@ describe('PlanQueueWorktreeService', () => {
   });
 
   it('stops leftover programs in the worktree before removing it, and removes it even if that check fails', async () => {
-    const calls: Array<{ folder: string; existed: boolean }> = [];
-    service = new PlanQueueWorktreeService({
+    const calls: { folder: string; existed: boolean }[] = [];
+    service = new PlanQueueWorktreeService({ repoRootForItem: () => repo,
       creator: WorktreeManager.getInstance(),
       saveItem: (item) => saved.push(item),
       skipInstall: true,
@@ -304,7 +356,7 @@ describe('PlanQueueWorktreeService', () => {
 
   it('does not look for leftovers when the worktree is not removable', async () => {
     const stopLeftoversIn = vi.fn(async () => 0);
-    service = new PlanQueueWorktreeService({
+    service = new PlanQueueWorktreeService({ repoRootForItem: () => repo,
       creator: WorktreeManager.getInstance(), saveItem: (item) => saved.push(item), skipInstall: true, stopLeftoversIn,
     });
     let item = await service.prepare(makeItem(), repo);
@@ -348,7 +400,7 @@ describe('PlanQueueWorktreeService', () => {
     let item = await service.prepare(makeItem(), repo);
     item = await service.checkpoint(item, 'before restart');
     WorktreeManager._resetForTesting();
-    service = new PlanQueueWorktreeService({
+    service = new PlanQueueWorktreeService({ repoRootForItem: () => repo,
       creator: WorktreeManager.getInstance(),
       saveItem: (i) => saved.push(i),
       skipInstall: true,

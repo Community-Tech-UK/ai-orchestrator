@@ -114,6 +114,42 @@
     <p class="subtitle">Copilot is billed in AI credits and is not in the dollar total.</p>
   </section>
 
+  <section class="panel-card" aria-label="Temporary Codex sessions">
+    <div class="panel-title">Temporary Codex sessions</div>
+    <p class="subtitle">Finished sessions only. Cache is part of input; reasoning is part of output. Helper agent tokens are separate. Price unavailable: these records do not include a provider bill.</p>
+    @if (ephemeralUsage(); as usage) {
+      @if (usage.truncated) { <p class="subtitle">Latest records only. Older records are outside this view.</p> }
+      @if (usage.skippedLines > 0) { <p class="subtitle">Some incomplete or invalid records could not be read.</p> }
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead><tr><th>Finished</th><th>Model requests</th><th>Input</th><th>Cache</th><th>Output</th><th>Reasoning</th><th>Helper agent tokens</th><th>Compactions</th><th>Duration</th><th>Details</th></tr></thead>
+          <tbody>
+            @for (row of usage.entries; track row.threadId) {
+              <tr>
+                <td>{{ formatTimestamp(row.endedAt) }} @if (row.tokens.estimated) { <span>Includes estimates</span> }</td>
+                <td>{{ row.requestsAvailable ? formatUsage(row.requests) : 'Unavailable' }}</td>
+                <td>{{ formatUsage(row.tokens.input) }}</td><td>{{ formatUsage(row.tokens.cache) }}</td>
+                <td>{{ formatUsage(row.tokens.output) }}</td><td>{{ formatUsage(row.tokens.reasoning) }}</td>
+                <td>{{ formatUsage(row.helpers.tokens.total) }} @if (row.helpers.tokens.estimated) { <span>Includes estimates</span> }</td>
+                <td>{{ formatUsage(row.compactions) }}</td><td>{{ (row.durationMs / 1000).toFixed(1) }} s</td>
+                <td><details><summary>Details</summary>
+                  <dl><dt>Thread</dt><dd>{{ row.threadId }}</dd><dt>Session</dt><dd>{{ row.instanceId ?? 'Unavailable' }}</dd>
+                    <dt>Job</dt><dd>{{ row.jobId ?? 'Unavailable' }}</dd><dt>Kind</dt><dd>{{ row.kind }}</dd>
+                    <dt>Trial group (hashed)</dt><dd>{{ row.trialKey ?? 'Unavailable' }}</dd><dt>Trial arm</dt><dd>{{ row.trialArm }}</dd>
+                    <dt>Session tokens (excluding helpers)</dt><dd>{{ formatUsage(row.tokens.total) }}</dd>
+                    <dt>Helper agents</dt><dd>{{ formatUsage(row.helpers.count) }}</dd>
+                    <dt>Helper input</dt><dd>{{ formatUsage(row.helpers.tokens.input) }}</dd><dt>Helper cache</dt><dd>{{ formatUsage(row.helpers.tokens.cache) }}</dd>
+                    <dt>Helper output</dt><dd>{{ formatUsage(row.helpers.tokens.output) }}</dd><dt>Helper reasoning</dt><dd>{{ formatUsage(row.helpers.tokens.reasoning) }}</dd>
+                  </dl>
+                </details></td>
+              </tr>
+            } @empty { <tr><td colspan="10">No finished temporary Codex sessions recorded.</td></tr> }
+          </tbody>
+        </table>
+      </div>
+    } @else { <p class="empty-hint">Temporary Codex usage is unavailable.</p> }
+  </section>
+
   <!-- Budget status row -->
   <div class="metrics-row">
     <div class="metric-card" [class.over-budget]="budgetStatus().daily.percentage >= 100">

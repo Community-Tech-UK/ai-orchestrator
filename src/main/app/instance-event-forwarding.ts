@@ -1,4 +1,6 @@
 import { forwardCrossModelReviewEvents } from './cross-model-review-event-forwarding';
+import { attachReviewStalenessAbort } from '../orchestration/review-staleness-abort';
+import { registerCleanup } from '../util/cleanup-registry';
 import { isOccupancyPressureReading } from '../../shared/utils/context-occupancy';
 import { getContextEngine } from '../context/context-engine';
 import { evaluateContextWindowGuard } from '../context/context-window-guard';
@@ -438,6 +440,7 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
   });
 
   const crossModelReview = getCrossModelReviewService();
+  registerCleanup(attachReviewStalenessAbort(instanceManager, crossModelReview));
 
   instanceManager.on('provider:normalized-event', (envelope) => {
     const message = toOutputMessageFromProviderEnvelope(envelope);

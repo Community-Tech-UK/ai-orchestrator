@@ -11,11 +11,20 @@ import { restoreItemCheckout } from './plan-queue-squash';
 import { newPlanQueueItem } from './plan-queue-state';
 
 let repo: string;
+let fixtureRoot: string;
 const git = (args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' }).trim();
+
+function useLinkedCheckout(): void {
+  const checkout = join(repo, '.worktrees', 'queue', 'item');
+  git(['checkout', '-q', '-b', 'fixture-root']);
+  git(['worktree', 'add', '-q', checkout, 'main']);
+  repo = checkout;
+}
 
 beforeEach(() => {
   GitWriteQueue._resetForTesting();
   repo = realpathSync(mkdtempSync(join(tmpdir(), 'plan-queue-git-')));
+  fixtureRoot = repo;
   git(['init', '-q', '-b', 'main']);
   git(['config', 'user.name', 'T']);
   git(['config', 'user.email', 't@example.invalid']);
@@ -27,7 +36,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(repo, { recursive: true, force: true });
+  rmSync(fixtureRoot, { recursive: true, force: true });
   GitWriteQueue._resetForTesting();
 });
 
@@ -41,6 +50,7 @@ describe('verifier tree guard', () => {
   });
 
   it('reverts only what the verifier changed: a commit, an edit, a staged add and an untracked file', async () => {
+    useLinkedCheckout();
     writeFileSync(join(repo, 'provisioned.local'), 'port=1\n');
     const before = await snapshotTree(repo);
 
@@ -51,7 +61,7 @@ describe('verifier tree guard', () => {
     git(['add', 'staged.txt']);
     writeFileSync(join(repo, 'scratch.txt'), 'x\n');
 
-    await revertToSnapshot(repo, before);
+    await revertToSnapshot(repo, before, fixtureRoot, 'main');
 
     expect(sameTree(before, await snapshotTree(repo))).toBe(true);
     expect(readFileSync(join(repo, 'a.txt'), 'utf8')).toBe('a\n');
@@ -82,10 +92,11 @@ describe('verifier tree guard', () => {
   });
 
   it('abandons a merge started after the snapshot, so a later sync is not blocked by MERGE_HEAD', async () => {
+    useLinkedCheckout();
     const before = await snapshotTree(repo);
     startConflictedMerge();
 
-    await revertToSnapshot(repo, before);
+    await revertToSnapshot(repo, before, fixtureRoot, 'main');
 
     expect(await mergeInProgress(repo)).toBe(false);
     expect(sameTree(before, await snapshotTree(repo))).toBe(true);
@@ -134,24 +145,24 @@ describe('a queue path that is no longer its own checkout', () => {
   });
 
   it('refuses a revert instead of resetting the root checkout', async () => {
-    await expect(revertToSnapshot(folder, { head: checkpoint, status: [] })).rejects.toThrow('not a checkout of its own');
+    await expect(revertToSnapshot(folder, { head: checkpoint, status: [] }, repo, 'queue/item')).rejects.toThrow('saved queue checkout is invalid');
     expectRootUntouched();
   });
 
   it('refuses to merge the base branch into it', async () => {
-    const item = newPlanQueueItem('item', 'run', 'docs/plans/x_plan.md', 0, { worktreePath: folder, checkpointCommit: checkpoint });
-    await expect(syncItemWithBase(item, 'other-base')).rejects.toThrow('not a checkout of its own');
+    const item = newPlanQueueItem('item', 'run', 'docs/plans/x_plan.md', 0, { worktreePath: folder, branchName: 'queue/item', checkpointCommit: checkpoint });
+    await expect(syncItemWithBase(item, 'other-base', repo)).rejects.toThrow('saved queue checkout is invalid');
     expectRootUntouched();
   });
 
   it('refuses to put a landing back on the item branch', async () => {
-    await expect(restoreItemCheckout(folder, 'queue/item')).rejects.toThrow('not a checkout of its own');
+    await expect(restoreItemCheckout(folder, 'queue/item', repo)).rejects.toThrow("not this item's checkout");
     expectRootUntouched();
   });
 
   it('has nothing to restore after an interrupted verification', async () => {
     const item = newPlanQueueItem('item', 'run', 'docs/plans/x_plan.md', 0, { worktreePath: folder, checkpointCommit: checkpoint });
-    await restoreCheckpointAfterVerification(item);
+    await restoreCheckpointAfterVerification(item, repo);
     expectRootUntouched();
     expect(existsSync(join(folder, '_scratch', 'left.txt'))).toBe(true);
   });

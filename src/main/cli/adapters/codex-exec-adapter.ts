@@ -1,5 +1,6 @@
 import type { AdapterInputDispatch, CliAttachment, CliMessage, CliResponse, InterruptResult } from './base-cli-adapter';
 import { assertAdapterInputCurrent, createAdapterInputDispatch } from './adapter-input-dispatch';
+import { codexExecUsage } from './codex/exec-ephemeral-usage';
 import { CodexBaseAdapter } from './codex-base-adapter';
 import type { CodexCliConfig } from './codex-adapter-config';
 import type { CodexConversationEntry } from './codex/exec-helpers';
@@ -418,8 +419,10 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
     let settleInterrupt!: (result: TurnInterruptCompletion) => void;
     const writePhase = { accepted: false, cancelled: false, completion: new Promise<TurnInterruptCompletion>(resolve => { settleInterrupt = resolve; }) };
     this.execInputWrite = writePhase;
+    const usage = codexExecUsage(this.cliConfig);
     return runCodexExecProcess({
       writePhase,
+      onUsageEvent: event => usage.observe(event),
       dispatch,
       message,
       timeoutMs: options.timeoutMs,
@@ -452,9 +455,11 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
         this.shouldResumeNextTurn = true;
       },
     }).then(result => {
+      usage.finish(result.code !== 0);
       settleInterrupt({ status: 'completed' });
       return result;
     }).catch(error => {
+      usage.finish(true);
       settleInterrupt({ status: writePhase.cancelled ? 'interrupted' : 'rejected' });
       if (!writePhase.accepted && error instanceof Error) noteUnacceptedCodexExecInput(error);
       throw error;

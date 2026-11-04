@@ -7,6 +7,7 @@
  */
 
 import { getLogger } from '../logging/logger';
+import { getNotificationService } from '../notifications/notification-service';
 import type {
   Automation,
   AutomationRun,
@@ -19,6 +20,22 @@ import { deliverRunSummaryToChannel } from './automation-runner-helpers';
 import type { RetrySchedulerCallback } from './automation-runner-types';
 
 const logger = getLogger('AutomationRunner');
+
+/** Best-effort breaker notice; notification failure never changes run bookkeeping. */
+export function notifyAutomationDisabled(automationId: string, consecutiveFailures?: number, reason?: string): void {
+  try {
+    getNotificationService().notify({
+      kind: 'automation-breaker',
+      title: 'Automation auto-disabled',
+      body: `Disabled after ${consecutiveFailures ?? 'repeated'} consecutive failures`
+        + `${reason ? ` (last: ${reason.slice(0, 200)})` : ''}. Re-enable it from the Automations page.`,
+      urgency: 'critical',
+      fingerprintFields: { automationId },
+    });
+  } catch {
+    // Notification failure must never affect run bookkeeping.
+  }
+}
 
 export interface AutomationTerminalRunHost {
   events: {
@@ -36,6 +53,7 @@ export interface AutomationTerminalRunHost {
     }): void;
   };
   store: {
+    markDeliveryStarted(runId: string, now: number): boolean;
     recordRunOutcome(
       automationId: string,
       status: AutomationRunStatus,
@@ -133,6 +151,7 @@ export function handleTerminalRun(
     }
   }
 
+  if (run.status === 'succeeded') host.emitAutomationState(run.automationId);
   if (host.isOneTimeRun(run)) {
     host.emitAutomationState(run.automationId);
     const hasRetryPending =
@@ -162,7 +181,7 @@ export function handleTerminalRun(
         });
       });
   }
-  deliverRunSummaryToChannel(run).catch((deliveryError) => {
+  deliverRunSummaryToChannel(run, () => host.store.markDeliveryStarted(run.id, host.now())).catch((deliveryError) => {
     logger.warn('Failed to deliver automation run summary to channel', {
       automationId: run.automationId,
       runId: run.id,

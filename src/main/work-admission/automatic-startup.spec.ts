@@ -1,10 +1,20 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { markAutomaticStartupInputDispatched, runAutomaticStartup } from './automatic-startup';
+import { addAutomaticStartupCheck, markAutomaticStartupInputDispatched, runAutomaticStartup } from './automatic-startup';
 import { pauseConsults } from './consult-admission';
 import { getWorkAdmission, WorkAdmission } from './work-admission';
 
 afterEach(() => WorkAdmission._resetForTesting());
 describe('automatic startup restart barrier', () => {
+  it('checks a run deadline again at provider input after awaited admission', async () => {
+    let current = true;
+    await expect(runAutomaticStartup(async startup => {
+      addAutomaticStartupCheck(() => current);
+      await Promise.resolve(); current = false;
+      try { markAutomaticStartupInputDispatched('late'); }
+      finally { expect(startup.wasDispatched('late')).toBe(false); }
+    })).rejects.toThrow('cancelled for restart');
+  });
+
   it('records only actual input dispatch and refuses a dispatch after cancellation', async () => {
     await runAutomaticStartup(async startup => {
       expect(startup.wasDispatched('started')).toBe(false);

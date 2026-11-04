@@ -6,6 +6,7 @@ import type {
   AutomationWebhookFilter,
 } from '../../../../shared/types/automation.types';
 import type { FileAttachment } from '../../../../shared/types/instance.types';
+import { CLAUDE_MODELS } from '../../../../shared/types/provider.types';
 import { resolveNewAutomationModelSelection } from '../../../../shared/automations/new-automation-model-default';
 
 export interface AutomationFormModel {
@@ -42,6 +43,10 @@ export interface AutomationFormModel {
   executionProfile: AutomationExecutionProfile;
   /** Keep this automation's sessions out of the project rail. See `Automation.hidden`. */
   hidden: boolean;
+  modelExplicitlyChosen: boolean;
+  maxRunMinutes: number;
+  maxProcessedTokens: number;
+  slowWhenUnchanged: boolean;
 }
 
 export function newAutomationFormModelSelection(
@@ -80,6 +85,10 @@ export function emptyForm(): AutomationFormModel {
     loopMaxCostCents: '',
     executionProfile: 'standard',
     hidden: false,
+    modelExplicitlyChosen: false,
+    maxRunMinutes: 90,
+    maxProcessedTokens: 30_000_000,
+    slowWhenUnchanged: false,
   };
 }
 
@@ -133,4 +142,35 @@ export function toLocalDateInput(timestamp: number): string {
 export function fromLocalDateInput(value: string): number {
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? Date.now() : parsed.getTime();
+}
+
+export function formToAction(model: AutomationFormModel): AutomationAction & { maxRunMinutes: number; maxProcessedTokens: number; slowWhenUnchanged: boolean } {
+  return {
+    maxRunMinutes: model.maxRunMinutes, maxProcessedTokens: model.maxProcessedTokens, slowWhenUnchanged: model.slowWhenUnchanged,
+    prompt: model.prompt,
+    workingDirectory: model.workingDirectory,
+    provider: model.provider,
+    model: model.model || undefined,
+    agentId: model.agentId || undefined,
+    yoloMode: model.yoloMode,
+    reasoningEffort: model.reasoningEffort || undefined,
+    forceNodeId: model.forceNodeId || undefined,
+    attachments: model.attachments,
+    loop: formToLoopAction(model),
+    // WS-C7: absent means 'standard' (current behaviour) — never persist the
+    // default explicitly so older/other-worktree readers see no field at all.
+    executionProfile: model.executionProfile === 'standard' ? undefined : model.executionProfile,
+  };
+}
+
+export function patchAutomationForm(current: AutomationFormModel, patch: Partial<AutomationFormModel>): AutomationFormModel {
+  const next = { ...current, ...patch,
+    ...(patch.scheduleType && !current.id ? { maxProcessedTokens: patch.scheduleType === 'oneTime' ? 100_000_000 : 30_000_000 } : {}),
+  };
+  if (!next.id && !next.modelExplicitlyChosen && (patch.name !== undefined || patch.prompt !== undefined)
+    && (!next.provider || next.provider === 'auto' || next.provider === 'claude')) {
+    const check = /\b(check|monitor|watch|poll)\b/i.test(`${next.name} ${next.prompt}`);
+    return { ...next, provider: 'claude', model: check ? CLAUDE_MODELS.SONNET : CLAUDE_MODELS.OPUS, reasoningEffort: check ? 'low' : '' };
+  }
+  return next;
 }

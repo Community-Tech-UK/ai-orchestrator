@@ -1,4 +1,7 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { RouterLink } from '@angular/router';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import { DEFAULT_PLAN_QUEUE_ROUTING } from '@contracts/schemas/plan-queue';
 import { CopilotAccountIpcService } from '../../core/services/ipc/copilot-account-ipc.service';
 import { ProviderAccountIpcService } from '../../core/services/ipc/provider-account-ipc.service';
@@ -6,7 +9,6 @@ import { InstanceStore } from '../../core/state/instance.store';
 import { PlanQueueStore } from '../../core/state/plan-queue.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { PlanQueueAccountRulesPanelComponent } from './components/plan-queue-account-rules-panel.component';
-import { PlanQueueAlertsListComponent } from './components/plan-queue-alerts-list.component';
 import { PlanQueueNeedJamesListComponent } from './components/plan-queue-need-james-list.component';
 import { PlanQueueParkedListComponent } from './components/plan-queue-parked-list.component';
 import { PlanQueueQuestionListComponent } from './components/plan-queue-question-list.component';
@@ -15,34 +17,31 @@ import { upgradePlanQueueRouting } from '../../../../shared/utils/plan-queue-rou
 import { PlanQueueRunListComponent, planQueueRoutingSummary, type PlanQueueAccountLabel } from './components/plan-queue-run-list.component';
 import type { PlanQueueParentSessionOption, PlanQueueStartRequest } from './components/plan-queue-start-form.component';
 import { PlanQueueStartFormComponent } from './components/plan-queue-start-form.component';
+import { PlanQueueSkipPendingComponent } from './components/plan-queue-skip-pending.component';
+import { planQueueKindLabel, pluralise } from './plan-queue-item-display';
 
-/**
- * The Plan Queue control surface, in operator order: the questions waiting on
- * James, then which providers and accounts new runs use (one line, opened with
- * Change, so a long run list never hides it), then the account rules (accounts
- * to avoid or use last), then the runs and their
- * Pause/Resume/Cancel controls, then starting a run, then history (livetest
- * checks only James can do, parked work and reconciler alerts). Each section
- * opens with one plain-English purpose line.
- */
+/** Current work, retained work, and provider setup, each in its own tab. */
 @Component({
   selector: 'app-plan-queue-page',
   standalone: true,
   imports: [
+    RouterLink,
+    AioTooltipDirective,
     PlanQueueAccountRulesPanelComponent,
-    PlanQueueAlertsListComponent,
     PlanQueueNeedJamesListComponent,
     PlanQueueParkedListComponent,
     PlanQueueQuestionListComponent,
     PlanQueueRoutingPanelComponent,
     PlanQueueRunListComponent,
     PlanQueueStartFormComponent,
+    PlanQueueSkipPendingComponent,
   ],
   templateUrl: './plan-queue-page.component.html',
   styleUrl: './plan-queue-page.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PlanQueuePageComponent implements OnInit {
+  protected readonly copy = copyFor;
   protected readonly store = inject(PlanQueueStore);
   private readonly instanceStore = inject(InstanceStore);
   private readonly settingsStore = inject(SettingsStore);
@@ -55,6 +54,43 @@ export class PlanQueuePageComponent implements OnInit {
     const labels = this.accountLabels();
     return (provider, id) => labels.get(`${provider}:${id}`) ?? id;
   });
+
+  protected readonly tabs = [
+    { id: 'now', label: 'Now' }, { id: 'aside', label: 'Set aside' }, { id: 'setup', label: 'Setup' },
+  ] as const;
+  protected readonly activeTab = signal<'now' | 'aside' | 'setup'>('now');
+  protected readonly activeRuns = computed(() => this.store.allRuns().filter(run => run.status === 'running' || run.status === 'paused'));
+  protected readonly activeItems = computed(() => this.activeRuns().flatMap(run => run.items));
+  protected readonly historyRuns = computed(() => this.store.allRuns().filter(run => run.status === 'completed' || run.status === 'cancelled'));
+  protected readonly busyDocuments = computed(() => this.activeRuns().flatMap(run => run.items)
+    .filter(item => item.state !== 'parked' && item.state !== 'landed' && item.state !== 'skipped').map(item => item.documentPath));
+  protected readonly checkerRunId = signal<string | null>(null);
+  protected readonly checkerRuns = computed(() => this.store.allRuns().filter(run => run.id === this.checkerRunId()));
+  protected readonly kindLabel = planQueueKindLabel;
+  protected readonly pluralise = pluralise;
+  protected readonly historyDate = (at: number) => new Date(at).toLocaleString();
+  protected readonly openHistory = signal<ReadonlySet<string>>(new Set());
+
+  onHistoryToggle(runId: string, event: Event): void {
+    const open = (event.target as HTMLDetailsElement).open;
+    this.openHistory.update(previous => {
+      const next = new Set(previous);
+      if (open) next.add(runId); else next.delete(runId);
+      return next;
+    });
+  }
+
+  onTabKey(event: KeyboardEvent, index: number): void {
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? 2
+      : event.key === 'ArrowRight' ? (index + 1) % 3 : event.key === 'ArrowLeft' ? (index + 2) % 3 : null;
+    if (next === null) return;
+    event.preventDefault();
+    this.activeTab.set(this.tabs[next].id);
+    const list = (event.target as HTMLElement).closest('[role="tablist"]');
+    (list?.querySelectorAll<HTMLElement>('[role="tab"]')[next])?.focus();
+  }
+
+  onChooseChecker(runId: string): void { this.checkerRunId.set(runId); this.activeTab.set('setup'); }
 
   protected readonly editingDefaults = signal(false);
   protected readonly defaultsSummary = computed(() => planQueueRoutingSummary(

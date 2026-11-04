@@ -1,3 +1,4 @@
+import type { CodexUsageTokens } from '../../../../shared/types/codex-ephemeral-usage.types';
 import type { CliUsage } from '../base-cli-adapter';
 import { computeTokenCost } from '../../../../shared/data/model-pricing';
 import { disjointCodexUsage, resolveCodexTurnUsageBreakdown, tokenCount, type CodexTurnUsageBreakdown } from './token-usage-breakdown';
@@ -33,6 +34,9 @@ export class CodexUsageAccounting {
   private readonly lastOnly = new Map<string, string>();
   private readonly interruptedEstimates = new Map<string, { output: number; turnId?: string }[]>();
   private readonly settledInterruptedTurns = new Map<string, Set<string>>();
+  private readonly evidence = new Map<string, Set<keyof CodexUsageTokens>>();
+  private readonly outputEstimateThreads = new Set<string>();
+  private readonly estimatedThreads = new Set<string>();
   private turn = empty();
   private estimated = false;
   private pending = false;
@@ -139,6 +143,7 @@ export class CodexUsageAccounting {
         this.previous.set(threadId, { raw: empty(), total: gross, detailed: true });
       }
     }
+    this.noteEvidence(threadId, current?.detailed ? total : call ? last : current ? total : undefined);
     this.add(threadId, delta, gross, child);
   }
 
@@ -174,6 +179,7 @@ export class CodexUsageAccounting {
       this.provisional.delete(threadId);
     }
     if (estimate && turnId) this.removeInterruptedEstimate(threadId, turnId);
+    this.noteEvidence(threadId, usage);
     this.add(threadId, delta, gross, child);
   }
 
@@ -187,6 +193,8 @@ export class CodexUsageAccounting {
     const estimates = this.interruptedEstimates.get(threadId) ?? [];
     estimates.push({ output, turnId: nativeTurnId });
     this.interruptedEstimates.set(threadId, estimates);
+    this.estimatedThreads.add(threadId);
+    this.outputEstimateThreads.add(threadId);
     this.add(threadId, delta, output, false);
     this.estimated = true;
   }
@@ -200,6 +208,37 @@ export class CodexUsageAccounting {
   ownsThread(threadId: string): boolean { return this.ownedThreads.has(threadId); }
   hasThreadSnapshot(threadId: string): boolean { return this.previous.has(threadId); }
   trackThread(threadId: string): void { this.ownedThreads.add(threadId); }
+
+  accountedThreadIds(): string[] { return [...this.accountedByThread.keys()]; }
+  ownedThreadIds(): string[] { return [...this.ownedThreads]; }
+  clearOwnership(): void { this.ownedThreads.clear(); }
+
+  /** Cumulative native subsets, independent of per-turn take()/peek() drains. */
+  threadTokens(threadId: string): CodexUsageTokens {
+    const raw = this.accountedByThread.get(threadId) ?? empty();
+    const evidence = this.evidence.get(threadId);
+    const estimated = this.estimatedThreads.has(threadId);
+    return {
+      input: evidence?.has('input') ? raw.inputTokens : null,
+      cache: evidence?.has('cache') ? Math.min(raw.inputTokens, raw.cacheReadTokens) : null,
+      output: evidence?.has('output') || this.outputEstimateThreads.has(threadId) ? raw.outputTokens : null,
+      reasoning: evidence?.has('reasoning') ? Math.min(raw.outputTokens, raw.reasoningTokens) : null,
+      total: evidence?.has('total') || this.outputEstimateThreads.has(threadId) ? this.totalByThread.get(threadId) ?? 0 : null,
+      estimated,
+    };
+  }
+
+  private noteEvidence(threadId: string, usage: Record<string, unknown> | undefined): void {
+    if (!usage) return;
+    const fields = new Set<keyof CodexUsageTokens>();
+    if (valid(usage['inputTokens'] ?? usage['input_tokens'])) fields.add('input');
+    if (valid(usage['outputTokens'] ?? usage['output_tokens'])) fields.add('output');
+    if (valid(usage['cachedInputTokens'] ?? usage['cached_input_tokens'])) fields.add('cache');
+    if (valid(usage['reasoningOutputTokens'] ?? usage['reasoning_output_tokens'])) fields.add('reasoning');
+    if (valid(usage['totalTokens'] ?? usage['total_tokens']) || fields.has('input') && fields.has('output')) fields.add('total');
+    const previous = this.evidence.get(threadId);
+    this.evidence.set(threadId, previous ? new Set([...previous].filter(key => fields.has(key))) : fields);
+  }
 
   take(model: string | undefined): CliUsage | undefined {
     const usage = this.peek(model);
@@ -216,6 +255,7 @@ export class CodexUsageAccounting {
     this.totalByThread.set(threadId, (this.totalByThread.get(threadId) ?? 0) + gross);
     this.cumulativeTokens += gross;
     if (delta.inputTokens + delta.outputTokens > 0) this.pending = true;
+    if (this.estimated) this.estimatedThreads.add(threadId);
     // Native child model/tier is not guaranteed to match the root configuration.
     if (child && gross > 0) this.estimated = true;
   }

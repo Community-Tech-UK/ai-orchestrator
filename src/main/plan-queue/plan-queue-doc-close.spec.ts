@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -15,6 +15,60 @@ import {
 } from './plan-queue-doc-close';
 
 let repo: string;
+
+describe('close-small evidence publication', () => {
+  it('refuses invalid UTF-8 instead of replacing source bytes while claiming an exact closure identity', async () => {
+    const plan = write('docs/plans/encoding_plan.md', 'placeholder');
+    const bytes = Buffer.from([0x23, 0x20, 0xff, 0xfe]);
+    writeFileSync(plan, bytes);
+    await expect(prepareClosedDocuments(plan, repo, null, null)).rejects.toThrow(/UTF-8/);
+    expect(readFileSync(plan)).toEqual(bytes);
+    expect(existsSync(join(repo, 'docs/plans/encoding_plan_completed.md'))).toBe(false);
+  });
+  it('treats a dangling completed-file link as an occupied name', async () => {
+    const plan = write('docs/plans/link_plan.md', 'active\n');
+    symlinkSync('missing.md', join(repo, 'docs/plans/link_plan_completed.md'));
+    await expect(prepareClosedDocuments(plan, repo, null, null)).rejects.toThrow(/Refusing to overwrite/);
+  });
+
+  it('surfaces a failed ignore query rather than assuming the document is committable', async () => {
+    const plain = realpathSync(mkdtempSync(join(tmpdir(), 'aio-non-repository-')));
+    try {
+      const doc = join(plain, 'x_plan.md'); writeFileSync(doc, '# Plan\n');
+      await expect(documentsAreCommitted(doc, plain)).rejects.toThrow();
+    } finally { rmSync(plain, { recursive: true, force: true }); }
+  });
+  it('keeps the exact journal in immutable history while closing a small plan', async () => {
+    const journal = '### 2026-10-31\nObserved runtime behaviour.\n';
+    const plan = write('docs/plans/small_plan.md', '# Plan\n\n## As-built\nImplemented.\n\n' + journal);
+    const prepared = await prepareClosedDocuments(plan, repo, null, null);
+    expect(prepared.mode).toBe('commit');
+    if (prepared.mode !== 'commit') throw new Error('Expected landing documents');
+    const closed = prepared.documents.find(d => d.relativePath.endsWith('small_plan_completed.md'))!;
+    const history = prepared.documents.find(d => /_history_[a-f0-9]{64}_completed.md$/.test(d.relativePath));
+    expect(history?.content).toContain(journal);
+    expect(closed.content).not.toContain('Observed runtime behaviour.');
+    expect(closed.content).toContain(history!.relativePath.split('/').pop());
+    expect(readFileSync(plan, 'utf8')).toContain(journal);
+  });
+
+  it('refuses a tracked completed file even when deleted from the working tree', async () => {
+    const closed = write('docs/plans/locked_plan_completed.md', 'immutable\n');
+    git(['add', '--', 'docs/plans/locked_plan_completed.md']);
+    git(['commit', '-q', '-m', 'closed evidence']);
+    rmSync(closed);
+    const plan = write('docs/plans/locked_plan.md', 'replacement\n');
+    await expect(prepareClosedDocuments(plan, repo, null, null)).rejects.toThrow(/Refusing to overwrite/);
+  });
+
+  it('preserves earlier completed histories and snapshots their exact bytes', async () => {
+    const plan = write('docs/plans/shared_plan.md', '# Plan\n## As-built\n### 2026-10-31\nnew journal\n');
+    const prior = write('docs/plans/shared_history_completed.md', 'earlier immutable bytes \n\n');
+    const prepared = await prepareClosedDocuments(plan, repo, null, null);
+    expect(prepared.mode === 'commit' && prepared.documents.some(d => d.content.includes('earlier immutable bytes \n\n'))).toBe(true);
+    expect(readFileSync(prior, 'utf8')).toBe('earlier immutable bytes \n\n');
+  });
+});
 
 function git(args: string[], cwd = repo): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
@@ -59,15 +113,17 @@ describe('prepareClosedDocuments', () => {
     write('docs/plans/x_spec_planned.md', 'plan: x_plan.md\n');
     const statusBefore = git(['status', '--porcelain', '--untracked-files=all']);
 
-    const prepared = await prepareClosedDocuments(plan, repo);
+    const prepared = await prepareClosedDocuments(plan, repo, null, null);
 
-    expect(prepared).toEqual({
+    expect(prepared).toMatchObject({
       mode: 'commit',
-      documents: [
+      documents: expect.arrayContaining([
         { relativePath: 'docs/plans/x_plan_completed.md', content: 'spec: x_spec_completed.md\n' },
         { relativePath: 'docs/plans/x_spec_completed.md', content: 'plan: x_plan_completed.md\n' },
-      ],
+      ]),
     });
+    expect(prepared.mode === 'commit' && prepared.documents).toHaveLength(3);
+    expect(prepared.mode === 'commit' && prepared.documents[2].relativePath).toBe('docs/plans/x_plan_closure_completed.json');
     expect(git(['status', '--porcelain', '--untracked-files=all'])).toBe(statusBefore);
     expect(readFileSync(plan, 'utf8')).toBe('spec: x_spec_planned.md\n');
   });
@@ -76,9 +132,9 @@ describe('prepareClosedDocuments', () => {
     const plan = write('docs/superpowers/plans/y_plan.md', '# Plan\n');
     write('docs/superpowers/specs/y_spec_planned.md', 'see y_plan.md\n');
 
-    const prepared = await prepareClosedDocuments(plan, repo);
+    const prepared = await prepareClosedDocuments(plan, repo, null, null);
 
-    expect(prepared.mode === 'commit' && prepared.documents.map((d) => [d.relativePath, d.content])).toEqual([
+    expect(prepared.mode === 'commit' && prepared.documents.slice(0, 2).map((d) => [d.relativePath, d.content])).toEqual([
       ['docs/superpowers/plans/y_plan_completed.md', '# Plan\n'],
       ['docs/superpowers/specs/y_spec_completed.md', 'see y_plan_completed.md\n'],
     ]);
@@ -86,17 +142,17 @@ describe('prepareClosedDocuments', () => {
 
   it('prepares a livetest document that has no spec', async () => {
     const doc = write('docs/plans/z_livetest.md', '# checks\n');
-    expect(await prepareClosedDocuments(doc, repo)).toEqual({
+    expect(await prepareClosedDocuments(doc, repo, null, null)).toMatchObject({
       mode: 'commit',
-      documents: [{ relativePath: 'docs/plans/z_livetest_completed.md', content: '# checks\n' }],
+      documents: expect.arrayContaining([{ relativePath: 'docs/plans/z_livetest_completed.md', content: '# checks\n' }]),
     });
   });
 
   it('refuses, before anything lands, when a completed name is already taken or the document is gone', async () => {
     const plan = write('docs/plans/x_plan.md', 'active\n');
     write('docs/plans/x_plan_completed.md', 'someone else\n');
-    await expect(prepareClosedDocuments(plan, repo)).rejects.toThrow(/Refusing to overwrite/);
-    await expect(prepareClosedDocuments(join(repo, 'docs/plans/missing_plan.md'), repo)).rejects.toThrow(/Document not found/);
+    await expect(prepareClosedDocuments(plan, repo, null, null)).rejects.toThrow(/Refusing to overwrite/);
+    await expect(prepareClosedDocuments(join(repo, 'docs/plans/missing_plan.md'), repo, null, null)).rejects.toThrow(/Document not found/);
   });
 
   it('renames in place, never commits, documents outside the repository or ignored by it', async () => {
@@ -104,21 +160,21 @@ describe('prepareClosedDocuments', () => {
     try {
       const plan = join(outside, 'x_plan.md');
       writeFileSync(plan, '# external\n');
-      expect(await prepareClosedDocuments(plan, repo)).toEqual({ mode: 'rename-in-place' });
+      expect(await prepareClosedDocuments(plan, repo, null, null)).toEqual({ mode: 'rename-in-place' });
       expect(await documentsAreCommitted(plan, repo)).toBe(false);
     } finally {
       rmSync(outside, { recursive: true, force: true });
     }
     write('.gitignore', 'private/\n');
     const ignored = write('private/w_plan.md', '# ignored\n');
-    expect(await prepareClosedDocuments(ignored, repo)).toEqual({ mode: 'rename-in-place' });
+    expect(await prepareClosedDocuments(ignored, repo, null, null)).toEqual({ mode: 'rename-in-place' });
   });
 
   it('refuses a plan and spec split across the repository boundary', async () => {
     write('.gitignore', 'docs/specs/\n');
     const plan = write('docs/plans/s_plan.md', '# plan\n');
     write('docs/specs/s_spec_planned.md', '# ignored spec\n');
-    await expect(prepareClosedDocuments(plan, repo)).rejects.toThrow(/split across the repository boundary/);
+    await expect(prepareClosedDocuments(plan, repo, null, null)).rejects.toThrow(/split across the repository boundary/);
   });
 });
 
@@ -127,35 +183,56 @@ describe('renameDocumentsInPlace', () => {
     const plan = write('docs/plans/x_plan.md', 'spec: x_spec_planned.md\n');
     write('docs/plans/x_spec_planned.md', 'plan: x_plan.md\n');
 
-    await renameDocumentsInPlace(plan);
-    await renameDocumentsInPlace(plan);
+    await renameDocumentsInPlace(plan, null);
+    await renameDocumentsInPlace(plan, null);
 
     expect(readFileSync(join(repo, 'docs/plans/x_plan_completed.md'), 'utf8')).toBe('spec: x_spec_completed.md\n');
     expect(readFileSync(join(repo, 'docs/plans/x_spec_completed.md'), 'utf8')).toBe('plan: x_plan_completed.md\n');
     expect(existsSync(plan)).toBe(false);
   });
 
-  it('repairs the links after a crash between the renames and the link rewrite', async () => {
+  it('preserves legacy completed documents without source identity after a partial old rename', async () => {
     const plan = write('docs/superpowers/plans/y_plan.md', 'spec: y_spec_planned.md\n');
     write('docs/superpowers/specs/y_spec_planned.md', 'plan: y_plan.md\n');
     renameSync(plan, join(repo, 'docs/superpowers/plans/y_plan_completed.md'));
     renameSync(join(repo, 'docs/superpowers/specs/y_spec_planned.md'), join(repo, 'docs/superpowers/specs/y_spec_completed.md'));
 
-    await renameDocumentsInPlace(plan);
+    await expect(renameDocumentsInPlace(plan, null)).rejects.toThrow(/Document not found/);
 
-    expect(readFileSync(join(repo, 'docs/superpowers/plans/y_plan_completed.md'), 'utf8')).toBe('spec: y_spec_completed.md\n');
-    expect(readFileSync(join(repo, 'docs/superpowers/specs/y_spec_completed.md'), 'utf8')).toBe('plan: y_plan_completed.md\n');
+    expect(readFileSync(join(repo, 'docs/superpowers/plans/y_plan_completed.md'), 'utf8')).toBe('spec: y_spec_planned.md\n');
+    expect(readFileSync(join(repo, 'docs/superpowers/specs/y_spec_completed.md'), 'utf8')).toBe('plan: y_plan.md\n');
   });
 
-  it('finishes a re-run after a crash between the plan rename and the spec rename', async () => {
+  it('keeps a legacy partial closure for manual reconciliation rather than rewriting closed evidence', async () => {
     const plan = write('docs/plans/w_plan.md', 'spec: w_spec_planned.md\n');
     write('docs/plans/w_spec_planned.md', 'plan: w_plan.md\n');
     renameSync(plan, join(repo, 'docs/plans/w_plan_completed.md'));
 
-    await renameDocumentsInPlace(plan);
+    await expect(renameDocumentsInPlace(plan, null)).rejects.toThrow(/Document not found/);
 
-    expect(readFileSync(join(repo, 'docs/plans/w_plan_completed.md'), 'utf8')).toBe('spec: w_spec_completed.md\n');
-    expect(readFileSync(join(repo, 'docs/plans/w_spec_completed.md'), 'utf8')).toBe('plan: w_plan_completed.md\n');
+    expect(readFileSync(join(repo, 'docs/plans/w_plan_completed.md'), 'utf8')).toBe('spec: w_spec_planned.md\n');
+    expect(readFileSync(join(repo, 'docs/plans/w_spec_planned.md'), 'utf8')).toBe('plan: w_plan.md\n');
+  });
+
+  it('resumes interrupted publication from its receipt without overwriting any completed file', async () => {
+    const plan = write('docs/plans/resume_plan.md', '# Plan\n## As-built\n### 2026-10-31\njournal\n');
+    write('docs/plans/resume_spec_planned.md', 'see resume_plan.md\n');
+    const prepared = await prepareClosedDocuments(plan, repo, null, null);
+    if (prepared.mode !== 'commit') throw new Error('Expected landing documents');
+    const receipt = prepared.documents.find(d => d.relativePath.endsWith('_closure_completed.json'))!;
+    const history = prepared.documents.find(d => /_history_[a-f0-9]{64}_completed.md$/.test(d.relativePath))!;
+    // Real crash boundary: identity and journal published, source files intact,
+    // completed plan/spec not yet published.
+    write(receipt.relativePath, receipt.content);
+    const published = write(history.relativePath, history.content);
+    const inode = statSync(published).ino;
+    expect(existsSync(plan)).toBe(true);
+    await renameDocumentsInPlace(plan, null);
+    await renameDocumentsInPlace(plan, null);
+    expect(statSync(published).ino).toBe(inode);
+    expect(readFileSync(published, 'utf8')).toBe(history.content);
+    expect(existsSync(plan)).toBe(false);
+    expect(readFileSync(join(repo, 'docs/plans/resume_spec_completed.md'), 'utf8')).toBe('see resume_plan_completed.md\n');
   });
 });
 
@@ -169,24 +246,27 @@ describe('retireActiveDocuments', () => {
   it('removes root copies identical to what landed, and is a no-op when run again', async () => {
     const plan = write('docs/plans/x_plan.md', 'spec: x_spec_planned.md\n');
     const spec = write('docs/plans/x_spec_planned.md', 'plan: x_plan.md\n');
-    commitCompleted({
-      'docs/plans/x_plan_completed.md': 'spec: x_spec_completed.md\n',
-      'docs/plans/x_spec_completed.md': 'plan: x_plan_completed.md\n',
-    });
+    const prepared = await prepareClosedDocuments(plan, repo, null, null);
+    if (prepared.mode !== 'commit') throw new Error('Expected landing documents');
+    commitCompleted(Object.fromEntries(prepared.documents.map(d => [d.relativePath, d.content])));
 
-    expect(await retireActiveDocuments(plan, repo, 'main')).toEqual([]);
-    expect(await retireActiveDocuments(plan, repo, 'main')).toEqual([]);
+    expect(await retireActiveDocuments(plan, repo, 'main', null)).toEqual([]);
+    expect(await retireActiveDocuments(plan, repo, 'main', null)).toEqual([]);
 
     expect(existsSync(plan)).toBe(false);
     expect(existsSync(spec)).toBe(false);
-    expect(git(['status', '--porcelain', '--untracked-files=all'])).toBe('');
+    const retained = readdirSync(join(repo, 'docs/plans')).filter(name => name.includes('.aio-retained-'));
+    expect(retained).toHaveLength(2);
+    expect(retained.map(name => readFileSync(join(repo, 'docs/plans', name), 'utf8')).sort()).toEqual(['plan: x_plan.md\n', 'spec: x_spec_planned.md\n']);
+    expect(git(['status', '--porcelain', '--untracked-files=all']).split('\n').sort())
+      .toEqual(retained.map(name => `?? docs/plans/${name}`).sort());
   });
 
   it('keeps and reports a root copy edited after the landing commit was built', async () => {
     const plan = write('docs/plans/x_plan.md', 'edited after landing\n');
     commitCompleted({ 'docs/plans/x_plan_completed.md': 'as landed\n' });
 
-    const notes = await retireActiveDocuments(plan, repo, 'main');
+    const notes = await retireActiveDocuments(plan, repo, 'main', null);
 
     expect(existsSync(plan)).toBe(true);
     expect(notes).toEqual([expect.stringContaining('Kept x_plan.md')]);
@@ -194,7 +274,7 @@ describe('retireActiveDocuments', () => {
 
   it('keeps a root copy whose completed version never reached the base branch', async () => {
     const plan = write('docs/plans/x_plan.md', 'active\n');
-    expect(await retireActiveDocuments(plan, repo, 'main')).toEqual([]);
+    expect(await retireActiveDocuments(plan, repo, 'main', null)).toEqual([]);
     expect(existsSync(plan)).toBe(true);
   });
 });
@@ -204,7 +284,7 @@ describe('appendParkedNote', () => {
     const plan = write('docs/plans/retry_plan.md', '# Plan\n\nbody\n');
     await appendParkedNote(plan, { branchName: 'queue/retry', reason: 'land-blocked', commitCount: 2 });
     await removeParkedNote(plan, 'queue/retry');
-    const prepared = await prepareClosedDocuments(plan, repo);
+    const prepared = await prepareClosedDocuments(plan, repo, null, null);
     expect(prepared.mode === 'commit' && prepared.documents[0].content).toBe('# Plan\n\nbody\n\n');
     expect(readFileSync(plan, 'utf8')).not.toContain('Plan Queue parked work');
   });

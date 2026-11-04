@@ -50,7 +50,7 @@ describe('plan queue machine session call-site guard', () => {
       { file: 'plan-queue-spawn.ts', role: 'forwarded', hasRun: true },
       { file: 'plan-queue-spawn.ts', role: 'forwarded', hasRun: true },
       { file: 'plan-queue-triage.ts', role: 'triage', hasRun: true },
-      { file: 'plan-queue-item-flow.ts', role: 'verifier', hasRun: true },
+      { file: 'plan-queue-checker-spawn.ts', role: 'verifier', hasRun: true },
       { file: 'plan-queue-item-flow.ts', role: 'worker', hasRun: true },
     ]);
   });

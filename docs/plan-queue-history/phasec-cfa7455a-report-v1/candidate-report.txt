@@ -1,0 +1,47 @@
+# Phase C: round-3 worker handover, 31 October 2026
+
+Status: worker repairs ready for the independent verifier. Final full-suite acceptance, the independent completion PASS and any required broader audit belong to the coordinator/verifier; they are not claimed here. All thirteen implementation groups are present on the assigned branch. Installed-app and external checks remain in the active live-check document.
+
+Plan: [assigned root plan](../2026-10-20-oct2-phaseC-queue-that-finishes_plan.md). This worker edits that document only in the root checkout. Code, the tracked history/live-check documents and register changes remain in the supplied queue worktree. No standalone spec is linked.
+
+The previous report is retained as [historical evidence](report-before-round3.md). It described earlier work and its incomplete status, not this handover. Round-3 machine evidence is in [commands](round3/commands.jsonl), [source seal](round3/seal.json), [archive proof](round3/register-archive-proof.json), [fixture integrity](round3/fixture-integrity.json), and [cleanup](round3/cleanup.json).
+
+## Verifier findings addressed
+
+1. **Register/archive and header.** Confirmed the register's standing-register exemption and the clean coordinator-checkpointed worktree. Moved 80 definitely closed detail sections verbatim into `livetest-remediation-register-archive-2026.md`. Kept all 206 canonical index rows, their status/evidence/retest text, every other detail section, and every original heading anchor. Rows link to stable archive aliases; heading stubs preserve existing external and internal fragments. A subsequent fresh source review identified the overly broad `DECIDED.*FIXED` alternative; it was removed, and LT-481 stays active with its code-only acceptance. Pending live checks, partial fixes and mixed acceptances stay active, including LT-650's unverified Settings clause. The register shrank from 1,062,749 to 826,355 bytes; the archive is 364,382 bytes including navigation stubs. Dated index status updates explicitly supersede older row/heading phrases; the proof quotes the exact acceptance row for every archived ID, including LT-545–546 and LT-640–643. Per-section hashes prove all 201 original detail/global sections survive unchanged in their intended destination. The header now states index ownership and never identifies a closed plan as the active remediation destination. Root register edits remain untouched.
+2. **Current plan and history.** Replaced the stale root Status and moved its historical handoffs verbatim into the tracked history. The current checklist records implemented, targeted-tested work for all thirteen groups, with installed checks explicitly separated. Step 6 implementation is checked with its full discovery acceptance retained. The final eight-command/full-suite/independent-gate requirement remains open and explicitly assigned to the coordinator, as required by the worker assignment. It was not falsely marked passed or deferred into a live check. The live-check document no longer treats archive implementation as blocked.
+3. **Installed dependencies.** Reproduced both compatibility failures before edits: linked glob 13.0.6 conflicted with locked 14.0.3 and its locked nested minimatch was missing. Ran `npm ci --ignore-scripts --no-audit --no-fund` inside this worktree using a task-local download cache. The lockfile/manifests and compatibility tests are unchanged. The worktree now owns its actual dependency tree and install marker. Ran the normal native preparation separately, avoiding project postinstall's unrelated global Git-hook writes. Native ABI preparation passes. The dependency file passes all six tests, both alone and in the affected-specification union. The root install was not changed.
+4. **Intermittent native Stop fixture.** The positive child acknowledged input before installing its SIGINT handler. A bounded, quiet real-child ordering probe reproduced termination without an answer for that ordering, and normal answer/exit after handler-first setup; both children were proved absent. Moved only the fixture acknowledgement after setup/partial-output emission. All eight cases, all 53 assertion-bearing lines, and timeout options remain unchanged. The three-file native input/usage/outcome group passes 22 tests; the repaired file also passes in the larger affected union. Production cancellation behavior was not relaxed.
+
+## Implementation map
+
+| Step | Executing implementation and targeted evidence |
+|---|---|
+| 1 | `plan-queue-migrations`, `plan-queue-history-store`, flow transition persistence and shared `plan-queue-progress`; persistence/contract/coordinator tests. |
+| 2 | `plan-queue-verification`, gate runner and checker spawn/prompt: machine receipts, baseline identity, admission/cancellation and PASS enforcement; receipt/flow/tool tests. |
+| 3 | Worktree capacity, run preflight/start, error classification, turn retry and restart progress; coordinator/hold/routing/recovery tests. |
+| 4 | Progress/finding history and verifier prompts; unchanged-work refusal, earlier-round memory and log-only third-finding handling. |
+| 5 | Checkpoint plan diet/pins and immutable doc closure/retirement; diet/document-close/landing tests. |
+| 6 | Exact-path selection, bounded wildcard discovery, remembered triage, real coordinator wiring and renderer preview/bulk controls; selection/bounds/discovery/coordinator/page tests. |
+| 7 | Captured per-call queue identity and late spend, nullable cost and token display; spend/settled-usage/rendered-label tests. |
+| 8 | Now/Set aside/Setup, exhaustive reason help, grouped/folded attempts and checked action previews; renderer tests. |
+| 9 | Actual runner/loop limits, processed=input+cache-read+cache-write, restart policy, result RPC, caller authority and monitor cadence; runner/authority/invocation/settlement/form tests. |
+| 10 | Review staleness and cancellation-neutral health, daily reviewer retirement and daily-count indicator; service/pool/forwarding/renderer tests. |
+| 11 | Copilot native/ACP/remote numeric usage, premium labels and queue/loop recycling; adapter/communication/lifecycle/renderer tests. |
+| 12 | Standing-register archive and guidance, maximum-index ID helper/runbook/prompt. Weekly campaign remains a genuine post-integration installed-runtime check. |
+| 13 | Native/exec ephemeral receipt production, authenticated remote transport, bounded store reader and Costs IPC/preload/UI; writer/store/remote/renderer tests. |
+
+## Current verification
+
+- Actual changed-specification manifest plus the two reported failing paths: **113 files, 1,568 tests passed**, no failures, uncached, two forks. The complete selected manifest and original runner JSON/raw logs are retained in round3. This is not a full-suite claim.
+- Native outcome/input/usage focused group: **3 files, 22 tests passed**. Dependency compatibility alone: **6 tests passed**.
+- Both canonical type checks, renderer lint, main fast lint, focused fixture ESLint, file-size/wording guards, main/renderer builds, alias/IPC generation, IPC/usage/export/contracts checks pass with current command receipts. Architecture verification and the post-archive 22-case ID-helper group also pass. The generated architecture inventory now reflects this branch’s existing IPC/source changes and the register move. Native ABI and automated offscreen archive/SQLite smoke checks pass.
+- Existing nonblocking lint/size/wording/IPC advisories and the renderer bundle-size warning remain in full logs; no zero-warning claim or warning-ledger/config change is made.
+- Final fresh scoped source review reports no actionable findings after the corrections. It read both scripts completely, all dated index updates and roughly 45 of 80 quoted acceptance records. It ran no commands and did not perform a skill-based completion gate; this is source-review evidence only. Its exact response and coverage limits are retained in `round3/fresh-source-review.md`.
+- Full repository suite is deliberately not run by this worker. The verifier must run it on this provisioned tree, obtain the required independent completion verdict/audit, and own any completion rename. Scoped source review is recorded separately and cannot replace that gate.
+
+## Remaining live validation and authority
+
+The [active live-check document](../2026-10-20-oct2-phaseC-queue-that-finishes_livetest.md) retains exact prerequisites/steps for the rebuilt Windows UI, installed capacity/cancellation, interrupted automation, native usage/recycling, post-restart premium measurement and one observation week. Phase B still records its ordered integration as coordinator work; no weekly campaign was created against an unverified installation. No browser, desktop app, installed Harness/worker service, real queue, personal database or provider setting was changed.
+
+The existing AIO worktree/branch stays in place, uncommitted. No stash, manual integration, branch creation/switch, external publication or `_completed` rename occurred. Runtime cleanup follows the written report/receipts/seal: preserve the independent dependency installation and pre-existing compiled tree; remove task download caches, new compiler caches and only newly created build artifacts. The cleanup receipt records actual results. No copied checkout, browser installation or database cluster was created by this resume.

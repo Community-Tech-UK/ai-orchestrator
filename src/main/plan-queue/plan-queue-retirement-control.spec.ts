@@ -17,11 +17,21 @@ import { newPlanQueueItem } from './plan-queue-state';
 import { PlanQueueStore } from './plan-queue-store';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 
+// These repositories exercise Git and session ownership. Command execution is
+// controlled here; the gate runner has its own execution and receipt coverage.
+vi.mock('./plan-queue-gate-receipts', async original => {
+  const actual = await original<typeof import('./plan-queue-gate-receipts')>();
+  return { ...actual, PlanQueueGateRunner: class extends actual.PlanQueueGateRunner {
+    constructor() { super(async () => ({ exitCode: 0, output: '✓ 1 files · 1 tests passed in 0s', timedOut: false })); }
+  } };
+});
+
 class Instances extends EventEmitter {
   live = new Map<string, PlanQueueInstanceRecord>();
   created: InstanceCreateConfig[] = [];
   sendInput = vi.fn(async () => undefined);
   terminateInstance = vi.fn(async (id: string) => { this.live.delete(id); });
+  restartFreshInstance = vi.fn(async () => undefined);
   getInstance = (id: string) => this.live.get(id);
   getAllInstances = () => [...this.live.values()];
   adoptOrphanInstance = () => false;
@@ -273,7 +283,7 @@ it('preserves a spawned checker snapshot through failed cleanup and restores it 
   await vi.waitFor(() => expect(store.getItem(item.id)?.verifierInstanceId).toBeTruthy(), waitBudget);
   const checkerId = store.getItem(item.id)!.verifierInstanceId!;
   vi.spyOn(coordinator, 'requestPump').mockImplementation(() => undefined);
-  coordinator.reportVerdict(checkerId, { item_id: item.id, verdict: 'PASS', findings: [], gates_run: [], document_complete: true, need_james: [] });
+  coordinator.reportVerdict(checkerId, { item_id: item.id, verdict: 'PASS', findings: [], gates_run: [], document_complete: true, need_james: [], not_checked: [] });
   instances.terminateInstance.mockImplementation(async id => {
     if (id === checkerId) throw new Error('spawned checker stop failure');
     instances.live.delete(id);
@@ -401,7 +411,7 @@ async function normalPassLanding(withSibling = true) {
   coordinator.tracker.track('worker');
   await vi.waitFor(() => expect(store.getItem(item.id)?.verifierInstanceId).toBeTruthy(), waitBudget);
   const checker = store.getItem(item.id)!.verifierInstanceId!;
-  coordinator.reportVerdict(checker, { item_id: item.id, verdict: 'PASS', findings: [], gates_run: [], document_complete: false, need_james: [] });
+  coordinator.reportVerdict(checker, { item_id: item.id, verdict: 'PASS', findings: [], gates_run: [], document_complete: false, need_james: [], not_checked: [] });
   instances.emit('provider:normalized-event', { instanceId: checker, event: { kind: 'output', messageType: 'assistant', content: 'Verified PASS.' } });
   instances.emit('instance:event', { instanceId: checker, event: { kind: 'status_changed', status: 'idle' } });
   await retirementStarted.promise;

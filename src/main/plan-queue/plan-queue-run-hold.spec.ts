@@ -7,8 +7,16 @@ import type { PlanQueueFlowHost, PlanQueueRoleRecord } from './plan-queue-host';
 import { PlanQueueItemFlow } from './plan-queue-item-flow';
 import { recoverPlanQueue, type PlanQueueRecoveryHost } from './plan-queue-recovery';
 import { newPlanQueueItem } from './plan-queue-state';
+import * as queueGit from './plan-queue-git';
+import * as gitCommands from '../workspace/git/git-exec';
 import { holdItem, PlanQueueSpawnRunPaused } from './plan-queue-run-hold';
 import { PlanQueueSpawnOutOfUsage } from './plan-queue-spawn';
+import { spawnQueueChecker } from './plan-queue-checker-spawn';
+import { PlanQueueSpawnStoppedByUser } from './plan-queue-user-close';
+import { PlanQueueUsageWaits } from './plan-queue-usage-wait';
+import { InvalidQueueCheckoutError } from './plan-queue-orphan-checkout';
+import { PlanQueueVerification } from './plan-queue-verification';
+import { getLogger } from '../logging/logger';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 
 vi.mock('./plan-queue-git', async (original) => ({
@@ -16,6 +24,9 @@ vi.mock('./plan-queue-git', async (original) => ({
   branchExists: vi.fn(async () => true), unresolvedMergeFiles: vi.fn(async () => []),
   snapshotTree: vi.fn(async () => ({ head: 'checkpoint', status: [] })),
   revertToSnapshot: vi.fn(async () => undefined),
+}));
+vi.mock('./plan-queue-landing', async original => ({
+  ...await original<typeof import('./plan-queue-landing')>(), syncItemWithBase: vi.fn(async () => ({ status: 'current' })),
 }));
 
 let directory: string;
@@ -36,20 +47,174 @@ beforeEach(() => {
   });
   roles = new Map([['worker', { role: 'worker', runId: run.id, itemId: item.id }], ['checker', { role: 'verifier', runId: run.id, itemId: item.id }]]);
   host = {
+    history: { getPin: () => null, recordPinIfAbsent: vi.fn(), listEvents: () => [], listVerdicts: () => [] } as unknown as PlanQueueFlowHost['history'],
+    checksAdmitted: () => true, pauseForSharedError: vi.fn(),
     getRun: () => run, getItem: () => item,
     save: vi.fn((next) => (item = next)), transition: vi.fn((next, state, patch) => (item = { ...next, ...patch, state })),
     instances: { createInstance: vi.fn(async () => ({ id: 'fresh' })), sendInput: vi.fn(async () => undefined),
+      restartFreshInstance: vi.fn(async () => undefined),
       terminateInstance: vi.fn(async () => undefined), getInstance: vi.fn((id: string) => ({ id, status: 'idle' as const, outputBuffer: [] })), getAllInstances: () => [] },
     worktrees: { checkpoint: vi.fn(async (next: PlanQueueItem) => (item = next)), reattach: vi.fn(async (next: PlanQueueItem) => next) } as unknown as PlanQueueFlowHost['worktrees'],
     tracker: { untrack: vi.fn(), track: vi.fn(), beginTurn: vi.fn(), isShuttingDown: vi.fn(() => false) } as unknown as PlanQueueFlowHost['tracker'],
     registerRole: (id, role) => { roles.set(id, role); }, unregisterRole: (id) => { roles.delete(id); }, roleOf: (id) => roles.get(id),
     notifyParent: vi.fn(), liveParentId: () => 'parent', resolveRunParent: () => 'parent', requestPump: vi.fn(), selectVerifier: vi.fn(),
   };
+  writeFileSync(item.documentPath, '# Test plan\n');
   flow = new PlanQueueItemFlow(host);
 });
-afterEach(() => { rmSync(directory, { recursive: true, force: true }); vi.clearAllMocks(); });
+afterEach(() => { rmSync(directory, { recursive: true, force: true }); vi.restoreAllMocks(); vi.clearAllMocks(); });
 
 describe('paused runs never continue work or park it', () => {
+  it.each(['park', 'hold'] as const)('sets aside a refused verifier restore without writes during %s', async action => {
+    vi.spyOn(queueGit, 'isOwnCheckout').mockResolvedValue(true);
+    vi.mocked(queueGit.revertToSnapshot).mockRejectedValueOnce(new InvalidQueueCheckoutError());
+    const remove = vi.fn(); Object.assign(host.worktrees, { removeWithProof: remove });
+    if (action === 'hold') await expect(flow.hold(item.id)).resolves.toBeUndefined();
+    else await expect(flow.park(item.id, 'cancelled', 'Run cancelled by James.')).resolves.toBeUndefined();
+    expect(item).toMatchObject({ state: 'parked', parkReason: 'worktree-error', worktreePath: directory,
+      workerInstanceId: null, verifierInstanceId: null, detail: expect.stringContaining('checkout is invalid') });
+    if (action === 'park') expect(item.detail).toContain('Run cancelled by James.');
+    expect(host.instances.terminateInstance).toHaveBeenCalledWith('worker', true);
+    expect(host.instances.terminateInstance).toHaveBeenCalledWith('checker', true);
+    expect(host.worktrees.checkpoint).not.toHaveBeenCalled(); expect(remove).not.toHaveBeenCalled();
+  });
+
+  it('sets aside a refused restore after the checker is closed while spawning', async () => {
+    run.status = 'running';
+    vi.spyOn(gitCommands, 'gitExec').mockResolvedValue('checkpoint');
+    vi.mocked(host.instances.createInstance).mockRejectedValueOnce(new PlanQueueSpawnStoppedByUser('checker'));
+    vi.mocked(queueGit.revertToSnapshot).mockRejectedValueOnce(new Error('The saved queue checkout is invalid'));
+    const snapshots = new Map();
+    const forgetCheck = vi.fn();
+    await expect(spawnQueueChecker({ host, snapshots, usageWaits: new PlanQueueUsageWaits(),
+      prompt: async () => 'Review', hold: vi.fn(), select: vi.fn(), stop: id => flow.stopInstance(id),
+      forgetCheck, erroredRound: vi.fn(), onVerifierOutcome: vi.fn() }, item, run, 'main', { provider: 'codex' })).resolves.toBeUndefined();
+    expect(item).toMatchObject({ state: 'parked', parkReason: 'worktree-error', worktreePath: directory,
+      workerInstanceId: null, verifierInstanceId: null, detail: expect.stringContaining('checkout is invalid') });
+    expect(snapshots.size).toBe(0);
+    expect(forgetCheck).toHaveBeenCalledWith(item.id);
+    expect(host.worktrees.checkpoint).not.toHaveBeenCalled();
+    expect(host.instances.terminateInstance).toHaveBeenCalledWith('worker', true);
+  });
+
+  it('never checkpoints or removes a checkout whose restore failed when the checker finished', async () => {
+    run = { ...run, status: 'running', config: { ...run.config, verifierGates: [] } };
+    item = { ...item, state: 'awaiting-slot', verifierInstanceId: null };
+    writeFileSync(join(directory, '.git'), 'gitdir: /checkout-metadata\n');
+    vi.spyOn(gitCommands, 'gitExec').mockResolvedValue('checkpoint');
+    vi.mocked(host.selectVerifier).mockResolvedValue({ ok: true, choice: { provider: 'codex' } });
+    const remove = vi.fn(async () => ({ removed: false, reason: 'kept', detail: '' }));
+    Object.assign(host.worktrees, { removeWithProof: remove });
+    await flow.startVerification(item);
+    expect(item.verifierInstanceId).toBe('fresh');
+    flow.recordVerdict(item, 'fresh', fail);
+    vi.mocked(queueGit.snapshotTree).mockResolvedValueOnce({ head: 'checker-changed-head', status: [] });
+    vi.mocked(queueGit.revertToSnapshot).mockRejectedValueOnce(new Error('Restore refused'));
+    await flow.onVerifierOutcome('fresh', { kind: 'turn-complete', lastAssistantOutput: null });
+    expect(item).toMatchObject({ state: 'parked', parkReason: 'worktree-error', worktreePath: directory,
+      verifierInstanceId: null, workerInstanceId: null, detail: expect.stringContaining('Restore refused') });
+    expect(host.worktrees.checkpoint).not.toHaveBeenCalled(); expect(remove).not.toHaveBeenCalled();
+  });
+
+  it('retains ownership and the original snapshot when a finished checker restore and worker stop both fail', async () => {
+    run = { ...run, status: 'running', config: { ...run.config, verifierGates: [] } };
+    item = { ...item, state: 'awaiting-slot', verifierInstanceId: null };
+    writeFileSync(join(directory, '.git'), 'gitdir: /checkout-metadata\n');
+    vi.spyOn(gitCommands, 'gitExec').mockResolvedValue('checkpoint');
+    vi.mocked(host.selectVerifier).mockResolvedValue({ ok: true, choice: { provider: 'codex' } });
+    const original = { head: 'before-checker', status: ['?? pre-existing-note.txt'] };
+    vi.mocked(queueGit.snapshotTree).mockResolvedValueOnce(original);
+    await flow.startVerification(item);
+    flow.recordVerdict(item, 'fresh', fail);
+    vi.mocked(queueGit.snapshotTree).mockResolvedValueOnce({ head: 'checker-changed-head', status: [] });
+    vi.mocked(queueGit.revertToSnapshot).mockRejectedValueOnce(new Error('Restore refused'));
+    vi.mocked(host.instances.terminateInstance).mockImplementation(async id => {
+      if (id === 'worker') throw new Error('worker stop failed');
+    });
+    await expect(flow.onVerifierOutcome('fresh', { kind: 'turn-complete', lastAssistantOutput: null })).rejects.toThrow('worker stop failed');
+    expect(item).toMatchObject({ state: 'verifying', workerInstanceId: 'worker', worktreePath: directory });
+    expect(host.worktrees.checkpoint).not.toHaveBeenCalled();
+    vi.mocked(host.instances.terminateInstance).mockResolvedValue(undefined);
+    run.status = 'paused';
+    await flow.hold(item.id);
+    expect(queueGit.revertToSnapshot).toHaveBeenLastCalledWith(directory, original, run.workspaceCwd, item.branchName);
+    expect(item).toMatchObject({ state: 'awaiting-slot', workerInstanceId: null, heldAt: expect.any(Number) });
+  });
+
+  it('handles a failed checker startup whose outcome cannot stop the checker, then lets Pause retry', async () => {
+    const warning = vi.spyOn(getLogger('PlanQueueCheckerSpawn'), 'warn');
+    run.status = 'running';
+    vi.spyOn(gitCommands, 'gitExec').mockResolvedValue('checkpoint');
+    const ready = Promise.reject(new Error('startup failed'));
+    void ready.catch(() => undefined);
+    vi.mocked(host.instances.createInstance).mockResolvedValueOnce({ id: 'fresh', ...{ readyPromise: ready } });
+    vi.mocked(host.instances.terminateInstance).mockRejectedValueOnce(new Error('checker stop failed'));
+    await spawnQueueChecker({ host, snapshots: new Map(), usageWaits: new PlanQueueUsageWaits(),
+      prompt: async () => 'Review', hold: vi.fn(), select: vi.fn(), stop: id => flow.stopInstance(id),
+      forgetCheck: vi.fn(), erroredRound: vi.fn(), onVerifierOutcome: (id, outcome) => flow.onVerifierOutcome(id, outcome) }, item, run, 'main', { provider: 'codex' });
+    await flow.whenSettled();
+    await new Promise(resolve => setImmediate(resolve));
+    expect(warning).toHaveBeenCalledWith('Plan queue: handling checker startup failure failed', expect.objectContaining({ instanceId: 'fresh', error: 'checker stop failed' }));
+    expect(item).toMatchObject({ state: 'verifying', verifierInstanceId: 'fresh' });
+    run.status = 'paused';
+    await flow.hold(item.id);
+    expect(item).toMatchObject({ state: 'awaiting-slot', verifierInstanceId: null, heldAt: expect.any(Number) });
+  });
+
+  it('retries a transient hold restore against the exact original checker snapshot', async () => {
+    run = { ...run, status: 'running', config: { ...run.config, verifierGates: [] } };
+    item = { ...item, state: 'awaiting-slot', verifierInstanceId: null };
+    writeFileSync(join(directory, '.git'), 'gitdir: /checkout-metadata\n');
+    vi.spyOn(gitCommands, 'gitExec').mockResolvedValue('checkpoint');
+    vi.mocked(host.selectVerifier).mockResolvedValue({ ok: true, choice: { provider: 'codex' } });
+    const original = { head: 'before-checker', status: ['?? pre-existing-note.txt'] };
+    vi.mocked(queueGit.snapshotTree).mockResolvedValueOnce(original);
+    await flow.startVerification(item);
+    run.status = 'paused';
+    vi.mocked(queueGit.revertToSnapshot).mockRejectedValueOnce(new Error('Temporary restore error'));
+    await expect(flow.hold(item.id)).rejects.toThrow('Temporary restore error');
+    expect(item).toMatchObject({ state: 'verifying', verifierInstanceId: 'fresh' });
+    vi.mocked(queueGit.snapshotTree).mockResolvedValueOnce({ head: 'different-checkpoint', status: [] });
+    await flow.hold(item.id);
+    expect(vi.mocked(queueGit.revertToSnapshot).mock.calls.slice(-2).map(call => call[1])).toEqual([original, original]);
+    expect(item).toMatchObject({ state: 'awaiting-slot', heldAt: expect.any(Number), parkReason: null });
+  });
+
+  it('keeps the pending fix instruction when a paused checker cannot be restored', async () => {
+    item = { ...item, verdict: fail, round: 1 };
+    vi.spyOn(queueGit, 'isOwnCheckout').mockResolvedValue(true);
+    vi.mocked(queueGit.revertToSnapshot).mockRejectedValueOnce(new InvalidQueueCheckoutError());
+    await flow.hold(item.id);
+    expect(item.pendingInstruction).toContain('Fix missing guard');
+    expect(item.detail).toMatch(/^Paused\. Could not restore/);
+  });
+
+  it('keeps ownership and avoids restoration when a cancel cannot stop the checker', async () => {
+    const forgotten = vi.spyOn(PlanQueueVerification.prototype, 'forgetCheck');
+    vi.mocked(host.instances.terminateInstance).mockImplementation(async id => { if (id === 'checker') throw new Error('Stop refused'); });
+    await expect(flow.park(item.id, 'cancelled', 'Run cancelled by James.')).rejects.toThrow('Stop refused');
+    expect(item).toMatchObject({ state: 'verifying', verifierInstanceId: 'checker', workerInstanceId: 'worker' });
+    expect(queueGit.revertToSnapshot).not.toHaveBeenCalled();
+    expect(host.worktrees.checkpoint).not.toHaveBeenCalled();
+    expect(forgotten).not.toHaveBeenCalled();
+  });
+
+  it('retains the checker snapshot and worker ownership if stopping the worker fails after a refused spawn restore', async () => {
+    run.status = 'running';
+    vi.spyOn(gitCommands, 'gitExec').mockResolvedValue('checkpoint');
+    vi.mocked(host.instances.createInstance).mockRejectedValueOnce(new PlanQueueSpawnStoppedByUser('checker'));
+    vi.mocked(queueGit.revertToSnapshot).mockRejectedValueOnce(new Error('Restore refused'));
+    vi.mocked(host.instances.terminateInstance).mockImplementation(async id => { if (id === 'worker') throw new Error('Worker stop refused'); });
+    const snapshots = new Map();
+    const forgetCheck = vi.fn();
+    await expect(spawnQueueChecker({ host, snapshots, usageWaits: new PlanQueueUsageWaits(),
+      prompt: async () => 'Review', hold: vi.fn(), select: vi.fn(), stop: id => flow.stopInstance(id),
+      forgetCheck, erroredRound: vi.fn(), onVerifierOutcome: vi.fn() }, item, run, 'main', { provider: 'codex' })).rejects.toThrow('Worker stop refused');
+    expect(item).toMatchObject({ state: 'verifying', workerInstanceId: 'worker' });
+    expect(snapshots.has(item.id)).toBe(true);
+    expect(forgetCheck).not.toHaveBeenCalled();
+    expect(host.worktrees.checkpoint).not.toHaveBeenCalled();
+  });
   it('leaves a document which has never started in its original waiting state', async () => {
     item = { ...item, state: 'queued', branchName: null, worktreePath: null, workerInstanceId: null, verifierInstanceId: null };
     await flow.hold(item.id);
@@ -139,6 +304,21 @@ describe('paused runs never continue work or park it', () => {
     expect(host.instances.terminateInstance).toHaveBeenCalledWith('checker', true);
   });
 
+  it('handles a failed reminder whose outcome cannot stop the checker, then lets Pause retry', async () => {
+    const warning = vi.spyOn(getLogger('PlanQueueItemFlow'), 'warn');
+    run.status = 'running';
+    vi.mocked(host.instances.sendInput).mockRejectedValueOnce(new Error('reminder failed'));
+    vi.mocked(host.instances.terminateInstance).mockRejectedValueOnce(new Error('checker stop failed'));
+    await flow.onVerifierOutcome('checker', { kind: 'turn-complete', lastAssistantOutput: null });
+    await flow.whenSettled();
+    await new Promise(resolve => setImmediate(resolve));
+    expect(warning).toHaveBeenCalledWith('Plan queue: handling checker reminder failure failed', expect.objectContaining({ instanceId: 'checker', error: 'checker stop failed' }));
+    expect(item).toMatchObject({ state: 'verifying', verifierInstanceId: 'checker' });
+    run.status = 'paused';
+    await flow.hold(item.id);
+    expect(item).toMatchObject({ state: 'awaiting-slot', verifierInstanceId: null, heldAt: expect.any(Number) });
+  });
+
   it('lets Pause stop a verifier at once while its reminder turn is still running', async () => {
     run.status = 'running';
     // Codex app-server settles sendInput only when the turn ends.
@@ -181,5 +361,37 @@ describe('paused runs never continue work or park it', () => {
     expect(host.instances.createInstance).not.toHaveBeenCalled();
     expect(host.worktrees.reattach).not.toHaveBeenCalled();
     expect(item).toMatchObject({ state: 'queued', workerInstanceId: null, parkReason: null, heldAt: expect.any(Number) });
+  });
+
+  it.each([null, 'worker'])('sets aside an unsafe interrupted check and stops retained worker %s', async workerInstanceId => {
+    run.status = 'running'; item = { ...item, workerInstanceId };
+    host.history.recordEvent = vi.fn();
+    vi.spyOn(queueGit, 'isOwnCheckout').mockResolvedValueOnce(true);
+    vi.mocked(queueGit.revertToSnapshot).mockRejectedValueOnce(new Error('The saved queue checkout is invalid'));
+    const recoveryHost = Object.assign(host, {
+      store: { listRunsWithRelaxation: () => [], listActiveRuns: () => [run], listItems: () => [item] },
+      refreshAlerts: vi.fn(), applyRelaxation: vi.fn(), restoreRelaxation: (r: PlanQueueRun) => r,
+    }) as unknown as PlanQueueRecoveryHost;
+    await recoverPlanQueue(recoveryHost, flow);
+    expect(item).toMatchObject({ state: 'parked', parkReason: 'worktree-error', verifierInstanceId: null, workerInstanceId: null,
+      worktreePath: directory, detail: expect.stringContaining('The saved queue checkout is invalid') });
+    expect(host.instances.terminateInstance).toHaveBeenCalledWith('checker', true);
+    if (workerInstanceId) expect(host.instances.terminateInstance).toHaveBeenCalledWith(workerInstanceId, true);
+    expect(host.worktrees.checkpoint).not.toHaveBeenCalled();
+    expect(host.instances.createInstance).not.toHaveBeenCalled();
+  });
+
+  it('keeps ownership of a checking session that cannot be stopped after restart', async () => {
+    run.status = 'running'; item = { ...item, workerInstanceId: null };
+    host.history.recordEvent = vi.fn();
+    vi.mocked(host.instances.terminateInstance).mockRejectedValueOnce(new Error('checker stop failed'));
+    const recoveryHost = Object.assign(host, {
+      store: { listRunsWithRelaxation: () => [], listActiveRuns: () => [run], listItems: () => [item] },
+      refreshAlerts: vi.fn(), applyRelaxation: vi.fn(), restoreRelaxation: (r: PlanQueueRun) => r,
+    }) as unknown as PlanQueueRecoveryHost;
+    await recoverPlanQueue(recoveryHost, flow);
+    expect(item).toMatchObject({ state: 'verifying', verifierInstanceId: 'checker' });
+    expect(queueGit.revertToSnapshot).not.toHaveBeenCalled();
+    expect(host.instances.createInstance).not.toHaveBeenCalled();
   });
 });

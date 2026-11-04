@@ -1,3 +1,5 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { resolve, join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { IPC_CHANNELS, type IpcResponse } from '../../../../shared/types/ipc.types';
 import { CostTracker } from '../../../core/system/cost-tracker';
@@ -23,6 +25,7 @@ vi.mock('electron', () => ({
   ipcMain: { handle: electronMocks.handle },
 }));
 
+import { createInfrastructureDomain } from '../../../../preload/domains/infrastructure.preload';
 import { registerCostHandlers } from '../cost-handlers';
 
 interface Sent {
@@ -30,7 +33,7 @@ interface Sent {
   data: unknown;
 }
 
-function setup(): { tracker: CostTracker; sent: Sent[] } {
+function setup(usageFile?: string): { tracker: CostTracker; sent: Sent[] } {
   const sent: Sent[] = [];
   const windowManager = {
     getMainWindow: () => ({
@@ -38,7 +41,7 @@ function setup(): { tracker: CostTracker; sent: Sent[] } {
     }),
     sendToRenderer: (channel: string, data: unknown) => sent.push({ channel, data }),
   };
-  registerCostHandlers({ windowManager: windowManager as never });
+  registerCostHandlers({ windowManager: windowManager as never, ephemeralUsageFile: usageFile });
   return { tracker: holder.tracker!, sent };
 }
 
@@ -47,6 +50,33 @@ describe('cost-handlers event forwarding', () => {
     holder.tracker = new CostTracker();
     electronMocks.handlers.clear();
     electronMocks.handle.mockClear();
+  });
+  it('reads bounded temporary usage from its own log and rejects invalid limits', async () => {
+    mkdirSync(resolve('_scratch'), { recursive: true });
+    const dir = mkdtempSync(resolve('_scratch/step13-handler-'));
+    try {
+      const file = join(dir, 'usage.jsonl'); writeFileSync(file, '{"content":"MUST_NOT_CROSS_IPC"}\n');
+      setup(file);
+      expect(await invoke(IPC_CHANNELS.COST_GET_EPHEMERAL_USAGE, {limit: 10})).toMatchObject({success:true,data:{entries:[],skippedLines:1}});
+      expect(await invoke(IPC_CHANNELS.COST_GET_EPHEMERAL_USAGE, {limit: 1001})).toMatchObject({success:false});
+      expect(await invoke(IPC_CHANNELS.COST_GET_EPHEMERAL_USAGE, {filePath: file})).toMatchObject({success:false});
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+  it('returns numeric receipts through the actual preload Costs exposure', async () => {
+    mkdirSync(resolve('_scratch'), { recursive: true });
+    const dir = mkdtempSync(resolve('_scratch/step13-preload-'));
+    try {
+      const file = join(dir, 'usage.jsonl');
+      const tokens = {input:80,cache:60,output:10,reasoning:null,total:90,estimated:false};
+      writeFileSync(file, JSON.stringify({version:1,threadId:'native-example',jobId:'job-example',instanceId:'instance-example',
+        kind:'plan-queue',trialKey:null,trialArm:'candidate',requests:null,requestsAvailable:false,tokens,
+        helpers:{count:null,tokens:{input:null,cache:null,output:null,reasoning:null,total:null,estimated:false}},
+        compactions:null,startedAt:100,endedAt:200,durationMs:100,finishReason:'exec-exit'}) + '\n');
+      setup(file);
+      const api = createInfrastructureDomain({ invoke: (channel: string, payload: unknown) => invoke(channel, payload) } as never, IPC_CHANNELS as never);
+      expect(await api.costGetEphemeralUsage(5)).toMatchObject({success:true,data:{entries:[{threadId:'native-example',
+        tokens:{input:80,cache:60,output:10,reasoning:null,total:90},requests:null,helpers:{count:null}}]}});
+    } finally { rmSync(dir, {recursive:true,force:true}); }
   });
   it.each([{startTime:2,endTime:1},{startTime:-1},{endTime:Infinity},{startTime:'date'}])(
     'rejects an invalid purpose-summary range %s',async payload=>{

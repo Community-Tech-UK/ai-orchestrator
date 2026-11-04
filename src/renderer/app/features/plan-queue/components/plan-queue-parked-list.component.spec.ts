@@ -62,7 +62,18 @@ describe('PlanQueueParkedListComponent', () => {
   it('shows an empty message with no parked items', () => {
     fixture.componentRef.setInput('items', []);
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('No parked work');
+    expect(fixture.nativeElement.textContent).toContain('No work set aside');
+  });
+
+  it('heads multiple ready documents once and keeps them before other set-aside work', () => {
+    const verdict = { verdict: 'PASS' as const, findings: [], gatesRun: [], documentComplete: true, needJames: [] };
+    fixture.componentRef.setInput('items', [makeItem({ id: 'other', documentPath: 'other.md', updatedAt: 4 }),
+      makeItem({ id: 'first', documentPath: 'first.md', parkReason: 'land-blocked', verdict }),
+      makeItem({ id: 'second', documentPath: 'second.md', parkReason: 'land-blocked', verdict })]);
+    fixture.detectChanges();
+    expect(Array.from(fixture.nativeElement.querySelectorAll('h3'), (node: Element) => node.textContent)
+      .filter(text => text === 'Ready to review and merge')).toHaveLength(1);
+    expect(Array.from(fixture.nativeElement.querySelectorAll('.pq-parked-doc'), (node: Element) => node.textContent).at(-1)).toBe('other.md');
   });
 
   it('renders the document name, branch name and park reason', () => {
@@ -72,7 +83,7 @@ describe('PlanQueueParkedListComponent', () => {
     const text = fixture.nativeElement.textContent as string;
     expect(fixture.nativeElement.querySelector('.pq-parked-doc')?.textContent).toBe('foo_plan.md');
     expect(text).toContain('plan-queue/foo-plan');
-    expect(text).toContain('Still failing after the last check');
+    expect(text).toContain('Ran out of rounds');
   });
 
   it('fetches and renders the diffstat for each item', async () => {
@@ -87,12 +98,12 @@ describe('PlanQueueParkedListComponent', () => {
   });
 
   it('resumes immediately without a confirmation step', () => {
-    fixture.componentRef.setInput('items', [makeItem({ id: 'item-a' })]);
+    fixture.componentRef.setInput('items', [makeItem({ id: 'item-a', parkReason: 'worker-error' })]);
     fixture.detectChanges();
     const emitted: string[] = [];
     fixture.componentInstance.resumeItem.subscribe((id) => emitted.push(id));
 
-    (fixture.nativeElement.querySelector('button') as HTMLButtonElement).click();
+    (fixture.nativeElement.querySelector('.pq-resume-item') as HTMLButtonElement).click();
 
     expect(emitted).toEqual(['item-a']);
   });
@@ -118,8 +129,7 @@ describe('PlanQueueParkedListComponent', () => {
     const emitted: string[] = [];
     fixture.componentInstance.landAnyway.subscribe((id) => emitted.push(id));
 
-    const buttons = fixture.nativeElement.querySelectorAll('.pq-parked-actions button');
-    (buttons[1] as HTMLButtonElement).click();
+    (fixture.nativeElement.querySelector('.pq-merge-without-checks') as HTMLButtonElement).click();
     fixture.detectChanges();
     expect(emitted).toHaveLength(0);
     expect(fixture.nativeElement.textContent).toContain('never passed verification');
@@ -168,5 +178,42 @@ describe('PlanQueueParkedListComponent', () => {
       })]); fixture.detectChanges(); expect(fixture.nativeElement.querySelector('.pq-retry-landing')).toBeNull();
     },
   );
+
+  it('groups older attempts and folds long details with absolute paths removed', () => {
+    fixture.componentRef.setInput('items', [makeItem({ id: 'old' }), makeItem({ id: 'new', updatedAt: 2,
+      detail: '/Users/example/private/report.txt ' + 'saved evidence '.repeat(250) })]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.pq-parked-item .pq-parked-detail').textContent).not.toContain('/Users/');
+    expect(fixture.nativeElement.querySelector('.pq-parked-detail').open).toBe(false);
+    expect(fixture.nativeElement.querySelector('.pq-earlier-tries summary').textContent).toContain('1 earlier try');
+    expect(fixture.nativeElement.querySelector('.pq-earlier-tries').open).toBe(false);
+  });
+
+  it('requires the bulk preview before resuming and exposes no bulk merge or discard', () => {
+    fixture.componentRef.setInput('items', [makeItem({ id: 'first', documentPath: 'a.md' }), makeItem({ id: 'second', documentPath: 'b.md' })]);
+    fixture.detectChanges();
+    const emitted: string[] = [];
+    fixture.componentInstance.resumeItem.subscribe(id => emitted.push(id));
+    fixture.nativeElement.querySelector('.pq-bulk-resume').click(); fixture.detectChanges();
+    expect(emitted).toEqual([]);
+    expect(fixture.nativeElement.querySelector('.pq-bulk-preview').textContent).toContain('Will change (2)');
+    expect(fixture.nativeElement.querySelector('.pq-bulk-preview').textContent).toContain('Left alone (0)');
+    expect(fixture.nativeElement.querySelector('.pq-bulk-preview').textContent).not.toContain('Discard');
+    fixture.nativeElement.querySelector('.pq-bulk-confirm').click();
+    expect(emitted).toEqual(['first', 'second']);
+  });
+
+  it('keeps Resume and Discard available for older work with no recorded reason', () => {
+    fixture.componentRef.setInput('items', [makeItem({ parkReason: null })]); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.pq-resume-item')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('.pq-discard')).not.toBeNull();
+  });
+
+  it('shows the checker findings in a bulk-resume preview before confirmation', () => {
+    fixture.componentRef.setInput('items', [makeItem({ verdict: { verdict: 'FAIL', documentComplete: false,
+      findings: [{ severity: 'high', confidence: 95, summary: 'The saved retry is never resumed.' }], gatesRun: [], needJames: [] } })]);
+    fixture.detectChanges(); fixture.nativeElement.querySelector('.pq-bulk-resume').click(); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.pq-bulk-preview').textContent).toContain('The saved retry is never resumed.');
+  });
 
 });

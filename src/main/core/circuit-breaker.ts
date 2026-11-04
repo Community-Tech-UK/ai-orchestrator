@@ -148,7 +148,8 @@ export class CircuitBreaker extends EventEmitter {
   /**
    * Execute a call through the circuit breaker
    */
-  async execute<T>(fn: () => Promise<T>): Promise<T> {
+  async execute<T>(fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    signal?.throwIfAborted();
     // Check if circuit allows the call
     if (!this.isAllowed()) {
       const error = new Error(`Circuit breaker '${this.name}' is OPEN`);
@@ -170,12 +171,13 @@ export class CircuitBreaker extends EventEmitter {
         result = await fn();
       }
 
+      signal?.throwIfAborted();
       const duration = Date.now() - startTime;
       this.recordSuccess(duration);
       return result;
     } catch (error) {
       const duration = Date.now() - startTime;
-      this.recordFailure(error as Error, duration);
+      if (!signal?.aborted) this.recordFailure(error as Error, duration);
       throw error;
     }
   }

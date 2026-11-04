@@ -61,7 +61,7 @@ describe('planQueueVerdictSummary', () => {
 
   it('reports no findings when the findings array is empty', () => {
     expect(planQueueVerdictSummary({ verdict: 'PASS', findings: [], gatesRun: [], documentComplete: true, needJames: [] }))
-      .toBe('PASS — no findings');
+      .toBe('Passed — no findings');
   });
 
   it('summarises findings by severity', () => {
@@ -77,7 +77,7 @@ describe('planQueueVerdictSummary', () => {
         documentComplete: false,
         needJames: [],
       }),
-    ).toBe('FAIL — 2 critical, 1 low');
+    ).toBe('Changes needed — 2 critical, 1 low');
   });
 });
 
@@ -116,7 +116,7 @@ describe('PlanQueueItemListComponent', () => {
     expect(text).toContain('2026-09-18-thing_plan.md');
     expect(text).toContain('Working');
     expect(text).toContain('Round 2 of 3');
-    expect(text).toContain('1 errored round(s)');
+    expect(text).toContain('1 round ended with an error');
   });
 
   it('shows recorded cost beside the actual round cap', () => {
@@ -130,24 +130,41 @@ describe('PlanQueueItemListComponent', () => {
     fixture.detectChanges();
     const lines = Array.from(fixture.nativeElement.querySelectorAll('.pq-item-stepped-up') as NodeListOf<HTMLElement>)
       .map((line) => line.textContent!.replace(/\s+/g, ' ').trim());
-    expect(lines).toEqual(['Handed to a stronger worker (claude / opus) after 3 failed check(s)']);
+    expect(lines).toEqual(['Handed to a stronger worker (claude / opus) after 3 failed checks']);
     // The run's step-up choice was removed since: the record of the handover stays.
     fixture.componentRef.setInput('stepUp', null);
     fixture.detectChanges();
     expect((fixture.nativeElement.querySelector('.pq-item-stepped-up') as HTMLElement).textContent!.replace(/\s+/g, ' ').trim())
-      .toBe('Handed to a stronger worker after 3 failed check(s)');
+      .toBe('Handed to a stronger worker after 3 failed checks');
   });
 
   it('shows the park reason when the item is parked', () => {
     fixture.componentRef.setInput('items', [makeItem({ state: 'parked', parkReason: 'round-limit' })]);
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('Still failing after the last check');
+    expect(fixture.nativeElement.textContent).toContain('Ran out of rounds (1 of 3)');
+  });
+
+  it('uses the historical readiness headline consistently with the set-aside card', () => {
+    fixture.componentRef.setInput('items', [makeItem({ state: 'parked', parkReason: 'worker-error',
+      detail: 'Triage could not classify this document after two attempts' })]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.pq-item-park-reason')?.textContent).toContain("Couldn't check readiness (old classification step)");
   });
 
   it('shows free-text detail when present', () => {
     fixture.componentRef.setInput('items', [makeItem({ detail: 'Merge conflict in src/foo.ts' })]);
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('Merge conflict in src/foo.ts');
+  });
+
+  it('folds long details, removes absolute paths, and reports what was not checked', () => {
+    fixture.componentRef.setInput('items', [makeItem({ detail: '/Users/example/private/project/file.ts ' + 'x'.repeat(3000),
+      verdict: { verdict: 'PASS', findings: [], gatesRun: [], needJames: [], documentComplete: true, notChecked: ['Windows sign-in needs an authenticated worker.'] } })]);
+    fixture.detectChanges();
+    const detail = fixture.nativeElement.querySelector('details') as HTMLDetailsElement;
+    expect(detail.open).toBe(false);
+    expect(detail.textContent).not.toContain('/Users/');
+    expect(fixture.nativeElement.textContent).toContain('Not checked: Windows sign-in needs an authenticated worker.');
   });
 
   it('points a needs-answer item to the questions section instead of repeating its card', () => {

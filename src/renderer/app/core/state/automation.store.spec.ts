@@ -81,7 +81,7 @@ describe('AutomationStore thread wakeups', () => {
     preflight: vi.fn(),
     listTemplates: vi.fn(),
     onChanged: vi.fn(() => () => undefined),
-    onRunChanged: vi.fn(() => () => undefined),
+    onRunChanged: vi.fn<AutomationIpcService['onRunChanged']>(() => () => undefined),
   };
 
   beforeEach(() => {
@@ -205,6 +205,23 @@ describe('AutomationStore thread wakeups', () => {
     expect(ipc.markSeen).toHaveBeenCalledWith({ runId: 'run-1' });
     expect(store.unreadCount()).toBe(1);
     expect(store.runs().find((run) => run.id === 'run-1')?.seenAt).toBeTruthy();
+  });
+
+  it('updates retry appointments without counting the same terminal run as unread again', async () => {
+    ipc.list.mockResolvedValue({ success: true, data: [{ id: 'automation-1', unreadRunCount: 0 }] });
+    const store = TestBed.inject(AutomationStore); await store.refresh();
+    const receive = ipc.onRunChanged.mock.calls[0][0];
+    const run = { id: 'run-1', automationId: 'automation-1', status: 'failed', seenAt: null };
+    receive({ automationId: 'automation-1', run });
+    expect(store.unreadCount()).toBe(1);
+    receive({ automationId: 'automation-1', run: { ...run, nextRetryAt: 123_000 } });
+    expect(store.runs()[0].nextRetryAt).toBe(123_000);
+    expect(store.unreadCount()).toBe(1);
+    receive({ automationId: 'automation-1', run: { ...run, nextRetryAt: null } });
+    expect(store.runs()[0].nextRetryAt).toBeNull();
+    expect(store.unreadCount()).toBe(1);
+    receive({ automationId: 'automation-1', run: { ...run, id: 'run-2' } });
+    expect(store.unreadCount()).toBe(2);
   });
 
   it('markRunSeen is idempotent for an already-seen run', async () => {

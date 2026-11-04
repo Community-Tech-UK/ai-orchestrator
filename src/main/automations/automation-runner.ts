@@ -1,6 +1,14 @@
+import { refuseAutomationAuthorityDispatch } from './automation-execution-authority';
+import { AutomationEarlyEvents, authorizeCompletion, isReceiptCurrent } from './automation-completion-receipts';
+import { automationInvocations } from './automation-invocation-context';
+import { markAutomationDelivery } from './automation-delivery-audit';
+import { AutomationDispatchDeadline } from './automation-dispatch-deadline';
+import { completedAutomationTurnError, reconcileAutomationInstance } from './automation-runner-reconcile';
+import { RESTART_INTERRUPTION } from './automation-restart-retry';
+import { AutomationRunLimits } from './automation-run-limits';
+import type { AutomationResult } from '@contracts/schemas/automation';
 import { getLogger } from '../logging/logger';
 import { getWorkAdmission } from '../work-admission/work-admission';
-import { isVisibleOutputMessage } from '../../shared/types/tool-outcome';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { Instance } from '../../shared/types/instance.types';
 import type {
@@ -24,10 +32,7 @@ import {
   DEFAULT_MAX_RETRY_ATTEMPTS,
   DEFAULT_RETRY_BASE_DELAY_MS,
 } from './automation-retry';
-import {
-  writeFullOutput,
-  type RunTracking,
-} from './automation-runner-helpers';
+import { monitorAssistantOutput, writeFullOutput, type RunTracking } from './automation-runner-helpers';
 import {
   automationFromSnapshot,
   automationShellFromRunSnapshot,
@@ -39,7 +44,6 @@ import type {
   ThreadWakeupRunnerFactory,
 } from './automation-runner-types';
 import { renderWebhookPromptTemplate } from './webhook-prompt-template';
-import { classifyFinalOutputProviderLimit } from '../cli/final-output-provider-limit';
 import {
   readAutomationModelDefaults,
   resolveAutomationSpawnTarget,
@@ -47,10 +51,10 @@ import {
   type AutomationSpawnTarget,
 } from './automation-model-defaults';
 import { AutomationLoopRunDispatcher, defaultLoopRunExists, recoverLoopLinkedRuns } from './automation-loop-run';
-import { getNotificationService } from '../notifications/notification-service';
 import { checkContainedExecutionGate } from './automation-execution-profile-gate';
 import {
   handleTerminalRun as handleTerminalRunImpl,
+  notifyAutomationDisabled,
   type AutomationTerminalRunHost,
 } from './automation-runner-terminal';
 import { isProviderExcludedFromAutomation } from '../providers/automation-provider-exclusions';
@@ -78,9 +82,12 @@ export class AutomationRunner {
   private threadWakeupRunner: ThreadWakeupRunner | null = null;
   private readonly trackingByInstance = new Map<string, RunTracking>();
   private readonly instanceByRun = new Map<string, string>();
+  private readonly earlyEvents = new AutomationEarlyEvents();
   private initialized = false;
+  private limits: AutomationRunLimits | null = null;
+  private dispatchDeadline: AutomationDispatchDeadline | null = null;
   private promotingPending = false;
-  private readonly pauseStartup = new AutomationPauseStartup();
+  private readonly pauseStartup = new AutomationPauseStartup(id => this.reportStopFailure(id));
   private retryScheduler: RetrySchedulerCallback | null = null;
   /** WS5: lazy — only loop-action automations pay for the loop-engine binding. */
   private loopRunDispatcher: AutomationLoopRunDispatcher | null = null;
@@ -121,6 +128,14 @@ export class AutomationRunner {
     }
     this.initialized = true;
     this.instanceManager = instanceManager;
+    this.dispatchDeadline = new AutomationDispatchDeadline(this.now, (run, reason) => {
+      if (this.store.getRun(run.id)?.status !== 'running') return;
+      this.pauseStartup.cancel(run.id);
+      const failed = this.store.terminalizeRun(run.id, 'failed', reason, undefined, this.now());
+      if (failed) this.handleTerminalRun(failed, { retryable: false });
+    });
+    this.limits = new AutomationRunLimits(instanceManager, this.now, (id, reason) => this.failTrackedInstance(id, reason, { retryable: false }),
+      (runId, instanceId, source, tokens) => this.store.addProcessedUsage(runId, instanceId, source, tokens), id => this.reportStopFailure(id), id => this.finishCompletedTurn(id));
     this.threadWakeupRunner = this.threadWakeupRunnerFactory(instanceManager, this.store, this.now);
     const admission = getWorkAdmission();
     admission.registerCounter('automation-run', () => this.store.listActiveRuns().filter(run => run.status === 'running' && !run.configSnapshot?.action.forceNodeId).length);
@@ -145,13 +160,12 @@ export class AutomationRunner {
       .filter((entry) => entry.kind === 'automation-run' && !['void', 'resumed', 'failed'].includes(entry.state))
       .map((entry) => entry.targetId) ?? [];
     for (const runId of pausedRuns) this.pauseStartup.pause(runId);
-    const failed = this.store.failRunningRuns('App restarted before automation run completed', this.now(), pausedRuns);
+    const failed = this.store.failRunningRuns(RESTART_INTERRUPTION, this.now(), pausedRuns);
     for (const run of failed) {
       this.events.emitRunChanged({ automationId: run.automationId, run });
       this.events.emitRunTerminal({ automationId: run.automationId, runId: run.id, status: 'failed' });
       if (this.isOneTimeRun(run)) {
         this.emitAutomationState(run.automationId);
-        this.events.emitScheduleDeactivated({ automationId: run.automationId });
       }
     }
 
@@ -173,7 +187,7 @@ export class AutomationRunner {
     const promptOverride = options.trigger === 'webhook' && options.webhookPayload && automation
       ? renderWebhookPromptTemplate(automation.action.prompt, options.webhookPayload).content
       : undefined;
-    const preflightSkipReason = automation
+    const preflightSkipReason = this.hasStoppingRun(automationId) ? 'Previous scheduled job could not be stopped. Stop its sessions before running it again.' : automation
       ? this.automaticProviderExclusionReason(automation.action, automation.destination.kind)
       : undefined;
     const decision = this.store.decideAndInsertRun(
@@ -213,6 +227,7 @@ export class AutomationRunner {
     const run = decision.run;
     this.events.emitRunChanged({ automationId: run.automationId, run });
     emitAutomationRunStarted(run);
+    this.dispatchDeadline?.arm(run);
     await this.networkGate(run, this.store, () => this.dispatchRun({
       run,
       automation: automation as Automation,
@@ -227,12 +242,14 @@ export class AutomationRunner {
     if (this.promotingPending || !getWorkAdmission().check('timed-wakeup', { remote: true }).allowed) return;
     this.promotingPending = true;
     let claimed: ClaimedAutomationRun | null;
-    try { claimed = this.store.claimNextPending(automationId, this.now(), run => getWorkAdmission().check('automation-run', { remote: Boolean(run.configSnapshot?.action.forceNodeId) }).allowed); }
+    try { claimed = this.store.claimNextPending(automationId, this.now(), run => (run.attempt > 1 || !this.hasStoppingRun(run.automationId)) && getWorkAdmission().check('automation-run', { remote: Boolean(run.configSnapshot?.action.forceNodeId) }).allowed); }
     finally { this.promotingPending = false; }
     if (!claimed) {
       return;
     }
     this.events.emitRunChanged({ automationId: claimed.run.automationId, run: claimed.run });
+    if (this.refuseRetryWhileStopping(claimed.run) || this.dispatchDeadline?.expireIfElapsed(claimed.run)) return;
+    this.dispatchDeadline?.arm(claimed.run);
     await this.networkGate(claimed.run, this.store, () => this.dispatchRun(claimed, manager));
   }
 
@@ -243,6 +260,7 @@ export class AutomationRunner {
         this.instanceByRun.delete(tracking.runId);
       }
       this.trackingByInstance.delete(instanceId);
+      this.limits?.clear(instanceId);
       // The automation was deleted mid-run: no outcome will ever be recorded.
       revealHiddenAutomationSession(this.instanceManager, instanceId);
     }
@@ -251,8 +269,9 @@ export class AutomationRunner {
   /** Keep the durable run running while its provider is interrupted for a restart. */
   pauseRunForGlobalPause(runId: string): void {
     this.pauseStartup.pause(runId);
+    this.dispatchDeadline?.clear(runId);
     const instanceId = this.instanceByRun.get(runId);
-    if (instanceId) this.trackingByInstance.delete(instanceId);
+    if (instanceId) { this.trackingByInstance.delete(instanceId); this.limits?.clear(instanceId); }
     this.instanceByRun.delete(runId);
   }
 
@@ -278,27 +297,30 @@ export class AutomationRunner {
     this.pauseStartup.resume(runId);
     const run = this.store.getRun(runId);
     if (!run || run.status !== 'running') throw new Error('Scheduled loop is no longer waiting to resume');
-    this.requireLoopRunDispatcher().track(loopRunId, runId, run.automationId);
+    this.requireLoopRunDispatcher().track(loopRunId, run);
   }
 
   async resumePendingRunForGlobalPause(runId: string): Promise<void> {
     const run = this.store.getRun(runId);
     if (!run || run.status !== 'running' || !run.configSnapshot) throw new Error('Scheduled job is no longer waiting to resume');
     this.pauseStartup.resume(runId);
+    this.dispatchDeadline?.arm(run);
     await this.dispatchRun({ run, snapshot: run.configSnapshot, automation: automationShellFromRunSnapshot(run) }, this.requireInstanceManager());
   }
 
   private dispatchRun(claimed: ClaimedAutomationRun, manager: InstanceManager): Promise<void> {
     const current = this.store.getRun?.(claimed.run.id);
     if (this.instanceByRun.has(claimed.run.id) || current?.loopRunId || (current && current.status !== 'running')) return Promise.resolve();
+    if (this.refuseRetryWhileStopping(claimed.run) || this.dispatchDeadline?.expireIfElapsed(claimed.run)) return Promise.resolve();
     const receipt = { threadDispatched: false };
     return this.pauseStartup.run(claimed.run.id, startup => this.dispatchRunOnce(claimed, manager, startup, receipt), () => {
       this.pauseRunForGlobalPause(claimed.run.id);
       if (!receipt.threadDispatched) this.store.attachInstance(claimed.run.id, null, this.now());
-    });
+    }, () => !this.dispatchDeadline?.expireIfElapsed(claimed.run));
   }
 
   private async dispatchRunOnce(claimed: ClaimedAutomationRun, manager: InstanceManager, startup: AutomaticStartup, receipt: { threadDispatched: boolean }): Promise<void> {
+    if (this.refuseRetryWhileStopping(claimed.run) || this.dispatchDeadline?.expireIfElapsed(claimed.run)) return;
     const context = { remote: Boolean(claimed.snapshot.action.forceNodeId) };
     if (!getWorkAdmission().check('timed-wakeup', context).allowed) {
       getWorkAdmission().defer(`automation-dispatch:${claimed.run.id}`, 'timed-wakeup', async () => {
@@ -310,13 +332,15 @@ export class AutomationRunner {
       this.events.emitRunChanged({ automationId: claimed.run.automationId, run: claimed.run });
       emitAutomationRunStarted(claimed.run);
     }
+    if (refuseAutomationAuthorityDispatch(claimed, this.store, this.now(), (run, options) => this.handleTerminalRun(run, options))) return;
     const systemRun = await this.dispatchSystemActionIfHandled(claimed);
+    startup.signal.throwIfAborted();
     if (systemRun) {
       this.handleTerminalRun(systemRun);
       return;
     }
+    if (this.refuseRetryWhileStopping(claimed.run) || this.dispatchDeadline?.expireIfElapsed(claimed.run)) return;
 
-    startup.signal.throwIfAborted();
     // WS-C7: contained only enforces on a fresh one-shot instance spawn — refuse thread/loop shapes rather than silently ignore the profile.
     if (this.refuseUnsupportedContainedShape(claimed.snapshot, claimed.run.id)) {
       return;
@@ -330,6 +354,7 @@ export class AutomationRunner {
         startup,
         onProviderDispatch: () => { receipt.threadDispatched = true; },
       });
+      startup.signal.throwIfAborted();
       this.handleTerminalRun(terminal);
       return;
     }
@@ -340,6 +365,7 @@ export class AutomationRunner {
     // instance. The dispatcher terminalizes the run when the loop ends.
     if (claimed.snapshot.action.loop) {
       await this.requireLoopRunDispatcher().dispatch(claimed, startup);
+      this.dispatchDeadline?.clear(claimed.run.id);
       return;
     }
 
@@ -351,11 +377,10 @@ export class AutomationRunner {
       // James's never-use and use-last account lists apply to automation sessions too.
       const accountPreferences = await this.accountPreferencesFor(spawnTarget, claimed.snapshot.action.forceNodeId);
       startup.signal.throwIfAborted();
+      if (this.refuseRetryWhileStopping(claimed.run) || this.dispatchDeadline?.expireIfElapsed(claimed.run)) return;
       const contained = claimed.snapshot.action.executionProfile === 'contained';
       const instance = await manager.createInstance({
-        // The automation name is operator-facing and already specific. Keep it
-        // authoritative so a shared prompt preamble cannot make concurrent
-        // automation sessions look identical in the narrow project rail.
+        // Keep the job's own name authoritative in the project rail.
         displayName: claimed.run.attempt > 1 ? `${claimed.snapshot.name} (retry ${claimed.run.attempt})` : claimed.snapshot.name,
         isRenamed: true,
         workingDirectory: claimed.snapshot.action.workingDirectory,
@@ -363,6 +388,7 @@ export class AutomationRunner {
         attachments: claimed.snapshot.action.attachments,
         // WS-C7: contained forces the CLI's sandbox read-only via yoloMode=false.
         yoloMode: contained ? false : claimed.snapshot.action.yoloMode,
+        automationAuthority: claimed.snapshot.action.executionAuthority,
         agentId: claimed.snapshot.action.agentId,
         ...spawnTarget,
         ...(accountPreferences ? { accountPreferences } : {}),
@@ -383,6 +409,7 @@ export class AutomationRunner {
         },
       });
 
+      if (this.dispatchDeadline?.expireIfElapsed(claimed.run)) return this.limits?.stopLateInstance(instance.id, claimed.run);
       startup.register(instance, () => manager.terminateInstance(instance.id, false));
       this.trackInstance(instance.id, claimed.run);
       const attachedRun = this.store.attachInstance(claimed.run.id, instance.id, this.now());
@@ -391,6 +418,7 @@ export class AutomationRunner {
       }
 
       this.reconcileInstanceState(instance);
+      this.earlyEvents.drain(claimed.run.id, instance.id, event => this.handleProviderEvent(event));
       const settled = (error?: unknown): void => {
         if ((startup.signal.aborted || isAutomaticStartupCancelled(error)) && !startup.wasDispatched(instance.id)) {
           const current = this.store.getRun(claimed.run.id);
@@ -420,6 +448,7 @@ export class AutomationRunner {
   }
 
   private trackInstance(instanceId: string, run: AutomationRun): void {
+    this.dispatchDeadline?.clear(run.id);
     this.trackingByInstance.set(instanceId, {
       runId: run.id,
       automationId: run.automationId,
@@ -427,11 +456,18 @@ export class AutomationRunner {
       outputChunks: [],
     });
     this.instanceByRun.set(run.id, instanceId);
+    this.limits?.track(instanceId, run);
   }
 
   private handleProviderEvent(envelope: ProviderRuntimeEventEnvelope): void {
+    this.loopRunDispatcher?.observeProviderEvent(envelope);
+    const root = this.limits?.observe(envelope.instanceId, envelope);
+    if (root && root !== envelope.instanceId && envelope.event.kind === 'complete') {
+      this.finishCompletedTurn(root);
+    }
     const tracking = this.trackingByInstance.get(envelope.instanceId);
     if (!tracking) {
+      this.earlyEvents.retain(envelope, this.instanceManager?.getInstance(envelope.instanceId), id => this.store.getRun(id)?.status === 'running');
       return;
     }
 
@@ -448,9 +484,8 @@ export class AutomationRunner {
         }
         break;
       case 'complete':
-        if (tracking.seenAssistantOutput) {
-          this.completeTrackedInstance(envelope.instanceId, 'succeeded');
-        }
+        authorizeCompletion(tracking, this.instanceManager?.getInstance(envelope.instanceId), envelope);
+        this.finishCompletedTurn(envelope.instanceId);
         break;
       case 'error':
         if (!envelope.event.recoverable) {
@@ -458,6 +493,7 @@ export class AutomationRunner {
         }
         break;
       case 'exit':
+        if (envelope.event.code === 0) this.finishCompletedTurn(envelope.instanceId);
         if (envelope.event.code !== 0) {
           this.failTrackedInstance(
             envelope.instanceId,
@@ -471,6 +507,10 @@ export class AutomationRunner {
   }
 
   private handleInstanceEvent(envelope: InstanceEventEnvelope): void {
+    const root = this.limits?.observe(envelope.instanceId);
+    if (root && root !== envelope.instanceId) {
+      this.finishCompletedTurn(root);
+    }
     const tracking = this.trackingByInstance.get(envelope.instanceId);
     if (!tracking) {
       return;
@@ -506,12 +546,11 @@ export class AutomationRunner {
       return;
     }
 
-    if (event.status === 'idle' && tracking.seenAssistantOutput) {
-      this.completeTrackedInstance(envelope.instanceId, 'succeeded');
-    }
+    if (event.status === 'idle') this.finishCompletedTurn(envelope.instanceId);
   }
 
   private handleInstanceRemoved(instanceId: string): void {
+    this.limits?.removed(instanceId);
     this.failTrackedInstance(instanceId, 'Automation instance was removed');
   }
 
@@ -577,6 +616,7 @@ export class AutomationRunner {
         store: this.store,
         now: () => this.now(),
         onTerminal: (run, options) => this.handleTerminalRun(run, options),
+        onStopFailure: runId => { const run = this.store.getRun(runId); if (run) this.events.emitRunChanged({ automationId: run.automationId, run }); },
       });
     }
     return this.loopRunDispatcher;
@@ -588,43 +628,9 @@ export class AutomationRunner {
       return;
     }
 
-    const assistant = [...instance.outputBuffer].reverse().find((message) =>
-      message.type === 'assistant' && message.content.trim().length > 0
-    );
-    if (assistant) {
-      tracking.seenAssistantOutput = true;
-      tracking.lastAssistantOutput = assistant.content;
-    }
-    // LT-196: miner-only records are not automation output.
-    tracking.outputChunks.push(...instance.outputBuffer
-      .filter(isVisibleOutputMessage)
-      .slice(-20).map((message) => ({
-      kind: message.type,
-      content: message.content,
-      timestamp: message.timestamp,
-    })));
-
-    if (FAILURE_STATUSES.has(instance.status)) {
-      this.failTrackedInstance(instance.id, `Instance entered ${instance.status}`);
-      return;
-    }
-
-    if (WAIT_STATUSES.has(instance.status)) {
-      // See handleInstanceEvent: parking for human approval/input is not a
-      // transient failure, so it must not trigger the retry loop.
-      this.failTrackedInstance(
-        instance.id,
-        instance.status === 'waiting_for_permission'
-          ? 'Automation requires unattended permission approval'
-          : 'Automation requires unattended user input',
-        { retryable: false },
-      );
-      return;
-    }
-
-    if (instance.status === 'idle' && tracking.seenAssistantOutput) {
-      this.completeTrackedInstance(instance.id, 'succeeded');
-    }
+    reconcileAutomationInstance(instance, tracking,
+      (reason, options) => this.failTrackedInstance(instance.id, reason, options),
+      () => this.finishCompletedTurn(instance.id));
   }
 
   private completeTrackedInstance(
@@ -637,10 +643,10 @@ export class AutomationRunner {
     if (!tracking) {
       return;
     }
-    // A CLI that stops on a provider limit exits cleanly with the notice as its final message.
-    const providerLimitError = reportedStatus === 'succeeded' ? classifyFinalOutputProviderLimit(tracking.lastAssistantOutput) : null;
-    const status = providerLimitError ? 'failed' : reportedStatus;
-    const error = providerLimitError ?? reportedError;
+    if (reportedStatus === 'succeeded' && this.limits?.check(instanceId)) return;
+    const status = reportedStatus;
+    const error = reportedError;
+    this.limits?.clear(instanceId);
 
     this.trackingByInstance.delete(instanceId);
     this.instanceByRun.delete(tracking.runId);
@@ -653,13 +659,58 @@ export class AutomationRunner {
       status,
       error,
       tracking.lastAssistantOutput ? tracking.lastAssistantOutput.slice(0, 4000) : undefined,
-      { now: this.now(), outputFullRef },
+      { now: this.now(), outputFullRef, monitorOutput: monitorAssistantOutput(tracking) },
     );
     if (!run) {
       return;
     }
 
     this.handleTerminalRun(run, options);
+  }
+
+  recordResult(instanceId: string | null, result: AutomationResult): { recorded: true } {
+    if (!instanceId) throw new Error('automation_result requires a scheduled job session');
+    const invocation = automationInvocations.get(instanceId);
+    if (this.instanceManager?.getInstance(instanceId)?.parentId) throw new Error('Only the root scheduled job session can report its result');
+    const metadataRunId = this.instanceManager?.getInstance(instanceId)?.metadata?.['automationRunId'];
+    const runId = invocation?.runId ?? this.trackingByInstance.get(instanceId)?.runId ?? (typeof metadataRunId === 'string' ? metadataRunId : undefined);
+    if (!runId) throw new Error('automation_result is only available to the scheduled job that owns this session');
+    const run = this.store.getRun(runId);
+    if (!run || run.status !== 'running' || run.configSnapshot?.destination.kind !== 'newInstance' || run.configSnapshot.action.systemAction
+      || (!invocation && run.instanceId !== null && run.instanceId !== instanceId)) throw new Error('automation_result requires an active owned agent run');
+    this.store.recordResult(runId, result);
+    return { recorded: true };
+  }
+
+  markDeliveryStartedForCaller(instanceId: string): void { markAutomationDelivery(instanceId, this.requireInstanceManager(), this.store); }
+  hasStoppingRun(id: string): boolean { return this.limits?.isStoppingAutomation(id) === true || this.loopRunDispatcher?.isStoppingAutomation(id) === true || this.pauseStartup.isStoppingAutomation(id, runId => this.store.getRun(runId)?.automationId); }
+  private refuseRetryWhileStopping(run: AutomationRun): boolean {
+    if (run.attempt <= 1) return false;
+    const current = this.store.getRun(run.id);
+    if (!current || !['running', 'pending'].includes(current.status)) return true;
+    if (!this.hasStoppingRun(run.automationId)) return false;
+    const failed = this.store.terminalizeRun(run.id, 'failed', 'Previous scheduled job could not be stopped. Stop its sessions before running it again.', undefined, this.now());
+    if (failed) this.handleTerminalRun(failed, { retryable: false });
+    return true;
+  }
+  private reportStopFailure(runId: string): void {
+    this.store.recordStopFailure(runId);
+    const run = this.store.getRun(runId);
+    if (run) this.events.emitRunChanged({ automationId: run.automationId, run });
+  }
+
+  private finishCompletedTurn(instanceId: string): void {
+    const tracking = this.trackingByInstance.get(instanceId);
+    if (!tracking) return;
+    if (this.limits?.check(instanceId)) return;
+    if (!isReceiptCurrent(tracking.completionReceipt, this.instanceManager?.getInstance(instanceId))) return;
+    if (this.limits?.hasActiveDescendants(instanceId)) return;
+    const error = completedAutomationTurnError(tracking, this.store.getRunFacts(tracking.runId).result);
+    if (error) {
+      this.failTrackedInstance(instanceId, error, { retryable: false });
+      return;
+    }
+    this.completeTrackedInstance(instanceId, 'succeeded');
   }
 
   private failTrackedInstance(
@@ -701,35 +752,12 @@ export class AutomationRunner {
   }
 
   private handleTerminalRun(run: AutomationRun, options?: { retryable?: boolean }): void {
+    this.earlyEvents.discard(run.id);
+    this.dispatchDeadline?.clear(run.id);
     handleTerminalRunImpl(this as unknown as AutomationTerminalRunHost, run, options);
   }
 
-  /**
-   * Record a give-up outcome for a run whose last retry attempt was abandoned
-   * due to a concurrency-policy skip.  This keeps the consecutive-failure streak
-   * accurate even when a retry is skipped for non-error reasons.
-   *
-   * Called from AutomationScheduler.onRetryTimer when concurrencyPolicy=skip
-   * and the retry timer fires but a run is still active.
-   */
-  /**
-   * WS5 breaker: an auto-disabled automation is an operator-actionable event —
-   * raise a deduped notification (best-effort; never disrupt run bookkeeping).
-   */
-  private notifyAutoDisabled(automationId: string, consecutiveFailures?: number, reason?: string): void {
-    try {
-      getNotificationService().notify({
-        kind: 'automation-breaker',
-        title: 'Automation auto-disabled',
-        body: `Disabled after ${consecutiveFailures ?? 'repeated'} consecutive failures`
-          + `${reason ? ` (last: ${reason.slice(0, 200)})` : ''}. Re-enable it from the Automations page.`,
-        urgency: 'critical',
-        fingerprintFields: { automationId },
-      });
-    } catch {
-      // Notification failure must never affect run bookkeeping.
-    }
-  }
+  private readonly notifyAutoDisabled = notifyAutomationDisabled;
 
   recordGiveUpOutcome(originalRun: AutomationRun): void {
     const outcome = this.store.recordRunOutcome(
@@ -749,16 +777,23 @@ export class AutomationRunner {
     }
   }
 
-  /**
-   * Dispatch a retry run that was created by the scheduler when the retry
-   * timer fires.  Called from `AutomationScheduler.onRetryTimer`.
-   */
-  async dispatchRetryRun(retryRun: AutomationRun): Promise<void> {
+  /** Reserve the retry's deadline and stop fence before the scheduler waits for network. */
+  prepareRetryRun(retryRun: AutomationRun): boolean {
+    const current = this.store.getRun(retryRun.id);
+    if (!current || current.status !== 'running') return false;
     if (!retryRun.configSnapshot) {
       const failed = this.store.terminalizeRun(retryRun.id, 'failed', 'Retry run has no config snapshot', undefined, this.now());
-      if (failed) this.handleTerminalRun(failed);
-      return;
+      if (failed) this.handleTerminalRun(failed, { retryable: false });
+      return false;
     }
-    await this.dispatchRun({ run: retryRun, snapshot: retryRun.configSnapshot, automation: automationShellFromRunSnapshot(retryRun) }, this.requireInstanceManager());
+    if (this.refuseRetryWhileStopping(retryRun)) return false;
+    this.dispatchDeadline?.arm(retryRun);
+    return this.store.getRun(retryRun.id)?.status === 'running';
+  }
+
+  /** Recheck admission when a network wait, held dispatch or direct caller releases a retry. */
+  async dispatchRetryRun(retryRun: AutomationRun): Promise<void> {
+    if (!this.prepareRetryRun(retryRun)) return;
+    await this.dispatchRun({ run: retryRun, snapshot: retryRun.configSnapshot!, automation: automationShellFromRunSnapshot(retryRun) }, this.requireInstanceManager());
   }
 }

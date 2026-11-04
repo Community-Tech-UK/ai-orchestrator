@@ -174,6 +174,7 @@ export function buildInstanceRecord(
     requestCount: 0,
     errorCount: 0,
     restartCount: 0,
+    ...(config.automationAuthority ? { automationAuthority: Object.freeze({ ...config.automationAuthority }) } : {}),
     metadata: config.metadata,
   };
   if (isFreshSession && currentSubmission) markFreshInitialSubmission(instance, currentSubmission);

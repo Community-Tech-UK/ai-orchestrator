@@ -1,4 +1,4 @@
-import { ɵresolveComponentResources as resolveComponentResources, type WritableSignal } from '@angular/core';
+import { ɵresolveComponentResources as resolveComponentResources, signal, type WritableSignal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import type { InferredVerifyPayload } from '../../core/services/ipc/loop-ipc.service';
 import { readFileSync } from 'node:fs';
@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { LoopConfigPanelComponent } from './loop-config-panel.component';
 import { defaultLoopContextConfig } from '../../../../shared/types/loop.types';
 import { HelpDrawerService } from '../../shared/help/help-drawer.service';
+import { CliUpdatePillStore } from '../../core/state/cli-update-pill.store';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
 const template = readFileSync(resolve(specDirectory, './loop-config-panel.component.html'), 'utf8');
@@ -34,6 +35,7 @@ await resolveComponentResources((url) => {
 describe('LoopConfigPanelComponent', () => {
   let fixture: ComponentFixture<LoopConfigPanelComponent>;
   let component: LoopConfigPanelComponent;
+  const cliState = signal({ entries: [{ cli: 'copilot', currentVersion: '1.0.99' }] });
 
   /** `inferredVerify`/`inferLoading` are protected (template-only) state; the
    *  IPC bridge that fills them doesn't exist outside Electron. */
@@ -50,6 +52,7 @@ describe('LoopConfigPanelComponent', () => {
     localStorage.clear();
     await TestBed.configureTestingModule({
       imports: [LoopConfigPanelComponent],
+      providers: [{ provide: CliUpdatePillStore, useValue: { state: cliState } }],
     }).compileComponents();
 
     fixture = TestBed.createComponent(LoopConfigPanelComponent);
@@ -60,6 +63,18 @@ describe('LoopConfigPanelComponent', () => {
     // command so tests whose subject is NOT the authority gate stay focused.
     component.verifyCommand.set('npm test');
     fixture.detectChanges();
+  });
+
+  it('warns in Copilot preflight, including a selected preset, and removes the warning after an upgrade', () => {
+    component.onProviderChange('copilot');
+    component.applyPreset('safe-implementation');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Copilot below 1.0.100 may stall for minutes on a hung tool server.');
+    cliState.set({ entries: [{ cli: 'copilot', currentVersion: '1.0.100' }] }); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).not.toContain('Copilot below 1.0.100');
+    cliState.set({ entries: [{ cli: 'copilot', currentVersion: '1.0.99' }] });
+    component.onProviderChange('claude'); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).not.toContain('Copilot below 1.0.100');
   });
 
   it('explains a required rename on its focusable checkbox and keeps the effective setting on', () => {

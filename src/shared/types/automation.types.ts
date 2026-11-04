@@ -1,3 +1,4 @@
+import type { AutomationResult } from '@contracts/schemas/automation';
 import type { FileAttachment, InstanceProvider } from './instance.types';
 
 export type AutomationScheduleType = 'cron' | 'oneTime';
@@ -94,7 +95,25 @@ export interface AutomationLoopAction {
   loopRecipe?: string;
 }
 
+/** Trusted main-process snapshot. Tool arguments cannot supply this ceiling. */
+export interface AutomationExecutionAuthority {
+  readonly provider: 'claude' | 'codex';
+  readonly model: string;
+  readonly modelTier: 'fast' | 'balanced' | 'powerful';
+  readonly reasoningEffort: AutomationReasoningEffort;
+  readonly yoloMode: boolean;
+}
+
+/** Private runtime ingress, absent from public instance-create contracts. */
+export interface AutomationAuthorityScope {
+  automationAuthority?: Readonly<AutomationExecutionAuthority>;
+}
+
 export interface AutomationAction {
+  executionAuthority?: Readonly<AutomationExecutionAuthority>;
+  maxRunMinutes?: number;
+  maxProcessedTokens?: number;
+  slowWhenUnchanged?: boolean;
   prompt: string;
   workingDirectory: string;
   provider?: InstanceProvider;
@@ -170,6 +189,7 @@ export interface AutomationConfigSnapshot {
 }
 
 export interface Automation {
+  monitorState?: { unchangedChecks: number; intervalMultiplier: number; quietRuns: number; modelHintDismissed: boolean };
   id: string;
   name: string;
   description?: string;
@@ -233,6 +253,10 @@ export interface Automation {
 }
 
 export interface AutomationRun {
+  /** Saved retry appointment; absent on older IPC payloads, null once consumed or cancelled. */
+  nextRetryAt?: number | null;
+  processedTokens?: number;
+  result?: AutomationResult | null;
   id: string;
   automationId: string;
   status: AutomationRunStatus;
@@ -274,6 +298,7 @@ export interface CreateAutomationInput {
 }
 
 export interface UpdateAutomationInput {
+  dismissModelHint?: true;
   name?: string;
   description?: string;
   enabled?: boolean;

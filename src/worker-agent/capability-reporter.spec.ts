@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+// Capabilities are exercised without installed-provider discovery or account reads.
+vi.mock('./worker-account-route', () => ({
+  listWorkerAccountProfileIds: () => ({}),
+  listWorkerOpenCodeAccountProfileIds: async () => [],
+}));
+vi.mock('./opencode-worker-capability', () => ({ readWorkerOpenCodeMajor: async () => undefined }));
+
 // Mock dependencies that are not available in the test environment.
 // child_process: partial mock preserving the module shape but replacing execFileSync.
 vi.mock('child_process', async (importOriginal) => {
@@ -35,6 +42,7 @@ import { reportCapabilities, parseLmStudioLoadedModels } from './capability-repo
 import { _resetHostHealthSamplerForTesting, startHostHealthSampling } from './host-health-sampler';
 import { ProjectDiscovery } from '../main/remote-node/project-discovery';
 import { LOCAL_AI_TARGET_NUMERIC_LIMITS } from '../shared/types/local-ai-guard.types';
+import { NodeHeartbeatParamsSchema } from '../main/remote-node/rpc-schemas';
 import * as fs from 'fs';
 import { execFileSync } from 'child_process';
 
@@ -173,6 +181,16 @@ describe('capability-reporter', () => {
     // The host booted before this worker process started.
     expect(workerAgent?.hostBootedAt).toBeGreaterThan(0);
     expect(workerAgent?.hostBootedAt).toBeLessThanOrEqual(workerAgent?.startedAt ?? 0);
+  });
+
+  it('advertises preservation of persistent Codex policy through the actual heartbeat validator', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Synthetic unavailable endpoint')));
+    const capabilities = await reportCapabilities(['/workspace']);
+    const heartbeat = NodeHeartbeatParamsSchema.parse({ nodeId: 'worker-placeholder', capabilities, activeInstances: 0 });
+    expect(heartbeat.capabilities.codexSpawnMetadata).toBe(1);
+    const legacy = { ...capabilities }; delete legacy.codexSpawnMetadata;
+    expect(NodeHeartbeatParamsSchema.parse({ nodeId: 'worker-placeholder', capabilities: legacy, activeInstances: 0 }).capabilities.codexSpawnMetadata).toBeUndefined();
+    expect(NodeHeartbeatParamsSchema.parse({ nodeId: 'worker-placeholder', capabilities: { ...capabilities, codexSpawnMetadata: '1' }, activeInstances: 0 }).capabilities.codexSpawnMetadata).toBeUndefined();
   });
 
   it('reports the latest host-health sample once the sampler has one', async () => {

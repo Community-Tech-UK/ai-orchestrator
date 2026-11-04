@@ -1,3 +1,4 @@
+import { AutomationExecutionAuthoritySchema, AutomationReasoningEffortSchema } from './automation.schemas';
 import { LoopPhase2StateFieldsSchema, LoopSpendByPurposeSchema } from './loop-spend.schemas';
 import { z } from 'zod';
 import { LoopOutstandingQuestionFieldsShape } from './loop-questions.schemas';
@@ -330,14 +331,14 @@ export const LoopNextObjectivePlanningConfigSchema = z.object({
 });
 
 export const LoopConfigSchema = z.object({
+  model: RequiredModelIdSchema.optional(),
+  reasoningEffort: AutomationReasoningEffortSchema.optional(),
+  yoloMode: z.boolean().optional(),
+  executionAuthority: AutomationExecutionAuthoritySchema.optional(),
   onFailedStep: z.enum(['stop', 'pause']).optional(),
   /** The goal/ask. Sent on iteration 0 and is what the loop drives toward. */
   initialPrompt: z.string().min(1, 'initialPrompt cannot be empty'),
-  /** The continuation directive used on iterations 1+. If omitted, the loop
-   *  re-uses `initialPrompt` for every iteration (legacy behaviour). When
-   *  set, iter 0 = goal, iter 1+ = this directive (e.g. "please continue,
-   *  re-review with fresh eyes"). State on disk + the stage machine carry
-   *  context forward between iterations. */
+  /** Continuation directive on iterations 1+; absent reuses the initial goal. */
   iterationPrompt: z.string().optional(),
   planFile: z.string().optional(),
   workspaceCwd: z.string().min(1),
@@ -401,8 +402,7 @@ export const LoopConfigSchema = z.object({
   maxTurnsPerIteration: z.number().int().positive().max(1000).nullable().optional(),
   /** Fable WS6: named recipe pack for the per-stage work prompts. */
   loopRecipe: z.string().regex(/^[a-z0-9][a-z0-9-]*$/).max(100).optional(),
-  /** WS7: deliberate single-loop override of a campaign-recommended plan
-   *  assessment. Persisted so restarts/audits show the choice was explicit. */
+  /** Explicit single-loop override of the campaign recommendation. */
   singleLoopOverride: z.boolean().optional(),
 });
 

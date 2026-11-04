@@ -1,5 +1,5 @@
 /** Readiness decisions and lifecycle reconciliation before any work starts. */
-import { lstat } from 'fs/promises';
+import { lstat, realpath } from 'fs/promises';
 import * as path from 'path';
 import { classifyQuestionRisk } from '../../shared/attention/question-need';
 import {
@@ -12,6 +12,7 @@ import type { PlanQueueFlowHost } from './plan-queue-host';
 import { buildQuestionsMessage, withSkipOption } from './plan-queue-messages';
 import type { PlanQueueStore } from './plan-queue-store';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
+import { rememberTriageRecord } from './plan-queue-triage-memory';
 
 export const PRE_START_STATES = new Set<PlanQueueItemState>(['discovered', 'needs-answer', 'queued']);
 type ReadinessHost = Pick<PlanQueueFlowHost, 'getRun' | 'getItem' | 'transition' | 'notifyParent'> & {
@@ -59,6 +60,7 @@ export function applyTriageRecords(host: ReadinessHost, run: PlanQueueRun, args:
       }
     }
     applied += 1;
+    rememberTriageRecord(host.store.history, item.documentPath, run.workspaceCwd, record, Date.now());
   }
   if (asked) {
     const questions = host.store.listItems(run.id).filter((item) => item.state === 'needs-answer' && item.question);
@@ -67,10 +69,12 @@ export function applyTriageRecords(host: ReadinessHost, run: PlanQueueRun, args:
   return { applied, unmatched };
 }
 
-async function documentExists(documentPath: string): Promise<boolean> {
+async function documentExists(documentPath: string, repoRoot: string): Promise<boolean> {
   try {
     const stat = await lstat(documentPath);
     if (!stat.isFile()) throw new Error('Document is not a regular file');
+    const relative = path.relative(await realpath(repoRoot), await realpath(documentPath));
+    if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw new Error('Document resolves outside the run workspace');
     return true;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
@@ -92,12 +96,12 @@ export async function reconcileWaitingDocuments(host: ReadinessHost, run: PlanQu
       if (relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative)) {
         throw new Error('Document is outside the run workspace');
       }
-      if (await documentExists(snapshot.documentPath)) {
+      if (await documentExists(snapshot.documentPath, run.workspaceCwd)) {
         outcome = 'present';
         detail = '';
       } else {
         const completed = snapshot.documentPath.replace(/\.md$/i, '_completed.md');
-        if (completed !== snapshot.documentPath && await documentExists(completed)) {
+        if (completed !== snapshot.documentPath && await documentExists(completed, run.workspaceCwd)) {
           outcome = 'completed';
           detail = `Superseded by exact completed replacement: ${completed}. Queue entry retired; this is not a verification verdict.`;
         } else {
@@ -115,7 +119,7 @@ export async function reconcileWaitingDocuments(host: ReadinessHost, run: PlanQu
     if (!['running', 'paused'].includes(currentRun.status) || !hasNotStarted(item)
       || item.documentPath !== snapshot.documentPath) continue;
     if (outcome === 'completed') host.transition(item, 'skipped', { question: null, detail: detail.slice(0, 8000) });
-    else if (outcome !== 'present') host.transition(item, 'parked', { question: null, parkReason: 'worker-error', detail: detail.slice(0, 8000) });
+    else if (outcome !== 'present') host.transition(item, 'parked', { question: null, parkReason: outcome === 'missing' ? 'missing-document' : 'worker-error', detail: detail.slice(0, 8000) });
     else if (item.state === 'needs-answer' && item.question) {
       const automatic = automaticDecisionPatch(item.question);
       if (automatic) host.transition(item, 'queued', automatic);

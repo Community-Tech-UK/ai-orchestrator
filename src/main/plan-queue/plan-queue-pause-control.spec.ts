@@ -17,11 +17,21 @@ import { newPlanQueueItem } from './plan-queue-state';
 import { PlanQueueStore } from './plan-queue-store';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 
+// Keep command results deterministic in these tiny Git/session fixtures. The
+// receipt runner's own tests execute commands and cover failed/empty results.
+vi.mock('./plan-queue-gate-receipts', async original => {
+  const actual = await original<typeof import('./plan-queue-gate-receipts')>();
+  return { ...actual, PlanQueueGateRunner: class extends actual.PlanQueueGateRunner {
+    constructor() { super(async () => ({ exitCode: 0, output: '✓ 1 files · 1 tests passed in 0s', timedOut: false })); }
+  } };
+});
+
 class Instances extends EventEmitter {
   live = new Map<string, PlanQueueInstanceRecord>();
   created: InstanceCreateConfig[] = [];
   sendInput = vi.fn(async () => undefined);
   terminateInstance = vi.fn(async (id: string) => { this.live.delete(id); });
+  restartFreshInstance = vi.fn(async () => undefined);
   getInstance = (id: string) => this.live.get(id);
   getAllInstances = () => [...this.live.values()];
   adoptOrphanInstance = () => false;
@@ -53,6 +63,8 @@ beforeEach(() => {
   repo = mkdtempSync(join(tmpdir(), 'queue-pause-control-'));
   git(['init', '-q', '-b', 'main']); git(['config', 'user.name', 'Queue Test']); git(['config', 'user.email', 'queue@example.invalid']);
   git(['config', 'commit.gpgsign', 'false']);
+  // Fixture commits must not invoke hooks from the user's global Git config.
+  git(['config', 'core.hooksPath', join(repo, '.git', 'hooks')]);
   writeFileSync(join(repo, '.gitignore'), '.worktrees/\n');
   writeFileSync(join(repo, 'feature.txt'), 'base\n'); git(['add', '.']); git(['commit', '-qm', 'base']);
   const worktreePath = join(repo, '.worktrees', 'queue', 'example');
@@ -718,15 +730,19 @@ describe('reopened worker startup outcome races', () => {
   it('does not lose a provider failure when readiness subsequently succeeds', async () => {
     await pausedConversation();
     const create = instances.createInstance.bind(instances);
+    let ready!: Promise<void>;
     vi.spyOn(instances, 'createInstance').mockImplementation(async config => {
       const created = await create(config);
-      return { ...created, readyPromise: new Promise<void>(resolve => setImmediate(() => {
+      ready = new Promise<void>(resolve => setImmediate(() => {
         instances.emit('provider:normalized-event', { instanceId: created.id, event: { kind: 'error', recoverable: false, message: 'initial prompt delivery failed' } });
         resolve();
-      })) };
+      }));
+      return { ...created, readyPromise: ready };
     });
     await coordinator.control({ action: 'resume', runId: run.id });
-    await vi.waitFor(() => expect(store.getItem(item.id)).toMatchObject({ state: 'parked', parkReason: 'worker-error' }));
+    await ready;
+    await coordinator._whenSettledForTesting();
+    expect(store.getItem(item.id)).toMatchObject({ state: 'parked', parkReason: 'worker-error' });
     expect(instances.created).toHaveLength(1);
   });
   it('honours Close one while reopened readiness is unresolved', async () => {

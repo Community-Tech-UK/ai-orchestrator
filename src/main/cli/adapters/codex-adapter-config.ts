@@ -7,6 +7,13 @@ type CodexSandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access';
 
 /** Codex CLI and app-server configuration shared by every adapter layer. */
 export interface CodexCliConfig {
+  /** Explicit metadata only; no environment or config object is serialized. */
+  instanceId?: string;
+  jobId?: string;
+  /** Injectable receipt file for isolated runtimes and tests. */
+  usageLogFile?: string;
+  /** Worker-owned sink for the validated final numeric projection, instead of a local Electron file. */
+  onEphemeralUsage?: (receipt: import('../../../shared/types/codex-ephemeral-usage.types').CodexEphemeralUsage) => void;
   sessionKind?: SessionKind;
   trialKey?: string;
   trialArm?: CodexTrialArm;

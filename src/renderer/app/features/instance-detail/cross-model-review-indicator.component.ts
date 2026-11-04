@@ -166,10 +166,14 @@ export class CrossModelReviewIndicatorComponent {
   });
 
   tooltip = computed(() => {
+    const usage = this.reviewService.status()?.dailyUsage;
+    return this.tooltipDetails() + (usage ? ` Second opinions today: ${usage.used} of ${usage.limit}.` : '');
+  });
+
+  private readonly tooltipDetails = computed(() => {
     if (this.isPending()) return 'Cross-model review in progress...';
     if (this.limitReached()) {
-      const usage = this.reviewService.status()!.dailyUsage!;
-      return `${usage.used} of ${usage.limit} automatic second opinions used today. Resets at midnight. You can still ask for one from a reply's menu.`;
+      return "All automatic second opinions used today. Resets at midnight. You can still ask for one from a reply's menu.";
     }
     if (this.isSkipped()) return 'Cross-model review skipped because no secondary reviewers were available';
     const r = this.review();

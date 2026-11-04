@@ -74,7 +74,7 @@ describe('PlanQueueQuestionListComponent', () => {
 
     const heads = Array.from(fixture.nativeElement.querySelectorAll('.pq-question-group-head') as NodeListOf<HTMLElement>)
       .map((head) => Array.from(head.querySelectorAll('span')).map((span) => span.textContent?.trim()));
-    expect(heads).toEqual([['plans', '/repo-a', '2 question(s)'], ['livetests', '/repo-b', '1 question(s)']]);
+    expect(heads).toEqual([['Plans', '/repo-a', '2 questions'], ['Live checks', '/repo-b', '1 question']]);
     const docs = Array.from(fixture.nativeElement.querySelectorAll('.pq-question-doc') as NodeListOf<HTMLElement>)
       .map((doc) => doc.textContent?.trim());
     expect(docs).toEqual(['2026-09-18-thing_plan.md', 'other_plan.md', '2026-09-18-thing_plan.md']);
@@ -110,7 +110,7 @@ describe('PlanQueueQuestionListComponent', () => {
     ]);
     fixture.detectChanges();
     expect(openStates()).toEqual([false, false]);
-    expect(fixture.nativeElement.querySelector('details.pq-question-group summary')?.textContent).toContain('3 question(s)');
+    expect(fixture.nativeElement.querySelector('details.pq-question-group summary')?.textContent).toContain('3 questions');
   });
 
   it('keeps a group open or folded as James left it when the question count crosses the limit', () => {

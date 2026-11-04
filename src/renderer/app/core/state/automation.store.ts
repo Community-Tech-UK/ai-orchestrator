@@ -383,6 +383,7 @@ export class AutomationStore implements OnDestroy {
   }
 
   private applyRunEvent(event: AutomationRunChangedEvent): void {
+    const previous = this._runs().find(run => run.id === event.run.id);
     this._runs.update((items) => {
       const index = items.findIndex((item) => item.id === event.run.id);
       if (index === -1) {
@@ -393,7 +394,8 @@ export class AutomationStore implements OnDestroy {
       return next;
     });
 
-    if (TERMINAL_AUTOMATION_RUN_STATUSES.has(event.run.status) && !event.run.seenAt) {
+    if (TERMINAL_AUTOMATION_RUN_STATUSES.has(event.run.status) && !event.run.seenAt
+      && (!previous || !TERMINAL_AUTOMATION_RUN_STATUSES.has(previous.status))) {
       this._automations.update((items) =>
         items.map((item) => item.id === event.automationId
           ? { ...item, unreadRunCount: (item.unreadRunCount ?? 0) + 1 }

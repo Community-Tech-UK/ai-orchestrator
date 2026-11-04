@@ -1,3 +1,5 @@
+import { loopExecutionSpawnOptions, rememberLoopExecutionSettings } from './loop-execution-authority';
+import type { LoopConfig } from '../../shared/types/loop.types';
 import { createHash } from 'crypto';
 import type { LoopErrorRecord, LoopProvider } from '../../shared/types/loop.types';
 import { resolveCliType } from '../cli/adapters/adapter-factory';
@@ -30,6 +32,7 @@ export function interruptLoopAdapter(adapter: unknown): void {
 }
 
 export async function createPersistentLoopAdapter(opts: {
+  executionConfig?: Partial<LoopConfig>;
   provider: LoopProvider;
   workingDirectory: string;
   /** Routed model for the loop. Falls back to the operator's automation default
@@ -43,6 +46,8 @@ export async function createPersistentLoopAdapter(opts: {
   maxTurns?: number;
   env?: Record<string, string>;
   trialKey?: string;
+  jobId?: string;
+  instanceId?: string;
 }): Promise<unknown> {
   const cliType = await resolveCliType(opts.provider as Parameters<typeof resolveCliType>[0], 'claude');
   const model = opts.model ?? resolveAutomationDefaultModel(cliType);
@@ -54,17 +59,20 @@ export async function createPersistentLoopAdapter(opts: {
       workingDirectory: opts.workingDirectory,
       model,
       ...(cliType === 'codex' ? { ephemeral: false } : {}),
-      yoloMode: true,
+      ...loopExecutionSpawnOptions({ ...opts.executionConfig, model }, cliType),
       concurrencyPriority: 'overflow',
       timeout: opts.timeoutMs ?? 30 * 60 * 1000,
       maxTurns: opts.maxTurns,
       env: opts.env,
       trialKey: opts.trialKey,
+      jobId: opts.jobId,
+      instanceId: opts.instanceId,
     },
     'loop',
   );
   const adapter = getProviderRuntimeService().createAdapter({ cliType, options: spawnOptions });
   rememberLoopAdapterInvocation(adapter, cliType, model);
+  rememberLoopExecutionSettings(adapter, opts.executionConfig ?? {});
   if (typeof opts.streamIdleTimeoutMs === 'number') {
     const setter = (adapter as { setStreamIdleTimeoutMs?: (ms: number) => void }).setStreamIdleTimeoutMs;
     if (typeof setter === 'function') setter.call(adapter, opts.streamIdleTimeoutMs);

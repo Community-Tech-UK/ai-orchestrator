@@ -1,9 +1,10 @@
+import { isQuietRun, monitorSuggestion, nextCheckExplanation } from './automation-run-presentation';
+import type { AutomationUpdatePayload } from '@contracts/schemas/automation';
 import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import type {
   Automation,
-  AutomationAction,
 } from '../../../../shared/types/automation.types';
 import type { FileAttachment } from '../../../../shared/types/instance.types';
 import type { AutomationPreflightReport, AutomationTemplate } from '../../../../shared/types/task-preflight.types';
@@ -38,7 +39,8 @@ import {
 } from './automation-authority';
 import {
   emptyForm,
-  formToLoopAction,
+  formToAction,
+  patchAutomationForm,
   formToTrigger,
   type AutomationFormModel,
 } from './automation-form-model';
@@ -100,6 +102,16 @@ export class AutomationsPageComponent {
   preflightAcknowledged = signal(false);
   form = signal<AutomationFormModel>(emptyForm());
   confirmingDeleteId = signal<string | null>(null);
+  readonly isQuietRun = isQuietRun;
+  readonly nextCheckExplanation = nextCheckExplanation;
+  readonly dismissedMonitorHints = signal<ReadonlySet<string>>(new Set());
+  showMonitorSuggestion(automation: Automation): boolean {
+    return !this.dismissedMonitorHints().has(automation.id) && monitorSuggestion(automation);
+  }
+  async dismissMonitorSuggestion(automation: Automation): Promise<void> {
+    const updates: AutomationUpdatePayload['updates'] = { dismissModelHint: true };
+    if (await this.store.update(automation.id, updates)) this.dismissedMonitorHints.update(ids => new Set(ids).add(automation.id));
+  }
   /** Hover copy for the "Hidden" checkbox (see tooltip-copy-automations.ts). */
   readonly hiddenHint = copyFor('automations.hidden');
 
@@ -418,7 +430,7 @@ export class AutomationsPageComponent {
   }
 
   patchForm(patch: Partial<AutomationFormModel>): void {
-    this.form.update((current) => ({ ...current, ...patch }));
+    this.form.update((current) => patchAutomationForm(current, patch));
     this.preflightAcknowledged.set(false);
     this.store.clearPreflight();
   }
@@ -481,7 +493,7 @@ export class AutomationsPageComponent {
   });
 
   useAutomaticModelSelection(): void {
-    this.patchForm({ provider: 'auto', model: '', reasoningEffort: '' });
+    this.patchForm({ provider: 'auto', model: '', reasoningEffort: '', modelExplicitlyChosen: true });
   }
 
   pinModelSelection(): void {
@@ -494,6 +506,7 @@ export class AutomationsPageComponent {
     const provider = current && current !== 'auto' ? current : 'claude';
     this.patchForm({
       provider,
+      modelExplicitlyChosen: true,
       model: getPrimaryModelForProvider(provider) ?? '',
       reasoningEffort: '',
     });
@@ -511,6 +524,7 @@ export class AutomationsPageComponent {
     if (selection.provider === 'local-model') return;
     const current = this.form();
     const patch: Partial<AutomationFormModel> = {
+      modelExplicitlyChosen: true,
       provider: selection.provider,
       model: selection.model ?? '',
     };
@@ -539,21 +553,7 @@ export class AutomationsPageComponent {
     }
 
     const schedule = formToSchedule(model);
-    const action: AutomationAction = {
-      prompt: model.prompt,
-      workingDirectory: model.workingDirectory,
-      provider: model.provider,
-      model: model.model || undefined,
-      agentId: model.agentId || undefined,
-      yoloMode: model.yoloMode,
-      reasoningEffort: model.reasoningEffort || undefined,
-      forceNodeId: model.forceNodeId || undefined,
-      attachments: model.attachments,
-      loop: formToLoopAction(model),
-      // WS-C7: absent means 'standard' (current behaviour) — never persist the
-      // default explicitly so older/other-worktree readers see no field at all.
-      executionProfile: model.executionProfile === 'standard' ? undefined : model.executionProfile,
-    };
+    const action = formToAction(model);
     const trigger = formToTrigger(model);
 
     // Create and update take the same shape; building it once keeps a new
@@ -598,7 +598,9 @@ export class AutomationsPageComponent {
     // verify command — dispatch adopts the working directory's own verifier and
     // fails the run with the WS6 policy error only when there is none at all.
     if (model.triggerKind === 'webhook' && !model.webhookRouteId.trim()) return false;
-    return Boolean(model.name.trim() && model.workingDirectory.trim() && model.prompt.trim() && !this.store.preflightLoading());
+    return Boolean(model.name.trim() && model.workingDirectory.trim() && model.prompt.trim() && !this.store.preflightLoading()
+      && Number.isInteger(model.maxRunMinutes) && model.maxRunMinutes >= 1
+      && Number.isInteger(model.maxProcessedTokens) && model.maxProcessedTokens >= 1 && model.maxProcessedTokens <= 1_000_000_000);
   }
 
   canRunPreflight(): boolean {

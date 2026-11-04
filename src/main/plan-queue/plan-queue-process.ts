@@ -53,8 +53,8 @@ export async function runInProcessGroup(
     const unregister = registerCleanup(killGroup);
     let output = '';
     let exitCode: number | null = null;
-    let timedOut = false;
     let settled = false;
+    let timedOut = false;
     let grace: ReturnType<typeof setTimeout> | null = null;
     let settle: ReturnType<typeof setTimeout> | null = null;
     const append = (chunk: Buffer): void => {
@@ -68,7 +68,7 @@ export async function runInProcessGroup(
       if (settle) clearTimeout(settle);
       options.signal?.removeEventListener('abort', aborted);
       unregister();
-      resolve({ exitCode: result.exitCode, output: result.output.slice(-options.outputTail), ...(timedOut ? { timedOut } : {}) });
+      resolve({ exitCode: timedOut ? 1 : result.exitCode, output: result.output.slice(-options.outputTail), ...(timedOut ? { timedOut: true } : {}) });
     };
     child.stdout.on('data', append);
     child.stderr.on('data', append);

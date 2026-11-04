@@ -5,6 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PlanQueueStartFormComponent, type PlanQueueParentSessionOption, type PlanQueueStartRequest } from './plan-queue-start-form.component';
+import { PlanQueueIpcService } from '../../../core/services/ipc/plan-queue-ipc.service';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
 const template = readFileSync(resolve(specDirectory, './plan-queue-start-form.component.html'), 'utf8');
@@ -24,9 +25,11 @@ const sessions: PlanQueueParentSessionOption[] = [
 
 describe('PlanQueueStartFormComponent', () => {
   let fixture: ComponentFixture<PlanQueueStartFormComponent>;
+  const preview = vi.fn();
 
   beforeEach(async () => {
-    await TestBed.configureTestingModule({ imports: [PlanQueueStartFormComponent] }).compileComponents();
+    preview.mockReset().mockResolvedValue({ success: true, data: { found: 2, hiddenCopies: 1, hiddenCountComplete: true } });
+    await TestBed.configureTestingModule({ imports: [PlanQueueStartFormComponent], providers: [{ provide: PlanQueueIpcService, useValue: { preview } }] }).compileComponents();
     fixture = TestBed.createComponent(PlanQueueStartFormComponent);
     fixture.componentRef.setInput('parentSessions', sessions);
     fixture.detectChanges();
@@ -40,6 +43,37 @@ describe('PlanQueueStartFormComponent', () => {
   function submitButton(): HTMLButtonElement {
     return fixture.nativeElement.querySelector('button[type="submit"]') as HTMLButtonElement;
   }
+
+  it('previews a large selection and waits for explicit confirmation before starting it', async () => {
+    preview.mockResolvedValue({ success: true, data: { found: 26, hiddenCopies: 7, hiddenCountComplete: true } });
+    const emitted: PlanQueueStartRequest[] = [];
+    fixture.componentInstance.start.subscribe(r => emitted.push(r));
+    select().value = 'inst-1'; select().dispatchEvent(new Event('change'));
+    fixture.detectChanges(); await fixture.whenStable();
+    submitButton().click(); fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges();
+    expect(emitted).toEqual([]);
+    expect(fixture.nativeElement.textContent).toContain('26 documents found');
+    expect(fixture.nativeElement.textContent).toContain('7 look like copies, hidden');
+    const confirm = Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>)
+      .find(button => button.textContent?.includes('Start all 26'));
+    expect(confirm).toBeDefined(); confirm!.click();
+    expect(emitted).toEqual([{ parentInstanceId: 'inst-1', kind: 'plans', workspaceCwd: '/repo-a' }]);
+  });
+
+  it('does not start after an obsolete preview resolves for an edited pattern', async () => {
+    let resolvePreview!: (result: unknown) => void;
+    preview.mockImplementation(() => new Promise(resolve => { resolvePreview = resolve; }));
+    const emitted: PlanQueueStartRequest[] = [];
+    fixture.componentInstance.start.subscribe(r => emitted.push(r));
+    select().value = 'inst-1'; select().dispatchEvent(new Event('change'));
+    fixture.detectChanges(); await fixture.whenStable(); submitButton().click();
+    const pattern = fixture.nativeElement.querySelector('input[type="text"]') as HTMLInputElement;
+    pattern.value = 'docs/other/*'; pattern.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    resolvePreview({ success: true, data: { found: 1, hiddenCopies: 0, hiddenCountComplete: true } });
+    await fixture.whenStable(); fixture.detectChanges();
+    expect(emitted).toEqual([]);
+  });
 
   it('explains the missing parent on a focusable Start button and blocks submission', () => {
     const button = submitButton();
@@ -88,7 +122,7 @@ describe('PlanQueueStartFormComponent', () => {
     fixture.detectChanges();
     await fixture.whenStable();
     submitButton().click();
-
+    await fixture.whenStable();
     expect(emitted).toEqual([{ parentInstanceId: 'inst-1', kind: 'plans', workspaceCwd: '/repo-a' }]);
   });
 
@@ -111,7 +145,7 @@ describe('PlanQueueStartFormComponent', () => {
     await fixture.whenStable();
 
     submitButton().click();
-
+    await fixture.whenStable();
     expect(emitted).toEqual([
       { parentInstanceId: 'inst-2', kind: 'livetests', workspaceCwd: '/repo-b', glob: 'docs/plans/**/*_plan.md' },
     ]);

@@ -13,6 +13,7 @@
  */
 
 import { z } from 'zod';
+import { AutomationResultSchema, AutomationActionSchema, type AutomationResult } from '@contracts/schemas/automation';
 // LT-031 sibling: these MUST be the same bounds the entity/event schemas use.
 // The MCP write path does NOT validate against AutomationCreatePayloadSchema
 // (unlike the IPC path), so a looser arg cap here writes successfully and then
@@ -60,7 +61,11 @@ export const CreateAutomationArgsSchema = z
      * shown in the rail anyway. Defaults to false (visible).
      */
     hidden: z.boolean().optional(),
+    maxRunMinutes: AutomationActionSchema.shape.maxRunMinutes,
+    maxProcessedTokens: AutomationActionSchema.shape.maxProcessedTokens,
+    slowWhenUnchanged: AutomationActionSchema.shape.slowWhenUnchanged,
   })
+  .strict()
   .superRefine((value, ctx) => {
     if (!value.cron?.trim() && !value.runAt?.trim()) {
       ctx.addIssue({
@@ -225,6 +230,9 @@ export const UpdateAutomationArgsSchema = z
      * shown in the rail anyway. Omit to leave unchanged.
      */
     hidden: z.boolean().optional(),
+    maxRunMinutes: AutomationActionSchema.shape.maxRunMinutes,
+    maxProcessedTokens: AutomationActionSchema.shape.maxProcessedTokens,
+    slowWhenUnchanged: AutomationActionSchema.shape.slowWhenUnchanged,
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -246,6 +254,7 @@ export type UpdateAutomationArgs = z.infer<typeof UpdateAutomationArgsSchema>;
  */
 export type UpdateAutomationFn = (
   args: UpdateAutomationArgs,
+  meta?: SpawnRemoteInstanceMeta,
 ) => Promise<UpdateAutomationResult>;
 
 export const PostponeAutomationArgsSchema = z
@@ -284,6 +293,7 @@ export type PostponeAutomationArgs = z.infer<typeof PostponeAutomationArgsSchema
  */
 export type PostponeAutomationFn = (
   args: PostponeAutomationArgs,
+  meta?: SpawnRemoteInstanceMeta,
 ) => Promise<PostponeAutomationResult>;
 
 /**
@@ -292,6 +302,7 @@ export type PostponeAutomationFn = (
  */
 export interface AutomationToolContext {
   instanceId?: string | null;
+  automationResult?: (result: AutomationResult, meta: { callerInstanceId: string | null }) => Promise<unknown> | unknown;
   createAutomation?: CreateAutomationFn | null;
   listAutomations?: ListAutomationsFn | null;
   deleteAutomation?: DeleteAutomationFn | null;
@@ -307,6 +318,18 @@ export function createAutomationToolDefinitions(
   context: AutomationToolContext,
 ): McpServerToolDefinition[] {
   return [
+    {
+      name: 'automation_result',
+      description: 'Report the outcome of this scheduled job. Use no_change when nothing needs action, done for completed work, or needs_attention when a human should look. Set notify explicitly. Available from the first turn; do not infer failure from ordinary text.',
+      inputSchema: { type: 'object', properties: {
+        outcome: { type: 'string', enum: ['no_change', 'done', 'needs_attention'] }, notify: { type: 'boolean' },
+      }, required: ['outcome', 'notify'], additionalProperties: false },
+      handler: async (args) => {
+        const result = AutomationResultSchema.parse(args);
+        if (!context.automationResult) throw new Error('automation_result is unavailable in this process');
+        return context.automationResult(result, { callerInstanceId: context.instanceId ?? null });
+      },
+    },
     {
       name: 'create_automation',
       description:
@@ -342,12 +365,15 @@ export function createAutomationToolDefinitions(
             type: 'string',
             enum: ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode'],
             description:
-              'CLI provider to run with. When omitted, new automations default to standard Claude Opus latest. An explicitly selected non-Claude provider uses that provider\'s model resolution.',
+              'CLI provider to run with. When omitted, new check and monitor jobs default to Claude Sonnet at low effort; other jobs default to Claude Opus latest. An explicitly selected non-Claude provider uses that provider\'s model resolution.',
           },
           enabled: {
             type: 'boolean',
             description: 'Whether the automation is active immediately. Defaults to true.',
           },
+          maxRunMinutes: { type: 'integer', minimum: 1, description: 'Run time limit in minutes. New jobs default to 90.' },
+          maxProcessedTokens: { type: 'integer', minimum: 1, maximum: 1000000000, description: 'Processed-token cap for input plus cache reads and writes. Output is counted separately.' },
+          slowWhenUnchanged: { type: 'boolean', description: 'Opt in to checking up to four times less often while normalized output stays unchanged.' },
           hidden: {
             type: 'boolean',
             description:
@@ -482,6 +508,9 @@ export function createAutomationToolDefinitions(
             description:
               'Enable (resume) or disable (pause) the automation without deleting it. Omit to leave unchanged.',
           },
+          maxRunMinutes: { type: 'integer', minimum: 1, description: 'Run time limit in minutes. New jobs default to 90.' },
+          maxProcessedTokens: { type: 'integer', minimum: 1, maximum: 1000000000, description: 'Processed-token cap for input plus cache reads and writes. Output is counted separately.' },
+          slowWhenUnchanged: { type: 'boolean', description: 'Opt in to checking up to four times less often while normalized output stays unchanged.' },
           hidden: {
             type: 'boolean',
             description:
@@ -498,7 +527,7 @@ export function createAutomationToolDefinitions(
             'update_automation is unavailable: automation updates are not wired in this process',
           );
         }
-        return context.updateAutomation(parsed);
+        return context.updateAutomation(parsed, { callerInstanceId: context.instanceId ?? null });
       },
     },
     {
@@ -531,7 +560,7 @@ export function createAutomationToolDefinitions(
             'postpone_automation is unavailable: automation postponement is not wired in this process',
           );
         }
-        return context.postponeAutomation(parsed);
+        return context.postponeAutomation(parsed, { callerInstanceId: context.instanceId ?? null });
       },
     },
   ];

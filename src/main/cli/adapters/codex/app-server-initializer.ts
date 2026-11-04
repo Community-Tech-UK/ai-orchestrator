@@ -28,6 +28,7 @@ export interface CodexAppServerInitializationOptions {
   config: CodexCliConfig;
   cwd: string;
   isCurrent: () => boolean;
+  onThreadCreated?: (threadId: string) => void;
   onFailedAttempt: (attempt: ResumeAttemptResult) => void;
   sandbox: 'read-only' | 'workspace-write' | 'danger-full-access';
   sessionId: string | null;
@@ -270,6 +271,7 @@ export async function initializeCodexAppServer(
       logger.info('App-server thread started fresh', { threadId });
     }
 
+    if (threadId) options.onThreadCreated?.(threadId);
     if (!isCurrent()) {
       logger.warn('App-server init completed after being abandoned — discarding late client', {
         threadId,

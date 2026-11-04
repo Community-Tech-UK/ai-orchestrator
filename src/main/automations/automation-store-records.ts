@@ -35,6 +35,8 @@ export interface AutomationRow {
 }
 
 export interface AutomationRunRow {
+  result_json?: string | null;
+  processed_tokens?: number;
   id: string;
   automation_id: string;
   status: AutomationRunStatus;

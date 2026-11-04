@@ -15,6 +15,7 @@ import { pathCompareKey } from '../util/path-helpers';
 import { gitExec, gitExecSafe } from '../workspace/git/git-exec';
 import { hermeticGitEnv } from '../workspace/git/git-env';
 import { getGitWriteQueue } from '../workspace/git/git-write-queue';
+import { assertQueueCheckout } from './plan-queue-orphan-checkout';
 
 const execFileAsync = promisify(execFile);
 
@@ -63,22 +64,15 @@ export async function isOwnCheckout(worktreePath: string): Promise<boolean> {
   }
 }
 
-/** Call right before the Git writes it protects (inside the write queue when they are queued). */
-export async function assertOwnCheckout(worktreePath: string): Promise<void> {
-  if (!(await isOwnCheckout(worktreePath))) {
-    throw new Error(`${worktreePath} is not a checkout of its own, so no Git command was run in it`);
-  }
-}
-
 /**
  * Put the worktree back to `before`: abandon a merge in progress, drop commits
  * the verifier made, restore
  * tracked files it changed, delete untracked files it created. Paths that were
  * already dirty in `before` are left alone.
  */
-export async function revertToSnapshot(worktreePath: string, before: TreeSnapshot): Promise<void> {
+export async function revertToSnapshot(worktreePath: string, before: TreeSnapshot, repoRoot: string, branchName: string): Promise<void> {
   await getGitWriteQueue().enqueue('plan-queue-verifier-revert', async () => {
-    await assertOwnCheckout(worktreePath);
+    await assertQueueCheckout(worktreePath, branchName, repoRoot);
     // Every snapshot is taken with no merge in progress (verification starts
     // from a checkpoint, which completes or refuses a merge). A merge found now
     // was started by the verifier, or by the coordinator just before a crash:

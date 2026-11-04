@@ -95,6 +95,12 @@ export async function dispatchConnectorRpc(
     }
   };
   assertActive();
+  if (method === 'connectors.before_tool_call' && record.kind !== 'microsoft365') {
+    // The remote connector owns its tool semantics. Any tool dispatch may mutate;
+    // record intent before handing control to it, even when its reply is lost.
+    context.beforeMutation?.();
+    return { recorded: true };
+  }
   if (method === 'connectors.connection') {
     if (record.kind === 'microsoft365') return { kind: 'microsoft365' };
     if (!record.url) throw new Error('This connector is a local program.');
@@ -141,7 +147,7 @@ export async function dispatchConnectorRpc(
           assertActive();
           return approved;
         },
-        { signal: context.signal, assertActive },
+        { signal: context.signal, assertActive, beforeMutation: context.beforeMutation },
       );
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }

@@ -2,7 +2,7 @@
   <span class="pq-run-status" role="status">{{ statusLabel() }}</span>
   @if (confirmingCancel()) {
     <span class="pq-cancel-confirm" role="group" aria-label="Confirm cancel run">
-      Cancel this run? In-flight items will park.
+      Cancel this run? Work in progress will be set aside.
       <button type="button" class="pq-confirm-yes" (click)="onConfirmCancel()">Confirm cancel</button>
       <button type="button" (click)="onCancelCancel()">Never mind</button>
     </span>

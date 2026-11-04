@@ -14,6 +14,7 @@ export interface PlanQueueRunRoutingChangeHost {
   hasParkedWork(run: PlanQueueRun): boolean;
   parentRoute(run: PlanQueueRun): PlanQueueParentRoute;
   upsertRun(run: PlanQueueRun): void;
+  preflightRun(run: PlanQueueRun): Promise<void>;
   /** Caller suspends new spawns while holding; this does not change run status. */
   holdRun(run: PlanQueueRun): Promise<void>;
   requestPump(): void;
@@ -53,9 +54,12 @@ export async function changeRunRouting(
     ...current, workerProvider: routing.workers[0]?.provider ?? null, workerModel: routing.workers[0]?.model ?? null,
     config: { ...current.config, routing },
   };
+  await host.preflightRun(updated);
   const before = describeRouting(current.config.routing);
   const after = describeRouting(routing);
-  host.upsertRun(updated);
+  const latest = host.getRun(run.id);
+  if (!['running', 'paused'].includes(latest.status) && !host.hasParkedWork(latest)) throw new PlanQueueRoutingError('This run has finished and has no parked documents to resume.');
+  host.upsertRun({ ...latest, workerProvider: updated.workerProvider, workerModel: updated.workerModel, config: { ...latest.config, routing } });
   const message = `James changed this run's workers from ${before.workers} to ${after.workers}; checkers from ${before.checkers} to ${after.checkers}; `
     + `if a worker gets stuck, from ${before.stepUp} to ${after.stepUp}.`
     + (moveInProgress && current.status === 'running' ? ' Documents in progress are moving to the new choice now.' : ' New sessions use this choice.');

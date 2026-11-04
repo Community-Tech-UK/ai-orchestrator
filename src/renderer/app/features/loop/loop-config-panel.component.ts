@@ -24,6 +24,7 @@ import { InlineHintComponent } from '../../shared/hint/inline-hint.component';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import { HelpLinkComponent } from '../../shared/help/help-link.component';
+import { CliUpdatePillStore } from '../../core/state/cli-update-pill.store';
 
 import {
   DEFAULT_CAPS, DEFAULT_MAX_TURNS_PER_ITERATION, MIN_MAX_TOKENS, MAX_MAX_TOKENS,
@@ -86,6 +87,7 @@ export class LoopConfigPanelComponent {
 
   private history = inject(LoopPromptHistoryService);
   private loopIpc = inject(LoopIpcService);
+  private readonly cliUpdates = inject(CliUpdatePillStore);
   recentPrompts = this.history.recent;
   defaultPrompt = DEFAULT_LOOP_PROMPT;
 
@@ -187,6 +189,8 @@ export class LoopConfigPanelComponent {
   private readonly presets = createLoopPresetController({
     fields: this,
     verifyCommand: () => this.verifyCommand(),
+    provider: () => this.provider(),
+    copilotVersion: () => this.cliUpdates.state().entries.find(entry => entry.cli === 'copilot')?.currentVersion,
   });
 
   readonly selectedPresetId = this.presets.selectedPresetId;

@@ -86,7 +86,7 @@ export async function initializePlanQueue(instanceManager: InstanceManager): Pro
       findRestoredSessionId(instanceId, getHistoryManager().getEntries(), instanceManager.getAllInstances()),
   });
   stopSpendRecorder?.();
-  stopSpendRecorder = attachPlanQueueSpendRecorder({ store: planQueueStore, getInstanceMetadata: (id) => instanceManager.getInstance(id)?.metadata, onRecorded: (runId, itemId) => { coordinator.emit('state-changed', { runId, itemId }); } });
+  stopSpendRecorder = attachPlanQueueSpendRecorder({ store: planQueueStore, onRecorded: (runId, itemId) => { coordinator.emit('state-changed', { runId, itemId }); } });
   // Do not await. The tools socket is started by a later boot step; awaiting
   // here would deadlock recovery behind that step (LT-700).
   void coordinator.recover().catch((error: unknown) => {

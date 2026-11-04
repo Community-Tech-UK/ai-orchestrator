@@ -11,6 +11,8 @@ import type {
 import { PlanQueueItemListComponent, planQueueStateLabel } from './plan-queue-item-list.component';
 import { PlanQueueRoutingPanelComponent } from './plan-queue-routing-panel.component';
 import { PlanQueueRunControlsComponent } from './plan-queue-run-controls.component';
+import { planQueueKindLabel, pluralise } from '../plan-queue-item-display';
+import { isNotReachedItem, PLAN_QUEUE_NOT_REACHED_LABEL } from '../../../../../shared/utils/plan-queue-item-outcome';
 
 /**
  * Summary order: what needs James, then work in flight, then outcomes. A Record,
@@ -40,12 +42,13 @@ function formatStartedAt(startedAt: number): string {
 /** "5 Landed, 38 Needs your answer, 19 Parked": one run's documents counted by state. */
 export function planQueueStateCounts(items: readonly PlanQueueItemDto[]): string {
   const heldCount = items.filter(item => item.heldAt != null).length;
+  const notReachedCount = items.filter(item => item.heldAt == null && isNotReachedItem(item)).length;
   const states = SUMMARY_STATE_ORDER
-    .map((state) => [state, items.filter((item) => item.state === state && item.heldAt == null).length] as const)
+    .map((state) => [state, items.filter((item) => item.state === state && item.heldAt == null && !isNotReachedItem(item)).length] as const)
     .filter(([, count]) => count > 0)
     .map(([state, count]) => `${count} ${planQueueStateLabel(state)}`)
     .join(', ');
-  return [heldCount ? `${heldCount} Paused` : '', states].filter(Boolean).join(', ');
+  return [heldCount ? `${heldCount} Paused` : '', states, notReachedCount ? `${notReachedCount} ${PLAN_QUEUE_NOT_REACHED_LABEL}` : ''].filter(Boolean).join(', ');
 }
 
 /** An account's display name by provider and id; unknown ids are shown as they are. */
@@ -104,6 +107,8 @@ export class PlanQueueRunListComponent {
   }
 
   protected readonly spendLabel = queueRunSpendLabel;
+  protected readonly kindLabel = planQueueKindLabel;
+  protected readonly pluralise = pluralise;
   protected readonly formatStartedAt = formatStartedAt;
   protected readonly stateCounts = planQueueStateCounts;
   protected routingSummary(routing: PlanQueueRouting): string {

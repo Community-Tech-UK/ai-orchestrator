@@ -10,6 +10,8 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import type { PlanQueueKind } from '@contracts/schemas/plan-queue';
+import { countHiddenPlanQueueCopies, isExactPlanQueueSelection, selectPlanQueuePaths } from './plan-queue-discovery-paths';
+import type { PlanQueueDiscoveryPreview } from '@contracts/schemas/plan-queue';
 
 export interface DiscoveredDocument {
   /** Absolute path in the root checkout. */
@@ -22,19 +24,6 @@ export interface DiscoveredDocument {
 /** Documents live under docs/ (docs/plans, docs/superpowers/plans, ...). */
 const DEFAULT_GLOB = 'docs/**/*.md';
 
-/** Directories never searched: generated, vendored, archived or other checkouts. */
-const SKIPPED_DIRS = new Set([
-  'node_modules',
-  '.git',
-  '.worktrees',
-  '.claude',
-  '.aio-review',
-  '_archive',
-  'archive',
-  '_scratch',
-  'dist',
-]);
-
 const STANDING_REGISTER_RE = /^\**Type:\**\s*standing register/im;
 /**
  * A programme document that is not itself a queue job (each of its phases is
@@ -46,7 +35,7 @@ const NOT_AN_ITEM_HEADER_LINES = 8;
 const SPEC_LINE_RE = /^\*\*Spec:\*\*(.*)$/m;
 const MARKDOWN_LINK_TARGET_RE = /\]\(([^)\s]+\.md)\)/;
 const HEADER_LINES = 40;
-const MAX_FILES = 5_000;
+const HEADER_BYTES = 16 * 1024;
 
 /** Convert a repo-relative glob (`*`, `**`, `?`) to an anchored RegExp. */
 export function globToRegExp(glob: string): RegExp {
@@ -82,46 +71,48 @@ export function classifyFilename(fileName: string): FilenameState {
   return 'other';
 }
 
-async function walkMarkdown(dir: string, out: string[]): Promise<void> {
-  if (out.length >= MAX_FILES) return;
-  let entries: import('fs').Dirent[];
-  try {
-    entries = await fs.readdir(dir, { withFileTypes: true });
-  } catch {
-    return;
-  }
-  for (const entry of entries) {
-    if (out.length >= MAX_FILES) return;
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (!SKIPPED_DIRS.has(entry.name)) await walkMarkdown(full, out);
-    } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) {
-      out.push(full);
-    }
-  }
-}
-
 async function readHeader(file: string): Promise<string> {
+  const handle = await fs.open(file, 'r');
   try {
-    const content = await fs.readFile(file, 'utf-8');
-    return content.split('\n').slice(0, HEADER_LINES).join('\n');
-  } catch {
-    return '';
+    const buffer = Buffer.alloc(HEADER_BYTES);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    return buffer.toString('utf8', 0, bytesRead).split('\n').slice(0, HEADER_LINES).join('\n');
+  } finally {
+    await handle.close();
   }
 }
 
-async function exists(target: string): Promise<boolean> {
-  return fs.stat(target).then(() => true, () => false);
+function insideRoot(repoRoot: string, target: string): boolean {
+  const relative = path.relative(repoRoot, target);
+  return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
+
+async function exists(repoRoot: string, target: string): Promise<boolean> {
+  if (!insideRoot(repoRoot, target)) return false;
+  try {
+    const resolved = await fs.realpath(target);
+    return insideRoot(repoRoot, resolved) && (await fs.stat(resolved)).isFile();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
+  }
 }
 
 /** A plan whose `**Spec:**` line links a file that is not on disk is not ready. */
-async function missingLinkedSpec(planPath: string, header: string): Promise<string | null> {
+async function missingLinkedSpec(repoRoot: string, planPath: string, header: string): Promise<string | null> {
   const specLine = SPEC_LINE_RE.exec(header)?.[1];
   const target = specLine ? MARKDOWN_LINK_TARGET_RE.exec(specLine)?.[1] : undefined;
   if (!target || /^[a-z]+:\/\//i.test(target)) return null;
-  const resolved = path.resolve(path.dirname(planPath), decodeURIComponent(target));
-  if (await exists(resolved)) return null;
-  return `the plan links spec ${path.basename(resolved)}, which does not exist`;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(target);
+  } catch {
+    return 'the plan has an invalid local spec link';
+  }
+  const resolved = path.resolve(path.dirname(planPath), decoded);
+  if (!insideRoot(repoRoot, resolved)) return 'the plan links a spec outside this repository';
+  if (await exists(repoRoot, resolved)) return null;
+  return `the plan links spec ${path.basename(resolved)}, which does not exist as a file inside this repository`;
 }
 
 function planPathsFor(specPath: string): string[] {
@@ -144,33 +135,31 @@ export async function discoverPlanQueueDocuments(
   kind: PlanQueueKind,
   glob?: string,
 ): Promise<DiscoveredDocument[]> {
-  const matcher = globToRegExp(glob?.trim() || DEFAULT_GLOB);
-  const files: string[] = [];
-  await walkMarkdown(repoRoot, files);
+  repoRoot = await fs.realpath(repoRoot);
+  const selection = glob?.trim() || DEFAULT_GLOB;
+  const matcher = globToRegExp(selection);
+  const files = await selectPlanQueuePaths(repoRoot, selection, matcher, name => {
+    const state = classifyFilename(name);
+    return kind === 'plans' ? state === 'plan' || state === 'spec-unplanned' : state === 'livetest';
+  });
 
   const discovered: DiscoveredDocument[] = [];
-  for (const file of files.sort()) {
-    const relative = path.relative(repoRoot, file).split(path.sep).join('/');
-    if (!matcher.test(relative)) continue;
+  for (const file of files) {
     const state = classifyFilename(path.basename(file));
-    const wanted = kind === 'plans'
-      ? state === 'plan' || state === 'spec-unplanned'
-      : state === 'livetest';
-    if (!wanted) continue;
 
     const header = await readHeader(file);
     if (STANDING_REGISTER_RE.test(header)) continue;
     if (NOT_AN_ITEM_RE.test(header.split('\n').slice(0, NOT_AN_ITEM_HEADER_LINES).join('\n'))) continue;
 
     if (state === 'spec-unplanned') {
-      const planned = await Promise.all(planPathsFor(file).map(exists));
+      const planned = await Promise.all(planPathsFor(file).map(file => exists(repoRoot, file)));
       if (!planned.some(Boolean)) {
         discovered.push({ path: file, readiness: 'not-ready', reason: 'this spec has no implementation plan yet' });
       }
       continue;
     }
 
-    const specProblem = state === 'plan' ? await missingLinkedSpec(file, header) : null;
+    const specProblem = state === 'plan' ? await missingLinkedSpec(repoRoot, file, header) : null;
     discovered.push(
       specProblem
         ? { path: file, readiness: 'not-ready', reason: specProblem }
@@ -178,4 +167,17 @@ export async function discoverPlanQueueDocuments(
     );
   }
   return discovered;
+}
+
+/** Read-only form preview; exact picks retain their no-walk guarantee. */
+export async function previewPlanQueueDocuments(repoRoot: string, kind: PlanQueueKind, glob?: string): Promise<PlanQueueDiscoveryPreview> {
+  repoRoot = await fs.realpath(repoRoot);
+  const documents = await discoverPlanQueueDocuments(repoRoot, kind, glob);
+  if (isExactPlanQueueSelection(glob)) return { found: documents.length, hiddenCopies: null, hiddenCountComplete: true };
+  const selection = glob?.trim() || DEFAULT_GLOB;
+  const hidden = await countHiddenPlanQueueCopies(repoRoot, selection, globToRegExp(selection), name => {
+    const state = classifyFilename(name);
+    return kind === 'plans' ? state === 'plan' || state === 'spec-unplanned' : state === 'livetest';
+  });
+  return { found: documents.length, hiddenCopies: hidden.count, hiddenCountComplete: hidden.complete };
 }

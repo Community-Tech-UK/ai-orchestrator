@@ -182,10 +182,14 @@ describe('InstanceTerminationCoordinator', () => {
     adapters.set(instance.id, adapter);
     const coordinator = new InstanceTerminationCoordinator(deps);
 
-    await coordinator.terminateInstance(instance.id, true);
+    await expect(coordinator.terminateInstance(instance.id, true)).rejects.toThrow('boom');
 
     const calls = (deps.setWaitReason as ReturnType<typeof vi.fn>).mock.calls;
     expect(calls[calls.length - 1]).toEqual([instance.id, null]);
+    expect(adapters.get(instance.id)).toBe(adapter);
+    expect(instances.get(instance.id)).toBe(instance);
+    expect(deps.archiveInstance).not.toHaveBeenCalled();
+    expect(deps.emitRemoved).not.toHaveBeenCalled();
   });
 
   it('delegates child termination for terminate-children policy', async () => {

@@ -70,6 +70,13 @@ document; each worker gets its own `queue/*` branch and `.worktrees/queue/...`
 worktree, a verifier on a different provider judges each round, and verified work
 lands on the checked-out branch as one local squash commit (never pushed).
 
+`verification_slots` is the run's check limit. Runs in the same project folder
+also share that folder's largest effective limit, including workload minimums.
+Lightest/Light retain their machine-wide check cap, and load admission still
+applies. A job holds one check slot from Harness's gate commands through the
+checker's review; there is no separate queue-wide gate slot. Gate receipts are
+reused when the job's worktree HEAD is unchanged.
+
 | Tool | Args | Purpose |
 | --- | --- | --- |
 | `plan_queue_start` | `kind` (`plans`\|`livetests`), `glob?`, `worker_slots?`, `verification_slots?`, `max_rounds?`, `relax_settings?`, `verifier_gates?`, `post_merge_gate?`, `workers?`, `verifiers?`, `step_up?` | Discover documents and start a run with the caller as parent. The gate lists default to this app's checklist; pass the target repository's own commands (or `[]`) elsewhere. Each `workers` and `verifiers` entry is `{ provider, model?, account_ids?, copilot_account_id? }`, in preference order: each new worker session starts on the first worker choice with usage left, and each check uses the first checker that can run with usage left (with none left, the one whose known limit lifts soonest). James's saved choice on the Plan Queue page (`planQueueRouting`) always wins for a role he set; a per-run list applies only to a role he left empty, and the result's `message` says when one was set aside. Without either, workers use the caller's provider and model, and its account when that account is allowed for automatic work, and checkers are picked automatically. Choices the queue may not use refuse the run: a provider on the never-auto-pick list or not installed, an account that is off or manual-only, a misspelt key, or a worker choice whose checkers all share its provider without a model from a different maker. A per-run `verifiers` list is refused in a repository covered by a protected work Copilot rule; only James's saved choice can replace that seat. `step_up` (one choice of the same shape) is where a document goes, once, when its worker fails every one of its `max_rounds` checks: a new worker on that choice continues from the branch with the last findings and gets the full rounds again; without it the document parks as before. James's saved step-up choice wins, the same refusals apply, and explicit checkers must be able to judge it. Not available to queue-spawned sessions. |
@@ -77,7 +84,7 @@ lands on the checked-out branch as one local squash commit (never pushed).
 | `plan_queue_answer` | `item_id`, `option_id` | Record James's answer to a readiness or worker question. Parent session only. |
 | `plan_queue_control` | `action`, `run_id?`, `item_id?`, `routing?`, `move_in_progress?` | Pause stops workers, triage and checkers now, checkpointing work on document branches; Resume starts fresh sessions on those branches. Landing already in progress finishes. Cancel ends the run. `set-routing` changes providers/accounts for future sessions; see below. Item controls include skip, resume, retry-landing, land-anyway and discard. Parent session only, except stranded-run rescue: once the parent no longer exists, a non-queue session may adopt or cancel the run, or discard a parked item. `set-routing` is never a rescue action. |
 | `plan_queue_report_triage` | `run_id`, `records` | Triage agent only (caller-checked). |
-| `plan_queue_report_verdict` | `item_id`, `verdict`, `findings?`, `gates_run?`, `document_complete?`, `need_james?` | The item's current verifier only (caller-checked); a worker cannot report its own verdict. |
+| `plan_queue_report_verdict` | `item_id`, `verdict`, `not_checked`, `findings?`, `gates_run?`, `document_complete?`, `need_james?` | The item's current verifier only (caller-checked); a worker cannot report its own verdict. `not_checked` is a required array (empty is allowed); each entry explains a specific remaining check. Harness's own current gate receipts must agree with a PASS. |
 
 Run listings always include every running or paused run and every finished run
 with parked documents, including branchless triage failures. MCP adds the ten

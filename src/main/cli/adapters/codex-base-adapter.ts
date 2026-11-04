@@ -15,6 +15,7 @@ import { discoverCodexModels } from './codex/model-list';
 import { probeVersionStatus } from './cli-status-probe';
 import { ActivityStateDetector } from '../../providers/activity-state-detector';
 import type { ResumeCursor } from '../../session/session-continuity';
+import { CodexEphemeralUsageTracker } from './codex/ephemeral-usage';
 import { CodexUsageAccounting } from './codex/usage-accounting';
 
 const logger = getLogger('CodexBaseAdapter');
@@ -35,6 +36,7 @@ export abstract class CodexBaseAdapter extends BaseCliAdapter {
   protected lastTurnTokens = 0;
   protected hasTokenUsageNotification = false;
   protected readonly usageAccounting = new CodexUsageAccounting();
+  protected readonly ephemeralUsage: CodexEphemeralUsageTracker;
 
   protected flushPartialUsage(): void {
     const usage = this.usageAccounting.take(this.cliConfig.model);
@@ -71,6 +73,7 @@ export abstract class CodexBaseAdapter extends BaseCliAdapter {
     };
     super(adapterConfig);
     this.cliConfig = { ...config };
+    this.ephemeralUsage = new CodexEphemeralUsageTracker(this.cliConfig, this.usageAccounting);
     this.codexHome = new CodexHomeManager({
       ...(config.authSourceDir ? { authSourceDir: config.authSourceDir } : {}),
       ...(config.env ? { harnessCliEnv: Object.fromEntries(

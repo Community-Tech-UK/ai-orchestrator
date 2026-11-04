@@ -15,14 +15,14 @@
  * `native-resume` rung. Live evidence 2026-07-27: 4 of 4 archived Claude entries
  * across two independent sessions recorded a session id with no `.jsonl` on disk.
  *
- * The fix mirrors the LT-008 fresh-fallback fix (and the long-standing
- * spawn-rollback path): detach the adapter's listeners before terminating it.
+ * Deliberate-stop observation now fences recovery while retaining observers
+ * until termination succeeds, so a refused stop remains safe and retryable.
  */
 
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { EventEmitter } from 'events';
 import type { CliAdapter } from '../../cli/adapters/adapter-factory';
-import type { Instance } from '../../../shared/types/instance.types';
+import { createInstance, type Instance } from '../../../shared/types/instance.types';
 import type { InstanceTerminationDeps } from './instance-termination';
 
 const loggerMock = vi.hoisted(() => ({
@@ -42,7 +42,9 @@ vi.mock('../../history', () => ({
   getHistoryManager: () => historyManagerMock,
 }));
 vi.mock('../../plugins/hook-emitter', () => ({ emitPluginHook: vi.fn() }));
-vi.mock('../../session/session-turn-supervisor', () => ({ deleteTurnSupervisor: vi.fn() }));
+vi.mock('../../core/config/settings-manager', () => ({ getSettingsManager: () => ({ getAll: () => ({}) }) }));
+vi.mock('../../memory/output-storage', () => ({ getOutputStorageManager: () => ({}) }));
+vi.mock('../../hooks/hook-manager', () => ({ getHookManager: () => ({}) }));
 vi.mock('./respawn-circuit-breaker', () => ({ deleteCircuitBreaker: vi.fn() }));
 vi.mock('./session-branch-merge', () => ({
   mergeSessionBranchToMain: vi.fn().mockResolvedValue({ merged: false, reason: 'disabled' }),
@@ -56,6 +58,7 @@ vi.mock('../instance-auth-repair-handler', () => ({
 
 import { getSelfWakeupTracker, SelfWakeupTracker } from '../self-wakeup-tracker';
 import { InstanceTerminationCoordinator } from './instance-termination';
+import { InstanceCommunicationManager } from '../instance-communication';
 
 const LIVE_SESSION_ID = 'live-claude-session';
 /** What respawnAfterUnexpectedExit's fork branch assigns: a not-yet-minted id. */
@@ -74,11 +77,13 @@ function makeAdapter(): CliAdapter & EventEmitter {
     adapter.emit('exit', 143, null);
   });
   adapter['getName'] = vi.fn(() => 'claude-cli');
+  adapter['getSessionId'] = () => LIVE_SESSION_ID;
   return adapter as unknown as CliAdapter & EventEmitter;
 }
 
 function makeInstance(overrides: Partial<Instance> = {}): Instance {
   return {
+    ...createInstance({ workingDirectory: '/tmp/aio-lt', provider: 'claude', sessionId: LIVE_SESSION_ID }),
     id: 'inst-1',
     status: 'idle',
     provider: 'claude',
@@ -141,22 +146,21 @@ describe('InstanceTerminationCoordinator — deliberate terminate vs unexpected 
     };
   });
 
-  /**
-   * Stands in for the real `instance-communication` exit listener: on an
-   * unexpected exit it hands off to the respawn handler, whose fork branch
-   * overwrites `instance.sessionId` with a freshly generated id
-   * (interrupt-respawn-handler.ts, `instance.sessionId = newSessionId`).
-   */
+  /** The real exit listener decides whether a provider respawn is requested. */
   function attachUnexpectedExitListener(): { fired: () => boolean } {
     let fired = false;
-    adapter.on('exit', () => {
-      fired = true;
-      instance.sessionId = RESPAWN_MINTED_ID;
+    const communication = new InstanceCommunicationManager({
+      getInstance: deps.getInstance, getAdapter: deps.getAdapter,
+      setAdapter: () => undefined, deleteAdapter: () => false, queueUpdate: () => undefined,
+      processOrchestrationOutput: () => undefined, onInterruptedExit: async () => undefined,
+      ingestToRLM: () => undefined, ingestToUnifiedMemory: () => undefined,
+      onUnexpectedExit: async () => { fired = true; instance.sessionId = RESPAWN_MINTED_ID; },
     });
+    communication.setupAdapterEvents(instance.id, adapter);
     return { fired: () => fired };
   }
 
-  it('does not deliver the terminate SIGTERM exit to adapter subscribers', async () => {
+  it('does not dispatch unexpected-exit recovery for a deliberate terminate SIGTERM', async () => {
     const listener = attachUnexpectedExitListener();
     const coordinator = new InstanceTerminationCoordinator(deps);
 
@@ -199,6 +203,17 @@ describe('InstanceTerminationCoordinator — deliberate terminate vs unexpected 
     expect(deps.deleteAdapter).toHaveBeenCalledWith(instance.id);
     expect(deps.deleteInstance).toHaveBeenCalledWith(instance.id);
     expect(instance.status).toBe('terminated');
+  });
+
+  it('retains the adapter and session when runtime termination fails so its owner can retry', async () => {
+    vi.mocked(adapter.terminate).mockRejectedValueOnce(new Error('stop failed'));
+    const coordinator = new InstanceTerminationCoordinator(deps);
+    await expect(coordinator.terminateInstance(instance.id, false)).rejects.toThrow('stop failed');
+    expect(deps.deleteAdapter).not.toHaveBeenCalled();
+    expect(deps.deleteInstance).not.toHaveBeenCalled();
+    expect(deps.emitRemoved).not.toHaveBeenCalled();
+    await coordinator.terminateInstance(instance.id, false);
+    expect(deps.deleteInstance).toHaveBeenCalledWith(instance.id);
   });
 
   it('archives an errored instance as an error, not as a clean completion', async () => {

@@ -80,6 +80,7 @@ export const INFRASTRUCTURE_CHANNELS = {
   COST_RECORD_USAGE: 'cost:record-usage',
   COST_GET_SUMMARY: 'cost:get-summary',
   COST_GET_PURPOSE_SUMMARY: 'cost:get-purpose-summary',
+  COST_GET_EPHEMERAL_USAGE: 'cost:get-ephemeral-usage',
   COST_GET_HISTORY: 'cost:get-history',
   COST_GET_SESSION_COST: 'cost:get-session-cost',
   COST_GET_BUDGET: 'cost:get-budget',

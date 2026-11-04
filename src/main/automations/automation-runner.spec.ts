@@ -133,8 +133,10 @@ function makeRun(): AutomationRun {
 describe('AutomationRunner thread wakeups', () => {
   const store = {
     get: vi.fn(),
+    getRun: vi.fn(),
     decideAndInsertRun: vi.fn(),
     claimNextPending: vi.fn(),
+    getRunFacts: vi.fn(() => ({ result: null })),
     failRunningRuns: vi.fn(),
     listRunningLoopLinkedRuns: vi.fn(() => []),
     recordRunOutcome: vi.fn(),
@@ -448,6 +450,7 @@ describe('AutomationRunner thread wakeups', () => {
     const runner = new AutomationRunner(store, undefined, () => 2_000, threadWakeupFactory);
     runner.initialize(manager);
 
+    vi.mocked(store.getRun).mockReturnValue(retryRun);
     await runner.dispatchRetryRun(retryRun);
 
     expect(manager.createInstance).toHaveBeenCalledWith(expect.objectContaining({
@@ -511,6 +514,7 @@ describe('AutomationRunner thread wakeups', () => {
     );
     runner.initialize(manager);
 
+    vi.mocked(store.getRun).mockReturnValue(retryRun);
     await runner.dispatchRetryRun(retryRun);
 
     expect(manager.createInstance).toHaveBeenCalledWith(expect.objectContaining({
@@ -562,6 +566,7 @@ describe('AutomationRunner thread wakeups', () => {
     );
     runner.initialize(manager);
 
+    vi.mocked(store.getRun).mockReturnValue(retryRun);
     await runner.dispatchRetryRun(retryRun);
 
     expect(manager.createInstance).toHaveBeenCalledWith(expect.objectContaining({ accountPreferences: { avoid: ['pro-1'], last: [] } }));
@@ -583,6 +588,7 @@ describe('AutomationRunner thread wakeups', () => {
     );
     runner.initialize(manager);
 
+    vi.mocked(store.getRun).mockReturnValue(retryRun);
     await runner.dispatchRetryRun(retryRun);
 
     expect(manager.createInstance).toHaveBeenCalledWith(expect.objectContaining({
@@ -607,6 +613,7 @@ describe('AutomationRunner thread wakeups', () => {
     );
     runner.initialize(manager);
 
+    vi.mocked(store.getRun).mockReturnValue(retryRun);
     await runner.dispatchRetryRun(retryRun);
 
     expect(manager.createInstance).toHaveBeenCalledTimes(1);
@@ -628,6 +635,7 @@ describe('AutomationRunner thread wakeups', () => {
     );
     runner.initialize(manager);
 
+    vi.mocked(store.getRun).mockReturnValue(retryRun);
     await runner.dispatchRetryRun(retryRun);
 
     expect(manager.createInstance).not.toHaveBeenCalled();
@@ -653,6 +661,7 @@ describe('AutomationRunner thread wakeups', () => {
     );
     runner.initialize(manager);
 
+    vi.mocked(store.getRun).mockReturnValue(retryRun);
     await runner.dispatchRetryRun(retryRun);
     await pausing;
 
@@ -798,6 +807,7 @@ describe('AutomationRunner thread wakeups', () => {
 
       const runner = new AutomationRunner(store, undefined, () => 2_000, threadWakeupFactory);
       runner.initialize(manager);
+      vi.mocked(store.getRun).mockReturnValue(retryRun);
       await runner.dispatchRetryRun(retryRun);
 
       expect(manager.createInstance).toHaveBeenCalledWith(expect.objectContaining({
@@ -853,7 +863,10 @@ describe('AutomationRunner thread wakeups', () => {
         instanceId: 'i-ok',
         event: { kind: 'status_changed', status: 'idle' },
       });
+      await new Promise<void>(resolve => setImmediate(resolve));
 
+      expect(instance.metadata['automationRunSucceeded']).toBeUndefined();
+      manager.emit('provider:normalized-event', { instanceId: 'i-ok', event: { kind: 'complete' } });
       expect(instance.metadata['automationRunSucceeded']).toBe(true);
     });
 
@@ -880,7 +893,7 @@ describe('AutomationRunner thread wakeups', () => {
       expect(manager.queueInstanceUpdate).toHaveBeenCalledWith('i-error', {});
     });
 
-    it('stamps a provider-limit reclassified run even though the instance is idle', async () => {
+    it('stamps a structured provider-limit failure even though the instance becomes idle', async () => {
       const instance = await fireHiddenRun('i-limit');
       instance.outputBuffer = [];
       manager.emit('provider:normalized-event', {
@@ -891,6 +904,8 @@ describe('AutomationRunner thread wakeups', () => {
           content: "You've hit your session limit · resets 6:30pm (Europe/London)",
         },
       });
+
+      manager.emit('provider:normalized-event', { instanceId: 'i-limit', event: { kind: 'error', message: 'Provider usage limit', recoverable: false } });
 
       manager.emit('instance:event', {
         instanceId: 'i-limit',
@@ -954,8 +969,10 @@ describe('AutomationRunner thread wakeups', () => {
 describe('AutomationRunner WS-C7 contained execution profile', () => {
   const store = {
     get: vi.fn(),
+    getRun: vi.fn(),
     decideAndInsertRun: vi.fn(),
     claimNextPending: vi.fn(),
+    getRunFacts: vi.fn(() => ({ result: null })),
     failRunningRuns: vi.fn(),
     listRunningLoopLinkedRuns: vi.fn(() => []),
     recordRunOutcome: vi.fn(),
@@ -1148,6 +1165,7 @@ describe('AutomationRunner WS-C7 contained execution profile', () => {
     const runner = new AutomationRunner(store, undefined, () => 2_000, threadWakeupFactory);
     runner.initialize(manager);
 
+    vi.mocked(store.getRun).mockReturnValue(retryRun);
     await runner.dispatchRetryRun(retryRun);
 
     expect(manager.createInstance).not.toHaveBeenCalled();

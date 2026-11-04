@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   AutomationCreatePayloadSchema,
+  AutomationResultSchema,
   AutomationMarkSeenPayloadSchema,
   AutomationUpdatePayloadSchema,
 } from '../automation.schemas';
@@ -267,5 +268,21 @@ describe('AutomationMarkSeenPayloadSchema', () => {
     expect(AutomationMarkSeenPayloadSchema.safeParse({}).success).toBe(false);
     expect(AutomationMarkSeenPayloadSchema.safeParse({ automationId: 'auto-1' }).success).toBe(true);
     expect(AutomationMarkSeenPayloadSchema.safeParse({ runId: 'run-1' }).success).toBe(true);
+  });
+});
+
+describe('scheduled job policy contracts', () => {
+  it('round-trips limits and unchanged-output opt-in on both create and update', () => {
+    const action = { ...baseAction, maxRunMinutes: 120, maxProcessedTokens: 50_000_000, slowWhenUnchanged: true };
+    expect(AutomationCreatePayloadSchema.parse({ ...baseCreatePayload, action }).action).toEqual(action);
+    expect(AutomationUpdatePayloadSchema.parse({ id: 'example', updates: { action, dismissModelHint: true } }).updates).toEqual({ action, dismissModelHint: true });
+  });
+  it.each([{ maxRunMinutes: 0 }, { maxRunMinutes: 1.5 }, { maxProcessedTokens: -1 }])('rejects invalid limits: %j', values => {
+    expect(AutomationCreatePayloadSchema.safeParse({ ...baseCreatePayload, action: { ...baseAction, ...values } }).success).toBe(false);
+  });
+  it('requires an explicit semantic outcome and notification decision', () => {
+    expect(AutomationResultSchema.parse({ outcome: 'needs_attention', notify: true })).toEqual({ outcome: 'needs_attention', notify: true });
+    expect(AutomationResultSchema.safeParse({ outcome: 'no_change' }).success).toBe(false);
+    expect(AutomationResultSchema.safeParse({ outcome: 'failed', notify: true }).success).toBe(false);
   });
 });

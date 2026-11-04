@@ -27,12 +27,16 @@ describe('connector streaming HTTP relay', () => {
       { name: 'fixture', version: '1' },
       { capabilities: { tools: {}, resources: {}, prompts: {} } },
     );
+    let audited = false;
     server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: [{ name: 'echo', inputSchema: { type: 'object' } }],
     }));
-    server.setRequestHandler(CallToolRequestSchema, async (req) => ({
+    server.setRequestHandler(CallToolRequestSchema, async (req) => {
+      expect(audited).toBe(true);
+      return ({
       content: [{ type: 'text', text: String(req.params.arguments?.['value']) }],
-    }));
+      });
+    });
     server.setRequestHandler(ListResourcesRequestSchema, async () => ({
       resources: [{ uri: 'fixture://one', name: 'one' }],
     }));
@@ -75,6 +79,9 @@ describe('connector streaming HTTP relay', () => {
     if (!address || typeof address === 'string') throw new Error('fixture not listening');
     const forwarder = new ConnectorForwarder('example', {
       call: async (method, payload) => {
+        if (method === 'connectors.before_tool_call') {
+          expect(payload).toEqual({ name: 'example' }); audited = true; return { recorded: true };
+        }
         expect(method).toBe('connectors.connection');
         expect(payload['name']).toBe('example');
         if (payload['forceRefresh']) sawRefresh = true;

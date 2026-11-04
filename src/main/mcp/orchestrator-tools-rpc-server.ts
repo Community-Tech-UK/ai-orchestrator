@@ -7,6 +7,7 @@
 import * as fs from 'node:fs';
 import * as net from 'node:net';
 import { dispatchConnectorRpc } from './connector-rpc';
+import { automationInvocations } from '../automations/automation-invocation-context';
 import { app } from 'electron';
 import { registerCleanup as registerGlobalCleanup } from '../util/cleanup-registry';
 import { getLogger } from '../logging/logger';
@@ -42,6 +43,7 @@ import {
   type SpawnRemoteInstanceFn,
   type UpdateAutomationFn,
 } from './orchestrator-tools';
+import type { AutomationToolContext } from './orchestrator-automation-tools';
 import type { GetDocReviewResultFn, RequestDocReviewFn } from './doc-review-tools';
 import { isPlanQueueRpcMethod, PLAN_QUEUE_TOOL_NAMES, type PlanQueueToolOperations } from './plan-queue-tools';
 import { ResetNodeConnectionArgsSchema, type NodeConnectionToolContext, type ResetNodeConnectionFn } from './orchestrator-node-connection-tools';
@@ -99,7 +101,7 @@ const logger = getLogger('OrchestratorToolsRpcServer');
 
 /** Per-surface tool scoping for spawn-depth defense-in-depth. */
 const ORCHESTRATOR_TOOLSETS = createToolsetRegistry([
-  { name: 'orchestrator-tools-full', tools: ['git_batch_pull', 'list_remote_nodes', 'run_on_node', 'exec_on_node', 'read_node_output', ...FILE_TRANSFER_TOOL_NAMES, 'list_settings', 'get_setting', 'set_setting', 'reset_setting', 'update_node_config', 'create_automation', 'list_automations', 'delete_automation', 'update_automation', 'postpone_automation', 'request_doc_review', 'get_doc_review_result', ...PLAN_QUEUE_TOOL_NAMES, 'evidence_list', 'evidence_search', 'evidence_read', 'evidence_compare', 'evidence_verify'] },
+  { name: 'orchestrator-tools-full', tools: ['git_batch_pull', 'list_remote_nodes', 'run_on_node', 'exec_on_node', 'read_node_output', ...FILE_TRANSFER_TOOL_NAMES, 'list_settings', 'get_setting', 'set_setting', 'reset_setting', 'update_node_config', 'automation_result', 'create_automation', 'list_automations', 'delete_automation', 'update_automation', 'postpone_automation', 'request_doc_review', 'get_doc_review_result', ...PLAN_QUEUE_TOOL_NAMES, 'evidence_list', 'evidence_search', 'evidence_read', 'evidence_compare', 'evidence_verify'] },
   { name: 'orchestrator-tools-leaf', includes: ['orchestrator-tools-full'], tools: ['!run_on_node', '!exec_on_node'] },
 ]);
 
@@ -151,6 +153,8 @@ export interface OrchestratorToolsRpcServerOptions extends FileTransferToolConte
   broadcastSettingsChange?: SettingsChangeBroadcaster | null;
   /** Sends service-scoped config.update RPCs for update_node_config. */
   updateNodeConfig?: UpdateNodeConfigFn | null;
+  automationResult?: AutomationToolContext['automationResult'];
+  beforeExternalMutation?: (instanceId: string) => void;
   /** Backs `create_automation`. */
   createAutomation?: CreateAutomationFn | null;
   /** Backs `list_automations`. */
@@ -208,6 +212,8 @@ export class OrchestratorToolsRpcServer {
   private readonly settingsManager: SettingsManagerForTools | null;
   private readonly broadcastSettingsChange: SettingsChangeBroadcaster | null;
   private readonly updateNodeConfig: UpdateNodeConfigFn | null;
+  private readonly automationResult: AutomationToolContext['automationResult'];
+  private readonly beforeExternalMutation: OrchestratorToolsRpcServerOptions['beforeExternalMutation'];
   private readonly createAutomation: CreateAutomationFn | null;
   private readonly listAutomations: ListAutomationsFn | null;
   private readonly deleteAutomation: DeleteAutomationFn | null;
@@ -268,6 +274,8 @@ export class OrchestratorToolsRpcServer {
     this.settingsManager = options.settingsManager ?? null;
     this.broadcastSettingsChange = options.broadcastSettingsChange ?? null;
     this.updateNodeConfig = options.updateNodeConfig ?? null;
+    this.automationResult = options.automationResult;
+    this.beforeExternalMutation = options.beforeExternalMutation;
     this.createAutomation = options.createAutomation ?? null;
     this.listAutomations = options.listAutomations ?? null;
     this.deleteAutomation = options.deleteAutomation ?? null;
@@ -334,15 +342,18 @@ export class OrchestratorToolsRpcServer {
 
   async handleRequest(request: OrchestratorToolsRpcRequest, abortSignal?: AbortSignal): Promise<unknown> {
     const params = this.parseParams(request.params);
-    if (!this.isKnownLocalInstance(params.instanceId)) {
+    const invocation = automationInvocations.get(params.instanceId);
+    if (!this.isKnownLocalInstance(params.instanceId) && !invocation) {
       throw new Error('unknown orchestrator-tools instance');
     }
+    if (invocation && request.method !== 'orchestrator_tools.automation_result') throw new Error('This scheduled invocation is scoped to automation_result');
     this.enforceRateLimit(params.instanceId);
     this.enforcePayloadSize(params.payload);
     if (request.method.startsWith('connectors.')) {
       const generation=this.getInstanceGeneration(params.instanceId);
       return dispatchConnectorRpc(request.method,params.instanceId,params.payload,undefined,{
         signal:abortSignal,
+        beforeMutation: () => this.beforeExternalMutation?.(params.instanceId),
         assertActive:()=>{
           if(!this.isKnownLocalInstance(params.instanceId))throw new Error('unknown orchestrator-tools instance');
           if(this.getInstanceGeneration(params.instanceId)!==generation)throw new Error('Session changed while the connector request was waiting.');
@@ -557,11 +568,10 @@ export class OrchestratorToolsRpcServer {
         }
         return tool.handler(validated);
       }
+      case 'orchestrator_tools.automation_result':
       case 'orchestrator_tools.request_doc_review':
       case 'orchestrator_tools.get_doc_review_result':
-        // Both tools validate their own payload via zod schemas inside
-        // doc-review-tools.ts, so the generic same-name dispatch (used for
-        // the release tools below) is sufficient here.
+        // Each tool validates its payload in its scoped definition.
         return this.dispatchSameNameTool(request.method, params, abortSignal);
       case 'orchestrator_tools.build_release_operational_readiness_report':
       case 'orchestrator_tools.build_ios_release_plan':
@@ -647,7 +657,7 @@ export class OrchestratorToolsRpcServer {
 
   /** Mints the capability token for a spawned instance, or null if `canMintInstanceCapability` rejects it. */
   getInstanceCapability(instanceId: string): string | null {
-    return this.instanceCapabilities.mint(instanceId, this.canMintInstanceCapability);
+    return this.instanceCapabilities.mint(instanceId, id => this.canMintInstanceCapability(id) || !!automationInvocations.get(id));
   }
 
   private parseParams(params: unknown): OrchestratorToolsRpcParams {
@@ -717,6 +727,7 @@ export class OrchestratorToolsRpcServer {
         settingsManager: this.settingsManager,
         broadcastSettingsChange: this.broadcastSettingsChange,
         updateNodeConfig: this.updateNodeConfig,
+        automationResult: this.automationResult,
         createAutomation: this.createAutomation,
         listAutomations: this.listAutomations,
         deleteAutomation: this.deleteAutomation,
@@ -751,6 +762,7 @@ export class OrchestratorToolsRpcServer {
       settingsManager: this.settingsManager,
       broadcastSettingsChange: this.broadcastSettingsChange,
       updateNodeConfig: this.updateNodeConfig,
+      automationResult: this.automationResult,
       createAutomation: this.createAutomation,
       listAutomations: this.listAutomations,
       deleteAutomation: this.deleteAutomation,

@@ -79,9 +79,9 @@ describe('plan queue MCP tools', () => {
   it('passes the RPC-authenticated caller, never an argument, as the caller identity', async () => {
     const ops = fakeOps();
     const s = server(ops);
-    await call(s, WORKER, 'plan_queue_report_verdict', { item_id: 'item-1', verdict: 'PASS', instanceId: PARENT });
+    await call(s, WORKER, 'plan_queue_report_verdict', { item_id: 'item-1', verdict: 'PASS', instanceId: PARENT, not_checked: [] });
     expect(ops.calls[0]).toEqual(['reportVerdict', WORKER, {
-      item_id: 'item-1', verdict: 'PASS', findings: [], gates_run: [], document_complete: true, need_james: [],
+      item_id: 'item-1', verdict: 'PASS', findings: [], gates_run: [], document_complete: true, need_james: [], not_checked: [],
     }]);
   });
 

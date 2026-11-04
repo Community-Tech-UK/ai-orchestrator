@@ -8,7 +8,7 @@ function fixture(options: { scope?: string; excluded?: string[]; installed?: str
   const run: PlanQueueRun = { id: 'run', parentInstanceId: 'parent', parentHistoryThreadId: null, kind: 'plans', workspaceCwd: '/repo',
     status: 'running', config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, routing: { workers: [{ provider: 'codex' }], verifiers: [] } },
     relaxation: null, workerProvider: 'codex', workerModel: null, startedAt: 1, endedAt: null };
-  const host = { getRun: () => run, hasParkedWork: () => true, parentRoute: () => ({ provider: 'claude', currentModel: 'parent-model' }), upsertRun: vi.fn(), holdRun: vi.fn().mockResolvedValue(undefined), requestPump: vi.fn(), notifyParent: vi.fn() };
+  const host = { preflightRun: vi.fn(async () => undefined), getRun: () => run, hasParkedWork: () => true, parentRoute: () => ({ provider: 'claude', currentModel: 'parent-model' }), upsertRun: vi.fn(), holdRun: vi.fn().mockResolvedValue(undefined), requestPump: vi.fn(), notifyParent: vi.fn() };
   const deps: PlanQueueRoutingDeps = { readSaved: () => ({ workers: [{ provider: 'codex' }], verifiers: [] }), readAccountRules: () => ({ never: [], last: [] }), copilotProfileFor: () => null, poolProfiles: () => [], copilotProfiles: () => [],
     isProviderExcluded: (p) => options.excluded?.includes(p) ?? false, defaultProvider: () => null,
     checkerScopeKind: () => options.scope ?? 'none', listInstalledProviders: async () => options.installed ?? ['codex', 'claude', 'copilot'] };

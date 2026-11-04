@@ -5,7 +5,7 @@ import { mapRunRow } from './automation-store-mappers';
 
 export function listActiveAutomationRuns(db: SqliteDriver): AutomationRun[] {
   return db.prepare(`
-    SELECT * FROM automation_runs WHERE status IN ('pending', 'running')
+    SELECT r.*, f.result_json, f.processed_tokens FROM automation_runs r LEFT JOIN automation_run_facts f ON f.run_id = r.id WHERE r.status IN ('pending', 'running')
     ORDER BY scheduled_at ASC, created_at ASC
   `).all<AutomationRunRow>().map(mapRunRow);
 }

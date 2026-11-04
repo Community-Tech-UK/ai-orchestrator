@@ -3,6 +3,7 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
 import type { PlanQueueQuestionGroup } from '../../../core/state/plan-queue.store';
 import { planQueueDocumentBasename } from './plan-queue-item-list.component';
 import { PlanQueueQuestionCardComponent } from './plan-queue-question-card.component';
+import { planQueueKindLabel, pluralise } from '../plan-queue-item-display';
 
 /** Above this many open questions, each run's group starts folded. */
 export const PLAN_QUEUE_QUESTIONS_OPEN_LIMIT = 10;
@@ -29,6 +30,8 @@ export class PlanQueueQuestionListComponent {
   answer = output<{ itemId: string; optionId: string }>();
 
   protected readonly documentBasename = planQueueDocumentBasename;
+  protected readonly kindLabel = planQueueKindLabel;
+  protected readonly pluralise = pluralise;
   private readonly startOpen = computed(() =>
     this.groups().reduce((total, group) => total + group.items.length, 0) <= PLAN_QUEUE_QUESTIONS_OPEN_LIMIT);
   private readonly initialOpen = new Map<string, boolean>();

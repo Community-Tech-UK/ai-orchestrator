@@ -1,3 +1,4 @@
+import type { AutomationAuthorityScope } from './automation.types';
 /**
  * Instance Types - Core data models for AI CLI instances
  */
@@ -20,6 +21,7 @@ import { createDefaultContextInheritance } from './supervision.types';
 import { getProviderModelContextWindow, type ReasoningEffort } from './provider.types';
 import type { ComputerUseAutonomyLevel } from './desktop-gateway-settings.types';
 import { normalizeOpenCodeAdditionalDirectories } from '../utils/opencode-additional-directories';
+import type { CopilotNumericUsage } from '../utils/copilot-usage';
 
 /**
  * CLI provider type for instances
@@ -153,6 +155,8 @@ export interface IdleInstanceInfo {
 export const RESTORED_CONTEXT_USAGE_SOURCE = 'restored-session-state';
 
 export interface ContextUsage {
+  /** Optional measured premium billing and root compaction counters (older snapshots omit this). */
+  copilotUsage?: CopilotNumericUsage;
   /** Current context-window occupancy (tokens used in the latest API call). */
   used: number;
   /** Total context-window capacity (tokens). */
@@ -403,7 +407,7 @@ export interface AccountPreferences {
   last: string[];
 }
 
-export interface Instance {
+export interface Instance extends AutomationAuthorityScope {
   // Identity
   id: string;
   displayName: string;
@@ -682,7 +686,7 @@ export interface Instance {
   allowIncomingSessionMessages?: boolean;
 }
 
-export interface InstanceCreateConfig {
+export interface InstanceCreateConfig extends AutomationAuthorityScope {
   displayName?: string;
   /**
    * True when the `displayName` was explicitly set by the user (e.g. carried

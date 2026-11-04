@@ -2,6 +2,7 @@
  * Cost IPC Service - Cost tracking and budget operations
  */
 
+import type { CodexEphemeralUsageResult } from '../../../../../shared/types/codex-ephemeral-usage.types';
 import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService, IpcResponse } from './electron-ipc.service';
 import type { CostPurposeRange, CostPurposeSummary } from '../../../../../shared/types/cost-purpose.types';
@@ -54,6 +55,10 @@ export class CostIpcService {
   async costGetSummary(instanceId?: string): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.costGetSummary(instanceId);
+  }
+  async costGetEphemeralUsage(limit = 100): Promise<IpcResponse<CodexEphemeralUsageResult>> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.costGetEphemeralUsage(limit);
   }
   async costGetPurposeSummary(range?: CostPurposeRange): Promise<IpcResponse<CostPurposeSummary>> {
     if (!this.api) return {success:false,error:{message:'Not in Electron'}};

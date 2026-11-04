@@ -57,7 +57,7 @@ import { sendCodexAppServerMessage } from './codex/app-server-message-send';
 import { runCodexInputSend } from './codex/input-send-lifecycle';
 import { assertAdapterInputCurrent, createAdapterInputDispatch } from './adapter-input-dispatch';
 import { CodexProviderCompactionPresentation } from './codex/provider-compaction-presentation';
-import { tokenCount } from './codex/token-usage-breakdown';
+import { handleCodexIdleUsage, seedCodexIdleUsage } from './codex/idle-usage';
 import { buildObservedCompactionEvents } from './codex/compaction-presentation';
 import type {
   ProviderContextActionHandlerResult,
@@ -186,11 +186,12 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
       sessionScanner: this.sessionScanner,
       shouldResume: this.shouldResumeNextTurn,
       isCurrent: () => initEpoch === undefined || initEpoch === this.appServerInitEpoch,
+      onThreadCreated: (id) => this.ephemeralUsage.bind(id),
       onFailedAttempt: (attempt) => {
         this.lastResumeAttemptResult = attempt;
       },
     }).finally(() => unsubscribeUsage?.());
-    if (!result) return;
+    if (!result) { this.ephemeralUsage.finish('abandoned'); return; }
 
     this.lastResumeAttemptResult = result.resumeAttempt;
     this.effectiveServiceTier = result.effectiveServiceTier;
@@ -199,6 +200,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
     this.appServerClient = result.client;
     this.appServerThreadId = result.threadId;
     if (!result.threadId) return;
+    this.ephemeralUsage.bind(result.threadId);
 
     this.backgroundTerminals.bind(result.client, result.threadId);
     this.sessionId = result.threadId;
@@ -213,6 +215,8 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
       (exitError) => {
         this.backgroundTerminals.reportStopped();
         this.flushPartialUsage();
+        this.ephemeralUsage.finish('runtime-exit');
+        this.usageAccounting.clearOwnership();
         this.contextCostController.handleRuntimeExit();
         if (!this.isSpawned) return;
         this.mcpElicitationBridge.cancelAll();
@@ -289,6 +293,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
 
   protected handleIdleAppServerNotification(notification: AppServerNotification): void {
     this.backgroundTerminals.observe(notification);
+    this.ephemeralUsage.observe(notification);
     if (!this.appServerRuntime.hasActiveTurn()) this.handleIdleUsage(notification);
     if (notification.method === 'serverRequest/resolved') {
       const requestId = notification.params['requestId'];
@@ -309,39 +314,17 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
   }
 
   private seedIdleUsage(notification: AppServerNotification): void {
-    if (notification.method !== 'thread/tokenUsage/updated') return;
-    const threadId = notification.params['threadId'];
-    const usage = (notification.params['tokenUsage'] ?? notification.params['token_usage']) as Record<string, unknown> | undefined;
-    const total = (usage?.['total'] ?? usage?.['total_token_usage']) as Record<string, unknown> | undefined;
-    if (typeof threadId === 'string' && total) this.usageAccounting.seed(threadId, total);
+    seedCodexIdleUsage(this.usageAccounting, notification);
   }
-
   protected handleIdleUsage(notification: AppServerNotification, flush = true): void {
-    const { method, params } = notification;
-    if (!['thread/tokenUsage/updated', 'turn/started', 'turn/completed'].includes(method)) return;
-    const threadId = notification.params['threadId'];
-    if (typeof threadId !== 'string') return;
-    if (!this.usageAccounting.ownsThread(threadId)) {
-      if (threadId === this.getAppServerThreadId()) this.seedIdleUsage(notification);
-      return;
-    }
-    const child = threadId !== this.getAppServerThreadId();
-    const turn = params['turn'] as { id?: string; usage?: Record<string, unknown> } | undefined;
-    if (method === 'turn/started') { this.usageAccounting.beginNativeTurn(threadId, turn?.id); return; }
-    if (method === 'turn/completed') this.usageAccounting.fallback(threadId, turn?.usage, child, turn?.id);
-    else {
-      const usage = (notification.params['tokenUsage'] ?? notification.params['token_usage']) as Record<string, unknown> | undefined;
-      const total = (usage?.['total'] ?? usage?.['total_token_usage']) as Record<string, unknown> | undefined;
-      const last = (usage?.['last'] ?? usage?.['last_token_usage']) as Record<string, unknown> | undefined;
-      this.usageAccounting.observe(threadId, total, last, child);
-      if (!child) {
-        const occupancy = tokenCount(last?.['totalTokens'] ?? last?.['total_tokens']);
-        const window = tokenCount(usage?.['modelContextWindow'] ?? usage?.['model_context_window']);
+    handleCodexIdleUsage(notification, {
+      accounting: this.usageAccounting, rootThreadId: this.getAppServerThreadId(),
+      rootSample: (occupancy, window) => {
         if (occupancy > 0) this.lastTurnTokens = occupancy;
         if (window > 0) this.codexReportedContextWindow = window;
-      }
-    }
-    if (flush) this.flushPartialUsage();
+      },
+      flush: () => { if (flush) this.flushPartialUsage(); },
+    });
   }
 
   protected handleObservedThreadCompaction(threadId: string, completesLifecycle = true): void {
@@ -400,6 +383,8 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
         logger.info('Codex adapter using app-server mode');
       } catch (error) {
         this.appServerInitEpoch++;
+        this.ephemeralUsage.finish('abandoned');
+        this.usageAccounting.clearOwnership();
         const reason = error instanceof Error ? error.message : String(error);
         logger.warn('App-server initialization failed, falling back to exec mode', {
           ...errorDiagnostic(error),
@@ -549,6 +534,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
         resumeProof: this.lastResumeAttemptResult,
       });
     }
+    this.ephemeralUsage.bind(newThreadId);
     this.backgroundTerminals.bind(this.appServerClient, newThreadId);
     this.appServerThreadId = newThreadId;
     this.effectiveServiceTier = startResult.serviceTier ?? null;
@@ -640,6 +626,8 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
     } else if (this.appServerClient) {
       try { await this.appServerClient.close(); } catch { /* best effort */ }
     }
+    this.ephemeralUsage.finish('stopped');
+    this.usageAccounting.clearOwnership();
     this.appServerClient = null;
     this.appServerThreadId = null;
     this.cleanupCodexHome();

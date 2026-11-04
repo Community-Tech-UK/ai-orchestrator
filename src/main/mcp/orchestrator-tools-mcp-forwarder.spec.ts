@@ -32,6 +32,7 @@ describe('createOrchestratorToolsForwarderTools', () => {
       'set_setting',
       'reset_setting',
       'update_node_config',
+      'automation_result',
       'create_automation',
       'list_automations',
       'delete_automation',

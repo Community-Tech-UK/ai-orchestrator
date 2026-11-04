@@ -16,12 +16,14 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { createHash } from 'node:crypto';
 import { buildCliEnv } from '../cli/cli-environment';
 import { gitExec, WORKTREE_CHECKOUT_TIMEOUT_MS } from '../workspace/git/git-exec';
 import { hermeticGitEnv } from '../workspace/git/git-env';
-import { assertOwnCheckout, CONFLICT_CODES } from './plan-queue-git';
+import { CONFLICT_CODES } from './plan-queue-git';
 import { runInProcessGroup, type GroupRunResult } from './plan-queue-process';
 import { LANDING_MARKER_FILE } from './plan-queue-landing-leftover';
+import { assertQueueCheckout, assertQueueCheckoutOwnership, InvalidQueueCheckoutError } from './plan-queue-orphan-checkout';
 import { PlanQueueCheckoutOwnershipError, readProvisionedPaths, recoverLeftover } from './plan-queue-worktree';
 
 /** Related tests can approach a full suite and exceed 15 minutes on a busy host.
@@ -30,13 +32,15 @@ const HOOK_TIMEOUT_MS = 60 * 60_000;
 const OUTPUT_TAIL = 6_000;
 
 /** The same rule as the global plan-spec guard (~/.config/git/hooks/plan-spec-guard.sh). */
-const ACTIVE_DOCUMENT_RE = /(_spec|_spec_planned|_plan|_livetest)\.md$/i;
+const ACTIVE_DOCUMENT_RE = /(_spec|_spec_planned|_plan|_livetest|_history)\.md$/i;
 const STANDING_REGISTER_MARKER = 'Type: standing register';
 
 /** A closed document to add to the landing commit, at its repo-relative path. */
 export interface LandingDocument {
   relativePath: string;
   content: string;
+  /** Candidate history preserved verbatim here; its active path stays as on base. */
+  historySource?: { relativePath: string; sha256: string | null };
 }
 
 export type LandingCommitResult =
@@ -70,19 +74,19 @@ export async function returnToItemCheckout(
   worktreePath: string,
   branchName: string,
   itemId: string,
+  repoRoot: string,
   documentPaths: readonly string[] = [],
 ): Promise<string | null> {
-  await assertOwnCheckout(worktreePath);
-  const rescueRef = await recoverLeftover(worktreePath, branchName, itemId);
-  if (!(await isOnBranch(worktreePath, branchName))) throw new PlanQueueCheckoutOwnershipError(worktreePath, branchName);
+  const rescueRef = await recoverLeftover(worktreePath, branchName, itemId, repoRoot);
+  try { await assertQueueCheckout(worktreePath, branchName, repoRoot); }
+  catch (error) {
+    if (error instanceof InvalidQueueCheckoutError) throw new PlanQueueCheckoutOwnershipError(worktreePath, branchName, { cause: error });
+    throw error;
+  }
   if (documentPaths.length) {
     await gitExec(['clean', '-f', '-q', '--', ...documentPaths], worktreePath).catch(() => undefined);
   }
   return rescueRef;
-}
-
-async function isOnBranch(worktreePath: string, branchName: string): Promise<boolean> {
-  return (await gitExec(['symbolic-ref', '-q', 'HEAD'], worktreePath).catch(() => '')) === `refs/heads/${branchName}`;
 }
 
 /**
@@ -94,8 +98,12 @@ async function isOnBranch(worktreePath: string, branchName: string): Promise<boo
  * committed on its branch, since the final checkpoint precedes every squash.
  * `read-tree` first, so files the index alone knows about are removed too.
  */
-export async function restoreItemCheckout(worktreePath: string, branchName: string): Promise<void> {
-  await assertOwnCheckout(worktreePath);
+export async function restoreItemCheckout(worktreePath: string, branchName: string, repoRoot: string): Promise<void> {
+  try { await assertQueueCheckoutOwnership(worktreePath, repoRoot); }
+  catch (error) {
+    if (error instanceof InvalidQueueCheckoutError) throw new PlanQueueCheckoutOwnershipError(worktreePath, branchName, { cause: error });
+    throw error;
+  }
   await gitExec(['read-tree', 'HEAD'], worktreePath, TREE_REWRITE_TIMEOUT_MS);
   await gitExec(['checkout', '-f', '-q', branchName], worktreePath, TREE_REWRITE_TIMEOUT_MS);
   const provisioned = await readProvisionedPaths(worktreePath);
@@ -116,6 +124,34 @@ async function stagedActiveDocuments(worktreePath: string): Promise<string[]> {
     }
   }
   return blocked;
+}
+
+/** Only an owned history with a byte-verified completed snapshot may leave the squash. */
+async function preserveActiveHistories(worktreePath: string, baseTip: string, documents: readonly LandingDocument[]): Promise<void> {
+  for (const doc of documents) {
+    const source = doc.historySource;
+    if (!source) continue;
+    if (!/_history_[a-f0-9]{64}_completed\.md$/.test(doc.relativePath)
+      || !/_history\.md$/i.test(source.relativePath) || path.isAbsolute(source.relativePath)
+      || source.relativePath.split(/[\\/]/).includes('..')) throw new Error('Invalid closure history path');
+    const file = path.join(worktreePath, source.relativePath);
+    const stat = await fs.lstat(file).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (stat && !stat.isFile()) throw new Error('Candidate history must be a regular file');
+    const current = stat ? await fs.readFile(file) : null;
+    const sha256 = current === null ? null : createHash('sha256').update(current).digest('hex');
+    if (sha256 !== source.sha256 || (current !== null && !Buffer.from(doc.content).includes(current))) {
+      throw new Error('Candidate history changed or is missing from its completed snapshot');
+    }
+    const literal = `:(literal)${source.relativePath}`;
+    if (await gitExec(['ls-tree', baseTip, '--', literal], worktreePath)) {
+      await gitExec(['restore', '--source', baseTip, '--staged', '--worktree', '--', literal], worktreePath);
+    } else {
+      await gitExec(['rm', '-f', '--ignore-unmatch', '--', literal], worktreePath);
+    }
+  }
 }
 
 /**
@@ -146,6 +182,7 @@ export function commitWithHooks(
  * was made. The worktree is back on its branch when this returns.
  */
 export async function buildLandingCommit(params: {
+  repoRoot: string;
   worktreePath: string;
   branchName: string;
   itemId: string;
@@ -154,9 +191,9 @@ export async function buildLandingCommit(params: {
   documents: readonly LandingDocument[];
   signal?: AbortSignal;
 }): Promise<LandingCommitResult> {
-  const { worktreePath, branchName, itemId, baseTip, message, documents } = params;
+  const { repoRoot, worktreePath, branchName, itemId, baseTip, message, documents } = params;
   const documentPaths = documents.map((doc) => doc.relativePath);
-  await returnToItemCheckout(worktreePath, branchName, itemId, documentPaths);
+  await returnToItemCheckout(worktreePath, branchName, itemId, repoRoot, documentPaths);
   const gitDir = await gitExec(['rev-parse', '--absolute-git-dir'], worktreePath);
   await fs.writeFile(path.join(gitDir, LANDING_MARKER_FILE), baseTip, 'utf-8');
   try {
@@ -170,6 +207,7 @@ export async function buildLandingCommit(params: {
       return { status: 'conflict', conflictFiles };
     }
 
+    await preserveActiveHistories(worktreePath, baseTip, documents);
     const active = await stagedActiveDocuments(worktreePath);
     if (active.length) return { status: 'active-documents', paths: active };
 
@@ -187,7 +225,7 @@ export async function buildLandingCommit(params: {
     if (exitCode !== 0) return { status: 'hook-failed', output, ...(timedOut ? { timedOut } : {}) };
     return { status: 'committed', commit: await gitExec(['rev-parse', 'HEAD'], worktreePath) };
   } finally {
-    await restoreAfterLanding(worktreePath, branchName, documentPaths);
+    await restoreAfterLanding(worktreePath, branchName, documentPaths, repoRoot);
   }
 }
 
@@ -196,14 +234,22 @@ export async function buildLandingCommit(params: {
  * squash returned, so the landing fails and parks; parking's checkpoint puts
  * the folder back (plan-queue-landing-leftover.ts).
  */
-async function restoreAfterLanding(worktreePath: string, branchName: string, documentPaths: readonly string[]): Promise<void> {
+async function restoreAfterLanding(worktreePath: string, branchName: string, documentPaths: readonly string[], repoRoot: string): Promise<void> {
   try {
-    await restoreItemCheckout(worktreePath, branchName);
+    await restoreItemCheckout(worktreePath, branchName, repoRoot);
   } catch (error) {
+    if (error instanceof PlanQueueCheckoutOwnershipError) throw error;
+    // An operational proof failure is not an ownership refusal. Prove ownership
+    // before even the fallback removes copied evidence from this folder.
+    try { await assertQueueCheckoutOwnership(worktreePath, repoRoot); }
+    catch (ownershipError) {
+      if (ownershipError instanceof InvalidQueueCheckoutError) throw new PlanQueueCheckoutOwnershipError(worktreePath, branchName, { cause: ownershipError });
+      throw ownershipError;
+    }
     // The copied documents are landing scratch, not edits: remove them so the
     // recovery cannot carry them onto the branch. Landing copies them in again.
     await Promise.all(documentPaths.map((file) => fs.rm(path.join(worktreePath, file), { force: true })));
     throw new Error(`Landing stopped part-way: this item's folder could not be put back on ${branchName} `
-      + `(${error instanceof Error ? error.message : String(error)}). Its work is safe on the branch, and the queue puts the folder back before it next saves it.`);
+      + `(${error instanceof Error ? error.message : String(error)}). Its work is safe on the branch, and the queue puts the folder back before it next saves it.`, { cause: error });
   }
 }

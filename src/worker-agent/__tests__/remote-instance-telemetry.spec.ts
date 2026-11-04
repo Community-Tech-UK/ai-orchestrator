@@ -179,6 +179,10 @@ describe('actual remote instance telemetry transport', () => {
       await remote.terminate();
       workerAdapter.spawn = async () => { throw new Error('Synthetic spawn failure'); };
       await expect(remote.spawn()).rejects.toThrow('Synthetic spawn failure');
+      expect(remote.getRemoteInstanceId()).toBe('worker-instance');
+      expect(registry.listenerCount('remote:instance-telemetry')).toBe(1);
+      await remote.terminate();
+      expect(remote.getRemoteInstanceId()).toBeNull();
     } else if (ending === 'terminate') await remote.terminate();
     else {
       workerAdapter.emit('exit', 0, null);

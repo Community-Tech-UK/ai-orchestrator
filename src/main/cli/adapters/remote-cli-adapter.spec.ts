@@ -1,8 +1,8 @@
 /**
  * Tests for RemoteCliAdapter.spawn() cleanup invariants (Fix C).
  *
- * The core invariant: once the worker has acknowledged the spawn RPC,
- * `remoteInstanceId` stays set until terminate() clears it — even if a
+ * The core invariant: once a spawn RPC may have reached the worker,
+ * `remoteInstanceId` stays set until termination or exit confirms absence, even if a
  * `spawned` listener throws synchronously. Without this, a throwing listener
  * (downstream schema validation) nulled `remoteInstanceId`, turning the
  * rollback's adapter.terminate() into a no-op and orphaning the remote child.
@@ -25,6 +25,9 @@ vi.mock('../../pause/pause-coordinator', () => ({
 import { RemoteCliAdapter } from './remote-cli-adapter';
 import type { WorkerNodeConnectionServer } from '../../remote-node/worker-node-connection';
 import type { UnifiedSpawnOptions } from './adapter-factory';
+import { markRemoteUsageSettlement } from './remote-response-usage-settlement';
+import { deferUntilResponseUsageSettled } from './deferred-response-usage';
+import type { CliResponse } from './base-cli-adapter';
 
 function makeAdapter(sendRpc: ReturnType<typeof vi.fn>): RemoteCliAdapter {
   const nodeConnection = {
@@ -72,21 +75,27 @@ describe('RemoteCliAdapter.spawn() cleanup invariants', () => {
     expect(adapter.getRemoteInstanceId()).toBeNull();
   });
 
-  it('RPC failure nulls remoteInstanceId, detaches listeners, rethrows; later terminate() is a no-op', async () => {
+  it('RPC failure retains remote ownership and observation until a rollback stop confirms absence', async () => {
     const rpcError = new Error('node disconnected mid-spawn');
     const sendRpc = vi.fn().mockRejectedValueOnce(rpcError);
     const adapter = makeAdapter(sendRpc);
 
     await expect(adapter.spawn()).rejects.toThrow('node disconnected mid-spawn');
 
+    expect(adapter.getRemoteInstanceId()).toBe('inst-remote-1');
+    expect(adapter.isRunning()).toBe(true);
+    expect(registryEmitter.listenerCount('remote:instance-output')).toBe(1);
+    await expect(adapter.spawn()).rejects.toThrow(/stopping/);
+    await expect(adapter.sendInput('more work')).rejects.toThrow(/stopping/);
+    expect(sendRpc).toHaveBeenCalledTimes(1);
+
+    sendRpc.mockResolvedValueOnce(undefined);
+    await adapter.terminate(false);
+    expect(sendRpc).toHaveBeenCalledTimes(2);
+    expect(sendRpc).toHaveBeenLastCalledWith('windows-pc', 'instance.terminate', { instanceId: 'inst-remote-1' });
     expect(adapter.getRemoteInstanceId()).toBeNull();
     expect(adapter.isRunning()).toBe(false);
-    // Registry listeners were detached on the failure path.
     expect(registryEmitter.listenerCount('remote:instance-output')).toBe(0);
-
-    // terminate() after an RPC-failed spawn sends no terminate RPC (nothing to kill).
-    await adapter.terminate(false);
-    expect(sendRpc).toHaveBeenCalledTimes(1); // only the failed spawn RPC
   });
 
   it('regression shape: spawn → throwing listener → rollback terminate(false) sends the terminate RPC', async () => {
@@ -124,6 +133,31 @@ describe('RemoteCliAdapter.spawn() cleanup invariants', () => {
     expect(spawnedPids).toEqual([-1]);
     expect(adapter.getRemoteInstanceId()).toBe('inst-remote-1');
     expect(adapter.isRunning()).toBe(true);
+  });
+
+  it('keeps the acknowledged remote identity and rejects failed termination so a retry still reaches the worker', async () => {
+    const sendRpc = vi.fn().mockResolvedValueOnce({ instanceId: 'inst-remote-1' })
+      .mockRejectedValueOnce(new Error('stop transport failed')).mockResolvedValueOnce(undefined);
+    const adapter = makeAdapter(sendRpc);
+    await adapter.spawn();
+    await expect(adapter.terminate(false)).rejects.toThrow('stop transport failed');
+    expect(adapter.getRemoteInstanceId()).toBe('inst-remote-1');
+    await adapter.terminate(false);
+    expect(sendRpc.mock.calls.filter(call => call[1] === 'instance.terminate')).toHaveLength(2);
+    expect(adapter.getRemoteInstanceId()).toBeNull();
+  });
+  it('does not declare pending remote billing settled when termination RPC failed', async () => {
+    const sendRpc = vi.fn().mockResolvedValueOnce({ instanceId: 'inst-remote-1' }).mockRejectedValueOnce(new Error('stop failed'));
+    const adapter = makeAdapter(sendRpc); await adapter.spawn();
+    let semantic!: CliResponse; adapter.on('complete', value => { semantic = value; });
+    adapter.handleRemoteComplete(markRemoteUsageSettlement({ id: 'response', role: 'assistant', content: '' }, 'pending'));
+    let settled = false; deferUntilResponseUsageSettled(semantic, () => { settled = true; });
+    await expect(adapter.terminate(false)).rejects.toThrow('stop failed');
+    expect(settled).toBe(false);
+    registryEmitter.emit('remote:instance-complete', { nodeId: 'windows-pc', instanceId: 'inst-remote-1',
+      response: markRemoteUsageSettlement({ id: 'response', role: 'assistant', content: '', usage: { cacheReadTokens: 42 } }, 'settled') });
+    expect(settled).toBe(true); expect(semantic.usage?.cacheReadTokens).toBe(42);
+    await adapter.terminate(false);
   });
 });
 

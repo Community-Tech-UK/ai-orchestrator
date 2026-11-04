@@ -115,6 +115,16 @@ describe('ModelSelectionPanelComponent', () => {
     expect(shortcuts).toEqual(['⌘1', '⌘2']);
   });
 
+  it('shows the Copilot Opus premium charge and still emits its original wire ID', () => {
+    setInputs({ providers: ['copilot'], selectedProvider: 'copilot', selectedModelId: 'claude-opus-5.5',
+      modelsForProvider: () => [{ id: 'claude-opus-5.5', name: 'Claude Opus 5.5', tier: 'powerful', pinned: true }] });
+    expect(rowNames()).toEqual(['Opus 5.5 · 15 premium requests each']);
+    const selections: UnifiedSelection[] = [];
+    fixture.componentInstance.selection.subscribe(selection => selections.push(selection));
+    (fixture.nativeElement.querySelector('.model-picker-row__select') as HTMLButtonElement).click();
+    expect(selections).toEqual([{ kind: 'model', provider: 'copilot', modelId: 'claude-opus-5.5' }]);
+  });
+
   it('uses Ctrl shortcut labels away from Apple platforms', () => {
     vi.spyOn(window.navigator, 'platform', 'get').mockReturnValue('Win32');
     setInputs();

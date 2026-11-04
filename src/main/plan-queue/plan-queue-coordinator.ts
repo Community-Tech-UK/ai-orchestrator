@@ -12,8 +12,10 @@
  * (PlanQueueItemFlow).
  */
 import { randomUUID } from 'crypto';
+import { preflightPlanQueueRun } from './plan-queue-run-preflight';
+import { claimDocumentsAndCreateItems } from './plan-queue-run-start';
+import { rememberJamesAnswer } from './plan-queue-triage-memory';
 import { EventEmitter } from 'events';
-import { existsSync } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import {
@@ -32,12 +34,14 @@ import {
 import { getLogger } from '../logging/logger';
 import { applyLiveAccountRules, liveQueueSessionsHost, type PlanQueueAccountRulesPort } from './plan-queue-account-rules-live';
 import { getWorkAdmission } from '../work-admission/work-admission';
+import { queueAdmission } from '../work-admission/queue-admission';
 import { pumpPlanQueue } from './plan-queue-pump';
 import { assertPlanQueueParent, authorizePlanQueueControl } from './plan-queue-control-authority';
 import { adoptRunParent } from './plan-queue-run-parent';
 import { requestRunHandover, handoverRunParent } from './plan-queue-handover';
 import { PlanQueueParentMessenger } from './plan-queue-parent-messenger';
 import { discoverPlanQueueDocuments } from './plan-queue-discovery';
+import { isExactPlanQueueSelection } from './plan-queue-discovery-paths';
 import { currentBranch, diffStat, repositoryRoot } from './plan-queue-git';
 import {
   PlanQueueInstanceTracker,
@@ -58,7 +62,7 @@ import { recoverInterruptedDocumentMerges, recoverPlanQueue } from './plan-queue
 import { applyTriageRecords, PRE_START_STATES, reconcileWaitingDocuments } from './plan-queue-readiness';
 import type { PlanQueueRelaxation } from './plan-queue-relaxation';
 import { assertRoutingInstalled, defaultPlanQueueRoutingDeps, resolveRunRouting, type PlanQueueRoutingDeps, type PlanQueueRoutingOverride, type ResolvedRunRouting } from './plan-queue-routing';
-import { assertItemTransition, isTerminalItemState, itemHoldsWorktree, newPlanQueueItem } from './plan-queue-state';
+import { assertItemTransition, isTerminalItemState, itemHoldsWorktree } from './plan-queue-state';
 import type { PlanQueueStore } from './plan-queue-store';
 import { PlanQueueWorktreeService, type PlanQueueWorktreeCreator } from './plan-queue-worktree';
 import { selectPlanQueueVerifier, type VerifierSelectInput, type VerifierSelection } from './plan-queue-verifier-select';
@@ -129,6 +133,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   private worktreeService: PlanQueueWorktreeService | null = null;
   private parents: PlanQueueParentTracker | null = null;
   private readonly roles = new Map<string, PlanQueueRoleRecord>();
+  private readonly answering = new Set<string>();
   private triage: PlanQueueTriage | null = null;
   private alerts: PlanQueueAlert[] = [];
   private pumping = false;
@@ -163,6 +168,9 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       newId: deps.newId ?? randomUUID,
     };
     this.worktreeService = new PlanQueueWorktreeService({
+      repoRootForItem: item => this.getRun(item.runId).workspaceCwd,
+      history: deps.store.history,
+      retainedWorktreePaths: () => deps.store.listItemsWithGitOwnership().flatMap(item => item.worktreePath ? [item.worktreePath] : []),
       creator: deps.worktreeCreator,
       saveItem: (item) => { this.save(item); },
       skipInstall: deps.skipInstall,
@@ -243,6 +251,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   }
   consumeUserClose(id: string): boolean { return this.userClose.consume(id); }
   shutdown(): void {
+    this.flow?.cancelChecks();
     this.accountRulesUnsubscribe?.();
     this.accountRulesUnsubscribe = null;
     this.admissionCleanup.splice(0).forEach(cleanup => cleanup());
@@ -276,6 +285,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       }),
       sendInput: (instanceId, message, attachments, options) => inner.sendInput(instanceId, message, attachments, options),
       terminateInstance: (instanceId, graceful) => inner.terminateInstance(instanceId, graceful),
+      restartFreshInstance: instanceId => inner.restartFreshInstance(instanceId),
       getInstance: (instanceId) => inner.getInstance(instanceId),
       getAllInstances: () => inner.getAllInstances(),
     };
@@ -283,6 +293,20 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   get worktrees(): PlanQueueWorktreeService { return this.require(this.worktreeService); }
   get tracker(): PlanQueueInstanceTracker { return this.require(this.trackerInstance); }
   get store(): PlanQueueStore { return this.requireDeps().store; }
+  get history() { return this.store.history; }
+  pauseForSharedError(runId: string, detail: string): void {
+    const run = this.getRun(runId);
+    if (run.status !== 'running') return;
+    this.saveRun({ ...run, status: 'paused' });
+    this.notifyParent(this.getRun(runId), detail);
+    void this.control({ action: 'pause', runId }).catch(error => logger.warn('Could not stop all paused queue sessions', { error: String(error) }));
+  }
+  checksAdmitted(run: PlanQueueRun): boolean {
+    return this.getRun(run.id).status === 'running' && !this.tracker.isShuttingDown()
+      // The pump already reserved this check's slot; recheck Hold and host load.
+      && getWorkAdmission().check('queue-check', { activeCount: 0 }).allowed
+      && this.requireDeps().loadAverage().slice(0, 2).every(load => load <= queueAdmission(run.config, 0, 0).maxLoadAverage);
+  }
   selectVerifier(input: VerifierSelectInput): Promise<VerifierSelection> {
     return this.requireDeps().selectVerifier(input);
   }
@@ -362,13 +386,14 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     // Fixed now, validated now: a choice the queue cannot honour refuses the run.
     const { routing, setAside, accountNotes } = resolveRunRouting(parent, { ...input.routing, relaxExclusions: input.config?.relaxSettings === true, workspaceCwd: repoRoot }, deps.routing);
     await assertRoutingInstalled(routing, deps.routing ?? {});
-    const config: PlanQueueRunConfig = { ...DEFAULT_PLAN_QUEUE_CONFIG[input.kind], ...input.config, baseBranch, routing, startingSessionRoute: { provider: parent.provider, currentModel: parent.currentModel, accountProfileId: parent.accountProfileId, copilotAccountProfileId: parent.copilotAccountProfileId } };
-    const documents = await discoverPlanQueueDocuments(repoRoot, input.kind, input.glob);
+    await preflightPlanQueueRun({ routing, workspaceCwd: repoRoot, workerProvider: parent.provider ?? 'claude', workerModel: parent.currentModel ?? null,
+      selectVerifier: input => this.selectVerifier(input) });
+    const glob = input.glob ?? input.config?.glob;
+    const config: PlanQueueRunConfig = { ...DEFAULT_PLAN_QUEUE_CONFIG[input.kind], ...input.config, glob, baseBranch, routing, startingSessionRoute: { provider: parent.provider, currentModel: parent.currentModel, accountProfileId: parent.accountProfileId, copilotAccountProfileId: parent.copilotAccountProfileId } };
+    const documents = await discoverPlanQueueDocuments(repoRoot, input.kind, glob);
     // No await from here until the items are written: reading the owned set and
     // claiming documents is atomic on the main thread, so two concurrent starts
     // cannot both claim one document.
-    const owned = this.documentsOwnedByActiveRuns();
-    const excluded = documents.filter((doc) => owned.has(doc.path)).map((doc) => doc.path);
     const now = deps.now();
     const run: PlanQueueRun = {
       id: deps.newId(),
@@ -386,16 +411,8 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     };
     deps.store.upsertRun(run);
     if (config.relaxSettings) this.applyRelaxation(run);
-    documents.filter((doc) => !owned.has(doc.path)).forEach((doc, index) => {
-      // createdAt carries discovery order: items list in the order they were found.
-      // An unplanned spec must stay open: its required planning rename would
-      // invalidate this item's path. Implementation belongs to its linked plan.
-      const needsPlan = doc.readiness === 'not-ready' && doc.path.toLowerCase().endsWith('_spec.md');
-      deps.store.upsertItem(newPlanQueueItem(deps.newId(), run.id, doc.path, now + index, {
-        state: needsPlan ? 'skipped' : 'discovered',
-        detail: needsPlan ? 'No implementation plan exists. The spec remains open; create and link a plan in a planning task, then queue that plan.' : doc.reason ?? null,
-      }));
-    });
+    const excluded = claimDocumentsAndCreateItems({ store: deps.store, memory: deps.store.history, now: deps.now, newId: deps.newId },
+      run, documents, { queueDirectly: isExactPlanQueueSelection(glob) });
     const items = deps.store.listItems(run.id);
     logger.info('Plan queue run started', { runId: run.id, kind: run.kind, items: items.length, excluded: excluded.length });
     this.announce({ runId: run.id });
@@ -431,7 +448,12 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     return typeof this.deps?.instances.getInstance(instanceId)?.metadata?.['planQueueRole'] === 'string';
   }
   /** @param callerInstanceId set for MCP callers, who must be the run's parent session. */
-  async answer(itemId: string, optionId: string, callerInstanceId?: string): Promise<void> {
+  answer(itemId: string, optionId: string, callerInstanceId?: string): Promise<void> {
+    if (this.answering.has(itemId)) return Promise.reject(new Error('This answer is already being applied. Wait for it to finish.'));
+    this.answering.add(itemId);
+    return this.answerOnce(itemId, optionId, callerInstanceId).finally(() => { this.answering.delete(itemId); });
+  }
+  private async answerOnce(itemId: string, optionId: string, callerInstanceId?: string): Promise<void> {
     const item = this.getItem(itemId);
     const run = this.require(this.parents).follow(this.getRun(item.runId));
     this.resolveRunParent(run);
@@ -439,6 +461,20 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     const option = item.question?.options.find((candidate) => candidate.id === optionId);
     if (!item.question || !option) throw new Error(`Item ${itemId} has no open question with option "${optionId}"`);
     if (item.state === 'needs-answer') {
+      if (optionId === 'resume-set-aside') {
+        const previous = this.store.findLatestParkedItem(item.documentPath, run.parentInstanceId);
+        if (!previous) throw new Error('The earlier attempt is no longer set aside. Refresh this run before continuing.');
+        this.authorizeControl(this.getRun(previous.runId), 'resume-item', callerInstanceId);
+        await this.requireFlow().resume(previous.id);
+        if (this.getItem(item.id).state !== 'needs-answer' || this.getRun(run.id).status === 'cancelled') {
+          await this.requireFlow().park(previous.id, 'cancelled', 'The request to resume this work was cancelled. Resume it from Set aside when ready.');
+          return;
+        }
+        this.reopen(this.getRun(previous.runId));
+        this.transition(this.getItem(item.id), 'skipped', { question: null, detail: 'Resumed the earlier set-aside job.' });
+        this.requestPump(); return;
+      }
+      rememberJamesAnswer(this.history, item, run.workspaceCwd, item.question.question, option, this.requireDeps().now());
       const answer = `${item.question.question} → ${option.label}`;
       if (optionId === 'skip') {
         this.transition(item, 'skipped', { workerSession: undefined, question: null, answer, detail: 'James chose to leave this document for now.' });
@@ -474,6 +510,9 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
         hasParkedWork: (run) => this.store.listItems(run.id).some(item => item.state === 'parked'),
         authorize: (run, action, caller) => this.authorizeControl(run, action, caller),
         upsertRun: (run) => { this.saveRun(run); },
+        preflightRun: run => preflightPlanQueueRun({ routing: run.config.routing ?? { workers: [], verifiers: [] },
+          workspaceCwd: run.workspaceCwd, workerProvider: run.workerProvider ?? 'claude', workerModel: run.workerModel,
+          selectVerifier: input => this.selectVerifier(input) }),
         holdRun: async (run) => {
           const moving = run.status === 'running';
           if (moving) this.saveRun({ ...this.getRun(run.id), status: 'paused' });
@@ -514,6 +553,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     const actor = this.authorizeControl(run, payload.action, callerInstanceId);
     switch (payload.action) {
       case 'skip-item':
+        if (this.answering.has(item.id)) throw new Error('This document is applying an answer. Wait for it to finish before skipping.');
         if (!PRE_START_STATES.has(item.state) || item.branchName || item.worktreePath) throw new Error(`Item is ${item.state}; only an item that has not started can be skipped`);
         this.transition(item, 'skipped', { workerSession: undefined, question: null, detail: 'Skipped by James.' });
         break;
@@ -548,6 +588,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       gatesRun: args.gates_run,
       documentComplete: args.document_complete,
       needJames: args.need_james,
+      notChecked: args.not_checked,
     });
     return { accepted: true, message: 'Verdict recorded. End your turn now; the coordinator acts on it when you stop.' };
   }
@@ -691,15 +732,6 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
-  private documentsOwnedByActiveRuns(): Set<string> {
-    const store = this.requireDeps().store;
-    return new Set(
-      store.listActiveRuns()
-        .flatMap((run) => store.listItems(run.id))
-        .filter((item) => !isTerminalItemState(item.state) || (item.worktreePath !== null && existsSync(item.worktreePath)))
-        .map((item) => item.documentPath),
-    );
-  }
   private authorizeControl(run: PlanQueueRun, action: PlanQueueControlPayload['action'], caller: string | undefined): string {
     this.resolveRunParent(run);
     return authorizePlanQueueControl(run, action, caller, {

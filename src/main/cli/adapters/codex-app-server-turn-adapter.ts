@@ -6,7 +6,7 @@ import type {
   TurnInterruptCompletion,
 } from './base-cli-adapter';
 import { CodexAppServerNotificationAdapter } from './codex-app-server-notification-adapter';
-import type { FileAttachment, ThinkingContent } from '../../../shared/types/instance.types';
+import type { FileAttachment, InstanceStatus, ThinkingContent } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
 import { extractThinkingContent } from '../../../shared/utils/thinking-extractor';
 import type {
@@ -15,10 +15,7 @@ import type {
   TurnCaptureState,
   UserInput,
 } from './codex/app-server-types';
-import {
-  getCommandAggregatedOutput,
-  getCommandExitCode,
-} from './codex/thread-item-accessors';
+import { getCommandAggregatedOutput, getCommandExitCode } from './codex/thread-item-accessors';
 import {
   extractCodexAppServerError,
   formatCodexAppServerError,
@@ -42,7 +39,6 @@ import { readCodexActiveGoal, readCodexContinuationOwnership } from './codex/nat
 import { assertAdapterInputCurrent } from './adapter-input-dispatch';
 import { buildCodexTurnInputDispatch } from './codex/turn-input-dispatch';
 import { PendingCodexTurnNotifications, notificationTurnId } from './codex/pending-turn-notifications';
-import type { InstanceStatus } from '../../../shared/types/instance.types';
 
 const logger = getLogger('CodexCliAdapter');
 const USAGE_LIMIT_RATE_LIMITS_TIMEOUT_MS = 3_000;
@@ -549,7 +545,9 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
   }
 
   protected async reconcileChildRollouts(rootThreadId: string, rootTurnId: string, startedAtMs: number, endedAtMs: number): Promise<void> {
-    for (const { threadId, usage, baseline } of await readChildRolloutUsage(rootThreadId, rootTurnId, { startedAtMs, endedAtMs })) {
+    const receipts = await readChildRolloutUsage(rootThreadId, rootTurnId, { startedAtMs, endedAtMs });
+    if (!this.usageAccounting.ownsThread(rootThreadId)) return;
+    for (const { threadId, usage, baseline } of receipts) {
       if (baseline && !this.usageAccounting.hasThreadSnapshot(threadId)) this.usageAccounting.seed(threadId, baseline);
       this.usageAccounting.observe(threadId, usage, undefined, true);
     }

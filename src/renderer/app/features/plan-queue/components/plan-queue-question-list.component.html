@@ -2,9 +2,9 @@
   @for (group of groups(); track group.runId) {
     <details class="pq-question-group" [open]="isInitiallyOpen(group.runId)">
       <summary class="pq-question-group-head">
-        <span class="pq-question-group-kind">{{ group.kind }}</span>
+        <span class="pq-question-group-kind">{{ kindLabel(group.kind) }}</span>
         <span class="pq-question-group-cwd" tabindex="0" [appTooltip]="group.workspaceCwd" appTooltipVariant="overflow">{{ group.workspaceCwd }}</span>
-        <span class="pq-question-group-count">{{ group.items.length }} question(s)</span>
+        <span class="pq-question-group-count">{{ pluralise(group.items.length, 'question') }}</span>
       </summary>
       <div class="pq-question-group-items">
         @for (item of group.items; track item.id) {

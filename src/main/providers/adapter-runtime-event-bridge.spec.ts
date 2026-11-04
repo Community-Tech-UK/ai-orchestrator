@@ -11,6 +11,23 @@ import {
 import type { CliToolCall } from '../cli/adapters/base-cli-adapter';
 
 describe('observeAdapterRuntimeEvents', () => {
+  it('projects validated numeric Copilot usage without provider text', () => {
+    const adapter = new EventEmitter();
+    const events: NormalizedAdapterRuntimeEvent[] = [];
+    const cleanup = observeAdapterRuntimeEvents(adapter, event => events.push(event));
+    adapter.emit('context', { used: 950, total: 1000, content: 'SYNTHETIC_BODY', copilotUsage: {
+      premiumRequests: 0, compactions: 1, postCompactionTokens: 950, tokenLimit: 1000, message: 'SYNTHETIC_BODY',
+    } });
+    expect(events[0]?.event).toEqual({ kind: 'context', used: 950, total: 1000, percentage: 95,
+      copilotUsage: { premiumRequests: 0, compactions: 1, postCompactionTokens: 950, tokenLimit: 1000 } });
+    for (const copilotUsage of [undefined, { premiumRequests: '0', compactions: 1 }, { compactions: 0.5 },
+      { compactions: 1, postCompactionTokens: NaN }, { compactions: 1, tokenLimit: 0 }]) {
+      expect(mapAdapterRuntimeEvent('context', [{ used: 10, total: 100, copilotUsage }])?.event)
+        .toEqual({ kind: 'context', used: 10, total: 100, percentage: 10 });
+    }
+    cleanup();
+  });
+
   it('maps adapter events purely while retaining the original context payload', () => {
     const raw = {
       used: 10,

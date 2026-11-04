@@ -34,6 +34,7 @@ import type { ProviderLimitTurnSignal } from './instance-provider-limit-detectio
 import { detectUsageOverageStop } from './instance-provider-limit-detection';
 import { getLogger } from '../logging/logger';
 import { textDiagnostic } from '../logging/source-diagnostics';
+import { isAdapterStopping } from '../providers/adapter-stop-state';
 
 const logger = getLogger('InstanceUsageOverageWiring');
 
@@ -62,10 +63,10 @@ export function resetUsageOverageStopForTesting(): void {
 }
 
 /** Adapter surface this guard needs; satisfied by every CLI adapter. */
-export type UsageOverageGuardAdapter = {
+export interface UsageOverageGuardAdapter {
   on(event: 'rate-limit-telemetry', listener: (info: CliRateLimitInfo) => void): unknown;
   off(event: 'rate-limit-telemetry', listener: (info: CliRateLimitInfo) => void): unknown;
-};
+}
 
 /**
  * Subscribe one adapter's live rate-limit telemetry to the overage stop.
@@ -79,6 +80,7 @@ export function attachUsageOverageStopGuard(
   if (!deps) return () => undefined;
 
   const onTelemetry = (info: CliRateLimitInfo): void => {
+    if (isAdapterStopping(adapter)) return;
     let signal: ProviderLimitTurnSignal | null = null;
     try {
       signal = detectUsageOverageStop(info, {

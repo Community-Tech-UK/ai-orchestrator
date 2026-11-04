@@ -42,6 +42,7 @@ const {
     bufferMessage: vi.fn(),
     onInstanceIdle: vi.fn().mockResolvedValue(undefined),
     cancelPendingReviews: vi.fn(),
+    abortSupersededReviews: vi.fn(),
     on: vi.fn(),
   },
 }));
@@ -125,6 +126,16 @@ describe('setupInstanceEventForwarding', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRecordProviderThreadCompactionMarker.mockReturnValue('marker-1');
+  });
+
+  it('aborts stale reviews on human input admission while leaving automatic continuation alone', () => {
+    const mgr = buildManager();
+    setupInstanceEventForwarding({ instanceManager: mgr, windowManager: mockWindowManager,
+      isStatelessExecProvider: () => false, getNodeLatencyForInstance: () => undefined });
+    mgr.emit('instance:input-started', { instanceId: 'inst-1', autoContinuation: true });
+    expect(mockCrossModelReview.abortSupersededReviews).not.toHaveBeenCalled();
+    mgr.emit('instance:input-started', { instanceId: 'inst-1', autoContinuation: false });
+    expect(mockCrossModelReview.abortSupersededReviews).toHaveBeenCalledExactlyOnceWith('inst-1', true);
   });
 
   it('tells the renderer and the remote observer when a prompt is settled without an answer', () => {

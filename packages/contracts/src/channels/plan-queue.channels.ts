@@ -11,6 +11,8 @@ export const PLAN_QUEUE_CHANNELS = {
   PLAN_QUEUE_ALERTS: 'plan-queue:alerts',
   /** `git diff --shortstat` of a parked item's branch against the run's base. */
   PLAN_QUEUE_DIFFSTAT: 'plan-queue:diffstat',
+  /** Read-only discovery counts before starting a run. */
+  PLAN_QUEUE_PREVIEW: 'plan-queue:preview',
 
   // Commands (renderer → main)
   /** Start a run with a chosen session as its parent. */

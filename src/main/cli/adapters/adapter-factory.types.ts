@@ -33,6 +33,12 @@ import type { ResolvedCopilotAccountRoute } from '../../../shared/types/copilot-
  * Unified spawn options that work across all adapters
  */
 export interface UnifiedSpawnOptions {
+  /** Trusted in-process ceiling, refused on unsupported transports. */
+  automationAuthority?: Readonly<import('../../../shared/types/automation.types').AutomationExecutionAuthority>;
+  /** In-process worker receipt sink; never serialize callbacks to remote workers. */
+  onCodexEphemeralUsage?: (receipt: import('../../../shared/types/codex-ephemeral-usage.types').CodexEphemeralUsage) => void;
+  /** Runtime-owned job/request ID. Never infer this from an experiment grouping key. */
+  jobId?: string;
   sessionKind?: SessionKind;
   trialKey?: string;
   trialArm?: 'control' | 'candidate' | 'unassigned';

@@ -60,6 +60,7 @@ describe('createAutomationToolImplementations', () => {
       handlePastOneTime,
       resolveWorkingDirectory: () => '/repo',
       resolveTimezone: () => 'UTC',
+      resolveCaller: () => ({ provider: 'claude', currentModel: 'opus', reasoningEffort: 'high', yoloMode: true }),
       now: () => NOW,
       ...overrides,
     });
@@ -201,6 +202,37 @@ describe('createAutomationToolImplementations', () => {
     });
   });
 
+  describe('agent authority ceilings', () => {
+    it.each([
+      { reasoningEffort: 'high' as const },
+      { yoloMode: true },
+      { model: 'opus' },
+      { provider: 'codex' as const, model: 'unknown-model' },
+    ])('refuses authority above the calling session: %j', async (change) => {
+      const a = await seed({ action: { prompt: 'Check', workingDirectory: '/repo', provider: 'claude', model: 'sonnet', reasoningEffort: 'low' } });
+      const guarded = makeImpls({ resolveCaller: () => ({ provider: 'claude', currentModel: 'sonnet', reasoningEffort: 'low', yoloMode: false }) });
+      await expect(guarded.updateAutomation({ id: a.id, ...change }, { callerInstanceId: 'caller' })).rejects.toThrow(/calling session|ask the user/i);
+      expect((await store.get(a.id))?.action).toMatchObject({ model: 'sonnet', reasoningEffort: 'low' });
+    });
+    it('caps agent effort at max while leaving human updates unrestricted', async () => {
+      const a = await seed({ action: { prompt: 'Check', workingDirectory: '/repo', provider: 'claude', model: 'opus', reasoningEffort: 'low' } });
+      const guarded = makeImpls({ resolveCaller: () => ({ provider: 'claude', currentModel: 'opus', reasoningEffort: 'ultra', yoloMode: true }) });
+      await guarded.updateAutomation({ id: a.id, reasoningEffort: 'ultra' }, { callerInstanceId: 'caller' });
+      expect((await store.get(a.id))?.action.reasoningEffort).toBe('max');
+      await guarded.updateAutomation({ id: a.id, reasoningEffort: 'ultra' });
+      expect((await store.get(a.id))?.action.reasoningEffort).toBe('ultra');
+    });
+    it('pins omitted effort and auto-approval to limits that cannot exceed the caller', async () => {
+      const guarded = makeImpls({ resolveCaller: () => ({ provider: 'claude', currentModel: 'opus', reasoningEffort: 'low', yoloMode: false }) });
+      const a = await guarded.createAutomation({ name: 'Write report', prompt: 'Write report', cron: '0 * * * *' }, { callerInstanceId: 'caller' });
+      expect((await store.get(a.id))?.action).toMatchObject({ reasoningEffort: 'low', yoloMode: false });
+    });
+    it('creates check jobs with Sonnet and low effort', async () => {
+      const result = await impls.createAutomation({ name: 'Server monitor', prompt: 'Check server health', cron: '0 * * * *' }, { callerInstanceId: 'caller' });
+      expect((await store.get(result.id))?.action).toMatchObject({ provider: 'claude', model: 'sonnet', reasoningEffort: 'low' });
+    });
+  });
+
   describe('postponeAutomation', () => {
     it('pushes a recurring automation forward by delayMinutes without changing its cron', async () => {
       const automation = await seed({ nextFireAt: NOW + HOUR });
@@ -269,12 +301,42 @@ describe('createAutomationToolImplementations', () => {
     it('does not apply the Claude model when the caller explicitly chooses another provider', async () => {
       await impls.createAutomation(
         { name: 'PR sweep', prompt: 'Review PRs', cron: '0 9 * * 1-5', provider: 'codex' },
-        { callerInstanceId: 'chat-1' },
+        undefined,
       );
 
       const input = createWithScheduling.mock.calls[0]?.[0] as CreateAutomationInput;
       expect(input.action.provider).toBe('codex');
       expect(input.action.model).toBeUndefined();
+    });
+
+    it('uses the authenticated Codex caller model when an agent explicitly chooses Codex', async () => {
+      const resolveCaller = vi.fn(() => ({ provider: 'codex', currentModel: 'gpt-5.5', reasoningEffort: 'high' as const, yoloMode: false }));
+      const agent = makeImpls({ resolveCaller });
+      const result = await agent.createAutomation(
+        { name: 'PR sweep', prompt: 'Review PRs', cron: '0 9 * * 1-5', provider: 'codex' },
+        { callerInstanceId: 'codex-chat' },
+      );
+      expect(resolveCaller).toHaveBeenCalledWith('codex-chat');
+      expect((await store.get(result.id))?.action).toMatchObject({
+        provider: 'codex', model: 'gpt-5.5', reasoningEffort: 'high', yoloMode: false,
+        executionAuthority: { provider: 'codex', model: 'gpt-5.5', reasoningEffort: 'high', yoloMode: false },
+      });
+      expect(createWithScheduling).toHaveBeenCalledOnce();
+    });
+
+    it('does not reuse a Claude job when an authenticated Codex agent explicitly chooses Codex', async () => {
+      const args = { name: 'A', prompt: 'Check server', cron: '0 * * * *' };
+      const first = await impls.createAutomation(args, { callerInstanceId: 'claude-chat' });
+      createWithScheduling.mockClear();
+      const agent = makeImpls({ resolveCaller: () => ({ provider: 'codex', currentModel: 'gpt-5.5', reasoningEffort: 'low', yoloMode: false }) });
+      const second = await agent.createAutomation({ ...args, provider: 'codex' }, { callerInstanceId: 'codex-chat' });
+      expect(second.id).not.toBe(first.id);
+      expect(second.reused).toBeUndefined();
+      expect(createWithScheduling).toHaveBeenCalledOnce();
+      expect((await store.get(first.id))?.action.provider).toBe('claude');
+      expect((await store.get(second.id))?.action).toMatchObject({ provider: 'codex', model: 'gpt-5.5',
+        executionAuthority: { provider: 'codex', model: 'gpt-5.5', reasoningEffort: 'low', yoloMode: false } });
+      expect(await store.list()).toHaveLength(2);
     });
 
     /**
@@ -348,7 +410,7 @@ describe('createAutomationToolImplementations', () => {
 
       const second = await impls.createAutomation(
         { name: 'A', prompt: 'Check server', cron: '0 * * * *', provider: 'codex' },
-        { callerInstanceId: 'chat-1' },
+        undefined,
       );
 
       expect(second.reused).toBeUndefined();

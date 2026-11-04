@@ -1,3 +1,4 @@
+import type { CodexEphemeralUsageResult } from '../../shared/types/codex-ephemeral-usage.types';
 import { IpcRenderer, IpcRendererEvent } from 'electron';
 import { IPC_CHANNELS } from '../generated/channels';
 import type { IpcResponse } from './types';
@@ -221,6 +222,9 @@ export function createInfrastructureDomain(
         ch.COST_GET_SUMMARY,
         _withAuth({ instanceId })
       );
+    },
+    costGetEphemeralUsage: (limit = 100): Promise<IpcResponse<CodexEphemeralUsageResult>> => {
+      return ipcRenderer.invoke(ch.COST_GET_EPHEMERAL_USAGE, { limit });
     },
     costGetPurposeSummary: (range?: CostPurposeRange): Promise<IpcResponse<CostPurposeSummary>> => {
       return ipcRenderer.invoke(ch.COST_GET_PURPOSE_SUMMARY, range);

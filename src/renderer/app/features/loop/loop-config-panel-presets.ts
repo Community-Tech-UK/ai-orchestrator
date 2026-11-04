@@ -20,6 +20,7 @@ import {
   type LoopPresetValues,
 } from './loop-presets';
 import { buildLoopPreflightSummary } from './loop-preflight-summary';
+import { copilotVersionWarning } from '../../../../shared/utils/copilot-version-warning';
 
 /**
  * The panel's own signals for the nine preset-owned fields.
@@ -37,6 +38,8 @@ export interface LoopPresetIo {
   fields: LoopPresetSignals;
   /** Needed by the preflight summary's completion sentence. */
   verifyCommand: () => string;
+  provider?: () => string;
+  copilotVersion?: () => string | undefined;
 }
 
 const FIELDS = [
@@ -91,11 +94,12 @@ export function createLoopPresetController(io: LoopPresetIo): LoopPresetControll
    */
   const displayedContract = computed(() => {
     const preset = loopPresetById(selected());
-    if (preset && overrides().length === 0) return preset.contract;
-    return buildLoopPreflightSummary({
+    const contract = preset && overrides().length === 0 ? preset.contract : buildLoopPreflightSummary({
       ...readValues(io.fields),
       verifyCommand: io.verifyCommand(),
     });
+    const warning = io.provider?.() === 'copilot' ? copilotVersionWarning(io.copilotVersion?.()) : undefined;
+    return warning ? `${contract} ${warning}` : contract;
   });
 
   const apply = (id: LoopPresetId): void => {

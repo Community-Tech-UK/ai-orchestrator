@@ -1,8 +1,8 @@
 /** Pausing retains the worktree and branch; an unsafe checkout parks without Git writes. */
 import { NEVER_USE_HOLD_REASON } from './plan-queue-account-rules';
-import { isOwnCheckout, UnresolvedMergeError, revertToSnapshot, snapshotTree } from './plan-queue-git';
+import { isOwnCheckout, UnresolvedMergeError, revertToSnapshot, snapshotTree, type TreeSnapshot } from './plan-queue-git';
 import type { PlanQueueFlowHost } from './plan-queue-host';
-import { hasCheckout } from './plan-queue-orphan-checkout';
+import { hasCheckout, InvalidQueueCheckoutError } from './plan-queue-orphan-checkout';
 import { buildFixPrompt } from './plan-queue-prompts';
 import { PlanQueueCheckoutOwnershipError, readProvisionedPaths } from './plan-queue-worktree';
 import type { PlanQueueItem } from './plan-queue.types';
@@ -56,7 +56,13 @@ export async function holdItem(
     ?? (item.verdict?.verdict === 'FAIL' ? buildFixPrompt(item.round, host.getRun(item.runId).config.maxRounds, item.verdict.findings)
       : item.detail && !isHoldNote(item.detail) ? item.detail : null);
   await Promise.all([item.workerInstanceId, item.verifierInstanceId].filter((id): id is string => Boolean(id)).map(stopInstance));
-  if (verifying) await restoreVerifier(item);
+  if (verifying) {
+    try { await restoreVerifier(item); }
+    catch (error) {
+      if (!(error instanceof InvalidQueueCheckoutError)) throw error;
+      parkAfterVerifierRestoreFailure(host, { ...item, pendingInstruction }, error, reason); return;
+    }
+  }
   // A half-removed folder has nothing to checkpoint; its work is on the branch.
   else if (item.worktreePath && await hasCheckout(item.worktreePath)) {
     try { item = await host.worktrees.checkpoint(item, 'paused'); }
@@ -83,11 +89,26 @@ export async function holdItem(
   else host.transition(item, state, patch);
 }
 
+/** Writers must already be stopped. Keep the refused checkout for inspection. */
+export function parkAfterVerifierRestoreFailure(host: PlanQueueFlowHost, item: PlanQueueItem, error: unknown, context = ''): void {
+  host.transition(host.getItem(item.id), 'parked', {
+    heldAt: null, workerInstanceId: null, verifierInstanceId: null, question: null, parkReason: 'worktree-error',
+    pendingInstruction: item.pendingInstruction,
+    detail: `${context ? `${context.replace(/[.!?]$/, '')}. ` : ''}Could not restore the saved work. Review the work folder before choosing Resume. ${error instanceof Error ? error.message : String(error)}`.slice(0, 8000),
+  });
+  host.requestPump();
+}
+
+export async function restoreVerifierTree(item: PlanQueueItem, repoRoot: string, before?: TreeSnapshot): Promise<void> {
+  if (before && item.worktreePath) await revertToSnapshot(item.worktreePath, before, repoRoot, item.branchName!);
+  else await restoreCheckpointAfterVerification(item, repoRoot);
+}
+
 /**
  * Recovery baseline also works when the process lost its in-memory snapshot.
  * A missing or half-removed checkout has nothing to restore; its work is on the branch.
  */
-export async function restoreCheckpointAfterVerification(item: PlanQueueItem): Promise<void> {
+export async function restoreCheckpointAfterVerification(item: PlanQueueItem, repoRoot: string): Promise<void> {
   if (!item.worktreePath || !item.checkpointCommit || !(await isOwnCheckout(item.worktreePath))) return;
   const provisioned = await readProvisionedPaths(item.worktreePath);
   const isProvisioned = (file: string) => provisioned.some((p) => file === p || file.startsWith(`${p}/`));
@@ -95,5 +116,5 @@ export async function restoreCheckpointAfterVerification(item: PlanQueueItem): P
   await revertToSnapshot(item.worktreePath, {
     head: item.checkpointCommit,
     status: current.status.filter((line) => line.startsWith('??') && isProvisioned(line.slice(3))),
-  });
+  }, repoRoot, item.branchName!);
 }

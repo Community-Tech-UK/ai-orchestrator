@@ -42,6 +42,7 @@ describe('CrossModelReviewIndicatorComponent local review authority', () => {
 
   beforeEach(async () => {
     current.set(undefined);
+    service.pendingInstances.set(new Set()); service.skippedInstances.set(new Set());
     service.status.set({ enabled: true, reviewers: [], pendingReviews: 0 });
     service.getReviewForInstance.mockClear();
     TestBed.resetTestingModule();
@@ -55,7 +56,16 @@ describe('CrossModelReviewIndicatorComponent local review authority', () => {
     const fixture = TestBed.createComponent(CrossModelReviewIndicatorComponent);
     fixture.componentRef.setInput('instanceId', 'inst-1'); fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('Limit reached');
-    expect(fixture.componentInstance.tooltip()).toBe("20 of 20 automatic second opinions used today. Resets at midnight. You can still ask for one from a reply's menu.");
+    expect(fixture.componentInstance.tooltip()).toBe("All automatic second opinions used today. Resets at midnight. You can still ask for one from a reply's menu. Second opinions today: 20 of 20.");
+  });
+
+  it('shows the measured daily second-opinion count while a review is pending', () => {
+    service.status.set({ enabled: true, reviewers: [], pendingReviews: 1,
+      dailyUsage: { used: 8, limit: 20, resetsAt: 123, limitReached: false } });
+    service.pendingInstances.set(new Set(['inst-1']));
+    const fixture = TestBed.createComponent(CrossModelReviewIndicatorComponent);
+    fixture.componentRef.setInput('instanceId', 'inst-1'); fixture.detectChanges();
+    expect(fixture.componentInstance.tooltip()).toContain('Second opinions today: 8 of 20');
   });
 
   it('names the reviewed turn', () => {

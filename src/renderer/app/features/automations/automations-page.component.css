@@ -105,6 +105,7 @@
     .run-row--failed { border-color: color-mix(in srgb, var(--error-color) 45%, var(--border-color)); }
     .run-row--succeeded { border-color: color-mix(in srgb, var(--success-color) 45%, var(--border-color)); }
     .run-error { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .run-retry { grid-column: 1 / -1; overflow-wrap: anywhere; }
     .attachments { display: flex; flex-wrap: wrap; gap: 6px; }
     .attachments span { border: 1px solid var(--border-color); border-radius: 999px; padding: 3px 8px; font-size: 11px; }
     .preflight { display: flex; flex-direction: column; gap: 10px; border: 1px solid color-mix(in srgb, var(--warning-color) 45%, var(--border-color)); border-radius: 8px; padding: 10px; background: var(--bg-primary); }
@@ -117,3 +118,5 @@
     .preflight-group li { margin: 3px 0; overflow-wrap: anywhere; }
     .preflight-group code { border: 1px solid var(--border-color); border-radius: 4px; padding: 5px 6px; background: var(--bg-secondary); overflow-wrap: anywhere; font-size: 11px; }
     @media (max-width: 640px) { .form-grid, .form-grid--compact, .stats { grid-template-columns: 1fr; } .run-row { grid-template-columns: 1fr; } }
+
+.run-row--quiet { color: var(--text-muted); border-color: var(--border-color); background: var(--bg-tertiary); }

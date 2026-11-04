@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "purpose": "Immutable preserved report variants; candidate report restored to historical main base to preserve authoritative root dirty report untouched.",
+  "rootHead": "cfa7455a3ebbbeca621c6f5e57aa2cd7cf557edd",
+  "candidateHead": "7ccce0db5b251fc433193767082c1e8e15d66f6d",
+  "mergeBase": "da205ed2a304da6d149db24808973a365af9fd78",
+  "originalPath": "docs/plans/2026-10-20-oct2-phaseC-queue-that-finishes_evidence/report.md",
+  "files": {
+    "root-report.txt": {
+      "sha256": "205877f09290bbe424b1ec7fd93b4c07388fc1cd58da6e3979b3bf0d806176b8",
+      "bytes": 9370,
+      "gitMode": "100644",
+      "source": "worktree.txt"
+    },
+    "base-report.txt": {
+      "sha256": "b2eb6a340ad74a579613b11e649c3a038bdd3aca45a22c66dfd70dc3183739b3",
+      "bytes": 6286,
+      "gitMode": "100644",
+      "source": "head.txt"
+    },
+    "candidate-report.txt": {
+      "sha256": "535cb9114a91b80c7218b7d8adfc3c1bdc073fa53d149eb8edc467ca8c8b8b27",
+      "bytes": 9369,
+      "gitMode": "100644",
+      "source": "candidate.txt"
+    }
+  }
+}

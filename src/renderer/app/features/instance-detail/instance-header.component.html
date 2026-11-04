@@ -284,6 +284,9 @@
           />
         </div>
 
+        @if (instance().provider === 'copilot') {
+          <app-copilot-premium-usage [used]="(contextUsage() ?? instance().contextUsage)?.copilotUsage?.premiumRequests" />
+        }
         @if (contextUsage(); as usage) {
           <div class="header-context">
             <app-context-bar

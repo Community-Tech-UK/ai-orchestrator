@@ -18,6 +18,7 @@ import { toJsonSafeProviderEventPayload } from './provider-event-raw-payload';
 import { readCapturedToolArguments } from './tool-call-argument-material';
 import { classifyTurnEnding, readTurnEndingMetadata } from '../cli/turn-ending-classifier';
 import { AdapterTurnEndingObservation } from './adapter-turn-ending-observation';
+import { remoteContextDetails } from '../remote-node/instance-interaction-schemas';
 
 const bridgeLogger = getLogger('AdapterRuntimeEventBridge');
 
@@ -285,6 +286,7 @@ export function mapAdapterRuntimeEvent(
           ...(normalized.source !== undefined ? { source: normalized.source } : {}),
           ...(normalized.promptWeight !== undefined ? { promptWeight: normalized.promptWeight } : {}),
           ...(normalized.promptWeightBreakdown !== undefined ? { promptWeightBreakdown: normalized.promptWeightBreakdown } : {}),
+          ...(normalized.copilotUsage !== undefined ? { copilotUsage: normalized.copilotUsage } : {}),
         }, rawPayload,
       };
     }
@@ -444,6 +446,9 @@ function normalizeContextUsage(usage: unknown): ContextUsage | null {
   if (typeof usageRecord['isEstimated'] === 'boolean') {
     normalized.isEstimated = usageRecord['isEstimated'];
   }
+
+  const copilotUsage = remoteContextDetails(usageRecord).copilotUsage;
+  if (copilotUsage !== undefined) normalized.copilotUsage = copilotUsage;
 
   return normalized;
 }

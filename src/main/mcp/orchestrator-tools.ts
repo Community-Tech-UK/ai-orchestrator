@@ -18,7 +18,7 @@ import {
 } from './orchestrator-settings-tools';
 import { createReleaseToolDefinitions, type ReleaseToolDependencies } from './orchestrator-release-tools';
 import { createFileTransferToolDefinitions, type FileTransferToolContext } from './orchestrator-file-transfer-tools';
-import type { CreateAutomationFn, DeleteAutomationFn, ListAutomationsFn, PostponeAutomationFn, UpdateAutomationFn } from './orchestrator-automation-tools';
+import type { AutomationToolContext, CreateAutomationFn, DeleteAutomationFn, ListAutomationsFn, PostponeAutomationFn, UpdateAutomationFn } from './orchestrator-automation-tools';
 import {
   createOrchestratorEvidenceToolDefinitions,
   type OrchestratorEvidenceToolContext,
@@ -386,6 +386,7 @@ export interface OrchestratorToolRuntimeContext
   settingsManager?: SettingsManagerForTools | null;
   broadcastSettingsChange?: SettingsChangeBroadcaster | null;
   updateNodeConfig?: UpdateNodeConfigFn | null;
+  automationResult?: AutomationToolContext['automationResult'];
   createAutomation?: CreateAutomationFn | null;
   listAutomations?: ListAutomationsFn | null;
   deleteAutomation?: DeleteAutomationFn | null;

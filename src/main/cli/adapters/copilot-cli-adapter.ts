@@ -86,23 +86,12 @@ import {
   withCopilotModelListFallback,
 } from './copilot-cli-adapter.models';
 import { listCopilotLiveModelIds } from './copilot/copilot-live-model-list';
+import { CopilotAdapterUsage } from './copilot/copilot-adapter-usage';
+import { copilotUsageDiagnostic, copilotSessionIdDiagnostic } from './copilot/copilot-usage-diagnostics';
 
 import { assertAdapterInputCurrent, createAdapterInputDispatch } from './adapter-input-dispatch';
 
 const logger = getLogger('CopilotCliAdapter');
-
-/** Native JSON counters are unchecked; project diagnostics without changing the event. */
-function copilotUsageDiagnostic(value: unknown): number | Record<string, unknown> | undefined {
-  if (value === undefined || (typeof value === 'number' && Number.isFinite(value))) return value;
-  if (typeof value === 'string') return { valueKind: 'string', ...textDiagnostic(value) };
-  return { valueKind: value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value };
-}
-
-/** Preserve useful native IDs; malformed JSON kinds must not retain source in logs. */
-function copilotSessionIdDiagnostic(value: unknown): string | { valueKind: string } | undefined {
-  if (value === undefined || typeof value === 'string') return value;
-  return { valueKind: value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value };
-}
 
 /**
  * Model-discovery cache, keyed by GitHub Copilot ACCOUNT PROFILE.
@@ -174,6 +163,7 @@ export class CopilotCliAdapter extends BaseCliAdapter {
    * issues no model request and therefore needs no account.
    */
   private readonly accountHomeDir: string | null;
+  private readonly numericUsage: CopilotAdapterUsage;
 
   /**
    * True once `ensureLaunchResolved()` has written the discovered launch into
@@ -221,6 +211,7 @@ export class CopilotCliAdapter extends BaseCliAdapter {
     super(adapterConfig);
 
     this.accountHomeDir = accountHomeDir;
+    this.numericUsage = new CopilotAdapterUsage(this, accountHomeDir);
     this.cliConfig = { ...config };
     this.sessionId = `copilot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   }
@@ -342,6 +333,7 @@ export class CopilotCliAdapter extends BaseCliAdapter {
 
       // Handle spawn errors (e.g., ENOENT when binary doesn't exist)
       this.process.on('error', (err) => {
+        this.numericUsage.monitor.stop();
         this.process = null;
         reject(new Error(`Failed to spawn copilot CLI: ${err.message}`));
       });
@@ -566,6 +558,7 @@ export class CopilotCliAdapter extends BaseCliAdapter {
             // and per-session usage.
             if (event.sessionId) {
               this.copilotSessionId = event.sessionId;
+              this.numericUsage.monitor.start(event.sessionId);
               // Confirm or deny native resume proof (B2).
               if (this.lastResumeAttemptResult?.source === 'native') {
                 this.lastResumeAttemptResult = {
@@ -660,7 +653,7 @@ export class CopilotCliAdapter extends BaseCliAdapter {
         }
       });
 
-      this.process.on('close', (code) => {
+      this.process.on('close', async (code) => {
         if (dispatch?.signal?.aborted) {
           try { assertAdapterInputCurrent({ signal: dispatch.signal }); } catch (error) { reject(error); }
           this.process = null;
@@ -681,6 +674,7 @@ export class CopilotCliAdapter extends BaseCliAdapter {
         const duration = Date.now() - startTime;
 
         if (code !== 0 && code !== null) {
+          this.numericUsage.monitor.stop();
           this.process = null;
           reject(new Error(`Copilot exited with code ${code}`));
           return;
@@ -688,6 +682,11 @@ export class CopilotCliAdapter extends BaseCliAdapter {
 
         const response = this.parseOutput(this.outputBuffer);
         response.usage = { ...response.usage, duration };
+        const completedProcess = this.process;
+        await this.numericUsage.monitor.refresh();
+        if (!completedProcess || this.process !== completedProcess || dispatch?.signal?.aborted) {
+          reject(new Error('Copilot turn was terminated or changed before usage settled')); return;
+        }
         this.completeResponse(response);
         this.process = null;
         resolve(response);
@@ -747,6 +746,8 @@ export class CopilotCliAdapter extends BaseCliAdapter {
             yield event.data.deltaContent;
           } else if (event.type === 'result' && event.sessionId) {
             this.copilotSessionId = event.sessionId;
+            this.numericUsage.monitor.start(event.sessionId);
+            await this.numericUsage.monitor.refresh();
           }
         } else {
           logCopilotParseFailure(trimmed);
@@ -1058,6 +1059,7 @@ export class CopilotCliAdapter extends BaseCliAdapter {
    * Override terminate to clean up spawned state.
    */
   override async terminate(graceful = true): Promise<void> {
+    this.numericUsage.monitor.stop();
     const wasSpawned = this.isSpawned;
     if (this.serverSession) {
       const session = this.serverSession;
@@ -1079,6 +1081,8 @@ export class CopilotCliAdapter extends BaseCliAdapter {
   getResumeAttemptResult(): ResumeAttemptResult | null {
     return this.lastResumeAttemptResult;
   }
+
+  getCopilotUsage() { return this.numericUsage.monitor.snapshot(); }
 
   // ============ Additional API surface preserved from the SDK adapter ============
 

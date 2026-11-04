@@ -17,6 +17,7 @@ export interface AutomaticStartup {
 }
 interface StartupContext extends AutomaticStartup {
   cancel(): void;
+  checks: (() => boolean)[];
   adapters: Map<object, () => Promise<void>>;
   initializations: Set<Promise<void>>;
   dispatched: Set<string>;
@@ -52,11 +53,18 @@ export function captureAutomaticStartupAdapter(adapter: object, terminate: () =>
   return stop;
 }
 
+/** Install a run-specific fence that survives every asynchronous provider admission. */
+export function addAutomaticStartupCheck(check: () => boolean): void {
+  const startup = context.getStore();
+  if (!startup) throw new Error('Automatic startup check requires an owned startup');
+  startup.checks.push(check);
+}
+
 /** Only automatic starts inherit this context; a manually opened chat remains usable. */
 export function assertAutomaticStartupCurrent(): void {
   const startup = context.getStore();
   if (!startup) return;
-  if (!getWorkAdmission().check('consult', { remote: true }).allowed) startup.cancel();
+  if (!getWorkAdmission().check('consult', { remote: true }).allowed || startup.checks.some(check => !check())) startup.cancel();
   startup.signal.throwIfAborted();
 }
 
@@ -86,6 +94,7 @@ export async function runAutomaticStartup<T>(operation: (startup: AutomaticStart
   };
   const startup: StartupContext = {
     signal: abort.signal,
+    checks: [],
     wasDispatched: instanceId => startup.dispatched.has(instanceId),
     dispatched: new Set<string>(),
     adapters: new Map<object, () => Promise<void>>(),

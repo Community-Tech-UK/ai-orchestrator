@@ -1,3 +1,7 @@
+import { assertBoundedAutomationDestination, verifiedAutomationModel } from './automation-execution-authority';
+import { enforceAutomationAuthority, type AutomationCallerAuthority } from './automation-agent-authority';
+import { isDeepStrictEqual } from 'node:util';
+import { CLAUDE_MODELS } from '../../shared/types/provider.types';
 /**
  * Implementations backing the automation MCP tools (`create_automation`,
  * `list_automations`, `delete_automation`, `update_automation`,
@@ -77,6 +81,7 @@ export interface AutomationToolImplDeps {
   resolveTimezone?: () => string;
   /** Clock injection for deterministic tests. Defaults to `Date.now`. */
   now?: () => number;
+  resolveCaller?: (id: string) => AutomationCallerAuthority | undefined;
 }
 
 export interface AutomationToolImplementations {
@@ -162,6 +167,7 @@ export function createAutomationToolImplementations(
     // service the IPC handler uses. Working directory defaults to the calling
     // chat's project when the agent omits it.
     createAutomation: async (args, meta) => {
+      const caller = meta?.callerInstanceId ? deps.resolveCaller?.(meta.callerInstanceId) : undefined;
       const workingDirectory =
         args.workingDirectory?.trim() ||
         deps.resolveWorkingDirectory(meta?.callerInstanceId ?? null)?.trim() ||
@@ -206,10 +212,18 @@ export function createAutomationToolImplementations(
         action: {
           prompt: args.prompt,
           workingDirectory,
-          ...resolveNewAutomationModelSelection({ provider: args.provider }),
+          ...(meta ? { provider: args.provider } : resolveNewAutomationModelSelection({ provider: args.provider })),
+          ...((!args.provider || args.provider === 'claude') && /\b(check|monitor|watch|poll)\b/i.test(`${args.name} ${args.prompt}`)
+            && (!meta || verifiedAutomationModel(caller?.provider ?? '', caller?.currentModel)?.tier !== 'fast')
+            ? { provider: 'claude' as const, model: CLAUDE_MODELS.SONNET, reasoningEffort: 'low' as const } : {}),
+          ...(args.maxRunMinutes !== undefined ? { maxRunMinutes: args.maxRunMinutes } : {}),
+          ...(args.maxProcessedTokens !== undefined ? { maxProcessedTokens: args.maxProcessedTokens } : {}),
+          ...(args.slowWhenUnchanged !== undefined ? { slowWhenUnchanged: args.slowWhenUnchanged } : {}),
         },
         ...(args.hidden !== undefined ? { hidden: args.hidden } : {}),
       };
+
+      if (meta) input.action = enforceAutomationAuthority(input.action, caller);
 
       // Idempotency: agents re-issue create_automation for the same recurring
       // check with a reworded name, piling up near-identical shells. If an
@@ -218,6 +232,12 @@ export function createAutomationToolImplementations(
       // running tally instead of fragmenting across duplicate shells.
       const existing = findEquivalentAutomation(await store.list(), input);
       if (existing) {
+        if (meta) {
+          const checked = enforceAutomationAuthority(existing.action, meta.callerInstanceId ? deps.resolveCaller?.(meta.callerInstanceId) : undefined);
+          assertBoundedAutomationDestination(checked, existing.destination);
+          // Pin inherited defaults before acknowledging reuse; never rewrite higher authority silently.
+          await store.update(existing.id, { action: checked }, undefined);
+        }
         return {
           id: existing.id,
           name: existing.name,
@@ -287,7 +307,7 @@ export function createAutomationToolImplementations(
     // reschedule, mirroring the IPC update handler (compute next fire from the
     // effective schedule, persist, reschedule, emit `updated`, then settle any
     // now-past one-time schedule).
-    updateAutomation: async (args) => {
+    updateAutomation: async (args, meta) => {
       const existing = await store.get(args.id);
       if (!existing) {
         throw new Error(`Automation not found: ${args.id}`);
@@ -325,16 +345,28 @@ export function createAutomationToolImplementations(
         schedule = { ...existing.schedule, timezone };
       }
 
+      const enabled = args.enabled ?? existing.enabled;
+      const scheduleChanged = scheduleProvided && !isDeepStrictEqual(schedule, existing.schedule);
+      const enabling = enabled && !existing.enabled;
+      // Scheduling and policy changes can dispatch the saved instructions just
+      // as surely as replacing them. Reductions and disabled edits remain safe.
+      const executionTransition = enabled && existing.active && (enabling || scheduleChanged
+        || (args.missedRunPolicy === 'runOnce' && existing.missedRunPolicy !== 'runOnce')
+        || (args.concurrencyPolicy === 'queue' && existing.concurrencyPolicy !== 'queue'));
       const actionChanged =
+        args.maxRunMinutes !== undefined || args.maxProcessedTokens !== undefined || args.slowWhenUnchanged !== undefined ||
         args.prompt !== undefined ||
         args.provider !== undefined ||
         args.model !== undefined ||
         args.reasoningEffort !== undefined ||
         args.yoloMode !== undefined ||
         Boolean(args.workingDirectory?.trim());
-      const action = actionChanged
+      let action = actionChanged || (meta && executionTransition)
         ? {
             ...existing.action,
+            ...(args.maxRunMinutes !== undefined ? { maxRunMinutes: args.maxRunMinutes } : {}),
+            ...(args.maxProcessedTokens !== undefined ? { maxProcessedTokens: args.maxProcessedTokens } : {}),
+            ...(args.slowWhenUnchanged !== undefined ? { slowWhenUnchanged: args.slowWhenUnchanged } : {}),
             ...(args.prompt !== undefined ? { prompt: args.prompt } : {}),
             ...(args.provider !== undefined ? { provider: args.provider } : {}),
             ...(args.model !== undefined ? { model: args.model } : {}),
@@ -348,6 +380,11 @@ export function createAutomationToolImplementations(
           }
         : undefined;
 
+      if (action && !meta) action = { ...action, executionAuthority: undefined };
+      if (action && meta) {
+        action = enforceAutomationAuthority(action, meta.callerInstanceId ? deps.resolveCaller?.(meta.callerInstanceId) : undefined);
+        assertBoundedAutomationDestination(action, existing.destination);
+      }
       const updates: UpdateAutomationInput = {
         ...(args.name !== undefined ? { name: args.name } : {}),
         ...(args.description !== undefined ? { description: args.description } : {}),
@@ -361,10 +398,12 @@ export function createAutomationToolImplementations(
         ...(args.hidden !== undefined ? { hidden: args.hidden } : {}),
       };
 
-      const enabled = args.enabled ?? existing.enabled;
       const effectiveSchedule = scheduleProvided ? schedule : existing.schedule;
+      // Metadata and action edits must not undo a deliberate postponement or
+      // monitor backoff by recomputing its next fire from the base cadence.
       const nextFireAt =
-        enabled && existing.active ? computeNextFireAt(effectiveSchedule, now()) : null;
+        !enabled || !existing.active ? null
+          : scheduleChanged || enabling ? computeNextFireAt(effectiveSchedule, now()) : existing.nextFireAt;
 
       assertWritablePayload(
         AutomationUpdatePayloadSchema.shape.updates,
@@ -375,7 +414,9 @@ export function createAutomationToolImplementations(
       const updated = await store.update(args.id, updates, nextFireAt);
       scheduler.schedule(updated);
       events.emitChanged({ automation: updated, automationId: updated.id, type: 'updated' });
-      await deps.handlePastOneTime(updated);
+      if (enabled && existing.active && updated.trigger.kind === 'schedule' && (actionChanged || executionTransition)) {
+        await deps.handlePastOneTime(updated);
+      }
       const fresh = (await store.get(updated.id)) ?? updated;
       return summarizeAutomation(fresh);
     },
@@ -384,7 +425,7 @@ export function createAutomationToolImplementations(
     // time. For one-time automations this rewrites the schedule's runAt; for
     // recurring ones it sets a one-shot next_fire_at (the cron cadence resumes
     // after that fire).
-    postponeAutomation: async (args) => {
+    postponeAutomation: async (args, meta) => {
       const existing = await store.get(args.id);
       if (!existing) {
         throw new Error(`Automation not found: ${args.id}`);
@@ -411,6 +452,12 @@ export function createAutomationToolImplementations(
         newFireAt = base + (args.delayMinutes ?? 0) * 60_000;
       }
 
+      // An absolute "postpone" time can actually bring work forward or rearm
+      // a consumed schedule. A genuine delay preserves the human's authority.
+      const action = meta && (existing.nextFireAt === null || newFireAt < existing.nextFireAt)
+        ? enforceAutomationAuthority(existing.action, meta.callerInstanceId ? deps.resolveCaller?.(meta.callerInstanceId) : undefined)
+        : undefined;
+      if (action) assertBoundedAutomationDestination(action, existing.destination);
       let automation: Automation;
       if (existing.schedule.type === 'oneTime') {
         const schedule: AutomationSchedule = {
@@ -420,10 +467,12 @@ export function createAutomationToolImplementations(
         };
         assertWritablePayload(
           AutomationUpdatePayloadSchema.shape.updates,
-          { schedule },
+          { schedule, ...(action ? { action } : {}) },
           'postpone',
         );
-        automation = await store.update(args.id, { schedule }, newFireAt, currentNow);
+        automation = await store.update(args.id, { schedule, ...(action ? { action } : {}) }, newFireAt, currentNow);
+      } else if (action) {
+        automation = await store.update(args.id, { action }, newFireAt, currentNow);
       } else {
         store.setNextFireAt(args.id, newFireAt, currentNow);
         const fetched = await store.get(args.id);

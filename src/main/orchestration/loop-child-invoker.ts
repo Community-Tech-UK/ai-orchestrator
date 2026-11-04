@@ -187,7 +187,7 @@ export function invokeLoopChildIteration(input: InvokeLoopChildIterationInput): 
       loopRunId: state.id,
       chatId: state.chatId,
       provider: state.config.provider,
-      model: input.downshiftModel,
+      model: input.downshiftModel ?? state.config.model ?? state.config.executionAuthority?.model,
       workspaceCwd: state.config.workspaceCwd,
       executionCwd: state.config.executionCwd,
       stage,

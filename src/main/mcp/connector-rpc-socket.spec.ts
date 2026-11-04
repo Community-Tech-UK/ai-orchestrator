@@ -27,12 +27,14 @@ vi.mock('./connector-auth-service', () => ({
 describe('connector access over the authenticated parent socket', () => {
   it('requires the instance capability as well as the per-connector session grant', async () => {
     const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'connector-socket-'));
+    const beforeExternalMutation = vi.fn();
     const server = new OrchestratorToolsRpcServer({
       userDataPath: temporary,
       operatorDbPath: path.join(temporary, 'operator.db'),
       isKnownLocalInstance: (id) => ['allowed', 'other'].includes(id),
       registerCleanup: () => undefined,
       toolFactory: () => [],
+      beforeExternalMutation,
     });
     try {
       await server.start();
@@ -58,6 +60,13 @@ describe('connector access over the authenticated parent socket', () => {
       expect(
         await client('allowed').call('connectors.connection', { name: 'example' }),
       ).toMatchObject({ accessToken: 'PLACEHOLDER_ACCESS' });
+      await expect(client('allowed', 'PLACEHOLDER_WRONG_CAPABILITY').call('connectors.before_tool_call', { name: 'example' })).rejects.toThrow('capability');
+      await expect(client('other').call('connectors.before_tool_call', { name: 'example' })).rejects.toThrow('not given');
+      expect(beforeExternalMutation).not.toHaveBeenCalled();
+      await expect(client('allowed').call('connectors.before_tool_call', { name: 'example', instanceId: 'other' })).rejects.toThrow('instanceId');
+      expect(beforeExternalMutation).not.toHaveBeenCalled();
+      await client('allowed').call('connectors.before_tool_call', { name: 'example' });
+      expect(beforeExternalMutation).toHaveBeenCalledExactlyOnceWith('allowed');
     } finally {
       await server.stop();
       connectorAccessRegistry.clear();
