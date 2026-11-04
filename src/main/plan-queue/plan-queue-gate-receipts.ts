@@ -42,8 +42,15 @@ export function classifyGateEvidence(command: string, exitCode: number, output: 
   return 'passed';
 }
 
+/**
+ * Time one check may take. The full test suite needs about 7 minutes on a quiet machine and went past the old
+ * 15 minutes whenever several workers and checkers shared it: in the first Plan Queue wave for this programme it
+ * timed out in 4 of 5 jobs, whose work was otherwise sound.
+ */
+export const GATE_TIMEOUT_MS = 45 * 60_000;
+
 const executeGate: ExecuteGate = (command, cwd, signal) => runInProcessGroup(command, [], {
-  cwd, shell: true, env: { ...buildCliEnv(), AIO_TEST_SUMMARY: '0' }, timeoutMs: 15 * 60_000,
+  cwd, shell: true, env: { ...buildCliEnv(), AIO_TEST_SUMMARY: '0' }, timeoutMs: GATE_TIMEOUT_MS,
   // Retain enough for a diagnostic comparison; the persisted receipt has only a 2 KB tail.
   outputTail: 256_000, label: 'verification check', signal,
 });

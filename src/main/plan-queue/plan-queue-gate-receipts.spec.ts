@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createServer, type AddressInfo, type Socket } from 'node:net';
-import { blockingGateReceipts, classifyGateEvidence, PlanQueueGateRunner } from './plan-queue-gate-receipts';
+import { blockingGateReceipts, classifyGateEvidence, GATE_TIMEOUT_MS, PlanQueueGateRunner } from './plan-queue-gate-receipts';
 import { runInProcessGroup } from './plan-queue-process';
 import { gitExec } from '../workspace/git/git-exec';
 
@@ -8,6 +8,10 @@ const fakeTree = () => 'unit-test-tree';
 const fakeRunner = (execute: ConstructorParameters<typeof PlanQueueGateRunner>[0]) => new PlanQueueGateRunner(execute, fakeTree);
 
 describe('Harness queue gate receipts', () => {
+  it('gives one check long enough for a full test run on a shared machine, which timed out at 15 minutes', () => {
+    expect(GATE_TIMEOUT_MS).toBeGreaterThanOrEqual(30 * 60_000);
+  });
+
   it('does not count or inspect a tree when no commands execute', async () => {
     const execute = vi.fn(async () => ({ exitCode: 0, output: '' }));
     const readTree = vi.fn(() => 'tree');
