@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-11-04-pq-a1-migration-numbers_plan.md",
+      "sha256": "cc0f89ccdd69fd550121e7f7bd87980c64316ac1b4b9e15e5287c970bf71ab21",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-11-04-pq-a1-migration-numbers_history.md",
+      "sha256": null,
+      "retire": false
+    },
+    {
+      "relativePath": "2026-11-04-pq-a1-migration-numbers_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-11-04-pq-a1-migration-numbers_plan_completed.md",
+      "sha256": "4b49bb73f60a28b2e93f2293925c6e86753c31c0412255d03f358a1e9366351f"
+    },
+    {
+      "relativePath": "2026-11-04-pq-a1-migration-numbers_plan_history_87321e1347df7418083193c3bfa7b6df4fd36c9f233b5ae07bd7b87da518dd48_completed.md",
+      "sha256": "036d65a559e4c94b5dc2fb2da7edc279c583834ed6149770ef0c1ce0964d561f"
+    }
+  ]
+}

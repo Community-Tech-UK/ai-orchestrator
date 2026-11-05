@@ -1,0 +1,19 @@
+- `src/main/orchestration/loop-migration-numbers.spec.ts`: runs the checker on the real array and reserved list; checks `LOOP_SCHEMA_VERSION` equals the last migration; checks the reserved block is above every used number; checks a fresh database's receipts match the array exactly; and feeds the checker deliberately broken lists.
+- `loop-schema.ts`: `MIGRATIONS` exported read-only as `LOOP_MIGRATIONS` (the runner loops over it; behaviour unchanged).
+
+### Verification run by the worker
+
+- Mutation checks (temporary, reverted): setting migration 41's version to 40 made the numbering test fail (and the fresh-database receipt test); renaming 42 to 43 `043_...` made the reserved-number test fail.
+- Passing: the new spec, `loop-schema.spec.ts`, `loop-schema-queue-compat.spec.ts`, `plan-queue-store.spec.ts` (62 tests); `npx tsc --noEmit`, `npm run typecheck:spec`, `npm run lint`, `npm run check:ts-max-loc`, `npm run check:ui-hints`, `npm run build:main`.
+- `src/main/plan-queue` and `src/main/orchestration` together: 4658 of 4659 pass. The one failure, `plan-queue-push-guard.spec.ts` ("numbers the git settings from zero"), fails only because the worker's own environment already carries `GIT_CONFIG_COUNT` from the queue push guard; it passes (9 of 9) with that variable unset. Not related to this change.
+- Resume check (4 November 2026, second session; the prompt gave no specific findings, so every gate was re-run on the unchanged diff): `npx tsc --noEmit`, `npm run typecheck:spec`, `npm run lint`, `npm run check:ts-max-loc`, `npm run check:ui-hints`, `npm run build:main` and `npm run build:renderer` all exit 0; the three migration specs pass (24 tests); the version-41-to-40 mutation was re-run and fails 2 of 10 tests in the new spec, then reverted (working tree clean).
+- Third session (4 November 2026): the prompt again named no specific finding. Re-ran `npx tsc --noEmit`, `npm run typecheck:spec`, `npm run lint`, `npm run check:ts-max-loc`, `npm run check:ui-hints`, `npm run build:main`, `npm run build:renderer` (all exit 0) and the four targeted specs (62 tests pass). Re-read the whole diff; no defect found, no code change made, working tree clean.
+- Fourth session (5 November 2026), after the verifier's `npm run test:quiet` timed out at 900000ms: ran the full suite myself in the worktree. It took 732 s (729.9 s of test time) at machine load averages of 15 to 37 from other queue workers, so the 900 s limit is close to the normal run time here and a loaded host tips it over. Result 29 of 37465 failed, none in files this change touches, and every failure has an environment cause that I confirmed:
+  - 24 failures in `cli-worker-*-usage`, `claude-direct-failed-usage`, `index-worker-main` and `instance-lifecycle-spawn-rollback` (`Cannot find module .../dist/main/...`): `dist/` did not exist at the start of that run. After `npm run build:main` the same files pass.
+  - `plan-queue-push-guard.spec.ts`, `plan-queue-pause-control.spec.ts`, `local-ai-health-repository.spec.ts`: pass on the re-run with the queue's `GIT_CONFIG_*` variables unset (the push-guard one is the known `GIT_CONFIG_COUNT` inheritance noted above); the other two passed in the targeted re-run.
+  - `scripts/__tests__/run-git-hook.spec.ts` (2 tests): fails only because this worker session has `AIO_QUEUE_SESSION=1`, which makes `runHook('pre-push')` refuse; passes (12 of 12) with that variable unset.
+  No code change was needed or made. If the gate times out again, the cause is run time under host load, not a failing or hanging test from this change; the migration specs run in under 8 s.
+- Not run by the worker (before the fourth session): the full `npm run test:quiet` suite (the verifier runs it).
+- No live-test items; nothing needs a rebuilt app, so no `_livetest.md` was written.
+
+> Plan Queue parked work: `queue/2026-11-04-pq-a1-migration-num-18f3b9` — 1 commit(s), reason: round-limit.

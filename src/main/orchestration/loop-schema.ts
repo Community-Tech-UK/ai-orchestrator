@@ -11,13 +11,18 @@ import { PLAN_QUEUE_MIGRATIONS } from '../plan-queue/plan-queue-migrations';
 
 export const LOOP_SCHEMA_VERSION = 42;
 
-interface LoopMigration {
+export interface LoopMigration {
   version: number;
   name: string;
   up: string | ((db: SqliteDriver) => void);
 }
 
-const MIGRATIONS: LoopMigration[] = [
+/**
+ * Every loop-database migration, in the order they run. Exported read-only so a test can check
+ * versions and names are unique and increasing. Versions that have run on a real database are
+ * never renumbered; see `PLAN_QUEUE_RESERVED_MIGRATIONS` for the numbers held for later queue work.
+ */
+export const LOOP_MIGRATIONS: readonly LoopMigration[] = [
   {
     version: 1,
     name: '001_initial_loop_runs',
@@ -482,7 +487,8 @@ const MIGRATIONS: LoopMigration[] = [
   },
   {
     // Plan Queue: the provider conversation a worker last ran in, so a replacement on the same
-    // route can continue it. Versions 26–29 are reserved by the Phase C queue branch.
+    // route can continue it. Versions 26–29 were reserved for queue branches but none used them, so
+    // they stay unused: this entry already ran on real databases and is never renumbered.
     version: 30,
     name: '030_plan_queue_item_worker_session',
     up: `ALTER TABLE plan_queue_items ADD COLUMN worker_session_json TEXT;`,
@@ -576,7 +582,7 @@ export function runLoopMigrationsUpTo(db: SqliteDriver, maxVersion: number): voi
   );
 
   const run = db.transaction(() => {
-    for (const m of MIGRATIONS) {
+    for (const m of LOOP_MIGRATIONS) {
       if (m.version > maxVersion) continue;
       if (applied.has(m.version)) continue;
       if (typeof m.up === 'string') db.exec(m.up);

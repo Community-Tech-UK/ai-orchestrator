@@ -39,3 +39,20 @@ export const PLAN_QUEUE_MIGRATIONS = [
     UPDATE plan_queue_runs SET unpriced_tokens = tokens WHERE cost_usd = 0 AND tokens > 0;
   ` },
 ];
+
+/**
+ * Versions held for the Plan Queue autonomy-and-Linear programme (2026-11-03-plan-queue-autonomy-and-linear_plan.md,
+ * "Migrations this programme adds"). Versions 40-42 are already taken (livetest port, base conflicts and the
+ * legacy-history repair), so the programme starts at 43. When one of these lands, it must use exactly the
+ * version and name listed here; a migration that needs a different shape takes the next free number after
+ * the last entry and amends this list in the same change. Nothing else may use a number in this block.
+ */
+export const PLAN_QUEUE_RESERVED_MIGRATIONS = [
+  { version: 43, name: '043_plan_queue_item_worker_report', purpose: 'worker_report_json (step 5.1)' },
+  { version: 44, name: '044_plan_queue_item_source_sort', purpose: 'source_kind and sort_key (step 6.2)' },
+  { version: 45, name: '045_plan_queue_item_landing_wait', purpose: 'landing_wait_since and landing_wait_paths (step 4.2)' },
+  { version: 46, name: '046_plan_queue_item_planning_file_hashes', purpose: 'moved planning-file hashes per path, as JSON (step 1.1)' },
+  { version: 47, name: '047_plan_queue_item_worker_retry_backoff', purpose: 'persisted worker-retry backoff expiry (step 1.4), unless the restart counter covers it' },
+  { version: 48, name: '048_plan_queue_item_linear_ticket', purpose: 'Linear item columns (ticket, approved brief, held change, criteria snapshot, claimed_at, cursors, last status written)' },
+  { version: 49, name: '049_plan_queue_linear_tables', purpose: 'plan_queue_source_outbox and the per-run Linear cursor' },
+] as const;
