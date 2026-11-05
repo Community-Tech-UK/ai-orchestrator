@@ -568,7 +568,8 @@ export function knownWindowDurationMs(window: ProviderQuotaWindow): number | nul
  * leaves the previous bars on screen with an older "updated" time. An expired
  * login is still surfaced on those bars (`needsReauth` + the instruction),
  * because cached numbers presented as current are exactly the silent staleness
- * the chip warns about; ordinary transient failures stay quiet.
+ * the chip warns about. A transient failure with no new authentication verdict
+ * preserves that warning and its instruction; a healthy cache stays quiet.
  */
 export function retainLastKnownQuotaWindows(
   previous: ProviderQuotaSnapshot | null,
@@ -581,11 +582,14 @@ export function retainLastKnownQuotaWindows(
   if (incoming.windows.length > 0 || incoming.cliNotInstalled || incoming.notApplicable) return incoming;
   if (incoming.ok) return incoming;
   if (!previous || previous.windows.length === 0 || previous.cliNotInstalled) return incoming;
+  const needsReauth = incoming.needsReauth ?? previous.needsReauth ?? false;
   return {
     ...previous,
     ok: true,
-    needsReauth: incoming.needsReauth ?? false,
-    error: incoming.needsReauth ? incoming.error : undefined,
+    needsReauth,
+    error: needsReauth
+      ? (incoming.needsReauth === undefined ? previous.error : incoming.error)
+      : undefined,
   };
 }
 
