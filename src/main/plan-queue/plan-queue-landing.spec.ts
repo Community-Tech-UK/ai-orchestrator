@@ -215,7 +215,7 @@ describe('landItemBranch', () => {
 
     expect(result).toEqual({
       status: 'blocked',
-      reason: "Couldn't merge clash.txt: only Markdown documents can be merged with your edits.",
+      reason: "Couldn't merge clash.txt: only Markdown documents and files the repository's pre-commit hook regenerates can be merged with your edits.",
     });
     expect(git(['rev-parse', 'main'])).toBe(mainBefore);
     expect(readFileSync(join(repo, 'clash.txt'), 'utf8')).toBe('operator copy\n');

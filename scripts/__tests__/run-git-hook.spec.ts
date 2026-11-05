@@ -135,6 +135,7 @@ describe('run-git-hook', () => {
       const tree = git(['write-tree']);
       const runner = join(root, '.git', 'run-git-hook.js');
       writeFileSync(runner, readFileSync(require.resolve('../run-git-hook.js')));
+      writeFileSync(join(root, '.git', 'generated-artifacts.json'), readFileSync(require.resolve('../generated-artifacts.json')));
       execFileSync(process.execPath, [runner, 'pre-commit'], { cwd: root, env: {
         ...process.env, PATH: `${bin}:${process.env['PATH'] ?? ''}`, HOOK_CALLS: calls, CHANGE_CODE: changed ? '1' : '0',
         AIO_PLAN_QUEUE_TESTS_COVERED: '1', AIO_PLAN_QUEUE_TESTS_COVERED_TREE: tree,

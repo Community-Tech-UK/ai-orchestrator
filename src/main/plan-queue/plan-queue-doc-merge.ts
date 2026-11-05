@@ -10,6 +10,7 @@ import { gitExec } from '../workspace/git/git-exec';
 import { getGitWriteQueue } from '../workspace/git/git-write-queue';
 import { readGitStatusPaths } from '../workspace/git/git-status-stream';
 import type { DirtyOverlapInput, DirtyOverlapResolver } from '../workspace/git/dirty-overlap.types';
+import { GENERATED_STATUSES, loadGeneratedFiles, regenerateGeneratedFiles, type GeneratedFiles } from './plan-queue-generated-files';
 import type { PlanQueueStore } from './plan-queue-store';
 
 const hashSchema = z.string().regex(/^[a-f0-9]{64}$/);
@@ -17,7 +18,10 @@ const ManifestSchema = z.object({
   version: z.literal(1), itemId: z.string().regex(/^[a-zA-Z0-9_-]{1,200}$/), repoRoot: z.string(),
   baseTip: z.string().regex(/^[a-f0-9]{40,64}$/), integrationTip: z.string().regex(/^[a-f0-9]{40,64}$/),
   entries: z.array(z.object({
-    path: z.string(), status: z.enum([' M', '??']), index: z.number().int().nonnegative(),
+    path: z.string(), index: z.number().int().nonnegative(),
+    // A backup written before generated files were handled has no kind: it is a document.
+    kind: z.enum(['document', 'generated']).default('document'),
+    status: z.enum([' M', '??', 'M ', 'MM']),
     oursHash: hashSchema, baseHash: hashSchema.nullable(), theirsHash: hashSchema, mergedHash: hashSchema,
   })).min(1),
 });
@@ -42,8 +46,9 @@ async function version(repoRoot: string, tip: string, file: string): Promise<Buf
   return result.code === 0 ? result.output : null;
 }
 
-async function safeRootPath(repoRoot: string, file: string): Promise<string> {
-  if (!file || path.isAbsolute(file) || file.includes('\0') || file.split(/[\\/]/).some((part) => part === '..') || !/\.md$/i.test(file)) {
+/** `generated` paths are listed by the repository's hook, so any extension is fine; everything else must be Markdown. */
+async function safeRootPath(repoRoot: string, file: string, generated = false): Promise<string> {
+  if (!file || path.isAbsolute(file) || file.includes('\0') || file.split(/[\\/]/).some((part) => part === '..') || (!generated && !/\.md$/i.test(file))) {
     throw new Error(`Refusing unsafe document path ${file}.`);
   }
   const full = path.resolve(repoRoot, file);
@@ -55,8 +60,8 @@ async function safeRootPath(repoRoot: string, file: string): Promise<string> {
   return full;
 }
 
-async function currentHash(repoRoot: string, file: string): Promise<string | null> {
-  const full = await safeRootPath(repoRoot, file);
+async function currentHash(repoRoot: string, file: string, generated = false): Promise<string | null> {
+  const full = await safeRootPath(repoRoot, file, generated);
   return fs.readFile(full).then(hash, (error: NodeJS.ErrnoException) => {
     if (error.code === 'ENOENT') return null;
     throw error;
@@ -127,22 +132,40 @@ async function backupRoot(repoRoot: string): Promise<string> {
   return path.join(path.resolve(repoRoot, common), 'aio-plan-queue', 'doc-merge');
 }
 
-async function assertRootState(repoRoot: string, file: string, expected: (string | null)[], head: string, backup: string, operation: string): Promise<void> {
+/** A generated file may legitimately be staged (the hook stages it), so only a document's staging is a conflict. */
+async function assertRootState(repoRoot: string, file: string, expected: (string | null)[], head: string, backup: string, operation: string, generated = false): Promise<void> {
   if (await gitExec(['rev-parse', 'HEAD'], repoRoot) !== head) throw new Error(`HEAD changed during ${operation}; backup kept at ${backup}.`);
-  if (!await gitExec(['diff', '--cached', '--quiet', '--', file], repoRoot).then(() => true, () => false)) {
+  if (!generated && !await gitExec(['diff', '--cached', '--quiet', '--', file], repoRoot).then(() => true, () => false)) {
     throw new Error(`Document staged during ${operation}: ${file}; backup kept at ${backup}.`);
   }
-  if (!expected.includes(await currentHash(repoRoot, file))) throw new Error(`Document changed during ${operation}: ${file}; backup kept at ${backup}.`);
+  if (!expected.includes(await currentHash(repoRoot, file, generated))) throw new Error(`Document changed during ${operation}: ${file}; backup kept at ${backup}.`);
 }
 
-async function writeRoot(repoRoot: string, file: string, bytes: Buffer, expected: (string | null)[], head: string, backup: string, operation: string): Promise<void> {
-  const full = await safeRootPath(repoRoot, file);
+async function writeRoot(repoRoot: string, file: string, bytes: Buffer, expected: (string | null)[], head: string, backup: string, operation: string, generated = false): Promise<void> {
+  const full = await safeRootPath(repoRoot, file, generated);
   // Recheck after every awaited preparation step, immediately before this file's write.
   // External editors do not share the Git queue; this narrows, rather than eliminates, the OS write window.
-  await assertRootState(repoRoot, file, expected, head, backup, operation);
+  await assertRootState(repoRoot, file, expected, head, backup, operation, generated);
   const handle = await fs.open(full, 'w');
   try { await handle.writeFile(bytes); await handle.sync(); } finally { await handle.close(); }
   if (hash(await fs.readFile(full)) !== hash(bytes)) throw new Error(`Could not verify restored document ${file}.`);
+}
+
+const isGenerated = (entry: Entry) => entry.kind === 'generated';
+const isStaged = (entry: Entry) => entry.status[0] === 'M';
+
+/**
+ * A file the repository's hook regenerates: its root copy is derived data, so it is backed up, set
+ * aside and replaced by the landing's copy, then rebuilt. Staged and unstaged copies are both accepted.
+ */
+async function prepareGenerated(repoRoot: string, input: DirtyOverlapInput, overlap: { path: string; status: string }, index: number): Promise<PreparedFile> {
+  if (!GENERATED_STATUSES.includes(overlap.status)) throw new Error(`Couldn't merge ${overlap.path}: added, deleted, renamed or conflicted changes to a generated file must be resolved first.`);
+  const ours = await fs.readFile(await safeRootPath(repoRoot, overlap.path, true));
+  const base = await version(repoRoot, input.baseTip, overlap.path);
+  const theirs = await version(repoRoot, input.integrationTip, overlap.path);
+  if (!theirs) throw new Error(`Couldn't merge ${overlap.path}: the item deletes this generated file.`);
+  return { ours, merged: theirs, entry: { path: overlap.path, kind: 'generated', status: overlap.status as Entry['status'], index,
+    oursHash: hash(ours), baseHash: base ? hash(base) : null, theirsHash: hash(theirs), mergedHash: hash(theirs) } };
 }
 
 export function createDocumentOverlapResolver(options: { itemId: string }): DirtyOverlapResolver {
@@ -156,8 +179,15 @@ async function prepareDocuments(input: DirtyOverlapInput, itemId: string) {
   const files: PreparedFile[] = [];
   try {
     if (!/^[a-zA-Z0-9_-]{1,200}$/.test(itemId)) throw new Error('The item id is not safe for a document backup.');
+    let generated: GeneratedFiles | null | undefined;
     for (const overlap of input.overlaps) {
-      if (!/\.md$/i.test(overlap.path)) throw new Error(`Couldn't merge ${overlap.path}: only Markdown documents can be merged with your edits.`);
+      if (!/\.md$/i.test(overlap.path)) {
+        // Every refusal happens in this read-only loop, before anything is backed up or moved.
+        if (generated === undefined) generated = await loadGeneratedFiles(repoRoot, input.baseTip, input.integrationTip);
+        if (!generated?.artifacts.has(overlap.path)) throw new Error(`Couldn't merge ${overlap.path}: only Markdown documents and files the repository's pre-commit hook regenerates can be merged with your edits.`);
+        files.push(await prepareGenerated(repoRoot, input, overlap, files.length));
+        continue;
+      }
       if (overlap.status !== ' M' && overlap.status !== '??') throw new Error(`Couldn't merge ${overlap.path}: staged, deleted, renamed or conflicted changes must be resolved first.`);
       const full = await safeRootPath(repoRoot, overlap.path);
       const ours = await fs.readFile(full); text(ours);
@@ -173,7 +203,7 @@ async function prepareDocuments(input: DirtyOverlapInput, itemId: string) {
         if (!base) throw new Error(`Couldn't merge ${overlap.path}: no base version is available.`);
         merged = await mergeVersions(repoRoot, overlap.path, ours, base, theirs);
       }
-      files.push({ ours, merged, entry: { path: overlap.path, status: overlap.status, index: files.length,
+      files.push({ ours, merged, entry: { path: overlap.path, kind: 'document', status: overlap.status, index: files.length,
         oursHash: hash(ours), baseHash: base ? hash(base) : null, theirsHash: hash(theirs), mergedHash: hash(merged) } });
     }
     const root = await backupRoot(repoRoot); await fs.mkdir(root, { recursive: true });
@@ -187,7 +217,7 @@ async function prepareDocuments(input: DirtyOverlapInput, itemId: string) {
     await durableWrite(path.join(backup, 'manifest.json'), JSON.stringify(manifest));
     await syncDirectory(backup); await syncDirectory(root);
     for (const file of files) {
-      if (await currentHash(repoRoot, file.entry.path) !== file.entry.oursHash) throw new Error(`Couldn't merge ${file.entry.path}: it changed while Harness checked it; your edits were left untouched.`);
+      if (await currentHash(repoRoot, file.entry.path, isGenerated(file.entry)) !== file.entry.oursHash) throw new Error(`Couldn't merge ${file.entry.path}: it changed while Harness checked it; your edits were left untouched.`);
     }
     if (await gitExec(['rev-parse', 'HEAD'], repoRoot) !== input.baseTip) throw new Error('The base checkout moved while documents were being prepared.');
     const statuses = new Map<string, string | undefined>(
@@ -198,34 +228,40 @@ async function prepareDocuments(input: DirtyOverlapInput, itemId: string) {
     });
     for (const file of files) {
       if (statuses.get(file.entry.path) !== file.entry.status) throw new Error(`Couldn't merge ${file.entry.path}: its status changed while Harness checked it; resolve staged or moved files first.`);
-      if (await currentHash(repoRoot, file.entry.path) !== file.entry.oursHash) throw new Error(`Couldn't merge ${file.entry.path}: it changed while Harness checked it; your edits were left untouched.`);
+      if (await currentHash(repoRoot, file.entry.path, isGenerated(file.entry)) !== file.entry.oursHash) throw new Error(`Couldn't merge ${file.entry.path}: it changed while Harness checked it; your edits were left untouched.`);
     }
     for (const file of files) {
-      const full = await safeRootPath(repoRoot, file.entry.path);
-      await assertRootState(repoRoot, file.entry.path, [file.entry.oursHash], input.baseTip, backup, 'document reset');
+      const generatedFile = isGenerated(file.entry);
+      const full = await safeRootPath(repoRoot, file.entry.path, generatedFile);
+      await assertRootState(repoRoot, file.entry.path, [file.entry.oursHash], input.baseTip, backup, 'document reset', generatedFile);
       resetStarted = true;
-      if (file.entry.status === ' M') await gitExec(['checkout', '--', file.entry.path], repoRoot);
-      else await fs.rename(full, path.join(backup, `aside-${file.entry.index}`));
+      if (file.entry.status === '??') await fs.rename(full, path.join(backup, `aside-${file.entry.index}`));
+      else if (generatedFile) await gitExec(['checkout', 'HEAD', '--', file.entry.path], repoRoot); // index and working copy together
+      else await gitExec(['checkout', '--', file.entry.path], repoRoot);
     }
     const heldBackup = backup;
+    const generatorScripts = files.some((file) => isGenerated(file.entry)) ? generated?.generators : undefined;
     return {
       ok: true as const,
       finish: async () => {
-        for (const file of files) {
+        // A generated file needs no write: the fast-forward already put the landing's copy there.
+        for (const file of files.filter((candidate) => !isGenerated(candidate.entry))) {
           await writeRoot(repoRoot, file.entry.path, file.merged, [file.entry.theirsHash], input.integrationTip, heldBackup, 'promotion');
         }
         for (const file of files) {
-          await assertRootState(repoRoot, file.entry.path, [file.entry.mergedHash], input.integrationTip, heldBackup, 'promotion verification');
+          await assertRootState(repoRoot, file.entry.path, [file.entry.mergedHash], input.integrationTip, heldBackup, 'promotion verification', isGenerated(file.entry));
         }
+        if (generatorScripts) await regenerateGeneratedFiles(repoRoot, generatorScripts);
         await fs.rm(heldBackup, { recursive: true });
-        return files.filter((file) => file.entry.mergedHash !== file.entry.theirsHash).map((file) => file.entry.path);
+        return files.filter((file) => !isGenerated(file.entry) && file.entry.mergedHash !== file.entry.theirsHash).map((file) => file.entry.path);
       },
       undo: async () => {
         for (const file of files) {
-          await writeRoot(repoRoot, file.entry.path, file.ours, [file.entry.baseHash, file.entry.oursHash], input.baseTip, heldBackup, 'rollback');
+          await writeRoot(repoRoot, file.entry.path, file.ours, [file.entry.baseHash, file.entry.oursHash], input.baseTip, heldBackup, 'rollback', isGenerated(file.entry));
+          if (isGenerated(file.entry) && isStaged(file.entry)) await gitExec(['add', '--', file.entry.path], repoRoot);
         }
         for (const file of files) {
-          await assertRootState(repoRoot, file.entry.path, [file.entry.oursHash], input.baseTip, heldBackup, 'rollback verification');
+          await assertRootState(repoRoot, file.entry.path, [file.entry.oursHash], input.baseTip, heldBackup, 'rollback verification', isGenerated(file.entry));
         }
         await fs.rm(heldBackup, { recursive: true });
       },
@@ -248,8 +284,16 @@ async function reconcileBackup(manifest: Manifest, backup: string): Promise<Reco
   const head = await gitExec(['rev-parse', 'HEAD'], repoRoot);
   const advanced = await gitExec(['merge-base', '--is-ancestor', manifest.integrationTip, head], repoRoot).then(() => true, () => false);
   for (const entry of manifest.entries) {
+    const generated = isGenerated(entry);
     try {
-      const current = await currentHash(repoRoot, entry.path);
+      const current = await currentHash(repoRoot, entry.path, generated);
+      if (generated && advanced) {
+        // Once the landing is in, nothing of James's is left to restore: the file is derived data. A rebuild cut short
+        // by a crash could leave it half-written, so put the committed copy back; the hook rebuilds it at the next commit.
+        const committed = await version(repoRoot, head, entry.path);
+        if (committed && current !== hash(committed)) await writeRoot(repoRoot, entry.path, committed, [current], head, backup, 'document recovery', true);
+        continue;
+      }
       if (advanced && current === entry.mergedHash) {
         if (entry.mergedHash !== entry.theirsHash) mergedPaths.push(entry.path);
         continue;
@@ -261,13 +305,15 @@ async function reconcileBackup(manifest: Manifest, backup: string): Promise<Reco
       if (!target) { pending.push(entry.path); continue; }
       const bytes = await fs.readFile(path.join(backup, `${target}-${entry.index}`));
       if (hash(bytes) !== (target === 'ours' ? entry.oursHash : entry.mergedHash)) { pending.push(entry.path); continue; }
-      await writeRoot(repoRoot, entry.path, bytes, [current], head, backup, 'document recovery');
+      await writeRoot(repoRoot, entry.path, bytes, [current], head, backup, 'document recovery', generated);
+      if (generated && isStaged(entry)) await gitExec(['add', '--', entry.path], repoRoot);
       if (target === 'merged' && entry.mergedHash !== entry.theirsHash) mergedPaths.push(entry.path);
     } catch { pending.push(entry.path); }
   }
   if (!pending.length) {
     for (const entry of manifest.entries) {
-      try { await assertRootState(repoRoot, entry.path, [advanced ? entry.mergedHash : entry.oursHash], head, backup, 'recovery verification'); }
+      if (isGenerated(entry) && advanced) continue;
+      try { await assertRootState(repoRoot, entry.path, [advanced ? entry.mergedHash : entry.oursHash], head, backup, 'recovery verification', isGenerated(entry)); }
       catch { pending.push(entry.path); }
     }
     if (!pending.length) await fs.rm(backup, { recursive: true });

@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-11-04-pq-a3-generated-files_plan.md",
+      "sha256": "d50c43446ef55ee5e07ca81a4b69b23e1a96342ec74ebeef795e3f84f20bed85",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-11-04-pq-a3-generated-files_history.md",
+      "sha256": null,
+      "retire": false
+    },
+    {
+      "relativePath": "2026-11-04-pq-a3-generated-files_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-11-04-pq-a3-generated-files_plan_completed.md",
+      "sha256": "a6944a350a265b0e39206978ee1b0e6246d2921c4c8e8c920e95bb1650be0b45"
+    },
+    {
+      "relativePath": "2026-11-04-pq-a3-generated-files_plan_history_f82ceca4786c66087a26f3b267187316ea2a90f70ce95d575903da0ce37ba24f_completed.md",
+      "sha256": "be87b5eadb336eb3ae625170049d2f55e3e29f0b956f59dc98d7869c9e55dde1"
+    }
+  ]
+}

@@ -5,20 +5,18 @@
 
 const { spawnSync } = require('node:child_process');
 
-const GENERATED_ARTIFACTS = [
-  'src/main/register-aliases.ts',
-  'src/preload/generated/channels.ts',
-  'docs/generated/architecture-inventory.json',
-];
+// The list of files this hook regenerates lives in one JSON file, read here and by
+// Harness's Plan Queue (src/main/plan-queue/plan-queue-generated-files.ts) so a
+// landing never refuses a root copy of a file this hook rebuilds anyway.
+// `generators` are npm script names, run in this order before the artifacts are staged.
+const { artifacts: GENERATED_ARTIFACTS, generators: GENERATORS } = require('./generated-artifacts.json');
 
 const HOOK_COMMANDS = {
   'pre-commit': [
     // Sub-second lint catch first so obvious breakage fails before the slower
     // generate/test steps below.
     { command: 'npm', args: ['run', 'lint:fast'] },
-    { command: 'npm', args: ['run', 'generate:aliases'] },
-    { command: 'npm', args: ['run', 'generate:ipc'] },
-    { command: 'npm', args: ['run', 'generate:architecture'] },
+    ...GENERATORS.map((script) => ({ command: 'npm', args: ['run', script] })),
     // Warn-only locally so a commit/push is never blocked purely by file size.
     // CI runs `npm run check:ts-max-loc` without --warn, so it stays the enforcing gate.
     { command: 'npm', args: ['run', 'check:ts-max-loc', '--', '--warn'] },

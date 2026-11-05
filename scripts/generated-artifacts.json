@@ -1,0 +1,12 @@
+{
+  "artifacts": [
+    "src/main/register-aliases.ts",
+    "src/preload/generated/channels.ts",
+    "docs/generated/architecture-inventory.json"
+  ],
+  "generators": [
+    "generate:aliases",
+    "generate:ipc",
+    "generate:architecture"
+  ]
+}
