@@ -989,6 +989,19 @@ describe('PlanQueueCoordinator — whole run against a temp repo', { timeout: 30
     expect(verifier.config).toMatchObject({ parentId: parent.id, provider: 'codex' });
     // The parent got the end-of-run summary.
     expect(fake.inputs.some((m) => m.instanceId === parent.id && m.message.includes('Landed 1'))).toBe(true);
+
+    // What Queue health is computed from: both sessions' start and end with provider and model, and the landing's steps.
+    const timings = (reason: string) => driver.prepare('SELECT detail_head AS detail FROM plan_queue_item_events WHERE reason = ? ORDER BY rowid')
+      .all<{ detail: string }>(reason).map((row) => JSON.parse(row.detail) as Record<string, unknown>);
+    expect(timings('session-start')).toEqual([
+      { role: 'worker', instanceId: worker.id, provider: 'claude', model: 'claude-sonnet-5' },
+      { role: 'checker', instanceId: verifier.id, provider: 'codex', model: null },
+    ]);
+    expect(timings('session-end')).toEqual([{ role: 'checker', instanceId: verifier.id }, { role: 'worker', instanceId: worker.id }]);
+    expect(timings('landing-timing')).toEqual([expect.objectContaining({ outcome: 'landed', commitCheckMs: expect.any(Number),
+      publishMs: expect.any(Number), totalMs: expect.any(Number), loadStart: expect.any(Number), loadEnd: expect.any(Number) })]);
+    expect(coordinator.getQueueHealth()).toMatchObject({ attemptsLanded: { count: 1, of: 1 }, firstCheckPassed: { count: 1, of: 1 },
+      landingTime: { count: 1 }, checkTime: { count: 1 } });
   });
 
   it('runs three items with two worker slots, one verification and one landing at a time', async () => {

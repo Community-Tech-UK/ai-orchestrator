@@ -23,6 +23,7 @@ import { assertQueueCheckout } from './plan-queue-orphan-checkout';
 import { runInProcessGroup } from './plan-queue-process';
 import { buildLandingCommit, type LandingDocument } from './plan-queue-squash';
 import type { PlanQueueItem } from './plan-queue.types';
+import { LandingTimer } from './plan-queue-timings';
 import { createDocumentOverlapResolver, recoverDocumentMergeForItem } from './plan-queue-doc-merge';
 
 const logger = getLogger('PlanQueueLanding');
@@ -232,23 +233,25 @@ export async function landItemBranch(
   documents: readonly LandingDocument[] = [],
   onCommitBuilt?: (commit: string) => void,
   signal?: AbortSignal,
+  timer = new LandingTimer(),
 ): Promise<LandResult> {
   const { branchName } = requireGit(item);
   if (!item.worktreePath) throw new Error(`Plan queue item ${item.id} has no worktree`);
   const integrationBranch = `integration/${branchName}`;
   const baseTip = await gitExec(['rev-parse', `refs/heads/${baseBranch}`], repoRoot);
 
-  if (item.landedCommit) {
+  const recordedCommit = item.landedCommit;
+  if (recordedCommit) {
     // A previous attempt died after promoting...
-    if (await succeeds(['merge-base', '--is-ancestor', item.landedCommit, baseTip], repoRoot)) {
+    if (await succeeds(['merge-base', '--is-ancestor', recordedCommit, baseTip], repoRoot)) {
       await deleteIntegrationRefs(repoRoot, integrationBranch);
-      return { status: 'landed', commit: item.landedCommit };
+      return { status: 'landed', commit: recordedCommit };
     }
     // ...or after building the commit but before promoting it.
-    const parent = await gitExecSafe(['rev-parse', `${item.landedCommit}^`], repoRoot);
+    const parent = await gitExecSafe(['rev-parse', `${recordedCommit}^`], repoRoot);
     if (parent === baseTip) {
       signal?.throwIfAborted();
-      return promote(item, repoRoot, baseBranch, integrationBranch, item.landedCommit);
+      return timer.measure('publish', () => promote(item, repoRoot, baseBranch, integrationBranch, recordedCommit));
     }
   }
 
@@ -265,6 +268,7 @@ export async function landItemBranch(
     documents,
     greenTestedTree: checkedTreeForLanding(item, configuredCommands),
     signal,
+    timer,
   });
   switch (built.status) {
     case 'nothing-to-land':
@@ -276,6 +280,6 @@ export async function landItemBranch(
     case 'committed':
       onCommitBuilt?.(built.commit);
       signal?.throwIfAborted();
-      return promote(item, repoRoot, baseBranch, integrationBranch, built.commit);
+      return timer.measure('publish', () => promote(item, repoRoot, baseBranch, integrationBranch, built.commit));
   }
 }

@@ -39,6 +39,7 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
     }
     let verifying = runs.flatMap((run) => store.listItems(run.id)).filter((item) => item.state === 'verifying').length;
     let totalJobs = runs.flatMap(run => store.listItems(run.id)).filter(item => itemHoldsWorktree(item.state)).length;
+    store.waits.prune(new Set(runs.flatMap(run => store.listItems(run.id)).filter(item => item.state === 'queued' || item.state === 'awaiting-slot').map(item => item.id)));
     for (const snapshot of runs) {
       await reconcileWaitingDocuments(host, snapshot);
       if (host.isShuttingDown()) return;
@@ -55,7 +56,8 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
         if (!overloaded) {
           let inFlight = items.filter((item) => itemHoldsWorktree(item.state)).length;
           for (const item of items.filter((candidate) => candidate.state === 'queued' && !flow.isWaitingForUsage(candidate.id))) {
-            if (!queueAdmission(run.config, totalJobs, verifying).canStartWorker(inFlight)) break;
+            if (!queueAdmission(run.config, totalJobs, verifying).canStartWorker(inFlight)) { store.waits.blocked(item.id); continue; }
+            store.waits.started(item, 'worker');
             inFlight += 1;
             totalJobs += 1;
             void flow.startItem(item).catch((error: unknown) => host.logItemError(item, error));
@@ -65,7 +67,8 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
           for (const item of items.filter((candidate) => candidate.state === 'awaiting-slot' && !flow.isWaitingForUsage(candidate.id))) {
             if (flow.isClaimed(item.id)) continue;
             const folderVerifying = folderChecks.get(folder) ?? 0;
-            if (folderVerifying >= folderCaps.get(folder)! || !queueAdmission(run.config, totalJobs, verifying).canStartCheck(runVerifying)) break;
+            if (folderVerifying >= folderCaps.get(folder)! || !queueAdmission(run.config, totalJobs, verifying).canStartCheck(runVerifying)) { store.waits.blocked(item.id); continue; }
+            store.waits.started(item, 'check');
             verifying += 1;
             runVerifying += 1;
             folderChecks.set(folder, folderVerifying + 1);

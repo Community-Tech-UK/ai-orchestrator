@@ -279,6 +279,32 @@ export const PlanQueueItemDtoSchema = z.object({
   updatedAt: z.number().int(),
 });
 
+/** Share of a measured group, with the counts behind it. `share` is 0 to 1, or null when nothing was measured. */
+const HealthShareSchema = z.object({ count: z.number().int().nonnegative(), of: z.number().int().nonnegative(), share: z.number().min(0).max(1).nullable() });
+/** A median over timed events, in milliseconds; null when none were recorded. */
+const HealthTimeSchema = z.object({ count: z.number().int().nonnegative(), medianMs: z.number().nonnegative().nullable() });
+
+/**
+ * "Queue health": measures computed from the stored events and verdicts over a recent window.
+ * Finished attempts only; work still in flight is not counted against the queue.
+ */
+export const PlanQueueHealthSchema = z.object({
+  windowDays: z.number().int().positive(),
+  since: z.number().int().nonnegative(),
+  attemptsLanded: HealthShareSchema,
+  documentsLanded: HealthShareSchema,
+  passesNotLanded: HealthShareSchema,
+  firstCheckPassed: HealthShareSchema,
+  freeSlotToStart: HealthTimeSchema,
+  checkTime: HealthTimeSchema,
+  landingTime: HealthTimeSchema.extend({
+    syncMs: z.number().nonnegative().nullable(), mergeCheckMs: z.number().nonnegative().nullable(),
+    commitCheckMs: z.number().nonnegative().nullable(), publishMs: z.number().nonnegative().nullable(),
+  }),
+  waiting: z.object({ waitingMs: z.number().nonnegative(), workingMs: z.number().nonnegative(), share: z.number().min(0).max(1).nullable() }),
+  setAsideRounds: z.object({ items: z.number().int().nonnegative(), rounds: z.number().int().nonnegative() }),
+});
+
 export const PlanQueueRunDtoSchema = z.object({
   spend: PlanQueueSpendSchema.nullable().optional(),
   checks: z.object({ runs: z.number().int().nonnegative(), jobs: z.number().int().nonnegative() }).optional(),
@@ -457,6 +483,7 @@ export type PlanQueueRouteChoiceArgs = z.infer<typeof PlanQueueRouteChoiceArgsSc
 export type PlanQueueItemDto = z.infer<typeof PlanQueueItemDtoSchema>;
 export type PlanQueueRunDto = z.infer<typeof PlanQueueRunDtoSchema>;
 export type PlanQueueAlert = z.infer<typeof PlanQueueAlertSchema>;
+export type PlanQueueHealth = z.infer<typeof PlanQueueHealthSchema>;
 export type PlanQueueStartPayload = z.infer<typeof PlanQueueStartPayloadSchema>;
 export type PlanQueueControlPayload = z.infer<typeof PlanQueueControlPayloadSchema>;
 export type PlanQueueStateChangedEvent = z.infer<typeof PlanQueueStateChangedEventSchema>;

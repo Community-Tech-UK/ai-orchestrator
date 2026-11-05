@@ -36,7 +36,7 @@ function fixture(groups: { folder: string; slots: number; jobs: number }[]) {
     return { exitCode: 0, output: '' };
   }, () => 'admission-test-tree');
   const host: Parameters<typeof pumpPlanQueue>[0] = {
-    store: { listActiveRuns: () => runs, listItems: (id: string) => items.filter(item => item.runId === id), listItemsWithKeptFolders: () => [] } as unknown as PlanQueueStore,
+    store: { listActiveRuns: () => runs, listItems: (id: string) => items.filter(item => item.runId === id), listItemsWithKeptFolders: () => [], waits: { blocked: () => undefined, started: () => undefined, prune: () => undefined } } as unknown as PlanQueueStore,
     flow: {
       startItem: async () => { throw new Error('Only checks are expected'); },
       startVerification: (item: PlanQueueItem) => {

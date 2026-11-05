@@ -25,6 +25,9 @@ import type {
 import { upgradePlanQueueRouting, type StoredPlanQueueRouting } from '../../shared/utils/plan-queue-routing-upgrade';
 import type { PlanQueueItem, PlanQueueRelaxationSnapshot, PlanQueueRun, PlanQueueSpendEntry } from './plan-queue.types';
 import { PlanQueueHistoryStore, PLAN_QUEUE_CHECK_SUMMARIES_SQL } from './plan-queue-history-store';
+import { readQueueHealth } from './plan-queue-health';
+import { PlanQueueSlotWaits } from './plan-queue-timings';
+import { itemHoldsWorktree } from './plan-queue-state';
 
 interface RunRow {
   unpriced_tokens: number;
@@ -82,10 +85,15 @@ const ACTIVE_RUN_STATUSES = "('running', 'paused')";
 
 export class PlanQueueStore {
   readonly history: PlanQueueHistoryStore;
+  /** Slot waits the scheduler measures (in memory); they are written to the history when the item starts. */
+  readonly waits: PlanQueueSlotWaits;
   constructor(
     private readonly db: SqliteDriver,
     private readonly now: () => number = Date.now,
-  ) { this.history = new PlanQueueHistoryStore(db, now); }
+  ) { this.history = new PlanQueueHistoryStore(db, now); this.waits = new PlanQueueSlotWaits(this.history, now); }
+
+  /** The "Queue health" measures for the recent window, computed from the stored events and verdicts. */
+  queueHealth() { return readQueueHealth(this.db, this.now()); }
 
   recordSpend(entry: PlanQueueSpendEntry): void {
     if (![entry.processed, entry.output].every(value => Number.isSafeInteger(value) && value >= 0)
@@ -239,10 +247,15 @@ export class PlanQueueStore {
       const previous = this.db.prepare('SELECT detail, state FROM plan_queue_items WHERE id = ?')
         .get<{ detail: string | null; state: PlanQueueItemState }>(item.id);
       this.writeItem({ ...item, detail: preserveRecoveryReceipts(previous?.detail ?? null, item.detail) });
-      if (!previous || previous.state !== item.state) this.history.recordEvent({
-        itemId: item.id, runId: item.runId, fromState: previous?.state ?? null, toState: item.state,
-        reason: item.parkReason, detailHead: item.detail, round: item.round, tokens: item.spend?.tokens ?? 0,
-      });
+      if (!previous || previous.state !== item.state) {
+        this.history.recordEvent({
+          itemId: item.id, runId: item.runId, fromState: previous?.state ?? null, toState: item.state,
+          reason: item.parkReason, detailHead: item.detail, round: item.round, tokens: item.spend?.tokens ?? 0,
+        });
+        // A worker slot is held from preparing to landing; a check slot while verifying.
+        if (previous && itemHoldsWorktree(previous.state) && !itemHoldsWorktree(item.state)) this.waits.freed('worker');
+        if (previous?.state === 'verifying') this.waits.freed('check');
+      }
     })();
   }
 

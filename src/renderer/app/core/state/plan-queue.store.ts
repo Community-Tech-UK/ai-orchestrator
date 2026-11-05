@@ -1,6 +1,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import type {
   PlanQueueAlert,
+  PlanQueueHealth,
   PlanQueueControlPayload,
   PlanQueueItemDto,
   PlanQueueKind,
@@ -53,12 +54,15 @@ export class PlanQueueStore {
 
   private runsSignal = signal<PlanQueueRunDto[]>([]);
   private alertsSignal = signal<PlanQueueAlert[]>([]);
+  private healthSignal = signal<PlanQueueHealth | null>(null);
   private loading = signal(false);
   private error = signal<string | null>(null);
   private wired = false;
 
   readonly allRuns = computed(() => this.runsSignal());
   readonly reconcilerAlerts = computed(() => this.alertsSignal());
+  /** Recent landing measures, refreshed with each load of the list. */
+  readonly queueHealth = computed(() => this.healthSignal());
   readonly isLoading = computed(() => this.loading());
   readonly lastError = computed(() => this.error());
 
@@ -140,6 +144,7 @@ export class PlanQueueStore {
       if (res.success && res.data) {
         this.runsSignal.set(res.data.runs);
         this.alertsSignal.set(res.data.alerts);
+        this.healthSignal.set(res.data.health);
       } else {
         this.error.set(res.error?.message ?? 'Failed to load plan queue runs');
       }

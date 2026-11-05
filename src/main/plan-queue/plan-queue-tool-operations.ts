@@ -9,6 +9,7 @@ import { getSettingsManager } from '../core/config/settings-manager';
 import type { PlanQueueCoordinator } from './plan-queue-coordinator';
 import { describeAccountRules, copilotLabel, poolLabel } from './plan-queue-account-rules';
 import { describeRouting, routeChoiceFromArgs } from './plan-queue-routing';
+import { describeQueueHealth } from '../../shared/utils/plan-queue-health-lines';
 
 /** James's account rules as one line, labelled by account name; null when none are set. */
 function accountRulesLine(): string | null {
@@ -117,7 +118,10 @@ export function createPlanQueueToolOperations(coordinator: () => PlanQueueCoordi
         if (!run) throw new Error(`Plan queue run not found: ${runId}`);
         return runSummary(run);
       }
-      return { runs: coordinator().listRunDtos(10).map(runSummary), alerts: coordinator().getAlerts() };
+      // Nine short lines for the whole queue, in the same words as the Plan Queue page; not repeated per run.
+      const health = describeQueueHealth(coordinator().getQueueHealth());
+      return { runs: coordinator().listRunDtos(10).map(runSummary), alerts: coordinator().getAlerts(),
+        queueHealth: { heading: health.heading, ...Object.fromEntries(health.lines.map(line => [line.label, line.value])) } };
     },
     async answer(callerInstanceId, itemId, optionId) {
       await coordinator().answer(itemId, optionId, callerInstanceId);

@@ -1,0 +1,16 @@
+@if (summary(); as summary) {
+  <h2 id="pq-health-heading">{{ summary.heading }}</h2>
+  <dl class="pq-health-list">
+    @for (line of summary.lines; track line.label) {
+      <div class="pq-health-row">
+        <dt>{{ line.label }}</dt>
+        <dd>{{ line.value }}</dd>
+      </div>
+    }
+  </dl>
+  <p class="pq-health-note">Finished work only. Waiting means a document was ready but every slot was busy, or its provider had no usage left.</p>
+  <button type="button" class="pq-health-refresh" (click)="refresh.emit()">Refresh</button>
+} @else {
+  <h2 id="pq-health-heading">Queue health</h2>
+  <p class="pq-health-note">Not available yet.</p>
+}

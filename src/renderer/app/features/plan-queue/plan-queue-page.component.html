@@ -62,6 +62,10 @@
     <app-plan-queue-start-form [parentSessions]="parentSessions()" (start)="onStart($event)" />
   </section>
 
+  <section class="pq-section pq-section-health" aria-labelledby="pq-health-heading">
+    <app-plan-queue-health [health]="store.queueHealth()" (refresh)="onRefreshHealth()" />
+  </section>
+
   @if (store.needJamesReal().length > 0 || store.policyGatedCount() > 0) {
     <section class="pq-section pq-section-need-james" aria-labelledby="pq-need-james-heading">
       <h2 id="pq-need-james-heading">Live checks that need you</h2>

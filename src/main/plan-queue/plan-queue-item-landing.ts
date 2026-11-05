@@ -36,6 +36,7 @@ import { returnToItemCheckout } from './plan-queue-squash';
 import { PlanQueueCheckoutOwnershipError, rescueNote } from './plan-queue-worktree';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import { groupCoversMovedBase, groupRoundStillIntact } from './plan-queue-group-landing';
+import { LandingTimer, recordItemTiming, TIMING_REASONS } from './plan-queue-timings';
 
 const logger = getLogger('PlanQueueItemLanding');
 
@@ -180,13 +181,34 @@ export class PlanQueueItemLanding {
     host.requestPump();
   }
 
-  /** Steps 1-3 and the fast-forward. Returns the landed item, or null when it went elsewhere. */
+  /** Steps 1-3 and the fast-forward, timed: every attempt that ran a step leaves one landing-time row. */
   private async buildAndPromote(
     start: PlanQueueItem,
     run: PlanQueueRun,
     baseTip: string,
     closeDocuments: boolean,
     signal: AbortSignal,
+  ): Promise<PlanQueueItem | null> {
+    const timer = new LandingTimer();
+    let outcome = 'failed';
+    try {
+      const landed = await this.buildAndPromoteMeasured(start, run, baseTip, closeDocuments, signal, timer);
+      outcome = landed ? 'landed' : 'not-landed';
+      return landed;
+    } finally {
+      const detail = timer.detail(outcome);
+      if (detail) recordItemTiming(this.ctx.host, start.id, TIMING_REASONS.landing, detail);
+    }
+  }
+
+  /** Returns the landed item, or null when it went elsewhere. */
+  private async buildAndPromoteMeasured(
+    start: PlanQueueItem,
+    run: PlanQueueRun,
+    baseTip: string,
+    closeDocuments: boolean,
+    signal: AbortSignal,
+    timer: LandingTimer,
   ): Promise<PlanQueueItem | null> {
     const { host } = this.ctx;
     const repoRoot = run.workspaceCwd;
@@ -202,7 +224,7 @@ export class PlanQueueItemLanding {
     if (!item.landedCommit && item.verifiedMainCommit !== baseTip) {
       // Another item landed while this one was being verified: its PASS is stale.
       const group = await groupCoversMovedBase(item, run, baseTip, host) ? item.verdict?.gatesRun[0]?.checkGroup : undefined;
-      const sync = await syncItemWithBase(item, baseBranch, repoRoot);
+      const sync = await timer.measure('sync', () => syncItemWithBase(item, baseBranch, repoRoot));
       if (sync.status === 'conflict') {
         await this.returnForBase(item, baseBranch, buildConflictPrompt(baseBranch, sync.conflictFiles),
           `merging ${baseBranch} before landing conflicted (${sync.conflictFiles.join(', ')})`);
@@ -212,7 +234,7 @@ export class PlanQueueItemLanding {
         item = await host.worktrees.checkpoint(item, `merge ${baseBranch} before landing`);
         const covered = group && await gitExec(['rev-parse', `refs/heads/${baseBranch}`], repoRoot) === baseTip
           && groupRoundStillIntact(group, host);
-        const gate = covered ? { ok: true } as const : await runPostMergeGate(run.config.postMergeGate, item.worktreePath!, signal);
+        const gate = covered ? { ok: true } as const : await timer.measure('mergeCheck', () => runPostMergeGate(run.config.postMergeGate, item.worktreePath!, signal));
         if (!gate.ok) {
           await this.returnForBase(item, baseBranch, buildGateFailurePrompt(gate.command, gate.output),
             `\`${gate.command}\` failed after merging ${baseBranch}`);
@@ -247,6 +269,7 @@ export class PlanQueueItemLanding {
       prepared.mode === 'commit' ? prepared.documents : [],
       (commit) => { item = host.save({ ...host.getItem(item.id), landedCommit: commit }); },
       signal,
+      timer,
     );
     switch (result.status) {
       case 'landed':
@@ -255,7 +278,7 @@ export class PlanQueueItemLanding {
       case 'conflict': {
         // Base moved between the check above and the squash; bring it in so the
         // conflict is in the worker's tree, where it can be resolved.
-        const sync = await syncItemWithBase(item, baseBranch, repoRoot);
+        const sync = await timer.measure('sync', () => syncItemWithBase(item, baseBranch, repoRoot));
         const files = sync.status === 'conflict' ? sync.conflictFiles : result.conflictFiles;
         await this.returnForBase(item, baseBranch, buildConflictPrompt(baseBranch, files),
           `${baseBranch} moved during landing and conflicts (${files.join(', ')})`);

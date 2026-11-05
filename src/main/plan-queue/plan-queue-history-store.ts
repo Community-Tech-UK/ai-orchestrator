@@ -18,6 +18,7 @@ import type { SqliteDriver } from '../db/sqlite-driver';
 import { planQueueFindingId } from './plan-queue-progress';
 import type { PlanQueueItemPin } from './plan-queue-plan-pins';
 import type { PlanQueueItem } from './plan-queue.types';
+import { NOT_TIMING_SQL } from './plan-queue-timings';
 
 export interface PlanQueueItemEvent {
   id: string;
@@ -134,7 +135,7 @@ export class PlanQueueHistoryStore {
     if (!started) return false;
     return this.db.prepare(`SELECT 1 FROM plan_queue_item_events WHERE rowid > ?
       AND item_id IN (${memberItemIds.map(() => '?').join(',')})
-      AND to_state IN ('fixing', 'parked', 'skipped') LIMIT 1`).get(started.sequence, ...memberItemIds) === undefined;
+      AND to_state IN ('fixing', 'parked', 'skipped') AND ${NOT_TIMING_SQL} LIMIT 1`).get(started.sequence, ...memberItemIds) === undefined;
   }
 
   recordVerdict(record: PlanQueueVerdictInput): void {
@@ -189,11 +190,14 @@ export class PlanQueueHistoryStore {
       round: item.round, tokens: 0 });
   }
 
-  /** This item's recent state changes, newest first. */
+  /**
+   * This item's recent state changes and decision notes, newest first. Timing rows (`plan-queue-timings.ts`) are
+   * left out: decisions read a bounded window of this list, and a measurement must not push an older event out of it.
+   */
   listEvents(itemId: string, limit = 50): PlanQueueItemEvent[] {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error('Queue history limit must be between 1 and 1000');
     return this.db
-      .prepare('SELECT * FROM plan_queue_item_events WHERE item_id = ? ORDER BY at DESC, rowid DESC LIMIT ?')
+      .prepare(`SELECT * FROM plan_queue_item_events WHERE item_id = ? AND ${NOT_TIMING_SQL} ORDER BY at DESC, rowid DESC LIMIT ?`)
       .all<EventRow>(itemId, limit)
       .map(rowToEvent);
   }

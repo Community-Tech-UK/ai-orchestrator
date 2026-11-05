@@ -10,6 +10,7 @@ import { selectCurrentQueueVerifier } from './plan-queue-checker-routing';
 import { holdItem, isHoldNote, parkAfterVerifierRestoreFailure, PlanQueueSpawnRunPaused, resumeReason, restoreVerifierTree, usageWaitNote } from './plan-queue-run-hold';
 import { PlanQueueSpawnOutOfUsage } from './plan-queue-spawn';
 import { PlanQueueUsageWaits } from './plan-queue-usage-wait';
+import { recordItemTiming, recordSessionEnd, recordSessionStart, TIMING_REASONS } from './plan-queue-timings';
 import { PlanQueueSpawnStoppedByUser } from './plan-queue-user-close';
 /**
  * Plan Queue item flow — the side effects of each item transition: prepare a
@@ -86,7 +87,7 @@ export class PlanQueueItemFlow {
   /** Failed stops retain ownership without retaining a rejected promise that would block retries. */
   private readonly pendingRetirements = new Set<string>();
   private readonly workerSessions: PlanQueueWorkerSessions;
-  private readonly usageWaits = new PlanQueueUsageWaits();
+  private readonly usageWaits: PlanQueueUsageWaits;
   private landingChain: Promise<void> = Promise.resolve();
   private readonly landing: PlanQueueItemLanding;
   private readonly verification: PlanQueueVerification;
@@ -97,6 +98,7 @@ export class PlanQueueItemFlow {
   readonly keptFolders: PlanQueueKeptFolders;
 
   constructor(private readonly host: PlanQueueFlowHost) {
+    this.usageWaits = new PlanQueueUsageWaits((id, kind, waitedMs) => recordItemTiming(host, id, TIMING_REASONS.usageWait, { kind, waitedMs }));
     this.verification = new PlanQueueVerification(host, new PlanQueueGateRunner(), {
       lock: (id, action) => this.withItemLock(id, action), waiting: id => this.isWaitingForUsage(id),
     });
@@ -275,6 +277,8 @@ export class PlanQueueItemFlow {
         metadata: { planQueueRunId: run.id, planQueueItemId: item.id, planQueueRole: 'worker', planQueueRound: item.round, ...(continuePrompt ? { planQueueContinuePrompt: continuePrompt } : {}), ...(item.steppedUpAt ? { planQueueSteppedUp: true } : {}) },
       });
       this.host.registerRole(instance.id, { role: 'worker', runId: run.id, itemId: item.id });
+      const started = this.host.instances.getInstance(instance.id);
+      recordSessionStart(this.host, item.id, 'worker', instance.id, started?.provider ?? run.workerProvider, started?.currentModel ?? run.workerModel);
       holdFromReclaim(instance.id, RECLAIM_HOLD_OWNER);
       const relaxed = relaxedSettingsFor(run);
       if (relaxed.length) {
@@ -296,7 +300,7 @@ export class PlanQueueItemFlow {
       if (error instanceof PlanQueueSpawnOutOfUsage) {
         // Never parked and never a round: the worker would only hit its limit and fail.
         await this.holdUnlocked(this.host.getItem(item.id), usageWaitNote(error.message));
-        this.usageWaits.start(item.id, error);
+        this.usageWaits.start(item.id, error, 'worker');
         return;
       }
       if (error instanceof PlanQueueSpawnStoppedByUser && error.instanceId) {
@@ -396,7 +400,7 @@ export class PlanQueueItemFlow {
           this.host.history.recordEvent({ itemId: item.id, runId: item.runId, fromState: item.state, toState: 'queued',
             reason: USAGE_LIMIT_HOLD, detailHead: null, round: item.round, tokens: 0 });
           const waiting = new PlanQueueSpawnOutOfUsage(null, "this worker's provider");
-          this.usageWaits.start(item.id, waiting);
+          this.usageWaits.start(item.id, waiting, 'worker');
           await this.holdUnlocked(item, usageWaitNote(waiting.message));
           return;
         }
@@ -720,6 +724,7 @@ export class PlanQueueItemFlow {
     if (pending) return pending;
     this.workerSessions.forget(instanceId);
     this.retries.completed(instanceId);
+    recordSessionEnd(this.host, instanceId);
     this.pendingRetirements.add(instanceId);
     this.reminders.forget(instanceId);
     this.host.tracker.untrack(instanceId);

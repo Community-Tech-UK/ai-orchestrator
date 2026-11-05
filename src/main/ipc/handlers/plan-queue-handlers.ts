@@ -47,8 +47,8 @@ export function registerPlanQueueHandlers(deps: { windowManager: WindowManager }
 
   handle(IPC_CHANNELS.PLAN_QUEUE_LIST, 'PLAN_QUEUE_LIST_FAILED', (payload) => {
     const validated = validateIpcPayload(PlanQueueListPayloadSchema, payload ?? {}, 'PLAN_QUEUE_LIST');
-    if (!coordinator.isInitialized()) return { runs: [], alerts: [] };
-    return { runs: coordinator.listRunDtos(validated.limit), alerts: coordinator.getAlerts() };
+    if (!coordinator.isInitialized()) return { runs: [], alerts: [], health: null };
+    return { runs: coordinator.listRunDtos(validated.limit), alerts: coordinator.getAlerts(), health: coordinator.getQueueHealth() };
   });
 
   handle(IPC_CHANNELS.PLAN_QUEUE_GET, 'PLAN_QUEUE_GET_FAILED', (payload) => {

@@ -25,6 +25,7 @@ import { runInProcessGroup, type GroupRunResult } from './plan-queue-process';
 import { LANDING_MARKER_FILE } from './plan-queue-landing-leftover';
 import { assertQueueCheckout, assertQueueCheckoutOwnership, InvalidQueueCheckoutError } from './plan-queue-orphan-checkout';
 import { PlanQueueCheckoutOwnershipError, readProvisionedPaths, recoverLeftover } from './plan-queue-worktree';
+import { LandingTimer } from './plan-queue-timings';
 
 /** Related tests can approach a full suite and exceed 15 minutes on a busy host.
  * Per-test deadlines and cancellation still apply within this aggregate limit. */
@@ -215,8 +216,10 @@ export async function buildLandingCommit(params: {
   documents: readonly LandingDocument[];
   greenTestedTree: string | null;
   signal?: AbortSignal;
+  timer?: LandingTimer;
 }): Promise<LandingCommitResult> {
   const { repoRoot, worktreePath, branchName, itemId, baseTip, message, documents } = params;
+  const timer = params.timer ?? new LandingTimer();
   const documentPaths = documents.map((doc) => doc.relativePath);
   await returnToItemCheckout(worktreePath, branchName, itemId, repoRoot, documentPaths);
   const gitDir = await gitExec(['rev-parse', '--absolute-git-dir'], worktreePath);
@@ -247,7 +250,7 @@ export async function buildLandingCommit(params: {
 
     params.signal?.throwIfAborted();
     const testedIndexTree = await testedLandingIndex(worktreePath, params.greenTestedTree, documents);
-    const { exitCode, output, timedOut } = await commitWithHooks(worktreePath, message, testedIndexTree, HOOK_TIMEOUT_MS, params.signal);
+    const { exitCode, output, timedOut } = await timer.measure('commitCheck', () => commitWithHooks(worktreePath, message, testedIndexTree, HOOK_TIMEOUT_MS, params.signal));
     if (exitCode !== 0) return { status: 'hook-failed', output, ...(timedOut ? { timedOut } : {}) };
     return { status: 'committed', commit: await gitExec(['rev-parse', 'HEAD'], worktreePath) };
   } finally {

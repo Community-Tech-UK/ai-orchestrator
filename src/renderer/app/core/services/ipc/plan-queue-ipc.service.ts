@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import type {
   PlanQueueAlert,
+  PlanQueueHealth,
   PlanQueueControlPayload,
   PlanQueueKind,
   PlanQueueRunDto,
@@ -37,11 +38,12 @@ export class PlanQueueIpcService {
     return (await this.api.planQueuePreview(payload)) as IpcResponse<PlanQueueDiscoveryPreview>;
   }
 
-  async list(limit?: number): Promise<IpcResponse<{ runs: PlanQueueRunDto[]; alerts: PlanQueueAlert[] }>> {
+  async list(limit?: number): Promise<IpcResponse<{ runs: PlanQueueRunDto[]; alerts: PlanQueueAlert[]; health: PlanQueueHealth | null }>> {
     if (!this.api) return notInElectron();
     return (await this.api.planQueueList(limit ? { limit } : undefined)) as IpcResponse<{
       runs: PlanQueueRunDto[];
       alerts: PlanQueueAlert[];
+      health: PlanQueueHealth | null;
     }>;
   }
 

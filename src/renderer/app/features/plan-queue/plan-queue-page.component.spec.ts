@@ -5,7 +5,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PlanQueueItemDto, PlanQueueRouting, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
+import type { PlanQueueHealth, PlanQueueItemDto, PlanQueueRouting, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
 import { CopilotAccountIpcService } from '../../core/services/ipc/copilot-account-ipc.service';
 import { PlanQueueIpcService } from '../../core/services/ipc/plan-queue-ipc.service';
 import { ProviderAccountIpcService } from '../../core/services/ipc/provider-account-ipc.service';
@@ -106,6 +106,7 @@ describe('PlanQueuePageComponent', () => {
     parkedItems: ReturnType<typeof signal<unknown[]>>;
     needJamesReal: ReturnType<typeof signal<unknown[]>>;
     policyGatedCount: ReturnType<typeof signal<number>>;
+    queueHealth: ReturnType<typeof signal<PlanQueueHealth | null>>;
     ensureWired: ReturnType<typeof vi.fn>;
     load: ReturnType<typeof vi.fn>;
     refreshAlerts: ReturnType<typeof vi.fn>;
@@ -136,6 +137,7 @@ describe('PlanQueuePageComponent', () => {
       parkedItems: signal([]),
       needJamesReal: signal([]),
       policyGatedCount: signal(0),
+      queueHealth: signal<PlanQueueHealth | null>(null),
       ensureWired: vi.fn(),
       load: vi.fn().mockResolvedValue(undefined),
       refreshAlerts: vi.fn().mockResolvedValue(undefined),
@@ -249,7 +251,7 @@ describe('PlanQueuePageComponent', () => {
     store.needJamesReal.set([{ runId: 'run-1', itemId: 'item-1', documentPath: 'docs/x.md', check: 'c', reason: 'r' }]);
     store.parkedItems.set([PARKED_ITEM]); fixture.detectChanges(); await fixture.whenStable();
     const headings = () => Array.from(fixture.nativeElement.querySelectorAll('section.pq-section h2') as NodeListOf<HTMLElement>).map(h => h.textContent?.trim());
-    expect(headings()).toEqual(['Needs your answer', 'Runs', 'Start a run', 'Live checks that need you']);
+    expect(headings()).toEqual(['Needs your answer', 'Runs', 'Start a run', 'Queue health', 'Live checks that need you']);
     clickTab('Set aside'); expect(headings()).toEqual(['Set aside']);
     clickTab('Setup'); expect(headings()).toEqual(['Providers and accounts', 'Account rules']);
   });
@@ -269,6 +271,28 @@ describe('PlanQueuePageComponent', () => {
     expect(panel.querySelector('a')?.getAttribute('href')).toBe('/settings?tab=doctor');
     panel.querySelector('button')!.click();
     expect(store.refreshAlerts).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows Queue health in plain words in Now, and Refresh loads it again', () => {
+    expect(fixture.nativeElement.querySelector('.pq-section-health')?.textContent).toContain('Not available yet.');
+    store.queueHealth.set({
+      windowDays: 14, since: 0,
+      attemptsLanded: { count: 7, of: 10, share: 0.7 }, documentsLanded: { count: 5, of: 8, share: 0.625 },
+      passesNotLanded: { count: 0, of: 6, share: 0 }, firstCheckPassed: { count: 3, of: 6, share: 0.5 },
+      freeSlotToStart: { count: 2, medianMs: 30_000 }, checkTime: { count: 4, medianMs: 600_000 },
+      landingTime: { count: 3, medianMs: 300_000, syncMs: null, mergeCheckMs: null, commitCheckMs: 240_000, publishMs: null },
+      waiting: { waitingMs: 60_000, workingMs: 180_000, share: 0.25 }, setAsideRounds: { items: 1, rounds: 3 },
+    });
+    fixture.detectChanges();
+    const section = fixture.nativeElement.querySelector('.pq-section-health') as HTMLElement;
+    expect(section.querySelector('h2')?.textContent).toBe('Queue health, last 14 days');
+    expect(section.textContent).toContain('Attempts that land');
+    expect(section.textContent).toContain('70% (7 of 10 finished attempts)');
+    expect(section.textContent).toContain('30 seconds typically (2 starts)');
+    expect(section.textContent).toContain('3 rounds on 1 item');
+    store.load.mockClear();
+    (section.querySelector('.pq-health-refresh') as HTMLButtonElement).click();
+    expect(store.load).toHaveBeenCalledTimes(1);
   });
 
   it('renders the empty-runs message with no runs loaded', () => {

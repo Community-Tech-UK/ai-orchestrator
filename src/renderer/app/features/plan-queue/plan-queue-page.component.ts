@@ -9,6 +9,7 @@ import { InstanceStore } from '../../core/state/instance.store';
 import { PlanQueueStore } from '../../core/state/plan-queue.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { PlanQueueAccountRulesPanelComponent } from './components/plan-queue-account-rules-panel.component';
+import { PlanQueueHealthComponent } from './components/plan-queue-health.component';
 import { PlanQueueNeedJamesListComponent } from './components/plan-queue-need-james-list.component';
 import { PlanQueueParkedListComponent } from './components/plan-queue-parked-list.component';
 import { PlanQueueQuestionListComponent } from './components/plan-queue-question-list.component';
@@ -28,6 +29,7 @@ import { planQueueKindLabel, pluralise } from './plan-queue-item-display';
     RouterLink,
     AioTooltipDirective,
     PlanQueueAccountRulesPanelComponent,
+    PlanQueueHealthComponent,
     PlanQueueNeedJamesListComponent,
     PlanQueueParkedListComponent,
     PlanQueueQuestionListComponent,
@@ -123,6 +125,10 @@ export class PlanQueuePageComponent implements OnInit {
 
   onStart(request: PlanQueueStartRequest): void {
     void this.store.startRun(request);
+  }
+
+  onRefreshHealth(): void {
+    void this.store.load();
   }
 
   onRefreshAlerts(): void {

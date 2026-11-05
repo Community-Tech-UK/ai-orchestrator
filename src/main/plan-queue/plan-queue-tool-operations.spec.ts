@@ -23,6 +23,25 @@ describe('Plan Queue tool operation adoption routing', () => {
     }));
   });
 
+  it('adds a compact Queue health summary to the overview status, in the same words as the page, but not to one run\'s status', async () => {
+    const coordinator = new PlanQueueCoordinator();
+    const NOTHING = { count: 0, of: 0, share: null };
+    vi.spyOn(coordinator, 'listRunDtos').mockReturnValue([]);
+    vi.spyOn(coordinator, 'getAlerts').mockReturnValue([]);
+    vi.spyOn(coordinator, 'getQueueHealth').mockReturnValue({
+      windowDays: 14, since: 0, attemptsLanded: { count: 7, of: 10, share: 0.7 }, documentsLanded: NOTHING, passesNotLanded: NOTHING, firstCheckPassed: NOTHING,
+      freeSlotToStart: { count: 0, medianMs: null }, checkTime: { count: 0, medianMs: null },
+      landingTime: { count: 0, medianMs: null, syncMs: null, mergeCheckMs: null, commitCheckMs: null, publishMs: null },
+      waiting: { waitingMs: 0, workingMs: 0, share: null }, setAsideRounds: { items: 0, rounds: 0 },
+    });
+    const overview = createPlanQueueToolOperations(() => coordinator).status('caller') as { queueHealth: Record<string, string> };
+    expect(overview.queueHealth).toMatchObject({ heading: 'Queue health, last 14 days', 'Attempts that land': '70% (7 of 10 finished attempts)', 'Time to land': 'Nothing measured yet' });
+    expect(JSON.stringify(overview.queueHealth).length).toBeLessThan(1500);
+    vi.spyOn(coordinator, 'getRunDto').mockReturnValue({ id: 'run', parentInstanceId: 'caller', kind: 'plans', workspaceCwd: '/repo', status: 'running', config: DEFAULT_PLAN_QUEUE_CONFIG.plans,
+      workerProvider: 'claude', relaxedSettings: [], startedAt: 1, endedAt: null, items: [] });
+    expect(createPlanQueueToolOperations(() => coordinator).status('caller', 'run')).not.toHaveProperty('queueHealth');
+  });
+
   it('maps adopt to a run action and keeps authenticated caller identity', async () => {
     const coordinator = new PlanQueueCoordinator();
     const control = vi.spyOn(coordinator, 'control').mockResolvedValue();

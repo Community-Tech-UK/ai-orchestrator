@@ -12,6 +12,7 @@ import type { PlanQueueUsageWaits } from './plan-queue-usage-wait';
 import type { PlanQueueTurnOutcome } from './plan-queue-instance-tracker';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import type { VerifierSelection } from './plan-queue-verifier-select';
+import { recordSessionStart } from './plan-queue-timings';
 
 const logger = getLogger('PlanQueueCheckerSpawn');
 
@@ -51,6 +52,7 @@ export async function spawnQueueChecker(deps: CheckerSpawnDeps, waiting: PlanQue
         metadata: { planQueueRunId: run.id, planQueueItemId: item.id, planQueueRole: 'verifier', planQueueRound: item.round, planQueueRouting: JSON.stringify(run.config.routing) },
       });
       deps.host.registerRole(instance.id, { role: 'verifier', runId: run.id, itemId: item.id });
+      recordSessionStart(deps.host, item.id, 'checker', instance.id, choice.provider, choice.modelOverride ?? deps.host.instances.getInstance(instance.id)?.currentModel);
       deps.host.save({ ...deps.host.getItem(item.id), verifierInstanceId: instance.id, heldAt: null, detail: null });
       deps.host.tracker.track(instance.id);
       instance.readyPromise?.catch((error: unknown) => {
@@ -67,7 +69,7 @@ export async function spawnQueueChecker(deps: CheckerSpawnDeps, waiting: PlanQue
         // No checker started, so the tree is untouched and no round is counted.
         deps.snapshots.delete(item.id);
         deps.host.transition(deps.host.getItem(item.id), 'awaiting-slot', { detail: usageWaitNote(error.message) });
-        deps.usageWaits.start(item.id, error);
+        deps.usageWaits.start(item.id, error, 'check');
         return;
       }
       if (error instanceof PlanQueueSpawnStoppedByUser) {

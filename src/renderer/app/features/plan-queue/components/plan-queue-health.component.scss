@@ -1,0 +1,29 @@
+:host { display: block; }
+
+.pq-health-list {
+  margin: 0 0 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pq-health-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.pq-health-row dt {
+  min-width: 18em;
+  font-weight: 600;
+}
+
+.pq-health-row dd {
+  margin: 0;
+}
+
+.pq-health-note {
+  opacity: 0.75;
+  font-size: 0.9em;
+  margin: 0 0 8px;
+}

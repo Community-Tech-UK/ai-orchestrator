@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PlanQueueRunDto } from '@contracts/schemas/plan-queue';
+import type { PlanQueueHealth, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
 import { PlanQueueIpcService, type PlanQueueStateChangedPush } from '../services/ipc/plan-queue-ipc.service';
 import { PlanQueueStore } from './plan-queue.store';
 
@@ -74,7 +74,7 @@ describe('PlanQueueStore', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     stateChangedCallback = null;
-    ipc.list.mockResolvedValue({ success: true, data: { runs: [makeRun()], alerts: [] } });
+    ipc.list.mockResolvedValue({ success: true, data: { runs: [makeRun()], alerts: [], health: null } });
     TestBed.configureTestingModule({
       providers: [PlanQueueStore, { provide: PlanQueueIpcService, useValue: ipc }],
     });
@@ -88,6 +88,17 @@ describe('PlanQueueStore', () => {
     expect(store.lastError()).toBeNull();
   });
 
+  it('keeps the queue health that came with the list, and replaces it on the next load', async () => {
+    const health = { windowDays: 14 } as unknown as PlanQueueHealth;
+    ipc.list.mockResolvedValueOnce({ success: true, data: { runs: [makeRun()], alerts: [], health } });
+    const store = TestBed.inject(PlanQueueStore);
+    expect(store.queueHealth()).toBeNull();
+    await store.load();
+    expect(store.queueHealth()).toBe(health);
+    await store.load();
+    expect(store.queueHealth()).toBeNull();
+  });
+
   it('keeps active and parked-work runs returned beyond the requested recent-history limit', async () => {
     const history = Array.from({ length: 50 }, (_, index) => makeRun({ id: `finished-${index}`, status: 'completed', startedAt: 100 + index }));
     const active = [makeRun({ id: 'old-paused', status: 'paused', startedAt: 2 }), makeRun({ id: 'old-running', startedAt: 1 })];
@@ -95,7 +106,7 @@ describe('PlanQueueStore', () => {
       makeRun({ id: 'old-completed', status: 'completed', items: [makeItem({ state: 'parked', branchName: 'queue/saved' })] }),
       makeRun({ id: 'old-cancelled', status: 'cancelled', items: [makeItem({ state: 'parked', branchName: null, parkReason: 'triage-failed' })] }),
     ];
-    ipc.list.mockResolvedValue({ success: true, data: { runs: [...history, ...active, ...parked], alerts: [] } });
+    ipc.list.mockResolvedValue({ success: true, data: { runs: [...history, ...active, ...parked], alerts: [], health: null } });
     const store = TestBed.inject(PlanQueueStore);
     await store.load(50);
     expect(ipc.list).toHaveBeenCalledWith(50);
@@ -145,7 +156,7 @@ describe('PlanQueueStore', () => {
     const store = TestBed.inject(PlanQueueStore);
     store.ensureWired();
     await store.load();
-    ipc.list.mockResolvedValue({ success: true, data: { runs: [makeRun({ id: 'run-3' })], alerts: [] } });
+    ipc.list.mockResolvedValue({ success: true, data: { runs: [makeRun({ id: 'run-3' })], alerts: [], health: null } });
 
     stateChangedCallback?.({ runId: 'run-1', run: null });
     await vi.waitFor(() => expect(store.allRuns().map((r) => r.id)).toEqual(['run-3']));
@@ -173,6 +184,7 @@ describe('PlanQueueStore', () => {
           }),
         ],
         alerts: [],
+        health: null,
       },
     });
     const store = TestBed.inject(PlanQueueStore);
@@ -198,6 +210,7 @@ describe('PlanQueueStore', () => {
           ] }),
         ],
         alerts: [],
+        health: null,
       },
     });
     const store = TestBed.inject(PlanQueueStore);
@@ -224,6 +237,7 @@ describe('PlanQueueStore', () => {
           }),
         ],
         alerts: [],
+        health: null,
       },
     });
     const store = TestBed.inject(PlanQueueStore);
@@ -277,6 +291,7 @@ describe('PlanQueueStore', () => {
           }),
         ],
         alerts: [],
+        health: null,
       },
     });
     const store = TestBed.inject(PlanQueueStore);

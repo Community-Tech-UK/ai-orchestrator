@@ -22,6 +22,7 @@ import * as path from 'path';
 import {
   type PlanQueueAccountRules,
   type PlanQueueAlert,
+  type PlanQueueHealth,
   type PlanQueueControlPayload,
   type PlanQueueItemState,
   type PlanQueueKind,
@@ -430,6 +431,9 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     const store = this.requireDeps().store;
     return store.listRunSnapshots(limit).map(({ run, items, checks }) => runToDto(run, items, checks));
   }
+
+  /** The "Queue health" measures for the recent window, from the stored events and verdicts. */
+  getQueueHealth(): PlanQueueHealth { return this.requireDeps().store.queueHealth(); }
 
   getAlerts(): PlanQueueAlert[] { return [...this.alerts]; }
 
