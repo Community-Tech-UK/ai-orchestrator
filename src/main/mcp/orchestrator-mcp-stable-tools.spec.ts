@@ -73,4 +73,24 @@ describe('orchestrator-mcp-stable-tools', () => {
       invocation: { tool: 'list_remote_nodes' },
     });
   });
+
+  it('discovers both host process tools in the full catalog with the default limit', async () => {
+    const { createOrchestratorToolsForwarderTools } = await import('./orchestrator-tools-mcp-forwarder');
+    const tools = createStableOrchestratorTools(
+      createOrchestratorToolsForwarderTools({ call: async () => ({}) }),
+    );
+    const search = tools.find((tool) => tool.name === ORCHESTRATOR_TOOL_SEARCH_NAME)!;
+    const result = (await search.handler({ query: 'process' })) as {
+      matches: Array<{ name: string; inputSchema: Record<string, unknown>; invocation: { tool: string; name?: string } }>;
+    };
+    expect(result.matches.length).toBeLessThanOrEqual(5);
+    for (const name of ['list_host_processes', 'stop_leftover_processes']) {
+      expect(result.matches).toContainEqual(expect.objectContaining({
+        name,
+        inputSchema: expect.objectContaining({ type: 'object' }),
+        invocation: { tool: ORCHESTRATOR_TOOL_EXECUTE_NAME, name },
+      }));
+      expect(tools.map((tool) => tool.name)).not.toContain(name);
+    }
+  });
 });

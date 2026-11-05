@@ -12,7 +12,7 @@ export const LIST_HOST_PROCESSES_TOOL = 'list_host_processes';
 export const STOP_LEFTOVER_PROCESSES_TOOL = 'stop_leftover_processes';
 
 const LIST_HOST_PROCESSES_DESCRIPTION =
-  'List the busiest programs running on this Mac, with CPU and memory use, so you can see what is slowing it down. '
+  'List the busiest programs running on this Mac, with CPU and memory use for each process, so you can see what is slowing it down. '
   + 'Harness reads this for you because your own sandbox cannot run ps or top. Read-only: it never stops anything. '
   + 'Returns up to `limit` programs (default 20, max 100) sorted by CPU, plus the total count, CPU count and load average. '
   + 'cpuPercent is the ps figure, a short decaying average, so a program that only just started spinning may rank low; '
@@ -26,7 +26,7 @@ const LIST_HOST_PROCESSES_DESCRIPTION =
 
 const STOP_LEFTOVER_PROCESSES_DESCRIPTION =
   'Stop leftover programs that a Harness session started and abandoned (for example test servers you left running). '
-  + 'Pass pids from list_host_processes. Harness re-checks every pid at call time and only stops one that is owned by you, '
+  + 'Pass pids from list_host_processes. Harness re-checks every process at call time and only stops one that is owned by you, '
   + 'orphaned (no parent program), started by a Harness session, not owned by another live session, and not a live '
   + 'session\'s own program. Anything else is refused with a plain-English reason and is left alone. '
   + 'Child programs started by the same session are stopped with it. Sends a polite stop by default; set force to true '

@@ -112,4 +112,38 @@ describe('orchestrator-mcp-deferral', () => {
     expect(measureOrchestratorToolSchemaBytes(deferred.filter((tool) => !tool.hidden)))
       .toBeLessThan(measureOrchestratorToolSchemaBytes(full) / 2);
   });
+
+  it('discovers and reveals both host process tools in the full catalog with the default limit', async () => {
+    const { createOrchestratorToolsForwarderTools } = await import('./orchestrator-tools-mcp-forwarder');
+    const server = McpServer.getInstance();
+    server.registerTools(createDeferredOrchestratorTools(
+      createOrchestratorToolsForwarderTools({ call: async () => ({}) }),
+      { onReveal: (names) => server.revealTools(names) },
+    ));
+    const hostTools = ['list_host_processes', 'stop_leftover_processes'];
+    const initial = (await server.handleRequest({ method: 'tools/list' })) as {
+      tools: Array<{ name: string }>;
+    };
+    for (const name of hostTools) {
+      expect(initial.tools.map((tool) => tool.name)).not.toContain(name);
+    }
+
+    const response = (await server.handleRequest({
+      method: 'tools/call',
+      params: { name: ORCHESTRATOR_TOOL_SEARCH_NAME, arguments: { query: 'process' } },
+    })) as { content: Array<{ text: string }> };
+    const result = JSON.parse(response.content[0]!.text) as {
+      matches: Array<{ name: string; inputSchema: Record<string, unknown> }>;
+    };
+    expect(result.matches.length).toBeLessThanOrEqual(5);
+    for (const name of hostTools) {
+      expect(result.matches).toContainEqual(expect.objectContaining({
+        name, inputSchema: expect.objectContaining({ type: 'object' }),
+      }));
+    }
+    const revealed = (await server.handleRequest({ method: 'tools/list' })) as {
+      tools: Array<{ name: string }>;
+    };
+    expect(revealed.tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(hostTools));
+  });
 });
