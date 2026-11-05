@@ -18,15 +18,15 @@ function acceptable(receipt: Receipt): boolean {
     || receipt.classification === 'failed' && receipt.baseline === 'also-failing-on-base';
 }
 
-function receiptProof(item: PlanQueueItem, commands: readonly string[]): GroupProof | null {
-  if (item.verdict?.verdict !== 'PASS' || !commands.length || item.verdict.gatesRun.length !== commands.length) return null;
-  const first = item.verdict.gatesRun[0];
+function receiptProof(item: PlanQueueItem, commands: readonly string[], receipts: readonly Receipt[]): GroupProof | null {
+  if (!commands.length || receipts.length !== commands.length) return null;
+  const first = receipts[0];
   const group = first.checkGroup;
   if (!group || !group.id || !HASH.test(group.baseTip) || !first.testedTree || !HASH.test(first.testedTree)
     || !first.head || !HASH.test(first.head) || group.memberItemIds.length < 2 || group.memberItemIds.length > 8
     || new Set(group.memberItemIds).size !== group.memberItemIds.length || !group.memberItemIds.includes(item.id)) return null;
   const identity = JSON.stringify(group);
-  if (!item.verdict.gatesRun.every((receipt, index) => receipt.command === commands[index] && acceptable(receipt)
+  if (!receipts.every((receipt, index) => receipt.command === commands[index] && acceptable(receipt)
     && receipt.head === first.head && receipt.testedTree === first.testedTree && JSON.stringify(receipt.checkGroup) === identity)) return null;
   return { group, testedTree: first.testedTree, head: first.head };
 }
@@ -48,7 +48,14 @@ export function groupRoundStillIntact(group: CheckGroup, host: Pick<PlanQueueFlo
 /** Called before syncing, while the item's unchanged checked HEAD is still observable. */
 export async function groupCoversMovedBase(item: PlanQueueItem, run: PlanQueueRun, baseTip: string,
   host: Pick<PlanQueueFlowHost, 'store' | 'history'>): Promise<boolean> {
-  const proof = receiptProof(item, run.config.verifierGates);
+  if (item.verdict?.verdict !== 'PASS') return false;
+  return machineGroupCoversMovedBase(item, run, baseTip, item.verdict.gatesRun, host);
+}
+
+/** Pending members have machine evidence, but must still receive their own independent review. */
+export async function machineGroupCoversMovedBase(item: PlanQueueItem, run: PlanQueueRun, baseTip: string,
+  receipts: readonly Receipt[], host: Pick<PlanQueueFlowHost, 'store' | 'history'>): Promise<boolean> {
+  const proof = receiptProof(item, run.config.verifierGates, receipts);
   if (!proof || !item.worktreePath || item.checkpointCommit !== proof.head || run.status === 'cancelled') return false;
   if (await gitExec(['rev-parse', 'HEAD'], item.worktreePath) !== proof.head) return false;
   const provisioned = await readProvisionedPaths(item.worktreePath);
@@ -66,7 +73,8 @@ export async function groupCoversMovedBase(item: PlanQueueItem, run: PlanQueueRu
       || pathCompareKey(memberRun.workspaceCwd) !== pathCompareKey(run.workspaceCwd)
       || memberRun.config.baseBranch !== run.config.baseBranch
       || JSON.stringify(memberRun.config.verifierGates) !== JSON.stringify(run.config.verifierGates)) return false;
-    const memberProof = member.verdict ? receiptProof(member, memberRun.config.verifierGates) : null;
+    const memberProof = member.verdict?.verdict === 'PASS'
+      ? receiptProof(member, memberRun.config.verifierGates, member.verdict.gatesRun) : null;
     if (member.verdict && (!memberProof || memberProof.testedTree !== proof.testedTree
       || JSON.stringify(memberProof.group) !== JSON.stringify(proof.group))) return false;
     if (member.state === 'landed') {

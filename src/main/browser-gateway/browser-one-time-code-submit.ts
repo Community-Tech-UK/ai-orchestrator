@@ -1,13 +1,19 @@
 import type { BrowserGatewayResult } from '@contracts/types/browser';
 import type { BrowserGatewayResultInput } from './browser-gateway-result';
 import type { BrowserGatewayContext } from './browser-gateway-service-types';
+import type { BrowserGuardedMutationRequest } from './browser-gateway-action-guard.types';
 import type { BrowserElementContext } from '@contracts/types/browser';
 import {
   classifyBrowserAction,
+  ONE_TIME_CODE_ENTRY_TOOLS,
   TWO_FACTOR_CHALLENGE_REASON,
   type BrowserActionClassification,
 } from './browser-action-classifier';
-import { classifyGuardedBrowserAction, type BrowserPageChallengeProbe } from './browser-page-challenge-probe';
+import {
+  classifyGuardedBrowserAction,
+  type BrowserPageChallengeProbe,
+  type BrowserProbeInputTargets,
+} from './browser-page-challenge-probe';
 
 /**
  * Lets the click that submits a one-time code through, when Harness itself put
@@ -147,7 +153,7 @@ export async function classifyGuardedActionWithCodeFill(input: {
   probe?: BrowserPageChallengeProbe;
   ledger: OneTimeCodeSubmitInput['ledger'];
   result: OneTimeCodeSubmitInput['result'];
-  request: BrowserGatewayContext;
+  request: BrowserGuardedMutationRequest;
   action: string;
   toolName: string;
   actionHint?: string;
@@ -163,10 +169,20 @@ export async function classifyGuardedActionWithCodeFill(input: {
     classification: await classifyGuardedBrowserAction({
       probe: input.probe, profileId: scope.profileId, targetId: scope.targetId, toolName, actionHint,
       elementContext, elementContextSource, override: input.override,
+      ...(ONE_TIME_CODE_ENTRY_TOOLS.has(toolName) ? { inputTargets: probeInputTargets(input.request) } : {}),
     }),
     classifyWithoutTwoFactor: () =>
       classifyBrowserAction({ toolName, actionHint, elementContext, elementContextSource, ignoreTwoFactor: true }),
   });
   input.codeFill.scope = checked.codeFill;
   return checked.classification;
+}
+
+/** The fields a browser.type / browser.fill_form request writes to. */
+export function probeInputTargets(request: BrowserGuardedMutationRequest): BrowserProbeInputTargets {
+  const targets = request.fields ?? [{ selector: request.selector, uid: request.uid }];
+  return {
+    selectors: targets.flatMap((target) => (target.selector ? [target.selector] : [])),
+    hasUidTarget: targets.some((target) => Boolean(target.uid)),
+  };
 }

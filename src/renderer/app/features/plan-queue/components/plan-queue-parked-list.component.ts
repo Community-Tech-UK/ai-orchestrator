@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
-import type { PlanQueueItemDto, PlanQueueParkReason, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
+import { PLAN_QUEUE_SET_ASIDE_RESTART_LIMIT, type PlanQueueItemDto, type PlanQueueParkReason, type PlanQueueRunDto } from '@contracts/schemas/plan-queue';
 import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
 import { copyFor } from '../../../shared/tooltip/tooltip-copy';
 import { PlanQueueStore } from '../../../core/state/plan-queue.store';
@@ -33,6 +33,19 @@ export class PlanQueueParkedListComponent {
   runs = input<readonly PlanQueueRunDto[]>([]);
   busyDocuments = input<readonly string[]>([]);
   chooseChecker = output<string>();
+  sortOut = output<string>();
+  protected readonly restartLimit = PLAN_QUEUE_SET_ASIDE_RESTART_LIMIT;
+  /** One entry per project folder with set-aside jobs, biggest first. */
+  protected readonly agentFolders = computed(() => {
+    const folderOf = new Map(this.runs().map(run => [run.id, run.workspaceCwd]));
+    const jobs = new Map<string, number>();
+    for (const item of this.items()) {
+      const folder = folderOf.get(item.runId);
+      if (folder) jobs.set(folder, (jobs.get(folder) ?? 0) + 1);
+    }
+    return [...jobs].map(([folder, count]) => ({ folder, name: folder.split(/[\\/]/).filter(Boolean).at(-1) ?? folder, count }))
+      .sort((a, b) => b.count - a.count || a.folder.localeCompare(b.folder));
+  });
   protected readonly pluralise = pluralise;
   protected readonly reasonLabel = planQueueParkReasonLabel;
   protected readonly detailFor = foldDetail;

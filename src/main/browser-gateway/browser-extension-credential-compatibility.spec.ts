@@ -5,6 +5,7 @@ import {
   isExactSecureCredentialWriteCompletion,
   readHttpAuthCompletion,
   supportsSecureBrowserExtensionCredentialFill,
+  supportsBrowserExtensionOneTimeCodeProbe,
   supportsSecureBrowserExtensionHttpAuth,
 } from './browser-extension-credential-compatibility';
 
@@ -89,6 +90,26 @@ describe('browser extension credential compatibility', () => {
       .toThrow('shared_tab_secure_credential_write_not_confirmed');
     expect(() => confirmBrowserExtensionCredentialWrite({ ...exact, valueApplied: true }, 'public'))
       .toThrow('shared_tab_public_credential_write_not_confirmed');
+  });
+
+  describe('sign-in code box probe (probe_one_time_code)', () => {
+    it.each(['0.2.50', '0.3.0'])('asks a %s runtime', (version) => {
+      expect(supportsBrowserExtensionOneTimeCodeProbe(contactState(version), 'local')).toBe(true);
+    });
+
+    it.each([
+      ['one patch short', '0.2.49'],
+      ['prerelease floor', '0.2.50-rc.1'],
+      ['malformed', 'not-a-version'],
+      ['missing', undefined],
+    ])('never asks a %s runtime, which would reject the command', (_case, version) => {
+      expect(supportsBrowserExtensionOneTimeCodeProbe(contactState(version), 'local')).toBe(false);
+    });
+
+    it('never asks a stale channel or a runtime without start evidence', () => {
+      expect(supportsBrowserExtensionOneTimeCodeProbe(contactState('0.2.50', false), 'local')).toBe(false);
+      expect(supportsBrowserExtensionOneTimeCodeProbe(contactState('0.2.50', true, null), 'local')).toBe(false);
+    });
   });
 
   describe('HTTP auth answering (fill_http_auth)', () => {

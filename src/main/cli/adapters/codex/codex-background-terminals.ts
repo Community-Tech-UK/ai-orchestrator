@@ -6,6 +6,7 @@ import { errorDiagnostic } from '../../../logging/source-diagnostics';
 
 const logger = getLogger('CodexBackgroundTerminals');
 const REFRESH_TIMEOUT_MS = 3_000;
+const MODEL_ITEM_TYPES = new Set(['agentMessage', 'agent_message', 'reasoning']);
 type Terminal = { itemId: string; processId: string; command: string; cwd: string };
 type Work = { itemId: string; command: string };
 
@@ -45,6 +46,9 @@ export class CodexBackgroundTerminalTracker {
   private threadId: string | null = null;
   private work = new Map<string, Work>();
   private readonly unfinished = new Map<string, Work>();
+  /** Finished since the latest model call began, so that call cannot have read the result. */
+  private readonly finishedUnread = new Map<string, Work>();
+  private modelCallOpen = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private inFlight: Promise<boolean> | null = null;
   private epoch = 0;
@@ -70,20 +74,44 @@ export class CodexBackgroundTerminalTracker {
     if (!this.threadId || notification.params['threadId'] !== this.threadId) return;
     const { method, params } = notification;
     const item = params['item'] as { id?: string; type?: string; command?: string; status?: string } | undefined;
+    if (method === 'item/started' && item?.type) {
+      if (!MODEL_ITEM_TYPES.has(item.type)) {
+        this.modelCallOpen = false;
+      } else if (!this.modelCallOpen) {
+        this.modelCallOpen = true;
+        this.finishedUnread.clear();
+      }
+    }
     if ((method === 'item/started' || method === 'item/completed') && item?.type === 'commandExecution' && item.id) {
       this.revision++;
       if (method === 'item/started' || item.status === 'inProgress') {
         this.unfinished.set(item.id, { itemId: item.id, command: item.command ?? '' });
       } else {
+        const finished = this.unfinished.get(item.id);
         this.unfinished.delete(item.id);
+        let reported = false;
         for (const [id, work] of this.work) {
           if (work.itemId === item.id) {
             this.work.delete(id);
             this.complete(id, work);
+            reported = true;
           }
+        }
+        if (finished && !reported && (item.status === 'completed' || item.status === 'failed')) {
+          this.finishedUnread.set(item.id, finished);
         }
         this.publish();
       }
+    }
+    if (method === 'turn/completed') {
+      // The last model call can outlive a command, and Codex can hold the turn open
+      // long after that call, mainly to compact. Nothing else wakes the session then.
+      const turn = params['turn'] as { status?: string } | undefined;
+      if (turn?.status === 'completed') {
+        for (const [id, work] of this.finishedUnread) this.complete(`codex-item:${id}`, work);
+      }
+      this.finishedUnread.clear();
+      this.modelCallOpen = false;
     }
     if (method === 'turn/completed' && (this.unfinished.size > 0 || this.hasWork())) {
       this.revision++;
@@ -177,6 +205,8 @@ export class CodexBackgroundTerminalTracker {
     this.inFlight = null;
     this.work.clear();
     this.unfinished.clear();
+    this.finishedUnread.clear();
+    this.modelCallOpen = false;
     this.client = null;
     this.threadId = null;
     this.unsupported = false;

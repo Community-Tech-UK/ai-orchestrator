@@ -25,6 +25,9 @@ export function createPlanQueueDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
       glob?: string;
     }): Promise<IpcResponse> => ipcRenderer.invoke(ch.PLAN_QUEUE_START, payload),
 
+    planQueueStartSetAsideAgent: (payload: { workspaceCwd: string }): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.PLAN_QUEUE_START_SET_ASIDE_AGENT, payload),
+
     planQueueAnswer: (payload: { itemId: string; optionId: string }): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.PLAN_QUEUE_ANSWER, payload),
 

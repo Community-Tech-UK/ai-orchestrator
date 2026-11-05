@@ -9,6 +9,7 @@ import type { SerializedCodexRequestQueue } from '../cli/adapters/codex-app-serv
 import { InstanceContinuationRuntime } from './instance-continuation-runtime';
 import { InstanceCommunicationManager } from './instance-communication';
 import { InstanceAsyncWorkRegistry } from './instance-async-work-registry';
+import { recordInstanceTurnEnding } from './instance-turn-ending-state';
 
 vi.mock('../cli/adapters/codex/app-server-client', async (importOriginal) => ({
   ...await importOriginal<object>(), terminateProcessTree: vi.fn(),
@@ -45,6 +46,7 @@ class FixtureCodexAdapter extends CodexCliAdapter {
     this.isSpawned = true;
     this.appServerRuntime.attach(client, { threadId, resumeCursor: null, resumeProof: null },
       (notification) => this.handleIdleAppServerNotification(notification));
+    this.ensureAppServerRuntimeAttached();
   }
   override async prepareAttachmentsForAppServer(message: string, attachments: FileAttachment[]) {
     if (!this.attachmentPreparation) return super.prepareAttachmentsForAppServer(message, attachments);
@@ -318,6 +320,36 @@ describe('continuation admission through real communication and Codex queues', (
         expect(h.turnErrors).toEqual([]);
         if (mode === 'provider-turn') expect(h.adapter.hasPendingProviderAutoContinuation()).toBe(true);
       } finally { injected.resolve(); await h.close(); }
+    },
+  );
+
+  it.each(['before-idle', 'after-idle', 'after-idle-following-a-cutoff'] as const)(
+    'wakes Codex for a command that finished while it compacted after its last reply, with the turn completion arriving %s', async (order) => {
+      const h = harness();
+      const completion = () => h.events.emit('provider:normalized-event', { instanceId: 'root', provider: 'codex', event: {
+        kind: 'complete', requestCountAtCompletion: 3, turnEnding: { reason: 'completed', evidence: 'native_completed' },
+      } });
+      h.adapter.on('async_work', (event) => h.registry.observe('root', event));
+      h.adapter.on('status', (status) => {
+        h.events.emit('instance:state-changed', { instanceId: 'root', status });
+        if (status === 'idle' && order !== 'before-idle') completion();
+      });
+      try {
+        // The real ending listener must clear this before the wake asks for admission.
+        if (order === 'after-idle-following-a-cutoff') recordInstanceTurnEnding('root', 'max_output');
+        h.emit('turn/started', { threadId: 'thread-1', turn: { id: 'native-turn', status: 'inProgress' } });
+        await vi.waitFor(() => expect(h.instance.status).toBe('busy'));
+        const item = { threadId: 'thread-1', turnId: 'native-turn' };
+        h.emit('item/started', { ...item, item: { id: 'verify', type: 'commandExecution', command: 'npm run verify' } });
+        h.emit('item/completed', { ...item, item: { id: 'answer', type: 'agentMessage', text: 'Full verification is running.' } });
+        h.emit('item/completed', { ...item, item: { id: 'verify', type: 'commandExecution', status: 'failed' } });
+        h.emit('turn/completed', { threadId: 'thread-1', turn: { id: 'native-turn', status: 'completed' } });
+        if (order === 'before-idle') { expect(h.instance.status).toBe('busy'); completion(); }
+        await h.sent();
+        expect(h.committed()).toBe(1);
+        expect(JSON.stringify(h.inputRequests())).toContain('A background command you started has finished: `npm run verify`');
+        expect(h.registry.hasInhibitor('root')).toBe(false);
+      } finally { await h.close(); }
     },
   );
 

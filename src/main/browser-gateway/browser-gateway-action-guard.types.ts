@@ -14,6 +14,21 @@ import type { PuppeteerBrowserDriver } from './puppeteer-browser-driver';
 import type { BrowserTargetRegistry } from './browser-target-registry';
 import type { BrowserPageChallengeProbe } from './browser-page-challenge-probe';
 import type { BrowserOneTimeCodeFillLedger } from './browser-one-time-code-submit';
+import type { BrowserGatewayContext } from './browser-gateway-service-types';
+
+/**
+ * The request a guarded mutation is prepared for. The optional target fields
+ * are the caller's own: they tell the sign-in code box check which fields a
+ * browser.type / browser.fill_form writes to.
+ */
+export type BrowserGuardedMutationRequest = BrowserGatewayContext & {
+  profileId: string;
+  targetId: string;
+  requestId?: string;
+  selector?: string;
+  uid?: string;
+  fields?: ReadonlyArray<{ selector?: string; uid?: string }>;
+};
 
 export interface BrowserGatewayPreparedMutation {
   grant: BrowserPermissionGrant;
@@ -36,7 +51,7 @@ export interface BrowserGatewayActionGuardOptions {
   approvalStore: Pick<BrowserApprovalStore, 'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest'>;
   autoApproveRequests?: BrowserAutoApprovePredicate;
   escalations?: Pick<BrowserEscalationService, 'raise'>;
-  /** Live CAPTCHA evidence for page-acting tools (click/evaluate). */
+  /** Live CAPTCHA and sign-in code box evidence (browser-page-challenge-probe). */
   probePageChallenge?: BrowserPageChallengeProbe;
   /** One-time codes fill_credential typed; releases the click that submits one. */
   oneTimeCodeFills?: Pick<BrowserOneTimeCodeFillLedger, 'has' | 'consume'>;

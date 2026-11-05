@@ -1,7 +1,6 @@
 /** The checker spawn and teardown protocol, separate from item transitions. */
 import type { InstanceProvider } from '../../shared/types/instance.types';
 import { getLogger } from '../logging/logger';
-import { gitExec } from '../workspace/git/git-exec';
 import { snapshotTree, type TreeSnapshot } from './plan-queue-git';
 import { PlanQueueSpawnRoutingChanged } from './plan-queue-checker-routing';
 import { parkAfterVerifierRestoreFailure, PlanQueueSpawnRunPaused, restoreVerifierTree, usageWaitNote } from './plan-queue-run-hold';
@@ -19,6 +18,7 @@ const logger = getLogger('PlanQueueCheckerSpawn');
 interface CheckerSpawnDeps {
   host: PlanQueueFlowHost;
   snapshots: Map<string, TreeSnapshot>;
+  checkedBase(itemId: string): string;
   usageWaits: PlanQueueUsageWaits;
   prompt(item: PlanQueueItem, run: PlanQueueRun, baseBranch: string): Promise<string>;
   hold(item: PlanQueueItem): Promise<void>;
@@ -36,7 +36,7 @@ export async function spawnQueueChecker(deps: CheckerSpawnDeps, waiting: PlanQue
     try {
       const worktreePath = item.worktreePath!;
       deps.snapshots.set(item.id, await snapshotTree(worktreePath));
-      const mainTip = await gitExec(['rev-parse', `refs/heads/${baseBranch}`], run.workspaceCwd);
+      const mainTip = deps.checkedBase(item.id);
       item = deps.host.save({ ...item, verifiedMainCommit: mainTip });
       const instance = await deps.host.instances.createInstance({
         displayName: `Queue verifier · ${documentStem(item.documentPath)} (round ${item.round + 1})`,

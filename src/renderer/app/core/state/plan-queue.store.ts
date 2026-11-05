@@ -9,7 +9,7 @@ import type {
 } from '@contracts/schemas/plan-queue';
 import type { IpcResponse } from '../services/ipc/electron-ipc.service';
 import { PlanQueueIpcService, type PlanQueueStateChangedPush } from '../services/ipc/plan-queue-ipc.service';
-import { planQueueIsDiscarded } from './plan-queue-item-state';
+import { planQueueIsDiscarded } from '../../../../shared/utils/plan-queue-discarded';
 
 /**
  * One "real" open check from a livetest verdict — the classification a worker
@@ -58,6 +58,7 @@ export class PlanQueueStore {
   private loading = signal(false);
   private error = signal<string | null>(null);
   private wired = false;
+  private loadRequested = false;
 
   readonly allRuns = computed(() => this.runsSignal());
   readonly reconcilerAlerts = computed(() => this.alertsSignal());
@@ -136,7 +137,17 @@ export class PlanQueueStore {
     this.ipc.onStateChanged((event) => this.applyStateChanged(event));
   }
 
+  /**
+   * Load once, for views that only need the list kept current (the session list, the questions banner); the
+   * state-changed push keeps it live afterwards. Skipped once any load has been asked for, unless that load failed.
+   */
+  ensureLoaded(): void {
+    this.ensureWired();
+    if (!this.loadRequested) void this.load();
+  }
+
   async load(limit = 50): Promise<void> {
+    this.loadRequested = true;
     this.loading.set(true);
     this.error.set(null);
     try {
@@ -146,6 +157,8 @@ export class PlanQueueStore {
         this.alertsSignal.set(res.data.alerts);
         this.healthSignal.set(res.data.health);
       } else {
+        // A failed first load must not stop the next `ensureLoaded` from trying again.
+        this.loadRequested = false;
         this.error.set(res.error?.message ?? 'Failed to load plan queue runs');
       }
     } finally {
@@ -175,6 +188,14 @@ export class PlanQueueStore {
       this.error.set(res.error?.message ?? 'Failed to start plan queue run');
     }
     return res;
+  }
+
+  /** The session sorting out this folder's set-aside jobs; null when it could not start. */
+  async startSetAsideAgent(workspaceCwd: string): Promise<string | null> {
+    const res = await this.ipc.startSetAsideAgent(workspaceCwd);
+    if (res.success && res.data) return res.data.instanceId;
+    this.error.set(res.error?.message ?? 'Failed to start the set-aside agent');
+    return null;
   }
 
   async answer(itemId: string, optionId: string): Promise<void> {

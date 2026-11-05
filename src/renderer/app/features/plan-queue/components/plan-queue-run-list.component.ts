@@ -11,6 +11,7 @@ import type {
 import { PlanQueueItemListComponent, planQueueStateLabel } from './plan-queue-item-list.component';
 import { PlanQueueRoutingPanelComponent } from './plan-queue-routing-panel.component';
 import { PlanQueueRunControlsComponent } from './plan-queue-run-controls.component';
+import { PlanQueueRunOwnerComponent, type PlanQueueSessionOption } from './plan-queue-run-owner.component';
 import { planQueueChecksLabel, planQueueKindLabel, pluralise } from '../plan-queue-item-display';
 import { isNotReachedItem, PLAN_QUEUE_NOT_REACHED_LABEL } from '../../../../../shared/utils/plan-queue-item-outcome';
 
@@ -84,7 +85,7 @@ export function planQueueRoutingSummary(
 @Component({
   selector: 'app-plan-queue-run-list',
   standalone: true,
-  imports: [AioTooltipDirective, PlanQueueItemListComponent, PlanQueueRunControlsComponent, PlanQueueRoutingPanelComponent],
+  imports: [AioTooltipDirective, PlanQueueItemListComponent, PlanQueueRunControlsComponent, PlanQueueRunOwnerComponent, PlanQueueRoutingPanelComponent],
   templateUrl: './plan-queue-run-list.component.html',
   styleUrl: './plan-queue-run-list.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -93,6 +94,8 @@ export class PlanQueueRunListComponent {
   runs = input<PlanQueueRunDto[]>([]);
   /** Account display names for the summaries; ids are shown until they load. */
   accountLabel = input<PlanQueueAccountLabel | null>(null);
+  /** Sessions for the parent line and the move choice; null hides the line. */
+  sessions = input<readonly PlanQueueSessionOption[] | null>(null);
 
   pauseRun = output<string>();
   resumeRun = output<string>();

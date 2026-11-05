@@ -36,7 +36,7 @@ import { browserMutationResult } from './browser-mutation-result';
 import { classifyGuardedActionWithCodeFill, type OneTimeCodeFillHolder } from './browser-one-time-code-submit';
 import type {
   BrowserGatewayActionGuardOptions,
-  BrowserGatewayMutationPreparation,
+  BrowserGatewayMutationPreparation, BrowserGuardedMutationRequest,
   BrowserGatewayPreparedMutation,
 } from './browser-gateway-action-guard.types';
 export type {
@@ -84,7 +84,7 @@ export class BrowserGatewayActionGuard {
   }
 
   async prepareMutatingAction(
-    request: BrowserGatewayContext & { profileId: string; targetId: string; requestId?: string },
+    request: BrowserGuardedMutationRequest,
     action: string,
     toolName: string,
     selector: string,
@@ -104,7 +104,7 @@ export class BrowserGatewayActionGuard {
   }
 
   private async prepareManagedMutatingAction(
-    request: BrowserGatewayContext & { profileId: string; targetId: string; requestId?: string },
+    request: BrowserGuardedMutationRequest,
     action: string,
     toolName: string,
     selector: string,
@@ -483,7 +483,7 @@ export class BrowserGatewayActionGuard {
   }
 
   mutationFailed(
-    request: BrowserGatewayContext & { profileId: string; targetId: string; requestId?: string },
+    request: BrowserGuardedMutationRequest,
     action: string,
     toolName: string,
     prepared: BrowserGatewayPreparedMutation,
@@ -501,7 +501,7 @@ export class BrowserGatewayActionGuard {
   }
 
   private async prepareExistingTabMutatingAction(
-    request: BrowserGatewayContext & { profileId: string; targetId: string; requestId?: string },
+    request: BrowserGuardedMutationRequest,
     attachment: BrowserExistingTabAttachment,
     action: string,
     toolName: string,

@@ -80,6 +80,28 @@ describe('PlanQueueStore', () => {
     });
   });
 
+  it('loads once for views that only keep the list current, and not again after any load', async () => {
+    const store = TestBed.inject(PlanQueueStore);
+    store.ensureLoaded();
+    store.ensureLoaded();
+    await vi.waitFor(() => expect(store.allRuns()).toHaveLength(1));
+    expect(ipc.list).toHaveBeenCalledTimes(1);
+    expect(ipc.onStateChanged).toHaveBeenCalledTimes(1);
+    await store.load();
+    store.ensureLoaded();
+    expect(ipc.list).toHaveBeenCalledTimes(2);
+  });
+
+  it('tries again on the next ensureLoaded after a failed load', async () => {
+    ipc.list.mockResolvedValueOnce({ success: false, error: { message: 'Not ready' } });
+    const store = TestBed.inject(PlanQueueStore);
+    store.ensureLoaded();
+    await vi.waitFor(() => expect(store.lastError()).toBe('Not ready'));
+    store.ensureLoaded();
+    await vi.waitFor(() => expect(store.allRuns()).toHaveLength(1));
+    expect(ipc.list).toHaveBeenCalledTimes(2);
+  });
+
   it('loads runs and alerts', async () => {
     const store = TestBed.inject(PlanQueueStore);
     await store.load();

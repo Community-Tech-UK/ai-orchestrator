@@ -1,6 +1,6 @@
 import { signal, ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -104,6 +104,7 @@ describe('PlanQueuePageComponent', () => {
     needsAnswerItems: ReturnType<typeof signal<unknown[]>>;
     questionGroups: ReturnType<typeof signal<unknown[]>>;
     parkedItems: ReturnType<typeof signal<unknown[]>>;
+    startSetAsideAgent: ReturnType<typeof vi.fn>;
     needJamesReal: ReturnType<typeof signal<unknown[]>>;
     policyGatedCount: ReturnType<typeof signal<number>>;
     queueHealth: ReturnType<typeof signal<PlanQueueHealth | null>>;
@@ -117,6 +118,10 @@ describe('PlanQueuePageComponent', () => {
   };
   let settings: ReturnType<typeof signal<{ planQueueRouting: PlanQueueRouting; providersExcludedFromAutomation: string[] }>>;
   let providerAccounts: ReturnType<typeof vi.fn>;
+  let setSelectedInstance: ReturnType<typeof vi.fn>;
+  let rootInstances: ReturnType<typeof signal<Record<string, unknown>[]>>;
+  let instances: ReturnType<typeof signal<Record<string, unknown>[]>>;
+  let ipcControl: ReturnType<typeof vi.fn>;
 
   function clickTab(label: string): void {
     const tab = Array.from(fixture.nativeElement.querySelectorAll('[role="tab"]') as NodeListOf<HTMLButtonElement>)
@@ -127,6 +132,11 @@ describe('PlanQueuePageComponent', () => {
   beforeEach(async () => {
     settings = signal({ planQueueRouting: { workers: [], verifiers: [] }, providersExcludedFromAutomation: [] });
     providerAccounts = vi.fn().mockResolvedValue({ profiles: [], pools: {} });
+    rootInstances = signal<Record<string, unknown>[]>([
+      { id: 'inst-1', displayName: 'Root session', provider: 'claude', workingDirectory: '/repo-a' },
+    ]);
+    instances = signal<Record<string, unknown>[]>([]);
+    ipcControl = vi.fn().mockResolvedValue({ success: true, data: null });
     store = {
       allRuns: signal([]),
       reconcilerAlerts: signal([]),
@@ -145,14 +155,16 @@ describe('PlanQueuePageComponent', () => {
       answer: vi.fn().mockResolvedValue(undefined),
       control: vi.fn().mockResolvedValue(undefined),
       diffstat: vi.fn().mockResolvedValue(''),
+      startSetAsideAgent: vi.fn().mockResolvedValue('agent-1'),
     };
+    setSelectedInstance = vi.fn();
 
     await TestBed.configureTestingModule({
       imports: [PlanQueuePageComponent],
       providers: [
         provideRouter([]),
         { provide: PlanQueueStore, useValue: store },
-        { provide: PlanQueueIpcService, useValue: { preview: vi.fn().mockResolvedValue({ success: true, data: { found: 1, hiddenCopies: 0, hiddenCountComplete: true } }) } },
+        { provide: PlanQueueIpcService, useValue: { control: ipcControl, preview: vi.fn().mockResolvedValue({ success: true, data: { found: 1, hiddenCopies: 0, hiddenCountComplete: true } }) } },
         {
           provide: SettingsStore,
           useValue: {
@@ -166,11 +178,7 @@ describe('PlanQueuePageComponent', () => {
         { provide: CopilotAccountIpcService, useValue: { list: vi.fn().mockResolvedValue([]) } },
         {
           provide: InstanceStore,
-          useValue: {
-            rootInstances: signal([
-              { id: 'inst-1', displayName: 'Root session', provider: 'claude', workingDirectory: '/repo-a' },
-            ]),
-          },
+          useValue: { rootInstances, instances, setSelectedInstance },
         },
       ],
     }).compileComponents();
@@ -316,6 +324,46 @@ describe('PlanQueuePageComponent', () => {
     expect(store.control).toHaveBeenCalledWith({ action: 'pause', runId: 'run-x' });
   });
 
+  it('names each run’s parent session and moves the run to a session James chooses', async () => {
+    instances.set([
+      { id: 'inst-1', displayName: 'Owner', provider: 'codex', status: 'busy', parentId: null, workingDirectory: '/repo' },
+      { id: 'inst-2', displayName: 'Taker', provider: 'codex', status: 'idle', parentId: null, workingDirectory: '/repo' },
+      { id: 'inst-helper', displayName: 'Helper', provider: 'claude', status: 'idle', parentId: 'inst-1', workingDirectory: '/repo' },
+      { id: 'inst-queue', displayName: 'Queue · a', provider: 'claude', status: 'idle', parentId: null, workingDirectory: '/repo', metadata: { planQueueRole: 'worker' } },
+      { id: 'inst-failed', displayName: 'Broken', provider: 'claude', status: 'failed', parentId: null, workingDirectory: '/repo' },
+      { id: 'inst-set-aside', displayName: 'Sort out set-aside work: repo', provider: 'claude', status: 'idle', parentId: null, workingDirectory: '/repo',
+        metadata: { planQueueSetAsideFolder: '/repo' } },
+    ]);
+    store.allRuns.set([makeRun({ id: 'run-x', status: 'running', parentInstanceId: 'inst-1' })]);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const owner = fixture.nativeElement.querySelector('.pq-run-owner') as HTMLElement;
+    expect(owner.textContent).toContain('Parent session: Owner (codex) — /repo');
+    (owner.querySelector('.pq-run-owner-change') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    const select = owner.querySelector('select') as HTMLSelectElement;
+    expect(Array.from(select.options).map(option => option.textContent?.trim())).toEqual(['Choose a session…', 'Taker (codex) — /repo']);
+    select.value = 'inst-2';
+    select.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    (owner.querySelector('.pq-run-owner-confirm') as HTMLButtonElement).click();
+    await fixture.whenStable();
+
+    expect(ipcControl).toHaveBeenCalledWith({ action: 'handover', runId: 'run-x', targetInstanceId: 'inst-2' });
+    expect(store.control).not.toHaveBeenCalled();
+  });
+
+  it('names a helper session that owns a run, and says when the owner is no longer open', async () => {
+    store.allRuns.set([makeRun({ id: 'run-x', status: 'running', parentInstanceId: 'inst-helper' })]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.pq-run-owner')?.textContent).toContain('Parent session: a session that is no longer open');
+
+    instances.set([{ id: 'inst-helper', displayName: 'Helper', provider: 'claude', status: 'idle', parentId: 'inst-1', workingDirectory: '/repo' }]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.pq-run-owner')?.textContent).toContain('Parent session: Helper (claude) — /repo');
+  });
+
   it('forwards Setup controls after Choose a checker, retaining Cancel and Skip confirmations', async () => {
     const parked = { ...PARKED_ITEM, parkReason: 'no-diverse-verifier' as const };
     const working = { ...NEEDS_ANSWER_ITEM, id: 'working', state: 'working' as const, question: null, workerInstanceId: 'worker-live' };
@@ -382,6 +430,28 @@ describe('PlanQueuePageComponent', () => {
     (fixture.nativeElement.querySelector('.pq-confirm-yes') as HTMLButtonElement).click();
 
     expect(store.control).toHaveBeenCalledWith({ action: 'discard-item', itemId: 'item-parked' });
+  });
+
+  it('opens the Set aside agent session once it has started, and stays put if it could not', async () => {
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    await fixture.componentInstance.onSortOut('/repo');
+    expect(store.startSetAsideAgent).toHaveBeenCalledWith('/repo');
+    expect(setSelectedInstance).toHaveBeenCalledWith('agent-1');
+    expect(navigate).toHaveBeenCalledWith(['/']);
+
+    setSelectedInstance.mockClear();
+    navigate.mockClear();
+    store.startSetAsideAgent.mockResolvedValue(null);
+    await fixture.componentInstance.onSortOut('/repo');
+    expect(setSelectedInstance).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('warns that Discard deletes work', async () => {
+    store.parkedItems.set([PARKED_ITEM]);
+    clickTab('Set aside');
+    expect(fixture.nativeElement.textContent).toContain('including any work that never reached main');
+    expect(fixture.nativeElement.textContent).not.toContain('safe clean-up');
   });
 
   it('shows the need-James panel only when there is something to report', async () => {
@@ -455,7 +525,10 @@ describe('PlanQueuePageComponent', () => {
       change.click(); fixture.detectChanges(); await fixture.whenStable();
       expect(row.querySelector('app-plan-queue-routing-panel')).not.toBeNull();
       expect(row.querySelector('.pq-routing-move-progress')).toBeNull();
+      // Each old run still holds a set-aside job, which only its owner can act on, so it can be moved.
+      expect(row.querySelector('.pq-run-owner-change')).not.toBeNull();
     }
+    expect(fixture.nativeElement.querySelectorAll('.pq-section-runs > app-plan-queue-run-list .pq-run-owner')).toHaveLength(2);
     expect(store.control).not.toHaveBeenCalled();
   });
 

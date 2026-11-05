@@ -4,7 +4,8 @@ import { foldDetail, planQueueCheckGroupLabel, pluralise } from '../plan-queue-i
 import { copyFor } from '../../../shared/tooltip/tooltip-copy';
 import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
 import { queueItemSpendLabel } from './plan-queue-spend-label';
-import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, input, output, signal } from '@angular/core';
+import { PLAN_QUEUE_STAGE_TICK_MS, planQueueStageLine } from '../plan-queue-stage-text';
 import type {
   PlanQueueItemDto,
   PlanQueueItemState,
@@ -73,6 +74,8 @@ export function planQueueVerdictSummary(verdict: PlanQueueVerdict | null): strin
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PlanQueueItemListComponent {
+  /** Moves the shown step times on while the page is open. */
+  private readonly now = signal(Date.now());
   protected readonly copy = copyFor;
   items = input<PlanQueueItemDto[]>([]);
   maxRounds = input.required<number>();
@@ -88,6 +91,11 @@ export class PlanQueueItemListComponent {
 
   skipItem = output<string>();
 
+  constructor() {
+    const timer = setInterval(() => this.now.set(Date.now()), PLAN_QUEUE_STAGE_TICK_MS);
+    inject(DestroyRef).onDestroy(() => clearInterval(timer));
+  }
+
   protected readonly spendLabel = queueItemSpendLabel;
   protected readonly documentBasename = planQueueDocumentBasename;
   protected readonly stateLabel = planQueueStateLabel;
@@ -98,6 +106,11 @@ export class PlanQueueItemListComponent {
   protected readonly foldedDetail = foldDetail;
   protected readonly checkGroupLabel = planQueueCheckGroupLabel;
   protected readonly pluralise = pluralise;
+
+  /** The same live line the session list shows while Harness checks or lands this job, or it waits for that. */
+  stageText(item: PlanQueueItemDto): string | null {
+    return planQueueStageLine(item, this.now())?.text ?? null;
+  }
 
   /** Readiness questions (needs-answer) and a waiting worker's question (working / fixing). */
   hasOpenQuestion(state: PlanQueueItemState): boolean {

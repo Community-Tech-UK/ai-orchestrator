@@ -423,19 +423,51 @@ export interface BrowserPageChallengeEvidence {
   detected: boolean;
   /** Set when the probe could not run; the action is then classified without page evidence. */
   unavailable?: string;
+  /**
+   * Sign-in code box evidence (browser-one-time-code-field-probe.ts). Absent
+   * when it was not probed or could not be (an older extension): the action is
+   * then classified exactly as before, from the hint or inspected element.
+   */
+  oneTimeCode?: {
+    codeField: boolean;
+    filled: boolean;
+    targetIsCodeField: boolean;
+  };
 }
+
+/**
+ * Tools that act on the page as a whole: they must not act on a live CAPTCHA,
+ * and they can submit a code already in the page, so a filled code box stops them.
+ */
+export const PAGE_ACTING_TOOLS: ReadonlySet<string> = new Set([
+  'browser.click',
+  'browser.evaluate',
+  'browser.press_key',
+]);
+
+/** Tools that write into fields: writing into a code box stops them (typing can itself submit). */
+export const ONE_TIME_CODE_ENTRY_TOOLS: ReadonlySet<string> = new Set([
+  'browser.type',
+  'browser.fill_form',
+]);
 
 /**
  * Apply page-level challenge evidence on top of an element classification.
  * Payment and identity hard stops stay stronger: they are never grantable.
+ *
+ * A one-time code is only ever entered by browser.fill_credential, which
+ * bypasses this classifier and records a fill that lets the following submit
+ * click through (browser-one-time-code-submit.ts). So a page whose own code
+ * box is being written to, or is filled and about to be submitted, is the
+ * two-factor step whatever the agent called the control. An empty code box
+ * alone stops nothing, so "Send code", "Resend" and cookie banners still pass.
+ * An existing hard stop keeps its own (stronger or equal) reason.
  */
 export function withPageChallengeEvidence(
   classification: BrowserActionClassification,
   evidence: BrowserPageChallengeEvidence | undefined,
+  toolName: string,
 ): BrowserActionClassification {
-  if (!evidence?.detected) {
-    return classification;
-  }
   if (
     classification.actionClass === 'payment'
     || classification.actionClass === 'financial_identity'
@@ -443,7 +475,18 @@ export function withPageChallengeEvidence(
   ) {
     return classification;
   }
-  return { actionClass: 'credential', hardStop: true, reason: CAPTCHA_CHALLENGE_REASON };
+  if (evidence?.detected && PAGE_ACTING_TOOLS.has(toolName)) {
+    return { actionClass: 'credential', hardStop: true, reason: CAPTCHA_CHALLENGE_REASON };
+  }
+  const code = evidence?.oneTimeCode;
+  if (!code || classification.hardStop) {
+    return classification;
+  }
+  const submitsCode = PAGE_ACTING_TOOLS.has(toolName) && code.filled;
+  const entersCode = ONE_TIME_CODE_ENTRY_TOOLS.has(toolName) && code.targetIsCodeField;
+  return submitsCode || entersCode
+    ? { actionClass: 'credential', hardStop: true, reason: TWO_FACTOR_CHALLENGE_REASON }
+    : classification;
 }
 
 export function classifyBrowserFillForm(

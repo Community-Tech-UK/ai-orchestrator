@@ -256,6 +256,9 @@ describe('browser extension assets', () => {
     // of a misleading host-permission failure, and a command aimed at it
     // loads it first.
     '0.2.49': '6529b4644a4a',
+    // probe_one_time_code: boolean-only sign-in code box evidence for the action
+    // guard, answering even on an origin a password fill has protected.
+    '0.2.50': '9b418260a69d',
   };
 
   it('ships each background bundle under its own manifest version', () => {

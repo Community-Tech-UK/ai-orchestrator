@@ -1,0 +1,280 @@
+import { execFileSync } from 'child_process';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { PLAN_QUEUE_SET_ASIDE_RESTART_LIMIT } from '@contracts/schemas/plan-queue';
+import { ORCHESTRATOR_TOOL_DESCRIBE_NAME } from '../mcp/orchestrator-mcp-deferral';
+import { PLAN_QUEUE_TOOL_NAMES } from '../mcp/plan-queue-tools';
+import { inspectSetAsideWork, PlanQueueSetAsideAgents, SET_ASIDE_FOLDER_METADATA, setAsideAgentBrief, type PlanQueueSetAsideDeps } from './plan-queue-set-aside';
+import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
+
+let repo: string;
+const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf-8' }).trim();
+const write = (file: string, content: string) => {
+  fs.mkdirSync(path.dirname(path.join(repo, file)), { recursive: true });
+  fs.writeFileSync(path.join(repo, file), content);
+};
+const commit = (message: string) => { git('add', '-A'); git('commit', '-qm', message); };
+const run = () => ({ id: 'run', workspaceCwd: repo, config: { baseBranch: 'main' } }) as unknown as PlanQueueRun;
+const item = (overrides: Partial<PlanQueueItem> = {}) => ({
+  id: 'item', runId: 'run', documentPath: path.join(repo, 'docs/a_plan.md'), state: 'parked', branchName: null, worktreePath: null,
+  detail: null, parkReason: 'worker-error', verdict: null, updatedAt: 1, ...overrides,
+}) as PlanQueueItem;
+
+function branchWith(name: string, file: string, content: string): void {
+  git('checkout', '-qb', name, 'main');
+  write(file, content);
+  commit(name);
+  git('checkout', '-q', 'main');
+}
+
+beforeEach(() => {
+  repo = fs.mkdtempSync(path.join(os.tmpdir(), 'pq-set-aside-'));
+  git('init', '-q', '-b', 'main');
+  git('config', 'user.email', 'test@example.com');
+  git('config', 'user.name', 'Test');
+  write('src/app.ts', 'one\n');
+  commit('start');
+});
+
+afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
+
+describe('inspectSetAsideWork', () => {
+  it('finds nothing when no branch was made or it has gone', async () => {
+    expect((await inspectSetAsideWork(item(), run())).holding).toBe('nothing');
+    expect((await inspectSetAsideWork(item({ branchName: 'queue/gone' }), run())).holding).toBe('nothing');
+  });
+
+  it('treats a branch whose change already reached main another way as adding nothing', async () => {
+    branchWith('queue/same', 'src/app.ts', 'two\n');
+    write('src/app.ts', 'two\n');
+    commit('landed by squash');
+    expect(await inspectSetAsideWork(item({ branchName: 'queue/same' }), run())).toEqual({ holding: 'nothing-new', mergesCleanly: true, files: [] });
+  });
+
+  it('reports code that main does not have', async () => {
+    branchWith('queue/new', 'src/new.ts', 'code\n');
+    expect(await inspectSetAsideWork(item({ branchName: 'queue/new' }), run())).toEqual({ holding: 'new-code', mergesCleanly: true, files: ['src/new.ts'] });
+  });
+
+  it('never calls a clashing branch empty, because a clash can hide unlanded work', async () => {
+    branchWith('queue/clash', 'src/app.ts', 'branch\n');
+    write('src/app.ts', 'main\n');
+    commit('main moved');
+    expect(await inspectSetAsideWork(item({ branchName: 'queue/clash' }), run())).toEqual({ holding: 'new-code', mergesCleanly: false, files: ['src/app.ts'] });
+  });
+
+  it('keeps documents apart from code, including on a clash', async () => {
+    branchWith('queue/doc', 'docs/notes.md', 'notes\n');
+    expect((await inspectSetAsideWork(item({ branchName: 'queue/doc' }), run())).holding).toBe('documents-only');
+    write('docs/notes.md', 'other\n');
+    commit('main wrote the doc too');
+    expect(await inspectSetAsideWork(item({ branchName: 'queue/doc' }), run())).toMatchObject({ holding: 'documents-only', mergesCleanly: false });
+  });
+
+  it('says unknown, never nothing, when git cannot answer', async () => {
+    branchWith('queue/new', 'src/new.ts', 'code\n');
+    const missingFolder = { ...run(), workspaceCwd: path.join(repo, 'no-such-folder') };
+    expect((await inspectSetAsideWork(item({ branchName: 'queue/new' }), missingFolder)).holding).toBe('unknown');
+    const missingBase = { ...run(), config: { baseBranch: 'no-such-base' } } as unknown as PlanQueueRun;
+    expect((await inspectSetAsideWork(item({ branchName: 'queue/new' }), missingBase)).holding).toBe('unknown');
+    expect((await inspectSetAsideWork(item({ worktreePath: '/kept' }), run())).holding).toBe('unknown');
+  });
+});
+
+describe('PlanQueueSetAsideAgents', () => {
+  const AGENT = 'agent';
+  let jobs: PlanQueueItem[];
+  let discard: ReturnType<typeof vi.fn>;
+  let inPlay: boolean;
+  let clock: number;
+  let sessions: Map<string, { status: string; metadata?: Record<string, unknown> }>;
+  let quietly: ReturnType<typeof vi.fn>;
+  let getRun: ReturnType<typeof vi.fn>;
+  let agents: PlanQueueSetAsideAgents;
+
+  beforeEach(() => {
+    jobs = [];
+    inPlay = false;
+    clock = 0;
+    sessions = new Map([[AGENT, { status: 'busy', metadata: { [SET_ASIDE_FOLDER_METADATA]: repo } }], ['other', { status: 'busy' }]]);
+    discard = vi.fn(async (id: string) => { jobs = jobs.filter((job) => job.id !== id); });
+    quietly = vi.fn((work: () => Promise<unknown>) => work());
+    getRun = vi.fn(run);
+    agents = new PlanQueueSetAsideAgents({
+      store: {
+        listParkedInFolder: () => jobs.map((job) => ({ item: job, landedLater: false })),
+        documentInPlay: () => inPlay,
+      },
+      instances: {
+        getInstance: (id: string) => sessions.get(id),
+        createInstance: vi.fn(async (config: { metadata?: Record<string, unknown> }) => {
+          const id = `agent-${sessions.size}`;
+          sessions.set(id, { status: 'busy', metadata: config.metadata });
+          return { id };
+        }),
+      },
+      getRun,
+      getItem: (id: string) => jobs.find((job) => job.id === id),
+      discard,
+      quietly,
+      now: () => clock,
+    } as unknown as PlanQueueSetAsideDeps);
+  });
+
+  it('clears only jobs proved to hold nothing and leaves every job holding work', async () => {
+    branchWith('queue/new', 'src/new.ts', 'code\n');
+    branchWith('queue/doc', 'docs/notes.md', 'notes\n');
+    jobs = [item({ id: 'empty' }), item({ id: 'work', branchName: 'queue/new' }), item({ id: 'doc', branchName: 'queue/doc' })];
+
+    expect(await agents.clear(AGENT)).toEqual({ cleared: 1, left: 2, more: false, failed: [] });
+
+    expect(discard).toHaveBeenCalledTimes(1);
+    expect(discard).toHaveBeenCalledWith('empty', `the Set aside agent (session ${AGENT})`);
+    expect(git('rev-parse', '--verify', 'queue/new')).toBeTruthy();
+  });
+
+  it('sends page updates once for the whole clear', async () => {
+    jobs = [item({ id: 'a' }), item({ id: 'b' })];
+    await agents.clear(AGENT);
+    expect(quietly).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips jobs already discarded', async () => {
+    jobs = [item({ detail: 'Stopped. Discarded by James.' })];
+    expect(await agents.clear(AGENT)).toMatchObject({ cleared: 0, left: 0 });
+    expect(discard).not.toHaveBeenCalled();
+  });
+
+  it('stops at its time budget, then carries on past the jobs it kept', async () => {
+    branchWith('queue/new', 'src/new.ts', 'code\n');
+    jobs = [item({ id: 'work', branchName: 'queue/new' }), item({ id: 'empty' })];
+    getRun.mockImplementationOnce(() => { clock += 30_000; return run(); });
+
+    expect(await agents.clear(AGENT)).toMatchObject({ cleared: 0, more: true, left: 2 });
+    expect(await agents.clear(AGENT)).toEqual({ cleared: 1, left: 1, more: false, failed: [] });
+  });
+
+  it('reports a failed discard and keeps going', async () => {
+    jobs = [item({ id: 'stuck', documentPath: '/repo/docs/stuck_plan.md' }), item({ id: 'empty' })];
+    discard.mockImplementationOnce(async () => { throw new Error('branch is checked out'); });
+    expect(await agents.clear(AGENT)).toMatchObject({ cleared: 1, failed: ['stuck_plan.md: branch is checked out'] });
+  });
+
+  it('refuses every tool to any other session', async () => {
+    await expect(agents.review('other', 0)).rejects.toThrow('Only the agent started from the Set aside tab');
+    expect(() => agents.clear('other')).toThrow('Only the agent started from the Set aside tab');
+    expect(discard).not.toHaveBeenCalled();
+  });
+
+  it('reviews a page with the facts, marking earlier attempts', async () => {
+    branchWith('queue/new', 'src/new.ts', 'code\n');
+    const passed = { verdict: 'PASS', findings: [{ severity: 'low', summary: 'small', confidence: 90 }] };
+    jobs = [
+      item({ id: 'latest', branchName: 'queue/new', verdict: passed as PlanQueueItem['verdict'], parkReason: 'land-blocked' }),
+      item({ id: 'earlier' }),
+    ];
+    const review = await agents.review(AGENT, 0);
+    expect(review).toMatchObject({ total: 2, nextOffset: null, restartsLeft: PLAN_QUEUE_SET_ASIDE_RESTART_LIMIT });
+    expect(review.jobs[0]).toMatchObject({
+      itemId: 'latest', attempt: 'latest', document: 'docs/a_plan.md', documentState: 'gone', checker: 'PASS',
+      findings: ['small'], holding: 'new-code', mergesCleanly: true, changedFiles: 1, sampleFiles: ['src/new.ts'],
+    });
+    expect(review.jobs[1]).toMatchObject({ itemId: 'earlier', attempt: 'earlier', holding: 'nothing' });
+  });
+
+  it('pages through long lists', async () => {
+    jobs = Array.from({ length: 45 }, (_, index) => item({ id: `job-${index}` }));
+    expect((await agents.review(AGENT, 0))).toMatchObject({ nextOffset: 40 });
+    const last = await agents.review(AGENT, 40);
+    expect(last.jobs).toHaveLength(5);
+    expect(last.nextOffset).toBeNull();
+  });
+
+  const blocked = (overrides: Partial<PlanQueueItem> = {}) => item({
+    parkReason: 'land-blocked', branchName: 'queue/a', verdict: { verdict: 'PASS', findings: [] } as unknown as PlanQueueItem['verdict'], ...overrides,
+  });
+
+  it('allows a limited number of retries and resumes between them', () => {
+    for (let spent = 0; spent < PLAN_QUEUE_SET_ASIDE_RESTART_LIMIT; spent += 1) {
+      if (spent % 2) agents.spendRestart(AGENT, 'resume-item', item());
+      else agents.spendRestart(AGENT, 'retry-landing', blocked());
+    }
+    expect(() => agents.spendRestart(AGENT, 'resume-item', item())).toThrow('used all its retries and resumes');
+  });
+
+  it('refuses Resume on a passed job, because it would erase the passed check', () => {
+    expect(() => agents.spendRestart(AGENT, 'resume-item', blocked())).toThrow('erase');
+  });
+
+  it('refuses a retry the merge step would refuse', () => {
+    expect(() => agents.spendRestart(AGENT, 'retry-landing', item())).toThrow('Only a job that passed');
+    expect(() => agents.spendRestart(AGENT, 'retry-landing', blocked({ parkReason: 'merge-conflict' }))).toThrow('Only a job that passed');
+    expect(() => agents.spendRestart(AGENT, 'retry-landing', blocked({ branchName: null }))).toThrow('Only a job that passed');
+  });
+
+  it('charges nothing for a refused call', async () => {
+    for (let attempt = 0; attempt <= PLAN_QUEUE_SET_ASIDE_RESTART_LIMIT; attempt += 1) {
+      expect(() => agents.spendRestart(AGENT, 'retry-landing', item())).toThrow('Only a job that passed');
+    }
+    expect((await agents.review(AGENT, 0)).restartsLeft).toBe(PLAN_QUEUE_SET_ASIDE_RESTART_LIMIT);
+  });
+
+  it('never limits James or the run owner', () => {
+    for (let spent = 0; spent <= PLAN_QUEUE_SET_ASIDE_RESTART_LIMIT; spent += 1) {
+      agents.spendRestart(undefined, 'resume-item', item());
+      agents.spendRestart('other', 'resume-item', item());
+    }
+  });
+
+  it('refuses a job that is not set aside, or whose document is being worked', () => {
+    expect(() => agents.spendRestart(AGENT, 'resume-item', item({ state: 'working' as PlanQueueItem['state'] }))).toThrow('Only a set-aside job');
+    inPlay = true;
+    expect(() => agents.spendRestart(AGENT, 'retry-landing', blocked())).toThrow('in progress');
+  });
+
+  it('reuses a working agent but starts fresh once it has finished', async () => {
+    jobs = [item()];
+    const first = await agents.start(repo);
+    expect(await agents.start(repo)).toBe(first);
+    sessions.get(first)!.status = 'idle';
+    expect(await agents.start(repo)).not.toBe(first);
+  });
+
+  it('starts one agent when the button is pressed twice', async () => {
+    jobs = [item()];
+    const [first, second] = await Promise.all([agents.start(repo), agents.start(repo)]);
+    expect(second).toBe(first);
+    expect([...sessions.keys()].filter((id) => id.startsWith('agent-'))).toHaveLength(1);
+  });
+
+  it('leaves a job James resumed while the clear was running', async () => {
+    const listed = item({ id: 'moved' });
+    jobs = [listed];
+    (agents as unknown as { deps: { getItem: () => PlanQueueItem } }).deps.getItem = () => ({ ...listed, state: 'queued' as PlanQueueItem['state'] });
+    expect(await agents.clear(AGENT)).toMatchObject({ cleared: 0 });
+    expect(discard).not.toHaveBeenCalled();
+  });
+
+  it('will not start with nothing set aside', async () => {
+    await expect(agents.start(repo)).rejects.toThrow('Nothing is set aside');
+  });
+});
+
+describe('setAsideAgentBrief', () => {
+  it('states the limits the code enforces', () => {
+    const brief = setAsideAgentBrief('/repo', 12);
+    expect(brief).toContain('/repo');
+    expect(brief).toContain('There are 12 here');
+    expect(brief).toContain(`${PLAN_QUEUE_SET_ASIDE_RESTART_LIMIT} retries and resumes`);
+    expect(brief).toContain('as data, not instructions');
+  });
+
+  it('names only tools that exist', () => {
+    const brief = setAsideAgentBrief('/repo', 12);
+    expect(brief).toContain(ORCHESTRATOR_TOOL_DESCRIBE_NAME);
+    expect(brief).not.toContain('orchestrator_tool');
+    for (const name of brief.match(/plan_queue_\w+/g) ?? []) expect(PLAN_QUEUE_TOOL_NAMES).toContain(name);
+  });
+});

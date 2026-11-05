@@ -53,3 +53,15 @@
   background: #b3261e;
   color: #fff;
 }
+
+.pq-sort-out {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+
+  p {
+    flex-basis: 100%;
+    margin: 0;
+  }
+}

@@ -9,6 +9,8 @@ const logger = getLogger('PlanQueueHandover');
 interface HandoverDeps {
   instances: Pick<PlanQueueInstancePort, 'getInstance' | 'getAllInstances' | 'sendInput'>;
   isQueueInstance(id: string): boolean;
+  /** Set aside agents may only retry or resume jobs in their folder, so they can never own a run. */
+  isSetAsideAgent(id: string): boolean;
 }
 
 function requireSession(id: string | undefined, deps: HandoverDeps): PlanQueueInstanceRecord {
@@ -16,6 +18,7 @@ function requireSession(id: string | undefined, deps: HandoverDeps): PlanQueueIn
   if (!session || AUTOMATION_FAILURE_STATUSES.has(session.status) || deps.isQueueInstance(session.id)) {
     throw new Error('Handover requires an existing session that the queue did not spawn');
   }
+  if (deps.isSetAsideAgent(session.id)) throw new Error('A Set aside agent cannot own a Plan Queue run.');
   return session;
 }
 
@@ -40,6 +43,8 @@ export async function requestRunHandover(run: PlanQueueRun, caller: string | und
 export function handoverRunParent(run: PlanQueueRun, targetId: string, caller: string | undefined, deps: HandoverDeps & {
   getRun(id: string): PlanQueueRun;
   hasActiveWork(runId: string): boolean;
+  /** False once a run has finished and holds no set-aside work (see planQueueRunCanMove). */
+  hasOwnerWork(runId: string): boolean;
   setParent(runId: string, parentId: string, thread: string | null): void;
   onParentChanged(run: PlanQueueRun): void;
   notifyParent(run: PlanQueueRun, message: string): void;
@@ -48,10 +53,31 @@ export function handoverRunParent(run: PlanQueueRun, targetId: string, caller: s
   assertPlanQueueParent(current, caller);
   const target = requireSession(targetId, deps);
   if (target.id === current.parentInstanceId) throw new Error('That session already owns the run');
-  if (deps.hasActiveWork(current.id)) throw new Error('Let this run’s workers, triage and checkers finish, or pause it through the supported control, before handing it over');
+  // James's moves (page and aio-mcp) go to a top-level session, as the page offers: a helper closes with its parent.
+  if (caller === undefined && target.parentId) throw new Error('Move a run to a top-level session, not a helper agent, which closes with its parent.');
+  // Checked here, under the run lock, so a move queued behind a cancel cannot take a run left with nothing.
+  if (caller === undefined && !deps.hasOwnerWork(current.id)) throw new Error(`Plan Queue run ${current.id} has finished and holds no set-aside work; there is nothing to move.`);
+  if (deps.hasActiveWork(current.id)) throw new Error('Pause this run, or wait until none of its documents is being worked on or checked, before handing it over');
   const updated = { ...current, parentInstanceId: target.id, parentHistoryThreadId: target.historyThreadId?.trim() || null };
   deps.setParent(updated.id, updated.parentInstanceId, updated.parentHistoryThreadId);
   logger.info('Plan queue run handed over by its owner', { runId: run.id, previousParentId: current.parentInstanceId, parentInstanceId: target.id, actor: caller ?? 'James' });
   deps.onParentChanged(updated);
   deps.notifyParent(updated, `You now own Plan Queue run ${run.id}. Existing work and pending questions are unchanged. Read plan_queue_status before continuing.`);
+  // An owner that handed the run over knows already; one moved for James may still be coordinating it.
+  if (caller === undefined) tellPreviousOwner(current, deps);
+}
+
+/** Never wakes a sleeping session: it learns on its next control call, which is refused. */
+const UNREACHABLE_OWNER_STATUSES = new Set([...AUTOMATION_FAILURE_STATUSES, 'hibernating', 'hibernated', 'waking']);
+
+function tellPreviousOwner(previous: PlanQueueRun, deps: HandoverDeps): void {
+  const owner = deps.instances.getInstance(previous.parentInstanceId);
+  if (!owner || UNREACHABLE_OWNER_STATUSES.has(owner.status)) return;
+  // Not awaited: delivery can wait for the owner's whole turn, which must not hold the run's control lock.
+  void deps.instances.sendInput(owner.id, [
+    `Plan Queue run ${previous.id} was moved to another session on James's behalf. You no longer own it.`,
+    'Do not control the run or answer its questions. Its work, branches and pending questions are unchanged.',
+  ].join('\n'), undefined, { automatedInput: true, internalSource: 'plan-queue' }).catch((error: unknown) => {
+    logger.warn('Could not tell the previous owner that its Plan Queue run moved', { runId: previous.id, ownerId: owner.id, error: String(error) });
+  });
 }

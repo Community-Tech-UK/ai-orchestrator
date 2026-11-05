@@ -10,13 +10,31 @@ import { credentialFailureCode } from './browser-credential-fill-targeting';
 import type { BrowserGatewayFillCredentialRequest } from './browser-gateway-service-types';
 import { CredentialVaultError } from './browser-credential-vault';
 import { CREDENTIAL_VAULT_ERROR_CODES } from './browser-credential-vault-codes';
+import { EmailCodeReaderError, MailboxReaderError } from './browser-email-code-reader';
+
+const loggerWarn = vi.hoisted(() => vi.fn());
+vi.mock('../logging/logger', () => ({
+  getLogger: () => ({ debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: loggerWarn }),
+}));
 
 const ORIGIN = 'https://portal.in-tendhost.co.uk';
 
 describe('resolveEmailSenderDomains', () => {
-  it('defaults to the origin host when no domains are requested', () => {
-    expect(resolveEmailSenderDomains(ORIGIN, undefined)).toEqual(['portal.in-tendhost.co.uk']);
-    expect(resolveEmailSenderDomains(ORIGIN, [])).toEqual(['portal.in-tendhost.co.uk']);
+  it('defaults to the origin\'s registrable domain when no domains are requested', () => {
+    // The common case is a noreply@ sender on the parent domain, which the
+    // explicit-domain rule below already accepts; the default matches it.
+    expect(resolveEmailSenderDomains(ORIGIN, undefined)).toEqual(['in-tendhost.co.uk']);
+    expect(resolveEmailSenderDomains(ORIGIN, [])).toEqual(['in-tendhost.co.uk']);
+  });
+
+  it('defaults to the host itself when it has no registrable domain', () => {
+    expect(resolveEmailSenderDomains('http://localhost:4567', undefined)).toEqual(['localhost']);
+    expect(resolveEmailSenderDomains('http://127.0.0.1:4567', undefined)).toEqual(['127.0.0.1']);
+  });
+
+  it('never defaults to a public or platform suffix', () => {
+    // A tenant of a platform suffix is its own registrable domain.
+    expect(resolveEmailSenderDomains('https://foo.github.io', undefined)).toEqual(['foo.github.io']);
   });
 
   it('accepts the exact host, subdomains, the registrable domain, and siblings', () => {
@@ -67,17 +85,29 @@ describe('resolveEmailSenderDomains', () => {
       expect(resolveEmailSenderDomains(GOV_ORIGIN, [NOTIFY], [NOTIFY])).toEqual([NOTIFY]);
     });
 
-    it('includes declared senders alongside the origin host by default', () => {
+    it('includes declared senders alongside the registrable domain by default', () => {
       expect(resolveEmailSenderDomains(GOV_ORIGIN, undefined, [NOTIFY])).toEqual([
-        'auth.reportmi.gca.gov.uk',
+        'gca.gov.uk',
         NOTIFY,
       ]);
     });
 
-    it('does not duplicate a declared sender that is the origin host', () => {
+    it('does not duplicate a declared sender that is the default domain', () => {
       expect(
-        resolveEmailSenderDomains(GOV_ORIGIN, undefined, ['auth.reportmi.gca.gov.uk']),
-      ).toEqual(['auth.reportmi.gca.gov.uk']);
+        resolveEmailSenderDomains(GOV_ORIGIN, undefined, ['gca.gov.uk']),
+      ).toEqual(['gca.gov.uk']);
+    });
+
+    it('defaults to the parent domain Report MI actually sends from', () => {
+      // report-mi@gca.gov.uk, for a sign-in page on auth.reportmi.gca.gov.uk.
+      expect(resolveEmailSenderDomains(GOV_ORIGIN, undefined)).toEqual(['gca.gov.uk']);
+      expect(resolveEmailSenderDomains(GOV_ORIGIN, ['gca.gov.uk'])).toEqual(['gca.gov.uk']);
+    });
+
+    it('refuses public suffixes and other government departments', () => {
+      expect(resolveEmailSenderDomains(GOV_ORIGIN, ['gov.uk'])).toBeNull();
+      expect(resolveEmailSenderDomains(GOV_ORIGIN, ['service.gov.uk'])).toBeNull();
+      expect(resolveEmailSenderDomains(GOV_ORIGIN, ['hmrc.gov.uk'])).toBeNull();
     });
 
     it('still rejects any sender the authorization did not declare', () => {
@@ -877,5 +907,86 @@ describe('fillCredentialOperation one-time code fill record', () => {
 
     expect(result).toMatchObject({ decision: 'denied', outcome: 'failed' });
     expect(recordOneTimeCodeFill).not.toHaveBeenCalled();
+  });
+});
+
+describe('fillCredentialOperation email_code failures', () => {
+  const PAGE = 'https://auth.reportmi.gca.gov.uk';
+  const TAB = { profileId: 'existing-tab:n.node-1:7:42', targetId: 'existing-tab:n.node-1:7:42:target' };
+
+  function makeDeps(fetchCode: NonNullable<FillOperationDeps['emailCodeReader']>['fetchCode']) {
+    const driverType = vi.fn(async () => undefined);
+    const deps: FillOperationDeps = {
+      result: (<T>(input: unknown) => input as BrowserGatewayResult<T>) as FillOperationDeps['result'],
+      hasExistingTab: () => true,
+      sharedTabCredentialFillAllowed: () => true,
+      sharedTabSecureCredentialFillSupported: () => true,
+      resolveCredentialProfileScope: () => 'node-1',
+      type: vi.fn(),
+      select: vi.fn(),
+      click: vi.fn(),
+      readControl: vi.fn(),
+      driverType,
+      httpAuthNavigate: vi.fn(),
+      refreshTargetOrigin: vi.fn(async () => PAGE),
+      credentialVault: {
+        getSecretForFill: vi.fn(),
+        createAgentCredential: vi.fn(),
+        getGenericSecretForFill: vi.fn(),
+      } as unknown as FillOperationDeps['credentialVault'],
+      credentialAuthorizations: {
+        check: vi.fn(() => ({ authorized: true as const })),
+      } as unknown as FillOperationDeps['credentialAuthorizations'],
+      emailCodeReader: { fetchCode },
+    };
+    return { deps, driverType };
+  }
+
+  const fill = (deps: FillOperationDeps) =>
+    fillCredentialOperation(deps, {
+      instanceId: 'instance-1', ...TAB, vaultItemRef: 'opaque-vault-ref',
+      fields: [{ selector: '#mfa-code', kind: 'email_code' }],
+    });
+
+  it('reads Report MI codes from the parent domain without being told the sender', async () => {
+    const fetchCode = vi.fn(async () => ({ code: '604213', messageId: 'm1', matchedSender: 'report-mi@gca.gov.uk' }));
+    const { deps, driverType } = makeDeps(fetchCode);
+
+    const result = await fill(deps);
+
+    expect(result).toMatchObject({ decision: 'allowed', outcome: 'succeeded' });
+    expect(fetchCode).toHaveBeenCalledWith(expect.objectContaining({ expectedSenderDomains: ['gca.gov.uk'] }));
+    expect(driverType).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    [new EmailCodeReaderError('no mail', 'no_matching_message'), 'email_code_no_matching_message', undefined],
+    [new EmailCodeReaderError('no code', 'code_not_found'), 'email_code_not_found_in_message', undefined],
+    [new MailboxReaderError('mailbox_unavailable', 'process_error:ENOENT'), 'email_code_mailbox_unavailable', 'process_error:ENOENT'],
+    [new MailboxReaderError('mailbox_timeout', 'tools/call:search_messages'), 'email_code_mailbox_timeout', 'tools/call:search_messages'],
+  ])('reports %s as the fixed code %s and logs only its category', async (error, code, detail) => {
+    loggerWarn.mockClear();
+    const { deps, driverType } = makeDeps(vi.fn(async () => { throw error; }));
+
+    const result = await fill(deps);
+
+    expect(result).toMatchObject({ decision: 'denied', outcome: 'failed', reason: `vault_resolve:${code}` });
+    expect(driverType).not.toHaveBeenCalled();
+    expect(loggerWarn).toHaveBeenCalledExactlyOnceWith('Email code read failed', {
+      failure: code,
+      ...(detail ? { detail } : {}),
+      senderDomains: 1,
+    });
+  });
+
+  it('never passes free-form error text through, even when it quotes a code', async () => {
+    loggerWarn.mockClear();
+    const { deps } = makeDeps(vi.fn(async () => { throw new Error('Your MFA code is: 604213'); }));
+
+    const result = await fill(deps);
+
+    expect(result).toMatchObject({ reason: 'vault_resolve:credential_fill_failed' });
+    expect(JSON.stringify(result)).not.toContain('604213');
+    expect(JSON.stringify(loggerWarn.mock.calls)).not.toContain('604213');
   });
 });

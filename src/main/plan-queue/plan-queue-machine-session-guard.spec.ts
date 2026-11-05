@@ -49,6 +49,8 @@ describe('plan queue machine session call-site guard', () => {
     expect(calls.sort((a, b) => a.role.localeCompare(b.role))).toEqual([
       { file: 'plan-queue-spawn.ts', role: 'forwarded', hasRun: true },
       { file: 'plan-queue-spawn.ts', role: 'forwarded', hasRun: true },
+      // James starts this one and talks to it, so it is an ordinary session, not a machine one.
+      { file: 'plan-queue-set-aside.ts', role: 'MISSING', hasRun: false },
       { file: 'plan-queue-triage.ts', role: 'triage', hasRun: true },
       { file: 'plan-queue-checker-spawn.ts', role: 'verifier', hasRun: true },
       { file: 'plan-queue-item-flow.ts', role: 'worker', hasRun: true },

@@ -30,6 +30,7 @@ import { runLocalAiCli } from './local-ai-cli';
 import { runBrowserCredentialsCli } from './browser-credentials-cli';
 import { runCopilotAccountCli } from './copilot-account-cli';
 import { runLoopCli } from './loop-cli';
+import { runPlanQueueCli } from './plan-queue-cli';
 import { runConnectorForwarder } from './connector-forwarder';
 import { runPauseCli } from './pause-cli';
 import { runMicrosoft365Cli } from './microsoft365-cli';
@@ -49,6 +50,7 @@ const SUBCOMMANDS = {
   'browser-credentials': runBrowserCredentialsCli,
   'copilot-account': runCopilotAccountCli,
   loop: runLoopCli,
+  'plan-queue': runPlanQueueCli,
   pause: runPauseCli,
   connector: runConnectorForwarder,
   microsoft365: runMicrosoft365Cli,
@@ -100,6 +102,7 @@ function formatHelp(): string {
     '  browser-credentials Request approval to use a saved login; manage fill grants',
     '  copilot-account     Inspect Copilot profiles and workspace routing',
     '  loop                List parked loops and resume one',
+    '  plan-queue          See who owns each Plan Queue run and move one to another session',
     '  pause               Check, hold or release new work',
     '  connector           Connect a session to an assigned connector',
     '  microsoft365        Ask James to approve adding a Microsoft 365 account connector',

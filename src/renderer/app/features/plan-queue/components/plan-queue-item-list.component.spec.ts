@@ -106,6 +106,27 @@ describe('PlanQueueItemListComponent', () => {
     expect(fixture.nativeElement.textContent).not.toContain('base-tip');
   });
 
+  it('shows the same live step line as the session list while Harness checks the job', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+    try {
+      vi.setSystemTime(100 * 60_000);
+      const local = TestBed.createComponent(PlanQueueItemListComponent);
+      local.componentRef.setInput('maxRounds', 3);
+      local.componentRef.setInput('items', [
+        makeItem({ state: 'verifying', detail: 'Running checks', stage: { name: 'checks', startedAt: 88 * 60_000 } }),
+        makeItem({ id: 'item-2' }),
+      ]);
+      local.detectChanges();
+      const lines = () => Array.from(local.nativeElement.querySelectorAll('.pq-item-stage') as NodeListOf<HTMLElement>).map(line => line.textContent?.trim());
+      expect(lines()).toEqual(['Checking 2026-09-18-thing: tests running, 12 min']);
+      await vi.advanceTimersByTimeAsync(60_000);
+      local.detectChanges();
+      expect(lines()).toEqual(['Checking 2026-09-18-thing: tests running, 13 min']);
+      local.destroy();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+
   it('omits group coverage for receipts from a solo or legacy check', () => {
     fixture.componentRef.setInput('items', [makeItem({ verdict: {
       verdict: 'PASS', findings: [], documentComplete: true, needJames: [], gatesRun: [{ command: 'check', exitCode: 0 }],

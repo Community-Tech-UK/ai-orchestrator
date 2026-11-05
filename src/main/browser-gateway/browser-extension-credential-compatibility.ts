@@ -12,6 +12,9 @@ export const BROWSER_EXTENSION_SECURE_CREDENTIAL_FILL_MIN_VERSION = '0.2.18';
 /** First extension bundle that can answer Chrome's own HTTP Basic/Digest prompt. */
 export const BROWSER_EXTENSION_HTTP_AUTH_MIN_VERSION = '0.2.43';
 
+/** First extension bundle with the boolean-only `probe_one_time_code` command. */
+export const BROWSER_EXTENSION_ONE_TIME_CODE_PROBE_MIN_VERSION = '0.2.50';
+
 /** Parse bounded runtime evidence from an authenticated extension RPC. */
 export function browserExtensionRuntimeFromPayload(
   payload: Record<string, unknown>,
@@ -95,6 +98,14 @@ export function supportsSecureBrowserExtensionCredentialFill(
 export function isSecureBrowserExtensionRuntimeEvidence(
   runtime: { extensionVersion?: string; extensionStartedAt?: number } | undefined,
 ): boolean {
+  return isRuntimeAtLeast(runtime, BROWSER_EXTENSION_SECURE_CREDENTIAL_FILL_MIN_VERSION);
+}
+
+/** Well-formed runtime evidence from a started bundle at or above `minVersion`. */
+function isRuntimeAtLeast(
+  runtime: { extensionVersion?: string; extensionStartedAt?: number } | undefined,
+  minVersion: string,
+): boolean {
   const extensionVersion = runtime?.extensionVersion;
   if (
     !extensionVersion
@@ -105,10 +116,7 @@ export function isSecureBrowserExtensionRuntimeEvidence(
   ) {
     return false;
   }
-  return compareSemverVersions(
-    extensionVersion,
-    BROWSER_EXTENSION_SECURE_CREDENTIAL_FILL_MIN_VERSION,
-  ) >= 0;
+  return compareSemverVersions(extensionVersion, minVersion) >= 0;
 }
 
 /**
@@ -133,20 +141,24 @@ export function supportsSecureBrowserExtensionHttpAuth(
 export function isSecureBrowserExtensionHttpAuthRuntimeEvidence(
   runtime: { extensionVersion?: string; extensionStartedAt?: number } | undefined,
 ): boolean {
-  const extensionVersion = runtime?.extensionVersion;
-  if (
-    !extensionVersion
-    || runtime.extensionStartedAt === undefined
-    || !Number.isInteger(runtime.extensionStartedAt)
-    || runtime.extensionStartedAt < 0
-    || !parseSemver(extensionVersion)
-  ) {
-    return false;
-  }
-  return compareSemverVersions(
-    extensionVersion,
-    BROWSER_EXTENSION_HTTP_AUTH_MIN_VERSION,
-  ) >= 0;
+  return isRuntimeAtLeast(runtime, BROWSER_EXTENSION_HTTP_AUTH_MIN_VERSION);
+}
+
+/**
+ * Whether this exact channel/install can answer `probe_one_time_code`. An older
+ * bundle would reject the unknown command; the guard then keeps its hint-only
+ * classification rather than sending it.
+ */
+export function supportsBrowserExtensionOneTimeCodeProbe(
+  contactState: BrowserExtensionContactStateReader,
+  channelId: string,
+  extensionInstanceId?: string,
+): boolean {
+  return contactState.isExtensionContactFresh(channelId)
+    && isRuntimeAtLeast(
+      contactState.getExtensionRuntime?.(channelId, extensionInstanceId),
+      BROWSER_EXTENSION_ONE_TIME_CODE_PROBE_MIN_VERSION,
+    );
 }
 
 export type HttpAuthOutcome = 'answered' | 'rejected' | 'not_challenged';

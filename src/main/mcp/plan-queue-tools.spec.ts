@@ -30,6 +30,9 @@ function fakeOps(): PlanQueueToolOperations & { calls: unknown[][] } {
     control: vi.fn(async (...args: unknown[]) => record('control')(...args)),
     reportVerdict: record('reportVerdict'),
     reportTriage: record('reportTriage'),
+    setAside: vi.fn(async (...args: unknown[]) => record('setAside')(...args)),
+    clearSetAside: vi.fn(async (...args: unknown[]) => record('clearSetAside')(...args)),
+    moveRun: vi.fn(async (_caller: string, _runId: string, targetInstanceId: string) => ({ ownerInstanceId: targetInstanceId })),
     isQueueInstance: (id) => id === WORKER,
   };
 }
@@ -48,6 +51,18 @@ const call = (s: OrchestratorToolsRpcServer, instanceId: string, tool: string, p
   s.handleRequest({ jsonrpc: '2.0', id: 1, method: `orchestrator_tools.${tool}`, params: { instanceId, payload } });
 
 describe('plan queue MCP tools', () => {
+  it('passes the Set aside tools to the coordinator and hides them from queue sessions', async () => {
+    const ops = fakeOps();
+    const tools = createPlanQueueToolDefinitions({ instanceId: PARENT, planQueueTools: ops });
+    await tools.find((tool) => tool.name === 'plan_queue_set_aside')!.handler({ offset: 40 });
+    await tools.find((tool) => tool.name === 'plan_queue_set_aside')!.handler({});
+    await tools.find((tool) => tool.name === 'plan_queue_set_aside_clear')!.handler({});
+    expect(ops.calls).toEqual([['setAside', PARENT, 40], ['setAside', PARENT, 0], ['clearSetAside', PARENT]]);
+    const queueTools = createPlanQueueToolDefinitions({ instanceId: WORKER, planQueueTools: ops }).map((tool) => tool.name);
+    expect(queueTools).not.toContain('plan_queue_set_aside');
+    expect(queueTools).not.toContain('plan_queue_set_aside_clear');
+  });
+
   it('advertises batch limits and forwards a validated batch size from the authenticated caller', async () => {
     const ops = fakeOps();
     const start = createPlanQueueToolDefinitions({ instanceId: PARENT, planQueueTools: ops }).find(tool => tool.name === 'plan_queue_start')!;

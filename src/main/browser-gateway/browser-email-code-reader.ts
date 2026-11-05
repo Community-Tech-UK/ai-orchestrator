@@ -10,9 +10,8 @@
  *  - a recency window anchored to when the signup/login flow was started.
  *
  * Fully injectable (`MailboxReader`) so this unit-tests against an in-memory
- * fake with no real IMAP connection and no real mailbox. A production adapter
- * over the existing imap MCP or a node imap client is wired in later, out of
- * scope for this module.
+ * fake with no real IMAP connection and no real mailbox. The production
+ * adapter is `ImapMcpMailboxReader` (browser-imap-mailbox-reader).
  *
  * Never logs message bodies or extracted codes — both are one-time secrets.
  */
@@ -28,6 +27,12 @@ export interface MailboxMessage {
 
 export interface MailboxSearchCriteria {
   sinceMs: number;
+  /**
+   * Only messages from these sender domains (or their subdomains) are wanted.
+   * A reader filters by sender BEFORE reading any message body, so unrelated
+   * mail is never read and a busy inbox cannot push the code out of the window.
+   */
+  senderDomains: string[];
   limit?: number;
 }
 
@@ -35,6 +40,23 @@ export interface MailboxSearchCriteria {
 export interface MailboxReader {
   /** Returns matching messages, newest-first. */
   search(criteria: MailboxSearchCriteria): Promise<MailboxMessage[]>;
+}
+
+/**
+ * Why the mailbox itself could not be read, as a fixed category. `detail` is
+ * also drawn from a fixed vocabulary (plus a validated errno such as ENOENT),
+ * never from free-form server text, so it is safe to log.
+ */
+export type MailboxReaderFailure = 'mailbox_unavailable' | 'mailbox_timeout';
+
+export class MailboxReaderError extends Error {
+  constructor(
+    readonly code: MailboxReaderFailure,
+    readonly detail: string,
+  ) {
+    super(`${code}:${detail}`);
+    this.name = 'MailboxReaderError';
+  }
 }
 
 export interface EmailCodeRequest {
@@ -87,12 +109,17 @@ export class BrowserEmailCodeReader {
     const windowStart = Math.max(request.sinceMs, now - request.withinMs);
     const allowedDomains = request.expectedSenderDomains.map((domain) => domain.toLowerCase());
 
-    const messages = await this.reader.search({ sinceMs: request.sinceMs });
+    const messages = await this.reader.search({
+      sinceMs: request.sinceMs,
+      senderDomains: allowedDomains,
+    });
+    // Re-checked here as well: the sender allowlist is a security boundary and
+    // must not depend on how a reader implements its own pre-filter.
     const candidates = messages.filter(
       (message) =>
         message.receivedAt >= windowStart &&
         message.receivedAt <= now &&
-        matchesAllowedDomain(message.from, allowedDomains),
+        senderMatchesDomains(message.from, allowedDomains),
     );
 
     if (candidates.length === 0) {
@@ -118,7 +145,8 @@ export class BrowserEmailCodeReader {
   }
 }
 
-function matchesAllowedDomain(from: string, allowedDomains: string[]): boolean {
+/** Whether a From header's address is at one of the domains or a subdomain of one. */
+export function senderMatchesDomains(from: string, allowedDomains: readonly string[]): boolean {
   const domain = domainOf(from);
   if (!domain) {
     return false;

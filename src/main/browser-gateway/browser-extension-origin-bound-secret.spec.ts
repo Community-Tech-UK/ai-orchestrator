@@ -1414,6 +1414,11 @@ return runBrowserCommand;`,
       'shared_tab_http_auth_write_not_confirmed',
       'http_auth_managed_profiles_unsupported',
       'http_auth_rejected',
+      // email_code mailbox read categories (fixed, never mailbox text).
+      'email_code_no_matching_message',
+      'email_code_not_found_in_message',
+      'email_code_mailbox_unavailable',
+      'email_code_mailbox_timeout',
     ]));
   });
 

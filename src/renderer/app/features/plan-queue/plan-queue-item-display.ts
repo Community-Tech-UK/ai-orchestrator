@@ -46,6 +46,12 @@ export function foldDetail(detail: string | null | undefined): FoldedDetail | nu
   };
 }
 
+/** `…/desk-shared-crm_plan.md` → `desk-shared-crm`. */
+export function planQueueDocumentLabel(documentPath: string): string {
+  const name = documentPath.split(/[\\/]/).pop() ?? documentPath;
+  return name.replace(/\.md$/i, '').replace(/_(plan|livetest|spec(_planned)?)$/i, '');
+}
+
 /** Real singular/plural, never "item(s)". */
 export function pluralise(count: number, singular: string, plural = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;

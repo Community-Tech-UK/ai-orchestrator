@@ -3,6 +3,7 @@ import {
   CREDENTIAL_VAULT_ERROR_CODES,
   WRITE_CONFIRMATION_CODES,
 } from './browser-credential-vault-codes';
+import { EMAIL_CODE_FAILURE_CODES } from './browser-credential-email-senders';
 
 /**
  * Credential fill targeting and failure classification.
@@ -63,6 +64,8 @@ export const SAFE_CREDENTIAL_CODES: ReadonlySet<string> = new Set([
   'shared_tab_public_credential_write_not_confirmed',
   'credential_authorization_changed',
   'browser_verify_readback_invalid',
+  // email_code mailbox reads: fixed categories, never mailbox text.
+  ...Object.values(EMAIL_CODE_FAILURE_CODES),
   // HTTP Basic/Digest answering (browser.fill_http_auth): main-process gate
   // refusals plus the extension's fixed http_auth_* vocabulary.
   'shared_tab_http_auth_unavailable',

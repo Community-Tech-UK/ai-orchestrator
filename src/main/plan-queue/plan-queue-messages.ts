@@ -9,6 +9,7 @@
 
 import type {
   PlanQueueItemDto,
+  PlanQueueItemStage,
   PlanQueueNeedJamesEntry,
   PlanQueueQuestion,
   PlanQueueRunDto,
@@ -18,9 +19,11 @@ import { isNotReachedItem } from '../../shared/utils/plan-queue-item-outcome';
 import { relaxedSettingsFor } from './plan-queue-relaxation';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 
-export function itemToDto(item: PlanQueueItem): PlanQueueItemDto {
+/** `stage` is sent only while it applies, so the many finished items cost nothing extra. */
+export function itemToDto(item: PlanQueueItem, stage: PlanQueueItemStage | undefined): PlanQueueItemDto {
   return {
     ...(item.spend ? { spend: item.spend } : {}),
+    ...(stage ? { stage } : {}),
     id: item.id,
     runId: item.runId,
     documentPath: item.documentPath,
@@ -47,7 +50,8 @@ export function itemToDto(item: PlanQueueItem): PlanQueueItemDto {
   };
 }
 
-export function runToDto(run: PlanQueueRun, items: readonly PlanQueueItem[], checks: PlanQueueRunDto['checks']): PlanQueueRunDto {
+export function runToDto(run: PlanQueueRun, items: readonly PlanQueueItem[], checks: PlanQueueRunDto['checks'],
+  stages: ReadonlyMap<string, PlanQueueItemStage>): PlanQueueRunDto {
   const spends = [run.spend, ...items.map(item => item.spend)].filter(spend => spend !== undefined);
   const spend = spends.length ? spends.reduce((total, entry) => ({ tokens: total.tokens + entry.tokens, costUsd: total.costUsd + entry.costUsd, exactUsd: total.exactUsd + entry.exactUsd, unpricedTokens: (total.unpricedTokens ?? 0) + (entry.unpricedTokens ?? 0) }), { tokens: 0, costUsd: 0, exactUsd: 0, unpricedTokens: 0 }) : undefined;
   return {
@@ -64,7 +68,7 @@ export function runToDto(run: PlanQueueRun, items: readonly PlanQueueItem[], che
     relaxedSettings: relaxedSettingsFor(run),
     startedAt: run.startedAt,
     endedAt: run.endedAt,
-    items: items.map(itemToDto),
+    items: items.map(item => itemToDto(item, stages.get(item.id))),
   };
 }
 

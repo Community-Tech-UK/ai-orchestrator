@@ -1,5 +1,13 @@
 <div class="pq-parked-list">
   @if (items().length === 0) { <div class="pq-parked-empty">No work set aside.</div> }
+  @if (agentFolders().length > 0) {
+    <section class="pq-sort-out" aria-label="Sort out with an agent">
+      <p>An agent clears jobs that hold nothing, then lists what needs you. It can't delete work or merge without checks. It may retry merges or resume jobs up to {{ restartLimit }} times in all, which uses provider usage.</p>
+      @for (entry of agentFolders(); track entry.folder) {
+        <button type="button" class="pq-sort-out-start" (click)="sortOut.emit(entry.folder)">Sort out {{ entry.name }} ({{ pluralise(entry.count, 'job') }})</button>
+      }
+    </section>
+  }
   @for (reason of bulkReasons(); track reason) {
     <button type="button" class="pq-bulk-resume" (click)="bulkReason.set(reason)">Preview resuming those set aside: {{ reasonLabel(reason) }}</button>
   }

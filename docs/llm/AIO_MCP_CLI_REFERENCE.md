@@ -38,6 +38,8 @@ $AIO_MCP settings set <key> <json-value> [--json]
 $AIO_MCP settings reset <key> [--json]
 $AIO_MCP loop list [--all] [--limit <n>] [--json]
 $AIO_MCP loop resume <loop-run-id> [--json]
+$AIO_MCP plan-queue list [--all] [--json]
+$AIO_MCP plan-queue move <run-id> [--to <session-id>] [--json]
 $AIO_MCP remote-nodes [--json]
 $AIO_MCP local-ai --help
 $AIO_MCP release-readiness --help
@@ -56,6 +58,17 @@ prompts James to approve it. That instruction is on you, not on a dialog: before
 you resume a loop James did not just ask you to resume, say which loop and why.
 The one hard gate is `maxSpawnDepth` — a session at the ceiling is refused,
 because resuming starts new agent work. `loop list` still works there.
+
+`plan-queue move <run-id>` makes you (or the `--to` session) the owner of a Plan
+Queue run with James's authority, as Move on the Plan Queue page does. Use it only
+for work James has asked you to do, typically when the owner has not answered a
+`request-handover`, and say which run you moved and why. It is refused for sessions
+the queue started, for a finished run with no set-aside jobs left, and while any of the
+run's documents is being worked on or checked: pause the run first. The previous
+owner is told unless it is asleep. `plan-queue list` shows the runs that can be moved
+(every running or paused run, and finished runs in your folder that still hold
+set-aside jobs; `--all` adds other folders) with their owners and the command to
+take each over.
 
 `loop` is not `aio-loop-control`. `aio-loop-control` is the control channel
 inside a running loop iteration (`complete`, `block`, `wakeup`, `fail`) and
@@ -89,7 +102,8 @@ record his choice with `plan_queue_answer`. Answer and control are refused
 from anyone but the session that started the run, except one rescue: once that
 session no longer exists, another session may `cancel` the stranded run or
 `discard-item` one of its parked items (do it only when James asked; the item
-detail records who did it). `plan_queue_report_triage` and
+detail records who did it). To take over a run whose owner is still there but
+will not hand it over, use `$AIO_MCP plan-queue move <run_id>` (see Main Commands). `plan_queue_report_triage` and
 `plan_queue_report_verdict` belong to the queue's own triage and verifier
 sessions and are refused from anyone else. These are MCP tools, not `$AIO_MCP`
 CLI subcommands.

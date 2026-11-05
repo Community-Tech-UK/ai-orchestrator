@@ -77,6 +77,73 @@ describe('Codex background terminals', () => {
     expect(h.events.filter((e) => e.phase === 'terminal')).toEqual([expect.objectContaining({ workId: 'codex-term:process-1' })]);
     h.tracker.reset();
   });
+  it('reports a command that finishes after the last reply while Codex holds the turn open to compact', () => {
+    const h = harness();
+    h.observe('item/started', { item: { id: 'item-1', type: 'commandExecution', command: 'npm run verify' } });
+    h.observe('item/started', { item: { id: 'reply-1', type: 'agentMessage' } });
+    h.observe('item/completed', { item: { id: 'reply-1', type: 'agentMessage' } });
+    h.observe('item/started', { item: { id: 'compact-1', type: 'contextCompaction' } });
+    h.observe('item/completed', { item: { id: 'item-1', type: 'commandExecution', status: 'failed' } });
+    expect(h.events.filter((e) => e.phase === 'terminal')).toEqual([]);
+    h.observe('item/completed', { item: { id: 'compact-1', type: 'contextCompaction' } });
+    h.observe('turn/completed', { turn: { id: 'turn-1', status: 'completed' } });
+    expect(h.events.filter((e) => e.phase === 'terminal')).toEqual([{
+      phase: 'terminal', workId: 'codex-item:item-1', kind: 'background-shell', status: 'completed', detail: 'npm run verify',
+    }]);
+    h.observe('turn/completed', { turn: { id: 'turn-2', status: 'completed' } });
+    expect(h.events.filter((e) => e.phase === 'terminal')).toHaveLength(1);
+    h.tracker.reset();
+  });
+  it('reports a command that finishes while the final model call is already running', () => {
+    const h = harness();
+    h.observe('item/started', { item: { id: 'item-1', type: 'commandExecution', command: 'npm run verify' } });
+    h.observe('item/started', { item: { id: 'thought-1', type: 'reasoning' } });
+    h.observe('item/completed', { item: { id: 'item-1', type: 'commandExecution', status: 'completed' } });
+    h.observe('item/completed', { item: { id: 'thought-1', type: 'reasoning' } });
+    h.observe('item/started', { item: { id: 'reply-1', type: 'agentMessage' } });
+    h.observe('item/completed', { item: { id: 'reply-1', type: 'agentMessage' } });
+    h.observe('turn/completed', { turn: { id: 'turn-1', status: 'completed' } });
+    expect(h.events.filter((e) => e.phase === 'terminal')).toEqual([expect.objectContaining({ detail: 'npm run verify' })]);
+    h.tracker.reset();
+  });
+  it('recognises the snake_case form of a model reply', () => {
+    const h = harness();
+    h.observe('item/started', { item: { id: 'item-1', type: 'commandExecution', command: 'git status' } });
+    h.observe('item/completed', { item: { id: 'item-1', type: 'commandExecution', status: 'completed' } });
+    h.observe('item/started', { item: { id: 'reply-1', type: 'agent_message' } });
+    h.observe('turn/completed', { turn: { id: 'turn-1', status: 'completed' } });
+    expect(h.events.filter((e) => e.phase === 'terminal')).toEqual([]);
+    h.tracker.reset();
+  });
+  it('does not report a command that never ran to completion', () => {
+    const h = harness();
+    h.observe('item/started', { item: { id: 'item-1', type: 'commandExecution', command: 'rm -rf build' } });
+    h.observe('item/completed', { item: { id: 'item-1', type: 'commandExecution', status: 'declined' } });
+    h.observe('turn/completed', { turn: { id: 'turn-1', status: 'completed' } });
+    expect(h.events.filter((e) => e.phase === 'terminal')).toEqual([]);
+    h.tracker.reset();
+  });
+  it('stays quiet about commands the model replied after', () => {
+    const h = harness();
+    h.observe('item/started', { item: { id: 'item-1', type: 'commandExecution', command: 'git status' } });
+    h.observe('item/completed', { item: { id: 'item-1', type: 'commandExecution', status: 'completed' } });
+    h.observe('item/started', { item: { id: 'thought-1', type: 'reasoning' } });
+    h.observe('item/started', { item: { id: 'item-2', type: 'commandExecution', command: 'git diff' } });
+    h.observe('item/completed', { item: { id: 'item-2', type: 'commandExecution', status: 'completed' } });
+    h.observe('item/started', { item: { id: 'reply-1', type: 'agentMessage' } });
+    h.observe('turn/completed', { turn: { id: 'turn-1', status: 'completed' } });
+    expect(h.events.filter((e) => e.phase === 'terminal')).toEqual([]);
+    h.tracker.reset();
+  });
+  it('does not wake a session whose turn was stopped', () => {
+    const h = harness();
+    h.observe('item/started', { item: { id: 'item-1', type: 'commandExecution', command: 'npm run verify' } });
+    h.observe('item/completed', { item: { id: 'item-1', type: 'commandExecution', status: 'failed' } });
+    h.observe('turn/completed', { turn: { id: 'turn-1', status: 'interrupted' } });
+    h.observe('turn/completed', { turn: { id: 'turn-2', status: 'completed' } });
+    expect(h.events.filter((e) => e.phase === 'terminal')).toEqual([]);
+    h.tracker.reset();
+  });
   it('ignores child thread items and drops late refresh results after exit', async () => {
     const h = harness();
     h.observe('item/started', { threadId: 'child', item: { id: 'child', type: 'commandExecution' } });

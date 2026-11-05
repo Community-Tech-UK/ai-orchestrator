@@ -1,0 +1,33 @@
+@for (run of runs(); track run.runId) {
+  <div class="pq-stage" role="group" [attr.aria-label]="run.summary" [style.padding-left.px]="indent()" data-testid="plan-queue-stage">
+    @if (run.lines.length > 1) {
+      <button
+        type="button"
+        class="pq-stage-row pq-stage-summary"
+        [class.long]="hasLong(run)"
+        [attr.aria-expanded]="isExpanded(run.runId)"
+        [appTooltip]="isExpanded(run.runId) ? 'Hide each job' : 'Show each job'"
+        (click)="toggle(run.runId)"
+      >
+        <span class="pq-stage-chevron" [class.expanded]="isExpanded(run.runId)" aria-hidden="true">›</span>
+        <span class="pq-stage-text">{{ run.summary }}</span>
+      </button>
+    }
+    @if (run.lines.length === 1 || isExpanded(run.runId)) {
+      @for (line of run.lines; track line.itemId) {
+        <button
+          type="button"
+          class="pq-stage-row pq-stage-line"
+          [class.nested]="run.lines.length > 1"
+          [class.long]="line.long"
+          [attr.data-group]="line.group"
+          [appTooltip]="lineTooltip(line)"
+          (click)="open()"
+        >
+          <span class="pq-stage-dot" aria-hidden="true"></span>
+          <span class="pq-stage-text">{{ line.text }}</span>
+        </button>
+      }
+    }
+  </div>
+}

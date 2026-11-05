@@ -13,6 +13,10 @@
         />
       </div>
 
+      @if (sessions(); as sessions) {
+        <app-plan-queue-run-owner [run]="run" [sessions]="sessions" />
+      }
+
       <div class="pq-run-routing-row">
         @if (run.config.routing; as routing) {
           <span class="pq-run-routing">{{ routingSummary(routing) }}</span>

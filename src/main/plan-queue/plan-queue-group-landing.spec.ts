@@ -7,8 +7,12 @@ import { DEFAULT_PLAN_QUEUE_CONFIG, type PlanQueueVerdict } from '@contracts/sch
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { createSqliteWasmDatabase, initSqliteWasm } from '../db/sqlite-wasm-driver';
 import { runLoopMigrations } from '../orchestration/loop-schema';
+import * as gitCommands from '../workspace/git/git-exec';
 import { GitWriteQueue } from '../workspace/git/git-write-queue';
 import { WorktreeManager } from '../workspace/git/worktree-manager';
+import { PlanQueueCheckGroups } from './plan-queue-check-groups';
+import { PlanQueueItemFlow } from './plan-queue-item-flow';
+import { PlanQueueGateRunner } from './plan-queue-gate-receipts';
 import { PlanQueueItemLanding } from './plan-queue-item-landing';
 import { groupCoversMovedBase } from './plan-queue-group-landing';
 import type { PlanQueueFlowHost } from './plan-queue-host';
@@ -188,4 +192,162 @@ describe('landing a member of a passing combined check', () => {
       await landSecondWithGate();
     },
   );
+});
+
+
+function runtimeFlow() {
+  const roles = new Map<string, { role: 'verifier'; runId: string; itemId: string }>();
+  const reviews: string[] = [];
+  const original = PlanQueueGateRunner.prototype.executeCommands;
+  const execute = vi.spyOn(PlanQueueGateRunner.prototype, 'executeCommands');
+  execute.mockImplementation(function (input) {
+    return original.call(new PlanQueueGateRunner(async () => ({ exitCode: 0, output: '1 tests passed' })), input);
+  });
+  const host = { store, history: store.history, getRun: (id: string) => store.getRun(id)!, getItem: (id: string) => store.getItem(id)!,
+    save, transition, worktrees: service, requestPump: () => undefined, checksAdmitted: () => true,
+    liveParentId: () => 'parent', selectVerifier: async () => ({ ok: true, choice: { provider: 'codex' } }),
+    registerRole: (id: string, role: { role: 'verifier'; runId: string; itemId: string }) => roles.set(id, role),
+    unregisterRole: (id: string) => roles.delete(id), roleOf: (id: string) => roles.get(id),
+    tracker: { track: () => undefined, untrack: () => undefined },
+    instances: { getInstance: () => undefined, createInstance: async (options: { metadata: { planQueueItemId: string } }) => {
+      reviews.push(options.metadata.planQueueItemId); return { id: `checker-${reviews.length}` };
+    } },
+  } as unknown as PlanQueueFlowHost;
+  const flow = new PlanQueueItemFlow(host);
+  async function prepare(id: string) {
+    const documentPath = join(repo, `${id}_plan.md`); writeFileSync(documentPath, '# Work\n');
+    let item = await service.prepare(newPlanQueueItem(id, run.id, documentPath, 1, { state: 'preparing' }), repo);
+    writeFileSync(join(item.worktreePath!, `${id}.txt`), id);
+    item = await service.checkpoint(item, 'work'); return save({ ...item, state: 'awaiting-slot' });
+  }
+  async function pass(id: string) {
+    const item = store.getItem(id)!;
+    flow.recordVerdict(item, item.verifierInstanceId!, { verdict: 'PASS', findings: [], gatesRun: [], documentComplete: false, needJames: [] });
+    await flow.onVerifierOutcome(item.verifierInstanceId!, { kind: 'turn-complete', lastAssistantOutput: null }); await flow.whenSettled();
+    expect(store.getItem(id)?.state, JSON.stringify(store.getItem(id))).toBe('landed');
+  }
+  return { flow, execute, reviews, prepare, pass };
+}
+
+it('reuses the paired checklist after the first review really moves main, then synchronizes at landing', async () => {
+  const { flow, execute, reviews, prepare, pass } = runtimeFlow();
+  await prepare('solo'); await flow.startVerification(store.getItem('solo')!); await pass('solo');
+  await prepare('one'); const second = await prepare('two');
+  await flow.startVerification(store.getItem('one')!); await pass('one');
+  const movedBase = git(['rev-parse', 'main']);
+  expect(movedBase).not.toBe(base);
+  await flow.startVerification(store.getItem('two')!);
+  expect(execute).toHaveBeenCalledTimes(2);
+  expect(git(['rev-parse', 'HEAD'], second.worktreePath!)).toBe(second.checkpointCommit);
+  expect(store.getItem('two')?.verifiedMainCommit).not.toBe(movedBase);
+  await pass('two');
+  expect(reviews).toEqual(['solo', 'one', 'two']);
+  expect(store.history.checksSummary('run')).toEqual({ runs: 2, jobs: 3 });
+  expect(store.history.listVerdicts('one')).toHaveLength(1);
+  expect(store.history.listVerdicts('two')).toHaveLength(1);
+  const firstReceipt = store.getItem('one')!.verdict!.gatesRun[0];
+  const secondReceipt = store.getItem('two')!.verdict!.gatesRun[0];
+  expect(secondReceipt.checkGroup).toEqual(firstReceipt.checkGroup);
+  expect(secondReceipt.testedTree).toBe(firstReceipt.testedTree);
+  expect(secondReceipt.head).toBe(second.checkpointCommit);
+  expect(store.getItem('two')?.checkpointCommit).not.toBe(second.checkpointCommit);
+  expect(git(['show', 'main:one.txt'])).toBe('one');
+  expect(git(['show', 'main:two.txt'])).toBe('two');
+});
+
+
+it.each(['unrelated-base', 'changed-head', 'changed-command', 'changed-source', 'changed-linked-spec', 'dirty',
+  'held-member', 'paused-run', 'cancelled-run', 'departed-round', 'cancelled-check'] as const)(
+  'reruns machine checks instead of reusing pending group evidence after %s', async condition => {
+    const { flow, execute, prepare, pass } = runtimeFlow();
+    store.upsertRun({ ...run, id: 'leader-run' });
+    await prepare('one');
+    // A separate owning run may finish or pause independently after this member lands.
+    db.prepare('UPDATE plan_queue_items SET run_id = ? WHERE id = ?').run('leader-run', 'one');
+    const second = await prepare('two');
+    await flow.startVerification(store.getItem('one')!); await pass('one');
+    expect(execute).toHaveBeenCalledTimes(1);
+    if (condition === 'unrelated-base') {
+      writeFileSync(join(repo, 'outside.txt'), 'outside'); git(['add', 'outside.txt']); git(['commit', '-qm', 'outside']);
+    } else if (condition === 'changed-head') {
+      writeFileSync(join(second.worktreePath!, 'two.txt'), 'new work'); await service.checkpoint(second, 'new work');
+    } else if (condition === 'changed-command') store.upsertRun({ ...run, config: { ...run.config, verifierGates: ['npm run check'] } });
+    else if (condition === 'changed-source') writeFileSync(second.documentPath, '# Changed criteria\n');
+    else if (condition === 'changed-linked-spec') writeFileSync(join(repo, 'two_spec_planned.md'), '# New linked criteria\n');
+    else if (condition === 'dirty') writeFileSync(join(second.worktreePath!, 'two.txt'), 'uncommitted work');
+    else if (condition === 'held-member') save({ ...store.getItem('one')!, heldAt: Date.now() });
+    else if (condition === 'paused-run' || condition === 'cancelled-run') {
+      store.upsertRun({ ...store.getRun('leader-run')!, status: condition === 'paused-run' ? 'paused' : 'cancelled' });
+    } else if (condition === 'departed-round') {
+      transition(second, 'verifying'); transition(store.getItem('two')!, 'fixing'); transition(store.getItem('two')!, 'awaiting-slot');
+    } else await flow.hold('two');
+    await flow.startVerification(store.getItem('two')!);
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(store.getItem('two')?.state).toBe('verifying');
+    expect(store.getItem('two')?.verifiedMainCommit).toBe(git(['rev-parse', 'main']));
+  },
+);
+
+it('reuses evidence from an already landed member whose other owning run completed', async () => {
+  const { flow, execute, prepare, pass } = runtimeFlow();
+  store.upsertRun({ ...run, id: 'leader-run' });
+  await prepare('one'); db.prepare('UPDATE plan_queue_items SET run_id = ? WHERE id = ?').run('leader-run', 'one');
+  await prepare('two'); await flow.startVerification(store.getItem('one')!); await pass('one');
+  store.upsertRun({ ...store.getRun('leader-run')!, status: 'completed' });
+  await flow.startVerification(store.getItem('two')!);
+  expect(execute).toHaveBeenCalledTimes(1);
+  expect(store.getItem('two')?.state).toBe('verifying');
+});
+
+
+it('parks a Git proof error without silently reusing or running old-HEAD checks', async () => {
+  const { flow, execute, prepare, pass } = runtimeFlow();
+  await prepare('one'); await prepare('two');
+  await flow.startVerification(store.getItem('one')!); await pass('one');
+  const original = gitCommands.gitExec;
+  vi.spyOn(gitCommands, 'gitExec').mockImplementation((args, cwd, timeout) => {
+    if (args[0] === 'rev-list' && args[1] === '--first-parent') return Promise.reject(new Error('Cannot read group ancestry'));
+    return original(args, cwd, timeout);
+  });
+  await flow.startVerification(store.getItem('two')!);
+  expect(execute).toHaveBeenCalledTimes(1);
+  expect(store.getItem('two')).toMatchObject({ state: 'parked', parkReason: 'worktree-error',
+    detail: expect.stringContaining('Cannot read group ancestry') });
+});
+
+it('rechecks a hold arriving during the asynchronous ancestry proof', async () => {
+  const { flow, execute, prepare, pass } = runtimeFlow();
+  await prepare('one'); await prepare('two');
+  await flow.startVerification(store.getItem('one')!); await pass('one');
+  const original = gitCommands.gitExec;
+  vi.spyOn(gitCommands, 'gitExec').mockImplementation(async (args, cwd, timeout) => {
+    const value = await original(args, cwd, timeout);
+    if (args[0] === 'rev-list' && args[1] === '--first-parent') save({ ...store.getItem('one')!, heldAt: Date.now() });
+    return value;
+  });
+  await flow.startVerification(store.getItem('two')!);
+  expect(execute).toHaveBeenCalledTimes(2);
+  expect(store.getItem('two')?.verifiedMainCommit).toBe(git(['rev-parse', 'main']));
+});
+
+
+it('does not start an independent review if HEAD changes between pending proof and preparation', async () => {
+  const { flow, execute, reviews, prepare, pass } = runtimeFlow();
+  await prepare('one'); const second = await prepare('two');
+  await flow.startVerification(store.getItem('one')!); await pass('one');
+  const original = PlanQueueCheckGroups.prototype.pendingReceipts;
+  vi.spyOn(PlanQueueCheckGroups.prototype, 'pendingReceipts').mockImplementationOnce(async function (item) {
+    const receipts = await original.call(this, item);
+    expect(receipts).toBeDefined();
+    writeFileSync(join(second.worktreePath!, 'two.txt'), 'changed during preparation');
+    await service.checkpoint(store.getItem('two')!, 'changed during preparation');
+    return receipts;
+  });
+  await flow.startVerification(store.getItem('two')!);
+  expect(store.getItem('two')?.state).toBe('awaiting-slot');
+  expect(reviews).toEqual(['one']);
+  expect(execute).toHaveBeenCalledTimes(1);
+  await flow.startVerification(store.getItem('two')!);
+  expect(execute).toHaveBeenCalledTimes(2);
+  expect(reviews).toEqual(['one', 'two']);
 });

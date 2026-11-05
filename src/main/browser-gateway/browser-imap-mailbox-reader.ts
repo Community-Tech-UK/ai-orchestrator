@@ -1,10 +1,13 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createInterface, type Interface } from 'node:readline';
-import type {
-  MailboxMessage,
-  MailboxReader,
-  MailboxSearchCriteria,
+import {
+  MailboxReaderError,
+  senderMatchesDomains,
+  type MailboxMessage,
+  type MailboxReader,
+  type MailboxSearchCriteria,
 } from './browser-email-code-reader';
+import { buildCliEnv } from '../cli/cli-environment';
 import { getLogger } from '../logging/logger';
 
 /**
@@ -17,6 +20,10 @@ import { getLogger } from '../logging/logger';
  *
  * Never logs message subjects, bodies, or senders — 2FA/verification mails are
  * one-time secrets. Logs are limited to counts and error categories.
+ *
+ * Every failure is thrown as a `MailboxReaderError` with a fixed category and
+ * a fixed detail, never the server's own message text, so the credential fill
+ * boundary can report WHY a code could not be read without risking a leak.
  */
 
 const logger = getLogger('BrowserImapMailboxReader');
@@ -62,19 +69,23 @@ export class ImapMcpClient {
 
   async callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
     await this.ensureStarted();
-    const response = await this.request('tools/call', { name, arguments: args });
+    const response = await this.request('tools/call', { name, arguments: args }, `tools/call:${name}`);
     if (response.error) {
-      throw new Error(`imap MCP call failed: ${response.error.message ?? 'unknown error'}`);
+      throw new MailboxReaderError('mailbox_unavailable', 'rpc_error');
     }
     const result = response.result as McpToolCallResult | undefined;
     const text = result?.content?.find((block) => block.type === 'text')?.text;
     if (result?.isError) {
-      throw new Error(`imap MCP tool error: ${text ?? 'unknown tool error'}`);
+      throw new MailboxReaderError('mailbox_unavailable', 'tool_error');
     }
     if (text === undefined) {
-      throw new Error('imap MCP tool returned no text content');
+      throw new MailboxReaderError('mailbox_unavailable', 'no_text_content');
     }
-    return JSON.parse(text);
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new MailboxReaderError('mailbox_unavailable', 'invalid_json');
+    }
   }
 
   dispose(): void {
@@ -84,7 +95,7 @@ export class ImapMcpClient {
     this.reader?.close();
     this.reader = null;
     for (const entry of this.pending.values()) {
-      entry.reject(new Error('imap MCP client disposed'));
+      entry.reject(new MailboxReaderError('mailbox_unavailable', 'client_disposed'));
     }
     this.pending.clear();
     child?.kill();
@@ -96,17 +107,27 @@ export class ImapMcpClient {
     }
     this.disposeChildOnly();
 
+    // The configured command is a bare `node`. Packaged Electron launched from
+    // Finder/Dock inherits launchd's PATH (/usr/bin:/bin:/usr/sbin:/sbin), which
+    // has no node, so the spawn failed with ENOENT on every email_code fill.
+    // Use the same tool PATH every other Harness CLI spawn gets.
     const child = spawn(this.server.command, this.server.args, {
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: buildCliEnv(),
     });
     this.child = child;
-    child.on('error', (error) => this.failAllPending(error));
-    child.on('exit', (code) => {
+    child.on('error', (error: NodeJS.ErrnoException) => {
+      const errno = typeof error.code === 'string' && /^E[A-Z0-9]+$/.test(error.code) ? `:${error.code}` : '';
+      this.failAllPending(new MailboxReaderError('mailbox_unavailable', `process_error${errno}`));
+    });
+    child.on('exit', (code, signal) => {
       if (this.child === child) {
         this.child = null;
         this.initializing = null;
       }
-      this.failAllPending(new Error(`imap MCP server exited (code ${code ?? 'unknown'})`));
+      this.failAllPending(
+        new MailboxReaderError('mailbox_unavailable', `server_exited:${code ?? signal ?? 'unknown'}`),
+      );
     });
     // Surface startup problems (missing accounts.json etc.) without leaking mail.
     child.stderr?.on('data', (chunk: Buffer) => {
@@ -123,7 +144,7 @@ export class ImapMcpClient {
         clientInfo: { name: 'aio-browser-gateway', version: '1.0.0' },
       });
       if (init.error) {
-        throw new Error(`imap MCP initialize failed: ${init.error.message ?? 'unknown'}`);
+        throw new MailboxReaderError('mailbox_unavailable', 'initialize_failed');
       }
       this.notify('notifications/initialized');
     })().catch((error: unknown) => {
@@ -170,16 +191,21 @@ export class ImapMcpClient {
     this.pending.clear();
   }
 
-  private request(method: string, params: Record<string, unknown>): Promise<JsonRpcResponse> {
+  /** `label` names the request in a timeout; it must be a fixed string, never page or mail data. */
+  private request(
+    method: string,
+    params: Record<string, unknown>,
+    label: string = method,
+  ): Promise<JsonRpcResponse> {
     const id = this.nextId++;
     const child = this.child;
     if (!child?.stdin?.writable) {
-      return Promise.reject(new Error('imap MCP server is not running'));
+      return Promise.reject(new MailboxReaderError('mailbox_unavailable', 'not_running'));
     }
     return new Promise<JsonRpcResponse>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`imap MCP request timed out: ${method}`));
+        reject(new MailboxReaderError('mailbox_timeout', label));
       }, this.callTimeoutMs);
       timeout.unref?.();
       this.pending.set(id, {
@@ -246,22 +272,39 @@ export class ImapMcpMailboxReader implements MailboxReader {
 
   async search(criteria: MailboxSearchCriteria): Promise<MailboxMessage[]> {
     const limit = Math.min(criteria.limit ?? this.bodyFetchLimit, this.bodyFetchLimit);
-    const summaries = (await this.client.callTool('search_messages', {
-      ...(this.account ? { account: this.account } : {}),
-      mailbox: this.mailbox,
-      // IMAP SINCE is date-granular; post-filter by exact receivedAt below.
-      since: new Date(criteria.sinceMs).toISOString().slice(0, 10),
-      limit: Math.min(Math.max(limit * 2, 10), 100),
-    })) as ImapSearchSummary[];
+    const senderDomains = [...new Set(criteria.senderDomains.map((domain) => domain.toLowerCase()))];
+    // One server-side search per sender domain, so unrelated mail is never
+    // fetched and a busy inbox cannot push the code out of the result window.
+    const byUid = new Map<number, ImapSearchSummary>();
+    for (const domain of senderDomains) {
+      const summaries = await this.client.callTool('search_messages', {
+        ...(this.account ? { account: this.account } : {}),
+        mailbox: this.mailbox,
+        // IMAP FROM is a substring match on the whole header, so it is only a
+        // pre-filter: the exact domain check below decides.
+        from: domain,
+        // IMAP SINCE is date-granular; post-filter by exact receivedAt below.
+        since: new Date(criteria.sinceMs).toISOString().slice(0, 10),
+        limit: Math.min(Math.max(limit * 2, 10), 100),
+      });
+      if (!Array.isArray(summaries)) {
+        throw new MailboxReaderError('mailbox_unavailable', 'invalid_search_result');
+      }
+      for (const summary of summaries as ImapSearchSummary[]) {
+        byUid.set(summary.uid, summary);
+      }
+    }
 
-    const recent = summaries
+    const recent = [...byUid.values()]
+      .filter((summary) => senderMatchesDomains(summary.from ?? '', senderDomains))
       .map((summary) => ({ summary, receivedAt: parseDate(summary.date) }))
       .filter((entry) => entry.receivedAt >= criteria.sinceMs)
       .sort((a, b) => b.receivedAt - a.receivedAt)
       .slice(0, limit);
 
     logger.info('Mailbox search completed', {
-      candidates: summaries.length,
+      senderDomains: senderDomains.length,
+      candidates: byUid.size,
       withinWindow: recent.length,
     });
 
@@ -285,10 +328,14 @@ export class ImapMcpMailboxReader implements MailboxReader {
       })) as ImapReadMessage;
       textBody = full.text?.trim() || stripHtml(full.html) || textBody;
     } catch (error) {
-      // Fall back to the search snippet; the code may still be extractable.
-      logger.warn('Failed to read full message body; using snippet', {
-        error: error instanceof Error ? error.message : String(error),
-      });
+      // A per-message tool error (the message moved, a parse problem) falls
+      // back to the search snippet; the code may still be extractable there. A
+      // dead or wedged server is not per-message: every later read would fail
+      // the same way, one timeout at a time, so stop and report it.
+      if (!(error instanceof MailboxReaderError && error.detail === 'tool_error')) {
+        throw error;
+      }
+      logger.warn('Failed to read full message body; using snippet', { failure: error.detail });
     }
     return {
       id: String(summary.uid),

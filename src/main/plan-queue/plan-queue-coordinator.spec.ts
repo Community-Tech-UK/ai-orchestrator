@@ -6,7 +6,7 @@ import { EventEmitter } from 'node:events';
 import * as net from 'node:net';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_PLAN_QUEUE_CONFIG, type PlanQueueFolderChecklist, type PlanQueueRouting } from '@contracts/schemas/plan-queue';
+import { PLAN_QUEUE_SET_ASIDE_RESTART_LIMIT, DEFAULT_PLAN_QUEUE_CONFIG, type PlanQueueFolderChecklist, type PlanQueueRouting } from '@contracts/schemas/plan-queue';
 import type { InstanceCreateConfig } from '../../shared/types/instance.types';
 import type { ProviderAccountProfile } from '../../shared/types/provider-account.types';
 import type { SqliteDriver } from '../db/sqlite-driver';
@@ -22,6 +22,7 @@ import type { PlanQueueInstanceRecord } from './plan-queue-host';
 import { findRestoredSessionId } from './plan-queue-parent';
 import { PlanQueueRelaxation } from './plan-queue-relaxation';
 import * as readiness from './plan-queue-readiness';
+import { SET_ASIDE_FOLDER_METADATA } from './plan-queue-set-aside';
 import { PlanQueueStore } from './plan-queue-store';
 import type { VerifierSelectInput } from './plan-queue-verifier-select';
 
@@ -590,6 +591,42 @@ describe('PlanQueueCoordinator parent thread recovery and adoption', { timeout: 
     coordinator.requestPump();
     await waitForState(0, run.id, 'working');
     await vi.waitFor(() => expect(fake.created.find((instance) => instance.role === 'worker')?.config.parentId).toBe(adopter.id));
+  });
+
+  it('moves a live owner\'s run for James (Move and aio-mcp plan-queue move) only once its work has stopped', async () => {
+    const { parent, run } = await pendingRun();
+    const taker = fake.addParent();
+    const move = () => coordinator.control({ action: 'handover', runId: run.id, targetInstanceId: taker.id });
+    await expect(move()).rejects.toThrow('Pause this run');
+    expect(store.getRun(run.id)?.parentInstanceId).toBe(parent.id);
+
+    await coordinator.control({ action: 'pause', runId: run.id });
+    await move();
+    expect(store.getRun(run.id)).toMatchObject({ parentInstanceId: taker.id, status: 'paused' });
+    expect(fake.inputs.some(input => input.instanceId === taker.id && input.message.includes('You now own Plan Queue run'))).toBe(true);
+    await vi.waitFor(() => expect(fake.inputs.some(input => input.instanceId === parent.id && input.message.includes('You no longer own it'))).toBe(true));
+  });
+
+  it('refuses a move queued behind a cancel that leaves the run with no set-aside work', async () => {
+    const { parent, run } = await pendingRun();
+    await coordinator.control({ action: 'pause', runId: run.id });
+    const taker = fake.addParent();
+    // The move is checked and queued while the run is still paused; the cancel finishes first.
+    const cancel = coordinator.control({ action: 'cancel', runId: run.id });
+    const move = coordinator.control({ action: 'handover', runId: run.id, targetInstanceId: taker.id });
+    await cancel;
+    await expect(move).rejects.toThrow('holds no set-aside work; there is nothing to move');
+    expect(store.listItems(run.id).some(item => item.state === 'parked')).toBe(false);
+    expect(store.getRun(run.id)).toMatchObject({ parentInstanceId: parent.id, status: 'cancelled' });
+  });
+
+  it('never makes a Set aside agent the owner of a run', async () => {
+    const { parent, run } = await pendingRun();
+    await coordinator.control({ action: 'pause', runId: run.id });
+    const setAside = fake.addParent(); setAside.metadata = { [SET_ASIDE_FOLDER_METADATA]: repo };
+    await expect(coordinator.control({ action: 'handover', runId: run.id, targetInstanceId: setAside.id }))
+      .rejects.toThrow('A Set aside agent cannot own a Plan Queue run.');
+    expect(store.getRun(run.id)?.parentInstanceId).toBe(parent.id);
   });
 
   it.each(['original', 'restored'] as const)('refuses adoption while the %s parent is live', async (kind) => {
@@ -1859,6 +1896,57 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     expect(item.state).toBe('parked');
     return { runId: run.id, itemId: item.id, branch: item.branchName!, parentId: parent.id };
   }
+
+  it('the Set aside agent clears only an empty job and cannot land or adopt', async () => {
+    const { runId, itemId, branch } = await parkedAtRoundLimit();
+    const agent = fake.addParent();
+    agent.metadata = { [SET_ASIDE_FOLDER_METADATA]: repo };
+    const events: unknown[] = [];
+    coordinator.on('state-changed', (event) => events.push(event));
+
+    expect(await coordinator.setAsideAgents.clear(agent.id)).toMatchObject({ cleared: 0, left: 1 });
+    expect(git(['rev-parse', '--verify', branch])).toBeTruthy();
+    await expect(coordinator.control({ action: 'land-anyway', itemId }, agent.id)).rejects.toThrow('may only retry');
+    await expect(coordinator.control({ action: 'discard-item', itemId }, agent.id)).rejects.toThrow('may only retry');
+    await expect(coordinator.control({ action: 'adopt', runId }, agent.id)).rejects.toThrow('may only retry');
+    await expect(coordinator.startRun({ parentInstanceId: agent.id, kind: 'plans' })).rejects.toThrow('Set aside session');
+
+    git(['merge', '-q', '--no-edit', branch]);
+    expect(await coordinator.setAsideAgents.clear(agent.id)).toMatchObject({ cleared: 0, left: 1 });
+    const fresh = fake.addParent();
+    fresh.metadata = { [SET_ASIDE_FOLDER_METADATA]: repo };
+    events.length = 0;
+    expect(await coordinator.setAsideAgents.clear(fresh.id)).toMatchObject({ cleared: 1, left: 0 });
+    expect(events).toEqual([{ runId }]);
+    expect(coordinator.getRunDto(runId)!.items[0]).toMatchObject({ branchName: null });
+    expect(coordinator.getRunDto(runId)!.items[0].detail).toContain('Discarded by the Set aside agent');
+  });
+
+  it('applies the Set aside agent limits on the control path, before anything changes and at no cost', async () => {
+    const { runId, itemId } = await parkedAtRoundLimit();
+    const agent = fake.addParent();
+    agent.metadata = { [SET_ASIDE_FOLDER_METADATA]: repo };
+    const before = coordinator.getRunDto(runId)!.items[0];
+
+    await expect(coordinator.control({ action: 'retry-landing', itemId }, agent.id)).rejects.toThrow('Only a job that passed');
+    expect(coordinator.getRunDto(runId)!.items[0]).toMatchObject({ state: 'parked', parkReason: before.parkReason, branchName: before.branchName });
+
+    const item = coordinator.getItem(itemId);
+    coordinator.save({ ...item, verdict: { verdict: 'PASS', findings: [] } as unknown as typeof item.verdict });
+    await expect(coordinator.control({ action: 'resume-item', itemId }, agent.id)).rejects.toThrow('erase');
+    expect(coordinator.getRunDto(runId)!.items[0]).toMatchObject({ state: 'parked', verdict: { verdict: 'PASS' } });
+    expect((await coordinator.setAsideAgents.review(agent.id, 0)).restartsLeft).toBe(PLAN_QUEUE_SET_ASIDE_RESTART_LIMIT);
+  });
+
+  it('the Set aside agent resumes a job through the normal path', async () => {
+    const { runId, itemId } = await parkedAtRoundLimit();
+    const agent = fake.addParent();
+    agent.metadata = { [SET_ASIDE_FOLDER_METADATA]: repo };
+    fake.scripts.verifier = pass;
+    await coordinator.control({ action: 'resume-item', itemId }, agent.id);
+    await waitForRun(runId);
+    expect(coordinator.getRunDto(runId)!.items[0].state).toBe('landed');
+  });
 
   it('Resume re-opens the run, reattaches the parked branch and lands it', async () => {
     const { runId, itemId, branch } = await parkedAtRoundLimit();

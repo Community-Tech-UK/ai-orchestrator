@@ -555,7 +555,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/instance-detail/user-action-request.component.ts': 991,
   // Raised 1334 -> 1435: "Message this session…" context-menu action and
   // compose modal for cross-session messaging (2026-09-16).
-  'src/renderer/app/features/instance-list/instance-list.component.ts': 1435,
+  'src/renderer/app/features/instance-list/instance-list.component.ts': 1436, // +1: import for the Plan Queue stage rows (logic lives in plan-queue-stage-rows.component.ts)
   'src/renderer/app/features/knowledge/knowledge-page.component.ts': 1322,
   'src/renderer/app/features/logs/logs-page.component.ts': 1020,
   // Raised 992 -> 1051 for the Task 18 renderer follow-up affordance (queue a

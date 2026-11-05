@@ -1,0 +1,91 @@
+:host {
+  display: block;
+}
+
+.pq-stage {
+  display: flex;
+  flex-direction: column;
+  padding-right: 4px;
+}
+
+.pq-stage-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 22px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pq-stage-row:hover {
+  background-color: rgba(255, 255, 255, 0.025);
+  color: var(--text-primary);
+}
+
+.pq-stage-row:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: -2px;
+}
+
+.pq-stage-row.long {
+  color: var(--warning-color);
+}
+
+.pq-stage-line.nested {
+  padding-left: 18px;
+}
+
+/* Wraps rather than truncating: the time at the end is the part that matters. */
+.pq-stage-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pq-stage-chevron {
+  display: inline-flex;
+  flex-shrink: 0;
+  justify-content: center;
+  width: 10px;
+  transition: transform var(--transition-fast);
+}
+
+.pq-stage-chevron.expanded {
+  transform: rotate(90deg);
+}
+
+/* Filled and pulsing while Harness is working on the job; an outline while it waits. */
+.pq-stage-dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  margin: 0 2px;
+  border-radius: 50%;
+  background: var(--primary-color);
+  animation: pq-stage-pulse 1.6s ease-in-out infinite;
+}
+
+.pq-stage-line[data-group='waiting'] .pq-stage-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--text-muted);
+  animation: none;
+}
+
+@keyframes pq-stage-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pq-stage-dot {
+    animation: none;
+  }
+}

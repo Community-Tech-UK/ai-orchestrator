@@ -18,7 +18,7 @@ import type { SqliteDriver } from '../db/sqlite-driver';
 import { planQueueFindingId } from './plan-queue-progress';
 import type { PlanQueueItemPin } from './plan-queue-plan-pins';
 import type { PlanQueueItem } from './plan-queue.types';
-import { NOT_TIMING_SQL } from './plan-queue-timings';
+import { NOT_TIMING_SQL, TIMING_REASONS } from './plan-queue-timings';
 
 export interface PlanQueueItemEvent {
   id: string;
@@ -48,6 +48,16 @@ export interface PlanQueueVerdictRecord {
   documentSha256: string | null;
   /** Missing on persisted legacy reviews: these require a new check before closure. */
   documentReview?: DocumentReview;
+}
+
+/** Stored times behind an item's current step (see `PlanQueueHistoryStore.stageMarks`). */
+export interface PlanQueueStageMarks {
+  /** When the item last moved into its current state. */
+  enteredAt: number | null;
+  /** The latest time Harness started running this item's checklist. */
+  checksAt: number | null;
+  /** The latest time this item's landing turn began. */
+  landingAt: number | null;
 }
 
 export type PlanQueueEventInput = Omit<PlanQueueItemEvent, 'id' | 'at'> & { at?: number };
@@ -117,6 +127,22 @@ export class PlanQueueHistoryStore {
   checksSummary(runId: string): PlanQueueRunDto['checks'] {
     return this.db.prepare(`SELECT runs, jobs FROM (${PLAN_QUEUE_CHECK_SUMMARIES_SQL}) WHERE run_id = ?`)
       .get<NonNullable<PlanQueueRunDto['checks']>>(runId);
+  }
+
+  /**
+   * For each item: when it entered its current state, and its latest check run and landing turn. One read for every
+   * item a list shows; the session list uses these to say how long a step with no session has taken.
+   */
+  stageMarks(itemIds: readonly string[]): Map<string, PlanQueueStageMarks> {
+    const rows = this.db.prepare(`SELECT items.id,
+        (SELECT MAX(at) FROM plan_queue_item_events e WHERE e.item_id = items.id AND e.to_state = items.state
+          AND (e.from_state IS NULL OR e.from_state <> e.to_state)) AS entered_at,
+        (SELECT MAX(at) FROM plan_queue_item_events e WHERE e.item_id = items.id AND e.reason = 'checklist-run') AS checks_at,
+        (SELECT MAX(at) FROM plan_queue_item_events e WHERE e.item_id = items.id AND e.reason = ?) AS landing_at
+      FROM plan_queue_items items WHERE items.id IN (SELECT value FROM json_each(?))`)
+      .all<{ id: string; entered_at: number | null; checks_at: number | null; landing_at: number | null }>(
+        TIMING_REASONS.landingStart, JSON.stringify(itemIds));
+    return new Map(rows.map(row => [row.id, { enteredAt: row.entered_at, checksAt: row.checks_at, landingAt: row.landing_at }]));
   }
 
   hasFailedCheckGroup(itemId: string, head: string): boolean {

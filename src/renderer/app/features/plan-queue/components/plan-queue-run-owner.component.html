@@ -1,0 +1,31 @@
+@if (canMove()) {
+  <div class="pq-run-owner">
+    <span class="pq-run-owner-name">Parent session: {{ ownerLabel() }}</span>
+    @if (choosing()) {
+      <span class="pq-run-owner-move" role="group" aria-label="Move this run to another session">
+        <label>
+          Move to
+          <select #picker [ngModel]="targetId()" name="pqMoveTarget" (ngModelChange)="onTargetChange($event)">
+            <option value="">Choose a session…</option>
+            @for (session of targets(); track session.id) {
+              <option [value]="session.id">{{ session.label }}</option>
+            }
+          </select>
+        </label>
+        <button type="button" class="pq-run-owner-confirm" [attr.aria-busy]="moving() || null" [attr.aria-describedby]="'pq-run-owner-note-' + run().id"
+          [appTooltipDisabledReason]="target() || moving() ? null : copy('planQueue.moveRunChoose')"
+          (click)="onConfirm()">{{ moving() ? 'Moving…' : 'Move' }}</button>
+        <button type="button" [disabled]="moving()" (click)="onNeverMind()">Never mind</button>
+        <span class="pq-run-owner-note" [id]="'pq-run-owner-note-' + run().id">
+          That session is told it now owns this run, then gets its questions and summary. A session that is <app-term term="asleep">asleep</app-term> wakes up to take it over.
+          @if (run().status === 'running') { Pause the run first if a document is being worked on. }
+        </span>
+        @if (error(); as message) { <span class="pq-run-owner-error" role="alert">{{ message }}</span> }
+      </span>
+    } @else {
+      <button #trigger type="button" class="pq-run-owner-change"
+        [appTooltipDisabledReason]="targets().length > 0 ? null : copy('planQueue.moveRunNoTarget')"
+        (click)="onChoose()">Move to another session</button>
+    }
+  </div>
+}

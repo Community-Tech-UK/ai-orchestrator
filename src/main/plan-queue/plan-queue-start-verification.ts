@@ -32,19 +32,27 @@ export async function startQueueVerification(ctx: StartVerificationContext, item
       return;
     }
   }
-  try {
-    const sync = await syncItemWithBase(item, baseBranch, run.workspaceCwd);
-    if (sync.status === 'conflict') {
-      await ctx.fix(item, buildConflictPrompt(baseBranch, sync.conflictFiles),
-        `Merging ${baseBranch} before verification conflicted (${sync.conflictFiles.join(', ')}); sent back to the worker.`);
-      return;
-    }
-    if (sync.status === 'merged') item = await host.worktrees.checkpoint(item, `merge ${baseBranch}`);
-  } catch (error) {
-    await ctx.park(host.getItem(item.id), 'merge-conflict', `Keeping the branch current failed: ${message(error)}`);
+  let shared;
+  try { shared = await verification.prepareGrouped(item); }
+  catch (error) {
+    await ctx.park(host.getItem(item.id), 'worktree-error', `Could not run Harness checks: ${message(error)}`);
     return;
   }
-  const checks = await verification.prepare(item).catch(async (error: unknown) => {
+  if (!shared) {
+    try {
+      const sync = await syncItemWithBase(item, baseBranch, run.workspaceCwd);
+      if (sync.status === 'conflict') {
+        await ctx.fix(item, buildConflictPrompt(baseBranch, sync.conflictFiles),
+          `Merging ${baseBranch} before verification conflicted (${sync.conflictFiles.join(', ')}); sent back to the worker.`);
+        return;
+      }
+      if (sync.status === 'merged') item = await host.worktrees.checkpoint(item, `merge ${baseBranch}`);
+    } catch (error) {
+      await ctx.park(host.getItem(item.id), 'merge-conflict', `Keeping the branch current failed: ${message(error)}`);
+      return;
+    }
+  }
+  const checks = shared ?? await verification.prepare(item).catch(async (error: unknown) => {
     await ctx.park(host.getItem(item.id), 'worktree-error', `Could not run Harness checks: ${message(error)}`);
     return null;
   });

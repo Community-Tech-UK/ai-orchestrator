@@ -558,7 +558,7 @@ describe('BrowserGatewayActionGuard CAPTCHA evidence (2026-09-15 §3.4)', () => 
 
     expect(raise).not.toHaveBeenCalled();
     expect(prep).toMatchObject({ grant: { id: 'input-grant' }, actionClass: 'input' });
-    expect(probe).toHaveBeenCalledWith({ profileId: 'p1', targetId: 't1' });
+    expect(probe).toHaveBeenCalledWith({ profileId: 'p1', targetId: 't1', toolName: 'browser.click' });
   });
 
   it('parks a click when the page probe finds a live challenge, even with a grant', async () => {
@@ -586,13 +586,95 @@ describe('BrowserGatewayActionGuard CAPTCHA evidence (2026-09-15 §3.4)', () => 
     expect(clean.createRequest).toHaveBeenCalledTimes(1);
   });
 
-  it('does not probe for field input tools', async () => {
+  it('lets field input go ahead beside a live CAPTCHA (only the code box check applies to typing)', async () => {
     const probe = vi.fn(async () => ({ detected: true }));
     const { guard, raise } = makeGuard({ grants: [INPUT_GRANT], probe });
 
-    await guard.prepareMutatingAction(CONTEXT, 'type', 'browser.type', '#name', 'Type the contact name');
+    const prep = await guard.prepareMutatingAction(
+      { ...CONTEXT, selector: '#name' }, 'type', 'browser.type', '#name', 'Type the contact name',
+    );
 
-    expect(probe).not.toHaveBeenCalled();
+    expect(probe).toHaveBeenCalledWith({
+      profileId: 'p1', targetId: 't1', toolName: 'browser.type',
+      inputTargets: { selectors: ['#name'], hasUidTarget: false },
+    });
+    expect(raise).not.toHaveBeenCalled();
+    expect(prep).toMatchObject({ grant: { id: 'input-grant' }, actionClass: 'input' });
+  });
+});
+
+describe('BrowserGatewayActionGuard sign-in code box evidence (Report MI, 2026-11-05)', () => {
+  const REPORT_MI = 'https://portal.example.gov.uk';
+  const INPUT_GRANT: BrowserPermissionGrant = { ...CAMPAIGN_SUBMIT_GRANT, id: 'input-grant', allowedActionClasses: ['input'] };
+  const codeBox = (filled: boolean, targetIsCodeField = false) => vi.fn(async () => ({
+    detected: false,
+    oneTimeCode: { codeField: true, filled, targetIsCodeField },
+  }));
+
+  it('parks a plainly described "Continue" that would submit a code the agent typed itself', async () => {
+    const { guard, raise } = makeGuard({ grants: [CAMPAIGN_SUBMIT_GRANT], probe: codeBox(true) });
+
+    const result = resultOf(await guard.prepareMutatingAction(CONTEXT, 'click', 'browser.click', '#continue', 'Continue'));
+
+    expect(result.reason).toBe('two_factor_unavailable_parked_to_escalation_queue');
+    expect(raise).toHaveBeenCalledWith(expect.objectContaining({ kind: 'two_factor_unavailable' }));
+  });
+
+  it('releases that click as an ordinary submit after browser.fill_credential typed the code', async () => {
+    const ledger = new BrowserOneTimeCodeFillLedger();
+    ledger.record({ instanceId: 'i1', profileId: 'p1', targetId: 't1', origin: REPORT_MI });
+    const { guard, raise } = makeGuard({ grants: [CAMPAIGN_SUBMIT_GRANT], probe: codeBox(true), oneTimeCodeFills: ledger });
+
+    const prep = await guard.prepareMutatingAction(CONTEXT, 'click', 'browser.click', '#continue', 'Continue');
+
+    expect(prep).toMatchObject({ grant: { id: 'g1' }, actionClass: 'submit' });
+    expect(raise).not.toHaveBeenCalled();
+  });
+
+  it('lets a click through while the code box is still empty', async () => {
+    const { guard, raise } = makeGuard({ grants: [CAMPAIGN_SUBMIT_GRANT], probe: codeBox(false) });
+
+    const prep = await guard.prepareMutatingAction(CONTEXT, 'click', 'browser.click', '#resend', 'Send a new code');
+
+    expect(prep).toMatchObject({ grant: { id: 'g1' }, actionClass: 'submit' });
+    expect(raise).not.toHaveBeenCalled();
+  });
+
+  it('parks browser.type into the code box but not into another field on the same page', async () => {
+    const intoCode = makeGuard({ grants: [INPUT_GRANT], probe: codeBox(false, true) });
+    const typed = resultOf(await intoCode.guard.prepareMutatingAction(
+      { ...CONTEXT, selector: '#code' }, 'type', 'browser.type', '#code', 'Type it',
+    ));
+    expect(typed.reason).toBe('two_factor_unavailable_parked_to_escalation_queue');
+
+    const elsewhere = makeGuard({ grants: [INPUT_GRANT], probe: codeBox(false, false) });
+    const prep = await elsewhere.guard.prepareMutatingAction(
+      { ...CONTEXT, selector: '#email' }, 'type', 'browser.type', '#email', 'Type the email',
+    );
+    expect(prep).toMatchObject({ grant: { id: 'input-grant' }, actionClass: 'input' });
+  });
+
+  it('checks every field of a shared-tab fill_form despite its fixed input classification', async () => {
+    const probe = codeBox(false, true);
+    const { guard } = makeGuard({ grants: [INPUT_GRANT], probe });
+
+    const result = resultOf(await guard.prepareMutatingAction(
+      { ...CONTEXT, fields: [{ selector: '#email' }, { uid: 'a11y-7' }] },
+      'fill_form', 'browser.fill_form', '#email', 'Fill the form', { actionClass: 'input', hardStop: false },
+    ));
+
+    expect(result.reason).toBe('two_factor_unavailable_parked_to_escalation_queue');
+    expect(probe).toHaveBeenCalledWith(expect.objectContaining({
+      toolName: 'browser.fill_form', inputTargets: { selectors: ['#email'], hasUidTarget: true },
+    }));
+  });
+
+  it('keeps hint-only behaviour when the probe has no code box evidence (older extension)', async () => {
+    const { guard, raise } = makeGuard({ grants: [CAMPAIGN_SUBMIT_GRANT], probe: async () => ({ detected: false }) });
+
+    const prep = await guard.prepareMutatingAction(CONTEXT, 'click', 'browser.click', '#continue', 'Submit');
+
+    expect(prep).toMatchObject({ grant: { id: 'g1' }, actionClass: 'submit' });
     expect(raise).not.toHaveBeenCalled();
   });
 });

@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import { DEFAULT_PLAN_QUEUE_ROUTING } from '@contracts/schemas/plan-queue';
@@ -16,11 +16,17 @@ import { PlanQueueParkedListComponent } from './components/plan-queue-parked-lis
 import { PlanQueueQuestionListComponent } from './components/plan-queue-question-list.component';
 import { PlanQueueRoutingPanelComponent } from './components/plan-queue-routing-panel.component';
 import { upgradePlanQueueRouting } from '../../../../shared/utils/plan-queue-routing-upgrade';
+import { machineSessionReasonOf } from '../../../../shared/utils/machine-session';
+import { AUTOMATION_FAILURE_STATUSES } from '../../../../shared/types/instance-status-policy';
+import type { PlanQueueSessionOption } from './components/plan-queue-run-owner.component';
 import { PlanQueueRunListComponent, planQueueRoutingSummary, type PlanQueueAccountLabel } from './components/plan-queue-run-list.component';
 import type { PlanQueueParentSessionOption, PlanQueueStartRequest } from './components/plan-queue-start-form.component';
 import { PlanQueueStartFormComponent } from './components/plan-queue-start-form.component';
 import { PlanQueueSkipPendingComponent } from './components/plan-queue-skip-pending.component';
 import { planQueueKindLabel, pluralise } from './plan-queue-item-display';
+
+/** Marks a Set aside agent; `SET_ASIDE_FOLDER_METADATA` in the main process's plan-queue-set-aside.ts. */
+const SET_ASIDE_AGENT_METADATA = 'planQueueSetAsideFolder';
 
 /** Current work, retained work, and provider setup, each in its own tab. */
 @Component({
@@ -49,6 +55,7 @@ export class PlanQueuePageComponent implements OnInit {
   protected readonly store = inject(PlanQueueStore);
   private readonly instanceStore = inject(InstanceStore);
   private readonly settingsStore = inject(SettingsStore);
+  private readonly router = inject(Router);
   private readonly providerAccountIpc = inject(ProviderAccountIpcService);
   private readonly copilotAccountIpc = inject(CopilotAccountIpcService);
 
@@ -108,6 +115,21 @@ export class PlanQueuePageComponent implements OnInit {
       label: `${instance.displayName} (${instance.provider})`,
       workingDirectory: instance.workingDirectory,
     })),
+  );
+
+  /**
+   * Every session that may own a run, so a helper-session owner is still named. A new parent must be a root
+   * session, as in the start form, and not a Queue, Set aside or failed session, which the main process refuses.
+   */
+  protected readonly runSessions = computed<PlanQueueSessionOption[]>(() =>
+    this.instanceStore.instances()
+      .filter(instance => machineSessionReasonOf(instance) !== 'plan-queue')
+      .map(instance => ({
+        id: instance.id,
+        label: `${instance.displayName} (${instance.provider}) — ${instance.workingDirectory}`,
+        canBeParent: !instance.parentId && !AUTOMATION_FAILURE_STATUSES.has(instance.status)
+          && instance.metadata?.[SET_ASIDE_AGENT_METADATA] === undefined,
+      })),
   );
 
   ngOnInit(): void {
@@ -173,6 +195,13 @@ export class PlanQueuePageComponent implements OnInit {
 
   onLandAnyway(itemId: string): void {
     void this.store.control({ action: 'land-anyway', itemId });
+  }
+
+  async onSortOut(folder: string): Promise<void> {
+    const instanceId = await this.store.startSetAsideAgent(folder);
+    if (!instanceId) return;
+    this.instanceStore.setSelectedInstance(instanceId);
+    void this.router.navigate(['/']);
   }
 
   onDiscardItem(itemId: string): void {

@@ -115,7 +115,7 @@ describe('paused runs never continue work or park it', () => {
     vi.mocked(queueGit.revertToSnapshot).mockRejectedValueOnce(new Error('The saved queue checkout is invalid'));
     const snapshots = new Map();
     const forgetCheck = vi.fn();
-    await expect(spawnQueueChecker({ host, snapshots, usageWaits: new PlanQueueUsageWaits(),
+    await expect(spawnQueueChecker({ host, snapshots, checkedBase: () => 'checkpoint', usageWaits: new PlanQueueUsageWaits(),
       prompt: async () => 'Review', hold: vi.fn(), select: vi.fn(), stop: id => flow.stopInstance(id),
       forgetCheck, erroredRound: vi.fn(), onVerifierOutcome: vi.fn() }, item, run, 'main', { provider: 'codex' })).resolves.toBeUndefined();
     expect(item).toMatchObject({ state: 'parked', parkReason: 'worktree-error', worktreePath: directory,
@@ -178,7 +178,7 @@ describe('paused runs never continue work or park it', () => {
     void ready.catch(() => undefined);
     vi.mocked(host.instances.createInstance).mockResolvedValueOnce({ id: 'fresh', ...{ readyPromise: ready } });
     vi.mocked(host.instances.terminateInstance).mockRejectedValueOnce(new Error('checker stop failed'));
-    await spawnQueueChecker({ host, snapshots: new Map(), usageWaits: new PlanQueueUsageWaits(),
+    await spawnQueueChecker({ host, snapshots: new Map(), checkedBase: () => 'checkpoint', usageWaits: new PlanQueueUsageWaits(),
       prompt: async () => 'Review', hold: vi.fn(), select: vi.fn(), stop: id => flow.stopInstance(id),
       forgetCheck: vi.fn(), erroredRound: vi.fn(), onVerifierOutcome: (id, outcome) => flow.onVerifierOutcome(id, outcome) }, item, run, 'main', { provider: 'codex' });
     await flow.whenSettled();
@@ -236,7 +236,7 @@ describe('paused runs never continue work or park it', () => {
     vi.mocked(host.instances.terminateInstance).mockImplementation(async id => { if (id === 'worker') throw new Error('Worker stop refused'); });
     const snapshots = new Map();
     const forgetCheck = vi.fn();
-    await expect(spawnQueueChecker({ host, snapshots, usageWaits: new PlanQueueUsageWaits(),
+    await expect(spawnQueueChecker({ host, snapshots, checkedBase: () => 'checkpoint', usageWaits: new PlanQueueUsageWaits(),
       prompt: async () => 'Review', hold: vi.fn(), select: vi.fn(), stop: id => flow.stopInstance(id),
       forgetCheck, erroredRound: vi.fn(), onVerifierOutcome: vi.fn() }, item, run, 'main', { provider: 'codex' })).rejects.toThrow('Worker stop refused');
     expect(item).toMatchObject({ state: 'verifying', workerInstanceId: 'worker' });

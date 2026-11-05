@@ -45,6 +45,7 @@
       <app-plan-queue-run-list
         [runs]="activeRuns()"
         [accountLabel]="accountLabel()"
+        [sessions]="runSessions()"
         (pauseRun)="onPauseRun($event)"
         (resumeRun)="onResumeRun($event)"
         (cancelRun)="onCancelRun($event)"
@@ -86,7 +87,7 @@
         <details class="pq-history-run" (toggle)="onHistoryToggle(run.id, $event)">
           <summary>{{ kindLabel(run.kind) }} · {{ historyDate(run.startedAt) }} · {{ pluralise(run.items.length, 'document') }}</summary>
           @if (openHistory().has(run.id)) {
-            <app-plan-queue-run-list [runs]="[run]" [accountLabel]="accountLabel()" (skipItem)="onSkipItem($event)" />
+            <app-plan-queue-run-list [runs]="[run]" [accountLabel]="accountLabel()" [sessions]="runSessions()" (skipItem)="onSkipItem($event)" />
           }
         </details>
       }
@@ -99,13 +100,14 @@
     <section class="pq-section pq-section-parked" aria-labelledby="pq-parked-heading">
       <h2 id="pq-parked-heading">Set aside</h2>
       @if (store.parkedItems().length > 0) { <p class="pq-purpose">
-        Work kept from a stopped or cancelled run. Discard is the safe clean-up: it deletes the leftover branch and touches
-        nothing else. Try merging again retries a blocked merge that passed verification. Merge without checks merges without the final checks. Resume puts the document back in the queue.
+        Work kept from a stopped or cancelled run. Discard deletes the job's branch, including any work that never reached main.
+        Try merging again retries a blocked merge that passed verification. Merge without checks merges without the final checks. Resume puts the document back in the queue and clears its last check result.
       </p> }
       <app-plan-queue-parked-list
         [items]="store.parkedItems()"
         [runs]="store.allRuns()" [busyDocuments]="busyDocuments()"
         (chooseChecker)="onChooseChecker($event)"
+        (sortOut)="onSortOut($event)"
         (resumeItem)="onResumeItem($event)"
         (retryLanding)="onRetryLanding($event)"
         (landAnyway)="onLandAnyway($event)"
@@ -128,7 +130,7 @@
     <section class="pq-section">
       <h2>Choose a checker for this run</h2>
       <p>Use Change to select a checker, then return to Set aside and Resume the job.</p>
-      <app-plan-queue-run-list [runs]="checkerRuns()" [accountLabel]="accountLabel()"
+      <app-plan-queue-run-list [runs]="checkerRuns()" [accountLabel]="accountLabel()" [sessions]="runSessions()"
         (pauseRun)="onPauseRun($event)" (resumeRun)="onResumeRun($event)"
         (cancelRun)="onCancelRun($event)" (skipItem)="onSkipItem($event)" />
     </section>

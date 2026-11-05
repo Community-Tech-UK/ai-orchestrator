@@ -66,6 +66,14 @@ function setup(execute = vi.fn(async (_command: string, _cwd: string) => ({ exit
 
 describe('combined queue checks', () => {
   it.each([{ level: 5 as const, fails: false }, { level: 1 as const, fails: false }, { level: 5 as const, fails: true }])('uses the real pump and flow at workload $level, combined failure $fails', async ({ level, fails }) => {
+    // The pending-member proof now asks Git for real object identities and a clean status.
+    for (const [index, id] of ['leader', 'member'].entries()) {
+      const head = String(index + 1).repeat(40); heads.set(item(id).worktreePath!, head);
+      host.save({ ...item(id), checkpointCommit: head });
+    }
+    vi.mocked(gitExec).mockImplementation(async (args, cwd) => args[0] === 'rev-parse'
+      ? args[1].startsWith('refs/') ? '3'.repeat(40) : heads.get(cwd)! : '');
+    const seeded = vi.spyOn(PlanQueueGateRunner.prototype, 'seed');
     const admission = getWorkAdmission(); admission.setWorkloadLevel(level);
     vi.spyOn(admission, 'getLimits').mockImplementation(() => ({ ...limitsFor(level, 8), loadPerCore: null }));
     let release!: () => void;
@@ -76,7 +84,7 @@ describe('combined queue checks', () => {
       return original.call(new PlanQueueGateRunner(async (_command, cwd) => {
         executions.push(cwd); await held; return { exitCode: fails && cwd === '/combined' ? 1 : 0,
           output: fails && cwd === '/combined' ? 'src/work.ts(1,1): error TS2322: New failure' : '' };
-      }, () => 'combined-tree'), input);
+      }, () => '4'.repeat(40)), input);
     });
     const create = vi.fn(async () => ({ id: `checker-${create.mock.calls.length}` }));
     Object.assign(host, { checksAdmitted: () => true,
@@ -95,7 +103,9 @@ describe('combined queue checks', () => {
       expect(store.listItems('run').map(value => value.state)).toEqual(['verifying', 'awaiting-slot']);
       expect(create).not.toHaveBeenCalled();
       release(); await flow.whenSettled();
-      if (level === 1) host.save({ ...item('leader'), state: 'landed', verifierInstanceId: null });
+      if (level === 1 && !fails) host.save({ ...item('leader'), state: 'landed', verifierInstanceId: null,
+        landedCommit: '5'.repeat(40), verdict: { verdict: 'PASS', findings: [], documentComplete: false, needJames: [],
+          gatesRun: [...seeded.mock.calls.find(([input]) => input.cwd === item('leader').worktreePath)![1]] } });
       await pumpPlanQueue(pumpHost); await flow.whenSettled();
       expect(executions).toEqual(fails ? ['/combined', '/baseline', item('leader').worktreePath, item('member').worktreePath] : ['/combined']);
       expect(create).toHaveBeenCalledTimes(2);
@@ -129,7 +139,7 @@ describe('combined queue checks', () => {
     db.prepare('UPDATE plan_queue_items SET run_id = ? WHERE id = ?').run(other.id, 'member');
     if (difference === 'failed-head') host.history.recordEvent({ itemId: 'member', runId: other.id, fromState: 'awaiting-slot', toState: 'awaiting-slot',
       reason: 'check-group-failed', detailHead: JSON.stringify({ head: 'member-head' }), round: 0, tokens: 0 });
-    const { groups, execute, input } = setup();
+    const { groups, execute } = setup();
     groups.reserve(item('leader'), run());
     // There need not be an in-flight controller when synchronous eligibility excludes everyone.
     const signal = groups.controllerFor('leader')?.signal;

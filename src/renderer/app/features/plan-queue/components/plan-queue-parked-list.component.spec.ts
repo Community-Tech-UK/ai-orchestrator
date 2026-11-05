@@ -49,6 +49,33 @@ describe('PlanQueueParkedListComponent', () => {
   let fixture: ComponentFixture<PlanQueueParkedListComponent>;
   const store = { diffstat: vi.fn() };
 
+  it('offers one Sort out button per folder, biggest first, and says what it does', () => {
+    fixture.componentRef.setInput('runs', [
+      { id: 'run-1', workspaceCwd: '/work/small', config: {} },
+      { id: 'run-2', workspaceCwd: '/work/big', config: {} },
+    ]);
+    fixture.componentRef.setInput('items', [
+      makeItem({ id: 'a', runId: 'run-1' }),
+      makeItem({ id: 'b', runId: 'run-2', documentPath: 'docs/plans/b_plan.md' }),
+      makeItem({ id: 'c', runId: 'run-2', documentPath: 'docs/plans/c_plan.md' }),
+    ]);
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+    const buttons = [...element.querySelectorAll<HTMLButtonElement>('.pq-sort-out-start')];
+    expect(buttons.map((button) => button.textContent?.trim())).toEqual(['Sort out big (2 jobs)', 'Sort out small (1 job)']);
+    expect(element.querySelector('.pq-sort-out p')?.textContent).toContain("It can't delete work or merge without checks");
+    expect(element.querySelector('.pq-sort-out p')?.textContent).toContain('uses provider usage');
+    const started: string[] = [];
+    fixture.componentInstance.sortOut.subscribe((folder) => started.push(folder));
+    buttons[0].click();
+    expect(started).toEqual(['/work/big']);
+  });
+
+  it('offers no Sort out button when nothing is set aside', () => {
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).querySelector('.pq-sort-out')).toBeNull();
+  });
+
   beforeEach(async () => {
     vi.clearAllMocks();
     store.diffstat.mockResolvedValue('1 file changed, 4 insertions(+)');

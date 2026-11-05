@@ -37,7 +37,7 @@ import { returnToItemCheckout } from './plan-queue-squash';
 import { PlanQueueCheckoutOwnershipError, rescueNote } from './plan-queue-worktree';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import { groupCoversMovedBase, groupRoundStillIntact } from './plan-queue-group-landing';
-import { LandingTimer, recordItemTiming, TIMING_REASONS } from './plan-queue-timings';
+import { LandingTimer, recordItemTiming, recordTiming, TIMING_REASONS } from './plan-queue-timings';
 
 const logger = getLogger('PlanQueueItemLanding');
 
@@ -107,6 +107,12 @@ export class PlanQueueItemLanding {
     const { host } = this.ctx;
     let item = host.getItem(itemId);
     if (item.state !== 'landing') return;
+    if (!signal.aborted) {
+      // Its turn in the landing line began. The save rewrites the same row to announce it, so the session list stops
+      // showing this item as waiting behind another landing.
+      recordTiming(host.history, item, TIMING_REASONS.landingStart, {});
+      item = host.save(item);
+    }
     const run = host.getRun(item.runId);
     const repoRoot = run.workspaceCwd;
     const baseBranch = requireBaseBranch(run);

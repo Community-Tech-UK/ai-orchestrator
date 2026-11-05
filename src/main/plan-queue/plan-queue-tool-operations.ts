@@ -6,10 +6,14 @@
 import { DEFAULT_PLAN_QUEUE_ACCOUNT_RULES, type PlanQueueControlArgs, type PlanQueueControlPayload, type PlanQueueItemDto, type PlanQueueRunDto } from '@contracts/schemas/plan-queue';
 import type { PlanQueueToolOperations } from '../mcp/plan-queue-tools';
 import { getSettingsManager } from '../core/config/settings-manager';
+import { getLogger } from '../logging/logger';
 import type { PlanQueueCoordinator } from './plan-queue-coordinator';
 import { describeAccountRules, copilotLabel, poolLabel } from './plan-queue-account-rules';
 import { describeRouting, routeChoiceFromArgs } from './plan-queue-routing';
 import { describeQueueHealth } from '../../shared/utils/plan-queue-health-lines';
+import { planQueueRunCanMove } from '../../shared/utils/plan-queue-run-movable';
+
+const logger = getLogger('PlanQueueToolOperations');
 
 /** James's account rules as one line, labelled by account name; null when none are set. */
 function accountRulesLine(): string | null {
@@ -132,8 +136,24 @@ export function createPlanQueueToolOperations(coordinator: () => PlanQueueCoordi
       await coordinator().control(toControlPayload(args), callerInstanceId);
       return { done: true };
     },
+    setAside: (callerInstanceId, offset) => coordinator().setAsideAgents.review(callerInstanceId, offset),
+    clearSetAside: (callerInstanceId) => coordinator().setAsideAgents.clear(callerInstanceId),
     reportVerdict: (callerInstanceId, args) => coordinator().reportVerdict(callerInstanceId, args),
     reportTriage: (callerInstanceId, args) => coordinator().reportTriage(callerInstanceId, args),
+    async moveRun(callerInstanceId, runId, targetInstanceId) {
+      const queue = coordinator();
+      // Neither may own a run (see startRun and requireSession), so neither may take or give one.
+      if (queue.isQueueInstance(callerInstanceId) || queue.setAsideAgents.folderOf(callerInstanceId) !== undefined) {
+        throw new Error('Plan Queue workers, checkers, triage and Set aside agents cannot move a run.');
+      }
+      const run = queue.getRunDto(runId);
+      if (!run) throw new Error(`Plan queue run not found: ${runId}`);
+      if (!planQueueRunCanMove(run)) throw new Error(`Plan Queue run ${runId} has finished and holds no set-aside work; there is nothing to move.`);
+      // No caller: the move carries James's authority, like the panel. The MCP handover stays owner-only.
+      await queue.control({ action: 'handover', runId, targetInstanceId }, undefined);
+      logger.info('Plan queue run moved through aio-mcp', { runId, requestedBy: callerInstanceId, ownerInstanceId: targetInstanceId });
+      return { ownerInstanceId: targetInstanceId };
+    },
     isQueueInstance: (instanceId) => coordinator().isInitialized() && coordinator().isQueueInstance(instanceId),
   };
 }

@@ -1,15 +1,10 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { PlanQueueStore } from '../../../core/state/plan-queue.store';
+import { planQueueDocumentLabel } from '../plan-queue-item-display';
 
 /** Documents named in the banner before the rest collapse into "and N more". */
 const NAMED_DOCUMENTS = 2;
-
-/** `…/desk-shared-crm_plan.md` → `desk-shared-crm`. */
-export function planQueueDocumentLabel(documentPath: string): string {
-  const name = documentPath.split(/[\\/]/).pop() ?? documentPath;
-  return name.replace(/\.md$/i, '').replace(/_(plan|livetest|spec(_planned)?)$/i, '');
-}
 
 /**
  * Sessions-page banner shown while any Plan Queue question waits on James, so
@@ -45,8 +40,7 @@ export class PlanQueueQuestionsBannerComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    this.store.ensureWired();
-    void this.store.load();
+    this.store.ensureLoaded();
   }
 
   protected open(): void {

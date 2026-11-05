@@ -27,7 +27,8 @@ function fixture() {
       restartFreshInstance: vi.fn(async () => { throw new Error('Unexpected fresh restart during handover'); }),
       sendInput: vi.fn().mockResolvedValue(undefined) },
     isQueueInstance: (id: string) => sessions.find(s => s.id === id)?.metadata?.['planQueueRole'] !== undefined,
-    getRun: () => stored, hasActiveWork: () => false,
+    isSetAsideAgent: (id: string) => sessions.find(s => s.id === id)?.metadata?.['planQueueSetAsideFolder'] !== undefined,
+    getRun: () => stored, hasActiveWork: () => false, hasOwnerWork: () => true,
     setParent: vi.fn((_id: string, parentId: string, thread: string | null) => { stored = { ...stored, parentInstanceId: parentId, parentHistoryThreadId: thread }; }),
     onParentChanged: vi.fn(), notifyParent: vi.fn(),
   };
@@ -57,6 +58,54 @@ describe('owner-approved Plan Queue handover', () => {
     expect(deps.onParentChanged).toHaveBeenCalledWith(stored());
     expect(deps.notifyParent).toHaveBeenCalledWith(stored(), expect.any(String));
   });
+  it('tells an awake previous owner when James moves its run, but not when the owner handed it over', () => {
+    const { run, sessions, deps } = fixture();
+    sessions[0].status = 'idle';
+    handoverRunParent(run, 'target', undefined, deps);
+    expect(deps.instances.sendInput).toHaveBeenCalledTimes(1);
+    expect(deps.instances.sendInput).toHaveBeenCalledWith('owner', expect.stringContaining('was moved to another session on James\'s behalf. You no longer own it.'), undefined,
+      { automatedInput: true, internalSource: 'plan-queue' });
+
+    const second = fixture();
+    second.sessions[0].status = 'idle';
+    handoverRunParent(second.run, 'target', 'owner', second.deps);
+    expect(second.deps.instances.sendInput).not.toHaveBeenCalled();
+  });
+  it.each(['hibernated', 'hibernating', 'waking', 'superseded', 'error', 'failed', 'terminated', 'cancelled'] as const)(
+    'does not message a %s previous owner to tell it the run moved', status => {
+      const { run, sessions, deps } = fixture();
+      sessions[0].status = status;
+      handoverRunParent(run, 'target', undefined, deps);
+      expect(deps.instances.sendInput).not.toHaveBeenCalled();
+    });
+  it('finishes the move without waiting for, or failing on, the previous owner message', async () => {
+    const { run, sessions, deps, stored } = fixture();
+    sessions[0].status = 'busy';
+    deps.instances.sendInput.mockReturnValue(new Promise(() => undefined));
+    handoverRunParent(run, 'target', undefined, deps);
+    expect(stored().parentInstanceId).toBe('target');
+
+    const failing = fixture();
+    failing.sessions[0].status = 'idle';
+    failing.deps.instances.sendInput.mockRejectedValue(new Error('delivery failed'));
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      handoverRunParent(failing.run, 'target', undefined, failing.deps);
+      await new Promise(resolve => setTimeout(resolve, 0));
+    } finally { process.off('unhandledRejection', unhandled); }
+    expect(failing.stored().parentInstanceId).toBe('target');
+    expect(unhandled).not.toHaveBeenCalled();
+  });
+  it('refuses a panel or CLI move of a finished run with nothing left to own, but lets its owner hand it over', () => {
+    const { run, deps, stored } = fixture();
+    deps.hasOwnerWork = () => false;
+    expect(() => handoverRunParent(run, 'target', undefined, deps)).toThrow('has finished and holds no set-aside work; there is nothing to move.');
+    expect(stored()).toBe(run);
+    expect(deps.notifyParent).not.toHaveBeenCalled();
+    handoverRunParent(run, 'target', 'owner', deps);
+    expect(stored().parentInstanceId).toBe('target');
+  });
   it('refuses a requester taking ownership without the current owner approval', () => {
     const { run, deps, stored } = fixture();
     expect(() => handoverRunParent(run, 'target', 'target', deps)).toThrow('Only the session that started');
@@ -71,6 +120,19 @@ describe('owner-approved Plan Queue handover', () => {
     expect(stored()).toBe(run);
     expect(deps.setParent).not.toHaveBeenCalled();
     expect(deps.onParentChanged).not.toHaveBeenCalled();
+  });
+  it.each(['owner', undefined])('never makes a Set aside agent a run\'s owner (%s)', caller => {
+    const { run, sessions, deps, stored } = fixture();
+    sessions[1].metadata = { planQueueSetAsideFolder: '/repo' };
+    expect(() => handoverRunParent(run, 'target', caller, deps)).toThrow('A Set aside agent cannot own a Plan Queue run.');
+    expect(stored()).toBe(run);
+    expect(deps.setParent).not.toHaveBeenCalled();
+  });
+  it('moves a run for James only to a top-level session, not a helper agent', () => {
+    const { run, sessions, deps, stored } = fixture();
+    sessions[1].parentId = 'someone';
+    expect(() => handoverRunParent(run, 'target', undefined, deps)).toThrow('Move a run to a top-level session, not a helper agent');
+    expect(stored()).toBe(run);
   });
   it('refuses a Queue child as the transfer target', () => {
     const { run, sessions, deps } = fixture();
@@ -93,7 +155,7 @@ describe('owner-approved Plan Queue handover', () => {
   });
   it('keeps a sleeping owner protected from unilateral adoption', () => {
     const { run, deps } = fixture();
-    const lookup = { instanceExists: (id: string) => !!deps.instances.getInstance(id), isQueueInstance: deps.isQueueInstance };
+    const lookup = { instanceExists: (id: string) => !!deps.instances.getInstance(id), isQueueInstance: deps.isQueueInstance, setAsideFolder: () => undefined };
     expect(() => authorizePlanQueueControl(run, 'adopt', 'target', lookup)).toThrow('live parent');
     expect(authorizePlanQueueControl(run, 'request-handover', 'target', lookup)).toBe('session target');
     expect(() => authorizePlanQueueControl(run, 'handover', 'target', lookup)).toThrow('Only the session that started');
@@ -187,7 +249,7 @@ it('transfers a real parked flow despite its retained historical worker ID, incl
 it('allows the notified owner to hand over within the same awaited input turn', async () => {
   const { run, deps, stored } = fixture();
   const control = new PlanQueueRunControl();
-  const lookup = { instanceExists: (id: string) => !!deps.instances.getInstance(id), isQueueInstance: deps.isQueueInstance };
+  const lookup = { instanceExists: (id: string) => !!deps.instances.getInstance(id), isQueueInstance: deps.isQueueInstance, setAsideFolder: () => undefined };
   const host = {
     getRun: deps.getRun, authorize: (current: PlanQueueRun, action: Parameters<typeof authorizePlanQueueControl>[1], caller?: string) => authorizePlanQueueControl(current, action, caller, lookup),
     requestHandover: (current: PlanQueueRun, caller?: string) => requestRunHandover(current, caller, deps),

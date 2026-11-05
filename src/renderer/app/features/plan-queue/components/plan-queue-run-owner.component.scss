@@ -1,0 +1,25 @@
+.pq-run-owner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9em;
+}
+
+.pq-run-owner-move {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.pq-run-owner-note {
+  color: var(--text-secondary);
+}
+
+.pq-run-owner-error {
+  color: var(--error-color);
+}
+
+button[aria-disabled='true'], button:disabled { opacity: 0.5; cursor: not-allowed; }
+button[aria-busy='true'] { cursor: progress; }

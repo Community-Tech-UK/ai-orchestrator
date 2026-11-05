@@ -20,7 +20,7 @@ dist/aio-mcp-cli-sea/aio-mcp --help
 
 ## What It Can Do
 
-`aio-mcp` has nine human-facing command groups:
+`aio-mcp` has ten human-facing command groups:
 
 | Command | Purpose |
 | --- | --- |
@@ -31,6 +31,7 @@ dist/aio-mcp-cli-sea/aio-mcp --help
 | `copilot-account` | Inspect GitHub Copilot account routing: profiles, rules, what a workspace resolves to, and routing health. Read-only. |
 | `browser-credentials` | Request James's approval to use a saved login, inspect or cancel that request, and manage existing credential authorizations. |
 | `loop` | List parked loops and resume one, including after an app restart. |
+| `plan-queue` | See who owns each Plan Queue run and move one to another session. |
 | `pause` | Check, hold or release new unattended work. |
 | `microsoft365` | Ask James to approve adding a Microsoft 365 account as a connector, then hand him the Microsoft sign-in. |
 
@@ -82,7 +83,9 @@ reused when the job's worktree HEAD is unchanged.
 | `plan_queue_start` | `kind` (`plans`\|`livetests`), `glob?`, `worker_slots?`, `verification_slots?`, `max_rounds?`, `relax_settings?`, `verifier_gates?`, `post_merge_gate?`, `workers?`, `verifiers?`, `step_up?` | Discover documents and start a run with the caller as parent. The gate lists default to this app's checklist only in this app's own repository and to none in any other project; pass the target repository's own commands (or `[]`) there. Each `workers` and `verifiers` entry is `{ provider, model?, account_ids?, copilot_account_id? }`, in preference order: each new worker session starts on the first worker choice with usage left, and each check uses the first checker that can run with usage left (with none left, the one whose known limit lifts soonest). James's saved choice on the Plan Queue page (`planQueueRouting`) always wins for a role he set; a per-run list applies only to a role he left empty, and the result's `message` says when one was set aside. Without either, workers use the caller's provider and model, and its account when that account is allowed for automatic work, and checkers are picked automatically. Choices the queue may not use refuse the run: a provider on the never-auto-pick list or not installed, an account that is off or manual-only, a misspelt key, or a worker choice whose checkers all share its provider without a model from a different maker. A per-run `verifiers` list is refused in a repository covered by a protected work Copilot rule; only James's saved choice can replace that seat. `step_up` (one choice of the same shape) is where a document goes, once, when its worker fails every one of its `max_rounds` checks: a new worker on that choice continues from the branch with the last findings and gets the full rounds again; without it the document parks as before. James's saved step-up choice wins, the same refusals apply, and explicit checkers must be able to judge it. Not available to queue-spawned sessions. |
 | `plan_queue_status` | `run_id?` | One run's routing (`workers`, `checkers`, `stepUp`) and items (state, round, question, park reason, findings, `handedToStepUpAt` when an item was handed to the step-up worker), or all active runs and finished runs with parked documents plus the ten most recent runs, deduplicated and newest first, with reconciler alerts. When James has set account rules, each run's status also carries an `accountRules` line naming the accounts by label. |
 | `plan_queue_answer` | `item_id`, `option_id` | Record James's answer to a readiness or worker question. Parent session only. |
-| `plan_queue_control` | `action`, `run_id?`, `item_id?`, `routing?`, `move_in_progress?` | Pause stops workers, triage and checkers now, checkpointing work on document branches; Resume starts fresh sessions on those branches. Landing already in progress finishes. Cancel ends the run. `set-routing` changes providers/accounts for future sessions; see below. Item controls include skip, resume, retry-landing, land-anyway and discard. Parent session only, except stranded-run rescue: once the parent no longer exists, a non-queue session may adopt or cancel the run, or discard a parked item. `set-routing` is never a rescue action. |
+| `plan_queue_control` | `action`, `run_id?`, `item_id?`, `routing?`, `move_in_progress?` | Pause stops workers, triage and checkers now, checkpointing work on document branches; Resume starts fresh sessions on those branches. Landing already in progress finishes. Cancel ends the run. `set-routing` changes providers/accounts for future sessions; see below. Item controls include skip, resume, retry-landing, land-anyway and discard. Parent session only, except stranded-run rescue: once the parent no longer exists, a non-queue session may adopt or cancel the run, or discard a parked item. `set-routing` is never a rescue action. `request-handover` (`run_id`) asks the current owner to transfer the run; `handover` (`run_id`, `target_instance_id`) is the owner's own transfer, refused while any document is being worked on or checked. If the owner does not answer, use `aio-mcp plan-queue move` below. |
+| `plan_queue_set_aside` | `offset?` | The Set aside agent only (caller-checked). Lists the jobs set aside in its folder, 40 at a time, with what each branch still holds, whether it merges cleanly and whether its checks passed. Read-only. |
+| `plan_queue_set_aside_clear` | none | The Set aside agent only (caller-checked). Removes jobs proved to hold nothing: no branch, or a branch that adds nothing to the base branch. Call until `more` is false. The Set aside tab starts this agent, one per project folder. In `plan_queue_control` it may only use `retry-landing` and `resume-item` in that folder, ten times in all per session. |
 | `plan_queue_report_triage` | `run_id`, `records` | Triage agent only (caller-checked). |
 | `plan_queue_report_verdict` | `item_id`, `verdict`, `not_checked`, `findings?`, `gates_run?`, `document_complete?`, `need_james?` | The item's current verifier only (caller-checked); a worker cannot report its own verdict. `not_checked` is a required array (empty is allowed); each entry explains a specific remaining check. Harness's own current gate receipts must agree with a PASS. |
 
@@ -433,6 +436,46 @@ This is not `aio-loop-control`. That separate binary is the control channel
 `AIO_LOOP_CONTROL_FILE` in its environment and only records `complete`,
 `block`, `wakeup` and `fail` intents for the loop it is running in. Nothing
 there can restart a loop that has already parked.
+
+## Plan Queue
+
+Shows who owns each Plan Queue run and moves a run to another session.
+
+```bash
+$AIO_MCP plan-queue list [--all] [--json]
+$AIO_MCP plan-queue move <run-id> [--to <session-id>] [--json]
+```
+
+`list` shows the runs that can be moved: every running and paused run, and
+finished runs in the current folder (or a folder inside or around it) that still
+hold set-aside jobs, which only a run's owner can resume, merge or discard. It says
+how many finished runs elsewhere were left out; `--all` lists them too. Each run
+shows its set-aside count and its owner ("this session" for
+the caller, never its own injected id) and the exact `move` command for runs
+another session owns. It reads the same data as `plan_queue_status`.
+
+`move` makes the calling session, or the `--to` session, the run's owner. It
+acts with James's authority, the same path as Move on the Plan Queue page, so
+the current owner does not have to agree. This is what an agent uses when a
+`request-handover` goes unanswered, for example because the owner is asleep or
+busy with something else. The `plan_queue_control` handover stays owner-only.
+
+It is refused when:
+
+- the caller is a session the queue started (a worker, checker, triage or Set aside agent), or the target is a Set aside agent (the Plan Queue page and an owner's own handover refuse one too);
+- the run is unknown, or has finished with no set-aside jobs left, or the target already owns it;
+- the target is not an existing session, was started by the queue, has failed, or is a helper agent (it would close with its parent);
+- any of the run's documents is being worked on or checked. Pause the run first.
+
+The new owner is told it now owns the run and receives its pending questions and
+end-of-run summary; a target that is asleep is woken to take it over. The
+previous owner is told the run moved, unless it is asleep or gone. The move is
+logged with the session that asked for it. There is no approval prompt: use it
+only for work James has asked you to do, and say which run you moved and why. Unlike
+`loop resume`, it is not refused at `maxSpawnDepth`: moving starts no session
+itself, and resuming a paused run afterwards is the owner's ordinary control. A run
+James paused stays paused after a move; the new owner can resume it, so do that
+only when James wants the work to carry on.
 
 ## Browser Credentials
 

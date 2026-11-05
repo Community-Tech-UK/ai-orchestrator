@@ -317,6 +317,15 @@ export const PlanQueueRunConfigSchema = z.object({
 
 export const PlanQueueSpendSchema = z.object({ tokens: z.number().int().nonnegative(), costUsd: z.number().nonnegative().finite(), exactUsd: z.number().nonnegative().finite(), unpricedTokens: z.number().int().nonnegative().optional() });
 
+/**
+ * A step the queue runs itself, with no session to show for it: its own checks, the landing checks, or a wait for
+ * either. `startedAt` comes from stored history, so it is still right after a restart; null when no row records it.
+ */
+export const PlanQueueItemStageSchema = z.object({
+  name: z.enum(['checks', 'landing', 'waiting-for-checks', 'waiting-to-land']),
+  startedAt: z.number().int().nullable(),
+});
+
 export const PlanQueueItemDtoSchema = z.object({
   spend: PlanQueueSpendSchema.nullable().optional(),
   id: IdSchema,
@@ -340,6 +349,8 @@ export const PlanQueueItemDtoSchema = z.object({
   pendingInstruction: z.string().nullable().optional(),
   /** When the document was handed to the run's step-up worker; null = never. */
   steppedUpAt: z.number().int().nullable().optional(),
+  /** Present only while the item is in a step with no session (PlanQueueItemStageSchema). */
+  stage: PlanQueueItemStageSchema.nullable().optional(),
   verdict: PlanQueueVerdictSchema.nullable(),
   createdAt: z.number().int(),
   updatedAt: z.number().int(),
@@ -425,6 +436,8 @@ export const PlanQueueGetPayloadSchema = z.object({ runId: IdSchema });
 
 export const PlanQueueDiffstatPayloadSchema = z.object({ itemId: IdSchema });
 
+export const PlanQueueStartSetAsideAgentPayloadSchema = z.object({ workspaceCwd: PathSchema });
+
 export const PlanQueueListPayloadSchema = z.object({
   limit: z.number().int().min(1).max(200).optional(),
 });
@@ -499,6 +512,11 @@ export const PlanQueueStartArgsSchema = z.object({
 
 export const PlanQueueStatusArgsSchema = z.object({ run_id: IdSchema.optional() });
 
+/** Retries and resumes one Set aside agent session may make; each can start paid sessions. */
+export const PLAN_QUEUE_SET_ASIDE_RESTART_LIMIT = 10;
+
+export const PlanQueueSetAsideArgsSchema = z.object({ offset: z.number().int().min(0).optional() });
+
 export const PlanQueueAnswerArgsSchema = z.object({
   item_id: IdSchema,
   option_id: z.string().min(1).max(50),
@@ -547,6 +565,7 @@ export type PlanQueueAccountRef = z.infer<typeof PlanQueueAccountRefSchema>;
 export type PlanQueueAccountRules = z.infer<typeof PlanQueueAccountRulesSchema>;
 export type PlanQueueFolderChecklist = z.infer<typeof PlanQueueFolderChecklistSchema>;
 export type PlanQueueRouteChoiceArgs = z.infer<typeof PlanQueueRouteChoiceArgsSchema>;
+export type PlanQueueItemStage = z.infer<typeof PlanQueueItemStageSchema>;
 export type PlanQueueItemDto = z.infer<typeof PlanQueueItemDtoSchema>;
 export type PlanQueueRunDto = z.infer<typeof PlanQueueRunDtoSchema>;
 export type PlanQueueAlert = z.infer<typeof PlanQueueAlertSchema>;

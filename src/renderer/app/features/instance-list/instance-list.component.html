@@ -315,6 +315,7 @@
 
             @if (group.isExpanded) {
               <div class="project-items" [id]="'project-group-' + group.key">
+                <app-plan-queue-stage-rows [projectKey]="group.key" />
                 @if (group.liveItems.length > 0) {
                   <div
                     class="project-live-items"
@@ -387,6 +388,7 @@
                     (toggleExpand)="onToggleExpand($event)"
                     (contextMenu)="onInstanceContextMenu($event)"
                   />
+                  <app-plan-queue-stage-rows [parentInstanceId]="item.instance.id" [depth]="depth" />
                   @if (item.isExpanded && item.children.length > 0) {
                     <ng-container
                       *ngTemplateOutlet="

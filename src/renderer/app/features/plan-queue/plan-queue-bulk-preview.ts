@@ -1,5 +1,5 @@
 import type { PlanQueueItemDto, PlanQueueParkReason } from '@contracts/schemas/plan-queue';
-import { planQueueIsDiscarded } from '../../core/state/plan-queue-item-state';
+import { planQueueIsDiscarded } from '../../../../shared/utils/plan-queue-discarded';
 
 export interface PlanQueueBulkPreview {
   willChange: PlanQueueItemDto[];

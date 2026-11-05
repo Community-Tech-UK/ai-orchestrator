@@ -26,6 +26,8 @@ export const TIMING_REASONS = {
   usageWait: 'usage-wait',
   /** `{ outcome, syncMs?, mergeCheckMs?, commitCheckMs?, publishMs?, totalMs, loadStart?, loadEnd? }` (loads are the 1-minute average) */
   landing: 'landing-timing',
+  /** `{}`: the item's turn in the one-at-a-time landing line began; until then it was waiting behind another landing. */
+  landingStart: 'landing-start',
 } as const;
 export type PlanQueueTimingReason = (typeof TIMING_REASONS)[keyof typeof TIMING_REASONS];
 

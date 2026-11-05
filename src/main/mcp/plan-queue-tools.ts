@@ -11,7 +11,8 @@
  * queue's own. `plan_queue_report_triage` and `plan_queue_report_verdict` are
  * for the instances the queue spawns, and are accepted only from the instance
  * the coordinator registered for that role — a worker can never report its own
- * verdict. The coordinator is reached through injected operations (wired in
+ * verdict. `plan_queue_set_aside` and `plan_queue_set_aside_clear` answer only
+ * the agent James starts from the Set aside tab. The coordinator is reached through injected operations (wired in
  * orchestrator-tools-step.ts), so this module stays free of main-process
  * singletons and is safe to load in the aio-mcp forwarder.
  */
@@ -21,6 +22,7 @@ import {
   PlanQueueControlArgsSchema,
   PlanQueueReportTriageArgsSchema,
   PlanQueueReportVerdictArgsSchema,
+  PlanQueueSetAsideArgsSchema,
   PlanQueueStartArgsSchema,
   PlanQueueStatusArgsSchema,
   type PlanQueueControlArgs,
@@ -37,6 +39,10 @@ export interface PlanQueueToolOperations {
   control(callerInstanceId: string, args: PlanQueueControlArgs): Promise<unknown>;
   reportVerdict(callerInstanceId: string, args: PlanQueueReportVerdictArgs): unknown;
   reportTriage(callerInstanceId: string, args: PlanQueueReportTriageArgs): unknown;
+  setAside(callerInstanceId: string, offset: number): Promise<unknown>;
+  clearSetAside(callerInstanceId: string): Promise<unknown>;
+  /** `aio-mcp plan-queue move`: hands the run to the target with James's authority, as the panel does. */
+  moveRun(callerInstanceId: string, runId: string, targetInstanceId: string): Promise<{ ownerInstanceId: string }>;
   /** True for workers, verifiers and triage agents the queue spawned. */
   isQueueInstance(instanceId: string): boolean;
 }
@@ -146,7 +152,7 @@ export const PLAN_QUEUE_TOOL_SPECS = {
     },
   },
   plan_queue_control: {
-    description: 'Control a Plan Queue run or item: pause stops its workers, triage and checkers now and saves work on document branches; resume continues with fresh sessions. Cancel ends a run (run_id); set-routing changes its worker, checker and step-up providers and accounts for future sessions (run_id and routing, optional move_in_progress); skip an item that has not started, resume a parked item, retry a blocked merge of a verified item, land a parked item without a verifier PASS, or discard a parked item\'s branch (item_id). Land anyway and discard change git state, so do them only when James asked. If the session that started a run no longer exists, any session the queue did not spawn may adopt the run (it then answers its questions and receives its summary), cancel it, or discard a parked item. Adopt when the work should continue; cancel only when James asked. Use request-handover (run_id) to ask an existing owner to transfer this run. Only that owner or the panel may handover (run_id, target_instance_id); this requires all Queue workers, triage and checkers to have stopped. A sleeping owner retains ownership.',
+    description: 'Control a Plan Queue run or item: pause stops its workers, triage and checkers now and saves work on document branches; resume continues with fresh sessions. Cancel ends a run (run_id); set-routing changes its worker, checker and step-up providers and accounts for future sessions (run_id and routing, optional move_in_progress); skip an item that has not started, resume a parked item, retry a blocked merge of a verified item, land a parked item without a verifier PASS, or discard a parked item\'s branch (item_id). Land anyway and discard change git state, so do them only when James asked. If the session that started a run no longer exists, any session the queue did not spawn may adopt the run (it then answers its questions and receives its summary), cancel it, or discard a parked item. Adopt when the work should continue; cancel only when James asked. Use request-handover (run_id) to ask an existing owner to transfer this run. Only that owner or the panel may handover (run_id, target_instance_id); this requires all Queue workers, triage and checkers to have stopped. A sleeping owner retains ownership. If the owner does not hand over a run that work James asked you to do needs, run `$AIO_MCP plan-queue move <run_id>` in your shell: it moves the run to you with James\'s authority, as the Plan Queue page does. Say which run you moved and why.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -168,6 +174,18 @@ export const PLAN_QUEUE_TOOL_SPECS = {
       required: ['action'],
       additionalProperties: false,
     },
+  },
+  plan_queue_set_aside: {
+    description: 'Set aside agent only: list the jobs set aside in this folder, 40 at a time, newest first. Each job says what its branch still holds (holding: nothing, nothing-new, documents-only, new-code or unknown), whether it merges cleanly, whether its checks passed, and whether its document was closed or landed later. Read-only.',
+    inputSchema: {
+      type: 'object',
+      properties: { offset: { type: 'integer', minimum: 0, description: 'Start of the page. Pass the previous result\'s nextOffset; defaults to 0.' } },
+      additionalProperties: false,
+    },
+  },
+  plan_queue_set_aside_clear: {
+    description: 'Set aside agent only: remove every job in this folder that Harness proves holds nothing: no branch, or a branch that adds nothing to the base branch. Its document is left as it is. Jobs holding any work stay. Call again until more is false.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   plan_queue_report_triage: {
     description: 'Plan Queue triage agents only: report one disposition per document (ready, needs-answer with classified decision metadata, or skip with a reason). Resolve routine choices and evidence gathering autonomously; the coordinator selects valid technical recommendations automatically. Reserve human-authority for missing approval and human-input for facts unavailable from investigation. Rejected from any other session.',
@@ -274,12 +292,14 @@ const HANDLERS: Record<PlanQueueToolName, Handler> = {
     return ops.answer(caller, parsed.item_id, parsed.option_id);
   },
   plan_queue_control: (caller, ops, args) => ops.control(caller, PlanQueueControlArgsSchema.parse(args)),
+  plan_queue_set_aside: (caller, ops, args) => ops.setAside(caller, PlanQueueSetAsideArgsSchema.parse(args ?? {}).offset ?? 0),
+  plan_queue_set_aside_clear: (caller, ops) => ops.clearSetAside(caller),
   plan_queue_report_triage: (caller, ops, args) => ops.reportTriage(caller, PlanQueueReportTriageArgsSchema.parse(args)),
   plan_queue_report_verdict: (caller, ops, args) => ops.reportVerdict(caller, PlanQueueReportVerdictArgsSchema.parse(args)),
 };
 
 /** Tools a queue-spawned instance must not see: no queue inside a queue. */
-const PARENT_ONLY: ReadonlySet<PlanQueueToolName> = new Set<PlanQueueToolName>(['plan_queue_start']);
+const PARENT_ONLY: ReadonlySet<PlanQueueToolName> = new Set<PlanQueueToolName>(['plan_queue_start', 'plan_queue_set_aside', 'plan_queue_set_aside_clear']);
 
 export function createPlanQueueToolDefinitions(context: PlanQueueToolContext): McpServerToolDefinition[] {
   const ops = context.planQueueTools;

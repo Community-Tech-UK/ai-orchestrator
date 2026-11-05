@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlanQueueItemDto } from '@contracts/schemas/plan-queue';
 import { PlanQueueStore } from '../../../core/state/plan-queue.store';
-import { PlanQueueQuestionsBannerComponent, planQueueDocumentLabel } from './plan-queue-questions-banner.component';
+import { planQueueDocumentLabel } from '../plan-queue-item-display';
+import { PlanQueueQuestionsBannerComponent } from './plan-queue-questions-banner.component';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
 
@@ -47,8 +48,7 @@ describe('PlanQueueQuestionsBannerComponent', () => {
   let fixture: ComponentFixture<PlanQueueQuestionsBannerComponent>;
   let store: {
     needsAnswerItems: ReturnType<typeof signal<PlanQueueItemDto[]>>;
-    ensureWired: ReturnType<typeof vi.fn>;
-    load: ReturnType<typeof vi.fn>;
+    ensureLoaded: ReturnType<typeof vi.fn>;
   };
   let router: { navigate: ReturnType<typeof vi.fn> };
 
@@ -65,8 +65,7 @@ describe('PlanQueueQuestionsBannerComponent', () => {
   beforeEach(async () => {
     store = {
       needsAnswerItems: signal<PlanQueueItemDto[]>([]),
-      ensureWired: vi.fn(),
-      load: vi.fn().mockResolvedValue(undefined),
+      ensureLoaded: vi.fn(),
     };
     router = { navigate: vi.fn().mockResolvedValue(true) };
 
@@ -84,8 +83,7 @@ describe('PlanQueueQuestionsBannerComponent', () => {
   });
 
   it('wires and loads the store so questions appear without visiting the Plan Queue page', () => {
-    expect(store.ensureWired).toHaveBeenCalledTimes(1);
-    expect(store.load).toHaveBeenCalledTimes(1);
+    expect(store.ensureLoaded).toHaveBeenCalledTimes(1);
   });
 
   it('renders nothing while no question is open', () => {

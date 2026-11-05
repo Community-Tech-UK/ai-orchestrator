@@ -18,6 +18,7 @@ type Preparation = { kind: 'ready' } | { kind: 'wait'; detail: string }
 export class PlanQueueVerification {
   /** In-flight evidence lives until the round is recorded or its review stops. */
   private readonly receipts = new Map<string, PlanQueueGateReceipt[]>();
+  private readonly checkedBases = new Map<string, string>();
   private readonly controllers = new Map<string, AbortController>();
   private readonly checkedDocuments = new Map<string, DocumentReview>();
   readonly groups: PlanQueueCheckGroups;
@@ -27,7 +28,7 @@ export class PlanQueueVerification {
 
   cancel(itemId: string): void { this.groups.cancel(itemId); this.controllers.get(itemId)?.abort(); }
   /** Called under the item lock once its review has stopped. */
-  forgetCheck(itemId: string): void { this.checkedDocuments.delete(itemId); this.receipts.delete(itemId); }
+  forgetCheck(itemId: string): void { this.groups.forget(itemId); this.checkedBases.delete(itemId); this.checkedDocuments.delete(itemId); this.receipts.delete(itemId); }
   cancelAll(): void { this.groups.cancelAll(); for (const controller of this.controllers.values()) controller.abort(); }
 
   rememberWorkerClaim(item: PlanQueueItem, text: string): void {
@@ -48,7 +49,20 @@ export class PlanQueueVerification {
     this.host.history.recordPinIfAbsent(pin);
   }
 
-  async prepare(item: PlanQueueItem): Promise<Preparation> {
+  checkedBase(itemId: string): string {
+    const base = this.checkedBases.get(itemId);
+    if (!base) throw new Error('The checker has no prepared base commit.');
+    return base;
+  }
+
+  async prepareGrouped(item: PlanQueueItem): Promise<Preparation | undefined> {
+    const receipts = await this.groups.pendingReceipts(item);
+    return receipts ? this.prepareChecks(item, receipts) : undefined;
+  }
+
+  prepare(item: PlanQueueItem): Promise<Preparation> { return this.prepareChecks(item, undefined); }
+
+  private async prepareChecks(item: PlanQueueItem, grouped: PlanQueueGateReceipt[] | undefined): Promise<Preparation> {
     this.checkedDocuments.delete(item.id);
     const run = this.host.getRun(item.runId);
     const fingerprint = JSON.stringify(progressFingerprint(item.checkpointCommit, await documentContentSha256(item.documentPath), item.round));
@@ -60,24 +74,32 @@ export class PlanQueueVerification {
         reason: 'no-progress-warning', detailHead: fingerprint, round: item.round, tokens: 0 });
       return { kind: 'fix', prompt: progress.prompt, detail: 'Nothing changed since the last failed check.' };
     }
-    if (!run.config.verifierGates.length) { this.receipts.set(item.id, []); return { kind: 'ready' }; }
+    if (!run.config.verifierGates.length) {
+      this.receipts.set(item.id, []);
+      this.checkedBases.set(item.id, await gitExec(['rev-parse', `refs/heads/${run.config.baseBranch}`], run.workspaceCwd));
+      return { kind: 'ready' };
+    }
     const controller = this.groups.controllerFor(item.id) ?? new AbortController();
     this.controllers.set(item.id, controller);
     try {
       const head = await gitExec(['rev-parse', 'HEAD'], item.worktreePath!);
-      const baseSha = await gitExec(['rev-parse', `refs/heads/${run.config.baseBranch}`], run.workspaceCwd);
+      if (grouped && (grouped.some((receipt, index) => receipt.head !== head || receipt.command !== run.config.verifierGates[index])
+        || !this.groups.pendingStillIntact(item.id))) return { kind: 'wait', detail: 'The work changed while checks ran; waiting to check it again.' };
+      const baseSha = grouped?.[0]?.checkGroup?.baseTip ?? await gitExec(['rev-parse', `refs/heads/${run.config.baseBranch}`], run.workspaceCwd);
       if (!this.host.checksAdmitted(run)) return { kind: 'wait', detail: 'Checks are paused or the computer is busy.' };
       this.host.save({ ...this.host.getItem(item.id), detail: 'Running checks' });
       const input = { cwd: item.worktreePath!, head, commands: run.config.verifierGates,
         signal: controller.signal, baseSha, scope: run.workspaceCwd,
         onExecution: () => this.host.history.recordChecklistRun(item, [item.id]),
         withBaseline: <T>(action: (cwd: string) => Promise<T>) => this.host.worktrees.withBaseline(run.workspaceCwd, baseSha, action) };
-      const receipts = this.gates.cached(input) ?? await this.groups.run(item, run, input) ?? await this.gates.run(input);
+      const receipts = grouped ?? this.gates.cached(input) ?? await this.groups.run(item, run, input) ?? await this.gates.run(input);
       controller.signal.throwIfAborted();
       if (await gitExec(['rev-parse', 'HEAD'], item.worktreePath!) !== head) {
         return { kind: 'wait', detail: 'The work changed while checks ran; waiting to check it again.' };
       }
+      if (grouped && !this.groups.pendingStillIntact(item.id)) return { kind: 'wait', detail: 'Checks were stopped.' };
       this.receipts.set(item.id, receipts);
+      this.checkedBases.set(item.id, baseSha);
       const red = blockingGateReceipts(receipts);
       if (!red.length) return { kind: 'ready' };
       const round = item.round + 1;

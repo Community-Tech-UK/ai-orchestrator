@@ -41,6 +41,7 @@ import { pumpPlanQueue } from './plan-queue-pump';
 import { assertPlanQueueParent, authorizePlanQueueControl } from './plan-queue-control-authority';
 import { adoptRunParent } from './plan-queue-run-parent';
 import { requestRunHandover, handoverRunParent } from './plan-queue-handover';
+import { planQueueRunCanMove } from '../../shared/utils/plan-queue-run-movable';
 import { PlanQueueParentMessenger } from './plan-queue-parent-messenger';
 import { discoverPlanQueueDocuments } from './plan-queue-discovery';
 import { defaultRunConfigFor, THIS_REPOSITORY_ROOT_COMMIT } from './plan-queue-default-gates';
@@ -54,10 +55,12 @@ import {
 } from './plan-queue-instance-tracker';
 import type { PlanQueueFlowHost, PlanQueueInstancePort, PlanQueueRoleRecord, PlanQueueSessionTreePort } from './plan-queue-host';
 import { PlanQueueItemFlow } from './plan-queue-item-flow';
+import { PlanQueueSetAsideAgents } from './plan-queue-set-aside';
 import { hasPendingLandingCleanup } from './plan-queue-item-landing';
 import { spawnQueueInstance } from './plan-queue-spawn';
 import { PlanQueueRunControl } from './plan-queue-run-control';
 import { buildRunSummaryMessage, runToDto } from './plan-queue-messages';
+import { itemStages } from './plan-queue-item-stage';
 import { PlanQueueParentTracker } from './plan-queue-parent';
 import { PlanQueueTriage } from './plan-queue-triage';
 import { PlanQueueUserClose } from './plan-queue-user-close';
@@ -142,6 +145,9 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   private trackerInstance: PlanQueueInstanceTracker | null = null;
   private worktreeService: PlanQueueWorktreeService | null = null;
   private parents: PlanQueueParentTracker | null = null;
+  private setAside: PlanQueueSetAsideAgents | null = null;
+  private quietDepth = 0;
+  private readonly quietRuns = new Set<string>();
   private readonly roles = new Map<string, PlanQueueRoleRecord>();
   private readonly answering = new Set<string>();
   private triage: PlanQueueTriage | null = null;
@@ -156,6 +162,8 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   private readonly runControl = new PlanQueueRunControl();
   private accountRulesUnsubscribe: (() => void) | null = null;
   private readonly userClose = new PlanQueueUserClose(() => this.requireDeps().now());
+  /** A landing turn recorded before this time ended with the previous app session. */
+  private sessionStartedAt = 0;
   static getInstance(): PlanQueueCoordinator {
     if (!PlanQueueCoordinator.instance) PlanQueueCoordinator.instance = new PlanQueueCoordinator();
     return PlanQueueCoordinator.instance;
@@ -179,6 +187,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       now: deps.now ?? Date.now,
       newId: deps.newId ?? randomUUID,
     };
+    this.sessionStartedAt = this.deps.now();
     this.worktreeService = new PlanQueueWorktreeService({
       repoRootForItem: item => this.getRun(item.runId).workspaceCwd,
       history: deps.store.history,
@@ -193,6 +202,10 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     );
     this.trackerInstance.attach();
     this.whenOrchestratorToolsListening = deps.whenOrchestratorToolsListening ?? (() => Promise.resolve());
+    this.setAside = new PlanQueueSetAsideAgents({
+      store: deps.store, instances: deps.instances, getRun: (id) => this.getRun(id), getItem: (id) => this.getItem(id), now: deps.now ?? Date.now,
+      discard: (id, actor) => this.requireFlow().discard(id, actor), quietly: (work) => this.quietly(work),
+    });
     this.parentMessenger = new PlanQueueParentMessenger({
       instances: this.instances, isQueueInstance: (id) => this.isQueueInstance(id),
       getRun: (id) => this.getRun(id),
@@ -389,8 +402,8 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     const deps = this.requireDeps();
     const parent = deps.instances.getInstance(input.parentInstanceId);
     if (!parent) throw new Error(`Parent session not found: ${input.parentInstanceId}`);
-    if (this.isQueueInstance(input.parentInstanceId)) {
-      throw new Error('A Plan Queue worker, verifier or triage session cannot start another queue run');
+    if (this.isQueueInstance(input.parentInstanceId) || this.setAside?.folderOf(input.parentInstanceId) !== undefined) {
+      throw new Error('A Plan Queue worker, verifier, triage or Set aside session cannot start another queue run');
     }
     const startFolder = input.workspaceCwd ?? parent.workingDirectory ?? process.cwd();
     const repoRoot = await repositoryRoot(startFolder);
@@ -434,16 +447,21 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     logger.info('Plan queue run started', { runId: run.id, kind: run.kind, items: items.length, excluded: excluded.length });
     this.announce({ runId: run.id });
     this.requestPump();
-    return { run: runToDto(this.getRun(run.id), items, deps.store.history.checksSummary(run.id)), excluded, routingSetAside: setAside, accountNotes, checklistSetAside: callerGatesSetAside };
+    return { run: runToDto(this.getRun(run.id), items, deps.store.history.checksSummary(run.id), this.stagesOf(items)), excluded, routingSetAside: setAside, accountNotes, checklistSetAside: callerGatesSetAside };
   }
   getRunDto(runId: string): PlanQueueRunDto | null {
     const run = this.requireDeps().store.getRun(runId);
-    return run ? runToDto(run, this.requireDeps().store.listItems(run.id), this.history.checksSummary(run.id)) : null;
+    if (!run) return null;
+    const items = this.requireDeps().store.listItems(run.id);
+    return runToDto(run, items, this.history.checksSummary(run.id), this.stagesOf(items));
   }
   listRunDtos(limit = 20): PlanQueueRunDto[] {
-    const store = this.requireDeps().store;
-    return store.listRunSnapshots(limit).map(({ run, items, checks }) => runToDto(run, items, checks));
+    const snapshots = this.requireDeps().store.listRunSnapshots(limit);
+    const stages = this.stagesOf(snapshots.flatMap(snapshot => snapshot.items));
+    return snapshots.map(({ run, items, checks }) => runToDto(run, items, checks, stages));
   }
+  /** Steps with no session (checks, landing, waits), timed from stored history; see plan-queue-item-stage.ts. */
+  private stagesOf(items: readonly PlanQueueItem[]) { return itemStages(this.history, items, this.sessionStartedAt); }
 
   /** The "Queue health" measures for the recent window, from the stored events and verdicts. */
   getQueueHealth(): PlanQueueHealth { return this.requireDeps().store.queueHealth(); }
@@ -462,6 +480,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     if (!item.branchName || !run.config.baseBranch) return '';
     return diffStat(run.workspaceCwd, run.config.baseBranch, item.branchName);
   }
+  get setAsideAgents(): PlanQueueSetAsideAgents { return this.require(this.setAside); }
   /** True for any instance the queue spawned (by role, or by provenance after a restart). */
   isQueueInstance(instanceId: string): boolean {
     if (this.roles.has(instanceId)) return true;
@@ -546,11 +565,13 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
         },
         notifyParent: (run, message) => this.notifyParent(run, message), requestPump: () => this.requestPump(),
         cancel: (run, actor) => this.cancelRun(run, actor), routing: this.requireDeps().routing,
-        requestHandover: (run, caller) => requestRunHandover(run, caller, { instances: this.instances, isQueueInstance: id => this.isQueueInstance(id) }),
+        requestHandover: (run, caller) => requestRunHandover(run, caller, { instances: this.instances, isQueueInstance: id => this.isQueueInstance(id),
+          isSetAsideAgent: id => this.setAside?.folderOf(id) !== undefined }),
         handover: (run, targetId, caller) => handoverRunParent(run, targetId, caller, {
-          instances: this.instances, isQueueInstance: id => this.isQueueInstance(id),
+          instances: this.instances, isQueueInstance: id => this.isQueueInstance(id), isSetAsideAgent: id => this.setAside?.folderOf(id) !== undefined,
           getRun: id => this.require(this.parents).follow(this.getRun(id)),
           hasActiveWork: id => !!this.triage?.hasActiveWork(id) || this.store.listItems(id).some(item => flow.hasActiveWork(item.id)),
+          hasOwnerWork: id => planQueueRunCanMove({ status: this.getRun(id).status, items: this.store.listItems(id) }),
           setParent: (id, parentId, thread) => { this.store.setRunParent(id, parentId, thread); this.announce({ runId: id }); },
           onParentChanged: updated => this.require(this.parentMessenger).onParentChanged(updated),
           notifyParent: (updated, message) => this.notifyParent(updated, message),
@@ -571,6 +592,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     const item = this.getItem(payload.itemId);
     const run = this.require(this.parents).follow(this.getRun(item.runId));
     const actor = this.authorizeControl(run, payload.action, callerInstanceId);
+    this.setAside?.spendRestart(callerInstanceId, payload.action, item);
     switch (payload.action) {
       case 'skip-item':
         if (this.answering.has(item.id)) throw new Error('This document is applying an answer. Wait for it to finish before skipping.');
@@ -760,13 +782,30 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
         return instance !== undefined && instance.status !== 'superseded';
       },
       isQueueInstance: (id) => this.isQueueInstance(id),
+      setAsideFolder: (id) => this.setAside?.folderOf(id),
     });
   }
   private logItemError(item: PlanQueueItem, error: unknown): void {
     logger.error('Plan queue item step failed', error instanceof Error ? error : undefined, { itemId: item.id });
   }
 
-  private announce(event: PlanQueueStateChangedEvent): void { this.emit('state-changed', event); }
+  private announce(event: PlanQueueStateChangedEvent): void {
+    if (this.quietDepth > 0) this.quietRuns.add(event.runId);
+    else this.emit('state-changed', event);
+  }
+
+  /** Each announcement carries the whole run, so a bulk change sends one per run when it ends. */
+  private async quietly<T>(work: () => Promise<T>): Promise<T> {
+    this.quietDepth += 1;
+    try { return await work(); } finally {
+      this.quietDepth -= 1;
+      if (this.quietDepth === 0) {
+        const runIds = [...this.quietRuns];
+        this.quietRuns.clear();
+        for (const runId of runIds) this.announce({ runId });
+      }
+    }
+  }
 
   private requireDeps(): ResolvedDeps { return this.require(this.deps); }
 

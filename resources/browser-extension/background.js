@@ -2641,6 +2641,8 @@ async function executeBrowserCommand(command, deadlineAt) {
       return runInTargetTab(command, 'read_control', [
         requirePayloadString(command, 'selector'),
       ]);
+    case 'probe_one_time_code':
+      return probeOneTimeCodeFields(command);
     case 'handle_dialog':
       return answerDialogCommand(command);
     case 'close_tab': {
@@ -4912,6 +4914,121 @@ function httpAuthStageOutcome(stage) {
 /** Secret-free discovery pass. Chrome supplies the authoritative frameId. */
 function credentialFrameOriginProbe() {
   return { origin: location.origin };
+}
+
+/**
+ * Sign-in code box evidence for the action guard (probe_one_time_code). Copied
+ * byte-for-byte from ONE_TIME_CODE_FIELD_PROBE_SOURCE in
+ * src/main/browser-gateway/browser-one-time-code-field-probe.ts; a spec pins
+ * the two together. Returns three booleans only.
+ */
+function oneTimeCodeFieldProbe(targetSelector) {
+  const CODE_TERMS = /(?:^| )(?:otp|mfa|2fa|totp|two factor|one time|verification code|recovery code|passcode|authentication code|auth code)(?: |$)/;
+  const FIELD_TYPES = ['', 'text', 'tel', 'number', 'password'];
+  const words = (value) => String(value || '')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .replace(/[^A-Za-z0-9]+/g, ' ')
+    .trim()
+    .toLowerCase();
+  const roots = [];
+  const inputs = [];
+  const walk = (root) => {
+    roots.push(root);
+    for (const element of Array.from(root.querySelectorAll('*'))) {
+      if (element.tagName === 'INPUT') inputs.push(element);
+      if (element.shadowRoot) walk(element.shadowRoot);
+    }
+  };
+  walk(document);
+  const visible = (element) => {
+    const rect = element.getBoundingClientRect();
+    if (!(rect.width > 0 && rect.height > 0)) return false;
+    const style = getComputedStyle(element);
+    return style.visibility !== 'hidden' && style.display !== 'none';
+  };
+  const labelText = (element) => {
+    const parts = Array.from(element.labels || []).map((label) => label.textContent);
+    for (const id of (element.getAttribute('aria-labelledby') || '').split(/\s+/)) {
+      const labelled = id ? document.getElementById(id) : null;
+      if (labelled) parts.push(labelled.textContent);
+    }
+    return parts.join(' ');
+  };
+  const candidates = inputs.filter((element) =>
+    FIELD_TYPES.includes((element.getAttribute('type') || '').toLowerCase())
+    && !element.disabled
+    && visible(element));
+  const CONTACT_TERMS = /(?:^| )(?:email|e mail|phone|mobile|telephone|username)(?: |$)/;
+  const CODE_WORDS = /(?:^| )(?:code|pin|token|verification|verify)(?: |$)/;
+  const named = (element) => {
+    const autocomplete = (element.getAttribute('autocomplete') || '').toLowerCase().split(/\s+/);
+    const id = (element.id || '').toLowerCase();
+    const name = (element.getAttribute('name') || '').toLowerCase();
+    const identity = words([element.id, element.getAttribute('name')].join(' '));
+    if (autocomplete.includes('one-time-code') || id === 'code' || name === 'code' || CODE_TERMS.test(identity)) {
+      return true;
+    }
+    // Prose around a field ("Email - we will send a verification code") is
+    // weaker than its own identity: a field that says it is contact data, and
+    // nothing code-like (emailCode, phone_pin), is never a code box on its
+    // label or placeholder alone.
+    const contact = CONTACT_TERMS.test(identity)
+      || autocomplete.some((token) => token === 'email' || token === 'username' || token.startsWith('tel'));
+    if (contact && !CODE_WORDS.test(identity)) {
+      return false;
+    }
+    return CODE_TERMS.test(words([
+      element.getAttribute('placeholder'),
+      element.getAttribute('aria-label'),
+      labelText(element),
+    ].join(' ')));
+  };
+  const codeFields = candidates.filter(named);
+  const boxesByForm = new Map();
+  for (const element of candidates) {
+    if (element.maxLength !== 1) continue;
+    const scope = element.form || element.getRootNode();
+    boxesByForm.set(scope, (boxesByForm.get(scope) || []).concat([element]));
+  }
+  for (const boxes of boxesByForm.values()) {
+    if (boxes.length >= 4 && boxes.length <= 8) codeFields.push(...boxes);
+  }
+  const filled = codeFields.some((element) => String(element.value || '').trim() !== '');
+  let targetIsCodeField = false;
+  if (typeof targetSelector === 'string' && targetSelector) {
+    try {
+      targetIsCodeField = roots.some((root) => Array.from(root.querySelectorAll(targetSelector))
+        .some((element) => codeFields.includes(element)));
+    } catch {
+      targetIsCodeField = codeFields.length > 0;
+    }
+  }
+  return { codeField: codeFields.length > 0, filled, targetIsCodeField };
+}
+
+/**
+ * Boolean-only code box evidence for one tab, merged across its frames.
+ * Deliberately NOT in SECRET_OBSERVATION_COMMANDS: the code page usually sits
+ * on the origin a password fill has just protected, where read_control is
+ * refused, and this answer carries no page text, value or element identity.
+ */
+async function probeOneTimeCodeFields(command) {
+  const tabId = requireTargetTabId(command);
+  const selector = typeof command.payload?.selector === 'string' ? command.payload.selector : null;
+  const injectionResults = await chrome.scripting.executeScript({
+    target: { tabId, allFrames: true },
+    func: oneTimeCodeFieldProbe,
+    args: [selector],
+  });
+  const frames = (injectionResults ?? [])
+    .map((entry) => entry?.result)
+    .filter((result) => result && typeof result === 'object');
+  return {
+    codeField: frames.some((result) => result.codeField === true),
+    filled: frames.some((result) => result.filled === true),
+    targetIsCodeField: frames.some((result) => result.targetIsCodeField === true),
+  };
 }
 
 /**

@@ -62,6 +62,11 @@ export class PlanQueueIpcService {
     return (await this.api.planQueueDiffstat({ itemId })) as IpcResponse<{ diffstat: string }>;
   }
 
+  async startSetAsideAgent(workspaceCwd: string): Promise<IpcResponse<{ instanceId: string }>> {
+    if (!this.api) return notInElectron();
+    return (await this.api.planQueueStartSetAsideAgent({ workspaceCwd })) as IpcResponse<{ instanceId: string }>;
+  }
+
   async start(payload: {
     parentInstanceId: string;
     kind: PlanQueueKind;

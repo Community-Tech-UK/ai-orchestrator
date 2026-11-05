@@ -1496,5 +1496,11 @@
     "owner": "src/renderer/app/features/loop/loop-past-runs-panel.component.ts",
     "text": "Stop retrying this blocked run",
     "why": "consequence"
+  },
+  {
+    "id": "720d1d037937f255",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-run-owner.component.ts",
+    "text": "Open another session to move this run to.",
+    "why": "long"
   }
 ]

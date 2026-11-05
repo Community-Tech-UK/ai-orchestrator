@@ -120,9 +120,141 @@ describe('InstanceAsyncWorkContinuation', () => {
     instance.requestCount += 1;
     instance.status = 'idle';
     events.emit('instance:state-changed', { instanceId: 'instance-1', status: 'idle' });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(sendInput).not.toHaveBeenCalled();
+    expect(registry.hasInhibitor('instance-1')).toBe(true);
+    events.emit('provider:normalized-event', { instanceId: 'instance-1', event: { kind: 'complete' } });
     await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1));
     expect(sendInput.mock.calls[0]?.[1]).toContain('sleep 300');
     expect(registry.hasInhibitor('instance-1')).toBe(false);
+  });
+
+  it('keeps a queued busy completion alive past the previous turn ending until this turn ends', async () => {
+    continuation.stop();
+    const events = new EventEmitter();
+    const adapter = { getAdapterCapabilities: () => ({ supportsAsyncWorkAutoResume: false }) };
+    Object.assign(host, { on: events.on.bind(events), off: events.off.bind(events), getAdapter: () => adapter });
+    continuation = new InstanceAsyncWorkContinuation(registry, host);
+    continuation.start();
+    recordInstanceTurnEnding('instance-1', 'max_output');
+    instance.status = 'busy';
+    registry.observe('instance-1', terminal('codex-item:1'));
+    instance.status = 'idle';
+    events.emit('instance:state-changed', { instanceId: 'instance-1', status: 'idle' });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(registry.hasInhibitor('instance-1')).toBe(true);
+    clearInstanceTurnEnding('instance-1');
+    events.emit('provider:normalized-event', { instanceId: 'instance-1', event: { kind: 'complete' } });
+    await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1));
+  });
+
+  it('stops waiting for a turn ending that never comes once a sweep finds the session ready', async () => {
+    continuation.stop();
+    const events = new EventEmitter();
+    const adapter = { getAdapterCapabilities: () => ({ supportsAsyncWorkAutoResume: false }) };
+    Object.assign(host, { on: events.on.bind(events), off: events.off.bind(events), getAdapter: () => adapter });
+    continuation = new InstanceAsyncWorkContinuation(registry, host);
+    continuation.start();
+    instance.status = 'busy';
+    registry.observe('instance-1', terminal('codex-item:1'));
+    await continuation.checkStalledWork(0);
+    instance.status = 'idle';
+    await continuation.checkStalledWork(60_000);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(sendInput).not.toHaveBeenCalled();
+    await continuation.checkStalledWork(120_000);
+    await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1));
+    expect(registry.hasInhibitor('instance-1')).toBe(false);
+  });
+
+  describe('with a queued busy completion', () => {
+    let events: EventEmitter;
+    beforeEach(() => {
+      continuation.stop();
+      events = new EventEmitter();
+      const adapter = { getAdapterCapabilities: () => ({ supportsAsyncWorkAutoResume: false }) };
+      Object.assign(host, { on: events.on.bind(events), off: events.off.bind(events), getAdapter: () => adapter });
+      continuation = new InstanceAsyncWorkContinuation(registry, host);
+      continuation.start();
+      instance.status = 'busy';
+    });
+
+    it('names every result that shares the one wake', async () => {
+      registry.observe('instance-1', { ...terminal('codex-item:1'), detail: 'npm run verify' });
+      registry.observe('instance-1', { ...terminal('codex-item:2'), detail: 'npm test' });
+      instance.status = 'idle';
+      events.emit('provider:normalized-event', { instanceId: 'instance-1', event: { kind: 'complete' } });
+      await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1));
+      expect(sendInput.mock.calls[0]?.[1]).toContain('`npm run verify; npm test`');
+    });
+
+    it('keeps a name for each of several long commands, and skips an empty one', async () => {
+      const prefix = 'cd /Users/suas/work/orchestrat0r/ai-orchestrator && ';
+      for (const [index, detail] of ['npm run build:main', '', 'npm run lint', 'npm run typecheck:spec'].entries()) {
+        registry.observe('instance-1', { ...terminal(`codex-item:${index}`), ...(detail ? { detail: prefix + detail } : {}) });
+      }
+      instance.status = 'idle';
+      events.emit('provider:normalized-event', { instanceId: 'instance-1', event: { kind: 'complete' } });
+      await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1));
+      const prompt = sendInput.mock.calls[0]?.[1] ?? '';
+      for (const name of ['npm run build:main', 'npm run lint', 'npm run typecheck:spec']) expect(prompt).toContain(name);
+    });
+
+    it('wakes again for a result that lands while the previous wake turn is running', async () => {
+      let finishWake!: () => void;
+      sendInput.mockImplementationOnce(async (_id, _message, _attachments, options) => {
+        options?.beforeProviderDispatch?.();
+        instance.requestCount += 1;
+        instance.status = 'busy';
+        await new Promise<void>((resolve) => { finishWake = resolve; });
+      });
+      registry.observe('instance-1', { ...terminal('codex-item:1'), detail: 'first' });
+      instance.status = 'idle';
+      events.emit('provider:normalized-event', { instanceId: 'instance-1', event: { kind: 'complete' } });
+      await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1));
+
+      registry.observe('instance-1', { ...terminal('codex-item:2'), detail: 'second' });
+      instance.status = 'idle';
+      events.emit('provider:normalized-event', { instanceId: 'instance-1', event: { kind: 'complete' } });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(sendInput).toHaveBeenCalledTimes(1);
+      expect(registry.hasInhibitor('instance-1')).toBe(true);
+
+      finishWake();
+      await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(2));
+      expect(sendInput.mock.calls[1]?.[1]).toContain('`second`');
+      await vi.waitFor(() => expect(registry.hasInhibitor('instance-1')).toBe(false));
+    });
+
+    it('adds a result that arrives at idle to one still waiting for its turn ending', async () => {
+      registry.observe('instance-1', { ...terminal('codex-item:1'), detail: 'first' });
+      instance.status = 'idle';
+      registry.observe('instance-1', { ...terminal('codex-item:2'), detail: 'second' });
+      expect(sendInput).not.toHaveBeenCalled();
+      events.emit('provider:normalized-event', { instanceId: 'instance-1', event: { kind: 'complete' } });
+      await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1));
+      expect(sendInput.mock.calls[0]?.[1]).toContain('`first; second`');
+    });
+
+    it('ignores the late completion of an earlier request', async () => {
+      registry.observe('instance-1', terminal('codex-item:1'));
+      events.emit('provider:normalized-event', { instanceId: 'instance-1', event: { kind: 'complete', requestCountAtCompletion: 2 } });
+      instance.status = 'idle';
+      events.emit('instance:state-changed', { instanceId: 'instance-1', status: 'idle' });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(sendInput).not.toHaveBeenCalled();
+      events.emit('provider:normalized-event', { instanceId: 'instance-1', event: { kind: 'complete', requestCountAtCompletion: 3 } });
+      await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1));
+    });
+
+    it('survives a user message, which Harness may still refuse', async () => {
+      registry.observe('instance-1', terminal('codex-item:1'));
+      events.emit('instance:input-started', { instanceId: 'instance-1', autoContinuation: false });
+      expect(registry.hasInhibitor('instance-1')).toBe(true);
+      instance.status = 'idle';
+      events.emit('provider:normalized-event', { instanceId: 'instance-1', event: { kind: 'complete' } });
+      await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1));
+    });
   });
 
   it('does not deliver a queued busy completion to a replacement adapter', async () => {

@@ -477,6 +477,7 @@ export class PlanQueueItemFlow {
   private spawnVerifier(item: PlanQueueItem, run: PlanQueueRun, baseBranch: string,
     choice: Extract<VerifierSelection, { ok: true }>['choice']): Promise<void> {
     return spawnQueueChecker({ host: this.host, snapshots: this.snapshots, usageWaits: this.usageWaits,
+      checkedBase: id => this.verification.checkedBase(id),
       prompt: (current, currentRun, base) => this.verification.prompt(current, currentRun, base),
       hold: current => this.holdUnlocked(current), select: (current, base) => this.selectAndSpawnVerifier(current, base),
       stop: id => this.stopInstance(id), forgetCheck: id => this.verification.forgetCheck(id), erroredRound: (current, reason) => this.erroredRound(current, reason),

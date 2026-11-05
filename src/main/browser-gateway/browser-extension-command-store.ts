@@ -46,6 +46,7 @@ export type BrowserExtensionCommandName =
   | 'wait_for'
   | 'query_elements'
   | 'read_control'
+  | 'probe_one_time_code'
   | 'report_inventory'
   | 'evaluate';
 

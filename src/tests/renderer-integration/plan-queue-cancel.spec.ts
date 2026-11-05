@@ -48,7 +48,7 @@ describe('Plan Queue cancellation across live page updates', () => {
         list, control,
         onStateChanged: (callback: typeof push) => { push = callback; return () => undefined; },
       } },
-      { provide: InstanceStore, useValue: { rootInstances: signal([]) } },
+      { provide: InstanceStore, useValue: { rootInstances: signal([]), instances: signal([]) } },
       { provide: SettingsStore, useValue: { settings: signal({ planQueueRouting: { workers: [], verifiers: [] } }) } },
       { provide: ProviderAccountIpcService, useValue: { list: async () => ({ profiles: [], pools: {} }) } },
       { provide: CopilotAccountIpcService, useValue: { list: async () => [] } },

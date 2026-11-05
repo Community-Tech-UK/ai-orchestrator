@@ -349,6 +349,32 @@ export class PlanQueueStore {
       .map(rowToItem);
   }
 
+  /** Parked items in one project folder, newest first, each saying whether its document landed afterwards. */
+  listParkedInFolder(workspaceCwd: string): { item: PlanQueueItem; landedLater: boolean }[] {
+    return this.db
+      .prepare(`
+        SELECT item.*, EXISTS (
+          SELECT 1 FROM plan_queue_items landed
+          WHERE landed.document_path = item.document_path AND landed.state = 'landed' AND landed.updated_at >= item.updated_at
+        ) AS landed_later
+        FROM plan_queue_items item JOIN plan_queue_runs run ON run.id = item.run_id
+        WHERE run.workspace_cwd = ? AND item.state = 'parked'
+        ORDER BY item.updated_at DESC, item.id DESC
+      `)
+      .all<ItemRow & { landed_later: number }>(workspaceCwd)
+      .map((row) => ({ item: rowToItem(row), landedLater: row.landed_later === 1 }));
+  }
+
+  /** True when another item is working on this document. */
+  documentInPlay(documentPath: string, exceptItemId: string): boolean {
+    return this.db
+      .prepare(`
+        SELECT 1 FROM plan_queue_items
+        WHERE document_path = ? AND id != ? AND state NOT IN ('landed', 'skipped', 'parked') LIMIT 1
+      `)
+      .get(documentPath, exceptItemId) !== undefined;
+  }
+
   /** Dev-app ports recorded on items that are still in play (not landed, skipped or parked), except one item's own. */
   listLivetestPortsInUse(exceptItemId: string): number[] {
     return this.db

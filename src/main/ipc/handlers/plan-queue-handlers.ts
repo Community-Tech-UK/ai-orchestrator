@@ -14,6 +14,7 @@ import {
   PlanQueueGetPayloadSchema,
   PlanQueueListPayloadSchema,
   PlanQueueStartPayloadSchema,
+  PlanQueueStartSetAsideAgentPayloadSchema,
   PlanQueuePreviewPayloadSchema,
   type PlanQueueStateChangedEvent,
 } from '@contracts/schemas/plan-queue';
@@ -68,6 +69,11 @@ export function registerPlanQueueHandlers(deps: { windowManager: WindowManager }
   handle(IPC_CHANNELS.PLAN_QUEUE_START, 'PLAN_QUEUE_START_FAILED', async (payload) => {
     const validated = validateIpcPayload(PlanQueueStartPayloadSchema, payload, 'PLAN_QUEUE_START');
     return coordinator.startRun(validated);
+  });
+
+  handle(IPC_CHANNELS.PLAN_QUEUE_START_SET_ASIDE_AGENT, 'PLAN_QUEUE_START_SET_ASIDE_AGENT_FAILED', async (payload) => {
+    const validated = validateIpcPayload(PlanQueueStartSetAsideAgentPayloadSchema, payload, 'PLAN_QUEUE_START_SET_ASIDE_AGENT');
+    return { instanceId: await coordinator.setAsideAgents.start(validated.workspaceCwd) };
   });
 
   handle(IPC_CHANNELS.PLAN_QUEUE_PREVIEW, 'PLAN_QUEUE_PREVIEW_FAILED', async (payload) => {

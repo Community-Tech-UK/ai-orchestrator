@@ -24,6 +24,8 @@
           </div>
         }
 
+        @if (stageText(item); as stage) { <div class="pq-item-stage">{{ stage }}</div> }
+
         @if (item.steppedUpAt) {
           <div class="pq-item-stepped-up">
             {{ steppedUpLabel() }}

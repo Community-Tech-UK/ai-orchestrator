@@ -12,6 +12,10 @@
  * edit-superseded source can be rescued after restored-parent resolution.
  * A sleeping, idle or failed retained owner keeps the run; handover requires
  * that owner's explicit control or the operator panel.
+ *
+ * Set aside agent: the session James starts from the Set aside tab may retry a
+ * merge or resume a job in its own folder, and nothing else, even on a run it
+ * would otherwise be able to adopt. It clears jobs through plan-queue-set-aside.ts.
  */
 
 import type { PlanQueueControlPayload } from '@contracts/schemas/plan-queue';
@@ -31,9 +35,17 @@ export const STRANDED_RESCUE_ACTIONS: ReadonlySet<PlanQueueControlAction> = new 
   'discard-item',
 ]);
 
+/** The only control actions the Set aside agent may take, and only in its own folder. */
+export const SET_ASIDE_AGENT_ACTIONS: ReadonlySet<PlanQueueControlAction> = new Set<PlanQueueControlAction>([
+  'resume-item',
+  'retry-landing',
+]);
+
 export interface PlanQueueCallerLookup {
   instanceExists(instanceId: string): boolean;
   isQueueInstance(instanceId: string): boolean;
+  /** The folder a Set aside agent may sort out; undefined for every other session. */
+  setAsideFolder(instanceId: string): string | undefined;
 }
 
 /** @param callerInstanceId set for MCP callers, who must be the run's parent session. */
@@ -53,6 +65,13 @@ export function authorizePlanQueueControl(
   callerInstanceId: string | undefined,
   lookup: PlanQueueCallerLookup,
 ): string {
+  const setAsideFolder = callerInstanceId === undefined ? undefined : lookup.setAsideFolder(callerInstanceId);
+  if (setAsideFolder !== undefined) {
+    if (!SET_ASIDE_AGENT_ACTIONS.has(action) || setAsideFolder !== run.workspaceCwd) {
+      throw new Error('The Set aside agent may only retry a merge or resume a job in its own folder. List this for James.');
+    }
+    return `the Set aside agent (session ${callerInstanceId})`;
+  }
   if (action === 'request-handover') {
     if (!callerInstanceId || !lookup.instanceExists(callerInstanceId) || lookup.isQueueInstance(callerInstanceId)) {
       throw new Error('A handover request requires a live session that the queue did not spawn');

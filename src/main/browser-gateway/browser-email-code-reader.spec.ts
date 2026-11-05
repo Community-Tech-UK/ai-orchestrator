@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   BrowserEmailCodeReader,
   EmailCodeReaderError,
@@ -332,5 +332,30 @@ describe('extractVerificationCode', () => {
 
   it('prefers the subject match over a body match', () => {
     expect(extractVerificationCode('code 111222', 'code 999888')).toBe('111222');
+  });
+});
+
+describe('Report MI (GCA) sign-in mail', () => {
+  // Wording read from the real 2026-11-05 message; the code here is made up.
+  it('extracts the code from "Your MFA code is: NNNNNN"', () => {
+    expect(extractVerificationCode('Report MI sign in', 'Your MFA code is: 604213')).toBe('604213');
+  });
+
+  it('asks the mailbox for the allowed sender domains and reads the parent-domain sender', async () => {
+    const mailbox = new FakeMailboxReader([
+      message({ id: 'gca', from: 'report-mi@gca.gov.uk', textBody: 'Your MFA code is: 604213' }),
+    ]);
+    const search = vi.spyOn(mailbox, 'search');
+    const reader = new BrowserEmailCodeReader({ reader: mailbox });
+
+    const result = await reader.fetchCode({
+      expectedSenderDomains: ['GCA.gov.uk'],
+      sinceMs: 900_000,
+      withinMs: 300_000,
+      now: 1_000_000,
+    });
+
+    expect(result).toMatchObject({ code: '604213', messageId: 'gca' });
+    expect(search).toHaveBeenCalledWith({ sinceMs: 900_000, senderDomains: ['gca.gov.uk'] });
   });
 });

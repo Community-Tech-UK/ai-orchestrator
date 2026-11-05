@@ -376,11 +376,60 @@ describe('browser-action-classifier', () => {
 
     it('applies page challenge evidence without weakening never-grantable stops', () => {
       const input = { actionClass: 'input', hardStop: false } as const;
-      expect(withPageChallengeEvidence(input, { detected: true }))
+      expect(withPageChallengeEvidence(input, { detected: true }, 'browser.click'))
         .toEqual({ actionClass: 'credential', hardStop: true, reason: CAPTCHA_CHALLENGE_REASON });
-      expect(withPageChallengeEvidence(input, { detected: false, unavailable: 'timeout' })).toBe(input);
+      expect(withPageChallengeEvidence(input, { detected: false, unavailable: 'timeout' }, 'browser.click')).toBe(input);
       const payment = { actionClass: 'payment', hardStop: true, reason: 'payment_field_never_automated' } as const;
-      expect(withPageChallengeEvidence(payment, { detected: true })).toBe(payment);
+      expect(withPageChallengeEvidence(payment, { detected: true }, 'browser.click')).toBe(payment);
+    });
+
+    it('applies CAPTCHA evidence only to tools that act on the page, never to typing beside one', () => {
+      const input = { actionClass: 'input', hardStop: false } as const;
+      expect(withPageChallengeEvidence(input, { detected: true }, 'browser.type')).toBe(input);
+      expect(withPageChallengeEvidence(input, { detected: true }, 'browser.fill_form')).toBe(input);
+    });
+  });
+
+  describe('sign-in code box evidence', () => {
+    const TWO_FACTOR = { actionClass: 'credential', hardStop: true, reason: TWO_FACTOR_CHALLENGE_REASON };
+    const submit = { actionClass: 'submit', hardStop: false } as const;
+    const input = { actionClass: 'input', hardStop: false } as const;
+    const box = (filled: boolean, targetIsCodeField = false) => ({
+      detected: false,
+      oneTimeCode: { codeField: true, filled, targetIsCodeField },
+    });
+
+    it('stops a click, key press or script that would submit a filled code box, whatever the hint said', () => {
+      // 2026-11-05: the Report MI "Continue" after a code was typed into #code.
+      for (const toolName of ['browser.click', 'browser.press_key', 'browser.evaluate']) {
+        expect(withPageChallengeEvidence(submit, box(true), toolName)).toEqual(TWO_FACTOR);
+      }
+    });
+
+    it('lets clicks through while the code box is empty (send, resend, cookie banners)', () => {
+      expect(withPageChallengeEvidence(submit, box(false), 'browser.click')).toBe(submit);
+      expect(withPageChallengeEvidence(submit, { detected: false }, 'browser.click')).toBe(submit);
+    });
+
+    it('stops typing or form-filling into the code box, and nothing else on the page', () => {
+      expect(withPageChallengeEvidence(input, box(false, true), 'browser.type')).toEqual(TWO_FACTOR);
+      expect(withPageChallengeEvidence(input, box(false, true), 'browser.fill_form')).toEqual(TWO_FACTOR);
+      expect(withPageChallengeEvidence(input, box(true, false), 'browser.type')).toBe(input);
+      expect(withPageChallengeEvidence(input, box(false, true), 'browser.select')).toBe(input);
+    });
+
+    it('keeps an existing hard stop, and CAPTCHA and payment stay stronger', () => {
+      const declaration = { actionClass: 'submit', hardStop: true, reason: 'legal_declaration_requires_human_or_preapproval' } as const;
+      expect(withPageChallengeEvidence(declaration, box(true), 'browser.click')).toBe(declaration);
+      expect(withPageChallengeEvidence(submit, { ...box(true), detected: true }, 'browser.click'))
+        .toEqual({ actionClass: 'credential', hardStop: true, reason: CAPTCHA_CHALLENGE_REASON });
+      const payment = { actionClass: 'payment', hardStop: true, reason: 'payment_field_never_automated' } as const;
+      expect(withPageChallengeEvidence(payment, box(true), 'browser.click')).toBe(payment);
+    });
+
+    it('turns a destructive click on a filled code page into the two-factor stop', () => {
+      const destructive = { actionClass: 'destructive', hardStop: false } as const;
+      expect(withPageChallengeEvidence(destructive, box(true), 'browser.click')).toEqual(TWO_FACTOR);
     });
   });
 });

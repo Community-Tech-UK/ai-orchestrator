@@ -10,4 +10,6 @@ export const RESUME_PLAN_QUEUE_COPY = {
   'planQueue.chooseParent': { label: 'Start run', meaning: 'Choose a parent session first.' },
   'planQueue.submit': { label: 'Submit answer', meaning: 'Sends this answer so the document can continue.' },
   'planQueue.chooseAnswer': { label: 'Submit answer', meaning: 'Pick an answer first.' },
+  'planQueue.moveRunNoTarget': { label: 'Move to another session', meaning: 'Open another session to move this run to.' },
+  'planQueue.moveRunChoose': { label: 'Move', meaning: 'Choose a session first.' },
 } as const satisfies Record<string, TooltipCopyEntry>;

@@ -46,6 +46,7 @@ import {
 import type { AutomationToolContext } from './orchestrator-automation-tools';
 import type { GetDocReviewResultFn, RequestDocReviewFn } from './doc-review-tools';
 import { isPlanQueueRpcMethod, PLAN_QUEUE_TOOL_NAMES, type PlanQueueToolOperations } from './plan-queue-tools';
+import { dispatchPlanQueueCliRpc, isPlanQueueCliRpcMethod } from './orchestrator-tools-rpc-plan-queue';
 import { ResetNodeConnectionArgsSchema, type NodeConnectionToolContext, type ResetNodeConnectionFn } from './orchestrator-node-connection-tools';
 import type { HostProcessToolContext } from './orchestrator-host-process-tools';
 import {
@@ -383,6 +384,7 @@ export class OrchestratorToolsRpcServer {
     }
     // Each plan_queue_* handler validates its own payload (plan-queue-tools.ts).
     if (isPlanQueueRpcMethod(request.method)) return this.dispatchSameNameTool(request.method, params, abortSignal);
+    if (isPlanQueueCliRpcMethod(request.method)) return dispatchPlanQueueCliRpc(request.method, params.instanceId, params.payload, this.planQueueTools);
 
     switch (request.method) {
       case 'orchestrator_tools.git_batch_pull': {

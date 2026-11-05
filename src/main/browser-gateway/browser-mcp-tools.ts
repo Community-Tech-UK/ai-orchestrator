@@ -430,7 +430,8 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
             'Which secret to type: a vault item field, or email_code — a one-time '
             + 'verification code read from the agent mailbox (newest recent message from '
             + "a sender domain related to the live page origin). Requires an 'email_code' "
-            + 'credential authorization. Never type a one-time code with browser.type: after an '
+            + 'credential authorization. Never type a one-time code with browser.type (typing into '
+            + 'the page\'s code box is parked as a two-factor step): after an '
             + 'email_code or totp fill succeeds, the next browser.click on the same tab within 10 '
             + 'minutes that submits the code is checked as an ordinary submit instead of a parked '
             + 'two-factor step. It is allowed once; if that click is refused, fill again first.',
@@ -444,8 +445,8 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
         description:
           'Expected verification-mail sender domains. Each must be the live page origin '
           + 'host, a parent domain of it, a subdomain of it, or a sender the credential '
-          + 'authorization declares (enforced server-side). Default: the origin host plus '
-          + 'any declared senders.',
+          + 'authorization declares (enforced server-side). Default: the origin\'s registrable '
+          + 'domain (gca.gov.uk for auth.reportmi.gca.gov.uk) plus any declared senders.',
       },
       sinceMs: {
         ...numberProp,

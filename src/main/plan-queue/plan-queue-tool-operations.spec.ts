@@ -42,6 +42,19 @@ describe('Plan Queue tool operation adoption routing', () => {
     expect(createPlanQueueToolOperations(() => coordinator).status('caller', 'run')).not.toHaveProperty('queueHealth');
   });
 
+  it('leaves the session-list stage out of plan_queue_status, which is already very large', () => {
+    const coordinator = new PlanQueueCoordinator();
+    const item = { id: 'item', runId: 'run', documentPath: '/repo/a_plan.md', state: 'verifying' as const, round: 0, erroredRounds: 0,
+      branchName: null, worktreePath: null, baseCommit: null, checkpointCommit: null, landedCommit: null, workerInstanceId: null,
+      verifierInstanceId: null, question: null, answer: null, parkReason: null, detail: 'Running checks', verdict: null,
+      stage: { name: 'checks' as const, startedAt: 1 }, createdAt: 1, updatedAt: 1 };
+    vi.spyOn(coordinator, 'getRunDto').mockReturnValue({ id: 'run', parentInstanceId: 'caller', kind: 'plans', workspaceCwd: '/repo', status: 'running',
+      config: DEFAULT_PLAN_QUEUE_CONFIG.plans, workerProvider: 'claude', relaxedSettings: [], startedAt: 1, endedAt: null, items: [item] });
+    const status = createPlanQueueToolOperations(() => coordinator).status('caller', 'run') as { items: object[] };
+    expect(status.items[0]).toMatchObject({ itemId: 'item', state: 'verifying' });
+    expect(JSON.stringify(status)).not.toContain('"stage"');
+  });
+
   it('maps adopt to a run action and keeps authenticated caller identity', async () => {
     const coordinator = new PlanQueueCoordinator();
     const control = vi.spyOn(coordinator, 'control').mockResolvedValue();

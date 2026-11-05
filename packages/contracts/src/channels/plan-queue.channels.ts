@@ -17,6 +17,8 @@ export const PLAN_QUEUE_CHANNELS = {
   // Commands (renderer → main)
   /** Start a run with a chosen session as its parent. */
   PLAN_QUEUE_START: 'plan-queue:start',
+  /** Start, or return, the agent that sorts out one folder's set-aside jobs. */
+  PLAN_QUEUE_START_SET_ASIDE_AGENT: 'plan-queue:start-set-aside-agent',
   /** Answer an item's question (radio choice in the panel). */
   PLAN_QUEUE_ANSWER: 'plan-queue:answer',
   /** Pause / resume / cancel a run; skip / resume / land-anyway / discard an item. */
