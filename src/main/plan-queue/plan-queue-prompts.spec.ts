@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PlanQueueReportTriageArgsSchema, PlanQueueReportVerdictArgsSchema } from '@contracts/schemas/plan-queue';
 import {
+  buildActiveDocumentsPrompt,
   buildConflictPrompt,
   buildContinuePrompt,
   buildFixPrompt,
@@ -58,6 +59,29 @@ describe('plan queue prompts', () => {
   it('repeats evidence runtime cleanup when a worker fixes verifier findings', () => {
     const prompt = buildFixPrompt(1, 3, [{ severity: 'high', confidence: 85, summary: 'Missing retry test.' }]);
     expect(prompt).toContain('After the report, seal and command receipts are written, delete the runtime you created: database clusters, browser binaries, compile caches and copied source trees. Keep dependency installs inside the worktree (for example node_modules): the verifier runs its gates there, and the worktree is removed when the item ends. Leave the report, the seal and the receipts. Do not copy a checkout or node_modules into the plan folder or into a directory outside the worktree.');
+  });
+
+  it('tells the worker planning files are edited at their root path even when tracked, and never created in the worktree', () => {
+    const prompt = buildWorkerPrompt({ item, kind: 'plans', repoRoot: '/repo', worktreePath: '/w' });
+    expect(prompt).toContain('always edited at their absolute path in the root checkout, even when git tracks them');
+    expect(prompt).toContain('`_history`');
+    expect(prompt).toContain('`-decisions-for-james`');
+    expect(prompt).toContain('a file already at the root is never overwritten');
+  });
+
+  it('tells the fix round where moved planning files went', () => {
+    const note = 'docs/plans/x_history.md is now at /repo/docs/plans/x_history.md';
+    const prompt = buildFixPrompt(1, 3, [{ severity: 'high', confidence: 85, summary: 'Missing retry test.' }], note);
+    expect(prompt).toContain('<moved_planning_files>');
+    expect(prompt).toContain(note);
+    expect(buildFixPrompt(1, 3, [], null)).not.toContain('moved_planning_files');
+  });
+
+  it('no longer asks the worker to move active planning documents itself, which could overwrite a root copy', () => {
+    const prompt = buildActiveDocumentsPrompt(['docs/plans/a_history.md']);
+    expect(prompt).toContain('docs/plans/a_history.md');
+    expect(prompt).toContain('do not move or copy these yourself');
+    expect(prompt).not.toContain('move any of these you still need');
   });
 
   it.each(['plans', 'livetests'] as const)('requires %s verifiers to avoid leaving evidence runtimes beside plans', (kind) => {

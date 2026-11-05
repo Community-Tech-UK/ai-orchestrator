@@ -21,7 +21,8 @@ afterEach(() => { vi.unstubAllEnvs(); rmSync(dir, { recursive: true, force: true
 
 describe('buildQueuePushGuardEnv', () => {
   it('marks the session and numbers the git settings from zero', async () => {
-    const env = await buildQueuePushGuardEnv(dir);
+    // Blank out any git settings the test process itself carries (a queue worker session has some).
+    const env = await buildQueuePushGuardEnv(dir, { GIT_CONFIG_COUNT: undefined });
     expect(env[QUEUE_SESSION_ENV]).toBe('1');
     const count = Number(env['GIT_CONFIG_COUNT']);
     expect(count).toBeGreaterThanOrEqual(7);

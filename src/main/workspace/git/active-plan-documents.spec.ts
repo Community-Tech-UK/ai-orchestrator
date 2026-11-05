@@ -57,6 +57,19 @@ describe('listActivePlanDocuments', () => {
     ]);
   });
 
+  it('also lists history and decisions documents, which the shared pattern covers', async () => {
+    commitOnSession({
+      'docs/plans/a_history.md': '# history\n',
+      'docs/plans/a-decisions-for-james.md': '# decisions\n',
+      'docs/plans/b_history_completed.md': '# closed\n',
+    });
+
+    await expect(listActivePlanDocuments(repo, 'main', 'task-session')).resolves.toEqual([
+      'docs/plans/a-decisions-for-james.md',
+      'docs/plans/a_history.md',
+    ]);
+  });
+
   it('ignores closed-state documents and ordinary files', async () => {
     commitOnSession({
       'docs/plans/a_plan_completed.md': '# done\n',

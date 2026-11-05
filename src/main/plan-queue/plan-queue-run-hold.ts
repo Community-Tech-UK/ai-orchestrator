@@ -3,6 +3,7 @@ import { NEVER_USE_HOLD_REASON } from './plan-queue-account-rules';
 import { isOwnCheckout, UnresolvedMergeError, revertToSnapshot, snapshotTree, type TreeSnapshot } from './plan-queue-git';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { hasCheckout, InvalidQueueCheckoutError } from './plan-queue-orphan-checkout';
+import { describePlanningMoves } from './plan-queue-planning-files';
 import { buildFixPrompt } from './plan-queue-prompts';
 import { PlanQueueCheckoutOwnershipError, readProvisionedPaths } from './plan-queue-worktree';
 import type { PlanQueueItem } from './plan-queue.types';
@@ -52,15 +53,20 @@ export async function holdItem(
   if (item.state === 'queued' && !item.branchName && !item.worktreePath
     && !item.workerInstanceId && !item.verifierInstanceId) return;
   const verifying = item.state === 'verifying';
-  const pendingInstruction = item.pendingInstruction
-    ?? (item.verdict?.verdict === 'FAIL' ? buildFixPrompt(item.round, host.getRun(item.runId).config.maxRounds, item.verdict.findings)
-      : item.detail && !isHoldNote(item.detail) ? item.detail : null);
+  const original = item;
+  // Read when needed, not up front: the pause checkpoint below can move more planning files, and
+  // the resumed worker is told where they went, as the normal fix path does.
+  const pendingInstructionNow = async (): Promise<string | null> => original.pendingInstruction
+    ?? (original.verdict?.verdict === 'FAIL'
+      ? buildFixPrompt(original.round, host.getRun(original.runId).config.maxRounds, original.verdict.findings,
+        await describePlanningMoves(host.getRun(original.runId).workspaceCwd, original.id))
+      : original.detail && !isHoldNote(original.detail) ? original.detail : null);
   await Promise.all([item.workerInstanceId, item.verifierInstanceId].filter((id): id is string => Boolean(id)).map(stopInstance));
   if (verifying) {
     try { await restoreVerifier(item); }
     catch (error) {
       if (!(error instanceof InvalidQueueCheckoutError)) throw error;
-      parkAfterVerifierRestoreFailure(host, { ...item, pendingInstruction }, error, reason); return;
+      parkAfterVerifierRestoreFailure(host, { ...item, pendingInstruction: await pendingInstructionNow() }, error, reason); return;
     }
   }
   // A half-removed folder has nothing to checkpoint; its work is on the branch.
@@ -71,7 +77,7 @@ export async function holdItem(
         // Writers are stopped and the checkpoint made no Git writes. Keep the
         // refused checkout exactly as it is, without retrying parking cleanup.
         host.transition(item, 'parked', {
-          heldAt: null, pendingInstruction, workerInstanceId: null, verifierInstanceId: null,
+          heldAt: null, pendingInstruction: await pendingInstructionNow(), workerInstanceId: null, verifierInstanceId: null,
           question: null, parkReason: 'worktree-error', detail: error.message,
         });
         return;
@@ -80,7 +86,7 @@ export async function holdItem(
     }
   }
   const patch = {
-    heldAt: item.heldAt ?? Date.now(), pendingInstruction,
+    heldAt: item.heldAt ?? Date.now(), pendingInstruction: await pendingInstructionNow(),
     // The latest hold's reason replaces an earlier hold's note; any other note stays.
     workerInstanceId: null, verifierInstanceId: null, question: null, detail: item.detail && !isHoldNote(item.detail) ? item.detail : reason,
   };

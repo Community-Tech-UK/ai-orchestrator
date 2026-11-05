@@ -209,11 +209,9 @@ describe('PlanQueueWorktreeService', () => {
     // Only the manager's provisioned port file is left uncommitted.
     expect(git(['status', '--porcelain'], wt)).toBe('?? .mise.local.toml');
     expect(item.checkpointCommit).toBe(git(['rev-parse', 'HEAD'], wt));
-    expect(git(['show', '--name-only', '--format=', 'HEAD'], wt).split('\n').sort()).toEqual([
-      'a.txt',
-      'docs/x_plan.md',
-      'new.txt',
-    ]);
+    // The guarded planning name never reaches the commit: it moved to the root checkout instead.
+    expect(git(['show', '--name-only', '--format=', 'HEAD'], wt).split('\n').sort()).toEqual(['a.txt', 'new.txt']);
+    expect(readFileSync(join(repo, 'docs/x_plan.md'), 'utf8')).toBe('# guarded name\n');
     expect(git(['rev-parse', 'main'])).toBe(item.baseCommit);
   });
 

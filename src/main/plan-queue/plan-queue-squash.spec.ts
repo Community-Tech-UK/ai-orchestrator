@@ -62,7 +62,7 @@ describe('landing ownership error boundaries', () => {
         : args[0] === 'rev-parse' && args.includes('--show-toplevel');
       return targeted ? Promise.reject(failure) : execute(args, cwd, timeout);
     });
-    await expect(operation === 'restore-proof' ? restoreItemCheckout(wt, branch, repo)
+    await expect(operation === 'restore-proof' ? restoreItemCheckout(wt, branch, repo, 'item-1')
       : returnToItemCheckout(wt, branch, 'item', repo, ['a.txt'])).rejects.toBe(failure);
     expect(readFileSync(index)).toEqual(before);
     expect(readFileSync(join(wt, 'a.txt'), 'utf8')).toBe('unsaved evidence\n');
@@ -70,7 +70,7 @@ describe('landing ownership error boundaries', () => {
   });
 
   it('retains a real ownership refusal through the landing restore wrapper', async () => {
-    const error = await restoreItemCheckout(repo, branch, repo).catch(error => error);
+    const error = await restoreItemCheckout(repo, branch, repo, 'item-1').catch(error => error);
     expect(error).toBeInstanceOf(PlanQueueCheckoutOwnershipError);
     expect(error.cause).toBeInstanceOf(InvalidQueueCheckoutError);
     expect(error.cause.cause).toBeInstanceOf(Error);

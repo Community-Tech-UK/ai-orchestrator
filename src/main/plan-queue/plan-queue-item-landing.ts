@@ -32,6 +32,7 @@ import { assertDocumentReview, readDocumentReview, type DocumentReview } from '.
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { landItemBranch, runPostMergeGate, syncItemWithBase } from './plan-queue-landing';
 import { buildActiveDocumentsPrompt, buildConflictPrompt, buildGateFailurePrompt } from './plan-queue-prompts';
+import { clearPlanningMoveRecord, planningMoveNote } from './plan-queue-planning-files';
 import { returnToItemCheckout } from './plan-queue-squash';
 import { PlanQueueCheckoutOwnershipError, rescueNote } from './plan-queue-worktree';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
@@ -176,6 +177,9 @@ export class PlanQueueItemLanding {
         logger.warn('Plan queue: landed branch was not deleted', { itemId: item.id, error: errorMessage(error) });
       }
     }
+    await clearPlanningMoveRecord(repoRoot, item.id).catch((error: unknown) => {
+      logger.warn('Plan queue: the moved-planning-files record was not removed', { itemId: item.id, error: errorMessage(error) });
+    });
     // Proof services persist ownership changes themselves; never restore their stale input row.
     host.save({ ...host.getItem(item.id), workerInstanceId: null, verifierInstanceId: null, detail: notes.join(' ') || null });
     host.requestPump();
@@ -245,7 +249,17 @@ export class PlanQueueItemLanding {
     if (closeDocuments && !item.landedCommit) {
       assertDocumentReview(await readDocumentReview(item.documentPath), this.reviewedDocuments(item));
     }
-    if (!item.landedCommit) item = await host.worktrees.checkpoint(item, 'final');
+    if (!item.landedCommit) {
+      item = await host.worktrees.checkpoint(item, 'final');
+      // Planning files are moved now, before the squash, so landing cleanup never runs with one in the folder.
+      const planning = await host.worktrees.preflightPlanningFiles(item);
+      const note = planningMoveNote(planning);
+      if (planning.failed.length) {
+        await this.ctx.park(item, 'land-blocked', `Nothing was landed. ${note} Fix that, or move the file by hand, then press Try merging again.`);
+        return null;
+      }
+      if (note) item = host.save({ ...item, detail: note });
+    }
 
     // A recorded commit already carries its closed documents; only a new build needs them.
     let prepared: PreparedDocuments = { mode: 'commit', documents: [] };

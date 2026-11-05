@@ -1,14 +1,13 @@
 import { gitExec } from './git-exec';
+import { declaresStandingRegister, isActivePlanDocumentPath } from './active-plan-pattern';
 
 /**
  * Active plan/spec/livetest documents stay untracked in the repositories AIO
  * manages: the shared plan-spec guard pre-commit hook refuses to commit them,
  * and only closed-state names (`_completed`, `_archived`) may be tracked. The
- * pattern and the standing-register exemption mirror that hook.
+ * pattern and the standing-register exemption are shared with the Plan Queue
+ * (`active-plan-pattern.ts`) and mirror that hook.
  */
-const ACTIVE_PLAN_DOCUMENT_PATTERN = /(_spec|_spec_planned|_plan|_livetest)\.md$/;
-const STANDING_REGISTER_MARKER = 'Type: standing register';
-const STANDING_REGISTER_HEADER_LINES = 8;
 
 /**
  * List the active plan documents that `tipRef` adds or modifies relative to
@@ -30,13 +29,12 @@ export async function listActivePlanDocuments(
   const candidates = changed
     .split('\n')
     .map((line) => line.trim())
-    .filter((line) => ACTIVE_PLAN_DOCUMENT_PATTERN.test(line));
+    .filter(isActivePlanDocumentPath);
 
   const active: string[] = [];
   for (const candidate of candidates) {
     const content = await gitExec(['show', `${tipRef}:${candidate}`], repoRoot);
-    const header = content.split('\n').slice(0, STANDING_REGISTER_HEADER_LINES).join('\n');
-    if (!header.includes(STANDING_REGISTER_MARKER)) {
+    if (!declaresStandingRegister(content)) {
       active.push(candidate);
     }
   }

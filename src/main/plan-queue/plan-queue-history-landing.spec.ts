@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readDocumentReview } from './plan-queue-document-review';
 import { EventEmitter } from 'node:events';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -200,8 +200,8 @@ describe('candidate history preservation boundaries', () => {
     expect(existsSync(join(repo, 'docs/shared_plan_completed.md'))).toBe(false);
   });
 
-  it('preserves a newly added history as completed evidence without tracking its active name', async () => {
-    // The queue branch may add history even when the base never tracked it.
+  it('moves a newly created history to the root beside the root one, never tracking its active name', async () => {
+    // The base never tracked this history, so the worker's copy is an untracked planning file.
     git(['rm', '--', history]);
     git(['commit', '--no-verify', '-qm', 'remove legacy history']);
     git(['merge', '--no-verify', '--no-edit', 'main'], item.worktreePath!);
@@ -209,12 +209,15 @@ describe('candidate history preservation boundaries', () => {
     writeFileSync(join(item.worktreePath!, history), candidateHistory);
     writeFileSync(join(repo, history), rootHistory);
     item = await service.checkpoint(item, 'new history');
-    const documents = await prepare();
-    const result = await landItemBranch(item, repo, 'main', 'Plan: shared', [], documents);
+    // The root already had a different copy, so nothing is overwritten: the worker's goes beside it.
+    expect(readFileSync(join(repo, history), 'utf8')).toBe(rootHistory);
+    const beside = readdirSync(join(repo, 'docs')).filter(name => name.startsWith('shared_history.from-queue-'));
+    expect(beside).toHaveLength(1);
+    expect(readFileSync(join(repo, 'docs', beside[0]), 'utf8')).toBe(candidateHistory);
+    expect(git(['ls-tree', '-r', '--name-only', item.branchName!]).split('\n').filter(name => name.includes('history'))).toEqual([]);
+    const result = await landItemBranch(item, repo, 'main', 'Plan: shared', [], await prepare());
     expect(result.status).toBe('landed');
     expect(git(['ls-tree', 'main', '--', history])).toBe('');
-    const immutable = documents.find(doc => /_history_[a-f0-9]{64}_completed.md$/.test(doc.relativePath))!;
-    expect(readFileSync(join(repo, immutable.relativePath), 'utf8')).toContain(candidateHistory);
     expect(readFileSync(join(repo, history), 'utf8')).toBe(rootHistory);
   });
 
@@ -242,7 +245,12 @@ describe('candidate history preservation boundaries', () => {
       .not.toBe(documents.find(doc => /_history_[a-f0-9]{64}_completed.md$/.test(doc.relativePath))?.relativePath);
   });
 
-  it('continues to refuse an unrelated active history alongside the snapshotted one', async () => {
+  it('continues to refuse an unrelated tracked active history alongside the snapshotted one', async () => {
+    // A tracked planning file is outside the move rule, so an edit to it is committed and refused at landing.
+    writeFileSync(join(repo, 'unrelated_history.md'), 'tracked legacy\n');
+    git(['add', 'unrelated_history.md']);
+    git(['commit', '--no-verify', '-qm', 'tracked unrelated history']);
+    git(['merge', '--no-verify', '--no-edit', 'main'], item.worktreePath!);
     writeFileSync(join(item.worktreePath!, history), candidateHistory);
     writeFileSync(join(item.worktreePath!, 'unrelated_history.md'), 'not part of this closure\n');
     item = await service.checkpoint(item, 'active documents');

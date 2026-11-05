@@ -156,7 +156,7 @@ describe('a queue path that is no longer its own checkout', () => {
   });
 
   it('refuses to put a landing back on the item branch', async () => {
-    await expect(restoreItemCheckout(folder, 'queue/item', repo)).rejects.toThrow("not this item's checkout");
+    await expect(restoreItemCheckout(folder, 'queue/item', repo, 'item-1')).rejects.toThrow("not this item's checkout");
     expectRootUntouched();
   });
 

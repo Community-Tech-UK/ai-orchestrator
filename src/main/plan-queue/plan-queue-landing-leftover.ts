@@ -17,6 +17,7 @@ import * as path from 'path';
 import { promisify } from 'util';
 import { gitExec, WORKTREE_CHECKOUT_TIMEOUT_MS } from '../workspace/git/git-exec';
 import { hermeticGitEnv } from '../workspace/git/git-env';
+import { isActivePlanDocumentPath } from '../workspace/git/active-plan-pattern';
 import { isOwnCheckout } from './plan-queue-git';
 
 const execFileAsync = promisify(execFile);
@@ -64,12 +65,20 @@ export const LANDING_MARKER_FILE = 'plan-queue-landing';
  * provisioned paths, which are never the agent's work and are left alone.
  * Throws, changing nothing, when the folder holds a separate Git repository
  * the rescue commit could not save. Call inside the Git write queue.
+ *
+ * An active-named planning file (see active-plan-pattern.ts) that is absent from
+ * both the branch tree and the other side is never just removed: `relocate`
+ * moves it to the root checkout first and returns whether it did. When it
+ * cannot, the file is removed as before, which is safe because the rescue
+ * commit above already holds it. Active-named files that exist on either tree
+ * keep the logic above.
  */
 export async function recoverLandingLeftover(
   worktreePath: string,
   branchName: string,
   itemId: string,
   excluded: readonly string[],
+  relocate?: (file: string) => Promise<boolean>,
 ): Promise<LandingLeftoverRecovery | null> {
   if (!(await isOwnCheckout(worktreePath))) return null;
   const gitfile = await fs.lstat(path.join(worktreePath, '.git')).catch(() => null);
@@ -120,7 +129,11 @@ export async function recoverLandingLeftover(
     // (still in Git) or the unexplained ones (in the rescue commit). Left
     // here, the next checkpoint would commit them.
     const untracked = (await gitLarge(['ls-files', '-z', '--others', '--exclude-standard'], worktreePath)).split('\0');
-    for (const file of untracked.filter((f) => f && !isExcluded(f))) await fs.rm(path.join(worktreePath, file), { force: true });
+    for (const file of untracked.filter((f) => f && !isExcluded(f))) {
+      if (relocate && isActivePlanDocumentPath(file) && !(await inTree(branchTip, file, worktreePath))
+        && !(await inTree(otherSide, file, worktreePath)) && await relocate(file)) continue;
+      await fs.rm(path.join(worktreePath, file), { force: true });
+    }
     for (const leftover of [LANDING_MARKER_FILE, 'SQUASH_MSG', 'MERGE_MSG', 'AUTO_MERGE']) await fs.rm(path.join(gitDir, leftover), { force: true });
     return { rescueRef, unexplained };
   } finally {
@@ -145,6 +158,11 @@ async function isLandingCommit(commit: string, itemId: string, worktreePath: str
     gitExec(['log', '-1', '--format=%B', commit], worktreePath),
   ]);
   return parents.split(' ').length === 2 && /^(Plan|Livetest): /.test(message) && message.endsWith(`\nItem: ${itemId}`);
+}
+
+/** Whether `commit` has `file` in its tree. */
+function inTree(commit: string, file: string, worktreePath: string): Promise<boolean> {
+  return gitExec(['cat-file', '-e', `${commit}:${file}`], worktreePath).then(() => true, () => false);
 }
 
 async function exists(target: string): Promise<boolean> {

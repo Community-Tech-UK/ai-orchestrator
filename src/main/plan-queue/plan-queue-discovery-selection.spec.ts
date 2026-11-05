@@ -93,7 +93,7 @@ describe('selected document discovery', () => {
     expect(await discoverPlanQueueDocuments(root, 'plans', selected)).toEqual([
       { path: join(root, selected), readiness: 'not-ready', reason: expect.stringContaining('does not exist') },
     ]);
-    write(selected, '**Type:** standing register\n');
+    write(selected, 'Type: standing register\n');
     expect(await discoverPlanQueueDocuments(root, 'plans', selected)).toEqual([]);
     write('docs/plans/closed_plan_completed.md');
     expect(await discoverPlanQueueDocuments(root, 'plans', 'docs/plans/closed_plan_completed.md')).toEqual([]);

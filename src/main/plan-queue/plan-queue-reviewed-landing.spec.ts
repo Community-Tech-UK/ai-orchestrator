@@ -63,6 +63,7 @@ beforeEach(async () => {
     }, instances: { getInstance: () => undefined }, tracker: {}, requestPump: vi.fn(),
     worktrees: {
       checkpoint: async (item: PlanQueueItem) => { await dietAtCheckpoint(item, store.history); return item; },
+      preflightPlanningFiles: async () => ({ moved: [], beside: [], failed: [] }),
       removeWithProof: async (item: PlanQueueItem) => { host.save({ ...item, worktreePath: null }); return { removed: true }; },
       deleteBranchWithProof: async (item: PlanQueueItem) => { host.save({ ...item, branchName: null }); },
     },

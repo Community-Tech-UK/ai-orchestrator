@@ -19,10 +19,12 @@ import * as path from 'path';
 import { createHash } from 'node:crypto';
 import { buildCliEnv } from '../cli/cli-environment';
 import { gitExec, WORKTREE_CHECKOUT_TIMEOUT_MS } from '../workspace/git/git-exec';
+import { declaresStandingRegister, isActivePlanDocumentPath } from '../workspace/git/active-plan-pattern';
 import { hermeticGitEnv } from '../workspace/git/git-env';
 import { CONFLICT_CODES } from './plan-queue-git';
 import { runInProcessGroup, type GroupRunResult } from './plan-queue-process';
 import { LANDING_MARKER_FILE } from './plan-queue-landing-leftover';
+import { relocatePlanningFiles } from './plan-queue-planning-files';
 import { assertQueueCheckout, assertQueueCheckoutOwnership, InvalidQueueCheckoutError } from './plan-queue-orphan-checkout';
 import { PlanQueueCheckoutOwnershipError, readProvisionedPaths, recoverLeftover } from './plan-queue-worktree';
 import { LandingTimer } from './plan-queue-timings';
@@ -31,10 +33,6 @@ import { LandingTimer } from './plan-queue-timings';
  * Per-test deadlines and cancellation still apply within this aggregate limit. */
 const HOOK_TIMEOUT_MS = 60 * 60_000;
 const OUTPUT_TAIL = 6_000;
-
-/** The same rule as the global plan-spec guard (~/.config/git/hooks/plan-spec-guard.sh). */
-const ACTIVE_DOCUMENT_RE = /(_spec|_spec_planned|_plan|_livetest|_history)\.md$/i;
-const STANDING_REGISTER_MARKER = 'Type: standing register';
 
 /** A closed document to add to the landing commit, at its repo-relative path. */
 export interface LandingDocument {
@@ -98,8 +96,13 @@ export async function returnToItemCheckout(
  * files a detach stopped part-way left behind. The item's own work is all
  * committed on its branch, since the final checkpoint precedes every squash.
  * `read-tree` first, so files the index alone knows about are removed too.
+ *
+ * The one exception is a planning file (see plan-queue-planning-files.ts): it is
+ * moved to the root checkout before the clean, and when that fails it is copied
+ * to the rescue folder first. If not even that copy can be made, nothing is
+ * cleaned and this throws.
  */
-export async function restoreItemCheckout(worktreePath: string, branchName: string, repoRoot: string): Promise<void> {
+export async function restoreItemCheckout(worktreePath: string, branchName: string, repoRoot: string, itemId: string): Promise<void> {
   try { await assertQueueCheckoutOwnership(worktreePath, repoRoot); }
   catch (error) {
     if (error instanceof InvalidQueueCheckoutError) throw new PlanQueueCheckoutOwnershipError(worktreePath, branchName, { cause: error });
@@ -108,6 +111,11 @@ export async function restoreItemCheckout(worktreePath: string, branchName: stri
   await gitExec(['read-tree', 'HEAD'], worktreePath, TREE_REWRITE_TIMEOUT_MS);
   await gitExec(['checkout', '-f', '-q', branchName], worktreePath, TREE_REWRITE_TIMEOUT_MS);
   const provisioned = await readProvisionedPaths(worktreePath);
+  const planning = await relocatePlanningFiles({ itemId, worktreePath, repoRoot, provisioned });
+  const unsaved = planning.failed.filter((file) => file.unsafeToDelete).map((file) => file.path);
+  if (unsaved.length) {
+    throw new Error(`Planning files could neither be moved to the main project folder nor copied to safety, so nothing was cleaned: ${unsaved.join(', ')}`);
+  }
   await gitExec(['clean', '-f', '-d', '-q', '--', '.', ...provisioned.map((p) => `:(exclude,literal)${p}`)],
     worktreePath, TREE_REWRITE_TIMEOUT_MS);
   await fs.rm(path.join(await gitExec(['rev-parse', '--absolute-git-dir'], worktreePath), LANDING_MARKER_FILE), { force: true });
@@ -116,13 +124,11 @@ export async function restoreItemCheckout(worktreePath: string, branchName: stri
 async function stagedActiveDocuments(worktreePath: string): Promise<string[]> {
   const staged = (await gitExec(['diff', '--cached', '--name-only', '--diff-filter=ACMR'], worktreePath))
     .split('\n')
-    .filter((file) => ACTIVE_DOCUMENT_RE.test(file));
+    .filter(isActivePlanDocumentPath);
   const blocked: string[] = [];
   for (const file of staged) {
     const head = await gitExec(['show', `:${file}`], worktreePath).catch(() => '');
-    if (!head.split('\n').slice(0, 8).some((line) => line.includes(STANDING_REGISTER_MARKER))) {
-      blocked.push(file);
-    }
+    if (!declaresStandingRegister(head)) blocked.push(file);
   }
   return blocked;
 }
@@ -254,7 +260,7 @@ export async function buildLandingCommit(params: {
     if (exitCode !== 0) return { status: 'hook-failed', output, ...(timedOut ? { timedOut } : {}) };
     return { status: 'committed', commit: await gitExec(['rev-parse', 'HEAD'], worktreePath) };
   } finally {
-    await restoreAfterLanding(worktreePath, branchName, documentPaths, repoRoot);
+    await restoreAfterLanding(worktreePath, branchName, documentPaths, repoRoot, itemId);
   }
 }
 
@@ -263,9 +269,9 @@ export async function buildLandingCommit(params: {
  * squash returned, so the landing fails and parks; parking's checkpoint puts
  * the folder back (plan-queue-landing-leftover.ts).
  */
-async function restoreAfterLanding(worktreePath: string, branchName: string, documentPaths: readonly string[], repoRoot: string): Promise<void> {
+async function restoreAfterLanding(worktreePath: string, branchName: string, documentPaths: readonly string[], repoRoot: string, itemId: string): Promise<void> {
   try {
-    await restoreItemCheckout(worktreePath, branchName, repoRoot);
+    await restoreItemCheckout(worktreePath, branchName, repoRoot, itemId);
   } catch (error) {
     if (error instanceof PlanQueueCheckoutOwnershipError) throw error;
     // An operational proof failure is not an ownership refusal. Prove ownership

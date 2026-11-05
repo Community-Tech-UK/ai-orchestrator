@@ -59,7 +59,7 @@ function documentRules(ctx: ItemPromptContext): string[] {
   return [
     `- Your document is \`${ctx.item.documentPath}\`. It lives in the ROOT checkout \`${ctx.repoRoot}\` and is not in your worktree. Read and edit it at that absolute path; never copy it into the worktree.`,
     `- Make every code change in your worktree \`${ctx.worktreePath}\`. It is on branch \`${ctx.item.branchName ?? 'unknown'}\`, cut from the base branch.`,
-    '- Other files that git tracks (for example a shared register) are edited in the worktree like code. Untracked planning documents are edited in the root checkout at their absolute path.',
+    '- Other files that git tracks (for example a shared register) are edited in the worktree like code. Planning documents (names ending `_plan`, `_spec`, `_spec_planned`, `_livetest`, `_history` or `-decisions-for-james`, then `.md`) are always edited at their absolute path in the root checkout, even when git tracks them. Never create one inside your worktree: the coordinator moves any it finds there to the root checkout, and a file already at the root is never overwritten (the new one is saved beside it as `<name>.from-queue-<item>.md`).',
     '- Do not commit, stash, create or switch branches, or create worktrees. The queue coordinator commits your work to the branch for you.',
     '- Never rename your document to a `_completed` name. The coordinator does that after an independent verifier passes the work.',
   ];
@@ -126,11 +126,12 @@ function findingsBlock(findings: readonly PlanQueueFinding[]): string {
   return dataBlock('verifier_findings', rendered);
 }
 
-export function buildFixPrompt(round: number, maxRounds: number, findings: readonly PlanQueueFinding[]): string {
+export function buildFixPrompt(round: number, maxRounds: number, findings: readonly PlanQueueFinding[], planningNote?: string | null): string {
   return [
     `An independent verifier failed your work (verification round ${round} of ${maxRounds}). Its findings follow as data.`,
     '',
     findingsBlock(findings),
+    ...(planningNote ? ['', `The coordinator moved planning files out of your worktree (data):`, dataBlock('moved_planning_files', planningNote)] : []),
     '',
     WORKER_EVIDENCE_CLEANUP_RULE,
     '',
@@ -165,7 +166,7 @@ export function buildActiveDocumentsPrompt(paths: readonly string[]): string {
     '',
     dataBlock('active_documents', paths.join('\n')),
     '',
-    'Your own document is closed by the coordinator after the verifier passes, and other planning documents stay untracked in the root checkout. Task: move any of these you still need to the same path in the root checkout, delete them from your worktree, then stop.',
+    'Your own document is closed by the coordinator after the verifier passes, and planning documents stay untracked in the root checkout. The coordinator moves any new planning file it finds in your worktree to the root checkout itself, so do not move or copy these yourself: that could overwrite a root copy. These ones are already on your branch. Task: for each one, make your worktree match the base branch (restore the base version, or delete the file when the base has none; its content stays in your branch history if you need to read it), then make any edit you still need at the same path in the root checkout, then stop.',
   ].join('\n');
 }
 

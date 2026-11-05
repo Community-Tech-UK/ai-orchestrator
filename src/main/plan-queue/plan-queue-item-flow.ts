@@ -45,6 +45,7 @@ import { startQueueVerification } from './plan-queue-start-verification';
 import { hasCheckout, InvalidQueueCheckoutError, quarantineOrphanCheckout, retainedQueuePathExists } from './plan-queue-orphan-checkout';
 import { PlanQueueKeptFolders } from './plan-queue-kept-folders';
 import { planQueueBranchName } from './plan-queue-worktree';
+import { describePlanningMoves } from './plan-queue-planning-files';
 import {
   buildContinuePrompt,
   buildFixPrompt,
@@ -566,7 +567,7 @@ export class PlanQueueItemFlow {
     }
     await this.toFixing(
       this.host.save({ ...item, round, verdict }),
-      buildFixPrompt(round, run.config.maxRounds, verdict.findings) + this.verification.stepBack(item),
+      buildFixPrompt(round, run.config.maxRounds, verdict.findings, await describePlanningMoves(run.workspaceCwd, item.id)) + this.verification.stepBack(item),
     );
   }
 

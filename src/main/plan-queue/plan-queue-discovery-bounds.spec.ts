@@ -111,12 +111,15 @@ describe('bounded discovery and I/O failures', () => {
     await expect(discoverPlanQueueDocuments(root, 'plans', selected)).rejects.toThrow('input unreadable');
   });
 
-  it('reads only the first 16 KiB and forty lines of a selected document', async () => {
+  it('reads only the first 16 KiB and eight lines of a selected document, like the commit hook', async () => {
     // A standing-register marker beyond either boundary must not change readiness.
-    for (const prefix of ['x'.repeat(16 * 1024) + '\n', '\n'.repeat(40)]) {
-      writeFileSync(join(root, selected), `${prefix}**Type:** standing register\n`);
+    for (const prefix of ['x'.repeat(16 * 1024) + '\n', '\n'.repeat(8)]) {
+      writeFileSync(join(root, selected), `${prefix}Type: standing register\n`);
       expect(await discoverPlanQueueDocuments(root, 'plans', selected)).toEqual([{ path: join(root, selected), readiness: 'candidate' }]);
     }
+    // On the eighth line it still counts.
+    writeFileSync(join(root, selected), `${'\n'.repeat(7)}Type: standing register\n`);
+    expect(await discoverPlanQueueDocuments(root, 'plans', selected)).toEqual([]);
   });
 
   it('rejects an oversized ignore file explicitly', async () => {

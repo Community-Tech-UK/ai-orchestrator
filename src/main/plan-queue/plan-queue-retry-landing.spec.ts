@@ -49,7 +49,7 @@ function fixture(patch: Partial<PlanQueueItem> = {}) {
     documentSha256: createHash('sha256').update(readFileSync(item.documentPath)).digest('hex') });
   const save = (next: PlanQueueItem) => { item = next; store.upsertItem(next); return item; };
   const reattach = vi.fn(async (next: PlanQueueItem) => save({ ...next, worktreePath: join(repo, 'wt') }));
-  const worktrees = { reattach, checkpoint: async (next: PlanQueueItem) => next };
+  const worktrees = { reattach, checkpoint: async (next: PlanQueueItem) => next, preflightPlanningFiles: async () => ({ moved: [], beside: [], failed: [] }), };
   const host = {
     history: store.history, instances: { getInstance: () => undefined }, tracker: {}, worktrees,
     getRun: () => run, getItem: () => item, save,

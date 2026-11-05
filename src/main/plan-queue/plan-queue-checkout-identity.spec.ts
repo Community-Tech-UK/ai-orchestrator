@@ -76,7 +76,7 @@ describe('queue ownership is proven before any mutation', () => {
     const refused = await (operation === 'revert' ? revertToSnapshot(wt, { head, status: [] }, repo, branch)
       : operation === 'restore' ? restoreCheckpointAfterVerification(item, repo)
       : operation === 'landing' ? returnToItemCheckout(wt, branch, item.id, repo)
-      : operation === 'landing-restore' ? restoreItemCheckout(wt, branch, repo) : syncItemWithBase(item, 'main', repo))
+      : operation === 'landing-restore' ? restoreItemCheckout(wt, branch, repo, 'item-1') : syncItemWithBase(item, 'main', repo))
       .then(() => false, () => true);
     expect([snapshot(repo), snapshot(foreign), snapshot(wt)]).toEqual(before);
     expect(refused).toBe(true);

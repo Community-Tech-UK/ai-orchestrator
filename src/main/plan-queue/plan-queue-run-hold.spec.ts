@@ -15,6 +15,7 @@ import { spawnQueueChecker } from './plan-queue-checker-spawn';
 import { PlanQueueSpawnStoppedByUser } from './plan-queue-user-close';
 import { PlanQueueUsageWaits } from './plan-queue-usage-wait';
 import { InvalidQueueCheckoutError } from './plan-queue-orphan-checkout';
+import { describePlanningMoves } from './plan-queue-planning-files';
 import { PlanQueueVerification } from './plan-queue-verification';
 import { getLogger } from '../logging/logger';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
@@ -24,6 +25,9 @@ vi.mock('./plan-queue-git', async (original) => ({
   branchExists: vi.fn(async () => true), unresolvedMergeFiles: vi.fn(async () => []),
   snapshotTree: vi.fn(async () => ({ head: 'checkpoint', status: [] })),
   revertToSnapshot: vi.fn(async () => undefined),
+}));
+vi.mock('./plan-queue-planning-files', async original => ({
+  ...await original<typeof import('./plan-queue-planning-files')>(), describePlanningMoves: vi.fn(async () => null),
 }));
 vi.mock('./plan-queue-landing', async original => ({
   ...await original<typeof import('./plan-queue-landing')>(), syncItemWithBase: vi.fn(async () => ({ status: 'current' })),
@@ -261,6 +265,16 @@ describe('paused runs never continue work or park it', () => {
     await flow.startItem(item);
     expect(host.instances.createInstance).toHaveBeenCalledWith(expect.objectContaining({ initialPrompt: expect.stringContaining('Fix missing guard') }));
     expect(item).toMatchObject({ state: 'working', pendingInstruction: null, heldAt: null });
+  });
+  it('tells a held fixing worker where its moved planning files went, as the normal fix path does', async () => {
+    vi.mocked(describePlanningMoves).mockResolvedValue('notes_history.md is now at /root/notes_history.md\nEdit planning files at those root paths, not in your worktree.');
+    item = { ...item, state: 'fixing', verdict: fail, verifierInstanceId: null, round: 1 };
+    await flow.hold(item.id);
+    expect(describePlanningMoves).toHaveBeenCalledWith(directory, item.id);
+    expect(item.pendingInstruction).toContain('notes_history.md is now at /root/notes_history.md');
+    run.status = 'running';
+    await flow.startItem(item);
+    expect(host.instances.createInstance).toHaveBeenCalledWith(expect.objectContaining({ initialPrompt: expect.stringContaining('Edit planning files at those root paths') }));
   });
   it('leaves landing to its owner in the low-level worker hold', async () => {
     item = { ...item, state: 'landing' };

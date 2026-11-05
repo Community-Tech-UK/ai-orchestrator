@@ -68,6 +68,7 @@ function fixture() {
   const save = (next: PlanQueueItem) => { items.set(next.id, next); return next; };
   const worktrees = {
     checkpoint: async (next: PlanQueueItem) => save({ ...next, checkpointCommit: git(['rev-parse', 'HEAD'], worktree) }),
+    preflightPlanningFiles: async () => ({ moved: [], beside: [], failed: [] }),
     removeWithProof: async () => ({ removed: false, reason: 'retained', detail: 'test keeps worktree' }),
   };
   const host = {

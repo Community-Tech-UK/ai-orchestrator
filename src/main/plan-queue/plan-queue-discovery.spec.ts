@@ -24,7 +24,7 @@ beforeEach(() => {
   write('docs/plans/2026-09-03-enhancements-backlog_plan_completed.md');
   write('docs/plans/2026-08-29-browser-credential-cli_prompt.md');
   write('docs/plans/livetest-remediation-register.md', '# Register\n\n**Type: standing register — deliberately tracked.**\n');
-  write('docs/plans/2026-09-01-register-shaped_livetest.md', '# R\n**Type:** standing register\n');
+  write('docs/plans/2026-09-01-register-shaped_livetest.md', '# R\nType: standing register\n');
   write('docs/superpowers/plans/2026-07-17-browser-permission-ux_plan_livetest.md');
   write('docs/superpowers/plans/2026-07-26-local-ai-guard_plan_livetest.md');
   write('docs/superpowers/plans/2026-03-20-cross-model-review-design_completed.md');
@@ -47,6 +47,13 @@ describe('classifyFilename', () => {
     expect(classifyFilename('a_plan_completed.md')).toBe('other');
     expect(classifyFilename('a_livetest_completed.md')).toBe('other');
     expect(classifyFilename('a_prompt.md')).toBe('other');
+  });
+
+  it('is case-sensitive like the shared active-document pattern: an upper-case suffix is not an active document', () => {
+    expect(classifyFilename('a_PLAN.md')).toBe('other');
+    expect(classifyFilename('a_Livetest.md')).toBe('other');
+    expect(classifyFilename('a_SPEC.md')).toBe('other');
+    expect(classifyFilename('a_plan.MD')).toBe('other');
   });
 });
 
@@ -103,6 +110,19 @@ describe('discoverPlanQueueDocuments', () => {
     write('docs/plans/2026-11-03-late-mention_plan.md', `${'line\n'.repeat(8)}Queue: not an item\n`);
     const docs = await discoverPlanQueueDocuments(root, 'plans', 'docs/plans/2026-11-03-*');
     expect(rel(docs)).toEqual(['docs/plans/2026-11-03-late-mention_plan.md']);
+  });
+
+  it('reads the standing-register marker and the spec link from the first 8 lines only, and ignores an upper-case _PLAN.md', async () => {
+    write('docs/plans/2026-11-05-late-register_plan.md', `${'line\n'.repeat(8)}Type: standing register\n`);
+    write('docs/plans/2026-11-05-early-register_plan.md', '# R\nType: standing register\n');
+    write('docs/plans/2026-11-05-late-spec-link_plan.md', `${'line\n'.repeat(8)}**Spec:** [spec](./missing_spec.md)\n`);
+    write('docs/plans/2026-11-05-shouting_PLAN.md');
+    const docs = await discoverPlanQueueDocuments(root, 'plans', 'docs/plans/2026-11-05-*');
+    expect(rel(docs)).toEqual([
+      'docs/plans/2026-11-05-late-register_plan.md',
+      'docs/plans/2026-11-05-late-spec-link_plan.md',
+    ]);
+    expect(docs.every(d => d.readiness === 'candidate')).toBe(true);
   });
 
   it('does not treat a spec as unplanned when its plan exists', async () => {

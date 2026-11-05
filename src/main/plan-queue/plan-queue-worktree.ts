@@ -32,6 +32,7 @@ import { recoverLandingLeftover } from './plan-queue-landing-leftover';
 import type { PlanQueueItem } from './plan-queue.types';
 import type { PlanQueueHistoryStore } from './plan-queue-history-store';
 import { dietAtCheckpoint } from './plan-queue-plan-diet';
+import { planningExclusions, planningMoveNote, relocatePlanningFiles, type PlanningMoveReport } from './plan-queue-planning-files';
 import { getCodemem } from '../codemem';
 import { stopAttributedLeftoversIn } from '../process/leftover-process-sweeper';
 import { cleanupPlanQueueCheckCopies, provisionPlanQueueCheckCopy, withPlanQueueCheckCopy,
@@ -233,6 +234,7 @@ export class PlanQueueWorktreeService {
     const worktreePath = requireWorktree(item);
     const branchName = requireBranch(item);
     let rescueRef: string | null = null;
+    let planningNote: string | null = null;
     const hash = await getGitWriteQueue().enqueue('plan-queue-checkpoint', async () => {
       try { await assertQueueCheckoutOwnership(worktreePath, this.deps.repoRootForItem(item)); }
       catch (error) {
@@ -240,15 +242,19 @@ export class PlanQueueWorktreeService {
         throw error;
       }
       // `??`: the write queue reruns a job after a Git lock error, and a rerun finds nothing left to recover.
-      rescueRef = (await recoverLeftoverUnqueued(worktreePath, branchName, item.id)) ?? rescueRef;
+      rescueRef = (await recoverLeftoverUnqueued(worktreePath, branchName, item.id, this.deps.repoRootForItem(item))) ?? rescueRef;
       await assertItemCheckout(worktreePath, branchName, this.deps.repoRootForItem(item));
       await dietAtCheckpoint(item, this.deps.history);
-      const scope = await workPathspec(worktreePath);
       // A resolved merge is completed by this commit (that is the worker
       // contract); an unresolved one must never be, or the conflict markers
       // would be committed and could land.
       const conflicted = await unresolvedMergeFiles(worktreePath);
       if (conflicted?.length) throw new UnresolvedMergeError(conflicted);
+      // Planning files never reach a commit: each moves to the root checkout first, and one
+      // that cannot move is left out of this commit (see plan-queue-planning-files.ts).
+      const planning = await this.movePlanningFiles(item);
+      planningNote = planningMoveNote(planning) ?? planningNote;
+      const scope = await workPathspec(worktreePath, planningExclusions(planning.failed));
       await gitExec(['add', '-A', ...scope], worktreePath);
       const status = await gitExec(['status', '--porcelain', ...scope], worktreePath);
       if (status) {
@@ -266,10 +272,38 @@ export class PlanQueueWorktreeService {
       ...item,
       checkpointCommit: hash,
       landedCommit: hash === item.checkpointCommit ? item.landedCommit : null,
-      ...(rescueRef ? { detail: rescueNote(rescueRef) } : {}),
+      ...checkpointDetail(rescueRef, planningNote),
     };
     this.deps.saveItem(updated);
     return updated;
+  }
+
+  /**
+   * Move every untracked planning file in the item's folder to the root checkout. Called inside the
+   * Git write queue by `checkpoint`, and as the landing preflight (`preflightPlanningFiles`).
+   */
+  private async movePlanningFiles(item: PlanQueueItem): Promise<PlanningMoveReport> {
+    const worktreePath = requireWorktree(item);
+    return relocatePlanningFiles({
+      itemId: item.id,
+      worktreePath,
+      repoRoot: this.deps.repoRootForItem(item),
+      provisioned: await readProvisionedPaths(worktreePath),
+    });
+  }
+
+  /**
+   * Before a landing squash: try again to move any planning file an earlier checkpoint could not
+   * move. A file that still cannot move is reported, and the caller parks the item before the
+   * squash, so no landing cleanup ever runs with that file in the folder.
+   */
+  async preflightPlanningFiles(item: PlanQueueItem): Promise<PlanningMoveReport> {
+    const worktreePath = requireWorktree(item);
+    const branchName = requireBranch(item);
+    return getGitWriteQueue().enqueue('plan-queue-planning-preflight', async () => {
+      await assertItemCheckout(worktreePath, branchName, this.deps.repoRootForItem(item));
+      return this.movePlanningFiles(item);
+    });
   }
 
   /** Remove the worktree directory, keeping the branch. Refuses without proof. */
@@ -404,10 +438,10 @@ export async function readProvisionedPaths(worktreePath: string): Promise<string
 }
 
 /** Pathspec selecting the agent's work: everything except provisioned paths. */
-async function workPathspec(worktreePath: string): Promise<string[]> {
+async function workPathspec(worktreePath: string, alsoExclude: readonly string[] = []): Promise<string[]> {
   const provisioned = await readProvisionedPaths(worktreePath);
-  if (provisioned.length === 0) return [];
-  return ['--', '.', ...provisioned.map((p) => `:(exclude,literal)${p}`)];
+  if (provisioned.length === 0 && alsoExclude.length === 0) return [];
+  return ['--', '.', ...provisioned.map((p) => `:(exclude,literal)${p}`), ...alsoExclude];
 }
 
 /**
@@ -436,12 +470,16 @@ export function recoverLeftover(worktreePath: string, branchName: string, itemId
       if (error instanceof InvalidQueueCheckoutError) throw new PlanQueueCheckoutOwnershipError(worktreePath, branchName, { cause: error });
       throw error;
     }
-    return recoverLeftoverUnqueued(worktreePath, branchName, itemId);
+    return recoverLeftoverUnqueued(worktreePath, branchName, itemId, repoRoot);
   });
 }
 
-async function recoverLeftoverUnqueued(worktreePath: string, branchName: string, itemId: string): Promise<string | null> {
-  const recovered = await recoverLandingLeftover(worktreePath, branchName, itemId, await readProvisionedPaths(worktreePath));
+async function recoverLeftoverUnqueued(worktreePath: string, branchName: string, itemId: string, repoRoot: string): Promise<string | null> {
+  const provisioned = await readProvisionedPaths(worktreePath);
+  // A planning file the recovery would otherwise remove moves to the root checkout instead.
+  const relocate = async (file: string): Promise<boolean> =>
+    (await relocatePlanningFiles({ itemId, worktreePath, repoRoot, provisioned }, [file])).failed.length === 0;
+  const recovered = await recoverLandingLeftover(worktreePath, branchName, itemId, provisioned, relocate);
   if (!recovered) return null;
   logger.warn('Plan queue: put a checkout an interrupted landing left detached back on its branch', {
     itemId, rescueRef: recovered.rescueRef, unexplained: recovered.unexplained.length,
@@ -452,6 +490,12 @@ async function recoverLeftoverUnqueued(worktreePath: string, branchName: string,
 export function rescueNote(rescueRef: string): string {
   return 'A landing had stopped part-way and left this item\'s folder off its branch. It was put back on the branch. '
     + `Some files in it matched neither side (half-written, or edited while it was off the branch); they were left off the branch, and the whole folder was saved at ${rescueRef} in case any of it is needed.`;
+}
+
+/** The item note after a checkpoint: a landing-leftover rescue and/or planning files that moved. */
+function checkpointDetail(rescueRef: string | null, planningNote: string | null): { detail?: string } {
+  const parts = [rescueRef ? rescueNote(rescueRef) : null, planningNote].filter((part): part is string => part !== null);
+  return parts.length ? { detail: parts.join(' ') } : {};
 }
 
 function refuse(reason: RemovalRefusal, detail: string): RemovalResult {

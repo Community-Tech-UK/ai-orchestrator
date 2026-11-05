@@ -1302,7 +1302,9 @@ describe('PlanQueueCoordinator — boot recovery', { timeout: 30_000 }, () => {
     const holder = recorded === null ? null : net.createServer();
     await new Promise<void>((resolve, reject) => { if (!holder) return resolve(); holder.once('error', reject); holder.listen({ port: recorded!, host: '127.0.0.1' }, resolve); });
     try {
-      const next = await restart();
+      // The respawned worker stays idle: the test ends as soon as it exists, and a worker that kept
+      // building would write into a working folder the teardown has already removed.
+      const next = await restart(null, { scripts: { worker: never } });
       await vi.waitFor(() => { if (!next.created.some((i) => i.role === 'worker')) throw new Error('no respawned worker yet'); });
       verifyRestartPort(next);
     } finally { await new Promise<void>((resolve) => { if (!holder) return resolve(); holder.close(() => resolve()); }); }
@@ -2362,11 +2364,14 @@ describe('PlanQueueCoordinator — the landing commit runs the repository hooks'
   });
 
   it('parks when the branch carries active planning documents a second time', async () => {
+    // A tracked planning file is outside the move rule: an edit to it is committed, then refused at landing.
+    writeFileSync(join(repo, 'scratch_plan.md'), '# scratch\n');
+    git(['add', 'scratch_plan.md']); git(['commit', '--no-verify', '-qm', 'base']);
     planDoc('2026-01-01-alpha');
     const parent = fake.addParent();
-    // The worker keeps a scratch plan in its tree and never removes it.
+    // The worker keeps editing the tracked scratch plan in its tree.
     fake.scripts.worker = (instance, message, f) => {
-      writeFileSync(join(instance.workingDirectory!, 'scratch_plan.md'), '# scratch\n');
+      writeFileSync(join(instance.workingDirectory!, 'scratch_plan.md'), '# scratch, edited\n');
       return implement(instance, message, f);
     };
 
@@ -2378,7 +2383,24 @@ describe('PlanQueueCoordinator — the landing commit runs the repository hooks'
     expect(item.detail).toContain('scratch_plan.md');
     const worker = fake.created.find((i) => i.role === 'worker')!;
     expect(fake.inputs.some((m) => m.instanceId === worker.id && m.message.includes('scratch_plan.md'))).toBe(true);
-    expect(git(['log', '--format=%s', 'main'])).toBe('base');
+    expect(git(['log', '--format=%s', 'main'])).toBe('base\nbase');
+  });
+
+  it('moves a worker-created planning file to the root checkout and lands the rest', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.worker = (instance, message, f) => {
+      writeFileSync(join(instance.workingDirectory!, 'scratch_history.md'), '# scratch journal\n');
+      return implement(instance, message, f);
+    };
+    fake.scripts.verifier = pass;
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForRun(run.id);
+
+    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'landed' });
+    expect(readFileSync(join(repo, 'scratch_history.md'), 'utf8')).toBe('# scratch journal\n');
+    expect(git(['ls-tree', '-r', '--name-only', 'main']).split('\n').some((name) => name.includes('scratch_history'))).toBe(false);
   });
 
   it('promotes a recorded landing commit after a restart without closing the documents again', async () => {
