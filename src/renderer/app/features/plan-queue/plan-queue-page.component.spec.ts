@@ -194,6 +194,7 @@ describe('PlanQueuePageComponent', () => {
     fixture.detectChanges();
     expect(tabs[2].getAttribute('aria-selected')).toBe('true');
     expect(fixture.nativeElement.querySelector('app-plan-queue-account-rules-panel')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('app-plan-queue-folder-checklists-panel')).not.toBeNull();
     expect(fixture.nativeElement.querySelector('.pq-section-start')).toBeNull();
   });
 
@@ -253,7 +254,7 @@ describe('PlanQueuePageComponent', () => {
     const headings = () => Array.from(fixture.nativeElement.querySelectorAll('section.pq-section h2') as NodeListOf<HTMLElement>).map(h => h.textContent?.trim());
     expect(headings()).toEqual(['Needs your answer', 'Runs', 'Start a run', 'Queue health', 'Live checks that need you']);
     clickTab('Set aside'); expect(headings()).toEqual(['Set aside']);
-    clickTab('Setup'); expect(headings()).toEqual(['Providers and accounts', 'Account rules']);
+    clickTab('Setup'); expect(headings()).toEqual(['Providers and accounts', 'Account rules', 'Checks for each project folder']);
   });
 
   it('shows the surfaced error from the store', async () => {

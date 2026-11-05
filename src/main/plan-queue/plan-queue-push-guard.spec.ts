@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildQueuePushGuardEnv, isQueueSession, QUEUE_SESSION_ENV } from './plan-queue-push-guard';
 
 let dir: string;
@@ -10,12 +10,14 @@ const git = (args: string[], env: NodeJS.ProcessEnv = process.env) =>
   execFileSync('git', args, { cwd: dir, encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 
 beforeEach(() => {
+  // A Plan Queue worker running this suite inherits the guard's own git settings; the tests count from a clean environment.
+  for (const key of Object.keys(process.env)) if (/^GIT_CONFIG_/.test(key) || key === QUEUE_SESSION_ENV) vi.stubEnv(key, undefined);
   dir = realpathSync(mkdtempSync(join(tmpdir(), 'queue-push-guard-')));
   git(['init', '-q', '-b', 'main']);
   git(['config', 'user.name', 'T']); git(['config', 'user.email', 't@example.invalid']);
   writeFileSync(join(dir, 'a'), '1'); git(['add', 'a']); git(['commit', '-qm', 'one']);
 });
-afterEach(() => rmSync(dir, { recursive: true, force: true }));
+afterEach(() => { vi.unstubAllEnvs(); rmSync(dir, { recursive: true, force: true }); });
 
 describe('buildQueuePushGuardEnv', () => {
   it('marks the session and numbers the git settings from zero', async () => {

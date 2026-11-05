@@ -222,6 +222,72 @@ export const PlanQueueAccountRulesSchema = z.object({
 
 export const DEFAULT_PLAN_QUEUE_ACCOUNT_RULES: PlanQueueAccountRules = { never: [], last: [] };
 
+/**
+ * James's saved checklist for one project folder: the commands Harness runs to
+ * check a document before independent review, and after merging a moved base
+ * branch. A folder with a saved checklist always uses it; a caller of
+ * `plan_queue_start` cannot replace it. Each folder appears once, and a saved
+ * checklist names at least one command.
+ */
+export const PlanQueueFolderChecklistSchema = z.object({
+  folder: z.string().trim().min(1).max(1000),
+  verifierGates: z.array(z.string().trim().min(1).max(2000)).max(20),
+  postMergeGate: z.array(z.string().trim().min(1).max(2000)).max(10),
+}).strict().refine((list) => isAbsoluteChecklistFolder(list.folder), {
+  message: 'Give the full path of the folder, starting with / or a drive letter such as C:\\.',
+}).refine((list) => list.verifierGates.length + list.postMergeGate.length > 0, {
+  message: 'A saved checklist needs at least one command.',
+});
+
+/**
+ * A folder path in one canonical spelling, so two spellings of the same folder
+ * compare equal: either slash, repeated slashes, trailing slashes, `.` and `..`
+ * segments. Pure string work (no filesystem, no `path` module) because the
+ * renderer and the main process must agree on it. Used by the schema's
+ * one-entry-per-folder rule, the editor and the run-time lookup.
+ */
+export function normalizeChecklistFolder(folder: string): string {
+  const text = folder.trim();
+  const parts = text.split(/[\\/]+/);
+  const first = parts[0] ?? '';
+  let root = '';
+  if (first === '') {
+    root = /^[\\/]{2}[^\\/]/.test(text) ? '//' : '/';
+    parts.shift();
+  } else if (/^[A-Za-z]:$/.test(first)) {
+    root = `${first}/`;
+    parts.shift();
+  }
+  const kept: string[] = [];
+  for (const part of parts) {
+    if (part === '' || part === '.') continue;
+    if (part === '..') {
+      if (kept.length > 0 && kept[kept.length - 1] !== '..') kept.pop();
+      else if (root === '') kept.push(part);
+    } else {
+      kept.push(part);
+    }
+  }
+  return root + kept.join('/');
+}
+
+/**
+ * True for a full path (`/work/shop`, `C:\work\shop`, `\\server\share`). A relative
+ * folder can never equal the folder a run starts in, so it is refused when saved.
+ * So is a Windows path with a root but no drive (`\shop`): it normalises to
+ * `/shop`, which no run on a Windows drive (`C:/shop`) can match.
+ */
+export function isAbsoluteChecklistFolder(folder: string): boolean {
+  return /^(\/|[A-Za-z]:[\\/]|\\\\[^\\/])/.test(folder.trim());
+}
+
+export const PlanQueueFolderChecklistsSchema = z.array(PlanQueueFolderChecklistSchema).max(50).refine((lists) => {
+  const folders = lists.map((list) => normalizeChecklistFolder(list.folder));
+  return new Set(folders).size === folders.length;
+}, { message: 'Each folder can have one checklist.' });
+
+export const DEFAULT_PLAN_QUEUE_FOLDER_CHECKLISTS: PlanQueueFolderChecklist[] = [];
+
 export const PlanQueueRunConfigSchema = z.object({
   glob: z.string().max(1000).optional(),
   workerSlots: z.number().int().min(1).max(8),
@@ -479,6 +545,7 @@ export type PlanQueueRouteChoice = z.infer<typeof PlanQueueRouteChoiceSchema>;
 export type PlanQueueRouting = z.infer<typeof PlanQueueRoutingSchema>;
 export type PlanQueueAccountRef = z.infer<typeof PlanQueueAccountRefSchema>;
 export type PlanQueueAccountRules = z.infer<typeof PlanQueueAccountRulesSchema>;
+export type PlanQueueFolderChecklist = z.infer<typeof PlanQueueFolderChecklistSchema>;
 export type PlanQueueRouteChoiceArgs = z.infer<typeof PlanQueueRouteChoiceArgsSchema>;
 export type PlanQueueItemDto = z.infer<typeof PlanQueueItemDtoSchema>;
 export type PlanQueueRunDto = z.infer<typeof PlanQueueRunDtoSchema>;

@@ -159,6 +159,16 @@
     <app-plan-queue-account-rules-panel />
   </section>
 
+  <section class="pq-section pq-section-folder-checks" aria-labelledby="pq-folder-checks-heading">
+    <h2 id="pq-folder-checks-heading">Checks for each project folder</h2>
+    <p class="pq-purpose">
+      The commands Plan Queue runs to check a document before a checker reviews it, and again after merging a moved main branch.
+      A folder with a saved list always uses it, whatever commands a session passes when it starts a run.
+      A folder with no saved list uses the checks the project documents for itself.
+    </p>
+    <app-plan-queue-folder-checklists-panel />
+  </section>
+
   }
   </div>
 </div>

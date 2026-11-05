@@ -20,7 +20,7 @@ import {
   ProviderAccountPoolsSchema,
   ProviderAccountProfilesSchema,
 } from '@contracts/schemas/provider-account';
-import { PlanQueueAccountRulesSchema, PlanQueueRoutingSchema } from '@contracts/schemas/plan-queue';
+import { PlanQueueAccountRulesSchema, PlanQueueFolderChecklistsSchema, PlanQueueRoutingSchema } from '@contracts/schemas/plan-queue';
 
 export type SettingsToolPolicyTier = 'open' | 'read-only' | 'secret';
 
@@ -104,6 +104,9 @@ const PRIVILEGED_CLI_OPERATOR_ONLY_KEYS = new Set<keyof AppSettings>([
   // Plan Queue account rules (2026-10-27): which accounts unattended queue and
   // automation sessions must avoid or use last. Same authority class as the routing list.
   'planQueueAccountRules',
+  // Plan Queue folder checklists (2026-11-04): the commands the queue runs in a
+  // shell for a folder. An agent that could write them could run any command.
+  'planQueueFolderChecklists',
   'computerUseEnabled',
   'computerUseAllowedAppsJson',
   'computerUseDeniedAppsJson',
@@ -501,6 +504,7 @@ export const SETTINGS_TOOL_POLICY = {
   providerAccountPools: readOnly(false, ProviderAccountPoolsSchema),
   planQueueRouting: readOnly(false, PlanQueueRoutingSchema),
   planQueueAccountRules: readOnly(false, PlanQueueAccountRulesSchema),
+  planQueueFolderChecklists: readOnly(false, PlanQueueFolderChecklistsSchema),
   pingPongReviewerProvider: open(
     z.enum(['auto', ...REMOTE_REVIEWER_PROVIDER_IDS]),
   ),

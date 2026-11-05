@@ -16,7 +16,7 @@ describe('Plan Queue tool operation adoption routing', () => {
     const startRun = vi.spyOn(coordinator, 'startRun').mockResolvedValue({ run: { id: 'batch-run', parentInstanceId: 'caller', kind: 'plans',
       workspaceCwd: '/repo', status: 'running', config: DEFAULT_PLAN_QUEUE_CONFIG.plans,
       workerProvider: 'claude', relaxedSettings: [], startedAt: 1, endedAt: null, items: [] },
-    excluded: [], routingSetAside: [], accountNotes: [] });
+    excluded: [], routingSetAside: [], accountNotes: [], checklistSetAside: false });
     await createPlanQueueToolOperations(() => coordinator).start('caller', { kind: 'plans', check_batch_size: 3 });
     expect(startRun).toHaveBeenCalledWith(expect.objectContaining({
       parentInstanceId: 'caller', config: expect.objectContaining({ checkBatchSize: 3 }),
@@ -55,16 +55,27 @@ describe('Plan Queue tool operation adoption routing', () => {
     const coordinator = new PlanQueueCoordinator();
     vi.spyOn(coordinator, 'startRun').mockResolvedValue({ run: { id: 'new-run', parentInstanceId: 'caller', kind: 'plans',
       workspaceCwd: '/repo', status: 'running', config: DEFAULT_PLAN_QUEUE_CONFIG.plans,
-      workerProvider: 'claude', relaxedSettings: [], startedAt: 1, endedAt: null, items: [] }, excluded: ['/repo/owned_plan.md'], routingSetAside: [], accountNotes: [] });
+      workerProvider: 'claude', relaxedSettings: [], startedAt: 1, endedAt: null, items: [] }, excluded: ['/repo/owned_plan.md'], routingSetAside: [], accountNotes: [], checklistSetAside: false });
     const result = await createPlanQueueToolOperations(() => coordinator).start('caller', { kind: 'plans' }) as { message: string };
     expect(result).toMatchObject({ excluded: ['/repo/owned_plan.md'], message: expect.stringContaining('adopt that run instead of starting again') });
     expect(result.message).not.toContain('saved Plan Queue choice');
+  });
+  it('says when James\'s saved checklist for the folder was used instead of the gates the caller passed', async () => {
+    const coordinator = new PlanQueueCoordinator();
+    const startRun = vi.spyOn(coordinator, 'startRun').mockResolvedValue({ run: { id: 'new-run', parentInstanceId: 'caller', kind: 'plans',
+      workspaceCwd: '/repo', status: 'running', config: DEFAULT_PLAN_QUEUE_CONFIG.plans,
+      workerProvider: 'claude', relaxedSettings: [], startedAt: 1, endedAt: null, items: [] }, excluded: [], routingSetAside: [], accountNotes: [], checklistSetAside: true });
+    const result = await createPlanQueueToolOperations(() => coordinator).start('caller', {
+      kind: 'plans', verifier_gates: ['echo hi'], post_merge_gate: ['echo bye'],
+    }) as { message: string };
+    expect(startRun).toHaveBeenCalledWith(expect.objectContaining({ config: expect.objectContaining({ verifierGates: ['echo hi'], postMergeGate: ['echo bye'] }) }));
+    expect(result.message).toContain('James\'s saved checklist for this folder was used instead of the verifier_gates and post_merge_gate you passed.');
   });
   it('passes ranked worker choices through and says when James\'s saved lists were used instead', async () => {
     const coordinator = new PlanQueueCoordinator();
     const startRun = vi.spyOn(coordinator, 'startRun').mockResolvedValue({ run: { id: 'new-run', parentInstanceId: 'caller', kind: 'plans',
       workspaceCwd: '/repo', status: 'running', config: DEFAULT_PLAN_QUEUE_CONFIG.plans,
-      workerProvider: 'claude', relaxedSettings: [], startedAt: 1, endedAt: null, items: [] }, excluded: [], routingSetAside: ['workers', 'checkers'], accountNotes: [] });
+      workerProvider: 'claude', relaxedSettings: [], startedAt: 1, endedAt: null, items: [] }, excluded: [], routingSetAside: ['workers', 'checkers'], accountNotes: [], checklistSetAside: false });
     const result = await createPlanQueueToolOperations(() => coordinator).start('caller', {
       kind: 'plans', workers: [{ provider: 'codex', model: 'gpt-6.1-sol' }, { provider: 'claude', account_ids: ['max-a'] }],
     }) as { message: string };
@@ -105,7 +116,7 @@ it('passes a step-up choice through start and set-routing, and names it when Jam
     items: [{ id: 'item', runId: 'new-run', documentPath: '/repo/a_plan.md', state: 'fixing', round: 0, erroredRounds: 0, branchName: 'queue/a', worktreePath: null,
       baseCommit: null, checkpointCommit: null, landedCommit: null, workerInstanceId: null, verifierInstanceId: null, question: null, answer: null,
       parkReason: null, detail: null, verdict: null, steppedUpAt: Date.UTC(2026, 9, 27), createdAt: 1, updatedAt: 1 }] },
-  excluded: [], routingSetAside: ['workers', 'step-up'], accountNotes: [] });
+  excluded: [], routingSetAside: ['workers', 'step-up'], accountNotes: [], checklistSetAside: false });
   const ops = createPlanQueueToolOperations(() => coordinator);
   const result = await ops.start('caller', { kind: 'plans', step_up: { provider: 'codex', account_ids: ['pro'] } }) as {
     message: string; routing: { stepUp: string }; items: { handedToStepUpAt?: string }[];

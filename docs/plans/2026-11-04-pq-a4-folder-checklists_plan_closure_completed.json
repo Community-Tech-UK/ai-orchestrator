@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-11-04-pq-a4-folder-checklists_plan.md",
+      "sha256": "675fdd434ea899b8c248e2613f5db25afd132c3fb8a07044fedff1896c7299f8",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-11-04-pq-a4-folder-checklists_history.md",
+      "sha256": null,
+      "retire": false
+    },
+    {
+      "relativePath": "2026-11-04-pq-a4-folder-checklists_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-11-04-pq-a4-folder-checklists_plan_completed.md",
+      "sha256": "a4ef796bce6a9c9c431e62deddd251679f1de06f165209b58a6fbc19c80204e2"
+    },
+    {
+      "relativePath": "2026-11-04-pq-a4-folder-checklists_plan_history_c60c0ed5616308b6d693ca4a19ec0f04f62856f3049cd344baa30cb7c2a8fede_completed.md",
+      "sha256": "dc9623341b8e6f0f307f945068f3d5e2111f4d05da2c5cf51a37235784fba5ce"
+    }
+  ]
+}

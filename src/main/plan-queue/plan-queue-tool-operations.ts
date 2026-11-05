@@ -82,7 +82,7 @@ function toControlPayload(args: PlanQueueControlArgs): PlanQueueControlPayload {
 export function createPlanQueueToolOperations(coordinator: () => PlanQueueCoordinator): PlanQueueToolOperations {
   return {
     async start(callerInstanceId, args) {
-      const { run, excluded, routingSetAside, accountNotes } = await coordinator().startRun({
+      const { run, excluded, routingSetAside, accountNotes, checklistSetAside } = await coordinator().startRun({
         parentInstanceId: callerInstanceId,
         kind: args.kind,
         glob: args.glob,
@@ -109,6 +109,7 @@ export function createPlanQueueToolOperations(coordinator: () => PlanQueueCoordi
           : 'The run has started. Workers appear nested under this session. Documents that need James will arrive as a message with questions to ask him; a summary arrives when the run ends. Use plan_queue_status to check progress.')
           + (excluded.length ? ' Some documents belong to another active run. If its session no longer exists, adopt that run instead of starting again.' : '')
           + (routingSetAside.length ? ` James's saved Plan Queue choice for ${setAsideRoles(routingSetAside)} was used instead of the one you passed.` : '')
+          + (checklistSetAside ? ' James\'s saved checklist for this folder was used instead of the verifier_gates and post_merge_gate you passed.' : '')
           + accountNotes.map((note) => ` ${note}`).join(''),
       };
     },

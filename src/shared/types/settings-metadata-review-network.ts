@@ -134,6 +134,14 @@ export const REVIEW_NETWORK_SETTINGS_METADATA: SettingMetadata[] = [
     hidden: true,
   },
   {
+    key: 'planQueueFolderChecklists',
+    label: 'Plan Queue checklist for each project folder',
+    description: 'The commands Plan Queue runs to check work in a project folder, and after merging a moved base branch. A saved checklist wins over any commands a session passes when it starts a run. Managed from the Plan Queue page. Set only from there — not changeable by agents.',
+    type: 'json',
+    category: 'review',
+    hidden: true,
+  },
+  {
     key: 'crossModelReviewLocalEnabled',
     label: 'Enable local reviewer',
     description: 'Run an additional review with the selected local model when one is available.',

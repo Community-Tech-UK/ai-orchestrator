@@ -303,6 +303,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // Plan Queue: workers follow the starting session, checkers are automatic.
   planQueueRouting: { workers: [], verifiers: [] },
   planQueueAccountRules: { never: [], last: [] },
+  planQueueFolderChecklists: [],
 
   // Conversational ping-pong review
   pingPongReviewerProvider: 'auto',

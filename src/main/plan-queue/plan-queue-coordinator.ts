@@ -24,6 +24,7 @@ import {
   type PlanQueueAlert,
   type PlanQueueHealth,
   type PlanQueueControlPayload,
+  type PlanQueueFolderChecklist,
   type PlanQueueItemState,
   type PlanQueueKind,
   type PlanQueueReportTriageArgs,
@@ -42,7 +43,8 @@ import { adoptRunParent } from './plan-queue-run-parent';
 import { requestRunHandover, handoverRunParent } from './plan-queue-handover';
 import { PlanQueueParentMessenger } from './plan-queue-parent-messenger';
 import { discoverPlanQueueDocuments } from './plan-queue-discovery';
-import { defaultRunConfigFor } from './plan-queue-default-gates';
+import { defaultRunConfigFor, THIS_REPOSITORY_ROOT_COMMIT } from './plan-queue-default-gates';
+import { readSavedFolderChecklists, resolveRunGates, savedChecklistFor } from './plan-queue-folder-checklists';
 import { isExactPlanQueueSelection } from './plan-queue-discovery-paths';
 import { currentBranch, diffStat, repositoryRoot } from './plan-queue-git';
 import {
@@ -86,6 +88,8 @@ export interface PlanQueueCoordinatorDeps {
   routing?: PlanQueueRoutingDeps;
   /** James's account rules: changes reach running sessions; see plan-queue-account-rules-live.ts. */
   accountRules?: PlanQueueAccountRulesPort;
+  folderChecklists?: () => PlanQueueFolderChecklist[]; // James's saved checklist per folder; defaults to the settings manager
+  thisRepositoryRootCommit?: string; // first commit of the repository that gets the built-in checklists; tests pass a temporary repository's
   now?: () => number;
   newId?: () => string;
   /** Periodic re-check (load gate, missed events). `null` disables the timer. */
@@ -112,6 +116,8 @@ export interface StartRunResult {
   routingSetAside: ResolvedRunRouting['setAside'];
   /** Account-rule effects on the run's starting route (see `ResolvedRunRouting.accountNotes`). */
   accountNotes: string[];
+  /** Gates the caller passed that the folder's saved checklist replaced. */
+  checklistSetAside: boolean;
 }
 interface ResolvedDeps {
   store: PlanQueueStore;
@@ -121,6 +127,8 @@ interface ResolvedDeps {
   relaxation: PlanQueueRelaxation | null;
   routing: PlanQueueRoutingDeps | undefined;
   accountRules: PlanQueueAccountRulesPort | undefined;
+  folderChecklists: () => PlanQueueFolderChecklist[];
+  thisRepositoryRootCommit: string;
   now: () => number;
   newId: () => string;
 }
@@ -166,6 +174,8 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       relaxation: deps.relaxation ?? null,
       routing: deps.routing,
       accountRules: deps.accountRules,
+      folderChecklists: deps.folderChecklists ?? readSavedFolderChecklists,
+      thisRepositoryRootCommit: deps.thisRepositoryRootCommit ?? THIS_REPOSITORY_ROOT_COMMIT,
       now: deps.now ?? Date.now,
       newId: deps.newId ?? randomUUID,
     };
@@ -382,7 +392,8 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     if (this.isQueueInstance(input.parentInstanceId)) {
       throw new Error('A Plan Queue worker, verifier or triage session cannot start another queue run');
     }
-    const repoRoot = await repositoryRoot(input.workspaceCwd ?? parent.workingDirectory ?? process.cwd());
+    const startFolder = input.workspaceCwd ?? parent.workingDirectory ?? process.cwd();
+    const repoRoot = await repositoryRoot(startFolder);
     const baseBranch = await currentBranch(repoRoot);
     if (!baseBranch) throw new Error(`${repoRoot} is not on a branch; the queue lands work on the checked-out branch`);
 
@@ -392,7 +403,9 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     await preflightPlanQueueRun({ routing, workspaceCwd: repoRoot, workerProvider: parent.provider ?? 'claude', workerModel: parent.currentModel ?? null,
       selectVerifier: input => this.selectVerifier(input) });
     const glob = input.glob ?? input.config?.glob;
-    const config: PlanQueueRunConfig = { ...await defaultRunConfigFor(repoRoot, input.kind), ...input.config, glob, baseBranch, routing, startingSessionRoute: { provider: parent.provider, currentModel: parent.currentModel, accountProfileId: parent.accountProfileId, copilotAccountProfileId: parent.copilotAccountProfileId } };
+    const defaults = await defaultRunConfigFor(repoRoot, input.kind, deps.thisRepositoryRootCommit);
+    const { callerGatesSetAside, ...gates } = resolveRunGates(defaults, input.config, savedChecklistFor(deps.folderChecklists(), repoRoot, startFolder));
+    const config: PlanQueueRunConfig = { ...defaults, ...input.config, ...gates, glob, baseBranch, routing, startingSessionRoute: { provider: parent.provider, currentModel: parent.currentModel, accountProfileId: parent.accountProfileId, copilotAccountProfileId: parent.copilotAccountProfileId } };
     await assertRunReady(repoRoot, [...config.verifierGates, ...config.postMergeGate]);
     const documents = await discoverPlanQueueDocuments(repoRoot, input.kind, glob);
     // No await from here until the items are written: reading the owned set and
@@ -421,7 +434,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     logger.info('Plan queue run started', { runId: run.id, kind: run.kind, items: items.length, excluded: excluded.length });
     this.announce({ runId: run.id });
     this.requestPump();
-    return { run: runToDto(this.getRun(run.id), items, deps.store.history.checksSummary(run.id)), excluded, routingSetAside: setAside, accountNotes };
+    return { run: runToDto(this.getRun(run.id), items, deps.store.history.checksSummary(run.id)), excluded, routingSetAside: setAside, accountNotes, checklistSetAside: callerGatesSetAside };
   }
   getRunDto(runId: string): PlanQueueRunDto | null {
     const run = this.requireDeps().store.getRun(runId);

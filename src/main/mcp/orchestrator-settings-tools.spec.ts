@@ -535,7 +535,7 @@ describe('privileged settings CLI writability reporting', () => {
   });
 
   it('holds the operator-only anchor count the docs quote', () => {
-    // docs/AIO_MCP_CLI.md and docs/llm/AIO_MCP_CLI_REFERENCE.md both state 26
+    // docs/AIO_MCP_CLI.md and docs/llm/AIO_MCP_CLI_REFERENCE.md both state 27
     // anchors and enumerate them by group. History: the count reached 21 on
     // 2026-08-26 (`computerUseAutonomyLevel` took the Computer Use group from
     // five keys to six, after Copilot account routing added two on 2026-08-25,
@@ -556,12 +556,27 @@ describe('privileged settings CLI writability reporting', () => {
     // `providerSignalFenceEnabled` became the 25th: an agent that could turn
     // the macOS signal fence off could kill sibling sessions. On 2026-10-27
     // `planQueueAccountRules` became the 26th: it decides which accounts
-    // unattended Plan Queue sessions must avoid or use last.
-    // Fail here if a 27th is added, or one is removed, without updating the
+    // unattended Plan Queue sessions must avoid or use last. On 2026-11-04
+    // `planQueueFolderChecklists` became the 27th: its commands run in a shell,
+    // so an agent that could edit them could run anything.
+    // Fail here if a 28th is added, or one is removed, without updating the
     // prose.
     const anchors = [...privilegedList().values()].filter((setting) => !setting.cliWritable);
 
-    expect(anchors).toHaveLength(26);
+    expect(anchors).toHaveLength(27);
+  });
+
+  it('keeps the saved Plan Queue folder checklists out of reach of every agent-reachable settings tool', async () => {
+    const settings = makeSettingsManager();
+    const value = [{ folder: '/work/shop', verifierGates: ['echo hi'], postMergeGate: ['echo hi'] }];
+
+    // The safe set_setting tool, and the privileged repair CLI that agent sessions use.
+    await expect(toolByName('set_setting', settings).tool.handler({ key: 'planQueueFolderChecklists', value }))
+      .rejects.toThrow(/read-only/);
+    expect(() => privilegedSetSetting({ settingsManager: settings }, { key: 'planQueueFolderChecklists', value }))
+      .toThrow(/operator-only/);
+    expect(settings.set).not.toHaveBeenCalled();
+    expect(settings.values.planQueueFolderChecklists).toEqual([]);
   });
 
   it('refuses an operator-only key before parsing the supplied value', () => {

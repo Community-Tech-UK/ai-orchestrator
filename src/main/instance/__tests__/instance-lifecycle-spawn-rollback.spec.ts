@@ -17,7 +17,7 @@
  *       session — it settles to idle with a notice so the user can resend)
  *   4. success                   → commit; nothing is torn down
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Instance, InstanceCreateConfig } from '../../../shared/types/instance.types';
 import type { ExecutionLocation } from '../../../shared/types/worker-node.types';
 import type { SessionState } from '../../session/session-continuity.types';
@@ -497,6 +497,7 @@ async function createAndAwaitFailure(
 }
 
 describe('createInstance spawn transaction rollback', () => {
+  afterEach(() => { vi.unstubAllEnvs(); });
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.createAdapter.mockReset();
@@ -530,6 +531,8 @@ describe('createInstance spawn transaction rollback', () => {
   });
 
   it('starts a Plan Queue session with the push guard in its environment, and no other session', async () => {
+    // A Plan Queue worker running this suite inherits the guard's own git settings; count from a clean environment.
+    for (const key of Object.keys(process.env)) if (/^GIT_CONFIG_/.test(key) || key === 'AIO_QUEUE_SESSION') vi.stubEnv(key, undefined);
     const harness = makeHarness();
     mocks.createAdapter.mockReturnValue(makeFakeAdapter());
     await (await harness.manager.createInstance({ workingDirectory: '/tmp', provider: 'claude', metadata: { planQueueRole: 'worker', planQueueRunId: 'run-1' } })).readyPromise;

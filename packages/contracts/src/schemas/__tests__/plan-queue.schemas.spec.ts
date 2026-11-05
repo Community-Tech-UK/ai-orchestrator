@@ -3,6 +3,7 @@ import {
   PlanQueueAlertSchema, PlanQueueQuestionSchema, PlanQueueReportTriageArgsSchema, PlanQueueControlPayloadSchema, PlanQueueControlArgsSchema,
   PlanQueueItemDtoSchema, PlanQueueRoutingSchema, PlanQueueStartArgsSchema,
   PlanQueueReportVerdictArgsSchema,
+  PlanQueueFolderChecklistsSchema, normalizeChecklistFolder, isAbsoluteChecklistFolder,
   DEFAULT_PLAN_QUEUE_CONFIG, PlanQueueRunConfigSchema, PlanQueueGateRunSchema, PlanQueueRunDtoSchema,
 } from '../plan-queue.schemas';
 
@@ -144,5 +145,38 @@ describe('Plan Queue routing controls', () => {
     expect(PlanQueueItemDtoSchema.safeParse(item).success).toBe(true);
     expect(PlanQueueItemDtoSchema.parse({ ...item, steppedUpAt: 5 }).steppedUpAt).toBe(5);
     expect(PlanQueueItemDtoSchema.parse({ ...item, steppedUpAt: null }).steppedUpAt).toBeNull();
+  });
+});
+
+describe('Plan Queue folder checklists: one entry per folder', () => {
+  const entry = (folder: string) => ({ folder, verifierGates: ['make check'], postMergeGate: [] });
+  it('writes every spelling of a folder the same way', () => {
+    expect(normalizeChecklistFolder('/work/shop')).toBe('/work/shop');
+    expect(normalizeChecklistFolder('/work/shop/')).toBe('/work/shop');
+    expect(normalizeChecklistFolder('/work//shop/./')).toBe('/work/shop');
+    expect(normalizeChecklistFolder('/work/base/../shop')).toBe('/work/shop');
+    expect(normalizeChecklistFolder('/../work/shop')).toBe('/work/shop');
+    expect(normalizeChecklistFolder('C:\\work\\shop\\')).toBe('C:/work/shop');
+    expect(normalizeChecklistFolder('C:/work/shop/sub/..')).toBe('C:/work/shop');
+    expect(normalizeChecklistFolder('/work/shop-two')).not.toBe('/work/shop');
+    expect(normalizeChecklistFolder('/')).toBe('/');
+  });
+  it('refuses two spellings of the same folder and accepts different folders', () => {
+    expect(PlanQueueFolderChecklistsSchema.safeParse([entry('/work/shop'), entry('/work/base/../shop')]).success).toBe(false);
+    expect(PlanQueueFolderChecklistsSchema.safeParse([entry('/work/shop'), entry('/work/shop/')]).success).toBe(false);
+    expect(PlanQueueFolderChecklistsSchema.safeParse([entry('/work/shop'), entry('/work/shop-two'), entry('/work/shop/sub')]).success).toBe(true);
+  });
+  it('refuses a folder that is not a full path, because no run could ever start in it', () => {
+    expect(isAbsoluteChecklistFolder('/work/shop')).toBe(true);
+    expect(isAbsoluteChecklistFolder('C:\\work\\shop')).toBe(true);
+    expect(isAbsoluteChecklistFolder('//server/share/shop')).toBe(true);
+    expect(isAbsoluteChecklistFolder('\\\\server\\share\\shop')).toBe(true);
+    for (const relative of ['docs', './shop', '../shop', 'work/shop', '~/shop', 'C:shop', '\\shop', '\\']) {
+      expect(isAbsoluteChecklistFolder(relative)).toBe(false);
+      const result = PlanQueueFolderChecklistsSchema.safeParse([entry(relative)]);
+      expect(result.success).toBe(false);
+      expect(result.error?.issues[0]?.message).toContain('full path');
+    }
+    expect(PlanQueueFolderChecklistsSchema.safeParse([entry('/work/shop'), entry('C:\\work\\shop')]).success).toBe(true);
   });
 });

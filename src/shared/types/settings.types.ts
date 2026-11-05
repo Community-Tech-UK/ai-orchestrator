@@ -1,6 +1,6 @@
 /** Application settings shared by the main and renderer processes. */
 
-import type { PlanQueueAccountRules, PlanQueueRouting } from '@contracts/schemas/plan-queue';
+import type { PlanQueueAccountRules, PlanQueueFolderChecklist, PlanQueueRouting } from '@contracts/schemas/plan-queue';
 import type { AuxiliaryLlmRoutingMode } from './auxiliary-llm.types';
 import type {
   CopilotAccountProfile,
@@ -553,6 +553,8 @@ export interface AppSettings extends DesktopComputerUseSettings, ObservationSett
   planQueueRouting: PlanQueueRouting;
   /** Accounts Plan Queue sessions and new automation sessions must never use, or should use last. Operator-only, edited on the Plan Queue page; queue sessions read it live, automation runs when they start. */
   planQueueAccountRules: PlanQueueAccountRules;
+  /** Saved checklist per project folder; beats the gates a session passes to `plan_queue_start`. Operator-only, edited on the Plan Queue page. */
+  planQueueFolderChecklists: PlanQueueFolderChecklist[];
 
   // Conversational ping-pong review (bigchange_pingpong_review)
   /**

@@ -166,7 +166,7 @@ automation-provider block-list (`providersExcludedFromAutomation`), the two GitH
 Copilot account-routing keys (`copilotAccountProfiles`, `copilotAccountRoutingRules`),
 the two account-pool keys (`providerAccountProfiles`,
 `providerAccountPools`, covering Claude, Codex and MiMo), the Plan Queue
-provider-and-account choice (`planQueueRouting`), the Plan Queue never-use and use-last account lists (`planQueueAccountRules`), the two Workspace Secret Card keys (`workspaceSecretsEnabled`,
+provider-and-account choice (`planQueueRouting`), the Plan Queue never-use and use-last account lists (`planQueueAccountRules`), the Plan Queue checklist for each project folder (`planQueueFolderChecklists`), the two Workspace Secret Card keys (`workspaceSecretsEnabled`,
 `workspaceSecretsAllowAgentRequests`), the post-fill observation lock
 (`browserSecretObservationProtectionEnabled`), and the macOS session signal
 fence (`providerSignalFenceEnabled`).
@@ -176,6 +176,10 @@ fence (`providerSignalFenceEnabled`).
 Plan Queue sessions and fresh automation sessions: operator-only, read live, not
 changeable by agents, and it does not affect sessions James opens himself, loops, or
 automations that wake an existing session.
+`planQueueFolderChecklists` (27th anchor) is the saved per-folder checklist for Plan Queue
+checks and post-merge commands: operator-only, and it overrides the `verifier_gates` and
+`post_merge_gate` a session passes to `plan_queue_start` (callers may add gates only where no
+list is saved).
 
 The credential-vault unlock keys and the shared-tab credential-fill switch were
 anchors until 2026-08-29, when the operator had them widened so unattended

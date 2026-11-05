@@ -72,6 +72,7 @@ describe('run-git-hook', () => {
   it('runs hook commands in order and returns zero when all commands pass', () => {
     const calls: Array<{ command: string; args: string[] }> = [];
     const status = runHook('pre-push', {
+      env: {},
       spawnSync: (command, args) => {
         calls.push({ command, args });
         return { status: 0 };
@@ -85,6 +86,7 @@ describe('run-git-hook', () => {
   it('stops at the first failing hook command', () => {
     const calls: Array<{ command: string; args: string[] }> = [];
     const status = runHook('pre-push', {
+      env: {},
       spawnSync: (command, args) => {
         calls.push({ command, args });
         return { status: calls.length === 2 ? 1 : 0 };

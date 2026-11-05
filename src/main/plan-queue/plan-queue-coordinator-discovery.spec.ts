@@ -54,6 +54,7 @@ beforeEach(() => {
     loadAverage: () => [9999, 9999, 9999],
     worktreeCreator: { createWorktree: vi.fn(), cleanupWorktree: vi.fn(), getAllSessions: () => [] },
     selectVerifier: async () => ({ ok: true, choice: { provider: 'codex' } }),
+    folderChecklists: () => [],
     routing: {
       readSaved: () => ({ workers: [], verifiers: [] }), readAccountRules: () => ({ never: [], last: [] }),
       poolProfiles: () => [], copilotProfiles: () => [], copilotProfileFor: () => null,

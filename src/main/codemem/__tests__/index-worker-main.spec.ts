@@ -32,6 +32,11 @@ async function flushMicrotasks(times = 8): Promise<void> {
 
 describe('codemem index worker main', () => {
   let parentPort: FakeParentPort;
+  let workerThreads: {
+    parentPort: FakeParentPort | null;
+    isMainThread: boolean;
+    workerData: { userDataPath: string } | null;
+  };
   let db: {
     pragma: ReturnType<typeof vi.fn>;
     close: ReturnType<typeof vi.fn>;
@@ -89,15 +94,24 @@ describe('codemem index worker main', () => {
       stop: vi.fn().mockResolvedValue(undefined),
     });
 
-    vi.doMock('node:worker_threads', () => ({
-      default: {
-        parentPort,
-        isMainThread: false,
-        workerData: { userDataPath: '/tmp/aio-index-worker-test' },
-      },
+    workerThreads = {
       parentPort,
       isMainThread: false,
       workerData: { userDataPath: '/tmp/aio-index-worker-test' },
+    };
+    // The factory reads `workerThreads` lazily. Under heavy parallel load Vitest
+    // has been seen to hand the worker the mock registered here even after a
+    // test re-registered `node:worker_threads`, so a test changes the transport
+    // by reassigning `workerThreads` instead of mocking the module again.
+    vi.doMock('node:worker_threads', () => ({
+      default: {
+        get parentPort() { return workerThreads.parentPort; },
+        get isMainThread() { return workerThreads.isMainThread; },
+        get workerData() { return workerThreads.workerData; },
+      },
+      get parentPort() { return workerThreads.parentPort; },
+      get isMainThread() { return workerThreads.isMainThread; },
+      get workerData() { return workerThreads.workerData; },
     }));
     vi.doMock('../../db/better-sqlite3-driver', () => ({
       defaultDriverFactory: vi.fn(() => db),
@@ -378,16 +392,7 @@ describe('codemem index worker main', () => {
 
   it('accepts child-process IPC when launched outside worker_threads', async () => {
     vi.resetModules();
-    vi.doMock('node:worker_threads', () => ({
-      default: {
-        parentPort: null,
-        isMainThread: true,
-        workerData: null,
-      },
-      parentPort: null,
-      isMainThread: true,
-      workerData: null,
-    }));
+    workerThreads = { parentPort: null, isMainThread: true, workerData: null };
 
     const send = vi.fn();
     const messageHandlers: ((message: unknown) => void)[] = [];

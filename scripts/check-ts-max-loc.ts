@@ -644,7 +644,7 @@ const ALLOWLIST: Record<string, number> = {
   // Added 2026-10-27: Plan Queue account-rule hooks (686 -> 727). This includes the
   // uncommitted Plan Queue handover lines in the same working tree (+15); re-tighten
   // once the handover and account-rule code are committed and split out.
-  'src/main/plan-queue/plan-queue-coordinator.ts': 727,
+  'src/main/plan-queue/plan-queue-coordinator.ts': 781, // 727 -> 781: folder-checklist wiring in startRun
   // Added 2026-10-27: the Plan Queue hold re-checks the banned session under the item
   // lock (+6 lines). The file was exactly 700 at HEAD; most of the growth to 706 is
   // other uncommitted Plan Queue work in the same working tree (retirements, active-work

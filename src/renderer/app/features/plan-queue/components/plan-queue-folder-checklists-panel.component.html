@@ -1,0 +1,59 @@
+<div class="pq-folder-checks">
+  @if (rows().length === 0) {
+    <p class="pq-folder-checks-note">No folder has its own checks yet. A run in such a folder uses the checks the project documents for itself.</p>
+  }
+
+  @for (row of rows(); track row.id) {
+    <section class="pq-folder-checks-folder" [attr.aria-label]="'Checks for ' + row.folder">
+      <div class="pq-folder-checks-heading">
+        <h3 class="pq-folder-checks-path">{{ row.folder }}</h3>
+        <button type="button" class="pq-folder-checks-remove" [attr.aria-label]="'Remove the checks for ' + row.folder" (click)="removeFolder(row.id)">Remove</button>
+      </div>
+      <label class="pq-folder-checks-field">
+        <span>Checks before a checker reviews the work (one command per line)</span>
+        <textarea class="pq-folder-checks-verifier" rows="3" spellcheck="false" [value]="row.verifierText"
+          (input)="setField(row.id, 'verifierText', $any($event.target).value)"></textarea>
+      </label>
+      <label class="pq-folder-checks-field">
+        <span>Checks after merging a moved main branch (one command per line)</span>
+        <textarea class="pq-folder-checks-post-merge" rows="2" spellcheck="false" [value]="row.postMergeText"
+          (input)="setField(row.id, 'postMergeText', $any($event.target).value)"></textarea>
+      </label>
+    </section>
+  }
+
+  <div class="pq-folder-checks-add">
+    <label class="pq-folder-checks-field">
+      <span>Add a project folder (its full path, such as the top folder of its Git project)</span>
+      <input type="text" class="pq-folder-checks-new" list="pq-folder-checks-suggestions" spellcheck="false"
+        [value]="newFolder()" (input)="setNewFolder($any($event.target).value)" (keydown.enter)="addFolder()" />
+    </label>
+    <datalist id="pq-folder-checks-suggestions">
+      @for (folder of suggestedFolders(); track folder) {
+        <option [value]="folder"></option>
+      }
+    </datalist>
+    @if (newFolderNeedsFullPath()) {
+      <p class="pq-folder-checks-error pq-folder-checks-new-error" role="alert">Give the full path of the folder, starting with / or a drive letter such as C:\.</p>
+    }
+    <button type="button" class="pq-folder-checks-add-button" [disabled]="!canAdd()" (click)="addFolder()">Add folder</button>
+  </div>
+
+  @if (problem(); as reason) {
+    <p class="pq-folder-checks-error" role="alert">{{ reason }}</p>
+  }
+
+  <div class="pq-folder-checks-actions">
+    <button type="button" class="pq-folder-checks-save" [disabled]="!canSave()" (click)="save()">Save</button>
+    <button type="button" class="pq-folder-checks-reset" [disabled]="!dirty() || saving()" (click)="resetToSaved()">Reset to saved</button>
+    @if (status(); as line) {
+      @if (line.kind === 'success') {
+        <span class="pq-folder-checks-status pq-folder-checks-status-ok" role="status">{{ line.text }}</span>
+      } @else {
+        <span class="pq-folder-checks-status pq-folder-checks-status-error" role="alert">{{ line.text }}</span>
+      }
+    } @else if (dirty()) {
+      <span class="pq-folder-checks-status" role="status">Not saved yet. New runs use the saved checks until you press Save.</span>
+    }
+  </div>
+</div>

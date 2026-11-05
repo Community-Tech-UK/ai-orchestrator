@@ -6,7 +6,7 @@ import { EventEmitter } from 'node:events';
 import * as net from 'node:net';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_PLAN_QUEUE_CONFIG, type PlanQueueRouting } from '@contracts/schemas/plan-queue';
+import { DEFAULT_PLAN_QUEUE_CONFIG, type PlanQueueFolderChecklist, type PlanQueueRouting } from '@contracts/schemas/plan-queue';
 import type { InstanceCreateConfig } from '../../shared/types/instance.types';
 import type { ProviderAccountProfile } from '../../shared/types/provider-account.types';
 import type { SqliteDriver } from '../db/sqlite-driver';
@@ -84,6 +84,8 @@ let fake: FakeInstances;
 let coordinator: PlanQueueCoordinator;
 /** James's saved Plan Queue routing and account pool, as the coordinator reads them. */
 let savedRouting: PlanQueueRouting;
+/** James's saved checklist per folder, as the coordinator reads it. */
+let savedFolderChecklists: PlanQueueFolderChecklist[];
 /** Providers whose choices have no usage left, for the ranked worker and checker lists. */
 let outOfUsage: string[];
 let installedProviders: string[];
@@ -322,6 +324,7 @@ beforeEach(() => {
   runLoopMigrations(driver);
   store = new PlanQueueStore(driver);
   savedRouting = { workers: [], verifiers: [] };
+  savedFolderChecklists = [];
   outOfUsage = [];
   installedProviders = ['claude', 'codex', 'cursor', 'copilot', 'opencode', 'gemini'];
   poolProfiles = [];
@@ -338,7 +341,7 @@ beforeEach(() => {
 function startCoordinator(
   instances: FakeInstances,
   relaxation: PlanQueueRelaxation | null = null,
-  extras: { whenOrchestratorToolsListening?: () => Promise<void>; now?: () => number } = {},
+  extras: { whenOrchestratorToolsListening?: () => Promise<void>; now?: () => number; thisRepositoryRootCommit?: string } = {},
 ): PlanQueueCoordinator {
   const created = PlanQueueCoordinator.getInstance();
   created.initialize({
@@ -362,6 +365,9 @@ function startCoordinator(
       listInstalledProviders: async () => installedProviders,
       routeUsage: async (choice) => ({ usable: !outOfUsage.includes(choice.provider), resumeAt: null }),
     },
+    folderChecklists: () => savedFolderChecklists,
+    // Never this temporary repository's own first commit unless a test says it is this repository.
+    thisRepositoryRootCommit: extras.thisRepositoryRootCommit ?? 'not-a-real-commit',
     loadAverage: () => [0, 0, 0],
     relaxation,
     pumpIntervalMs: null,
@@ -1804,7 +1810,9 @@ describe('PlanQueueCoordinator — livetest mode', { timeout: 30_000 }, () => {
   });
 
   it('uses the livetest defaults: one worker at a time and the light verifier gate list', async () => {
-    // A project that defines the scripts and a tsconfig keeps this repository's checklists.
+    // This temporary repository stands in for this repository: its first commit is the one that earns the built-in checklists.
+    PlanQueueCoordinator._resetForTesting();
+    coordinator = startCoordinator(fake, null, { thisRepositoryRootCommit: git(['rev-list', '--max-parents=0', 'HEAD']) });
     writeFileSync(join(repo, 'package.json'), JSON.stringify({ scripts: { lint: 'true', typecheck: 'true', 'typecheck:spec': 'true' } }));
     writeFileSync(join(repo, 'tsconfig.json'), '{}');
     git(['add', 'package.json', 'tsconfig.json']);
@@ -1818,6 +1826,19 @@ describe('PlanQueueCoordinator — livetest mode', { timeout: 30_000 }, () => {
     expect(run.config).toMatchObject({ workerSlots: 1, verificationSlots: 1, verifierGates: ['npx tsc --noEmit', 'npm run lint'] });
     await waitForRun(run.id);
     expect(fake.maxLive.worker).toBe(1);
+  });
+
+  it('gives a different project no checklist, even one that copies this repository\'s package name, scripts and tsconfig', async () => {
+    writeFileSync(join(repo, 'package.json'), JSON.stringify({ name: 'harness', scripts: { lint: 'true', typecheck: 'true', 'typecheck:spec': 'true' } }));
+    writeFileSync(join(repo, 'tsconfig.json'), '{}');
+    git(['add', 'package.json', 'tsconfig.json']);
+    git(['commit', '-qm', 'project scripts']);
+    writeDoc('docs/plans/2026-01-01-alpha_livetest.md', '# L\n');
+    const parent = fake.addParent();
+    fake.scripts.verifier = livetestVerdict(false);
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'livetests' });
+    expect(run.config).toMatchObject({ verifierGates: [], postMergeGate: [] });
   });
 });
 
@@ -3146,3 +3167,57 @@ it('parks the item, rather than leaving it stuck, when its worker cannot be clos
   expect(item.detail).toContain('Could not close the worker while its work waits for a check: archive failed');
   expect(fake.created.filter((i) => i.role === 'verifier')).toEqual([]);
 }, 30_000);
+
+describe('PlanQueueCoordinator — a saved checklist for the folder', { timeout: 30_000 }, () => {
+  const saved = (): PlanQueueFolderChecklist => ({ folder: repo, verifierGates: ['npm run saved-check'], postMergeGate: ['npm run saved-merge-check'] });
+  const callerGates = { verifierGates: ['echo caller-check'], postMergeGate: ['echo caller-merge'] };
+  /** Gates are only declared here; the stubbed runner never executes them. */
+  const start = (config?: Parameters<typeof coordinator.startRun>[0]['config']) =>
+    coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans', config });
+
+  beforeEach(() => {
+    planDoc('2026-01-01-folder-checklist');
+    fake.scripts.worker = never;
+    writeFileSync(join(repo, 'package.json'), JSON.stringify({ scripts: { 'saved-check': 'true', 'saved-merge-check': 'true' } }));
+  });
+
+  it('replaces the gates a session passes to plan_queue_start, both the checks and the post-merge commands', async () => {
+    savedFolderChecklists = [saved()];
+    const { run, checklistSetAside } = await start(callerGates);
+    expect(checklistSetAside).toBe(true);
+    expect(store.getRun(run.id)!.config).toMatchObject({ verifierGates: ['npm run saved-check'], postMergeGate: ['npm run saved-merge-check'] });
+  });
+
+  it('applies when the session passes nothing, even where the project would otherwise start with no checks', async () => {
+    savedFolderChecklists = [saved()];
+    const { run, checklistSetAside } = await start();
+    expect(checklistSetAside).toBe(false);
+    expect(store.getRun(run.id)!.config).toMatchObject({ verifierGates: ['npm run saved-check'], postMergeGate: ['npm run saved-merge-check'] });
+  });
+
+  it('lets a session name its own gates when the folder has no saved checklist', async () => {
+    savedFolderChecklists = [{ ...saved(), folder: join(repo, 'elsewhere') }];
+    const { run, checklistSetAside } = await start(callerGates);
+    expect(checklistSetAside).toBe(false);
+    expect(store.getRun(run.id)!.config).toMatchObject(callerGates);
+  });
+
+  it('applies an entry for the sub-folder the run was started in, and ignores one for a sub-folder it was not', async () => {
+    const sub = join(repo, 'packages', 'app');
+    mkdirSync(sub, { recursive: true });
+    savedFolderChecklists = [{ ...saved(), folder: sub }];
+    const started = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans', workspaceCwd: sub });
+    expect(store.getRun(started.run.id)!.config).toMatchObject({ verifierGates: ['npm run saved-check'], postMergeGate: ['npm run saved-merge-check'] });
+    const other = await start(callerGates);
+    expect(other.checklistSetAside).toBe(false);
+    expect(store.getRun(other.run.id)!.config).toMatchObject(callerGates);
+  });
+
+  it('keeps the saved gates on the stored run, so a later edit of the list does not change a run already started', async () => {
+    savedFolderChecklists = [saved()];
+    const { run } = await start(callerGates);
+    savedFolderChecklists = [];
+    expect(store.getRun(run.id)!.config.verifierGates).toEqual(['npm run saved-check']);
+    expect(coordinator.getRun(run.id).config.postMergeGate).toEqual(['npm run saved-merge-check']);
+  });
+});
