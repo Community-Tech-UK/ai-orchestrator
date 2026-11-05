@@ -5,10 +5,11 @@
  * binary is preserved (or repaired from the known-good root binary).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync, lstatSync, readlinkSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync, lstatSync, readlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { delimiter, dirname, join, resolve } from 'node:path';
 import { isAbsolute } from 'node:path';
+import * as cliEnvironment from '../../cli/cli-environment';
 import {
   provisionNodeModules,
   repairWorkspaceLinks,
@@ -74,6 +75,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   for (const d of [root, worktree]) {
     try {
       rmSync(d, { recursive: true, force: true });
@@ -81,6 +84,84 @@ afterEach(() => {
       /* noop */
     }
   }
+});
+
+/** An executable local npm recorder: installation tests never contact a registry. */
+function recordNpmCalls(exitCode = 0): string {
+  rmSync(join(root, 'node_modules'), { recursive: true, force: true });
+  const bin = join(worktree, 'tools');
+  mkdirSync(bin);
+  const script = "require('node:fs').writeFileSync('npm-call.json', JSON.stringify(process.argv.slice(2)));\n"
+    + `process.exitCode = ${exitCode};\n`;
+  if (process.platform === 'win32') {
+    writeFileSync(join(bin, 'npm.cjs'), script);
+    writeFileSync(join(bin, 'npm.cmd'), '@echo off\r\nnode "%~dp0npm.cjs" %*\r\n');
+  } else {
+    writeFileSync(join(bin, 'npm'), `#!/usr/bin/env node\n${script}`);
+    chmodSync(join(bin, 'npm'), 0o755);
+  }
+  vi.stubEnv('PATH', '');
+  const toolPath = [bin, dirname(process.execPath)].join(delimiter);
+  vi.spyOn(cliEnvironment, 'buildCliEnv').mockReturnValue({ ...process.env, PATH: toolPath,
+    ...(process.platform === 'win32' ? { Path: toolPath } : {}) });
+  return join(worktree, 'npm-call.json');
+}
+
+describe('worktree installation without root modules', () => {
+  it('skips a scripts-only project without invoking npm or creating a lockfile', async () => {
+    const marker = recordNpmCalls();
+    writeFileSync(join(worktree, 'package.json'), JSON.stringify({ name: 'script-only', scripts: { test: 'node --test' },
+      dependencies: {}, devDependencies: {}, workspaces: [] }));
+    await expect(provisionWorktreeDependencies(root, worktree)).resolves.toEqual({ method: 'skipped', symlinks: [], nativeAbi: [] });
+    expect(existsSync(marker)).toBe(false);
+    expect(existsSync(join(worktree, 'node_modules'))).toBe(false);
+    expect(existsSync(join(worktree, 'package-lock.json'))).toBe(false);
+  });
+
+  it.each([
+    { dependencies: { 'example-package': '1.0.0' } },
+    { devDependencies: { 'example-package': '1.0.0' } },
+    { optionalDependencies: { 'example-package': '1.0.0' } },
+    { peerDependencies: { 'example-package': '1.0.0' } },
+    { bundledDependencies: ['example-package'] },
+    { bundleDependencies: ['example-package'] },
+    { workspaces: ['packages/*'] },
+    ...['preinstall', 'install', 'postinstall', 'prepublish', 'preprepare', 'prepare', 'postprepare']
+      .map(name => ({ scripts: { [name]: 'node setup.cjs' } })),
+  ])('still installs required packages or lifecycle setup: %j', async manifest => {
+    const marker = recordNpmCalls();
+    writeFileSync(join(worktree, 'package.json'), JSON.stringify({ name: 'setup-required', ...manifest }));
+    await expect(provisionNodeModules(root, worktree)).resolves.toBe('installed');
+    expect(JSON.parse(readFileSync(marker, 'utf8'))).toEqual(['install', '--prefer-offline']);
+    expect(cliEnvironment.buildCliEnv).toHaveBeenCalled();
+  });
+
+  it('preserves npm implicit native build setup', async () => {
+    const marker = recordNpmCalls();
+    writeFileSync(join(worktree, 'binding.gyp'), '{"targets":[]}');
+    await expect(provisionNodeModules(root, worktree)).resolves.toBe('installed');
+    expect(existsSync(marker)).toBe(true);
+  });
+
+  it('runs a custom setup command for a dependency-free package with the CLI environment', async () => {
+    recordNpmCalls();
+    writeFileSync(join(worktree, 'setup.cjs'), "require('node:fs').writeFileSync('setup-ran', 'yes');\n");
+    await expect(provisionNodeModules(root, worktree, { installCommand: 'node setup.cjs' })).resolves.toBe('installed');
+    expect(readFileSync(join(worktree, 'setup-ran'), 'utf8')).toBe('yes');
+  });
+
+  it('surfaces a malformed manifest rather than silently skipping its installation', async () => {
+    recordNpmCalls();
+    writeFileSync(join(worktree, 'package.json'), '{');
+    await expect(provisionNodeModules(root, worktree)).rejects.toBeInstanceOf(SyntaxError);
+  });
+
+  it('propagates a real installer failure instead of treating setup as complete', async () => {
+    const marker = recordNpmCalls(23);
+    writeFileSync(join(worktree, 'package.json'), '{"dependencies":{"example-package":"1.0.0"}}');
+    await expect(provisionNodeModules(root, worktree)).rejects.toMatchObject({ code: 23 });
+    expect(existsSync(marker)).toBe(true);
+  });
 });
 
 describe('provisionNodeModules', () => {

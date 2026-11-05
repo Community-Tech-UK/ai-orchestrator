@@ -258,17 +258,23 @@ export function computeMarkerLayout(
 
 /**
  * Which marker the viewport is currently "at": the last anchor at or above a
- * reference line half a viewport below the scroll top. Non-finite anchors
- * (ticks whose messages are not loaded) are skipped. Falls back to the first
- * loaded anchor when the viewport sits above all of them; -1 when nothing is
- * loaded.
+ * reference line. The line sits half a viewport below the scroll top, but in
+ * the final half-viewport of scroll it slides down to the viewport's bottom
+ * edge, reaching it exactly at the end. Otherwise prompts in the lower half
+ * of the live tail (short replies) could never become active, and the rail
+ * would mark an earlier prompt while the user sits at the bottom.
+ * Non-finite anchors (ticks whose messages are not loaded) are skipped. Falls
+ * back to the first loaded anchor when the viewport sits above all of them;
+ * -1 when nothing is loaded.
  */
 export function activeMarkerIndex(
   anchorTops: readonly number[],
   scrollTop: number,
   viewportHeight: number,
+  scrollHeight: number,
 ): number {
-  const referenceLine = scrollTop + viewportHeight * 0.5;
+  const remaining = Math.max(0, scrollHeight - scrollTop - viewportHeight);
+  const referenceLine = scrollTop + viewportHeight - Math.min(remaining, viewportHeight * 0.5);
   let active = -1;
   let firstLoaded = -1;
   for (let i = 0; i < anchorTops.length; i++) {

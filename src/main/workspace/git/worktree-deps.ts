@@ -28,6 +28,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { getLogger } from '../../logging/logger';
 import { removeTree } from '../../util/remove-tree';
+import { buildCliEnv } from '../../cli/cli-environment';
 
 const execFileAsync = promisify(execFile);
 const logger = getLogger('WorktreeDeps');
@@ -58,6 +59,28 @@ async function pathExists(p: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function packageNeedsInstall(worktreePath: string): Promise<boolean> {
+  const manifest: unknown = JSON.parse(await fs.readFile(path.join(worktreePath, 'package.json'), 'utf8'));
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
+    throw new Error('package.json must contain an object');
+  }
+  const pkg = manifest as Record<string, unknown>;
+  const hasPackages = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies',
+    'workspaces', 'bundledDependencies', 'bundleDependencies'].some(key => {
+    const value = pkg[key];
+    return value != null && (typeof value !== 'object' || Object.keys(value).length > 0);
+  });
+  if (hasPackages) return true;
+  if (pkg['scripts'] != null) {
+    if (typeof pkg['scripts'] !== 'object' || Array.isArray(pkg['scripts'])) return true;
+    const scripts = pkg['scripts'] as Record<string, unknown>;
+    if (['preinstall', 'install', 'postinstall', 'prepublish', 'preprepare', 'prepare', 'postprepare']
+      .some(name => scripts[name] != null)) return true;
+  }
+  // npm supplies a default node-gyp install step for packages with binding.gyp.
+  return pathExists(path.join(worktreePath, 'binding.gyp'));
 }
 
 function workspaceLinkName(relativePath: string): (typeof WORKSPACE_SYMLINKS)[number] | null {
@@ -201,9 +224,13 @@ export async function provisionNodeModules(
   // 3) Last resort: a real install in the worktree.
   const installCommand = opts?.installCommand ?? 'npm install --prefer-offline';
   if (await pathExists(path.join(worktreePath, 'package.json'))) {
+    // Scripts-only projects need no npm invocation. Explicit custom setup commands still run.
+    if (installCommand === 'npm install --prefer-offline' && !await packageNeedsInstall(worktreePath)) {
+      return 'skipped';
+    }
     const { exec } = await import('child_process');
     const execAsync = promisify(exec);
-    await execAsync(installCommand, { cwd: worktreePath, timeout: 300_000 });
+    await execAsync(installCommand, { cwd: worktreePath, timeout: 300_000, env: buildCliEnv() });
     logger.info('WorktreeDeps: provisioned node_modules via install command', {
       worktreePath,
       installCommand,

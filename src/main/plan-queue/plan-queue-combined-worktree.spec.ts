@@ -64,6 +64,53 @@ afterEach(() => {
 });
 
 describe('combined queue check copies', () => {
+  it('checks a dependency-free combined tree with real provisioning enabled', async () => {
+    writeFileSync(join(repo, 'package.json'), JSON.stringify({ name: 'no-packages', scripts: { test: 'node --test' } }));
+    git(['add', 'package.json']);
+    git(['commit', '-qm', 'scripts-only package']);
+    base = git(['rev-parse', 'HEAD']);
+    const members = [await member('one', 'one.txt', 'one\n'), await member('two', 'two.txt', 'two\n')];
+    service = new PlanQueueWorktreeService({ repoRootForItem: () => repo, creator: WorktreeManager.getInstance(),
+      saveItem: () => undefined });
+    await expect(service.withCombinedCopy(repo, base, members, async copy => {
+      expect(copy.members).toEqual(members);
+      expect(existsSync(join(copy.cwd, 'node_modules'))).toBe(false);
+      expect(existsSync(join(copy.cwd, 'package-lock.json'))).toBe(false);
+      expect(git(['status', '--porcelain', '--untracked-files=no'], copy.cwd)).toBe('');
+      return 'checked';
+    })).resolves.toBe('checked');
+    expect(scratchMarkers()).toEqual([]);
+    expect(git(['branch', '--list', 'combined-gate-checks-*'])).toBe('');
+  });
+
+  it.each(['package-lock.json', 'npm-shrinkwrap.json'])('uses npm ci only when %s exists in the checked tree', async lock => {
+    writeFileSync(join(repo, 'package.json'), '{"name":"locked"}');
+    writeFileSync(join(repo, lock), '{}');
+    git(['add', 'package.json', lock]);
+    git(['commit', '-qm', 'locked package']);
+    base = git(['rev-parse', 'HEAD']);
+    service = new PlanQueueWorktreeService({ repoRootForItem: () => repo, creator: WorktreeManager.getInstance(),
+      saveItem: () => undefined });
+    const provision = vi.spyOn(dependencyProvisioning, 'provisionWorktreeDependencies')
+      .mockResolvedValue({ method: 'skipped', symlinks: [], nativeAbi: [] });
+    await service.withBaseline(repo, base, async () => undefined);
+    expect(provision).toHaveBeenCalledWith(repo, expect.any(String), { installCommand: 'npm ci' });
+  });
+
+  it('removes a combined copy when actual dependency setup fails, without running its checklist', async () => {
+    const members = [await member('one', 'one.txt', 'one\n'), await member('two', 'two.txt', 'two\n')];
+    service = new PlanQueueWorktreeService({ repoRootForItem: () => repo, creator: WorktreeManager.getInstance(),
+      saveItem: () => undefined });
+    const failure = new Error('Package setup failed');
+    vi.spyOn(dependencyProvisioning, 'provisionWorktreeDependencies').mockRejectedValue(failure);
+    const action = vi.fn(async () => 'must not run');
+    await expect(service.withCombinedCopy(repo, base, members, action)).rejects.toBe(failure);
+    expect(action).not.toHaveBeenCalled();
+    expect(scratchMarkers()).toEqual([]);
+    expect(git(['branch', '--list', 'combined-gate-checks-*'])).toBe('');
+    expect(git(['rev-parse', 'main'])).toBe(base);
+  });
+
   it.each(['green', 'red', 'abort'] as const)('tests the combined committed tree and removes the copy after %s', async outcome => {
     const members = [await member('one', 'one.txt', 'one\n'), await member('two', 'two.txt', 'two\n')];
     const controller = new AbortController();

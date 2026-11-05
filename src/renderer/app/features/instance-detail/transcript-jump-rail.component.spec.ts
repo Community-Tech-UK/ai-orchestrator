@@ -14,7 +14,8 @@
  *   6. Hover shows the preview only after the delay; leaving the rail cancels
  *      a pending hover; file chips cap at the display limit with an overflow
  *      count.
- *   7. activeIndex() tracks scrollTop against anchor offsets.
+ *   7. activeIndex() tracks scrollTop against anchor offsets, and marks the
+ *      last prompt at the bottom even when it sits below mid-viewport.
  *   8. Session prompts beyond the loaded window render as stub ticks; clicking
  *      one asks the host to reveal history until the prompt renders, then
  *      jumps. A prompt no page holds lands at the top (opening prompt) or the
@@ -482,6 +483,25 @@ describe('TranscriptJumpRailComponent', () => {
 
     const { viewport } = threeQuestionSetup(1500);
     expect(viewport).toBeTruthy();
+    expect(internals.activeIndex()).toBe(2);
+  });
+
+  it('marks the last prompt active at the bottom when it sits in the lower half', () => {
+    const items = [userItem('one'), userItem('two'), userItem('three')];
+    setup(
+      items,
+      makeViewport({
+        scrollHeight: 2000,
+        clientHeight: 500,
+        scrollTop: 1500,
+        // Prompts two and three both sit below the viewport's midline (1750).
+        anchors: [
+          { itemId: items[0].id, offsetTop: 0 },
+          { itemId: items[1].id, offsetTop: 1800 },
+          { itemId: items[2].id, offsetTop: 1900 },
+        ],
+      }),
+    );
     expect(internals.activeIndex()).toBe(2);
   });
 });

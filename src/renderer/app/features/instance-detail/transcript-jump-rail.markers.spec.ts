@@ -15,7 +15,8 @@
  *   7. computeMarkerLayout bunches ticks into a fixed-spacing cluster centred
  *      in the rail, compressing and clamping when they cannot fit.
  *   8. activeMarkerIndex finds the last loaded anchor above the reference
- *      line, skipping NaN (unloaded) anchors, and handles empty/edge cases.
+ *      line (which slides to the viewport bottom over the last half-viewport),
+ *      skipping NaN (unloaded) anchors, and handles empty/edge cases.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -279,28 +280,46 @@ describe('computeMarkerLayout', () => {
 
 describe('activeMarkerIndex', () => {
   it('returns -1 for an empty anchor list', () => {
-    expect(activeMarkerIndex([], 0, 500)).toBe(-1);
+    expect(activeMarkerIndex([], 0, 500, 5000)).toBe(-1);
   });
 
   it('returns 0 when scrolled above the first anchor', () => {
-    expect(activeMarkerIndex([1000, 2000], 0, 500)).toBe(0);
+    expect(activeMarkerIndex([1000, 2000], 0, 500, 5000)).toBe(0);
   });
 
   it('skips unloaded (NaN) anchors and falls back to the first loaded one', () => {
-    expect(activeMarkerIndex([Number.NaN, 1000, Number.NaN, 2000], 0, 500)).toBe(1);
-    expect(activeMarkerIndex([Number.NaN, 1000, Number.NaN, 2000], 1800, 500)).toBe(3);
+    expect(activeMarkerIndex([Number.NaN, 1000, Number.NaN, 2000], 0, 500, 5000)).toBe(1);
+    expect(activeMarkerIndex([Number.NaN, 1000, Number.NaN, 2000], 1800, 500, 5000)).toBe(3);
   });
 
   it('returns -1 when no anchors are loaded', () => {
-    expect(activeMarkerIndex([Number.NaN, Number.NaN], 0, 500)).toBe(-1);
+    expect(activeMarkerIndex([Number.NaN, Number.NaN], 0, 500, 5000)).toBe(-1);
   });
 
   it('returns the last anchor above the mid-viewport reference line', () => {
     // reference line = 1000 + 250 = 1250 → anchors at 0 and 1200 qualify
-    expect(activeMarkerIndex([0, 1200, 2400], 1000, 500)).toBe(1);
+    expect(activeMarkerIndex([0, 1200, 2400], 1000, 500, 5000)).toBe(1);
   });
 
   it('returns the final anchor when scrolled to the bottom', () => {
-    expect(activeMarkerIndex([0, 1200, 2400], 2400, 500)).toBe(2);
+    expect(activeMarkerIndex([0, 1200, 2400], 2400, 500, 2900)).toBe(2);
+  });
+
+  it('marks the last prompt at the bottom even when short replies keep it below mid-viewport', () => {
+    // The live tail: the final two prompts sit in the lower half of the
+    // viewport because their replies are short, so the mid-viewport line
+    // alone would leave the third-from-last prompt active.
+    const anchors = [1000, 3645, 4440, 4840];
+    expect(activeMarkerIndex(anchors, 3300, 1700, 5000)).toBe(3);
+  });
+
+  it('moves the reference line toward the viewport bottom only near the end', () => {
+    const anchors = [1000, 3645, 4440, 4840];
+    // Far from the end (remaining 800 ≥ half a viewport): plain midline 3350.
+    expect(activeMarkerIndex(anchors, 2500, 1700, 5000)).toBe(0);
+    // Remaining 400: line = 2900 + 1700 - 400 = 4200 → anchor at 3645.
+    expect(activeMarkerIndex(anchors, 2900, 1700, 5000)).toBe(1);
+    // Remaining 100: line = 3200 + 1700 - 100 = 4800 → anchor at 4440.
+    expect(activeMarkerIndex(anchors, 3200, 1700, 5000)).toBe(2);
   });
 });

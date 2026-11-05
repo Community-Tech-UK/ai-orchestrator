@@ -347,7 +347,7 @@ export class TranscriptJumpRailComponent {
   protected activeIndex = computed(() => {
     const g = this.geometry();
     if (g.anchorTops.length !== this.ticks().length) return -1;
-    return activeMarkerIndex(g.anchorTops, g.scrollTop, g.clientHeight);
+    return activeMarkerIndex(g.anchorTops, g.scrollTop, g.clientHeight, g.scrollHeight);
   });
 
   protected hoverPreview = computed(() => {

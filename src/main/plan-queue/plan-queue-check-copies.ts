@@ -79,7 +79,14 @@ export async function withPlanQueueCheckCopy<T>(options: CopyOptions, action: (c
 export async function provisionPlanQueueCheckCopy(options: Pick<CopyOptions, 'repoRoot' | 'skipInstall' | 'signal'>, cwd: string): Promise<void> {
   options.signal?.throwIfAborted();
   const head = await gitExec(['rev-parse', 'HEAD'], cwd);
-  if (!options.skipInstall) await provisionWorktreeDependencies(options.repoRoot, cwd, { installCommand: 'npm ci' });
+  if (!options.skipInstall) {
+    let locked = false;
+    for (const name of ['package-lock.json', 'npm-shrinkwrap.json']) {
+      try { await fs.access(path.join(cwd, name)); locked = true; break; }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    }
+    await provisionWorktreeDependencies(options.repoRoot, cwd, locked ? { installCommand: 'npm ci' } : undefined);
+  }
   options.signal?.throwIfAborted();
   if (await gitExec(['rev-parse', 'HEAD'], cwd) !== head || await gitExec(['status', '--porcelain', '--untracked-files=no'], cwd)) {
     throw new Error('Dependency provisioning changed the check copy');
