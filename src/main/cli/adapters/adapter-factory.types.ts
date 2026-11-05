@@ -45,6 +45,8 @@ export interface UnifiedSpawnOptions {
   machineSession?: MachineSessionReason;
   contextCeilingTokens?: number;
   readOnlyReview?: boolean;
+  /** A Plan Queue session on a worker node: the node builds the push guard for its own copy of the repository. */
+  queuePushGuard?: boolean;
   /** Run without persisting provider session/thread state (provider-specific). */
   ephemeral?: boolean;
   sessionId?: string;

@@ -204,6 +204,8 @@ export interface WorkerNodeCapabilities {
   claudeSpawnPolicy?: 1;
   /** 1 = preserves semantic Codex ownership and explicit ephemeral:false. Absent on older workers. */
   codexSpawnMetadata?: 1;
+  /** 1 = `instance.spawn` honours `queuePushGuard` (builds the Plan Queue push guard on this node). Absent on older workers, which would drop it, so queue sessions are refused there. */
+  queuePushGuard?: 1;
   /**
    * GitHub Copilot account profiles this node is signed in to.
    *

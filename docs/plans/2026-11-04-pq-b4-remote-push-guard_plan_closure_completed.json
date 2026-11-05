@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-11-04-pq-b4-remote-push-guard_plan.md",
+      "sha256": "5d0a48ffd7ae61f4d9439b7c45eb26f591e169600913944fd5771761a68e953a",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-11-04-pq-b4-remote-push-guard_history.md",
+      "sha256": null,
+      "retire": false
+    },
+    {
+      "relativePath": "2026-11-04-pq-b4-remote-push-guard_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-11-04-pq-b4-remote-push-guard_plan_completed.md",
+      "sha256": "7b7e18a50d6af509f54558b5173087bb868ec87b1d59b0a6cbce99c7beeeb931"
+    },
+    {
+      "relativePath": "2026-11-04-pq-b4-remote-push-guard_plan_history_36eb3e41de9d7cb1e9a88eb401b0104585953dfb9e38eb3edd82b10a10662a16_completed.md",
+      "sha256": "9ecdf3a5da156670975380006f770cde8881eb9800c95d4bdbe7b1873e11cc82"
+    }
+  ]
+}

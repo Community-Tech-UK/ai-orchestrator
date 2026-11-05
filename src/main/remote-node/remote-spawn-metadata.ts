@@ -13,12 +13,15 @@ export const RemoteSpawnMetadataSchema = z.object({
   trialArm: z.enum(['control', 'candidate', 'unassigned']).optional(),
   ephemeral: z.boolean().optional(),
   codexUsageProtocol: z.literal(1).optional(),
+  /** Plan Queue session: the node builds the push guard. Only sent to workers advertising `queuePushGuard: 1`. */
+  queuePushGuard: z.literal(true).optional(),
 });
 export type RemoteSpawnMetadata = z.infer<typeof RemoteSpawnMetadataSchema>;
 
 export function remoteSpawnMetadata(options: UnifiedSpawnOptions, codex: boolean): RemoteSpawnMetadata {
   const parsed = RemoteSpawnMetadataSchema.safeParse({ owningInstanceId: options.instanceId, jobId: options.jobId,
     sessionKind: options.sessionKind, trialKey: options.trialKey, trialArm: options.trialArm, ephemeral: options.ephemeral,
+    ...(options.queuePushGuard ? { queuePushGuard: true } : {}),
     ...(codex ? { codexUsageProtocol: 1 } : {}),
   });
   // Never include the raw grouping key, even in validation diagnostics.

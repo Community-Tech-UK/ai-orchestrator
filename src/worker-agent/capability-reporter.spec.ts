@@ -193,6 +193,16 @@ describe('capability-reporter', () => {
     expect(NodeHeartbeatParamsSchema.parse({ nodeId: 'worker-placeholder', capabilities: { ...capabilities, codexSpawnMetadata: '1' }, activeInstances: 0 }).capabilities.codexSpawnMetadata).toBeUndefined();
   });
 
+  it('advertises the Plan Queue push guard through the actual heartbeat validator, and reads a malformed value as absent', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Synthetic unavailable endpoint')));
+    const capabilities = await reportCapabilities(['/workspace']);
+    const parse = (value: unknown) => NodeHeartbeatParamsSchema.parse({ nodeId: 'worker-placeholder', capabilities: { ...capabilities, queuePushGuard: value }, activeInstances: 0 }).capabilities.queuePushGuard;
+    expect(capabilities.queuePushGuard).toBe(1);
+    expect(parse(1)).toBe(1);
+    expect(parse(undefined)).toBeUndefined();
+    expect(parse('1')).toBeUndefined();
+  });
+
   it('reports the latest host-health sample once the sampler has one', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNREFUSED')));
     _resetHostHealthSamplerForTesting();

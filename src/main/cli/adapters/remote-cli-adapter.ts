@@ -28,6 +28,7 @@ import { JsonChunkAssembler } from '../../../shared/utils/json-chunks';
 import type { AcpHistoryReplay } from './acp-session-replay';
 import type { RemoteInstanceTelemetry } from '../../remote-node/instance-telemetry-rpc';
 import { remoteClaudeSpawnPolicyFor } from './remote-claude-spawn-policy';
+import { assertRemoteQueuePushGuardSupported } from './remote-queue-push-guard';
 import { remoteCliCapabilities } from './remote-cli-capabilities';
 import { remoteSpawnMetadata } from '../../remote-node/remote-spawn-metadata';
 import { observeRemoteCodexUsage } from './remote-codex-usage';
@@ -223,6 +224,7 @@ export class RemoteCliAdapter extends EventEmitter {
       }
     }
     const claudeSpawnPolicy = remoteClaudeSpawnPolicyFor(this.requestedCliType, this.spawnOptions, this.registry.getNode?.(this.targetNodeId)?.capabilities);
+    assertRemoteQueuePushGuardSupported(this.spawnOptions, this.registry.getNode?.(this.targetNodeId)?.capabilities);
     if (this.requestedCliType === 'codex' && this.spawnOptions.ephemeral === false
       && this.registry.getNode?.(this.targetNodeId)?.capabilities.codexSpawnMetadata !== 1) {
       throw new Error('Persistent Codex requires an updated worker that preserves its session policy. Update the worker or use local execution.');

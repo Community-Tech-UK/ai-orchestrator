@@ -32,6 +32,7 @@ import type { ExecutionLocation } from '../../../shared/types/worker-node.types'
 import { getWorkerNodeConnectionServer } from '../../remote-node/worker-node-connection';
 import { getWorkerNodeRegistry } from '../../remote-node/worker-node-registry';
 import { remoteClaudeSpawnPolicyFor } from './remote-claude-spawn-policy';
+import { assertRemoteQueuePushGuardSupported } from './remote-queue-push-guard';
 import { getLogger } from '../../logging/logger';
 import { configureHardenedAdapter } from './hardened-adapter-config';
 import { hardenedModeUnsupportedMessage, isHardenedModeSupported } from '../../../shared/hardened-mode-support';
@@ -700,6 +701,7 @@ export function createCliAdapter(
       effectiveOptions,
       getWorkerNodeRegistry().getNode(executionLocation.nodeId)?.capabilities,
     );
+    assertRemoteQueuePushGuardSupported(effectiveOptions, getWorkerNodeRegistry().getNode(executionLocation.nodeId)?.capabilities);
     if (cliType === 'copilot') {
       requireCopilotAccountRoute(effectiveOptions, 'remote');
     }

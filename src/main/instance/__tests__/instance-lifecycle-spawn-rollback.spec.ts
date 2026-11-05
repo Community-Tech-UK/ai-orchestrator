@@ -547,6 +547,26 @@ describe('createInstance spawn transaction rollback', () => {
     expect((plainOptions as { disallowedTools?: string[] }).disallowedTools ?? []).not.toContain('Bash(git push:*)');
   });
 
+  it('sends a Plan Queue session on a worker node the guard flag and deny rules, not a local environment', async () => {
+    for (const key of Object.keys(process.env)) if (/^GIT_CONFIG_/.test(key) || key === 'AIO_QUEUE_SESSION') vi.stubEnv(key, undefined);
+    mocks.resolveExecutionLocation.mockReturnValue({ type: 'remote', nodeId: 'worker-node' });
+    const harness = makeHarness();
+    mocks.createAdapter.mockReturnValue(makeFakeAdapter());
+    type Built = { options: { env?: Record<string, string>; queuePushGuard?: boolean; disallowedTools?: string[] }; executionLocation?: { type: string } };
+    const lastBuilt = (): Built => mocks.createAdapter.mock.calls.at(-1)?.[0] as Built;
+
+    await (await harness.manager.createInstance({ workingDirectory: '/tmp', provider: 'claude', metadata: { planQueueRole: 'worker', planQueueRunId: 'run-1' } })).readyPromise;
+    expect(lastBuilt().executionLocation?.type).toBe('remote');
+    expect(lastBuilt().options.queuePushGuard).toBe(true);
+    expect(lastBuilt().options.disallowedTools).toContain('Bash(git push:*)');
+    // The node builds the git settings from its own repository; nothing is built from this machine's folder.
+    expect(lastBuilt().options.env?.['AIO_QUEUE_SESSION']).toBeUndefined();
+
+    await (await harness.manager.createInstance({ workingDirectory: '/tmp', provider: 'claude' })).readyPromise;
+    expect(lastBuilt().options.queuePushGuard).toBeUndefined();
+    expect(lastBuilt().options.disallowedTools ?? []).not.toContain('Bash(git push:*)');
+  });
+
   it.each([false, true])('waits for a public chat without inventing an unfinished task (History-only reopen: %s)', async restored => {
     const harness = makeHarness();
     const adapter = makeFakeAdapter(); mocks.createAdapter.mockReturnValue(adapter);

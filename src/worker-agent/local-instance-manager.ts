@@ -20,6 +20,7 @@ import { observeWorkerInstanceTelemetry } from './worker-instance-telemetry';
 import type { RemoteClaudeSpawnPolicy } from '../main/remote-node/claude-spawn-policy-schema';
 import { endsOnlyTheTurn, isSettledStatus, onExecTurnInterrupted } from './worker-exec-turn';
 import { workerSpawnMetadata, type RemoteSpawnMetadata } from '../main/remote-node/remote-spawn-metadata';
+import { buildQueuePushGuardEnv } from '../main/plan-queue/plan-queue-push-guard';
 
 const ACTIVITY_WATCHDOG_INTERVAL_MS = 5_000;
 type MobileMcpSpawnAttach = Omit<WorkerAndroidAttach, 'mobileMcpVersion'> & { version?: string };
@@ -351,6 +352,7 @@ export class LocalInstanceManager extends EventEmitter {
           env['AIO_AXE_RUNNER'] = axeRunnerPath;
         }
       }
+      if (params.queuePushGuard) Object.assign(env, await buildQueuePushGuardEnv(params.workingDirectory, env)); // This node's repository decides which remotes to block.
 
       // Dynamic import to avoid pulling in Electron at module load time.
       // In the bundled worker agent, the adapter factory is tree-shaken to

@@ -108,6 +108,7 @@ export async function reportCapabilities(
     // This worker applies the carried Claude spawn policy (see SpawnParams).
     claudeSpawnPolicy: 1,
     codexSpawnMetadata: 1,
+    queuePushGuard: 1, // This worker builds the Plan Queue push guard itself (see SpawnParams).
     hasBrowserRuntime,
     // True only when browser automation is explicitly enabled in worker config
     // AND a Chrome/Chromium executable is resolvable — i.e. the worker can

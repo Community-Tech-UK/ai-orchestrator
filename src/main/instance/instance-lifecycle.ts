@@ -832,7 +832,9 @@ export class InstanceLifecycleManager extends EventEmitter {
     const instance = options.instanceId ? this.deps.getInstance(options.instanceId) : undefined;
     // Queue sessions never push: every start, respawn and resume passes through here (plan-queue-push-guard.ts).
     const queueSession = isQueueSession(instance, (id) => this.deps.getInstance(id));
-    const queueEnv = queueSession && executionLocation?.type !== 'remote'
+    // A remote node cannot be read from here, so its session carries a flag and the node builds the guard.
+    const remoteQueue = queueSession && executionLocation?.type === 'remote';
+    const queueEnv = queueSession && !remoteQueue
       ? await buildQueuePushGuardEnv(options.workingDirectory ?? process.cwd(), options.env) : undefined;
     const baseEnv = queueEnv ? { ...options.env, ...queueEnv } : options.env;
     const harnessCliEnv = this.spawnConfigBuilder.getHarnessCliEnv(executionLocation, options.instanceId, baseEnv);
@@ -840,6 +842,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       ...options,
       ...(harnessCliEnv ?? (queueEnv ? baseEnv : undefined) ? { env: harnessCliEnv ?? baseEnv } : {}),
       ...(queueSession ? { disallowedTools: [...(options.disallowedTools ?? []), ...QUEUE_DENIED_TOOLS] } : {}),
+      ...(remoteQueue ? { queuePushGuard: true } : {}),
     });
     const routeOrigin = instance?.accountRouteOrigin ?? 'interactive';
     const routedOptions = await attachCopilotRoute(cliType, durableOptions, routeOrigin, {
