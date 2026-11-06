@@ -861,6 +861,21 @@ describe('InstanceCommunicationManager', () => {
       .toEqual(['first reason', 'second reason', 'third reason', 'fourth reason', 'fifth reason']);
   });
 
+  it('does not show one failure twice just because its reason holds a secret that is hidden on screen', async () => {
+    const adapter = new FakeAdapter('copilot-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    manager.setupAdapterEvents(instance.id, adapter);
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      (adapter as unknown as EventEmitter).emit('error', new Error('request failed: token=PLACEHOLDER-NOT-A-REAL-SECRET'));
+      await flushOutputHandlers();
+    }
+
+    const shown = instance.outputBuffer.filter((message) => message.type === 'error');
+    expect(shown).toHaveLength(1);
+    expect(errorMessageText(shown[0])).not.toContain('PLACEHOLDER-NOT-A-REAL-SECRET');
+  });
+
   it('still stops repeating one failure that comes in again and again', async () => {
     const adapter = new FakeAdapter('copilot-cli') as unknown as CliAdapter;
     adapters.set(instance.id, adapter);

@@ -22,6 +22,7 @@ import { isAdapterStopping } from '../providers/adapter-stop-state';
 import { RECENT_ADAPTER_ERROR_OUTPUT_DEDUP_MS } from './instance-communication.constants';
 import { findAnnouncedUsageLimit, usageLimitWindow } from '../cli/usage-limit-window';
 import { presentFailure } from './instance-failure-presentation';
+import { redactSpawnFailureText } from './lifecycle/spawn-transaction';
 import { detectErrorProviderLimit, readAdapterRateLimitTelemetry, type ProviderLimitTurnSignal } from './instance-provider-limit-detection';
 
 const logger = getLogger('InstanceCommunication');
@@ -212,6 +213,7 @@ export async function handleInstanceAdapterError(
 /**
  * Puts a failed turn in the transcript as plain words, with the real text kept under Details.
  * A repeat is matched on that real text (`errorMessageText`), not on the words the person reads.
+ * The text kept under Details has its secrets hidden, so a new failure is compared in that form too.
  */
 function publishAdapterError(
   host: InstanceAdapterErrorHost,
@@ -223,10 +225,11 @@ function publishAdapterError(
 ): void {
   const now = Date.now();
   const rawContent = safeError.message;
+  const keptText = redactSpawnFailureText(rawContent);
   for (let index = instance.outputBuffer.length - 1; index >= 0; index--) {
     const candidate = instance.outputBuffer[index];
     if (!candidate || now - candidate.timestamp > RECENT_ADAPTER_ERROR_OUTPUT_DEDUP_MS) break;
-    if (candidate.type === 'error' && errorMessageText(candidate) === rawContent) {
+    if (candidate.type === 'error' && errorMessageText(candidate) === keptText) {
       logger.debug('Skipping duplicate UI error message after adapter error event', { instanceId, ...textDiagnostic(rawContent) });
       return;
     }
