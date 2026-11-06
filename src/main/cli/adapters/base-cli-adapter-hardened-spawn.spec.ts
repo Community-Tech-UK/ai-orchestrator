@@ -33,7 +33,7 @@ import type {
   CliStatus,
 } from './base-cli-adapter';
 import { SANDBOX_EXEC_PATH } from '../../sandbox/seatbelt';
-import { unwrapSignalFence } from '../../sandbox/signal-fence';
+import { isSignalFenceAvailable, unwrapSignalFence } from '../../sandbox/signal-fence';
 import { _setSignalFenceSettingForTesting } from '../../sandbox/signal-fence-setting';
 import type { ChildProcess } from 'child_process';
 
@@ -143,7 +143,7 @@ describe('BaseCliAdapter hardened spawn wrap', () => {
     },
   );
 
-  it('signal-fences a non-hardened spawn on macOS and leaves other platforms raw', () => {
+  it('signal-fences a non-hardened spawn where the fence can start and leaves it raw elsewhere', () => {
     spawnMock.mockReturnValue(makeFakeProc());
     const adapter = new TestAdapter({ command: 'fake-cli', cwd: tmpdir() });
 
@@ -152,7 +152,7 @@ describe('BaseCliAdapter hardened spawn wrap', () => {
     expect(spawnMock).toHaveBeenCalledTimes(1);
     const command = spawnMock.mock.calls[0][0] as string;
     const args = spawnMock.mock.calls[0][1] as string[];
-    if (process.platform === 'darwin') {
+    if (isSignalFenceAvailable()) {
       expect(command).toBe(SANDBOX_EXEC_PATH);
       expect(unwrapSignalFence(command, args)).toEqual({ command: 'fake-cli', args: ['--print'] });
       const policy = args[args.indexOf('-p') + 1];

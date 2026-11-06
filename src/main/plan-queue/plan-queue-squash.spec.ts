@@ -139,7 +139,7 @@ describe('landing duplicate-test evidence', () => {
     git(['add', '.'], wt); git(['commit', '--no-verify', '-qm', 'checked'], wt);
     greenTestedTree = git(['rev-parse', 'HEAD^{tree}'], wt);
     const hooks = join(repo, '.git', 'proof-hooks'); mkdirSync(hooks);
-    writeFileSync(join(hooks, 'pre-commit'), '#!/bin/sh\nprintf "%s\\n%s\\n" "${AIO_PLAN_QUEUE_TESTS_COVERED:-unset}" "${AIO_PLAN_QUEUE_TESTS_COVERED_TREE:-unset}" > "$(git rev-parse --git-common-dir)/captured-proof"\n');
+    writeFileSync(join(hooks, 'pre-commit'), '#!/bin/sh\nprintf "%s" "${AIO_TEST_MAX_FORKS:-unset}" > "$(git rev-parse --git-common-dir)/captured-forks"\nprintf "%s\\n%s\\n" "${AIO_PLAN_QUEUE_TESTS_COVERED:-unset}" "${AIO_PLAN_QUEUE_TESTS_COVERED_TREE:-unset}" > "$(git rev-parse --git-common-dir)/captured-proof"\n');
     chmodSync(join(hooks, 'pre-commit'), 0o755); git(['config', 'core.hooksPath', hooks]);
   });
 
@@ -153,6 +153,7 @@ describe('landing duplicate-test evidence', () => {
     const proof = readFileSync(join(repo, '.git', 'captured-proof'), 'utf8').trim().split('\n');
     expect(proof[0]).toBe('1');
     expect(proof[1]).toBe(git(['rev-parse', `${result.status === 'committed' ? result.commit : ''}^{tree}`]));
+    expect(readFileSync(join(repo, '.git', 'captured-forks'), 'utf8')).toBe('8');
   });
 
   it.each(['feature.txt', 'unrelated_plan_completed.md'])('keeps hook tests when an unapproved path differs: %s', async file => {

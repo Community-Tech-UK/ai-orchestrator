@@ -117,7 +117,7 @@ export const PLAN_QUEUE_TOOL_SPECS = {
         kind: { type: 'string', enum: ['plans', 'livetests'], description: '"plans" for *_plan.md documents, "livetests" for *_livetest.md documents.' },
         glob: { type: 'string', description: 'Optional repo-relative filter, for example "docs/plans/2026-09-*". Defaults to every matching document under docs/.' },
         worker_slots: { type: 'integer', minimum: 1, maximum: 8, description: 'Documents worked at once. Default 3 for plans, 1 for livetests.' },
-        verification_slots: { type: 'integer', minimum: 1, maximum: 8, description: 'Checks at once for this run; runs in this project folder share the largest effective limit. Workload minimums, machine-wide limits and load checks also apply. Default 2 for plans.' },
+        verification_slots: { type: 'integer', minimum: 1, maximum: 8, description: 'Jobs being checked at once for this run; runs in this project folder share the largest effective limit. Harness runs one checklist at a time across the computer, so this mainly limits checker reviews. Workload minimums, machine-wide limits and load checks also apply. Default 2 for plans.' },
         check_batch_size: { type: 'integer', minimum: 1, maximum: 8, description: 'Maximum jobs checked together when they share a project, base branch and checklist. Use 1 to check each job separately. Default 4 for new plan runs, 1 for livetests.' },
         max_rounds: { type: 'integer', minimum: 1, maximum: 10, description: 'Verification rounds before an item is parked, or handed to the step-up worker when one is set. Default 3.' },
         relax_settings: { type: 'boolean', description: 'Temporarily relax computerUseAutonomyLevel and providersExcludedFromAutomation for this run only. Only when James asked for it.' },
@@ -156,7 +156,7 @@ export const PLAN_QUEUE_TOOL_SPECS = {
     inputSchema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['pause', 'resume', 'cancel', 'adopt', 'request-handover', 'handover', 'set-routing', 'skip-item', 'resume-item', 'land-anyway', 'retry-landing', 'discard-item'] },
+        action: { type: 'string', enum: ['pause', 'resume', 'cancel', 'adopt', 'request-handover', 'handover', 'set-routing', 'skip-item', 'resume-item', 'land-anyway', 'retry-landing', 'discard-item', 'restore-discarded'] },
         run_id: { type: 'string', description: 'Required for pause, resume, cancel, adopt, request-handover, handover and set-routing.' },
         item_id: { type: 'string', description: 'Required for the item actions.' },
         target_instance_id: { type: 'string', description: 'handover only: the existing non-Queue session receiving ownership. Only the current owner or panel may transfer it.' },

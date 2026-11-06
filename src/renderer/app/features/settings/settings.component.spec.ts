@@ -255,6 +255,7 @@ describe('SettingsComponent', () => {
       fragment: 'display',
       queryParams: {
         tab: null,
+        setting: null,
         section: null,
       },
       queryParamsHandling: 'merge',
@@ -408,6 +409,24 @@ describe('SettingsComponent', () => {
     function frame(): Promise<void> {
       return new Promise((r) => requestAnimationFrame(() => r()));
     }
+
+    it('lands on a setting named in the URL and clears it, so the same link works again', async () => {
+      const row = addRow('contextWarningThreshold');
+      queryParamMap$.next(convertToParamMap({ setting: 'contextWarningThreshold' }));
+      await new Promise((r) => setTimeout(r));
+      await frame();
+      expect(row.scrollIntoView).toHaveBeenCalled();
+      expect(router.navigate).toHaveBeenCalledWith([], expect.objectContaining({
+        queryParams: expect.objectContaining({ setting: null }),
+      }));
+    });
+
+    it('ignores a setting in the URL that does not exist', async () => {
+      const before = component.activeTab();
+      queryParamMap$.next(convertToParamMap({ setting: 'no-such"setting' }));
+      await new Promise((r) => setTimeout(r));
+      expect(component.activeTab()).toBe(before);
+    });
 
     it('offers no jump target for an empty query', () => {
       component.searchQuery.set('');

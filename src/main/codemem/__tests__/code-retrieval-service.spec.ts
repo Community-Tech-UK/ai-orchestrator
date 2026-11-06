@@ -142,6 +142,17 @@ describe('CodeRetrievalService', () => {
     expect(results).toHaveLength(0);
   });
 
+  it('treats a grep fallback query as literal text, never as a pattern or an option', async () => {
+    await writeFile(join(workspacePath, 'src/literal.ts'), 'const note = "--fixed (a+b)";\n');
+    const service = new CodeRetrievalService({ store });
+
+    const literal = await service.search({ workspacePath, query: '--fixed (a+b)', limit: 5 });
+    const unbalanced = await service.search({ workspacePath, query: 'note = "--fixed (a', limit: 5 });
+
+    expect(literal[0]?.relativePath).toBe('src/literal.ts');
+    expect(unbalanced[0]?.relativePath).toBe('src/literal.ts');
+  });
+
   describe('off-thread index worker search', () => {
     it('does not create a worktree index for automatic context retrieval', async () => {
       const warmWorkspace = vi.fn(async () => ({ indexed: true, absPath: workspacePath, primaryLanguage: 'typescript' }));
@@ -177,10 +188,35 @@ describe('CodeRetrievalService', () => {
 
       const results = await service.search({ workspacePath, query: 'issue session', limit: 5 });
 
-      expect(searchWorkspaceChunks).toHaveBeenCalledWith(workspacePath, 'issue session', 5);
+      expect(searchWorkspaceChunks).toHaveBeenCalledWith(workspacePath, 'issue session', 5, {
+        strongMatchOnly: false,
+      });
       expect(results[0]).toEqual(expect.objectContaining({ source: 'fts', relativePath: 'src/auth.ts' }));
       expect(fallback).not.toHaveBeenCalled();
       expect(storeSpy).not.toHaveBeenCalled(); // never a synchronous main-thread FTS
+    });
+
+    it('never ripgreps for automatic context, even when the worker is unavailable', async () => {
+      const searchWorkspaceChunks = vi.fn(async () => null);
+      const fallback = vi.fn(async () => [makeResult({ source: 'grepFallback', stale: true })]);
+      const service = new CodeRetrievalService({
+        store,
+        indexWorkerGateway: { warmWorkspace: vi.fn(), searchWorkspaceChunks } as never,
+        runFallbackSearch: fallback,
+      });
+
+      const results = await service.search({
+        workspacePath,
+        query: 'issue session',
+        limit: 5,
+        strongMatchOnly: true,
+      });
+
+      expect(searchWorkspaceChunks).toHaveBeenCalledWith(workspacePath, 'issue session', 5, {
+        strongMatchOnly: true,
+      });
+      expect(fallback).not.toHaveBeenCalled();
+      expect(results).toEqual([]);
     });
 
     it('warms in the background and ripgreps when the workspace is not yet indexed', async () => {

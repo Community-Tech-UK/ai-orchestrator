@@ -36,4 +36,10 @@ describe('set-aside finding text', () => {
       expect(item.verdict.findings[0].summary).toBe(summary);
     },
   );
+
+  it('leaves only the deliberate choices once a newer attempt has merged', () => {
+    const display = planQueueDisplayParkReason({ parkReason: 'land-blocked' }, { mergedSince: true });
+    expect(display?.label).toBe('A newer attempt already merged');
+    expect(display?.actions).toEqual(['merge-without-checks', 'discard']);
+  });
 });

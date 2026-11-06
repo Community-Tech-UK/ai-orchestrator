@@ -6,7 +6,13 @@
 
 import { EventEmitter } from 'events';
 import { RLMDatabase, getRLMDatabase } from '../persistence/rlm-database';
-import { EmbeddingService, getEmbeddingService } from './embedding-service';
+import {
+  EmbeddingService,
+  getEmbeddingService,
+  type EmbeddingPurpose,
+  type SimilarityUse,
+} from './embedding-service';
+import { VectorReembedder } from './vector-reembedder';
 import { getLogger } from '../logging/logger';
 
 const logger = getLogger('VectorStore');
@@ -44,9 +50,17 @@ export interface VectorSearchResult {
   similarity: number;
 }
 
+export interface VectorSearchOptions {
+  topK?: number;
+  /** A fixed threshold. Otherwise the active model's floor for `use` applies. */
+  minSimilarity?: number;
+  use?: SimilarityUse;
+  /** Set to `'document'` when matching stored text against stored text. */
+  embedAs?: EmbeddingPurpose;
+}
+
 export interface VectorStoreConfig {
   autoIndex: boolean;
-  minSimilarity: number;
   defaultTopK: number;
   indexBatchSize: number;
   /**
@@ -60,7 +74,6 @@ export interface VectorStoreConfig {
 
 const DEFAULT_CONFIG: VectorStoreConfig = {
   autoIndex: true,
-  minSimilarity: 0.5,
   defaultTopK: 10,
   indexBatchSize: 50,
   maxResidentStores: 24,
@@ -77,12 +90,23 @@ export class VectorStore extends EventEmitter {
   private storeVectorIds = new Map<string, Set<string>>();
   /** Resident store ids in least-recently-used order (front = coldest). */
   private residentStores: string[] = [];
+  private reembedder: VectorReembedder;
 
   private constructor(config: Partial<VectorStoreConfig> = {}) {
     super();
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.db = getRLMDatabase();
     this.embeddingService = getEmbeddingService();
+    this.reembedder = new VectorReembedder({
+      db: this.db,
+      embedDocuments: (texts) => this.embeddingService.embedBatch(texts, 'document'),
+      onConverted: (vector) => {
+        const resident = this.storeVectorIds.get(vector.storeId);
+        if (!resident) return;
+        this.vectorCache.set(vector.id, vector);
+        resident.add(vector.id);
+      },
+    });
     // Deliberately NOT loading every store here. The eager load pulled all
     // 238k vectors of all 1,306 stores into the main-process heap at boot
     // (~1.1-1.3 GB) and was the single largest retainer in the process.
@@ -114,10 +138,11 @@ export class VectorStore extends EventEmitter {
    * Make one store's vectors resident, loading from SQLite on first use and
    * evicting the least-recently-used store once the cap is exceeded.
    *
-   * Only the embedding is retained — preview and metadata are fetched later for
-   * the handful of rows that actually win the ranking.
+   * Only vectors from `model` load, because others cannot be compared with a
+   * query from it. Only the embedding is retained — preview and metadata are
+   * fetched later for the handful of rows that actually win the ranking.
    */
-  private ensureStoreLoaded(storeId: string): void {
+  private ensureStoreLoaded(storeId: string, model: string): void {
     if (this.storeVectorIds.has(storeId)) {
       this.touchStore(storeId);
       return;
@@ -125,7 +150,7 @@ export class VectorStore extends EventEmitter {
 
     const storeVectors = new Set<string>();
     try {
-      for (const row of this.db.getVectors(storeId)) {
+      for (const row of this.db.getVectors(storeId, model)) {
         this.vectorCache.set(row.id, {
           id: row.id,
           sectionId: row.section_id,
@@ -239,7 +264,7 @@ export class VectorStore extends EventEmitter {
     options: { existingSectionOnly?: boolean } = {},
   ): Promise<VectorEntry> {
     // Generate embedding
-    const embeddingResult = await this.embeddingService.embed(content);
+    const embeddingResult = await this.embeddingService.embed(content, 'document');
 
     const entry: VectorEntry = {
       id: `vec-${storeId}-${sectionId}`,
@@ -258,7 +283,7 @@ export class VectorStore extends EventEmitter {
     // non-resident store would register a residency entry holding only the new
     // id — the store would then look loaded, and the next search would rank
     // against that single vector instead of the whole store.
-    this.ensureStoreLoaded(storeId);
+    this.ensureStoreLoaded(storeId, embeddingResult.model);
 
     // Persist to database — ensure FK parents exist first
     try {
@@ -333,42 +358,10 @@ export class VectorStore extends EventEmitter {
   async search(
     storeId: string,
     query: string,
-    options?: {
-      topK?: number;
-      minSimilarity?: number;
-    }
+    options?: VectorSearchOptions,
   ): Promise<VectorSearchResult[]> {
-    const topK = options?.topK || this.config.defaultTopK;
-    const minSimilarity = options?.minSimilarity || this.config.minSimilarity;
-
-    // Generate query embedding
-    const queryResult = await this.embeddingService.embed(query);
-
-    // Make this store resident (no-op when already loaded).
-    this.ensureStoreLoaded(storeId);
-
-    const storeVectors = this.storeVectorIds.get(storeId);
-    if (!storeVectors || storeVectors.size === 0) {
-      return [];
-    }
-
-    // Calculate similarities
-    const candidates: { id: string; embedding: ArrayLike<number> }[] = [];
-    for (const vectorId of storeVectors) {
-      const entry = this.vectorCache.get(vectorId);
-      if (entry) {
-        candidates.push({ id: vectorId, embedding: entry.embedding });
-      }
-    }
-
-    const similar = this.embeddingService.findSimilar(
-      queryResult.embedding,
-      candidates,
-      topK,
-      minSimilarity
-    );
-
-    const results = this.hydrate(similar);
+    const queryResult = await this.embeddingService.embed(query, options?.embedAs ?? 'query');
+    const results = await this.searchByEmbedding(storeId, queryResult.embedding, queryResult.model, options);
 
     this.emit('search:completed', {
       storeId,
@@ -384,20 +377,20 @@ export class VectorStore extends EventEmitter {
    *
    * This follows the same durable-load and winner-hydration path as `search`;
    * callers must not inspect the process-local cache directly because it is
-   * intentionally empty after restart and after LRU eviction.
+   * intentionally empty after restart and after LRU eviction. `model` says which
+   * model produced the embedding, since only that model's vectors can match it.
    */
   async searchByEmbedding(
     storeId: string,
     embedding: ArrayLike<number>,
-    options?: {
-      topK?: number;
-      minSimilarity?: number;
-    }
+    model: string,
+    options?: VectorSearchOptions,
   ): Promise<VectorSearchResult[]> {
     const topK = options?.topK || this.config.defaultTopK;
-    const minSimilarity = options?.minSimilarity || this.config.minSimilarity;
+    const minSimilarity = await this.resolveMinSimilarity(options);
 
-    this.ensureStoreLoaded(storeId);
+    this.ensureStoreLoaded(storeId, model);
+    this.reembedder.schedule(storeId, model);
 
     const storeVectors = this.storeVectorIds.get(storeId);
     if (!storeVectors || storeVectors.size === 0) {
@@ -426,17 +419,13 @@ export class VectorStore extends EventEmitter {
    */
   async searchAll(
     query: string,
-    options?: {
-      topK?: number;
-      minSimilarity?: number;
-      storeIds?: string[];
-    }
+    options?: VectorSearchOptions & { storeIds?: string[] },
   ): Promise<VectorSearchResult[]> {
     const topK = options?.topK || this.config.defaultTopK;
-    const minSimilarity = options?.minSimilarity || this.config.minSimilarity;
+    const minSimilarity = await this.resolveMinSimilarity(options);
 
     // Generate query embedding
-    const queryResult = await this.embeddingService.embed(query);
+    const queryResult = await this.embeddingService.embed(query, 'query');
 
     // Explicit stores are loaded on demand; without them this searches only
     // what is already resident. Sweeping every store would re-create the
@@ -447,7 +436,7 @@ export class VectorStore extends EventEmitter {
     // Left as-is because nothing in production calls this; raise the cap for
     // the call if that ever changes.
     if (options?.storeIds) {
-      for (const storeId of options.storeIds) this.ensureStoreLoaded(storeId);
+      for (const storeId of options.storeIds) this.ensureStoreLoaded(storeId, queryResult.model);
     }
 
     const candidates: { id: string; embedding: ArrayLike<number> }[] = [];
@@ -475,6 +464,11 @@ export class VectorStore extends EventEmitter {
     return this.hydrate(similar);
   }
 
+  private async resolveMinSimilarity(options: VectorSearchOptions | undefined): Promise<number> {
+    return options?.minSimilarity
+      ?? this.embeddingService.similarityFloor(options?.use ?? 'context-search');
+  }
+
   /**
    * Index all sections in a store that don't have vectors yet
    */
@@ -487,7 +481,7 @@ export class VectorStore extends EventEmitter {
 
     // Without this the store may not be resident, every section would look
     // un-indexed, and the whole store would be needlessly re-embedded.
-    this.ensureStoreLoaded(storeId);
+    this.ensureStoreLoaded(storeId, await this.embeddingService.activeModelId());
     const existing = this.storeVectorIds.get(storeId) || new Set();
 
     for (const section of sections) {
@@ -524,27 +518,19 @@ export class VectorStore extends EventEmitter {
    * Clear all vectors for a store
    */
   clearStore(storeId: string): void {
-    // Load first: an unloaded store still has rows on disk, and clearing must
-    // delete those rather than silently no-op because nothing is resident.
-    this.ensureStoreLoaded(storeId);
-    const storeVectors = this.storeVectorIds.get(storeId);
-    if (!storeVectors) return;
-
-    for (const vectorId of storeVectors) {
-      const entry = this.vectorCache.get(vectorId);
-      if (entry) {
-        this.vectorCache.delete(vectorId);
-        try {
-          this.db.deleteVector(entry.sectionId);
-        } catch (error) {
-          logger.error('Failed to delete vector', error instanceof Error ? error : undefined);
-        }
-      }
+    this.reembedder.cancel(storeId);
+    for (const vectorId of this.storeVectorIds.get(storeId) ?? []) {
+      this.vectorCache.delete(vectorId);
     }
-
     this.storeVectorIds.delete(storeId);
     const at = this.residentStores.indexOf(storeId);
     if (at >= 0) this.residentStores.splice(at, 1);
+
+    try {
+      this.db.deleteStoreVectors(storeId);
+    } catch (error) {
+      logger.error('Failed to delete vector', error instanceof Error ? error : undefined);
+    }
     this.emit('store:cleared', { storeId });
   }
 

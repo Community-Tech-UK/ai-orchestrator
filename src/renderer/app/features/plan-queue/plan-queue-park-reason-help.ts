@@ -108,6 +108,12 @@ export const PARK_REASON_HELP: Record<PlanQueueParkReason, PlanQueueParkReasonHe
     next: 'Read the finding and its evidence, then Resume with new instructions, or Merge without checks if the finding is wrong.',
     actions: ['see-findings', 'resume', 'merge-without-checks', 'discard'],
   },
+  'check-hung': {
+    label: 'The checks keep running out of time',
+    meaning: 'The checks did not finish twice in a row on the same work, so this may be a test that hangs. Other test runs on this computer can also cause it.',
+    next: 'Open the details to see how far the last run got. Resume sends it back to a worker and then checks it again.',
+    actions: ['resume', 'discard'],
+  },
   'missing-document': {
     label: 'The document is gone',
     meaning: 'The source document is missing and has no exact completed replacement.',
@@ -171,10 +177,20 @@ const HISTORICAL_DISPLAY: PlanQueueParkReasonHelp = {
   actions: ['resume', 'discard'],
 };
 
+/** Trying again would redo or overwrite finished work, so only the deliberate choices remain. */
+const MERGED_SINCE_DISPLAY: PlanQueueParkReasonDisplay = {
+  label: 'A newer attempt already merged',
+  meaning: 'A newer attempt at this document merged after this one stopped.',
+  next: 'Check whether this branch holds anything you still need. Merge without checks adds it on top of the merged work; Discard deletes it.',
+  actions: ['merge-without-checks', 'discard'],
+  extra: null,
+};
+
 export function planQueueDisplayParkReason(
   item: Pick<PlanQueueItemDto, 'parkReason'> & Partial<Pick<PlanQueueItemDto, 'state' | 'detail' | 'round' | 'verdict'>>,
-  options: { maxRounds?: number } = {},
+  options: { maxRounds?: number; mergedSince?: boolean } = {},
 ): PlanQueueParkReasonDisplay | null {
+  if (options.mergedSince) return MERGED_SINCE_DISPLAY;
   const reason = item.parkReason;
   if (!reason) return item.state === 'parked' ? {
     label: 'Reason not recorded', meaning: 'This older job was set aside without a recorded reason.',

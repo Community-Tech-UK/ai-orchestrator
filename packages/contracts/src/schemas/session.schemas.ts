@@ -46,8 +46,6 @@ const MemoryManagerConfigSchema = z.object({
   learningRate: z.number().positive().max(1).optional(),
   rewardDiscount: z.number().min(0).max(1).optional(),
   batchSize: z.number().int().min(1).max(4096).optional(),
-  embeddingModel: z.string().min(1).max(200).optional(),
-  embeddingDimension: z.number().int().min(32).max(8192).optional(),
 });
 
 const MemoryManagerDecisionSchema = z.object({

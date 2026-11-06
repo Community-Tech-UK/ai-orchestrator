@@ -25,6 +25,8 @@ export interface HyDEConfig {
 export interface HyDEResult {
   /** The embedding to use for search */
   embedding: number[];
+  /** The model that produced `embedding`; only its vectors can match it */
+  model: string;
   /** The generated hypothetical document(s) */
   hypotheticalDocuments: string[];
   /** Whether HyDE was used (false if disabled or query was too short) */

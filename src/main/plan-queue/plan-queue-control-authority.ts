@@ -7,7 +7,7 @@
  * Stranded-run rescue: session ids are not kept across restarts, so once the
  * parent is gone no MCP caller could stop the run, which would keep its
  * documents locked indefinitely. Any session that the queue did not spawn may
- * then adopt or cancel the run, or discard a parked item. The audit trail records the
+ * then adopt or cancel the run, or discard a parked item or undo a discard. The audit trail records the
  * rescuer in each affected item's detail and in the log. A missing or
  * edit-superseded source can be rescued after restored-parent resolution.
  * A sleeping, idle or failed retained owner keeps the run; handover requires
@@ -33,6 +33,7 @@ export const STRANDED_RESCUE_ACTIONS: ReadonlySet<PlanQueueControlAction> = new 
   'adopt',
   'cancel',
   'discard-item',
+  'restore-discarded',
 ]);
 
 /** The only control actions the Set aside agent may take, and only in its own folder. */

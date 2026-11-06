@@ -130,6 +130,9 @@ export class PlanQueueSlotWaits {
   /** The scheduler had this item ready and no slot free. Only the first call starts the clock. */
   blocked(itemId: string): void { if (!this.blockedSince.has(itemId)) this.blockedSince.set(itemId, this.now()); }
 
+  /** When the scheduler first found this item ready with no slot free, if it has. Saves to the item don't move it. */
+  waitingSince(itemId: string): number | undefined { return this.blockedSince.get(itemId); }
+
   /** A slot of this kind opened: an item left the states that hold one. */
   freed(kind: 'worker' | 'check'): void { this.freedAt[kind] = this.now(); }
 

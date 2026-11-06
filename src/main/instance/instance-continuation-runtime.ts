@@ -4,6 +4,7 @@ import { InstanceContinuationDispatch } from './instance-continuation-dispatch';
 import { InstanceReasoningCollapseContinuation, type InstanceReasoningCollapseContinuationHost } from './instance-reasoning-collapse-continuation';
 import { InstanceAnnounceThenHaltContinuation } from './instance-announce-then-halt-continuation';
 import { InstanceAsyncWorkContinuation } from './instance-async-work-continuation';
+import { InstanceWaitingCheckIn } from './instance-waiting-check-in';
 import { getInstanceAsyncWorkRegistry, type InstanceAsyncWorkRegistry } from './instance-async-work-registry';
 
 /** Source listeners detect work; exactly one injected owner admits and sends their prompts. */
@@ -12,6 +13,7 @@ export class InstanceContinuationRuntime {
   private readonly cutoffs: InstanceReasoningCollapseContinuation;
   private readonly announcements: InstanceAnnounceThenHaltContinuation;
   private readonly background: InstanceAsyncWorkContinuation;
+  private readonly waiting: InstanceWaitingCheckIn;
   constructor(
     registry: InstanceAsyncWorkRegistry,
     host: InstanceReasoningCollapseContinuationHost,
@@ -23,6 +25,7 @@ export class InstanceContinuationRuntime {
     this.cutoffs = new InstanceReasoningCollapseContinuation(registry, host, isManagedLoopInstance, isPaused, false, this.dispatch);
     this.announcements = new InstanceAnnounceThenHaltContinuation(registry, host, isManagedLoopInstance, isPaused, this.dispatch);
     this.background = new InstanceAsyncWorkContinuation(registry, host, { dispatch: this.dispatch, providerResumeGraceMs });
+    this.waiting = new InstanceWaitingCheckIn(host, this.dispatch);
   }
   start(): void {
     this.dispatch.start();
@@ -30,8 +33,10 @@ export class InstanceContinuationRuntime {
     this.cutoffs.start();
     this.announcements.start();
     this.background.start();
+    this.waiting.start();
   }
   stop(): void {
+    this.waiting.stop();
     this.background.stop();
     this.announcements.stop();
     this.cutoffs.stop();

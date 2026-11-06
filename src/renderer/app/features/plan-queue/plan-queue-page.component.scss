@@ -3,16 +3,45 @@
    the fold (including the Runs section's Cancel buttons) was unreachable. */
 :host {
   display: block;
+  flex: 1;
+  min-width: 0;
   height: 100%;
   min-height: 0;
   overflow-y: auto;
+  --pq-border-color: var(--border-color);
 }
 
 .pq-page {
   display: flex;
   flex-direction: column;
-  gap: 24px;
-  padding: 4px 4px 32px;
+  gap: 20px;
+  box-sizing: border-box;
+  max-width: 1240px;
+  padding: 20px 24px 40px;
+}
+
+/* One look for every button on the page, including those in child components. The app's reset leaves a bare
+   button as plain text, so actions could not be told apart from labels. */
+:host ::ng-deep button:not([role='tab']):not(.pq-parked-section-toggle) {
+  min-height: 28px;
+  padding: 3px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+
+  &:hover:not(:disabled) {
+    background: var(--bg-hover);
+    border-color: var(--border-light);
+  }
+
+  &:is(.pq-discard, .pq-confirm-yes, .pq-cancel):not(:disabled) {
+    border-color: var(--error-border);
+    background: var(--error-bg);
+    color: var(--error-color);
+  }
 }
 
 .pq-section {
@@ -23,17 +52,37 @@
 
 .pq-section h2 {
   margin: 0;
+  font-size: 1.05rem;
+}
+
+.pq-pause-all,
+.pq-resume-all {
+  align-self: flex-start;
 }
 
 .pq-tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.pq-tabs button {
+  margin-bottom: -1px;
+  padding: 6px 2px 8px;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.pq-tabs button:hover {
+  color: var(--text-primary);
 }
 
 .pq-tabs [aria-selected='true'] {
+  border-bottom-color: var(--primary-color);
+  color: var(--text-primary);
   font-weight: 600;
-  border-bottom: 2px solid currentColor;
 }
 
 [role='tabpanel']:not([hidden]) {
@@ -48,9 +97,9 @@
 
 .pq-purpose {
   margin: 0;
-  opacity: 0.75;
-  font-size: 0.92em;
-  max-width: 72ch;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  max-width: 80ch;
 }
 
 .pq-defaults-row {
@@ -65,15 +114,15 @@
 }
 
 .pq-error {
-  border: 1px solid #b3261e;
-  color: #b3261e;
+  border: 1px solid var(--error-border);
+  color: var(--error-color);
   border-radius: 8px;
   padding: 8px 12px;
 }
 
 .pq-attention-banner {
-  border: 1px solid #e0a458;
-  color: #e0a458;
+  border: 1px solid var(--warning-border);
+  color: var(--warning-color);
   border-radius: 8px;
   padding: 8px 12px;
 }

@@ -20,7 +20,7 @@ import { getGitWriteQueue } from '../workspace/git/git-write-queue';
 import { integrationOwnershipRef, promoteIntegrationBranch } from '../workspace/git/worktree-integration';
 import { CONFLICT_CODES } from './plan-queue-git';
 import { assertQueueCheckout } from './plan-queue-orphan-checkout';
-import { runInProcessGroup } from './plan-queue-process';
+import { QUEUE_TEST_ENV, runInProcessGroup } from './plan-queue-process';
 import { buildLandingCommit, type LandingDocument } from './plan-queue-squash';
 import type { PlanQueueItem } from './plan-queue.types';
 import { LandingTimer } from './plan-queue-timings';
@@ -36,7 +36,7 @@ export type SyncResult =
   | { status: 'merged'; head: string }
   | { status: 'conflict'; conflictFiles: string[] };
 
-export type GateResult = { ok: true } | { ok: false; command: string; output: string };
+export type GateResult = { ok: true } | { ok: false; command: string; output: string; timedOut?: boolean };
 
 export type LandResult =
   | { status: 'landed'; commit: string; mergedPaths?: string[] }
@@ -103,20 +103,20 @@ export async function syncItemWithBase(item: PlanQueueItem, baseBranch: string, 
 /** Run the deterministic post-merge commands in the item worktree; stop at the first failure. */
 export async function runPostMergeGate(commands: readonly string[], cwd: string, signal?: AbortSignal): Promise<GateResult> {
   for (const command of commands) {
-    const { exitCode, output } = await runShell(command, cwd, signal);
+    const { exitCode, output, timedOut } = await runShell(command, cwd, signal);
     if (exitCode !== 0) {
-      return { ok: false, command, output: output.slice(-GATE_OUTPUT_TAIL) };
+      return { ok: false, command, output: output.slice(-GATE_OUTPUT_TAIL), ...(timedOut ? { timedOut } : {}) };
     }
   }
   return { ok: true };
 }
 
-function runShell(command: string, cwd: string, signal?: AbortSignal): Promise<{ exitCode: number; output: string }> {
+function runShell(command: string, cwd: string, signal?: AbortSignal): Promise<{ exitCode: number; output: string; timedOut?: boolean }> {
   // buildCliEnv: a packaged app starts with a stripped PATH that may not find node/npm.
   // Own process group: a timed-out gate command's children must not outlive it in the worktree.
   return runInProcessGroup(command, [], {
     cwd,
-    env: buildCliEnv(),
+    env: { ...buildCliEnv(), ...QUEUE_TEST_ENV },
     shell: true,
     timeoutMs: GATE_TIMEOUT_MS,
     outputTail: GATE_OUTPUT_TAIL,

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, type ElementRef, computed, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
   ActivatedRoute,
@@ -17,6 +17,8 @@ import {
   tryGetControlSurface,
 } from './control-surface.registry';
 import type { ControlSurfaceId, ControlSurfaceItem } from './control-surface.types';
+import { ControlSurfaceIconPipe } from './control-surface-icon.pipe';
+import { searchControlNav } from './control-surface-search';
 import { HelpPaneComponent } from '../help/help-pane.component';
 import { CONTROL_SURFACE_HELP } from '../help/control-surface-help';
 import { SettingsStore } from '../../core/state/settings.store';
@@ -30,7 +32,7 @@ const NAV_COLLAPSED_KEY = 'aiorch.control.navCollapsed';
 @Component({
   selector: 'app-control-surface-shell',
   standalone: true,
-  imports: [RouterLink, RouterLinkActive, RouterOutlet, HelpPaneComponent, AioTooltipDirective],
+  imports: [RouterLink, RouterLinkActive, RouterOutlet, HelpPaneComponent, AioTooltipDirective, ControlSurfaceIconPipe],
   templateUrl: './control-surface-shell.component.html',
   styleUrl: './control-surface-shell.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -42,6 +44,10 @@ export class ControlSurfaceShellComponent {
 
   private readonly settings = inject(SettingsStore);
   protected readonly navGroups = computed(() => listControlNavGroups(this.settings.settings().observationMemoryEnabled));
+  private readonly navSearchInput = viewChild<ElementRef<HTMLInputElement>>('navSearchInput');
+  protected readonly navQuery = signal('');
+  /** Null while the search box is empty, which shows the normal page list. */
+  protected readonly navResults = computed(() => searchControlNav(this.navQuery(), this.navGroups()));
   private readonly activeSurfaceId = signal<ControlSurfaceId | null>(null);
   protected readonly activeSurface = computed<ControlSurfaceItem>(() => {
     const id = this.activeSurfaceId();
@@ -77,6 +83,34 @@ export class ControlSurfaceShellComponent {
     void this.router.navigateByUrl(this.activeSurface().backRoute ?? '/');
   }
 
+  protected onNavSearch(event: Event): void {
+    this.navQuery.set((event.target as HTMLInputElement).value);
+  }
+
+  protected clearNavSearch(): void {
+    this.navQuery.set('');
+  }
+
+  /** The chosen link leaves the page with the results, so keep keyboard focus in the column. */
+  protected onNavResultChosen(): void {
+    this.clearNavSearch();
+    this.navSearchInput()?.nativeElement.focus();
+  }
+
+  protected onNavSearchEscape(event: Event): void {
+    if (!this.navQuery()) return;
+    event.stopPropagation();
+    this.clearNavSearch();
+  }
+
+  /** Enter takes the best match, so a page or setting opens without leaving the keyboard. */
+  protected openFirstNavResult(event: Event): void {
+    const first = this.navResults()?.[0]?.results[0];
+    if (!first || (event as KeyboardEvent).isComposing) return;
+    void this.router.navigate([first.path], { queryParams: first.queryParams, fragment: first.fragment });
+    this.clearNavSearch();
+  }
+
   protected isExactNavMatch(path: string): boolean {
     return path !== '/campaigns' && path !== '/channels';
   }
@@ -94,6 +128,7 @@ export class ControlSurfaceShellComponent {
 
   protected toggleControlNav(): void {
     const collapsed = !this.controlNavCollapsed();
+    if (collapsed) this.clearNavSearch();
     this.controlNavCollapsed.set(collapsed);
     try {
       localStorage.setItem(NAV_COLLAPSED_KEY, String(collapsed));

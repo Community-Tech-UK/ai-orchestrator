@@ -15,6 +15,8 @@ vi.mock('./embedding-service', () => ({
   getEmbeddingService: () => ({
     embed,
     embedBatch: async (texts: string[]) => Promise.all(texts.map((text) => embed(text))),
+    activeModelId: async () => 'test-embed',
+    similarityFloor: async () => 0,
     findSimilar: (
       _query: ArrayLike<number>,
       candidates: { id: string; embedding: ArrayLike<number> }[],

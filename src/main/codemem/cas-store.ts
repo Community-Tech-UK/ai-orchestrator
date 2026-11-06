@@ -12,13 +12,19 @@ import {
   clearLegacyMerkleNodes as clearLegacyMerkleNodesFromDb,
   deleteWorkspaceIndex as deleteWorkspaceIndexFromDb,
   listWorkspaceIndexStats as listWorkspaceIndexStatsFromDb,
-  optimizeSearchIndex as optimizeSearchIndexInDb,
+  mergeSearchIndex as mergeSearchIndexInDb,
+  pruneAbandonedWorkspaces as pruneAbandonedWorkspacesFromDb,
   pruneUnreferencedChunks as pruneUnreferencedChunksFromDb,
+  type BoundedStepOptions,
+  type PruneAbandonedWorkspacesOptions,
+  type SpaceReleaseStep,
+  type PruneAbandonedWorkspacesResult,
   type WorkspaceIndexStats,
   vacuumFreelistPages as vacuumFreelistPagesInDb,
   type VacuumFreelistOptions,
   type VacuumFreelistResult,
 } from './cas-workspace-index-maintenance';
+import { toFtsMatchQuery } from './code-search-query';
 
 const logger = getLogger('CasStore');
 
@@ -155,6 +161,10 @@ export interface CodeIndexStatusRecord {
 }
 
 export class CasStore {
+  /** Where the chunk text walk stopped; null once it reached the end. */
+  private chunkPruneCursor: string | null = '';
+  private searchMergeStarted = false;
+
   constructor(private readonly db: SqliteDriver) {}
 
   upsertChunk(chunk: Chunk): void {
@@ -530,7 +540,7 @@ export class CasStore {
     query: string,
     limit: number,
   ): WorkspaceChunkSearchResult[] {
-    const ftsQuery = this.toFtsQuery(query);
+    const ftsQuery = toFtsMatchQuery(query);
     if (!ftsQuery) return [];
     const boundedLimit = Math.max(1, Math.min(Math.floor(limit), 100));
     const rows = this.db.prepare(`
@@ -591,18 +601,42 @@ export class CasStore {
 
   deleteWorkspaceIndex(workspaceHash: WorkspaceHash): void {
     deleteWorkspaceIndexFromDb(this.db, workspaceHash);
+    this.restartSpaceRelease();
   }
 
-  pruneUnreferencedChunks(): number {
-    return pruneUnreferencedChunksFromDb(this.db);
+  pruneAbandonedWorkspaces(options?: PruneAbandonedWorkspacesOptions): PruneAbandonedWorkspacesResult {
+    const result = pruneAbandonedWorkspacesFromDb(this.db, options);
+    if (result.deletedChunks > 0 || result.deletedWorkspaces > 0) this.restartSpaceRelease();
+    return result;
+  }
+
+  /**
+   * Give back what deleted rows were holding: chunk text first, then search index
+   * space. Each call is one bounded step, so callers repeat it until `finished`.
+   */
+  releaseDeletedSpace(options?: BoundedStepOptions): SpaceReleaseStep {
+    if (this.chunkPruneCursor !== null) {
+      const { deleted, resumeAfter } = pruneUnreferencedChunksFromDb(this.db, {
+        ...options,
+        after: this.chunkPruneCursor,
+      });
+      this.chunkPruneCursor = resumeAfter;
+      return { deletedChunks: deleted, finished: false };
+    }
+    const finished = mergeSearchIndexInDb(this.db, { ...options, mergeStarted: this.searchMergeStarted });
+    this.searchMergeStarted = !finished;
+    if (finished) this.chunkPruneCursor = '';
+    return { deletedChunks: 0, finished };
+  }
+
+  /** A walk already past these rows would miss them, so the next step starts over. */
+  private restartSpaceRelease(): void {
+    this.chunkPruneCursor = '';
+    this.searchMergeStarted = false;
   }
 
   clearLegacyMerkleNodes(): number {
     return clearLegacyMerkleNodesFromDb(this.db);
-  }
-
-  optimizeSearchIndex(): void {
-    optimizeSearchIndexInDb(this.db);
   }
 
   vacuumFreelistPages(options?: VacuumFreelistOptions): VacuumFreelistResult {
@@ -746,15 +780,6 @@ export class CasStore {
       .replace(/[_-]+/g, ' ')
       .split(/[^A-Za-z0-9]+/)
       .filter((term) => term.length > 0)
-      .join(' ');
-  }
-
-  private toFtsQuery(query: string): string {
-    return query
-      .split(/[^A-Za-z0-9_]+/)
-      .map((token) => token.trim())
-      .filter((token) => token.length > 0)
-      .slice(0, 12)
       .join(' ');
   }
 }

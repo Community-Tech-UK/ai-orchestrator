@@ -117,5 +117,10 @@ export function testMaxForks(
 
 /** What `vitest.config.ts` calls: samples the host, then sizes the pool. */
 export function resolveTestMaxForks(): number {
-  return testMaxForks(availableParallelism(), loadavg()[0], sampleBusyCores());
+  const busyCores = sampleBusyCores();
+  const forks = testMaxForks(availableParallelism(), loadavg()[0], busyCores);
+  // A run stays on this count until it ends, so it is the first thing to check on a slow run.
+  // scripts/run-tests-quiet.js reads this line for its progress report.
+  process.stderr.write(`[test pool] ${forks} test worker(s); ${busyCores?.toFixed(1) ?? 'unknown'} of ${availableParallelism()} cores busy at the start\n`);
+  return forks;
 }

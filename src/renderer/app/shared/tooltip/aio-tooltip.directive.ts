@@ -164,9 +164,13 @@ export class AioTooltipDirective implements OnDestroy {
       const format = this.appTooltipFormat();
       const action = this.appTooltipShortcut();
       const shortcut = action ? this.injector.get(KeybindingService).formatBindingByAction(action) : '';
-      const suppressed = this.isSuppressed();
+      // Subscribe to the suppression inputs here, but leave its DOM reads for an open panel: they force a
+      // layout, so running them for every tooltip as it is created froze long lists for tens of seconds.
+      this.appTooltipLabel();
+      this.appTooltipDisabled();
+      this.appTooltipShowWhenExpanded();
       if (!this.panelRef) return;
-      if (suppressed) { this.hide(); return; }
+      if (this.isSuppressed()) { this.hide(); return; }
       this.panelRef.setInput('template', template);
       this.panelRef.setInput('text', text ?? '');
       this.panelRef.setInput('format', format);

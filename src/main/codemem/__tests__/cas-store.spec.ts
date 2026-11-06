@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { migrate } from '../cas-schema';
+import { CAS_SCHEMA_VERSION, migrate } from '../cas-schema';
 import { CasStore } from '../cas-store';
 import { vacuumFreelistPages } from '../cas-workspace-index-maintenance';
 import type { Chunk } from '../types';
@@ -129,9 +129,22 @@ describe('CasStore', () => {
       { workspace_hash: 'w-known', primary_language: 'typescript' },
       { workspace_hash: 'w-unknown', primary_language: null },
     ]);
-    expect(version.v).toBe(4);
+    expect(version.v).toBe(CAS_SCHEMA_VERSION);
 
     legacyDb.close();
+  });
+
+  it('leaves search index merging to bounded maintenance, on new and upgraded databases', () => {
+    const upgraded = defaultDriverFactory(':memory:');
+    upgraded.exec('CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)');
+    upgraded.prepare('INSERT INTO schema_version (version, applied_at) VALUES (4, 1000)').run();
+    migrate(upgraded);
+
+    for (const database of [db, upgraded]) {
+      expect(database.prepare("SELECT v FROM code_fts_config WHERE k = 'deletemerge'").get()).toEqual({ v: 0 });
+    }
+
+    upgraded.close();
   });
 
   it('upsertChunk inserts a new chunk', () => {
@@ -417,7 +430,7 @@ describe('CasStore', () => {
       },
     ]);
 
-    expect(store.searchWorkspaceChunks('w1', 'issue session token', 5)).toHaveLength(0);
+    expect(store.searchWorkspaceChunks('w1', 'issueSessionToken', 5)).toHaveLength(0);
     expect(store.searchWorkspaceChunks('w1', 'refresh session token', 5)[0]).toEqual(
       expect.objectContaining({ contentHash: 'd'.repeat(64) }),
     );
@@ -552,7 +565,7 @@ describe('CasStore', () => {
       'INSERT INTO merkle_nodes (node_hash, kind, children_json) VALUES (?, ?, ?)',
     ).run('legacy-node', 'file', '[]');
 
-    expect(store.pruneUnreferencedChunks()).toBe(1);
+    expect(store.releaseDeletedSpace().deletedChunks).toBe(1);
     expect(store.clearLegacyMerkleNodes()).toBe(1);
 
     expect(store.getChunk(liveHash)).toEqual(expect.objectContaining({ name: 'liveChunk' }));

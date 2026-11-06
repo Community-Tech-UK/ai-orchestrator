@@ -66,11 +66,12 @@ export function turnContinuationPolicy(reason: ProviderTurnEndingReason, reasoni
 }
 
 /** Source-specific admission rules; all prompt delivery goes through one owner. */
-export type ContinuationTrigger = 'cutoff' | 'cursor-transport' | 'announce' | 'async-result' | 'async-check-in';
+export type ContinuationTrigger = 'cutoff' | 'cursor-transport' | 'announce' | 'async-result' | 'async-check-in' | 'waiting-check-in';
 export const CONTINUATION_DISPATCH_POLICY = {
   cutoff: { rootOnly: true, allowWake: false, allowInhibitor: false, priority: 4, budget: 'cutoff', limit: 2 },
   'cursor-transport': { rootOnly: true, allowWake: true, allowInhibitor: false, priority: 2, budget: 'transport', limit: 2 },
   announce: { rootOnly: true, allowWake: true, allowInhibitor: false, priority: 1, budget: 'announce', limit: 1 },
   'async-result': { rootOnly: false, allowWake: true, allowInhibitor: true, priority: 3, budget: undefined, limit: undefined },
   'async-check-in': { rootOnly: false, allowWake: false, allowInhibitor: true, priority: 0, budget: undefined, limit: undefined },
+  'waiting-check-in': { rootOnly: true, allowWake: true, allowInhibitor: false, priority: 0, budget: undefined, limit: undefined },
 } as const;

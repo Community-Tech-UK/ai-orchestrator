@@ -12,7 +12,7 @@
   "scripts": {
     "audit:loop-scorecard": "node scripts/loop-scorecard-report.mjs",
     "ng": "ng",
-    "prestart": "node scripts/check-node.js && node scripts/verify-native-abi.js && npm run generate:aliases && npm run generate:ipc && npm run verify:ipc && npm run verify:exports && npm run check:contracts",
+    "prestart": "node scripts/check-node.js && node scripts/verify-native-abi.js && npm run generate:aliases && npm run generate:ipc && npm run verify:ipc && npm run verify:exports && npm run check:contracts && node scripts/fetch-embedding-model.js --optional",
     "prebuild": "node scripts/check-node.js && node scripts/verify-native-abi.js && npm run generate:aliases && npm run generate:ipc && npm run verify:ipc && npm run verify:exports && npm run check:contracts",
     "start": "npm run build:main && npm run build:aio-mcp-dist && concurrently -k \"npm run watch:main\" \"npm run start:renderer -- --port 4567\" \"wait-on http://localhost:4567 && npm run electron:dev\"",
     "start:renderer": "ng serve",
@@ -26,7 +26,7 @@
     "preelectron:dev": "npm run build:desktop-helper",
     "electron:dev": "electron .",
     "preelectron:build": "npm run build:desktop-helper -- --required && npm run build:worker-dist && npm run build:loop-control-dist && npm run build:aio-mcp-dist",
-    "electron:build": "node scripts/fetch-rtk-binaries.js && electron-builder",
+    "electron:build": "node scripts/fetch-rtk-binaries.js && node scripts/fetch-embedding-model.js && electron-builder",
     "fetch:rtk": "node scripts/fetch-rtk-binaries.js",
     "localbuild": "npm run rebuild:native && npm run build && node scripts/localbuild.js",
     "test": "node scripts/run-tests-quiet.js",
@@ -49,6 +49,7 @@
     "typecheck:fast": "tsgo --noEmit -p tsconfig.electron.json",
     "typecheck:spec": "node --max-old-space-size=8192 node_modules/typescript/bin/tsc --noEmit -p tsconfig.spec.json",
     "verify": "npm run lint && npm run lint:fast && npm run typecheck && npm run typecheck:spec && npm run check:ts-max-loc && npm run check:dead && npm run verify:ipc && npm run verify:ipc-usage && npm run verify:exports && npm run check:contracts && npm run check:ui-hints && npm run test && npm run verify:architecture && npm run rebuild:native && npm run smoke:electron",
+    "verify:embedding-model": "tsx scripts/verify-embedding-model.ts",
     "verify:ipc": "node scripts/verify-ipc-channels.js && node scripts/verify-ipc-handler-contract.js",
     "verify:ipc-usage": "node scripts/verify-ipc-usage.js",
     "verify:renderer-events": "node scripts/verify-renderer-event-contract.js",
@@ -122,6 +123,7 @@
     "lmdb@3.5.6": true,
     "msgpackr-extract@3.0.4": true,
     "node-pty@1.1.0": true,
+    "onnxruntime-node": false,
     "puppeteer": false
   },
   "overrides": {
@@ -184,6 +186,7 @@
     "marked": "^17.0.1",
     "ngx-echarts": "^22.0.0",
     "node-pty": "^1.1.0",
+    "onnxruntime-node": "^1.31.1",
     "partial-json": "^0.1.7",
     "puppeteer-core": "^25.16.0",
     "qrcode": "^1.5.4",

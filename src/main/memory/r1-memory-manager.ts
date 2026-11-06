@@ -13,6 +13,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getEmbeddingService } from '../rlm/embedding-service';
 import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import type {
   MemoryEntry,
@@ -25,6 +26,9 @@ import type {
   MemoryR1Snapshot,
   MemorySourceType,
 } from '../../shared/types/memory-r1.types';
+
+/** Refreshing shares the model with searches, so one can only wait behind a batch this small. */
+const EMBEDDING_REFRESH_BATCH_SIZE = 8;
 
 export class MemoryManagerAgent extends EventEmitter {
   private static instance: MemoryManagerAgent | null = null;
@@ -40,8 +44,6 @@ export class MemoryManagerAgent extends EventEmitter {
     learningRate: 0.001,
     rewardDiscount: 0.99,
     batchSize: 32,
-    embeddingModel: 'text-embedding-3-small',
-    embeddingDimension: 1536,
   };
 
   static getInstance(): MemoryManagerAgent {
@@ -97,10 +99,6 @@ export class MemoryManagerAgent extends EventEmitter {
       Math.max(0, this.config.rewardDiscount)
     );
     this.config.batchSize = Math.max(1, Math.floor(this.config.batchSize));
-    this.config.embeddingDimension = Math.max(
-      8,
-      Math.floor(this.config.embeddingDimension)
-    );
   }
 
   // ============ Memory Operations (RL-Trained) ============
@@ -188,7 +186,7 @@ Reasoning: <brief explanation>
     sourceType: MemorySourceType = 'derived',
     sourceSessionId = ''
   ): Promise<MemoryEntry> {
-    const embedding = await this.computeEmbedding(content);
+    const { embedding, model: embeddingModel } = await getEmbeddingService().embed(content, 'document');
     const tokens = this.estimateTokens(content);
     if (tokens > this.config.maxTokens) {
       throw new Error(
@@ -209,6 +207,7 @@ Reasoning: <brief explanation>
       id: `mem-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
       content,
       embedding,
+      embeddingModel,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       accessCount: 0,
@@ -272,8 +271,10 @@ Reasoning: <brief explanation>
       });
     }
 
+    const embedded = await getEmbeddingService().embed(newContent, 'document');
     entry.content = newContent;
-    entry.embedding = await this.computeEmbedding(newContent);
+    entry.embedding = embedded.embedding;
+    entry.embeddingModel = embedded.model;
     entry.updatedAt = Date.now();
     entry.tags = this.extractTags(newContent);
 
@@ -310,14 +311,14 @@ Reasoning: <brief explanation>
   // ============ Retrieval (Answer Agent Support) ============
 
   async retrieve(query: string, taskId: string): Promise<MemoryEntry[]> {
-    const queryEmbedding = await this.computeEmbedding(query);
+    const { embedding: queryEmbedding, model } = await getEmbeddingService().embed(query, 'query');
 
     // Compute similarities
     const scored: { entry: MemoryEntry; score: number }[] = [];
 
     for (const entry of this.state.entries.values()) {
       if (entry.isArchived) continue;
-      if (!entry.embedding) continue;
+      if (!entry.embedding || entry.embeddingModel !== model) continue;
 
       const similarity = this.cosineSimilarity(queryEmbedding, entry.embedding);
       if (similarity >= this.config.similarityThreshold) {
@@ -361,15 +362,15 @@ Reasoning: <brief explanation>
     if (!entry.embedding) return;
 
     // Find similar entries for linking
+    const linkFloor = await getEmbeddingService().similarityFloor('memory-link');
     const candidates: { entry: MemoryEntry; similarity: number }[] = [];
 
     for (const other of this.state.entries.values()) {
       if (other.id === entry.id) continue;
-      if (!other.embedding) continue;
+      if (!other.embedding || other.embeddingModel !== entry.embeddingModel) continue;
 
       const similarity = this.cosineSimilarity(entry.embedding, other.embedding);
-      if (similarity > 0.8) {
-        // High threshold for linking
+      if (similarity > linkFloor) {
         candidates.push({ entry: other, similarity });
       }
     }
@@ -491,52 +492,6 @@ Reasoning: <brief explanation>
 
   // ============ Utilities ============
 
-  private async computeEmbedding(text: string): Promise<number[]> {
-    // Hash-based bigram embedding (hashing trick).
-    // Tokens and adjacent word pairs each vote into an embedding bucket via
-    // their hash, producing an embedding that captures co-occurrence patterns
-    // without requiring an external API.  Cosine similarity of two such
-    // vectors correlates with lexical/topical overlap.
-    const dim = this.config.embeddingDimension;
-    const embedding = new Float64Array(dim);
-
-    const tokens = text.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(Boolean);
-    if (tokens.length === 0) {
-      return Array.from({ length: dim }, () => 0);
-    }
-
-    // Unigrams
-    for (const token of tokens) {
-      const h = this.simpleHash(token);
-      const idx = Math.abs(h) % dim;
-      embedding[idx] += 1;
-    }
-
-    // Bigrams (adjacent word pairs for local context)
-    for (let i = 0; i < tokens.length - 1; i++) {
-      const bigram = `${tokens[i]}_${tokens[i + 1]}`;
-      const h = this.simpleHash(bigram);
-      const idx = Math.abs(h) % dim;
-      embedding[idx] += 0.5;
-    }
-
-    // L2-normalise
-    let norm = 0;
-    for (let i = 0; i < dim; i++) norm += embedding[i] * embedding[i];
-    norm = Math.sqrt(norm) || 1;
-    return Array.from(embedding, v => v / norm);
-  }
-
-  private simpleHash(text: string): number {
-    let hash = 0;
-    for (let i = 0; i < text.length; i++) {
-      const char = text.charCodeAt(i);
-      hash = (hash << 5) - hash + char;
-      hash = hash & hash;
-    }
-    return Math.abs(hash);
-  }
-
   private cosineSimilarity(a: number[], b: number[]): number {
     if (a.length !== b.length) return 0;
 
@@ -565,13 +520,14 @@ Reasoning: <brief explanation>
   }
 
   private async findRelevant(content: string): Promise<MemoryEntry[]> {
-    const embedding = await this.computeEmbedding(content);
+    const { embedding, model } = await getEmbeddingService().embed(content, 'document');
+    const relatedFloor = await getEmbeddingService().similarityFloor('memory-related');
     const results: { entry: MemoryEntry; score: number }[] = [];
 
     for (const entry of this.state.entries.values()) {
-      if (!entry.embedding) continue;
+      if (!entry.embedding || entry.embeddingModel !== model) continue;
       const similarity = this.cosineSimilarity(embedding, entry.embedding);
-      if (similarity > 0.6) {
+      if (similarity > relatedFloor) {
         results.push({ entry, score: similarity });
       }
     }
@@ -708,8 +664,24 @@ Reasoning: <brief explanation>
     );
 
     await this.enforceCapacityLimits();
+    await this.refreshEmbeddings();
 
     this.emit('state:loaded', snapshot);
+  }
+
+  /** A snapshot can predate the active model, and its vectors can't be compared with new ones. */
+  private async refreshEmbeddings(): Promise<void> {
+    const service = getEmbeddingService();
+    const activeModel = await service.activeModelId();
+    const stale = [...this.state.entries.values()].filter((entry) => entry.embeddingModel !== activeModel);
+    for (let start = 0; start < stale.length; start += EMBEDDING_REFRESH_BATCH_SIZE) {
+      const batch = stale.slice(start, start + EMBEDDING_REFRESH_BATCH_SIZE);
+      const results = await service.embedBatch(batch.map((entry) => entry.content), 'document');
+      batch.forEach((entry, index) => {
+        entry.embedding = results[index].embedding;
+        entry.embeddingModel = results[index].model;
+      });
+    }
   }
 
   private trimOperationHistory(): void {

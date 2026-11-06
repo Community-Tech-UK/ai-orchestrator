@@ -110,7 +110,7 @@ describe('HyDEService fallback behavior', () => {
     expect(result.hypotheticalDocuments).toEqual([]);
     expect(result.embedding).toEqual([0.1, 0.2, 0.3]);
     expect(mockEmbed).toHaveBeenCalledTimes(1);
-    expect(mockEmbed).toHaveBeenCalledWith('explain context lookup');
+    expect(mockEmbed).toHaveBeenCalledWith('explain context lookup', 'query');
   });
 
   it('callLLM returns a non-empty auxiliary retrievalHypothesis result without calling direct providers', async () => {
@@ -349,7 +349,7 @@ describe('HyDEService fallback behavior', () => {
     expect(result.hydeUsed).toBe(false);
     expect(result.hypotheticalDocuments).toEqual([]);
     expect(mockEmbed).toHaveBeenCalledTimes(1);
-    expect(mockEmbed).toHaveBeenCalledWith('explain context lookup');
+    expect(mockEmbed).toHaveBeenCalledWith('explain context lookup', 'query');
   });
 
   it('embed() direct-embeds without calling Ollama when health has marked Ollama unavailable', async () => {
@@ -373,7 +373,7 @@ describe('HyDEService fallback behavior', () => {
 
     expect(result.hydeUsed).toBe(false);
     expect(mockEmbed).toHaveBeenCalledTimes(1);
-    expect(mockEmbed).toHaveBeenCalledWith('explain context lookup');
+    expect(mockEmbed).toHaveBeenCalledWith('explain context lookup', 'query');
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

@@ -26,23 +26,31 @@ import { SET_ASIDE_FOLDER_METADATA } from './plan-queue-set-aside';
 import { PlanQueueStore } from './plan-queue-store';
 import type { VerifierSelectInput } from './plan-queue-verifier-select';
 
-const machineGates = vi.hoisted(() => ({ failItem: false }));
+const machineGates = vi.hoisted(() => ({ failItem: false, timeOutItem: false }));
 // These repositories exercise Git and session ownership. Command execution is
 // controlled here; the gate runner has its own execution and receipt coverage.
 vi.mock('./plan-queue-gate-receipts', async original => {
   const actual = await original<typeof import('./plan-queue-gate-receipts')>();
   return { ...actual, PlanQueueGateRunner: class extends actual.PlanQueueGateRunner {
-    constructor() { super(async (_command, cwd) => machineGates.failItem && cwd.includes('/queue/')
+    constructor() { super(async (_command, cwd) => machineGates.timeOutItem && cwd.includes('/queue/')
+      ? { exitCode: 1, output: '', timedOut: true }
+      : machineGates.failItem && cwd.includes('/queue/')
       ? { exitCode: 1, output: 'src/feature.ts(1,1): error TS2322: New failure', timedOut: false }
       : { exitCode: 0, output: '✓ 1 files · 1 tests passed in 0s', timedOut: false }); }
   } };
 });
 
-const landing = vi.hoisted(() => ({ active: 0, max: 0, hang: false, hung: false, hangPromotion: false, hookTimeout: false, conflict: false }));
+const landing = vi.hoisted(() => ({ active: 0, max: 0, hang: false, hung: false, hangPromotion: false, hookTimeout: false, conflict: false, mergeCheckTimeout: false, mergeChecks: 0 }));
 vi.mock('./plan-queue-landing', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./plan-queue-landing')>();
   return {
     ...actual,
+    runPostMergeGate: (...args: Parameters<typeof actual.runPostMergeGate>) => {
+      landing.mergeChecks += 1;
+      if (landing.mergeCheckTimeout) writeFileSync(`${args[1]}/left-by-killed-check.txt`, 'partial\n');
+      return landing.mergeCheckTimeout
+        ? Promise.resolve({ ok: false as const, command: 'npm run typecheck:spec', output: '', timedOut: true }) : actual.runPostMergeGate(...args);
+    },
     landItemBranch: async (...args: Parameters<typeof actual.landItemBranch>) => {
       if (landing.hang) {
         landing.hung = true;
@@ -299,6 +307,7 @@ async function waitForRun(runId: string, timeout = 30_000): Promise<void> {
 
 beforeEach(() => {
   machineGates.failItem = false;
+  machineGates.timeOutItem = false;
   WorktreeManager._resetForTesting();
   GitWriteQueue._resetForTesting();
   PlanQueueCoordinator._resetForTesting();
@@ -309,6 +318,8 @@ beforeEach(() => {
   landing.hung = false;
   landing.hangPromotion = false;
   landing.hookTimeout = false;
+  landing.mergeCheckTimeout = false;
+  landing.mergeChecks = 0;
   landing.conflict = false;
   repo = realpathSync(mkdtempSync(join(tmpdir(), 'plan-queue-coord-')));
   git(['init', '-q', '-b', 'main']);
@@ -1919,7 +1930,7 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     expect(await coordinator.setAsideAgents.clear(fresh.id)).toMatchObject({ cleared: 1, left: 0 });
     expect(events).toEqual([{ runId }]);
     expect(coordinator.getRunDto(runId)!.items[0]).toMatchObject({ branchName: null });
-    expect(coordinator.getRunDto(runId)!.items[0].detail).toContain('Discarded by the Set aside agent');
+    expect(coordinator.getRunDto(runId)!.items[0].discardedBy).toContain('the Set aside agent');
   });
 
   it('applies the Set aside agent limits on the control path, before anything changes and at no cost', async () => {
@@ -1936,6 +1947,35 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     await expect(coordinator.control({ action: 'resume-item', itemId }, agent.id)).rejects.toThrow('erase');
     expect(coordinator.getRunDto(runId)!.items[0]).toMatchObject({ state: 'parked', verdict: { verdict: 'PASS' } });
     expect((await coordinator.setAsideAgents.review(agent.id, 0)).restartsLeft).toBe(PLAN_QUEUE_SET_ASIDE_RESTART_LIMIT);
+  });
+
+  describe('a document with another merged attempt', () => {
+    async function withMergedAttempt(startedAfterParked: number) {
+      const parked = await parkedAtRoundLimit();
+      const item = coordinator.getItem(parked.itemId);
+      store.upsertRun({ ...coordinator.getRun(parked.runId), id: 'run-that-merged' });
+      store.upsertItem({ ...item, id: 'merged-attempt', runId: 'run-that-merged', state: 'landed', createdAt: item.createdAt + startedAfterParked });
+      return parked;
+    }
+
+    it.each(['resume-item', 'retry-landing'] as const)('refuses %s once a newer attempt has merged', async (action) => {
+      const { itemId } = await withMergedAttempt(1);
+      await expect(coordinator.control({ action, itemId })).rejects.toThrow('already merged');
+      expect(coordinator.getItem(itemId).state).toBe('parked');
+    });
+
+    it('still refuses after a routine save moves the job\'s last-updated time past the merge', async () => {
+      const { itemId } = await withMergedAttempt(1);
+      const item = coordinator.getItem(itemId);
+      store.upsertItem({ ...item, updatedAt: item.updatedAt + 1_000_000 });
+      await expect(coordinator.control({ action: 'resume-item', itemId })).rejects.toThrow('already merged');
+    });
+
+    it('lets a newer attempt continue after an older one merged', async () => {
+      const { itemId } = await withMergedAttempt(-1);
+      await coordinator.control({ action: 'resume-item', itemId });
+      expect(coordinator.getItem(itemId).state).not.toBe('parked');
+    });
   });
 
   it('the Set aside agent resumes a job through the normal path', async () => {
@@ -2102,8 +2142,22 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     await coordinator.control({ action: 'discard-item', itemId });
 
     expect(git(['branch', '--list', branch])).toBe('');
-    expect(coordinator.getRunDto(runId)!.items[0].detail).toContain('Discarded by James.');
+    expect(coordinator.getRunDto(runId)!.items[0]).toMatchObject({ discardedBy: 'James', branchName: null });
     await expect(coordinator.control({ action: 'skip-item', itemId })).rejects.toThrow(/has not started/);
+  });
+
+  it('brings discarded work back, and refuses a job that was never discarded', async () => {
+    const { runId, itemId, branch } = await parkedAtRoundLimit();
+    const tip = git(['rev-parse', branch]);
+    await expect(coordinator.control({ action: 'restore-discarded', itemId })).rejects.toThrow('Only a discarded job');
+
+    await coordinator.control({ action: 'discard-item', itemId });
+    expect(git(['branch', '--list', branch])).toBe('');
+    await coordinator.control({ action: 'restore-discarded', itemId });
+
+    expect(git(['rev-parse', branch])).toBe(tip);
+    expect(coordinator.getRunDto(runId)!.items[0]).toMatchObject({ state: 'parked', branchName: branch, discardedAt: null, discardedBy: null });
+    expect(git(['for-each-ref', 'refs/plan-queue/discarded/'])).toBe('');
   });
 
   it('lets another session cancel a run whose parent session is gone, and records who did it', async () => {
@@ -2157,8 +2211,8 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     await coordinator.control({ action: 'discard-item', itemId }, rescuer.id);
 
     expect(git(['branch', '--list', branch])).toBe('');
-    expect(coordinator.getRunDto(runId)!.items[0].detail).toContain(
-      `Discarded by session ${rescuer.id}, because the session that started the run (${parentId}) no longer exists.`,
+    expect(coordinator.getRunDto(runId)!.items[0].discardedBy).toContain(
+      `session ${rescuer.id}, because the session that started the run (${parentId}) no longer exists`,
     );
   });
 
@@ -2387,6 +2441,54 @@ describe('PlanQueueCoordinator — the landing commit runs the repository hooks'
     const worker = fake.created.find((i) => i.role === 'worker')!;
     expect(fake.inputs.filter((m) => m.instanceId === worker.id && m.message.includes('shared.txt'))).toHaveLength(3);
     expect(git(['log', '--format=%s', 'main'])).toBe('base');
+  });
+
+  it('keeps the pass and starts no worker when the check after merging runs out of time', async () => {
+    landing.mergeCheckTimeout = true;
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    const review = fake.scripts.verifier!;
+    fake.scripts.verifier = (instance, message, f) => {
+      // Main moves during review, so landing has to merge it and run the check after merging.
+      writeFileSync(join(repo, 'other.txt'), 'other\n');
+      git(['add', 'other.txt']);
+      git(['commit', '-q', '--no-verify', '-m', 'other work']);
+      return review(instance, message, f);
+    };
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForRun(run.id);
+
+    const item = coordinator.getRunDto(run.id)!.items[0];
+    expect(item).toMatchObject({ state: 'parked', parkReason: 'land-blocked', verdict: { verdict: 'PASS' } });
+    expect(item.detail).toContain('ran out of time');
+    expect(store.getItem(item.id)!.baseConflicts).toBe(0);
+    const workers = fake.created.filter((i) => i.role === 'worker');
+    expect(workers).toHaveLength(1);
+    expect(fake.inputs.filter((m) => m.instanceId === workers[0].id)).toHaveLength(0);
+
+    // Trying again finds main already merged, but the check on that merge never finished.
+    landing.mergeCheckTimeout = false;
+    await coordinator.control({ action: 'retry-landing', itemId: item.id });
+    await waitForRun(run.id);
+    expect(landing.mergeChecks).toBe(2);
+    expect(coordinator.getRunDto(run.id)!.items[0].state).toBe('landed');
+  });
+
+  it('never sends a timed-out check to a worker, and stops the job as hung after two', async () => {
+    machineGates.timeOutItem = true;
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans', config: { verifierGates: ['echo check'] } });
+    await waitForRun(run.id);
+
+    const item = coordinator.getRunDto(run.id)!.items[0];
+    expect(item).toMatchObject({ state: 'parked', parkReason: 'check-hung', round: 0, verdict: null });
+    const workers = fake.created.filter((i) => i.role === 'worker');
+    expect(workers).toHaveLength(1);
+    expect(fake.inputs.filter((m) => m.instanceId === workers[0].id)).toHaveLength(0);
+    expect(fake.created.filter((i) => i.role === 'verifier')).toHaveLength(0);
   });
 
   it('parks at once, with no worker round, when the hook runs out of time', async () => {

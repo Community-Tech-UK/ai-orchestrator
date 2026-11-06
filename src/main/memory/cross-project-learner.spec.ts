@@ -25,6 +25,7 @@ vi.mock('../rlm/embedding-service', () => ({
     getInstance: () => ({
       embed: mockEmbed,
       cosineSimilarity: mockCosineSimilarity,
+      similarityFloor: async (use: string) => (use === 'pattern-duplicate' ? 0.8 : 0.5),
     }),
   },
 }));

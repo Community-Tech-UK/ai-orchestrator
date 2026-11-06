@@ -126,8 +126,7 @@ export interface SkillManifestConfig {
   /**
    * Default similarity threshold for embedding-based matching.
    * Range: 0.0-1.0. Higher values require closer matches.
-   *
-   * @default 0.65
+   * Defaults to the active embedding model's `skill-match` floor.
    */
   similarityThreshold?: number;
 

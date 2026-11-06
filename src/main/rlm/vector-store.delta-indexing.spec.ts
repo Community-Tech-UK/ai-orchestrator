@@ -14,6 +14,8 @@ const embed = vi.fn(async (_text: string) => embeddingResult);
 
 vi.mock('./embedding-service', () => ({
   getEmbeddingService: () => ({
+    activeModelId: async () => 'test-embed',
+    similarityFloor: async () => 0.5,
     embed,
     embedBatch: async (texts: string[]) => Promise.all(texts.map((text) => embed(text))),
     findSimilar: vi.fn(() => []),
@@ -78,7 +80,7 @@ describe('durable semantic-vector delta indexing', () => {
     expect(contentRead).toHaveBeenCalledOnce();
     expect(contentRead.mock.calls[0]?.[0].id).toBe('section-new');
     expect(embed).toHaveBeenCalledOnce();
-    expect(embed).toHaveBeenCalledWith('new delta content');
+    expect(embed).toHaveBeenCalledWith('new delta content', 'document');
     expect(db.getVectorBySectionId('section-new')).not.toBeNull();
     expect(manager.getStoreHydrationState('store-1')).toMatchObject({
       metadata: 'deferred',

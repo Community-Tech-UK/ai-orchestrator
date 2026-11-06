@@ -1,5 +1,7 @@
 import type { WorkspaceHash } from './types';
 import type {
+  PruneAbandonedWorkspacesResult,
+  SpaceReleaseStep,
   VacuumFreelistOptions,
   VacuumFreelistResult,
   WorkspaceIndexStats,
@@ -12,9 +14,9 @@ export interface CodememPrunerStore {
 }
 
 export interface CodememMaintenanceStore extends CodememPrunerStore {
-  pruneUnreferencedChunks(): number;
+  pruneAbandonedWorkspaces(): PruneAbandonedWorkspacesResult;
+  releaseDeletedSpace(): SpaceReleaseStep;
   clearLegacyMerkleNodes(): number;
-  optimizeSearchIndex(): void;
   vacuumFreelistPages(options?: VacuumFreelistOptions): VacuumFreelistResult;
 }
 
@@ -34,8 +36,11 @@ export interface CodememPruneResult {
 }
 
 export interface CodememMaintenanceResult extends CodememPruneResult {
+  abandoned: PruneAbandonedWorkspacesResult;
   deletedOrphanChunks: number;
   deletedLegacyMerkleNodes: number;
+  /** False when more bounded steps are needed to finish giving space back. */
+  spaceReleaseFinished: boolean;
   vacuum: VacuumFreelistResult;
 }
 
@@ -80,16 +85,18 @@ export function runCodememMaintenance(
   options: CodememMaintenanceOptions,
 ): CodememMaintenanceResult {
   const pruneResult = pruneCodememWorkspaces(store, options);
-  const deletedOrphanChunks = store.pruneUnreferencedChunks();
+  const abandoned = store.pruneAbandonedWorkspaces();
+  const spaceRelease = store.releaseDeletedSpace();
   const deletedLegacyMerkleNodes = store.clearLegacyMerkleNodes();
-  store.optimizeSearchIndex();
   const vacuum = store.vacuumFreelistPages(
     options.vacuumTimeBudgetMs === undefined ? undefined : { timeBudgetMs: options.vacuumTimeBudgetMs },
   );
   return {
     ...pruneResult,
-    deletedOrphanChunks,
+    abandoned,
+    deletedOrphanChunks: spaceRelease.deletedChunks,
     deletedLegacyMerkleNodes,
+    spaceReleaseFinished: spaceRelease.finished,
     vacuum,
   };
 }

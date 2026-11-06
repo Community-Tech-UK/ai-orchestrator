@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PlanQueueHealth, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
+import type { PlanQueueHealth, PlanQueueItemDto, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
 import { PlanQueueIpcService, type PlanQueueStateChangedPush } from '../services/ipc/plan-queue-ipc.service';
 import { PlanQueueStore } from './plan-queue.store';
 
@@ -252,7 +252,7 @@ describe('PlanQueueStore', () => {
           makeRun({
             items: [
               makeItem({ id: 'item-parked', state: 'parked', parkReason: 'round-limit', branchName: 'queue/a-1' }),
-              makeItem({ id: 'item-discarded', state: 'parked', parkReason: 'round-limit', branchName: null, detail: 'Discarded by James.' }),
+              makeItem({ id: 'item-discarded', state: 'parked', parkReason: 'round-limit', branchName: null, discardedAt: 1 }),
               makeItem({ id: 'branchless', state: 'parked', parkReason: 'triage-failed' }),
               makeItem({ id: 'item-landed', state: 'landed' }),
             ],
@@ -388,6 +388,178 @@ describe('PlanQueueStore', () => {
     const result = await store.diffstat('item-1');
 
     expect(result).toBe('3 files changed');
+  });
+
+  describe('trying all merges again', () => {
+    const parked = (id: string) => ({ id, runId: 'run-1', documentPath: `${id}.md`, state: 'parked', updatedAt: 1 }) as PlanQueueItemDto;
+    const push = (items: PlanQueueItemDto[], status: PlanQueueRunDto['status'] = 'completed') =>
+      stateChangedCallback?.({ runId: 'run-1', run: makeRun({ id: 'run-1', items, status }) });
+    async function started(ids: string[]) {
+      const store = TestBed.inject(PlanQueueStore);
+      store.ensureWired();
+      await store.load();
+      push(ids.map(parked));
+      ipc.control.mockResolvedValue({ success: true });
+      const finished = store.retryLandings(ids);
+      await Promise.resolve(); await Promise.resolve();
+      return { store, finished };
+    }
+
+    it('waits for each merge to finish before sending the next', async () => {
+      const { store, finished } = await started(['a', 'b']);
+      expect(ipc.control).toHaveBeenCalledTimes(1);
+      expect(store.retryProgress()).toEqual({ done: 0, total: 2, stopping: false });
+      push([{ ...parked('a'), state: 'landing', updatedAt: 2 }, parked('b')]);
+      await Promise.resolve();
+      expect(ipc.control).toHaveBeenCalledTimes(1);
+      push([{ ...parked('a'), state: 'landed', updatedAt: 3 }, parked('b')]);
+      await new Promise(resolve => setTimeout(resolve));
+      expect(ipc.control.mock.calls.map(([payload]) => payload)).toEqual(['a', 'b'].map(itemId => ({ action: 'retry-landing', itemId })));
+      push([{ ...parked('a'), state: 'landed', updatedAt: 3 }, { ...parked('b'), state: 'landed', updatedAt: 3 }]);
+      await finished;
+      expect(store.retryProgress()).toBeNull();
+      expect(store.lastError()).toBeNull();
+    });
+
+    it('says how many merged when one is blocked again', async () => {
+      const { store, finished } = await started(['a']);
+      push([{ ...parked('a'), updatedAt: 2 }]);
+      await finished;
+      expect(store.lastError()).toBe('Merged 0 of 1. The rest have not merged; check Set aside and Runs.');
+    });
+
+    it('holds the next job while one is back with a worker', async () => {
+      const { finished } = await started(['a', 'b']);
+      push([{ ...parked('a'), state: 'fixing', updatedAt: 2 }, parked('b')]);
+      await new Promise(resolve => setTimeout(resolve));
+      expect(ipc.control).toHaveBeenCalledTimes(1);
+      push([{ ...parked('a'), updatedAt: 3 }, parked('b')]);
+      await new Promise(resolve => setTimeout(resolve));
+      expect(ipc.control).toHaveBeenCalledTimes(2);
+      push([{ ...parked('a'), updatedAt: 3 }, { ...parked('b'), updatedAt: 3 }]);
+      await finished;
+    });
+
+    it('lets a merge under way finish after Stop, counts it, and sends no more', async () => {
+      const { store, finished } = await started(['a', 'b']);
+      push([{ ...parked('a'), state: 'landing', updatedAt: 2 }, parked('b')]);
+      store.stopRetrying();
+      await Promise.resolve();
+      expect(store.retryProgress()).toEqual({ done: 0, total: 2, stopping: true });
+      push([{ ...parked('a'), state: 'landed', updatedAt: 3 }, parked('b')]);
+      await finished;
+      expect(ipc.control).toHaveBeenCalledTimes(1);
+      expect(store.lastError()).toBe('Stopped after merging 1 of 2.');
+    });
+
+    it('lets a second Stop end the wait on a merge that never reports back', async () => {
+      const { store, finished } = await started(['a', 'b']);
+      push([{ ...parked('a'), state: 'landing', updatedAt: 2 }, parked('b')]);
+      store.stopRetrying();
+      store.stopRetrying();
+      await finished;
+      expect(store.retryProgress()).toBeNull();
+      expect(ipc.control).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps waiting if a job drops out of the loaded list', async () => {
+      const { store, finished } = await started(['a']);
+      push([{ ...parked('a'), state: 'landing', updatedAt: 2 }]);
+      stateChangedCallback?.({ runId: 'run-1', run: makeRun({ id: 'run-1', items: [] }) });
+      await new Promise(resolve => setTimeout(resolve));
+      expect(store.retryProgress()).not.toBeNull();
+      store.stopRetrying();
+      await finished;
+    });
+
+    it('skips a job whose document got a new attempt after the preview', async () => {
+      const { finished } = await started(['a', 'b']);
+      const rival = { ...parked('rival'), documentPath: 'b.md', state: 'working' } as PlanQueueItemDto;
+      push([{ ...parked('a'), state: 'landed', updatedAt: 2 }, parked('b'), rival], 'running');
+      await finished;
+      expect(ipc.control).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not wait on a worker once stopped', async () => {
+      const { store, finished } = await started(['a', 'b']);
+      push([{ ...parked('a'), state: 'fixing', updatedAt: 2 }, parked('b')]);
+      store.stopRetrying();
+      await finished;
+      expect(ipc.control).toHaveBeenCalledTimes(1);
+      expect(store.retryProgress()).toBeNull();
+    });
+
+    it.each(['awaiting-slot', 'queued'] as const)('moves past a paused run, sending nothing more to it, when a job sits in %s', async (state) => {
+      const { finished } = await started(['a', 'b']);
+      push([{ ...parked('a'), state, updatedAt: 2 }, parked('b')], 'paused');
+      await finished;
+      expect(ipc.control).toHaveBeenCalledTimes(1);
+    });
+
+    it('carries on through a worker fix, its check and its merge before the next job', async () => {
+      const { store, finished } = await started(['a', 'b']);
+      for (const state of ['fixing', 'awaiting-slot', 'verifying', 'landing'] as const) {
+        push([{ ...parked('a'), state, updatedAt: 2 }, parked('b')]);
+        await new Promise(resolve => setTimeout(resolve));
+        expect(ipc.control).toHaveBeenCalledTimes(1);
+      }
+      push([{ ...parked('a'), state: 'landed', updatedAt: 3 }, parked('b')]);
+      await new Promise(resolve => setTimeout(resolve));
+      expect(ipc.control).toHaveBeenCalledTimes(2);
+      push([{ ...parked('a'), state: 'landed', updatedAt: 3 }, { ...parked('b'), state: 'landed', updatedAt: 3 }]);
+      await finished;
+      expect(store.lastError()).toBeNull();
+    });
+
+    it('skips a job discarded while the batch ran', async () => {
+      const { finished } = await started(['a', 'b']);
+      push([{ ...parked('a'), state: 'landed', updatedAt: 2 }, { ...parked('b'), discardedAt: 5 } as PlanQueueItemDto]);
+      await finished;
+      expect(ipc.control).toHaveBeenCalledTimes(1);
+    });
+
+    it('skips a job that was started by hand while the batch ran', async () => {
+      const { finished } = await started(['a', 'b']);
+      push([{ ...parked('a'), state: 'landed', updatedAt: 2 }, { ...parked('b'), state: 'landing', updatedAt: 2 }]);
+      await finished;
+      expect(ipc.control).toHaveBeenCalledTimes(1);
+    });
+
+    it('carries on past a refused job and reports why', async () => {
+      const store = TestBed.inject(PlanQueueStore);
+      ipc.control.mockResolvedValue({ success: false, error: { message: 'already merged' } });
+      await store.retryLandings(['a', 'b']);
+      expect(ipc.control).toHaveBeenCalledTimes(2);
+      expect(store.lastError()).toContain('already merged');
+    });
+  });
+
+  it('keeps a failed job visible when later jobs in a bulk Resume succeed', async () => {
+    ipc.control.mockResolvedValueOnce({ success: true }).mockResolvedValueOnce({ success: false, error: { message: 'already merged' } })
+      .mockRejectedValueOnce(new Error('channel closed')).mockResolvedValueOnce({ success: true });
+    const store = TestBed.inject(PlanQueueStore);
+
+    await store.resumeItems(['a', 'b', 'c', 'd']);
+
+    expect(ipc.control.mock.calls.map(([payload]) => payload)).toEqual(['a', 'b', 'c', 'd'].map(itemId => ({ action: 'resume-item', itemId })));
+    expect(store.lastError()).toBe('2 of 4 could not be resumed. already merged');
+  });
+
+  it('clears the error when every job in a bulk Resume succeeds', async () => {
+    ipc.control.mockResolvedValue({ success: true });
+    const store = TestBed.inject(PlanQueueStore);
+
+    await store.resumeItems(['a']);
+
+    expect(store.lastError()).toBeNull();
+  });
+
+  it('reports a diffstat call that throws instead of leaving its caller waiting', async () => {
+    ipc.diffstat.mockRejectedValue(new Error('channel closed'));
+    const store = TestBed.inject(PlanQueueStore);
+
+    await expect(store.diffstat('item-1')).resolves.toBe('');
+    expect(store.lastError()).toBe('channel closed');
   });
 
   it('returns an empty string and records an error when the diffstat call fails', async () => {

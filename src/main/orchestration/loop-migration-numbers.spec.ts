@@ -14,8 +14,11 @@ describe('loop migration numbering', () => {
     expect(LOOP_MIGRATIONS[LOOP_MIGRATIONS.length - 1].version).toBe(LOOP_SCHEMA_VERSION);
   });
 
-  it('holds the programme numbers above every number already used', () => {
-    for (const entry of PLAN_QUEUE_RESERVED_MIGRATIONS) expect(entry.version).toBeGreaterThan(LOOP_SCHEMA_VERSION);
+  it('keeps every programme number free until the migration it is held for lands', () => {
+    // A held number may sit below a higher one that landed first, so it is not compared with the newest
+    // version; it only has to stay unused by anything else.
+    const used = new Map(LOOP_MIGRATIONS.map(({ version, name }) => [version, name]));
+    for (const entry of PLAN_QUEUE_RESERVED_MIGRATIONS) expect([undefined, entry.name]).toContain(used.get(entry.version));
   });
 
   it('records exactly the versions in the array as receipts on a fresh database', () => {

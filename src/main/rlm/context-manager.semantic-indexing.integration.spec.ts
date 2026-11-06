@@ -25,6 +25,8 @@ const embed = vi.fn(async (text: string) => ({
 
 vi.mock('./embedding-service', () => ({
   getEmbeddingService: () => ({
+    activeModelId: async () => 'test-embed',
+    similarityFloor: async () => 0.5,
     embed,
     embedBatch: async (texts: string[]) => Promise.all(texts.map((t) => embed(t))),
     findSimilar: (
@@ -216,6 +218,7 @@ describe('RLMContextManager — LT-055 lazy semantic-search indexing', () => {
       sectionId: 'restart-section',
       embedding: new Float32Array([1, 2, 3]),
       contentPreview: 'durable semantic checkpoint',
+      metadata: { model: 'test-embed' },
     });
     db.createSession({
       id: 'restart-session',
@@ -239,7 +242,7 @@ describe('RLMContextManager — LT-055 lazy semantic-search indexing', () => {
     expect(contentRead).not.toHaveBeenCalled();
     expect(sectionEmbedding).not.toHaveBeenCalled();
     expect(embed).toHaveBeenCalledOnce();
-    expect(embed).toHaveBeenCalledWith('semantic checkpoint');
+    expect(embed).toHaveBeenCalledWith('semantic checkpoint', 'query');
     expect(result.sectionsAccessed).toEqual(['restart-section']);
     expect(result.result).toContain('restart-note');
     expect(manager.getStoreHydrationState('restart-store')).toMatchObject({
@@ -262,6 +265,7 @@ describe('RLMContextManager — LT-055 lazy semantic-search indexing', () => {
       sectionId: 'hyde-restart-section',
       embedding: new Float32Array([1, 2, 3]),
       contentPreview: 'durable hyde checkpoint',
+      metadata: { model: 'test-embed' },
     });
     db.createSession({
       id: 'hyde-restart-session',
@@ -274,6 +278,7 @@ describe('RLMContextManager — LT-055 lazy semantic-search indexing', () => {
     manager = RLMContextManager.getInstance();
     const hydeEmbed = vi.fn(async (query: string) => ({
       embedding: [1, 2, 3],
+      model: 'test-embed',
       hypotheticalDocuments: ['hypothetical durable checkpoint'],
       hydeUsed: true,
       generationTimeMs: 1,

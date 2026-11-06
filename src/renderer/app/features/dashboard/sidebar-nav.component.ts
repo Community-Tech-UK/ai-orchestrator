@@ -16,11 +16,12 @@ import { SettingsStore } from '../../core/state/settings.store';
 import { AutomationStore } from '../../core/state/automation.store';
 import { DocReviewStore } from '../doc-review/doc-review.store';
 import { listDashboardNavGroups } from '../../shared/control-surface/control-surface-nav';
+import { ControlSurfaceIconPipe } from '../../shared/control-surface/control-surface-icon.pipe';
 
 @Component({
   selector: 'app-sidebar-nav',
   standalone: true,
-  imports: [RouterLink, RouterLinkActive],
+  imports: [RouterLink, RouterLinkActive, ControlSurfaceIconPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="sidebar-nav" [class.expanded]="expanded()">
@@ -48,7 +49,7 @@ import { listDashboardNavGroups } from '../../shared/control-surface/control-sur
                   routerLinkActive="active">
                   <svg class="nav-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                    [innerHTML]="item.icon">
+                    [innerHTML]="item.icon | controlSurfaceIcon">
                   </svg>
                   <span class="nav-label">{{ item.label }}</span>
                   @if (item.id === 'automations' && unreadAutomations() > 0) {

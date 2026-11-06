@@ -44,6 +44,7 @@ export interface SearchWorkspaceChunksMsg {
   workspacePath: string;
   query: string;
   limit: number;
+  strongMatchOnly: boolean;
 }
 
 export interface GetStatsMsg {
@@ -136,8 +137,14 @@ export interface CodeIndexStatusSnapshot {
 export interface CodememMaintenanceSnapshot {
   deletedWorkspaceHashes: string[];
   retainedWorkspaceHashes: string[];
+  abandoned: {
+    deletedWorkspaces: number;
+    deletedChunks: number;
+    remainingWorkspaces: number;
+  };
   deletedOrphanChunks: number;
   deletedLegacyMerkleNodes: number;
+  spaceReleaseFinished: boolean;
   vacuum: {
     freedPages: number;
     remainingFreePages: number;

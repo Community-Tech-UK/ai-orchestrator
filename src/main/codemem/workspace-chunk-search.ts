@@ -1,16 +1,30 @@
 /**
  * Shared, electron-free workspace chunk search.
  *
- * Runs the BM25 FTS query plus the per-hit chunk hydration against a CasStore.
- * Lives in its own module (importing only `path` + the CasStore type) so it can
- * run BOTH inside the codemem index worker — which solely owns codemem.sqlite —
- * and, as a degraded fallback, on the main thread when no worker is available.
- * Keeping it worker-safe is why it must not pull in anything that top-level
- * imports `electron`.
+ * Runs the BM25 FTS query, hydrates the candidates, and reranks them. Lives in
+ * its own module (importing only `path` + the CasStore type) so it can run BOTH
+ * inside the codemem index worker — which solely owns codemem.sqlite — and, as a
+ * degraded fallback, on the main thread when no worker is available. Keeping it
+ * worker-safe is why it must not pull in anything that top-level imports
+ * `electron`.
  */
 
 import * as path from 'node:path';
 import type { CasStore } from './cas-store';
+import {
+  canMatchStrongly,
+  chunkRankingText,
+  countMatchedTerms,
+  extractSearchTerms,
+  fileKindWeight,
+  isStrongMatch,
+} from './code-search-query';
+
+/**
+ * Any-word matching casts a wide net, so rank a pool much larger than the
+ * result count: the best chunk for a query is often not the best by BM25 alone.
+ */
+const CANDIDATE_POOL_SIZE = 100;
 
 export interface CodeRetrievalResult {
   workspacePath: string;
@@ -33,8 +47,13 @@ export interface WorkspaceChunkSearchResponse {
   results: CodeRetrievalResult[];
 }
 
+export interface WorkspaceChunkSearchOptions {
+  /** Keep only chunks relevant enough to add to a prompt unasked. */
+  strongMatchOnly?: boolean;
+}
+
 /**
- * Resolve the workspace, run the FTS query, and hydrate each hit's chunk text.
+ * Resolve the workspace, run the FTS query, and hydrate and rank the hits.
  * Returns `indexed: false` (and no results) when the workspace isn't indexed yet
  * so the caller can trigger a background warm and fall back to ripgrep.
  */
@@ -43,34 +62,50 @@ export function searchHydratedChunks(
   workspacePath: string,
   query: string,
   limit: number,
+  options: WorkspaceChunkSearchOptions = {},
 ): WorkspaceChunkSearchResponse {
   const workspaceRoot = store.getWorkspaceRootByPath(workspacePath);
   if (!workspaceRoot) {
     return { indexed: false, results: [] };
   }
 
-  const hits = store.searchWorkspaceChunks(workspaceRoot.workspaceHash, query, limit * 2);
+  const terms = extractSearchTerms(query);
+  if (options.strongMatchOnly && !canMatchStrongly(terms)) {
+    return { indexed: true, results: [] };
+  }
+
+  const hits = store.searchWorkspaceChunks(workspaceRoot.workspaceHash, query, CANDIDATE_POOL_SIZE);
   const chunksByHash = store.getChunks(hits.map((hit) => hit.contentHash));
-  const results: CodeRetrievalResult[] = [];
+  const ranked: { rank: number; result: CodeRetrievalResult }[] = [];
   for (const hit of hits) {
     const chunk = chunksByHash.get(hit.contentHash);
     if (!chunk) continue;
-    results.push({
-      workspacePath,
-      relativePath: hit.pathFromRoot,
-      absolutePath: path.join(workspacePath, hit.pathFromRoot),
-      content: chunk.rawText,
-      startLine: hit.startLine,
-      endLine: hit.endLine,
-      score: hit.score,
-      source: 'fts',
-      language: hit.language,
-      symbolName: hit.name || null,
-      stale: false,
+
+    // FTS already matched at least one word, even where stemming hides it here.
+    const matchedTerms = Math.max(
+      1,
+      countMatchedTerms(terms, chunkRankingText(hit.pathFromRoot, hit.name, chunk.rawText)),
+    );
+    if (options.strongMatchOnly && !isStrongMatch(terms, matchedTerms, hit.name)) continue;
+
+    ranked.push({
+      rank: Math.abs(hit.score) * fileKindWeight(hit.pathFromRoot) * (matchedTerms / Math.max(1, terms.length)),
+      result: {
+        workspacePath,
+        relativePath: hit.pathFromRoot,
+        absolutePath: path.join(workspacePath, hit.pathFromRoot),
+        content: chunk.rawText,
+        startLine: hit.startLine,
+        endLine: hit.endLine,
+        score: hit.score,
+        source: 'fts',
+        language: hit.language,
+        symbolName: hit.name || null,
+        stale: false,
+      },
     });
-    if (results.length >= limit) {
-      break;
-    }
   }
-  return { indexed: true, results };
+
+  ranked.sort((left, right) => right.rank - left.rank);
+  return { indexed: true, results: ranked.slice(0, limit).map((entry) => entry.result) };
 }

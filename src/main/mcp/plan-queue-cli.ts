@@ -22,7 +22,7 @@ const StatusSchema = z.object({
     kind: z.string(),
     status: z.enum(['running', 'paused', 'completed', 'cancelled']),
     workspace: z.string(),
-    items: z.array(z.object({ state: z.string(), branch: z.string().optional(), detail: z.string().optional() })),
+    items: z.array(z.object({ state: z.string(), discardedAt: z.number().optional() })),
   })),
 });
 
@@ -42,7 +42,7 @@ export async function runPlanQueueCli(argv: readonly string[], deps: {
     if (args.some(arg => arg !== '--all')) throw new Error('The list options are --all and --json.');
     const self = (deps.env ?? process.env)['AI_ORCHESTRATOR_INSTANCE_ID'];
     const movable = StatusSchema.parse(await client().call(STATUS_METHOD, {})).runs.flatMap(run => {
-      const items = run.items.map(item => ({ state: item.state, branchName: item.branch ?? null, worktreePath: null, detail: item.detail ?? null }));
+      const { items } = run;
       if (!planQueueRunCanMove({ status: run.status, items })) return [];
       return [{ runId: run.runId, kind: run.kind, status: run.status, workspace: run.workspace, documents: run.items.length,
         setAside: items.filter(item => item.state === 'parked' && !planQueueIsDiscarded(item)).length,

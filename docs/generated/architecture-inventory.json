@@ -6161,7 +6161,7 @@
     },
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 3993
+      "lines": 3994
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-mempalace-knowledge-features_completed.md",
@@ -6196,12 +6196,12 @@
       "lines": 3440
     },
     {
-      "path": "docs/superpowers/plans/2026-04-28-wave3-workflow-resume-history-recovery-plan_completed.md",
-      "lines": 3408
+      "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
+      "lines": 3436
     },
     {
-      "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
-      "lines": 3334
+      "path": "docs/superpowers/plans/2026-04-28-wave3-workflow-resume-history-recovery-plan_completed.md",
+      "lines": 3408
     },
     {
       "path": "docs/plans/2026-10-10-oct-phase0-confirmed-fixes_plan_completed.md",
@@ -6644,12 +6644,12 @@
       "lines": 1296
     },
     {
-      "path": "src/main/instance/instance-context.ts",
-      "lines": 1294
-    },
-    {
       "path": "src/main/automations/automation-runner.spec.ts",
       "lines": 1293
+    },
+    {
+      "path": "src/main/instance/instance-context.ts",
+      "lines": 1291
     },
     {
       "path": "src/main/storage/scratch-sweep.ts",
@@ -7180,6 +7180,10 @@
       "lines": 924
     },
     {
+      "path": "src/main/memory/skills-loader.spec.ts",
+      "lines": 919
+    },
+    {
       "path": "src/main/automations/automation-store.ts",
       "lines": 913
     },
@@ -7244,15 +7248,11 @@
       "lines": 886
     },
     {
-      "path": "src/main/memory/skills-loader.spec.ts",
+      "path": "src/main/rlm/context-persistence-loader.integration.spec.ts",
       "lines": 883
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.normalized-event.spec.ts",
-      "lines": 879
-    },
-    {
-      "path": "src/main/rlm/context-persistence-loader.integration.spec.ts",
       "lines": 879
     },
     {
@@ -7416,6 +7416,10 @@
       "lines": 833
     },
     {
+      "path": "src/main/plan-queue/plan-queue-coordinator.ts",
+      "lines": 831
+    },
+    {
       "path": "docs/AIO_MCP_CLI.md",
       "lines": 829
     },
@@ -7433,10 +7437,6 @@
     },
     {
       "path": "docs/superpowers/plans/2026-07-13-codex-context-pressure-observability-discovery-plan_livetest_completed.md",
-      "lines": 822
-    },
-    {
-      "path": "src/main/plan-queue/plan-queue-coordinator.ts",
       "lines": 822
     },
     {

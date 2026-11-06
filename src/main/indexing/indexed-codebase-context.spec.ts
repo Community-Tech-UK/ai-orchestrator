@@ -102,6 +102,7 @@ describe('IndexedCodebaseContextService', () => {
       workspacePath: REPO_PATH,
       query: 'where is auth middleware handled?',
       limit: 3,
+      strongMatchOnly: true,
     }));
     expect(context?.storeId).toBe('ctx-codebase');
     expect(context?.results[0]?.relativePath).toBe('src/auth.ts');

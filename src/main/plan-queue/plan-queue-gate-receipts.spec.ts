@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createServer, type AddressInfo, type Socket } from 'node:net';
-import { blockingGateReceipts, classifyGateEvidence, GATE_TIMEOUT_MS, PlanQueueGateRunner } from './plan-queue-gate-receipts';
+import { blockingGateReceipts, classifyGateEvidence, GATE_TIMEOUT_MS, onlyTimedOut, PlanQueueGateRunner } from './plan-queue-gate-receipts';
 import { runInProcessGroup } from './plan-queue-process';
 import { gitExec } from '../workspace/git/git-exec';
 
@@ -204,6 +204,61 @@ describe('Harness queue gate receipts', () => {
     expect(execute).toHaveBeenCalledTimes(6);
     await runner.run({ ...input, commands: ['good'] });
     expect(execute).toHaveBeenCalledTimes(7);
+  });
+
+  it('gives a real check a fixed test worker count, because a busy start would otherwise leave it on one', async () => {
+    const runner = new PlanQueueGateRunner(undefined, fakeTree);
+    const [receipt] = await runner.run({ cwd: process.cwd(), head: 'h', commands: ['echo "forks=$AIO_TEST_MAX_FORKS"'] });
+    expect(receipt.tail).toContain('forks=8');
+  });
+
+  it('runs a timed-out check again instead of replaying it against the same code', async () => {
+    const execute = vi.fn(async () => ({ exitCode: 1, timedOut: true, output: '' }));
+    const runner = fakeRunner(execute);
+    const input = { cwd: '/item', head: 'h', commands: ['check'] };
+    await runner.run(input);
+    expect(runner.cached(input)).toBeUndefined();
+    await runner.run(input);
+    expect(execute).toHaveBeenCalledTimes(2);
+  });
+
+  it('skips the run on the base when only timeouts failed, because it could not change the answer', async () => {
+    const usedBase = vi.fn();
+    const withBaseline = async <T>(action: (cwd: string) => Promise<T>) => { usedBase(); return action('/baseline'); };
+    const runner = fakeRunner(async () => ({ exitCode: 1, timedOut: true, output: '' }));
+    await runner.run({ cwd: '/item', head: 'h', commands: ['check'], baseSha: 'base', withBaseline });
+    expect(usedBase).not.toHaveBeenCalled();
+  });
+
+  it('stops the checklist at a timeout, so a hang holds the turn once and not once per command', async () => {
+    const execute = vi.fn(async () => ({ exitCode: 1, timedOut: true, output: '' }));
+    const receipts = await fakeRunner(execute).run({ cwd: '/item', head: 'h', commands: ['first', 'second', 'third'] });
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(receipts).toHaveLength(1);
+  });
+
+  it('never keeps a timed-out run on the base, which would hide a failure main really has', async () => {
+    let baseRuns = 0;
+    const execute = vi.fn(async (_command: string, cwd: string) => {
+      if (cwd !== '/baseline') return { exitCode: 1, output: 'src/a.ts(1,1): error TS2322: Existing failure' };
+      baseRuns += 1;
+      return baseRuns === 1 ? { exitCode: 1, timedOut: true, output: '' } : { exitCode: 1, output: 'src/a.ts(1,1): error TS2322: Existing failure' };
+    });
+    const runner = fakeRunner(execute);
+    const input = (head: string) => ({ cwd: '/item', head, commands: ['check'], baseSha: 'base', scope: '/repo',
+      withBaseline: <T>(action: (cwd: string) => Promise<T>) => action('/baseline') });
+    expect((await runner.run(input('first')))[0].baseline).toBe('new');
+    expect((await runner.run(input('second')))[0].baseline).toBe('also-failing-on-base');
+  });
+
+  it('still compares with the base when a real failure sits beside a timeout', async () => {
+    const usedBase = vi.fn();
+    const withBaseline = async <T>(action: (cwd: string) => Promise<T>) => { usedBase(); return action('/baseline'); };
+    const runner = fakeRunner(async (command, cwd) => cwd === '/baseline' ? { exitCode: 0, output: '' } : command === 'slow'
+      ? { exitCode: 1, timedOut: true, output: '' } : { exitCode: 1, output: 'src/a.ts(1,1): error TS2322: Failure' });
+    const receipts = await runner.run({ cwd: '/item', head: 'h', commands: ['bad', 'slow'], baseSha: 'base', withBaseline });
+    expect(usedBase).toHaveBeenCalledTimes(1);
+    expect(onlyTimedOut(receipts)).toBe(false);
   });
 
   it('retains timeout separately from output and limits receipt tails', async () => {

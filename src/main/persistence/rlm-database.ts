@@ -457,30 +457,24 @@ export class RLMDatabase extends EventEmitter {
   // Vector Operations (delegated)
   // ============================================
 
-  addVector(vector: {
-    id: string;
-    storeId: string;
-    sectionId: string;
-    embedding: vectors.EmbeddingVector;
-    contentPreview?: string;
-    metadata?: Record<string, unknown>;
-  }): void {
+  addVector(vector: vectors.NewVector): void {
     vectors.addVector(this.db, vector);
   }
 
-  addVectorForExistingSection(vector: {
-    id: string;
-    storeId: string;
-    sectionId: string;
-    embedding: vectors.EmbeddingVector;
-    contentPreview?: string;
-    metadata?: Record<string, unknown>;
-  }): boolean {
+  addVectorForExistingSection(vector: vectors.NewVector): boolean {
     return vectors.addVectorForExistingSection(this.db, vector);
   }
 
-  getVectors(storeId: string): VectorRow[] {
-    return vectors.getVectors(this.db, storeId);
+  getVectors(storeId: string, model: string): VectorRow[] {
+    return vectors.getVectors(this.db, storeId, model);
+  }
+
+  listStaleVectors(storeId: string, model: string, limit: number): VectorRow[] {
+    return vectors.listStaleVectors(this.db, storeId, model, limit);
+  }
+
+  deleteStoreVectors(storeId: string): void {
+    vectors.deleteStoreVectors(this.db, storeId);
   }
 
   getVectorBySectionId(sectionId: string): VectorRow | null {

@@ -51,8 +51,8 @@ describe('PlanQueueParkedListComponent', () => {
 
   it('offers one Sort out button per folder, biggest first, and says what it does', () => {
     fixture.componentRef.setInput('runs', [
-      { id: 'run-1', workspaceCwd: '/work/small', config: {} },
-      { id: 'run-2', workspaceCwd: '/work/big', config: {} },
+      { id: 'run-1', workspaceCwd: '/work/small', config: {}, items: [] },
+      { id: 'run-2', workspaceCwd: '/work/big', config: {}, items: [] },
     ]);
     fixture.componentRef.setInput('items', [
       makeItem({ id: 'a', runId: 'run-1' }),
@@ -100,7 +100,340 @@ describe('PlanQueueParkedListComponent', () => {
     fixture.detectChanges();
     expect(Array.from(fixture.nativeElement.querySelectorAll('h3'), (node: Element) => node.textContent)
       .filter(text => text === 'Ready to review and merge')).toHaveLength(1);
+    const toggles = fixture.nativeElement.querySelectorAll('.pq-parked-section-toggle') as NodeListOf<HTMLButtonElement>;
+    expect(toggles[0].textContent).toContain('Ready to review and merge');
+    toggles[1].click(); fixture.detectChanges();
     expect(Array.from(fixture.nativeElement.querySelectorAll('.pq-parked-doc'), (node: Element) => node.textContent).at(-1)).toBe('other.md');
+  });
+
+  it('explains a reason once for the whole section, not on every job', () => {
+    fixture.componentRef.setInput('items', [makeItem({ id: 'a', documentPath: 'a.md' }), makeItem({ id: 'b', documentPath: 'b.md' })]);
+    fixture.detectChanges();
+    const text = fixture.nativeElement.textContent as string;
+    expect(text.split('Ran out of all the rounds')).toHaveLength(2);
+    expect(fixture.nativeElement.querySelectorAll('.pq-parked-item')).toHaveLength(2);
+  });
+
+  it('keeps closed sections out of the page and fetches no diffstats for them', () => {
+    fixture.componentRef.setInput('items', [makeItem({ id: 'big-1', documentPath: 'a.md' }), makeItem({ id: 'big-2', documentPath: 'b.md' }),
+      makeItem({ id: 'small', documentPath: 'c.md', parkReason: 'worker-error' })]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.pq-parked-item')).toHaveLength(2);
+    expect(store.diffstat.mock.calls.map(([id]) => id).sort()).toEqual(['big-1', 'big-2']);
+    (fixture.nativeElement.querySelectorAll('.pq-parked-section-toggle')[1] as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.pq-parked-item')).toHaveLength(3);
+    expect(store.diffstat).toHaveBeenCalledWith('small');
+  });
+
+  it('shows a long section a page at a time', () => {
+    fixture.componentRef.setInput('items', Array.from({ length: 30 }, (_, index) => makeItem({ id: `i${index}`, documentPath: `d${index}.md` })));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.pq-parked-item')).toHaveLength(25);
+    const more = fixture.nativeElement.querySelector('.pq-parked-more') as HTMLButtonElement;
+    expect(more.textContent).toContain('5 left');
+    more.click(); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.pq-parked-item')).toHaveLength(30);
+    expect(fixture.nativeElement.querySelector('.pq-parked-more')).toBeNull();
+  });
+
+  it('runs only a few git checks at once and works through the rest', async () => {
+    const replies: ((value: string) => void)[] = [];
+    store.diffstat.mockImplementation(() => new Promise<string>((resolve) => replies.push(resolve)));
+    fixture.componentRef.setInput('items', Array.from({ length: 6 }, (_, index) => makeItem({ id: `i${index}`, documentPath: `d${index}.md` })));
+    fixture.detectChanges();
+    expect(store.diffstat).toHaveBeenCalledTimes(4);
+    replies.shift()!('1 file changed');
+    await Promise.resolve(); await Promise.resolve();
+    expect(store.diffstat).toHaveBeenCalledTimes(5);
+  });
+
+  it('never shows a loading diff for a job with no branch', () => {
+    fixture.componentRef.setInput('items', [makeItem({ branchName: null })]);
+    fixture.detectChanges();
+    expect(store.diffstat).not.toHaveBeenCalled();
+    expect(fixture.nativeElement.textContent).not.toContain('Loading diff');
+  });
+
+  it('searches documents, branches and projects, opening each section with a match', () => {
+    fixture.componentRef.setInput('runs', [{ id: 'run-1', workspaceCwd: '/work/alpha', config: {}, items: [] }, { id: 'run-2', workspaceCwd: '/work/beta', config: {}, items: [] }]);
+    fixture.componentRef.setInput('items', [makeItem({ id: 'a', documentPath: 'one.md' }), makeItem({ id: 'b', documentPath: 'two.md' }),
+      makeItem({ id: 'c', runId: 'run-2', documentPath: 'three.md', parkReason: 'worker-error', branchName: 'queue/three' })]);
+    fixture.detectChanges();
+    const search = (value: string) => {
+      const input = fixture.nativeElement.querySelector('.pq-parked-search') as HTMLInputElement;
+      input.value = value; input.dispatchEvent(new Event('input')); fixture.detectChanges();
+      return Array.from(fixture.nativeElement.querySelectorAll('.pq-parked-doc'), (node: Element) => node.textContent);
+    };
+    expect(search('three')).toEqual(['three.md']);
+    expect(search('BETA')).toEqual(['three.md']);
+    expect(search('queue/three')).toEqual(['three.md']);
+    expect(search('nothing-here')).toEqual([]);
+    expect(fixture.nativeElement.textContent).toContain('No set-aside work matches “nothing-here”');
+  });
+
+  it('previews only the section it was opened from', () => {
+    fixture.componentRef.setInput('items', [makeItem({ id: 'a', documentPath: 'a.md' }), makeItem({ id: 'b', documentPath: 'b.md' }),
+      makeItem({ id: 'c', documentPath: 'c.md', parkReason: 'worker-error' })]);
+    fixture.detectChanges();
+    const emitted: string[] = [];
+    fixture.componentInstance.resumeItems.subscribe(ids => emitted.push(...ids));
+    (fixture.nativeElement.querySelectorAll('.pq-bulk-resume')[1] as HTMLButtonElement).click(); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.pq-bulk-preview').textContent).toContain('Will change (1)');
+    fixture.nativeElement.querySelector('.pq-bulk-confirm').click();
+    expect(emitted).toEqual(['c']);
+  });
+
+  it('resumes exactly the reviewed list, even if a refresh changes the section meanwhile', () => {
+    const first = makeItem({ id: 'a', documentPath: 'a.md' });
+    fixture.componentRef.setInput('items', [first, makeItem({ id: 'b', documentPath: 'b.md' })]);
+    fixture.detectChanges();
+    fixture.nativeElement.querySelector('.pq-bulk-resume').click(); fixture.detectChanges();
+    fixture.componentRef.setInput('items', [first, makeItem({ id: 'c', documentPath: 'c.md' })]);
+    fixture.detectChanges();
+    const emitted: string[] = [];
+    fixture.componentInstance.resumeItems.subscribe(ids => emitted.push(...ids));
+    expect(fixture.nativeElement.querySelector('.pq-bulk-preview').textContent).toContain('Will change (1)');
+    fixture.nativeElement.querySelector('.pq-bulk-confirm').click();
+    expect(emitted).toEqual(['a']);
+  });
+
+  it('keeps a job whose document has since merged out of a bulk preview', () => {
+    const merged = makeItem({ id: 'merged', runId: 'run-2', documentPath: 'a.md', state: 'landed', createdAt: 9 });
+    fixture.componentRef.setInput('runs', [{ id: 'run-1', workspaceCwd: '/w', config: {}, items: [] }, { id: 'run-2', workspaceCwd: '/w', config: {}, items: [merged] }]);
+    fixture.componentRef.setInput('items', [makeItem({ id: 'a', documentPath: 'a.md' }), makeItem({ id: 'b', documentPath: 'b.md' })]);
+    fixture.detectChanges();
+    fixture.nativeElement.querySelector('.pq-bulk-resume').click(); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.pq-bulk-preview').textContent).not.toContain('a.md');
+    expect(fixture.nativeElement.querySelector('.pq-bulk-confirm').textContent).toContain('Resume 1 job');
+  });
+
+  it('keeps the open section open when a refresh moves another section above it', () => {
+    const verdict = { verdict: 'PASS' as const, findings: [], gatesRun: [], documentComplete: true, needJames: [] };
+    const reading = makeItem({ id: 'a', documentPath: 'a.md' });
+    fixture.componentRef.setInput('items', [reading]);
+    fixture.detectChanges();
+    fixture.componentRef.setInput('items', [reading, makeItem({ id: 'ready', documentPath: 'b.md', parkReason: 'land-blocked', verdict })]);
+    fixture.detectChanges();
+    const toggles = fixture.nativeElement.querySelectorAll('.pq-parked-section-toggle') as NodeListOf<HTMLButtonElement>;
+    expect(toggles[0].textContent).toContain('Ready to review and merge');
+    expect(toggles[0].getAttribute('aria-expanded')).toBe('false');
+    expect(toggles[1].getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('keeps a section the user opened open when the default section empties', () => {
+    const other = makeItem({ id: 'c', documentPath: 'c.md', parkReason: 'worker-error' });
+    fixture.componentRef.setInput('items', [makeItem({ id: 'a', documentPath: 'a.md' }), makeItem({ id: 'b', documentPath: 'b.md' }), other]);
+    fixture.detectChanges();
+    (fixture.nativeElement.querySelectorAll('.pq-parked-section-toggle')[1] as HTMLButtonElement).click();
+    fixture.detectChanges();
+    fixture.componentRef.setInput('items', [other]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.pq-parked-section-toggle').getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('opens the next section by default when the open one empties', () => {
+    fixture.componentRef.setInput('items', [makeItem({ id: 'a', documentPath: 'a.md' }), makeItem({ id: 'b', documentPath: 'b.md' }),
+      makeItem({ id: 'c', documentPath: 'c.md', parkReason: 'worker-error' })]);
+    fixture.detectChanges();
+    fixture.componentRef.setInput('items', [makeItem({ id: 'c', documentPath: 'c.md', parkReason: 'worker-error' })]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.pq-parked-section-toggle').getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('closes a preview with its section and returns focus to the section heading', () => {
+    fixture.componentRef.setInput('items', [makeItem()]);
+    fixture.detectChanges();
+    const toggle = fixture.nativeElement.querySelector('.pq-parked-section-toggle') as HTMLButtonElement;
+    fixture.nativeElement.querySelector('.pq-bulk-resume').click(); fixture.detectChanges();
+    (fixture.nativeElement.querySelector('.pq-bulk-preview-actions button:last-child') as HTMLButtonElement).click(); fixture.detectChanges();
+    expect(document.activeElement).toBe(toggle);
+    fixture.nativeElement.querySelector('.pq-bulk-resume').click(); fixture.detectChanges();
+    toggle.click(); fixture.detectChanges(); toggle.click(); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.pq-bulk-preview')).toBeNull();
+  });
+
+  it('does not restart a reviewed job that has since become busy, and says so in its count', () => {
+    fixture.componentRef.setInput('items', [makeItem({ id: 'a', documentPath: 'a.md' }), makeItem({ id: 'b', documentPath: 'b.md' })]);
+    fixture.detectChanges();
+    fixture.nativeElement.querySelector('.pq-bulk-resume').click(); fixture.detectChanges();
+    fixture.componentRef.setInput('busyDocuments', ['a.md']); fixture.detectChanges();
+    const emitted: string[] = [];
+    fixture.componentInstance.resumeItems.subscribe(ids => emitted.push(...ids));
+    const preview = fixture.nativeElement.querySelector('.pq-bulk-preview') as HTMLElement;
+    expect(preview.querySelector('.pq-bulk-confirm')?.textContent).toContain('Resume 1 job');
+    expect(preview.textContent).toContain('Will change (1)');
+    expect(preview.textContent).toContain('a.md: it changed after this preview opened');
+    fixture.nativeElement.querySelector('.pq-bulk-confirm').click();
+    expect(emitted).toEqual(['b']);
+  });
+
+  it('keeps passed work stopped by a merge clash out of a bulk Resume, but on its own Resume button', () => {
+    const verdict = { verdict: 'PASS' as const, findings: [], gatesRun: [], documentComplete: true, needJames: [] };
+    fixture.componentRef.setInput('items', [makeItem({ parkReason: 'merge-conflict', verdict })]);
+    fixture.detectChanges();
+    fixture.nativeElement.querySelector('.pq-bulk-resume').click(); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.pq-bulk-preview').textContent).toContain('Will change (0)');
+    expect(fixture.nativeElement.querySelector('.pq-bulk-confirm').disabled).toBe(true);
+    expect(fixture.nativeElement.querySelector('.pq-resume-item')).not.toBeNull();
+  });
+
+  describe('a document that merged in a newer attempt', () => {
+    const verdict = { verdict: 'PASS' as const, findings: [], gatesRun: [], documentComplete: true, needJames: [] };
+    const merged = makeItem({ id: 'merged', runId: 'run-2', documentPath: 'a.md', state: 'landed', createdAt: 9 });
+    beforeEach(() => {
+      fixture.componentRef.setInput('runs', [{ id: 'run-1', workspaceCwd: '/w', config: {}, items: [] }, { id: 'run-2', workspaceCwd: '/w', config: {}, items: [merged] }]);
+      fixture.componentRef.setInput('items', [makeItem({ id: 'old', documentPath: 'a.md', parkReason: 'land-blocked', verdict })]);
+      fixture.detectChanges();
+    });
+
+    it('moves an old attempt out of Ready and offers neither Try merging again nor Resume', () => {
+      expect(fixture.nativeElement.querySelector('.pq-parked-section-toggle').textContent).toContain('A newer attempt already merged');
+      expect(fixture.nativeElement.textContent).not.toContain('Ready to review and merge');
+      expect(fixture.nativeElement.querySelector('.pq-retry-landing')).toBeNull();
+      expect(fixture.nativeElement.querySelector('.pq-resume-item')).toBeNull();
+      expect(fixture.nativeElement.querySelector('.pq-bulk-resume')).toBeNull();
+      expect(fixture.nativeElement.querySelector('.pq-discard')).not.toBeNull();
+    });
+
+    it('warns before merging the old branch on top of the merged work', () => {
+      fixture.nativeElement.querySelector('.pq-merge-without-checks').click(); fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.pq-parked-confirm').textContent).toContain('A newer attempt at this document already merged');
+    });
+  });
+
+  describe('trying all merges again', () => {
+    const verdict = { verdict: 'PASS' as const, findings: [], gatesRun: [], documentComplete: true, needJames: [] };
+    const ready = (id: string, createdAt: number) => makeItem({ id, documentPath: `${id}.md`, parkReason: 'land-blocked', verdict, createdAt });
+
+    it('previews first, says what it may cost, and sends the oldest first', () => {
+      fixture.componentRef.setInput('items', [ready('newer', 5), ready('older', 2)]);
+      fixture.detectChanges();
+      const emitted: string[][] = [];
+      fixture.componentInstance.retryLandings.subscribe(ids => emitted.push(ids));
+      fixture.nativeElement.querySelector('.pq-bulk-retry').click(); fixture.detectChanges();
+      expect(emitted).toEqual([]);
+      const preview = fixture.nativeElement.querySelector('.pq-bulk-preview') as HTMLElement;
+      expect(preview.textContent).toContain('uses provider usage');
+      expect(preview.querySelector('.pq-bulk-confirm')?.textContent).toContain('Try merging 2 jobs');
+      (preview.querySelector('.pq-bulk-confirm') as HTMLButtonElement).click();
+      expect(emitted).toEqual([['older', 'newer']]);
+    });
+
+    it('only offers it on work that is ready', () => {
+      fixture.componentRef.setInput('items', [makeItem()]);
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.pq-bulk-retry')).toBeNull();
+    });
+
+    it('leaves out a job that became busy after the preview opened', () => {
+      fixture.componentRef.setInput('items', [ready('a', 1), ready('b', 2)]);
+      fixture.detectChanges();
+      fixture.nativeElement.querySelector('.pq-bulk-retry').click(); fixture.detectChanges();
+      fixture.componentRef.setInput('busyDocuments', ['a.md']); fixture.detectChanges();
+      const emitted: string[][] = [];
+      fixture.componentInstance.retryLandings.subscribe(ids => emitted.push(ids));
+      fixture.nativeElement.querySelector('.pq-bulk-confirm').click();
+      expect(emitted).toEqual([['b']]);
+    });
+
+    it('shows progress with a way to stop, and hides the button meanwhile', () => {
+      fixture.componentRef.setInput('items', [ready('a', 1)]);
+      fixture.componentRef.setInput('retryProgress', { done: 2, total: 68, stopping: false });
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.pq-parked-retrying').textContent).toContain('Merging 3 of 68');
+      expect(fixture.nativeElement.querySelector('.pq-bulk-retry')).toBeNull();
+      expect(fixture.nativeElement.querySelector('.pq-retry-landing')).toBeNull();
+      let stopped = 0;
+      fixture.componentInstance.stopRetrying.subscribe(() => stopped++);
+      fixture.nativeElement.querySelector('.pq-stop-retrying').click();
+      expect(stopped).toBe(1);
+    });
+
+    it('says it is stopping and offers a way to stop waiting', () => {
+      fixture.componentRef.setInput('items', [ready('a', 1)]);
+      fixture.componentRef.setInput('retryProgress', { done: 2, total: 68, stopping: true });
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.pq-parked-retrying').textContent).toContain('Stopping after 3 of 68');
+      expect(fixture.nativeElement.querySelector('.pq-stop-retrying').textContent).toContain('Stop waiting');
+    });
+
+    it('leaves out jobs from a paused run', () => {
+      fixture.componentRef.setInput('runs', [{ id: 'run-1', workspaceCwd: '/w', status: 'paused', config: {}, items: [] }]);
+      fixture.componentRef.setInput('items', [ready('a', 1)]);
+      fixture.detectChanges();
+      fixture.nativeElement.querySelector('.pq-bulk-retry').click(); fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.pq-bulk-preview').textContent).toContain('its run is paused');
+      expect(fixture.nativeElement.querySelector('.pq-bulk-confirm').disabled).toBe(true);
+    });
+  });
+
+  it('never offers bulk Resume on work that is ready to merge, because Resume wipes its passed check', () => {
+    const verdict = { verdict: 'PASS' as const, findings: [], gatesRun: [], documentComplete: true, needJames: [] };
+    fixture.componentRef.setInput('items', [makeItem({ parkReason: 'land-blocked', verdict })]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.pq-parked-section-toggle').textContent).toContain('Ready to review and merge');
+    expect(fixture.nativeElement.querySelector('.pq-bulk-resume')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.pq-resume-item')).not.toBeNull();
+  });
+
+  it('drops a preview whose section goes away, so it does not return unasked', () => {
+    const item = makeItem();
+    fixture.componentRef.setInput('items', [item]);
+    fixture.detectChanges();
+    fixture.nativeElement.querySelector('.pq-bulk-resume').click(); fixture.detectChanges();
+    fixture.componentRef.setInput('items', []); fixture.detectChanges();
+    fixture.componentRef.setInput('items', [item]); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.pq-bulk-preview')).toBeNull();
+  });
+
+  it('stops starting git checks once the list is gone', async () => {
+    const replies: ((value: string) => void)[] = [];
+    store.diffstat.mockImplementation(() => new Promise<string>((resolve) => replies.push(resolve)));
+    fixture.componentRef.setInput('items', Array.from({ length: 6 }, (_, index) => makeItem({ id: `i${index}`, documentPath: `d${index}.md` })));
+    fixture.detectChanges();
+    fixture.destroy();
+    replies.shift()!('1 file changed');
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(store.diffstat).toHaveBeenCalledTimes(4);
+  });
+
+  it('closes a bulk preview when the search changes, so it cannot reappear unasked', () => {
+    fixture.componentRef.setInput('items', [makeItem()]);
+    fixture.detectChanges();
+    fixture.nativeElement.querySelector('.pq-bulk-resume').click(); fixture.detectChanges();
+    const input = fixture.nativeElement.querySelector('.pq-parked-search') as HTMLInputElement;
+    for (const value of ['hidden', '']) { input.value = value; input.dispatchEvent(new Event('input')); fixture.detectChanges(); }
+    expect(fixture.nativeElement.querySelector('.pq-bulk-preview')).toBeNull();
+  });
+
+  it('keeps an opened earlier try visible after its section is closed and reopened', () => {
+    fixture.componentRef.setInput('items', [makeItem({ id: 'new', createdAt: 2 }), makeItem({ id: 'old', updatedAt: 9 })]);
+    fixture.detectChanges();
+    const details = fixture.nativeElement.querySelector('.pq-earlier-tries') as HTMLDetailsElement;
+    details.open = true; details.dispatchEvent(new Event('toggle')); fixture.detectChanges();
+    const toggle = fixture.nativeElement.querySelector('.pq-parked-section-toggle') as HTMLButtonElement;
+    toggle.click(); fixture.detectChanges(); toggle.click(); fixture.detectChanges();
+    expect((fixture.nativeElement.querySelector('.pq-earlier-tries') as HTMLDetailsElement).open).toBe(true);
+  });
+
+  it('puts the section heading around its toggle, which names the body it controls', () => {
+    fixture.componentRef.setInput('items', [makeItem()]);
+    fixture.detectChanges();
+    const toggle = fixture.nativeElement.querySelector('h3 .pq-parked-section-toggle') as HTMLButtonElement;
+    expect(toggle.textContent?.trim()).toBe('Ran out of rounds');
+    expect(document.getElementById(toggle.getAttribute('aria-controls')!)).not.toBeNull();
+  });
+
+  it('names an older attempt that stopped for a different reason, and fetches its diffstat only when opened', () => {
+    fixture.componentRef.setInput('items', [makeItem({ id: 'new', createdAt: 2 }), makeItem({ id: 'old', updatedAt: 9, parkReason: 'worker-error' })]);
+    fixture.detectChanges();
+    expect(store.diffstat.mock.calls.map(([id]) => id)).toEqual(['new']);
+    expect(fixture.nativeElement.querySelectorAll('.pq-parked-item')).toHaveLength(1);
+    const details = fixture.nativeElement.querySelector('.pq-earlier-tries') as HTMLDetailsElement;
+    details.open = true; details.dispatchEvent(new Event('toggle')); fixture.detectChanges();
+    expect(store.diffstat).toHaveBeenCalledWith('old');
+    expect(details.textContent).toContain('The worker stopped with an error');
   });
 
   it('renders the document name, branch name and park reason', () => {
@@ -207,7 +540,7 @@ describe('PlanQueueParkedListComponent', () => {
   );
 
   it('groups older attempts and folds long details with absolute paths removed', () => {
-    fixture.componentRef.setInput('items', [makeItem({ id: 'old' }), makeItem({ id: 'new', updatedAt: 2,
+    fixture.componentRef.setInput('items', [makeItem({ id: 'old' }), makeItem({ id: 'new', createdAt: 2,
       detail: '/Users/example/private/report.txt ' + 'saved evidence '.repeat(250) })]);
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.pq-parked-item .pq-parked-detail').textContent).not.toContain('/Users/');
@@ -220,7 +553,7 @@ describe('PlanQueueParkedListComponent', () => {
     fixture.componentRef.setInput('items', [makeItem({ id: 'first', documentPath: 'a.md' }), makeItem({ id: 'second', documentPath: 'b.md' })]);
     fixture.detectChanges();
     const emitted: string[] = [];
-    fixture.componentInstance.resumeItem.subscribe(id => emitted.push(id));
+    fixture.componentInstance.resumeItems.subscribe(ids => emitted.push(...ids));
     fixture.nativeElement.querySelector('.pq-bulk-resume').click(); fixture.detectChanges();
     expect(emitted).toEqual([]);
     expect(fixture.nativeElement.querySelector('.pq-bulk-preview').textContent).toContain('Will change (2)');

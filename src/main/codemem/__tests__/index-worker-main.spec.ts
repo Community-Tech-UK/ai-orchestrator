@@ -48,9 +48,9 @@ describe('codemem index worker main', () => {
     clearCancel: ReturnType<typeof vi.fn>;
     listWorkspaceIndexStats: ReturnType<typeof vi.fn>;
     deleteWorkspaceIndex: ReturnType<typeof vi.fn>;
-    pruneUnreferencedChunks: ReturnType<typeof vi.fn>;
+    pruneAbandonedWorkspaces: ReturnType<typeof vi.fn>;
+    releaseDeletedSpace: ReturnType<typeof vi.fn>;
     clearLegacyMerkleNodes: ReturnType<typeof vi.fn>;
-    optimizeSearchIndex: ReturnType<typeof vi.fn>;
     vacuumFreelistPages: ReturnType<typeof vi.fn>;
   };
   let indexManager: EventEmitter & {
@@ -76,9 +76,9 @@ describe('codemem index worker main', () => {
       clearCancel: vi.fn(),
       listWorkspaceIndexStats: vi.fn(() => []),
       deleteWorkspaceIndex: vi.fn(),
-      pruneUnreferencedChunks: vi.fn(() => 0),
+      pruneAbandonedWorkspaces: vi.fn(() => ({ deletedWorkspaces: 0, deletedChunks: 0, remainingWorkspaces: 0 })),
+      releaseDeletedSpace: vi.fn(() => ({ deletedChunks: 0, finished: true })),
       clearLegacyMerkleNodes: vi.fn(() => 0),
-      optimizeSearchIndex: vi.fn(),
       vacuumFreelistPages: vi.fn(() => ({ freedPages: 0, remainingFreePages: 0, stoppedReason: 'done' })),
     };
     indexManager = Object.assign(new EventEmitter(), {
@@ -277,13 +277,12 @@ describe('codemem index worker main', () => {
   });
 
   it('runs codemem maintenance in the index worker', async () => {
-    store.pruneUnreferencedChunks.mockReturnValue(3);
+    store.releaseDeletedSpace.mockReturnValue({ deletedChunks: 3, finished: true });
     store.clearLegacyMerkleNodes.mockReturnValue(2);
 
     await importWorker();
-    store.pruneUnreferencedChunks.mockClear();
+    store.releaseDeletedSpace.mockClear();
     store.clearLegacyMerkleNodes.mockClear();
-    store.optimizeSearchIndex.mockClear();
     store.vacuumFreelistPages.mockClear();
     parentPort.emit('message', {
       type: 'run-maintenance',
@@ -291,9 +290,8 @@ describe('codemem index worker main', () => {
     });
     await flushMicrotasks();
 
-    expect(store.pruneUnreferencedChunks).toHaveBeenCalledTimes(1);
+    expect(store.releaseDeletedSpace).toHaveBeenCalledTimes(1);
     expect(store.clearLegacyMerkleNodes).toHaveBeenCalledTimes(1);
-    expect(store.optimizeSearchIndex).toHaveBeenCalledTimes(1);
     expect(store.vacuumFreelistPages).toHaveBeenCalledTimes(1);
     expect(parentPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
       type: 'rpc-response',
@@ -326,18 +324,207 @@ describe('codemem index worker main', () => {
     expect(store.vacuumFreelistPages).toHaveBeenCalledWith({ timeBudgetMs: 10_000 });
   });
 
-  it('reclaims free space on a timer without ever starting a full VACUUM', async () => {
+  it('checks for free space on a timer, in a short step that never starts a full VACUUM', async () => {
     vi.useFakeTimers();
     try {
       await importWorker();
+      await vi.advanceTimersByTimeAsync(1_250);
       store.vacuumFreelistPages.mockClear();
 
       await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
 
       expect(store.vacuumFreelistPages).toHaveBeenCalledTimes(1);
-      expect(store.vacuumFreelistPages).toHaveBeenCalledWith({ timeBudgetMs: 10_000, allowFullVacuum: false });
+      expect(store.vacuumFreelistPages).toHaveBeenCalledWith({
+        timeBudgetMs: 500,
+        stepPages: 1_024,
+        allowFullVacuum: false,
+      });
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it('keeps returning free space in short bursts until none is left', async () => {
+    vi.useFakeTimers();
+    try {
+      await importWorker();
+      store.vacuumFreelistPages.mockClear();
+      store.vacuumFreelistPages
+        .mockReturnValueOnce({ freedPages: 1_024, remainingFreePages: 2_000, stoppedReason: 'time-budget' })
+        .mockReturnValueOnce({ freedPages: 1_024, remainingFreePages: 976, stoppedReason: 'time-budget' })
+        .mockReturnValueOnce({ freedPages: 976, remainingFreePages: 0, stoppedReason: 'done' });
+
+      await vi.advanceTimersByTimeAsync(3 * 1_250);
+      expect(store.vacuumFreelistPages).toHaveBeenCalledTimes(3);
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(store.vacuumFreelistPages).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops returning free space while another connection is reading, until the next check', async () => {
+    vi.useFakeTimers();
+    try {
+      await importWorker();
+      store.vacuumFreelistPages.mockClear();
+      store.vacuumFreelistPages.mockReturnValueOnce({ freedPages: 0, remainingFreePages: 500, stoppedReason: 'checkpoint-busy' });
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(store.vacuumFreelistPages).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+      expect(store.vacuumFreelistPages).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('returns free space only after abandoned workspaces and their release are finished', async () => {
+    vi.useFakeTimers();
+    try {
+      await importWorker();
+      store.vacuumFreelistPages.mockClear();
+      store.pruneAbandonedWorkspaces.mockReturnValueOnce({ deletedWorkspaces: 1, deletedChunks: 10, remainingWorkspaces: 1 });
+      store.releaseDeletedSpace.mockReturnValueOnce({ deletedChunks: 0, finished: false });
+
+      await vi.advanceTimersByTimeAsync(3 * 1_250);
+      expect(store.vacuumFreelistPages).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1_250);
+      expect(store.vacuumFreelistPages).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('drains abandoned workspaces in short bursts, then releases their space in short bursts', async () => {
+    vi.useFakeTimers();
+    try {
+      await importWorker();
+      store.pruneAbandonedWorkspaces.mockClear();
+      store.releaseDeletedSpace.mockClear();
+      store.pruneAbandonedWorkspaces
+        .mockReturnValueOnce({ deletedWorkspaces: 2, deletedChunks: 2_000, remainingWorkspaces: 3 })
+        .mockReturnValueOnce({ deletedWorkspaces: 3, deletedChunks: 3_000, remainingWorkspaces: 0 });
+      store.releaseDeletedSpace
+        .mockReturnValueOnce({ deletedChunks: 10, finished: false })
+        .mockReturnValueOnce({ deletedChunks: 0, finished: true });
+
+      await vi.advanceTimersByTimeAsync(1_250);
+      expect(store.pruneAbandonedWorkspaces).toHaveBeenCalledTimes(1);
+      expect(store.releaseDeletedSpace).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1_250);
+      expect(store.pruneAbandonedWorkspaces).toHaveBeenCalledTimes(2);
+      expect(store.releaseDeletedSpace).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1_250);
+      expect(store.releaseDeletedSpace).toHaveBeenCalledTimes(2);
+
+      // One more burst finds no free pages left to return, and the chain stops.
+      await vi.advanceTimersByTimeAsync(1_250);
+      store.pruneAbandonedWorkspaces.mockClear();
+      store.releaseDeletedSpace.mockClear();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(store.pruneAbandonedWorkspaces).not.toHaveBeenCalled();
+      expect(store.releaseDeletedSpace).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('carries on in bursts when startup maintenance stops before releasing everything', async () => {
+    vi.useFakeTimers();
+    try {
+      store.releaseDeletedSpace.mockReturnValueOnce({ deletedChunks: 5, finished: false });
+
+      await importWorker();
+      expect(store.releaseDeletedSpace).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1_250);
+      expect(store.releaseDeletedSpace).toHaveBeenCalledTimes(2);
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(store.releaseDeletedSpace).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('releases a removed workspace\'s space in a later burst, not while the caller waits', async () => {
+    vi.useFakeTimers();
+    try {
+      await importWorker();
+      store.releaseDeletedSpace.mockClear();
+
+      parentPort.emit('message', {
+        type: 'remove-workspace-index',
+        id: 89,
+        workspacePath: path.resolve('/repo/.worktrees/queue/retired'),
+      });
+      await flushMicrotasks();
+
+      expect(parentPort.postMessage).toHaveBeenCalledWith({ type: 'rpc-response', id: 89, result: true, error: undefined });
+      expect(store.releaseDeletedSpace).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1_250);
+      expect(store.releaseDeletedSpace).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('retries a failed cleanup burst at the next space reclaim', async () => {
+    vi.useFakeTimers();
+    try {
+      store.releaseDeletedSpace.mockReturnValueOnce({ deletedChunks: 0, finished: false });
+      await importWorker();
+      store.releaseDeletedSpace.mockClear();
+      store.releaseDeletedSpace.mockImplementationOnce(() => {
+        throw new Error('database is locked');
+      });
+
+      await vi.advanceTimersByTimeAsync(1_250);
+      expect(store.releaseDeletedSpace).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+      expect(store.releaseDeletedSpace).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps maintenance from failing when startup leaves abandoned workspaces behind', async () => {
+    store.pruneAbandonedWorkspaces.mockReturnValue({ deletedWorkspaces: 1, deletedChunks: 10, remainingWorkspaces: 4 });
+
+    await importWorker();
+
+    expect(store.releaseDeletedSpace).toHaveBeenCalled();
+    expect(store.vacuumFreelistPages).toHaveBeenCalledWith({ timeBudgetMs: 10_000 });
+  });
+
+  it('passes the automatic-context filter through to the search', async () => {
+    const searchHydratedChunks = vi.fn(() => ({ indexed: true, results: [] }));
+    vi.doMock('../workspace-chunk-search', () => ({ searchHydratedChunks }));
+    try {
+      await importWorker();
+      parentPort.emit('message', {
+        type: 'search-workspace-chunks',
+        id: 91,
+        workspacePath: '/repo',
+        query: 'hello',
+        limit: 3,
+        strongMatchOnly: true,
+      });
+      await flushMicrotasks();
+
+      expect(searchHydratedChunks).toHaveBeenCalledWith(store, path.resolve('/repo'), 'hello', 3, {
+        strongMatchOnly: true,
+      });
+    } finally {
+      vi.doUnmock('../workspace-chunk-search');
     }
   });
 

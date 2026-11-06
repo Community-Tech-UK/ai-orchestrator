@@ -100,8 +100,7 @@
     <section class="pq-section pq-section-parked" aria-labelledby="pq-parked-heading">
       <h2 id="pq-parked-heading">Set aside</h2>
       @if (store.parkedItems().length > 0) { <p class="pq-purpose">
-        Work kept from a stopped or cancelled run. Discard deletes the job's branch, including any work that never reached main.
-        Try merging again retries a blocked merge that passed verification. Merge without checks merges without the final checks. Resume puts the document back in the queue and clears its last check result.
+        Work kept from stopped or cancelled runs, grouped by why it stopped. Resume puts a job back in the queue and clears its last check result. Discard deletes its branch, including any work that never reached main.
       </p> }
       <app-plan-queue-parked-list
         [items]="store.parkedItems()"
@@ -109,6 +108,10 @@
         (chooseChecker)="onChooseChecker($event)"
         (sortOut)="onSortOut($event)"
         (resumeItem)="onResumeItem($event)"
+        (resumeItems)="onResumeItems($event)"
+        [retryProgress]="store.retryProgress()"
+        (retryLandings)="onRetryLandings($event)"
+        (stopRetrying)="store.stopRetrying()"
         (retryLanding)="onRetryLanding($event)"
         (landAnyway)="onLandAnyway($event)"
         (discardItem)="onDiscardItem($event)"

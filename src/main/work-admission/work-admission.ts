@@ -7,7 +7,7 @@ import { getSettingsManager } from '../core/config/settings-manager';
 
 const logger = getLogger('WorkAdmission');
 export type GlobalWorkPhase = 'none' | 'holding' | 'collecting' | 'ready' | 'resuming';
-export type WorkKind = 'queue-job' | 'queue-check' | 'queue-triage' | 'loop-round' | 'campaign-node'
+export type WorkKind = 'queue-job' | 'queue-check' | 'queue-checklist' | 'queue-triage' | 'loop-round' | 'campaign-node'
   | 'automation-run' | 'repo-job' | 'helper-agent' | 'consult' | 'background-index' | 'timed-wakeup';
 export type AdmissionDecision = { allowed: true } | {
   allowed: false; reason: 'held' | 'paused' | 'over-limit' | 'computer-busy'; detail: string;
@@ -152,6 +152,8 @@ export class WorkAdmission extends EventEmitter {
     switch (kind) {
       case 'queue-job': return limits.queueJobs;
       case 'queue-check': return limits.queueChecks;
+      // Every workload level: full test runs slow each other far more than they add up.
+      case 'queue-checklist': return 1;
       case 'helper-agent': return limits.helperAgents;
       case 'loop-round': return limits.loopRounds;
       case 'automation-run': case 'repo-job': return limits.scheduledJobs;

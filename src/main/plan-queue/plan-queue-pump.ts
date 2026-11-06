@@ -1,5 +1,6 @@
 /** Queue dispatch remains separate from run control and persistence. */
 import type { PlanQueueFlowHost } from './plan-queue-host';
+import type { PlanQueueDiscardedRefs } from './plan-queue-discard';
 import type { PlanQueueItemFlow } from './plan-queue-item-flow';
 import type { PlanQueueKeptFolders } from './plan-queue-kept-folders';
 import type { PlanQueueStore } from './plan-queue-store';
@@ -13,7 +14,7 @@ import { pathCompareKey } from '../util/path-helpers';
 
 interface QueuePumpHost extends Pick<PlanQueueFlowHost, 'getRun' | 'getItem' | 'transition' | 'notifyParent' | 'resolveRunParent'> {
   store: PlanQueueStore;
-  flow: Pick<PlanQueueItemFlow, 'startItem' | 'startVerification' | 'isWaitingForUsage' | 'isClaimed'> & { keptFolders: Pick<PlanQueueKeptFolders, 'retryDue'> };
+  flow: Pick<PlanQueueItemFlow, 'startItem' | 'startVerification' | 'isWaitingForUsage' | 'isClaimed' | 'checklistTurns'> & { keptFolders: Pick<PlanQueueKeptFolders, 'retryDue'>; discardedRefs: Pick<PlanQueueDiscardedRefs, 'sweepDue'> };
   triage: Pick<PlanQueueTriage, 'isStopping' | 'maybeStart'> | null;
   loadAverage(): number[];
   followParent(run: PlanQueueRun): PlanQueueRun;
@@ -40,6 +41,19 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
     let verifying = runs.flatMap((run) => store.listItems(run.id)).filter((item) => item.state === 'verifying').length;
     let totalJobs = runs.flatMap(run => store.listItems(run.id)).filter(item => itemHoldsWorktree(item.state)).length;
     store.waits.prune(new Set(runs.flatMap(run => store.listItems(run.id)).filter(item => item.state === 'queued' || item.state === 'awaiting-slot').map(item => item.id)));
+    const runChecks = new Map<string, number>();
+    const canCheck = (run: PlanQueueRun): boolean => (folderChecks.get(pathCompareKey(run.workspaceCwd)) ?? 0) < folderCaps.get(pathCompareKey(run.workspaceCwd))!
+      && queueAdmission(run.config, totalJobs, verifying).canStartCheck(runChecks.get(run.id) ?? 0);
+    const startCheck = (item: PlanQueueItem, run: PlanQueueRun): void => {
+      store.waits.started(item, 'check');
+      verifying += 1;
+      runChecks.set(run.id, (runChecks.get(run.id) ?? 0) + 1);
+      const folder = pathCompareKey(run.workspaceCwd);
+      folderChecks.set(folder, (folderChecks.get(folder) ?? 0) + 1);
+      try { void flow.startVerification(item).catch((error: unknown) => host.logItemError(item, error)); }
+      catch (error) { host.logItemError(item, error); }
+    };
+    const checklists: { item: PlanQueueItem; run: PlanQueueRun }[] = [];
     for (const snapshot of runs) {
       await reconcileWaitingDocuments(host, snapshot);
       if (host.isShuttingDown()) return;
@@ -62,17 +76,12 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
             totalJobs += 1;
             void flow.startItem(item).catch((error: unknown) => host.logItemError(item, error));
           }
-          let runVerifying = items.filter((item) => item.state === 'verifying').length;
-          const folder = pathCompareKey(run.workspaceCwd);
+          runChecks.set(run.id, items.filter((item) => item.state === 'verifying').length);
           for (const item of items.filter((candidate) => candidate.state === 'awaiting-slot' && !flow.isWaitingForUsage(candidate.id))) {
             if (flow.isClaimed(item.id)) continue;
-            const folderVerifying = folderChecks.get(folder) ?? 0;
-            if (folderVerifying >= folderCaps.get(folder)! || !queueAdmission(run.config, totalJobs, verifying).canStartCheck(runVerifying)) { store.waits.blocked(item.id); continue; }
-            store.waits.started(item, 'check');
-            verifying += 1;
-            runVerifying += 1;
-            folderChecks.set(folder, folderVerifying + 1);
-            void flow.startVerification(item).catch((error: unknown) => host.logItemError(item, error));
+            // Checklists are chosen across every run below. Runs are visited oldest first, so a busy old run would otherwise always win.
+            if (run.config.verifierGates.length) { checklists.push({ item, run }); continue; }
+            if (canCheck(run)) startCheck(item, run); else store.waits.blocked(item.id);
           }
         }
       }
@@ -81,6 +90,18 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
         host.finishRun(host.getRun(run.id), 'completed');
       }
     }
+    // The job that has waited longest goes first. Earlier passes of this loop awaited, so judge each as it is now.
+    const waited = ({ item }: { item: PlanQueueItem }): number => store.waits.waitingSince(item.id) ?? item.updatedAt;
+    for (const { item: listed, run } of checklists.sort((a, b) => waited(a) - waited(b) || a.item.id.localeCompare(b.item.id))) {
+      const item = host.getItem(listed.id);
+      if (host.isShuttingDown() || item.state !== 'awaiting-slot' || host.getRun(run.id).status !== 'running' || flow.isClaimed(item.id)
+        || host.isControlling(run.id) || host.triage?.isStopping(run.id)) continue;
+      if (canCheck(run) && queueAdmission(run.config, totalJobs, verifying).canStartChecklist(flow.checklistTurns.size)) startCheck(item, run);
+      else store.waits.blocked(item.id);
+    }
     // Across every run, ended ones included: a parked attempt's folder outlives its run.
-    if (!host.isShuttingDown()) flow.keptFolders.retryDue(store.listItemsWithKeptFolders());
+    if (!host.isShuttingDown()) {
+      flow.keptFolders.retryDue(store.listItemsWithKeptFolders());
+      flow.discardedRefs.sweepDue(() => store.listFoldersWithDiscardedItems());
+    }
   }

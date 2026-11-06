@@ -12,6 +12,10 @@ import {
 } from './main/db/sqlite-wasm-driver';
 import { stripScopedGitEnv } from './main/workspace/git/git-env';
 
+// Keep unit tests on the deterministic word hash even where the real embedding
+// model has been fetched. A spec that needs the model opts in explicitly.
+process.env['AIO_EMBEDDING_MODEL_DIR'] = '';
+
 // ============================================================================
 // Hermetic git env (test-only)
 //

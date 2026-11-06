@@ -44,6 +44,7 @@ export const PlanQueueParkReasonSchema = z.enum([
   'no-progress',
   'restart-loop',
   'stuck-on-same-finding',
+  'check-hung',
   'missing-document',
   'stopped-by-harness',
 ]);
@@ -345,6 +346,11 @@ export const PlanQueueItemDtoSchema = z.object({
   answer: z.string().max(2000).nullable(),
   parkReason: PlanQueueParkReasonSchema.nullable(),
   detail: z.string().max(8000).nullable(),
+  /** Set by Discard; the job leaves the Set aside list. */
+  discardedAt: z.number().int().nullable().optional(),
+  discardedBy: z.string().max(500).nullable().optional(),
+  /** When Undo stops being possible; null when no work was kept. */
+  discardRefExpiresAt: z.number().int().nullable().optional(),
   heldAt: z.number().int().nullable().optional(),
   pendingInstruction: z.string().nullable().optional(),
   /** When the document was handed to the run's step-up worker; null = never. */
@@ -462,6 +468,7 @@ export const PlanQueueControlPayloadSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('land-anyway'), itemId: IdSchema }),
   z.object({ action: z.literal('retry-landing'), itemId: IdSchema }),
   z.object({ action: z.literal('discard-item'), itemId: IdSchema }),
+  z.object({ action: z.literal('restore-discarded'), itemId: IdSchema }),
 ]);
 
 /** `plan_queue_report_verdict` arguments (snake_case, like the other MCP tools). */
@@ -523,7 +530,7 @@ export const PlanQueueAnswerArgsSchema = z.object({
 });
 
 export const PlanQueueControlArgsSchema = z.discriminatedUnion('action', [z.object({
-  action: z.enum(['pause', 'resume', 'cancel', 'adopt', 'request-handover', 'skip-item', 'resume-item', 'land-anyway', 'retry-landing', 'discard-item']),
+  action: z.enum(['pause', 'resume', 'cancel', 'adopt', 'request-handover', 'skip-item', 'resume-item', 'land-anyway', 'retry-landing', 'discard-item', 'restore-discarded']),
   run_id: IdSchema.optional(),
   item_id: IdSchema.optional(),
 }), z.object({

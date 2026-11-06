@@ -1,107 +1,162 @@
 <div class="pq-parked-list">
-  @if (items().length === 0) { <div class="pq-parked-empty">No work set aside.</div> }
+  @if (items().length === 0) {
+    <div class="pq-parked-empty">No work set aside.</div>
+  } @else {
+    <div class="pq-parked-toolbar">
+      <input class="pq-parked-search" type="search" placeholder="Search by document, branch or project…"
+        aria-label="Search set-aside work" [value]="query()" (input)="onSearch($event)" />
+      <span class="pq-parked-total">{{ pluralise(items().length, 'job') }} across {{ pluralise(documentCount(), 'document') }}@if (readyCount()) { · {{ readyCount() }} ready to merge }</span>
+      @if (retryProgress(); as progress) {
+        <span class="pq-parked-retrying" role="status">{{ progress.stopping ? 'Stopping after' : 'Merging' }} {{ progress.done + 1 }} of {{ progress.total }}…</span>
+        <button type="button" class="pq-stop-retrying" (click)="stopRetrying.emit()">{{ progress.stopping ? 'Stop waiting' : 'Stop after this one' }}</button>
+      }
+    </div>
+  }
   @if (agentFolders().length > 0) {
-    <section class="pq-sort-out" aria-label="Sort out with an agent">
+    <details class="pq-sort-out">
+      <summary>Sort out with an agent</summary>
       <p>An agent clears jobs that hold nothing, then lists what needs you. It can't delete work or merge without checks. It may retry merges or resume jobs up to {{ restartLimit }} times in all, which uses provider usage.</p>
-      @for (entry of agentFolders(); track entry.folder) {
-        <button type="button" class="pq-sort-out-start" (click)="sortOut.emit(entry.folder)">Sort out {{ entry.name }} ({{ pluralise(entry.count, 'job') }})</button>
-      }
-    </section>
-  }
-  @for (reason of bulkReasons(); track reason) {
-    <button type="button" class="pq-bulk-resume" (click)="bulkReason.set(reason)">Preview resuming those set aside: {{ reasonLabel(reason) }}</button>
-  }
-  @if (bulkPreview(); as preview) {
-    <section class="pq-bulk-preview" aria-label="Preview resuming set-aside work">
-      <h3>Will change ({{ preview.willChange.length }})</h3>
-      @for (item of preview.willChange; track item.id) {
-        <p>{{ documentBasename(item.documentPath) }}</p>
-        @for (finding of item.verdict?.findings ?? []; track $index) { <p>{{ detailFor(finding.summary)?.text }}</p> }
-      }
-      <h3>Left alone ({{ preview.leftAlone.length }})</h3>
-      @for (entry of preview.leftAlone; track entry.item.id) { <p>{{ documentBasename(entry.item.documentPath) }}: {{ entry.reason }}</p> }
-      <h3>Does not apply ({{ preview.notApplicable.length }})</h3>
-      @for (entry of preview.notApplicable; track entry.item.id) { <p>{{ documentBasename(entry.item.documentPath) }}: {{ entry.reason }}</p> }
-      <button type="button" class="pq-bulk-confirm" [disabled]="preview.willChange.length === 0" (click)="confirmBulk()">Resume {{ pluralise(preview.willChange.length, 'job') }}</button>
-      <button type="button" (click)="bulkReason.set(null)">Never mind</button>
-    </section>
-  }
-  @for (group of groups(); track group.path; let first = $first) {
-    @if (group.ready && first) { <h3>Ready to review and merge</h3> }
-    <ng-container *ngTemplateOutlet="card; context: {$implicit: group.latest}" />
-    @if (group.older.length) {
-      <details class="pq-earlier-tries"><summary>{{ pluralise(group.older.length, 'earlier try', 'earlier tries') }}</summary>
-        @for (item of group.older; track item.id) { <ng-container *ngTemplateOutlet="card; context: {$implicit: item}" /> }
-      </details>
-    }
-  }
-</div>
-<ng-template #card let-item>
-      <div class="pq-parked-item">
-        <div class="pq-parked-head">
-          <span class="pq-parked-doc" tabindex="0" [appTooltip]="item.documentPath">{{ documentBasename(item.documentPath) }}</span>
-          <span class="pq-parked-diffstat">{{ diffstatFor(item.id) }}</span>
-        </div>
-        <div class="pq-parked-branch">{{ item.branchName ?? '(no branch)' }}</div>
-        @if (displayFor(item); as display) {
-            <div class="pq-parked-reason">Set aside: {{ display.label }}</div>
-            <p>{{ display.meaning }} {{ display.next }}</p>
-            @if (display.extra) { <p>{{ display.extra }}</p> }
-        }
-
-        @if (detailFor(item.detail); as detail) {
-          <details class="pq-parked-detail"><summary>Details</summary><pre>{{ detail.text }}</pre></details>
-        }
-        @if (findingsOpen().has(item.id)) {
-          <div class="pq-findings">
-            @for (finding of item.verdict?.findings ?? []; track $index) { <p>{{ detailFor(finding.summary)?.text }}</p> }
-            @if (!item.verdict?.findings?.length) { <p>No checker findings were recorded.</p> }
-          </div>
-        }
-
-        @if (isConfirming(item.id, 'discard-item')) {
-          <div class="pq-parked-confirm" role="group" aria-label="Confirm discard">
-            Discard this item's work? This cannot be undone.
-            <button type="button" class="pq-confirm-yes" (click)="confirmAction(item.id, 'discard-item')">
-              Confirm discard
-            </button>
-            <button type="button" (click)="cancelConfirm()">Never mind</button>
-          </div>
-        } @else if (isConfirming(item.id, 'land-anyway')) {
-          <div class="pq-parked-confirm" role="group" aria-label="Confirm merge without checks">
-            @if (item.verdict?.verdict === 'PASS') {
-              Merge without the final checks? It passed verification, but its last merge was blocked.
-            } @else {
-              Merge this branch even though it never passed verification?
-            }
-            <button type="button" class="pq-confirm-yes" (click)="confirmAction(item.id, 'land-anyway')">
-              Confirm merge without checks
-            </button>
-            <button type="button" (click)="cancelConfirm()">Never mind</button>
-          </div>
-        } @else {
-          <div class="pq-parked-actions">
-            @if (displayFor(item); as display) {
-              @for (action of display.actions; track action) {
-                @switch (action) {
-                  @case ('see-findings') { <button type="button" class="pq-see-findings" (click)="showFindings(item.id)">See what the checker found</button> }
-                  @case ('choose-checker') { <button type="button" (click)="chooseChecker.emit(item.runId)">Choose a checker</button> }
-                  @case ('retry-landing') {
-                    @if (canRetryLanding(item)) { <button type="button" class="pq-retry-landing" [appTooltip]="copyFor('planQueue.retryLanding')" (click)="onRetryLanding(item)">Try merging again</button> }
-                  }
-                  @case ('resume') {
-                    <button type="button" class="pq-resume-item" [appTooltip]="copyFor('planQueue.resumeItem')"
-                      [appTooltipDisabledReason]="display.actions.includes('see-findings') && !findingsOpen().has(item.id) ? 'Read the checker findings first' : null"
-                      (click)="onResume(item.id)">Resume</button>
-                  }
-                  @case ('merge-without-checks') {
-                    @if (item.branchName) { <button type="button" class="pq-merge-without-checks" [appTooltip]="copyFor('planQueue.landAnyway')" (click)="requestConfirm(item.id, 'land-anyway')">Merge without checks</button> }
-                  }
-                  @case ('discard') { <button type="button" class="pq-discard" [appTooltip]="copyFor('planQueue.discardItem')" (click)="requestConfirm(item.id, 'discard-item')">Discard</button> }
-                }
-              }
-            }
-          </div>
+      <div class="pq-sort-out-projects">
+        @for (entry of agentFolders(); track entry.folder) {
+          <button type="button" class="pq-sort-out-start" (click)="sortOut.emit(entry.folder)">Sort out {{ entry.name }} ({{ pluralise(entry.count, 'job') }})</button>
         }
       </div>
+    </details>
+  }
+  @for (section of sections(); track section.key) {
+    <section class="pq-parked-section">
+      <div class="pq-parked-section-head">
+        <div class="pq-parked-section-title">
+          <h3>
+            <button #sectionToggle type="button" class="pq-parked-section-toggle" [attr.aria-expanded]="isOpen(section.key)"
+              [attr.aria-controls]="isOpen(section.key) ? 'pq-parked-body-' + $index : null" (click)="toggleSection(section.key)">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>{{ section.title }}</button>
+          </h3>
+          <span class="pq-parked-section-count">{{ pluralise(section.documents.length, 'document') }}</span>
+        </div>
+        @if (section.reason) {
+          <button type="button" class="pq-bulk-resume" [attr.aria-label]="'Preview resuming these: ' + section.title" (click)="previewBulk(section)">Preview resuming these</button>
+        } @else if (isReady(section) && !retryProgress()) {
+          <button type="button" class="pq-bulk-retry" (click)="previewRetry(section)">Try merging all again</button>
+        }
+      </div>
+      @if (isOpen(section.key)) {
+        <div class="pq-parked-section-body" [id]="'pq-parked-body-' + $index">
+        <p class="pq-parked-section-help">{{ section.help }}</p>
+        @if (bulkPreview()?.sectionKey === section.key && bulkView(); as preview) {
+          <section class="pq-bulk-preview" aria-label="Preview changes to set-aside work">
+            @if (bulkPreview()?.reason) {
+              <p class="pq-bulk-preview-note">Each job goes back in the queue, which uses provider usage, and its last check result is cleared.</p>
+            } @else {
+              <p class="pq-bulk-preview-note">They merge one at a time, oldest first, and each runs the final checks. A clash or failed check can send a job back to a worker, which uses provider usage, and the next job waits for it.</p>
+            }
+            <div class="pq-bulk-preview-actions">
+              <button type="button" class="pq-bulk-confirm" [disabled]="preview.willChange.length === 0" (click)="confirmBulk(); sectionToggle.focus()">{{ bulkPreview()?.reason ? 'Resume' : 'Try merging' }} {{ pluralise(preview.willChange.length, 'job') }}</button>
+              <button type="button" (click)="bulkPreview.set(null); sectionToggle.focus()">Never mind</button>
+            </div>
+            <div class="pq-bulk-preview-list">
+              <h4>Will change ({{ preview.willChange.length }})</h4>
+              @for (item of preview.willChange; track item.id) {
+                <p>{{ documentBasename(item.documentPath) }}</p>
+                @for (finding of item.verdict?.findings ?? []; track $index) { <p>{{ detailFor(finding.summary)?.text }}</p> }
+              }
+              <h4>Left alone ({{ preview.leftAlone.length }})</h4>
+              @for (entry of preview.leftAlone; track entry.item.id) { <p>{{ documentBasename(entry.item.documentPath) }}: {{ entry.reason }}</p> }
+              <h4>Does not apply ({{ preview.notApplicable.length }})</h4>
+              @for (entry of preview.notApplicable; track entry.item.id) { <p>{{ documentBasename(entry.item.documentPath) }}: {{ entry.reason }}</p> }
+            </div>
+          </section>
+        }
+        @for (document of shownIn(section); track document.path) {
+          <ng-container *ngTemplateOutlet="card; context: {$implicit: document.latest, section}" />
+          @if (document.older.length) {
+            <details class="pq-earlier-tries" [open]="openAttempts().has(document.path)" (toggle)="onAttemptsToggle(document.path, $event)"><summary>{{ pluralise(document.older.length, 'earlier try', 'earlier tries') }}</summary>
+              @if (openAttempts().has(document.path)) {
+                @for (row of document.older; track row.item.id) { <ng-container *ngTemplateOutlet="card; context: {$implicit: row, section}" /> }
+              }
+            </details>
+          }
+        }
+        @if (remainingIn(section) > 0) {
+          <button type="button" class="pq-parked-more" [attr.aria-label]="'Show more (' + remainingIn(section) + ' left): ' + section.title" (click)="showMore(section)">Show more ({{ remainingIn(section) }} left)</button>
+        }
+        </div>
+      }
+    </section>
+  } @empty {
+    @if (items().length > 0) { <div class="pq-parked-empty">No set-aside work matches “{{ query().trim() }}”.</div> }
+  }
+</div>
+<ng-template #card let-row let-section="section">
+  @let item = row.item;
+  <div class="pq-parked-item">
+    <div class="pq-parked-head">
+      <div class="pq-parked-name">
+        <span class="pq-parked-doc" tabindex="0" [appTooltip]="item.documentPath">{{ documentBasename(item.documentPath) }}</span>
+        <div class="pq-parked-branch">
+          @if (row.project) { <span class="pq-parked-project">{{ row.project }}</span> }
+          {{ item.branchName ?? '(no branch)' }}
+        </div>
+        @if (item.branchName) { <div class="pq-parked-diffstat">{{ diffstatFor(item.id) }}</div> }
+      </div>
+      @if (!isConfirming(item.id, 'discard-item') && !isConfirming(item.id, 'land-anyway')) {
+        <div class="pq-parked-actions">
+          @if (row.display; as display) {
+            @for (action of display.actions; track action) {
+              @switch (action) {
+                @case ('see-findings') { <button type="button" class="pq-see-findings" (click)="showFindings(item.id)">See what the checker found</button> }
+                @case ('choose-checker') { <button type="button" (click)="chooseChecker.emit(item.runId)">Choose a checker</button> }
+                @case ('retry-landing') {
+                  @if (canRetryLanding(item) && !retryProgress()) { <button type="button" class="pq-retry-landing" [appTooltip]="copyFor('planQueue.retryLanding')" (click)="onRetryLanding(item)">Try merging again</button> }
+                }
+                @case ('resume') {
+                  <button type="button" class="pq-resume-item" [appTooltip]="copyFor('planQueue.resumeItem')"
+                    [appTooltipDisabledReason]="display.actions.includes('see-findings') && !findingsOpen().has(item.id) ? 'Read the checker findings first' : null"
+                    (click)="onResume(item.id)">Resume</button>
+                }
+                @case ('merge-without-checks') {
+                  @if (item.branchName) { <button type="button" class="pq-merge-without-checks" [appTooltip]="copyFor('planQueue.landAnyway')" (click)="requestConfirm(item.id, 'land-anyway')">Merge without checks</button> }
+                }
+                @case ('discard') { <button type="button" class="pq-discard" [appTooltip]="copyFor('planQueue.discardItem')" (click)="requestConfirm(item.id, 'discard-item')">Discard</button> }
+              }
+            }
+          }
+        </div>
+      }
+    </div>
+    @if (rowNote(row, section); as note) { <div class="pq-parked-reason">{{ note }}</div> }
+    @if (row.display?.extra; as extra) { <p class="pq-parked-extra">{{ extra }}</p> }
+    @if (detailFor(item.detail); as detail) {
+      <details class="pq-parked-detail"><summary>Details</summary><pre>{{ detail.text }}</pre></details>
+    }
+    @if (findingsOpen().has(item.id)) {
+      <div class="pq-findings">
+        @for (finding of item.verdict?.findings ?? []; track $index) { <p>{{ detailFor(finding.summary)?.text }}</p> }
+        @if (!item.verdict?.findings?.length) { <p>No checker findings were recorded.</p> }
+      </div>
+    }
+    @if (isConfirming(item.id, 'discard-item')) {
+      <div class="pq-parked-confirm" role="group" aria-label="Confirm discard">
+        Discard this job? This deletes its branch, including any work that never reached main. This cannot be undone.
+        <button type="button" class="pq-confirm-yes" (click)="confirmAction(item.id, 'discard-item')">
+          Confirm discard
+        </button>
+        <button type="button" (click)="cancelConfirm()">Never mind</button>
+      </div>
+    } @else if (isConfirming(item.id, 'land-anyway')) {
+      <div class="pq-parked-confirm" role="group" aria-label="Confirm merge without checks">
+        @if (row.mergedSince) {
+          A newer attempt at this document already merged. Merge this older branch on top of it anyway?
+        } @else if (item.verdict?.verdict === 'PASS') {
+          Merge without the final checks? It passed verification, but its last merge was blocked.
+        } @else {
+          Merge this branch even though it never passed verification?
+        }
+        <button type="button" class="pq-confirm-yes" (click)="confirmAction(item.id, 'land-anyway')">
+          Confirm merge without checks
+        </button>
+        <button type="button" (click)="cancelConfirm()">Never mind</button>
+      </div>
+    }
+  </div>
 </ng-template>

@@ -9,7 +9,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  */
 
 const listStores = vi.fn(() => [] as { id: string }[]);
-const getVectors = vi.fn((_storeId: string) => [] as Record<string, unknown>[]);
+const getVectors = vi.fn((_storeId: string, _model: string) => [] as Record<string, unknown>[]);
+const listStaleVectors = vi.fn((_storeId: string, _model: string, _limit: number) => [] as Record<string, unknown>[]);
+const deleteStoreVectors = vi.fn();
+const addVectorForExistingSection = vi.fn();
+const getSection = vi.fn();
+const getSectionContent = vi.fn();
+const embedBatch = vi.fn();
+const similarityFloor = vi.fn(async (_use: string) => 0.5);
 const getVectorBySectionId = vi.fn((_sectionId: string) => null as Record<string, unknown> | null);
 const deleteVector = vi.fn();
 const addVector = vi.fn();
@@ -23,6 +30,11 @@ vi.mock('../persistence/rlm-database', () => ({
   getRLMDatabase: () => ({
     listStores,
     getVectors,
+    listStaleVectors,
+    deleteStoreVectors,
+    addVectorForExistingSection,
+    getSection,
+    getSectionContent,
     getVectorBySectionId,
     deleteVector,
     addVector,
@@ -33,7 +45,7 @@ vi.mock('../persistence/rlm-database', () => ({
   RLMDatabase: class {},
 }));
 
-const embed = vi.fn(async (_text: string) => ({
+const embed = vi.fn(async (_text: string, _purpose?: string) => ({
   embedding: [1, 0, 0],
   model: 'test',
   tokens: 0,
@@ -41,9 +53,14 @@ const embed = vi.fn(async (_text: string) => ({
   provider: 'test',
 }));
 
+vi.mock('./embedding/embedding-model', () => ({ HASH_EMBEDDING_MODEL: { id: 'hash-model' } }));
+
 vi.mock('./embedding-service', () => ({
   getEmbeddingService: () => ({
     embed,
+    embedBatch,
+    activeModelId: async () => 'test',
+    similarityFloor,
     findSimilar: (
       _q: ArrayLike<number>,
       candidates: { id: string; embedding: ArrayLike<number> }[],
@@ -97,7 +114,7 @@ describe('VectorStore', () => {
     await store.search('s1', 'query again');
 
     expect(getVectors).toHaveBeenCalledTimes(1);
-    expect(getVectors).toHaveBeenCalledWith('s1');
+    expect(getVectors).toHaveBeenCalledWith('s1', 'test');
   });
 
   it('keeps embeddings as Float32Array and drops preview/metadata from the cache', async () => {
@@ -145,6 +162,17 @@ describe('VectorStore', () => {
     expect(store.getStats().storeStats.map((s) => s.storeId).sort()).toEqual(['s1', 's3']);
   });
 
+  it('embeds as a query unless told it is comparing stored text', async () => {
+    const store = getVectorStore();
+    embed.mockClear();
+
+    await store.search('s1', 'a question');
+    await store.search('s1', 'stored text', { embedAs: 'document' });
+
+    expect(embed).toHaveBeenNthCalledWith(1, 'a question', 'query');
+    expect(embed).toHaveBeenNthCalledWith(2, 'stored text', 'document');
+  });
+
   it('does not strand a store as half-resident when adding to it', async () => {
     const store = getVectorStore();
 
@@ -153,7 +181,7 @@ describe('VectorStore', () => {
     // silently ranks against that one vector.
     await store.addSection('s1', 'sec-new', 'content');
 
-    expect(getVectors).toHaveBeenCalledWith('s1');
+    expect(getVectors).toHaveBeenCalledWith('s1', 'test');
 
     const results = await store.search('s1', 'query', { topK: 10 });
     expect(results.length).toBeGreaterThan(1);
@@ -191,12 +219,247 @@ describe('VectorStore', () => {
     expect(deleteVector).toHaveBeenCalledWith('sec1');
   });
 
-  it('loads the store before clearing so removal is not a silent no-op', () => {
+  it('only ever loads vectors from the model doing the search', async () => {
+    await getVectorStore().search('s1', 'query');
+
+    expect(getVectors).toHaveBeenCalledWith('s1', 'test');
+  });
+
+  it('uses the model floor for the search use unless given a fixed threshold', async () => {
+    const floors: string[] = [];
+    similarityFloor.mockImplementation(async (use: string) => {
+      floors.push(use);
+      return 0.5;
+    });
+    const store = getVectorStore();
+
+    await store.search('s1', 'query');
+    await store.search('s1', 'query', { use: 'reflection-search' });
+    await store.search('s1', 'query', { minSimilarity: 0.9 });
+
+    expect(floors).toEqual(['context-search', 'reflection-search']);
+  });
+
+  describe('moving older vectors onto the active model', () => {
+    const stale = (n: number, overrides: Record<string, unknown> = {}) => ({
+      id: `vec-s1-old${n}`,
+      section_id: `old${n}`,
+      store_id: 's1',
+      content_preview: `preview ${n}`,
+      metadata_json: JSON.stringify({ model: 'local-tfidf', kept: true }),
+      ...overrides,
+    });
+    const flush = () => vi.waitFor(() => expect(listStaleVectors.mock.calls.length).toBeGreaterThan(1));
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['setTimeout'] });
+      addVectorForExistingSection.mockReturnValue(true);
+      getSection.mockImplementation((id: string) => ({ id }));
+      getSectionContent.mockImplementation((section: { id: string }) => `full text of ${section.id}`);
+      embedBatch.mockImplementation(async (texts: string[]) => texts.map(() => ({
+        embedding: [0, 1, 0], model: 'test', tokens: 0, cached: false, provider: 'test',
+      })));
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    async function runToCompletion(): Promise<void> {
+      await flush();
+      await vi.advanceTimersByTimeAsync(1_000);
+    }
+
+    it('re-embeds from the full section text and keeps the metadata', async () => {
+      listStaleVectors.mockReturnValueOnce([stale(1)]).mockReturnValue([]);
+
+      await getVectorStore().search('s1', 'query');
+      await vi.waitFor(() => expect(addVectorForExistingSection).toHaveBeenCalled());
+
+      expect(embedBatch).toHaveBeenCalledWith(['full text of old1'], 'document');
+      expect(addVectorForExistingSection).toHaveBeenCalledWith(expect.objectContaining({
+        id: 'vec-s1-old1',
+        sectionId: 'old1',
+        metadata: expect.objectContaining({ model: 'test', kept: true }),
+      }));
+    });
+
+    it('never makes a search wait for the conversion', async () => {
+      let finishEmbedding: () => void = () => undefined;
+      embedBatch.mockImplementation(() => new Promise((resolve) => {
+        finishEmbedding = () => resolve([{ embedding: [0, 1, 0], model: 'test', tokens: 0, cached: false, provider: 'test' }]);
+      }));
+      listStaleVectors.mockReturnValue([stale(1)]);
+
+      const results = await getVectorStore().search('s1', 'query');
+
+      expect(results).toHaveLength(2);
+      expect(addVectorForExistingSection).not.toHaveBeenCalled();
+      listStaleVectors.mockReturnValue([]);
+      finishEmbedding();
+    });
+
+    it('does not bring vectors back when a store is cleared while converting', async () => {
+      let finishEmbedding: () => void = () => undefined;
+      embedBatch.mockImplementation(() => new Promise((resolve) => {
+        finishEmbedding = () => resolve([{ embedding: [0, 1, 0], model: 'test', tokens: 0, cached: false, provider: 'test' }]);
+      }));
+      listStaleVectors.mockReturnValue([stale(1)]);
+      const store = getVectorStore();
+      await store.search('s1', 'query');
+      await vi.waitFor(() => expect(embedBatch).toHaveBeenCalledTimes(1));
+
+      store.clearStore('s1');
+      finishEmbedding();
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(addVectorForExistingSection).not.toHaveBeenCalled();
+      expect(embedBatch).toHaveBeenCalledTimes(1);
+    });
+
+    it('can convert a store again after a clear stopped it', async () => {
+      let finishEmbedding: () => void = () => undefined;
+      embedBatch.mockImplementationOnce(() => new Promise((resolve) => {
+        finishEmbedding = () => resolve([{ embedding: [0, 1, 0], model: 'test', tokens: 0, cached: false, provider: 'test' }]);
+      }));
+      listStaleVectors.mockReturnValueOnce([stale(1)]);
+      const store = getVectorStore();
+      await store.search('s1', 'query');
+      await vi.waitFor(() => expect(embedBatch).toHaveBeenCalledTimes(1));
+      store.clearStore('s1');
+      finishEmbedding();
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      listStaleVectors.mockReturnValueOnce([stale(2)]).mockReturnValue([]);
+      await store.search('s1', 'query');
+      await vi.waitFor(() => expect(addVectorForExistingSection).toHaveBeenCalledTimes(1));
+    });
+
+    it('makes a converted vector searchable straight away in a resident store', async () => {
+      listStaleVectors.mockReturnValueOnce([stale(1)]).mockReturnValue([]);
+      const store = getVectorStore();
+
+      await store.search('s1', 'query');
+      await vi.waitFor(() => expect(addVectorForExistingSection).toHaveBeenCalled());
+      await runToCompletion();
+
+      expect(store.getStats().storeStats.find((entry) => entry.storeId === 's1')?.vectorCount).toBe(3);
+    });
+
+    it('runs once per store however many searches arrive', async () => {
+      listStaleVectors.mockReturnValueOnce([stale(1)]).mockReturnValue([]);
+      const store = getVectorStore();
+
+      await Promise.all([store.search('s1', 'a'), store.search('s1', 'b'), store.search('s1', 'c')]);
+      await runToCompletion();
+
+      expect(embedBatch).toHaveBeenCalledTimes(1);
+    });
+
+    it('converts one store at a time, so searches never queue behind several', async () => {
+      let release: () => void = () => undefined;
+      embedBatch.mockImplementation(() => new Promise((resolve) => {
+        release = () => resolve([{ embedding: [0, 1, 0], model: 'test', tokens: 0, cached: false, provider: 'test' }]);
+      }));
+      listStaleVectors.mockImplementation((storeId: string) => (
+        listStaleVectors.mock.calls.length <= 2 ? [stale(1, { store_id: storeId })] : []
+      ));
+      const store = getVectorStore();
+
+      await store.search('s1', 'query');
+      await store.search('s2', 'query');
+      await vi.waitFor(() => expect(embedBatch).toHaveBeenCalledTimes(1));
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(embedBatch).toHaveBeenCalledTimes(1);
+      release();
+      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.waitFor(() => expect(embedBatch).toHaveBeenCalledTimes(2));
+      release();
+    });
+
+    it('still converts a row whose metadata is damaged', async () => {
+      listStaleVectors.mockReturnValueOnce([stale(1, { metadata_json: '{broken' })]).mockReturnValue([]);
+
+      await getVectorStore().search('s1', 'query');
+      await vi.waitFor(() => expect(addVectorForExistingSection).toHaveBeenCalled());
+
+      expect(addVectorForExistingSection).toHaveBeenCalledWith(expect.objectContaining({
+        metadata: expect.objectContaining({ model: 'test' }),
+      }));
+    });
+
+    it('stops checking a store once it is fully converted', async () => {
+      listStaleVectors.mockReturnValue([]);
+      const store = getVectorStore();
+
+      await store.search('s1', 'query');
+      await vi.waitFor(() => expect(listStaleVectors).toHaveBeenCalledTimes(1));
+      await vi.advanceTimersByTimeAsync(1_000);
+      await store.search('s1', 'query');
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(listStaleVectors).toHaveBeenCalledTimes(1);
+    });
+
+    it('falls back to the stored preview when the section cannot be read', async () => {
+      getSectionContent.mockImplementation(() => { throw new Error('content file missing'); });
+      listStaleVectors.mockReturnValueOnce([stale(1)]).mockReturnValue([]);
+
+      await getVectorStore().search('s1', 'query');
+      await vi.waitFor(() => expect(embedBatch).toHaveBeenCalled());
+
+      expect(embedBatch).toHaveBeenCalledWith(['preview 1'], 'document');
+    });
+
+    it('drops a vector whose section has gone, so the loop cannot spin on it', async () => {
+      addVectorForExistingSection.mockReturnValue(false);
+      listStaleVectors.mockReturnValueOnce([stale(1)]).mockReturnValue([]);
+
+      await getVectorStore().search('s1', 'query');
+      await vi.waitFor(() => expect(deleteVector).toHaveBeenCalledWith('old1'));
+    });
+
+    it('picks up again on a later search after a failure', async () => {
+      embedBatch.mockRejectedValueOnce(new Error('model busy'));
+      listStaleVectors.mockReturnValue([stale(1)]);
+      const store = getVectorStore();
+
+      await store.search('s1', 'query');
+      await vi.waitFor(() => expect(embedBatch).toHaveBeenCalledTimes(1));
+      await vi.advanceTimersByTimeAsync(10);
+      listStaleVectors.mockReturnValueOnce([stale(1)]).mockReturnValue([]);
+      embedBatch.mockClear();
+
+      await store.search('s1', 'query');
+      await vi.waitFor(() => expect(embedBatch).toHaveBeenCalledTimes(1));
+    });
+
+    it('never replaces real vectors with hash vectors', async () => {
+      embed.mockResolvedValueOnce({ embedding: [1, 0, 0], model: 'hash-model', tokens: 0, cached: false, provider: 'local' });
+
+      await getVectorStore().search('s1', 'query');
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(listStaleVectors).not.toHaveBeenCalled();
+      expect(embedBatch).not.toHaveBeenCalled();
+    });
+  });
+
+  it('clears a store that is not resident, so removal is not a silent no-op', () => {
     const store = getVectorStore();
 
     store.clearStore('s1');
 
-    expect(getVectors).toHaveBeenCalledWith('s1');
-    expect(deleteVector).toHaveBeenCalledTimes(2);
+    expect(deleteStoreVectors).toHaveBeenCalledWith('s1');
+  });
+
+  it('forgets cleared vectors so a later search cannot return them', async () => {
+    const store = getVectorStore();
+    await store.search('s1', 'query');
+
+    store.clearStore('s1');
+
+    expect(store.getStats().totalVectors).toBe(0);
   });
 });

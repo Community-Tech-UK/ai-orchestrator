@@ -3,12 +3,13 @@ import type { AppServerNotification, AppServerResponseResult } from './app-serve
 import type { CliAsyncWorkEvent } from '../claude-cli-async-work';
 import { getLogger } from '../../../logging/logger';
 import { errorDiagnostic } from '../../../logging/source-diagnostics';
+import { readPolledCommands, type FinishedCommand } from './codex-rollout-polls';
 
 const logger = getLogger('CodexBackgroundTerminals');
 const REFRESH_TIMEOUT_MS = 3_000;
-const MODEL_ITEM_TYPES = new Set(['agentMessage', 'agent_message', 'reasoning']);
 type Terminal = { itemId: string; processId: string; command: string; cwd: string };
 type Work = { itemId: string; command: string };
+type BackgroundFinish = Work & FinishedCommand;
 
 /** A complete, time-bounded snapshot. Partial or malformed lists never clear protection. */
 export async function listBackgroundTerminals(client: CodexAppServerRuntimeClient, threadId: string): Promise<Terminal[]> {
@@ -46,9 +47,10 @@ export class CodexBackgroundTerminalTracker {
   private threadId: string | null = null;
   private work = new Map<string, Work>();
   private readonly unfinished = new Map<string, Work>();
-  /** Finished since the latest model call began, so that call cannot have read the result. */
-  private readonly finishedUnread = new Map<string, Work>();
-  private modelCallOpen = false;
+  /** Item ids still running when their tool call handed control back to the model. */
+  private readonly backgrounded = new Set<string>();
+  /** Background commands that ended inside the current turn, which the model may never have read. */
+  private readonly finishedInTurn = new Map<string, BackgroundFinish>();
   private timer: ReturnType<typeof setTimeout> | null = null;
   private inFlight: Promise<boolean> | null = null;
   private epoch = 0;
@@ -59,6 +61,7 @@ export class CodexBackgroundTerminalTracker {
   constructor(
     private readonly emit: (event: CliAsyncWorkEvent) => void,
     private readonly stopped: (count: number, commands: string[]) => void,
+    private readonly readPolled: typeof readPolledCommands = readPolledCommands,
   ) {}
 
   bind(client: CodexAppServerRuntimeClient, threadId: string): void {
@@ -73,14 +76,10 @@ export class CodexBackgroundTerminalTracker {
   observe(notification: AppServerNotification): void {
     if (!this.threadId || notification.params['threadId'] !== this.threadId) return;
     const { method, params } = notification;
-    const item = params['item'] as { id?: string; type?: string; command?: string; status?: string } | undefined;
-    if (method === 'item/started' && item?.type) {
-      if (!MODEL_ITEM_TYPES.has(item.type)) {
-        this.modelCallOpen = false;
-      } else if (!this.modelCallOpen) {
-        this.modelCallOpen = true;
-        this.finishedUnread.clear();
-      }
+    const item = params['item'] as { id?: string; type?: string; command?: string; status?: string; processId?: string } | undefined;
+    // Codex reports usage once a step's tools return, so a command running now outlived its tool call.
+    if (method === 'thread/tokenUsage/updated') {
+      for (const id of this.unfinished.keys()) this.backgrounded.add(id);
     }
     if ((method === 'item/started' || method === 'item/completed') && item?.type === 'commandExecution' && item.id) {
       this.revision++;
@@ -97,21 +96,21 @@ export class CodexBackgroundTerminalTracker {
             reported = true;
           }
         }
-        if (finished && !reported && (item.status === 'completed' || item.status === 'failed')) {
-          this.finishedUnread.set(item.id, finished);
+        if (finished && !reported && this.backgrounded.has(item.id) && (item.status === 'completed' || item.status === 'failed')) {
+          this.finishedInTurn.set(item.id, { ...finished, processId: item.processId ?? '', finishedAt: Date.now() });
         }
+        this.backgrounded.delete(item.id);
         this.publish();
       }
     }
     if (method === 'turn/completed') {
-      // The last model call can outlive a command, and Codex can hold the turn open
-      // long after that call, mainly to compact. Nothing else wakes the session then.
+      // The model only learns a background result by polling for it, and it can end
+      // its turn believing the command still runs. Nothing else wakes the session then.
       const turn = params['turn'] as { status?: string } | undefined;
       if (turn?.status === 'completed') {
-        for (const [id, work] of this.finishedUnread) this.complete(`codex-item:${id}`, work);
+        for (const work of this.unreadFinishes()) this.complete(`codex-item:${work.itemId}`, work);
       }
-      this.finishedUnread.clear();
-      this.modelCallOpen = false;
+      this.finishedInTurn.clear();
     }
     if (method === 'turn/completed' && (this.unfinished.size > 0 || this.hasWork())) {
       this.revision++;
@@ -169,6 +168,19 @@ export class CodexBackgroundTerminalTracker {
     return this.hasWork();
   }
 
+  private unreadFinishes(): BackgroundFinish[] {
+    const finishes = [...this.finishedInTurn.values()];
+    if (finishes.length === 0 || !this.threadId) return [];
+    try {
+      const polled = this.readPolled(this.threadId, finishes);
+      return finishes.filter((finish) => !polled.has(finish.processId));
+    } catch (error) {
+      // An extra wake costs one turn; a missed one leaves the session asleep.
+      logger.warn('Could not read the Codex transcript; treating finished background commands as unread', errorDiagnostic(error));
+      return finishes;
+    }
+  }
+
   private complete(workId: string, work: Work): void {
     this.emit({ phase: 'terminal', workId, kind: 'background-shell', status: 'completed', ...(this.stopping ? { continueOnCompletion: false } : {}), detail: work.command.slice(0, 120) });
   }
@@ -205,8 +217,8 @@ export class CodexBackgroundTerminalTracker {
     this.inFlight = null;
     this.work.clear();
     this.unfinished.clear();
-    this.finishedUnread.clear();
-    this.modelCallOpen = false;
+    this.backgrounded.clear();
+    this.finishedInTurn.clear();
     this.client = null;
     this.threadId = null;
     this.unsupported = false;

@@ -45,7 +45,7 @@ function readRawCompletionText(envelope: ProviderRuntimeEventEnvelope): string |
   return typeof content === 'string' && content.trim() ? content : null;
 }
 
-function readCompletionText(
+export function readCompletionText(
   envelope: ProviderRuntimeEventEnvelope,
   instance: Instance,
 ): string | null {

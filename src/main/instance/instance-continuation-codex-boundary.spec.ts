@@ -14,6 +14,7 @@ import { recordInstanceTurnEnding } from './instance-turn-ending-state';
 vi.mock('../cli/adapters/codex/app-server-client', async (importOriginal) => ({
   ...await importOriginal<object>(), terminateProcessTree: vi.fn(),
 }));
+vi.mock('../cli/adapters/codex/codex-rollout-polls', () => ({ readPolledCommands: () => new Set<string>() }));
 vi.mock('../logging/logger', () => ({ getLogger: () => ({ info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() }) }));
 vi.mock('../hooks/hook-manager', () => ({ getHookManager: () => ({
   triggerHooks: vi.fn(), triggerLifecycleHooks: vi.fn().mockResolvedValue({ blocked: false }),
@@ -324,7 +325,7 @@ describe('continuation admission through real communication and Codex queues', (
   );
 
   it.each(['before-idle', 'after-idle', 'after-idle-following-a-cutoff'] as const)(
-    'wakes Codex for a command that finished while it compacted after its last reply, with the turn completion arriving %s', async (order) => {
+    'wakes Codex for an unread background command that finished inside the turn, with the turn completion arriving %s', async (order) => {
       const h = harness();
       const completion = () => h.events.emit('provider:normalized-event', { instanceId: 'root', provider: 'codex', event: {
         kind: 'complete', requestCountAtCompletion: 3, turnEnding: { reason: 'completed', evidence: 'native_completed' },
@@ -341,6 +342,7 @@ describe('continuation admission through real communication and Codex queues', (
         await vi.waitFor(() => expect(h.instance.status).toBe('busy'));
         const item = { threadId: 'thread-1', turnId: 'native-turn' };
         h.emit('item/started', { ...item, item: { id: 'verify', type: 'commandExecution', command: 'npm run verify' } });
+        h.emit('thread/tokenUsage/updated', { ...item, tokenUsage: { last: {}, total: {} } });
         h.emit('item/completed', { ...item, item: { id: 'answer', type: 'agentMessage', text: 'Full verification is running.' } });
         h.emit('item/completed', { ...item, item: { id: 'verify', type: 'commandExecution', status: 'failed' } });
         h.emit('turn/completed', { threadId: 'thread-1', turn: { id: 'native-turn', status: 'completed' } });

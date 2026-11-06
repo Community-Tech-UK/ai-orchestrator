@@ -10,10 +10,11 @@ function harness() {
   const client = { request } as unknown as CodexAppServerRuntimeClient;
   const events: CliAsyncWorkEvent[] = [];
   const stopped = vi.fn();
-  const tracker = new CodexBackgroundTerminalTracker((event) => events.push(event), stopped);
+  const readPolled = vi.fn((): Set<string> => new Set<string>());
+  const tracker = new CodexBackgroundTerminalTracker((event) => events.push(event), stopped, readPolled);
   tracker.bind(client, 'root');
   const observe = (method: AppServerNotification['method'], params: Record<string, unknown> = {}) => tracker.observe({ method, params: { threadId: 'root', ...params } });
-  return { tracker, request, events, stopped, observe, client };
+  return { tracker, request, events, stopped, observe, client, readPolled };
 }
 afterEach(() => vi.useRealTimers());
 
@@ -77,72 +78,95 @@ describe('Codex background terminals', () => {
     expect(h.events.filter((e) => e.phase === 'terminal')).toEqual([expect.objectContaining({ workId: 'codex-term:process-1' })]);
     h.tracker.reset();
   });
-  it('reports a command that finishes after the last reply while Codex holds the turn open to compact', () => {
-    const h = harness();
-    h.observe('item/started', { item: { id: 'item-1', type: 'commandExecution', command: 'npm run verify' } });
-    h.observe('item/started', { item: { id: 'reply-1', type: 'agentMessage' } });
-    h.observe('item/completed', { item: { id: 'reply-1', type: 'agentMessage' } });
-    h.observe('item/started', { item: { id: 'compact-1', type: 'contextCompaction' } });
-    h.observe('item/completed', { item: { id: 'item-1', type: 'commandExecution', status: 'failed' } });
-    expect(h.events.filter((e) => e.phase === 'terminal')).toEqual([]);
-    h.observe('item/completed', { item: { id: 'compact-1', type: 'contextCompaction' } });
-    h.observe('turn/completed', { turn: { id: 'turn-1', status: 'completed' } });
-    expect(h.events.filter((e) => e.phase === 'terminal')).toEqual([{
-      phase: 'terminal', workId: 'codex-item:item-1', kind: 'background-shell', status: 'completed', detail: 'npm run verify',
-    }]);
-    h.observe('turn/completed', { turn: { id: 'turn-2', status: 'completed' } });
-    expect(h.events.filter((e) => e.phase === 'terminal')).toHaveLength(1);
-    h.tracker.reset();
-  });
-  it('reports a command that finishes while the final model call is already running', () => {
-    const h = harness();
-    h.observe('item/started', { item: { id: 'item-1', type: 'commandExecution', command: 'npm run verify' } });
-    h.observe('item/started', { item: { id: 'thought-1', type: 'reasoning' } });
-    h.observe('item/completed', { item: { id: 'item-1', type: 'commandExecution', status: 'completed' } });
-    h.observe('item/completed', { item: { id: 'thought-1', type: 'reasoning' } });
-    h.observe('item/started', { item: { id: 'reply-1', type: 'agentMessage' } });
-    h.observe('item/completed', { item: { id: 'reply-1', type: 'agentMessage' } });
-    h.observe('turn/completed', { turn: { id: 'turn-1', status: 'completed' } });
-    expect(h.events.filter((e) => e.phase === 'terminal')).toEqual([expect.objectContaining({ detail: 'npm run verify' })]);
-    h.tracker.reset();
-  });
-  it('recognises the snake_case form of a model reply', () => {
-    const h = harness();
-    h.observe('item/started', { item: { id: 'item-1', type: 'commandExecution', command: 'git status' } });
-    h.observe('item/completed', { item: { id: 'item-1', type: 'commandExecution', status: 'completed' } });
-    h.observe('item/started', { item: { id: 'reply-1', type: 'agent_message' } });
-    h.observe('turn/completed', { turn: { id: 'turn-1', status: 'completed' } });
-    expect(h.events.filter((e) => e.phase === 'terminal')).toEqual([]);
-    h.tracker.reset();
-  });
-  it('does not report a command that never ran to completion', () => {
-    const h = harness();
-    h.observe('item/started', { item: { id: 'item-1', type: 'commandExecution', command: 'rm -rf build' } });
-    h.observe('item/completed', { item: { id: 'item-1', type: 'commandExecution', status: 'declined' } });
-    h.observe('turn/completed', { turn: { id: 'turn-1', status: 'completed' } });
-    expect(h.events.filter((e) => e.phase === 'terminal')).toEqual([]);
-    h.tracker.reset();
-  });
-  it('stays quiet about commands the model replied after', () => {
-    const h = harness();
-    h.observe('item/started', { item: { id: 'item-1', type: 'commandExecution', command: 'git status' } });
-    h.observe('item/completed', { item: { id: 'item-1', type: 'commandExecution', status: 'completed' } });
-    h.observe('item/started', { item: { id: 'thought-1', type: 'reasoning' } });
-    h.observe('item/started', { item: { id: 'item-2', type: 'commandExecution', command: 'git diff' } });
-    h.observe('item/completed', { item: { id: 'item-2', type: 'commandExecution', status: 'completed' } });
-    h.observe('item/started', { item: { id: 'reply-1', type: 'agentMessage' } });
-    h.observe('turn/completed', { turn: { id: 'turn-1', status: 'completed' } });
-    expect(h.events.filter((e) => e.phase === 'terminal')).toEqual([]);
-    h.tracker.reset();
-  });
-  it('does not wake a session whose turn was stopped', () => {
-    const h = harness();
-    h.observe('item/started', { item: { id: 'item-1', type: 'commandExecution', command: 'npm run verify' } });
-    h.observe('item/completed', { item: { id: 'item-1', type: 'commandExecution', status: 'failed' } });
-    h.observe('turn/completed', { turn: { id: 'turn-1', status: 'interrupted' } });
-    h.observe('turn/completed', { turn: { id: 'turn-2', status: 'completed' } });
-    expect(h.events.filter((e) => e.phase === 'terminal')).toEqual([]);
-    h.tracker.reset();
+  describe('background commands that finish inside the turn', () => {
+    const start = (h: ReturnType<typeof harness>, id = 'item-1', command = 'npm run verify') =>
+      h.observe('item/started', { item: { id, type: 'commandExecution', command, processId: `p-${id}` } });
+    const finish = (h: ReturnType<typeof harness>, id = 'item-1', status = 'completed') =>
+      h.observe('item/completed', { item: { id, type: 'commandExecution', status, processId: `p-${id}` } });
+    const toolStepReturned = (h: ReturnType<typeof harness>) => h.observe('thread/tokenUsage/updated');
+    const endTurn = (h: ReturnType<typeof harness>, status = 'completed') => h.observe('turn/completed', { turn: { id: 'turn-1', status } });
+    const terminals = (h: ReturnType<typeof harness>) => h.events.filter((e) => e.phase === 'terminal');
+
+    it('reports one that finished while Codex compacted after its last reply', () => {
+      const h = harness();
+      start(h);
+      toolStepReturned(h);
+      h.observe('item/completed', { item: { id: 'reply-1', type: 'agentMessage' } });
+      h.observe('item/started', { item: { id: 'compact-1', type: 'contextCompaction' } });
+      finish(h, 'item-1', 'failed');
+      expect(terminals(h)).toEqual([]);
+      h.observe('item/completed', { item: { id: 'compact-1', type: 'contextCompaction' } });
+      endTurn(h);
+      expect(terminals(h)).toEqual([{ phase: 'terminal', workId: 'codex-item:item-1', kind: 'background-shell', status: 'completed', detail: 'npm run verify' }]);
+      endTurn(h);
+      expect(terminals(h)).toHaveLength(1);
+      h.tracker.reset();
+    });
+    it('reports one the model never polled, even though it kept working and replied afterwards', () => {
+      const h = harness();
+      start(h, 'watcher', 'python3 parent-watch.py');
+      toolStepReturned(h);
+      h.observe('item/started', { item: { id: 'thought-1', type: 'reasoning' } });
+      finish(h, 'watcher');
+      start(h, 'item-2', 'save notes');
+      finish(h, 'item-2');
+      toolStepReturned(h);
+      h.observe('item/started', { item: { id: 'reply-1', type: 'agentMessage' } });
+      h.observe('item/completed', { item: { id: 'reply-1', type: 'agentMessage' } });
+      endTurn(h);
+      expect(terminals(h)).toEqual([expect.objectContaining({ workId: 'codex-item:watcher', detail: 'python3 parent-watch.py' })]);
+      expect(h.readPolled).toHaveBeenCalledExactlyOnceWith('root', [expect.objectContaining({ processId: 'p-watcher', finishedAt: expect.any(Number) })]);
+      h.tracker.reset();
+    });
+    it('stays quiet about one the transcript shows the model polled', () => {
+      const h = harness();
+      h.readPolled.mockReturnValue(new Set(['p-item-1']));
+      start(h);
+      toolStepReturned(h);
+      finish(h);
+      endTurn(h);
+      expect(terminals(h)).toEqual([]);
+      h.tracker.reset();
+    });
+    it('never looks at a foreground command, whose result always reaches the model', () => {
+      const h = harness();
+      start(h);
+      finish(h);
+      toolStepReturned(h);
+      endTurn(h);
+      expect(h.readPolled).not.toHaveBeenCalled();
+      expect(terminals(h)).toEqual([]);
+      h.tracker.reset();
+    });
+    it('wakes rather than guesses when the transcript cannot be read', () => {
+      const h = harness();
+      h.readPolled.mockImplementation(() => { throw new Error('no transcript'); });
+      start(h);
+      toolStepReturned(h);
+      finish(h);
+      endTurn(h);
+      expect(terminals(h)).toHaveLength(1);
+      h.tracker.reset();
+    });
+    it('ignores a command that never ran to completion', () => {
+      const h = harness();
+      start(h);
+      toolStepReturned(h);
+      finish(h, 'item-1', 'declined');
+      endTurn(h);
+      expect(terminals(h)).toEqual([]);
+      h.tracker.reset();
+    });
+    it('does not wake a session whose turn was stopped', () => {
+      const h = harness();
+      start(h);
+      toolStepReturned(h);
+      finish(h, 'item-1', 'failed');
+      endTurn(h, 'interrupted');
+      endTurn(h);
+      expect(terminals(h)).toEqual([]);
+      h.tracker.reset();
+    });
   });
   it('ignores child thread items and drops late refresh results after exit', async () => {
     const h = harness();

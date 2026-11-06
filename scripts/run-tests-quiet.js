@@ -51,6 +51,7 @@
 'use strict';
 
 const { spawn, execFileSync } = require('child_process');
+const { stripVTControlCharacters } = require('util');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -121,6 +122,18 @@ function runPreflight() {
   }
 }
 
+/**
+ * One progress line from the log so far. The log keeps Vitest's colour codes, so
+ * they come off first: a pattern matching the raw text never fires. Worker count
+ * comes from the line `vitest.pool.ts` writes when it sizes the run.
+ */
+function describeProgress(logText) {
+  const text = stripVTControlCharacters(logText);
+  const done = (text.match(/^ [✓✗❯×↓] .*\.(?:spec|test)\./gm) || []).length;
+  const workers = [...text.matchAll(/^\[test pool\] (\d+) test worker/gm)].at(-1)?.[1];
+  return `${done} test file(s) done${workers ? `, ${workers} test worker(s)` : ''}`;
+}
+
 /** Spawn vitest, tee combined output to the log file, resolve with the exit code. */
 function runVitest() {
   return new Promise((resolve) => {
@@ -161,18 +174,16 @@ function runVitest() {
     // Periodic progress so a slow run is distinguishable from a hung one.
     // A full suite on a busy host can take 30-60+ minutes; without a heartbeat
     // the console is silent for the whole run and callers reasonably conclude
-    // the process is stuck.  This prints one line to stderr every 2 minutes.
+    // the process is stuck. One line a minute also leaves a killed run a useful
+    // tail, so the Plan Queue can show how far it got and on how many workers.
     const progressTimer = setInterval(() => {
       try {
-        const text = fs.readFileSync(LOG_PATH, 'utf8');
-        const done = (text.match(/^ [\s✓✗↓] \|/gm) || []).length;
-        if (done > 0) {
-          process.stderr.write(`  … ${done} test file(s) done (full log: ${path.relative(ROOT, LOG_PATH)})\n`);
-        }
+        const line = describeProgress(fs.readFileSync(LOG_PATH, 'utf8'));
+        process.stderr.write(`  … ${line} (full log: ${path.relative(ROOT, LOG_PATH)})\n`);
       } catch {
         /* log not written yet — skip this tick */
       }
-    }, 120_000);
+    }, 60_000);
     progressTimer.unref();
 
     child.on('error', (err) => {

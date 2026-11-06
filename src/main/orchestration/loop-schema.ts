@@ -9,7 +9,7 @@
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { PLAN_QUEUE_MIGRATIONS } from '../plan-queue/plan-queue-migrations';
 
-export const LOOP_SCHEMA_VERSION = 42;
+export const LOOP_SCHEMA_VERSION = 50;
 
 export interface LoopMigration {
   version: number;
@@ -549,6 +549,30 @@ export const LOOP_MIGRATIONS: readonly LoopMigration[] = [
         document_sha256 TEXT PRIMARY KEY, decision_json TEXT NOT NULL, decided_at INTEGER NOT NULL
       );
     `,
+  },
+  {
+    // Plan Queue: Discard was recorded as a sentence at the end of `detail`, which any later save could
+    // lose, bringing the job back. Earlier discards move to these fields; `discard_ref_expires_at`
+    // stays empty for them until the hourly sweep finds a kept reference. Held numbers below this one
+    // (PLAN_QUEUE_RESERVED_MIGRATIONS) go before this entry when they land, so the list stays in order.
+    version: 50,
+    name: '050_plan_queue_item_discard',
+    up: (db) => {
+      db.exec(`
+        ALTER TABLE plan_queue_items ADD COLUMN discarded_at INTEGER;
+        ALTER TABLE plan_queue_items ADD COLUMN discarded_by TEXT;
+        ALTER TABLE plan_queue_items ADD COLUMN discard_ref_expires_at INTEGER;
+      `);
+      const update = db.prepare('UPDATE plan_queue_items SET discarded_at = ?, discarded_by = ?, detail = ? WHERE id = ?');
+      const rows = db.prepare(`
+        SELECT id, detail, updated_at FROM plan_queue_items
+        WHERE branch_name IS NULL AND worktree_path IS NULL AND detail LIKE '%Discarded by %'
+      `).all<{ id: string; detail: string; updated_at: number }>();
+      for (const row of rows) {
+        const receipt = /(?:^|\s)Discarded by ([^\n]+)\.$/.exec(row.detail);
+        if (receipt) update.run(row.updated_at, receipt[1], row.detail.slice(0, receipt.index).trim() || null, row.id);
+      }
+    },
   },
 ];
 

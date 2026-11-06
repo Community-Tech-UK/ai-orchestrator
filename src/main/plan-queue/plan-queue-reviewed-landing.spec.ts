@@ -56,7 +56,7 @@ beforeEach(async () => {
   store.upsertRun({ id: 'run', parentInstanceId: 'parent', parentHistoryThreadId: null, kind: 'plans', workspaceCwd: root,
     status: 'running', config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, baseBranch: 'main', verifierGates: [], postMergeGate: [] },
     workerProvider: 'claude', workerModel: null, relaxation: null, startedAt: 1, endedAt: null });
-  host = { history: store.history, getRun: (id: string) => store.getRun(id)!, getItem: (id: string) => store.getItem(id)!,
+  host = { store, history: store.history, getRun: (id: string) => store.getRun(id)!, getItem: (id: string) => store.getItem(id)!,
     save: (item: PlanQueueItem) => { store.upsertItem(item); return item; },
     transition: (item: PlanQueueItem, state: PlanQueueItem['state'], patch: Partial<PlanQueueItem> = {}) => {
       const next = { ...item, ...patch, state }; store.upsertItem(next); return next;
@@ -98,7 +98,7 @@ describe('reviewed root document through landing and closure', () => {
     const item = await checkedItem();
     if (change === 'removed') rmSync(spec);
     else writeFileSync(spec, reviewed + addition);
-    store = new PlanQueueStore(db); host = { ...host, history: store.history }; flow = new PlanQueueItemFlow(host);
+    store = new PlanQueueStore(db); host = { ...host, store, history: store.history }; flow = new PlanQueueItemFlow(host);
     await flow.enqueueLanding(item.id); await flow.whenSettled();
     expect(host.getItem(item.id).state).toBe('parked');
     expect(existsSync(item.documentPath)).toBe(true);
@@ -153,7 +153,7 @@ describe('reviewed root document through landing and closure', () => {
     expect(host.getItem(item.id)).toMatchObject({ state: 'parked', landedCommit: 'promoted' });
     writeFileSync(spec, reviewed + addition);
     vi.mocked(fs.writeFile).mockImplementation(actual.writeFile);
-    store = new PlanQueueStore(db); host = { ...host, history: store.history }; flow = new PlanQueueItemFlow(host);
+    store = new PlanQueueStore(db); host = { ...host, store, history: store.history }; flow = new PlanQueueItemFlow(host);
     host.transition(host.getItem(item.id), 'landing');
     await flow.enqueueLanding(item.id); await flow.whenSettled();
     expect(host.getItem(item.id).state).toBe('parked');
@@ -268,7 +268,7 @@ describe('reviewed root document through landing and closure', () => {
     const item = await checkedItem('item', reviewed + '## Status\nReady\n## Status\nReady\n## As-built\n' + journal);
     const originalReview = store.history.listVerdicts(item.id)[0];
     await dietAtCheckpoint(item, store.history);
-    store = new PlanQueueStore(db); host = { ...host, history: store.history }; flow = new PlanQueueItemFlow(host);
+    store = new PlanQueueStore(db); host = { ...host, store, history: store.history }; flow = new PlanQueueItemFlow(host);
     expect(store.history.listVerdicts(item.id)[0]).toEqual(originalReview);
     if (changed) writeFileSync(item.documentPath, readFileSync(item.documentPath, 'utf8') + addition);
     await flow.enqueueLanding(item.id); await flow.whenSettled();

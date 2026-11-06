@@ -138,6 +138,18 @@ describe('syncItemWithBase', () => {
 });
 
 describe('runPostMergeGate', () => {
+  it('says when a command ran out of time, because that is not the same as failing', async () => {
+    hookBudget.timeoutMs = 200;
+    expect(await runPostMergeGate(['sleep 5'], repo)).toMatchObject({ ok: false, command: 'sleep 5', timedOut: true });
+    hookBudget.timeoutMs = null;
+    expect(await runPostMergeGate(['exit 3'], repo)).not.toHaveProperty('timedOut');
+  });
+
+  it('gives the check a fixed test worker count', async () => {
+    const result = await runPostMergeGate(['echo "forks=$AIO_TEST_MAX_FORKS"; exit 3'], repo);
+    expect(result.ok === false && result.output).toContain('forks=8');
+  });
+
   it('passes when every command exits 0 and stops at the first failure', async () => {
     expect(await runPostMergeGate(['true', 'true'], repo)).toEqual({ ok: true });
 

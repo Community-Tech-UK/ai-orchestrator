@@ -15,6 +15,8 @@ const embed = vi.fn(async (text: string) => ({
 
 vi.mock('./embedding-service', () => ({
   getEmbeddingService: () => ({
+    activeModelId: async () => 'fixture-embed',
+    similarityFloor: async () => 0.5,
     embed,
     embedBatch: async (texts: string[]) => Promise.all(texts.map((text) => embed(text))),
     findSimilar: (
@@ -212,7 +214,7 @@ const durableRestartProcessScript = String.raw`
       sectionId: 'semantic-existing',
       embedding: new Float32Array([1, 0, 0]),
       contentPreview: existingContent,
-      metadata: { fixture: true },
+      metadata: { fixture: true, model: 'fixture-embed' },
     });
     seededDatabase.createSession({
       id: 'semantic-session',
@@ -284,6 +286,8 @@ const durableRestartProcessScript = String.raw`
         };
       },
       embedBatch: async (texts) => Promise.all(texts.map((text) => fakeEmbeddingService.embed(text))),
+      activeModelId: async () => 'fixture-embed',
+      similarityFloor: async () => 0.5,
       findSimilar: (_query, candidates, topK = 10) => candidates.slice(0, topK).map((candidate) => ({
         id: candidate.id,
         similarity: 1,
@@ -338,7 +342,7 @@ const durableRestartProcessScript = String.raw`
       missingVectorPersisted: missingVectorAfter
         && missingVectorAfter.store_id === 'semantic-store'
         && missingVectorAfter.section_id === 'semantic-missing',
-      finalVectorCount: reopenedDatabase.getVectors('semantic-store').length,
+      finalVectorCount: reopenedDatabase.getVectors('semantic-store', 'fixture-embed').length,
       sectionsAccessed: queryResult.sectionsAccessed,
       networkGuard: {
         interceptedHealthChecks,

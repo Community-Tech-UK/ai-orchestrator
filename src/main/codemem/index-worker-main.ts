@@ -19,7 +19,11 @@ import { getElectronParentPort } from '../runtime/electron-parent-port';
 import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import { migrate } from './cas-schema';
 import { CasStore } from './cas-store';
-import { checkpointAndTruncateWal } from './cas-workspace-index-maintenance';
+import {
+  checkpointAndTruncateWal,
+  CLEANUP_BURST_VACUUM_STEP_PAGES,
+  MAINTENANCE_STEP_TIME_BUDGET_MS,
+} from './cas-workspace-index-maintenance';
 import { isBroadWorkspaceRoot } from './broad-workspace-roots';
 import { runCodememMaintenance } from './codemem-pruner';
 import { CodeIndexManager } from './code-index-manager';
@@ -104,11 +108,12 @@ const userDataPath =
 
 const dbPath = path.join(userDataPath, 'codemem.sqlite');
 
-// The vacuum is synchronous, so RPCs wait while it runs: short, frequent
-// bursts keep code search responsive while a large backlog drains.
-const STARTUP_VACUUM_TIME_BUDGET_MS = 10_000;
+// The vacuum is synchronous, so RPCs wait while it runs. Full maintenance is rare,
+// and clean-up bursts return any free space it leaves in much shorter steps.
+const MAINTENANCE_VACUUM_TIME_BUDGET_MS = 10_000;
 const SPACE_RECLAIM_INTERVAL_MS = 5 * 60 * 1000;
-const SPACE_RECLAIM_TIME_BUDGET_MS = 10_000;
+// Clearing up is done in short bursts, so search RPCs get through between them.
+const CLEANUP_BURST_PAUSE_MS = 1_250;
 
 // ── SQLite + store ─────────────────────────────────────────────────────────────
 
@@ -118,10 +123,12 @@ db.pragma('busy_timeout = 5000');
 migrate(db);
 
 const store = new CasStore(db);
+/** Whether deleted rows are still holding space that later bursts must release. */
+let spaceReleasePending = false;
 try {
   // Short budget: RPCs queue behind startup maintenance. The periodic space
   // reclaim below finishes any remaining shrink in the background.
-  runMaintenance(STARTUP_VACUUM_TIME_BUDGET_MS);
+  runMaintenance(MAINTENANCE_VACUUM_TIME_BUDGET_MS);
 } catch (error) {
   logger.warn('Codemem maintenance skipped', { error: error instanceof Error ? error.message : String(error) });
 }
@@ -143,6 +150,7 @@ const watchedWorkspacePaths = new Map<string, string>();
 const reconciledWorkspaces = new Set<string>();
 let periodicScanTimer: ReturnType<typeof setInterval> | null = null;
 let spaceReclaimTimer: ReturnType<typeof setInterval> | null = null;
+let cleanupBurstTimer: ReturnType<typeof setTimeout> | null = null;
 let periodicScanRunning = false;
 
 indexManager.on('code-index:changed', (event: { workspaceHash: string; paths: string[] }) => {
@@ -212,7 +220,8 @@ async function handleHeavyMessage(msg: HeavyIndexWorkerMsg): Promise<void> {
         reconciledWorkspaces.delete(workspaceHash);
         if (watchedWorkspaces.size === 0) stopPeriodicDriftScan();
         store.deleteWorkspaceIndex(workspaceHash);
-        store.pruneUnreferencedChunks();
+        spaceReleasePending = true;
+        scheduleCleanupBurst();
         respond(msg.id, true);
       } catch (err) {
         respond(msg.id, undefined, err instanceof Error ? err.message : String(err));
@@ -276,7 +285,9 @@ async function handleControlMessage(msg: Exclude<IndexWorkerInboundMsg, HeavyInd
     case 'search-workspace-chunks': {
       try {
         const normalizedPath = path.resolve(msg.workspacePath);
-        respond(msg.id, searchHydratedChunks(store, normalizedPath, msg.query, msg.limit));
+        respond(msg.id, searchHydratedChunks(store, normalizedPath, msg.query, msg.limit, {
+          strongMatchOnly: msg.strongMatchOnly,
+        }));
       } catch (err) {
         respond(msg.id, undefined, err instanceof Error ? err.message : String(err));
       }
@@ -291,7 +302,7 @@ async function handleControlMessage(msg: Exclude<IndexWorkerInboundMsg, HeavyInd
     case 'run-maintenance': {
       try {
         // Same short budget as startup: other RPCs queue behind this call.
-        respond(msg.id, runMaintenance(SPACE_RECLAIM_TIME_BUDGET_MS));
+        respond(msg.id, runMaintenance(MAINTENANCE_VACUUM_TIME_BUDGET_MS));
       } catch (err) {
         respond(msg.id, undefined, err instanceof Error ? err.message : String(err));
       }
@@ -452,11 +463,16 @@ function startSpaceReclaim(): void {
   if (spaceReclaimTimer) {
     return;
   }
-  spaceReclaimTimer = setInterval(reclaimFreeSpace, SPACE_RECLAIM_INTERVAL_MS);
+  spaceReclaimTimer = setInterval(scheduleCleanupBurst, SPACE_RECLAIM_INTERVAL_MS);
   spaceReclaimTimer.unref?.();
+  scheduleCleanupBurst();
 }
 
 function stopSpaceReclaim(): void {
+  if (cleanupBurstTimer) {
+    clearTimeout(cleanupBurstTimer);
+    cleanupBurstTimer = null;
+  }
   if (!spaceReclaimTimer) {
     return;
   }
@@ -464,19 +480,62 @@ function stopSpaceReclaim(): void {
   spaceReclaimTimer = null;
 }
 
-/** Give free pages back to the filesystem between full maintenance runs. */
-function reclaimFreeSpace(): void {
+function scheduleCleanupBurst(): void {
+  if (cleanupBurstTimer || shuttingDown) {
+    return;
+  }
+  cleanupBurstTimer = setTimeout(runCleanupBurst, CLEANUP_BURST_PAUSE_MS);
+  cleanupBurstTimer.unref?.();
+}
+
+function runCleanupBurst(): void {
+  cleanupBurstTimer = null;
   if (shuttingDown) {
     return;
   }
   try {
-    const result = store.vacuumFreelistPages({ timeBudgetMs: SPACE_RECLAIM_TIME_BUDGET_MS, allowFullVacuum: false });
-    if (result.freedPages > 0 || result.stoppedReason === 'checkpoint-busy') {
-      logger.info('Codemem space reclaim ran', { ...result });
+    if (runCleanupStep()) {
+      scheduleCleanupBurst();
     }
   } catch (error) {
-    logger.warn('Codemem space reclaim failed', { error: error instanceof Error ? error.message : String(error) });
+    logger.warn('Codemem cleanup burst failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
+}
+
+/**
+ * One bounded step, returning whether more remains. Abandoned workspaces go
+ * first, then the space they held is released to free pages inside the file, and
+ * finally those pages go back to the filesystem.
+ */
+function runCleanupStep(): boolean {
+  const abandoned = store.pruneAbandonedWorkspaces();
+  spaceReleasePending ||= abandoned.deletedChunks > 0 || abandoned.deletedWorkspaces > 0;
+  if (abandoned.remainingWorkspaces > 0) {
+    return true;
+  }
+
+  if (spaceReleasePending) {
+    spaceReleasePending = !store.releaseDeletedSpace().finished;
+    if (!spaceReleasePending) {
+      logger.info('Codemem finished releasing deleted space');
+    }
+    return true;
+  }
+
+  const reclaim = store.vacuumFreelistPages({
+    timeBudgetMs: MAINTENANCE_STEP_TIME_BUDGET_MS,
+    stepPages: CLEANUP_BURST_VACUUM_STEP_PAGES,
+    allowFullVacuum: false,
+  });
+  if (reclaim.stoppedReason === 'time-budget') {
+    return true;
+  }
+  if (reclaim.freedPages > 0 || reclaim.stoppedReason === 'checkpoint-busy') {
+    logger.info('Codemem space reclaim ran', { ...reclaim });
+  }
+  return false;
 }
 
 function runMaintenance(vacuumTimeBudgetMs?: number): CodememMaintenanceSnapshot {
@@ -486,6 +545,7 @@ function runMaintenance(vacuumTimeBudgetMs?: number): CodememMaintenanceSnapshot
     workspaceExists: existsSync,
     vacuumTimeBudgetMs,
   });
+  spaceReleasePending ||= !result.spaceReleaseFinished;
   const walTruncated = checkpointAndTruncateWal(db);
   if (!walTruncated || result.vacuum.stoppedReason === 'checkpoint-busy') {
     logger.warn('Codemem maintenance could not finish shrinking the database; an open read held the WAL', {

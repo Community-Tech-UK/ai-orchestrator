@@ -173,7 +173,7 @@ export class ObservationStore extends EventEmitter {
       const vectorStore = getVectorStore();
       const searchResults = await vectorStore.search(this.VECTOR_STORE_ID, context, {
         topK,
-        minSimilarity: 0.3, // Lower threshold for initial retrieval
+        use: 'reflection-search', // Lower threshold for initial retrieval
       });
 
       const reflections: Reflection[] = [];

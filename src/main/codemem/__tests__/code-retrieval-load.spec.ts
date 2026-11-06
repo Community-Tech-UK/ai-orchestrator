@@ -89,7 +89,7 @@ describe('CodeRetrievalService load behavior', () => {
 
     const indexResult = await manager.coldIndex(workDir);
 
-    expect(store.searchWorkspaceChunks(indexResult.workspaceHash, 'generated dependency token', 10)).toHaveLength(0);
+    expect(store.searchWorkspaceChunks(indexResult.workspaceHash, 'generated dependency', 10)).toHaveLength(0);
     expect(store.searchWorkspaceChunks(indexResult.workspaceHash, 'unique source token 0042', 10)[0]).toEqual(
       expect.objectContaining({ pathFromRoot: 'src/file-0042.ts' }),
     );

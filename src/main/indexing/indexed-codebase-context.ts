@@ -116,6 +116,7 @@ export class IndexedCodebaseContextService {
         limit: request.topK ?? DEFAULT_TOP_K,
         maxTokens: request.maxTokens ?? DEFAULT_MAX_TOKENS,
         allowIndexWarm: false,
+        strongMatchOnly: true,
       });
     } catch (error) {
       logger.warn('Indexed codebase search failed', {

@@ -179,13 +179,13 @@ export async function executeSemanticSearch(
     };
   }) => void
 ): Promise<QueryResult> {
-  const { query, topK = 5, minSimilarity = 0.5, useHyDE = true } = params;
+  const { query, topK = 5, minSimilarity, useHyDE = true } = params;
 
   // Use vector store for semantic search if available
   if (deps.vectorStore) {
     try {
       // Use HyDE (Hypothetical Document Embeddings) for better search
-      let searchEmbedding: number[] | undefined;
+      let searchEmbedding: { vector: number[]; model: string } | undefined;
       let hydeInfo: { used: boolean; generationTimeMs: number } = {
         used: false,
         generationTimeMs: 0
@@ -195,7 +195,7 @@ export async function executeSemanticSearch(
         try {
           const hydeResult = await deps.hydeService.embed(query);
           if (hydeResult.hydeUsed) {
-            searchEmbedding = hydeResult.embedding;
+            searchEmbedding = { vector: hydeResult.embedding, model: hydeResult.model };
             hydeInfo = {
               used: true,
               generationTimeMs: hydeResult.generationTimeMs
@@ -221,8 +221,10 @@ export async function executeSemanticSearch(
       if (searchEmbedding) {
         searchResults = await deps.vectorStore.searchByEmbedding(
           store.id,
-          searchEmbedding,
-          { topK, minSimilarity }
+          searchEmbedding.vector,
+          searchEmbedding.model,
+          // A generated document scores higher against stored text than a query does.
+          { topK, minSimilarity, use: 'hyde-search' }
         );
       } else {
         searchResults = await deps.vectorStore.search(store.id, query, {

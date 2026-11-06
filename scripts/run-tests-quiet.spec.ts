@@ -5,13 +5,18 @@ import { createRequire } from 'node:module';
 import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
 
-function loadCandidateBaseUrls(appData: string): () => string[] {
+interface QuietRunnerExports {
+  candidateBaseUrls?: () => string[];
+  describeProgress?: (logText: string) => string;
+}
+
+function loadQuietRunner(appData: string): QuietRunnerExports {
   const scriptPath = join(__dirname, 'run-tests-quiet.js');
   const source = readFileSync(scriptPath, 'utf8').replace(
     /\nmain\(\)\.catch\([\s\S]*$/,
-    '\nmodule.exports = { candidateBaseUrls };\n',
+    '\nmodule.exports = { candidateBaseUrls, describeProgress };\n',
   );
-  const module = { exports: {} as { candidateBaseUrls?: () => string[] } };
+  const module = { exports: {} as QuietRunnerExports };
   const processForTest = {
     ...process,
     argv: ['node', scriptPath],
@@ -30,11 +35,41 @@ function loadCandidateBaseUrls(appData: string): () => string[] {
     require: createRequire(scriptPath),
     setTimeout,
   });
-  if (!module.exports.candidateBaseUrls) {
-    throw new Error('candidateBaseUrls was not loaded from run-tests-quiet.js');
-  }
-  return module.exports.candidateBaseUrls;
+  return module.exports;
 }
+
+function loadCandidateBaseUrls(appData: string): () => string[] {
+  const { candidateBaseUrls } = loadQuietRunner(appData);
+  if (!candidateBaseUrls) throw new Error('candidateBaseUrls was not loaded from run-tests-quiet.js');
+  return candidateBaseUrls;
+}
+
+describe('run-tests-quiet progress line', () => {
+  const describeProgress = (text: string): string => {
+    const { describeProgress: describe } = loadQuietRunner(mkdtempSync(join(tmpdir(), 'quiet-progress-')));
+    if (!describe) throw new Error('describeProgress was not loaded from run-tests-quiet.js');
+    return describe(text);
+  };
+
+  it('counts finished files in a real coloured log, which a raw pattern never matched', () => {
+    const line = (mark: string, file: string) => ` \u001b[32m${mark}\u001b[39m \u001b[30m\u001b[45m main \u001b[49m\u001b[39m ${file} \u001b[2m(5 tests)\u001b[22m\u001b[32m 6\u001b[2mms\u001b[22m\u001b[39m`;
+    expect(describeProgress([
+      '\u001b[90mstdout\u001b[2m | src/a.spec.ts\u001b[2m > \u001b[22mtest',
+      line('✓', 'src/a.spec.ts'),
+      line('❯', 'src/b.spec.ts'),
+      '   \u001b[32m✓\u001b[39m a single test inside a file',
+    ].join('\n'))).toBe('2 test file(s) done');
+  });
+
+  it('reports the worker count the run was given', () => {
+    expect(describeProgress('[test pool] 1 test worker(s); 16.7 of 18 cores busy at the start\n ✓ |main| src/a.spec.ts (1 test) 4ms'))
+      .toBe('1 test file(s) done, 1 test worker(s)');
+  });
+
+  it('still reports a run that has not finished a file', () => {
+    expect(describeProgress('[test pool] 8 test worker(s); 2.0 of 18 cores busy at the start\n')).toBe('0 test file(s) done, 8 test worker(s)');
+  });
+});
 
 describe('run-tests-quiet local-model endpoint routing', () => {
   it('does not fall back to localhost when the app setting disables Mac Ollama', () => {

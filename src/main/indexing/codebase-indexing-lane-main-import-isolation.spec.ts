@@ -43,7 +43,12 @@ const WORKER_ENTRY = resolve(SPEC_DIR, './codebase-indexing-lane-main.ts');
 // skill-attribution-service + wake-context-builder joined the graph) was 107
 // modules. Ceiling leaves room for incidental growth while still catching a
 // barrel re-coupling long before it reaches hundreds of modules.
-const CLOSURE_SIZE_CEILING = 130;
+// 2026-11-06: 132 after the local embedding model joined `rlm/embedding-service`:
+// `rlm/embedding/{embedding-model,onnx-text-embedder,wordpiece-tokenizer}.ts` and
+// `rlm/vector-reembedder.ts`. A walk of this working tree against HEAD (128) found
+// those four as the sole additions, and none imports Electron. The ceiling keeps
+// the same small margin it had.
+const CLOSURE_SIZE_CEILING = 135;
 
 function resolveImport(spec: string, fromFile: string): string | null {
   if (!spec.startsWith('.')) return null; // bare module (electron, node:*, npm)

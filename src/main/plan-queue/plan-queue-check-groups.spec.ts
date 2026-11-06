@@ -101,6 +101,7 @@ describe('combined queue checks', () => {
       await pumpPlanQueue(pumpHost);
       await vi.waitFor(() => expect(executions).toEqual(['/combined']));
       expect(store.listItems('run').map(value => value.state)).toEqual(['verifying', 'awaiting-slot']);
+      expect(flow.checklistTurns.size).toBe(1);
       expect(create).not.toHaveBeenCalled();
       release(); await flow.whenSettled();
       if (level === 1 && !fails) host.save({ ...item('leader'), state: 'landed', verifierInstanceId: null,
@@ -156,6 +157,94 @@ describe('combined queue checks', () => {
     groups.reserve(item('leader'), run());
     expect(await groups.run(item('leader'), run(), { cwd: item('leader').worktreePath!, head: 'leader-head', baseSha: 'base', commands: ['check'] })).toBeUndefined();
     expect(groups.isClaimed('member')).toBe(false);
+  });
+
+  it('re-runs nobody alone when a combined check runs out of time, and counts it for every member', async () => {
+    const { groups, runner, execute, input } = setup(vi.fn(async () => ({ exitCode: 1, timedOut: true, output: '' })));
+    groups.reserve(item('leader'), run());
+    const receipts = await groups.run(item('leader'), run(), input());
+    expect(receipts).toMatchObject([{ timedOut: true, head: 'leader-head' }]);
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(runner.cached(input())).toBeUndefined();
+    for (const id of ['leader', 'member']) expect(host.history.hasFailedCheckGroup(id, `${id}-head`)).toBe(false);
+    expect(host.history.listEvents('member').filter(event => event.reason === 'check-timeout')).toHaveLength(1);
+    expect(host.history.listEvents('leader').filter(event => event.reason === 'check-timeout')).toHaveLength(0);
+    expect(item('member').detail).toContain('did not finish in time');
+    expect(groups.isClaimed('member')).toBe(false);
+  });
+
+  describe('the checklist turn', () => {
+    function realFlow() {
+      vi.mocked(gitExec).mockImplementation(async (args, cwd) => args[0] === 'rev-parse'
+        ? args[1].startsWith('refs/') ? 'base' : heads.get(cwd)! : '');
+      const turnsWhenCheckerStarted: number[] = [];
+      const create = vi.fn(async () => { turnsWhenCheckerStarted.push(flow.checklistTurns.size); return { id: 'checker' }; });
+      Object.assign(host, { checksAdmitted: () => true,
+        transition: (value: PlanQueueItem, state: PlanQueueItem['state'], patch: Partial<PlanQueueItem>) => host.save({ ...value, ...patch, state }),
+        instances: { getInstance: () => undefined, createInstance: create },
+        selectVerifier: async () => ({ ok: true, choice: { provider: 'codex' } }),
+        liveParentId: () => 'parent', registerRole: vi.fn(), tracker: { track: vi.fn(), isShuttingDown: () => false },
+      });
+      store.upsertRun({ ...run(), config: { ...run().config, checkBatchSize: 1 } });
+      const flow: PlanQueueItemFlow = new PlanQueueItemFlow(host);
+      return { flow, turnsWhenCheckerStarted };
+    }
+
+    it('is held while commands run and given back before the checker reviews', async () => {
+      const { flow, turnsWhenCheckerStarted } = realFlow();
+      let release!: () => void;
+      const held = new Promise<void>(resolve => { release = resolve; });
+      const original = PlanQueueGateRunner.prototype.executeCommands;
+      vi.spyOn(PlanQueueGateRunner.prototype, 'executeCommands').mockImplementation(function (input) {
+        return original.call(new PlanQueueGateRunner(async () => { await held; return { exitCode: 0, output: '' }; }, () => 'tree'), input);
+      });
+      const started = flow.startVerification(item('leader'));
+      expect(flow.checklistTurns.has('leader')).toBe(true);
+      vi.mocked(host.requestPump).mockClear();
+      release();
+      await started;
+      expect(turnsWhenCheckerStarted).toEqual([0]);
+      expect(item('leader').state).toBe('verifying');
+      expect(host.requestPump).toHaveBeenCalled();
+    });
+
+    it('is given back when a Pause stops the commands', async () => {
+      const { flow } = realFlow();
+      let finish!: () => void;
+      const running = new Promise<void>(resolve => { finish = resolve; });
+      const original = PlanQueueGateRunner.prototype.executeCommands;
+      vi.spyOn(PlanQueueGateRunner.prototype, 'executeCommands').mockImplementation(function (input) {
+        return original.call(new PlanQueueGateRunner(async () => { await running; return { exitCode: 0, output: '' }; }, () => 'tree'), input);
+      });
+      const started = flow.startVerification(item('leader'));
+      await vi.waitFor(() => expect(PlanQueueGateRunner.prototype.executeCommands).toHaveBeenCalled());
+      flow.cancelChecks();
+      finish();
+      await started;
+      expect(flow.checklistTurns.size).toBe(0);
+    });
+
+    it('is given back when the check stops early', async () => {
+      const { flow } = realFlow();
+      store.upsertRun({ ...run(), status: 'paused' });
+      await flow.startVerification(item('leader'));
+      expect(flow.checklistTurns.size).toBe(0);
+    });
+
+    it('is given back when the job cannot move to checking', () => {
+      const { flow } = realFlow();
+      Object.assign(host, { transition: () => { throw new Error('refused'); } });
+      expect(() => flow.startVerification(item('leader'))).toThrow('refused');
+      expect(flow.checklistTurns.size).toBe(0);
+    });
+
+    it('is not taken by a run with no checklist', async () => {
+      const { flow } = realFlow();
+      store.upsertRun({ ...run(), config: { ...run().config, verifierGates: [] } });
+      const started = flow.startVerification(item('leader'));
+      expect(flow.checklistTurns.size).toBe(0);
+      await started;
+    });
   });
 
   it('records failed commits and falls back without seeding any member', async () => {

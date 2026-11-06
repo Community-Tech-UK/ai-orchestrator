@@ -41,6 +41,33 @@ function appliedVersions(): number[] {
     .map((r) => r.version);
 }
 
+describe('loop-schema 050 discard fields', () => {
+  it('moves earlier discards out of the job text, and leaves everything else alone', () => {
+    runLoopMigrationsUpTo(driver, 42);
+    driver.prepare(`INSERT INTO plan_queue_runs (id, parent_instance_id, kind, workspace_cwd, status, config_json, started_at, updated_at)
+      VALUES ('run', 'parent', 'plans', '/repo', 'completed', '{}', 1, 1)`).run();
+    const insert = driver.prepare(`INSERT INTO plan_queue_items (id, run_id, document_path, state, branch_name, worktree_path, detail, created_at, updated_at)
+      VALUES (?, 'run', ?, 'parked', ?, NULL, ?, 1, 7000)`);
+    insert.run('plain', '/a', null, 'Checks failed. Discarded by James.');
+    insert.run('only', '/b', null, 'Discarded by the Set aside agent (session abc).');
+    insert.run('rescue', '/c', null, 'Stopped. Discarded by session x, because the session that started the run (y) no longer exists.');
+    insert.run('quoted', '/d', null, 'A worker wrote: Discarded by James. Then it carried on');
+    insert.run('kept-branch', '/e', 'queue/e', 'Discarded by James.');
+
+    runLoopMigrations(driver);
+
+    const rows = driver.prepare('SELECT id, detail, discarded_at, discarded_by, discard_ref_expires_at FROM plan_queue_items ORDER BY id')
+      .all<{ id: string }>();
+    expect(rows).toEqual([
+      { id: 'kept-branch', detail: 'Discarded by James.', discarded_at: null, discarded_by: null, discard_ref_expires_at: null },
+      { id: 'only', detail: null, discarded_at: 7000, discarded_by: 'the Set aside agent (session abc)', discard_ref_expires_at: null },
+      { id: 'plain', detail: 'Checks failed.', discarded_at: 7000, discarded_by: 'James', discard_ref_expires_at: null },
+      { id: 'quoted', detail: 'A worker wrote: Discarded by James. Then it carried on', discarded_at: null, discarded_by: null, discard_ref_expires_at: null },
+      { id: 'rescue', detail: 'Stopped.', discarded_at: 7000, discarded_by: 'session x, because the session that started the run (y) no longer exists', discard_ref_expires_at: null },
+    ]);
+  });
+});
+
 describe('loop-schema v9 worktree-columns migration', () => {
   it('upgrades a pre-v9 database without data loss; new columns are NULL on legacy rows', () => {
     // 1. Old app: only migrations up to v8 applied — no worktree columns yet.

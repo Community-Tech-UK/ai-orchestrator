@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PLAN_QUEUE_CONFIG } from '@contracts/schemas/plan-queue';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { LOOP_SCHEMA_VERSION, runLoopMigrations, runLoopMigrationsUpTo } from '../orchestration/loop-schema';
+import { claimDocumentsAndCreateItems } from './plan-queue-run-start';
 import { PlanQueueStore } from './plan-queue-store';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 
@@ -285,7 +286,7 @@ describe('PlanQueueStore', () => {
 
       runLoopMigrations(old);
       expect(old.prepare('SELECT * FROM plan_queue_runs').get()).toEqual({ ...runBefore, unpriced_tokens: 0 });
-      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...itemBefore, held_at: null, pending_instruction: null, worker_provider: null, worker_model: null, stepped_up_at: null, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0 });
+      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...itemBefore, held_at: null, pending_instruction: null, worker_provider: null, worker_model: null, stepped_up_at: null, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0, discarded_at: null, discarded_by: null, discard_ref_expires_at: null });
       const upgraded = new PlanQueueStore(old);
       expect(upgraded.getItem('legacy-item')).toMatchObject({ heldAt: null, pendingInstruction: null, state: 'fixing', round: 2 });
 
@@ -336,7 +337,7 @@ describe('PlanQueueStore', () => {
         VALUES ('item-23', 'run-23', '/repo/a_plan.md', 'awaiting-slot', 1, 0, 2, 2)`).run();
       const before = old.prepare('SELECT * FROM plan_queue_items').get<Record<string, unknown>>();
       runLoopMigrations(old);
-      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...before, worker_provider: null, worker_model: null, stepped_up_at: null, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0 });
+      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...before, worker_provider: null, worker_model: null, stepped_up_at: null, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0, discarded_at: null, discarded_by: null, discard_ref_expires_at: null });
       const upgraded = new PlanQueueStore(old);
       expect(upgraded.getItem('item-23')).not.toHaveProperty('workerProvider');
       expect(() => runLoopMigrations(old)).not.toThrow();
@@ -365,7 +366,7 @@ describe('PlanQueueStore', () => {
       const before = old.prepare('SELECT * FROM plan_queue_items').get<Record<string, unknown>>();
       expect(Object.keys(before!)).not.toContain('stepped_up_at');
       runLoopMigrations(old);
-      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...before, stepped_up_at: null, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0 });
+      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...before, stepped_up_at: null, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0, discarded_at: null, discarded_by: null, discard_ref_expires_at: null });
       const upgraded = new PlanQueueStore(old);
       expect(upgraded.getItem('item-24')).toMatchObject({ state: 'parked', round: 3, workerProvider: 'claude', workerModel: 'haiku' });
       expect(upgraded.getItem('item-24')).not.toHaveProperty('steppedUpAt');
@@ -509,7 +510,7 @@ it('upgrades v25 with existing queue work to worker-session storage and repeats 
     expect(itemBefore).not.toHaveProperty('worker_session_json');
     runLoopMigrations(old);
     expect(old.prepare('SELECT * FROM plan_queue_runs').get()).toEqual({ ...runBefore, unpriced_tokens: 0 });
-    expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...itemBefore, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0 });
+    expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...itemBefore, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0, discarded_at: null, discarded_by: null, discard_ref_expires_at: null });
     const upgraded = new PlanQueueStore(old);
     const item = upgraded.getItem('item-25')!;
     expect(item).toMatchObject({ state: 'queued', round: 2, erroredRounds: 1, heldAt: 180,
@@ -525,6 +526,47 @@ it('upgrades v25 with existing queue work to worker-session storage and repeats 
     expect(old.prepare('SELECT COUNT(*) AS n FROM loop_migrations WHERE version = ?')
       .get<{ n: number }>(LOOP_SCHEMA_VERSION)?.n).toBe(1);
     expect(old.prepare('SELECT name FROM loop_migrations WHERE version = ?')
-      .get<{ name: string }>(LOOP_SCHEMA_VERSION)?.name).toBe('042_plan_queue_legacy_history');
+      .get<{ name: string }>(LOOP_SCHEMA_VERSION)?.name).toBe('050_plan_queue_item_discard');
   } finally { old.close(); }
+});
+
+describe('which attempt at a document is newest', () => {
+  const documentPath = '/repo/docs/plans/shared_plan.md';
+  function attempt(id: string, createdAt: number, overrides: Partial<PlanQueueItem> = {}) {
+    store.upsertRun(makeRun({ id: `run-${id}`, parentInstanceId: 'parent-1' }));
+    store.upsertItem(makeItem({ id, runId: `run-${id}`, documentPath, state: 'parked', branchName: `queue/${id}`, createdAt, updatedAt: createdAt, ...overrides }));
+  }
+
+  it('goes by when an attempt started, so a routine save cannot promote an older one', () => {
+    attempt('older', 10, { updatedAt: 999 });
+    attempt('newer', 20);
+    expect(store.findLatestParkedItem(documentPath, 'parent-1')?.id).toBe('newer');
+    expect(store.listParkedInFolder('/repo').map(({ item }) => item.id)).toEqual(['newer', 'older']);
+  });
+
+  it('reports a newer merged attempt even after the older row is saved again', () => {
+    attempt('older', 10, { updatedAt: 999 });
+    attempt('merged', 20, { state: 'landed' });
+    const older = store.getItem('older')!;
+    expect(store.newerAttemptLanded(older)).toBe(true);
+    expect(store.listParkedInFolder('/repo')[0]).toMatchObject({ landedLater: true });
+  });
+
+  it.each([
+    ['offers to resume a set-aside attempt', false, 'needs-answer'],
+    ['does not offer a resume that would always be refused once a newer attempt merged', true, 'discovered'],
+  ] as const)('%s', (_name, merged, state) => {
+    attempt('older', 10);
+    if (merged) attempt('merged', 20, { state: 'landed' });
+    const run = makeRun({ id: 'run-next', parentInstanceId: 'parent-1' });
+    store.upsertRun(run);
+    claimDocumentsAndCreateItems({ store, now: () => 100, newId: () => 'next' }, run, [{ path: documentPath, readiness: 'candidate' }]);
+    expect(store.getItem('next')?.state).toBe(state);
+  });
+
+  it('does not count an older merged attempt against a newer one', () => {
+    attempt('merged', 10, { state: 'landed', updatedAt: 999 });
+    attempt('newer', 20);
+    expect(store.newerAttemptLanded(store.getItem('newer')!)).toBe(false);
+  });
 });

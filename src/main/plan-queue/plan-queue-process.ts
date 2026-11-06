@@ -26,6 +26,12 @@ const EXIT_GRACE_MS = 2_000;
 /** How long after a kill the output may stay open before the call stops waiting for it. */
 const KILL_SETTLE_MS = 2_000;
 
+/**
+ * For commands that run this repository's tests. Vitest sizes itself once, from how busy the computer is at
+ * that moment, so a run started at a busy moment stays on one test worker and takes hours. Other projects ignore it.
+ */
+export const QUEUE_TEST_ENV = { AIO_TEST_MAX_FORKS: '8' };
+
 export interface GroupRunResult {
   exitCode: number;
   output: string;

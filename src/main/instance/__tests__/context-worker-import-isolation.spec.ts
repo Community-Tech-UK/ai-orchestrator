@@ -114,7 +114,13 @@ const WORKER_ENTRY = resolve(SPEC_DIR, '../context-worker-main.ts');
 // Its only import is `import type { Migration }`, erased at runtime; the only
 // new edge is `rlm-schema.ts` -> `./rlm-migrations-081-085`.
 // Keep the same one-module margin as the audited 155-module baseline.
-const CLOSURE_SIZE_CEILING = 157;
+// 2026-11-06: the graph is 160 modules after the local embedding model joined
+// `rlm/embedding-service`, so the ceiling is 161 with the usual one-module margin:
+// `rlm/embedding/{embedding-model,onnx-text-embedder,wordpiece-tokenizer}.ts` and
+// `rlm/vector-reembedder.ts`. A walk with and without the new edges found those
+// four as the sole additions, and none imports Electron. `onnxruntime-node` is a
+// lazy dynamic import, so it loads only on first use and stays outside this graph.
+const CLOSURE_SIZE_CEILING = 161;
 
 function resolveImport(spec: string, fromFile: string): string | null {
   if (!spec.startsWith('.')) return null; // bare module (electron, node:*, npm)

@@ -22,7 +22,7 @@ import { gitExec, WORKTREE_CHECKOUT_TIMEOUT_MS } from '../workspace/git/git-exec
 import { declaresStandingRegister, isActivePlanDocumentPath } from '../workspace/git/active-plan-pattern';
 import { hermeticGitEnv } from '../workspace/git/git-env';
 import { CONFLICT_CODES } from './plan-queue-git';
-import { runInProcessGroup, type GroupRunResult } from './plan-queue-process';
+import { QUEUE_TEST_ENV, runInProcessGroup, type GroupRunResult } from './plan-queue-process';
 import { LANDING_MARKER_FILE } from './plan-queue-landing-leftover';
 import { relocatePlanningFiles } from './plan-queue-planning-files';
 import { assertQueueCheckout, assertQueueCheckoutOwnership, InvalidQueueCheckoutError } from './plan-queue-orphan-checkout';
@@ -174,7 +174,7 @@ export function commitWithHooks(
   timeoutMs = HOOK_TIMEOUT_MS,
   signal?: AbortSignal,
 ): Promise<GroupRunResult> {
-  const env = hermeticGitEnv(buildCliEnv());
+  const env = hermeticGitEnv({ ...buildCliEnv(), ...QUEUE_TEST_ENV });
   delete env['AIO_PLAN_QUEUE_TESTS_COVERED'];
   delete env['AIO_PLAN_QUEUE_TESTS_COVERED_TREE'];
   if (testedIndexTree) {

@@ -25,7 +25,6 @@ export interface CrossProjectLearnerConfig extends CrossProjectConfig {
   minProjectCountForSuggestion: number; // Minimum projects a pattern must appear in
   minSuccessRateForSuggestion: number; // Minimum success rate for suggestions
   maxSuggestionsPerQuery: number;
-  similarityThreshold: number; // For deduplication
   maxGlobalPatterns: number;
 }
 
@@ -49,7 +48,6 @@ const DEFAULT_CONFIG: CrossProjectLearnerConfig = {
   minProjectCountForSuggestion: 2,
   minSuccessRateForSuggestion: 0.7,
   maxSuggestionsPerQuery: 5,
-  similarityThreshold: 0.8,
   maxGlobalPatterns: 500,
 };
 
@@ -380,7 +378,8 @@ export class CrossProjectLearner extends EventEmitter {
       return [];
     }
 
-    const contextEmbedding = await this.getPatternEmbedding(projectContext);
+    const { embedding: contextEmbedding } = await this.embeddingService.embed(projectContext, 'query');
+    const relevanceFloor = await this.embeddingService.similarityFloor('pattern-relevance');
 
     const suggestions: Array<{ pattern: GlobalPattern; similarity: number }> = [];
 
@@ -401,8 +400,7 @@ export class CrossProjectLearner extends EventEmitter {
 
       const similarity = this.embeddingService.cosineSimilarity(contextEmbedding, patternEmbedding);
 
-      if (similarity >= 0.5) {
-        // Threshold for relevance
+      if (similarity >= relevanceFloor) {
         suggestions.push({ pattern, similarity });
       }
     }
@@ -445,11 +443,12 @@ export class CrossProjectLearner extends EventEmitter {
    */
   private async findSimilarGlobal(pattern: AnonymizedPattern): Promise<GlobalPattern | null> {
     const embedding = await this.getPatternEmbedding(pattern.description);
+    const duplicateFloor = await this.embeddingService.similarityFloor('pattern-duplicate');
 
     for (const [id, existingEmbedding] of this.patternEmbeddings.entries()) {
       const similarity = this.embeddingService.cosineSimilarity(embedding, existingEmbedding);
 
-      if (similarity >= this.config.similarityThreshold) {
+      if (similarity >= duplicateFloor) {
         const existingPattern = this.globalPatterns.get(id);
         if (existingPattern && existingPattern.type === pattern.type) {
           return existingPattern;
@@ -464,7 +463,7 @@ export class CrossProjectLearner extends EventEmitter {
    * Get embedding for a pattern description
    */
   private async getPatternEmbedding(description: string): Promise<number[]> {
-    const result = await this.embeddingService.embed(description);
+    const result = await this.embeddingService.embed(description, 'document');
     return result.embedding;
   }
 

@@ -16,6 +16,12 @@ export interface CodeRetrievalSearchOptions {
   maxTokens?: number;
   /** Automatic prompt context must not create an index for a queue worktree. */
   allowIndexWarm?: boolean;
+  /**
+   * For text nobody typed as a search. Returns only chunks relevant enough to
+   * add to a prompt unasked, and never runs the slower ripgrep fallback, which
+   * cannot help with a sentence and would hold up sending the message.
+   */
+  strongMatchOnly?: boolean;
 }
 
 /** The index-worker gateway surface this service depends on. */
@@ -64,7 +70,11 @@ export class CodeRetrievalService {
 
     const limit = Math.max(1, Math.min(Math.floor(options.limit ?? 8), 50));
     const workspacePath = path.resolve(options.workspacePath);
-    const results = await this.searchInternal(query, workspacePath, limit, options.maxTokens, options.allowIndexWarm !== false);
+    const results = await this.searchInternal(query, workspacePath, limit, {
+      maxTokens: options.maxTokens,
+      allowIndexWarm: options.allowIndexWarm !== false,
+      strongMatchOnly: options.strongMatchOnly === true,
+    });
     // WS16: recall trace (raw + sanitized retained locally for offline analysis).
     try {
       getRecallTraceStore().record({
@@ -85,16 +95,17 @@ export class CodeRetrievalService {
     query: string,
     workspacePath: string,
     limit: number,
-    maxTokens: number | undefined,
-    allowIndexWarm: boolean,
+    options: { maxTokens: number | undefined; allowIndexWarm: boolean; strongMatchOnly: boolean },
   ): Promise<CodeRetrievalResult[]> {
-    const options = { maxTokens };
+    const { allowIndexWarm, strongMatchOnly } = options;
 
     // Preferred path: run the FTS + chunk hydration in the index worker, off the
     // main event loop. The gateway returns null on timeout/degradation (→ ripgrep)
     // and `{ indexed: false }` when the workspace has no index yet.
     if (this.indexWorkerGateway?.searchWorkspaceChunks) {
-      const response = await this.indexWorkerGateway.searchWorkspaceChunks(workspacePath, query, limit);
+      const response = await this.indexWorkerGateway.searchWorkspaceChunks(workspacePath, query, limit, {
+        strongMatchOnly,
+      });
       if (response?.indexed && response.results.length > 0) {
         return response.results.slice(0, limit).map((r) => this.trimResult(r, options.maxTokens));
       }
@@ -106,24 +117,24 @@ export class CodeRetrievalService {
       // indexed-but-no-hits, not-indexed, or worker unavailable → ripgrep.
       // Deliberately never run a synchronous main-thread FTS here: that is the
       // stall this offload removes.
-      return this.fallbackSearch(workspacePath, query, limit, options.maxTokens);
+      return strongMatchOnly ? [] : this.fallbackSearch(workspacePath, query, limit, options.maxTokens);
     }
 
     // No worker search available (tests / degraded construction): use the
     // synchronous in-process store if present, mirroring the legacy behaviour.
     const store = this.store ?? this.codemem?.store;
     if (store) {
-      let local = searchHydratedChunks(store, workspacePath, query, limit);
+      let local = searchHydratedChunks(store, workspacePath, query, limit, { strongMatchOnly });
       if (allowIndexWarm && !local.indexed) {
         await this.indexWorkerGateway?.warmWorkspace?.(workspacePath, 2500).catch(() => undefined);
-        local = searchHydratedChunks(store, workspacePath, query, limit);
+        local = searchHydratedChunks(store, workspacePath, query, limit, { strongMatchOnly });
       }
       if (local.results.length > 0) {
         return local.results.slice(0, limit).map((r) => this.trimResult(r, options.maxTokens));
       }
     }
 
-    return this.fallbackSearch(workspacePath, query, limit, options.maxTokens);
+    return strongMatchOnly ? [] : this.fallbackSearch(workspacePath, query, limit, options.maxTokens);
   }
 
   private async fallbackSearch(
@@ -181,6 +192,9 @@ async function runRipgrepFallbackSearch(
       '--glob', '!package-lock.json',
       '--glob', '!pnpm-lock.yaml',
       '--glob', '!yarn.lock',
+      // The query is free text: a literal search, and never read as an option.
+      '--fixed-strings',
+      '--',
       query,
       '.',
     ], {

@@ -96,6 +96,46 @@ describe('queue verification policy', () => {
     expect(store.history.listVerdicts('item').map(row => row.verdict)).toEqual(['FAIL', 'FAIL']);
   });
 
+  describe('checks that run out of time', () => {
+    const timedOut = (progress = '') => async () => ({ exitCode: 1, timedOut: true, output: progress });
+    const timeouts = () => store.history.listEvents('item').filter(event => event.reason === 'check-timeout');
+
+    it('uses no round, reaches no worker and records no verdict, because no code was judged', async () => {
+      const prepared = await createPolicy(createGates(timedOut())).prepare(host.getItem('item'));
+      expect(prepared).toMatchObject({ kind: 'wait' });
+      expect(host.getItem('item')).toMatchObject({ round: 0, verdict: null });
+      expect(store.history.listVerdicts('item')).toEqual([]);
+    });
+
+    it('keeps how far the run got, so a stopped job can say', async () => {
+      await createPolicy(createGates(timedOut('  … 1209 test file(s) done, 1 test worker(s) (full log: x)\n\n[plan queue] timed out'))).prepare(host.getItem('item'));
+      expect(JSON.parse(timeouts()[0].detailHead!)).toMatchObject({ command: 'check', progress: '… 1209 test file(s) done, 1 test worker(s) (full log: x)' });
+    });
+
+    it('stops the job after two in a row, which points to a real hang', async () => {
+      const execute = vi.fn(timedOut());
+      const policy = createPolicy(createGates(execute));
+      await policy.prepare(host.getItem('item'));
+      expect(await policy.prepare(host.getItem('item'))).toMatchObject({ kind: 'park', reason: 'check-hung' });
+      expect(execute).toHaveBeenCalledTimes(2);
+    });
+
+    it('starts counting again once a worker has changed the job', async () => {
+      const policy = createPolicy(createGates(timedOut()));
+      await policy.prepare(host.getItem('item'));
+      store.history.recordEvent({ itemId: 'item', runId: 'run', fromState: 'verifying', toState: 'fixing', reason: null, detailHead: null, round: 0, tokens: 0 });
+      expect(await policy.prepare(host.getItem('item'))).toMatchObject({ kind: 'wait' });
+    });
+
+    it('reports only the real failure when one sits beside a timeout', async () => {
+      store.upsertRun({ ...store.getRun('run')!, config: { ...store.getRun('run')!.config, verifierGates: ['bad', 'slow'] } });
+      const gates = createGates(async (command, cwd) => cwd === '/baseline' ? { exitCode: 0, output: '' }
+        : command === 'slow' ? { exitCode: 1, timedOut: true, output: '' } : { exitCode: 1, output: 'src/a.ts(1,1): error TS2322: Failure' });
+      expect(await createPolicy(gates).prepare(host.getItem('item'))).toMatchObject({ kind: 'fix' });
+      expect(host.getItem('item').verdict?.findings.map(finding => finding.summary)).toEqual(["Harness's own gate run failed: bad"]);
+    });
+  });
+
   it('allows only a proven existing base failure and gives its machine receipts to the checker', async () => {
     const gates = createGates(async () => ({ exitCode: 1, output: 'src/work.ts(1,1): error TS2322: Existing failure' }));
     const policy = createPolicy(gates);

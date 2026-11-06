@@ -140,7 +140,7 @@ export function detectAnnounceThenHalt(output: string): AnnounceThenHaltMatch | 
   return detectAllAnnounceThenHalt(output, BROAD_FUTURE_ACTION_SOURCE)[0] ?? null;
 }
 
-function removeQuotedAndTemplateContent(output: string): string {
+export function removeQuotedAndTemplateContent(output: string): string {
   let cleaned = output
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/~~~[\s\S]*?~~~/g, ' ')

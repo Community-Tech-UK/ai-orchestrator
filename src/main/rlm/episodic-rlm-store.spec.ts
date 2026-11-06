@@ -31,3 +31,19 @@ describe('EpisodicRLMStore bounded scans', () => {
     });
   });
 });
+
+describe('EpisodicRLMStore pattern matching', () => {
+  it('compares a new pattern with stored ones as stored text, under the stored-text floor', async () => {
+    const store = Object.create(EpisodicRLMStore.prototype) as EpisodicRLMStore;
+    const searchPatterns = vi.spyOn(store, 'searchPatterns').mockResolvedValue([]);
+    const findSimilarPattern = Reflect.get(store, 'findSimilarPattern') as (text: string) => Promise<unknown>;
+
+    await findSimilarPattern.call(store, 'retry failed uploads');
+
+    expect(searchPatterns).toHaveBeenCalledWith('retry failed uploads', {
+      limit: 1,
+      use: 'pattern-match',
+      embedAs: 'document',
+    });
+  });
+});

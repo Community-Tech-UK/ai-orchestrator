@@ -40,7 +40,9 @@ describe('CodeRetrievalService codemem dependency lifecycle', () => {
       limit: 5,
     });
 
-    expect(searchWorkspaceChunks).toHaveBeenCalledWith(workspacePath, 'issue session token', 5);
+    expect(searchWorkspaceChunks).toHaveBeenCalledWith(workspacePath, 'issue session token', 5, {
+      strongMatchOnly: false,
+    });
     expect(results[0]).toEqual(expect.objectContaining({
       source: 'fts',
       relativePath: 'src/auth.ts',

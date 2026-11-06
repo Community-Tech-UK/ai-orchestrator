@@ -72,6 +72,8 @@ function fixture() {
     removeWithProof: async () => ({ removed: false, reason: 'retained', detail: 'test keeps worktree' }),
   };
   const host = {
+    // This run is the document's only attempt.
+    store: { newerAttemptLanded: () => false, newerAttemptCommits: () => [] },
     getRun: () => run, getItem: (id: string) => items.get(id)!, save, worktrees,
     transition: (next: PlanQueueItem, state: PlanQueueItem['state'], patch: Partial<PlanQueueItem> = {}) => {
       assertItemTransition(next.state, state); return save({ ...next, ...patch, state });

@@ -1,6 +1,6 @@
 import type { SqliteDriver } from '../db/sqlite-driver';
 
-export const CAS_SCHEMA_VERSION = 4;
+export const CAS_SCHEMA_VERSION = 5;
 
 const MIGRATIONS: Record<number, string[]> = {
   1: [
@@ -119,6 +119,10 @@ const VERSIONED_DATA_MIGRATIONS: Record<number, string[]> = {
       SET primary_language = NULL
       WHERE primary_language = 'unknown'`,
   ],
+  // FTS5 otherwise merges a segment inside the deleting transaction once a tenth of
+  // it is deleted, which held the worker for 23 seconds on a real index. Maintenance
+  // merges in bounded steps instead. The value must be an integer literal.
+  5: [`INSERT INTO code_fts(code_fts, rank) VALUES('deletemerge', 0)`],
 };
 
 /**

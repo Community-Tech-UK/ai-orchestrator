@@ -57,6 +57,15 @@ describe('work admission', () => {
     expect(deliveries).toBe(1);
   });
 
+  it('runs one full checklist at a time at every workload', () => {
+    const admission = new WorkAdmission({ cpuCount: () => 18, loadAverage: () => [0, 0, 0] });
+    for (const level of [1, 2, 3, 4, 5] as const) {
+      admission.setWorkloadLevel(level);
+      expect(admission.check('queue-checklist', { activeCount: 0 })).toEqual({ allowed: true });
+      expect(admission.check('queue-checklist', { activeCount: 1 })).toMatchObject({ allowed: false, reason: 'over-limit' });
+    }
+  });
+
   it('checks both load averages only on the light levels', () => {
     const admission = new WorkAdmission({ cpuCount: () => 4, loadAverage: () => [0, 4, 0] });
     admission.setWorkloadLevel(1);

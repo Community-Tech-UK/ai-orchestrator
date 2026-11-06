@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { MemoryEntry, MemoryR1Snapshot } from '../../shared/types/memory-r1.types';
+import { getEmbeddingService } from '../rlm/embedding-service';
 import {
   getMemoryManager,
   MemoryManagerAgent,
@@ -32,7 +33,6 @@ describe('MemoryManagerAgent hardening', () => {
     MemoryManagerAgent._resetForTesting();
     manager = getMemoryManager();
     manager.configure({
-      embeddingDimension: 8,
       similarityThreshold: 0,
     });
   });
@@ -82,6 +82,83 @@ describe('MemoryManagerAgent hardening', () => {
     ).rejects.toThrow(/exceeds maxTokens/i);
 
     expect(manager.getEntry(entry.id)?.content).toBe('small value');
+  });
+
+  it('re-embeds a loaded entry that came from another model, so it can match again', async () => {
+    const snapshot: MemoryR1Snapshot = {
+      version: '1.0',
+      timestamp: Date.now(),
+      entries: [['old', createEntry('old', 'provider rate limit retries')]],
+      operationHistory: [],
+      retrievalHistory: [],
+    };
+
+    await manager.load(snapshot);
+
+    const results = await manager.retrieve('provider rate limit retries', 'task');
+    expect(results.map((entry) => entry.id)).toEqual(['old']);
+    expect(results[0]?.embedding).toHaveLength(384);
+    expect(results[0]?.embeddingModel).toBe('local-tfidf');
+  });
+
+  it('re-embeds loaded entries in small batches, so a search never waits behind them all', async () => {
+    const embedBatch = vi.spyOn(getEmbeddingService(), 'embedBatch');
+    const entries = Array.from({ length: 20 }, (_, index): [string, MemoryEntry] => (
+      [`old-${index}`, createEntry(`old-${index}`, `retry policy number ${index}`)]
+    ));
+
+    await manager.load({
+      version: '1.0',
+      timestamp: Date.now(),
+      entries,
+      operationHistory: [],
+      retrievalHistory: [],
+    });
+
+    expect(embedBatch.mock.calls.map(([texts]) => texts.length)).toEqual([8, 8, 4]);
+    expect(embedBatch).toHaveBeenCalledWith(expect.anything(), 'document');
+    embedBatch.mockRestore();
+  });
+
+  it('never compares an entry from another model, even if its re-embedding failed', async () => {
+    const text = 'provider rate limit retries';
+    const { embedding } = await getEmbeddingService().embed(text, 'document');
+    const embedBatch = vi.spyOn(getEmbeddingService(), 'embedBatch').mockRejectedValueOnce(new Error('model busy'));
+
+    await expect(manager.load({
+      version: '1.0',
+      timestamp: Date.now(),
+      entries: [['old', { ...createEntry('old', text), embedding, embeddingModel: 'another-model' }]],
+      operationHistory: [],
+      retrievalHistory: [],
+    })).rejects.toThrow('model busy');
+    embedBatch.mockRestore();
+
+    await expect(manager.retrieve(text, 'task')).resolves.toEqual([]);
+  });
+
+  it('does not link a new entry to one from another model', async () => {
+    const text = 'the worker queue retries failed jobs';
+    const { embedding } = await getEmbeddingService().embed(text, 'document');
+    const embedBatch = vi.spyOn(getEmbeddingService(), 'embedBatch').mockRejectedValueOnce(new Error('model busy'));
+    await expect(manager.load({
+      version: '1.0',
+      timestamp: Date.now(),
+      entries: [['old', { ...createEntry('old', text), embedding, embeddingModel: 'another-model' }]],
+      operationHistory: [],
+      retrievalHistory: [],
+    })).rejects.toThrow('model busy');
+    embedBatch.mockRestore();
+
+    const added = await manager.addEntry(text, 'test');
+
+    expect(added.linkedEntries).toEqual([]);
+  });
+
+  it('records which model produced each entry', async () => {
+    const entry = await manager.addEntry('the worker queue retries failed jobs', 'test');
+
+    expect(entry.embeddingModel).toBe('local-tfidf');
   });
 
   it('enforces capacity limits when loading snapshots', async () => {

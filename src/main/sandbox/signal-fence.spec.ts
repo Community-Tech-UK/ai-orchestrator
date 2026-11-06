@@ -1,9 +1,12 @@
 import { spawn, spawnSync } from 'node:child_process';
+import { homedir } from 'node:os';
 import { describe, expect, it } from 'vitest';
 import {
+  PLAYWRIGHT_CHROMIUM_PATTERN,
   SIGNAL_FENCE_EXEC,
   SIGNAL_FENCE_POLICY,
   applySignalFence,
+  isRefusedAsNested,
   isSignalFenceAvailable,
   unwrapSignalFence,
 } from './signal-fence';
@@ -50,6 +53,50 @@ describe('applySignalFence', () => {
       command: 'opencode',
       args: ['acp'],
     });
+  });
+});
+
+describe('isRefusedAsNested', () => {
+  it('recognises only the refusal to start inside another sandbox', () => {
+    const refusal = 'sandbox-exec: sandbox_apply: Operation not permitted\n';
+    expect(isRefusedAsNested({ status: 71, stderr: refusal })).toBe(true);
+    expect(isRefusedAsNested({ status: 0, stderr: '' })).toBe(false);
+    expect(isRefusedAsNested({ status: 65, stderr: 'sandbox-exec: unbound variable: x\n' })).toBe(false);
+    expect(isRefusedAsNested({ status: null, stderr: '' })).toBe(false);
+    // What spawnSync returns when sandbox-exec could not start at all.
+    expect(isRefusedAsNested(spawnSync('/nonexistent/sandbox-exec', [], { encoding: 'utf8' }))).toBe(false);
+  });
+});
+
+describe('Playwright Chromium exception', () => {
+  const cache = `${homedir()}/Library/Caches/ms-playwright`;
+  const pattern = new RegExp(PLAYWRIGHT_CHROMIUM_PATTERN);
+
+  it('lets only the Chromium builds start outside the fence', () => {
+    expect(SIGNAL_FENCE_POLICY).toContain(`(allow process-exec (regex #"${PLAYWRIGHT_CHROMIUM_PATTERN}") (with no-sandbox))`);
+    expect(pattern.test(`${cache}/chromium_headless_shell-1228/chrome-headless-shell-mac-arm64/chrome-headless-shell`)).toBe(true);
+    expect(pattern.test(`${cache}/chromium-1228/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`)).toBe(true);
+  });
+
+  it('keeps every other program inside the fence', () => {
+    for (const path of [
+      '/bin/sh',
+      '/usr/bin/pkill',
+      `${cache}/webkit-2368/pw_run.sh`,
+      `${cache}/ffmpeg-1011/ffmpeg-mac`,
+      `${cache}/chromium-extra/tool`,
+      `/tmp${cache}/chromium-1228/tool`,
+    ]) {
+      expect(pattern.test(path), path).toBe(false);
+    }
+  });
+
+  // A policy macOS cannot read would stop every session starting. Inside a
+  // Harness session applying it is refused, but only after it has been read.
+  it.runIf(process.platform === 'darwin')('is a policy macOS can read', () => {
+    const fenced = applySignalFence({ command: '/usr/bin/true', args: [], enabled: true });
+    const result = spawnSync(fenced.command, fenced.args, { encoding: 'utf8' });
+    expect(result.status === 0 || result.stderr.includes('sandbox_apply: Operation not permitted'), result.stderr).toBe(true);
   });
 });
 

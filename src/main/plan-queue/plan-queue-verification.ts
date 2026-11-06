@@ -4,7 +4,8 @@ import { readDocumentReview, type DocumentReview } from './plan-queue-document-r
 import * as path from 'node:path';
 import type { PlanQueueVerdict } from '@contracts/schemas/plan-queue';
 import { gitExec } from '../workspace/git/git-exec';
-import { blockingGateReceipts, type PlanQueueGateRunner, type PlanQueueGateReceipt } from './plan-queue-gate-receipts';
+import { blockingGateReceipts, onlyTimedOut, type PlanQueueGateRunner, type PlanQueueGateReceipt } from './plan-queue-gate-receipts';
+import { CHECK_HUNG_DETAIL, recordCheckTimeout } from './plan-queue-check-timeouts';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { readPlanPin, comparePinnedUnchecked, extractChecklistItems } from './plan-queue-plan-pins';
 import { buildGateFailurePrompt, buildVerifierPrompt } from './plan-queue-prompts';
@@ -13,7 +14,7 @@ import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import { PlanQueueCheckGroups, type CheckGroupFlow } from './plan-queue-check-groups';
 
 type Preparation = { kind: 'ready' } | { kind: 'wait'; detail: string }
-  | { kind: 'fix'; prompt: string; detail: string } | { kind: 'park'; detail: string; reason: 'no-progress' | 'round-limit' };
+  | { kind: 'fix'; prompt: string; detail: string } | { kind: 'park'; detail: string; reason: 'no-progress' | 'round-limit' | 'check-hung' };
 
 export class PlanQueueVerification {
   /** In-flight evidence lives until the round is recorded or its review stops. */
@@ -97,10 +98,19 @@ export class PlanQueueVerification {
       if (await gitExec(['rev-parse', 'HEAD'], item.worktreePath!) !== head) {
         return { kind: 'wait', detail: 'The work changed while checks ran; waiting to check it again.' };
       }
-      if (grouped && !this.groups.pendingStillIntact(item.id)) return { kind: 'wait', detail: 'Checks were stopped.' };
+      if (grouped) {
+        const documentReview = await this.groups.confirmPending(item.id, grouped);
+        if (!documentReview) return { kind: 'wait', detail: 'The work changed while checks ran; waiting to check it again.' };
+        controller.signal.throwIfAborted();
+        this.checkedDocuments.set(item.id, documentReview);
+      }
+      if (onlyTimedOut(receipts)) {
+        if (recordCheckTimeout(this.host, item, receipts) >= 2) return { kind: 'park', reason: 'check-hung', detail: CHECK_HUNG_DETAIL };
+        return { kind: 'wait', detail: 'The checks did not finish in time, which says nothing about the work. They will run again.' };
+      }
       this.receipts.set(item.id, receipts);
       this.checkedBases.set(item.id, baseSha);
-      const red = blockingGateReceipts(receipts);
+      const red = blockingGateReceipts(receipts).filter(receipt => !receipt.timedOut);
       if (!red.length) return { kind: 'ready' };
       const round = item.round + 1;
       const verdict: PlanQueueVerdict = { verdict: 'FAIL', findings: red.map(receipt => ({ severity: 'high', confidence: 100,
@@ -158,10 +168,17 @@ export class PlanQueueVerification {
     const pin = this.host.history.getPin(item.id);
     const currentBytes = await fs.readFile(item.documentPath);
     const current = currentBytes.toString('utf8');
-    this.checkedDocuments.set(item.id, await readDocumentReview(item.documentPath));
     const relative = path.relative(run.workspaceCwd, item.documentPath);
     const docDiff = item.baseCommit && !relative.startsWith('..')
       ? await gitExec(['diff', `${item.baseCommit}..HEAD`, '--', relative], item.worktreePath!) : '';
+    const receipts = this.receipts.get(item.id) ?? [];
+    if (this.checkedDocuments.has(item.id) && receipts[0]?.checkGroup) {
+      // Selection and the read-only snapshot await after preparation. Recheck here,
+      // retaining the original group source identity rather than capturing its replacement.
+      if (!await this.groups.confirmPending(item.id, receipts)) {
+        throw new Error('The work or source document changed before its checker started; it will be checked again.');
+      }
+    } else this.checkedDocuments.set(item.id, await readDocumentReview(item.documentPath));
     return buildVerifierPrompt({ item, kind: run.kind, repoRoot: run.workspaceCwd, worktreePath: item.worktreePath!, baseBranch,
       gates: run.config.verifierGates, receipts: this.receipts.get(item.id) ?? [],
       earlierRounds: rows.length ? JSON.stringify({ earlier, diffSinceLastCheck: diff }) : undefined,

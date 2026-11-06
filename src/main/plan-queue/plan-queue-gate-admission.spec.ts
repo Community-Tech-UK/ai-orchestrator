@@ -30,26 +30,29 @@ function fixture(groups: { folder: string; slots: number; jobs: number }[]) {
   const started: string[] = [];
   const finished: string[] = [];
   const pending: Promise<void>[] = [];
+  const checklistTurns = new Set<string>();
   const runner = new PlanQueueGateRunner(async (_command, cwd) => {
     started.push(cwd);
     await held;
     return { exitCode: 0, output: '' };
   }, () => 'admission-test-tree');
   const host: Parameters<typeof pumpPlanQueue>[0] = {
-    store: { listActiveRuns: () => runs, listItems: (id: string) => items.filter(item => item.runId === id), listItemsWithKeptFolders: () => [], waits: { blocked: () => undefined, started: () => undefined, prune: () => undefined } } as unknown as PlanQueueStore,
+    store: { listActiveRuns: () => runs, listItems: (id: string) => items.filter(item => item.runId === id), listItemsWithKeptFolders: () => [], waits: { blocked: () => undefined, started: () => undefined, prune: () => undefined, waitingSince: () => undefined } } as unknown as PlanQueueStore,
     flow: {
       startItem: async () => { throw new Error('Only checks are expected'); },
       startVerification: (item: PlanQueueItem) => {
-        // Match the flow's synchronous slot reservation, then hold it through the checker.
+        // Match the flow: the slot is reserved synchronously and held through the checker, the turn only while commands run.
         item.state = 'verifying';
-        const result = runner.run({ cwd: item.worktreePath!, head: 'head', commands: ['check'] }).then(() => {
+        checklistTurns.add(item.id);
+        const result = runner.run({ cwd: item.worktreePath!, head: item.id, commands: ['check'] }).then(() => {
+          checklistTurns.delete(item.id);
           item.verifierInstanceId = `checker-${item.id}`;
           finished.push(item.id);
         });
         pending.push(result);
         return result;
       },
-      isWaitingForUsage: () => false, isClaimed: () => false, keptFolders: { retryDue: () => undefined },
+      isWaitingForUsage: () => false, isClaimed: () => false, keptFolders: { retryDue: () => undefined }, discardedRefs: { sweepDue: () => undefined }, checklistTurns,
     },
     triage: null, getRun: id => runs.find(run => run.id === id)!, getItem: id => items.find(item => item.id === id)!,
     transition: (item, state, patch) => Object.assign(item, patch, { state }),
@@ -66,24 +69,29 @@ function fixture(groups: { folder: string; slots: number; jobs: number }[]) {
 }
 
 describe('gate sets occupy the pump check slots', () => {
-  it('runs one gate set in each project folder at the same time', async () => {
+  it('runs one gate set at a time across project folders, and gives the turn up when its commands end', async () => {
     const f = fixture([{ folder: '/a', slots: 1, jobs: 1 }, { folder: '/b', slots: 1, jobs: 1 }]);
     try {
       await pumpPlanQueue(f.host); await f.flush();
-      expect(f.started).toEqual(['/items/run-0-0', '/items/run-1-0']);
+      expect(f.started).toEqual(['/items/run-0-0']);
       expect(f.finished).toEqual([]);
+      await f.close();
+      await pumpPlanQueue(f.host); await f.flush();
+      expect(f.started).toEqual(['/items/run-0-0', '/items/run-1-0']);
+      expect(f.items[0].state).toBe('verifying');
     } finally { await f.close(); }
   });
 
-  it('runs two gate sets in one folder with two check slots and holds the slots through review', async () => {
+  it('reviews two jobs in one folder with two check slots, holding the slots through review', async () => {
     const f = fixture([{ folder: '/a', slots: 2, jobs: 3 }]);
     try {
       await pumpPlanQueue(f.host); await f.flush();
-      expect(f.started).toEqual(['/items/run-0-0', '/items/run-0-1']);
-      await pumpPlanQueue(f.host);
-      expect(f.items.map(item => item.state)).toEqual(['verifying', 'verifying', 'awaiting-slot']);
+      expect(f.started).toEqual(['/items/run-0-0']);
       await f.close();
-      await pumpPlanQueue(f.host);
+      await pumpPlanQueue(f.host); await f.flush();
+      expect(f.started).toEqual(['/items/run-0-0', '/items/run-0-1']);
+      await pumpPlanQueue(f.host); await f.flush();
+      expect(f.items.map(item => item.state)).toEqual(['verifying', 'verifying', 'awaiting-slot']);
       expect(f.started).toHaveLength(2);
       Object.assign(f.items[0], { state: 'landed', verifierInstanceId: null });
       await pumpPlanQueue(f.host); await f.flush();
@@ -94,6 +102,9 @@ describe('gate sets occupy the pump check slots', () => {
   it('shares a folder cap across runs without limiting a different folder', async () => {
     const f = fixture([{ folder: '/a', slots: 1, jobs: 1 }, { folder: '/a', slots: 1, jobs: 1 }, { folder: '/b', slots: 1, jobs: 1 }]);
     try {
+      await pumpPlanQueue(f.host); await f.flush();
+      expect(f.started).toEqual(['/items/run-0-0']);
+      await f.close();
       await pumpPlanQueue(f.host); await f.flush();
       expect(f.started).toEqual(['/items/run-0-0', '/items/run-2-0']);
       expect(f.items[1].state).toBe('awaiting-slot');
@@ -106,9 +117,11 @@ describe('gate sets occupy the pump check slots', () => {
     try {
       await pumpPlanQueue(f.host); await f.flush();
       expect(f.started).toEqual(['/items/run-0-0']);
+      await f.close();
       f.items[0].state = 'landed';
       await pumpPlanQueue(f.host); await f.flush();
-      expect(f.started).toEqual(['/items/run-0-0', '/items/run-0-1']);
+      // run-1-0 has waited longer than run-0-1, so it goes next even though its run is newer.
+      expect(f.started).toEqual(['/items/run-0-0', '/items/run-1-0']);
     } finally { await f.close(); }
   });
 
@@ -143,8 +156,9 @@ describe('gate sets occupy the pump check slots', () => {
     getWorkAdmission().setWorkloadLevel(5);
     const f = fixture([{ folder: '/a', slots: 1, jobs: 4 }]);
     try {
-      await pumpPlanQueue(f.host); await f.flush();
-      expect(f.started).toHaveLength(4);
+      await f.close();
+      for (let pass = 0; pass < 4; pass += 1) { await pumpPlanQueue(f.host); await f.flush(); await Promise.resolve(); }
+      expect(f.items.filter(item => item.state === 'verifying')).toHaveLength(4);
       expect(f.runs[0].config.verificationSlots).toBe(1);
     } finally { await f.close(); }
   });

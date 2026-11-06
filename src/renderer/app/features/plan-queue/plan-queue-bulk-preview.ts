@@ -7,11 +7,27 @@ export interface PlanQueueBulkPreview {
   notApplicable: { item: PlanQueueItemDto; reason: string }[];
 }
 
-/** Only the newest retained attempt can be resumed; another live owner wins. */
+/** Oldest first, because later branches often build on earlier ones. A retry keeps each job's passed check. */
+export function planQueueBulkRetryPreview(items: readonly PlanQueueItemDto[], busyDocuments: readonly string[],
+  pausedRuns: ReadonlySet<string>): PlanQueueBulkPreview {
+  const busy = new Set(busyDocuments);
+  const preview: PlanQueueBulkPreview = { willChange: [], leftAlone: [], notApplicable: [] };
+  for (const item of [...items].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))) {
+    const why = busy.has(item.documentPath) ? 'another attempt is already active' : pausedRuns.has(item.runId) ? 'its run is paused' : null;
+    if (why) preview.leftAlone.push({ item, reason: why });
+    else preview.willChange.push(item);
+  }
+  return preview;
+}
+
+/**
+ * Only the newest retained attempt can be resumed; another live owner wins. `newestMerged` holds when each document's
+ * newest merged attempt was created, because resuming an older attempt redoes finished work. Resume also wipes a passed check.
+ */
 export function planQueueBulkResumePreview(items: readonly PlanQueueItemDto[], reason: PlanQueueParkReason,
-  busyDocuments: readonly string[]): PlanQueueBulkPreview {
+  busyDocuments: readonly string[], newestMerged: ReadonlyMap<string, number>): PlanQueueBulkPreview {
   const newest = new Map<string, string>();
-  for (const item of [...items].sort((a, b) => b.updatedAt - a.updatedAt || b.id.localeCompare(a.id))) {
+  for (const item of [...items].sort((a, b) => b.createdAt - a.createdAt || b.id.localeCompare(a.id))) {
     if (!newest.has(item.documentPath)) newest.set(item.documentPath, item.id);
   }
   const busy = new Set(busyDocuments);
@@ -22,7 +38,9 @@ export function planQueueBulkResumePreview(items: readonly PlanQueueItemDto[], r
     } else {
       const why = planQueueIsDiscarded(item) ? 'its work was explicitly discarded'
         : busy.has(item.documentPath) ? 'another attempt is already active'
-        : newest.get(item.documentPath) !== item.id ? 'a newer attempt exists' : null;
+        : (newestMerged.get(item.documentPath) ?? 0) > item.createdAt ? 'a newer attempt already merged'
+        : newest.get(item.documentPath) !== item.id ? 'a newer attempt exists'
+        : item.verdict?.verdict === 'PASS' ? 'it passed its checks, and Resume would clear that' : null;
       if (why) preview.leftAlone.push({ item, reason: why });
       else preview.willChange.push(item);
     }

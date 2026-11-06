@@ -96,7 +96,7 @@
 .control-nav {
   min-height: 0;
   overflow: auto;
-  padding: 0.85rem;
+  padding: 0.85rem 1rem;
   border-right: 1px solid var(--border-color);
   background: var(--bg-secondary);
 }
@@ -135,6 +135,34 @@
   stroke-linecap: round;
   stroke-linejoin: round;
   transition: transform var(--transition-fast);
+}
+
+.control-nav-search {
+  margin-bottom: 0.9rem;
+}
+
+.control-nav-search-input {
+  width: 100%;
+  height: 32px;
+  padding: 0 0.6rem;
+  box-sizing: border-box;
+}
+
+.control-nav-result-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.control-nav-result-text small {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.control-nav-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
 }
 
 .control-nav-group + .control-nav-group {
@@ -253,7 +281,9 @@
     grid-template-rows: none;
   }
 
-  .control-nav {
+  /* Wide pages keep their column at this width (their grid rule outranks the one above), so only the
+     stacked layout turns the column into a strip. */
+  .layout-standard .control-nav {
     display: flex;
     gap: 0.5rem;
     overflow-x: auto;
@@ -261,7 +291,17 @@
     border-bottom: 1px solid var(--border-color);
   }
 
-  .control-nav-group {
+  .layout-standard .control-nav-toggle {
+    flex: 0 0 auto;
+    margin: 0;
+  }
+
+  .layout-standard .control-nav-search {
+    flex: 0 0 200px;
+    margin-bottom: 0;
+  }
+
+  .layout-standard .control-nav-group {
     flex: 0 0 auto;
     min-width: 180px;
   }

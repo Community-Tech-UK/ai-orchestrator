@@ -5,7 +5,8 @@ import { gitExec } from '../workspace/git/git-exec';
 import { WorktreeCapacityError } from '../workspace/git/worktree-manager';
 import { getGitWriteQueue } from '../workspace/git/git-write-queue';
 import { pathCompareKey } from '../util/path-helpers';
-import { blockingGateReceipts, type GateInput, type PlanQueueGateReceipt, type PlanQueueGateRunner } from './plan-queue-gate-receipts';
+import { blockingGateReceipts, onlyTimedOut, type GateInput, type PlanQueueGateReceipt, type PlanQueueGateRunner } from './plan-queue-gate-receipts';
+import { recordCheckTimeout } from './plan-queue-check-timeouts';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { machineGroupCoversMovedBase, groupRoundStillIntact } from './plan-queue-group-landing';
 import { readDocumentReview, type DocumentReview } from './plan-queue-document-review';
@@ -22,7 +23,7 @@ interface Reservation { id: string; members: Set<string>; controller: AbortContr
 interface Member { itemId: string; head: string; documentReview: DocumentReview }
 interface PendingMember {
   input: GateInput; round: number; documentPath: string; documentReview: DocumentReview;
-  workspaceCwd: string; baseBranch: PlanQueueRun['config']['baseBranch']; memberItemIds: readonly string[];
+  provenBaseTip?: string; workspaceCwd: string; baseBranch: PlanQueueRun['config']['baseBranch']; memberItemIds: readonly string[];
 }
 const FALLBACK = 'The combined check failed; checking each job on its own.';
 const capacityRefusal = (error: unknown) => error instanceof WorktreeCapacityError
@@ -98,30 +99,47 @@ export class PlanQueueCheckGroups {
     let valid = !!receipts && !!group && intact() && item.worktreePath === pending.input.cwd
       && item.round === pending.round && item.documentPath === pending.documentPath
       && JSON.stringify(run.config.verifierGates) === JSON.stringify(pending.input.commands);
-    const unchanged = async () => {
-      for (const id of group!.memberItemIds) {
-        const member = this.host.getItem(id);
-        if (member.state === 'landed') continue;
-        const own = this.pending.get(id);
-        // A member already in review may have consumed its pending reference; its own PASS is authoritative.
-        if (!own) { if (member.verdict?.verdict !== 'PASS') return false; continue; }
-        if (member.round !== own.round || member.documentPath !== own.documentPath || member.worktreePath !== own.input.cwd
-          || member.checkpointCommit !== own.input.head || await gitExec(['rev-parse', 'HEAD'], own.input.cwd) !== own.input.head
-          || JSON.stringify(await readDocumentReview(member.documentPath)) !== JSON.stringify(own.documentReview)) return false;
-        const provisioned = await readProvisionedPaths(own.input.cwd);
-        if (await gitExec(['status', '--porcelain', '--untracked-files=all', '--', '.',
-          ...provisioned.map(file => `:(exclude,literal)${file}`)], own.input.cwd)) return false;
-      }
-      return true;
-    };
-    if (valid) valid = await unchanged();
+    if (valid) valid = await this.pendingInputsUnchanged(group!.memberItemIds);
+    let base: string | undefined;
     if (valid) {
-      const base = await gitExec(['rev-parse', `refs/heads/${run.config.baseBranch}`], run.workspaceCwd);
-      valid = await machineGroupCoversMovedBase(item, run, base, receipts!, this.host) && await unchanged()
+      base = await gitExec(['rev-parse', `refs/heads/${run.config.baseBranch}`], run.workspaceCwd);
+      valid = await machineGroupCoversMovedBase(item, run, base, receipts!, this.host) && await this.pendingInputsUnchanged(group!.memberItemIds)
         && this.pending.get(item.id) === pending && intact();
     }
     if (!valid) { this.forgetPendingGroup(item.id); return; }
+    pending.provenBaseTip = base;
     return receipts;
+  }
+
+  /** Last async check before consuming reused evidence; ancestry stays valid only at the proven base. */
+  async confirmPending(itemId: string, receipts: PlanQueueGateReceipt[]): Promise<DocumentReview | undefined> {
+    const pending = this.pending.get(itemId);
+    if (!pending) return;
+    const run = this.host.getRun(this.host.getItem(itemId).runId);
+    const valid = pending.provenBaseTip && this.pendingStillIntact(itemId)
+      && JSON.stringify(receipts) === JSON.stringify(this.gates.cached(pending.input))
+      && await this.pendingInputsUnchanged(pending.memberItemIds)
+      && await gitExec(['rev-parse', `refs/heads/${run.config.baseBranch}`], run.workspaceCwd) === pending.provenBaseTip
+      && this.pending.get(itemId) === pending && this.pendingStillIntact(itemId);
+    if (!valid) { this.forgetPendingGroup(itemId); return; }
+    return pending.documentReview;
+  }
+
+  private async pendingInputsUnchanged(memberItemIds: readonly string[]): Promise<boolean> {
+    for (const id of memberItemIds) {
+      const member = this.host.getItem(id);
+      if (member.state === 'landed') continue;
+      const own = this.pending.get(id);
+      // A member already in review may have consumed its pending reference; its own PASS is authoritative.
+      if (!own) { if (member.verdict?.verdict !== 'PASS') return false; continue; }
+      if (member.round !== own.round || member.documentPath !== own.documentPath || member.worktreePath !== own.input.cwd
+        || member.checkpointCommit !== own.input.head || await gitExec(['rev-parse', 'HEAD'], own.input.cwd) !== own.input.head
+        || JSON.stringify(await readDocumentReview(member.documentPath)) !== JSON.stringify(own.documentReview)) return false;
+      const provisioned = await readProvisionedPaths(own.input.cwd);
+      if (await gitExec(['status', '--porcelain', '--untracked-files=all', '--', '.',
+        ...provisioned.map(file => `:(exclude,literal)${file}`)], own.input.cwd)) return false;
+    }
+    return true;
   }
 
   release(leaderId: string, detail: string | null = null): void {
@@ -174,6 +192,13 @@ export class PlanQueueCheckGroups {
         throw error;
       });
       group.controller.signal.throwIfAborted();
+      if (onlyTimedOut(receipts)) {
+        // Nothing was learned about any member, so each one alone would only repeat the wait. The leader
+        // records its own timeout when these receipts reach it.
+        detail = 'The combined check did not finish in time. It will run again.';
+        for (const member of covered) if (member.itemId !== leader.id) recordCheckTimeout(this.host, this.host.getItem(member.itemId), receipts);
+        return receipts.map(receipt => ({ ...receipt, head: input.head }));
+      }
       if (blockingGateReceipts(receipts).length) {
         detail = FALLBACK;
         for (const member of covered) {

@@ -8,5 +8,6 @@ Read these stances before proposing features or starting a research sweep. Each 
 - [Providers and accounts](provider-and-account-policy.md)
 - [UI and product scope](ui-and-product-scope.md)
 - [Privacy and architecture](privacy-and-architecture.md)
+- [Vector index engines](vector-index-engines.md)
 
 AppendixC’s global ESTOP entry is expressly **kept** as L 11/P 2, so it is not in the rejected register. The accepted pause switch remains in PhaseC.

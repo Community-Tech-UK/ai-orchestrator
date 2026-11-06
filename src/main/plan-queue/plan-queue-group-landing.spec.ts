@@ -12,6 +12,7 @@ import { GitWriteQueue } from '../workspace/git/git-write-queue';
 import { WorktreeManager } from '../workspace/git/worktree-manager';
 import { PlanQueueCheckGroups } from './plan-queue-check-groups';
 import { PlanQueueItemFlow } from './plan-queue-item-flow';
+import { PlanQueueVerification } from './plan-queue-verification';
 import { PlanQueueGateRunner } from './plan-queue-gate-receipts';
 import { PlanQueueItemLanding } from './plan-queue-item-landing';
 import { groupCoversMovedBase } from './plan-queue-group-landing';
@@ -208,7 +209,7 @@ function runtimeFlow() {
     liveParentId: () => 'parent', selectVerifier: async () => ({ ok: true, choice: { provider: 'codex' } }),
     registerRole: (id: string, role: { role: 'verifier'; runId: string; itemId: string }) => roles.set(id, role),
     unregisterRole: (id: string) => roles.delete(id), roleOf: (id: string) => roles.get(id),
-    tracker: { track: () => undefined, untrack: () => undefined },
+    tracker: { track: () => undefined, untrack: () => undefined, isShuttingDown: () => false },
     instances: { getInstance: () => undefined, createInstance: async (options: { metadata: { planQueueItemId: string } }) => {
       reviews.push(options.metadata.planQueueItemId); return { id: `checker-${reviews.length}` };
     } },
@@ -336,7 +337,7 @@ it('does not start an independent review if HEAD changes between pending proof a
   await prepare('one'); const second = await prepare('two');
   await flow.startVerification(store.getItem('one')!); await pass('one');
   const original = PlanQueueCheckGroups.prototype.pendingReceipts;
-  vi.spyOn(PlanQueueCheckGroups.prototype, 'pendingReceipts').mockImplementationOnce(async function (item) {
+  vi.spyOn(PlanQueueCheckGroups.prototype, 'pendingReceipts').mockImplementationOnce(async function (this: PlanQueueCheckGroups, item) {
     const receipts = await original.call(this, item);
     expect(receipts).toBeDefined();
     writeFileSync(join(second.worktreePath!, 'two.txt'), 'changed during preparation');
@@ -350,4 +351,64 @@ it('does not start an independent review if HEAD changes between pending proof a
   await flow.startVerification(store.getItem('two')!);
   expect(execute).toHaveBeenCalledTimes(2);
   expect(reviews).toEqual(['one', 'two']);
+});
+
+
+it.each(['dirty', 'source', 'linked-spec', 'unrelated-base'] as const)(
+  'waits and runs fresh checks when %s changes after the pending group proof', async kind => {
+    const { flow, execute, reviews, prepare, pass } = runtimeFlow();
+    await prepare('one'); const second = await prepare('two');
+    await flow.startVerification(store.getItem('one')!); await pass('one');
+    const original = PlanQueueCheckGroups.prototype.pendingReceipts;
+    vi.spyOn(PlanQueueCheckGroups.prototype, 'pendingReceipts').mockImplementationOnce(async function (this: PlanQueueCheckGroups, item) {
+      const receipts = await original.call(this, item);
+      expect(receipts).toBeDefined();
+      if (kind === 'dirty') writeFileSync(join(second.worktreePath!, 'two.txt'), 'untested dirty work');
+      else if (kind === 'source') writeFileSync(second.documentPath, '# Changed acceptance after proof\n');
+      else if (kind === 'linked-spec') writeFileSync(join(repo, 'two_spec_planned.md'), '# Changed linked acceptance\n');
+      else {
+        writeFileSync(join(repo, 'outside.txt'), 'outside'); git(['add', 'outside.txt']); git(['commit', '-qm', 'outside']);
+      }
+      return receipts;
+    });
+    await flow.startVerification(store.getItem('two')!);
+    expect(store.getItem('two')?.state).toBe('awaiting-slot');
+    expect(reviews).toEqual(['one']);
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(store.history.listVerdicts('two')).toEqual([]);
+    await flow.startVerification(store.getItem('two')!);
+    expect(store.getItem('two')?.state).toBe('verifying');
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(reviews).toEqual(['one', 'two']);
+    expect(store.getItem('two')?.verifiedMainCommit).toBe(git(['rev-parse', 'main']));
+    await pass('two');
+    if (kind === 'dirty') expect(git(['show', 'main:two.txt'])).toBe('untested dirty work');
+    if (kind === 'unrelated-base') expect(git(['show', 'main:outside.txt'])).toBe('outside');
+  },
+);
+
+
+it.each(['dirty', 'source', 'linked-spec', 'unrelated-base'] as const)('rejects %s changes between grouped preparation and the checker prompt', async kind => {
+  const { flow, execute, reviews, prepare, pass } = runtimeFlow();
+  await prepare('one'); const second = await prepare('two');
+  await flow.startVerification(store.getItem('one')!); await pass('one');
+  const original = PlanQueueVerification.prototype.prompt;
+  vi.spyOn(PlanQueueVerification.prototype, 'prompt').mockImplementationOnce(async function (this: PlanQueueVerification, item, currentRun, baseBranch) {
+    if (kind === 'dirty') writeFileSync(join(second.worktreePath!, 'two.txt'), 'untested before prompt');
+    else if (kind === 'source' || kind === 'linked-spec') {
+      writeFileSync(kind === 'source' ? second.documentPath : join(repo, 'two_spec_planned.md'), '# Replaced before prompt\n');
+    } else {
+      writeFileSync(join(repo, 'outside.txt'), 'outside'); git(['add', 'outside.txt']); git(['commit', '-qm', 'outside']);
+    }
+    return original.call(this, item, currentRun, baseBranch);
+  });
+  await flow.startVerification(store.getItem('two')!);
+  expect(store.getItem('two')?.state).toBe('awaiting-slot');
+  expect(reviews).toEqual(['one']);
+  expect(execute).toHaveBeenCalledTimes(1);
+  expect(store.history.listVerdicts('two')).toEqual([]);
+  await flow.startVerification(store.getItem('two')!);
+  expect(execute).toHaveBeenCalledTimes(2);
+  expect(reviews).toEqual(['one', 'two']);
+  await pass('two');
 });

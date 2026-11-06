@@ -81,6 +81,14 @@ describe('AioTooltipDirective', () => {
     expect(tooltipEl()).toBeNull();
   });
 
+  it('measures no layout while a tooltip is closed, so a long list renders quickly', () => {
+    fixture.destroy();
+    const measured = vi.spyOn(Element.prototype, 'scrollWidth', 'get');
+    render();
+    expect(measured).not.toHaveBeenCalled();
+    measured.mockRestore();
+  });
+
   it('does not show before the open delay has elapsed', () => {
     trigger(fixture).dispatchEvent(new MouseEvent('mouseenter'));
     vi.advanceTimersByTime(TOOLTIP_DELAY_MS - 1);

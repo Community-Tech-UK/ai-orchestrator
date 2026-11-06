@@ -311,7 +311,7 @@ describe('CodeIndexManager (incremental)', () => {
 
     await mgr.onFileChange(join(workDir, 'src/auth.ts'), result.workspaceHash);
 
-    expect(store.searchWorkspaceChunks(result.workspaceHash, 'issue session token', 5)).toHaveLength(0);
+    expect(store.searchWorkspaceChunks(result.workspaceHash, 'issueSessionToken', 5)).toHaveLength(0);
     expect(store.searchWorkspaceChunks(result.workspaceHash, 'refresh session token', 5)[0]).toEqual(
       expect.objectContaining({ pathFromRoot: 'src/auth.ts' }),
     );

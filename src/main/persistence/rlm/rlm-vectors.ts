@@ -14,19 +14,21 @@ import type { VectorRow } from '../rlm-database.types';
  */
 export type EmbeddingVector = Float32Array | number[];
 
+export interface NewVector {
+  id: string;
+  storeId: string;
+  sectionId: string;
+  embedding: EmbeddingVector;
+  contentPreview?: string;
+  metadata?: Record<string, unknown>;
+}
+
 /**
  * Add a vector embedding.
  */
 export function addVector(
   db: SqliteDriver,
-  vector: {
-    id: string;
-    storeId: string;
-    sectionId: string;
-    embedding: EmbeddingVector;
-    contentPreview?: string;
-    metadata?: Record<string, unknown>;
-  }
+  vector: NewVector
 ): void {
   const embeddingBuffer = Buffer.from(new Float32Array(vector.embedding).buffer);
   const stmt = db.prepare(`
@@ -53,14 +55,7 @@ export function addVector(
  */
 export function addVectorForExistingSection(
   db: SqliteDriver,
-  vector: {
-    id: string;
-    storeId: string;
-    sectionId: string;
-    embedding: EmbeddingVector;
-    contentPreview?: string;
-    metadata?: Record<string, unknown>;
-  }
+  vector: NewVector
 ): boolean {
   const embeddingBuffer = Buffer.from(new Float32Array(vector.embedding).buffer);
   const stmt = db.prepare(`
@@ -85,11 +80,35 @@ export function addVectorForExistingSection(
 }
 
 /**
- * Get all vectors for a store.
+ * Get a store's vectors from one embedding model. Vectors from different models
+ * are not comparable, so a read is always for a single model.
  */
-export function getVectors(db: SqliteDriver, storeId: string): VectorRow[] {
-  const stmt = db.prepare(`SELECT * FROM vectors WHERE store_id = ?`);
-  return stmt.all(storeId) as VectorRow[];
+export function getVectors(db: SqliteDriver, storeId: string, model: string): VectorRow[] {
+  const stmt = db.prepare(`
+    SELECT * FROM vectors
+    WHERE store_id = ? AND json_extract(metadata_json, '$.model') = ?
+  `);
+  return stmt.all(storeId, model) as VectorRow[];
+}
+
+/** A batch of a store's vectors that came from some other embedding model. */
+export function listStaleVectors(
+  db: SqliteDriver,
+  storeId: string,
+  model: string,
+  limit: number,
+): VectorRow[] {
+  const stmt = db.prepare(`
+    SELECT * FROM vectors
+    WHERE store_id = ? AND COALESCE(json_extract(metadata_json, '$.model'), '') <> ?
+    LIMIT ?
+  `);
+  return stmt.all(storeId, model, limit) as VectorRow[];
+}
+
+/** Delete every vector in a store, whichever model produced it. */
+export function deleteStoreVectors(db: SqliteDriver, storeId: string): void {
+  db.prepare(`DELETE FROM vectors WHERE store_id = ?`).run(storeId);
 }
 
 /**

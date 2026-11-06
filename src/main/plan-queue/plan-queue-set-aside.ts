@@ -68,26 +68,29 @@ function listFiles(output: string): string[] {
 
 /** Read-only: what a parked item's branch still holds that its base branch does not. */
 export async function inspectSetAsideWork(
-  item: Pick<PlanQueueItem, 'branchName' | 'worktreePath'>,
+  item: Pick<PlanQueueItem, 'branchName' | 'worktreePath' | 'checkpointCommit'>,
   run: Pick<PlanQueueRun, 'workspaceCwd' | 'config'>,
 ): Promise<SetAsideInspection> {
   if (item.worktreePath) return UNKNOWN;
-  if (!item.branchName) return { holding: 'nothing', mergesCleanly: null, files: [] };
+  if (!item.branchName && !item.checkpointCommit) return { holding: 'nothing', mergesCleanly: null, files: [] };
   const folder = run.workspaceCwd;
   const base = run.config.baseBranch;
-  const branch = `refs/heads/${item.branchName}`;
   if (!base) return UNKNOWN;
   try {
     // for-each-ref fails on a broken repository and prints nothing for a missing branch; a failed read must not pass as missing.
-    if (!await gitExec(['for-each-ref', '--format=%(objectname)', branch], folder)) return { holding: 'nothing', mergesCleanly: null, files: [] };
-    const tree = await mergedTree(folder, base, branch);
+    const branchTip = item.branchName ? await gitExec(['for-each-ref', '--format=%(objectname)', `refs/heads/${item.branchName}`], folder) : '';
+    // With the branch gone, the last checkpoint can be the only copy. Landings are squashed, so only
+    // the merged result, not ancestry, proves its changes are on the base.
+    const work = branchTip || item.checkpointCommit;
+    if (!work) return { holding: 'nothing', mergesCleanly: null, files: [] };
+    const tree = await mergedTree(folder, base, work);
     if (tree === await gitExec(['rev-parse', `${base}^{tree}`], folder)) return { holding: 'nothing-new', mergesCleanly: true, files: [] };
     const files = listFiles(tree === null
-      ? await gitExec(['diff', '--name-only', await gitExec(['merge-base', base, branch], folder), branch], folder)
+      ? await gitExec(['diff', '--name-only', await gitExec(['merge-base', base, work], folder), work], folder)
       : await gitExec(['diff', '--name-only', base, tree], folder));
     return { holding: files.every((file) => DOCUMENT_FILE.test(file)) ? 'documents-only' : 'new-code', mergesCleanly: tree !== null, files };
   } catch (error) {
-    logger.warn('Could not inspect a set-aside branch', { branch: item.branchName, error: String(error) });
+    logger.warn('Could not inspect a set-aside job', { branch: item.branchName, checkpoint: item.checkpointCommit, error: String(error) });
     return UNKNOWN;
   }
 }

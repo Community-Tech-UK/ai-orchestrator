@@ -13,6 +13,7 @@ export function queueAdmission(config: QueueConfig, totalJobs: number, totalChec
     maxLoadAverage: Math.max(config.maxLoadAverage, limits.queueLoadMinimum ?? 0),
     canStartWorker: (runJobs: number): boolean => runJobs < workerSlots && admission.check('queue-job', { activeCount: totalJobs }).allowed,
     canStartCheck: (runChecks: number): boolean => runChecks < verificationSlots && admission.check('queue-check', { activeCount: totalChecks }).allowed,
+    canStartChecklist: (running: number): boolean => admission.check('queue-checklist', { activeCount: running }).allowed,
     canStartTriage: (): boolean => admission.check('queue-triage').allowed,
   };
 }

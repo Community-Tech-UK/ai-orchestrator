@@ -20,6 +20,7 @@ export interface MemoryEntry {
   id: string;
   content: string;
   embedding?: number[]; // For semantic retrieval
+  embeddingModel?: string; // Which model produced `embedding`; others can't be compared with it
 
   // Metadata
   createdAt: number;
@@ -97,10 +98,6 @@ export interface MemoryManagerConfig {
   learningRate: number;
   rewardDiscount: number;
   batchSize: number;
-
-  // Embedding model
-  embeddingModel: string;
-  embeddingDimension: number;
 }
 
 // ============ Decision Types ============

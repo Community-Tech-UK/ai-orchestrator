@@ -187,7 +187,7 @@ export class IndexWorkerGateway extends EventEmitter {
     workspacePath: string,
     query: string,
     limit: number,
-    timeoutMs: number = DEFAULT_SEARCH_TIMEOUT_MS,
+    options: { strongMatchOnly?: boolean; timeoutMs?: number } = {},
   ): Promise<WorkspaceChunkSearchResponse | null> {
     if (this.isDegraded || !this.worker) {
       return null;
@@ -195,8 +195,15 @@ export class IndexWorkerGateway extends EventEmitter {
     const id = this.nextId();
     try {
       const result = await this.postRpc(
-        { type: 'search-workspace-chunks', id, workspacePath, query, limit },
-        timeoutMs,
+        {
+          type: 'search-workspace-chunks',
+          id,
+          workspacePath,
+          query,
+          limit,
+          strongMatchOnly: options.strongMatchOnly === true,
+        },
+        options.timeoutMs ?? DEFAULT_SEARCH_TIMEOUT_MS,
       );
       return (result as WorkspaceChunkSearchResponse | null) ?? null;
     } catch (error) {

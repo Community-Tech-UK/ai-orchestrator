@@ -2,7 +2,7 @@ import { planQueueIsDiscarded } from './plan-queue-discarded';
 
 interface MovableRun {
   status: 'running' | 'paused' | 'completed' | 'cancelled';
-  items: readonly { state: string; branchName: string | null; worktreePath: string | null; detail: string | null }[];
+  items: readonly { state: string; discardedAt?: number | null }[];
 }
 
 /**

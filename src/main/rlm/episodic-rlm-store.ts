@@ -22,6 +22,7 @@ import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token
 import { VectorStore, getVectorStore } from '../rlm/vector-store';
 import { ContextSectionRow } from '../persistence/rlm-database.types';
 import { getLogger } from '../logging/logger';
+import type { EmbeddingPurpose, SimilarityUse } from './embedding-service';
 
 const logger = getLogger('EpisodicRlmStore');
 
@@ -31,8 +32,6 @@ export interface EpisodicRLMStoreConfig {
   patternDecayRate: number;
   sessionRetentionDays: number;
   enablePatternLearning: boolean;
-  minPatternSimilarity: number;
-  minSessionSimilarity: number;
 }
 
 export interface SessionQuery {
@@ -76,8 +75,6 @@ const DEFAULT_CONFIG: EpisodicRLMStoreConfig = {
   patternDecayRate: 0.05,
   sessionRetentionDays: 180,
   enablePatternLearning: true,
-  minPatternSimilarity: 0.6,
-  minSessionSimilarity: 0.5
 };
 
 const EPISODIC_STORE_ID = 'episodic-unified-store';
@@ -275,8 +272,6 @@ export class EpisodicRLMStore extends EventEmitter {
     options?: { limit?: number; minSimilarity?: number }
   ): Promise<SemanticSearchResult[]> {
     const limit = options?.limit ?? 5;
-    const minSimilarity =
-      options?.minSimilarity ?? this.config.minSessionSimilarity;
 
     try {
       const searchResults = await this.vectorStore.search(
@@ -284,7 +279,8 @@ export class EpisodicRLMStore extends EventEmitter {
         query,
         {
           topK: limit,
-          minSimilarity
+          minSimilarity: options?.minSimilarity,
+          use: 'session-search'
         }
       );
 
@@ -454,11 +450,14 @@ export class EpisodicRLMStore extends EventEmitter {
 
   async searchPatterns(
     query: string,
-    options?: { limit?: number; minSimilarity?: number }
+    options?: {
+      limit?: number;
+      minSimilarity?: number;
+      use?: SimilarityUse;
+      embedAs?: EmbeddingPurpose;
+    }
   ): Promise<PatternSearchResult[]> {
     const limit = options?.limit ?? 5;
-    const minSimilarity =
-      options?.minSimilarity ?? this.config.minPatternSimilarity;
 
     try {
       const searchResults = await this.vectorStore.search(
@@ -466,7 +465,9 @@ export class EpisodicRLMStore extends EventEmitter {
         query,
         {
           topK: limit,
-          minSimilarity
+          minSimilarity: options?.minSimilarity,
+          use: options?.use ?? 'pattern-search',
+          embedAs: options?.embedAs
         }
       );
 
@@ -515,7 +516,8 @@ export class EpisodicRLMStore extends EventEmitter {
   ): Promise<LearnedPattern | undefined> {
     const results = await this.searchPatterns(text, {
       limit: 1,
-      minSimilarity: 0.7
+      use: 'pattern-match',
+      embedAs: 'document'
     });
     return results[0]?.pattern;
   }

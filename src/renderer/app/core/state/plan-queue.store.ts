@@ -57,6 +57,9 @@ export class PlanQueueStore {
   private healthSignal = signal<PlanQueueHealth | null>(null);
   private loading = signal(false);
   private error = signal<string | null>(null);
+  private retryProgressSignal = signal<{ done: number; total: number; stopping: boolean } | null>(null);
+  private retryStopped = false;
+  private landingWait: { itemId: string; updatedAt: number | undefined; resolve: () => void } | null = null;
   private wired = false;
   private loadRequested = false;
 
@@ -66,6 +69,8 @@ export class PlanQueueStore {
   readonly queueHealth = computed(() => this.healthSignal());
   readonly isLoading = computed(() => this.loading());
   readonly lastError = computed(() => this.error());
+  /** Where a "try merging all again" has got to, or null when none is running. */
+  readonly retryProgress = computed(() => this.retryProgressSignal());
 
   /** Runs with at least one open question, each with just those items, in run order. */
   readonly questionGroups = computed<PlanQueueQuestionGroup[]>(() =>
@@ -154,6 +159,7 @@ export class PlanQueueStore {
       const res = await this.ipc.list(limit);
       if (res.success && res.data) {
         this.runsSignal.set(res.data.runs);
+        this.settleLandingWait();
         this.alertsSignal.set(res.data.alerts);
         this.healthSignal.set(res.data.health);
       } else {
@@ -210,11 +216,103 @@ export class PlanQueueStore {
     return res;
   }
 
+  /** One at a time, then one report: a later success must not wipe an earlier failure from view. */
+  async resumeItems(itemIds: readonly string[]): Promise<void> {
+    const failures: string[] = [];
+    for (const itemId of itemIds) {
+      try {
+        const res = await this.ipc.control({ action: 'resume-item', itemId });
+        if (!res.success) failures.push(res.error?.message ?? 'Failed to send control action');
+      } catch (error) {
+        failures.push(error instanceof Error ? error.message : String(error));
+      }
+    }
+    this.error.set(failures.length ? `${failures.length} of ${itemIds.length} could not be resumed. ${failures[0]}` : null);
+  }
+
+  /**
+   * Strictly one at a time, including any worker a job goes back to. A long list of stale branches sent together
+   * would fill the working-copy limit that running queues also need, and could start many paid sessions at once.
+   */
+  async retryLandings(itemIds: readonly string[]): Promise<void> {
+    if (this.retryProgressSignal()) return;
+    this.retryStopped = false;
+    let merged = 0;
+    let firstFailure = '';
+    for (const [done, itemId] of itemIds.entries()) {
+      if (this.retryStopped) break;
+      this.retryProgressSignal.set({ done, total: itemIds.length, stopping: false });
+      const before = this.itemById(itemId);
+      // The list was reviewed a while ago: anything that has changed since is left where it is.
+      if (before && (before.state !== 'parked' || planQueueIsDiscarded(before) || this.runIsPaused(before) || this.documentBusy(before))) {
+        if (before.state === 'landed') merged++;
+        continue;
+      }
+      try {
+        const res = await this.ipc.control({ action: 'retry-landing', itemId });
+        if (!res.success) {
+          firstFailure ||= res.error?.message ?? 'Failed to send control action';
+          continue;
+        }
+        await new Promise<void>(resolve => { this.landingWait = { itemId, updatedAt: before?.updatedAt, resolve }; this.settleLandingWait(); });
+        if (this.itemById(itemId)?.state === 'landed') merged++;
+      } catch (error) {
+        firstFailure ||= error instanceof Error ? error.message : String(error);
+      }
+    }
+    this.retryProgressSignal.set(null);
+    const summary = this.retryStopped ? `Stopped after merging ${merged} of ${itemIds.length}.`
+      : `Merged ${merged} of ${itemIds.length}. The rest have not merged; check Set aside and Runs.`;
+    this.error.set(merged === itemIds.length ? null : `${summary}${firstFailure ? ` ${firstFailure}` : ''}`);
+  }
+
+  /**
+   * The first press waits for a merge under way but not for a worker. A second press stops waiting altogether, so a
+   * job stuck mid-merge cannot trap the page; the queue still owns that merge.
+   */
+  stopRetrying(): void {
+    const alreadyStopping = this.retryProgressSignal()?.stopping;
+    this.retryStopped = true;
+    this.retryProgressSignal.update(progress => progress && { ...progress, stopping: true });
+    if (alreadyStopping) {
+      this.landingWait?.resolve();
+      this.landingWait = null;
+    } else this.settleLandingWait();
+  }
+
+  /** The same rule the preview applies through the page's busy documents. */
+  private documentBusy(item: PlanQueueItemDto): boolean {
+    return this.runsSignal().some(run => (run.status === 'running' || run.status === 'paused') && run.items.some(other =>
+      other.id !== item.id && other.documentPath === item.documentPath && !['parked', 'landed', 'skipped'].includes(other.state)));
+  }
+
+  private runIsPaused(item: PlanQueueItemDto | undefined): boolean {
+    return this.runsSignal().find(run => run.id === item?.runId)?.status === 'paused';
+  }
+
+  private itemById(itemId: string): PlanQueueItemDto | undefined {
+    return this.runsSignal().flatMap(run => run.items).find(item => item.id === itemId);
+  }
+
+  private settleLandingWait(): void {
+    const wait = this.landingWait;
+    if (!wait) return;
+    const item = this.itemById(wait.itemId);
+    const finished = item?.state === 'landed' || (item?.state === 'parked' && item.updatedAt !== wait.updatedAt);
+    if (!finished && (item?.state === 'landing' || !(this.retryStopped || this.runIsPaused(item)))) return;
+    this.landingWait = null;
+    wait.resolve();
+  }
+
   /** `git diff --shortstat` of a parked item's branch, fetched on demand. */
   async diffstat(itemId: string): Promise<string> {
-    const res = await this.ipc.diffstat(itemId);
-    if (res.success && res.data) return res.data.diffstat;
-    this.error.set(res.error?.message ?? 'Failed to load diffstat');
+    try {
+      const res = await this.ipc.diffstat(itemId);
+      if (res.success && res.data) return res.data.diffstat;
+      this.error.set(res.error?.message ?? 'Failed to load diffstat');
+    } catch (error) {
+      this.error.set(error instanceof Error ? error.message : String(error));
+    }
     return '';
   }
 
@@ -236,5 +334,6 @@ export class PlanQueueStore {
       }
       return [run, ...list];
     });
+    this.settleLandingWait();
   }
 }

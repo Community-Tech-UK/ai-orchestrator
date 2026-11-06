@@ -40,6 +40,7 @@ function itemSummary(item: PlanQueueItemDto) {
     ...(item.branchName ? { branch: item.branchName } : {}),
     ...(item.steppedUpAt ? { handedToStepUpAt: new Date(item.steppedUpAt).toISOString() } : {}),
     ...(item.detail ? { detail: item.detail } : {}),
+    ...(item.discardedAt ? { discardedAt: item.discardedAt } : {}),
     ...(item.verdict ? { verdict: item.verdict.verdict, findings: item.verdict.findings } : {}),
   };
 }

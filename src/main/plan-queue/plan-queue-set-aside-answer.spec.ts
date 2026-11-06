@@ -57,6 +57,18 @@ describe('resuming the earlier set-aside attempt', () => {
     } finally { f.release(); f.coordinator.shutdown(); await f.coordinator._whenSettledForTesting(); f.db.close(); }
   });
 
+  it('refuses to resume an attempt that a newer merged attempt has replaced, and leaves the question open', async () => {
+    const f = setup();
+    try {
+      const previous = f.store.getItem('previous')!;
+      f.store.upsertRun({ ...f.store.getRun('original')!, id: 'merged-run' });
+      f.store.upsertItem({ ...previous, id: 'merged-attempt', runId: 'merged-run', state: 'landed', createdAt: previous.createdAt + 1 });
+      await expect(f.coordinator.answer('question', 'resume-set-aside')).rejects.toThrow('already merged');
+      expect(f.store.getItem('previous')).toMatchObject({ state: 'parked', branchName: 'queue/saved' });
+      expect(f.store.getItem('question')).toMatchObject({ state: 'needs-answer' });
+    } finally { f.release(); f.coordinator.shutdown(); await f.coordinator._whenSettledForTesting(); f.db.close(); }
+  });
+
   it('does not reopen the old run after the requesting run was cancelled', async () => {
     const f = setup();
     try {

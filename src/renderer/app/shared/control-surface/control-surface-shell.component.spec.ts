@@ -269,6 +269,72 @@ describe('ControlSurfaceShellComponent', () => {
     expect(fixture.nativeElement.querySelector('.control-shell')?.classList.contains('nav-collapsed')).toBe(true);
   });
 
+  describe('navigation search', () => {
+    const type = (value: string) => {
+      const input = fixture.nativeElement.querySelector('.control-nav-search-input') as HTMLInputElement;
+      input.value = value;
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      return input;
+    };
+    const labels = () => Array.from(fixture.nativeElement.querySelectorAll('.control-nav-item'), (node) => (node as Element).textContent?.trim());
+
+    it('draws every page icon', () => {
+      const icons = Array.from(fixture.nativeElement.querySelectorAll('.control-nav-icon')) as SVGElement[];
+      expect(icons.length).toBeGreaterThan(0);
+      expect(icons.filter(icon => !icon.innerHTML)).toEqual([]);
+    });
+
+    it('narrows the column to matching pages and settings, then restores it', () => {
+      const all = labels().length;
+      type('plan queue');
+      expect(labels()[0]).toBe('Plan Queue');
+      expect(labels().length).toBeLessThan(all);
+      type('');
+      expect(labels()).toHaveLength(all);
+    });
+
+    it('finds a single setting and links straight to it', () => {
+      type('Context-full warning at');
+      const link = fixture.nativeElement.querySelector('.control-nav-result') as HTMLAnchorElement;
+      expect(link.textContent).toContain('Context-full warning at');
+      expect(link.getAttribute('href')).toBe('/settings?setting=contextWarningThreshold');
+    });
+
+    it('clears the results and keeps focus in the search box when a result is chosen', () => {
+      const input = type('plan queue');
+      (fixture.nativeElement.querySelector('.control-nav-result') as HTMLAnchorElement).click();
+      fixture.detectChanges();
+      expect(input.value).toBe('');
+      expect(document.activeElement).toBe(input);
+    });
+
+    it('says when nothing matches', () => {
+      type('zzzz-no-such-thing');
+      expect(fixture.nativeElement.querySelector('.control-nav-empty')?.textContent).toContain('zzzz-no-such-thing');
+    });
+
+    it('opens the best match on Enter and clears on Escape', () => {
+      const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+      const input = type('plan queue');
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+      fixture.detectChanges();
+      expect(navigate).toHaveBeenCalledWith(['/plan-queue'], { queryParams: null, fragment: undefined });
+      expect(input.value).toBe('');
+      type('logs').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      fixture.detectChanges();
+      expect(input.value).toBe('');
+    });
+
+    it('hides the search box and clears it when the column collapses', () => {
+      type('logs');
+      (fixture.nativeElement.querySelector('.control-nav-toggle') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.control-nav-search-input')).toBeNull();
+      expect(labels().length).toBeGreaterThan(10);
+    });
+  });
+
   it('restores the persisted Control Center navigation collapsed state', () => {
     localStorage.setItem('aiorch.control.navCollapsed', 'true');
 

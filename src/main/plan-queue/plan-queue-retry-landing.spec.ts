@@ -51,13 +51,13 @@ function fixture(patch: Partial<PlanQueueItem> = {}) {
   const reattach = vi.fn(async (next: PlanQueueItem) => save({ ...next, worktreePath: join(repo, 'wt') }));
   const worktrees = { reattach, checkpoint: async (next: PlanQueueItem) => next, preflightPlanningFiles: async () => ({ moved: [], beside: [], failed: [] }), };
   const host = {
-    history: store.history, instances: { getInstance: () => undefined }, tracker: {}, worktrees,
+    store, history: store.history, instances: { getInstance: () => undefined }, tracker: {}, worktrees,
     getRun: () => run, getItem: () => item, save,
     transition: (next: PlanQueueItem, state: PlanQueueItem['state'], values: Partial<PlanQueueItem> = {}) => save({ ...next, ...values, state }),
     requestPump: vi.fn(), resolveRunParent: () => undefined,
   } as unknown as PlanQueueFlowHost;
   const flow = new PlanQueueItemFlow(host);
-  return { host, flow, reattach, run, save, get: () => item, worktrees };
+  return { host, flow, reattach, run, save, get: () => item, worktrees, store };
 }
 
 describe('verified retry landing', () => {
@@ -124,6 +124,74 @@ describe('verified retry landing', () => {
     const results = await Promise.allSettled([test.flow.retryLanding('item-1'), test.flow.retryLanding('item-1')]);
     expect(results.map((result) => result.status)).toEqual(['fulfilled', 'rejected']);
     expect(test.reattach).toHaveBeenCalledTimes(1);
+  });
+
+  describe('when a newer attempt has already merged', () => {
+    async function oldAttemptAndNewerMerge() {
+      git(['init', '-q', '-b', 'main']); git(['config', 'user.name', 'Queue Test']);
+      git(['config', 'user.email', 'queue@example.invalid']); git(['config', 'commit.gpgsign', 'false']);
+      await writeFile(join(repo, 'a.txt'), 'base\n'); git(['add', 'a.txt']); git(['commit', '-qm', 'base']);
+      const base = git(['rev-parse', 'HEAD']);
+      git(['checkout', '-qb', 'queue/item-1']); await writeFile(join(repo, 'a.txt'), 'old attempt\n');
+      git(['add', 'a.txt']); git(['commit', '-qm', 'old attempt']); const checkpoint = git(['rev-parse', 'HEAD']);
+      git(['checkout', '-q', 'main']);
+      const test = fixture({ baseCommit: base, checkpointCommit: checkpoint, verifiedMainCommit: base, landedCommit: null });
+      test.worktrees.reattach.mockImplementation(async (next) => {
+        git(['worktree', 'add', '-q', join(repo, 'wt'), next.branchName!]);
+        return test.save({ ...next, worktreePath: join(repo, 'wt') });
+      });
+      test.store.upsertRun({ ...test.run, id: 'run-2' });
+      test.store.upsertItem({ ...test.get(), id: 'newer', runId: 'run-2', state: 'landed', createdAt: test.get().createdAt + 1 });
+      return { test, base };
+    }
+
+    it('refuses at merge time even though the retry was accepted', async () => {
+      const { test, base } = await oldAttemptAndNewerMerge();
+      await test.flow.retryLanding('item-1'); await test.flow.whenSettled();
+      expect(test.get()).toMatchObject({ state: 'parked', parkReason: 'land-blocked', branchName: 'queue/item-1' });
+      expect(test.get().detail).toContain('a newer attempt at this document merged first');
+      expect(git(['rev-parse', 'main'])).toBe(base);
+    });
+
+    it('also refuses when a newer attempt is set aside but its code already reached main', async () => {
+      const { test, base } = await oldAttemptAndNewerMerge();
+      await writeFile(join(repo, 'b.txt'), 'newer attempt\n'); git(['add', 'b.txt']); git(['commit', '-qm', 'newer attempt']);
+      const onMain = git(['rev-parse', 'HEAD']);
+      test.store.upsertItem({ ...test.store.getItem('newer')!, state: 'parked', landedCommit: onMain });
+
+      await test.flow.retryLanding('item-1'); await test.flow.whenSettled();
+
+      expect(test.get()).toMatchObject({ state: 'parked', parkReason: 'land-blocked' });
+      expect(test.get().detail).toContain('a newer attempt at this document merged first');
+      expect(git(['rev-parse', 'main'])).toBe(onMain);
+      expect(git(['rev-list', '--count', `${base}..main`])).toBe('1');
+    });
+
+    it('ignores a newer attempt whose recorded commit never reached main', async () => {
+      const { test } = await oldAttemptAndNewerMerge();
+      git(['checkout', '-qb', 'unmerged']); await writeFile(join(repo, 'c.txt'), 'never merged\n');
+      git(['add', 'c.txt']); git(['commit', '-qm', 'never merged']); const elsewhere = git(['rev-parse', 'HEAD']); git(['checkout', '-q', 'main']);
+      test.store.upsertItem({ ...test.store.getItem('newer')!, state: 'parked', landedCommit: elsewhere });
+      Object.assign(test.worktrees, {
+        removeWithProof: async () => { git(['worktree', 'remove', '-f', join(repo, 'wt')]); test.save({ ...test.get(), worktreePath: null }); return { removed: true }; },
+        deleteBranchWithProof: async () => { git(['branch', '-D', 'queue/item-1']); },
+      });
+
+      await test.flow.retryLanding('item-1'); await test.flow.whenSettled();
+
+      expect(test.get().state).toBe('landed');
+    });
+
+    it('still merges for Merge without checks, which is the deliberate override', async () => {
+      const { test, base } = await oldAttemptAndNewerMerge();
+      Object.assign(test.worktrees, {
+        removeWithProof: async () => { git(['worktree', 'remove', '-f', join(repo, 'wt')]); test.save({ ...test.get(), worktreePath: null }); return { removed: true }; },
+        deleteBranchWithProof: async () => { git(['branch', '-D', 'queue/item-1']); },
+      });
+      await test.flow.landAnyway('item-1'); await test.flow.whenSettled();
+      expect(test.get().state).toBe('landed');
+      expect(git(['rev-parse', 'main'])).not.toBe(base);
+    });
   });
 
   it('lands real branch work and a completed document without the override or parked note', async () => {

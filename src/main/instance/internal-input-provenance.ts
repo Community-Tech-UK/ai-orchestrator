@@ -32,6 +32,7 @@ const INTERNAL_INPUT_SOURCES: ReadonlySet<InternalInputSource> = new Set<Interna
   'context-policy',
   'async-work-continuation',
   'announce-then-halt-continuation',
+  'waiting-check-in',
   'crash-turn-continuation',
   'reasoning-collapse-continuation',
   'content-filter-continuation',

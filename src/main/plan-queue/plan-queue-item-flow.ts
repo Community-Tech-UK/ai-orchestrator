@@ -43,6 +43,7 @@ import { unreportedVerifierReason, type PlanQueueTurnOutcome } from './plan-queu
 import { hasPendingLandingCleanup, PlanQueueItemLanding } from './plan-queue-item-landing';
 import { startQueueVerification } from './plan-queue-start-verification';
 import { hasCheckout, InvalidQueueCheckoutError, quarantineOrphanCheckout, retainedQueuePathExists } from './plan-queue-orphan-checkout';
+import { keepDiscardedWork, PlanQueueDiscardedRefs, restoreDiscardedWork } from './plan-queue-discard';
 import { PlanQueueKeptFolders } from './plan-queue-kept-folders';
 import { planQueueBranchName } from './plan-queue-worktree';
 import { describePlanningMoves } from './plan-queue-planning-files';
@@ -97,6 +98,9 @@ export class PlanQueueItemFlow {
 
   /** Folders an earlier park or landing had to keep; the scheduler retries them. */
   readonly keptFolders: PlanQueueKeptFolders;
+  readonly discardedRefs: PlanQueueDiscardedRefs;
+  /** Jobs running a Harness checklist now. Held in memory, so a restart starts with none. */
+  readonly checklistTurns = new Set<string>();
 
   constructor(private readonly host: PlanQueueFlowHost) {
     this.usageWaits = new PlanQueueUsageWaits((id, kind, waitedMs) => recordItemTiming(host, id, TIMING_REASONS.usageWait, { kind, waitedMs }));
@@ -106,6 +110,7 @@ export class PlanQueueItemFlow {
     this.preparationErrors = new PlanQueuePreparationErrors(host);
     this.retries = new PlanQueueTurnRetries(host);
     this.keptFolders = new PlanQueueKeptFolders(host, (id, action) => this.withItemLock(id, action));
+    this.discardedRefs = new PlanQueueDiscardedRefs(host, (id, action) => this.withItemLock(id, action));
     this.workerSessions = new PlanQueueWorkerSessions({
       host, lock: (id, action) => this.withItemLock(id, action),
       stop: (id) => this.stopInstance(id), spawn: (item, prompt) => this.spawnWorker(item, prompt, null),
@@ -448,19 +453,25 @@ export class PlanQueueItemFlow {
   }
 
   // Verification
-  /** awaiting-slot → verifying. Synchronous first transition reserves the slot. */
   isClaimed(itemId: string): boolean { return this.verification.groups.isClaimed(itemId); }
+  private releaseChecklistTurn(itemId: string): void { if (this.checklistTurns.delete(itemId)) this.host.requestPump(); }
 
+  /** awaiting-slot → verifying. The slot and turn are taken synchronously, because the pump starts several checks in one pass. */
   startVerification(waiting: PlanQueueItem): Promise<void> {
-    this.verification.groups.reserve(waiting, this.host.getRun(waiting.runId));
-    try { this.host.transition(waiting, 'verifying', { verdict: null, landedCommit: null }); }
-    catch (error) { this.verification.groups.release(waiting.id); throw error; }
+    const run = this.host.getRun(waiting.runId);
+    if (run.config.verifierGates.length) this.checklistTurns.add(waiting.id);
+    const finished = (): void => { this.releaseChecklistTurn(waiting.id); this.verification.groups.release(waiting.id); };
+    try {
+      this.verification.groups.reserve(waiting, run);
+      this.host.transition(waiting, 'verifying', { verdict: null, landedCommit: null });
+    } catch (error) { this.checklistTurns.delete(waiting.id); this.verification.groups.release(waiting.id); throw error; }
     return this.withItemLock(waiting.id, () => startQueueVerification({
       host: this.host, verification: this.verification, hold: item => this.holdUnlocked(item),
       park: (item, reason, detail) => this.parkUnlocked(item, reason, detail),
       fix: (item, prompt, detail) => this.toFixing(item, prompt, detail),
       spawn: (item, base) => this.selectAndSpawnVerifier(item, base),
-    }, waiting.id)).finally(() => this.verification.groups.release(waiting.id));
+      checksFinished: () => this.releaseChecklistTurn(waiting.id),
+    }, waiting.id)).finally(finished);
   }
 
   private async selectAndSpawnVerifier(item: PlanQueueItem, baseBranch: string): Promise<void> {
@@ -670,13 +681,16 @@ export class PlanQueueItemFlow {
         item = await quarantineOrphanCheckout(item, this.host.getRun(item.runId).workspaceCwd, planQueueBranchName(item), (next) => { this.host.save(next); });
       }
       const cleared = item.worktreePath ? this.host.save({ ...item, worktreePath: null }) : item;
-      if (cleared.branchName) {
-        await this.host.worktrees.deleteBranchWithProof(cleared, this.host.getRun(item.runId).workspaceCwd, { discardRequested: true });
-      }
-      const current = this.host.getItem(itemId);
-      const receipt = ` Discarded by ${actor}.`;
-      this.host.save({ ...current, detail: `${(current.detail ?? '').slice(0, 8000 - receipt.length)}${receipt}`.trim() });
+      const run = this.host.getRun(item.runId);
+      const discardRefExpiresAt = await keepDiscardedWork(cleared, run, Date.now());
+      if (cleared.branchName) await this.host.worktrees.deleteBranchWithProof(cleared, run.workspaceCwd, { discardRequested: true });
+      this.host.save({ ...this.host.getItem(itemId), discardedAt: Date.now(), discardedBy: actor, discardRefExpiresAt });
     });
+  }
+
+  /** Undo a Discard while its reference is kept. */
+  restoreDiscarded(itemId: string): Promise<void> {
+    return this.withItemLock(itemId, () => restoreDiscardedWork(this.host, itemId));
   }
 
   /** parked → landing without a verifier PASS ("Land anyway"). Resolves once queued to land. */

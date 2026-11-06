@@ -30,6 +30,7 @@ import {
 import { recoverDocumentMergeForItem } from './plan-queue-doc-merge';
 import { assertDocumentReview, readDocumentReview, type DocumentReview } from './plan-queue-document-review';
 import type { PlanQueueFlowHost } from './plan-queue-host';
+import { mergeCheckStillOwed, recordMergeCheckTimeout } from './plan-queue-check-timeouts';
 import { landItemBranch, runPostMergeGate, syncItemWithBase } from './plan-queue-landing';
 import { buildActiveDocumentsPrompt, buildConflictPrompt, buildGateFailurePrompt } from './plan-queue-prompts';
 import { clearPlanningMoveRecord, planningMoveNote } from './plan-queue-planning-files';
@@ -103,6 +104,14 @@ export class PlanQueueItemLanding {
     } finally { this.active.delete(itemId); }
   }
 
+  /** A newer attempt's code can reach the base and still end up set aside, when closing its documents failed. */
+  private async newerAttemptOnBase(item: PlanQueueItem, baseTip: string, repoRoot: string): Promise<boolean> {
+    for (const commit of this.ctx.host.store.newerAttemptCommits(item)) {
+      if (await isAncestor(commit, baseTip, repoRoot)) return true;
+    }
+    return false;
+  }
+
   private async landActive(itemId: string, options: { operatorOverride?: boolean }, signal: AbortSignal): Promise<void> {
     const { host } = this.ctx;
     let item = host.getItem(itemId);
@@ -141,6 +150,11 @@ export class PlanQueueItemLanding {
     const alreadyLanded = item.landedCommit !== null && (await isAncestor(item.landedCommit, baseTip, repoRoot));
     if (!alreadyLanded) {
       signal.throwIfAborted();
+      // The request-time check cannot see the future: a resumed attempt can reach this point after a newer one merged.
+      if (!options.operatorOverride && (host.store.newerAttemptLanded(item) || await this.newerAttemptOnBase(item, baseTip, repoRoot))) {
+        await this.ctx.park(item, 'land-blocked', 'Nothing was landed: a newer attempt at this document merged first.');
+        return;
+      }
       const landed = await this.buildAndPromote(item, run, baseTip, closeDocuments, signal);
       if (!landed) return;
       item = landed;
@@ -240,11 +254,19 @@ export class PlanQueueItemLanding {
           `merging ${baseBranch} before landing conflicted (${sync.conflictFiles.join(', ')})`);
         return null;
       }
-      if (sync.status === 'merged') {
-        item = await host.worktrees.checkpoint(item, `merge ${baseBranch} before landing`);
+      if (sync.status === 'merged') item = await host.worktrees.checkpoint(item, `merge ${baseBranch} before landing`);
+      // A timed-out check left the merge in place, so Try merging again finds nothing to merge but still owes the check.
+      if (sync.status === 'merged' || mergeCheckStillOwed(host, item)) {
         const covered = group && await gitExec(['rev-parse', `refs/heads/${baseBranch}`], repoRoot) === baseTip
           && groupRoundStillIntact(group, host);
         const gate = covered ? { ok: true } as const : await timer.measure('mergeCheck', () => runPostMergeGate(run.config.postMergeGate, item.worktreePath!, signal));
+        if (!gate.ok && gate.timedOut) {
+          recordMergeCheckTimeout(host, item);
+          await this.ctx.park(item, 'land-blocked', `Not landed: \`${gate.command}\` ran out of time after merging ${baseBranch}, so nothing changed on ${baseBranch}. A worker cannot fix a timeout; press Try merging again once the machine is quieter.`);
+          // Parking saves anything the killed check left behind, which makes a new commit: record that one too.
+          recordMergeCheckTimeout(host, host.getItem(item.id));
+          return null;
+        }
         if (!gate.ok) {
           await this.returnForBase(item, baseBranch, buildGateFailurePrompt(gate.command, gate.output),
             `\`${gate.command}\` failed after merging ${baseBranch}`);

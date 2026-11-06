@@ -33,7 +33,7 @@ npm run rebuild:native
 
 `electron-builder.json` sets `npmRebuild` to `false`; package-time node-gyp compilation is intentionally disabled so build hosts do not require an MSVC/C++ toolchain.
 
-Current N-API modules (`node-pty`, `lmdb`, and `msgpackr-extract`) ship ABI-stable prebuilt binaries. `better-sqlite3` is non-N-API and is handled by the explicit native rebuild plus ABI verification.
+Current N-API modules (`node-pty`, `lmdb`, `msgpackr-extract`, and `onnxruntime-node`) ship ABI-stable prebuilt binaries. `better-sqlite3` is non-N-API and is handled by the explicit native rebuild plus ABI verification.
 
 For a new non-N-API native module, either:
 
@@ -41,6 +41,16 @@ For a new non-N-API native module, either:
 2. Re-enable `npmRebuild` and accept the compiler-toolchain requirement on every build host.
 
 Check for N-API support through `node-addon-api`/`node-gyp-build`, a `prebuilds/` directory, or platform prebuilt packages. A non-N-API module omitted from the rebuild and verification scripts can ship a wrong-ABI binary silently.
+
+## Local Embedding Model
+
+`onnxruntime-node` runs the embedding model. It ships binaries for every platform, about 300 MB in total, so the `files` filters in `electron-builder.json` keep only the binary for the building machine's platform and the target architecture. Keep those filters in the shared `files` list: a `files` list under `mac`, `linux` or `win` made the packager walk the whole project, including `_scratch`. `${platform}` is the machine doing the build, which is also the target in the release workflow and `localbuild`, so a cross-platform build would ship the wrong binary and fall back to the word hash. It is listed in `asarUnpack` because its native library loads a sibling shared library by relative path. Its install script is denied in `allowScripts`; that script only downloads GPU libraries on Linux, which AIO does not use.
+
+There is no Intel Mac binary. On those machines the model fails to load, and the app falls back to the word hash for that process.
+
+The model itself is not in git. `scripts/fetch-embedding-model.js` downloads it to `resources/embedding-model/` and verifies its checksum against `scripts/embedding-model.json`. `electron:build` requires it, so a package cannot be built without it, while `prestart` only warns. `npm run build` does not fetch it, because the model is only copied in at packaging, so ordinary CI builds do not depend on the download. `electron-builder.json` copies it to `<resources>/embedding-model`, so the packaged app needs no network for it.
+
+After changing the runtime or the model, run `npm run verify:embedding-model`. Changing the model also means re-measuring `similarityFloors` in `src/main/rlm/embedding/embedding-model.ts`, because scores are not comparable between models.
 
 ## Signed Releases and Auto-Updates
 

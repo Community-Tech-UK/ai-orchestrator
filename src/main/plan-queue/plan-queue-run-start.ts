@@ -52,7 +52,8 @@ export function claimDocumentsAndCreateItems(
     const needsPlan = doc.readiness === 'not-ready' && doc.path.toLowerCase().endsWith('_spec.md');
     const previous = needsPlan ? null : deps.store.findLatestParkedItem(doc.path, run.parentInstanceId);
     const previousRun = previous ? deps.store.getRun(previous.runId) : null;
-    const setAside = previousRun?.parentInstanceId === run.parentInstanceId ? previous : null;
+    // Merged work has moved on from this attempt, so offering to resume it would be an option that always fails.
+    const setAside = previous && previousRun?.parentInstanceId === run.parentInstanceId && !deps.store.newerAttemptLanded(previous) ? previous : null;
     const remembered = !options.queueDirectly && !needsPlan && doc.readiness === 'candidate' && !setAside
       ? rememberedOutcomeForPath(deps.memory, doc.path, run.workspaceCwd)
       : { kind: 'none', detail: '' } as RememberedOutcome;

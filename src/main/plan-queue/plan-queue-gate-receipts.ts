@@ -3,7 +3,7 @@ import { stripVTControlCharacters } from 'node:util';
 import { gitExec } from '../workspace/git/git-exec';
 import { buildCliEnv } from '../cli/cli-environment';
 import { extractVerifyFailureKeys } from '../orchestration/verify-failure-keys';
-import { runInProcessGroup } from './plan-queue-process';
+import { QUEUE_TEST_ENV, runInProcessGroup } from './plan-queue-process';
 
 export type GateEvidence = 'passed' | 'failed' | 'no-tests-found' | 'not-recognised';
 export interface PlanQueueGateReceipt {
@@ -50,7 +50,7 @@ export function classifyGateEvidence(command: string, exitCode: number, output: 
 export const GATE_TIMEOUT_MS = 45 * 60_000;
 
 const executeGate: ExecuteGate = (command, cwd, signal) => runInProcessGroup(command, [], {
-  cwd, shell: true, env: { ...buildCliEnv(), AIO_TEST_SUMMARY: '0' }, timeoutMs: GATE_TIMEOUT_MS,
+  cwd, shell: true, env: { ...buildCliEnv(), ...QUEUE_TEST_ENV, AIO_TEST_SUMMARY: '0' }, timeoutMs: GATE_TIMEOUT_MS,
   // Retain enough for a diagnostic comparison; the persisted receipt has only a 2 KB tail.
   outputTail: 256_000, label: 'verification check', signal,
 });
@@ -93,7 +93,8 @@ export class PlanQueueGateRunner {
     const cached = this.cached(input);
     if (cached) return cached;
     const receipts = await this.compareWithBase(input, await this.executeCommands(input));
-    this.seed(input, receipts);
+    // A timeout says nothing about the code, so it must never answer for a later check.
+    if (!receipts.some(receipt => receipt.timedOut)) this.seed(input, receipts);
     return receipts;
   }
 
@@ -117,6 +118,8 @@ export class PlanQueueGateRunner {
         failureKeyCounts: Object.fromEntries(extractVerifyFailureKeys(result.output.replaceAll(input.cwd, ''), {
           truncated: result.output.length >= 256_000, failureKind: 'command',
         }).keys) });
+      // The rest would wait behind the same computer, holding the one checklist turn for nothing.
+      if (timedOut) break;
     }
     return receipts;
   }
@@ -124,7 +127,8 @@ export class PlanQueueGateRunner {
   async compareWithBase(input: GateInput, raw: readonly PlanQueueGateReceipt[]): Promise<PlanQueueGateReceipt[]> {
     input.signal?.throwIfAborted();
     const receipts = structuredClone([...raw]);
-    if (input.withBaseline && input.baseSha && receipts.some(receipt => receipt.classification === 'failed')) {
+    // A timeout can't be compared with the base, so only a real failure is worth a second run.
+    if (input.withBaseline && input.baseSha && receipts.some(receipt => receipt.classification === 'failed' && !receipt.timedOut)) {
       const base = await this.baseline(input);
       for (const receipt of receipts) {
         const original = base.find(candidate => candidate.command === receipt.command);
@@ -163,7 +167,7 @@ export class PlanQueueGateRunner {
       const base = await result;
       input.signal?.throwIfAborted();
       if (this.baseCache.size >= 20) this.baseCache.delete(this.baseCache.keys().next().value!);
-      this.baseCache.set(key, base);
+      if (!base.some(receipt => receipt.timedOut)) this.baseCache.set(key, base);
       return base;
     } finally { this.pendingBases.delete(key); }
   }
@@ -178,6 +182,12 @@ function waitForBaseline<T>(result: Promise<T>, signal?: AbortSignal): Promise<T
     signal.addEventListener('abort', aborted, { once: true });
     void result.then(resolve, reject).finally(() => signal.removeEventListener('abort', aborted));
   });
+}
+
+/** True when every blocking check ran out of time, so the run says nothing about the code. */
+export function onlyTimedOut(receipts: readonly PlanQueueGateReceipt[]): boolean {
+  const red = blockingGateReceipts(receipts);
+  return red.length > 0 && red.every(receipt => receipt.timedOut);
 }
 
 export function blockingGateReceipts(receipts: readonly PlanQueueGateReceipt[]): PlanQueueGateReceipt[] {

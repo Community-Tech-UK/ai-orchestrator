@@ -98,9 +98,10 @@ export class HyDEService extends EventEmitter {
 
     if (!useHyDE) {
       // Just use direct embedding
-      const directEmbedding = await this.embeddingService.embed(query);
+      const directEmbedding = await this.embeddingService.embed(query, 'query');
       return {
         embedding: directEmbedding.embedding,
+        model: directEmbedding.model,
         hypotheticalDocuments: [],
         hydeUsed: false,
         generationTimeMs: Date.now() - startTime,
@@ -117,6 +118,7 @@ export class HyDEService extends EventEmitter {
         this.emit('cache:hit', { query, cacheKey });
         return {
           embedding: cached.embedding,
+          model: await this.embeddingService.activeModelId(),
           hypotheticalDocuments: cached.hypotheticalDocuments,
           hydeUsed: true,
           generationTimeMs: Date.now() - startTime,
@@ -172,6 +174,7 @@ export class HyDEService extends EventEmitter {
 
       return {
         embedding,
+        model: await this.embeddingService.activeModelId(),
         hypotheticalDocuments,
         hydeUsed: true,
         generationTimeMs,
@@ -189,9 +192,10 @@ export class HyDEService extends EventEmitter {
       }
 
       // Fall back to direct embedding on error
-      const directEmbedding = await this.embeddingService.embed(query);
+      const directEmbedding = await this.embeddingService.embed(query, 'query');
       return {
         embedding: directEmbedding.embedding,
+        model: directEmbedding.model,
         hypotheticalDocuments: [],
         hydeUsed: false,
         generationTimeMs: Date.now() - startTime,

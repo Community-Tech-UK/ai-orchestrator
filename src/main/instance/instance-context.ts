@@ -62,7 +62,6 @@ export interface ContextConfig {
   rlmContextMinChars: number;
   rlmContextMaxTokens: number;
   rlmContextTopK: number;
-  rlmContextMinSimilarity: number;
   rlmQueryTimeoutMs: number;
   contextBudgetMinTokens: number;
   contextBudgetMaxTokens: number;
@@ -86,7 +85,6 @@ export const DEFAULT_CONTEXT_CONFIG: ContextConfig = {
   rlmContextMinChars: 50,
   rlmContextMaxTokens: 2000,
   rlmContextTopK: 8,
-  rlmContextMinSimilarity: 0.5,
   rlmQueryTimeoutMs: 1500,
   contextBudgetMinTokens: 500,
   contextBudgetMaxTokens: 4000,
@@ -421,7 +419,6 @@ export class InstanceContextManager implements InstanceContextPort {
       params: {
         query: message,
         topK,
-        minSimilarity: this.config.rlmContextMinSimilarity
       }
     };
 

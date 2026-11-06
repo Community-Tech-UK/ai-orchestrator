@@ -93,8 +93,10 @@ describe('IndexWorkerGateway', () => {
       type: string;
       query: string;
       limit: number;
+      strongMatchOnly: boolean;
     };
     expect(posted.type).toBe('search-workspace-chunks');
+    expect(posted.strongMatchOnly).toBe(false);
     expect(posted.query).toBe('auth token');
     expect(posted.limit).toBe(8);
 
@@ -105,7 +107,7 @@ describe('IndexWorkerGateway', () => {
 
   it('returns null from search when the RPC times out (caller falls back to ripgrep)', async () => {
     // Never respond — the 50ms gateway deadline should resolve null, not hang.
-    await expect(gateway.searchWorkspaceChunks('/project', 'auth', 8, 30)).resolves.toBeNull();
+    await expect(gateway.searchWorkspaceChunks('/project', 'auth', 8, { timeoutMs: 30 })).resolves.toBeNull();
   });
 
   it('gets codemem index status snapshots from the worker', async () => {

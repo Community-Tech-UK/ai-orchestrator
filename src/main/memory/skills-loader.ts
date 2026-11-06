@@ -36,7 +36,8 @@ export interface SkillBudgetSkip {
 }
 
 export interface SkillsLoaderConfig {
-  similarityThreshold: number;
+  /** Replaces the active embedding model's own `skill-match` floor. */
+  similarityThreshold?: number;
   maxResults: number;
   cacheEmbeddings: boolean;
   /**
@@ -60,14 +61,6 @@ export interface SkillsLoaderStats {
 // ============ Default Configuration ============
 
 const DEFAULT_CONFIG: SkillsLoaderConfig = {
-  // Per plan: single threshold, no LLM fallback. Measured 2026-09-23 against all
-  // 36 discoverable skills on the backend that actually runs (the local hashed
-  // n-gram fallback; no Ollama/OpenAI configured): no value separates on-topic
-  // from off-topic/wrong-skill matches, so 0.65 is kept deliberately and
-  // embedding-based injection stays effectively off; triggers do the work. Do not
-  // lower it without re-measuring. See docs/plans/2026-08-19-open-decisions-resolved.md,
-  // "Skill-injection threshold — measured 2026-09-23".
-  similarityThreshold: 0.65,
   maxResults: 3, // Per plan: max 3 skills to avoid context bloat
   cacheEmbeddings: true,
   triggerMinConfidence: 0.05, // Trigger must be >=5% of the message text
@@ -270,7 +263,7 @@ export class SkillsLoader extends EventEmitter {
       if (this.descriptionEmbeddings.has(entry.name)) continue;
 
       try {
-        const result = await this.embeddingService.embed(entry.description);
+        const result = await this.embeddingService.embed(entry.description, 'document');
         this.descriptionEmbeddings.set(entry.name, result.embedding);
       } catch (error) {
         this.emit('embedding:error', { skill: entry.name, error });
@@ -359,37 +352,44 @@ export class SkillsLoader extends EventEmitter {
       });
     }
 
-    // 2. Check embedding-based matches when semantic lookup is available.
+    // 2. Add at most the single best semantic match. A skill can add thousands
+    // of tokens, and taking only the top match at the model's measured floor
+    // injected no wrong skill across 68 test prompts. Accepting every skill over
+    // the floor would pull in near misses.
     try {
-      const messageResult = await this.embeddingService.embed(userMessage);
-      const messageEmbedding = messageResult.embedding;
+      const messageResult = await this.embeddingService.embed(userMessage, 'query');
+      const floor = this.config.similarityThreshold
+        ?? await this.embeddingService.similarityFloor('skill-match');
 
+      let best: DetectedSkill | null = null;
       for (const [skillName, embedding] of this.descriptionEmbeddings) {
         if (seenNames.has(skillName)) continue;
 
         const similarity = this.embeddingService.cosineSimilarity(
-          messageEmbedding,
+          messageResult.embedding,
           embedding
         );
+        if (similarity < floor || (best && similarity <= best.similarity)) continue;
 
-        if (similarity >= this.config.similarityThreshold) {
-          const entry = this.manifestSkills.get(skillName)!;
-          const skillSource = resolveSkillSource(entry.contentPath);
-          const mode = this.resolveModeFor(entry.name, skillSource);
-          if (mode === 'disabled') continue;
-          seenNames.add(skillName);
+        const entry = this.manifestSkills.get(skillName)!;
+        const skillSource = resolveSkillSource(entry.contentPath);
+        const mode = this.resolveModeFor(entry.name, skillSource);
+        if (mode === 'disabled') continue;
+        best = {
+          name: entry.name,
+          description: entry.description,
+          contentPath: entry.contentPath,
+          priority: entry.priority,
+          similarity,
+          source: 'embedding',
+          skillSource,
+          suggestOnly: mode === 'suggest-only',
+        };
+      }
 
-          matched.push({
-            name: entry.name,
-            description: entry.description,
-            contentPath: entry.contentPath,
-            priority: entry.priority,
-            similarity,
-            source: 'embedding',
-            skillSource,
-            suggestOnly: mode === 'suggest-only',
-          });
-        }
+      if (best) {
+        seenNames.add(best.name);
+        matched.push(best);
       }
     } catch (error) {
       this.emit('embedding:error', { query: userMessage.slice(0, 100), error });
@@ -515,7 +515,7 @@ export class SkillsLoader extends EventEmitter {
 
     // Compute embedding if caching is enabled
     if (this.config.cacheEmbeddings && entry.description) {
-      this.embeddingService.embed(entry.description).then(result => {
+      this.embeddingService.embed(entry.description, 'document').then(result => {
         this.descriptionEmbeddings.set(entry.name, result.embedding);
         this.stats.cachedEmbeddings = this.descriptionEmbeddings.size;
       }).catch(error => {

@@ -14,6 +14,8 @@ interface StartVerificationContext {
   park(item: PlanQueueItem, reason: PlanQueueParkReason, detail: string): Promise<void>;
   fix(item: PlanQueueItem, prompt: string, detail: string): Promise<void>;
   spawn(item: PlanQueueItem, baseBranch: string): Promise<void>;
+  /** The commands are done, so the checker's review doesn't hold the computer's one checklist turn. */
+  checksFinished(): void;
 }
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 
@@ -57,6 +59,7 @@ export async function startQueueVerification(ctx: StartVerificationContext, item
     return null;
   });
   if (!checks) return;
+  ctx.checksFinished();
   item = host.getItem(item.id);
   if (host.getRun(item.runId).status === 'paused') { await ctx.hold(item); return; }
   if (checks.kind === 'wait') { host.transition(item, 'awaiting-slot', { detail: checks.detail }); return; }

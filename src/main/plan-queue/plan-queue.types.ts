@@ -65,6 +65,11 @@ export interface PlanQueueItem {
   landingRefusals: number;
   /** Returns to the worker for a base-branch conflict or failed post-merge check since the item last landed or was resumed. */
   baseConflicts: number;
+  /** Set by Discard. The job stays parked but leaves the Set aside list. */
+  discardedAt?: number | null;
+  discardedBy?: string | null;
+  /** When the reference keeping its work expires; null when none is held (see plan-queue-discard.ts). */
+  discardRefExpiresAt?: number | null;
   branchName: string | null;
   worktreePath: string | null;
   baseCommit: string | null;

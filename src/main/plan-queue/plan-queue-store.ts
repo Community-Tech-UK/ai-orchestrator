@@ -72,6 +72,9 @@ interface ItemRow {
   worker_session_json: string | null;
   livetest_port: number | null;
   base_conflicts: number;
+  discarded_at: number | null;
+  discarded_by: string | null;
+  discard_ref_expires_at: number | null;
   question_json: string | null;
   answer: string | null;
   park_reason: string | null;
@@ -265,8 +268,8 @@ export class PlanQueueStore {
         id, run_id, document_path, state, round, errored_rounds, landing_refusals, branch_name, worktree_path,
         base_commit, checkpoint_commit, verified_main_commit, landed_commit,
         worker_instance_id, verifier_instance_id, question_json, answer, park_reason, detail,
-        verdict_json, created_at, updated_at, held_at, pending_instruction, worker_provider, worker_model, stepped_up_at, worker_session_json, livetest_port, base_conflicts
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        verdict_json, created_at, updated_at, held_at, pending_instruction, worker_provider, worker_model, stepped_up_at, worker_session_json, livetest_port, base_conflicts, discarded_at, discarded_by, discard_ref_expires_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         state                = excluded.state,
         round                = excluded.round,
@@ -293,6 +296,9 @@ export class PlanQueueStore {
         worker_session_json  = excluded.worker_session_json,
         livetest_port        = excluded.livetest_port,
         base_conflicts       = excluded.base_conflicts,
+        discarded_at         = excluded.discarded_at,
+        discarded_by         = excluded.discarded_by,
+        discard_ref_expires_at = excluded.discard_ref_expires_at,
         updated_at           = excluded.updated_at
     `).run(
       item.id,
@@ -325,6 +331,9 @@ export class PlanQueueStore {
       item.workerSession ? JSON.stringify(item.workerSession) : null,
       item.livetestPort ?? null,
       item.baseConflicts,
+      item.discardedAt ?? null,
+      item.discardedBy ?? null,
+      item.discardRefExpiresAt ?? null,
     );
   }
 
@@ -337,7 +346,7 @@ export class PlanQueueStore {
     const row = this.db.prepare(`SELECT item.* FROM plan_queue_items item
       JOIN plan_queue_runs run ON run.id = item.run_id
       WHERE item.document_path = ? AND item.state = 'parked' AND item.branch_name IS NOT NULL
-        AND run.parent_instance_id = ? ORDER BY item.updated_at DESC, item.created_at DESC, item.id DESC LIMIT 1`)
+        AND run.parent_instance_id = ? ORDER BY item.created_at DESC, item.id DESC LIMIT 1`)
       .get<ItemRow>(documentPath, parentInstanceId);
     return row ? rowToItem(row) : null;
   }
@@ -349,20 +358,35 @@ export class PlanQueueStore {
       .map(rowToItem);
   }
 
-  /** Parked items in one project folder, newest first, each saying whether its document landed afterwards. */
+  /** Parked items in one project folder, newest attempt first, each saying whether a newer attempt merged. */
   listParkedInFolder(workspaceCwd: string): { item: PlanQueueItem; landedLater: boolean }[] {
     return this.db
       .prepare(`
         SELECT item.*, EXISTS (
           SELECT 1 FROM plan_queue_items landed
-          WHERE landed.document_path = item.document_path AND landed.state = 'landed' AND landed.updated_at >= item.updated_at
+          WHERE landed.document_path = item.document_path AND landed.state = 'landed' AND landed.created_at > item.created_at
         ) AS landed_later
         FROM plan_queue_items item JOIN plan_queue_runs run ON run.id = item.run_id
         WHERE run.workspace_cwd = ? AND item.state = 'parked'
-        ORDER BY item.updated_at DESC, item.id DESC
+        ORDER BY item.created_at DESC, item.id DESC
       `)
       .all<ItemRow & { landed_later: number }>(workspaceCwd)
       .map((row) => ({ item: rowToItem(row), landedLater: row.landed_later === 1 }));
+  }
+
+  /** True when an attempt started after this one has merged. Compares creation: routine saves move `updated_at`. */
+  newerAttemptLanded(item: Pick<PlanQueueItem, 'documentPath' | 'createdAt'>): boolean {
+    return this.db
+      .prepare(`SELECT 1 FROM plan_queue_items WHERE document_path = ? AND state = 'landed' AND created_at > ? LIMIT 1`)
+      .get(item.documentPath, item.createdAt) !== undefined;
+  }
+
+  /** Commits recorded by attempts started after this one. A recorded commit may never have reached the base: ask Git. */
+  newerAttemptCommits(item: Pick<PlanQueueItem, 'documentPath' | 'createdAt'>): string[] {
+    return this.db
+      .prepare('SELECT landed_commit FROM plan_queue_items WHERE document_path = ? AND created_at > ? AND landed_commit IS NOT NULL')
+      .all<{ landed_commit: string }>(item.documentPath, item.createdAt)
+      .map((row) => row.landed_commit);
   }
 
   /** True when another item is working on this document. */
@@ -396,6 +420,14 @@ export class PlanQueueStore {
       `)
       .all<ItemRow>()
       .map(rowToItem);
+  }
+
+  /** Project folders that have a discarded job, which may hold a kept reference. */
+  listFoldersWithDiscardedItems(): string[] {
+    return this.db.prepare(`
+      SELECT DISTINCT run.workspace_cwd AS folder FROM plan_queue_items item
+      JOIN plan_queue_runs run ON run.id = item.run_id WHERE item.discarded_at IS NOT NULL
+    `).all<{ folder: string }>().map(row => row.folder);
   }
 
   /** Every item that has ever been given a branch or worktree, across all runs. */
@@ -504,6 +536,8 @@ function rowToItem(row: ItemRow): PlanQueueItem {
     erroredRounds: row.errored_rounds,
     landingRefusals: row.landing_refusals,
     baseConflicts: row.base_conflicts ?? 0,
+    ...(row.discarded_at ? { discardedAt: row.discarded_at, discardedBy: row.discarded_by } : {}),
+    ...(row.discard_ref_expires_at ? { discardRefExpiresAt: row.discard_ref_expires_at } : {}),
     branchName: row.branch_name,
     worktreePath: row.worktree_path,
     baseCommit: row.base_commit,

@@ -87,6 +87,8 @@ mise.local.toml
 .tmp-*.json
 *.tmp.json
 _scratch/
+# Fetched by scripts/fetch-embedding-model.js
+resources/embedding-model/
 
 # playwright-cli scratch output (page snapshots + console logs, disposable)
 .playwright-cli/

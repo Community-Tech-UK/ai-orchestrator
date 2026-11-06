@@ -101,6 +101,9 @@ describe('PlanQueuePageComponent', () => {
     reconcilerAlerts: ReturnType<typeof signal<unknown[]>>;
     isLoading: ReturnType<typeof signal<boolean>>;
     lastError: ReturnType<typeof signal<string | null>>;
+    retryProgress: ReturnType<typeof signal<{ done: number; total: number; stopping: boolean } | null>>;
+    retryLandings: ReturnType<typeof vi.fn>;
+    stopRetrying: ReturnType<typeof vi.fn>;
     needsAnswerItems: ReturnType<typeof signal<unknown[]>>;
     questionGroups: ReturnType<typeof signal<unknown[]>>;
     parkedItems: ReturnType<typeof signal<unknown[]>>;
@@ -142,6 +145,9 @@ describe('PlanQueuePageComponent', () => {
       reconcilerAlerts: signal([]),
       isLoading: signal(false),
       lastError: signal(null),
+      retryProgress: signal<{ done: number; total: number; stopping: boolean } | null>(null),
+      retryLandings: vi.fn().mockResolvedValue(undefined),
+      stopRetrying: vi.fn(),
       needsAnswerItems: signal([]),
       questionGroups: signal([]),
       parkedItems: signal([]),
@@ -470,6 +476,19 @@ describe('PlanQueuePageComponent', () => {
     clickTab('Set aside');
     fixture.nativeElement.querySelector('.pq-retry-landing').click();
     expect(store.control).toHaveBeenCalledWith({ action: 'retry-landing', itemId: 'item-parked' });
+  });
+
+  it('sends Try merging all again to the store and shows its progress with a way to stop', async () => {
+    store.parkedItems.set([{ ...PARKED_ITEM, parkReason: 'land-blocked',
+      verdict: { verdict: 'PASS', findings: [], gatesRun: [], documentComplete: true, needJames: [] },
+    }]); fixture.detectChanges(); await fixture.whenStable();
+    clickTab('Set aside');
+    fixture.nativeElement.querySelector('.pq-bulk-retry').click(); fixture.detectChanges();
+    fixture.nativeElement.querySelector('.pq-bulk-confirm').click();
+    expect(store.retryLandings).toHaveBeenCalledWith(['item-parked']);
+    store.retryProgress.set({ done: 0, total: 1, stopping: false }); fixture.detectChanges();
+    fixture.nativeElement.querySelector('.pq-stop-retrying').click();
+    expect(store.stopRetrying).toHaveBeenCalled();
   });
 
   it('shows counted global controls only for running and paused runs and dispatches them', () => {

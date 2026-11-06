@@ -504,6 +504,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
         const previous = this.store.findLatestParkedItem(item.documentPath, run.parentInstanceId);
         if (!previous) throw new Error('The earlier attempt is no longer set aside. Refresh this run before continuing.');
         this.authorizeControl(this.getRun(previous.runId), 'resume-item', callerInstanceId);
+        this.refuseIfNewerAttemptLanded(previous);
         await this.requireFlow().resume(previous.id);
         if (this.getItem(item.id).state !== 'needs-answer' || this.getRun(run.id).status === 'cancelled') {
           await this.requireFlow().park(previous.id, 'cancelled', 'The request to resume this work was cancelled. Resume it from Set aside when ready.');
@@ -592,6 +593,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     const item = this.getItem(payload.itemId);
     const run = this.require(this.parents).follow(this.getRun(item.runId));
     const actor = this.authorizeControl(run, payload.action, callerInstanceId);
+    if (payload.action === 'resume-item' || payload.action === 'retry-landing') this.refuseIfNewerAttemptLanded(item);
     this.setAside?.spendRestart(callerInstanceId, payload.action, item);
     switch (payload.action) {
       case 'skip-item':
@@ -612,12 +614,19 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       case 'discard-item':
         await flow.discard(item.id, actor);
         break;
+      case 'restore-discarded':
+        await flow.restoreDiscarded(item.id);
+        break;
       case 'retry-landing':
         await flow.retryLanding(item.id);
         this.reopen(run);
         break;
     }
     this.requestPump();
+  }
+  private refuseIfNewerAttemptLanded(item: PlanQueueItem): void {
+    if (!this.requireDeps().store.newerAttemptLanded(item)) return;
+    throw new Error('A newer attempt at this document has already merged. Check this branch, then Discard it or use Merge without checks.');
   }
   reportVerdict(callerInstanceId: string, args: PlanQueueReportVerdictArgs): { accepted: true; message: string } {
     const item = this.getItem(args.item_id);

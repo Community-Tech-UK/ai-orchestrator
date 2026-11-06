@@ -16,10 +16,16 @@
     "output": "release",
     "buildResources": "build"
   },
-  "files": ["dist/**/*", "!dist/out-tsc/**/*"],
+  "files": [
+    "dist/**/*",
+    "!dist/out-tsc/**/*",
+    "!node_modules/onnxruntime-node/bin/napi-v6/!(${platform})/**",
+    "!node_modules/onnxruntime-node/bin/napi-v6/${platform}/!(${arch})/**"
+  ],
   "asarUnpack": [
     "node_modules/whatsapp-web.js/**/*",
-    "node_modules/puppeteer-core/**/*"
+    "node_modules/puppeteer-core/**/*",
+    "node_modules/onnxruntime-node/**/*"
   ],
   "extraResources": [
     {
@@ -56,6 +62,11 @@
       "from": "resources/browser-extension",
       "to": "browser-extension",
       "filter": ["**/*"]
+    },
+    {
+      "from": "resources/embedding-model",
+      "to": "embedding-model",
+      "filter": ["**/*", "!**/*.partial"]
     },
     {
       "from": "resources/sandbox",

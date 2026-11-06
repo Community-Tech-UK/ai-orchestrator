@@ -16,15 +16,19 @@ import type { SkillManifest } from '../../shared/types/skills-manifest.types';
 const mockEmbed = vi.fn();
 const mockCosineSimilarity = vi.fn();
 
+const similarityFloor = async () => 0.65;
+
 vi.mock('../rlm/embedding-service', () => ({
   getEmbeddingService: () => ({
     embed: mockEmbed,
     cosineSimilarity: mockCosineSimilarity,
+    similarityFloor,
   }),
   EmbeddingService: {
     getInstance: () => ({
       embed: mockEmbed,
       cosineSimilarity: mockCosineSimilarity,
+      similarityFloor,
     }),
   },
 }));
@@ -117,7 +121,8 @@ describe('SkillsLoader', () => {
   describe('Configuration', () => {
     it('should use default configuration', () => {
       const config = loader.getConfig();
-      expect(config.similarityThreshold).toBe(0.65);
+      // The floor belongs to the embedding model, so nothing overrides it by default.
+      expect(config.similarityThreshold).toBeUndefined();
       expect(config.maxResults).toBe(3);
       expect(config.cacheEmbeddings).toBe(true);
     });
@@ -269,6 +274,37 @@ describe('SkillsLoader', () => {
 
       expect(detected.length).toBeGreaterThan(0);
       expect(detected.every((s) => s.similarity >= 0.65)).toBe(true);
+    });
+
+    it('adds only the single best semantic match, however many clear the floor', async () => {
+      let comparisons = 0;
+      mockCosineSimilarity.mockImplementation(() => {
+        comparisons += 1;
+        return comparisons === 2 ? 0.9 : 0.8;
+      });
+
+      const detected = await loader.detectRelevantSkills('how do I work with Angular here?');
+
+      const semantic = detected.filter((skill) => skill.source === 'embedding');
+      expect(semantic).toHaveLength(1);
+      expect(semantic[0]?.similarity).toBe(0.9);
+    });
+
+    it('embeds the message as a search query and skills as stored text', async () => {
+      mockCosineSimilarity.mockReturnValue(0);
+
+      await loader.detectRelevantSkills('what should I do about this');
+
+      expect(mockEmbed).toHaveBeenCalledWith('what should I do about this', 'query');
+    });
+
+    it('prefers an explicit threshold over the model floor', async () => {
+      loader.configure({ similarityThreshold: 0.95 });
+      mockCosineSimilarity.mockReturnValue(0.9);
+
+      const detected = await loader.detectRelevantSkills('Unrelated query about cooking');
+
+      expect(detected.filter((skill) => skill.source === 'embedding')).toHaveLength(0);
     });
 
     it('should limit results to maxResults', async () => {

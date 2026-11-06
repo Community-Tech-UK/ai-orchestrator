@@ -35,7 +35,7 @@ let onSave: (next: PlanQueueItem) => void;
 
 function newFlow(): PlanQueueItemFlow {
   return new PlanQueueItemFlow({
-    worktrees: service, getItem: () => item, getRun: () => ({ workspaceCwd: repo }),
+    worktrees: service, getItem: () => item, getRun: () => ({ workspaceCwd: repo, config: { baseBranch: 'main' } }),
     save: (next: PlanQueueItem) => { onSave(next); saves.push(next); item = next; return item; },
   } as unknown as PlanQueueFlowHost);
 }

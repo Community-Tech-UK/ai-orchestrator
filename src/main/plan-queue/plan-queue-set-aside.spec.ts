@@ -46,6 +46,30 @@ describe('inspectSetAsideWork', () => {
     expect((await inspectSetAsideWork(item({ branchName: 'queue/gone' }), run())).holding).toBe('nothing');
   });
 
+  it('never calls a job with no branch empty while its last checkpoint is not on main', async () => {
+    branchWith('queue/lost', 'src/only-copy.ts', 'code\n');
+    const checkpointCommit = git('rev-parse', 'queue/lost');
+    git('branch', '-qD', 'queue/lost');
+
+    expect(await inspectSetAsideWork(item({ checkpointCommit }), run()))
+      .toEqual({ holding: 'new-code', mergesCleanly: true, files: ['src/only-copy.ts'] });
+    expect((await inspectSetAsideWork(item({ branchName: 'queue/lost', checkpointCommit }), run())).holding).toBe('new-code');
+  });
+
+  it('clears a checkpoint whose change reached main, even though a squash leaves it off main\'s history', async () => {
+    branchWith('queue/landed', 'src/app.ts', 'two\n');
+    const checkpointCommit = git('rev-parse', 'queue/landed');
+    write('src/app.ts', 'two\n');
+    commit('landed by squash');
+    git('branch', '-qD', 'queue/landed');
+
+    expect((await inspectSetAsideWork(item({ checkpointCommit }), run())).holding).toBe('nothing-new');
+  });
+
+  it('says unknown, never nothing, when a checkpoint cannot be read', async () => {
+    expect((await inspectSetAsideWork(item({ checkpointCommit: 'f'.repeat(40) }), run())).holding).toBe('unknown');
+  });
+
   it('treats a branch whose change already reached main another way as adding nothing', async () => {
     branchWith('queue/same', 'src/app.ts', 'two\n');
     write('src/app.ts', 'two\n');
@@ -142,7 +166,7 @@ describe('PlanQueueSetAsideAgents', () => {
   });
 
   it('skips jobs already discarded', async () => {
-    jobs = [item({ detail: 'Stopped. Discarded by James.' })];
+    jobs = [item({ discardedAt: 1, discardedBy: 'James' })];
     expect(await agents.clear(AGENT)).toMatchObject({ cleared: 0, left: 0 });
     expect(discard).not.toHaveBeenCalled();
   });

@@ -1109,6 +1109,7 @@ export class LoopCoordinator extends EventEmitter {
             query: goal,
             workspacePath: workspaceCwd,
             limit,
+            strongMatchOnly: true,
           });
           return results.map((result) => ({
             path: result.relativePath,

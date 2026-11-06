@@ -15,7 +15,7 @@ const STATUS = { runs: [
   { runId: 'run-theirs', parentInstanceId: 'other-session', kind: 'livetests', status: 'paused', workspace: '/repo', items: [{ state: 'queued' }] },
   { runId: 'run-done', parentInstanceId: 'other-session', kind: 'plans', status: 'completed', workspace: '/repo', items: [{ state: 'landed' }] },
   { runId: 'run-set-aside', parentInstanceId: 'other-session', kind: 'plans', status: 'completed', workspace: '/repo', items: [{ state: 'parked', branch: 'queue/a' }] },
-  { runId: 'run-discarded', parentInstanceId: 'other-session', kind: 'plans', status: 'cancelled', workspace: '/repo', items: [{ state: 'parked', detail: 'Set aside. Discarded by James.' }] },
+  { runId: 'run-discarded', parentInstanceId: 'other-session', kind: 'plans', status: 'cancelled', workspace: '/repo', items: [{ state: 'parked', discardedAt: 1 }] },
   { runId: 'run-elsewhere', parentInstanceId: 'other-session', kind: 'plans', status: 'completed', workspace: '/other-repo', items: [{ state: 'parked', branch: 'queue/b' }] },
   { runId: 'run-live-elsewhere', parentInstanceId: 'other-session', kind: 'plans', status: 'running', workspace: '/other-repo', items: [{ state: 'working' }] },
 ], alerts: [] };
