@@ -357,7 +357,7 @@ export class CliAdapterWorkerProxy extends EventEmitter {
     });
     if (this.cliType === 'claude') {
       const mode = args.includes('--fork-session') ? 'fork' : args.includes('--resume') ? 'resume' : 'fresh';
-      const seed = mode === 'resume' && this.sessionId ? readLastClaudeCostState(
+      const seed = mode !== 'fresh' && this.sessionId ? readLastClaudeCostState(
         this.options.workingDirectory ?? process.cwd(), this.sessionId, this.childEnv['CLAUDE_CONFIG_DIR']) : undefined;
       this.claudeCostLedger.onSpawn(mode, seed?.totalCostUSD ?? this.claudeCostLedger.lastTotalUsd,
         seed?.modelUsage ?? this.claudeCostLedger.lastModelUsage);
