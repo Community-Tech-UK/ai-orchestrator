@@ -43,9 +43,12 @@ export class CopilotEventsTail {
       if (!stat.isFile()) throw new Error('Copilot events source is not a regular file');
       const size = Number(stat.size), identity = `${stat.dev}:${stat.ino}`;
       const change = `${stat.mtimeNs}:${stat.ctimeNs}`;
-      if (identity === this.identity && size === this.lastSize && change === this.lastChange && this.offset >= size) return { ...this.usage };
-      const rewritten = (size === this.lastSize && change !== this.lastChange)
-        || (this.boundary !== undefined && size >= this.offset && this.boundary !== await fingerprint(handle, this.offset));
+      // Checked before the early return: a same-size rewrite inside one clock tick leaves size and
+      // both timestamps unchanged, and on Linux that tick is milliseconds long.
+      const boundaryMoved = this.boundary !== undefined && size >= this.offset
+        && this.boundary !== await fingerprint(handle, this.offset);
+      if (identity === this.identity && size === this.lastSize && change === this.lastChange && this.offset >= size && !boundaryMoved) return { ...this.usage };
+      const rewritten = (size === this.lastSize && change !== this.lastChange) || boundaryMoved;
       if (identity !== this.identity || size < this.offset || rewritten) {
         this.offset = 0; this.skippingLine = false; this.overflow = false;
         this.usage = { compactions: 0 }; this.boundary = undefined;

@@ -167,6 +167,10 @@ jobs:
       - name: Install dependencies
         run: bash scripts/ci-npm-ci.sh
 
+      # Five specs start a real worker from dist/main, which `npm ci` doesn't create.
+      - name: Build main
+        run: npm run build:main
+
       - name: Run tests (shard ${{ matrix.shard }}/4)
         run: npm run test -- --shard=${{ matrix.shard }}/4
 

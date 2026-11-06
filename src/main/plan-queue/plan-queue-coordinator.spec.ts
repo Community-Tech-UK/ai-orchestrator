@@ -1335,20 +1335,22 @@ describe('PlanQueueCoordinator — boot recovery', { timeout: 30_000 }, () => {
   });
 
   it.each([
-    { label: 'records a checked port for a livetest item that had none', recorded: null },
-    { label: 'keeps the port a livetest item already had, without re-checking it', recorded: 9123 },
-  ])('after a restart, $label', async ({ recorded }) => {
+    { label: 'records a checked port for a livetest item that had none', hadPort: false },
+    { label: 'keeps the port a livetest item already had, without re-checking it', hadPort: true },
+  ])('after a restart, $label', async ({ hadPort }) => {
     writeDoc('docs/plans/2026-01-01-alpha_livetest.md', '# L\n');
     const parent = fake.addParent();
     fake.scripts.worker = never;
     const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'livetests' });
     await waitForState(0, run.id, 'working');
     const itemId = coordinator.getRunDto(run.id)!.items[0].id;
-    // As if the app died before the port was saved (null), or with it saved (a number).
-    store.upsertItem({ ...store.getItem(itemId)!, livetestPort: recorded });
     // The worker that died may still hold its dev app's port; a check-free would wrongly move the item off it.
-    const holder = recorded === null ? null : net.createServer();
-    await new Promise<void>((resolve, reject) => { if (!holder) return resolve(); holder.once('error', reject); holder.listen({ port: recorded!, host: '127.0.0.1' }, resolve); });
+    // Any free port does: a fixed one collides when full runs overlap on a machine.
+    const holder = hadPort ? net.createServer() : null;
+    await new Promise<void>((resolve, reject) => { if (!holder) return resolve(); holder.once('error', reject); holder.listen({ port: 0, host: '127.0.0.1' }, resolve); });
+    // As if the app died before the port was saved (null), or with it saved (a number).
+    const recorded = holder ? (holder.address() as net.AddressInfo).port : null;
+    store.upsertItem({ ...store.getItem(itemId)!, livetestPort: recorded });
     try {
       // The respawned worker stays idle: the test ends as soon as it exists, and a worker that kept
       // building would write into a working folder the teardown has already removed.

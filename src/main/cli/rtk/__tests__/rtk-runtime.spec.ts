@@ -187,12 +187,15 @@ describe('rtk-runtime', () => {
         // code-signing evaluation), and resolution is cached per process — so
         // without a retry, one cold-start stall disables rtk for the session.
         //
-        // A 1ms first budget forces that timeout no matter how loaded the host
-        // is. An earlier version of this test used a stub that slept on its
-        // first run instead, which raced the very cost it stood in for: under
-        // parallel forks the exec itself blew the budget before the script
-        // could run, and the test failed with the fix in place.
-        const stubPath = makeStubBinary(tempRoot, { version: '0.39.0' });
+        // The stub takes 300ms on every run, so a 1ms budget always times out, and
+        // a 4s one leaves room for all but a badly stalled host. A 1ms budget
+        // alone doesn't force it: an idle Linux core finished a plain stub inside
+        // that budget 275 times in 300. A stub that slept only on its first run
+        // was no better, because under parallel forks the exec itself could blow
+        // the budget before the script ran.
+        const stubPath = path.join(tempRoot, 'rtk');
+        writeFileSync(stubPath, '#!/bin/sh\nsleep 0.3\necho "rtk 0.39.0"\n', 'utf-8');
+        chmodSync(stubPath, 0o755);
 
         const oneAttempt = getRtkRuntime({ binaryPathOverride: stubPath, probeTimeoutsMs: [1] });
         expect(oneAttempt.isAvailable()).toBe(false); // no retry -> stays unavailable

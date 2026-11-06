@@ -13,9 +13,13 @@ const settingsMock = vi.hoisted(() => ({
   } as Record<string, unknown>,
 }));
 
+// One per process: this file deletes its home folder before each test, so a shared path let
+// one full run wipe another's files when runs overlapped on a machine.
+const testHome = vi.hoisted(() => `/tmp/test-home-${process.pid}`);
+
 vi.mock('electron', () => ({
   app: {
-    getPath: vi.fn().mockReturnValue('/tmp/test-home'),
+    getPath: vi.fn().mockReturnValue(testHome),
     getAppPath: vi.fn().mockReturnValue('/tmp/test-app'),
   },
 }));
@@ -111,7 +115,7 @@ function trustProjectRoot(projectRoot: string): void {
 }
 
 beforeEach(async () => {
-  await fsPromises.rm(path.resolve('/tmp/test-home'), { recursive: true, force: true });
+  await fsPromises.rm(path.resolve(testHome), { recursive: true, force: true });
   _resetOrchestratorPluginManagerForTesting();
   _resetPluginRegistryForTesting();
   settingsMock.value = {
@@ -156,7 +160,7 @@ describe('OrchestratorPluginManager', () => {
     const ctx = {
       instanceManager: {} as never,
       appPath: '/tmp/test-app',
-      homeDir: '/tmp/test-home',
+      homeDir: testHome,
     };
 
     vi.spyOn(
@@ -314,7 +318,7 @@ describe('OrchestratorPluginManager', () => {
     expect(pluginEntry?.loadReport.ready).toBe(true);
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
       appPath: '/tmp/test-app',
-      homeDir: '/tmp/test-home',
+      homeDir: testHome,
     }));
     expect(getPluginRegistry().getRuntimes(tmpDir, 'notifier')).toHaveLength(1);
 
@@ -347,11 +351,11 @@ describe('OrchestratorPluginManager', () => {
     const createContext = moduleFactory.mock.results[0]?.value.create.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(factoryContext).toEqual({
       appPath: '/tmp/test-app',
-      homeDir: '/tmp/test-home',
+      homeDir: testHome,
     });
     expect(createContext).toEqual({
       appPath: '/tmp/test-app',
-      homeDir: '/tmp/test-home',
+      homeDir: testHome,
     });
     expect(factoryContext).not.toHaveProperty('instanceManager');
     expect(createContext).not.toHaveProperty('instanceManager');
@@ -392,7 +396,7 @@ describe('OrchestratorPluginManager', () => {
       },
       context: {
         appPath: '/tmp/test-app',
-        homeDir: '/tmp/test-home',
+        homeDir: testHome,
       },
     });
 
@@ -604,7 +608,7 @@ describe('OrchestratorPluginManager', () => {
 
   it('loads user-installed home plugins without a project trust decision', async () => {
     const tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'plugin-manager-test-'));
-    const pluginDir = path.join(path.resolve('/tmp/test-home'), '.orchestrator', 'plugins', `home-plugin-${Date.now()}`);
+    const pluginDir = path.join(path.resolve(testHome), '.orchestrator', 'plugins', `home-plugin-${Date.now()}`);
     await fsPromises.mkdir(pluginDir, { recursive: true });
 
     const pluginFile = path.join(pluginDir, 'index.js');
@@ -638,7 +642,7 @@ describe('OrchestratorPluginManager', () => {
     const ctx = {
       instanceManager: {} as never,
       appPath: '/tmp/test-app',
-      homeDir: '/tmp/test-home',
+      homeDir: testHome,
     };
 
     vi.spyOn(
@@ -787,7 +791,7 @@ describe('OrchestratorPluginManager — runtime lifecycle / quarantine (B11)', (
   const ctx = {
     instanceManager: {} as never,
     appPath: '/tmp/test-app',
-    homeDir: '/tmp/test-home',
+    homeDir: testHome,
   };
 
   /** Spy getPlugins so a single controlled hook plugin is returned for both emit + list. */

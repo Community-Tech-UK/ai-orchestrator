@@ -6223,7 +6223,7 @@
     },
     {
       "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
-      "lines": 3436
+      "lines": 3438
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave3-workflow-resume-history-recovery-plan_completed.md",
@@ -7134,6 +7134,10 @@
       "lines": 958
     },
     {
+      "path": "src/main/plugins/plugin-manager.spec.ts",
+      "lines": 955
+    },
+    {
       "path": "docs/superpowers/plans/2026-07-11-harness-mobile-codex-redesign_completed.md",
       "lines": 953
     },
@@ -7147,10 +7151,6 @@
     },
     {
       "path": "src/main/chats/chat-service.ts",
-      "lines": 951
-    },
-    {
-      "path": "src/main/plugins/plugin-manager.spec.ts",
       "lines": 951
     },
     {
