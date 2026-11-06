@@ -30,7 +30,10 @@ export const REPLAY_DIGEST_MAX_TOKENS = Math.ceil((
   + REPLAY_FRAME_CHARS
 ) / CHARS_PER_TOKEN);
 
-/** What a replay of a conversation holding `conversationTokens` carries over, and what it leaves behind. */
+/**
+ * The most a replay of a conversation holding `conversationTokens` can carry over, and so the least it
+ * leaves behind. The real digest can be smaller, because long messages and old turns are cut.
+ */
 export function replayCarryover(conversationTokens: number): { carriedTokens: number; droppedTokens: number } {
   const total = Math.max(0, Math.round(conversationTokens));
   const carriedTokens = Math.min(total, REPLAY_DIGEST_MAX_TOKENS);

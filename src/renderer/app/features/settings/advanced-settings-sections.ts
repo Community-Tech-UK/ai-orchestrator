@@ -152,7 +152,7 @@ export const ADVANCED_SECTION_DEFINITIONS: readonly AdvancedSectionDefinition[] 
   {
     id: 'codex-limits-heading',
     title: 'Codex round limits & checker skills',
-    description: 'When one Codex round has used this many tokens, Harness asks it to wrap up and, for work Harness started, stops it. Also whether Plan Queue checkers see Codex\'s automatic skills list. Applies when a Codex session or check starts.',
+    description: 'When one Codex round has used this many tokens, Harness asks it to wrap up and, for work Harness started, stops it. Also whether Plan Queue checkers see Codex\'s automatic skills list. The round limits apply from the next round, even in a session that is already running; the skills list applies to checks that start after you change it.',
     group: 'runtime',
     keys: [
       'codexTurnCeilingHarnessWorkWrapUpTokens',

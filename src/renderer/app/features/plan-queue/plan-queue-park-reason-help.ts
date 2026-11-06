@@ -121,9 +121,9 @@ export const PARK_REASON_HELP: Record<PlanQueueParkReason, PlanQueueParkReasonHe
     actions: ['resume', 'merge-without-checks', 'discard'],
   },
   'stopped-by-harness': {
-    label: 'Harness stopped this job',
-    meaning: 'Harness stopped the job to protect the machine or its own limits.',
-    next: 'Read the details for the stop reason, then Resume to run it again.',
+    label: 'Harness stopped this job at its Codex limit',
+    meaning: 'A Codex round passed its token limit, so Harness stopped it on purpose to cap the spend.',
+    next: 'Resume would likely spend the same again. To allow bigger rounds, raise "Stop point for Harness work" in Settings, Advanced, under Codex round limits & checker skills.',
     actions: ['resume', 'discard'],
   },
 };

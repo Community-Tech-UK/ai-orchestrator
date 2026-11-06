@@ -16,6 +16,13 @@ describe('set-aside finding text', () => {
       expect(['see-findings', 'choose-checker', 'resume', 'retry-landing', 'merge-without-checks', 'discard']).toContain(action);
     }
   });
+  it('says plainly that a Codex round passed its token limit, that Resume would likely spend the same again, and where the limit is', () => {
+    const help = PARK_REASON_HELP['stopped-by-harness'];
+    expect(help.meaning).toContain('Codex round passed its token limit');
+    expect(help.next).toContain('Resume would likely spend the same again');
+    expect(help.next).toContain('Settings, Advanced');
+    expect(help.next).toContain('Stop point for Harness work');
+  });
   it('explains a refused restore without claiming that setting up a fresh copy will fix it', () => {
     const display = planQueueDisplayParkReason({ parkReason: 'worktree-error', detail: 'Paused. Could not restore the saved work.' });
     expect(display?.label).toBe('The saved work could not be restored');

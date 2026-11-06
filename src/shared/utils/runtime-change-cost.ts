@@ -49,7 +49,7 @@ export interface RuntimeChangeCostNote {
   text: string;
   /** What the next message re-reads at full price; null when the change does not cause that. */
   resendTokens: number | null;
-  /** On a replay: what the new session starts with, and what it leaves behind. */
+  /** On a replay: the most the new session can start with, and so the least it leaves behind. */
   carriedTokens: number | null;
   droppedTokens: number | null;
   /** Big enough to ask first: a large re-read at full price, or a large part of the conversation left behind by a replay. */
@@ -115,13 +115,15 @@ export function describeRuntimeChangeCost(
     // individual messages, older turns and tool results can still be omitted.
     const kept = `your first request, the last ${REPLAY_MAX_TURNS} messages and open to-dos`;
     const size = carriedTokens === null || known === null ? ''
-      : `: about ${formatApproxTokens(carriedTokens)} of the ${formatApproxTokens(known)} tokens here${windowClause(carriedTokens, options.targetWindowTokens, options.targetLabel)}`;
+      : `: up to ${formatApproxTokens(carriedTokens)} of the ${formatApproxTokens(known)} tokens here${windowClause(carriedTokens, options.targetWindowTokens, options.targetLabel)}`;
     return {
       kind,
       text: `${lead} starts a new session with a short summary of this one (${kept}${size}); the rest does not carry over.`,
       resendTokens: null,
       carriedTokens,
       droppedTokens,
+      // `droppedTokens` is the least that is left behind, so this never asks without cause. It can stay quiet for
+      // a session up to one digest (about 9K tokens) below the line, where the real loss may already pass it.
       large: droppedTokens !== null && droppedTokens >= LARGE_REPLAY_DROPPED_TOKENS,
     };
   }

@@ -42,7 +42,7 @@ describe('replay: a new session gets a short summary', () => {
     expect(note?.droppedTokens).toBe(230_000 - REPLAY_DIGEST_MAX_TOKENS);
     expect(note?.text).toBe(
       'Switching model starts a new session with a short summary of this one '
-      + `(your first request, the last 24 messages and open to-dos: about ${formatApproxTokens(REPLAY_DIGEST_MAX_TOKENS)} of the 230K tokens here, 4% of Claude's 200K window); `
+      + `(your first request, the last 24 messages and open to-dos: up to ${formatApproxTokens(REPLAY_DIGEST_MAX_TOKENS)} of the 230K tokens here, 4% of Claude's 200K window); `
       + 'the rest does not carry over.',
     );
   });
