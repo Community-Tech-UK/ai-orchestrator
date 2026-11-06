@@ -53,7 +53,10 @@ export function boundSessionStateForPersistence(state: SessionState, maxFileByte
       // A single tool result can be larger than the entire budget. Preserve
       // its recent text and identity; explicitly discard completeness proof.
       const content = entry.content || entry.toolUse?.output || '';
-      const recent = { id: entry.id, role: entry.role, timestamp: entry.timestamp, content: '' };
+      const recent = { id: entry.id, role: entry.role, timestamp: entry.timestamp, content: '',
+        ...(entry.internalInput ? { internalInput: entry.internalInput } : {}),
+        ...(entry.crossSessionMessage ? { crossSessionMessage: entry.crossSessionMessage } : {}),
+        ...(entry.agentAuthored ? { agentAuthored: true } : {}) };
       let low = 0; let high = Math.min(content.length, remaining);
       while (low < high) {
         const length = Math.ceil((low + high) / 2);

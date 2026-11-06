@@ -241,6 +241,18 @@ describe('retainedPromptsForFork', () => {
 });
 
 describe('promptsFromDiscardedEntries', () => {
+  it('keeps provenance, so a rebuilt prompt can never pass as the user\'s own words', () => {
+    const crossSessionMessage = { sourceInstanceId: 'peer', sourceDisplayName: 'Peer', hopCount: 0 };
+    const prompts = promptsFromDiscardedEntries([
+      { id: 'a', role: 'user', content: 'agent task', timestamp: 1, agentAuthored: true },
+      { id: 'b', role: 'user', content: 'relayed', timestamp: 2, crossSessionMessage },
+      { id: 'c', role: 'user', content: 'typed', timestamp: 3 },
+    ], 'p-');
+    expect(prompts[0].metadata).toEqual({ agentAuthored: true });
+    expect(prompts[1].metadata).toEqual({ crossSessionMessage });
+    expect(prompts[2].metadata).toBeUndefined();
+  });
+
   const entry = (id: string, role: string, timestamp: number) =>
     ({ id, role, content: `${id} content`, timestamp });
 

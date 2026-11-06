@@ -16,7 +16,8 @@
  * indices and fork at the wrong message.
  */
 
-import type { Instance, OutputMessage } from '../types/instance.types';
+import type { InternalInputMetadata } from '../types/input-provenance.types';
+import type { CrossSessionMessageMetadata, Instance, OutputMessage } from '../types/instance.types';
 
 /**
  * Maximum number of overflowed prompts retained per instance. The opening
@@ -187,6 +188,9 @@ export interface RetainableHistoryEntry {
   role: string;
   content: string;
   timestamp: number;
+  internalInput?: InternalInputMetadata;
+  crossSessionMessage?: CrossSessionMessageMetadata;
+  agentAuthored?: boolean;
 }
 
 /**
@@ -204,10 +208,20 @@ export function promptsFromDiscardedEntries(
 ): OutputMessage[] {
   return discarded
     .filter((entry) => entry.role === 'user')
-    .map((entry, idx) => ({
-      id: `${idPrefix}${entry.id || idx}`,
-      timestamp: entry.timestamp,
-      type: 'user' as const,
-      content: entry.content,
-    }));
+    .map((entry, idx) => {
+      // Who wrote it must survive the rebuild: a bare prompt would read as the user's own words.
+      const { internalInput, crossSessionMessage, agentAuthored } = entry;
+      const provenance = {
+        ...(internalInput ? { internalInput } : {}),
+        ...(crossSessionMessage ? { crossSessionMessage } : {}),
+        ...(agentAuthored ? { agentAuthored } : {}),
+      };
+      return {
+        id: `${idPrefix}${entry.id || idx}`,
+        timestamp: entry.timestamp,
+        type: 'user' as const,
+        content: entry.content,
+        ...(Object.keys(provenance).length > 0 ? { metadata: provenance } : {}),
+      };
+    });
 }
