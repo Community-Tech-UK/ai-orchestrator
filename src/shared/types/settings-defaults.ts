@@ -234,6 +234,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   memoryInstructionGate: true,
   // WS14: empty = no automatic overload fallback model.
   claudeFallbackModel: '',
+  claudeBashOutputMaxChars: 12_000,
   // WS14: OFF until the livetest proves hooks/RTK survive the scrub.
   claudeSubprocessEnvScrub: false,
   // Diagnostic: Claude Code's own debug log per session. Verbose, so opt-in.

@@ -271,7 +271,13 @@ async function main() {
   const manifest = loadManifest();
 
   const results = [];
-  for (const target of TARGETS) {
+  const targets = process.argv.includes('--current-platform')
+    ? TARGETS.filter(target => target.key === `${process.platform}-${process.arch}`) : TARGETS;
+  if (targets.length === 0) {
+    console.warn(`[rtk] No pinned binary for ${process.platform}-${process.arch}; worker will run without bundled RTK`);
+    return;
+  }
+  for (const target of targets) {
     try {
       const result = await ensureTarget(target, manifest);
       results.push(result);

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+vi.mock('./worker-cli-versions', () => ({ readWorkerCliVersions: vi.fn().mockResolvedValue({ claude: '2.1.296' }) }));
 // Capabilities are exercised without installed-provider discovery or account reads.
 vi.mock('./worker-account-route', () => ({
   listWorkerAccountProfileIds: () => ({}),

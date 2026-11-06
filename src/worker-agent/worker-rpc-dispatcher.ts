@@ -1,7 +1,6 @@
 import type { FileAttachment } from '../shared/types/instance.types';
-import { generateOllamaOnWorker, generateOpenAiCompatibleOnWorker } from './worker-auxiliary-generate';
-import { OLLAMA_LOCAL_BASE_URL, LMSTUDIO_LOCAL_BASE_URL } from './local-model-config';
-import { z, ZodError } from 'zod/v4';
+import { handleAuxiliaryModelList, handleAuxiliaryModelGenerate, handleAudioTranscribe } from './worker-auxiliary-rpc';
+import { ZodError } from 'zod/v4';
 import type {
   FsReadDirectoryParams,
   FsReadFileParams,
@@ -30,6 +29,8 @@ import {
   AudioTranscribeParamsSchema,
   ConfigUpdateParamsSchema,
   InstanceSpawnParamsSchema,
+  InstanceChangeModelParamsSchema,
+  NodeKeepAwakeParamsSchema,
   LocalModelSessionIdParamsSchema,
   LocalModelSessionSendInputParamsSchema,
   LocalModelSessionStartParamsSchema,
@@ -93,12 +94,14 @@ import { NodeExecInvalidParamsError, WorkerNodeExecutor } from './worker-node-ex
 import { configuredNodeExecRoots } from './worker-node-exec-policy';
 import { validateWorkerAccountRoute } from './worker-account-route';
 import { InstanceSendRawParamsSchema } from '../main/remote-node/instance-interaction-schemas';
-
-type AudioTranscribeParams = z.infer<typeof AudioTranscribeParamsSchema>;
+import { InstanceSampleStallProcessParamsSchema, StallProcessFactsSchema } from '../main/remote-node/stall-process-rpc';
+import { NodeKeepAwakeResultSchema } from '../main/remote-node/keep-awake-rpc';
+import { WorkerModelChangeError } from './worker-instance-model-change';
 
 interface WorkerRpcDispatcherDeps {
   config: WorkerConfig;
   instanceManager: LocalInstanceManager;
+  setKeepAwake?: (enabled: boolean) => Promise<{ active: boolean }>;
   localModelSessionManager?: LocalModelSessionManager;
   getFilesystemHandler: () => NodeFilesystemHandler;
   getSyncHandler: () => SyncHandler;
@@ -120,9 +123,9 @@ interface WorkerRpcDispatcherDeps {
   recoverExtensionRelay?: () => Promise<BrowserExtensionRecoverResult>;
   sendResult: (id: string | number, result: unknown) => void;
   /** WS15 — durable-stream replay/ack (absent only in stripped-down tests). */
-  replayDurableEvents?: (cursors: Array<{ instanceId: string; afterSeq: number }>) =>
-    Array<{ instanceId: string; replayed: number; gapThroughSeq?: number }>;
-  ackDurableEvents?: (cursors: Array<{ instanceId: string; seq: number }>) => void;
+  replayDurableEvents?: (cursors: { instanceId: string; afterSeq: number }[]) =>
+    { instanceId: string; replayed: number; gapThroughSeq?: number }[];
+  ackDurableEvents?: (cursors: { instanceId: string; seq: number }[]) => void;
   sendError: (id: string | number, code: number, message: string) => void;
   localAiHealth?: Pick<WorkerLocalAiHealth, 'check' | 'diagnose' | 'repair'>;
 }
@@ -199,6 +202,25 @@ export class WorkerRpcDispatcher {
           const validated = InstanceSendRawParamsSchema.parse(params);
           await this.deps.instanceManager.sendRaw(validated.instanceId, validated.response, validated.permissionKey);
           result = { ok: true };
+          break;
+        }
+        case COORDINATOR_TO_NODE.INSTANCE_CHANGE_MODEL: {
+          const validated = InstanceChangeModelParamsSchema.parse(params);
+          await this.deps.instanceManager.changeModel(validated.previousInstanceId, validated.replacement as SpawnParams);
+          result = { instanceId: validated.replacement.instanceId };
+          break;
+        }
+        case COORDINATOR_TO_NODE.INSTANCE_SAMPLE_STALL_PROCESS: {
+          const validated = InstanceSampleStallProcessParamsSchema.parse(params);
+          result = StallProcessFactsSchema.nullable().parse(
+            await this.deps.instanceManager.sampleStallProcessFacts(validated.instanceId, validated.silenceMs));
+          break;
+        }
+        case COORDINATOR_TO_NODE.NODE_KEEP_AWAKE: {
+          if (!this.hasServiceScope(msg)) return;
+          const validated = NodeKeepAwakeParamsSchema.parse(params);
+          if (!this.deps.setKeepAwake) throw new Error('Worker keep-awake is unavailable.');
+          result = NodeKeepAwakeResultSchema.parse(await this.deps.setKeepAwake(validated.enabled));
           break;
         }
         case COORDINATOR_TO_NODE.INSTANCE_SEND_INPUT: {
@@ -504,19 +526,19 @@ export class WorkerRpcDispatcher {
         }
         case COORDINATOR_TO_NODE.AUXILIARY_MODEL_LIST: {
           const validated = AuxiliaryModelListParamsSchema.parse(params);
-          const models = await this.handleAuxiliaryModelList(validated.provider);
+          const models = await handleAuxiliaryModelList(validated.provider);
           result = { models };
           break;
         }
         case COORDINATOR_TO_NODE.AUXILIARY_MODEL_GENERATE: {
           const validated = AuxiliaryModelGenerateParamsSchema.parse(params);
-          const text = await this.handleAuxiliaryModelGenerate(validated);
+          const text = await handleAuxiliaryModelGenerate(validated);
           result = { text };
           break;
         }
         case COORDINATOR_TO_NODE.AUDIO_TRANSCRIBE: {
           const validated = AudioTranscribeParamsSchema.parse(params);
-          const text = await this.handleAudioTranscribe(validated);
+          const text = await handleAudioTranscribe(validated);
           result = { text };
           break;
         }
@@ -574,84 +596,11 @@ export class WorkerRpcDispatcher {
     }
   }
 
-  private async handleAuxiliaryModelList(provider: 'ollama' | 'openai-compatible'): Promise<string[]> {
-    if (provider === 'ollama') {
-      const resp = await fetch(`${OLLAMA_LOCAL_BASE_URL}/api/tags`, { method: 'GET' });
-      if (!resp.ok) throw new Error(`Ollama list failed: ${resp.status}`);
-      const data = await resp.json() as { models?: { name: string }[] };
-      return (data.models ?? []).map((m) => m.name);
-    }
-    if (provider === 'openai-compatible') {
-      const resp = await fetch(`${LMSTUDIO_LOCAL_BASE_URL}/v1/models`, { method: 'GET' });
-      if (!resp.ok) throw new Error(`OpenAI-compatible list failed: ${resp.status}`);
-      const data = await resp.json() as { data?: { id: string }[] };
-      return (data.data ?? []).map((m) => m.id);
-    }
-    throw new Error(`Unsupported provider: ${provider}`);
-  }
-
-  private async handleAuxiliaryModelGenerate(params: {
-    provider: string;
-    model: string;
-    systemPrompt: string;
-    userPrompt: string;
-    temperature: number;
-    maxOutputTokens: number;
-    timeoutMs: number;
-    requireJson: boolean;
-    numCtx?: number;
-  }): Promise<string> {
-    if (params.provider === 'ollama') {
-      return generateOllamaOnWorker(OLLAMA_LOCAL_BASE_URL, params);
-    }
-    if (params.provider === 'openai-compatible') {
-      return generateOpenAiCompatibleOnWorker(LMSTUDIO_LOCAL_BASE_URL, params);
-    }
-    throw new Error(`Unsupported provider: ${params.provider}`);
-  }
-
-  private async handleAudioTranscribe(params: AudioTranscribeParams): Promise<string> {
-    if (params.provider !== 'openai-compatible') {
-      throw new Error(`Unsupported audio transcription provider: ${params.provider}`);
-    }
-
-    const baseUrl = normalizeWorkerLocalBaseUrl(params.baseUrl);
-    const controller = new AbortController();
-    const tid = setTimeout(() => controller.abort(), params.timeoutMs);
-    try {
-      const body = new FormData();
-      body.append('file', new Blob([Buffer.from(params.audioBase64, 'base64')], {
-        type: 'audio/wav',
-      }), 'segment.wav');
-      body.append('model', params.model);
-      body.append('language', params.language);
-      body.append('task', params.task);
-      body.append('response_format', 'json');
-
-      const response = await fetch(`${baseUrl}/v1/audio/transcriptions`, {
-        method: 'POST',
-        body,
-        signal: controller.signal,
-      });
-      if (!response.ok) {
-        throw new Error(`audio.transcribe failed: ${response.status}`);
-      }
-      const data = await response.json() as { text?: unknown };
-      if (typeof data.text !== 'string') {
-        throw new Error('audio.transcribe response missing text');
-      }
-      return data.text;
-    } catch (error) {
-      if (controller.signal.aborted) {
-        throw new Error(`audio.transcribe timed out after ${params.timeoutMs}ms`);
-      }
-      throw error;
-    } finally {
-      clearTimeout(tid);
-    }
-  }
-
   private getRpcErrorCode(method: string | undefined, err: unknown): number {
+    if (err instanceof WorkerModelChangeError) {
+      return err.previousRuntime === 'retained' ? RPC_ERROR_CODES.MODEL_CHANGE_REJECTED
+        : err.previousRuntime === 'terminated' ? RPC_ERROR_CODES.MODEL_CHANGE_FAILED_AFTER_TEARDOWN : RPC_ERROR_CODES.INTERNAL_ERROR;
+    }
     if (err instanceof Error && 'code' in err && err.code === 'INPUT_REQUIRED_NOT_PENDING') return RPC_ERROR_CODES.INPUT_REQUIRED_NOT_PENDING;
     if (err instanceof FsRpcError) {
       return RPC_ERROR_CODES.FILESYSTEM_ERROR;
@@ -685,12 +634,4 @@ export class WorkerRpcDispatcher {
     }
     return this.deps.localModelSessionManager;
   }
-}
-
-function normalizeWorkerLocalBaseUrl(raw: string): string {
-  const url = new URL(raw);
-  if (!['127.0.0.1', 'localhost', '::1'].includes(url.hostname)) {
-    throw new Error('audio.transcribe baseUrl must be worker-local loopback.');
-  }
-  return url.toString().replace(/\/+$/, '');
 }

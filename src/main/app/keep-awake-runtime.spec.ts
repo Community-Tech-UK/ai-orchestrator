@@ -2,6 +2,8 @@ import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { KeepAwakeState } from '@contracts/schemas/observability';
 import type { InstanceManager } from '../instance/instance-manager';
+import type { Instance } from '../../shared/types/instance.types';
+import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
 
 const mocks = vi.hoisted(() => ({
   mode: 'while-working' as KeepAwakeState['mode'],
@@ -9,6 +11,9 @@ const mocks = vi.hoisted(() => ({
   loops: [] as { status: string }[],
   held: new Set<number>(),
   updates: [] as KeepAwakeState[],
+  nodes: [] as WorkerNodeInfo[],
+  remoteInstances: [] as Instance[],
+  rpc: vi.fn(async () => ({ active: true })),
 }));
 const settings = Object.assign(new EventEmitter(), { get: () => mocks.mode });
 const monitor = new EventEmitter();
@@ -21,6 +26,8 @@ vi.mock('electron', () => ({
 vi.mock('../core/config/settings-manager', () => ({ getSettingsManager: () => settings }));
 vi.mock('../orchestration/loop-coordinator', () => ({ getLoopCoordinator: () => ({ getActiveLoops: () => mocks.loops }) }));
 vi.mock('../plan-queue/plan-queue-bootstrap', () => ({ getPlanQueueStoreIfInitialized: () => ({ hasActiveWork: () => mocks.queueWork }) }));
+vi.mock('../remote-node/worker-node-registry', () => ({ getWorkerNodeRegistry: () => ({ getAllNodes: () => mocks.nodes }) }));
+vi.mock('../remote-node/worker-node-connection', () => ({ getWorkerNodeConnectionServer: () => ({ sendRpc: mocks.rpc }) }));
 import { KeepAwakeService, getKeepAwakeService } from './keep-awake-service';
 import { initializeKeepAwakeRuntime } from './keep-awake-runtime';
 
@@ -28,9 +35,10 @@ describe('keep-awake runtime', () => {
   beforeEach(() => {
     vi.useFakeTimers(); mocks.mode = 'while-working'; mocks.queueWork = false; mocks.loops = [];
     mocks.held.clear(); mocks.updates = []; settings.removeAllListeners(); monitor.removeAllListeners();
+    mocks.nodes = []; mocks.remoteInstances = []; mocks.rpc.mockClear();
   });
   afterEach(() => { KeepAwakeService._resetForTesting(); vi.useRealTimers(); });
-  const initialize = () => initializeKeepAwakeRuntime({ getAllInstances: () => [] } as unknown as InstanceManager);
+  const initialize = () => initializeKeepAwakeRuntime({ getAllInstances: () => mocks.remoteInstances } as unknown as InstanceManager);
   it('keeps idle-session queue verification awake, excludes paused loops, and applies Off immediately', () => {
     mocks.queueWork = true; mocks.loops = [{ status: 'provider-limit' }]; initialize();
     expect(mocks.held.size).toBe(1); expect(getKeepAwakeService().getState().reason).toBe('plan-queue');
@@ -43,5 +51,14 @@ describe('keep-awake runtime', () => {
     getKeepAwakeService().shutdown(); expect(monitor.listenerCount('resume')).toBe(0);
     expect(settings.listenerCount('setting:keepAwakeMode')).toBe(0);
     monitor.emit('resume'); expect(mocks.held.size).toBe(0);
+  });
+  it('dispatches a worker lease through the real runtime and releases it when Off is selected', async () => {
+    mocks.nodes = [{ id: 'pc', status: 'connected', capabilities: { keepAwake: 1 } }] as WorkerNodeInfo[];
+    mocks.remoteInstances = [{ status: 'busy', lastActivity: Date.now(),
+      executionLocation: { type: 'remote', nodeId: 'pc' } }] as Instance[];
+    initialize();
+    await vi.waitFor(() => expect(mocks.rpc).toHaveBeenCalledWith('pc', 'node.keepAwake', { enabled: true }, 15_000, 'service'));
+    mocks.mode = 'off'; settings.emit('setting:keepAwakeMode', 'off');
+    await vi.waitFor(() => expect(mocks.rpc).toHaveBeenLastCalledWith('pc', 'node.keepAwake', { enabled: false }, 15_000, 'service'));
   });
 });

@@ -55,6 +55,7 @@ import {
 } from './model-change-provider-swap';
 import { computeRuntimeDiff, planContinuity } from './runtime-reconciler-plan';
 import { resolveReconcilerResumeHealth } from './runtime-reconciler-resume-health';
+import { prepareRemoteModelChange } from './remote-runtime-model-change';
 import { assertRuntimeChangeOwner, createOwnedRuntimeAdapter, evaluateOwnedResumeHealth, publishRuntimeChange } from './runtime-reconciler-ownership';
 import { assertAdapterNotOnLoan, beginRuntimeChange, type RuntimeChangeClaim } from './adapter-loan-registry';
 import { announceRuntimeChangeSet, runtimeChangeNoticesFor } from './runtime-change-notices';
@@ -219,12 +220,14 @@ export class RuntimeReconciler {
       // Terminate existing adapter
       const oldAdapter = this.deps.getAdapter(instanceId);
       const oldAdapterCapabilities = this.deps.getAdapterRuntimeCapabilities(oldAdapter);
+      const remoteModelChange = prepareRemoteModelChange(this.deps, instance, oldAdapter, diff, !!localModelTarget);
       if (oldAdapter) {
         // LT-020: re-check with nothing awaiting between here and the
         // terminate — the entry check cannot cover the swap's CLI probe.
         assertAdapterNotOnLoan(instanceId, true);
         this.deps.deleteAdapter(instanceId);
-        await oldAdapter.terminate(true);
+        if (remoteModelChange) oldAdapter.removeAllListeners();
+        else await oldAdapter.terminate(true);
         assertCurrent();
       }
 
@@ -420,7 +423,7 @@ export class RuntimeReconciler {
         let pid: number;
         try {
           assertCurrent();
-          pid = await adapter.spawn();
+          pid = await (remoteModelChange ? remoteModelChange.spawn(adapter) : adapter.spawn());
           assertCurrent();
           instance.processId = pid;
           if (shouldResume && !(await resolveReconcilerResumeHealth(
@@ -434,6 +437,8 @@ export class RuntimeReconciler {
           assertCurrent();
         } catch (spawnError) {
           assertCurrent();
+          // A worker refusal must not be converted into an unguarded fresh spawn.
+          if (remoteModelChange && !remoteModelChange.canRetryAfterFailure()) throw spawnError;
           if (shouldResume) {
             actuallyResumed = false;
             logger.warn('Failed to spawn with resume, falling back to fresh session', { error: spawnError instanceof Error ? spawnError.message : String(spawnError), instanceId });
@@ -575,6 +580,7 @@ export class RuntimeReconciler {
         assertCurrent();
       } catch (error) {
         assertCurrent();
+        const retainedRemoteRuntime = remoteModelChange?.restoreIfUnacknowledged() ?? false;
         if (isProviderSwap) {
           // Leave the instance pointed at its previous provider so a manual
           // restart relaunches the CLI that was actually running. The resume
@@ -598,7 +604,7 @@ export class RuntimeReconciler {
           instance.accountPreferences = accountPreferencesAfterProviderSwap(
             { accountPreferences: oldAccountPreferences }, this.deps.getSettings().planQueueAccountRules, oldProvider);
         }
-        this.deps.transitionState(instance, 'error');
+        if (!retainedRemoteRuntime) this.deps.transitionState(instance, 'error');
         assertCurrent();
         logger.error('Failed to apply runtime change', error instanceof Error ? error : undefined, { instanceId, newModel, targetProvider });
         throw error;

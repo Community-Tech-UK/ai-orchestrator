@@ -79,7 +79,7 @@ import type {
 import { WarmStartManager } from './warm-start-manager';
 import { stopProviderAutoContinuation } from './provider-auto-continuation';
 import { adapterHasActiveProviderTurn, adapterHasActiveToolCalls, StuckProcessDetector } from './stuck-process-detector';
-import { buildStuckNotice } from './stall-notices';
+import { buildInteractivePromptNotice, buildStuckNotice } from './stall-notices';
 import { shouldProbeAdapterProcess, StaleRuntimeReconciler } from './stale-runtime-reconciler';
 import { getClampedLoadWatchdogMultiplier } from '../runtime/system-load-monitor';
 import { computeInitWaitBudgetMs as resolveInitWaitBudgetMs } from './init-wait-budget';
@@ -601,7 +601,18 @@ export class InstanceManager extends EventEmitter {
         )
       ),
       serializeForIpc: (inst) => this.state.serializeForIpc(inst),
-      setupAdapterEvents: (id, adapter) => this.communication.setupAdapterEvents(id, adapter),
+      setupAdapterEvents: (id, adapter) => {
+        this.communication.setupAdapterEvents(id, adapter);
+        // Recovery runtimes acquire listeners before they become public.
+        const instance = this.state.getRuntimeInstance(id);
+        const generation = instance?.adapterGeneration;
+        const restartEpoch = instance?.restartEpoch;
+        adapter.on('stderr', () => {
+          const current = this.state.getInstance(id);
+          if (this.state.getAdapter(id) === adapter && current === instance
+            && current?.adapterGeneration === generation && current?.restartEpoch === restartEpoch) this.stuckDetector.recordStderr(id);
+        });
+      },
       initializeRlm: (inst) => this.context.initializeRlm(inst),
       endRlmSession: (id) => this.context.endRlmSession(id),
       ingestInitialOutputToRlm: (inst, msgs) => this.context.ingestInitialOutputToRlm(inst, msgs),
@@ -662,7 +673,9 @@ export class InstanceManager extends EventEmitter {
       if (!before) return;
       const adapter = this.state.getAdapter(instanceId);
       const activityAt = before.lastActivity;
-      const warningMessage = await buildStuckNotice({ elapsedMs, pid: adapter?.getPid() ?? null });
+      const warningMessage = await buildStuckNotice({ elapsedMs, pid: adapter?.getPid() ?? null,
+        sampleProcessFacts: adapter && 'sampleStallProcessFacts' in adapter
+          ? (silenceMs) => adapter.sampleStallProcessFacts(silenceMs) : undefined });
       const instance = this.state.getInstance(instanceId);
       if (!instance || instance !== before || this.state.getAdapter(instanceId) !== adapter || instance.lastActivity !== activityAt) return;
       this.communication.addToOutputBuffer(instance, warningMessage);
@@ -672,6 +685,13 @@ export class InstanceManager extends EventEmitter {
       this.lifecycle.respawnAfterInterrupt(instanceId).catch(err => {
         logger.error('Failed to respawn stuck process', undefined, { ...errorDiagnostic(err), instanceId });
       });
+    });
+    this.stuckDetector.on('process:interactive-prompt', ({ instanceId, stdoutSilentMs }) => {
+      const instance = this.state.getInstance(instanceId);
+      if (!instance) return;
+      const warningMessage = buildInteractivePromptNotice(stdoutSilentMs);
+      this.communication.addToOutputBuffer(instance, warningMessage);
+      this.publishOutput(instanceId, warningMessage);
     });
 
     // Set up event forwarding

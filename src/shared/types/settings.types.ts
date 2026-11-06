@@ -287,6 +287,8 @@ export interface AppSettings extends DesktopComputerUseSettings, ObservationSett
    * retry with this model when the primary is overloaded. Empty = off.
    */
   claudeFallbackModel: string;
+  /** Successful command output Claude sees directly; 0 keeps its own default. */
+  claudeBashOutputMaxChars: number;
   /**
    * WS14 — `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` on Claude spawns. Default OFF:
    * the scrub could strip the ORCHESTRATOR_* vars AIO's PreToolUse hook and

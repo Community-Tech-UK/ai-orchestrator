@@ -1,3 +1,4 @@
+import type { SessionKind } from '../../../shared/types/session-kind.types';
 import type { MachineSessionReason } from '../../../shared/utils/machine-session';
 /**
  * Types for the Claude CLI Adapter.
@@ -113,6 +114,8 @@ export type UnifiedReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'hi
  * Claude CLI specific spawn options
  */
 export interface ClaudeCliSpawnOptions {
+  sessionKind?: SessionKind;
+  bashOutputMaxChars?: number;
   machineSession?: MachineSessionReason;
   contextCeilingTokens?: number;
   readOnlyReview?: boolean;

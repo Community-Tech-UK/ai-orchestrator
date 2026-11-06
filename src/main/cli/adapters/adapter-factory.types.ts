@@ -74,6 +74,8 @@ export interface UnifiedSpawnOptions {
   maxTurns?: number;
   /** Claude only; spend backstop for fresh print-mode sessions. */
   maxBudgetUsd?: number;
+  /** Successful command output preview; CLI 2.1.261+ only. Zero uses the CLI default. */
+  bashOutputMaxChars?: number;
   env?: Record<string, string>;
   /**
    * WS-C7 — derive the merged spawn environment from `getSafeEnv()` instead

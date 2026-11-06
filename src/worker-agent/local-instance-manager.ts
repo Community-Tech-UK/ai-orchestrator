@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import { getLogger } from '../main/logging/logger';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { CliType } from '../main/cli/cli-detection';
@@ -18,10 +19,16 @@ import { InstanceSendRawParamsSchema, remoteContextDetails } from '../main/remot
 import { resolveNativeOpenCodeCommandInput } from '../main/commands/provider-native-commands';
 import { observeWorkerInstanceTelemetry } from './worker-instance-telemetry';
 import type { RemoteClaudeSpawnPolicy } from '../main/remote-node/claude-spawn-policy-schema';
+import { resolveWorkerRtkSpawn } from './worker-rtk-spawn';
 import { endsOnlyTheTurn, isSettledStatus, onExecTurnInterrupted } from './worker-exec-turn';
+import { WorkerInstanceModelChange } from './worker-instance-model-change';
+import { assertWorkerCopilotBinding, validateWorkerSpawnDirectories } from './worker-instance-spawn-validation';
+import { sampleStallProcessFacts, type StallProcessFacts } from '../main/instance/stall-process-facts';
+import { observeWorkerStderrActivity } from './worker-stderr-activity';
 import { workerSpawnMetadata, type RemoteSpawnMetadata } from '../main/remote-node/remote-spawn-metadata';
 import { buildQueuePushGuardEnv } from '../main/plan-queue/plan-queue-push-guard';
 
+const logger = getLogger('LocalInstanceManager');
 const ACTIVITY_WATCHDOG_INTERVAL_MS = 5_000;
 type MobileMcpSpawnAttach = Omit<WorkerAndroidAttach, 'mobileMcpVersion'> & { version?: string };
 
@@ -63,6 +70,8 @@ export interface SpawnParams extends RemoteSpawnMetadata {
   accountRoute?: WorkerAccountRouteParams;
   /** Claude policies the controller resolved; applied by this worker's own Claude adapter. */
   claudeSpawnPolicy?: RemoteClaudeSpawnPolicy;
+  sessionKind?: UnifiedSpawnOptions['sessionKind'];
+  rtk?: { enabled: boolean };
 }
 
 type WorkerManagedAdapter = EventEmitter & Partial<StatelessExecClassifiable> & {
@@ -75,6 +84,7 @@ type WorkerManagedAdapter = EventEmitter & Partial<StatelessExecClassifiable> & 
   getSessionId?: () => string | null;
   hasActiveTurn?: () => boolean;
   hasActiveToolCalls?: () => boolean;
+  getPid?: () => number | null;
 };
 
 type PendingSpawnFailure = { error: unknown } | undefined;
@@ -97,6 +107,17 @@ export interface ManagedInstance {
  * Enforces working directory sandboxing and capacity limits.
  */
 export class LocalInstanceManager extends EventEmitter {
+  private readonly modelChanges = new WorkerInstanceModelChange({
+    getInstance: id => this.instances.get(id),
+    validateReplacement: async params => {
+      validateWorkerSpawnDirectories(params, this.allowedDirs);
+      this.assertSpawnNotShuttingDown(params.instanceId);
+      if (params.cliType === 'copilot' && params.copilotAccountRoute) await assertWorkerCopilotBinding(params.copilotAccountRoute);
+      if (params.accountRoute) await materializeWorkerAccountRoute(params.cliType, params.accountRoute);
+    },
+    terminate: id => this.terminateInstance(id),
+    spawn: params => this.spawn(params),
+  });
   private readonly instances = new Map<string, ManagedInstance>();
   private readonly pendingSpawns = new Set<string>();
   private readonly cancelledSpawns = new Set<string>();
@@ -213,6 +234,15 @@ export class LocalInstanceManager extends EventEmitter {
     return this.instances.get(instanceId);
   }
 
+  /** Resolve only this worker's own adapter PID, never a coordinator-supplied PID. */
+  async sampleStallProcessFacts(instanceId: string, silenceMs: number): Promise<StallProcessFacts | null> {
+    const instance = this.instances.get(instanceId);
+    if (!instance) throw new Error(`Instance not found: ${instanceId}`);
+    const pid = instance.adapter.getPid?.() ?? null;
+    const facts = await sampleStallProcessFacts(pid, { silenceMs });
+    return this.instances.get(instanceId) === instance && instance.adapter.getPid?.() === pid ? facts : null;
+  }
+
   private startWatchdog(instanceId: string): void {
     const inst = this.instances.get(instanceId);
     if (!inst) return;
@@ -246,72 +276,12 @@ export class LocalInstanceManager extends EventEmitter {
     inst.watchdogTimer = null;
   }
 
-  /**
-   * Verify this node's own Copilot binding for the requested profile.
-   *
-   * Dynamic imports throughout: the worker agent must not pull Electron in at
-   * module load time, and these modules sit in the main-process tree.
-   *
-   * @throws when the profile is not signed in HERE as the expected identity.
-   */
-  private async assertCopilotBinding(route: {
-    profileId: string;
-    expectedLogin?: string | null;
-    host?: string;
-  }): Promise<void> {
-    const { CopilotAccountBindingService } = await import(
-      '../main/providers/copilot/copilot-account-binding-service'
-    );
-    const status = await new CopilotAccountBindingService().checkBinding(
-      {
-        id: route.profileId,
-        label: route.profileId,
-        expectedLogin: route.expectedLogin ?? null,
-        host: route.host ?? 'github.com',
-        accountKind: 'personal',
-        scopePolicy: 'default-eligible',
-        automationPolicy: 'allow-routed',
-        isDefault: false,
-        createdAt: 0,
-        updatedAt: 0,
-      },
-      'worker',
-    );
-    if (status.state === 'authenticated') {
-      return;
-    }
-    const remedy = status.state === 'identity-mismatch'
-      ? `it is signed in as a different GitHub identity here${status.observedLogin ? ` (${status.observedLogin})` : ''}`
-      : status.state === 'unauthenticated'
-        ? 'it is not signed in on this node'
-        : `its state could not be read on this node (${status.errorCode ?? 'unavailable'})`;
-    throw new Error(
-      `GitHub Copilot account "${route.profileId}" cannot run on this node: ${remedy}. `
-      + 'Sign in for that account on this node, or place the session elsewhere.',
-    );
+  changeModel(previousInstanceId: string, replacement: SpawnParams): Promise<void> {
+    return this.modelChanges.change(previousInstanceId, replacement);
   }
 
   async spawn(params: SpawnParams): Promise<void> {
-    // Enforce working directory sandboxing
-    const resolved = path.resolve(params.workingDirectory);
-    const isAllowed = this.allowedDirs.some((allowed) =>
-      isPathInsideAllowedDirectory(resolved, allowed)
-    );
-    if (!isAllowed) {
-      throw new Error(
-        `Working directory "${params.workingDirectory}" is not in allowed working directories: ${this.allowedDirs.join(', ')}`,
-      );
-    }
-
-    for (const directory of params.additionalDirectories ?? []) {
-      const insideRoot = path.isAbsolute(directory) && this.allowedDirs.some((allowed) => {
-        try { return isPathInsideAllowedDirectory(fs.realpathSync(directory), fs.realpathSync(allowed)); }
-        catch { return false; }
-      });
-      if (!insideRoot) {
-        throw new Error('Additional working directory is not in allowed working directories.');
-      }
-    }
+    validateWorkerSpawnDirectories(params, this.allowedDirs);
 
     this.assertSpawnNotShuttingDown(params.instanceId);
 
@@ -341,7 +311,8 @@ export class LocalInstanceManager extends EventEmitter {
       const chromeDevtoolsMcp = await this.resolveChromeDevtoolsMcp();
       mobileMcp = await this.resolveMobileMcp(params);
       this.assertSpawnNotShuttingDown(params.instanceId);
-      const env: Record<string, string> = {};
+      const rtkSpawn = resolveWorkerRtkSpawn(params.rtk);
+      const env: Record<string, string> = { ...rtkSpawn.env };
       if (mobileMcp) {
         env['ANDROID_SERIAL'] = mobileMcp.serial;
       }
@@ -365,7 +336,7 @@ export class LocalInstanceManager extends EventEmitter {
       // identity. Failing closed here is what stops a worker silently running
       // the request under whatever account its Copilot home happens to hold.
       if (params.cliType === 'copilot' && params.copilotAccountRoute) {
-        await this.assertCopilotBinding(params.copilotAccountRoute);
+        await assertWorkerCopilotBinding(params.copilotAccountRoute);
       }
       // Same rule for Claude/Codex account pools: verify this node's sign-in for
       // the profile, then run under a route re-materialised for this node.
@@ -374,6 +345,7 @@ export class LocalInstanceManager extends EventEmitter {
         : null;
       this.assertSpawnNotShuttingDown(params.instanceId);
       const adapter: WorkerManagedAdapter = createCliAdapter(params.cliType, {
+        ...rtkSpawn,
         sessionId: params.sessionId ?? params.instanceId,
         ...workerSpawnMetadata(params, () => this.pendingSpawnAdapters.get(params.instanceId) === adapter || this.instances.get(params.instanceId)?.adapter === adapter,
           telemetry => this.emit('instance:telemetry', params.instanceId, telemetry)),
@@ -406,6 +378,8 @@ export class LocalInstanceManager extends EventEmitter {
           : {}),
         ...(accountRoute ? { accountRoute } : {}),
         ...params.claudeSpawnPolicy, // createClaudeAdapter turns these into argv/env here as on the controller.
+        // An omitted coordinator cap must not turn into a worker-local default.
+        bashOutputMaxChars: params.claudeSpawnPolicy?.bashOutputMaxChars ?? 0,
         ...(chromeDevtoolsMcp ? { chromeDevtoolsMcp } : {}),
         ...(mobileMcp ? { mobileMcp } : {}),
       });
@@ -417,7 +391,10 @@ export class LocalInstanceManager extends EventEmitter {
       this.interactions.set(params.instanceId, interaction);
 
       const stopTelemetry = observeWorkerInstanceTelemetry(adapter, telemetry => this.emit('instance:telemetry', params.instanceId, telemetry));
-      runtimeObserverCleanup = stopTelemetry;
+      const stopStderr = observeWorkerStderrActivity(adapter, () => {
+        this.emit('instance:stateChange', params.instanceId, 'stderr_activity', { interactionId: params.interactionId });
+      });
+      runtimeObserverCleanup = () => { stopTelemetry(); stopStderr(); };
       const stopRuntime = observeAdapterRuntimeEvents(adapter, ({ event, eventId, rawPayload, timestamp }) => {
         switch (event.kind) {
           case 'output': {
@@ -447,7 +424,9 @@ export class LocalInstanceManager extends EventEmitter {
             this.instances.delete(params.instanceId);
             this.relayedResumeProof.delete(params.instanceId);
             this.releaseAndroidLease(params.instanceId);
-            this.emit('instance:exit', params.instanceId, { code: event.code, signal: event.signal });
+            if (!this.modelChanges.isChanging(params.instanceId)) {
+              this.emit('instance:exit', params.instanceId, { code: event.code, signal: event.signal });
+            }
             break;
           case 'status': {
             // As the coordinator does locally: a failed exec turn's `error` ends that turn only
@@ -482,11 +461,11 @@ export class LocalInstanceManager extends EventEmitter {
             break;
         }
       });
-      runtimeObserverCleanup = () => { stopTelemetry(); stopRuntime(); };
+      runtimeObserverCleanup = () => { stopTelemetry(); stopStderr(); stopRuntime(); };
 
       adapter.on('heartbeat', () => {
         const inst = this.instances.get(params.instanceId);
-        if (!inst || inst.lastStatus === 'idle' || inst.lastStatus === 'ready' || inst.lastStatus === 'waiting_for_input') {
+        if (!inst || inst.adapter !== adapter || inst.lastStatus === 'idle' || inst.lastStatus === 'ready' || inst.lastStatus === 'waiting_for_input') {
           return;
         }
         this.resetWatchdog(params.instanceId);
@@ -494,6 +473,7 @@ export class LocalInstanceManager extends EventEmitter {
       });
       adapter.on('exit', () => {
         if (endsOnlyTheTurn(adapter)) return;
+        if (this.instances.get(params.instanceId)?.adapter !== adapter) return;
         this.releaseAndroidLease(params.instanceId);
       });
 
@@ -502,7 +482,7 @@ export class LocalInstanceManager extends EventEmitter {
         // Only emit thinking_deeply if the instance is actually busy.
         // After a response completes, the stream goes quiet but that's normal
         // idle behavior, not deep thinking.
-        if (inst && inst.lastStatus !== 'idle' && inst.lastStatus !== 'ready' && inst.lastStatus !== 'waiting_for_input') {
+        if (inst?.adapter === adapter && inst.lastStatus !== 'idle' && inst.lastStatus !== 'ready' && inst.lastStatus !== 'waiting_for_input') {
           this.clearWatchdog(params.instanceId);
           this.emit('instance:stateChange', params.instanceId, 'thinking_deeply');
         }
@@ -522,6 +502,12 @@ export class LocalInstanceManager extends EventEmitter {
 
       // A cancelled startup still owns this exact adapter until its stop succeeds.
       await adapter.spawn();
+      logger.info('Worker spawn policy received', {
+        cliType: params.cliType,
+        sessionKind: params.claudeSpawnPolicy?.sessionKind ?? params.sessionKind ?? 'chat',
+        requestedBashOutputMaxChars: params.claudeSpawnPolicy?.bashOutputMaxChars ?? null,
+        rtkEnabled: rtkSpawn.rtk?.enabled === true,
+      });
       interaction.catalog();
       if (this.terminateAllInProgress || this.cancelledSpawns.has(params.instanceId)) {
         await adapter.terminate();
@@ -566,6 +552,7 @@ export class LocalInstanceManager extends EventEmitter {
   }
 
   async sendInput(instanceId: string, message: string, attachments?: FileAttachment[], nativeCommandId?: string): Promise<void> {
+    this.modelChanges.assertInputAllowed(instanceId);
     const inst = this.instances.get(instanceId);
     if (!inst) throw new Error(`Instance not found: ${instanceId}`);
     if (nativeCommandId && !resolveNativeOpenCodeCommandInput(inst.cliType, inst.adapter, nativeCommandId, message)) throw new Error('The selected native command is no longer available in this session.');
@@ -573,6 +560,7 @@ export class LocalInstanceManager extends EventEmitter {
   }
 
   async sendRaw(instanceId: string, response: string, permissionKey: string): Promise<void> {
+    this.modelChanges.assertInputAllowed(instanceId);
     InstanceSendRawParamsSchema.parse({ instanceId, response, permissionKey });
     const adapter = this.instances.get(instanceId)?.adapter ?? this.pendingSpawnAdapters.get(instanceId);
     if (!adapter) throw new Error(`Instance not found: ${instanceId}`);
@@ -582,6 +570,10 @@ export class LocalInstanceManager extends EventEmitter {
   }
 
   async terminate(instanceId: string): Promise<void> {
+    this.modelChanges.cancel(instanceId);
+    await this.terminateInstance(instanceId);
+  }
+  private async terminateInstance(instanceId: string): Promise<void> {
     this.interactions.get(instanceId)?.cleanup(); this.interactions.delete(instanceId);
     if (this.pendingSpawns.has(instanceId)) {
       this.cancelledSpawns.add(instanceId);
@@ -690,11 +682,4 @@ function createDeferredCompletion() {
     resolve = done;
   });
   return { promise, resolve };
-}
-
-function isPathInsideAllowedDirectory(resolvedPath: string, allowedDir: string): boolean {
-  const [candidate, allowed] = process.platform === 'win32'
-    ? [resolvedPath.toLowerCase(), allowedDir.toLowerCase()]
-    : [resolvedPath, allowedDir];
-  return candidate === allowed || candidate.startsWith(allowed + path.sep);
 }

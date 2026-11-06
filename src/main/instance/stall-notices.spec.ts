@@ -41,4 +41,21 @@ describe('stall notices', () => {
     expect(result.content).toContain('paused by the system');
     expect(result.metadata).toEqual({ spawnStall: true, timeoutMs: 30_000, processFacts: stopped });
   });
+
+  it('uses only the worker observation for remote warnings, never a local PID sample', async () => {
+    sample.mockClear();
+    const sampleProcessFacts = vi.fn().mockResolvedValue(stopped);
+    const notice = await buildStuckNotice({ elapsedMs: 70_000, pid: null, sampleProcessFacts });
+    expect(sampleProcessFacts).toHaveBeenCalledWith(70_000);
+    expect(sample).not.toHaveBeenCalled();
+    expect(notice.metadata).toMatchObject({ watchdogWarning: true, processFacts: stopped });
+  });
+
+  it('keeps the warning without inspecting local processes when a worker cannot sample', async () => {
+    sample.mockClear();
+    const notice = await buildStuckNotice({ elapsedMs: 70_000, pid: null, sampleProcessFacts: async () => null });
+    expect(sample).not.toHaveBeenCalled();
+    expect(notice.content).toBe('Instance may be stuck — no output for 70s. Will auto-restart if unresponsive.');
+    expect(notice.metadata).not.toHaveProperty('processFacts');
+  });
 });

@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process';
+import * as path from 'node:path';
 import * as esbuild from 'esbuild';
 import { randomBytes } from 'node:crypto';
 import * as fs from 'node:fs';
@@ -18,6 +20,8 @@ const workerOutfile = process.env['AIO_WORKER_BUILD_OUTFILE'] || 'dist/worker-ag
 const workerBuildId = `${Date.now().toString(36)}-${randomBytes(4).toString('hex')}`;
 
 async function build(): Promise<void> {
+  // The same pinned, checksummed fetch used by desktop packaging.
+  execFileSync(process.execPath, ['scripts/fetch-rtk-binaries.js', '--current-platform'], { stdio: 'inherit' });
   await Promise.all([
     esbuild.build({
       entryPoints: ['src/worker-agent/index.ts'],
@@ -54,6 +58,13 @@ async function build(): Promise<void> {
       logLevel: 'info',
     }),
   ]);
+
+  const assetRoot = path.dirname(workerOutfile);
+  fs.mkdirSync(path.join(assetRoot, 'hooks'), { recursive: true });
+  fs.copyFileSync('src/main/cli/hooks/rtk-defer-hook.mjs', path.join(assetRoot, 'hooks', 'rtk-defer-hook.mjs'));
+  const rtkPlatform = `${process.platform}-${process.arch}`;
+  const rtkSource = path.join('resources', 'rtk', rtkPlatform);
+  if (fs.existsSync(rtkSource)) fs.cpSync(rtkSource, path.join(assetRoot, 'rtk', rtkPlatform), { recursive: true });
 
   console.log(`Worker agent built -> ${workerOutfile}`);
   console.log('Worker axe runner built -> dist/worker-tools/axe-audit.mjs');

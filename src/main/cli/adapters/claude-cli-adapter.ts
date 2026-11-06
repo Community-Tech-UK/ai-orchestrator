@@ -26,6 +26,7 @@ import {
 import { NdjsonParser } from '../ndjson-parser';
 import { applyClaudeHygieneEnv, resolveClaudeDebugLogging, resolveClaudeFallbackModel } from './claude-env-pack';
 import { ClaudeSessionCostLedger } from './claude-session-cost-ledger';
+import { resolveClaudeBashOutputMaxChars } from './claude-output-caps';
 import { computeTokenCost } from '../../../shared/data/model-pricing';
 import { ClaudeCompactionObserver } from './claude-compaction-observer';
 import { flushClaudeSubagentUsage } from './claude-subagent-usage';
@@ -1954,7 +1955,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     if (this.spawnOptions.excludeDynamicSystemPromptSections) {
       await this.detectExcludeDynamicSupport();
     }
-    if ((this.spawnOptions.excludeDynamicSystemPromptSections || (this.spawnOptions.resume && this.spawnOptions.systemPrompt)) && !resolveClaudeCliVersion(this.cachedCliStatus?.version)) await this.checkStatus().catch(() => undefined);
+    if ((this.spawnOptions.excludeDynamicSystemPromptSections || resolveClaudeBashOutputMaxChars(this.spawnOptions.bashOutputMaxChars) || (this.spawnOptions.resume && this.spawnOptions.systemPrompt)) && !resolveClaudeCliVersion(this.cachedCliStatus?.version)) await this.checkStatus().catch(() => undefined);
     if (this.spawnOptions.yoloMode || !this.spawnOptions.permissionHookPath) {
       return;
     }

@@ -5,17 +5,25 @@ export async function copyWorkerSupportFiles(input: {
   binaryPath: string;
   destinationDir: string;
 }): Promise<void> {
-  const sourceToolsDir = path.join(path.dirname(input.binaryPath), 'worker-tools');
-  try {
-    const stat = await fs.stat(sourceToolsDir);
-    if (!stat.isDirectory()) {
-      return;
+  // These sidecars must remain beside the installed binary, including when
+  // the service starts outside the checkout or switches its current version.
+  for (const directory of ['worker-tools', 'hooks', 'rtk']) {
+    const sourceDir = path.join(path.dirname(input.binaryPath), directory);
+    try {
+      if (!(await fs.stat(sourceDir)).isDirectory()) continue;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      throw error;
     }
-  } catch {
-    return;
-  }
 
-  const destinationToolsDir = path.join(input.destinationDir, 'worker-tools');
-  await fs.rm(destinationToolsDir, { recursive: true, force: true });
-  await fs.cp(sourceToolsDir, destinationToolsDir, { recursive: true });
+    const destinationDir = path.join(input.destinationDir, directory);
+    try {
+      // current may be a symlink/junction to the very version being installed.
+      if (await fs.realpath(sourceDir) === await fs.realpath(destinationDir)) continue;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    await fs.rm(destinationDir, { recursive: true, force: true });
+    await fs.cp(sourceDir, destinationDir, { recursive: true });
+  }
 }

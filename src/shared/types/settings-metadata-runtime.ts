@@ -252,6 +252,15 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
     category: 'advanced',
   },
   {
+    key: 'claudeBashOutputMaxChars',
+    label: 'Command output Claude sees directly',
+    description: "How many characters of a successful command's output Claude sees directly. Longer output is saved to a file, and Claude gets the first part and where the file is. Claude's own default is 30,000. Set 0 to use it. Applies to new sessions with Claude Code 2.1.261 or newer.",
+    type: 'number',
+    category: 'memory',
+    min: 0,
+    max: 128_000,
+  },
+  {
     key: 'claudeFallbackModel',
     label: 'Claude fallback model on overload',
     description: 'When Claude reports the primary model as overloaded, automatically retry the request with this model instead of failing the turn. Leave empty to disable. Applies at the next session spawn.',

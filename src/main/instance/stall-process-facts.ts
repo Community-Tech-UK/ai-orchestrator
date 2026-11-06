@@ -14,6 +14,7 @@ export interface StallProcessFacts {
 export interface StallProcessSampleOptions {
   silenceMs: number;
   runPs?: () => Promise<string>;
+  runWindowsProcessTable?: () => Promise<string>;
   sleep?: (ms: number) => Promise<void>;
   platform?: NodeJS.Platform;
   now?: () => number;
@@ -29,18 +30,20 @@ interface ProcessSample {
   label: string;
 }
 
-const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'fish']);
+const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'fish', 'cmd', 'powershell', 'pwsh']);
 const INTERPRETERS = new Set(['node', 'bun', 'deno', 'python', 'python3', 'ruby']);
 const SAMPLE_GAP_MS = 1500;
 const OVERALL_CAP_MS = 5000;
 
-/** Two read-only ps observations. Never signals, stops or changes the process. */
+/** Two read-only process observations. Never signals, stops or changes the process. */
 export async function sampleStallProcessFacts(
   pid: number | null,
   options: StallProcessSampleOptions,
 ): Promise<StallProcessFacts | null> {
-  if (pid === null || !Number.isInteger(pid) || pid <= 1 || (options.platform ?? process.platform) === 'win32') return null;
-  const runPs = options.runPs ?? readProcessTable;
+  if (pid === null || !Number.isInteger(pid) || pid <= 1) return null;
+  const windows = (options.platform ?? process.platform) === 'win32';
+  const readTable = windows ? options.runWindowsProcessTable ?? readWindowsProcessTable : options.runPs ?? readProcessTable;
+  const parseTable = windows ? parseWindowsProcessTable : parseProcessTable;
   const now = options.now ?? Date.now;
   const sleep = options.sleep ?? ((ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   let expired = false;
@@ -50,13 +53,13 @@ export async function sampleStallProcessFacts(
   });
   const collect = async (): Promise<StallProcessFacts | null> => {
     try {
-      const first = parseProcessTable(await runPs());
+      const first = parseTable(await readTable());
       const firstAt = now();
       const processFirst = first.get(pid);
       if (!processFirst || expired) return null;
       await sleep(SAMPLE_GAP_MS);
       if (expired) return null;
-      const second = parseProcessTable(await runPs());
+      const second = parseTable(await readTable());
       const sampledAt = now();
       if (expired) return null;
       const processSecond = second.get(pid);
@@ -83,6 +86,45 @@ function readProcessTable(): Promise<string> {
       timeout: 2000, maxBuffer: 8 * 1024 * 1024,
     }, (error, stdout) => { if (error) reject(error); else resolve(stdout); });
   });
+}
+
+function readWindowsProcessTable(): Promise<string> {
+  // Fixed script, no command interpolation. CIM CPU counters use 100 ns units.
+  // Raw command lines are sanitized immediately by the parser and never logged.
+  const script = [
+    '$ErrorActionPreference = "Stop"; [Console]::OutputEncoding = [System.Text.Encoding]::UTF8;',
+    '$now = [DateTime]::UtcNow;',
+    'Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -gt 1 -and $_.CreationDate } | ForEach-Object { [pscustomobject]@{',
+    'pid = [int]$_.ProcessId; ppid = [int]$_.ParentProcessId;',
+    'cpuSeconds = ([double]$_.KernelModeTime + [double]$_.UserModeTime) / 10000000;',
+    'runningSeconds = [Math]::Max(0, ($now - $_.CreationDate.ToUniversalTime()).TotalSeconds);',
+    'rssMb = [double]$_.WorkingSetSize / 1048576;',
+    'command = if ($_.CommandLine) { $_.CommandLine } else { $_.Name }',
+    '} } | ConvertTo-Json -Compress',
+  ].join(' ');
+  return new Promise((resolve, reject) => {
+    execFile('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], {
+      timeout: 2000, maxBuffer: 8 * 1024 * 1024, windowsHide: true,
+    }, (error, stdout) => { if (error) reject(error); else resolve(stdout); });
+  });
+}
+
+function parseWindowsProcessTable(table: string): Map<number, ProcessSample> {
+  const parsed: unknown = JSON.parse(table.replace(/^\uFEFF/, ''));
+  const rows = new Map<number, ProcessSample>();
+  for (const item of Array.isArray(parsed) ? parsed : [parsed]) {
+    if (!item || typeof item !== 'object') continue;
+    const row = item as Record<string, unknown>;
+    const { pid, ppid, cpuSeconds, runningSeconds, rssMb, command } = row;
+    if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 1
+      || typeof ppid !== 'number' || !Number.isInteger(ppid) || ppid < 0
+      || typeof cpuSeconds !== 'number' || !Number.isFinite(cpuSeconds) || cpuSeconds < 0
+      || typeof runningSeconds !== 'number' || !Number.isFinite(runningSeconds) || runningSeconds < 0
+      || typeof rssMb !== 'number' || !Number.isFinite(rssMb) || rssMb < 0 || typeof command !== 'string') continue;
+    // Win32_Process has no POSIX run/sleep state. Keep that explicitly unknown.
+    rows.set(pid, { pid, ppid, cpuSeconds, runningSeconds, rssMb, state: 'unknown', label: sanitizeProcessLabel(command) });
+  }
+  return rows;
 }
 
 function parseProcessTable(table: string): Map<number, ProcessSample> {
@@ -126,14 +168,14 @@ function cpuPercent(first: ProcessSample | undefined, second: ProcessSample | un
 
 export function sanitizeProcessLabel(command: string): string {
   const tokens = (command.match(/"[^"\n]*"|'[^'\n]*'|\S+/g) ?? []).map((token) => token.replace(/^['"]|['"]$/g, ''));
-  const program = basename(tokens.shift() ?? '').replace(/^-/, '');
-  if (SHELLS.has(program)) return 'a shell command';
+  const program = basename((tokens.shift() ?? '').replace(/\\/g, '/')).replace(/^-/, '').replace(/\.exe$/i, '');
+  if (SHELLS.has(program.toLowerCase())) return 'a shell command';
   // Stop at the first flag, rather than treating a flag's value as an ordinary argument.
   const firstFlag = tokens.findIndex((arg) => arg.startsWith('-'));
   const args = tokens.slice(0, firstFlag === -1 ? tokens.length : firstFlag);
   let label = program;
-  if (INTERPRETERS.has(program) && args.length) {
-    const script = basename(args.shift()!);
+  if (INTERPRETERS.has(program.toLowerCase()) && args.length) {
+    const script = basename(args.shift()!.replace(/\\/g, '/'));
     label = script.slice(0, script.length - extname(script).length);
   }
   const shortArgs = args.filter((arg) => arg.length <= 30 && !arg.includes('=') && !arg.includes('://')).slice(0, 2);

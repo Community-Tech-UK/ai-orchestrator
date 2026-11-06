@@ -39,3 +39,10 @@ describe('worker Claude turn caps', () => {
     }
   });
 });
+
+describe('isolated Claude worker command output cap', () => {
+  it('omits the cap because this path has no executing CLI version', () => {
+    const args = buildWorkerArgs('claude', { bashOutputMaxChars: 12_000, reasoningEffort: 'workflow' }, null, { role: 'user', content: 'hello' });
+    expect(JSON.parse(args[args.indexOf('--settings') + 1])).toEqual({ ultracode: true });
+  });
+});

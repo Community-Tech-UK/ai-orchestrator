@@ -94,6 +94,7 @@ import {
 import { createGrokAdapter } from './grok-adapter-factory';
 import { createOpenCodeAdapter } from './opencode-adapter-factory';
 import { resolveContextCeilingTokens } from './context-ceiling';
+import { resolveClaudeBashOutputMaxChars } from './claude-output-caps';
 import { createPrivateCliJsonConfig } from './private-cli-json-config';
 
 const logger = getLogger('AdapterFactory');
@@ -222,6 +223,9 @@ export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdap
 
   const accountEnv = resolveClaudeAccountSpawnEnv(options);
   const claudeOptions: ClaudeCliSpawnOptions = {
+    sessionKind: options.sessionKind,
+    bashOutputMaxChars: options.bashOutputMaxChars ?? resolveClaudeBashOutputMaxChars(),
+    systemPromptMode: options.systemPromptMode,
     machineSession: options.machineSession,
     contextCeilingTokens: options.contextCeilingTokens ?? resolveContextCeilingTokens(Boolean(options.machineSession)),
     readOnlyReview: options.readOnlyReview,
@@ -696,12 +700,9 @@ export function createCliAdapter(
     // turn/budget caps) travel to the worker, whose own Claude adapter applies
     // them. A worker that does not advertise that would silently drop them, so
     // refuse a policy-bearing session there before any transport exists.
-    remoteClaudeSpawnPolicyFor(
-      cliType,
-      effectiveOptions,
-      getWorkerNodeRegistry().getNode(executionLocation.nodeId)?.capabilities,
-    );
-    assertRemoteQueuePushGuardSupported(effectiveOptions, getWorkerNodeRegistry().getNode(executionLocation.nodeId)?.capabilities);
+    const capabilities = getWorkerNodeRegistry().getNode(executionLocation.nodeId)?.capabilities;
+    remoteClaudeSpawnPolicyFor(cliType, effectiveOptions, capabilities);
+    assertRemoteQueuePushGuardSupported(effectiveOptions, capabilities);
     if (cliType === 'copilot') {
       requireCopilotAccountRoute(effectiveOptions, 'remote');
     }

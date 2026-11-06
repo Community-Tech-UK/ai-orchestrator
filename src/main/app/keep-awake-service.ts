@@ -13,6 +13,7 @@ interface KeepAwakeDependencies {
   broadcast: (state: KeepAwakeState) => void;
   now?: () => number;
   subscribe?: (reconcile: () => void) => () => void;
+  remoteWorkers?: { reconcile: (mode: KeepAwakeState['mode']) => Promise<void>; shutdown: () => Promise<void> };
 }
 
 export class KeepAwakeService {
@@ -48,6 +49,7 @@ export class KeepAwakeService {
     const deps = this.dependencies;
     if (!deps) return;
     const mode = deps.getMode();
+    void deps.remoteWorkers?.reconcile(mode);
     const work = new Set<KeepAwakeWorkReason>();
     if (mode !== 'off') {
       deps.probes.forEach((probe, index) => {
@@ -90,6 +92,7 @@ export class KeepAwakeService {
     this.timer = null;
     this.unsubscribe?.();
     this.unsubscribe = null;
+    void this.dependencies?.remoteWorkers?.shutdown();
     if (this.blockerId !== null) {
       try { this.dependencies?.blocker?.stop(this.blockerId); }
       catch (error) { logger.warn('Could not release the keep-awake assertion', {

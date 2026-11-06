@@ -97,9 +97,10 @@ describe('sampleStallProcessFacts', () => {
     expect(runPs).not.toHaveBeenCalled();
   });
 
-  it('refuses win32 without invoking ps', async () => {
+  it('never invokes ps on win32 when Windows process information is unavailable', async () => {
     const runPs = vi.fn();
-    expect(await sampleStallProcessFacts(100, { silenceMs: 70_000, platform: 'win32', runPs })).toBeNull();
+    expect(await sampleStallProcessFacts(100, { silenceMs: 70_000, platform: 'win32', runPs,
+      runWindowsProcessTable: async () => '[]' })).toBeNull();
     expect(runPs).not.toHaveBeenCalled();
   });
 

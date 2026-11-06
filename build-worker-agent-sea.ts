@@ -89,6 +89,12 @@ async function main(): Promise<void> {
     fs.cpSync(workerToolsSource, workerToolsOut, { recursive: true });
   }
 
+  // The spawned provider and hook are external processes, so ship their assets beside the SEA binary.
+  for (const directory of ['hooks', 'rtk']) {
+    const source = path.join(path.dirname(bundle), directory);
+    if (fs.existsSync(source)) fs.cpSync(source, path.join(outDir, directory), { recursive: true });
+  }
+
   const seaResourceName = 'NODE_SEA_BLOB';
   const postjectArgs = [
     binOut,

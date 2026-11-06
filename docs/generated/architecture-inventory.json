@@ -6268,7 +6268,7 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2499
+      "lines": 2519
     },
     {
       "path": "src/main/app/orchestrator-tools-step.spec.ts",
@@ -6348,7 +6348,7 @@
     },
     {
       "path": "src/main/cli/adapters/claude-cli-adapter.ts",
-      "lines": 1995
+      "lines": 1996
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.credentials.spec.ts",
@@ -6455,6 +6455,10 @@
       "lines": 1591
     },
     {
+      "path": "src/main/instance/__tests__/instance-manager.change-model.spec.ts",
+      "lines": 1589
+    },
+    {
       "path": "docs/superpowers/plans/2026-05-02-full-voice-conversation_completed.md",
       "lines": 1582
     },
@@ -6469,10 +6473,6 @@
     {
       "path": "src/main/chats/chat-service.spec.ts",
       "lines": 1539
-    },
-    {
-      "path": "src/main/instance/__tests__/instance-manager.change-model.spec.ts",
-      "lines": 1534
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-e-developer-experience_completed.md",
@@ -6927,12 +6927,12 @@
       "lines": 1070
     },
     {
-      "path": "src/main/ipc/handlers/__tests__/pair-both-handlers.spec.ts",
-      "lines": 1068
+      "path": "src/worker-agent/worker-agent.ts",
+      "lines": 1070
     },
     {
-      "path": "src/worker-agent/worker-agent.ts",
-      "lines": 1065
+      "path": "src/main/ipc/handlers/__tests__/pair-both-handlers.spec.ts",
+      "lines": 1068
     },
     {
       "path": "src/main/cli/adapters/cursor-cli-adapter.ts",
@@ -7188,7 +7188,7 @@
     },
     {
       "path": "src/shared/types/settings.types.ts",
-      "lines": 901
+      "lines": 903
     },
     {
       "path": "docs/superpowers/plans/2026-04-09-remote-session-latency_completed.md",
@@ -7231,12 +7231,12 @@
       "lines": 888
     },
     {
-      "path": "src/main/memory/skills-loader.spec.ts",
-      "lines": 883
+      "path": "src/main/core/config/settings-control-policy.ts",
+      "lines": 884
     },
     {
-      "path": "src/main/core/config/settings-control-policy.ts",
-      "lines": 882
+      "path": "src/main/memory/skills-loader.spec.ts",
+      "lines": 883
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.normalized-event.spec.ts",
@@ -7447,6 +7447,10 @@
       "lines": 817
     },
     {
+      "path": "src/main/instance/lifecycle/runtime-reconciler.ts",
+      "lines": 816
+    },
+    {
       "path": "src/main/remote-node/remote-node-file-transfer-mcp-service.ts",
       "lines": 816
     },
@@ -7469,10 +7473,6 @@
     {
       "path": "src/renderer/app/features/loop/loop-config-panel.component.spec.ts",
       "lines": 811
-    },
-    {
-      "path": "src/main/instance/lifecycle/runtime-reconciler.ts",
-      "lines": 810
     },
     {
       "path": "src/main/orchestration/orchestration-protocol.spec.ts",

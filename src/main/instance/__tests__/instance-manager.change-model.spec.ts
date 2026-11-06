@@ -1528,6 +1528,61 @@ describe('InstanceManager', () => {
         }),
       })));
     });
+
+    it('publishes worker process observations through the same normalized stuck warning', async () => {
+      const facts = { pid: 100, state: 'unknown' as const, cpuPercent: 90, rssMb: 2, child: null, sampledAt: 1 };
+      const sampleStallProcessFacts = vi.fn().mockResolvedValue(facts);
+      mockCreateCliAdapter.mockImplementation(() => Object.assign(makeMockAdapter(), { sampleStallProcessFacts }));
+      const instance = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR, displayName: 'Remote warning' });
+      await instance.readyPromise;
+      const normalized = vi.fn();
+      manager.on('provider:normalized-event', normalized);
+      const detector = (manager as unknown as { stuckDetector: EventEmitter }).stuckDetector;
+      detector.emit('process:suspect-stuck', { instanceId: instance.id, elapsedMs: 70_000 });
+      await vi.waitFor(() => expect(normalized).toHaveBeenCalledWith(expect.objectContaining({
+        instanceId: instance.id, event: expect.objectContaining({ kind: 'output', messageType: 'system',
+          content: expect.stringContaining('busy, using 90% of a CPU'),
+          metadata: expect.objectContaining({ watchdogWarning: true, processFacts: facts }),
+        }),
+      })));
+      expect(sampleStallProcessFacts).toHaveBeenCalledExactlyOnceWith(70_000);
+    });
+
+    it('records parameterless adapter stderr and publishes interactive prompt findings', async () => {
+      const instance = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR, displayName: 'Interactive warning' });
+      await instance.readyPromise;
+      const access = manager as unknown as { stuckDetector: EventEmitter & { recordStderr: (id: string) => void } };
+      const record = vi.spyOn(access.stuckDetector, 'recordStderr');
+      const adapter = mockCreateCliAdapter.mock.results[0].value as EventEmitter;
+      adapter.emit('stderr', 'PRIVATE_VALUE_PLACEHOLDER');
+      expect(record).toHaveBeenCalledExactlyOnceWith(instance.id);
+      const normalized = vi.fn();
+      manager.on('provider:normalized-event', normalized);
+      access.stuckDetector.emit('process:interactive-prompt', { instanceId: instance.id, stdoutSilentMs: 50_000 });
+      expect(normalized).toHaveBeenCalledWith(expect.objectContaining({ instanceId: instance.id,
+        event: expect.objectContaining({ kind: 'output', messageType: 'system',
+          metadata: expect.objectContaining({ watchdogWarning: true, interactivePrompt: true, elapsedMs: 50_000 }),
+        }),
+      }));
+      expect(JSON.stringify(normalized.mock.calls)).not.toContain('PRIVATE_VALUE_PLACEHOLDER');
+    });
+
+    it('continues recording stderr when a recovery runtime is published after adapter setup', async () => {
+      const access = manager as unknown as {
+        lifecycle: { createUnpublishedInstance(config: { workingDirectory: string }): Promise<{
+          instance: { id: string; readyPromise?: Promise<void> }; publish(): Promise<void>;
+        }> };
+        stuckDetector: { recordStderr(id: string): void };
+      };
+      const recovery = await access.lifecycle.createUnpublishedInstance({ workingDirectory: TEST_WORKING_DIR });
+      await recovery.instance.readyPromise;
+      expect(manager.getInstance(recovery.instance.id)).toBeUndefined();
+      await recovery.publish();
+      const record = vi.spyOn(access.stuckDetector, 'recordStderr');
+      const adapter = mockCreateCliAdapter.mock.results[0].value as EventEmitter;
+      adapter.emit('stderr');
+      expect(record).toHaveBeenCalledExactlyOnceWith(recovery.instance.id);
+    });
   });
 
 });

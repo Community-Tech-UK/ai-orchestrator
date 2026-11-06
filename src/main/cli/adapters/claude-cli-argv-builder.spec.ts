@@ -1,4 +1,11 @@
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
+const policySettings = vi.hoisted(() => ({ cap: undefined as number | undefined, detectedVersion: null as string | null }));
+vi.mock('../cli-detection', () => ({ getCliDetectionService: () => ({ peekCachedResult: () => ({ detected: [{ name: 'claude', version: policySettings.detectedVersion }] }) }) }));
+vi.mock('./claude-output-caps', async importOriginal => {
+  const actual = await importOriginal<typeof import('./claude-output-caps')>();
+  return { ...actual, resolveClaudeBashOutputMaxChars: (explicit?: number) => actual.resolveClaudeBashOutputMaxChars(explicit, () => policySettings.cap) };
+});
+beforeEach(() => { policySettings.cap = undefined; policySettings.detectedVersion = null; });
 import {
   buildClaudeCliArgs,
   buildClaudeSettingsOverlay,
@@ -204,5 +211,43 @@ describe('Claude version gates', () => {
     const args = buildClaudeCliArgs(baseInput({ cliVersion, shouldUseNativeResume: true, sessionId: 'stub-session',
       spawnOptions: { resume: true, systemPrompt: 'STUB_OVERLAY' } }));
     expect(args.includes('--append-system-prompt')).toBe(carries);
+  });
+});
+
+
+describe('Claude successful-command output cap', () => {
+  it.each(['2.1.261', '2.1.296'])('applies a requested cap at %s', cliVersion => {
+    const args = buildClaudeCliArgs(baseInput({ cliVersion, spawnOptions: { bashOutputMaxChars: 12000 } }));
+    expect(JSON.parse(args[args.indexOf('--settings') + 1])).toEqual({ bashOutputMaxChars: 12000 });
+  });
+  it.each([null, '2.1.260', 'invalid'])('omits the cap when support is unconfirmed at %s', cliVersion => {
+    expect(buildClaudeCliArgs(baseInput({ cliVersion, spawnOptions: { bashOutputMaxChars: 12000 } }))).not.toContain('--settings');
+  });
+  it.each([undefined, 0, 3999, 128001, NaN])('omits an invalid cap %s', bashOutputMaxChars => {
+    expect(buildClaudeCliArgs(baseInput({ cliVersion: '2.1.296', spawnOptions: { bashOutputMaxChars } }))).not.toContain('--settings');
+  });
+});
+
+
+describe('Claude configured output cap', () => {
+  it('applies the default to an auto-approve session using the shared detected-version fallback', () => {
+    policySettings.cap = 12_000;
+    policySettings.detectedVersion = '2.1.296';
+    const args = buildClaudeCliArgs(baseInput({ spawnOptions: { yoloMode: true } }));
+    expect(args).toContain('--dangerously-skip-permissions');
+    expect(JSON.parse(args[args.indexOf('--settings') + 1])).toEqual({ bashOutputMaxChars: 12_000 });
+  });
+  it('applies the configured cap on resume and keeps an explicit override', () => {
+    policySettings.cap = 12_000;
+    const args = buildClaudeCliArgs(baseInput({ cliVersion: '2.1.296', sessionId: 'resume-session',
+      shouldUseNativeResume: true, spawnOptions: { resume: true, bashOutputMaxChars: 24_000 } }));
+    expect(args).toEqual(expect.arrayContaining(['--resume', 'resume-session']));
+    expect(JSON.parse(args[args.indexOf('--settings') + 1])).toEqual({ bashOutputMaxChars: 24_000 });
+  });
+  it('uses the provider default when the setting or an explicit option is zero', () => {
+    policySettings.cap = 0;
+    expect(buildClaudeCliArgs(baseInput({ cliVersion: '2.1.296' }))).not.toContain('--settings');
+    policySettings.cap = 12_000;
+    expect(buildClaudeCliArgs(baseInput({ cliVersion: '2.1.296', spawnOptions: { bashOutputMaxChars: 0 } }))).not.toContain('--settings');
   });
 });

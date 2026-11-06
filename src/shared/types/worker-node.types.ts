@@ -198,10 +198,16 @@ export interface WorkerNodeCapabilities {
   openCodeMajor?: 1 | 2;
   /**
    * 1 = `instance.spawn` honours `claudeSpawnPolicy` (machine session, context
-   * ceiling, turn/budget caps, read-only review). Absent on older workers, which
+   * ceiling, turn/budget caps, read-only review); 2 adds session classification,
+   * new Claude options and execution-node output cap support. Absent on older workers, which
    * would silently drop it, so policy-bearing Claude is refused there.
    */
-  claudeSpawnPolicy?: 1;
+  claudeSpawnPolicy?: 1 | 2;
+  /** Execution-node CLI versions, never the coordinator's versions. */
+  cliVersions?: Partial<Record<CanonicalCliType, string>>;
+  instanceModelChange?: 1;
+  keepAwake?: 1;
+  stallProcessSampling?: 1;
   /** 1 = preserves semantic Codex ownership and explicit ephemeral:false. Absent on older workers. */
   codexSpawnMetadata?: 1;
   /** 1 = `instance.spawn` honours `queuePushGuard` (builds the Plan Queue push guard on this node). Absent on older workers, which would drop it, so queue sessions are refused there. */

@@ -58,6 +58,7 @@ import type { RpcMessage } from './worker-rpc-types';
 import { INTERNAL_CONNECT_ERROR_MESSAGE, NO_SAVED_ADDRESS_MESSAGE, noAnswerMessage, SILENT_COORDINATOR_MESSAGE, type WorkerConnectionReporter } from './worker-connection-status';
 import { resolveWorkerChildCommand } from './worker-supervisor';
 import { blocksWorkerRestart } from './worker-exec-turn';
+import { WorkerKeepAwake } from './worker-keep-awake';
 import type { DiscoveredCoordinator } from './discovery-client';
 import {
   buildCoordinatorCandidates,
@@ -102,6 +103,7 @@ export class WorkerAgent extends EventEmitter {
   private readonly notifier: WorkerInstanceNotifier;
   private readonly streamDurability: WorkerStreamDurability;
   private readonly rpcDispatcher: WorkerRpcDispatcher;
+  private readonly keepAwake = new WorkerKeepAwake();
   private readonly browserManager: WorkerBrowserManager;
   private readonly androidManager: WorkerAndroidManager;
   private readonly cdpTunnel: WorkerCdpTunnel;
@@ -169,6 +171,7 @@ export class WorkerAgent extends EventEmitter {
     this.rpcDispatcher = new WorkerRpcDispatcher({
       config: this.config,
       instanceManager: this.instanceManager,
+      setKeepAwake: enabled => this.keepAwake.setEnabled(enabled && !this.isShuttingDown),
       localModelSessionManager: this.localModelSessionManager,
       getFilesystemHandler: () => this.fsHandler!,
       getSyncHandler: () => this.getSyncHandler(),
@@ -411,6 +414,7 @@ export class WorkerAgent extends EventEmitter {
 
   async disconnect(): Promise<void> {
     this.isShuttingDown = true;
+    this.keepAwake.shutdown();
     this.connectionStatus?.set('stopped'); // first: cleanup below can take a while, and Harness reads this
     this.stopHeartbeat();
     this.stopContinuousDiscovery();
@@ -535,6 +539,7 @@ export class WorkerAgent extends EventEmitter {
   /** Drop per-connection state. Callers decide what happens to `this.ws`. */
   private resetCoordinatorSession(reason: string): void {
     this.stopHeartbeat();
+    this.keepAwake.shutdown();
     this.registrationAccepted = false;
     this.rejectPendingRequests(reason);
     this.cdpTunnel.closeAll();

@@ -40,6 +40,8 @@ export const COORDINATOR_TO_NODE = {
   INSTANCE_SPAWN: 'instance.spawn',
   INSTANCE_SEND_INPUT: 'instance.sendInput',
   INSTANCE_SEND_RAW: 'instance.sendRaw',
+  INSTANCE_CHANGE_MODEL: 'instance.changeModel',
+  INSTANCE_SAMPLE_STALL_PROCESS: 'instance.sampleStallProcess',
   INSTANCE_TERMINATE: 'instance.terminate',
   INSTANCE_INTERRUPT: 'instance.interrupt',
   INSTANCE_HIBERNATE: 'instance.hibernate',
@@ -53,6 +55,7 @@ export const COORDINATOR_TO_NODE = {
   TERMINAL_RESIZE: 'terminal.resize',
   TERMINAL_KILL: 'terminal.kill',
   NODE_PING: 'node.ping',
+  NODE_KEEP_AWAKE: 'node.keepAwake',
   NODE_EXEC: 'node.exec',
   // WS15 stream durability: replay request after reconnect + cursor acks.
   STREAM_RESUME: 'node.streamResume',
@@ -159,7 +162,9 @@ export const RPC_ERROR_CODES = {
   INSTANCE_NOT_FOUND: -32002,
   SPAWN_FAILED: -32003,
   FILESYSTEM_ERROR: -32004,
-  INPUT_REQUIRED_NOT_PENDING: -32005
+  INPUT_REQUIRED_NOT_PENDING: -32005,
+  MODEL_CHANGE_REJECTED: -32006,
+  MODEL_CHANGE_FAILED_AFTER_TEARDOWN: -32007,
 } as const;
 
 // -- Helpers --

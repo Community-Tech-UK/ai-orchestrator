@@ -1,6 +1,8 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 const createAdapter = vi.hoisted(() => vi.fn());
+const spawnReceipt = vi.hoisted(() => vi.fn());
+vi.mock('../main/logging/logger', () => ({ getLogger: () => ({ info: spawnReceipt, warn: vi.fn(), error: vi.fn(), debug: vi.fn() }) }));
 vi.mock('../main/cli/adapters/adapter-factory', () => ({ createCliAdapter: createAdapter }));
 import { LocalInstanceManager } from './local-instance-manager';
 import type { WorkerAndroidManager } from './android/worker-android-manager';
@@ -35,6 +37,17 @@ describe('LocalInstanceManager — carried Claude spawn policy', () => {
 
   it('passes the controller-resolved policy to this worker\'s Claude adapter factory', async () => {
     const claudeSpawnPolicy = {
+      sessionKind: 'review' as const,
+      fastMode: true,
+      bashOutputMaxChars: 12000,
+      residentClaude: true,
+      fallbackModel: 'sonnet',
+      name: 'worker-review',
+      bare: false,
+      chrome: false,
+      systemPromptMode: 'replace' as const,
+      excludeDynamicSystemPromptSections: false,
+      jsonSchema: '{}',
       machineSession: 'node-run' as const,
       contextCeilingTokens: 200_000,
       readOnlyReview: true as const,
@@ -47,12 +60,16 @@ describe('LocalInstanceManager — carried Claude spawn policy', () => {
       ...claudeSpawnPolicy,
       yoloMode: false,
     }));
+    expect(spawnReceipt).toHaveBeenCalledWith('Worker spawn policy received', {
+      cliType: 'claude', sessionKind: 'review', requestedBashOutputMaxChars: 12000, rtkEnabled: false,
+    });
   });
 
   it('leaves an ordinary Claude spawn without policy fields', async () => {
     await manager.spawn({ instanceId: 'claude-2', cliType: 'claude', workingDirectory: '/tmp' });
 
     const options = createAdapter.mock.calls[0][1] as Record<string, unknown>;
+    expect(options['bashOutputMaxChars']).toBe(0); // Only the controller resolves this setting.
     for (const key of ['machineSession', 'contextCeilingTokens', 'readOnlyReview', 'maxTurns', 'maxBudgetUsd']) {
       expect(options).not.toHaveProperty(key);
     }

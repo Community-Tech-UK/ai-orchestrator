@@ -14,6 +14,7 @@ import { CLAUDE_READ_ONLY_REVIEW_TOOLS, MACHINE_SESSION_DISABLED_PLUGINS } from 
  * duplicate that decision logic.
  */
 
+import { claudeOutputCapSettings, resolveClaudeBashOutputMaxChars } from './claude-output-caps';
 import { nativeSessionIdInUse } from './claude-transcript-registry';
 import { buildDeferPermissionHookCommand } from '../hooks/hook-path-resolver';
 import { HOST_CLI_CLOUD_SCHEDULER_TOOLS } from './host-cli-tool-policy';
@@ -59,14 +60,16 @@ export function mapClaudeReasoningEffort(
 /** The subset of spawn options `buildClaudeSettingsOverlay` reads. */
 export type ClaudeSettingsOverlaySpawnOptions = Pick<
   ClaudeCliSpawnOptions,
-  'reasoningEffort' | 'fastMode' | 'permissionHookPath' | 'machineSession'
+  'reasoningEffort' | 'fastMode' | 'permissionHookPath' | 'machineSession' | 'bashOutputMaxChars'
 >;
 
 export function buildClaudeSettingsOverlay(
   spawnOptions: ClaudeSettingsOverlaySpawnOptions,
-  permissionHookEnabled: boolean
+  permissionHookEnabled: boolean,
+  cliVersion: string | null = null,
 ): string | undefined {
   const settings: {
+    bashOutputMaxChars?: number;
     enabledPlugins?: Record<string, boolean>;
     ultracode?: true;
     fastMode?: true;
@@ -79,7 +82,7 @@ export function buildClaudeSettingsOverlay(
         }[];
       }[];
     };
-  } = {};
+  } = claudeOutputCapSettings(resolveClaudeBashOutputMaxChars(spawnOptions.bashOutputMaxChars), cliVersion);
 
   if (spawnOptions.machineSession) settings.enabledPlugins = Object.fromEntries(MACHINE_SESSION_DISABLED_PLUGINS.map(id => [id, false]));
 
@@ -208,7 +211,7 @@ export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
     }
   }
 
-  const settingsOverlay = buildClaudeSettingsOverlay(spawnOptions, permissionHookEnabled);
+  const settingsOverlay = buildClaudeSettingsOverlay(spawnOptions, permissionHookEnabled, cliVersion);
   if (settingsOverlay) {
     args.push('--settings', materializeInlineJsonArg(settingsOverlay));
   }

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { reportCapabilities } from '../capability-reporter';
 
+vi.mock('../worker-cli-versions', () => ({ readWorkerCliVersions: vi.fn().mockResolvedValue({ claude: '2.1.296' }) }));
+
 // Selected-install process probing has its own tests; heartbeats must not open the developer's real OpenCode database.
 vi.mock('../opencode-worker-capability', () => ({ readWorkerOpenCodeMajor: vi.fn().mockResolvedValue(2) }));
 
@@ -35,6 +37,6 @@ describe('capability-reporter', () => {
     expect(caps.workingDirectories).toContain('/tmp/project');
     // Without this the coordinator refuses every policy-bearing remote Claude
     // session (including plain run_on_node) on this worker.
-    expect(caps.claudeSpawnPolicy).toBe(1);
+    expect(caps.claudeSpawnPolicy).toBe(2);
   });
 });

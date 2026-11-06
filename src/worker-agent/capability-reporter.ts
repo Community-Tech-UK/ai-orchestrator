@@ -13,6 +13,7 @@ import type {
   WorkerNodeFileTransferSummary,
   WorkerAgentBuildSummary,
 } from '../shared/types/worker-node.types';
+import { readWorkerCliVersions } from './worker-cli-versions';
 import { readWorkerOpenCodeMajor } from './opencode-worker-capability';
 import { CLI_REGISTRY, getCliCandidatePaths } from '../main/cli/cli-registry';
 import { AUXILIARY_DISCOVERY_MAX_MODELS } from '../shared/types/auxiliary-llm.types';
@@ -73,6 +74,7 @@ export async function reportCapabilities(
 ): Promise<WorkerNodeCapabilities> {
   const supportedClis = detectClis();
   const openCodeMajor = supportedClis.includes('opencode') ? await readWorkerOpenCodeMajor() : undefined;
+  const cliVersions = supportedClis.includes('claude') ? await readWorkerCliVersions() : {};
   const gpu = detectGpu();
 
   const projects = await sharedProjectDiscovery.scan(workingDirectories);
@@ -106,7 +108,11 @@ export async function reportCapabilities(
     supportedClis,
     ...(openCodeMajor ? { openCodeMajor } : {}),
     // This worker applies the carried Claude spawn policy (see SpawnParams).
-    claudeSpawnPolicy: 1,
+    claudeSpawnPolicy: 2,
+    cliVersions,
+    instanceModelChange: 1,
+    stallProcessSampling: 1,
+    ...(process.platform === 'win32' ? { keepAwake: 1 as const } : {}),
     codexSpawnMetadata: 1,
     queuePushGuard: 1, // This worker builds the Plan Queue push guard itself (see SpawnParams).
     hasBrowserRuntime,

@@ -422,6 +422,8 @@ export const SETTINGS_TOOL_POLICY = {
   memoryInstructionGate: readOnly(),
   // WS14: overload fallback model for Claude sessions (empty = off).
   claudeFallbackModel: open(z.string().max(100)),
+  claudeBashOutputMaxChars: open(z.number().int().min(0).max(128_000)
+    .refine(value => value === 0 || value >= 4_000, 'Use 0 or 4,000 to 128,000 characters')),
   // WS14: env scrub can break hook/RTK env passthrough — operator-only.
   claudeSubprocessEnvScrub: readOnly(),
   // Diagnostic only: Claude Code's per-session debug log (no behaviour change).

@@ -1,13 +1,20 @@
 import type { OutputMessage } from '../../shared/types/instance.types';
 import { getLogger } from '../logging/logger';
-import { describeStallProcessFacts, sampleStallProcessFacts } from './stall-process-facts';
+import { describeStallProcessFacts, sampleStallProcessFacts, type StallProcessFacts } from './stall-process-facts';
 const logger = getLogger('StallNotices');
 
-export function buildStuckNotice(input: { elapsedMs: number; pid: number | null }): Promise<OutputMessage> {
+export function buildInteractivePromptNotice(stdoutSilentMs: number): OutputMessage {
+  const timestamp = Date.now();
+  return { id: `interactive-prompt-${timestamp}`, timestamp, type: 'system',
+    content: 'This session may be waiting for input from a program it started. Check the running command if it does not continue.',
+    metadata: { watchdogWarning: true, interactivePrompt: true, elapsedMs: stdoutSilentMs } };
+}
+
+export function buildStuckNotice(input: { elapsedMs: number; pid: number | null; sampleProcessFacts?: (silenceMs: number) => Promise<StallProcessFacts | null> }): Promise<OutputMessage> {
   const secs = Math.round(input.elapsedMs / 1000);
   return buildNotice('stuck-warn', input.pid, input.elapsedMs,
     `Instance may be stuck — no output for ${secs}s. Will auto-restart if unresponsive.`,
-    { watchdogWarning: true, elapsedMs: input.elapsedMs });
+    { watchdogWarning: true, elapsedMs: input.elapsedMs }, input.sampleProcessFacts);
 }
 export function buildSpawnStallNotice(input: { timeoutMs: number; pid: number | null }): Promise<OutputMessage> {
   const secs = Math.round(input.timeoutMs / 1000);
@@ -16,8 +23,8 @@ export function buildSpawnStallNotice(input: { timeoutMs: number; pid: number | 
     { spawnStall: true, timeoutMs: input.timeoutMs });
 }
 
-async function buildNotice(prefix: string, pid: number | null, silenceMs: number, content: string, metadata: Record<string, unknown>): Promise<OutputMessage> {
-  const facts = await sampleStallProcessFacts(pid, { silenceMs });
+async function buildNotice(prefix: string, pid: number | null, silenceMs: number, content: string, metadata: Record<string, unknown>, sampleProcessFacts?: (silenceMs: number) => Promise<StallProcessFacts | null>): Promise<OutputMessage> {
+  const facts = await (sampleProcessFacts ? sampleProcessFacts(silenceMs) : sampleStallProcessFacts(pid, { silenceMs }));
   logger.info('Stall process check', facts ? { ...facts } : { pid, processFacts: null });
   const timestamp = Date.now();
   return { id: `${prefix}-${timestamp}`, timestamp, type: 'system',

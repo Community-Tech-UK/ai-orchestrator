@@ -7,15 +7,15 @@ const caps: WorkerNodeCapabilities = { platform: 'win32', arch: 'x64', cpuCores:
   maxConcurrentInstances: 4, workingDirectories: [], browsableRoots: [], discoveredProjects: [] };
 
 describe('Claude spawn policy worker capability', () => {
-  it('survives the registration and heartbeat schemas', () => {
-    const capabilities = { ...caps, claudeSpawnPolicy: 1 as const };
+  it.each([1, 2] as const)('version %s survives the registration and heartbeat schemas', (version) => {
+    const capabilities = { ...caps, claudeSpawnPolicy: version, cliVersions: { claude: '2.1.296' } };
     expect(NodeRegisterParamsSchema.parse({ nodeId: '00000000-0000-4000-8000-000000000001', name: 'worker', capabilities }).capabilities)
-      .toMatchObject({ claudeSpawnPolicy: 1 });
+      .toMatchObject({ claudeSpawnPolicy: version, cliVersions: { claude: '2.1.296' } });
     expect(NodeHeartbeatParamsSchema.parse({ nodeId: 'worker', activeInstances: 0, capabilities }).capabilities)
-      .toMatchObject({ claudeSpawnPolicy: 1 });
+      .toMatchObject({ claudeSpawnPolicy: version, cliVersions: { claude: '2.1.296' } });
   });
 
-  it.each([undefined, '1', 2])('reads a missing or malformed value (%j) as absent without rejecting the heartbeat', (value) => {
+  it.each([undefined, '1', 3])('reads a missing or malformed value (%j) as absent without rejecting the heartbeat', (value) => {
     const result = NodeHeartbeatParamsSchema.parse({ nodeId: 'worker', activeInstances: 0, capabilities: { ...caps, claudeSpawnPolicy: value } });
     expect(result.capabilities?.claudeSpawnPolicy).toBeUndefined();
   });

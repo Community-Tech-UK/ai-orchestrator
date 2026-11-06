@@ -1,6 +1,7 @@
 import type { UnifiedSpawnOptions } from '../adapters/adapter-factory';
 import type { CliMessage } from '../adapters/base-cli-adapter';
 import { resolveClaudeDebugLogging } from '../adapters/claude-env-pack';
+import { claudeOutputCapSettings, resolveClaudeBashOutputMaxChars } from '../adapters/claude-output-caps';
 import { HOST_CLI_CLOUD_SCHEDULER_TOOLS } from '../adapters/host-cli-tool-policy';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
 
@@ -73,7 +74,9 @@ function buildClaudeArgs(options: UnifiedSpawnOptions, sessionId: string | null)
 }
 
 function buildClaudeSettingsOverlay(options: UnifiedSpawnOptions): string | undefined {
+  // This isolated spawn path has no detected CLI version, so the cap is omitted.
   const settings: {
+    bashOutputMaxChars?: number;
     ultracode?: true;
     hooks?: {
       PreToolUse: {
@@ -81,7 +84,7 @@ function buildClaudeSettingsOverlay(options: UnifiedSpawnOptions): string | unde
         hooks: { type: 'command'; command: string }[];
       }[];
     };
-  } = {};
+  } = claudeOutputCapSettings(resolveClaudeBashOutputMaxChars(options.bashOutputMaxChars), null);
   if (options.reasoningEffort === 'workflow') {
     settings.ultracode = true;
   }

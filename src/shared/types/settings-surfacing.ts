@@ -119,6 +119,7 @@ export const SETTING_SURFACING = {
   orchestratorMcpToolDeferral: 'tab',
   sessionHandoffStateEnabled: 'tab',
   claudeFallbackModel: 'tab',
+  claudeBashOutputMaxChars: 'tab',
   claudeSubprocessEnvScrub: 'tab',
   claudeCliDebugLogging: 'tab',
   memoryInstructionGate: 'tab',

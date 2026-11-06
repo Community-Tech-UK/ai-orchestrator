@@ -74,7 +74,7 @@ describe('remote Codex ownership and final numeric receipts over authenticated w
     fixture.directory = mkdtempSync(join(tmpdir(), 'aio-remote-codex-usage-'));
     fixture.authenticated = true; frames = []; spawns = []; legacyWorker = false; modernCapability = true; failSpawn = false;
     onTerminate = () => undefined; lateFinalize = undefined;
-    registry = Object.assign(new EventEmitter(), { getNode: () => ({ capabilities: modernCapability ? { codexSpawnMetadata: 1 } : {} }) });
+    registry = Object.assign(new EventEmitter(), { getNode: () => ({ capabilities: modernCapability ? { codexSpawnMetadata: 1, instanceModelChange: 1 } : {} }) });
     fixture.registry = registry;
     manager = new LocalInstanceManager(['/tmp']);
     const original = factory.createCliAdapter;
@@ -243,6 +243,21 @@ describe('remote Codex ownership and final numeric receipts over authenticated w
     onTerminate = () => finish();
     await remote.terminate(); expect(entries()).toHaveLength(1);
     expect(registry.eventNames()).toEqual([]);
+  });
+  it('preserves the original final usage receipt while cleaning up an uncertain model replacement', async () => {
+    await remote.spawn(); native.emit('status', 'idle');
+    const next = makeRemote({ ...options, sessionId: 'replacement-placeholder' });
+    onTerminate = () => { throw new Error('Synthetic failed model-change stop'); };
+    await expect(remote.changeModel(next)).rejects.toThrow('Synthetic failed model-change stop');
+    await expect(remote.sendInput('unsafe')).rejects.toThrow(/stopping/);
+    onTerminate = () => finish();
+    try {
+      await next.terminate();
+      expect(manager.getAllInstanceIds()).toEqual([]);
+      expect(entries()).toMatchObject([{ instanceId: owner, jobId, finishReason: 'stopped' }]);
+      expect(usageFrames()).toHaveLength(1);
+      expect(registry.eventNames()).toEqual([]);
+    } finally { next.forceCleanup(); }
   });
   it('rejects malformed, unauthenticated, foreign-owner/job/hash and stale-incarnation receipts', async () => {
     await remote.spawn(); finish(); const receipt = entries()[0] as CodexEphemeralUsage;

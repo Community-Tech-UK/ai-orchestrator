@@ -28,9 +28,12 @@ import { JsonChunkAssembler } from '../../../shared/utils/json-chunks';
 import type { AcpHistoryReplay } from './acp-session-replay';
 import type { RemoteInstanceTelemetry } from '../../remote-node/instance-telemetry-rpc';
 import { remoteClaudeSpawnPolicyFor } from './remote-claude-spawn-policy';
+import { remoteCliSpawnParams } from './remote-cli-spawn-params';
+import { hasRemoteRpcErrorCode, isRemoteModelChangeRejected, sendRemoteSpawnRpc } from './remote-model-change-rpc';
+import { sampleRemoteStallProcessFacts } from './remote-stall-process-facts';
+import type { StallProcessFacts } from '../../instance/stall-process-facts';
 import { assertRemoteQueuePushGuardSupported } from './remote-queue-push-guard';
 import { remoteCliCapabilities } from './remote-cli-capabilities';
-import { remoteSpawnMetadata } from '../../remote-node/remote-spawn-metadata';
 import { observeRemoteCodexUsage } from './remote-codex-usage';
 const logger = getLogger('RemoteCliAdapter');
 /**
@@ -39,9 +42,6 @@ const logger = getLogger('RemoteCliAdapter');
  * the interrupt state machine never hangs on a wedged/silent worker.
  */
 const REMOTE_INTERRUPT_COMPLETION_MS = 15_000;
-interface SpawnResponse {
-  instanceId: string;
-}
 interface RemoteOutputEvent {
   nodeId: string;
   instanceId: string;
@@ -74,6 +74,8 @@ interface RemoteCompleteEvent {
 }
 export class RemoteCliAdapter extends EventEmitter {
   private remoteInstanceId: string | null = null;
+  /** Cleanup ownership only; an uncertain previous runtime must never receive input. */
+  private previousAdapterPendingStop: RemoteCliAdapter | null = null;
   private copilotUsage: CopilotNumericUsage | undefined;
   private interactionId = randomUUID();
   private availableCommands: RemoteNativeCommand[] = [];
@@ -116,6 +118,11 @@ export class RemoteCliAdapter extends EventEmitter {
     if (event.state === 'provider_turn') {
       const value = ProviderTurnSchema.safeParse(interactionPayload(event.info, this.interactionId));
       if (value.success) { this.providerTurn = { ...value.data, at: Date.now() }; this.markActivity(); }
+      return;
+    }
+    if (event.state === 'stderr_activity') {
+      if (event.info && typeof event.info === 'object'
+        && (event.info as { interactionId?: unknown }).interactionId === this.interactionId) this.emit('stderr');
       return;
     }
     if (event.state === 'history_replay') {
@@ -207,7 +214,27 @@ export class RemoteCliAdapter extends EventEmitter {
    * Returns -1 as PID since the process runs on a remote machine.
    */
   async spawn(): Promise<number> {
-    if (this.remoteInstanceId) this.assertNotStopping();
+    return this.spawnRemote();
+  }
+  /** Check before the reconciler detaches or mutates the current runtime. */
+  assertModelChangeSupported(): void {
+    this.assertNotStopping();
+    if (!this.remoteInstanceId) throw new Error('The worker session is no longer running.');
+    if (this.registry.getNode?.(this.targetNodeId)?.capabilities.instanceModelChange !== 1) {
+      throw new Error('This worker cannot switch models safely yet. Update the worker, or use local execution for this session.');
+    }
+  }
+  /** Keep the reconciler's continuity plan; replace its worker runtime in one guarded operation. */
+  async changeModel(replacement: RemoteCliAdapter): Promise<number> {
+    this.assertModelChangeSupported();
+    if (replacement === this) throw new Error('A model change requires a separate replacement adapter.');
+    if (replacement.targetNodeId !== this.targetNodeId || replacement.requestedCliType !== this.requestedCliType) {
+      throw new Error('A model change must keep the same worker and provider.');
+    }
+    return replacement.spawnRemote(this);
+  }
+  private async spawnRemote(previous?: RemoteCliAdapter): Promise<number> {
+    if (this.remoteInstanceId || this.previousAdapterPendingStop) this.assertNotStopping();
     else clearAdapterStopping(this);
     this.copilotUsage = undefined;
     if (!this.spawnOptions.sessionId) {
@@ -229,13 +256,15 @@ export class RemoteCliAdapter extends EventEmitter {
       && this.registry.getNode?.(this.targetNodeId)?.capabilities.codexSpawnMetadata !== 1) {
       throw new Error('Persistent Codex requires an updated worker that preserves its session policy. Update the worker or use local execution.');
     }
-    const metadata = remoteSpawnMetadata(this.spawnOptions, this.requestedCliType === 'codex');
+    const interactionId = randomUUID();
+    const spawnParams = remoteCliSpawnParams(this.requestedCliType, this.spawnOptions, interactionId, claudeSpawnPolicy,
+      this.registry.getNode?.(this.targetNodeId)?.capabilities);
+    this.previousAdapterPendingStop = previous ?? null;
     // Set the expected remote instance ID and attach registry listeners BEFORE
     // sending the spawn RPC. This eliminates the window where early output from
     // the remote instance could be missed because listeners weren't registered yet.
     this.remoteInstanceId = this.spawnOptions.sessionId;
-    this.interactionId = randomUUID();
-    const interactionId = this.interactionId;
+    this.interactionId = interactionId;
     this.codexUsageCleanup?.();
     const codexUsageCleanup = this.requestedCliType === 'codex' && this.spawnOptions.ephemeral !== false
       ? observeRemoteCodexUsage(this.registry, this.targetNodeId, this.remoteInstanceId, interactionId, this.spawnOptions)
@@ -245,63 +274,13 @@ export class RemoteCliAdapter extends EventEmitter {
     this.attachRegistryListeners();
     let acknowledged = false;
     try {
-      const response = await this.nodeConnection.sendRpc<SpawnResponse>(
-        this.targetNodeId,
-        'instance.spawn',
-        {
-          instanceId: this.spawnOptions.sessionId,
-          ...metadata,
-          interactionId: this.interactionId,
-          cliType: this.requestedCliType,
-          usageSettlementProtocol: 1,
-          workingDirectory: this.spawnOptions.workingDirectory,
-          systemPrompt: this.spawnOptions.systemPrompt,
-          model: this.spawnOptions.model,
-          reasoningEffort: this.spawnOptions.reasoningEffort,
-          yoloMode: this.spawnOptions.yoloMode,
-          allowedTools: this.spawnOptions.allowedTools,
-          disallowedTools: this.spawnOptions.disallowedTools,
-          resume: this.spawnOptions.resume,
-          forkSession: this.spawnOptions.forkSession,
-          transcriptKnown: this.spawnOptions.transcriptKnown,
-          additionalDirectories: this.spawnOptions.additionalDirectories,
-          mcpConfig: this.spawnOptions.mcpConfig,
-          nodePlacement: this.spawnOptions.nodePlacement,
-          // Copilot account routing: profile ID, expected identity, host, and
-          // how it was chosen. Deliberately NOT the controller's profile home —
-          // the worker derives its own and verifies its own local binding.
-          ...(this.spawnOptions.copilotAccountRoute
-            ? {
-                copilotAccountRoute: {
-                  profileId: this.spawnOptions.copilotAccountRoute.profileId,
-                  expectedLogin: this.spawnOptions.copilotAccountRoute.expectedLogin ?? null,
-                  ...(this.spawnOptions.copilotAccountRoute.host
-                    ? { host: this.spawnOptions.copilotAccountRoute.host }
-                    : {}),
-                  source: this.spawnOptions.copilotAccountRoute.source,
-                },
-              }
-            : {}),
-          // Claude/Codex/OpenCode account pools (D10): same rule, a profile ID
-          // and the identity expected (plus the MiMo Token Plan region). The
-          // worker derives its own profile home / provider name.
-          ...(this.spawnOptions.accountRoute
-            ? {
-                accountRoute: {
-                  provider: this.spawnOptions.accountRoute.provider,
-                  profileId: this.spawnOptions.accountRoute.profileId,
-                  expectedIdentity: this.spawnOptions.accountRoute.expectedIdentity ?? null,
-                  source: this.spawnOptions.accountRoute.source,
-                  ...(this.spawnOptions.accountRoute.region
-                    ? { region: this.spawnOptions.accountRoute.region }
-                    : {}),
-                },
-              }
-            : {}),
-          ...(claudeSpawnPolicy ? { claudeSpawnPolicy } : {}),
-        },
-      );
-      // A stop or a newer spawn invalidates this asynchronous acknowledgement.
+      const response = await sendRemoteSpawnRpc<{ instanceId: string }>(this.nodeConnection, this.targetNodeId, spawnParams,
+        previous?.remoteInstanceId ?? undefined);
+      // Success proves the old runtime was replaced even if this adapter was
+      // stopped while its acknowledgement was in flight.
+      previous?.forceCleanup();
+      if (this.previousAdapterPendingStop === previous) this.previousAdapterPendingStop = null;
+      // A stop or newer spawn invalidates this asynchronous acknowledgement.
       if (this.interactionId !== interactionId || !this.remoteInstanceId) throw new Error('Remote instance changed before spawn acknowledgement.');
       acknowledged = true;
       const expectsHistory = this.requestedCliType === 'opencode' && this.spawnOptions.resume
@@ -315,8 +294,20 @@ export class RemoteCliAdapter extends EventEmitter {
       });
       this.markActivity();
     } catch (err) {
+      if (previous && !acknowledged && !isRemoteModelChangeRejected(err)) {
+        if (hasRemoteRpcErrorCode(err, RPC_ERROR_CODES.MODEL_CHANGE_FAILED_AFTER_TEARDOWN)) {
+          previous.forceCleanup();
+          if (this.previousAdapterPendingStop === previous) this.previousAdapterPendingStop = null;
+        } else markAdapterStopping(previous); // Keep its final usage observation until a stop is confirmed.
+      }
       if (this.interactionId !== interactionId) throw err;
       if (acknowledged) { await this.terminate(false); throw err; }
+      // An explicit refusal proves there is no replacement to stop. Its ID may
+      // be the retained session's ID, so rollback must never terminate it.
+      if (previous && isRemoteModelChangeRejected(err)) {
+        this.previousAdapterPendingStop = null;
+        this.forceCleanup(); throw err;
+      }
       // A rejected spawn can leave a worker-owned child whose cleanup failed.
       // Keep its identity and observation until rollback or a later stop confirms absence.
       markAdapterStopping(this);
@@ -481,21 +472,29 @@ export class RemoteCliAdapter extends EventEmitter {
     return { status: 'accepted', completion };
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async terminate(graceful?: boolean): Promise<void> {
     const codexUsageCleanup = this.codexUsageCleanup;
     // Keep worker observation and its interaction/session identity until a stop
     // is acknowledged. The runtime fence prevents input and lifecycle recovery.
     markAdapterStopping(this);
+    const interactionId = this.interactionId;
+    const previous = this.previousAdapterPendingStop;
+    if (previous) {
+      const previousInstanceId = previous.remoteInstanceId;
+      await previous.terminate(graceful);
+      if (this.interactionId !== interactionId) return;
+      if (this.previousAdapterPendingStop === previous) this.previousAdapterPendingStop = null;
+      if (this.remoteInstanceId === previousInstanceId) this.remoteInstanceId = null;
+    }
     if (!this.remoteInstanceId) {
       codexUsageCleanup?.();
       if (this.codexUsageCleanup === codexUsageCleanup) this.codexUsageCleanup = undefined;
       this.usageSettlement.settleAll();
+      this.forceCleanup();
       return;
     }
 
     const instanceId = this.remoteInstanceId;
-    const interactionId = this.interactionId;
     try {
       await this.nodeConnection.sendRpc(
         this.targetNodeId,
@@ -522,6 +521,7 @@ export class RemoteCliAdapter extends EventEmitter {
 
   /** Force cleanup after interrupted termination or error recovery. */
   forceCleanup(): void {
+    this.previousAdapterPendingStop?.forceCleanup(); this.previousAdapterPendingStop = null;
     this.codexUsageCleanup?.(); this.codexUsageCleanup = undefined;
     this.usageSettlement.settleAll();
     this.remoteInstanceId = null;
@@ -542,7 +542,7 @@ export class RemoteCliAdapter extends EventEmitter {
   }
 
   async checkStatus(): Promise<{ available: boolean; error?: string }> {
-    return { available: this.remoteInstanceId !== null };
+    return { available: this.isRunning() };
   }
 
   getSessionId(): string | null {
@@ -553,11 +553,13 @@ export class RemoteCliAdapter extends EventEmitter {
     return null; // No local process for remote instances
   }
 
-  /**
-   * Report runtime capabilities based on the underlying CLI type.
-   * Remote adapters proxy to a real CLI on the worker node — the capabilities
-   * are determined by the CLI provider, not by the transport layer.
-   */
+  /** Ask the owning worker; its PID must never be inspected on the coordinator. */
+  async sampleStallProcessFacts(silenceMs: number): Promise<StallProcessFacts | null> {
+    return sampleRemoteStallProcessFacts(this.nodeConnection, this.registry, this.targetNodeId,
+      () => ({ instanceId: this.remoteInstanceId, interactionId: this.interactionId }), silenceMs);
+  }
+
+  /** Worker adapter capabilities follow its CLI provider. */
   getRuntimeCapabilities(): AdapterRuntimeCapabilities {
     return remoteCliCapabilities(this.requestedCliType);
   }
@@ -575,7 +577,7 @@ export class RemoteCliAdapter extends EventEmitter {
   }
 
   isRunning(): boolean {
-    return this.remoteInstanceId !== null;
+    return this.remoteInstanceId !== null || this.previousAdapterPendingStop?.isRunning() === true;
   }
 
   // ---------------------------------------------------------------------------
@@ -602,6 +604,10 @@ export class RemoteCliAdapter extends EventEmitter {
     this.usageSettlement.settleAll();
     this.remoteInstanceId = null;
     this.detachRegistryListeners();
+    if (this.previousAdapterPendingStop?.isRunning()) {
+      markAdapterStopping(this);
+      return; // Another potentially surviving runtime still needs an acknowledged stop.
+    }
     this.emit('exit', code, signal);
   }
 

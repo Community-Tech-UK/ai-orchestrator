@@ -7,11 +7,21 @@ import { getLoopCoordinator } from '../orchestration/loop-coordinator';
 import { getPlanQueueStoreIfInitialized } from '../plan-queue/plan-queue-bootstrap';
 import { getKeepAwakeService } from './keep-awake-service';
 import { sessionKeepAwakeReasons } from './keep-awake-probes';
+import { RemoteKeepAwake } from '../remote-node/remote-keep-awake';
+import { getWorkerNodeRegistry } from '../remote-node/worker-node-registry';
+import { getWorkerNodeConnectionServer } from '../remote-node/worker-node-connection';
+import { NodeKeepAwakeResultSchema } from '../remote-node/keep-awake-rpc';
 
 export function initializeKeepAwakeRuntime(instanceManager: InstanceManager): void {
   const settings = getSettingsManager();
   getKeepAwakeService().initialize({
     getMode: () => settings.get('keepAwakeMode'),
+    remoteWorkers: new RemoteKeepAwake({
+      getNodes: () => getWorkerNodeRegistry().getAllNodes(),
+      getInstances: () => instanceManager.getAllInstances(),
+      send: async (nodeId, enabled) => NodeKeepAwakeResultSchema.parse(
+        await getWorkerNodeConnectionServer().sendRpc(nodeId, 'node.keepAwake', { enabled }, 15_000, 'service')),
+    }),
     probes: [
       () => sessionKeepAwakeReasons(instanceManager.getAllInstances(), Date.now()),
       () => getLoopCoordinator().getActiveLoops().some(loop => loop.status === 'running') ? ['loop'] : [],
