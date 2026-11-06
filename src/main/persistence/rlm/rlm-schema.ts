@@ -87,22 +87,30 @@ export const MIGRATIONS: Migration[] = [
 /** Enable WAL when main and the context worker open a fresh database together. */
 export function enableRlmWal(db: SqliteDriver): void {
   // SQLite can reject simultaneous journal-mode changes immediately without
-  // invoking its busy handler. Retry only that expected contention, within the
-  // same five-second budget used by the connection's normal busy handler.
+  // invoking its busy handler. Own the wait here: leaving the native timeout
+  // enabled can add another five seconds when the lock changes from writer to
+  // reader during a retry. Restore it for normal queries and migrations.
+  const busyTimeout = db.pragma('busy_timeout', { simple: true });
+  db.pragma('busy_timeout = 0');
   const deadline = performance.now() + 5_000;
   const waitBuffer = new Int32Array(new SharedArrayBuffer(4));
-  while (true) {
-    try {
-      db.pragma('journal_mode = WAL');
-      return;
-    } catch (error) {
-      const remaining = deadline - performance.now();
-      if (typeof error !== 'object' || error === null || !('code' in error)
-          || error.code !== 'SQLITE_BUSY' || remaining <= 0) {
-        throw error;
+  try {
+    while (true) {
+      try {
+        db.pragma('journal_mode = WAL');
+        return;
+      } catch (error) {
+        const remaining = deadline - performance.now();
+        if (typeof error !== 'object' || error === null || !('code' in error)
+            || error.code !== 'SQLITE_BUSY' || remaining <= 0) {
+          throw error;
+        }
+        Atomics.wait(waitBuffer, 0, 0, Math.min(25, remaining));
+        if (performance.now() >= deadline) throw error;
       }
-      Atomics.wait(waitBuffer, 0, 0, Math.min(25, remaining));
     }
+  } finally {
+    db.pragma(`busy_timeout = ${busyTimeout}`);
   }
 }
 
