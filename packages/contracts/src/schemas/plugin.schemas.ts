@@ -10,6 +10,7 @@
 
 import { z } from 'zod';
 import { ModelIdSchema } from './common.schemas';
+import { PluginProviderNameSchema } from './provider-runtime-events.schemas';
 
 // ============================================
 // Plugin Manifest Schema
@@ -163,6 +164,15 @@ export type RuntimePluginInstallPayload = z.infer<typeof RuntimePluginInstallPay
 export type RuntimePluginUpdatePayload = z.infer<typeof RuntimePluginUpdatePayloadSchema>;
 export type RuntimePluginUninstallPayload = z.infer<typeof RuntimePluginUninstallPayloadSchema>;
 export type RuntimePluginPrunePayload = z.infer<typeof RuntimePluginPrunePayloadSchema>;
+
+export const RuntimeProviderListPayloadSchema = z.object({
+  workingDirectory: z.string().trim().min(1).max(4096),
+});
+export const RuntimeProviderSendPayloadSchema = RuntimeProviderListPayloadSchema.extend({
+  provider: PluginProviderNameSchema,
+  message: z.string().trim().min(1).max(100000),
+});
+export type RuntimeProviderSendPayload = z.infer<typeof RuntimeProviderSendPayloadSchema>;
 
 // ============================================
 // Project Plugin Trust (Task 9)

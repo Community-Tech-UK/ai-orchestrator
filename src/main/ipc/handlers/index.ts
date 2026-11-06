@@ -25,6 +25,7 @@ export { registerCopilotAccountHandlers } from './copilot-account-handlers';
 export { registerProviderAccountHandlers } from './provider-account-handlers';
 export { registerDebugHandlers } from './debug-handlers';
 export { registerCostHandlers } from './cost-handlers';
+export { registerCostHistoryRestoreHandlers } from './cost-history-restore-handlers';
 export { registerQuotaHandlers } from './quota-handlers';
 export { registerTaskHandlers } from './task-handlers';
 export { registerRepoJobHandlers } from './repo-job-handlers';

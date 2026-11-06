@@ -15,6 +15,7 @@ import { PluginIpcService } from '../../core/services/ipc/plugin-ipc.service';
 import { InstanceStore } from '../../core/state/instance/instance.store';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import type { PluginPackageSource } from '@contracts/schemas/plugin';
+import { RuntimeProviderSessionComponent } from './runtime-provider-session.component';
 
 // ─── Local interfaces ─────────────────────────────────────────────────────────
 
@@ -65,6 +66,7 @@ const TRUST_PRESENTATION: Record<ProjectPluginTrust, { label: string; explanatio
 @Component({
   selector: 'app-plugins-page',
   standalone: true,
+  imports: [RuntimeProviderSessionComponent],
   template: `
     <div class="page">
 
@@ -140,6 +142,8 @@ const TRUST_PRESENTATION: Record<ProjectPluginTrust, { label: string; explanatio
           }
         }
       </section>
+
+      <app-runtime-provider-session />
 
       <section class="panel">
         <div class="section-title">Install a package</div>

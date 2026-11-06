@@ -15,6 +15,21 @@ export function isFixtureProcessAlive(pid: number): boolean {
   }
 }
 
+/**
+ * A PID receipt names exactly one process or names nothing. A writer killed
+ * between creating and filling its receipt leaves empty or partial content;
+ * parsing that as a PID (`Number('')` is 0) must not fail cleanup or an exit
+ * assertion with `Invalid fixture PID` — the receipt cannot name a process to
+ * wait on or kill, and failing the test would kill nothing.
+ */
+function parsePidReceipt(content: string): number | null {
+  const trimmed = content.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const pid = Number(trimmed);
+  if (!Number.isSafeInteger(pid) || pid <= 1 || pid === process.pid) return null;
+  return pid;
+}
+
 async function waitForFixtureExit(pid: number, isAlive: () => boolean, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (isAlive()) {
@@ -61,8 +76,8 @@ export class ProcessFixtureRegistry {
       await waitForCapturedChildExit(child);
     }
     for (const path of this.pidFiles) {
-      const pid = Number((await readFile(path, 'utf8')).trim());
-      if (capturedRootPids.has(pid)) continue;
+      const pid = parsePidReceipt(await readFile(path, 'utf8'));
+      if (pid === null || capturedRootPids.has(pid)) continue;
       await waitForFixtureProcessExit(pid);
     }
   }
@@ -84,10 +99,10 @@ export class ProcessFixtureRegistry {
     }
     for (const path of this.pidFiles) {
       try {
-        const pid = Number((await readFile(path, 'utf8')).trim());
+        const pid = parsePidReceipt(await readFile(path, 'utf8'));
         // Receipts record a historical launch. Never let one override a
         // captured root's exit state or retry a root outside its live handle.
-        if (capturedRootPids.has(pid)) continue;
+        if (pid === null || capturedRootPids.has(pid)) continue;
         if (isFixtureProcessAlive(pid)) {
           process.kill(pid, 'SIGKILL');
           await waitForFixtureProcessExit(pid);

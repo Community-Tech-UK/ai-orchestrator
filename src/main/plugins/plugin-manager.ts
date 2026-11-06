@@ -18,6 +18,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
+import { compileFunction, constants as vmConstants } from 'node:vm';
 import { app } from 'electron';
 import type { InstanceManager } from '../instance/instance-manager';
 import { getMultiVerifyCoordinator } from '../orchestration/multi-verify-coordinator';
@@ -51,6 +52,7 @@ import type {
 import type { PluginManifest } from '@sdk/plugins';
 import { PluginManifestSchema } from '@contracts/schemas/plugin';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
+import type { RegisteredPluginProviderAdapter } from '@sdk/provider-adapter-registry';
 import { getPluginRegistry } from './plugin-registry';
 import { classifyPluginEntrypoint, dedupePluginEntrypoints } from './plugin-entrypoint';
 import { PluginWorkerHost, type PluginWorkerContext, type PluginWorkerRuntime } from './plugin-worker-host';
@@ -78,6 +80,10 @@ import {
 } from './plugin-manager-payloads';
 
 const logger = getLogger('PluginManager');
+// Native import must survive the CommonJS main-process compilation.
+const importModule = compileFunction('return import(specifier)', ['specifier'], {
+  importModuleDynamically: vmConstants.USE_MAIN_CONTEXT_DEFAULT_LOADER,
+}) as (specifier: string) => Promise<{ default?: unknown }>;
 
 /**
  * Reject paths containing '..' segments to prevent directory escape.
@@ -278,6 +284,7 @@ export class OrchestratorPluginManager {
   private static instance: OrchestratorPluginManager | null = null;
 
   private cacheByWorkingDir = new Map<string, CacheEntry>();
+  private readonly providerSessionsByWorkingDir = new Map<string, number>();
   private configLoadedByWorkingDir = new Set<string>();
   private activeToolExecutions = new Map<string, {
     toolName: string;
@@ -402,7 +409,7 @@ export class OrchestratorPluginManager {
 
   private async loadModule(filePath: string): Promise<OrchestratorPluginModule> {
     const moduleUrl = `${pathToFileURL(filePath).href}?t=${Date.now()}`;
-    const mod = await import(moduleUrl);
+    const mod = await importModule(moduleUrl);
     return (mod && (mod.default || mod)) as OrchestratorPluginModule;
   }
 
@@ -453,14 +460,16 @@ export class OrchestratorPluginManager {
 
     const runtime =
       workerRuntime.slot === 'hook'
-        ? workerRuntime.hooks
-        : workerRuntime.slot === 'notifier'
-          ? workerRuntime.notifier
-          : workerRuntime.slot === 'tracker'
-            ? workerRuntime.tracker
+            ? workerRuntime.hooks
+            : workerRuntime.slot === 'notifier'
+              ? workerRuntime.notifier
+            : workerRuntime.slot === 'tracker'
+              ? workerRuntime.tracker
             : workerRuntime.slot === 'telemetry_exporter'
               ? workerRuntime.telemetryExporter
-              : undefined;
+              : workerRuntime.slot === 'provider' && workerRuntime.providerAdapters.length > 0
+                ? workerRuntime.providerAdapters
+                : undefined;
     const ready = workerRuntime.detected && workerRuntime.ready && runtime !== undefined;
     const loadReport: PluginLoadReport = {
       slot: workerRuntime.slot,
@@ -691,7 +700,9 @@ export class OrchestratorPluginManager {
   private async getPlugins(workingDirectory: string, ctx: OrchestratorPluginContext): Promise<LoadedPlugin[]> {
     const cached = this.cacheByWorkingDir.get(workingDirectory);
     const now = Date.now();
-    if (cached && now - cached.loadedAt < CACHE_TTL_MS) return cached.plugins;
+    if (cached && (now - cached.loadedAt < CACHE_TTL_MS || this.providerSessionsByWorkingDir.has(workingDirectory))) {
+      return cached.plugins;
+    }
 
     this.stopCacheWorkers(workingDirectory);
     const { plugins, errors } = await this.loadPluginsForWorkingDirectory(workingDirectory, ctx);
@@ -737,6 +748,7 @@ export class OrchestratorPluginManager {
       slot: PluginSlot;
       loadReport: PluginLoadReport;
       lifecycle: PluginLifecycleState;
+      providerIds: string[];
       health?: PluginRuntimeHealth;
     }[];
     scanDirs: string[];
@@ -756,6 +768,9 @@ export class OrchestratorPluginManager {
           slot: p.slot,
           loadReport: p.loadReport,
           lifecycle: computePluginLifecycle(p.loadReport, health),
+          providerIds: p.slot === 'provider' && p.loadReport.ready && Array.isArray(p.runtime)
+            ? (p.runtime as RegisteredPluginProviderAdapter[]).map((registration) => registration.descriptor.provider)
+            : [],
           ...(health ? { health: toPublicHealth(health) } : {}),
         };
       })
@@ -765,6 +780,18 @@ export class OrchestratorPluginManager {
       scanDirs: this.cacheByWorkingDir.get(workingDirectory)?.scanDirs.slice() || [],
       errors: errors.slice(),
     };
+  }
+
+  /** Passive refresh must not terminate an answering provider. Explicit clears still stop it. */
+  async withProviderSession<T>(workingDirectory: string, operation: () => Promise<T>): Promise<T> {
+    this.providerSessionsByWorkingDir.set(workingDirectory, (this.providerSessionsByWorkingDir.get(workingDirectory) ?? 0) + 1);
+    try {
+      return await operation();
+    } finally {
+      const remaining = this.providerSessionsByWorkingDir.get(workingDirectory)! - 1;
+      if (remaining) this.providerSessionsByWorkingDir.set(workingDirectory, remaining);
+      else this.providerSessionsByWorkingDir.delete(workingDirectory);
+    }
   }
 
   clearCache(workingDirectory?: string): void {

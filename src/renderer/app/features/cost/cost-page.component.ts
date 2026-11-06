@@ -29,6 +29,7 @@ import {
 import type { CodexEphemeralUsageResult } from '../../../../shared/types/codex-ephemeral-usage.types';
 import { CommonModule } from '@angular/common';
 import { CostIpcService } from '../../core/services/ipc/cost-ipc.service';
+import { CostHistoryRestoreComponent } from './cost-history-restore.component';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import { EchartsThemedComponent } from '../../shared/components/echarts-themed/echarts-themed.component';
 import type { EChartsOption } from 'echarts';
@@ -143,7 +144,7 @@ const EMPTY_BUDGET_STATUS: BudgetStatusData = {
 @Component({
   selector: 'app-cost-page',
   standalone: true,
-  imports: [CommonModule, EchartsThemedComponent, AioTooltipDirective],
+  imports: [CommonModule, EchartsThemedComponent, AioTooltipDirective, CostHistoryRestoreComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './cost-page.component.html',
   styleUrl: './cost-page.component.scss',

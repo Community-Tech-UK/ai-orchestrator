@@ -63,6 +63,7 @@ import {
   registerProviderAccountHandlers,
   registerDebugHandlers,
   registerCostHandlers,
+  registerCostHistoryRestoreHandlers,
   registerQuotaHandlers,
   registerTaskHandlers,
   registerRepoJobHandlers,
@@ -126,6 +127,7 @@ import { registerLspFeedback } from '../codemem/lsp-feedback-registration';
 import { registerCircuitBreaker } from '../security/circuit-breaker-registration';
 import { getCostTracker } from '../core/system/cost-tracker';
 import { registerStorageHandlers } from './handlers/storage-handlers';
+import { registerRuntimeProviderSessionHandlers } from './handlers/runtime-provider-session-handlers';
 import { registerGlobalPauseHandlers } from './handlers/global-pause-handlers';
 import { registerWorktreeLeftoverHandlers } from './handlers/worktree-leftover-handlers';
 import { initializeRlmStorageMaintenance } from '../rlm/rlm-storage-maintenance-runtime';
@@ -420,6 +422,12 @@ export class IpcMainHandler {
     // Cost tracking handlers
     registerCostHandlers({ windowManager: this.windowManager });
 
+    // LT-707 cost history restoration — explicit maintenance channels, never
+    // invoked from startup; see cost-entries-a0-restore.ts.
+    registerCostHistoryRestoreHandlers({
+      ensureTrustedSender: this.ensureTrustedSender.bind(this),
+    });
+
     // Provider quota handlers (remaining usage budgets per CLI provider).
     // Probes must be registered BEFORE the handlers so that the first
     // QUOTA_REFRESH IPC call has them available.
@@ -573,6 +581,10 @@ export class IpcMainHandler {
     registerChatHandlers({ instanceManager: this.instanceManager });
     registerOperatorHandlers();
     registerRuntimePluginHandlers();
+    registerRuntimeProviderSessionHandlers({
+      instanceManager: this.instanceManager,
+      ensureTrustedSender: this.ensureTrustedSender.bind(this),
+    });
     registerProjectPluginTrustHandlers();
 
     // Set up event forwarding to renderer

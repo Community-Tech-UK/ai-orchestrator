@@ -6,6 +6,11 @@ import type { CodexEphemeralUsageResult } from '../../../../../shared/types/code
 import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService, IpcResponse } from './electron-ipc.service';
 import type { CostPurposeRange, CostPurposeSummary } from '../../../../../shared/types/cost-purpose.types';
+import type {
+  CostRestoreInspection,
+  CostRestoreRollbackSummary,
+  CostRestoreSummary,
+} from '../../../../../shared/types/cost-history-restore.types';
 
 @Injectable({ providedIn: 'root' })
 export class CostIpcService {
@@ -100,6 +105,28 @@ export class CostIpcService {
   async costGetBudgetStatus(): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.costGetBudgetStatus();
+  }
+
+  // ============================================
+  // LT-707 cost history restoration (maintenance)
+  // ============================================
+
+  /** Read-only totals over the rows the restoration may repair. */
+  async costHistoryRestoreStatus(): Promise<IpcResponse<CostRestoreInspection>> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.costHistoryRestoreStatus();
+  }
+
+  /** Restore affected Claude turn costs from the A0 originals. */
+  async costHistoryRestoreApply(): Promise<IpcResponse<CostRestoreSummary>> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.costHistoryRestoreApply();
+  }
+
+  /** Undo the last restoration from its rollback snapshot. */
+  async costHistoryRestoreRollback(): Promise<IpcResponse<CostRestoreRollbackSummary>> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.costHistoryRestoreRollback();
   }
 
   /**

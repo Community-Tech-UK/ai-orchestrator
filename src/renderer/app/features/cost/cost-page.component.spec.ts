@@ -19,6 +19,7 @@ import { RouterTestingModule } from '@angular/router/testing';
 import { CommonModule } from '@angular/common';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { CostPageComponent, type CostSummaryData, type CostEntry } from './cost-page.component';
+import { CostHistoryRestoreComponent } from './cost-history-restore.component';
 import { CostIpcService } from '../../core/services/ipc/cost-ipc.service';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import type { EChartsOption } from 'echarts';
@@ -120,6 +121,9 @@ function buildMockIpc(
         monthly: { usage: 0.012, limit: 200, percentage: 0.006 },
       },
     }),
+    costHistoryRestoreStatus: vi.fn().mockResolvedValue({ success: true, data: null }),
+    costHistoryRestoreApply: vi.fn().mockResolvedValue({ success: true, data: null }),
+    costHistoryRestoreRollback: vi.fn().mockResolvedValue({ success: true, data: null }),
     costSetBudget: vi.fn().mockResolvedValue({ success: true }),
     onCostUsageRecorded: vi.fn().mockReturnValue(() => { /* noop */ }),
     onCostBudgetWarning: vi.fn().mockReturnValue(() => { /* noop */ }),
@@ -451,7 +455,7 @@ describe('Cost estimate focus hints', () => {
     TestBed.resetTestingModule();
     TestBed.overrideComponent(CostPageComponent, {
       set: {
-        imports: [CommonModule, CostChartStubComponent, AioTooltipDirective],
+        imports: [CommonModule, CostChartStubComponent, AioTooltipDirective, CostHistoryRestoreComponent],
         template: readFileSync(resolve(specDirectory, 'cost-page.component.html'), 'utf8'),
         templateUrl: undefined,
         styles: [],
@@ -462,6 +466,7 @@ describe('Cost estimate focus hints', () => {
     await TestBed.configureTestingModule({
       imports: [CostPageComponent, RouterTestingModule],
       providers: [{ provide: CostIpcService, useValue: buildMockIpc() }],
+      errorOnUnknownElements: true,
     }).compileComponents();
     const fixture = TestBed.createComponent(CostPageComponent);
     const component = fixture.componentInstance;

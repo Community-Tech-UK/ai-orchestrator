@@ -353,32 +353,16 @@ export function runMigrations(
   onMigrationApplied?: (name: string) => void,
   onMigrationsComplete?: (applied: number) => void
 ): void {
-  // Main and the context worker can initialize the same fresh profile together.
-  // Acquire the writer lock before reading migration state so a waiting startup
-  // sees the other startup's committed migrations rather than a stale snapshot.
+  // Current databases need no write lock (and can open behind another writer).
+  if (readPendingMigrations(db).length === 0) return;
+
+  // Main and context workers share this file. Acquire ownership before reading
+  // history again: another owner may have committed after the first discovery.
+  // A deferred BEGIN would allow a stale read snapshot before lock acquisition.
   db.exec('BEGIN IMMEDIATE');
   let appliedCount = 0;
   try {
-    const appliedMigrations = getAppliedMigrations(db);
-    const appliedNames = new Set(appliedMigrations.map(m => m.name));
-
-    // Verify checksums of applied migrations haven't changed
-    for (const applied of appliedMigrations) {
-      const migration = MIGRATIONS.find(m => m.name === applied.name);
-      if (migration) {
-        const expectedChecksum = computeMigrationChecksum(migration);
-        if (applied.checksum !== expectedChecksum) {
-          throw new Error(
-            `Migration checksum mismatch for "${applied.name}". ` +
-            `Expected ${expectedChecksum}, got ${applied.checksum}. ` +
-            `Migration files should not be modified after being applied.`
-          );
-        }
-      }
-    }
-
-    const pendingMigrations = MIGRATIONS.filter(m => !appliedNames.has(m.name));
-
+    const pendingMigrations = readPendingMigrations(db);
     for (const migration of pendingMigrations) {
       try {
         db.exec(migration.up);
@@ -415,6 +399,28 @@ export function runMigrations(
   }
 
   if (appliedCount > 0) onMigrationsComplete?.(appliedCount);
+}
+
+function readPendingMigrations(db: SqliteDriver): Migration[] {
+  const appliedMigrations = getAppliedMigrations(db);
+  const appliedNames = new Set(appliedMigrations.map(m => m.name));
+
+  // Verify checksums of applied migrations haven't changed
+  for (const applied of appliedMigrations) {
+    const migration = MIGRATIONS.find(m => m.name === applied.name);
+    if (migration) {
+      const expectedChecksum = computeMigrationChecksum(migration);
+      if (applied.checksum !== expectedChecksum) {
+        throw new Error(
+          `Migration checksum mismatch for "${applied.name}". ` +
+          `Expected ${expectedChecksum}, got ${applied.checksum}. ` +
+          `Migration files should not be modified after being applied.`
+        );
+      }
+    }
+  }
+
+  return MIGRATIONS.filter(m => !appliedNames.has(m.name));
 }
 
 /**

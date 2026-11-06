@@ -4,6 +4,8 @@
 import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService, IpcResponse } from './electron-ipc.service';
 import type { PluginPackageSource } from '@contracts/schemas/plugin';
+import type { RuntimeProviderSendPayload } from '@contracts/schemas/plugin';
+import type { RuntimeProviderList, RuntimeProviderReply } from '../../../../../shared/types/runtime-provider-session.types';
 
 @Injectable({ providedIn: 'root' })
 export class PluginIpcService {
@@ -16,6 +18,16 @@ export class PluginIpcService {
   // ============================================
   // Runtime Plugin Package Operations
   // ============================================
+
+  async runtimeProviderList(workingDirectory: string): Promise<IpcResponse<RuntimeProviderList>> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.runtimeProviderList(workingDirectory);
+  }
+
+  async runtimeProviderSend(payload: RuntimeProviderSendPayload): Promise<IpcResponse<RuntimeProviderReply>> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.runtimeProviderSend(payload);
+  }
 
   async runtimePluginsList(): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };

@@ -316,4 +316,77 @@ describe('CostTracker persistence (E15)', () => {
     expect(tracker.getEntries()).toHaveLength(1);
     expect(tracker.cleanup(0)).toBe(0);
   });
+
+  it('reloadFromDatabase re-reads rows rewritten behind its back without flushing the stale cache (LT-707)', () => {
+    const tracker = new CostTracker();
+    tracker.setDatabase(db);
+    tracker.recordUsage('inst-1', 'sess-1', 'claude-sonnet-4-6', 100, 50, 0, 0, 0.35);
+    // A maintenance flow (LT-707 restoration) rewrites the stored row directly.
+    db.prepare('UPDATE cost_entries SET cost = ?').run(0.55);
+
+    tracker.reloadFromDatabase();
+    expect(tracker.getSummary().totalCost).toBeCloseTo(0.55, 10);
+    expect(tracker.getEntries()[0].cost).toBeCloseTo(0.55, 10);
+    expect(tracker.getBudgetStatus().monthly.usage).toBeCloseTo(0.55, 10);
+    // Read-only: the stale cached value must not overwrite the repair the way
+    // re-attaching via setDatabase (which flushes first) would.
+    expect(db.prepare('SELECT cost FROM cost_entries').get<{ cost: number }>()?.cost).toBeCloseTo(0.55, 10);
+  });
+
+  it('reloadFromDatabase is a no-op while persistence is not attached', () => {
+    const tracker = new CostTracker();
+    tracker.recordUsage('inst-1', 'sess-1', 'claude-sonnet-4-6', 100, 50, 0, 0, 0.01);
+    tracker.reloadFromDatabase();
+    expect(tracker.getEntries()).toHaveLength(1);
+  });
+
+  it('reloadFromDatabase preserves entries whose write-through failed while refreshing repaired rows (LT-707 follow-up)', () => {
+    const tracker = new CostTracker();
+    tracker.setDatabase(db);
+    const persisted = tracker.recordUsage('inst-1', 'sess-1', 'claude-sonnet-4-6', 100, 50, 0, 0, 0.35);
+    // A failing INSERT (disk error, constraint) leaves the entry as real
+    // recorded spend in memory only — persistEntry retains it.
+    db.exec(`CREATE TRIGGER fail_cost_insert BEFORE INSERT ON cost_entries
+      BEGIN SELECT RAISE(ABORT, 'simulated insert failure'); END`);
+    const memoryOnly = tracker.recordUsage('inst-2', 'sess-2', 'claude-sonnet-4-6', 10, 5, 0, 0, 0.11);
+    db.exec('DROP TRIGGER fail_cost_insert');
+    expect(
+      db.prepare('SELECT COUNT(*) AS n FROM cost_entries WHERE id = ?').get<{ n: number }>(memoryOnly.id)?.n,
+    ).toBe(0);
+
+    // A maintenance flow rewrites the persisted row behind the tracker's back.
+    db.prepare('UPDATE cost_entries SET cost = ? WHERE id = ?').run(0.55, persisted.id);
+    tracker.reloadFromDatabase();
+
+    const entries = tracker.getEntries();
+    expect(entries.map((e) => e.id)).toContain(memoryOnly.id);
+    expect(entries.find((e) => e.id === persisted.id)?.cost).toBeCloseTo(0.55, 10);
+    expect(tracker.getSummary().totalCost).toBeCloseTo(0.55 + 0.11, 10);
+    expect(tracker.getBudgetStatus().monthly.usage).toBeCloseTo(0.55 + 0.11, 10);
+    // Read-only holds in both directions: the reload refreshes the repaired
+    // row without flushing anything over it, and never persists the
+    // memory-only entry behind the user's back.
+    expect(db.prepare('SELECT COUNT(*) AS n FROM cost_entries').get<{ n: number }>()?.n).toBe(1);
+    expect(db.prepare('SELECT cost FROM cost_entries WHERE id = ?').get<{ cost: number }>(persisted.id)?.cost)
+      .toBeCloseTo(0.55, 10);
+  });
+
+  it('reloadFromDatabase carries memory-only entries across multiple reloads and keeps chronological order', () => {
+    const tracker = new CostTracker();
+    tracker.setDatabase(db);
+    tracker.recordUsage('inst-1', 'sess-1', 'claude-sonnet-4-6', 100, 50, 0, 0, 0.2);
+    db.exec(`CREATE TRIGGER fail_cost_insert BEFORE INSERT ON cost_entries
+      BEGIN SELECT RAISE(ABORT, 'simulated insert failure'); END`);
+    tracker.recordUsage('inst-2', 'sess-2', 'claude-sonnet-4-6', 10, 5, 0, 0, 0.05);
+    tracker.recordUsage('inst-3', 'sess-3', 'claude-sonnet-4-6', 10, 5, 0, 0, 0.07);
+    db.exec('DROP TRIGGER fail_cost_insert');
+
+    tracker.reloadFromDatabase();
+    tracker.reloadFromDatabase();
+
+    const entries = tracker.getEntries();
+    expect(entries.map((e) => e.instanceId)).toEqual(['inst-1', 'inst-2', 'inst-3']);
+    expect(tracker.getSummary().totalCost).toBeCloseTo(0.32, 10);
+    expect(tracker.getSummary().requestCount).toBe(3);
+  });
 });

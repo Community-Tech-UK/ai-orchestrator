@@ -153,6 +153,15 @@ const DEFAULT_BUDGET: BudgetConfig = {
  */
 export class CostTracker extends EventEmitter {
   private entries: CostEntry[] = [];
+  /**
+   * Ids of entries whose write-through to the persistence table has not
+   * succeeded — either the INSERT failed (the entry is retained in
+   * {@link entries} as real recorded spend) or persistence was not attached
+   * yet. These entries live in memory only, and rehydration must carry them
+   * across instead of erasing them: a maintenance reload (LT-707 restore/
+   * undo) that dropped them would silently lose recorded costs.
+   */
+  private unpersistedIds = new Set<string>();
   private budget: BudgetConfig = { ...DEFAULT_BUDGET };
   private alertedThresholds = new Set<string>();
   private maxEntries = 10000;
@@ -191,7 +200,31 @@ export class CostTracker extends EventEmitter {
     }
   }
 
-  /** Rehydrate the in-memory window from the most recent persisted rows. */
+  /**
+   * Re-read the in-memory window from persistence without writing anything.
+   *
+   * Maintenance flows (LT-707 cost history restoration) rewrite stored rows
+   * directly; once one has run, the cached window must be discarded and
+   * reloaded or summaries, history and budgets keep serving the pre-repair
+   * values until the next restart. Unlike {@link setDatabase} this never
+   * flushes cached entries back into the database — reattaching the database
+   * would overwrite the repaired rows with the stale cache. Entries whose
+   * write-through failed are real recorded spend that lives only in memory;
+   * the reload preserves them (and never persists them — this stays read-only)
+   * rather than erasing them along with the stale cache. No-op while
+   * persistence is not attached.
+   */
+  reloadFromDatabase(): void {
+    if (!this.db) return;
+    this.loadFromDb();
+    logger.info('CostTracker reloaded from persistence', { loaded: this.entries.length });
+  }
+
+  /**
+   * Rehydrate the in-memory window from the most recent persisted rows,
+   * carrying memory-only entries (see {@link unpersistedIds}) across the
+   * refresh in chronological order.
+   */
   private loadFromDb(): void {
     if (!this.db) return;
     const rows = this.db
@@ -204,7 +237,24 @@ export class CostTracker extends EventEmitter {
       .all<CostEntryRow>(this.maxEntries);
     // Rows came back newest-first; reverse so the array stays chronological
     // (matching push-on-record order).
-    this.entries = rows.reverse().map(rowToEntry);
+    const persisted = rows.reverse().map(rowToEntry);
+    const persistedIds = new Set(persisted.map((entry) => entry.id));
+    // Preserve entries that never reached the database (failed write-throughs
+    // or records made before persistence attached): they are real recorded
+    // spend and are typically the newest entries, so dropping them would
+    // under-report live cost surfaces until the next restart.
+    const memoryOnly = this.entries.filter(
+      (entry) => this.unpersistedIds.has(entry.id) && !persistedIds.has(entry.id),
+    );
+    const merged = [...persisted, ...memoryOnly].sort((a, b) => a.timestamp - b.timestamp);
+    this.entries = merged.length > this.maxEntries ? merged.slice(-this.maxEntries) : merged;
+    // Keep the flag set consistent with the window and with what actually
+    // reached the database (a later successful write clears the flag).
+    this.unpersistedIds = new Set(
+      this.entries
+        .filter((entry) => this.unpersistedIds.has(entry.id) && !persistedIds.has(entry.id))
+        .map((entry) => entry.id),
+    );
     const modelRows = this.db.prepare(`SELECT * FROM cost_entry_model_usage WHERE entry_id IN
       (SELECT id FROM cost_entries ORDER BY timestamp DESC LIMIT ?) ORDER BY model`).all<{
         entry_id: string; model: string; input_tokens: number; output_tokens: number;
@@ -221,9 +271,16 @@ export class CostTracker extends EventEmitter {
     for (const entry of this.entries) if (byEntry.has(entry.id)) entry.byModel = byEntry.get(entry.id);
   }
 
-  /** Best-effort write-through of a single entry to the persistence table. */
+  /**
+   * Best-effort write-through of a single entry to the persistence table.
+   * A failure keeps the entry in the in-memory window and flags it as
+   * memory-only so rehydration never discards it.
+   */
   private persistEntry(entry: CostEntry): void {
-    if (!this.insertStmt) return;
+    if (!this.insertStmt) {
+      this.unpersistedIds.add(entry.id);
+      return;
+    }
     try {
       const persist = (): void => {
         this.insertStmt!.run(
@@ -250,7 +307,9 @@ export class CostTracker extends EventEmitter {
         }
       };
       if (this.db) this.db.transaction(persist)(); else persist();
+      this.unpersistedIds.delete(entry.id);
     } catch (err) {
+      this.unpersistedIds.add(entry.id);
       logger.warn('Failed to persist cost entry', { error: String(err) });
     }
   }
@@ -341,7 +400,9 @@ export class CostTracker extends EventEmitter {
     // Prune old entries if needed (in-memory window only; the DB keeps history
     // until an explicit clearEntries()/cleanup()).
     if (this.entries.length > this.maxEntries) {
+      const dropped = this.entries.slice(0, this.entries.length - this.maxEntries);
       this.entries = this.entries.slice(-this.maxEntries);
+      for (const entry of dropped) this.unpersistedIds.delete(entry.id);
     }
 
     // Write-through to the persistence table so history survives a restart.
@@ -577,6 +638,7 @@ export class CostTracker extends EventEmitter {
    */
   clearEntries(): void {
     this.entries = [];
+    this.unpersistedIds.clear();
     this.alertedThresholds.clear();
     if (this.db) {
       try {
@@ -599,6 +661,8 @@ export class CostTracker extends EventEmitter {
   cleanup(olderThanMs: number): number {
     const cutoff = Date.now() - olderThanMs;
     this.entries = this.entries.filter((e) => e.timestamp >= cutoff);
+    const keptIds = new Set(this.entries.map((e) => e.id));
+    this.unpersistedIds = new Set([...this.unpersistedIds].filter((id) => keptIds.has(id)));
     if (!this.db) return 0;
     try {
       const result = this.db.transaction(() => {

@@ -27,6 +27,7 @@ import { createProviderDomain } from './domains/provider.preload';
 import { createCopilotAccountDomain } from './domains/copilot-account.preload';
 import { createProviderAccountDomain } from './domains/provider-account.preload';
 import { createInfrastructureDomain } from './domains/infrastructure.preload';
+import { createCostHistoryRestoreDomain } from './domains/cost-history-restore.preload';
 import { createCommunicationDomain } from './domains/communication.preload';
 import { createLearningDomain } from './domains/learning.preload';
 import { createWorkspaceDomain } from './domains/workspace.preload';
@@ -84,6 +85,7 @@ const electronAPI = {
   ...createCopilotAccountDomain(ipcRenderer, IPC_CHANNELS, withAuth),
   ...createProviderAccountDomain(ipcRenderer, IPC_CHANNELS, withAuth),
   ...createInfrastructureDomain(ipcRenderer, IPC_CHANNELS, withAuth),
+  ...createCostHistoryRestoreDomain(ipcRenderer, IPC_CHANNELS),
   ...createCommunicationDomain(ipcRenderer, IPC_CHANNELS),
   ...createLearningDomain(ipcRenderer, IPC_CHANNELS),
   ...createWorkspaceDomain(ipcRenderer, IPC_CHANNELS),

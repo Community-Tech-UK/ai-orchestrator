@@ -75,6 +75,49 @@ it.each(['exitCode', 'signalCode'] as const)(
   }, 10_000,
 );
 
+it.each([
+  ['an empty receipt left by a writer killed mid-write', ''],
+  ['a whitespace-only receipt', ' \n'],
+  ['a non-numeric receipt', 'not-a-pid'],
+  ['a truncated receipt', '12x'],
+  ['a receipt below the valid PID range', '0'],
+])('tolerates %s instead of failing fixture cleanup', async (_label, content) => {
+  const dir = await mkdtemp(join(tmpdir(), 'aio-fixture-corrupt-receipt-'));
+  const pidFile = join(dir, 'child.pid');
+  const fixtures = new ProcessFixtureRegistry();
+  fixtures.trackPidFile(pidFile);
+  try {
+    await writeFile(pidFile, content);
+    await expect(fixtures.waitForExit()).resolves.toBeUndefined();
+    await expect(fixtures.cleanup()).resolves.toBeUndefined();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+it('still kills a live process named by a valid receipt', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'aio-fixture-valid-receipt-'));
+  const pidFile = join(dir, 'descendant.pid');
+  const fixtures = new ProcessFixtureRegistry();
+  fixtures.trackPidFile(pidFile);
+  let child: ChildProcess | undefined;
+  try {
+    child = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore' });
+    await once(child, 'spawn');
+    await writeFile(pidFile, String(child.pid));
+    expect(isFixtureProcessAlive(child.pid!)).toBe(true);
+
+    await fixtures.cleanup();
+    await waitForFixtureProcessExit(child.pid!);
+  } finally {
+    if (child?.pid && child.exitCode === null && child.signalCode === null) {
+      child.kill('SIGKILL');
+      await waitForFixtureProcessExit(child.pid);
+    }
+    await rm(dir, { recursive: true, force: true });
+  }
+}, 10_000);
+
 it('captures a real launch through a previously imported spawn before PID-file receipt', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'aio-fixture-bound-spawn-'));
   const pidFile = join(dir, 'child.pid');

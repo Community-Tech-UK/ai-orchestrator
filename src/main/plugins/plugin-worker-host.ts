@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { compileFunction, constants as vmConstants } from 'node:vm';
 import type { WorkerPluginModule } from './plugin-worker-module';
 import {
   Worker,
@@ -34,6 +35,14 @@ import type {
 } from '../../shared/types/plugin.types';
 
 const DEFAULT_WORKER_RPC_TIMEOUT_MS = 5_000;
+// Model replies can take minutes. Bound inactivity, rather than total turn time.
+export const PROVIDER_RESPONSE_IDLE_TIMEOUT_MS = 5 * 60_000;
+
+// Keep native import intact in the CommonJS main build. TypeScript otherwise
+// rewrites import(fileURL) to require(fileURL), which cannot load a file URL.
+const importModule = compileFunction('return import(specifier)', ['specifier'], {
+  importModuleDynamically: vmConstants.USE_MAIN_CONTEXT_DEFAULT_LOADER,
+}) as <T>(specifier: string) => Promise<T>;
 
 export interface PluginWorkerContext {
   appPath: string;
@@ -101,6 +110,7 @@ interface PendingRpc {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   timeout: NodeJS.Timeout;
+  respondingAdapterId?: string;
 }
 
 type HostProviderAdapterApi = ProviderAdapterPluginApi & {
@@ -148,16 +158,13 @@ type ProviderAdapterBridgeModule = typeof import('@sdk/provider-adapter-worker-b
 let providerAdapterBridgeModulePromise: Promise<ProviderAdapterBridgeModule> | null = null;
 
 function resolveProviderAdapterBridgeEntrypoint(): string {
-  const relativeParts = ['..', '..', '..', 'packages', 'sdk', 'src', 'provider-adapter-worker-bridge'];
-  const jsEntrypoint = path.join(__dirname, ...relativeParts) + '.js';
-  if (existsSync(jsEntrypoint)) {
-    return jsEntrypoint;
-  }
-  return path.join(__dirname, ...relativeParts) + '.ts';
+  const source = path.extname(__filename) === '.ts';
+  const root = source ? path.join(__dirname, '..', '..', '..') : path.join(__dirname, '..', '..');
+  return path.join(root, 'packages', 'sdk', 'src', `provider-adapter-worker-bridge.${source ? 'ts' : 'js'}`);
 }
 
 function loadProviderAdapterBridgeModule(entrypoint = resolveProviderAdapterBridgeEntrypoint()): Promise<ProviderAdapterBridgeModule> {
-  providerAdapterBridgeModulePromise ??= import(
+  providerAdapterBridgeModulePromise ??= importModule(
     pathToFileURL(entrypoint).href
   ) as Promise<ProviderAdapterBridgeModule>;
   return providerAdapterBridgeModulePromise;
@@ -178,7 +185,7 @@ function resolveWorkerHelperEntrypoint(): string {
 }
 
 function loadWorkerHelperModule(entrypoint: string): Promise<WorkerHelperModule> {
-  workerHelperModulePromise ??= import(
+  workerHelperModulePromise ??= importModule(
     pathToFileURL(entrypoint).href
   ) as Promise<WorkerHelperModule>;
   return workerHelperModulePromise;
@@ -451,12 +458,15 @@ export class PluginWorkerHost {
     };
   }
 
-  private postOperation<T = void>(operation: PluginWorkerOperation, timeoutMs = this.rpcTimeoutMs): Promise<T> {
+  private postOperation<T = void>(operation: PluginWorkerOperation): Promise<T> {
     if (!this.worker) {
       return Promise.reject(new Error('Plugin worker is not running'));
     }
 
     const id = ++this.nextRpcId;
+    const respondingAdapterId = operation.kind === 'provider_adapter' && operation.operation.method === 'sendMessage'
+      ? operation.operation.adapterId : undefined;
+    const timeoutMs = respondingAdapterId ? PROVIDER_RESPONSE_IDLE_TIMEOUT_MS : this.rpcTimeoutMs;
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pending.delete(id);
@@ -466,6 +476,7 @@ export class PluginWorkerHost {
         resolve: (value) => resolve(value as T),
         reject,
         timeout,
+        respondingAdapterId,
       });
       this.worker!.postMessage({ type: 'invoke', id, operation } satisfies PluginWorkerInboundMessage);
     });
@@ -473,6 +484,9 @@ export class PluginWorkerHost {
 
   private handleMessage(message: PluginWorkerOutboundMessage): void {
     if (message.type === 'provider-event') {
+      for (const pending of this.pending.values()) {
+        if (pending.respondingAdapterId === message.adapterId) pending.timeout.refresh();
+      }
       const sinks = this.providerEventSinks.get(message.adapterId);
       if (!sinks) {
         return;
@@ -528,7 +542,7 @@ function buildWorkerRuntimeContext(context: PluginWorkerContext): WorkerRuntimeC
 
 async function loadModule(filePath: string): Promise<WorkerPluginModule> {
   const moduleUrl = `${pathToFileURL(filePath).href}?t=${Date.now()}`;
-  const mod = await import(moduleUrl);
+  const mod = await importModule<{ default?: unknown }>(moduleUrl);
   return (mod && (mod.default || mod)) as WorkerPluginModule;
 }
 
@@ -578,6 +592,9 @@ async function startWorkerRuntime(data: PluginWorkerData): Promise<void> {
     throw new Error(validationError);
   }
   workerProviderAdapterRuntime.assertFactoriesAvailable();
+  if (workerSlot === 'provider' && workerProviderAdapterRuntime.listRegistrations().length === 0) {
+    throw new Error('Provider plugins must register at least one provider adapter');
+  }
 
   parentPort!.postMessage({
     type: 'ready',
