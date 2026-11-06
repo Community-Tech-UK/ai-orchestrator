@@ -22,6 +22,7 @@ import { BrowserTargetPersistenceSentinel } from './browser-target-persistence-s
 import { BrowserTargetRegistry } from './browser-target-registry';
 import { BrowserToolRevealStore } from './browser-tool-reveal-store';
 import { BrowserWriteJournal } from './browser-write-journal';
+import { runAssertPersisted } from './browser-assert-persisted-operation';
 import { McpServer } from '../mcp/mcp-server';
 
 type PageState = 'healthy' | 'disconnected_banner' | 'save_failing';
@@ -43,7 +44,7 @@ describe('browser-gateway reconnect-mid-flow reliability', () => {
     McpServer._resetForTesting();
   });
 
-  it('fails loud on a stale session, journals exactly what persisted, and resumes after recovery', async () => {
+  it.each(['bare', 'extension-json'] as const)('fails loud on a stale session, journals exactly what persisted, and resumes after recovery (%s)', async (wireFormat) => {
     let now = 10_000;
     let pageState: PageState = 'healthy';
     const events = new BrowserReliabilityEvents(() => now);
@@ -62,13 +63,12 @@ describe('browser-gateway reconnect-mid-flow reliability', () => {
     // page's own banners.
     const extensionSendCommand = vi.fn(async (request: { command: string }) => {
       if (request.command === 'evaluate') {
-        if (pageState === 'disconnected_banner') {
-          return { s: 'session_stale', m: 'you got disconnected' };
-        }
-        if (pageState === 'save_failing') {
-          return { s: 'save_failed', m: 'changes failed to save' };
-        }
-        return { s: 'ok' };
+        const scan = pageState === 'disconnected_banner'
+          ? { s: 'session_stale', m: 'you got disconnected' }
+          : pageState === 'save_failing'
+            ? { s: 'save_failed', m: 'changes failed to save' }
+            : { s: 'ok' };
+        return wireFormat === 'bare' ? scan : { type: 'object', json: JSON.stringify(scan) };
       }
       return { ok: true };
     });
@@ -138,6 +138,13 @@ describe('browser-gateway reconnect-mid-flow reliability', () => {
     pageState = 'save_failing';
     await expect(ops.sendCommand(survivor!, 'type', { selector: '#headline-3', value: 'Free Site Visits' }))
       .rejects.toThrow(/^browser_target_save_rejected/);
+
+    const persisted = await runAssertPersisted({
+      scan: () => sentinel.scan(survivor!, extensionSendCommand),
+      readControl: async () => ({ value: 'Free Site Visits' }),
+    }, [{ selector: '#headline-3', value: 'Free Site Visits' }]);
+    expect(persisted).toMatchObject({ persisted: false, signalState: 'save_failed',
+      matchedPattern: 'changes failed to save', mismatches: [] });
 
     // Recovery again (reload); the step is re-entered deliberately.
     pageState = 'healthy';

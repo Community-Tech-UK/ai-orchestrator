@@ -69,8 +69,7 @@ describe('BrowserTargetPersistenceSentinel', () => {
     expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({
       command: 'evaluate',
       queueKey: expect.stringContaining('node-1'),
-      // Read-only: the extension runs it without a pop-up watch.
-      payload: expect.objectContaining({ awaitPromise: false, internalScan: true }),
+      payload: expect.objectContaining({ awaitPromise: false }),
     }));
     expect(sentinel.needsPreWriteCheck(attachment, 50)).toBe(false);
     expect(sentinel.needsPreWriteCheck(attachment, 150)).toBe(true);
@@ -110,6 +109,29 @@ describe('BrowserTargetPersistenceSentinel', () => {
     );
     expect(scan.state).toBe('session_stale');
     expect(scan.matchedPattern).toBe('session expired');
+  });
+
+  it.each(['ok', 'session_stale', 'save_failed'] as const)(
+    'recognizes %s from the real extension evaluate JSON envelope', async (state) => {
+      const sentinel = new BrowserTargetPersistenceSentinel({ now: () => 100 });
+      const scan = await sentinel.scan(makeAttachment(), vi.fn().mockResolvedValue({
+        type: 'object', json: JSON.stringify({ s: state, m: 'session expired' }),
+      }));
+      expect(scan).toEqual(state === 'ok'
+        ? { state, checkedAt: 100 }
+        : { state, checkedAt: 100, matchedPattern: 'session expired' });
+      expect(sentinel.needsPreWriteCheck(makeAttachment(), 90)).toBe(state !== 'ok');
+    },
+  );
+
+  it.each([
+    { type: 'object', json: 'not JSON' },
+    { type: 'object', json: '{"s":"ok"}', truncated: true },
+  ])('keeps malformed or truncated extension scan data unknown: %j', async (raw) => {
+    const sentinel = new BrowserTargetPersistenceSentinel({ now: () => 100 });
+    expect(await sentinel.scan(makeAttachment(), vi.fn().mockResolvedValue(raw)))
+      .toEqual({ state: 'unknown', checkedAt: 100 });
+    expect(sentinel.needsPreWriteCheck(makeAttachment(), 90)).toBe(true);
   });
 
   it('degrades to unknown on scan failure and unparseable results', async () => {
