@@ -173,7 +173,7 @@ export class RuntimeReconciler {
           emitSystemNotice: this.deps.emitSystemNotice.bind(this.deps),
           queueUpdate: this.deps.queueUpdate.bind(this.deps),
           emitRuntimeChanged: this.deps.emitRuntimeChanged.bind(this.deps),
-        })) return instance;
+        })) return;
       const isProviderSwap = diff.providerChanged;
       const targetProvider = desired.provider as SwapTargetProvider;
       const settingsAll = this.deps.getSettings();
