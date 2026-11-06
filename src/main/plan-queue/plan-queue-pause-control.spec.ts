@@ -333,6 +333,8 @@ describe('Plan Queue pause controls in the coordinator', () => {
     expect(store.getRun(run.id)?.status).toBe('cancelled');
   });
 
+  // The real hook, rollback and resume run several serial Git commands and
+  // can exceed five seconds on a busy host.
   it('holds a landing refused by a real hook while paused and keeps the repair instruction for Resume', async () => {
     writeFileSync(join(item.worktreePath!, 'feature.txt'), 'ready to land\n');
     git(['add', 'feature.txt'], item.worktreePath!);
@@ -360,7 +362,7 @@ describe('Plan Queue pause controls in the coordinator', () => {
     expect(instances.created).toHaveLength(1);
     expect(instances.created[0].initialPrompt).toContain('Landing gate refused');
     expect(store.getItem(item.id)).toMatchObject({ state: 'working', heldAt: null, pendingInstruction: null, parkReason: null });
-  });
+  }, 30_000);
 
   it('pauses one run independently and supports Pause all / Resume all', async () => {
     store.upsertRun({ ...run, id: 'other', startedAt: 2 });
@@ -430,18 +432,22 @@ async function startPendingTriage() {
   store.upsertItem(newPlanQueueItem('triage-item', run.id, documentPath, 2));
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
+  let markStarted!: () => void;
+  const started = new Promise<void>(resolve => { markStarted = resolve; });
   const create = instances.createInstance.bind(instances);
   let lateId: string | undefined;
   vi.spyOn(instances, 'createInstance').mockImplementation(async config => {
     const created = await create(config);
     if (config.metadata?.['planQueueRole'] === 'triage' && !lateId) {
       lateId = created.id;
+      markStarted();
       await gate;
     }
     return created;
   });
   coordinator.requestPump();
-  await vi.waitFor(() => expect(lateId).toBeDefined());
+  await started;
+  expect(lateId).toBeDefined();
   return { release, id: lateId! };
 }
 
@@ -577,6 +583,8 @@ it.each(['worker', 'verifier'] as const)('retains and stops a late %s before che
   store.upsertItem({ ...item, state: role === 'worker' ? 'queued' : 'awaiting-slot', workerInstanceId: null });
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
+  let markStarted!: () => void;
+  const started = new Promise<void>(resolve => { markStarted = resolve; });
   const create = instances.createInstance.bind(instances);
   let lateId: string | undefined;
   vi.spyOn(instances, 'createInstance').mockImplementation(async config => {
@@ -584,12 +592,14 @@ it.each(['worker', 'verifier'] as const)('retains and stops a late %s before che
     if (config.metadata?.['planQueueRole'] === role && !lateId) {
       lateId = created.id;
       writeFileSync(join(item.worktreePath!, 'feature.txt'), 'late writer edit\n');
+      markStarted();
       await gate;
     }
     return created;
   });
   coordinator.requestPump();
-  await vi.waitFor(() => expect(lateId).toBeDefined());
+  await started;
+  expect(lateId).toBeDefined();
   instances.terminateInstance.mockImplementation(async id => {
     if (id === lateId) throw new Error('late writer stop failed');
     instances.live.delete(id);
@@ -623,6 +633,8 @@ it.each(['worker', 'verifier'] as const)('keeps normal Close all semantics for a
   store.upsertItem({ ...item, state: role === 'worker' ? 'queued' : 'awaiting-slot', workerInstanceId: null });
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
+  let markStarted!: () => void;
+  const started = new Promise<void>(resolve => { markStarted = resolve; });
   const create = instances.createInstance.bind(instances);
   let lateId: string | undefined;
   vi.spyOn(instances, 'createInstance').mockImplementation(async config => {
@@ -630,12 +642,14 @@ it.each(['worker', 'verifier'] as const)('keeps normal Close all semantics for a
     if (!lateId && config.metadata?.['planQueueRole'] === role) {
       lateId = created.id;
       writeFileSync(join(item.worktreePath!, 'feature.txt'), 'interrupted edit\n');
+      markStarted();
       await gate;
     }
     return created;
   });
   coordinator.requestPump();
-  await vi.waitFor(() => expect(lateId).toBeDefined());
+  await started;
+  expect(lateId).toBeDefined();
   const pausing = coordinator.control({ action: 'pause', runId: run.id });
   await vi.waitFor(() => expect(store.getRun(run.id)?.status).toBe('paused'));
   coordinator.noteUserClosing([], 'all');
@@ -743,6 +757,7 @@ describe('reopened worker startup outcome races', () => {
     await ready;
     await coordinator._whenSettledForTesting();
     expect(store.getItem(item.id)).toMatchObject({ state: 'parked', parkReason: 'worker-error' });
+    expect(store.getItem(item.id)?.detail).toContain('initial prompt delivery failed');
     expect(instances.created).toHaveLength(1);
   });
   it('honours Close one while reopened readiness is unresolved', async () => {

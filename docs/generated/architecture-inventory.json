@@ -7360,6 +7360,10 @@
       "lines": 845
     },
     {
+      "path": "src/main/plan-queue/plan-queue-pause-control.spec.ts",
+      "lines": 845
+    },
+    {
       "path": "docs/superpowers/specs/2026-04-05-bash-validation-pipeline-design_completed.md",
       "lines": 844
     },
@@ -7410,10 +7414,6 @@
     {
       "path": "docs/plans/2026-07-30-sibling-audit-round2_plan_completed.md",
       "lines": 833
-    },
-    {
-      "path": "src/main/plan-queue/plan-queue-pause-control.spec.ts",
-      "lines": 830
     },
     {
       "path": "docs/AIO_MCP_CLI.md",
