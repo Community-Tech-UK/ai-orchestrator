@@ -521,6 +521,17 @@ describe('AutomationsPageComponent row actions', () => {
     expect(store.update).toHaveBeenCalledWith('automation-1', expect.objectContaining({ action: expect.objectContaining({ maxRunMinutes: 120, maxProcessedTokens: 50_000_000, slowWhenUnchanged: true }) }));
   });
 
+  it('refuses to save run limits outside the allowed range', async () => {
+    const component = fixture.componentInstance;
+    component.select(automations()[0]); component.editSelected();
+    for (const limits of [{ maxRunMinutes: 0 }, { maxRunMinutes: 1.5 }, { maxProcessedTokens: 0 }, { maxProcessedTokens: 2_000_000_000 }]) {
+      component.patchForm({ maxRunMinutes: 120, maxProcessedTokens: 50_000_000, ...limits });
+      expect(component.canSave()).toBe(false);
+      await component.save();
+    }
+    expect(store.update).not.toHaveBeenCalled();
+  });
+
   it('defaults new manual checks to Sonnet low and preserves a deliberate human model choice', () => {
     const component = fixture.componentInstance;
     component.startCreate(); component.patchForm({ name: 'Server monitor', prompt: 'Check server health' });

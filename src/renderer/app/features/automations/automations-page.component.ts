@@ -543,6 +543,7 @@ export class AutomationsPageComponent {
   }
 
   async save(): Promise<void> {
+    if (!this.canSave()) return;
     const model = this.form();
     this.closeOverlay();
 
@@ -605,8 +606,17 @@ export class AutomationsPageComponent {
     // fails the run with the WS6 policy error only when there is none at all.
     if (model.triggerKind === 'webhook' && !model.webhookRouteId.trim()) return false;
     return Boolean(model.name.trim() && model.workingDirectory.trim() && model.prompt.trim() && !this.store.preflightLoading()
-      && Number.isInteger(model.maxRunMinutes) && model.maxRunMinutes >= 1
-      && Number.isInteger(model.maxProcessedTokens) && model.maxProcessedTokens >= 1 && model.maxProcessedTokens <= 1_000_000_000);
+      && this.validRunMinutes() && this.validTokenLimit());
+  }
+
+  validRunMinutes(): boolean {
+    const minutes = this.form().maxRunMinutes;
+    return Number.isInteger(minutes) && minutes >= 1;
+  }
+
+  validTokenLimit(): boolean {
+    const tokens = this.form().maxProcessedTokens;
+    return Number.isInteger(tokens) && tokens >= 1 && tokens <= 1_000_000_000;
   }
 
   canRunPreflight(): boolean {

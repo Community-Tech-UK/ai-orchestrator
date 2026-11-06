@@ -2290,5 +2290,11 @@
     "owner": "src/renderer/app/features/instance-list/instance-list.component.ts",
     "text": "Hides this session from the project list. The conversation is kept in Archive.",
     "why": "consequence"
+  },
+  {
+    "id": "cc41c19a5c7c186c",
+    "owner": "src/renderer/app/features/automations/automations-page.component.ts",
+    "text": "Enter a whole token limit from 1 to 1,000,000,000",
+    "why": "long"
   }
 ]

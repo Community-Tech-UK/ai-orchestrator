@@ -540,7 +540,7 @@
                 }
 
                 <div class="actions">
-                  <button class="btn btn--primary" type="submit" [disabled]="store.preflightLoading()" [appTooltipDisabledReason]="!form().name.trim() ? 'Enter an automation name first' : !form().workingDirectory.trim() ? tooltipChooseFolder : !form().prompt.trim() ? tooltipEnterPrompt : form().triggerKind === 'webhook' && !form().webhookRouteId.trim() ? 'Select a webhook route first' : null">Save</button>
+                  <button class="btn btn--primary" type="submit" [disabled]="store.preflightLoading()" [appTooltipDisabledReason]="!form().name.trim() ? 'Enter an automation name first' : !form().workingDirectory.trim() ? tooltipChooseFolder : !form().prompt.trim() ? tooltipEnterPrompt : form().triggerKind === 'webhook' && !form().webhookRouteId.trim() ? 'Select a webhook route first' : !validRunMinutes() ? 'Enter whole minutes, 1 or more' : !validTokenLimit() ? 'Enter a whole token limit from 1 to 1,000,000,000' : null">Save</button>
                   <button class="btn" type="button" (click)="closeOverlay()">Cancel</button>
                 </div>
               </form>
