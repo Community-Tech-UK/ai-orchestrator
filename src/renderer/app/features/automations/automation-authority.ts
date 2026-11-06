@@ -184,7 +184,7 @@ function mayAccessCard(input: AutomationAuthorityInput): AutomationAuthorityCard
   }
   if (input.forceNodeId) {
     statements.push({
-      statement: `Only runs on the pinned worker node "${input.forceNodeId}" — it will not fall back to any other machine.`,
+      statement: `Only runs on the pinned computer "${input.forceNodeId}". It will not fall back to any other computer.`,
       enforcement: 'technical',
       source: 'action.forceNodeId',
     });

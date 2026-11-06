@@ -154,6 +154,75 @@ describe('attachInvocationActivity', () => {
     });
   });
 
+  describe('tool_result success follows the per-kind failure rule (U1 step 5)', () => {
+    function runCommand(resultMetadata: Record<string, unknown>, content = 'out'): {
+      success: boolean | undefined;
+      activityDetail: Record<string, unknown> | undefined;
+    } {
+      const emitter = new EventEmitter();
+      const capture = createLoopInvocationCapture({ workspaceDir: '/workspace/project' });
+      const activities: { kind: string; detail?: Record<string, unknown> }[] = [];
+      const detach = attachInvocationActivity(emitter as unknown as CliAdapter, (activity) => {
+        activities.push(activity);
+        capture.recordActivity(activity);
+      });
+      emitter.emit('output', {
+        type: 'tool_use',
+        content: 'Running command',
+        metadata: { id: 'cmd-1', name: 'Bash', input: { command: 'npm test' } },
+      });
+      emitter.emit('output', {
+        type: 'tool_result',
+        content,
+        metadata: { id: 'cmd-1', name: 'Bash', ...resultMetadata },
+      });
+      detach();
+      return {
+        success: capture.finalize().toolCalls[0]?.success,
+        activityDetail: activities.find((activity) => activity.kind === 'tool_result')?.detail,
+      };
+    }
+
+    it('keeps a command that ran and exited non-zero neutral: the loop is not told it failed', () => {
+      const { success, activityDetail } = runCommand({ is_error: false, exitCode: 1, isCheck: false, checkFailed: false });
+      expect(success).toBe(true);
+      expect(activityDetail).toMatchObject({ success: true, exitCode: 1 });
+    });
+
+    it('still fails a real failing check, so a red test run is not reported as a success', () => {
+      const { success, activityDetail } = runCommand({ is_error: false, exitCode: 1, isCheck: true, checkFailed: true }, '2 failed');
+      expect(success).toBe(false);
+      expect(activityDetail).toMatchObject({ success: false, exitCode: 1, checkFailed: true });
+    });
+
+    it('fails a check recorded with only its exit status and check flag', () => {
+      expect(runCommand({ exitCode: 2, isCheck: true }).success).toBe(false);
+    });
+
+    it('fails a command that could not run', () => {
+      expect(runCommand({ is_error: true, status: 'declined' }).success).toBe(false);
+    });
+
+    it('fails a result whose message carries the error flag at the top level', () => {
+      const emitter = new EventEmitter();
+      const sink = vi.fn();
+      const detach = attachInvocationActivity(emitter as unknown as CliAdapter, sink);
+      emitter.emit('output', { type: 'tool_result', content: 'boom', is_error: true, metadata: { id: 'x', name: 'Bash' } });
+      detach();
+      expect(sink.mock.calls[0][0]).toMatchObject({ kind: 'tool_result', detail: { success: false } });
+    });
+
+    it('fails an edit only on its error flag', () => {
+      const emitter = new EventEmitter();
+      const sink = vi.fn();
+      const detach = attachInvocationActivity(emitter as unknown as CliAdapter, sink);
+      emitter.emit('output', { type: 'tool_result', content: 'failed', metadata: { id: 'e1', name: 'Edit', is_error: true } });
+      emitter.emit('output', { type: 'tool_result', content: 'ok', metadata: { id: 'e2', name: 'Edit', is_error: false, checkFailed: true } });
+      detach();
+      expect(sink.mock.calls.map((call) => call[0].detail.success)).toEqual([false, true]);
+    });
+  });
+
   it('preserves distinct output content when tool input metadata is missing', () => {
     const emitter = new EventEmitter();
     const capture = createLoopInvocationCapture({ workspaceDir: '/workspace/project' });

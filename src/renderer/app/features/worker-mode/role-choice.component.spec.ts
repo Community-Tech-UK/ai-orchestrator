@@ -1,5 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
+import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
 import { RoleChoiceComponent } from './role-choice.component';
 
 describe('RoleChoiceComponent', () => {
@@ -8,6 +9,7 @@ describe('RoleChoiceComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [RoleChoiceComponent],
+      providers: [{ provide: ElectronIpcService, useValue: { platform: 'darwin' } }],
     }).compileComponents();
 
     fixture = TestBed.createComponent(RoleChoiceComponent);
@@ -18,8 +20,8 @@ describe('RoleChoiceComponent', () => {
     const buttons = fixture.debugElement.queryAll(By.css('button.role-card'));
 
     expect(buttons).toHaveLength(2);
-    expect(buttons[0].nativeElement.textContent).toContain('Use this computer as the main Harness');
-    expect(buttons[1].nativeElement.textContent).toContain('Use this computer as a worker');
+    expect(buttons[0].nativeElement.textContent).toContain('Use this Mac as the main Harness');
+    expect(buttons[1].nativeElement.textContent).toContain('Let this Mac help another Harness');
   });
 
   it('emits the selected role explicitly', () => {

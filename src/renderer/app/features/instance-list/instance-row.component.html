@@ -145,7 +145,7 @@
             </button>
           }
           @if (hasPendingApproval()) {
-            <span class="approval-chip" appTooltip="This session has a pending permission request">Awaiting approval</span>
+            <span class="approval-chip" appTooltip="This session is waiting for you to approve something">{{ approvalChipLabel }}</span>
           }
           @if (hasChildren() && !isExpanded()) {
             <span class="collapsed-badge" appTooltip="Child sessions — use the arrow to expand" [attr.aria-label]="resolvedChildCount() + ' child sessions'">+{{ resolvedChildCount() }}</span>

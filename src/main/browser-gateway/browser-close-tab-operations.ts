@@ -35,6 +35,7 @@ import { allowedOriginFromUrl } from './browser-gateway-service-helpers';
 import { createOrReusePendingBrowserApproval } from './browser-pending-approval-match';
 import { isOriginAllowed } from './browser-origin-policy';
 import { providerFromContext } from './browser-provider';
+import { statedReason } from './browser-approval-reason';
 import {
   deriveBrowserTargetInspectionState,
 } from './browser-target-inspection';
@@ -373,7 +374,7 @@ export class BrowserCloseTabOperations {
   }
 
   private authorize(
-    request: BrowserGatewayContext & { requestId?: string },
+    request: BrowserGatewayContext & { requestId?: string; reason?: string },
     action: string,
     toolName: string,
     candidate: CloseCandidate,
@@ -402,6 +403,7 @@ export class BrowserCloseTabOperations {
       actionClass: 'destructive' satisfies BrowserActionClass,
       origin,
       url: candidate.url,
+      requestReason: statedReason(request.reason),
       proposedGrant: {
         mode: 'per_action',
         ...(nodeId ? { nodeId } : {}),

@@ -25,6 +25,7 @@ interface BrowserApprovalRequestRow {
   file_path: string | null;
   detected_file_type: string | null;
   credential_access_json: string | null;
+  request_reason: string | null;
   proposed_grant_json: string;
   status: BrowserApprovalRequestStatus;
   grant_id: string | null;
@@ -33,9 +34,10 @@ interface BrowserApprovalRequestRow {
   decided_at: number | null;
 }
 
+/** `computerId` is worked out when the list is read, so it is not something a caller can store. */
 export type BrowserApprovalRequestInput = Omit<
   BrowserApprovalRequest,
-  'id' | 'requestId' | 'status' | 'grantId' | 'createdAt' | 'decidedAt'
+  'id' | 'requestId' | 'status' | 'grantId' | 'createdAt' | 'decidedAt' | 'computerId'
 >;
 
 export interface BrowserApprovalListFilter {
@@ -62,8 +64,8 @@ export class BrowserApprovalStore {
           (id, request_id, instance_id, provider, profile_id, target_id,
            tool_name, action, action_class, origin, url, selector,
            element_context_json, file_path, detected_file_type,
-           proposed_grant_json, credential_access_json, status, created_at, expires_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+           proposed_grant_json, credential_access_json, request_reason, status, created_at, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
       `,
       )
       .run(
@@ -84,6 +86,7 @@ export class BrowserApprovalStore {
         input.detectedFileType ?? null,
         JSON.stringify(input.proposedGrant),
         input.credentialAccess ? JSON.stringify(BrowserCredentialAccessMetadataSchema.parse(input.credentialAccess)) : null,
+        input.requestReason ?? null,
         now,
         input.expiresAt,
       );
@@ -223,6 +226,7 @@ export class BrowserApprovalStore {
       filePath: row.file_path ?? undefined,
       detectedFileType: row.detected_file_type ?? undefined,
       ...(row.credential_access_json ? { credentialAccess: BrowserCredentialAccessMetadataSchema.parse(JSON.parse(row.credential_access_json)) } : {}),
+      ...(row.request_reason ? { requestReason: row.request_reason } : {}),
       proposedGrant: this.parseJson(row.proposed_grant_json, {
         mode: 'per_action',
         allowedOrigins: [],

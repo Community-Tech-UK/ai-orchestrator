@@ -39,6 +39,7 @@ import { getModelDefaultReasoningEffort } from '../../../../shared/types/model-r
 import type { ModelRuntimeTarget } from '../../../../shared/types/local-model-runtime.types';
 import { decodeLocalModelSelector } from '../../../../shared/utils/local-model-selector';
 import type { ChatRecord } from '../../../../shared/types/chat.types';
+import { EFFORT_MAX_DESCRIPTION, EFFORT_WORKFLOW_DESCRIPTION } from '../../../../shared/usage-insight/usage-cause-copy';
 import type {
   CompactPickerMode,
   PendingSelection,
@@ -78,6 +79,7 @@ const REASONING_LABELS: Record<ReasoningEffort, string> = {
         [attr.aria-expanded]="menuOpen()"
         [attr.aria-controls]="menuId"
         [appTooltipDisabledReason]="_disabledReason()"
+        [appTooltip]="effortNote()"
         (click)="toggleMenu()"
       >
         <span class="compact-picker__dot" [style.background]="providerColor()"></span>
@@ -431,6 +433,20 @@ export class CompactModelPickerComponent {
     if (r) return REASONING_LABELS[r] ?? r;
     const provider = this.selectedPickerProvider();
     return provider === 'claude' || provider === 'codex' || provider === 'opencode' ? 'Provider default' : null;
+  });
+
+  /**
+   * What the chosen effort means, including when it costs more ("Max uses much
+   * more of your allowance"). The two costly modes use the shared usage copy.
+   * Skipped when the picker is locked: the
+   * reason it is locked is the more useful thing to say, and it already has a
+   * hint of its own.
+   */
+  protected readonly effortNote = computed<string | null>(() => {
+    if (this._disabledReason()) return null;
+    if (this.controller.selectedReasoningEffort() === 'max') return `Max: ${EFFORT_MAX_DESCRIPTION}`;
+    if (this.controller.selectedReasoningEffort() === 'workflow') return `Workflow: ${EFFORT_WORKFLOW_DESCRIPTION}`;
+    return null;
   });
 
   /**

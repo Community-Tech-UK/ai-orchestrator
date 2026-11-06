@@ -9,6 +9,12 @@
  */
 
 import { generateId } from '../../../../shared/utils/id-generator';
+import {
+  VERIFICATION_CMD_PATTERN,
+  classifyCommandOutcome,
+  describeExitStatus,
+  readExecutionEvidence,
+} from '../../../../shared/tool-outcome';
 import type {
   CodexMessagePhase,
   ThreadItem,
@@ -32,7 +38,8 @@ import {
   shorten,
 } from './reasoning';
 
-export const VERIFICATION_CMD_PATTERN = /\b(test|tests|lint|build|typecheck|type-check|check|verify|validate|pytest|jest|vitest|cargo test|npm test|pnpm test|yarn test|go test|mvn test|gradle test|tsc|eslint|ruff)\b/i;
+/** Kept here for existing importers; the pattern now lives with the shared failure rules. */
+export { VERIFICATION_CMD_PATTERN };
 
 export interface CodexItemOutputPayload {
   id: string;
@@ -216,18 +223,31 @@ export function handleItemCompleted(
     state.commandExecutions.push(item);
     const output = getCommandAggregatedOutput(item);
     const exitCode = getCommandExitCode(item);
-    const isError = isFailedThreadItemStatus(item) || (exitCode !== undefined && exitCode !== 0);
+    // `is_error` means the item says the command did not run to its own exit
+    // (declined, failed with no exit status, or an explicit timeout/signal flag).
+    // A command that ran and exited non-zero keeps its status in `exitCode`, whatever
+    // the number; only a check (tests, lint, build, typecheck) that did not pass is a
+    // failure, reported as `checkFailed`.
+    const outcome = classifyCommandOutcome({
+      command: item.command,
+      exitCode,
+      status: item.status,
+      explicitIsCheck: typeof item['isCheck'] === 'boolean' ? item['isCheck'] : undefined,
+      ...readExecutionEvidence(item),
+    });
     host.emitOutput({
       id: generateId(),
       timestamp: Date.now(),
       type: 'tool_result',
-      content: output || (exitCode !== undefined ? `Command exited with code ${exitCode}`
-        : isError ? `Command ${item.status}` : 'Command completed'),
+      content: output || (exitCode !== undefined ? describeExitStatus(exitCode)
+        : outcome.isError ? `Command ${item.status}` : 'Command completed'),
       metadata: toolMetadata(item, 'Bash', undefined, {
         command: item.command,
         exitCode,
         status: item.status,
-        is_error: isError,
+        is_error: outcome.isError,
+        isCheck: outcome.isCheck,
+        checkFailed: outcome.checkFailed,
       }),
     });
   }

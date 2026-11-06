@@ -3,6 +3,7 @@
  */
 
 import { Injectable, inject, signal, computed } from '@angular/core';
+import { providerToolName } from '../../../../shared/display-names';
 import { ProviderIpcService } from '../services/ipc';
 
 export interface CliInfo {
@@ -20,28 +21,28 @@ const BENCHMARK_FALLBACK_CLIS: CliInfo[] = [
   {
     name: 'claude',
     command: 'claude',
-    displayName: 'Claude Code',
+    displayName: providerToolName('claude'),
     installed: true,
     version: 'benchmark',
   },
   {
     name: 'codex',
     command: 'codex',
-    displayName: 'OpenAI Codex',
+    displayName: providerToolName('codex'),
     installed: true,
     version: 'benchmark',
   },
   {
     name: 'gemini',
     command: 'gemini',
-    displayName: 'Google Gemini',
+    displayName: providerToolName('gemini'),
     installed: true,
     version: 'benchmark',
   },
   {
     name: 'copilot',
     command: 'copilot',
-    displayName: 'GitHub Copilot',
+    displayName: providerToolName('copilot'),
     installed: true,
     version: 'benchmark',
   },
@@ -95,9 +96,9 @@ export class CliStore {
       title: 'No AI CLI Found',
       message: 'Please install one of the following CLI tools to use this application:',
       clis: [
-        { name: 'Claude Code', installUrl: 'https://claude.ai/code', command: 'npm install -g @anthropic-ai/claude-code' },
-        { name: 'Gemini CLI', installUrl: 'https://ai.google.dev/gemini-api/docs/cli', command: 'npm install -g @google/gemini-cli' },
-        { name: 'OpenAI Codex CLI', installUrl: 'https://openai.com/codex-cli/setup', command: 'npm install -g @openai/codex' },
+        { name: providerToolName('claude'), installUrl: 'https://claude.ai/code', command: 'npm install -g @anthropic-ai/claude-code' },
+        { name: providerToolName('gemini'), installUrl: 'https://ai.google.dev/gemini-api/docs/cli', command: 'npm install -g @google/gemini-cli' },
+        { name: providerToolName('codex'), installUrl: 'https://openai.com/codex-cli/setup', command: 'npm install -g @openai/codex' },
       ],
     };
   });

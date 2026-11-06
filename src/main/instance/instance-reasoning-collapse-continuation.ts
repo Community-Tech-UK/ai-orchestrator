@@ -9,7 +9,7 @@ import { registerCleanup } from '../util/cleanup-registry';
 import { getPauseCoordinator } from '../pause/pause-coordinator';
 import { getInstanceAsyncWorkRegistry, type InstanceAsyncWorkRegistry } from './instance-async-work-registry';
 import { clearInstanceTurnEnding, getInstanceTurnEnding, recordInstanceTurnEnding, invalidateInstanceRecoveryEpoch } from './instance-turn-ending-state';
-import { turnContinuationPolicy } from './turn-ending-continuation-policy';
+import { turnContinuationPolicy, turnNoticeMetadata } from './turn-ending-continuation-policy';
 export { CONTENT_FILTER_CONTINUATION_PROMPT, CONTENT_FILTER_NOTICE,
   REASONING_COLLAPSE_CONTINUATION_PROMPT, REASONING_COLLAPSE_NOTICE } from './turn-ending-continuation-policy';
 
@@ -184,7 +184,7 @@ export class InstanceReasoningCollapseContinuation {
     this.dispatch.observeEnding(instanceId, classification);
     if (classification.reason === 'completed') return;
     const policy = turnContinuationPolicy(classification.reason, classification.reasoningCollapsed);
-    this.host.emitSystemMessage?.(instanceId, policy.notice, { source: policy.source });
+    this.host.emitSystemMessage?.(instanceId, policy.notice, turnNoticeMetadata(policy));
     // A process crash is resumed only after the lifecycle announces successful restart.
     if (classification.reason === 'crash' && classification.evidence !== 'restarted_active_turn') return;
     if (!policy.prompt || classification.autoContinueSuppressed || classification.visibleAnswerComplete

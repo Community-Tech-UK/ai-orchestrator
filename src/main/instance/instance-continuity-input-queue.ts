@@ -1,3 +1,5 @@
+import { getInterruptedContextQueue } from './instance-interrupted-context';
+
 /**
  * Owns one-shot continuity and context-warning preambles for instance input.
  *
@@ -75,8 +77,9 @@ export class InstanceContinuityInputQueue {
     const resend = unanswered && !contextBlock?.includes(unanswered.text) ? unanswered : undefined;
     const continuity = this.continuityPreambles.get(instanceId);
     const retrieved = this.retrievedContexts.get(instanceId);
+    const interrupted = getInterruptedContextQueue().prepare(instanceId);
     const warning = this.contextWarnings.get(instanceId);
-    const preambles = [resend?.text, continuity?.value, retrieved?.value, warning?.value]
+    const preambles = [resend?.text, continuity?.value, interrupted.value, retrieved?.value, warning?.value]
       .filter((part): part is string => Boolean(part));
     if (preambles.length === 0) {
       return { contextBlock, attachments, commit: () => undefined };
@@ -92,6 +95,7 @@ export class InstanceContinuityInputQueue {
       commit: () => {
         if (committed) return;
         committed = true;
+        interrupted.commit();
         if (resend) {
           logger.info('Sending continuity text again because the model never replied to it', { instanceId });
         }
@@ -111,6 +115,7 @@ export class InstanceContinuityInputQueue {
   }
 
   cleanup(instanceId: string): void {
+    getInterruptedContextQueue().cleanup(instanceId);
     this.continuityPreambles.delete(instanceId);
     this.retrievedContexts.delete(instanceId);
     this.contextWarnings.delete(instanceId);

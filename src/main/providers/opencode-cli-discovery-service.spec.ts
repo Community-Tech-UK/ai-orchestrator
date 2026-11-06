@@ -73,8 +73,8 @@ describe('toOpenCodeModelDisplayInfos', () => {
   it('drops non-chat models and groups by backend label', () => {
     expect(toOpenCodeModelDisplayInfos(parseOpenCodeModelList(VERBOSE_OUTPUT))).toEqual([
       { id: 'opencode/big-pickle', name: 'Big Pickle', tier: 'balanced', family: 'OpenCode Zen' },
-      { id: 'xiaomi-token-plan-ams/mimo-v2.6-pro', name: 'MiMo-V2.6-Pro', tier: 'powerful', family: 'Xiaomi Token Plan (Europe)' },
-      { id: 'xiaomi-token-plan-ams/mimo-v2.6-flash', name: 'MiMo-V2.6-Flash', tier: 'fast', family: 'Xiaomi Token Plan (Europe)' },
+      { id: 'xiaomi-token-plan-ams/mimo-v2.6-pro', name: 'MiMo-V2.6-Pro', tier: 'powerful', family: 'MiMo' },
+      { id: 'xiaomi-token-plan-ams/mimo-v2.6-flash', name: 'MiMo-V2.6-Flash', tier: 'fast', family: 'MiMo' },
     ]);
   });
 
@@ -106,7 +106,7 @@ describe('discoverOpenCodeModels', () => {
   });
 
   it('hands the raw metadata blocks to the region cache sink', async () => {
-    const seen: Array<[string, string]> = [];
+    const seen: [string, string][] = [];
     await discoverOpenCodeModels(() => fakeProcess(VERBOSE_OUTPUT, 0), (blocks) => {
       seen.push(...blocks.map((block) => [block.providerId, block.modelId] as [string, string]));
     });

@@ -24,6 +24,7 @@ export class AdapterTurnEndingObservation {
   private active = false;
   private reasoningCollapsed = false;
   private doomLoopBlocked = false;
+  private hasToolActivity = false;
   private lastToolName = '';
 
   private fingerprint(content: string): string {
@@ -37,6 +38,8 @@ export class AdapterTurnEndingObservation {
     }
     if (event.kind === 'status' && ['interrupting', 'interrupted'].includes(event.status)) this.cancelled = true;
     const tool = readTurnToolObservation(event);
+    this.hasToolActivity ||= tool !== undefined || (event.kind === 'output'
+      && ['tool_use', 'tool_result', 'tool_outcome'].includes(event.messageType ?? ''));
     if (tool?.kind === 'tool_use') {
       this.active = true;
       if (tool.toolName !== this.lastToolName) this.doomLoopBlocked = false;
@@ -94,11 +97,18 @@ export class AdapterTurnEndingObservation {
       this.unansweredToolResult = false;
       this.doomLoopBlocked = false;
     }
+    // Only complete turn-scoped observation can establish an empty reply. No text
+    // alone is insufficient: tools, thinking, cancellation and provider retries count.
+    const emptyResult = event.kind === 'complete' && (this.active || typeof response.content === 'string')
+      && !response.content?.trim() && this.assistantSnapshots.size === 0 && !this.hasToolActivity && !response.toolCalls?.length
+      && this.thinking.size === 0 && readReasoningBlocks(response?.thinking).length === 0
+      && !(response.usage?.reasoningTokens || event.reasoningTokens || response.metadata?.['reasoningTokens'])
+      && !this.cancelled && response.degradedReason !== 'cancelled' && !this.providerRetrying;
     const classified = classifyTurnEnding({
       kind: event.kind,
       ...(event.kind === 'complete' ? {
         text: response.content,
-        metadata: { ...response.metadata, ...(event.stopReason ? { stopReason: event.stopReason } : {}), ...(event.finish ? { finish: event.finish } : {}), ...(this.unansweredToolResult ? { danglingToolResult: true, toolResultAwaitingReply: true } : {}), ...(this.doomLoopBlocked ? { doomLoop: true } : {}), ...(this.reasoningCollapsed ? { reasoningCollapsed: true } : {}), ...(this.providerRetrying ? { providerRetrying: true } : {}) },
+        metadata: { ...response.metadata, emptyResult, ...(event.stopReason ? { stopReason: event.stopReason } : {}), ...(event.finish ? { finish: event.finish } : {}), ...(this.unansweredToolResult ? { danglingToolResult: true, toolResultAwaitingReply: true } : {}), ...(this.doomLoopBlocked ? { doomLoop: true } : {}), ...(this.reasoningCollapsed ? { reasoningCollapsed: true } : {}), ...(this.providerRetrying ? { providerRetrying: true } : {}) },
         raw: response.raw,
         outputTokens: response.usage?.isEstimated ? undefined : response.usage?.outputTokens ?? event.outputTokens,
         reasoningTokens: response.usage?.reasoningTokens ?? event.reasoningTokens,
@@ -108,7 +118,7 @@ export class AdapterTurnEndingObservation {
       hasOpenToolCall: this.openTools.size > 0,
       lastToolReadLike: this.lastToolReadLike,
     });
-    const turnEnding = ['unknown_error', 'completed'].includes(classified.reason) && event.turnEnding && event.turnEnding.reason !== 'completed'
+    const turnEnding = ['unknown_error', 'completed', 'empty_result'].includes(classified.reason) && event.turnEnding && event.turnEnding.reason !== 'completed'
       ? { ...event.turnEnding, ...(classified.autoContinueSuppressed ? { autoContinueSuppressed: true } : {}), ...(classified.providerRetrying ? { providerRetrying: true } : {}) }
       : classified;
     const enriched = { ...event, turnEnding };
@@ -130,5 +140,6 @@ export class AdapterTurnEndingObservation {
     this.reasoningCollapsed = false;
     this.doomLoopBlocked = false;
     this.lastToolName = '';
+    this.hasToolActivity = false;
   }
 }

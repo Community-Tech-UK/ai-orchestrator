@@ -8,6 +8,7 @@ import { errorDiagnostic, textDiagnostic } from '../../../logging/source-diagnos
 import { parseNdjsonLine } from '../../json-parse';
 import { terminateProcessTree } from './app-server-client';
 import { classifyCodexDiagnostic, type CodexDiagnostic } from './exec-diagnostics';
+import { claimCodexDiagnosticSlot, codexDiagnosticOutput } from './exec-log-presentation';
 import { consumeLines } from './exec-helpers';
 import { isBenignCodexStdinNotice } from './exec-error-classifier';
 import { parseCodexExecTranscript } from './exec-transcript-parser';
@@ -31,7 +32,6 @@ export interface CodexExecProcessResult {
 interface CodexExecProcessState {
   output: CodexExecOutput;
   diagnostics: CodexDiagnostic[];
-  emittedDiagnosticKeys: Set<string>;
   partialStderr: string;
   partialStdout: string;
   rawStderr: string;
@@ -70,7 +70,6 @@ export function runCodexExecProcess(
     const state: CodexExecProcessState = {
       output: new CodexExecOutput(options.emitOutput),
       diagnostics: [],
-      emittedDiagnosticKeys: new Set<string>(),
       partialStderr: '',
       partialStdout: '',
       rawStderr: '',
@@ -317,7 +316,7 @@ export function runCodexExecProcess(
       state.output.flush();
       if (state.partialStderr.trim()) {
         for (const line of state.partialStderr.split('\n')) {
-          if (line.trim()) state.diagnostics.push(classifyCodexDiagnostic(line));
+          if (line.trim()) processStderrLine(line, state, options);
         }
       }
 
@@ -438,23 +437,8 @@ function processStderrLine(
   const diagnostic = classifyCodexDiagnostic(line);
   state.diagnostics.push(diagnostic);
   if (diagnostic.level === 'info') return;
-  const key = `${diagnostic.category}:${diagnostic.line}`;
-  if (state.emittedDiagnosticKeys.has(key)) {
-    diagnostic.streamed = true;
-    return;
-  }
-  state.emittedDiagnosticKeys.add(key);
+  // Shown or deliberately held back, either way the adapter's close-time pass must not repeat it.
   diagnostic.streamed = true;
-  options.emitOutput({
-    id: generateId(),
-    timestamp: Date.now(),
-    type: diagnostic.fatal ? 'error' : 'system',
-    content: `[codex] ${diagnostic.line}`,
-    metadata: {
-      diagnostic: true,
-      category: diagnostic.category,
-      fatal: diagnostic.fatal,
-      level: diagnostic.level,
-    },
-  });
+  if (!claimCodexDiagnosticSlot(options.message, diagnostic)) return;
+  options.emitOutput({ id: generateId(), timestamp: Date.now(), ...codexDiagnosticOutput(diagnostic) });
 }

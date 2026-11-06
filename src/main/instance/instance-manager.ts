@@ -169,6 +169,8 @@ import { resolveNativeOpenCodeCommandInput } from '../commands/provider-native-c
 import { dispatchNativeOpenCodeCommand } from './instance-native-command-input';
 import { runInstanceLocalInput } from './instance-local-input';
 import { parseSwitchModeApprovalReply } from './instance-switch-mode-reply';
+import { InputRequestReceiptRecorder } from './input-request-receipts';
+import { bindInputRequestReceipts } from './input-request-receipt-wiring';
 import { bindInstanceNativeCommandForwarding } from './instance-native-command-catalog';
 import { getHarnessGuidance } from '../orchestration/harness-guidance';
 import { findPendingInitialPrompt, takePendingInitialPromptGuidance } from './lifecycle/initial-prompt-recovery';
@@ -236,6 +238,11 @@ export class InstanceManager extends EventEmitter {
     publishOutput: (id, msg) => this.publishOutput(id, msg),
     emit: (event, payload) => this.emit(event, payload),
     getContext: () => this.context,
+  });
+  /** Leaves a calm line in the history when a question or approval closes. Never sent to the model. */
+  private readonly requestReceipts = new InputRequestReceiptRecorder({
+    writeReceipt: (id, content, metadata) => this.emitSystemMessage(id, content, { ...metadata }),
+    isYoloOn: (id) => this.state.getInstance(id)?.yoloMode === true,
   });
   private readonly providerEventBus = new ProviderRuntimeEventBus(
     (envelope) => this.emit('provider:normalized-event', envelope),
@@ -808,6 +815,13 @@ export class InstanceManager extends EventEmitter {
     this.lifecycle.on('memory:warning', (stats) => this.emit('memory:warning', stats));
     this.lifecycle.on('memory:critical', (stats) => this.emit('memory:critical', stats));
     this.lifecycle.on('memory:stats', (stats) => this.emit('memory:stats', stats));
+
+    bindInputRequestReceipts(this, this.requestReceipts, this.orchestrationMgr.getOrchestrationHandler());
+  }
+
+  /** The recorder that words and writes a receipt for each question or approval, for the handlers that answer them. */
+  getRequestReceipts(): InputRequestReceiptRecorder {
+    return this.requestReceipts;
   }
 
   private publishStateChanged(payload: {
@@ -857,36 +871,13 @@ export class InstanceManager extends EventEmitter {
 
     return runInstanceLocalInput(instanceId, options, { message }, async () => {
       const orchestration = this.orchestrationMgr.getOrchestrationHandler();
-      orchestration.respondToUserAction(pendingRequest.id, approved);
+      if (orchestration.respondToUserAction(pendingRequest.id, approved, undefined, 'typed-reply') !== 'resolved') {
+        if (!options?.queuedAdmissionId) return false;
+        throw new Error('That request closed before your reply arrived, so nothing was sent. Send your message again.');
+      }
 
       if (approved && pendingRequest.targetMode) {
         await this.changeAgentMode(instanceId, pendingRequest.targetMode);
-      }
-
-      const instance = this.state.getInstance(instanceId);
-      if (instance) {
-        const feedback = approved
-          ? pendingRequest.targetMode
-            ? `Mode switch approved via chat reply. Switched to ${pendingRequest.targetMode} mode.`
-            : 'Action approved via chat reply.'
-          : 'Mode switch rejected via chat reply.';
-
-        const systemMessage: OutputMessage = {
-          id: generateId(),
-          timestamp: Date.now(),
-          type: 'system',
-          content: feedback,
-          metadata: {
-            source: 'user-action-auto-response',
-            requestId: pendingRequest.id,
-            requestType: pendingRequest.requestType,
-            targetMode: pendingRequest.targetMode,
-            approved
-          }
-        };
-
-        this.communication.addToOutputBuffer(instance, systemMessage);
-        this.publishOutput(instanceId, systemMessage);
       }
 
       return true;
@@ -2507,6 +2498,7 @@ export class InstanceManager extends EventEmitter {
   destroy(): void {
     this.prepareForShutdown();
     getPauseCoordinator().removeListener('pause', this.handlePause);
+    this.orchestrationMgr.getOrchestrationHandler().dispose();
     getTaskManager().stopTimeoutChecker();
     this.settledTracker.destroy();
     this.state.destroy();

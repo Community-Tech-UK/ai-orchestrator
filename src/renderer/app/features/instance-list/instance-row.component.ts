@@ -18,6 +18,11 @@ import { isRemoteNodeOnline } from '../../core/state/remote-node-connectivity';
 import { SideChatStore } from '../../core/state/side-chat.store';
 import type { SideChatParentRef } from '../../../../shared/types/side-chat.types';
 import { sideChatRowBadge } from '../side-chat/side-chat-badge';
+import { computerName, providerName } from '../../../../shared/display-names';
+import {
+  describeInstanceStatus,
+  presentInstanceStatus,
+} from '../../../../shared/attention/instance-status-presentation';
 
 @Component({
   selector: 'app-instance-row',
@@ -69,6 +74,9 @@ export class InstanceRowComponent {
   readonly hasPendingApproval = computed(() =>
     (this.instance().pendingApprovalCount ?? 0) > 0
   );
+
+  /** The chip beside a pending permission request reads like the status that asks for it. */
+  readonly approvalChipLabel = presentInstanceStatus('waiting_for_permission').label;
 
   readonly hasDiffStats = computed(() => {
     const stats = this.instance().diffStats;
@@ -151,29 +159,38 @@ export class InstanceRowComponent {
   });
 
   readonly providerVisual = computed(() => {
-    switch (this.instance().provider) {
+    const { provider, currentModel } = this.instance();
+    // OpenCode reads "MiMo" only when the session's model proves it is the MiMo plan.
+    const label = providerName(provider, { model: currentModel });
+    switch (provider) {
       case 'claude':
-        return { icon: 'anthropic', color: '#D97706', label: 'Claude' } as const;
+        return { icon: 'anthropic', color: '#D97706', label } as const;
       case 'codex':
-        return { icon: 'openai', color: '#10A37F', label: 'Codex' } as const;
+        return { icon: 'openai', color: '#10A37F', label } as const;
       case 'gemini':
-        return { icon: 'google', color: '#4285F4', label: 'Gemini' } as const;
+        return { icon: 'google', color: '#4285F4', label } as const;
       case 'antigravity':
-        return { icon: 'google', color: '#00B8D4', label: 'Antigravity' } as const;
+        return { icon: 'google', color: '#00B8D4', label } as const;
       case 'copilot':
-        return { icon: 'github', color: '#B89A66', label: 'Copilot' } as const;
+        return { icon: 'github', color: '#B89A66', label } as const;
       case 'ollama':
-        return { icon: 'ollama', color: '#7dd3fc', label: 'Ollama' } as const;
+        return { icon: 'ollama', color: '#7dd3fc', label } as const;
       case 'cursor':
         // Light neutral keeps Cursor's monochrome mark visible on dark surfaces.
-        return { icon: 'cursor', color: '#E5E7EB', label: 'Cursor' } as const;
+        return { icon: 'cursor', color: '#E5E7EB', label } as const;
       case 'grok':
-        return { icon: 'grok', color: '#1DA1F2', label: 'Grok' } as const;
+        return { icon: 'grok', color: '#1DA1F2', label } as const;
       case 'opencode':
-        return { icon: 'opencode', color: '#D4D4D8', label: 'OpenCode' } as const;
+        return { icon: 'opencode', color: '#D4D4D8', label } as const;
       default:
-        return { icon: 'default', color: '#9CA3AF', label: 'Provider' } as const;
+        return { icon: 'default', color: '#9CA3AF', label } as const;
     }
+  });
+
+  /** Words, colour and dot behaviour for the session's status come from the one status presenter. */
+  private readonly statusPresentation = computed(() => {
+    const { status, waitReason } = this.instance();
+    return presentInstanceStatus(status, waitReason);
   });
   /**
    * N2 — a critical tool loop wants a person as much as a blocked prompt does,
@@ -184,22 +201,10 @@ export class InstanceRowComponent {
     this.toolLoopAlerts.hasCriticalAlert(this.instance().id));
 
   readonly needsAttention = computed(() =>
-    this.instance().status === 'waiting_for_input' ||
-    this.instance().status === 'waiting_for_permission' ||
-    this.hasToolLoopAlert()
+    this.statusPresentation().needsYou || this.hasToolLoopAlert()
   );
   readonly showActivitySpinner = computed(() =>
-    this.isLooping() ||
-    this.instance().status === 'busy' ||
-    this.instance().status === 'processing' ||
-    this.instance().status === 'thinking_deeply' ||
-    this.instance().status === 'initializing' ||
-    this.instance().status === 'respawning' ||
-    this.instance().status === 'interrupting' ||
-    this.instance().status === 'cancelling' ||
-    this.instance().status === 'interrupt-escalating' ||
-    this.instance().status === 'waking' ||
-    this.instance().status === 'hibernating'
+    this.isLooping() || this.statusPresentation().inProgress
   );
   readonly isHibernated = computed(() => this.instance().status === 'hibernated');
   /**
@@ -234,11 +239,12 @@ export class InstanceRowComponent {
     return loc?.type === 'remote' ? loc.nodeId : '';
   });
 
+  /** The computer's own name, or a plain description when it has none. Never a raw node id. */
   readonly remoteNodeName = computed(() => {
     const nodeId = this.remoteNodeId();
     if (!nodeId) return '';
     const node = this.remoteNodeStore.nodeById(nodeId);
-    return node?.name ?? nodeId.slice(0, 8);
+    return computerName({ name: node?.name, platform: node?.platform });
   });
 
   readonly remoteNodeDisconnected = computed(() => {
@@ -261,8 +267,8 @@ export class InstanceRowComponent {
   readonly remoteNodeBadgeTitle = computed(() => {
     const name = this.remoteNodeName();
     return this.remoteNodeDisconnected()
-      ? `Node '${name}' disconnected — session may be interrupted`
-      : `Running on node: ${name}`;
+      ? `${name} is offline — this session may be interrupted`
+      : `Running on ${name}`;
   });
 
   readonly activityLabel = computed(() => {
@@ -290,13 +296,16 @@ export class InstanceRowComponent {
    */
   readonly leadingIndicatorTooltip = computed(() => {
     const parts: string[] = [this.providerVisual().label];
-    // `error` reaches none of the computeds below — `needsAttention`,
+    // A problem reaches none of the computeds below — `needsAttention`,
     // `showActivitySpinner` and `isHibernated` all exclude it — so before this
     // an errored instance was announced as just "Claude" and shown as an
     // 8%-opacity red row tint. Colour alone, for the one state a user most
     // needs to notice.
-    if (this.instance().status === 'error') parts.push('error');
-    else if (this.isHibernated()) parts.push('hibernated — send a message to wake');
+    // A session that is asleep or parked on a usage limit looks idle by status,
+    // so the presenter's wait-aware words are what tell the two apart.
+    const presentation = this.statusPresentation();
+    const settledAsleep = presentation.label === 'Asleep' && !presentation.inProgress;
+    if (presentation.label === 'Problem' || settledAsleep) parts.push(describeInstanceStatus(presentation));
     else if (this.needsAttention() || this.showActivitySpinner()) parts.push(this.activityLabel());
     else if (this.isWaitingOnBackgroundWork()) parts.push(this.backgroundWorkLabel());
     return parts.filter(Boolean).join(' · ');
@@ -313,7 +322,7 @@ export class InstanceRowComponent {
    */
   readonly rowAriaLabel = computed(() => {
     const states: string[] = [];
-    if (this.instance().status === 'error') states.push('error');
+    if (this.statusPresentation().label === 'Problem') states.push('problem');
     if (this.instance().yoloMode) states.push('auto-approve mode');
     const suffix = states.length > 0 ? ` — ${states.join(', ')}` : '';
     return `Select session ${this.resolvedDisplayTitle()}${suffix}`;
@@ -336,31 +345,10 @@ export class InstanceRowComponent {
     ? 'Restart and resume the conversation'
     : 'Restart with fresh context — the conversation so far is not carried over');
 
+  /** Said only while the session is doing something or waiting on you; a settled row stays quiet. */
   private readonly statusActivityLabel = computed(() => {
-    switch (this.instance().status) {
-      case 'busy':
-        return 'Working';
-      case 'initializing':
-        return 'Initializing';
-      case 'waiting_for_input':
-        return 'Waiting for input';
-      case 'waiting_for_permission':
-        return 'Needs approval';
-      case 'respawning':
-        return 'Recovering session';
-      case 'interrupting':
-        return 'Interrupting';
-      case 'cancelling':
-        return 'Cancelling';
-      case 'interrupt-escalating':
-        return 'Escalating interrupt';
-      case 'waking':
-        return 'Waking up';
-      case 'hibernating':
-        return 'Hibernating';
-      default:
-        return '';
-    }
+    const presentation = this.statusPresentation();
+    return presentation.inProgress || presentation.needsYou ? describeInstanceStatus(presentation) : '';
   });
 
   onTerminate(event: Event): void {

@@ -242,8 +242,10 @@ export class WorkboardCardComponent {
     this.isActing.set(true);
     try {
       const result = await this.instanceIpc.respondToUserAction(request.id, approved);
-      if (result.success) {
-        this.pendingRequest.set(null);
+      const alreadyClosed = result.error && 'code' in result.error && result.error.code === 'USER_ACTION_NOT_PENDING';
+      if (result.success || alreadyClosed) {
+        // A closed request has no action left; a late reply must not close its replacement.
+        this.pendingRequest.update(current => current === request ? null : current);
       }
     } finally {
       this.isActing.set(false);

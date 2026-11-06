@@ -18,6 +18,8 @@ import { DoctorStore } from '../../core/state/doctor.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { runSettingsDoctor } from '../../../../shared/types/settings-doctor';
 import { DEFAULT_SETTINGS } from '../../../../shared/types/settings-defaults';
+import { startupCheckNeedsAttention } from '../../../../shared/startup-attention';
+import type { StartupCapabilityCheck } from '../../../../shared/types/startup-capability.types';
 import type {
   BrowserAutomationHealthSnapshot,
   DoctorSectionId,
@@ -133,13 +135,17 @@ function isDoctorSection(value: string | null): value is DoctorSectionId {
                   <p class="status-line" [attr.data-status]="report.startupCapabilities.status">
                     {{ report.startupCapabilities.status }} · {{ formatTime(report.startupCapabilities.generatedAt) }}
                   </p>
+                  <p class="muted">
+                    The Setup page goes through these checks one at a time.
+                    <button type="button" class="btn btn-secondary" (click)="openSetup()">Open Setup</button>
+                  </p>
                   <div class="list">
                     @for (check of report.startupCapabilities.checks; track check.id) {
                       <div class="diagnostic-row" [attr.data-status]="check.status">
                         <strong>{{ check.label }}</strong>
                         <span>{{ check.status }}</span>
                         <p>{{ check.summary }}</p>
-                        @if (isProviderCheck(check.id) && check.status !== 'ready') {
+                        @if (isProviderCheck(check.id) && needsFix(check)) {
                           <button
                             type="button"
                             class="btn btn-secondary"
@@ -422,6 +428,20 @@ export class DoctorSettingsTabComponent implements OnInit {
    */
   isProviderCheck(checkId: string): boolean {
     return checkId.startsWith('provider.') && checkId !== 'provider.any';
+  }
+
+  /**
+   * A check is worth a "fix" link only when it needs attention. A `disabled`
+   * check is a tool or feature nobody set up (an uninstalled CLI you never
+   * asked for), so there is nothing to fix.
+   */
+  needsFix(check: StartupCapabilityCheck): boolean {
+    return startupCheckNeedsAttention(check);
+  }
+
+  /** The Setup page has no title-bar entry while everything is ready, so Doctor links to it. */
+  openSetup(): void {
+    void this.router.navigate(['/setup']);
   }
 
   /** Auth failures are the repair kinds a one-click sign-in can actually fix. */

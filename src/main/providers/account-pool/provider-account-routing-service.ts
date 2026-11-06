@@ -98,6 +98,8 @@ export interface AccountRouteRequest {
   moveOffLimitedAccount?: boolean;
   /** The spawn resumes the provider's own thread (false: a fresh provider session). */
   resume?: boolean;
+  /** Actual session display name, for a removed-account remedy. Never substitute an instance id. */
+  sessionName?: string;
   /** Correlation only. */
   instanceId?: string;
 }
@@ -259,6 +261,17 @@ export class ProviderAccountRoutingService {
     }
 
     const legacyOnly = !profiles.some((profile) => !profile.isLegacy);
+    const persisted = request.persistedProfileId ? profiles.find(profile => profile.id === request.persistedProfileId) : undefined;
+    if (request.persistedProfileId && !persisted && (!legacyOnly || request.persistedProfileId !== LEGACY_ACCOUNT_PROFILE_ID)) {
+      return {
+        outcome: failure(
+          'profile-missing',
+          `${request.sessionName?.trim() ? `Session "${request.sessionName.replace(/\p{Cc}/gu, ' ').trim().slice(0, 120)}"` : 'This session'} ran on a ${pooledProviderLabel(request.provider)} account that has since been removed. Start a new session to continue on another account.`,
+          request.persistedProfileId,
+        ),
+        considered: [],
+      };
+    }
     if (legacyOnly && request.restrictTo?.length && !request.persistedProfileId && !request.restrictTo.includes(LEGACY_ACCOUNT_PROFILE_ID)) {
       return {
         outcome: failure('no-profiles', `None of the ${pooledProviderLabel(request.provider)} accounts this session is limited to exist any more. Start it again with accounts that exist.`),
@@ -273,18 +286,7 @@ export class ProviderAccountRoutingService {
       return { outcome: { ok: true, route: this.buildRoute(request.provider, LEGACY_ACCOUNT_PROFILE_ID, 'legacy', nodeId, profiles) }, considered: [] };
     }
 
-    if (request.persistedProfileId) {
-      const persisted = profiles.find((profile) => profile.id === request.persistedProfileId);
-      if (!persisted) {
-        return {
-          outcome: failure(
-            'profile-missing',
-            `This session ran on a ${pooledProviderLabel(request.provider)} account that has since been removed. Start a new session to continue on another account.`,
-            request.persistedProfileId,
-          ),
-          considered: [],
-        };
-      }
+    if (persisted) {
       if (request.avoid?.includes(persisted.id)) {
         return { outcome: await this.moveOffAvoidedPersisted(request, persisted, profiles, nodeId), considered: [] };
       }

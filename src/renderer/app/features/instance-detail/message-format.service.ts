@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 import { DisplayItem } from './display-item-processor.service';
 import { OutputMessage } from '../../core/state/instance.store';
+import { providerName } from '../../../../shared/display-names';
 
 @Injectable({ providedIn: 'root' })
 export class MessageFormatService {
@@ -93,26 +94,7 @@ export class MessageFormatService {
   }
 
   getProviderDisplayName(provider: string): string {
-    switch (provider) {
-      case 'claude':
-        return 'Claude';
-      case 'copilot':
-        return 'Copilot';
-      case 'codex':
-        return 'Codex';
-      case 'gemini':
-        return 'Gemini';
-      case 'ollama':
-        return 'Ollama';
-      case 'cursor':
-        return 'Cursor';
-      case 'grok':
-        return 'Grok';
-      case 'opencode':
-        return 'OpenCode';
-      default:
-        return 'AI';
-    }
+    return providerName(provider);
   }
 
   hasContent(message: OutputMessage): boolean {
@@ -140,9 +122,17 @@ export class MessageFormatService {
     return message.type === 'system' && !!message.metadata?.['isRestoreNotice'];
   }
 
-  getCompactionLabel(message: OutputMessage): string {
+  /**
+   * Label for a compaction boundary. `provider` is the session's provider, so
+   * the label names whoever compacted. A caller that does not pass it falls
+   * back to the provider recorded on the message and then to Codex: the two
+   * shapes that name a provider below (the legacy Compact-turn rejection and a
+   * self-managed boundary) are emitted only by the Codex adapter today.
+   */
+  getCompactionLabel(message: OutputMessage, provider?: string): string {
+    const subject = this.compactionSubject(message, provider);
     if (this.isLegacyCompactTurnRejection(message)) {
-      return 'Codex is compacting its context…';
+      return `${subject} is compacting its context…`;
     }
     const meta = message.metadata;
     if (!meta) return 'Context compacted';
@@ -152,12 +142,12 @@ export class MessageFormatService {
     const method = meta['method'] as 'native' | 'restart-with-summary' | 'self-managed' | undefined;
     if (method === 'self-managed') {
       if (prev?.percentage !== undefined && next?.percentage !== undefined) {
-        return `Codex compacted its own context (${Math.round(prev.percentage)}% → ${Math.round(next.percentage)}%)`;
+        return `${subject} compacted its own context (${Math.round(prev.percentage)}% → ${Math.round(next.percentage)}%)`;
       }
       if (prev?.percentage !== undefined) {
-        return `Codex compacted its own context (was ${Math.round(prev.percentage)}%)`;
+        return `${subject} compacted its own context (was ${Math.round(prev.percentage)}%)`;
       }
-      return 'Codex compacted its own context (awaiting updated usage)';
+      return `${subject} compacted its own context (awaiting updated usage)`;
     }
     if (method === 'restart-with-summary') {
       return prev?.percentage !== undefined
@@ -236,6 +226,12 @@ export class MessageFormatService {
       lastMessage?.timestamp ?? '',
       lastMessage?.content?.length ?? 0
     ].join(':');
+  }
+
+  private compactionSubject(message: OutputMessage, provider?: string): string {
+    const recorded = message.metadata?.['provider'];
+    const named = provider || (typeof recorded === 'string' && recorded ? recorded : null);
+    return providerName(named ?? 'codex');
   }
 
   private isLegacyCompactTurnRejection(message: OutputMessage): boolean {

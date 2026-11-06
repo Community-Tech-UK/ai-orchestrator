@@ -15,6 +15,9 @@ import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type { ContextUsage, Instance, OutputMessage } from '../../shared/types/instance.types';
 import type { CommunicationDependencies } from './instance-communication.types';
 import { detectErrorProviderLimit, readAdapterRateLimitTelemetry } from './instance-provider-limit-detection';
+import { collectUsageLimitHandling } from '../cli/usage-limit-dispatch';
+import type { UsageLimitHandling } from '../cli/usage-limit-notice';
+import { announceUsageLimit } from './instance-usage-limit-announcement';
 
 export interface TryParkOnProviderLimitDeps {
   onProviderLimitTurn?: (params: {
@@ -36,6 +39,10 @@ export interface TryParkOnProviderLimitDeps {
  * `true` when the turn was handled — parked fresh, or a send arrived while
  * already parked — and the caller should stop instead of surfacing a normal
  * error.
+ *
+ * The user is told once per refused window. The limit handler reports what it did while it runs, the
+ * note says so in the shared usage-limit wording, and a window the transcript already holds a note for
+ * (the Claude adapter's, or the stop's) is not announced a second time. Status handling is unchanged.
  */
 export function tryParkOnProviderLimit(
   deps: TryParkOnProviderLimitDeps,
@@ -45,69 +52,64 @@ export function tryParkOnProviderLimit(
   error: unknown,
   errorMessage: string,
 ): boolean {
-  if (!deps.onProviderLimitTurn) return false;
+  const onProviderLimitTurn = deps.onProviderLimitTurn;
+  if (!onProviderLimitTurn) return false;
 
   const signal = detectErrorProviderLimit(error, errorMessage, readAdapterRateLimitTelemetry(adapter), instance.provider);
   if (!signal) return false;
 
-  const outcome = deps.onProviderLimitTurn({
+  const resumePrompt = deps.getResumePrompt(instanceId);
+  const { result: outcome, handling } = collectUsageLimitHandling(instance.provider, () => onProviderLimitTurn({
     instanceId,
     resetAtHint: signal.resetAtHint,
     quotaBlind: signal.quotaBlind,
     reason: signal.reason,
-    resumePrompt: deps.getResumePrompt(instanceId),
-  });
+    resumePrompt,
+  }));
   if (outcome === 'skipped') return false;
 
-  if (outcome === 'switching-account') {
-    const switchMessage: OutputMessage = {
-      id: generateId(),
-      timestamp: Date.now(),
-      type: 'system',
-      content: 'This account hit its usage limit. Moving the conversation to another account in the pool; your message will be sent again once it switches.',
-      metadata: { accountFailover: true },
-    };
-    deps.addToOutputBuffer(instance, switchMessage);
-    deps.emitOutput(instanceId, switchMessage);
+  const say = (what: UsageLimitHandling): void => {
+    if (instance.provider === 'auto') return;
+    announceUsageLimit((id, content, metadata) => {
+      const note: OutputMessage = { id: generateId(), timestamp: Date.now(), type: 'system', content, metadata };
+      deps.addToOutputBuffer(instance, note);
+      deps.emitOutput(id, note);
+    }, {
+      instanceId,
+      provider: instance.provider,
+      accountProfileId: instance.accountProfileId,
+      ...(signal.resetAtHint !== null ? { resetAt: signal.resetAtHint } : {}),
+      reason: signal.reason,
+      handling: what,
+      transcript: instance.outputBuffer,
+    });
+  };
+  const settleIdle = (): void => {
     if (instance.status !== 'respawning' && instance.status !== 'interrupting' && instance.status !== 'cancelling') {
       deps.transitionInstanceStatus(instance, 'idle');
       deps.queueUpdate(instanceId, 'idle', instance.contextUsage);
     }
+  };
+
+  if (outcome === 'switching-account') {
+    say({ kind: 'switching', metadata: { accountFailover: true } });
+    settleIdle();
     return true;
   }
 
   if (outcome === 'parked') {
-    const parkMessage: OutputMessage = {
-      id: generateId(),
-      timestamp: Date.now(),
-      type: 'system',
-      content: signal.quotaBlind
-        ? `Copilot rate limit reached. This session is paused and will try again at ${new Date(signal.resetAtHint ?? Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`
-        : 'Provider limit reached. This session is parked and will auto-resume as soon as the limit lifts (re-checked every few minutes), or at the quota window reset at the latest.',
-      metadata: { providerLimitParked: true },
-    };
-    deps.addToOutputBuffer(instance, parkMessage);
-    deps.emitOutput(instanceId, parkMessage);
-    if (instance.status !== 'respawning' && instance.status !== 'interrupting' && instance.status !== 'cancelling') {
-      deps.transitionInstanceStatus(instance, 'idle');
-      deps.queueUpdate(instanceId, 'idle', instance.contextUsage);
-    }
+    // Without a report (a handler that did not say) claim only what is certainly true: nothing was sent.
+    say(handling ?? { kind: 'parked', autoResume: false, heldMessage: Boolean(resumePrompt), metadata: { providerLimitParked: true } });
+    settleIdle();
     return true;
   }
 
   // 'already-parked': a turn arrived (e.g. via mobile gateway, MCP, or a
   // remote node — paths that bypass the renderer's quota-park gate) while
-  // the instance is still parked. Acknowledge quietly; don't duplicate the
-  // park message or touch status.
-  const stillParkedMessage: OutputMessage = {
-    id: generateId(),
-    timestamp: Date.now(),
-    type: 'system',
-    content: 'Still parked until the quota window resets; this message was not sent.',
-    metadata: { providerLimitParked: true, alreadyParked: true },
-  };
-  deps.addToOutputBuffer(instance, stillParkedMessage);
-  deps.emitOutput(instanceId, stillParkedMessage);
+  // the instance is still parked. When the park's own note is in the
+  // transcript there is nothing to add; otherwise say the message was not
+  // sent. Never touches status.
+  say({ kind: 'parked', autoResume: false, heldMessage: true, metadata: { providerLimitParked: true, alreadyParked: true } });
   return true;
 }
 

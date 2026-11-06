@@ -65,6 +65,8 @@ export interface UserActionRequest {
     approvalTraceId?: string;
     /** `'acp'` for ACP permission/elicitation requests (reply over JSON-RPC, not stdin). */
     transport?: string;
+    /** ACP elicitation mode: `'form'` asks in words, `'url'` asks to open a link. */
+    mode?: string;
     /**
      * Canonical Claude CLI tool name for the denied tool_use (e.g. 'Edit',
      * 'Write'). Set by the adapter for `permission_denial` prompts and by

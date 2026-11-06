@@ -6,6 +6,11 @@ import type {
   BrowserGrantMode,
   BrowserGrantProposal,
 } from '@contracts/types/browser';
+import {
+  PERMISSION_SCOPE_WORDS,
+  timedScopeWords,
+  type PermissionScopeWords,
+} from '../../../../shared/permissions/permission-scope-presentation';
 
 /** Classes a banner decision must never mint. Send these to review. */
 const NEVER_QUICK_APPROVE_CLASSES = new Set<BrowserActionClass>([
@@ -22,29 +27,34 @@ const EXACT_APPROVAL_CLASSES = new Set<BrowserActionClass>([
 export type BannerGrantMode = BrowserGrantMode;
 export type CredentialAccessDuration = 'task' | '1h' | '24h' | '7d' | '30d' | '90d' | '365d';
 
+const REMEMBER_FOR_MS: Readonly<Record<Exclude<CredentialAccessDuration, 'task'>, number>> = {
+  '1h': 3_600_000, '24h': 86_400_000, '7d': 604_800_000,
+  '30d': 2_592_000_000, '90d': 7_776_000_000, '365d': 31_536_000_000,
+};
+
+/**
+ * The words for a saved-login length: the session phrase for the default (the
+ * backend's task permission lasts as long as this session), or a fixed time
+ * such as "For 7 days" for a remembered one.
+ */
+export function credentialAccessWords(duration: CredentialAccessDuration): PermissionScopeWords {
+  return duration === 'task' ? PERMISSION_SCOPE_WORDS.session : timedScopeWords(REMEMBER_FOR_MS[duration]);
+}
+
 export const CREDENTIAL_ACCESS_DURATIONS: readonly {
   value: CredentialAccessDuration;
   label: string;
-}[] = [
-  { value: 'task', label: 'Current task only' },
-  { value: '1h', label: 'Remember for 1 hour' },
-  { value: '24h', label: 'Remember for 24 hours' },
-  { value: '7d', label: 'Remember for 7 days' },
-  { value: '30d', label: 'Remember for 30 days' },
-  { value: '90d', label: 'Remember for 90 days' },
-  { value: '365d', label: 'Remember for 1 year' },
-];
+}[] = (['task', '1h', '24h', '7d', '30d', '90d', '365d'] as const).map((value) => ({
+  value,
+  label: credentialAccessWords(value).choice,
+}));
 
 export function credentialAccessChoice(
   duration: CredentialAccessDuration,
 ): NonNullable<BrowserApproveRequestPayload['credentialAccess']> {
-  const rememberForMs = {
-    '1h': 3_600_000, '24h': 86_400_000, '7d': 604_800_000,
-    '30d': 2_592_000_000, '90d': 7_776_000_000, '365d': 31_536_000_000,
-  };
   return duration === 'task'
     ? { permission: 'task' }
-    : { permission: 'remember', rememberForMs: rememberForMs[duration] };
+    : { permission: 'remember', rememberForMs: REMEMBER_FOR_MS[duration] };
 }
 
 export function credentialAccessPurpose(approval: BrowserApprovalRequest): string {
@@ -97,7 +107,19 @@ const CREDENTIAL_ACCESS_ERROR_TEXT: Readonly<Record<string, string>> = {
 /** Plain-language text for a saved-login approval failure code. */
 export function credentialAccessErrorText(reason: string): string {
   if (reason.startsWith('vault_relock_failed:')) return 'The password vault could not be unlocked again. Check the vault login, then approve again.';
-  return CREDENTIAL_ACCESS_ERROR_TEXT[reason] ?? reason.replaceAll('_', ' ');
+  return CREDENTIAL_ACCESS_ERROR_TEXT[reason] ?? "The saved login couldn't be prepared. Check Details, then try again.";
+}
+
+const APPROVAL_FAILURE_TEXT: Readonly<Record<string, string>> = {
+  approval_request_not_found: 'This request is no longer there.',
+  approval_request_expired: 'This request timed out.',
+  approval_request_approved: 'This request was already approved.',
+  approval_request_denied: 'This request was already denied.',
+};
+
+/** Closed wording shared by the permission bar and the session approval card. */
+export function browserApprovalFailureText(reason: string): string {
+  return APPROVAL_FAILURE_TEXT[reason] ?? "Harness couldn't record this decision. Check Details, then try again.";
 }
 
 export function bannerCanQuickApprove(approval: BrowserApprovalRequest): boolean {
@@ -124,16 +146,31 @@ export function bannerGrantModes(approval: BrowserApprovalRequest): BannerGrantM
   return modes;
 }
 
+/** The short name of a browser permission length, for lists of grants. */
+export function bannerModeChoice(mode: BannerGrantMode): string {
+  switch (mode) {
+    case 'per_action':
+      return PERMISSION_SCOPE_WORDS.once.choice;
+    case 'session':
+      return PERMISSION_SCOPE_WORDS.session.choice;
+    case 'autonomous':
+      return PERMISSION_SCOPE_WORDS['without-asking'].choice;
+    case 'persistent':
+      return PERMISSION_SCOPE_WORDS.always.choice;
+  }
+}
+
+/** One wording for each browser permission length, shared with the other approval cards. */
 export function bannerModeLabel(mode: BannerGrantMode): string {
   switch (mode) {
     case 'per_action':
-      return 'Approve once';
+      return PERMISSION_SCOPE_WORDS.once.allow;
     case 'session':
-      return 'Allow for session';
+      return PERMISSION_SCOPE_WORDS.session.allow;
     case 'autonomous':
-      return 'Allow unattended';
+      return PERMISSION_SCOPE_WORDS['without-asking'].allow;
     case 'persistent':
-      return 'Allow forever';
+      return `${PERMISSION_SCOPE_WORDS.always.allow} on this website`;
   }
 }
 

@@ -150,7 +150,7 @@ export const LOCAL_AI_HELP: HelpEntry = {
       kind: 'callout',
       variant: 'info',
       heading: 'What this does',
-      body: 'Shows whether enrolled local AI targets can complete real work across the worker, endpoint, model, and canary layers. Discovered endpoints remain neutral until you enrol them.',
+      body: 'Shows whether your local models can complete real work across the worker, endpoint, model, and canary layers. Discovered endpoints remain neutral until you enrol them.',
     },
     {
       kind: 'steps',

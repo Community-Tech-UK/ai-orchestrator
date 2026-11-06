@@ -1,14 +1,23 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ALL_INSTANCE_STATUSES } from '../../shared/attention/attention-level';
+import { presentInstanceStatus } from '../../shared/attention/instance-status-presentation';
 import {
   _resetMobilePushThrottleForTesting,
   clearMobilePushThrottle,
+  liveActivityDisplayLabel,
+  liveActivityStatusLabel,
   sendBrowserEscalationPush,
   sendMobileAutomationFailurePush,
+  sendMobileCompletionPush,
   sendMobileLiveActivityPush,
   sendMobilePromptPush,
 } from './mobile-gateway-push';
 
-function makeDeps(overrides: { configured?: boolean; tokens?: string[] } = {}) {
+function makeDeps(overrides: {
+  configured?: boolean;
+  tokens?: string[];
+  instanceManager?: { getInstance(id: string): { displayName?: string; workingDirectory?: string } | undefined };
+} = {}) {
   const send = vi.fn(async (_deviceTokens: string[], _alert: Record<string, unknown>): Promise<unknown[]> => []);
   const sendLiveActivity = vi.fn(async (
     _tokens: string[],
@@ -30,7 +39,7 @@ function makeDeps(overrides: { configured?: boolean; tokens?: string[] } = {}) {
       clearApnsToken,
       clearLiveActivityToken,
     },
-    instanceManager: null,
+    instanceManager: overrides.instanceManager ?? null,
     logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
   };
   return { deps: deps as never, send, sendLiveActivity, clearApnsToken, clearLiveActivityToken };
@@ -88,6 +97,116 @@ describe('sendBrowserEscalationPush', () => {
     sendBrowserEscalationPush(deps, { ...ESCALATION, campaignId: undefined });
 
     expect(send.mock.calls[0]![1]).toMatchObject({ threadId: 'profile-1' });
+  });
+});
+
+describe('Live Activity status keys (a wire contract with phones built earlier)', () => {
+  it('sends a question as waiting, never as needs approval', () => {
+    expect(liveActivityStatusLabel('waiting_for_input')).toBe('waiting');
+    expect(liveActivityStatusLabel('waiting_for_permission')).toBe('needs approval');
+  });
+
+  it('keeps the other keys the installed widget already colours by', () => {
+    for (const status of ['error', 'failed', 'degraded']) expect(liveActivityStatusLabel(status)).toBe('error');
+    for (const status of ['idle', 'ready']) expect(liveActivityStatusLabel(status)).toBe('idle');
+    for (const status of ['busy', 'processing', 'thinking_deeply', 'initializing', 'respawning', 'waking', 'interrupting']) {
+      expect(liveActivityStatusLabel(status)).toBe('working');
+    }
+  });
+
+  it('reads a status it does not know as working, as before', () => {
+    expect(liveActivityStatusLabel('a-status-from-a-newer-app')).toBe('working');
+  });
+
+  it('sends the key, the project and the host device id for a waiting question', async () => {
+    const { deps, sendLiveActivity } = makeDeps();
+
+    sendMobileLiveActivityPush(deps, 'instance', 'waiting_for_input');
+
+    await vi.waitFor(() => expect(sendLiveActivity).toHaveBeenCalledTimes(1));
+    expect(sendLiveActivity.mock.calls[0]![1]).toMatchObject({
+      event: 'update',
+      contentState: { status: 'waiting', detail: '', hostDeviceId: 'host-0' },
+    });
+  });
+});
+
+describe('Live Activity exact words (displayLabel, beside the older key)', () => {
+  it('is the status presenter\'s label for every status', () => {
+    for (const status of ALL_INSTANCE_STATUSES) {
+      expect(liveActivityDisplayLabel(status), status).toBe(presentInstanceStatus(status).label);
+    }
+  });
+
+  it('keeps Thinking, Restarting, Stopping, Asleep and Stopped apart where the key folds them together', () => {
+    const cases: [string, string, string][] = [
+      ['thinking_deeply', 'working', 'Thinking'],
+      ['respawning', 'working', 'Restarting'],
+      ['waking', 'working', 'Restarting'],
+      ['interrupting', 'working', 'Stopping'],
+      ['hibernated', 'idle', 'Asleep'],
+      ['terminated', 'idle', 'Stopped'],
+      ['cancelled', 'idle', 'Stopped'],
+    ];
+    for (const [status, key, words] of cases) {
+      expect(liveActivityStatusLabel(status), `${status} key`).toBe(key);
+      expect(liveActivityDisplayLabel(status), `${status} words`).toBe(words);
+    }
+  });
+
+  it('reads a status it does not know as Working, like the key does', () => {
+    expect(liveActivityDisplayLabel('a-status-from-a-newer-app')).toBe('Working');
+  });
+
+  it('puts the words in the pushed content state beside the key', async () => {
+    const { deps, sendLiveActivity } = makeDeps();
+
+    sendMobileLiveActivityPush(deps, 'instance', 'thinking_deeply');
+
+    await vi.waitFor(() => expect(sendLiveActivity).toHaveBeenCalledTimes(1));
+    expect(sendLiveActivity.mock.calls[0]![1]).toMatchObject({
+      contentState: { status: 'working', displayLabel: 'Thinking', displayTone: 'thinking', hostDeviceId: 'host-0' },
+    });
+  });
+
+  it('tells the lock screen a closed session is Stopped, not Ready', async () => {
+    const { deps, sendLiveActivity } = makeDeps();
+
+    sendMobileLiveActivityPush(deps, 'instance', 'terminated', 'end');
+
+    await vi.waitFor(() => expect(sendLiveActivity).toHaveBeenCalledTimes(1));
+    expect(sendLiveActivity.mock.calls[0]![1]).toMatchObject({
+      event: 'end',
+      contentState: { status: 'idle', displayLabel: 'Stopped' },
+    });
+  });
+});
+
+describe('status wording in push notifications', () => {
+  it('names a permission prompt with the shared status words', () => {
+    const { deps, send } = makeDeps();
+
+    sendMobilePromptPush(deps, {
+      id: 'p', instanceId: 'i', requestId: 'r', kind: 'permission', toolName: 'Bash',
+      title: 'Bash needs approval', message: 'Allow Bash?', createdAt: 1,
+    });
+    sendMobilePromptPush(deps, {
+      id: 'p2', instanceId: 'i', requestId: 'r2', kind: 'permission',
+      title: 'Permission required', message: 'Allow?', createdAt: 1,
+    });
+
+    expect(send.mock.calls[0]![1]).toMatchObject({ title: 'Bash: Needs your OK' });
+    expect(send.mock.calls[1]![1]).toMatchObject({ title: 'Needs your OK' });
+  });
+
+  it('calls a finished session Ready, not Idle', () => {
+    const { deps, send } = makeDeps({
+      instanceManager: { getInstance: () => ({ displayName: 'Fix login', workingDirectory: '/work/shop' }) },
+    });
+
+    sendMobileCompletionPush(deps, 'instance');
+
+    expect(send.mock.calls[0]![1]).toMatchObject({ title: 'Fix login finished', body: 'Ready · shop' });
   });
 });
 
@@ -152,4 +271,15 @@ describe('mobile push identity and invalid-token lifecycle', () => {
 
     expect(sendLiveActivity).toHaveBeenCalledTimes(1);
   });
+});
+
+
+it('pushes the exact presenter tone even where labels share different severity', () => {
+  const { deps, sendLiveActivity } = makeDeps();
+  for (const status of ALL_INSTANCE_STATUSES) {
+    sendMobileLiveActivityPush(deps, `tone-${status}`, status);
+    expect(sendLiveActivity.mock.calls.at(-1)![1]).toMatchObject({
+      contentState: { displayLabel: presentInstanceStatus(status).label, displayTone: presentInstanceStatus(status).tone },
+    });
+  }
 });

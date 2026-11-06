@@ -3,6 +3,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal } 
 import { NodeCardComponent } from './node-card.component';
 import { NodeDetailComponent } from './node-detail.component';
 import { RemoteNodesStore } from './remote-nodes.store';
+import { OTHER_COMPUTERS_TITLE } from '../../../../shared/display-names';
 import { RemoteNodeIpcService } from '../../core/services/ipc/remote-node-ipc.service';
 
 @Component({
@@ -14,7 +15,7 @@ import { RemoteNodeIpcService } from '../../core/services/ipc/remote-node-ipc.se
     <div class="page-container">
       <div class="page-header">
         <div class="header-left">
-          <h2>Worker Nodes</h2>
+          <h2>{{ computersTitle }}</h2>
         </div>
         <div class="header-actions">
           <span class="node-count">
@@ -33,11 +34,11 @@ import { RemoteNodeIpcService } from '../../core/services/ipc/remote-node-ipc.se
       </div>
 
       @if (store.loading()) {
-        <div class="loading-state">Loading nodes...</div>
+        <div class="loading-state">Loading your other computers…</div>
       } @else if (store.nodes().length === 0) {
         <div class="empty-state">
-          <p>No worker nodes connected.</p>
-          <p class="hint">Start the worker agent on a remote machine to connect it here.</p>
+          <p>None of your other computers are connected.</p>
+          <p class="hint">Pair another computer to connect it here.</p>
         </div>
       } @else {
         <div class="nodes-grid">
@@ -168,6 +169,7 @@ import { RemoteNodeIpcService } from '../../core/services/ipc/remote-node-ipc.se
   `],
 })
 export class RemoteNodesPageComponent implements OnInit {
+  readonly computersTitle = OTHER_COMPUTERS_TITLE;
   readonly store = inject(RemoteNodesStore);
   private readonly ipc = inject(RemoteNodeIpcService);
   readonly selectedNodeId = signal<string | null>(null);

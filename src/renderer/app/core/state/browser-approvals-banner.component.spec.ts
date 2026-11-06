@@ -78,7 +78,29 @@ describe('BrowserApprovalsBannerComponent', () => {
     vi.clearAllMocks();
   });
 
-  it('shows the complete saved-login request with task-only permission selected', async () => {
+  it('words the saved-login lengths as this session or a fixed time, and says who else can use a longer one', async () => {
+    const fixture = setup([makeApproval({ credentialAccess: savedLoginAccess() })]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const element: HTMLElement = fixture.nativeElement;
+    const duration = element.querySelector<HTMLSelectElement>('.credential-access-duration')!;
+    expect(Array.from(duration.options).map((option) => option.textContent?.trim())).toEqual([
+      'This session', 'For 1 hour', 'For 24 hours', 'For 7 days', 'For 30 days', 'For 90 days', 'For 1 year',
+    ]);
+    const note = () => element.querySelector('.banner-duration')?.textContent?.trim();
+    expect(note()).toBe('Only this website, computer, saved login and sign-in purpose. Access ends with this session.');
+    expect(element.textContent?.toLowerCase()).not.toContain('task');
+
+    duration.value = '7d';
+    duration.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    expect(note()).toBe(
+      'Only this website, computer, saved login and sign-in purpose. '
+      + 'Any session can use this saved login without asking again for 7 days.',
+    );
+  });
+
+  it('shows the complete saved-login request with this-session permission selected', async () => {
     const pending = makeApproval({ credentialAccess: savedLoginAccess() });
     const fixture = setup([pending]);
     await fixture.whenStable();
@@ -94,7 +116,7 @@ describe('BrowserApprovalsBannerComponent', () => {
     expect(duration?.value).toBe('task');
     expect(Array.from(duration?.options ?? []).map((option) => option.value))
       .toEqual(['task', '1h', '24h', '7d', '30d', '90d', '365d']);
-    expect(element.textContent).not.toContain('Allow forever');
+    expect(element.textContent).not.toContain('Always allow on this website');
     element.querySelector<HTMLButtonElement>('.banner-btn.primary')?.click();
     await fixture.whenStable();
     expect(gateway.approveRequest).toHaveBeenCalledWith(expect.objectContaining({
@@ -125,7 +147,7 @@ describe('BrowserApprovalsBannerComponent', () => {
 
   it.each([
     { decision: 'denied', outcome: 'not_run', reason: 'vault_locked', message: 'The password vault is locked. Unlock it, then approve again.' },
-    { decision: 'allowed', outcome: 'failed', reason: 'worker_disconnected', message: 'worker disconnected' },
+    { decision: 'allowed', outcome: 'failed', reason: 'worker_disconnected', message: "The saved login couldn't be prepared. Check Details, then try again." },
   ])('retains a failed credential request without treating IPC delivery as approval', async (failure) => {
     const fixture = setup([makeApproval({ credentialAccess: savedLoginAccess() })]);
     await fixture.whenStable();
@@ -139,6 +161,27 @@ describe('BrowserApprovalsBannerComponent', () => {
     expect(removeRequest).not.toHaveBeenCalled();
     expect(store.pendingRequests()).toHaveLength(1);
     expect(fixture.componentInstance.errorMessage()).toBe(failure.message);
+    // The raw code is behind Details, never in the sentence, and Details sits outside the clickable copy.
+    const element: HTMLElement = fixture.nativeElement;
+    expect(element.querySelector('.banner-error')?.textContent).not.toContain(failure.reason);
+    expect(element.querySelector('.banner-actions .banner-details')?.textContent).toContain(failure.reason);
+    expect(element.querySelector('.banner-main .banner-details')).toBeNull();
+  });
+
+  it('keeps the raw code of a stored saved-login failure behind Details, and shows no Details when nothing failed', async () => {
+    const fixture = setup([makeApproval({ credentialAccess: { ...savedLoginAccess(), operationError: 'worker_disconnected' } })]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const element: HTMLElement = fixture.nativeElement;
+    expect(element.querySelector('.banner-error')?.textContent?.trim())
+      .toBe("The saved login couldn't be prepared. Check Details, then try again.");
+    expect(element.querySelector('.banner-details summary')?.textContent?.trim()).toBe('Details');
+    expect(element.querySelector('.banner-details .banner-raw')?.textContent?.trim()).toBe('worker_disconnected');
+
+    const calm = setup([makeApproval({ credentialAccess: savedLoginAccess() })]);
+    await calm.whenStable();
+    calm.detectChanges();
+    expect((calm.nativeElement as HTMLElement).querySelector('.banner-details')).toBeNull();
   });
 
   it('shows one plain-language saved-login error after a failed approval', async () => {
@@ -200,10 +243,10 @@ describe('BrowserApprovalsBannerComponent', () => {
 
     const select = element.querySelector<HTMLSelectElement>('.banner-scope');
     expect(Array.from(select?.options ?? []).map((option) => option.textContent?.trim())).toEqual([
-      'Approve once',
-      'Allow for session',
-      'Allow unattended',
-      'Allow forever',
+      'Allow this once',
+      'Allow for this session',
+      'Allow without asking (this session)',
+      'Always allow on this website',
     ]);
 
     element.querySelector<HTMLButtonElement>('.banner-btn.primary')?.click();
@@ -284,10 +327,10 @@ describe('BrowserApprovalsBannerComponent', () => {
     expect(element.textContent).toContain('type on instagram.com');
     const select = element.querySelector<HTMLSelectElement>('.banner-scope');
     expect(Array.from(select?.options ?? []).map((option) => option.textContent?.trim())).toEqual([
-      'Approve once',
-      'Allow for session',
-      'Allow unattended',
-      'Allow forever',
+      'Allow this once',
+      'Allow for this session',
+      'Allow without asking (this session)',
+      'Always allow on this website',
     ]);
     const buttons = Array.from(element.querySelectorAll<HTMLButtonElement>('.banner-btn'));
     expect(buttons.map((button) => button.textContent?.trim())).toEqual([
@@ -316,7 +359,7 @@ describe('BrowserApprovalsBannerComponent', () => {
     });
   });
 
-  it('narrows Allow once to the current classified action', async () => {
+  it('narrows Allow this once to the current classified action', async () => {
     const fixture = setup([
       makeApproval({
         toolName: 'browser.type',
@@ -374,10 +417,10 @@ describe('BrowserApprovalsBannerComponent', () => {
       const element: HTMLElement = fixture.nativeElement;
       const select = element.querySelector<HTMLSelectElement>('.banner-scope');
       expect(Array.from(select?.options ?? []).map((option) => option.textContent?.trim())).toEqual([
-        'Approve once',
-        'Allow for session',
-        'Allow unattended',
-        'Allow forever',
+        'Allow this once',
+        'Allow for this session',
+        'Allow without asking (this session)',
+        'Always allow on this website',
       ]);
       expect(element.querySelector('.banner-btn.primary')?.textContent?.trim()).toBe('Approve');
       expect(element.textContent).toContain('Type education.app.jaggaer.com to allow publishing or deleting');
@@ -474,10 +517,10 @@ describe('BrowserApprovalsBannerComponent', () => {
     const element: HTMLElement = fixture.nativeElement;
     expect(Array.from(element.querySelectorAll<HTMLOptionElement>('.banner-scope option'))
       .map((option) => option.textContent?.trim())).toEqual([
-      'Approve once',
-      'Allow for session',
-      'Allow unattended',
-      'Allow forever',
+      'Allow this once',
+      'Allow for this session',
+      'Allow without asking (this session)',
+      'Always allow on this website',
     ]);
     element.querySelector<HTMLButtonElement>('.banner-btn.primary')?.click();
     await fixture.whenStable();
@@ -513,7 +556,7 @@ describe('BrowserApprovalsBannerComponent', () => {
     const element: HTMLElement = fixture.nativeElement;
     const select = element.querySelector<HTMLSelectElement>('.banner-scope');
     expect(Array.from(select?.options ?? []).map((option) => option.textContent?.trim())).toEqual([
-      'Approve once', 'Allow for session', 'Allow unattended', 'Allow forever',
+      'Allow this once', 'Allow for this session', 'Allow without asking (this session)', 'Always allow on this website',
     ]);
     select!.value = mode;
     select!.dispatchEvent(new Event('change'));
@@ -533,12 +576,12 @@ describe('BrowserApprovalsBannerComponent', () => {
       },
       reason: mode === 'persistent'
         ? 'Allowed until revoked from browser permission bar'
-        : 'Allowed unattended from browser permission bar',
+        : 'Allowed without asking from browser permission bar',
     });
   });
 
   it.each(['unknown'] as const)(
-    'exposes Approve once and Deny for %s hard stops',
+    'exposes Allow this once and Deny for %s hard stops',
     async (actionClass) => {
       const fixture = setup([
         makeApproval({
@@ -559,7 +602,7 @@ describe('BrowserApprovalsBannerComponent', () => {
       expect(element.querySelector('.banner-scope')).toBeNull();
       const buttons = Array.from(element.querySelectorAll<HTMLButtonElement>('.banner-btn'));
       expect(buttons.map((button) => button.textContent?.trim())).toEqual([
-        'Approve once',
+        'Allow this once',
         'Deny',
         'More options',
       ]);

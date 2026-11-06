@@ -55,6 +55,7 @@ function setup(overrides: {
   workingDirectory?: string | undefined;
   pendingSecret?: { name: string };
   resolveSecret?: (instanceId: string, requestId: string, approved: boolean, reference?: string) => boolean;
+  handled?: (event: { instanceId: string; requestId: string; outcome: 'saved' | 'declined' }) => void;
 } = {}): void {
   db = defaultDriverFactory(':memory:');
   createTables(db);
@@ -74,6 +75,7 @@ function setup(overrides: {
     notifyAgent: async (instanceId, message) => { notified.push({ instanceId, message }); },
     getPendingOrchestrationSecretRequest: () => overrides.pendingSecret,
     resolveOrchestrationSecretRequest: overrides.resolveSecret,
+    onNativeCardHandled: overrides.handled,
   });
 }
 
@@ -194,6 +196,77 @@ describe('secret card decline', () => {
 
     const listed = await handlerFor(IPC_CHANNELS.SECRET_CARD_LIST)(fakeEvent, { workingDirectory: CWD });
     expect(listed.data).toEqual([]);
+  });
+});
+
+/**
+ * A saved or declined secret leaves a receipt in the history. What reaches the
+ * recorder is the instance, the request and the outcome, and nothing else:
+ * not the value, not the label the window sent, not the name.
+ */
+describe('secret card receipts', () => {
+  const submit = (requestId: string, extra: Record<string, unknown> = {}) =>
+    handlerFor(IPC_CHANNELS.SECRET_CARD_SUBMIT)(fakeEvent, {
+      instanceId: INSTANCE, requestId, name: 'github-pat', label: 'GitHub PAT', value: TOKEN, ...extra,
+    });
+  const decline = (requestId: string) =>
+    handlerFor(IPC_CHANNELS.SECRET_CARD_DECLINE)(fakeEvent, { instanceId: INSTANCE, requestId, name: 'github-pat' });
+
+  it('reports a saved CLI card with the ids and the outcome only', async () => {
+    const handled = vi.fn();
+    setup({ handled });
+
+    await submit('req-1');
+
+    expect(handled).toHaveBeenCalledTimes(1);
+    expect(handled).toHaveBeenCalledWith({ instanceId: INSTANCE, requestId: 'req-1', outcome: 'saved' });
+    expect(JSON.stringify(handled.mock.calls)).not.toContain(TOKEN);
+    expect(JSON.stringify(handled.mock.calls)).not.toContain('GitHub PAT');
+  });
+
+  it('reports a declined CLI card', async () => {
+    const handled = vi.fn();
+    setup({ handled });
+
+    await decline('req-2');
+
+    expect(handled).toHaveBeenCalledWith({ instanceId: INSTANCE, requestId: 'req-2', outcome: 'declined' });
+  });
+
+  it('leaves a card the model raised to the orchestrator, which words it itself', async () => {
+    const handled = vi.fn();
+    setup({ handled, pendingSecret: { name: 'github-pat' }, resolveSecret: () => true });
+
+    await submit('uar-1');
+    await decline('uar-2');
+
+    expect(handled).not.toHaveBeenCalled();
+  });
+
+  it('reports nothing when the secret could not be saved', async () => {
+    const handled = vi.fn();
+    setup({ handled, available: false });
+
+    await submit('req-3');
+
+    expect(handled).not.toHaveBeenCalled();
+  });
+
+  it('reports nothing for a payload that does not validate', async () => {
+    const handled = vi.fn();
+    setup({ handled });
+
+    await submit('req-4', { value: '' });
+
+    expect(handled).not.toHaveBeenCalled();
+  });
+
+  it('still saves when nobody is listening', async () => {
+    setup();
+
+    const result = await submit('req-5');
+
+    expect(result.success).toBe(true);
   });
 });
 

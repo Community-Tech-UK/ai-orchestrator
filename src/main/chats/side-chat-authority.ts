@@ -8,6 +8,7 @@ import type {
   SideChatProviderCapability,
 } from '../../shared/types/side-chat.types';
 import { SIDE_CHAT_PROVIDERS } from '../../shared/types/side-chat.types';
+import { providerName } from '../../shared/display-names';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { ChatStore } from './chat-store';
 import type { SideChatLinkStore } from './side-chat-link-store';
@@ -258,7 +259,7 @@ export function providerCanEnforcePolicy(
   if (denied.length > 0) {
     return {
       ok: false,
-      capability: `${providerLabel(provider)} cannot block individual tool categories, and the parent session denies ${denied.join(', ')}`,
+      capability: `${providerName(provider)} cannot block individual tool categories, and the parent session denies ${denied.join(', ')}`,
     };
   }
   return { ok: true };
@@ -297,17 +298,4 @@ export function policyToRuntimeConfig(
     ...(policy.computerUseMode ? { computerUseMode: policy.computerUseMode } : {}),
     ...(policy.workspaceNode ? { forceNodeId: policy.workspaceNode } : {}),
   };
-}
-
-function providerLabel(provider: string): string {
-  switch (provider) {
-    case 'codex': return 'Codex';
-    case 'gemini': return 'Gemini';
-    case 'antigravity': return 'Antigravity';
-    case 'copilot': return 'Copilot';
-    case 'cursor': return 'Cursor';
-    case 'grok': return 'Grok';
-    case 'opencode': return 'OpenCode';
-    default: return provider;
-  }
 }

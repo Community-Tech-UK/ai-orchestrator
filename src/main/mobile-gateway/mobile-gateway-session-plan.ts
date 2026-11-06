@@ -1,3 +1,4 @@
+import { providerName } from '../../shared/display-names';
 import { resolveCliType } from '../cli/adapters/adapter-factory';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getKnownModelsForCli } from '../instance/lifecycle/create-validation-helpers';
@@ -27,19 +28,6 @@ const KNOWN_PROVIDERS = new Set([
   'grok',
   'opencode',
 ]);
-
-/** Short, chip-matching provider labels for the phone caption. */
-const PROVIDER_LABELS: Record<string, string> = {
-  claude: 'Claude',
-  codex: 'Codex',
-  gemini: 'Gemini',
-  antigravity: 'Antigravity',
-  copilot: 'Copilot',
-  cursor: 'Cursor',
-  grok: 'Grok',
-  opencode: 'OpenCode',
-  ollama: 'Ollama',
-};
 
 const EFFORT_LABELS: Record<ReasoningEffort, string> = {
   none: 'None',
@@ -110,7 +98,9 @@ export async function resolveMobileSessionPlan(params: {
 
   return {
     provider: resolvedProvider,
-    providerLabel: PROVIDER_LABELS[resolvedProvider] ?? resolvedProvider,
+    // Short, chip-matching provider name for the phone caption. OpenCode reads
+    // "MiMo" only when the resolved model is a MiMo Token Plan model.
+    providerLabel: providerName(resolvedProvider, { model: resolvedModel }),
     model: resolvedModel ?? null,
     modelLabel: resolvedModel ? getModelShortName(resolvedModel, resolvedProvider) : null,
     reasoningEffort: reasoningEffort ?? null,

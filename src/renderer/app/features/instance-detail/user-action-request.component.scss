@@ -101,6 +101,12 @@
   line-height: 1.5;
 }
 
+.question-hint {
+  margin: var(--spacing-sm) 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 .request-error {
   margin: var(--spacing-sm) 0 0;
   color: var(--error-color);

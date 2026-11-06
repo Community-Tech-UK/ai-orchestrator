@@ -1,3 +1,5 @@
+import { providerToolName } from '../display-names';
+
 export const REMOTE_REVIEWER_PROVIDER_IDS = [
   'claude', 'codex', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode',
 ] as const;
@@ -8,15 +10,7 @@ export type RemoteReviewerProvider =
 export const REMOTE_REVIEWER_PROVIDER_DEFINITIONS: readonly {
   id: RemoteReviewerProvider;
   label: string;
-}[] = [
-  { id: 'claude', label: 'Claude Code' },
-  { id: 'codex', label: 'OpenAI Codex CLI' },
-  { id: 'antigravity', label: 'Antigravity' },
-  { id: 'copilot', label: 'GitHub Copilot' },
-  { id: 'cursor', label: 'Cursor CLI' },
-  { id: 'grok', label: 'Grok Build' },
-  { id: 'opencode', label: 'OpenCode' },
-] as const;
+}[] = REMOTE_REVIEWER_PROVIDER_IDS.map((id) => ({ id, label: providerToolName(id) }));
 
 export function normalizeRemoteReviewerProvider(provider: string): string {
   const normalized = provider.trim().toLowerCase();

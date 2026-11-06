@@ -93,16 +93,9 @@ export function bindRawAdapterProviderEvents(input: BindRawAdapterProviderEvents
   input.adapter.on('tool_result', (toolCall: CliToolCall) => {
     if (input.isStale('tool_result')) return;
     input.captureToolResult?.(toolCall);
-    input.emit(
-      {
-        kind: 'tool_result',
-        toolName: toolCall.name,
-        toolUseId: toolCall.id,
-        success: true,
-        ...(toolCall.result !== undefined ? { output: toolCall.result } : {}),
-      },
-      { raw: { source: 'adapter-event:tool_result', payload: toJsonSafeProviderEventPayload(toolCall) } },
-    );
+    const mapped = mapAdapterRuntimeEvent('tool_result', [toolCall]);
+    if (mapped) input.emit(mapped.event,
+      { raw: { source: 'adapter-event:tool_result', payload: toJsonSafeProviderEventPayload(toolCall) } });
   });
 
   input.adapter.on('self_wakeup', (event: ClaudeSelfWakeupEvent) => {

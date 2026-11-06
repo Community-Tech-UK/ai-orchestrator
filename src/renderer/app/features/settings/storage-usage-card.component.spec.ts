@@ -50,6 +50,22 @@ describe('disk usage card', () => {
     store.usage.update(value => ({ ...value!, reclaimableBytes: 10 * 1024 ** 3 })); fixture.detectChanges();
     expect(element.querySelector('.reclaim-summary')).toBeNull();
   });
+  it('explains the shrink in plain words, with no developer measurement', () => {
+    store.preview.set({
+      ...preview,
+      target: 'event-record-shrink',
+      liveBytes: 3 * 1024 ** 3,
+      requiredDiskBytes: 4 * 1024 ** 3,
+      availableDiskBytes: 90 * 1024 ** 3,
+    });
+    const text = (render().nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('This can take a while on a large file, so pick a quiet moment.');
+    expect(text).toContain('Data in use: 3.00 GiB.');
+    expect(text).toContain('Free disk space needed for a moment: 4.00 GiB.');
+    expect(text).toContain('Free now: 90.0 GiB.');
+    expect(text).not.toMatch(/scratch trial|249 MB|live data/i);
+  });
+
   it.each(['rlm-backups', 'session-records', 'activity-logs', 'event-record-shrink'] as const)('shows the preview consequence and size for %s', target => {
     store.preview.set({ ...preview, target, consequence: `fixture ${target} consequence` });
     const element = render().nativeElement as HTMLElement;

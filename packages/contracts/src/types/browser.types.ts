@@ -199,6 +199,10 @@ export interface BrowserApprovalRequest {
   filePath?: string;
   detectedFileType?: string;
   credentialAccess?: BrowserCredentialAccessMetadata;
+  /** Why the agent asked, in its own words (cleaned). Only what the agent said; never read from the page. */
+  requestReason?: string;
+  /** Which computer this is about: 'local' or a remote computer's id. Worked out each time the list is read, never stored. */
+  computerId?: string;
   proposedGrant: BrowserGrantProposal;
   status: BrowserApprovalRequestStatus;
   grantId?: string;
@@ -398,6 +402,7 @@ export interface BrowserTargetRequest {
 
 export interface BrowserCloseTabRequest extends BrowserTargetRequest {
   allowCloseLastInWindow?: boolean;
+  reason?: string;
   requestId?: string;
 }
 
@@ -418,6 +423,7 @@ export interface BrowserCloseMatchingRequest {
 
 export interface BrowserNavigateRequest extends BrowserTargetRequest {
   url: string;
+  reason?: string;
 }
 
 export type BrowserReloadRequest = BrowserTargetRequest;
@@ -548,6 +554,7 @@ export interface BrowserClickRequest extends BrowserTargetRequest {
   verify?: BrowserControlVerifyExpectation;
   expectUrlChange?: boolean;
   expectChange?: BrowserMutationEffectExpectation;
+  reason?: string;
   requestId?: string;
 }
 
@@ -559,6 +566,7 @@ export interface BrowserTypeRequest extends BrowserTargetRequest {
   value: string;
   actionHint?: string;
   verify?: BrowserControlVerifyExpectation;
+  reason?: string;
   requestId?: string;
 }
 
@@ -574,6 +582,7 @@ export interface BrowserFillFormField {
 
 export interface BrowserFillFormRequest extends BrowserTargetRequest {
   fields: BrowserFillFormField[];
+  reason?: string;
   requestId?: string;
 }
 
@@ -585,6 +594,7 @@ export interface BrowserSelectRequest extends BrowserTargetRequest {
   value: string;
   actionHint?: string;
   verify?: BrowserControlVerifyExpectation;
+  reason?: string;
   requestId?: string;
 }
 
@@ -621,6 +631,7 @@ export interface BrowserEvaluateRequest extends BrowserTargetRequest {
   actionHint?: string;
   expectUrlChange?: boolean;
   expectChange?: BrowserMutationEffectExpectation;
+  reason?: string;
   requestId?: string;
 }
 
@@ -635,6 +646,7 @@ export interface BrowserUploadFileRequest extends BrowserTargetRequest {
   selector: string;
   filePath: string;
   actionHint?: string;
+  reason?: string;
   requestId?: string;
 }
 
@@ -644,6 +656,7 @@ export interface BrowserDownloadFileRequest extends BrowserTargetRequest {
   suggestedFilename?: string;
   timeoutMs?: number;
   actionHint?: string;
+  reason?: string;
   requestId?: string;
 }
 

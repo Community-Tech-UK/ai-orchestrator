@@ -28,7 +28,7 @@ export const SETTINGS_SURFACE_HELP: HelpEntry = {
         'Everyday preferences: General, Display, Keyboard.',
         'Agent behaviour: Orchestration, Auxiliary Models, Cross-Model Review, Memory, Permissions.',
         'Workspace tools: Models, MCP Servers, Hooks, Worktrees, Snapshots, Archive, Ecosystem.',
-        'Network & Remote: Network, Connections, Voice, Remote Nodes, Mobile, Remote Config.',
+        'Network & Remote: Network, Connections, Voice, Other computers, Mobile, Remote Config.',
         'Health & Diagnostics: CLI Health, Doctor, Provider Quota, RTK Savings, Advanced.',
       ],
     },

@@ -37,6 +37,7 @@ function fixture() {
     getCompletedChildIds: () => [],
     getActiveChildCount: () => 0,
     notifyAllChildrenCompleted: vi.fn(),
+    dispose: vi.fn(), cancelUserActions: vi.fn(), endUserActions: vi.fn(),
   });
   const handler = new InstanceChildCompletionHandler({
     getInstance: (id) => instances.get(id),
@@ -53,6 +54,8 @@ function fixture() {
       getInstance: (id: string) => instances.get(id), destroy: vi.fn(),
     }),
     communication: new EventEmitter(), lifecycle, childCompletion: handler,
+    orchestrationMgr: { getOrchestrationHandler: () => orchestration },
+    requestReceipts: { setLocalResolutionHandler: vi.fn() },
     continuityRecovery: { removeInstance: vi.fn() },
     providerEventBus: { removeInstance: vi.fn() },
     settledTracker: { clear: vi.fn(), destroy: vi.fn() },

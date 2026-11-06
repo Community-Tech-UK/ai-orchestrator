@@ -41,6 +41,8 @@ export interface BrowserGatewayNavigateRequest extends BrowserGatewayContext {
   profileId: string;
   targetId: string;
   url: string;
+  /** Why the agent is going there, in its own words. Shown to the person approving a cross-site move. */
+  reason?: string;
 }
 
 export interface BrowserGatewayReloadRequest
@@ -107,6 +109,7 @@ export interface BrowserGatewayCloseTabRequest extends BrowserGatewayContext {
   profileId: string;
   targetId: string;
   allowCloseLastInWindow?: boolean;
+  reason?: string;
   requestId?: string;
 }
 

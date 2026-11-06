@@ -3,7 +3,7 @@
 
   <header class="health-header">
     <div>
-      <p class="eyebrow">Operational health centre</p>
+      <p class="eyebrow">Local models</p>
       <h1 tabindex="-1">Local capacity, proven end to end</h1>
       <p>
         Only enrolled endpoints are monitored. Routing follows current worker, endpoint,
@@ -16,25 +16,25 @@
       </button>
       @if (store.targets().length > 0) {
         <button type="button" class="button primary" (click)="beginEnrolment()">
-          Add local AI
+          Add a local model
         </button>
       }
     </div>
   </header>
 
   @if (loading()) {
-    <section class="state-card" aria-busy="true" aria-label="Loading Local AI health">
-      <strong>Loading Local AI health…</strong>
+    <section class="state-card" aria-busy="true" aria-label="Checking your local models">
+      <strong>Checking your local models…</strong>
       <span>Reading enrolled targets and current evidence.</span>
     </section>
   } @else if (!store.hasAuthoritativeSnapshot()) {
     <section class="state-card unavailable" role="status">
-      <strong>Health status unavailable</strong>
-      <span>No health verdict is shown until an authoritative snapshot is available.</span>
+      <strong>Couldn't check your local models</strong>
+      <span>Harness couldn't read their status, so nothing is shown as working until a check succeeds.</span>
       <button type="button" class="button secondary" (click)="recover()">Try again</button>
     </section>
   } @else {
-    <section class="aggregate" [attr.data-state]="store.aggregate().state" aria-label="Local AI aggregate health">
+    <section class="aggregate" [attr.data-state]="store.aggregate().state" aria-label="Overall health of your local models">
       <div class="aggregate-state">
         <span class="aggregate-mark" aria-hidden="true"></span>
         <div>
@@ -116,7 +116,7 @@
         <span>{{ store.activeIncidents().length }}</span>
       </div>
       @if (store.activeIncidents().length === 0) {
-        <div class="quiet-state">No active Local AI incidents.</div>
+        <div class="quiet-state">No active problems with your local models.</div>
       } @else {
         <div class="incident-list">
           @for (incident of store.activeIncidents(); track incident.id) {

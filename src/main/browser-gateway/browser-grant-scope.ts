@@ -12,6 +12,23 @@ export function existingTabGrantNodeId(profileId: string, explicitNodeId?: strin
 }
 
 /**
+ * Which computer an approval is about: 'local' or a remote computer's id, for
+ * showing to the person who decides. A shared tab names its computer in its own
+ * id; a managed profile runs where its profile says (no setting means this
+ * computer). It never comes from the agent's proposal. Undefined when a managed
+ * profile no longer exists, so nothing is guessed.
+ */
+export function approvalComputerId(
+  profileId: string,
+  getProfile: (id: string) => { executionNodeId?: string } | null | undefined,
+): string | undefined {
+  const shared = existingTabGrantNodeId(profileId);
+  if (shared) return shared;
+  const profile = getProfile(profileId);
+  return profile ? profile.executionNodeId ?? 'local' : undefined;
+}
+
+/**
  * Stable scope for standing, per-origin browser state that must outlive a tab:
  * credential authorizations and login recipes. Managed profiles use their own
  * id. A shared existing tab uses its node scope (the remote nodeId, or 'local'),

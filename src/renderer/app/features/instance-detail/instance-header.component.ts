@@ -22,7 +22,8 @@ import { CopilotPremiumUsageComponent } from './copilot-premium-usage.component'
 import { CrossModelReviewIndicatorComponent } from './cross-model-review-indicator.component';
 import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
 import { describeModelSwitchEffect } from '../models/model-switch-note';
-import { DEFAULT_INSTANCE_PROVIDERS, PROVIDER_MENU_LABELS } from '../models/provider-menu.constants';
+import { DEFAULT_INSTANCE_PROVIDERS } from '../models/provider-menu.constants';
+import { accountFamilyName, computerName, providerName } from '../../../../shared/display-names';
 import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
 import { SkillStore } from '../../core/state/skill.store';
 import { SessionSkillsBadgeComponent } from './session-skills-badge.component';
@@ -88,8 +89,11 @@ export class InstanceHeaderComponent implements OnInit {
     usedTokens: this.contextUsage()?.occupancyReported && !this.contextUsage()?.occupancyIsAggregate ? this.contextUsage()!.used : null,
     residentClaude: this.instance().residentClaude, executionLocationType: this.instance().executionLocation?.type });
 
+  /** The model that proves what a provider's name should read: OpenCode says "MiMo" only on a MiMo plan model. */
+  private readonly nameModel = computed(() => this.currentModel() || this.instance().currentModel);
+
   readonly interruptTitle = computed(
-    () => `Interrupt ${this.getProviderDisplayName(this.instance().provider)}`,
+    () => `Interrupt ${this.getProviderDisplayName(this.instance().provider, this.nameModel())}`,
   );
 
   readonly supportsFastMode = computed(() => {
@@ -167,13 +171,13 @@ export class InstanceHeaderComponent implements OnInit {
       case 'auth-required':
         return null;
       case 'provider-slot':
-        return `Waiting for ${wr.provider} slot…`;
+        return `Waiting for another ${providerName(wr.provider)} session to finish…`;
       case 'resume-proof':
         return 'Verifying session resume…';
       case 'remote-heartbeat':
-        return 'Remote worker stale…';
+        return 'Waiting for its computer to reconnect…';
       case 'mutex':
-        return `Waiting for lock (${wr.operation})…`;
+        return 'Finishing the previous action…';
       case 'terminating':
         return wr.force ? 'Force terminating…' : 'Terminating…';
       default:
@@ -192,15 +196,15 @@ export class InstanceHeaderComponent implements OnInit {
       case 'backoff':
         return `Attempt ${wr.attempt}, retry at ${this.waitReasonData.time}`;
       case 'quota-park':
-        return `Provider: ${wr.provider}, resumes at ${this.waitReasonData.time}`;
+        return `${accountFamilyName(wr.provider)} allowance resets at ${this.waitReasonData.time}`;
       case 'auth-required':
-        return `Signed out of ${wr.provider} since ${this.waitReasonData.time}`;
+        return `Signed out of ${accountFamilyName(wr.provider)} since ${this.waitReasonData.time}`;
       case 'provider-slot':
-        return `Provider: ${wr.provider}`;
+        return `Waiting on ${providerName(wr.provider)}`;
       case 'resume-proof':
-        return wr.sessionId ? `Session: ${this.waitReasonData.sessionId}…` : `Provider: ${wr.provider}`;
+        return wr.sessionId ? `Session: ${this.waitReasonData.sessionId}…` : `Checking ${providerName(wr.provider)}`;
       case 'remote-heartbeat':
-        return `Node: ${wr.nodeId}, stale for ${this.waitReasonData.staleSeconds}s`;
+        return `No reply for ${this.waitReasonData.staleSeconds}s`;
       case 'mutex':
         return wr.owner ? `Owner: ${wr.owner}` : wr.operation;
       case 'terminating':
@@ -252,9 +256,12 @@ export class InstanceHeaderComponent implements OnInit {
     return id ? this.remoteNodeStore.nodeById(id) ?? null : null;
   });
 
-  readonly remoteNodeName = computed(() =>
-    this.remoteNode()?.name ?? this.remoteNodeId()?.slice(0, 8) ?? '',
-  );
+  /** The computer's own name, or a plain description when it has none. Never a raw node id. */
+  readonly remoteNodeName = computed(() => {
+    if (!this.remoteNodeId()) return '';
+    const node = this.remoteNode();
+    return computerName({ name: node?.name, platform: node?.capabilities?.platform });
+  });
 
   readonly remoteNodeDisconnected = computed(() => {
     const node = this.remoteNode();
@@ -263,7 +270,7 @@ export class InstanceHeaderComponent implements OnInit {
 
   readonly remoteNodeTooltip = computed(() => {
     const node = this.remoteNode();
-    if (!node) return `Node ${this.remoteNodeId()?.slice(0, 8)} — no longer registered`;
+    if (!node) return `${this.remoteNodeName()} is no longer registered`;
     const caps = node.capabilities;
     const platform = caps.platform === 'win32' ? 'Windows' : caps.platform === 'darwin' ? 'macOS' : 'Linux';
     const lines = [
@@ -357,7 +364,7 @@ export class InstanceHeaderComponent implements OnInit {
   readonly isLocalModelRuntime = computed(() => this.runtimeSummary()?.kind === 'local-model');
 
   providerDisplayName = computed(() =>
-    resolveHeaderProviderDisplayName(this.instance().provider, this.runtimeSummary()),
+    resolveHeaderProviderDisplayName(this.instance().provider, this.runtimeSummary(), this.nameModel()),
   );
 
   providerColor = computed(() => {
@@ -424,9 +431,7 @@ export class InstanceHeaderComponent implements OnInit {
       && pending.reasoningEffort === undefined
       && (!pending.provider || pending.provider === inst.provider);
     if (isYoloOnly) return null;
-    const providerLabel = pending.provider
-      ? PROVIDER_MENU_LABELS[pending.provider as PickerProvider] ?? pending.provider
-      : null;
+    const providerLabel = pending.provider ? providerName(pending.provider, { model: pending.model }) : null;
     if (pending.modelRuntimeTarget?.kind === 'local-model') {
       return `Local · ${pending.modelRuntimeTarget.modelId}`;
     }
@@ -463,27 +468,8 @@ export class InstanceHeaderComponent implements OnInit {
     }
   });
 
-  getProviderDisplayName(provider: string): string {
-    switch (provider) {
-      case 'claude':
-        return 'Claude';
-      case 'codex':
-        return 'Codex';
-      case 'gemini':
-        return 'Gemini';
-      case 'ollama':
-        return 'Ollama';
-      case 'copilot':
-        return 'Copilot';
-      case 'cursor':
-        return 'Cursor';
-      case 'grok':
-        return 'Grok';
-      case 'opencode':
-        return 'OpenCode';
-      default:
-        return 'AI';
-    }
+  getProviderDisplayName(provider: string, model?: string | null): string {
+    return providerName(provider, { model });
   }
 
   getProviderColor(provider: string, runtimeSummary?: InstanceRuntimeSummary): string {
@@ -656,31 +642,9 @@ export class InstanceHeaderComponent implements OnInit {
 export function resolveHeaderProviderDisplayName(
   provider: string,
   runtimeSummary?: InstanceRuntimeSummary,
+  model?: string | null,
 ): string {
-  if (runtimeSummary?.kind === 'local-model') {
-    return 'Local Models';
-  }
-
-  switch (provider) {
-    case 'claude':
-      return 'Claude';
-    case 'codex':
-      return 'Codex';
-    case 'gemini':
-      return 'Gemini';
-    case 'ollama':
-      return 'Ollama';
-    case 'copilot':
-      return 'Copilot';
-    case 'cursor':
-      return 'Cursor';
-    case 'grok':
-      return 'Grok';
-    case 'opencode':
-      return 'OpenCode';
-    default:
-      return 'AI';
-  }
+  return providerName(runtimeSummary?.kind === 'local-model' ? 'local-model' : provider, { model });
 }
 
 export function resolveHeaderModelDisplayName(options: {

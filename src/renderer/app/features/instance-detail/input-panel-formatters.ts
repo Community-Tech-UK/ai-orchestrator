@@ -53,21 +53,28 @@ export function formatQuotaParkCountdown(resumeAt: number, now: number): string 
   return `auto-resumes in ≤${hours}h ${minsLeft % 60}m`;
 }
 
-export function formatWaitReasonLabel(wr: InstanceWaitReason | undefined): string | null {
+export function formatWaitReasonLabel(wr: InstanceWaitReason | undefined, now = Date.now(), observedAt = now): string | null {
   if (!wr) return null;
+  if (wr.kind === 'backoff') {
+    const seconds = Math.max(0, Math.ceil((wr.retryAt - now) / 1000));
+    return seconds ? `Retrying in ${seconds} s` : 'Retrying now…';
+  }
+  const start = 'startedAt' in wr ? wr.startedAt : wr.kind === 'auth-required' ? wr.since : observedAt;
+  const elapsed = Math.max(0, Math.floor((now - start) / 1000));
+  let message: string;
   switch (wr.kind) {
-    case 'respawning': return `Held — session respawning (${wr.strategy})`;
-    case 'interrupt-ack': return 'Held — waiting for interrupt acknowledgement';
-    case 'backoff': return `Held — backing off (attempt ${wr.attempt})`;
-    case 'quota-park': return `Held — provider quota limit (${wr.provider})`;
-    case 'auth-required': return `Held — signed out of ${wr.provider}`;
-    case 'provider-slot': return `Held — waiting for provider slot (${wr.provider})`;
-    case 'resume-proof': return 'Held — verifying resume';
-    case 'remote-heartbeat': return 'Held — remote worker unresponsive';
-    case 'mutex': return `Held — waiting for session lock (${wr.operation})`;
-    case 'terminating': return 'Held — instance terminating';
+    case 'respawning': message = 'Restarting this session and picking up where you left off. Your message will send in a moment.'; break;
+    case 'interrupt-ack': message = 'Waiting for the current work to stop before sending your message.'; break;
+    case 'quota-park': message = 'Waiting for your account allowance to reset before sending your message.'; break;
+    case 'auth-required': message = 'Sign in again to send your message.'; break;
+    case 'provider-slot': message = 'Waiting for another session to finish before starting this one.'; break;
+    case 'resume-proof': message = 'Checking that your conversation was restored before sending your message.'; break;
+    case 'remote-heartbeat': message = 'Waiting for your other computer to reconnect. Your message is kept here.'; break;
+    case 'mutex': message = 'Finishing the previous action before sending your message.'; break;
+    case 'terminating': message = 'Closing this session. Your unsent message is kept here.'; break;
     default: return null;
   }
+  return `${message} · waiting ${elapsed} s`;
 }
 
 export function formatVoiceStatusLabel(

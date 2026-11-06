@@ -1,4 +1,6 @@
-import { ChangeDetectionStrategy, Component, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, output } from '@angular/core';
+import { computerName } from '../../../../shared/display-names';
+import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
 import type { HarnessRole } from '../../../../shared/types/pair-both.types';
 
 @Component({
@@ -8,15 +10,15 @@ import type { HarnessRole } from '../../../../shared/types/pair-both.types';
   template: `
     <section class="role-choice-shell" aria-labelledby="role-choice-title">
       <div class="role-choice-panel">
-        <h1 id="role-choice-title">What should this computer do?</h1>
+        <h1 id="role-choice-title">What should {{ localComputer }} do?</h1>
         <div class="role-choice-grid">
           <button class="role-card" type="button" (click)="selectRole('coordinator')">
-            <span class="role-card-title">Use this computer as the main Harness</span>
-            <span class="role-card-body">Run sessions, coordinate workers, and manage settings.</span>
+            <span class="role-card-title">Use {{ localComputer }} as the main Harness</span>
+            <span class="role-card-body">Run sessions, manage your other computers, and change settings.</span>
           </button>
           <button class="role-card" type="button" (click)="selectRole('worker')">
-            <span class="role-card-title">Use this computer as a worker</span>
-            <span class="role-card-body">Let another Harness use this computer for browser, GPU, Android, and CLI work.</span>
+            <span class="role-card-title">Let {{ localComputer }} help another Harness</span>
+            <span class="role-card-body">Let another Harness use {{ localComputer }} for browser, GPU, Android, and CLI work.</span>
           </button>
         </div>
       </div>
@@ -92,6 +94,7 @@ import type { HarnessRole } from '../../../../shared/types/pair-both.types';
   `],
 })
 export class RoleChoiceComponent {
+  protected readonly localComputer = computerName('local', inject(ElectronIpcService).platform);
   readonly roleSelected = output<Exclude<HarnessRole, 'unset'>>();
 
   protected selectRole(role: Exclude<HarnessRole, 'unset'>): void {

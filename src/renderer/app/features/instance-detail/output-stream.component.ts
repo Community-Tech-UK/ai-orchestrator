@@ -47,10 +47,12 @@ import {
   visibleFailedImages,
   withSelectionItem,
 } from './output-stream-context-menu';
-import {
-  compactionRecoveryLabel as compactionRecoveryLabelForState,
-  isCompactionRecoveryDisabled as isCompactionRecoveryDisabledForState,
-} from './compaction-recovery-copy';
+import { CompactionRecoveryController } from './output-stream-compaction-recovery';
+import { OutputStreamTurnNotes, type TurnNote } from './output-stream-turn-notes';
+import { TurnSummaryRowComponent } from './turn-summary-row.component';
+import { RunFailureNoticeComponent } from './run-failure-notice.component';
+import { EventErrorDetailsComponent } from './event-error-details.component';
+import { readRequestReceipt } from '../../../../shared/utils/request-receipt-message';
 import { InstanceStore } from '../../core/state/instance/instance.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { MessageFormatService } from './message-format.service';
@@ -114,6 +116,9 @@ import {
     AioTooltipDirective,
     AppIconButtonDirective,
     AsyncQuestionAnswersComponent,
+    TurnSummaryRowComponent,
+    RunFailureNoticeComponent,
+    EventErrorDetailsComponent,
   ],
   templateUrl: './output-stream.component.html',
   styleUrl: './output-stream.component.scss',
@@ -150,6 +155,14 @@ export class OutputStreamComponent {
     attachments?: OutputMessage['attachments'];
     retryMode: 'transcript-only';
   }>();
+
+  /**
+   * A host that can open a review panel sets `reviewPanelAvailable` and handles
+   * `reviewRequested`. Without it, "Changed N files while this reply ran" shows
+   * as plain text instead of a button that does nothing.
+   */
+  reviewPanelAvailable = input(false);
+  reviewRequested = output<{ turnKey: string; files: readonly string[] }>();
 
   /** ID of the last user message — used to show the edit button only on that message. */
   protected lastUserMessageId = computed(() => {
@@ -195,9 +208,8 @@ export class OutputStreamComponent {
   /** Progress notes the operator has clicked open. Separate from the user-message
    *  set so clearing one never disturbs the other. */
   protected expandedProgressNoteIds = signal(new Set<string>());
-  protected compactionRecoveryState = signal<Record<string, 'recovering' | 'queued' | 'failed'>>({});
-  protected readonly compactionRecoveryHint = copyFor('output.compactionRecovery');
-  protected readonly compactionQueuedReason = copyFor('output.compactionQueued');
+  protected readonly compactionRecovery = new CompactionRecoveryController(() => this.instanceId());
+  protected readonly compactionCopy = { hint: copyFor('output.compactionRecovery'), queued: copyFor('output.compactionQueued') };
   private copyResetTimer: number | null = null;
 
   // Context menu state
@@ -247,10 +259,12 @@ export class OutputStreamComponent {
   private instanceIpc = inject(InstanceIpcService);
   private outputStore = inject(InstanceOutputStore);
   private instanceStore = inject(InstanceStore);
+  protected readonly isLiveView = computed(() => this.livePromptIndexEnabled() && !!this.instanceStore.getInstance(this.instanceId()));
+  protected readonly requestReceipt = readRequestReceipt;
   private perf = inject(PerfInstrumentationService);
   private destroyRef = inject(DestroyRef);
   private expansionState = inject(ExpansionStateService);
-  private messageFormat = inject(MessageFormatService);
+  protected readonly messageFormat = inject(MessageFormatService);
   private scrollService = inject(OutputScrollService);
   private clipboard = inject(CLIPBOARD_SERVICE);
   private fileIpc = inject(FileIpcService);
@@ -359,6 +373,12 @@ export class OutputStreamComponent {
   );
   protected readonly windowedItems = this.renderWindow.items;
   protected readonly hiddenRenderedCount = this.renderWindow.hiddenCount;
+  /** The quiet note under each finished turn: what it did, what failed, what changed. */
+  protected readonly turnNotes = new OutputStreamTurnNotes({
+    messages: () => this.messages(),
+    items: () => this.windowedItems(),
+    instanceId: () => this.instanceId(),
+  });
   protected readonly history = new OutputStreamHistoryController({
     getInstanceId: () => this.instanceId(),
     getMessages: () => this.messages(),
@@ -980,29 +1000,8 @@ export class OutputStreamComponent {
     this.expansionState.toggleExpanded(this.instanceId(), itemId);
   }
 
-  // ---- Formatting delegates (logic lives in MessageFormatService) ----
-
-  /** Summary shown on a collapsed work-cycle header. */
-  summarizeCycle(item: DisplayItem): string {
-    return this.messageFormat.summarizeCycle(item);
-  }
-
-  /** "23s" / "2m 15s" elapsed across the cycle's children; empty if unknown. */
-  formatCycleDuration(item: DisplayItem): string {
-    return this.messageFormat.formatCycleDuration(item);
-  }
-
-  formatMessageLabel(message: OutputMessage, provider: string): string {
-    return this.messageFormat.formatMessageLabel(message, provider);
-  }
-
-  describeMessageSender(message: OutputMessage): string {
-    return this.messageFormat.describeMessageSender(message);
-  }
-
-  protected getProviderDisplayName(provider: string): string {
-    return this.messageFormat.getProviderDisplayName(provider);
-  }
+  // ---- Formatting: the template calls MessageFormatService directly (`messageFormat`);
+  // only what the class itself uses, or adds logic to, is kept here. ----
 
   hasContent(message: OutputMessage): boolean {
     return this.messageFormat.hasContent(message);
@@ -1012,80 +1011,18 @@ export class OutputStreamComponent {
     return this.messageFormat.isCompactionBoundary(message);
   }
 
-  isRestoreNotice(message: OutputMessage): boolean {
-    return this.messageFormat.isRestoreNotice(message);
-  }
-
   getCompactionTooltip(message: OutputMessage): string | null {
     if (message.metadata?.['method'] !== 'restart-with-summary') return null;
     const stats = message.metadata?.['continuityStats'] as { recentTurns?: number; userMessages?: number; anchorCount?: number } | undefined;
     return copyFor('compaction.freshSession') + (stats ? ` Kept: ${stats.recentTurns ?? 0} recent turns, ${stats.userMessages ?? 0} user messages, ${stats.anchorCount ?? 0} anchors.` : '');
   }
 
-  getCompactionLabel(message: OutputMessage): string {
-    return this.messageFormat.getCompactionLabel(message);
-  }
-
-  formatCompactionReason(reason: string): string {
-    return this.messageFormat.formatCompactionReason(reason);
-  }
-
-  formatCompactionFallbackMode(mode: string): string {
-    return this.messageFormat.formatCompactionFallbackMode(mode);
-  }
-
-  getCompactionMarkerId(message: OutputMessage): string | null {
-    return this.messageFormat.getCompactionMarkerId(message);
-  }
-
-  compactionRecoveryLabel(markerId: string): string {
-    return compactionRecoveryLabelForState(this.compactionRecoveryState()[markerId]);
-  }
-
-  isCompactionRecoveryDisabled(markerId: string): boolean {
-    return isCompactionRecoveryDisabledForState(this.compactionRecoveryState()[markerId]);
-  }
-
-  async recoverCompactionContext(event: MouseEvent, markerId: string): Promise<void> {
-    event.preventDefault();
-    event.stopPropagation();
-    if (!markerId || this.isCompactionRecoveryDisabled(markerId)) {
-      return;
-    }
-    this.setCompactionRecoveryState(markerId, 'recovering');
-    try {
-      const result = await this.instanceIpc.recoverCompactionContext(this.instanceId(), markerId);
-      if (result.success) {
-        this.setCompactionRecoveryState(markerId, 'queued');
-      } else {
-        this.setCompactionRecoveryState(markerId, 'failed');
-        console.error('Failed to recover compaction context:', result.error?.message ?? 'Unknown error');
-      }
-    } catch (error) {
-      this.setCompactionRecoveryState(markerId, 'failed');
-      console.error('Failed to recover compaction context:', error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  private setCompactionRecoveryState(markerId: string, state: 'recovering' | 'queued' | 'failed'): void {
-    this.compactionRecoveryState.update((current) => ({ ...current, [markerId]: state }));
-  }
-
-  /** Returns false if thinking is hidden AND response is empty. */
-  hasThoughtGroupContent(item: DisplayItem, showThinking: boolean): boolean {
-    return this.messageFormat.hasThoughtGroupContent(item, showThinking);
-  }
-
-  getToolName(message: OutputMessage): string {
-    return this.messageFormat.getToolName(message);
-  }
-
-  formatContent(message: OutputMessage): string {
-    return this.messageFormat.formatContent(message);
-  }
-
   protected visibleFailedImages(failures: readonly FailedImageRef[]): FailedImageRef[] {
     return visibleFailedImages(failures);
+  }
+
+  protected onTurnReviewRequested(note: TurnNote): void {
+    this.reviewRequested.emit({ turnKey: note.turnKey, files: note.changedPaths });
   }
 
   protected shouldShowUserMessageToggle(message: OutputMessage): boolean {

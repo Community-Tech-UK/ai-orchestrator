@@ -268,6 +268,10 @@ describe('SettingsComponent', () => {
 
   it('shows a Setup badge for Remote Nodes when no nodes are enrolled', () => {
     expect(component.navBadges()['remote-nodes']).toEqual({ text: 'Setup', status: 'info' });
+    expect(component.remoteNodesHelpStatus()).toEqual({
+      variant: 'info',
+      text: 'None of your other computers are paired yet.',
+    });
   });
 
   it('flags Remote Nodes as degraded when an enrolled node is unhealthy', () => {
@@ -282,7 +286,7 @@ describe('SettingsComponent', () => {
     expect(component.navBadges()['remote-nodes']).toEqual({ text: '1 degraded', status: 'warn' });
     expect(component.remoteNodesHelpStatus()).toEqual({
       variant: 'info',
-      text: '1 of 1 enrolled node is connected.',
+      text: '1 of 1 paired computer is connected.',
     });
   });
 

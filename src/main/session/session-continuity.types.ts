@@ -3,6 +3,13 @@ import type { AccountInvocationOrigin, AccountRouteSource } from '../../shared/t
 import type { AccountPreferences, CrossSessionMessageMetadata, InstanceProvider, ThinkingContent } from '../../shared/types/instance.types';
 import type { CopilotRouteSource } from '../../shared/types/copilot-account.types';
 import type { InternalInputMetadata } from '../../shared/types/input-provenance.types';
+import type { RequestReceiptMetadata } from '../../shared/utils/request-receipt-message';
+import type { PresentedError } from '../../shared/present-error';
+import type {
+  SystemMessageAudience,
+  SystemMessagePresentationKind,
+  SystemMessageSeverity,
+} from '../../shared/utils/system-message-audience';
 
 export interface SessionSnapshot {
   id: string;
@@ -190,7 +197,14 @@ export interface ConversationEntry {
     callId?: string;
     resultForCallId?: string;
     output?: string;
+    /** The tool could not run to its own end. A command that ran and exited non-zero is not this. */
     isError?: boolean;
+    /** A command's own exit status; neutral by itself (a search that found nothing exits 1). */
+    exitCode?: number;
+    /** The command was a check: tests, lint, a build or a typecheck. */
+    isCheck?: boolean;
+    /** A check that did not pass. Kept apart from `isError` so a red check is still red after a restore. */
+    checkFailed?: boolean;
   };
   thinking?: string;
   thinkingBlocks?: ThinkingContent[];
@@ -222,6 +236,30 @@ export interface ConversationEntry {
   crossSessionMessage?: CrossSessionMessageMetadata;
   /** An agent wrote this user-looking entry, or it came from a parent; it must not grant `@session` read scope. */
   agentAuthored?: boolean;
+  /** How a system notice is shown. A closed set; see `continuity-notice-metadata.ts`. */
+  notice?: ContinuityNoticeMetadata;
+}
+
+/**
+ * The presentation facts of a system notice that survive a restore. Absent on an
+ * entry saved before these were kept, and on any notice that never carried them: a
+ * missing `audience` still reads as `attention`.
+ */
+export interface ContinuityNoticeMetadata {
+  /** Routine notices and explicit receipt audiences survive restore. */
+  audience?: SystemMessageAudience;
+  severity?: SystemMessageSeverity;
+  /** A purpose-built presentation, e.g. the quiet one-line receipt left after a request is answered. */
+  presentationKind?: SystemMessagePresentationKind;
+  /** The request a `request-receipt` belongs to. */
+  requestId?: RequestReceiptMetadata['requestId'];
+  outcome?: RequestReceiptMetadata['outcome'];
+  subject?: RequestReceiptMetadata['subject'];
+  requestedAt?: RequestReceiptMetadata['requestedAt'];
+  /** The notice reports that a native resume failed. */
+  resumeFailed?: true;
+  /** Plain-language error details, with `rawDetail` redacted and bounded. */
+  errorPresentation?: PresentedError;
 }
 
 export interface PendingTask {

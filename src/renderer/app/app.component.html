@@ -11,11 +11,12 @@
       <button
         type="button"
         class="startup-status-chip"
+        data-testid="startup-status-chip"
         [class.failed]="report.status === 'failed'"
         [appTooltip]="startupCapabilitySummary()"
         (click)="openSetupCenter()"
       >
-        Startup {{ report.status }}
+        {{ startupChipLabel(report.status) }}
       </button>
     }
     <app-local-ai-status-chip />
@@ -42,12 +43,26 @@
       role="status"
       aria-live="polite"
     >
-      <span class="startup-banner-title">
-        Startup checks: {{ report.status }}
-      </span>
-      <span class="startup-banner-body">{{ startupCapabilitySummary() }}</span>
+      <span class="startup-banner-title">{{ startupBannerTitle(report.status) }}</span>
+      <ul class="startup-banner-checks">
+        @for (item of startupBannerItems(); track item.check.id) {
+          <li class="startup-banner-check" [attr.data-check-id]="item.check.id">
+            <span class="startup-banner-body">{{ item.check.summary }}</span>
+            <button type="button" class="startup-banner-cta" (click)="runStartupFix(item.action)">
+              {{ item.action.label }}
+            </button>
+          </li>
+        }
+        @if (startupBannerHiddenCount() > 0) {
+          <li class="startup-banner-check startup-banner-more">
+            <span class="startup-banner-body">
+              And {{ startupBannerHiddenCount() }} more {{ startupBannerHiddenCount() === 1 ? 'thing needs' : 'things need' }} attention.
+            </span>
+            <button type="button" class="startup-banner-cta" (click)="openSetupCenter()">Setup</button>
+          </li>
+        }
+      </ul>
       <span class="startup-banner-actions">
-        <button type="button" class="startup-banner-cta" (click)="openProviderAccounts()">Open accounts</button>
         <button
           type="button"
           class="startup-banner-dismiss"

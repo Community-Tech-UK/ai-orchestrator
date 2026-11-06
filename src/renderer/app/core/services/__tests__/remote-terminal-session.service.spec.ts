@@ -32,7 +32,7 @@ describe('RemoteTerminalSessionService', () => {
 
   it('rejects spawning without a nodeId (remote-only)', async () => {
     const svc = setup(makeApi());
-    await expect(svc.spawn({ cwd: '/tmp' })).rejects.toThrow(/worker node/i);
+    await expect(svc.spawn({ cwd: '/tmp' })).rejects.toThrow(/computer/i);
   });
 
   it('forwards spawn options to the bridge and returns the session', async () => {

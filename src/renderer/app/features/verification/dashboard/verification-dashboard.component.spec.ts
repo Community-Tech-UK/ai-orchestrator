@@ -882,7 +882,9 @@ describe('VerificationDashboardComponent', () => {
     it('should get agent display name', () => {
       expect(component.getAgentDisplayName('claude')).toBe('Claude');
       expect(component.getAgentDisplayName('gemini')).toBe('Gemini');
-      expect(component.getAgentDisplayName('unknown')).toBe('unknown');
+      // An id with no name of its own reads as plain words, not as a raw id.
+      expect(component.getAgentDisplayName('unknown')).toBe('Unknown');
+      expect(component.getAgentDisplayName('aider')).toBe('Aider');
     });
 
     it('should check if can add more agents', () => {

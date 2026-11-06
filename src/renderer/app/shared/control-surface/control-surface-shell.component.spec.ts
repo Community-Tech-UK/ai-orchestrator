@@ -87,7 +87,7 @@ describe('ControlSurfaceShellComponent router lifecycle', () => {
 
   it.each([
     ['/settings', 'Settings', null],
-    ['/local-ai', 'Local AI Health Centre', 'local-ai'],
+    ['/local-ai', 'Local models', 'local-ai'],
     ['/automations', 'Automations', 'automations'],
     ['/nested/logs', 'Logs', 'logs'],
   ] as const)('initializes %s before live child snapshots exist', async (url, title, helpId) => {
@@ -132,13 +132,13 @@ describe('ControlSurfaceShellComponent router lifecycle', () => {
       const harness = await RouterTestingHarness.create('/');
       for (const [url, title, helpId] of [
         ['/settings', 'Settings', null],
-        ['/local-ai', 'Local AI Health Centre', 'local-ai'],
+        ['/local-ai', 'Local models', 'local-ai'],
         ['/settings', 'Settings', null],
         ['/', null, null],
         ['/automations', 'Automations', 'automations'],
         ['/nested/logs', 'Logs', 'logs'],
         ['/', null, null],
-        ['/local-ai', 'Local AI Health Centre', 'local-ai'],
+        ['/local-ai', 'Local models', 'local-ai'],
       ] as const) {
         await harness.navigateByUrl(url);
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -257,6 +257,9 @@ describe('ControlSurfaceShellComponent', () => {
     expect(text).toContain('Settings');
     expect(text).toContain('Browser Gateway');
     expect(fixture.nativeElement.querySelector('h1')?.textContent).toBe('Automations');
+    const computersLink = fixture.nativeElement.querySelector('a[href="/remote-nodes"]') as HTMLAnchorElement;
+    expect(computersLink.textContent?.trim()).toBe('Other computers');
+    expect(computersLink.getAttribute('aria-label')).toBe('Other computers');
   });
 
   it('remembers when the Control Center navigation is collapsed', () => {

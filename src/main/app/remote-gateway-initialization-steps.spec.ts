@@ -119,6 +119,34 @@ describe('createWorkerNodeSubsystemStep', () => {
     expect(fakes.publish).toHaveBeenCalledWith(4878, 'default', 'default');
   });
 
+  // The startup check judges "is the listener up?" once, in a later launch step.
+  // That is only fair if this step does not finish until the listener is up (or
+  // has failed), so a listener that is merely slow to bind is never reported as
+  // "On, but not running yet" on a normal launch.
+  it('does not finish until the listener is up', async () => {
+    let listenerUp!: () => void;
+    fakes.connectionStart.mockImplementationOnce(() => new Promise<undefined>((resolve) => {
+      listenerUp = () => resolve(undefined);
+    }));
+    let finished = false;
+
+    const running = (async () => {
+      await createWorkerNodeSubsystemStep(buildContext()).fn();
+      finished = true;
+    })();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(fakes.connectionStart).toHaveBeenCalledOnce();
+    expect(finished).toBe(false);
+    expect(fakes.publish).not.toHaveBeenCalled();
+
+    listenerUp();
+    await running;
+
+    expect(finished).toBe(true);
+    expect(fakes.publish).toHaveBeenCalledOnce();
+  });
+
   it('does not advertise when the remote node subsystem is disabled', async () => {
     fakes.config.enabled = false;
 

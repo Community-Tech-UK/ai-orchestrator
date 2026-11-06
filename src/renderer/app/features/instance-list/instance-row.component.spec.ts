@@ -147,7 +147,72 @@ describe('InstanceRowComponent — tooltip disclosure', () => {
   it('folds the hibernated state into the indicator label', () => {
     fixture.componentInstance.instance.set(makeInstance({ status: 'hibernated' }));
     fixture.detectChanges();
-    expect(query('.leading-indicator').getAttribute('aria-label')).toContain('hibernated');
+    expect(query('.leading-indicator').getAttribute('aria-label')).toBe('Claude · Asleep — send a message to wake it');
+  });
+
+  // The words now come from the one status presenter, so every surface agrees.
+  describe('status words', () => {
+    function indicatorLabel(overrides: Partial<Instance>): string {
+      fixture.componentInstance.instance.set(makeInstance(overrides));
+      fixture.detectChanges();
+      return query('.leading-indicator').getAttribute('aria-label') ?? '';
+    }
+
+    it('tells a question from an approval', () => {
+      expect(indicatorLabel({ status: 'waiting_for_input' }))
+        .toBe('Claude · Needs your answer — the agent asked you a question');
+      expect(indicatorLabel({ status: 'waiting_for_permission' }))
+        .toBe('Claude · Needs your OK — the agent is asking permission to do something');
+    });
+
+    it('says Working and Thinking for the two long-silent working states, which had no words before', () => {
+      expect(indicatorLabel({ status: 'busy' })).toBe('Claude · Working');
+      expect(indicatorLabel({ status: 'processing' })).toBe('Claude · Working');
+      expect(indicatorLabel({ status: 'thinking_deeply' })).toBe('Claude · Thinking — thinking for a while');
+    });
+
+    it('uses plain words for the restart and stop states', () => {
+      expect(indicatorLabel({ status: 'respawning' })).toBe('Claude · Restarting — picking up where it left off');
+      expect(indicatorLabel({ status: 'interrupting' })).toBe('Claude · Stopping — stopping the current work');
+      expect(indicatorLabel({ status: 'initializing' })).toBe('Claude · Working — starting up');
+    });
+
+    it('does not mention a failed or lost-connection session by colour alone', () => {
+      expect(indicatorLabel({ status: 'failed' })).toBe("Claude · Problem — the session couldn't carry on");
+      expect(indicatorLabel({ status: 'degraded' })).toContain('Problem — lost contact with its computer');
+    });
+
+    it('explains why a session that looks idle is not: parked on a usage limit', () => {
+      expect(indicatorLabel({
+        status: 'idle',
+        waitReason: { kind: 'quota-park', provider: 'claude', resumeAt: Date.now() + 60_000 },
+      })).toBe('Claude · Asleep — paused until your Claude allowance resets');
+    });
+
+    it('names each provider once, the same way everywhere', () => {
+      const names = (['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode'] as const)
+        .map((provider) => indicatorLabel({ provider }));
+      expect(names).toEqual([
+        'Claude', 'Codex', 'Gemini', 'Antigravity', 'Copilot', 'Cursor', 'Grok', 'OpenCode',
+      ]);
+    });
+
+    it('calls an OpenCode session "MiMo" only when its model is on the MiMo plan', () => {
+      expect(indicatorLabel({ provider: 'opencode', currentModel: 'xiaomi-token-plan-ams/mimo-v2.5-pro' })).toBe('MiMo');
+      expect(indicatorLabel({ provider: 'opencode', currentModel: 'aio-mimo-work/mimo-v2.5-pro' })).toBe('MiMo');
+      expect(indicatorLabel({ provider: 'opencode', currentModel: 'opencode/big-pickle' })).toBe('OpenCode');
+      expect(indicatorLabel({ provider: 'opencode', currentModel: 'openrouter/anthropic/claude-sonnet-4' })).toBe('OpenCode');
+      expect(indicatorLabel({ provider: 'opencode', currentModel: undefined })).toBe('OpenCode');
+    });
+  });
+
+  it('reads "Needs your OK" on the chip beside a pending approval, the same words as the status', () => {
+    fixture.componentInstance.instance.set(makeInstance({ pendingApprovalCount: 2 } as Partial<Instance>));
+    fixture.detectChanges();
+    const chip = query('.approval-chip');
+    expect(chip.textContent?.trim()).toBe('Needs your OK');
+    hover(chip);
+    expect(openTooltips()[0]?.textContent?.trim()).toBe('This session is waiting for you to approve something');
   });
 
   // Gate 12: the badge showed the node NAME whether the node was healthy or
@@ -177,6 +242,25 @@ describe('InstanceRowComponent — tooltip disclosure', () => {
     it('still explains the consequence on hover', () => {
       hover(renderOnNode(false));
       expect(openTooltips()[0]?.textContent).toContain('session may be interrupted');
+    });
+
+    it('speaks of a computer, never of a node', () => {
+      hover(renderOnNode(false));
+      expect(openTooltips()[0]?.textContent?.trim()).toBe('windows-pc is offline — this session may be interrupted');
+    });
+
+    it('says where a healthy session is running in plain words', () => {
+      hover(renderOnNode(true));
+      expect(openTooltips()[0]?.textContent?.trim()).toBe('Running on windows-pc');
+    });
+
+    it('describes a computer that has no name instead of printing its id', () => {
+      nodes = { 'node-1': { name: '', status: 'connected', connected: true } };
+      fixture.componentInstance.instance.set(
+        makeInstance({ executionLocation: { type: 'remote', nodeId: 'node-1' } } as Partial<Instance>),
+      );
+      fixture.detectChanges();
+      expect(query('.remote-badge').textContent?.trim()).toBe('another computer');
     });
   });
 
@@ -215,7 +299,15 @@ describe('InstanceRowComponent — tooltip disclosure', () => {
     it('names an errored instance in the row accessible name', () => {
       fixture.componentInstance.instance.set(makeInstance({ status: 'error' }));
       fixture.detectChanges();
-      expect(row().getAttribute('aria-label')).toContain('error');
+      expect(row().getAttribute('aria-label')).toContain('problem');
+    });
+
+    it('names a failed or disconnected instance the same way, not only an errored one', () => {
+      for (const status of ['failed', 'degraded'] as const) {
+        fixture.componentInstance.instance.set(makeInstance({ status }));
+        fixture.detectChanges();
+        expect(row().getAttribute('aria-label')).toContain('problem');
+      }
     });
 
     it('names auto-approve mode in the row accessible name', () => {
@@ -230,14 +322,14 @@ describe('InstanceRowComponent — tooltip disclosure', () => {
       );
       fixture.detectChanges();
       const label = row().getAttribute('aria-label') ?? '';
-      expect(label).toContain('error');
+      expect(label).toContain('problem');
       expect(label).toContain('auto-approve');
     });
 
     it('says neither on an ordinary idle instance', () => {
       const label = row().getAttribute('aria-label') ?? '';
       expect(label).toContain('Select session');
-      expect(label).not.toContain('error');
+      expect(label).not.toContain('problem');
       expect(label).not.toContain('auto-approve');
     });
 

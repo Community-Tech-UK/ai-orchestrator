@@ -21,6 +21,7 @@
  */
 
 import { BaseProvider } from './provider-interface';
+import { providerToolName } from '../../shared/display-names';
 import { CursorCliAdapter, CursorCliConfig } from '../cli/adapters/cursor-cli-adapter';
 import type {
   ProviderType,
@@ -51,7 +52,7 @@ const CURSOR_CAPABILITIES: ProviderAdapterCapabilities = {
 
 export const DEFAULT_CURSOR_CONFIG: ProviderConfig = {
   type: 'cursor',
-  name: 'Cursor CLI',
+  name: providerToolName('cursor'),
   enabled: false,
   // Cursor's first-class model list rotates; leave defaultModel unset so the
   // CLI picks from the user's subscription unless the caller overrides.
@@ -59,7 +60,7 @@ export const DEFAULT_CURSOR_CONFIG: ProviderConfig = {
 
 export const CURSOR_DESCRIPTOR: ProviderAdapterDescriptor = {
   provider: 'cursor',
-  displayName: 'Cursor',
+  displayName: providerToolName('cursor'),
   capabilities: CURSOR_CAPABILITIES,
   defaultConfig: DEFAULT_CURSOR_CONFIG,
 };

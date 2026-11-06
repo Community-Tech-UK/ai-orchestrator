@@ -6,6 +6,7 @@
  */
 
 import { BaseProvider } from './provider-interface';
+import { providerToolName } from '../../shared/display-names';
 import { AntigravityCliAdapter, AntigravityCliConfig } from '../cli/adapters/antigravity-cli-adapter';
 import type {
   ProviderType,
@@ -35,14 +36,14 @@ const ANTIGRAVITY_CAPABILITIES: ProviderAdapterCapabilities = {
 
 export const DEFAULT_ANTIGRAVITY_CONFIG: ProviderConfig = {
   type: 'google',
-  name: 'Antigravity',
+  name: providerToolName('antigravity'),
   enabled: false,
   // Don't set a default model - let agy use its configured default.
 };
 
 export const ANTIGRAVITY_DESCRIPTOR: ProviderAdapterDescriptor = {
   provider: 'antigravity',
-  displayName: 'Antigravity',
+  displayName: providerToolName('antigravity'),
   capabilities: ANTIGRAVITY_CAPABILITIES,
   defaultConfig: DEFAULT_ANTIGRAVITY_CONFIG,
 };

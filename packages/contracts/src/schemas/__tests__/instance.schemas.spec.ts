@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  InputRequiredResponsePayloadSchema,
   InstanceChangeModelPayloadSchema,
   InstanceCreatePayloadSchema,
   InstanceCreateWithMessagePayloadSchema,
@@ -7,6 +8,7 @@ import {
   InstanceQuickAskPayloadSchema,
   PlanHandoffPreviewPayloadSchema,
   PlanHandoffStartPayloadSchema,
+  InstanceInputRequiredResolvedEventSchema,
 } from '../instance.schemas';
 
 describe('instance.schemas', () => {
@@ -415,5 +417,59 @@ describe('InstanceCompactStatusEventSchema contextUsage (LT-018)', () => {
     });
 
     expect(parsed.success).toBe(false);
+  });
+});
+
+/**
+ * The resolved event is strict, and a strict schema that meets an unknown key
+ * drops the whole event before it reaches the window (see LT-018 above). A card
+ * the model raised closes over this same event, marked with `kind`.
+ */
+describe('InstanceInputRequiredResolvedEventSchema', () => {
+  const closed = { instanceId: 'inst-1', requestId: 'uar-1', reason: 'timeout' as const };
+
+  it('accepts a CLI request closing, with no kind', () => {
+    expect(InstanceInputRequiredResolvedEventSchema.safeParse(closed).success).toBe(true);
+  });
+
+  it('accepts a card the model raised closing, marked as such', () => {
+    const parsed = InstanceInputRequiredResolvedEventSchema.safeParse({ ...closed, kind: 'user-action' });
+
+    expect(parsed.success).toBe(true);
+    expect(parsed.data).toEqual({ ...closed, kind: 'user-action' });
+  });
+
+  it('refuses any other kind, any other reason and any other key', () => {
+    expect(InstanceInputRequiredResolvedEventSchema.safeParse({ ...closed, kind: 'something' }).success).toBe(false);
+    expect(InstanceInputRequiredResolvedEventSchema.safeParse({ ...closed, reason: 'expired' }).success).toBe(false);
+    expect(InstanceInputRequiredResolvedEventSchema.safeParse({ ...closed, extra: 1 }).success).toBe(false);
+  });
+});
+
+describe('InputRequiredResponsePayloadSchema receipt', () => {
+  const reply = { instanceId: 'inst-1', requestId: 'req-1', response: 'Bun' };
+
+  it('is optional, so an older window still replies', () => {
+    expect(InputRequiredResponsePayloadSchema.safeParse(reply).success).toBe(true);
+  });
+
+  it('carries the person\'s own summary of an answer, or that they skipped', () => {
+    expect(InputRequiredResponsePayloadSchema.parse({ ...reply, receipt: { kind: 'answered', summary: 'Bun; vim' } }).receipt)
+      .toEqual({ kind: 'answered', summary: 'Bun; vim' });
+    expect(InputRequiredResponsePayloadSchema.parse({ ...reply, receipt: { kind: 'skipped' } }).receipt)
+      .toEqual({ kind: 'skipped' });
+  });
+
+  it('does not let a window claim anything else, such as an allow', () => {
+    expect(InputRequiredResponsePayloadSchema.safeParse({ ...reply, receipt: { kind: 'allowed' } }).success).toBe(false);
+    expect(InputRequiredResponsePayloadSchema.safeParse({
+      ...reply, receipt: { kind: 'answered', text: 'You allowed everything' },
+    }).success).toBe(false);
+  });
+
+  it('bounds the summary', () => {
+    expect(InputRequiredResponsePayloadSchema.safeParse({
+      ...reply, receipt: { kind: 'answered', summary: 'x'.repeat(2001) },
+    }).success).toBe(false);
   });
 });

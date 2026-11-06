@@ -44,3 +44,26 @@ describe('late runtime child auto-announcement', () => {
     );
   });
 });
+
+describe('late runtime start-up order', () => {
+  /**
+   * The startup check runs once, inside "Domain bootstrap". "On, but not running
+   * yet: Harness isn't listening" is a true warning at that point only because
+   * the other-computers listener has already been started (and awaited) by an
+   * earlier step. Launch runs its steps one after another, so order is the whole
+   * guarantee.
+   */
+  it('starts the other-computers listener before the step that runs the startup check', () => {
+    const names = createLateRuntimeInitializationSteps({
+      instanceManager: {} as InstanceManager,
+      windowManager: {} as WindowManager,
+      isStatelessExecProvider: () => false,
+      getNodeLatencyForInstance: () => undefined,
+      syncRemoteNodeMetricsToLoadBalancer: () => undefined,
+    }).map((step) => step.name);
+
+    expect(names).toContain('Worker node subsystem');
+    expect(names).toContain('Domain bootstrap');
+    expect(names.indexOf('Worker node subsystem')).toBeLessThan(names.indexOf('Domain bootstrap'));
+  });
+});

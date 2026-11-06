@@ -291,18 +291,19 @@ vi.mock('../instance-lifecycle', () => {
   return { InstanceLifecycleManager };
 });
 
-vi.mock('../instance-orchestration', () => {
+vi.mock('../instance-orchestration', async () => {
+  const { EventEmitter } = await import('node:events');
   class InstanceOrchestrationManager {
     setupOrchestrationHandlers(): void { return undefined; }
     processOrchestrationOutput(): void { return undefined; }
     registerInstance(): void { return undefined; }
     unregisterInstance(): void { return undefined; }
     hasActiveWork(): boolean { return false; }
-    getOrchestrationHandler(): Record<string, unknown> {
-      return {
+    getOrchestrationHandler() {
+      return Object.assign(new EventEmitter(), {
         getPendingUserActionsForInstance: vi.fn(() => []),
         respondToUserAction: vi.fn(),
-      };
+      });
     }
   }
 

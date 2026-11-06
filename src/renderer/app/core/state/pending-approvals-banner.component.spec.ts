@@ -72,6 +72,52 @@ describe('PendingApprovalsBannerComponent', () => {
     expect(banner?.textContent).toContain('appId: com.apple.calculator');
   });
 
+  it('keeps the raw tool name and key-value details under Details, not in the visible copy', async () => {
+    const fixture = setup([makeItem()]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const element: HTMLElement = fixture.nativeElement;
+    const details = element.querySelector('details.approval-more');
+    expect(details).not.toBeNull();
+    expect(details?.hasAttribute('open')).toBe(false);
+    expect(details?.querySelector('summary')?.textContent?.trim()).toBe('Details');
+    expect(details?.textContent).toContain('computer.request_app_grant');
+    expect(details?.textContent).toContain('appId: com.apple.calculator');
+    expect(element.querySelector('.approval-meta')?.textContent).not.toContain('computer.request_app_grant');
+    expect(element.querySelector('.approval-copy-top')?.textContent).not.toContain('appId');
+    expect(element.querySelector('[title]')).toBeNull();
+  });
+
+  it.each([
+    ['store_release_mutation', undefined, 'Allow this once', 'Lasts just this once.'],
+    ['calendar_mutation', undefined, 'Allow this once', 'Lasts just this once.'],
+    ['desktop_computer_use_grant', { duration: 'session' }, 'Allow for this session',
+      'Lasts until this session ends, and no longer than an hour.'],
+    ['desktop_computer_use_grant', { duration: 'boundedMinutes', minutes: 30 }, 'Allow for 30 minutes',
+      'Lasts for 30 minutes, in this session only.'],
+    ['desktop_computer_use_grant', { duration: 'untilRevoked' }, 'Always allow',
+      'Lasts until you take it back, in every session.'],
+  ])('%s %j: the button and the "lasts" line say how long an approval stands', async (action, details, button, lasts) => {
+    const fixture = setup([makeItem({ action, details })]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const element: HTMLElement = fixture.nativeElement;
+    expect(element.querySelector('.banner-btn.primary')?.textContent?.trim()).toBe(button);
+    expect(element.querySelector('.approval-lasts')?.textContent?.trim()).toBe(lasts);
+  });
+
+  it('keeps the plain Approve button and makes no promise when it cannot tell how long an approval stands', async () => {
+    const fixture = setup([makeItem()]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const element: HTMLElement = fixture.nativeElement;
+    expect(element.querySelector('.banner-btn.primary')?.textContent?.trim()).toBe('Approve');
+    expect(element.querySelector('.approval-lasts')).toBeNull();
+  });
+
   it('marks a store-release request as critical risk', async () => {
     const fixture = setup([makeItem({
       action: 'store_release_mutation',

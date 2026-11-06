@@ -25,6 +25,7 @@ import type {
   ChildArtifactsResponse,
   ChildSectionResponse,
 } from '../../shared/types/child-result.types';
+import type { SettledUserAction } from './user-action-lifecycle';
 
 export interface OrchestrationContext {
   instanceId: string;
@@ -82,6 +83,8 @@ export interface OrchestrationEvents {
   ) => void;
   'task-error': (parentId: string, childId: string, error: TaskError) => void;
   'user-action-request': (request: UserActionRequest) => void;
+  /** A request closed: answered, timed out, stopped or the session went. Emitted once per request. */
+  'user-action-resolved': (settled: SettledUserAction) => void;
   // New structured result events
   'report-result': (
     childId: string,

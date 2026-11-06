@@ -63,6 +63,11 @@ export interface RegisterSecretCardHandlersDeps {
   resolveOrchestrationSecretRequest?: (
     instanceId: string, requestId: string, approved: boolean, reference?: string
   ) => boolean;
+  /**
+   * A card raised by a CLI (not the model) was saved or declined, so it can leave a receipt in the
+   * history. Carries the ids and the outcome only: never the value, the label or the name.
+   */
+  onNativeCardHandled?: (event: { instanceId: string; requestId: string; outcome: 'saved' | 'declined' }) => void;
 }
 
 function failure(code: string, message: string): IpcResponse {
@@ -146,6 +151,7 @@ export function registerSecretCardHandlers(deps: RegisterSecretCardHandlersDeps 
         if (orchestrationCard) {
           deps.resolveOrchestrationSecretRequest?.(payload.instanceId, payload.requestId, true, `secret://${name}`);
         } else {
+          deps.onNativeCardHandled?.({ instanceId: payload.instanceId, requestId: payload.requestId, outcome: 'saved' });
           await deps.notifyAgent?.(
             payload.instanceId,
             `The requested credential is stored. Refer to it as secret://${name} — its value is not available to you.`,
@@ -179,6 +185,7 @@ export function registerSecretCardHandlers(deps: RegisterSecretCardHandlersDeps 
         if (orchestrationCard) {
           deps.resolveOrchestrationSecretRequest?.(payload.instanceId, payload.requestId, false);
         } else {
+          deps.onNativeCardHandled?.({ instanceId: payload.instanceId, requestId: payload.requestId, outcome: 'declined' });
           await deps.notifyAgent?.(
             payload.instanceId,
             payload.reason

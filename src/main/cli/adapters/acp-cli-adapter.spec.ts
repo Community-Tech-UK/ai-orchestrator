@@ -755,9 +755,13 @@ describe('AcpCliAdapter', () => {
     expect(outputHandler).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'tool_result', content: 'alpha line one\nbeta line two\n' }),
     );
+    // U1 step 5: `wc` ran and exited 1; the status is recorded, not judged (this
+    // assertion used to be `is_error: true`).
     expect(outputHandler).toHaveBeenCalledWith(expect.objectContaining({
       type: 'tool_result',
-      metadata: expect.objectContaining({ toolCallId: 'exec-1', status: 'completed', is_error: true }),
+      metadata: expect.objectContaining({
+        toolCallId: 'exec-1', status: 'completed', is_error: false, exitCode: 1, isCheck: false, checkFailed: false,
+      }),
     }));
 
     // Nothing captured at all: no `result` key, so downstream hashing fails open.
@@ -765,6 +769,43 @@ describe('AcpCliAdapter', () => {
     expect(thinkResult).toBeDefined();
     expect(thinkResult).not.toHaveProperty('result');
 
+    proc.exit();
+  });
+
+  it('judges command results by the shared rule: exit status recorded, red checks failed, kills only on explicit evidence', async () => {
+    const proc = createInitializedAgentHarness();
+    proc.onRequest('session/prompt', (message) => {
+      const update = (payload: Record<string, unknown>) =>
+        proc.notify('session/update', { sessionId: 'sess-acp-1', update: payload });
+      const run = (id: string, rawInput: Record<string, unknown> | undefined, rawOutput: Record<string, unknown>, status = 'completed') => {
+        update({ sessionUpdate: 'tool_call', toolCallId: id, title: id, kind: 'execute', status: 'pending', ...(rawInput ? { rawInput } : {}) });
+        update({ sessionUpdate: 'tool_call_update', toolCallId: id, status, rawOutput });
+      };
+      run('tests', { command: 'npm test' }, { exitCode: 1, stdout: '', stderr: '1 failing' });
+      run('search', { command: 'rg missing src' }, { exitCode: 1, stdout: '', stderr: '' });
+      run('chain', { command: 'git pull && npm test' }, { exitCode: 1, stdout: '', stderr: 'conflict' });
+      run('voluntary', { command: './stop.sh' }, { exitCode: 137, stdout: '', stderr: 'chose to stop' });
+      // Shape captured from `grok agent stdio`: the command comes back in rawOutput, with explicit kill flags.
+      run('killed', undefined, { type: 'Bash', exit_code: 124, command: './slow.sh', signal: null, timed_out: true, output_for_prompt: 'exit: 124' });
+      run('vanished', { command: 'ls' }, { stderr: 'could not start' }, 'failed');
+      proc.respond(message.id, { stopReason: 'end_turn' });
+    });
+    const adapter = new TestAcpCliAdapter(proc, { command: process.execPath, workingDirectory: '/tmp' });
+    await adapter.spawn();
+    const results = new Map<string, Record<string, unknown>>();
+    adapter.on('output', (message: { type: string; metadata?: Record<string, unknown> }) => {
+      if (message.type === 'tool_result') results.set(String(message.metadata?.['toolCallId']), message.metadata ?? {});
+    });
+
+    await adapter.sendMessage({ role: 'user', content: 'run things' });
+
+    expect(results.get('tests')).toMatchObject({ is_error: false, exitCode: 1, isCheck: true, checkFailed: true });
+    expect(results.get('search')).toMatchObject({ is_error: false, exitCode: 1, isCheck: false, checkFailed: false });
+    expect(results.get('chain')).toMatchObject({ is_error: false, exitCode: 1, isCheck: true, checkFailed: false });
+    expect(results.get('voluntary')).toMatchObject({ is_error: false, exitCode: 137 });
+    expect(results.get('killed')).toMatchObject({ is_error: true, exitCode: 124 });
+    expect(results.get('vanished')).toMatchObject({ is_error: true, isCheck: false, checkFailed: false });
+    expect(results.get('vanished')).not.toHaveProperty('exitCode');
     proc.exit();
   });
 
@@ -2204,10 +2245,13 @@ describe('AcpCliAdapter', () => {
     expect(outputs).toContainEqual(
       expect.objectContaining({
         type: 'error',
-        content: expect.stringMatching(/session\/prompt request timed out after 50ms/),
+        content: expect.stringContaining("couldn't finish this request."),
         metadata: expect.objectContaining({
           recoverable: true,
           retryKind: 'acp-prompt-timeout',
+          errorPresentation: expect.objectContaining({
+            rawDetail: expect.stringMatching(/session\/prompt request timed out after 50ms/),
+          }),
         }),
       }),
     );
@@ -2988,7 +3032,8 @@ describe('AcpCliAdapter truncated turns', () => {
       type: 'system',
       metadata: { truncatedTurn: true, recoverable: true, providerUsageReported: false },
     });
-    expect(notices[0].content).toContain(TRANSPORT_FAILURE);
+    expect(notices[0].content).not.toContain(TRANSPORT_FAILURE);
+    expect(notices[0].metadata.errorPresentation.rawDetail).toBe(TRANSPORT_FAILURE);
     expect(notices[0].content).toContain('cut off');
 
     // The partial work is kept — truncation is not a reason to discard the turn.
@@ -3065,7 +3110,8 @@ describe('AcpCliAdapter truncated turns', () => {
       .map(([message]) => message)
       .filter((message) => message.metadata?.source === 'acp-provider-refusal');
     expect(notices).toHaveLength(1);
-    expect(notices[0].content).toContain(PROVIDER_REFUSAL);
+    expect(notices[0].content).not.toContain(PROVIDER_REFUSAL);
+    expect(notices[0].metadata.errorPresentation.rawDetail).toBe(PROVIDER_REFUSAL);
     expect(notices[0].content).toContain('quota or capacity limit');
 
     // The partial work is kept, and the loop's degraded path stays untouched.

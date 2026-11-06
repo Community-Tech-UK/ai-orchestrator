@@ -86,7 +86,7 @@ describe('OrchestrationSettingsTabComponent', () => {
 
     const text = fixture.nativeElement.textContent ?? '';
     expect(text).toContain('Loop model');
-    for (const label of ['Claude Code', 'OpenAI Codex CLI', 'Antigravity', 'Cursor CLI']) {
+    for (const label of ['Claude Code', 'OpenAI Codex', 'Antigravity', 'Cursor']) {
       expect(text).toContain(label);
     }
   });
@@ -121,7 +121,7 @@ describe('OrchestrationSettingsTabComponent', () => {
     fixture.detectChanges();
 
     const reset = fixture.nativeElement.querySelector(
-      'button[aria-label="Use session default for OpenAI Codex CLI loops"]',
+      'button[aria-label="Use session default for OpenAI Codex loops"]',
     ) as HTMLButtonElement;
     reset.click();
 

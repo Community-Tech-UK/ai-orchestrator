@@ -24,6 +24,7 @@ import type {
   ProviderDiagnosisSnapshot,
 } from '../../shared/types/diagnostics.types';
 import { loadLoopRecipeRegistry } from '../orchestration/loop-recipes';
+import { providerName } from '../../shared/display-names';
 import type { StartupCapabilityCheck } from '../../shared/types/startup-capability.types';
 import { getInstructionDiagnosticsService } from './instruction-diagnostics-service';
 import { getSkillDiagnosticsService } from './skill-diagnostics-service';
@@ -37,13 +38,14 @@ interface ProviderDiagnosisTarget {
   label: string;
 }
 
+// Labels are the long provider names: this report names the tool behind each check.
 const PROVIDERS: ProviderDiagnosisTarget[] = [
-  { id: 'claude', doctorKey: 'claude-cli', label: 'Claude Code' },
-  { id: 'codex', doctorKey: 'codex-cli', label: 'OpenAI Codex' },
+  { id: 'claude', doctorKey: 'claude-cli', label: providerName('claude', { long: true }) },
+  { id: 'codex', doctorKey: 'codex-cli', label: providerName('codex', { long: true }) },
   // Gemini CLI is deprecated — superseded by Google Antigravity (`agy`).
-  { id: 'antigravity', doctorKey: 'antigravity', label: 'Google Antigravity' },
-  { id: 'copilot', doctorKey: 'copilot', label: 'GitHub Copilot' },
-  { id: 'cursor', doctorKey: 'cursor', label: 'Cursor' },
+  { id: 'antigravity', doctorKey: 'antigravity', label: providerName('antigravity', { long: true }) },
+  { id: 'copilot', doctorKey: 'copilot', label: providerName('copilot', { long: true }) },
+  { id: 'cursor', doctorKey: 'cursor', label: providerName('cursor', { long: true }) },
 ];
 
 const SECTION_LABELS: Record<DoctorSectionId, string> = {

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { PERSISTENT_BROWSER_GRANT_EXPIRES_AT } from '../types/browser.types';
 import { BrowserCredentialAccessChoiceSchema, BrowserCredentialAccessMetadataSchema } from './browser-credential-access.schemas';
+import { BrowserStatedReasonSchema } from './browser-stated-reason.schemas';
 export { BrowserRequestCredentialAccessSchema, BrowserCredentialAccessLookupSchema, BrowserCredentialAccessChoiceSchema, BrowserCredentialAccessMetadataSchema, MAX_REMEMBER_CREDENTIAL_ACCESS_MS, TASK_CREDENTIAL_ACCESS_MS } from './browser-credential-access.schemas';
 import {
   BrowserAccessibilityNodeSchema,
@@ -13,7 +14,6 @@ import {
   elementUidSchema,
   requireSelectorOrUid,
 } from './browser-control-action.schemas';
-
 const idSchema = z.string().min(1).max(200);
 const urlSchema = z.string().min(1).max(2000);
 const optionalUrlSchema = urlSchema.optional();
@@ -289,6 +289,8 @@ export const BrowserApprovalRequestSchema = z
     filePath: z.string().min(1).max(2000).optional(),
     detectedFileType: z.string().min(1).max(120).optional(),
     credentialAccess: BrowserCredentialAccessMetadataSchema.optional(),
+    requestReason: BrowserStatedReasonSchema.optional(),
+    computerId: idSchema.optional(),
     proposedGrant: BrowserGrantProposalSchema,
     status: BrowserApprovalRequestStatusSchema,
     grantId: idSchema.optional(),
@@ -506,6 +508,7 @@ export type BrowserTargetRequest = z.infer<typeof BrowserTargetRequestSchema>;
 
 export const BrowserCloseTabRequestSchema = BrowserTargetRequestSchema.extend({
   allowCloseLastInWindow: z.boolean().optional(),
+  reason: BrowserStatedReasonSchema.optional(),
   requestId: idSchema.optional(),
 }).strict();
 export type BrowserCloseTabRequest = z.infer<typeof BrowserCloseTabRequestSchema>;
@@ -536,6 +539,7 @@ export type BrowserCloseMatchingRequest = z.infer<
 
 export const BrowserNavigateRequestSchema = BrowserTargetRequestSchema.extend({
   url: urlSchema,
+  reason: BrowserStatedReasonSchema.optional(),
 }).strict();
 export type BrowserNavigateRequest = z.infer<typeof BrowserNavigateRequestSchema>;
 
@@ -620,6 +624,7 @@ export const BrowserEvaluateRequestSchema = BrowserTargetRequestSchema.extend({
   expression: z.string().min(1).max(20_000),
   awaitPromise: z.boolean().optional(),
   actionHint: z.string().min(1).max(500).optional(),
+  reason: BrowserStatedReasonSchema.optional(),
   expectUrlChange: z.boolean().optional(),
   expectChange: BrowserMutationEffectExpectationSchema.optional(),
   requestId: idSchema.optional(),
@@ -639,6 +644,7 @@ export const BrowserClickRequestSchema = BrowserTargetRequestSchema.extend({
   verify: BrowserControlVerifyExpectationSchema.optional(),
   expectUrlChange: z.boolean().optional(),
   expectChange: BrowserMutationEffectExpectationSchema.optional(),
+  reason: BrowserStatedReasonSchema.optional(),
   requestId: idSchema.optional(),
 }).strict().superRefine(requireSelectorOrUid);
 export type BrowserClickRequest = z.infer<typeof BrowserClickRequestSchema>;
@@ -649,6 +655,7 @@ export const BrowserTypeRequestSchema = BrowserTargetRequestSchema.extend({
   value: z.string().max(20_000),
   actionHint: z.string().min(1).max(500).optional(),
   verify: BrowserControlVerifyExpectationSchema.optional(),
+  reason: BrowserStatedReasonSchema.optional(),
   requestId: idSchema.optional(),
 }).strict().superRefine(requireSelectorOrUid);
 export type BrowserTypeRequest = z.infer<typeof BrowserTypeRequestSchema>;
@@ -667,6 +674,7 @@ export type BrowserFillFormField = z.infer<typeof BrowserFillFormFieldSchema>;
 
 export const BrowserFillFormRequestSchema = BrowserTargetRequestSchema.extend({
   fields: z.array(BrowserFillFormFieldSchema).min(1).max(100),
+  reason: BrowserStatedReasonSchema.optional(),
   requestId: idSchema.optional(),
 }).strict();
 export type BrowserFillFormRequest = z.infer<typeof BrowserFillFormRequestSchema>;
@@ -677,6 +685,7 @@ export const BrowserSelectRequestSchema = BrowserTargetRequestSchema.extend({
   value: z.string().min(1).max(2000),
   actionHint: z.string().min(1).max(500).optional(),
   verify: BrowserControlVerifyExpectationSchema.optional(),
+  reason: BrowserStatedReasonSchema.optional(),
   requestId: idSchema.optional(),
 }).strict().superRefine(requireSelectorOrUid);
 export type BrowserSelectRequest = z.infer<typeof BrowserSelectRequestSchema>;
@@ -690,6 +699,7 @@ export const BrowserUploadFileRequestSchema = BrowserTargetRequestSchema.extend(
   selector: z.string().min(1).max(2000),
   filePath: z.string().min(1).max(2000),
   actionHint: z.string().min(1).max(500).optional(),
+  reason: BrowserStatedReasonSchema.optional(),
   requestId: idSchema.optional(),
 }).strict();
 export type BrowserUploadFileRequest = z.infer<typeof BrowserUploadFileRequestSchema>;
@@ -700,6 +710,7 @@ export const BrowserDownloadFileRequestSchema = BrowserTargetRequestSchema.exten
   suggestedFilename: z.string().min(1).max(255).optional(),
   timeoutMs: z.number().int().min(1).max(120_000).optional(),
   actionHint: z.string().min(1).max(500).optional(),
+  reason: BrowserStatedReasonSchema.optional(),
   requestId: idSchema.optional(),
 }).strict().superRefine((value, ctx) => {
   if (!value.selector && !value.url) {

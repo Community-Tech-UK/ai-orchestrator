@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { MobileAttachmentDto, MobileSessionPlan } from '../../core/models';
 import {
+  accountFamilyDisplayName,
   buildCreateInstanceRequest,
   canStartSession,
   newSessionSuccessRoute,
@@ -29,7 +30,14 @@ describe('new session presentation', () => {
     expect(providerDisplayName('auto')).toBe('Auto');
     expect(providerDisplayName('copilot')).toBe('Copilot');
     expect(providerDisplayName('opencode')).toBe('OpenCode');
-    expect(providerDisplayName('local_model')).toBe('Local Model');
+    expect(providerDisplayName('local_model')).toBe('Local models');
+  });
+
+  it('names the account behind OpenCode "MiMo" for usage and keeps every other provider the same', () => {
+    expect(accountFamilyDisplayName('opencode')).toBe('MiMo');
+    expect(accountFamilyDisplayName('claude')).toBe('Claude');
+    expect(accountFamilyDisplayName('codex')).toBe('Codex');
+    expect(accountFamilyDisplayName('copilot')).toBe('Copilot');
   });
 
   it('only presents the directory sheet automatically for global New', () => {

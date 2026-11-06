@@ -867,7 +867,9 @@ describe('ClaudeCliAdapter rate_limit_event handling', () => {
     expect(outputs).toHaveLength(1);
     expect(outputs[0]?.type).toBe('system');
     expect(outputs[0]?.metadata?.['rateLimit']).toBe(true);
-    expect(outputs[0]?.content).toContain('rate limit');
+    // Plain words: what happened to which account, never the provider's own status or window names.
+    expect(outputs[0]?.content).toContain('Your Claude account has used its current allowance.');
+    expect(outputs[0]?.content).not.toMatch(/rejected|five_hour|rate limit/i);
 
     // A repeat of the same throttled status must not spam another notice.
     processCliMessage({ type: 'rate_limit_event', timestamp: 3, rate_limit_info: { status: 'rejected' } });

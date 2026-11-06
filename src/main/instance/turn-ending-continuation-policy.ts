@@ -1,8 +1,11 @@
 import type { InternalInputSource } from '../../shared/types/input-provenance.types';
 import type { ProviderTurnEndingReason } from '@contracts/types/provider-runtime-events';
 
+/** Every notice says this, so a reader never has to wonder whether their words or the work were lost. */
+const KEPT = 'Your message and the work above are kept.';
+
 export const REASONING_COLLAPSE_NOTICE =
-  'This turn stopped because the model\'s reasoning repeated the same phrase until the provider cut it off. The work above is kept.';
+  `This turn stopped because the model's reasoning repeated the same phrase until the provider cut it off. ${KEPT}`;
 
 export const REASONING_COLLAPSE_CONTINUATION_PROMPT = [
   'Your previous turn was cut off. The model\'s reasoning started repeating the same short phrase, and the provider ended that step for length before any further action.',
@@ -11,7 +14,7 @@ export const REASONING_COLLAPSE_CONTINUATION_PROMPT = [
 ].join('\n');
 
 export const CONTENT_FILTER_NOTICE =
-  'This turn stopped because the provider blocked the reply with its content filter. The work above is kept.';
+  `This turn stopped because the provider blocked the reply with its content filter. ${KEPT}`;
 
 export const CONTENT_FILTER_CONTINUATION_PROMPT = [
   'Your previous turn was cut off. The provider blocked the reply with its content filter, so the step ended before you could finish.',
@@ -26,43 +29,57 @@ export const CRASH_TURN_CONTINUATION_PROMPT = [
   'Pick the task back up from where that turn stopped. The conversation above is the record of what is already done: check the latest tool results and the current state of the files rather than assuming, keep completed work, and do not repeat completed steps. If the task was already finished, say so in one line instead of redoing it.',
 ].join('\n');
 
+/**
+ * A next step the interface can offer as a button. `notice` is what the user reads;
+ * `prompt` is what the model is told (a different text, never shown as the notice);
+ * `action` says which button, if any, goes with the notice.
+ */
+export type TurnNoticeAction = 'continue' | 'retry' | 'switch-model' | 'sign-in';
+
 export interface TurnContinuationPolicy {
   notice: string;
   prompt?: string;
   internalSource?: InternalInputSource;
   source: string;
+  action?: TurnNoticeAction;
 }
 
 export const TURN_CONTINUATION_POLICY: Record<ProviderTurnEndingReason, TurnContinuationPolicy> = {
-  completed: { notice: '', source: 'completed' },
+  completed: { notice: `This turn finished. ${KEPT}`, source: 'completed' },
   max_output: {
-    notice: 'This turn reached the provider output limit. The work above is kept.',
+    notice: `This turn reached the provider output limit. ${KEPT}`,
     prompt: 'Output token limit hit. Resume directly from the last unfinished step. Pick up mid-thought, without apology or recap. Break remaining work into smaller pieces. Preserve completed work and check current files and tool results before proceeding.',
-    internalSource: 'reasoning-collapse-continuation', source: 'max-output',
+    internalSource: 'reasoning-collapse-continuation', source: 'max-output', action: 'continue',
   },
   content_filter: { notice: CONTENT_FILTER_NOTICE, prompt: CONTENT_FILTER_CONTINUATION_PROMPT,
-    internalSource: 'content-filter-continuation', source: 'content-filter' },
-  crash: { notice: 'The provider process stopped during this turn. The work above is kept.',
-    prompt: CRASH_TURN_CONTINUATION_PROMPT, internalSource: 'crash-turn-continuation', source: 'crash-turn-continuation' },
-  dangling_tool_result: { notice: 'The provider stopped before replying to the latest tool result. The work above is kept.',
+    internalSource: 'content-filter-continuation', source: 'content-filter', action: 'continue' },
+  crash: { notice: `The provider process stopped during this turn. ${KEPT}`,
+    prompt: CRASH_TURN_CONTINUATION_PROMPT, internalSource: 'crash-turn-continuation', source: 'crash-turn-continuation', action: 'continue' },
+  dangling_tool_result: { notice: `The provider stopped before replying to the latest tool result. ${KEPT}`,
     prompt: 'The previous tool result never got a reply. Continue from that result. Check current files and preserve completed work. Break remaining work into smaller pieces.',
-    internalSource: 'crash-turn-continuation', source: 'dangling-tool-result' },
-  truncated_transport: { notice: 'The provider stream ended before the reply finished. The work above is kept.', source: 'truncated-transport' },
-  quota: { notice: 'The provider stopped because its usage allowance or rate limit was reached. Wait for the limit to reset before resuming.', source: 'quota' },
-  billing: { notice: 'The provider stopped because of a billing or credit issue. Resolve that issue before resuming.', source: 'billing' },
-  auth: { notice: 'The provider stopped because authentication failed. Sign in again before resuming.', source: 'auth' },
-  context_overflow: { notice: 'The provider could not fit this request into its context window. Reduce the context before resuming.', source: 'context-overflow' },
-  doom_loop: { notice: 'The provider was stopped because repeated tool calls made no progress. Change approach before resuming.', source: 'doom-loop' },
-  parent_silent: { notice: 'The delegated task stopped producing observable activity before its lease expired. Check the child task before resuming.', source: 'parent-silent' },
-  retryable: { notice: 'The provider hit a temporary service problem, such as an overloaded model. The work above is kept. If it does not carry on by itself, send a message to try again.', source: 'retryable' },
-  unknown_error: { notice: 'The provider ended this turn with an error. The work and error above are kept.', source: 'unknown-error' },
+    internalSource: 'crash-turn-continuation', source: 'dangling-tool-result', action: 'continue' },
+  truncated_transport: { notice: `The provider stream ended before the reply finished. ${KEPT}`, source: 'truncated-transport', action: 'retry' },
+  quota: { notice: `The provider stopped because its usage allowance or rate limit was reached. ${KEPT} Wait for the limit to reset before resuming.`, source: 'quota', action: 'switch-model' },
+  billing: { notice: `The provider stopped because of a billing or credit issue. ${KEPT} Resolve that issue before resuming.`, source: 'billing', action: 'switch-model' },
+  auth: { notice: `The provider stopped because authentication failed. ${KEPT} Sign in again before resuming.`, source: 'auth', action: 'sign-in' },
+  context_overflow: { notice: `The provider could not fit this request into its context window. ${KEPT} Reduce the context before resuming.`, source: 'context-overflow' },
+  doom_loop: { notice: `The provider was stopped because repeated tool calls made no progress. ${KEPT} Change approach before resuming.`, source: 'doom-loop' },
+  parent_silent: { notice: `The delegated task stopped showing any activity before its time ran out. ${KEPT} Check the child task before resuming.`, source: 'parent-silent' },
+  retryable: { notice: `The provider had a temporary problem, such as an overloaded model. ${KEPT} If it does not carry on by itself, send a message to try again.`, source: 'retryable' },
+  empty_result: { notice: `The model sent no reply. ${KEPT}`, source: 'empty-result', action: 'retry' },
+  unknown_error: { notice: `The provider ended this turn with an error. ${KEPT}`, source: 'unknown-error', action: 'retry' },
 };
 
 export function turnContinuationPolicy(reason: ProviderTurnEndingReason, reasoningCollapsed = false): TurnContinuationPolicy {
   return reason === 'max_output' && reasoningCollapsed
     ? { notice: REASONING_COLLAPSE_NOTICE, prompt: REASONING_COLLAPSE_CONTINUATION_PROMPT,
-      internalSource: 'reasoning-collapse-continuation', source: 'reasoning-collapse' }
+      internalSource: 'reasoning-collapse-continuation', source: 'reasoning-collapse', action: 'continue' }
     : TURN_CONTINUATION_POLICY[reason];
+}
+
+/** What a turn-ending notice travels with: where it came from and the one button it offers. */
+export function turnNoticeMetadata(policy: Pick<TurnContinuationPolicy, 'source' | 'action'>): { source: string; action?: TurnNoticeAction } {
+  return { source: policy.source, ...(policy.action ? { action: policy.action } : {}) };
 }
 
 /** Source-specific admission rules; all prompt delivery goes through one owner. */

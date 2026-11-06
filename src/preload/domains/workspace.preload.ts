@@ -145,6 +145,10 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
     vcsOperationCancel: (payload: { opId: string }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.VCS_OPERATION_CANCEL, payload);
     },
+    /** Which files changed while one turn ran (see TurnFileBaselineService). */
+    vcsTurnFileChanges: (payload: { instanceId: string; turnKey: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.VCS_TURN_FILE_CHANGES, payload);
+    },
     onVcsOperationProgress: (
       callback: (event: {
         opId: string;

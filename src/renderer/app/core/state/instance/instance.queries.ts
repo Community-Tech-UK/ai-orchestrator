@@ -5,6 +5,7 @@
  */
 
 import { isOccupancyPressureReading } from '../../../../../shared/utils/context-occupancy';
+import { presentInstanceStatus } from '../../../../../shared/attention/instance-status-presentation';
 import { Injectable, inject, computed } from '@angular/core';
 import { InstanceStateService } from './instance-state.service';
 import { ActivityDebouncerService } from '../../services/activity-debouncer.service';
@@ -15,7 +16,7 @@ function activityStateToLabel(activityState: Instance['activityState']): string 
     case 'active':
       return 'Agent active';
     case 'waiting_input':
-      return 'Waiting for input';
+      return presentInstanceStatus('waiting_for_input').label;
     case 'blocked':
       return 'Blocked';
     case 'exited':

@@ -19,12 +19,14 @@ import type { BrowserGatewayContext } from './browser-gateway-service-types';
 /**
  * The request a guarded mutation is prepared for. The optional target fields
  * are the caller's own: they tell the sign-in code box check which fields a
- * browser.type / browser.fill_form writes to.
+ * browser.type / browser.fill_form writes to. `reason` is the agent's own
+ * stated reason, shown on the approval card.
  */
 export type BrowserGuardedMutationRequest = BrowserGatewayContext & {
   profileId: string;
   targetId: string;
   requestId?: string;
+  reason?: string;
   selector?: string;
   uid?: string;
   fields?: ReadonlyArray<{ selector?: string; uid?: string }>;

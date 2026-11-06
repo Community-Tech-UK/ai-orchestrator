@@ -303,7 +303,7 @@ describe('LocalAiIncidentService', () => {
 
     service.handleTransition(transition(target.id, 1_000));
 
-    expect(notifications.list()[0]?.body).toMatch(/^Endpoint: Local AI endpoint #[0-9a-f]{12}\./);
+    expect(notifications.list()[0]?.body).toMatch(/^Endpoint: Local model endpoint #[0-9a-f]{12}\./);
     expect(notifications.list()[0]?.body).not.toContain(target.id);
     expect(notifications.list()[0]?.body).not.toMatch(/Bearer|RESOLVER_SECRET|ftp:|private\.example/);
     expect(warnings).not.toHaveBeenCalled();
@@ -1230,8 +1230,12 @@ describe('LocalAiIncidentService', () => {
       knownCostUsd: 0.75,
       estimatedCostUsd: 1,
     });
-    expect(recovery).toMatchObject({ kind: 'local-ai-recovered', urgency: 'normal' });
-    expect(recovery.body).toMatch(/^Endpoint: Local AI endpoint #[0-9a-f]{12}\./);
+    expect(recovery).toMatchObject({
+      kind: 'local-ai-recovered',
+      urgency: 'normal',
+      title: 'A local model is working again',
+    });
+    expect(recovery.body).toMatch(/^Endpoint: Local model endpoint #[0-9a-f]{12}\./);
     expect(recovery.body).not.toContain(target.id);
     expect(recovery.body).toContain('endpoint');
     expect(recovery.body).toContain('compression');

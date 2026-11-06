@@ -19,3 +19,15 @@ describe('session row accessible completion state', () => {
     expect(fixture.nativeElement.querySelector('.session-row__unread')).toBeNull();
   });
 });
+
+
+it('renders the exact live status colour and preserves the shared words for screen readers', () => {
+  const fixture = TestBed.createComponent(MobileSessionRowComponent);
+  fixture.componentRef.setInput('row', { id: 'session-a', title: 'Example', statusLabel: 'Restarting', color: '#4fa3a5',
+    tone: 'working', unread: false, live: true, lastActivity: 1 });
+  fixture.detectChanges();
+  const state = fixture.nativeElement.querySelector('.session-row__state') as HTMLElement;
+  expect(state.style.color).toBe('rgb(79, 163, 165)');
+  expect(state.getAttribute('aria-label')).toBe('Restarting');
+  expect(fixture.nativeElement.querySelector('.session-row__subtitle').textContent).toContain('Restarting');
+});

@@ -18,12 +18,15 @@
 
 import { Component, input, ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ContextEvidenceScope } from '@contracts/types/context-evidence';
 import { ContextBarComponent } from './context-bar.component';
 import { ContextEvidencePanelComponent } from '../../shared/components/context-evidence-panel/context-evidence-panel.component';
 import { InstanceStore, type ContextUsage, type Instance } from '../../core/state/instance.store';
 import { SettingsStore } from '../../core/state/settings.store';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { USAGE_CAUSE_TOOLTIPS } from '../../../../shared/usage-insight/usage-cause-copy';
 
 // ContextBarComponent's own template is inline, but it statically imports
 // ContextEvidencePanelComponent (external templateUrl/styleUrl). TestBed's
@@ -285,6 +288,162 @@ describe('ContextBarComponent', () => {
 
       expect(fixture.nativeElement.querySelector('.compact-label')?.textContent).toContain('50%');
       expect(fixture.nativeElement.querySelector('.bar-details')).toBeFalsy();
+    });
+  });
+
+  describe('the 272K price line on a Codex session', () => {
+    const codexUsage = (overrides: Partial<ContextUsage> = {}): ContextUsage =>
+      usage({ used: 150_000, total: 500_000, ...overrides });
+
+    function codexSession(id = 'inst-1', provider = 'codex'): void {
+      instances.set(id, { id, provider } as unknown as Instance);
+      setInstanceId(fixture.componentInstance, id);
+    }
+
+    function tick(): HTMLElement | null {
+      return fixture.nativeElement.querySelector('.price-line');
+    }
+
+    function tickNote(): string | null {
+      return fixture.debugElement
+        .queryAll(By.directive(AioTooltipDirective))
+        .map((node) => node.injector.get(AioTooltipDirective))
+        .map((directive) => directive.appTooltip() ?? '')
+        .find((text) => text.includes('Requests above this cost double')) ?? null;
+    }
+
+    it('puts a thin tick at 272K, placed by the real window size, with the cost warning', () => {
+      codexSession();
+      setUsage(fixture.componentInstance, codexUsage());
+      setShowDetails(fixture.componentInstance, true);
+      fixture.detectChanges();
+
+      expect(tick()).not.toBeNull();
+      expect(parseFloat(tick()!.style.left)).toBeCloseTo(54.4, 5);
+      expect(tick()!.style.left).toMatch(/%$/);
+      expect(tickNote()).toBe('272K tokens. Requests above this cost double.');
+      expect(tick()?.getAttribute('aria-label')).toBe('272K tokens. Requests above this cost double.');
+    });
+
+    it('moves with the window: a bigger window puts the line further left', () => {
+      codexSession();
+      setUsage(fixture.componentInstance, codexUsage({ total: 1_000_000 }));
+      fixture.detectChanges();
+
+      expect(parseFloat(tick()!.style.left)).toBeCloseTo(27.2, 5);
+    });
+
+    it('also shows in the compact bar', () => {
+      codexSession();
+      setUsage(fixture.componentInstance, codexUsage());
+      setShowDetails(fixture.componentInstance, false);
+      fixture.detectChanges();
+
+      expect(tick()).not.toBeNull();
+    });
+
+    it.each(['claude', 'copilot', 'gemini', 'cursor', 'opencode'])('is not shown on a %s session', (provider) => {
+      codexSession('inst-1', provider);
+      setUsage(fixture.componentInstance, codexUsage());
+      fixture.detectChanges();
+
+      expect(tick()).toBeNull();
+    });
+
+    it('is not shown when the whole window is under the price line', () => {
+      codexSession();
+      setUsage(fixture.componentInstance, codexUsage({ used: 100_000, total: 258_000 }));
+      fixture.detectChanges();
+      expect(tick()).toBeNull();
+
+      setUsage(fixture.componentInstance, codexUsage({ used: 100_000, total: 272_000 }));
+      fixture.detectChanges();
+      expect(tick()).toBeNull();
+    });
+
+    it('is not shown where there is no real window reading to draw it on', () => {
+      codexSession();
+      setUsage(fixture.componentInstance, unreportedUsage(500_000));
+      fixture.detectChanges();
+      expect(tick()).toBeNull();
+
+      setUsage(fixture.componentInstance, {
+        used: 300_000, total: 500_000, percentage: 60, occupancyReported: true, occupancyIsAggregate: true,
+        cumulativeTokens: 300_000,
+      });
+      fixture.detectChanges();
+      expect(tick()).toBeNull();
+    });
+
+    it('is not shown without a session to look the provider up from', () => {
+      setUsage(fixture.componentInstance, codexUsage());
+      fixture.detectChanges();
+
+      expect(tick()).toBeNull();
+    });
+
+    it('leaves the occupancy figures exactly as they were', () => {
+      codexSession();
+      setUsage(fixture.componentInstance, codexUsage());
+      setShowDetails(fixture.componentInstance, true);
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.percentage()).toBe(30);
+      expect(fixture.nativeElement.textContent).toContain('150,000');
+      expect(fixture.nativeElement.textContent).toContain('500,000');
+    });
+  });
+
+  describe('why a big chat costs more, on a Claude session', () => {
+    const claudeUsage = (used: number): ContextUsage => usage({ used, total: 500_000 });
+
+    function session(provider: string, status: string): void {
+      instances.set('inst-1', { id: 'inst-1', provider, status } as unknown as Instance);
+      setInstanceId(fixture.componentInstance, 'inst-1');
+    }
+
+    /** What hovering this part of the bar says, or null when it says nothing. */
+    function hoverText(selector: string): string | null {
+      return fixture.debugElement.query(By.css(selector)).injector.get(AioTooltipDirective).appTooltip() ?? null;
+    }
+
+    it('explains a very long chat on the bar and on the numbers beside it', () => {
+      session('claude', 'busy');
+      setUsage(fixture.componentInstance, claudeUsage(180_000));
+      setShowDetails(fixture.componentInstance, true);
+      fixture.detectChanges();
+
+      expect(hoverText('.bar-track')).toBe(USAGE_CAUSE_TOOLTIPS.contextRing);
+      expect(hoverText('.used')).toBe(USAGE_CAUSE_TOOLTIPS.contextRing);
+      expect(fixture.nativeElement.querySelector('.used').tabIndex).toBe(0);
+      expect(fixture.debugElement.query(By.css('.bar-details')).injector.get(AioTooltipDirective, null)).toBeNull();
+    });
+
+    it('explains the cost of coming back to a big chat once the session is at rest', () => {
+      session('claude', 'idle');
+      setUsage(fixture.componentInstance, claudeUsage(120_000));
+      fixture.detectChanges();
+
+      expect(hoverText('.bar-track')).toBe(USAGE_CAUSE_TOOLTIPS.contextRingIdle);
+    });
+
+    it.each([
+      ['a small Claude chat', 'claude', claudeUsage(40_000)],
+      ['a long Codex chat', 'codex', claudeUsage(300_000)],
+      ['a Claude chat that has not reported its size', 'claude', unreportedUsage(500_000)],
+    ] as const)('says nothing for %s', (_label, provider, chatUsage) => {
+      session(provider, 'idle');
+      setUsage(fixture.componentInstance, chatUsage);
+      fixture.detectChanges();
+
+      expect(hoverText('.bar-track')).toBeNull();
+    });
+
+    it('says nothing without a session to look the provider up from', () => {
+      setUsage(fixture.componentInstance, claudeUsage(180_000));
+      fixture.detectChanges();
+
+      expect(hoverText('.bar-track')).toBeNull();
     });
   });
 

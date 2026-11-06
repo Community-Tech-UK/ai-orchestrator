@@ -18,6 +18,7 @@ describe('ActivityStatusComponent', () => {
 
   afterEach(() => {
     fixture.destroy();
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -31,7 +32,7 @@ describe('ActivityStatusComponent', () => {
   it('shows quiet work only after ten seconds without activity', () => {
     fixture.componentRef.setInput('lastEventAt', NOW - 5000);
     fixture.detectChanges();
-    expect(fixture.componentInstance.displayText()).toBe('Processing...');
+    expect(fixture.componentInstance.displayText()).toBe('Working');
     fixture.componentRef.setInput('lastEventAt', NOW - 12000);
     fixture.detectChanges();
     expect(fixture.componentInstance.displayText()).toBe('Working quietly');
@@ -56,5 +57,17 @@ describe('ActivityStatusComponent', () => {
   it('switches to days, hours, and minutes at 24 hours', () => {
     expect(renderElapsed(24 * 60 * 60_000)).toBe('1d 0h 0m');
     expect(renderElapsed((43 * 60 + 50) * 60_000 + 45_999)).toBe('1d 19h 50m');
+  });
+
+  it('shows the reported retry countdown in the working row even without queued input', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    fixture.componentRef.setInput('status', 'respawning');
+    fixture.componentRef.setInput('waitReason', { kind: 'backoff', retryAt: NOW + 12_000, attempt: 2 });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Retrying in 12 s');
+    vi.advanceTimersByTime(1000);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Retrying in 11 s');
   });
 });

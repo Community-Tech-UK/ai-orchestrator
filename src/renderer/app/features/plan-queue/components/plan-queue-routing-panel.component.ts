@@ -568,7 +568,7 @@ export class PlanQueueRoutingPanelComponent implements OnInit {
         }
         if (accountRows.length === 0) accountsNote = 'No accounts are set up for this provider.';
         if (draft.provider === 'opencode' && draft.accountIds.length > 0 && !isLogicalMiMoModel(draft.model.trim())) {
-          errors.push(`OpenCode accounts only apply to MiMo Token Plan models. Set the ${role} model to a xiaomi-token-plan model, or untick the accounts.`);
+          errors.push(`OpenCode accounts only apply to MiMo Token Plan models. Set the ${role} model to one of those, or untick the accounts.`);
         }
       } else {
         accountsNote = 'Accounts could not be loaded.';

@@ -16,7 +16,13 @@ it('releases exact buffered native stdout and stderr once the actual Writable ca
   release();
   await new Promise(resolve => setImmediate(resolve));
   try {
-    expect(output.mock.calls.map(([message]) => message.content)).toEqual(['Running command: LOCAL_COMMAND', '[codex] WARN LOCAL_NATIVE_DIAGNOSTIC']);
+    const shown = output.mock.calls.map(([message]) => message);
+    expect(shown).toHaveLength(2);
+    expect(shown[0].content).toBe('Running command: LOCAL_COMMAND');
+    // The released stderr line is a plain sentence; the provider's own words stay behind Details.
+    expect(shown[1].metadata?.['diagnostic']).toBe(true);
+    expect(shown[1].content).not.toContain('LOCAL_NATIVE_DIAGNOSTIC');
+    expect(shown[1].metadata?.['errorPresentation']).toMatchObject({ rawDetail: 'WARN LOCAL_NATIVE_DIAGNOSTIC' });
   }
   finally {
     (child as unknown as {

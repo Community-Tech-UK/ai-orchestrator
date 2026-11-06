@@ -100,7 +100,7 @@ async function defaultSendServiceRpc<T>(
   } catch (error) {
     throw error instanceof Error
       ? error
-      : new Error('Worker-node STT RPC client is unavailable.');
+      : new Error('Speech-to-text on the other computer could not be reached.');
   }
 }
 
@@ -185,7 +185,7 @@ export class LocalWhisperTranscriptionProvider implements VoiceTranscriptionProv
       ...(backend.location ? { location: backend.location } : {}),
       ...(backend.available ? {} : {
         reason: backend.reason ?? 'No local STT backend is available.',
-        requiresSetup: backend.requiresSetup ?? 'Start a local STT engine on this device or a connected worker node.',
+        requiresSetup: backend.requiresSetup ?? 'Start a local STT engine on this device or a connected computer.',
       }),
     };
   }
@@ -304,7 +304,7 @@ export class LocalWhisperTranscriptionProvider implements VoiceTranscriptionProv
         : worker.configured
           ? worker.reason
           : 'No healthy local STT backend is available.',
-      requiresSetup: 'Start speaches or whisper.cpp locally, or connect a worker node advertising STT.',
+      requiresSetup: 'Start speaches or whisper.cpp locally, or connect another computer with speech-to-text running.',
     };
   }
 
@@ -373,8 +373,8 @@ export class LocalWhisperTranscriptionProvider implements VoiceTranscriptionProv
         available: false,
         configured: true,
         location: 'worker-node',
-        reason: `Pinned worker ${pin} is not connected or is not advertising healthy STT.`,
-        requiresSetup: 'Start the pinned worker node and its local STT endpoint.',
+        reason: `Pinned computer ${pin} is not connected or does not have healthy speech-to-text available.`,
+        requiresSetup: 'Start the pinned computer and its local STT endpoint.',
       };
     }
 
@@ -382,8 +382,8 @@ export class LocalWhisperTranscriptionProvider implements VoiceTranscriptionProv
       available: false,
       configured: sawWorkerSttConfig,
       location: 'worker-node',
-      reason: 'No connected worker node is advertising healthy STT.',
-      requiresSetup: 'Start speaches on a worker node and wait for the next heartbeat.',
+      reason: 'None of your connected computers have healthy speech-to-text available.',
+      requiresSetup: 'Start speaches on another computer and wait for its next status update.',
     };
   }
 
@@ -399,7 +399,7 @@ export class LocalWhisperTranscriptionProvider implements VoiceTranscriptionProv
     if (!backend.workerNodeId || !backend.provider || !backend.baseUrl) {
       throw new VoiceServiceError(
         'local-stt-backend-unavailable',
-        'Worker-node STT backend is missing endpoint details.'
+        'Speech-to-text on the other computer is missing endpoint details.'
       );
     }
 
@@ -421,7 +421,7 @@ export class LocalWhisperTranscriptionProvider implements VoiceTranscriptionProv
     if (typeof result.text !== 'string') {
       throw new VoiceServiceError(
         'local-stt-transcription-failed',
-        'Worker-node STT returned an invalid transcript response.'
+        'Speech-to-text on the other computer returned an invalid transcript response.'
       );
     }
 

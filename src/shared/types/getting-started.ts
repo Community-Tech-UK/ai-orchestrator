@@ -37,12 +37,14 @@ export interface GettingStartedInput {
    * **This must be the aggregate, not the individual provider checks.** A first
    * version read every `provider`-category check and treated `ready` OR
    * `degraded` as usable, on the assumption that `degraded` meant "installed
-   * with a caveat". It does not: `capability-probe.ts` assigns `degraded` to a
-   * provider that is **not on PATH at all**, and it probes a fixed list of five
-   * providers unconditionally — so every install, including one with no CLI
-   * whatsoever, always produced at least one `degraded` check and the step was
-   * permanently "done". `provider.any` is the app's own answer to exactly this
-   * question: `ready` iff some provider check is genuinely `ready`.
+   * with a caveat". It does not: `capability-probe.ts` used to assign
+   * `degraded` to every provider that is **not on PATH at all** (it now marks
+   * one the user never set up as `disabled`, and keeps `degraded` for one they
+   * have an account or default for), and it probes a fixed list of five
+   * providers unconditionally — so an install with no CLI whatsoever always
+   * produced at least one non-`ready` check and the step was permanently
+   * "done". `provider.any` is the app's own answer to exactly this question:
+   * `ready` iff some provider check is genuinely `ready`.
    */
   providerAnyStatus: string | null;
   defaultWorkingDirectory: string;

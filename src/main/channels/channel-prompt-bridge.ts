@@ -63,7 +63,8 @@ export interface PromptBridgeInstanceManager {
 export interface PromptBridgeOrchestration {
   on(event: string, listener: (...args: unknown[]) => void): void;
   removeListener(event: string, listener: (...args: unknown[]) => void): void;
-  respondToUserAction(requestId: string, approved: boolean, selectedOption?: string): void;
+  /** `not-pending` means the question had already closed, so nothing was sent. */
+  respondToUserAction(requestId: string, approved: boolean, selectedOption?: string): 'resolved' | 'not-pending' | 'dedicated-channel' | void;
 }
 
 export interface ChannelPromptBridgeDeps {
@@ -113,6 +114,11 @@ export class ChannelPromptBridge {
 
   private readonly onInputRequired = (payload: unknown): void => this.handleInputRequired(payload);
   private readonly onUserAction = (request: unknown): void => this.handleUserAction(request);
+  /** A question closed (answered elsewhere, timed out, stopped): stop offering it in the chat. */
+  private readonly onUserActionResolved = (settled: unknown): void => {
+    const requestId = (settled as { request?: { id?: unknown } } | null)?.request?.id;
+    if (typeof requestId === 'string') this.prompts.delete(requestId);
+  };
   private readonly onStateUpdate = (payload: unknown): void => this.handleStateUpdate(payload);
 
   constructor(private readonly deps: ChannelPromptBridgeDeps) {}
@@ -132,6 +138,7 @@ export class ChannelPromptBridge {
     try {
       this.orchestration = im.getOrchestrationHandler();
       this.orchestration.on('user-action-request', this.onUserAction);
+      this.orchestration.on('user-action-resolved', this.onUserActionResolved);
     } catch (err) {
       logger.warn('Prompt bridge could not attach orchestration listener', { error: String(err) });
     }
@@ -149,6 +156,7 @@ export class ChannelPromptBridge {
       // Instance manager already gone; nothing to detach.
     }
     this.orchestration?.removeListener('user-action-request', this.onUserAction);
+    this.orchestration?.removeListener('user-action-resolved', this.onUserActionResolved);
     this.orchestration = null;
     this.prompts.clear();
     this.bufferedByInstance.clear();
@@ -319,7 +327,8 @@ export class ChannelPromptBridge {
     try {
       const im = this.deps.getInstanceManager();
       if (prompt.kind === 'user-action') {
-        im.getOrchestrationHandler().respondToUserAction(requestId, approved, response);
+        // The question closed a moment before this answer: nothing was sent, so do not say it was.
+        if (im.getOrchestrationHandler().respondToUserAction(requestId, approved, response) === 'not-pending') return false;
       } else {
         await im.resumeAfterDeferredPermission(prompt.instanceId, approved);
         im.clearPendingInputRequiredPermission(prompt.instanceId, requestId);

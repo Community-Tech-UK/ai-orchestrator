@@ -38,6 +38,8 @@ import { createHash } from 'node:crypto';
 import { safeDiagnosticIdentifier, safeDiagnosticNativeEnding, safeDiagnosticNumber } from '../turn-ending-diagnostic-fields';
 import type { OutputMessage } from '../../../shared/types/instance.types';
 import { findTrailingProviderRefusal, findTrailingTransportFailure } from '../transport-failure';
+import { presentError } from '../../../shared/present-error';
+import { redactSecrets } from '../../security/secret-detector';
 
 /**
  * Why a turn ended on a serialized provider error: the connection to the
@@ -126,15 +128,13 @@ export interface TruncatedAcpTurnReport {
  */
 const NOTICE_LEAD: Record<TurnEndingFailureKind, string> = {
   transport:
-    'This turn ended on a provider transport error (shown above). The agent did not '
-    + 'choose to stop, so the reply may be cut off — any files it already changed are '
-    + 'on disk. If it looks incomplete, send "continue" to resume.',
+    'The connection was interrupted, so this reply may be cut off. Your message and '
+    + 'the work above are kept. What to do: Send "continue" if the reply looks incomplete. '
+    + 'The transport error is under Details.',
   refusal:
-    'This turn ended on a provider refusal (shown above). The agent did not choose to '
-    + 'stop, so the reply may be cut off — any files it already changed are on disk. A '
-    + 'refusal is normally a quota or capacity limit rather than a problem with the '
-    + 'work, and a very long turn makes one more likely. If it looks incomplete, send '
-    + '"continue" to resume, or start a fresh session so the retry carries less context.',
+    'The provider declined this request, so the reply may be cut off. This can mean a '
+    + 'quota or capacity limit. Your message and the work above are kept. What to do: '
+    + 'Send "continue" if the reply looks incomplete, or start a fresh session with less context.',
 };
 
 const LOG_MESSAGE: Record<TurnEndingFailureKind, string> = {
@@ -153,6 +153,8 @@ const NOTICE_SOURCE: Record<TurnEndingFailureKind, string> = {
  * Pure — the caller owns the `logger.warn` and `emit('output')` side effects.
  */
 export function describeTruncatedAcpTurn(input: TruncatedAcpTurnInput): TruncatedAcpTurnReport {
+  const errorPresentation = presentError({ code: input.kind === 'transport' ? 'network' : 'unknown', message: input.failure });
+  errorPresentation.rawDetail = redactSecrets(errorPresentation.rawDetail);
   return {
     logMessage: LOG_MESSAGE[input.kind],
     logFields: {
@@ -168,8 +170,9 @@ export function describeTruncatedAcpTurn(input: TruncatedAcpTurnInput): Truncate
       id: generateId(),
       timestamp: Date.now(),
       type: 'system',
-      content: `${NOTICE_LEAD[input.kind]}\n\nProvider error: ${input.failure}`,
+      content: NOTICE_LEAD[input.kind],
       metadata: {
+        errorPresentation,
         source: NOTICE_SOURCE[input.kind],
         transport: 'acp',
         adapter: input.adapter,

@@ -187,8 +187,8 @@ export const ADVANCED_SECTION_DEFINITIONS: readonly AdvancedSectionDefinition[] 
   },
   {
     id: 'local-ai-guard-heading',
-    title: 'Local AI paid-fallback guard',
-    description: 'Guards against unexpected spend when a routed helper call falls back from a local model to a paid one: the fallback policy, an optional daily budget, and a confirmation threshold by input size.',
+    title: 'Paid backup for local models',
+    description: 'Protects you from surprise spend when a job meant for a local model falls back to a paid one: what Harness does, an optional daily limit, and a size above which it asks you first.',
     group: 'security',
     keys: [
       'localAiGuardDefaultFallbackPolicy',
@@ -220,7 +220,7 @@ export const ADVANCED_SECTION_DEFINITIONS: readonly AdvancedSectionDefinition[] 
   },
   {
     id: 'session-process-fence-heading',
-    title: 'Session process fence',
+    title: 'Programs a session may stop',
     description: 'Whether a session may stop programs it did not start, such as another session. Applies to sessions started or restarted after the change.',
     group: 'security',
     dangerous: true,

@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { buildAcpToolResultMessage } from '../cli/adapters/acp-tool-call-material';
+import { codexCommandTranscript } from '../cli/adapters/codex/codex-command-transcript.test-helpers';
 import {
   classifyError,
   extractBaseCommand,
@@ -166,6 +168,194 @@ describe('LT-196: tool_outcome records feed the miner', () => {
   it('leaves the Codex tool_result path working unchanged', () => {
     const messages = pair('npm test --flag-x', 'unrecognized option --flag-x', true);
     expect(extractToolInvocations(messages)).toHaveLength(1);
+  });
+});
+
+describe('U1 step 5: how the miner reads a command that ran and exited non-zero', () => {
+  /** A result as the newer producers publish it: `is_error` is "did not run", the exit status rides alongside. */
+  function codexResult(id: string, content: string, metadata: Record<string, unknown>): MinableMessage {
+    return { type: 'tool_result', content, timestamp: Date.now(), metadata: { tool_use_id: id, ...metadata } };
+  }
+
+  it('keeps a supplied noncheck exit neutral even when its text resembles a usage error', () => {
+    const id = `u1-${seq++}`;
+    const [invocation] = extractToolInvocations([
+      toolUse('gti status', id),
+      codexResult(id, 'zsh: command not found: gti', { is_error: false, exitCode: 127, isCheck: false, checkFailed: false }),
+    ]);
+    expect(invocation?.isError).toBe(false);
+  });
+
+  it('does not treat a search that found nothing as an error', () => {
+    const id = `u1-${seq++}`;
+    const [invocation] = extractToolInvocations([
+      toolUse('rg missing src', id),
+      codexResult(id, '', { is_error: false, exitCode: 1, isCheck: false, checkFailed: false }),
+    ]);
+    expect(invocation?.isError).toBe(false);
+  });
+
+  it('does not treat a voluntary exit status as an error without evidence of misuse', () => {
+    const id = `u1-${seq++}`;
+    const [invocation] = extractToolInvocations([
+      toolUse('./deploy.sh', id),
+      codexResult(id, 'stopping on purpose', { is_error: false, exitCode: 127 }),
+    ]);
+    expect(invocation?.isError).toBe(false);
+  });
+
+  it('reads a check that did not pass as a failure, whatever its output says', () => {
+    const id = `u1-${seq++}`;
+    const [invocation] = extractToolInvocations([
+      toolUse('npm test', id),
+      codexResult(id, '3 tests failed', { is_error: false, exitCode: 1, isCheck: true, checkFailed: true }),
+    ]);
+    expect(invocation?.isError).toBe(true);
+  });
+
+  it('counts a quiet non-zero exit as the fix after an explicitly failed tool', () => {
+    const failId = `u1-${seq++}`;
+    const fixId = `u1-${seq++}`;
+    const pairs = mineCorrections([
+      toolUse('grep --bogus-flag needle haystack.txt', failId),
+      codexResult(failId, 'grep: unrecognized option --bogus-flag', { is_error: true, exitCode: 2 }),
+      toolUse('grep -F needle haystack.txt', fixId),
+      codexResult(fixId, '', { is_error: false, exitCode: 1 }), // valid flag, no match: not an error
+    ]);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]).toMatchObject({ errorClass: 'UnknownFlag', fixCommand: 'grep -F needle haystack.txt', fixIsError: false });
+  });
+
+  it('keeps a clean exit a success', () => {
+    const id = `u1-${seq++}`;
+    const [invocation] = extractToolInvocations([
+      toolUse('git status', id),
+      codexResult(id, 'clean', { is_error: false, exitCode: 0 }),
+    ]);
+    expect(invocation?.isError).toBe(false);
+  });
+
+  it('still reads the error flag on its own', () => {
+    const id = `u1-${seq++}`;
+    const [invocation] = extractToolInvocations([
+      toolUse('git status', id),
+      codexResult(id, 'declined', { is_error: true, exitCode: null }),
+    ]);
+    expect(invocation?.isError).toBe(true);
+  });
+
+  it('leaves the outcome unobserved when the result carries neither fact', () => {
+    const id = `u1-${seq++}`;
+    const [invocation] = extractToolInvocations([toolUse('git status', id), codexResult(id, 'clean', {})]);
+    expect(invocation?.isError).toBeNull();
+  });
+
+  it('does not manufacture a correction from neutral command exits and output text', () => {
+    const failId = `u1-${seq++}`;
+    const fixId = `u1-${seq++}`;
+    expect(mineCorrections([
+      toolUse('grep --bogus-flag needle haystack.txt', failId),
+      codexResult(failId, 'grep: unrecognized option --bogus-flag', { is_error: false, exitCode: 2 }),
+      toolUse('grep -F needle haystack.txt', fixId),
+      codexResult(fixId, 'needle', { is_error: false, exitCode: 0 }),
+    ])).toEqual([]);
+  });
+
+  it('does not count a fix that is still misused as a confirmed success', () => {
+    const failId = `u1-${seq++}`;
+    const stillFailingId = `u1-${seq++}`;
+    const pairs = mineCorrections([
+      toolUse('grep --bogus-flag needle haystack.txt', failId),
+      codexResult(failId, 'grep: unrecognized option --bogus-flag', { is_error: false, exitCode: 2 }),
+      toolUse('grep --other-flag needle haystack.txt', stillFailingId),
+      codexResult(stillFailingId, 'grep: unrecognized option --other-flag', { is_error: false, exitCode: 2 }),
+    ]);
+    expect(pairs).toHaveLength(0);
+  });
+});
+
+/**
+ * The messages below are produced by the real Codex handlers, not written by hand:
+ * Codex puts its item id under `metadata.id` on BOTH the call and the result, with no
+ * `tool_use_id`, which is the shape the miner could not pair before.
+ */
+describe('Codex-shaped transcripts (produced by the real item handlers)', () => {
+  it('pairs a Codex result with its call by the item id', () => {
+    const messages = codexCommandTranscript([
+      { id: 'item-1', command: 'grep --bogus-flag needle haystack.txt', output: 'grep: unrecognized option --bogus-flag', exitCode: 2 },
+    ]);
+    expect(messages.map((message) => message.type)).toEqual(['tool_use', 'tool_result']);
+    expect(messages[1].metadata).not.toHaveProperty('tool_use_id');
+    expect(messages[1].metadata).toMatchObject({ id: 'item-1', is_error: false, exitCode: 2 });
+
+    const invocations = extractToolInvocations(messages);
+    expect(invocations).toHaveLength(1);
+    expect(invocations[0]).toMatchObject({ command: 'grep --bogus-flag needle haystack.txt', isError: false });
+  });
+
+  it('keeps a real Codex noncheck transcript neutral despite error-like output', () => {
+    const pairs = mineCorrections(codexCommandTranscript([
+      { id: 'item-1', command: 'grep --bogus-flag needle haystack.txt', output: 'grep: unrecognized option --bogus-flag', exitCode: 2 },
+      { id: 'item-2', command: 'grep -F needle haystack.txt', output: 'needle here', exitCode: 0 },
+    ]));
+    expect(pairs).toEqual([]);
+  });
+
+  it('does not turn a search that found nothing into a correction', () => {
+    const noMatch = codexCommandTranscript([{ id: 'item-1', command: 'rg needle haystack.txt', output: '', exitCode: 1 }]);
+    expect(extractToolInvocations(noMatch)[0]?.isError).toBe(false);
+
+    const pairs = mineCorrections(codexCommandTranscript([
+      { id: 'item-1', command: 'rg needle haystack.txt', output: '', exitCode: 1 },
+      { id: 'item-2', command: 'rg -i needle haystack.txt', output: 'Needle here', exitCode: 0 },
+    ]));
+    expect(pairs).toEqual([]);
+  });
+
+  it('still mines a real red check followed by its corrected command', () => {
+    const messages = codexCommandTranscript([
+      { id: 'item-1', command: 'npm test --bogus-flag', output: 'error: unknown option --bogus-flag', exitCode: 1 },
+      { id: 'item-2', command: 'npm test --silent', output: 'all green', exitCode: 0 },
+    ]);
+    expect(messages[1].metadata).toMatchObject({ is_error: false, isCheck: true, checkFailed: true });
+    const pairs = mineCorrections(messages);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]).toMatchObject({ baseCommand: 'npm', errorClass: 'UnknownFlag', fixIsError: false });
+  });
+
+  it('does not mine a check that failed in a chain it cannot be blamed for', () => {
+    // `git pull` may be what failed; the text cannot say, so the check is not marked failed.
+    const messages = codexCommandTranscript([
+      { id: 'item-1', command: 'git pull && npm test', output: 'fatal: unable to access remote', exitCode: 1 },
+    ]);
+    expect(messages[1].metadata).toMatchObject({ is_error: false, isCheck: true, checkFailed: false });
+    expect(extractToolInvocations(messages)[0]?.isError).toBe(false);
+  });
+
+  it('correlates a real Grok capture without treating noncheck exits as corrections', () => {
+    const rawFail = {
+      type: 'Bash', output_for_prompt: "exit: 2\ngrep: unrecognized option `--bogus-flag'\n", exit_code: 2,
+      command: '/usr/bin/grep --bogus-flag needle haystack.txt', truncated: false, signal: null, timed_out: false,
+    };
+    const rawOk = { type: 'Bash', output_for_prompt: 'exit: 0\nneedle here\n', exit_code: 0, command: '/usr/bin/grep -F needle haystack.txt', truncated: false, signal: null, timed_out: false };
+    const use = (id: string, command: string): MinableMessage => ({
+      type: 'tool_use', content: command, timestamp: Date.now(),
+      metadata: { toolCallId: id, kind: 'execute', name: 'execute', transport: 'acp', input: { command } },
+    });
+    const result = (id: string, text: string, raw: Record<string, unknown>): MinableMessage => {
+      const message = buildAcpToolResultMessage(
+        { toolCallId: id, title: 't', status: 'completed', sessionUpdate: 'tool_call_update', output: text, kind: 'execute', rawOutput: raw },
+        `m-${id}`, Date.now(),
+      );
+      return { type: message.type, content: message.content, timestamp: message.timestamp, metadata: message.metadata };
+    };
+    const pairs = mineCorrections([
+      use('g1', '/usr/bin/grep --bogus-flag needle haystack.txt'),
+      result('g1', "grep: unrecognized option `--bogus-flag'", rawFail),
+      use('g2', '/usr/bin/grep -F needle haystack.txt'),
+      result('g2', 'needle here', rawOk),
+    ]);
+    expect(pairs).toEqual([]);
   });
 });
 

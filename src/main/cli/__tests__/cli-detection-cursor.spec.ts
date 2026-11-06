@@ -10,7 +10,7 @@ describe('CLI registry — cursor', () => {
     expect(CLI_REGISTRY.cursor).toMatchObject({
       name: 'cursor',
       command: 'cursor-agent',
-      displayName: 'Cursor CLI',
+      displayName: 'Cursor',
     });
     expect(CLI_REGISTRY.cursor.versionFlag).toBe('--version');
     expect(CLI_REGISTRY.cursor.versionPattern).toBeInstanceOf(RegExp);

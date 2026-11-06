@@ -66,6 +66,21 @@ describe('ModelPickerController', () => {
     expect(controller.reasoningOptions()[0]?.isDefault).toBeUndefined();
   });
 
+  it('says in plain words that Max and Workflow use much more of the allowance', () => {
+    const controller = TestBed.inject(ModelPickerController);
+    const claude = controller.reasoningOptionsForProvider('claude');
+    const note = (id: string) => claude.find((option) => option.id === id)?.description;
+
+    expect(note('max')).toBe(
+      'Thinks as long as it can on every step and uses much more of your allowance. Keep it for the hardest problems.',
+    );
+    expect(note('workflow')).toBe(
+      'Splits every task across many helper agents; each one uses its own allowance.',
+    );
+    // The old wording described the setting without ever saying it costs more.
+    expect(claude.map((option) => option.description).join(' ')).not.toMatch(/ultracode|session-only/i);
+  });
+
   it('uses model capabilities for Codex options and a supported default', () => {
     const controller = TestBed.inject(ModelPickerController);
     const model = { id: 'gpt-6-astra', name: 'Astra', tier: 'powerful' as const,

@@ -25,6 +25,7 @@ import type {
   ProviderQuotaSnapshot,
 } from '../../../../shared/types/provider-quota.types';
 import { formatQuotaWindowValue } from '../../../../shared/util/provider-quota-format';
+import { accountFamilyName, providerName, providerToolName } from '../../../../shared/display-names';
 
 interface IntervalOption {
   label: string;
@@ -37,15 +38,10 @@ interface LimitRow {
   reset: string | null;
 }
 
-const PROVIDERS: { id: ProviderId; label: string }[] = [
-  { id: 'claude', label: 'Claude Code' },
-  { id: 'codex', label: 'OpenAI Codex' },
-  { id: 'gemini', label: 'Google Gemini' },
-  { id: 'copilot', label: 'GitHub Copilot' },
-  { id: 'cursor', label: 'Cursor' },
-  { id: 'grok', label: 'Grok' },
-  { id: 'opencode', label: 'OpenCode' },
-];
+/** One row each. Rows are named for the account the usage belongs to, so OpenCode's reads "MiMo". */
+const PROVIDERS: { id: ProviderId; label: string }[] = (
+  ['claude', 'codex', 'gemini', 'copilot', 'cursor', 'grok', 'opencode'] as const
+).map((id) => ({ id, label: accountFamilyName(id) }));
 
 const INTERVAL_OPTIONS: IntervalOption[] = [
   { label: 'Off', ms: 0 },
@@ -56,14 +52,14 @@ const INTERVAL_OPTIONS: IntervalOption[] = [
 ];
 
 const LIMIT_UNAVAILABLE_TEXT: Record<ProviderId, string> = {
-  claude: 'Claude Code does not expose numeric limits when run outside its interactive terminal. Sign-in status is available but exact request counts are not.',
-  codex: 'OpenAI Codex does not report account-level limits from the command line. Only your sign-in method is available here.',
-  gemini: 'Google Gemini does not expose quota numbers in a background check — those figures are only available inside an interactive session.',
-  antigravity: 'Antigravity (agy) does not expose quota numbers from a background check — usage figures are only available inside an interactive session.',
-  copilot: 'GitHub Copilot does not report account limits outside an active coding session. Sign-in status is available but usage totals are not.',
-  cursor: 'Cursor usage is available when Harness can read Cursor’s macOS Keychain session token, or when the standalone token-usage-monitor has written a fresh snapshot.',
-  grok: 'Grok Build billing from ~/.grok/auth.json (monthly / on-demand USD). Sign in with `grok login` if the chip shows reauth.',
-  opencode: 'MiMo Token Plan usage can be checked without Chrome. In Claude, Codex & MiMo Accounts, use Connect usage for each MiMo account and sign in to its Xiaomi console. Harness saves that session securely and checks usage in the background. If the session expires, use Sign in to usage again. A configured Chrome profile remains available as a fallback; the API key cannot read usage.',
+  claude: `${providerToolName('claude')} does not expose numeric limits when run outside its interactive terminal. Sign-in status is available but exact request counts are not.`,
+  codex: `${providerToolName('codex')} does not report account-level limits from the command line. Only your sign-in method is available here.`,
+  gemini: `${providerToolName('gemini')} does not expose quota numbers in a background check — those figures are only available inside an interactive session.`,
+  antigravity: `${providerToolName('antigravity')} (agy) does not expose quota numbers from a background check — usage figures are only available inside an interactive session.`,
+  copilot: `${providerToolName('copilot')} does not report account limits outside an active coding session. Sign-in status is available but usage totals are not.`,
+  cursor: `${providerName('cursor')} usage is available when Harness can read Cursor’s macOS Keychain session token, or when the standalone token-usage-monitor has written a fresh snapshot.`,
+  grok: `${providerToolName('grok')} billing from ~/.grok/auth.json (monthly / on-demand USD). Sign in with \`grok login\` if the chip shows reauth.`,
+  opencode: `${accountFamilyName('opencode')} Token Plan usage can be checked without Chrome. In Claude, Codex & MiMo Accounts, use Connect usage for each MiMo account and sign in to its Xiaomi console. Harness saves that session securely and checks usage in the background. If the session expires, use Sign in to usage again. A configured Chrome profile remains available as a fallback; the API key cannot read usage.`,
 };
 
 @Component({

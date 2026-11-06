@@ -1,4 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject, signal } from '@angular/core';
+import { computerName } from '../../../../shared/display-names';
+import { rawErrorText } from '../../../../shared/present-error';
+import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
 import { SettingsStore } from '../../core/state/settings.store';
 import {
   PairBothIpcService,
@@ -35,7 +38,7 @@ type WorkerModeState =
   selector: 'app-worker-mode',
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="worker-mode-shell" aria-label="Worker Mode">
+    <section class="worker-mode-shell" aria-label="Help another Harness">
       @if (error()) {
         <div class="notice error" role="alert">{{ error() }}</div>
       }
@@ -49,13 +52,13 @@ type WorkerModeState =
       }
 
       @if (state() === 'loading') {
-        <div class="status-panel" role="status">Checking this computer's pairing...</div>
+        <div class="status-panel" role="status">Checking pairing for {{ localComputer }}...</div>
       }
 
       @if (state() === 'idle') {
         <div class="action-panel">
           <p class="panel-intro">
-            Pair this computer with your main Harness. You can keep using Harness here while it works.
+            Pair {{ localComputer }} with your main Harness. You can keep using Harness here while it works.
           </p>
           <button class="primary-action" type="button" (click)="pairWithHarness()">
             Pair With Harness
@@ -82,7 +85,7 @@ type WorkerModeState =
         <div class="candidate-list">
           @for (candidate of candidates(); track candidate.id) {
             <button class="candidate-row" type="button" (click)="connect(candidate)">
-              <span class="candidate-name">Found {{ candidate.friendlyName }}</span>
+              <span class="candidate-name">Found {{ computerLabel({ name: candidate.friendlyName }) }}</span>
               <span class="candidate-detail">{{ candidate.host }}:{{ candidate.port }}</span>
             </button>
           }
@@ -131,8 +134,9 @@ type WorkerModeState =
       @if (state() === 'service-choice' && pairedConfig()) {
         <div class="connected-panel">
           <h2>Paired with your main Harness</h2>
-          <p>Press Start Worker so your main Harness can send work to this computer.</p>
+          <p>Press Start sharing so your main Harness can send work to this computer.</p>
           @if (workerStatus()?.runAtSignInAvailable) {
+            <p>How should this computer help?</p>
             <label class="check-row">
               <input
                 type="checkbox"
@@ -142,6 +146,8 @@ type WorkerModeState =
               Keep working when Harness is closed (recommended). The worker starts when you sign in
               to Windows and restarts itself if it stops.
             </label>
+          } @else {
+            <p>This computer is paired. It helps while Harness is open here.</p>
           }
           @if (canOpenAtLogin && !backgroundChosen()) {
             <label class="check-row">
@@ -155,7 +161,7 @@ type WorkerModeState =
           }
           <div class="button-row">
             <button class="primary-action" type="button" [disabled]="starting()" (click)="startFromChoice()">
-              {{ starting() ? 'Starting...' : 'Start Worker' }}
+              {{ starting() ? 'Starting...' : 'Start sharing' }}
             </button>
             @if (runChoiceReopened()) {
               <button class="secondary-small" type="button" (click)="resetPairing()">Cancel</button>
@@ -185,17 +191,17 @@ type WorkerModeState =
               <span>{{ config.coordinatorUrl }}</span>
             }
             @if (config.name) {
-              <span>{{ config.name }}</span>
+              <span>{{ computerLabel({ name: config.name }) }}</span>
             }
             <span>{{ config.namespace }}</span>
           </div>
           <div class="button-row">
             @if (!workerStatus()?.backgroundService && !externalWorker()) {
               @if (workerRunning() || signInStarting()) {
-                <button class="primary-small" type="button" (click)="stopWorker()">Stop Worker</button>
+                <button class="primary-small" type="button" (click)="stopWorker()">Stop sharing</button>
               } @else {
                 <button class="primary-small" type="button" [disabled]="starting()" (click)="startWorker()">
-                  {{ starting() ? 'Starting...' : 'Start Worker' }}
+                  {{ starting() ? 'Starting...' : 'Start sharing' }}
                 </button>
               }
             }
@@ -210,7 +216,7 @@ type WorkerModeState =
             </button>
             @if (settings.workerMode().role === 'worker') {
               <button class="secondary-small" type="button" (click)="turnOffWorkerMode()">
-                Turn Off Worker Mode
+                Turn off sharing
               </button>
             }
           </div>
@@ -235,6 +241,8 @@ type WorkerModeState =
   styleUrl: './worker-mode.component.scss',
 })
 export class WorkerModeComponent {
+  protected readonly computerLabel = computerName;
+  protected readonly localComputer = computerName('local', inject(ElectronIpcService).platform);
   private readonly pairBoth = inject(PairBothIpcService);
   protected readonly settings = inject(SettingsStore);
 
@@ -650,7 +658,7 @@ export class WorkerModeComponent {
   }
 
   private toFriendlyPairingError(error: unknown): string {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = rawErrorText(error);
     if (/discover|bonjour|mdns|network|permission|firewall/i.test(message)) {
       return `${message} Try QR or paste pairing if local network discovery is blocked.`;
     }
@@ -660,5 +668,5 @@ export class WorkerModeComponent {
 
 /** A start failure, without the pairing advice (QR, paste) that does not apply to it. */
 function startErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return rawErrorText(error);
 }

@@ -271,7 +271,7 @@ describe('InstanceHeaderComponent interrupt tooltip', () => {
       ...instance('codex'), waitReason: { kind: 'remote-heartbeat', nodeId: 'worker', staleForMs: 2_600 },
     });
     fixture.detectChanges();
-    expect(linkedHint()?.textContent).toBe('Node: worker, stale for 3s');
+    expect(linkedHint()?.textContent).toBe('No reply for 3s');
 
     fixture.componentRef.setInput('instance', instance('codex'));
     fixture.detectChanges();
@@ -286,14 +286,14 @@ describe('InstanceHeaderComponent interrupt tooltip', () => {
       ...instance('codex'), waitReason: { kind: 'quota-park', provider: 'codex', resumeAt: timestamp },
     });
     fixture.detectChanges();
-    expect(fixture.componentInstance.waitReasonDetail()).toBe(`Provider: codex, resumes at ${time}`);
+    expect(fixture.componentInstance.waitReasonDetail()).toBe(`Codex allowance resets at ${time}`);
     expect(fixture.nativeElement.querySelector('.wait-reason-label')).toBeNull();
 
     fixture.componentRef.setInput('instance', {
       ...instance('codex'), waitReason: { kind: 'auth-required', provider: 'codex', since: timestamp },
     });
     fixture.detectChanges();
-    expect(fixture.componentInstance.waitReasonDetail()).toBe(`Signed out of codex since ${time}`);
+    expect(fixture.componentInstance.waitReasonDetail()).toBe(`Signed out of Codex since ${time}`);
     expect(fixture.nativeElement.querySelector('.wait-reason-label')).toBeNull();
   });
 

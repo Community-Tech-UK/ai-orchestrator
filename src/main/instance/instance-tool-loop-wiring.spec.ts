@@ -157,6 +157,83 @@ describe('LT-062: observeToolLoopEvent output-message bridge', () => {
   });
 });
 
+describe('U1 step 5: a command result reaches the detector under the per-kind failure rule', () => {
+  afterEach(() => {
+    DoomLoopDetector._resetForTesting();
+    vi.restoreAllMocks();
+  });
+
+  /** A Codex command item as `codex-notification-item-events.ts` publishes it. */
+  function codexCommandUse(callId: string, command: string): ProviderRuntimeEvent {
+    return {
+      kind: 'output',
+      content: `Running command: ${command}`,
+      messageType: 'tool_use',
+      metadata: { id: callId, name: 'Bash', input: { command }, streaming: true },
+    };
+  }
+
+  function codexCommandResult(callId: string, metadata: Record<string, unknown>, content = 'Exited with status 1'): ProviderRuntimeEvent {
+    return { kind: 'output', content, messageType: 'tool_result', metadata: { id: callId, name: 'Bash', ...metadata } };
+  }
+
+  /** What `observeToolLoopEvent` hands the detector for one finished command. */
+  function observedIsError(command: string, resultMetadata: Record<string, unknown>): boolean | undefined {
+    const record = vi.spyOn(getDoomLoopDetector(), 'recordToolResult');
+    observeToolLoopEvent(noopDeps, 'inst-1', codexCommandUse('c1', command));
+    observeToolLoopEvent(noopDeps, 'inst-1', codexCommandResult('c1', resultMetadata));
+    return record.mock.calls[0]?.[1].isError;
+  }
+
+  it('reports a failing check to the detector as an error', () => {
+    expect(observedIsError('npm test', { is_error: false, exitCode: 1, isCheck: true, checkFailed: true })).toBe(true);
+  });
+
+  it('reports a check recorded only by exit status and check flag as an error', () => {
+    expect(observedIsError('npm test', { exitCode: 1, isCheck: true })).toBe(true);
+  });
+
+  it('reports a command that could not run as an error', () => {
+    expect(observedIsError('npm test', { is_error: true, status: 'declined' })).toBe(true);
+  });
+
+  it('keeps a command that ran and exited non-zero neutral', () => {
+    expect(observedIsError('rg missing src', { is_error: false, exitCode: 1, isCheck: false, checkFailed: false })).toBe(false);
+  });
+
+  it('reports a clean exit as not an error', () => {
+    expect(observedIsError('npm test', { is_error: false, exitCode: 0, isCheck: true, checkFailed: false })).toBe(false);
+  });
+
+  it('leaves the outcome unknown when the result carries none of the outcome fields', () => {
+    expect(observedIsError('ls', {})).toBeUndefined();
+  });
+
+  it('treats a failed edit as an error only through its own flag', () => {
+    const record = vi.spyOn(getDoomLoopDetector(), 'recordToolResult');
+    observeToolLoopEvent(noopDeps, 'inst-1', {
+      kind: 'output', content: 'File change failed: a.ts', messageType: 'tool_result',
+      metadata: { id: 'e1', name: 'Edit', is_error: true },
+    });
+    expect(record.mock.calls[0]?.[1].isError).toBe(true);
+  });
+
+  it('still catches a repeated failing check: the detector keeps working on failing runs', () => {
+    const detections = collectDetections();
+    for (let i = 0; i < 3; i++) {
+      observeToolLoopEvent(noopDeps, 'inst-1', codexCommandUse(`c${i}`, 'npm test'));
+      observeToolLoopEvent(noopDeps, 'inst-1', codexCommandResult(
+        `c${i}`,
+        { is_error: false, exitCode: 1, isCheck: true, checkFailed: true },
+        '1 failing: renders the header',
+      ));
+    }
+
+    expect(detections).toHaveLength(1);
+    expect(detections[0]).toMatchObject({ detector: 'repeat-no-progress', severity: 'warn', toolName: 'Bash', count: 3 });
+  });
+});
+
 describe('resolveToolLoopWiringDeps', () => {
   it('keeps lazy defaults when nothing is injected', () => {
     const defaults: ToolLoopWiringDeps = {

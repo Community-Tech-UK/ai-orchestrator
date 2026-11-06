@@ -1206,3 +1206,38 @@
 .file-preview-name { display: block; text-align: left; font: inherit; }
 .file-preview-trigger.preview-info { align-items: flex-start; text-align: left; }
 @media (max-width: 640px) { .btn-steer:disabled { width: auto; padding: 0 12px; } .btn-steer:disabled .steer-label { display: inline; } }
+
+/* Continue after an interrupted turn. The button and its status line belong to
+   the child component, which carries no styles, so they are styled from here.
+   The host is hidden while the child has nothing to show, so no gap is left. */
+.continue-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+
+  &:empty {
+    display: none;
+  }
+
+  ::ng-deep button {
+    min-height: 28px;
+    padding: 0 10px;
+    border: 1px solid rgba(var(--primary-rgb), 0.35);
+    border-radius: 5px;
+    background: rgba(var(--primary-rgb), 0.16);
+    color: var(--text-primary);
+    font: 12px var(--font-display);
+    cursor: pointer;
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: default;
+    }
+  }
+
+  ::ng-deep [role='status'] {
+    color: var(--text-muted);
+    font: 12px var(--font-display);
+  }
+}

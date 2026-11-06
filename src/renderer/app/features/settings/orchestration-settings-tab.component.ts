@@ -10,20 +10,14 @@ import type { AppSettings } from '../../../../shared/types/settings.types';
 import { DEFAULT_SETTINGS } from '../../../../shared/types/settings.types';
 import type { PickerProvider } from '../models/compact-model-picker.types';
 import { getDefaultModelForCli } from '../../../../shared/types/provider.types';
+import { providerToolName } from '../../../../shared/display-names';
 import { ProviderModelOverrideComponent } from './provider-model-override.component';
 import { WorkloadSliderComponent } from '../../core/state/global-pause/workload-slider.component';
 
 /** Providers that can run a loop. Mirrors LoopProvider in loop.types.ts. */
-const LOOP_PROVIDER_DEFINITIONS: readonly { id: PickerProvider; label: string }[] = [
-  { id: 'claude', label: 'Claude Code' },
-  { id: 'codex', label: 'OpenAI Codex CLI' },
-  { id: 'gemini', label: 'Gemini CLI' },
-  { id: 'antigravity', label: 'Antigravity' },
-  { id: 'copilot', label: 'GitHub Copilot' },
-  { id: 'cursor', label: 'Cursor CLI' },
-  { id: 'grok', label: 'Grok Build' },
-  { id: 'opencode', label: 'OpenCode' },
-] as const;
+const LOOP_PROVIDER_IDS: readonly PickerProvider[] = [
+  'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode',
+];
 
 interface LoopProviderView {
   id: PickerProvider;
@@ -31,12 +25,7 @@ interface LoopProviderView {
 }
 
 /** Providers whose children are gated by the provider concurrency limiter. */
-const CONCURRENCY_PROVIDER_DEFINITIONS: readonly { id: string; label: string }[] = [
-  { id: 'opencode', label: 'OpenCode' },
-  { id: 'copilot', label: 'GitHub Copilot' },
-  { id: 'cursor', label: 'Cursor CLI' },
-  { id: 'grok', label: 'Grok Build' },
-];
+const CONCURRENCY_PROVIDER_IDS: readonly string[] = ['opencode', 'copilot', 'cursor', 'grok'];
 
 interface ConcurrencyRowView {
   id: string;
@@ -138,7 +127,7 @@ export class OrchestrationSettingsTabComponent {
     this.store.get(key as keyof AppSettings);
 
   readonly loopProviders = computed<LoopProviderView[]>(() =>
-    LOOP_PROVIDER_DEFINITIONS.map((provider) => ({ ...provider })),
+    LOOP_PROVIDER_IDS.map((id) => ({ id, label: providerToolName(id) })),
   );
 
   /** What the picker shows for a provider with nothing pinned. */
@@ -148,11 +137,12 @@ export class OrchestrationSettingsTabComponent {
 
   readonly concurrencyRows = computed<ConcurrencyRowView[]>(() => {
     const limits = this.store.get('concurrencyLimitByProvider') ?? {};
-    return CONCURRENCY_PROVIDER_DEFINITIONS.map((provider) => ({
-      ...provider,
-      value: typeof limits[provider.id] === 'number'
-        ? limits[provider.id]
-        : DEFAULT_SETTINGS.concurrencyLimitByProvider[provider.id],
+    return CONCURRENCY_PROVIDER_IDS.map((id) => ({
+      id,
+      label: providerToolName(id),
+      value: typeof limits[id] === 'number'
+        ? limits[id]
+        : DEFAULT_SETTINGS.concurrencyLimitByProvider[id],
     }));
   });
 

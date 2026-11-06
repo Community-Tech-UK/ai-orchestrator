@@ -5,6 +5,7 @@ import {
   numberProp,
   objectSchema,
   profileIdProp,
+  reasonProp,
   selectorProp,
   stringProp,
   targetIdProp,
@@ -235,6 +236,7 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
         'When true, allow closing the last shared Chrome tab in its window. '
         + 'Default false, because that can quit the operator\'s Chrome window.',
     },
+    reason: reasonProp,
     requestId: requestIdProp,
   }, ['profileId', 'targetId']),
   'browser.close_matching': objectSchema({
@@ -285,6 +287,7 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
       ...stringProp,
       description: 'Destination URL. The Browser Gateway enforces profile origin policy.',
     },
+    reason: reasonProp,
   }, ['profileId', 'targetId', 'url']),
   'browser.reload': targetSchema,
   'browser.recover_extension': objectSchema({
@@ -318,6 +321,7 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
         description: 'URL substring that must become newly present after the click.',
       },
     }),
+    reason: reasonProp,
     requestId: requestIdProp,
   }, ['profileId', 'targetId']),
   'browser.type': objectSchema({
@@ -328,6 +332,7 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
     value: stringProp,
     actionHint: stringProp,
     verify: verifyExpectationSchema,
+    reason: reasonProp,
     requestId: requestIdProp,
   }, ['profileId', 'targetId', 'value']),
   'browser.fill_form': objectSchema({
@@ -343,6 +348,7 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
         verify: verifyExpectationSchema,
       }, ['value']),
     },
+    reason: reasonProp,
     requestId: requestIdProp,
   }, ['profileId', 'targetId', 'fields']),
   'browser.select': objectSchema({
@@ -353,6 +359,7 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
     value: stringProp,
     actionHint: stringProp,
     verify: verifyExpectationSchema,
+    reason: reasonProp,
     requestId: requestIdProp,
   }, ['profileId', 'targetId', 'value']),
   'browser.press_key': pressKeyToolSchema,
@@ -559,6 +566,7 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
         + 'and pass a node-local path; that fails with file_not_found.',
     },
     actionHint: stringProp,
+    reason: reasonProp,
     requestId: requestIdProp,
   }, ['profileId', 'targetId', 'selector', 'filePath']),
   'browser.download_file': objectSchema({
@@ -575,6 +583,7 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
     },
     timeoutMs: numberProp,
     actionHint: stringProp,
+    reason: reasonProp,
     requestId: requestIdProp,
   }, ['profileId', 'targetId']),
   'browser.request_user_login': objectSchema({
@@ -602,7 +611,7 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
     profileId: profileIdProp,
     targetId: targetIdProp,
     proposedGrant: grantProposalSchema,
-    reason: stringProp,
+    reason: reasonProp,
   }, ['profileId', 'targetId', 'proposedGrant']),
   'browser.get_approval_status': objectSchema({ requestId: requestIdProp }, ['requestId']),
   'browser.list_grants': objectSchema({
@@ -715,6 +724,7 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
         description: 'URL substring that must become newly present after evaluation.',
       },
     }),
+    reason: reasonProp,
     requestId: requestIdProp,
   }, ['profileId', 'targetId', 'expression']),
   'browser.screenshot': objectSchema({

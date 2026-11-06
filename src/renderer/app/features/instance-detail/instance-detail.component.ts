@@ -49,6 +49,7 @@ import { CrossModelReviewPanelComponent } from './cross-model-review-panel.compo
 import { ProviderDiagnosticsPanelComponent } from './provider-diagnostics-panel.component';
 import { SessionStatusDockComponent } from './session-status-dock.component';
 import { resolveEscapeRouting } from './session-status-dock.rules';
+import { SessionStatusCardComponent } from './session-status-card.component';
 import { CrossModelReviewIpcService } from '../../core/services/ipc/cross-model-review-ipc.service';
 import { OrchestrationHudComponent } from '../orchestration/orchestration-hud.component';
 import { LoopStopConfirmService } from '../loop/loop-stop-confirm.service';
@@ -131,7 +132,8 @@ interface ResendEditedEvent {
     ChildDiagnosticBundleModalComponent,
     LoopControlComponent,
     LoopOutstandingPanelComponent,
-    SessionStatusDockComponent
+    SessionStatusDockComponent,
+    SessionStatusCardComponent
   ],
   templateUrl: './instance-detail.component.html',
   styleUrl: './instance-detail.component.scss',
@@ -403,7 +405,7 @@ export class InstanceDetailComponent {
     const inst = this.instance();
     if (!inst) return '';
 
-    const providerName = this.getProviderDisplayName(inst.provider);
+    const providerName = this.getProviderDisplayName(inst.provider, inst.currentModel);
 
     // Recovery-aware placeholder for restores without confirmed provider context.
     if (
@@ -585,8 +587,8 @@ export class InstanceDetailComponent {
     return shouldShowWakeupReviveToggle(status);
   }
 
-  getProviderDisplayName(provider: string): string {
-    return providerDisplayName(provider);
+  getProviderDisplayName(provider: string, model?: string | null): string {
+    return providerDisplayName(provider, model);
   }
 
   /**

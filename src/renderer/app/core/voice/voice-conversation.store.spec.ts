@@ -314,7 +314,7 @@ describe('VoiceConversationStore', () => {
       steerInput: harness.steerInput,
     });
 
-    expect(harness.store.providerSummary()).toBe('Worker STT + local TTS');
+    expect(harness.store.providerSummary()).toBe('Remote computer STT + local TTS');
   });
 
   it('steers final voice transcripts while a session is actively working', async () => {

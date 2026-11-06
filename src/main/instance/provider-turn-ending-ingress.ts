@@ -21,15 +21,14 @@ export function enrichProviderTurnEndingIngress(instance: Instance | undefined, 
   // object's evidence. Do not replace it with its redacted capture projection.
   let normalized: ProviderRuntimeEvent = event;
   if (!event.turnEnding) {
-    const raw = payload ?? (event.kind === 'error' ? event.message : {
-      content: '', usage: { outputTokens: event.outputTokens, reasoningTokens: event.reasoningTokens },
-      metadata: { stopReason: event.stopReason, finish: event.finish },
-    });
-    const mapped = mapAdapterRuntimeEvent(event.kind, [raw]);
+    const raw = payload ?? (event.kind === 'error' ? event.message : undefined);
+    const mapped = raw !== undefined ? mapAdapterRuntimeEvent(event.kind, [raw]) : null;
     if (mapped) normalized = { ...mapped.event, ...event } as ProviderRuntimeEvent;
   }
+  // Without a captured payload there is no completion text to observe. The
+  // shape must not claim `content`, or a missing capture reads as an empty reply.
   const raw = payload ?? (event.kind === 'error' ? event.message : {
-    content: '', metadata: { stopReason: event.stopReason, finish: event.finish },
+    metadata: { stopReason: event.stopReason, finish: event.finish },
     usage: { outputTokens: event.outputTokens, reasoningTokens: event.reasoningTokens },
   });
   return entry.observer.enrich(normalized, raw);

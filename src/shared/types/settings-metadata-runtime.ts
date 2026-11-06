@@ -554,8 +554,8 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'localAiGuardDefaultFallbackPolicy',
-    label: 'Local AI paid-fallback policy',
-    description: 'What to do when an enrolled local model cannot handle a routed helper call.',
+    label: 'Paid backup for local models',
+    description: 'What Harness does when a background job meant for one of your local models cannot be handled there and a paid model could do it instead.',
     type: 'select',
     options: [
       { value: 'allow-silently', label: 'Allow silently' },
@@ -568,8 +568,8 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'localAiGuardDailyFallbackBudgetUsd',
-    label: 'Local AI daily fallback budget (USD)',
-    description: 'Hard daily ceiling for paid helper fallbacks. Leave empty to use the daily helper limit.',
+    label: 'Daily limit for paid backup (USD)',
+    description: 'The most Harness may spend in a day when local models hand work to a paid model. Leave empty to use the daily helper limit.',
     type: 'number',
     category: 'advanced',
     min: 0,
@@ -577,8 +577,8 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'localAiGuardConfirmAboveInputTokens',
-    label: 'Confirm Local AI fallback above input tokens',
-    description: 'Require confirmation above this estimated input-token count. Leave empty to disable.',
+    label: 'Ask first for a paid backup above this size (tokens)',
+    description: 'Harness asks you first when a job it would hand to a paid model is estimated to be bigger than this many tokens. Leave empty to never ask for this reason.',
     type: 'number',
     category: 'advanced',
     min: 0,

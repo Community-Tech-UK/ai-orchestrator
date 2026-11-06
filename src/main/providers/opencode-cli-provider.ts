@@ -9,6 +9,7 @@ import { openCodeLoginSpawnTarget } from '../../shared/utils/opencode-account-lo
 
 import { execFile, spawn } from 'child_process';
 import { BaseProvider } from './provider-interface';
+import { providerToolName } from '../../shared/display-names';
 import { AcpCliAdapter } from '../cli/adapters/acp-cli-adapter';
 import { createOpenCodeAdapter } from '../cli/adapters/adapter-factory';
 import type {
@@ -46,13 +47,13 @@ const OPENCODE_CAPABILITIES: ProviderAdapterCapabilities = {
 
 export const DEFAULT_OPENCODE_CONFIG: ProviderConfig = {
   type: 'opencode',
-  name: 'OpenCode',
+  name: providerToolName('opencode'),
   enabled: false,
 };
 
 export const OPENCODE_DESCRIPTOR: ProviderAdapterDescriptor = {
   provider: 'opencode',
-  displayName: 'OpenCode',
+  displayName: providerToolName('opencode'),
   capabilities: OPENCODE_CAPABILITIES,
   defaultConfig: DEFAULT_OPENCODE_CONFIG,
 };

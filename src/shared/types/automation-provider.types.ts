@@ -1,6 +1,8 @@
+import { providerToolName } from '../display-names';
+
 /**
  * Provider ids that the app's automatic-selection machinery can choose between,
- * and their display labels.
+ * and their display labels (each one the tool's shared name).
  *
  * This is the vocabulary of `providersExcludedFromAutomation`: the union of every
  * provider that appears in an automatic preference list (`resolveCliType`'s
@@ -21,14 +23,4 @@ export type AutomationProviderId = typeof AUTOMATION_PROVIDER_IDS[number];
 export const AUTOMATION_PROVIDER_DEFINITIONS: readonly {
   id: AutomationProviderId;
   label: string;
-}[] = [
-  { id: 'claude', label: 'Claude Code' },
-  { id: 'codex', label: 'OpenAI Codex CLI' },
-  { id: 'gemini', label: 'Gemini CLI' },
-  { id: 'antigravity', label: 'Antigravity' },
-  { id: 'copilot', label: 'GitHub Copilot' },
-  { id: 'cursor', label: 'Cursor CLI' },
-  { id: 'grok', label: 'Grok Build' },
-  { id: 'opencode', label: 'OpenCode' },
-  { id: 'ollama', label: 'Ollama' },
-] as const;
+}[] = AUTOMATION_PROVIDER_IDS.map((id) => ({ id, label: providerToolName(id) }));

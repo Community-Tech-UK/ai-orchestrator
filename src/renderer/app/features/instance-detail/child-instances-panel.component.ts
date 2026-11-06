@@ -23,11 +23,15 @@ import { deriveChildState, type ChildDerivedState } from '../../../../shared/uti
 import type { HudQuickAction } from '../../../../shared/types/orchestration-hud.types';
 import { toHudChildInput } from '../orchestration/orchestration-instance-adapter';
 import type { HudChildInput } from '../../../../shared/utils/orchestration-hud-builder';
+import type { InstanceWaitReason } from '../../../../shared/types/instance-wait-reason.types';
+import { presentInstanceStatus } from '../../../../shared/attention/instance-status-presentation';
 
 interface ChildInfo {
   id: string;
   displayName: string;
   status: Instance['status'];
+  waitReason: InstanceWaitReason | null;
+  /** From the one status presenter, so a child reads the same as it does in the sidebar. */
   statusLabel: string;
   isRunning: boolean;
   role?: string;
@@ -83,7 +87,7 @@ interface ChildInfo {
                 [class.stale]="child.derived.isStale"
               >
                 <div class="child-main">
-                  <app-status-indicator [status]="child.status" />
+                  <app-status-indicator [status]="child.status" [waitReason]="child.waitReason" />
                   <div class="child-name-block">
                     <span class="child-name">{{ child.displayName }}</span>
                     <span class="child-meta">
@@ -287,7 +291,6 @@ interface ChildInfo {
     .child-status {
       font-size: 11px;
       color: var(--text-secondary);
-      text-transform: lowercase;
       white-space: nowrap;
     }
 
@@ -371,11 +374,13 @@ export class ChildInstancesPanelComponent {
             activity: activityMap.get(id),
           };
       const derived = deriveChildState(hudInput, { now });
+      const waitReason = instance?.waitReason ?? null;
       return {
         id,
         displayName: instance?.displayName || id.slice(0, 8),
         status,
-        statusLabel: this.getStatusLabel(status),
+        waitReason,
+        statusLabel: presentInstanceStatus(status, waitReason).label,
         isRunning: derived.isActive,
         role: hudInput.role,
         spawnPromptHash: hudInput.spawnPromptHash,
@@ -421,41 +426,6 @@ export class ChildInstancesPanelComponent {
   churningChildCount = computed(() =>
     this.childrenInfo().filter((c) => c.derived.isChurning).length
   );
-
-  private getStatusLabel(status: Instance['status']): string {
-    switch (status) {
-      case 'busy':
-      case 'processing':
-      case 'thinking_deeply':
-        return 'running';
-      case 'initializing':
-      case 'waking':
-        return 'starting';
-      case 'waiting_for_input':
-      case 'waiting_for_permission':
-        return 'waiting';
-      case 'respawning':
-        return 'recovering';
-      case 'interrupting':
-      case 'cancelling':
-      case 'interrupt-escalating':
-        return 'interrupting';
-      case 'error':
-      case 'failed':
-      case 'degraded':
-        return 'error';
-      case 'terminated':
-        return 'stopped';
-      case 'hibernating':
-        return 'hibernating';
-      case 'ready':
-      case 'hibernated':
-      case 'cancelled':
-      case 'superseded':
-      default:
-        return 'done';
-    }
-  }
 
   private getStateRank(category: ChildDerivedState['category']): number {
     switch (category) {

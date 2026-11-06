@@ -9,6 +9,7 @@
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import { ChangeDetectionStrategy, Component, computed, effect, input, output, signal } from '@angular/core';
+import { computerName } from '../../../../shared/display-names';
 import type { RemoteNodeRosterEntry } from '../../../../shared/types/worker-node.types';
 import type { BrowserAutomationConfigInput } from '../../core/services/ipc/remote-node-ipc.service';
 import {
@@ -69,6 +70,9 @@ export class RemoteNodeDetailComponent {
   readonly backRequested = output<void>();
   readonly actionRequested = output<RemoteNodeDetailAction>();
 
+  protected readonly computerLabel = computed(() => computerName({
+    name: this.node().name, platform: this.node().platform ?? this.node().capabilities.platform,
+  }));
   protected readonly healthEntry = computed<NodeHealthEntry>(
     () => buildNodeHealthEntries([this.node()])[0],
   );

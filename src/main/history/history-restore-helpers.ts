@@ -1,7 +1,8 @@
+import { providerName } from '../../shared/display-names';
 import type { ConversationHistoryEntry } from '../../shared/types/history.types';
 import type { InstanceProvider, OutputMessage } from '../../shared/types/instance.types';
 import { LEGACY_ACCOUNT_PROFILE_ID } from '../../shared/types/provider-account.types';
-import { isToolOutcomeMessage } from '../../shared/types/tool-outcome';
+import { projectArchivedToolOutcomes } from '../instance/turn-tool-outcome-projection';
 import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
 import { isLegacyRedactedToolOutput } from '../session/redacted-tool-output';
 const RESTORE_FALLBACK_NOTICE_MESSAGE = /^Previous .+ CLI session could not be restored natively\./;
@@ -46,15 +47,14 @@ export function isRestoreInfrastructureMessage(message: OutputMessage): boolean 
 
 /**
  * The archived messages a restored instance may show and replay. Excludes the
- * LT-196 `tool_outcome` record: it is held out of `outputBuffer` by design (see
- * `tool-outcome-store.ts`), so restore re-seeds the side store instead of
- * seeding the buffer with it.
+ * LT-196 `tool_outcome` records stay out of `outputBuffer`. Their bounded outcome
+ * metadata is first attached to the matching call, so the turn warning survives
+ * restore while the miner's side store is re-seeded separately.
  */
 export function getMessagesForRestoreTranscript(messages: OutputMessage[]): OutputMessage[] {
-  return (messages || []).filter(
+  return projectArchivedToolOutcomes(messages || []).filter(
     (message) =>
-      !isToolOutcomeMessage(message)
-      && !isRestoreInfrastructureMessage(message)
+      !isRestoreInfrastructureMessage(message)
       && !isLegacyRedactedToolOutput(message.content),
   );
 }
@@ -116,19 +116,5 @@ export function getOriginalSessionIdFromRestoreNotices(messages: OutputMessage[]
 }
 
 export function getProviderDisplayName(provider: InstanceProvider): string {
-  switch (provider) {
-    case 'codex':
-      return 'Codex';
-    case 'gemini':
-      return 'Gemini';
-    case 'antigravity':
-      return 'Antigravity';
-    case 'copilot':
-      return 'Copilot';
-    case 'cursor':
-      return 'Cursor';
-    case 'claude':
-    default:
-      return 'Claude';
-  }
+  return providerName(provider);
 }

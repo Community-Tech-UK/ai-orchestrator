@@ -1,3 +1,4 @@
+import { providerName } from '../../../../shared/display-names';
 import type { PickerProvider } from './compact-model-picker.types';
 
 /**
@@ -28,16 +29,17 @@ export const DEFAULT_INSTANCE_PROVIDERS: PickerProvider[] = [
   'local-model',
 ];
 
+/** Menu names come from the one name module; the record keeps every picker provider covered. */
 export const PROVIDER_MENU_LABELS: Record<PickerProvider, string> = {
-  claude: 'Claude',
-  codex: 'Codex',
-  gemini: 'Gemini',
-  antigravity: 'Antigravity',
-  copilot: 'Copilot',
-  cursor: 'Cursor',
-  grok: 'Grok',
-  opencode: 'OpenCode',
-  'local-model': 'Local Models',
+  claude: providerName('claude'),
+  codex: providerName('codex'),
+  gemini: providerName('gemini'),
+  antigravity: providerName('antigravity'),
+  copilot: providerName('copilot'),
+  cursor: providerName('cursor'),
+  grok: providerName('grok'),
+  opencode: providerName('opencode'),
+  'local-model': providerName('local-model'),
 };
 
 export const PROVIDER_MENU_COLORS: Record<PickerProvider, string> = {

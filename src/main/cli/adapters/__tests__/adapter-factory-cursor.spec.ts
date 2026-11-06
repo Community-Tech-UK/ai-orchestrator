@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { createCliAdapter, getCliDisplayName, mapSettingsToDetectionType } from '../adapter-factory';
 
 describe('adapter factory — cursor', () => {
-  it('getCliDisplayName returns Cursor CLI', () => {
-    expect(getCliDisplayName('cursor')).toBe('Cursor CLI');
+  it('getCliDisplayName names the tool Cursor, so "the Cursor CLI" reads once', () => {
+    expect(getCliDisplayName('cursor')).toBe('Cursor');
   });
   it('mapSettingsToDetectionType accepts cursor', () => {
     expect(mapSettingsToDetectionType('cursor')).toBe('cursor');

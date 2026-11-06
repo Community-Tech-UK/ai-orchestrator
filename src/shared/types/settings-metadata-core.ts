@@ -1,5 +1,6 @@
 import type { SettingMetadata } from './settings-metadata.types';
 import { PROVIDER_MODEL_LIST } from './provider.types';
+import { providerToolName } from '../display-names';
 
 const DEFAULT_MODEL_SETTING_PROVIDERS = ['claude', 'codex', 'gemini'] as const;
 
@@ -56,11 +57,8 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
     category: 'general',
     options: [
       { value: 'auto', label: 'Auto-detect' },
-      { value: 'claude', label: 'Claude Code' },
-      { value: 'antigravity', label: 'Antigravity' },
-      { value: 'codex', label: 'OpenAI Codex CLI' },
-      { value: 'copilot', label: 'GitHub Copilot' },
-      { value: 'cursor', label: 'Cursor CLI' },
+      ...(['claude', 'antigravity', 'codex', 'copilot', 'cursor'] as const)
+        .map((value) => ({ value, label: providerToolName(value) })),
     ],
   },
   {

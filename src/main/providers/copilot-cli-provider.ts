@@ -24,6 +24,7 @@
  */
 
 import { BaseProvider } from './provider-interface';
+import { providerToolName } from '../../shared/display-names';
 import { CopilotCliAdapter, CopilotCliConfig } from '../cli/adapters/copilot-cli-adapter';
 import { attachCopilotRoute } from '../instance/lifecycle/copilot-route-preflight';
 import type {
@@ -55,14 +56,14 @@ const COPILOT_CAPABILITIES: ProviderAdapterCapabilities = {
 
 export const DEFAULT_COPILOT_CONFIG: ProviderConfig = {
   type: 'copilot',
-  name: 'GitHub Copilot CLI',
+  name: providerToolName('copilot'),
   enabled: false,
   defaultModel: COPILOT_MODELS.GEMINI_3_1_PRO,
 };
 
 export const COPILOT_DESCRIPTOR: ProviderAdapterDescriptor = {
   provider: 'copilot',
-  displayName: 'GitHub Copilot',
+  displayName: providerToolName('copilot'),
   capabilities: COPILOT_CAPABILITIES,
   defaultConfig: DEFAULT_COPILOT_CONFIG,
 };

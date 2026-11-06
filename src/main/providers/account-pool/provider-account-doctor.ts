@@ -144,7 +144,7 @@ export async function buildProviderAccountDoctorReport(
       if (profile.isLegacy || !profile.enabled || !profile.region) continue;
       if ((readMetadata(profile.region) ?? []).length === 0) {
         warnings.push(
-          `${profile.label} has no model metadata for xiaomi-token-plan-${profile.region} on this machine. `
+          `${profile.label} has no MiMo model list for its region on this computer. `
           + 'Sign in once with `opencode auth login` for that region here; until then this account cannot start sessions.',
         );
       }

@@ -18,8 +18,36 @@
  */
 
 import { getLogger } from '../logging/logger';
+import { FailoverError } from '../core/failover-error';
+import { presentError, type PresentedError } from '../../shared/present-error';
 
 const logger = getLogger('ProviderConcurrencyLimiter');
+
+/**
+ * A wait for a provider slot ran out of time. The message is a plain sentence because
+ * it can reach the screen as the reason a session could not start; the old technical
+ * wording stays in `errorPresentation.rawDetail` for Details and logs. It remains a timeout
+ * to the loop and failover retry logic (a FailoverError), whatever the wording says.
+ */
+export class ProviderConcurrencyTimeoutError extends FailoverError {
+  /** The same shape message metadata carries under this name, so a caller can attach it as it is. */
+  readonly errorPresentation: PresentedError;
+
+  constructor(
+    override readonly provider: string,
+    readonly maxSessions: number,
+    readonly waitedMs: number,
+    timeoutMs: number,
+  ) {
+    const presentation = presentError(
+      { code: 'concurrency', message: `Timed out waiting ${timeoutMs}ms for '${provider}' provider concurrency slot` },
+      { provider, maxSessions, waitedMs },
+    );
+    super(`${presentation.headline} ${presentation.whatToDo}`, { reason: 'timeout', provider, code: 'concurrency' });
+    this.name = 'ProviderConcurrencyTimeoutError';
+    this.errorPresentation = presentation;
+  }
+}
 
 /**
  * Default concurrent child limit per provider.
@@ -168,6 +196,7 @@ export class ProviderConcurrencyLimiter {
 
     // The releaser will bump `slot.active` before calling our resolver, so
     // we inherit an already-counted slot when the promise settles.
+    const waitStartedAt = Date.now();
     await new Promise<void>((resolve, reject) => {
       let settled = false;
       let timeout: ReturnType<typeof setTimeout> | null = null;
@@ -192,9 +221,9 @@ export class ProviderConcurrencyLimiter {
           if (index >= 0) {
             slot.waiters.splice(index, 1);
           }
-          reject(new Error(
-            `Timed out waiting ${timeoutMs}ms for '${key}' provider concurrency slot`
-          ));
+          // The cap and the wait as they really were, not as configured at the start; whole seconds read naturally.
+          const waitedMs = Math.round((Date.now() - waitStartedAt) / 1000) * 1000;
+          reject(new ProviderConcurrencyTimeoutError(key, effectiveSlotCap(key, slot.limit, options?.priority), waitedMs, timeoutMs));
         }, timeoutMs);
         if (typeof timeout.unref === 'function') {
           timeout.unref();

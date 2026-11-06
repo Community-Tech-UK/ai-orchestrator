@@ -33,6 +33,7 @@ import { assertRemoteQueuePushGuardSupported } from './remote-queue-push-guard';
 import { getLogger } from '../../logging/logger';
 import { configureHardenedAdapter } from './hardened-adapter-config';
 import { hardenedModeUnsupportedMessage, isHardenedModeSupported } from '../../../shared/hardened-mode-support';
+import { providerToolName } from '../../../shared/display-names';
 import { isInstanceHardened } from '../../instance/lifecycle/hardened-mode-scoping';
 import { isInstanceSignalFenceDisabled } from '../../instance/lifecycle/signal-fence-scoping';
 import { BaseCliAdapter } from './base-cli-adapter';
@@ -769,29 +770,9 @@ export function createCliAdapter(
 }
 
 /**
- * Get display name for a CLI type
+ * The tool's name for messages like "the Cursor CLI is not installed". It comes
+ * from the shared name module, so every screen spells a tool the same way.
  */
 export function getCliDisplayName(cliType: CliType): string {
-  switch (cliType) {
-    case 'claude':
-      return 'Claude Code';
-    case 'codex':
-      return 'OpenAI Codex';
-    case 'gemini':
-      return 'Google Gemini';
-    case 'antigravity':
-      return 'Antigravity';
-    case 'copilot':
-      return 'GitHub Copilot';
-    case 'cursor':
-      return 'Cursor CLI';
-    case 'grok':
-      return 'Grok Build';
-    case 'opencode':
-      return 'OpenCode';
-    case 'ollama':
-      return 'Ollama';
-    default:
-      return cliType;
-  }
+  return providerToolName(cliType);
 }

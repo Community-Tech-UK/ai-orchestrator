@@ -286,12 +286,12 @@ export class LocalAiIncidentService {
   private notifyClaim(claim: LocalAiNotificationClaim): void {
     const transition = claim.reference.transitionKind;
     const title = transition === 'fallback-possible'
-      ? 'Local AI paid fallback may be needed'
+      ? 'A local model may need a paid backup'
       : transition === 'budget-critical'
-        ? 'Local AI fallback budget reached'
+        ? 'Paid backup limit reached for local models'
         : transition === 'recovered'
-          ? 'Local AI endpoint recovered'
-          : 'Local AI paid fallback used';
+          ? 'A local model is working again'
+          : 'A paid backup was used for a local model';
     this.sendNotification(
       claim.incident,
       transition,
@@ -378,7 +378,7 @@ export class LocalAiIncidentService {
     const suffix = hashedTargetSuffix(stableTargetId);
     return provider && location
       ? `${location} ${provider} endpoint #${suffix}`
-      : `Local AI endpoint #${suffix}`;
+      : `Local model endpoint #${suffix}`;
   }
 }
 

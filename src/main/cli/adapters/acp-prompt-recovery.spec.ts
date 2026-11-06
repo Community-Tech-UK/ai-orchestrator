@@ -84,7 +84,11 @@ describe('ACP public input recovery ownership', () => {
       await expect(adapter.sendInput('current input')).rejects.toBe(failure);
       expect(errors).toEqual([failure]);
       expect(statuses).toContain('error');
-      expect(outputs).toContainEqual(expect.objectContaining({ type: 'error', content: failure.message }));
+      expect(outputs).toContainEqual(expect.objectContaining({
+        type: 'error',
+        content: expect.stringContaining('What to do:'),
+        metadata: expect.objectContaining({ errorPresentation: expect.objectContaining({ rawDetail: failure.message }) }),
+      }));
       expect(prompts(proc)).toEqual([]);
     } finally { proc.exit(); }
   });
@@ -120,7 +124,13 @@ describe('ACP public input recovery ownership', () => {
       await expect(adapter.sendInput('refused startup input')).rejects.toThrow('Unable to confirm the selected model');
       expect(errors).toHaveLength(1);
       expect(errors[0].message).toContain('Unable to confirm the selected model');
-      expect(outputs).toContainEqual(expect.objectContaining({ type: 'error', content: expect.stringContaining('Unable to confirm the selected model') }));
+      expect(outputs).toContainEqual(expect.objectContaining({
+        type: 'error',
+        content: expect.stringContaining('What to do:'),
+        metadata: expect.objectContaining({
+          errorPresentation: expect.objectContaining({ rawDetail: expect.stringContaining('Unable to confirm the selected model') }),
+        }),
+      }));
       expect(prompts(proc)).toEqual([]);
     } finally { proc.exit(); }
   });

@@ -99,6 +99,57 @@ describe('MessageFormatService', () => {
     expect(service.getCompactionLabel(message)).toBe('Codex compacted its own context (was 88%)');
   });
 
+  describe('compaction wording follows the session\'s provider', () => {
+    const rejection = {
+      id: 'legacy-compact-error',
+      type: 'error' as const,
+      timestamp: 1,
+      content: 'Codex error: failed to submit turn input: ActiveTurnNotSteerable { turn_kind: Compact }',
+    };
+    const selfManaged = {
+      id: 'self-managed',
+      type: 'system' as const,
+      timestamp: 1,
+      content: 'Compacted the conversation.',
+      metadata: { threadCompacted: true, method: 'self-managed', previousUsage: { percentage: 88.4 } },
+    };
+
+    it('names the provider it is given instead of always saying Codex', () => {
+      expect(service.getCompactionLabel(rejection, 'claude')).toBe('Claude is compacting its context…');
+      expect(service.getCompactionLabel(selfManaged, 'copilot')).toBe('Copilot compacted its own context (was 88%)');
+      expect(service.getCompactionLabel({
+        ...selfManaged,
+        metadata: { ...selfManaged.metadata, newUsage: { percentage: 31 } },
+      }, 'cursor')).toBe('Cursor compacted its own context (88% → 31%)');
+      expect(service.getCompactionLabel({ ...selfManaged, metadata: { threadCompacted: true, method: 'self-managed' } }, 'opencode'))
+        .toBe('OpenCode compacted its own context (awaiting updated usage)');
+    });
+
+    it('uses the provider recorded on the message when the caller passes none', () => {
+      expect(service.getCompactionLabel({
+        ...selfManaged,
+        metadata: { ...selfManaged.metadata, provider: 'gemini' },
+      })).toBe('Gemini compacted its own context (was 88%)');
+    });
+
+    it('keeps saying Codex when nothing names a provider, because only Codex emits these shapes', () => {
+      expect(service.getCompactionLabel(rejection)).toBe('Codex is compacting its context…');
+      expect(service.getCompactionLabel(selfManaged)).toBe('Codex compacted its own context (was 88%)');
+    });
+
+    it('leaves provider-neutral boundaries alone', () => {
+      const native = { id: 'n', type: 'system' as const, timestamp: 1, content: '', metadata: { method: 'native', previousUsage: { percentage: 82 }, newUsage: { percentage: 31 } } };
+      expect(service.getCompactionLabel(native, 'claude')).toBe('Context compacted in place (82% → 31%)');
+    });
+  });
+
+  it('names providers through the shared name list, not a local one', () => {
+    expect(service.getProviderDisplayName('codex')).toBe('Codex');
+    expect(service.getProviderDisplayName('opencode')).toBe('OpenCode');
+    expect(service.getProviderDisplayName('claude')).toBe('Claude');
+    expect(service.getProviderDisplayName('some-new-tool')).toBe('Some new tool');
+  });
+
   // LT-657: Harness-authored input must never be labelled as the user.
   describe('message sender labels', () => {
     const harnessMessage = {

@@ -120,7 +120,11 @@ const WORKER_ENTRY = resolve(SPEC_DIR, '../context-worker-main.ts');
 // `rlm/vector-reembedder.ts`. A walk with and without the new edges found those
 // four as the sole additions, and none imports Electron. `onnxruntime-node` is a
 // lazy dynamic import, so it loads only on first use and stays outside this graph.
-const CLOSURE_SIZE_CEILING = 161;
+// 2026-11-06: 161 after `shared/display-names.ts` (the one place provider and computer
+// names are chosen) joined the graph. A walk of main (160) against the merged tree with
+// this exact parser found it the sole addition, no removals and no Electron importers;
+// it imports nothing (guarded below). Same one-module margin.
+const CLOSURE_SIZE_CEILING = 162;
 
 function resolveImport(spec: string, fromFile: string): string | null {
   if (!spec.startsWith('.')) return null; // bare module (electron, node:*, npm)
@@ -220,6 +224,11 @@ describe('context worker import isolation', () => {
       /^src\/main\/context\/(?:compaction-|context-compaction-|context-compactor\.)/.test(file),
     );
     expect(compactionModules).toEqual([]);
+  });
+
+  it('keeps the shared display names free of runtime dependencies', () => {
+    const names = resolve(SPEC_DIR, '../../../shared/display-names.ts');
+    expect(parseModule(readFileSync(names, 'utf8'))).toEqual({ deps: [], electronValueImport: false });
   });
 
   it('no module in the worker value-import closure top-level imports electron', () => {

@@ -9,6 +9,7 @@ import {
 import { CopilotAccountIpcService } from '../../../core/services/ipc/copilot-account-ipc.service';
 import { ProviderAccountIpcService } from '../../../core/services/ipc/provider-account-ipc.service';
 import { SettingsStore } from '../../../core/state/settings.store';
+import { accountFamilyName } from '../../../../../shared/display-names';
 
 export type PlanQueueAccountChoice = 'normal' | 'last' | 'never';
 
@@ -41,10 +42,10 @@ interface StatusLine {
 }
 
 const GROUPS: readonly { readonly provider: PlanQueueAccountRef['provider']; readonly title: string }[] = [
-  { provider: 'claude', title: 'Claude' },
-  { provider: 'codex', title: 'Codex' },
-  { provider: 'opencode', title: 'MiMo' },
-  { provider: 'copilot', title: 'Copilot' },
+  { provider: 'claude', title: accountFamilyName('claude') },
+  { provider: 'codex', title: accountFamilyName('codex') },
+  { provider: 'opencode', title: accountFamilyName('opencode') },
+  { provider: 'copilot', title: accountFamilyName('copilot') },
 ];
 
 export const PLAN_QUEUE_ACCOUNT_CHOICES: readonly { readonly value: PlanQueueAccountChoice; readonly label: string }[] = [

@@ -1,5 +1,4 @@
 import { By } from '@angular/platform-browser';
-import { AioTooltipDirective } from './shared/tooltip/aio-tooltip.directive';
 import {
   computed,
   CUSTOM_ELEMENTS_SCHEMA,
@@ -13,6 +12,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Subject } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import type { StartupCapabilityReport } from '../../shared/types/startup-capability.types';
 import { DEFAULT_SETTINGS, type AppSettings } from '../../shared/types/settings.types';
 import { ActionDispatchService } from './core/services/action-dispatch.service';
@@ -28,8 +28,12 @@ import { IpcFacadeService } from './core/services/ipc';
 import { PerfInstrumentationService } from './core/services/perf-instrumentation.service';
 import { StressFixturesService } from './core/services/stress-fixtures.service';
 import { WorkspaceBenchService } from './core/services/workspace-bench.service';
+import { InstanceEventsService } from './core/services/instance-events.service';
+import { IpcEventBusService } from './core/services/ipc/ipc-event-bus.service';
 import { LocalAiGuardStore } from './core/state/local-ai-guard.store';
+import { RunFailureStateService } from './features/instance-detail/run-failure-state.service';
 import { LocalAiStatusChipComponent } from './features/local-ai-guard/local-ai-status-chip.component';
+import { AioTooltipDirective } from './shared/tooltip/aio-tooltip.directive';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
 const template = readFileSync(resolve(specDirectory, './app.component.html'), 'utf8');
@@ -55,14 +59,14 @@ await resolveComponentResources((url) => {
   return Promise.reject(new Error(`Unexpected resource: ${url}`));
 });
 
-function makeDegradedReport(summary = 'Multiple codex installs detected.'): StartupCapabilityReport {
+function makeDegradedReport(summary = 'Codex is installed more than once, with different versions.'): StartupCapabilityReport {
   return {
     status: 'degraded',
     generatedAt: 1710000000000,
     checks: [
       {
         id: 'provider.codex',
-        label: 'Codex CLI',
+        label: 'Codex',
         category: 'provider',
         status: 'degraded',
         critical: false,
@@ -70,6 +74,31 @@ function makeDegradedReport(summary = 'Multiple codex installs detected.'): Star
       },
     ],
   };
+}
+
+function makeCheck(
+  id: string,
+  summary: string,
+  fix: string,
+  overrides: Partial<StartupCapabilityReport['checks'][number]> = {},
+): StartupCapabilityReport['checks'][number] {
+  return {
+    id,
+    label: id,
+    category: id.startsWith('provider.') ? 'provider' : 'subsystem',
+    status: 'degraded',
+    critical: false,
+    summary,
+    details: { fix },
+    ...overrides,
+  };
+}
+
+function makeReport(
+  status: StartupCapabilityReport['status'],
+  checks: StartupCapabilityReport['checks'],
+): StartupCapabilityReport {
+  return { status, generatedAt: 1710000000000, checks };
 }
 
 function createRouterMock(url = '/'): RouterMock {
@@ -81,14 +110,37 @@ function createRouterMock(url = '/'): RouterMock {
   };
 }
 
+/**
+ * Stand-ins for the two streams the root shell's run-failure tracker listens to.
+ * Every shell fixture gets them on purpose: the shell now creates that tracker at
+ * startup, and it should read these instead of the real Electron event bridge.
+ */
+function createFailureEventSources() {
+  const events$ = new Subject<ProviderRuntimeEventEnvelope>();
+  const instanceRemoved$ = new Subject<string>();
+  return {
+    events$,
+    providers: [
+      { provide: InstanceEventsService, useValue: { events$ } },
+      { provide: IpcEventBusService, useValue: { instanceRemoved$ } },
+    ],
+  };
+}
+
 async function setupAppComponent(
   platform = 'darwin',
-  options: { settingsStore?: Record<string, unknown>; router?: RouterMock } = {},
+  options: {
+    settingsStore?: Record<string, unknown>;
+    router?: RouterMock;
+    beforeInit?: (events: Subject<ProviderRuntimeEventEnvelope>) => void;
+  } = {},
 ): Promise<{
   fixture: ComponentFixture<AppComponent>;
   component: AppComponent;
+  failureEvents$: Subject<ProviderRuntimeEventEnvelope>;
 }> {
   window.localStorage.clear();
+  const failureSources = createFailureEventSources();
 
   TestBed.overrideComponent(AppComponent, {
     set: {
@@ -142,6 +194,7 @@ async function setupAppComponent(
       },
       { provide: PauseStore, useValue: { resumeEvents: signal([]).asReadonly() } },
       { provide: PauseRendererController, useValue: { bindReactive: vi.fn() } },
+      ...failureSources.providers,
     ],
     schemas: [CUSTOM_ELEMENTS_SCHEMA],
   })
@@ -149,12 +202,13 @@ async function setupAppComponent(
 
   const fixture = TestBed.createComponent(AppComponent);
   const component = fixture.componentInstance;
+  options.beforeInit?.(failureSources.events$);
   component.startupCapabilities.set(makeDegradedReport());
   fixture.detectChanges();
   await fixture.whenStable();
   fixture.detectChanges();
 
-  return { fixture, component };
+  return { fixture, component, failureEvents$: failureSources.events$ };
 }
 
 describe('AppComponent startup banner', () => {
@@ -223,6 +277,7 @@ describe('AppComponent startup banner', () => {
         },
         { provide: PauseStore, useValue: { resumeEvents: signal([]).asReadonly() } },
         { provide: PauseRendererController, useValue: { bindReactive: vi.fn() } },
+        ...createFailureEventSources().providers,
       ],
       schemas: [CUSTOM_ELEMENTS_SCHEMA],
     })
@@ -239,7 +294,7 @@ describe('AppComponent startup banner', () => {
   it('preserves the startup explanation and the dismiss name with real tooltip directives', () => {
     expect(fixture.nativeElement.querySelectorAll('[title]')).toHaveLength(0);
     const chip = fixture.debugElement.query(By.css('.startup-status-chip'));
-    expect(chip.injector.get(AioTooltipDirective).appTooltip()).toBe('Codex CLI: Multiple codex installs detected.');
+    expect(chip.injector.get(AioTooltipDirective).appTooltip()).toBe('Codex is installed more than once, with different versions.');
     const dismiss = fixture.debugElement.query(By.css('.startup-banner-dismiss'));
     expect(dismiss.nativeElement.getAttribute('aria-label')).toBe('Dismiss startup checks banner');
     expect(dismiss.injector.get(AioTooltipDirective).appTooltip()).toBe('Dismiss startup checks banner');
@@ -276,17 +331,118 @@ describe('AppComponent startup banner', () => {
   });
 
   it.each(['claude', 'codex'])('opens account sign-in settings from the %s startup warning', (provider) => {
-    const report = makeDegradedReport(`${provider} CLI is not logged in`);
-    report.checks[0].id = `provider.${provider}`;
+    const report = makeReport('degraded', [
+      makeCheck(`provider.${provider}`, `${provider} isn't signed in.`, 'accounts'),
+    ]);
     component.startupCapabilities.set(report);
     fixture.detectChanges();
     router.navigate.mockClear();
 
     const action = fixture.nativeElement.querySelector('.startup-banner-cta') as HTMLButtonElement;
-    expect(action.textContent).toBe('Open accounts');
+    expect(action.textContent?.trim()).toBe('Accounts');
     action.click();
 
     expect(router.navigate).toHaveBeenCalledExactlyOnceWith(['/settings'], { fragment: 'provider-accounts' });
+  });
+
+  it('opens the Copilot accounts page from a signed-out Copilot warning', () => {
+    component.startupCapabilities.set(makeReport('degraded', [
+      makeCheck('provider.copilot', "Copilot isn't signed in.", 'accounts'),
+    ]));
+    fixture.detectChanges();
+    router.navigate.mockClear();
+
+    (fixture.nativeElement.querySelector('.startup-banner-cta') as HTMLButtonElement).click();
+
+    expect(router.navigate).toHaveBeenCalledExactlyOnceWith(['/settings'], { fragment: 'copilot-accounts' });
+  });
+
+  it('still opens Accounts for a provider check from an older probe that names no fix', () => {
+    const report = makeDegradedReport("Codex isn't signed in.");
+    component.startupCapabilities.set(report);
+    fixture.detectChanges();
+    router.navigate.mockClear();
+
+    (fixture.nativeElement.querySelector('.startup-banner-cta') as HTMLButtonElement).click();
+
+    expect(router.navigate).toHaveBeenCalledExactlyOnceWith(['/settings'], { fragment: 'provider-accounts' });
+  });
+
+  it('gives every failing check its own plain sentence and its own fix button', () => {
+    component.startupCapabilities.set(makeReport('degraded', [
+      makeCheck('provider.cursor', "Cursor isn't installed, but you've chosen it as a default.", 'setup'),
+      makeCheck(
+        'subsystem.remote-nodes',
+        "On, but not running yet: Harness isn't listening on 127.0.0.1:4878.",
+        'remote-computers',
+      ),
+      makeCheck(
+        'subsystem.browser-automation',
+        "On, but not running yet: the browser tool server isn't connected.",
+        'browser',
+      ),
+    ]));
+    fixture.detectChanges();
+
+    const rows = [...fixture.nativeElement.querySelectorAll('.startup-banner-check')] as HTMLElement[];
+    expect(rows.map((row) => row.querySelector('.startup-banner-body')?.textContent?.trim())).toEqual([
+      "Cursor isn't installed, but you've chosen it as a default.",
+      "On, but not running yet: Harness isn't listening on 127.0.0.1:4878.",
+      "On, but not running yet: the browser tool server isn't connected.",
+    ]);
+    expect(rows.map((row) => row.querySelector('button')?.textContent?.trim())).toEqual([
+      'Setup',
+      'Remote computers',
+      'Browser',
+    ]);
+
+    router.navigate.mockClear();
+    rows.forEach((row) => (row.querySelector('button') as HTMLButtonElement).click());
+
+    expect(router.navigate.mock.calls).toEqual([
+      [['/setup']],
+      [['/remote-nodes']],
+      [['/settings'], { queryParams: { tab: 'doctor', section: 'browser-automation' } }],
+    ]);
+  });
+
+  it('spells out the three worst problems and counts the rest', () => {
+    component.startupCapabilities.set(makeReport('failed', [
+      makeCheck('provider.codex', "Codex isn't installed, but you've chosen it as a default.", 'setup'),
+      makeCheck('provider.copilot', "Copilot isn't signed in.", 'accounts'),
+      makeCheck('subsystem.remote-nodes', 'On, but not running yet: it is not listening.', 'remote-computers'),
+      makeCheck('subsystem.browser-automation', 'On, but not running yet: nothing is connected.', 'browser'),
+      makeCheck('provider.any', 'No AI tool is ready to use yet.', 'setup', {
+        status: 'unavailable',
+        critical: true,
+      }),
+    ]));
+    fixture.detectChanges();
+
+    const rows = [...fixture.nativeElement.querySelectorAll('.startup-banner-check')] as HTMLElement[];
+    expect(rows).toHaveLength(4);
+    expect(rows[0].textContent).toContain('No AI tool is ready to use yet.');
+    expect(rows[3].textContent).toContain('And 2 more things need attention.');
+    expect(rows[3].querySelector('button')?.textContent?.trim()).toBe('Setup');
+  });
+
+  it('puts a plain headline on the banner instead of the status word', () => {
+    const title = () => fixture.nativeElement.querySelector('.startup-banner-title')?.textContent?.trim();
+    expect(title()).toBe('A few things need attention');
+
+    component.startupCapabilities.set(makeReport('failed', [
+      makeCheck('provider.any', 'No AI tool is ready to use yet.', 'setup', { status: 'unavailable', critical: true }),
+    ]));
+    fixture.detectChanges();
+
+    expect(title()).toBe('Setup needs your attention');
+    expect(fixture.nativeElement.textContent).not.toMatch(/Startup checks:|degraded/i);
+  });
+
+  it('never says everything is ready under a warning, even when the report names nothing to fix', () => {
+    component.startupCapabilities.set(makeReport('degraded', []));
+
+    expect(component.startupCapabilitySummary()).toBe('A few things need attention.');
   });
 
   it('opens the Claude, Codex & MiMo accounts page from a quota reauth banner', () => {
@@ -329,13 +485,17 @@ describe('AppComponent startup banner', () => {
     expect(fixture.nativeElement.querySelector('.startup-banner')).not.toBeNull();
   });
 
-  it('shows the startup chip only while a startup check needs attention', () => {
-    expect(fixture.nativeElement.querySelector('.startup-status-chip')?.textContent).toContain('Startup degraded');
-
-    component.startupCapabilities.set({ ...makeDegradedReport(), status: 'ready', checks: [] });
+  it('shows nothing, banner or chip, once startup is ready again', () => {
+    expect(fixture.nativeElement.querySelector('[data-testid="startup-status-chip"]')?.textContent).toContain('Startup needs attention');
+    component.startupCapabilities.set(makeReport('ready', [
+      makeCheck('provider.cursor', "Cursor isn't installed. You only need it to use Cursor.", 'setup', {
+        status: 'disabled',
+      }),
+    ]));
     fixture.detectChanges();
 
-    expect(fixture.nativeElement.querySelector('.startup-status-chip')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.startup-banner')).toBeNull();
+    expect(fixture.nativeElement.querySelector('[data-testid="startup-status-chip"]')).toBeNull();
   });
 
   it('leaves the remote terminal toggle to the workspace rail', () => {
@@ -393,17 +553,54 @@ describe('AppComponent title bar layout', () => {
     expect(fallbackBannerIndex).toBeLessThan(template.indexOf('<main class="app-main"'));
   });
 
-  it('renders Status unavailable in the root shell when initialization has no snapshot', async () => {
+  it('says it could not check, in the root shell, when initialization has no snapshot', async () => {
+    const fixture = await renderRootShellWithLocalModels({ hasSnapshot: false, state: 'not-configured' });
+
+    const chip = fixture.nativeElement.querySelector(
+      '[data-testid="local-ai-status-chip"]',
+    ) as HTMLButtonElement;
+    expect(chip.textContent?.trim()).toBe("Local models: couldn't check");
+    expect(chip.textContent).not.toMatch(/Local AI|unavailable/);
+  });
+
+  it('does not force the chip host open, so an empty chip leaves no gap in the title bar', () => {
+    // The chip hides itself with `:host:empty { display: none }`. A `display` set
+    // on its host from here has higher specificity and would keep an empty flex
+    // item in the cluster, whose `gap` would still reserve room for it.
+    expect(styles).not.toMatch(/app-local-ai-status-chip\s*\{[^}]*display\s*:/);
+  });
+
+  it.each(['not-configured', 'healthy'] as const)(
+    'leaves the title bar without a local models chip while they are %s',
+    async (state) => {
+      const fixture = await renderRootShellWithLocalModels({ hasSnapshot: true, state });
+
+      expect(fixture.nativeElement.querySelector('[data-testid="local-ai-status-chip"]')).toBeNull();
+      expect(fixture.nativeElement.querySelector('app-local-ai-status-chip')?.children.length).toBe(0);
+    },
+  );
+
+  it('shows the local models chip in the title bar when they are paused', async () => {
+    const fixture = await renderRootShellWithLocalModels({ hasSnapshot: true, state: 'paused' });
+
+    const chip = fixture.nativeElement.querySelector('[data-testid="local-ai-status-chip"]') as HTMLButtonElement;
+    expect(chip.textContent?.trim()).toBe('Local models: paused');
+  });
+
+  async function renderRootShellWithLocalModels(options: {
+    hasSnapshot: boolean;
+    state: 'not-configured' | 'healthy' | 'paused';
+  }): Promise<ComponentFixture<AppComponent>> {
     TestBed.resetTestingModule();
     const isInitialized = signal(true);
-    const hasAuthoritativeSnapshot = signal(false);
+    const hasAuthoritativeSnapshot = signal(options.hasSnapshot);
     const aggregate = signal({
-      state: 'not-configured' as const,
-      enrolled: 0,
-      healthy: 0,
+      state: options.state,
+      enrolled: options.state === 'not-configured' ? 0 : 1,
+      healthy: options.state === 'healthy' ? 1 : 0,
       degraded: 0,
       unavailable: 0,
-      paused: 0,
+      paused: options.state === 'paused' ? 1 : 0,
     });
     TestBed.overrideComponent(AppComponent, {
       set: {
@@ -449,6 +646,9 @@ describe('AppComponent title bar layout', () => {
             isInitialized: isInitialized.asReadonly(),
             hasAuthoritativeSnapshot: hasAuthoritativeSnapshot.asReadonly(),
             aggregate: aggregate.asReadonly(),
+            helperBudget: signal(undefined).asReadonly(),
+            helperPauses: signal([]).asReadonly(),
+            targets: signal([]).asReadonly(),
           },
         },
         {
@@ -462,6 +662,7 @@ describe('AppComponent title bar layout', () => {
         },
         { provide: PauseStore, useValue: { resumeEvents: signal([]).asReadonly() } },
         { provide: PauseRendererController, useValue: { bindReactive: vi.fn() } },
+        ...createFailureEventSources().providers,
       ],
       schemas: [CUSTOM_ELEMENTS_SCHEMA],
     }).compileComponents();
@@ -470,13 +671,8 @@ describe('AppComponent title bar layout', () => {
     fixture.detectChanges();
     await fixture.whenStable();
     fixture.detectChanges();
-
-    const chip = fixture.nativeElement.querySelector(
-      '[data-testid="local-ai-status-chip"]',
-    ) as HTMLButtonElement;
-    expect(chip.textContent).toContain('Local AI: Status unavailable');
-    expect(chip.getAttribute('aria-label')).toContain('Status unavailable');
-  });
+    return fixture;
+  }
 
   it('mounts the application update banner once at the root', () => {
     expect(template.match(/<app-update-banner/g)).toHaveLength(1);
@@ -495,6 +691,42 @@ describe('AppComponent title bar layout', () => {
     const chipIndex = template.indexOf('<app-computer-use-permission-chip');
     expect(chipIndex).toBeGreaterThan(overlayStart);
     expect(chipIndex).toBeLessThan(overlayEnd);
+  });
+
+  it('hides the startup chip when everything is ready, so a normal launch adds nothing to the title bar', async () => {
+    const { fixture, component } = await setupAppComponent();
+    expect(fixture.nativeElement.querySelector('[data-testid="startup-status-chip"]')).not.toBeNull();
+
+    component.startupCapabilities.set(makeReport('ready', []));
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('[data-testid="startup-status-chip"]')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.startup-banner')).toBeNull();
+  });
+
+  it('shows a plain-words chip that opens Setup when startup needs attention', async () => {
+    const router = createRouterMock();
+    const { fixture } = await setupAppComponent('darwin', { router });
+    const chip = fixture.nativeElement.querySelector('[data-testid="startup-status-chip"]') as HTMLButtonElement;
+
+    expect(chip.textContent?.trim()).toBe('Startup needs attention');
+    expect(chip.textContent).not.toMatch(/degraded/i);
+    router.navigate.mockClear();
+    chip.click();
+
+    expect(router.navigate).toHaveBeenCalledExactlyOnceWith(['/setup']);
+  });
+
+  it('says "Startup failed" when startup cannot work at all', async () => {
+    const { fixture, component } = await setupAppComponent();
+    component.startupCapabilities.set(makeReport('failed', [
+      makeCheck('provider.any', 'No AI tool is ready to use yet.', 'setup', { status: 'unavailable', critical: true }),
+    ]));
+    fixture.detectChanges();
+
+    const chip = fixture.nativeElement.querySelector('[data-testid="startup-status-chip"]') as HTMLButtonElement;
+    expect(chip.textContent?.trim()).toBe('Startup failed');
+    expect(chip.classList.contains('failed')).toBe(true);
   });
 
   it('marks Windows shells so content clears the native caption controls', async () => {
@@ -546,5 +778,34 @@ describe('AppComponent computer role', () => {
     expect(settingsStore.set).toHaveBeenCalledWith('workerMode', expect.objectContaining({ role: 'worker' }));
     expect(router.navigateByUrl).toHaveBeenCalledWith('/worker-mode');
     expect(fixture.nativeElement.querySelector('router-outlet')).not.toBeNull();
+  });
+});
+
+describe('AppComponent run failure tracking', () => {
+  it('remembers background failures before settings initialize or any session view mounts', async () => {
+    const settingsStore = {
+      initialize: vi.fn(async () => void 0),
+      isInitialized: signal(false).asReadonly(),
+      get: vi.fn(() => false),
+    };
+    const { fixture } = await setupAppComponent('darwin', {
+      settingsStore,
+      beforeInit: (events) => {
+        expect(settingsStore.initialize).not.toHaveBeenCalled();
+        // Only the shell constructor has run. This event cannot be recovered by
+        // lazily constructing the tracker later, because this stream is hot.
+        events.next({
+          eventId: 'event-1', instanceId: 'background-session', provider: 'codex',
+          seq: 1, timestamp: 1000, adapterGeneration: 1, turnId: 'turn-1',
+          event: { kind: 'complete', turnErrored: true },
+        });
+      },
+    });
+
+    expect(fixture.nativeElement.querySelector('app-instance-detail')).toBeNull();
+    expect(TestBed.inject(RunFailureStateService).forInstance('background-session')).toMatchObject({
+      id: 'event-1',
+      turnId: 'turn-1',
+    });
   });
 });

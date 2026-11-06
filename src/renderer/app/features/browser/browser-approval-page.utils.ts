@@ -3,7 +3,23 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import type { ActivatedRoute } from '@angular/router';
 import type { BrowserApprovalRequest } from '@contracts/types/browser';
 import type { BrowserPageView } from './browser-page-view.utils';
-import { bannerCanQuickApprove, bannerGrantModes } from '../../core/state/browser-approvals-banner.rules';
+import { PERMISSION_SCOPE_WORDS } from '../../../../shared/permissions/permission-scope-presentation';
+import {
+  bannerCanQuickApprove,
+  bannerGrantModes,
+  bannerModeChoice,
+  bannerModeLabel,
+} from '../../core/state/browser-approvals-banner.rules';
+
+/** The scope words the approval cards on this page use, the same ones the other approval cards use. */
+export const browserApprovalScopeWords = {
+  /** The button that allows a browser permission of this length. */
+  allow: bannerModeLabel,
+  /** The short name of a grant's length, for the list of active grants. */
+  grant: bannerModeChoice,
+  /** The start of the sentence that says what the "always" button covers. */
+  always: PERMISSION_SCOPE_WORDS.always.allow,
+} as const;
 
 interface WritableValue<T> { set(value: T): void }
 const MAX_FOCUS_ATTEMPTS = 8;

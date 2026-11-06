@@ -458,7 +458,7 @@ export class VoiceConversationStore {
 
   private summarizeSttProvider(provider: VoiceProviderStatus): string {
     if (provider.id === 'local-whisper') {
-      if (provider.location === 'worker-node') return 'Worker STT';
+      if (provider.location === 'worker-node') return 'Remote computer STT';
       if (provider.location === 'this-device') return 'This-device STT';
       return 'Local STT';
     }

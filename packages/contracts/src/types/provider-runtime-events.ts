@@ -212,7 +212,7 @@ export interface ProviderContextEvent {
 export type ProviderTurnEndingReason =
   | 'completed' | 'max_output' | 'content_filter' | 'truncated_transport'
   | 'quota' | 'auth' | 'billing' | 'context_overflow' | 'retryable'
-  | 'doom_loop' | 'parent_silent' | 'crash' | 'dangling_tool_result' | 'unknown_error';
+  | 'doom_loop' | 'parent_silent' | 'crash' | 'dangling_tool_result' | 'empty_result' | 'unknown_error';
 
 /** Diagnostic evidence identifiers contain no prompt, answer, or thinking text. */
 export interface TurnEndingClassification {
@@ -296,6 +296,8 @@ export type DegradedReason =
 /** Response turn completed. */
 export interface ProviderCompleteEvent {
   kind: 'complete';
+  /** Adapter reported a failed turn, even if it returned some partial text. */
+  turnErrored?: boolean;
   /** Instance request count captured synchronously when the provider completed. */
   requestCountAtCompletion?: number;
   /** Tokens used in this turn. */

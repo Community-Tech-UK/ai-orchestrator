@@ -169,15 +169,15 @@
           <section class="profile-binding" aria-label="Profile execution location">
             <div class="binding-summary"><span>Run browser on</span><strong>{{ profileExecutionLocationLabel(profile) }}</strong></div>
             <label>
-              <span>Execution node</span>
+              <span>Computer</span>
               <select data-testid="profile-node-select" [value]="profileExecutionNodeDraft() ?? ''" [disabled]="working()" (change)="onProfileExecutionNodeChange($event)">
-                <option value="">Local coordinator</option>
+                <option value="">{{ computerLabel('local', localPlatform) }}</option>
                 @for (node of browserNodeOptions(); track node.id) {
-                  <option [value]="node.id" [disabled]="!isProfileNodeSelectable(node)">{{ node.name }} · {{ nodeReadinessLabel(node) }}{{ !node.capabilities.hasBrowserMcp ? ' · browser automation is not ready' : '' }}</option>
+                  <option [value]="node.id" [disabled]="!isProfileNodeSelectable(node)">{{ computerLabel({ name: node.name, platform: node.platform ?? node.capabilities.platform }) }} · {{ nodeReadinessLabel(node) }}{{ !node.capabilities.hasBrowserMcp ? ' · browser automation is not ready' : '' }}</option>
                 }
               </select>
             </label>
-            <button class="btn small" type="button" [disabled]="working()" [appTooltipDisabledReason]="!canSaveProfileExecutionNode() ? 'The execution node is unchanged.' : null" (click)="updateProfileExecutionNode()">Save node</button>
+            <button class="btn small" type="button" [disabled]="working()" [appTooltipDisabledReason]="!canSaveProfileExecutionNode() ? 'The computer is unchanged.' : null" (click)="updateProfileExecutionNode()">Save computer</button>
           </section>
         }
       </aside>
@@ -317,19 +317,19 @@
               }
               <div class="row-actions wrap permission-actions">
                 @if (canApprove(approval)) {
-                  <button class="btn small primary" type="button" [disabled]="working()" (click)="approveApprovalRequest(approval, 'per_action')">Allow once</button>
+                  <button class="btn small primary" type="button" [disabled]="working()" (click)="approveApprovalRequest(approval, 'per_action')">{{ scopeWords.allow('per_action') }}</button>
                 }
                 @if (!exactApprovalOnly(approval)) {
-                  <button class="btn small" type="button" [disabled]="working()" (click)="approveApprovalRequest(approval, 'session')">Allow for session</button>
-                  <button class="btn small" type="button" [disabled]="working()" (click)="approveApprovalRequest(approval, 'autonomous')">Allow unattended</button>
+                  <button class="btn small" type="button" [disabled]="working()" (click)="approveApprovalRequest(approval, 'session')">{{ scopeWords.allow('session') }}</button>
+                  <button class="btn small" type="button" [disabled]="working()" (click)="approveApprovalRequest(approval, 'autonomous')">{{ scopeWords.allow('autonomous') }}</button>
                   @if (canApproveForever(approval)) {
-                    <button class="btn small" type="button" [disabled]="working()" (click)="approveApprovalRequest(approval, 'persistent')">Allow forever</button>
+                    <button class="btn small" type="button" [disabled]="working()" (click)="approveApprovalRequest(approval, 'persistent')">{{ scopeWords.allow('persistent') }}</button>
                   }
                 }
                 <button class="btn small danger" type="button" [disabled]="working()" (click)="denyApprovalRequest(approval.requestId)">Deny</button>
               </div>
               @if (canApproveForever(approval)) {
-                <p>Forever applies to the approved sites and computer across agent sessions, until you revoke it.</p>
+                <p>{{ scopeWords.always }} applies to the approved sites and computer across agent sessions, until you revoke it.</p>
               }
             </article>
           } @empty {
@@ -344,7 +344,7 @@
           @for (grant of activeGrants(); track grant.id) {
             <article class="grant-row">
               <div class="permission-heading"><span class="audit-action">{{ labels.site(grant) }}</span><span class="status-badge" [class.warning]="grant.autonomous">{{ grant.autonomous ? 'unattended' : 'user approved' }}</span></div>
-              <span class="audit-tool">{{ grant.mode === 'persistent' ? 'Forever' : grant.mode === 'autonomous' ? 'Unattended' : grant.mode === 'per_action' ? 'One action' : 'This session' }}</span>
+              <span class="audit-tool">{{ scopeWords.grant(grant.mode) }}</span>
               @for (origin of grant.allowedOrigins; track $index) {
                 <p>{{ origin.scheme }}://{{ origin.includeSubdomains ? '*.' : '' }}{{ origin.hostPattern }}{{ origin.port ? ':' + origin.port : '' }}</p>
               }

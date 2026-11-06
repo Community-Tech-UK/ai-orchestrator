@@ -11,6 +11,7 @@ import type { BrowserExtensionTabStore } from './browser-extension-tab-store';
 import type { BrowserProfileStore } from './browser-profile-store';
 import { isOriginAllowed } from './browser-origin-policy';
 import { redactElementContext } from './browser-redaction';
+import { statedReason } from './browser-approval-reason';
 import { providerFromContext } from './browser-provider';
 import type { BrowserGatewayResultInput } from './browser-gateway-result';
 import type { BrowserGatewayContext } from './browser-gateway-service-types';
@@ -71,6 +72,8 @@ export class BrowserManualHandoffOperations {
       elementContext: redactElementContext({
         nearbyText: prompt,
       }),
+      // Only what the agent actually wrote: the default prompt is the system's own text.
+      requestReason: statedReason(params.request.reason),
       proposedGrant: {
         mode: 'per_action',
         allowedOrigins: [scope.allowedOrigin],

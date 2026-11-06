@@ -18,11 +18,12 @@
                   rows="2"
                   [placeholder]="'Type your answer...'"
                   [disabled]="isResponding()"
-                  [value]="questionAnswerValue(request.id, $index)"
-                  (input)="onQuestionAnswerChange(request.id, $index, $event)"
+                  [value]="asks.text(request.id, $index)"
+                  (input)="asks.setText(request.id, $index, $any($event.target).value)"
                 ></textarea>
               </label>
             }
+            <p class="question-hint">{{ questionHint }}</p>
             <div class="request-actions">
               <button
                 class="btn-reject"
@@ -34,11 +35,14 @@
               <button
                 class="btn-approve"
                 (click)="onSubmitAnswers(request)"
-                [disabled]="isResponding()"
+                [disabled]="isResponding() || !asks.canSubmit(request)"
               >
                 Submit Answers
               </button>
             </div>
+            @if (getResponseError(request.id)) {
+              <p class="request-error" role="alert">{{ getResponseError(request.id) }}</p>
+            }
           </div>
         } @else if (request.askQuestions && request.askQuestions.length > 0) {
           <!-- AskUserQuestion: clickable option chips per question -->
@@ -58,8 +62,8 @@
                       <button
                         type="button"
                         class="ask-option"
-                        [class.selected]="isAskOptionSelected(request.id, qIndex, option.label)"
-                        (click)="toggleAskOption(request.id, qIndex, option.label, entry.multiSelect)"
+                        [class.selected]="asks.isPicked(request.id, qIndex, option.label)"
+                        (click)="asks.toggle(request.id, qIndex, option.label, entry.multiSelect)"
                         [disabled]="isResponding()"
                       >
                         <span class="ask-option-label">{{ option.label }}</span>
@@ -75,12 +79,13 @@
                     rows="2"
                     [placeholder]="'Type your answer...'"
                     [disabled]="isResponding()"
-                    [value]="askTextValue(request.id, qIndex)"
-                    (input)="onAskTextChange(request.id, qIndex, $event)"
+                    [value]="asks.text(request.id, qIndex)"
+                    (input)="asks.setText(request.id, qIndex, $any($event.target).value)"
                   ></textarea>
                 }
               </div>
             }
+            <p class="question-hint">{{ questionHint }}</p>
             <div class="request-actions">
               <button
                 class="btn-reject"
@@ -93,11 +98,14 @@
                 class="btn-approve"
                 (click)="onSubmitAskUserQuestion(request)"
                 [disabled]="isResponding()"
-                [appTooltipDisabledReason]="!canSubmitAskUserQuestion(request) ? 'Answer every question before submitting.' : null"
+                [appTooltipDisabledReason]="!asks.canSubmit(request) ? 'Answer every question before submitting.' : null"
               >
                 Submit
               </button>
             </div>
+            @if (getResponseError(request.id)) {
+              <p class="request-error" role="alert">{{ getResponseError(request.id) }}</p>
+            }
           </div>
         } @else if (isSecretRequest(request) && request.secretRequest) {
           <div class="questions-form secret-card">
@@ -163,6 +171,9 @@
                 (input)="onInputRequiredTextChange(request.id, $event)"
               ></textarea>
             </label>
+            @if (isQuestion(request)) {
+              <p class="question-hint">{{ questionHint }}</p>
+            }
             <div class="request-actions">
               <button
                 class="btn-reject"
@@ -180,6 +191,9 @@
                 Submit
               </button>
             </div>
+            @if (getResponseError(request.id)) {
+              <p class="request-error" role="alert">{{ getResponseError(request.id) }}</p>
+            }
           </div>
         } @else if (request.requestType === 'select_option' && request.options) {
           <div class="request-options">
@@ -196,6 +210,12 @@
               </button>
             }
           </div>
+          @if (isQuestion(request)) {
+            <p class="question-hint">{{ questionHint }}</p>
+          }
+          @if (getResponseError(request.id)) {
+            <p class="request-error" role="alert">{{ getResponseError(request.id) }}</p>
+          }
         } @else {
           @if (canModifyInput(request)) {
             <!-- "Edit input" collapsible panel — deferred-permission + tool_input only -->
@@ -313,3 +333,4 @@
   <app-plan-handoff-dialog [sourceId]="handoff.instanceId" [requestId]="handoff.id"
     (started)="onPlanHandoffStarted(handoff.id)" (closed)="planHandoff.set(null)" />
 }
+<app-request-receipts [receipts]="receipts()" (dismissed)="dismissReceipt($event)" />

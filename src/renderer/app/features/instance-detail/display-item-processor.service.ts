@@ -14,8 +14,11 @@ import type { DisplayItem } from './display-item.types';
 import { parseCompactionSummary, parseInterruptBoundary } from './display-item-metadata-parsers';
 import {
   ALWAYS_VISIBLE_SYSTEM_ACTIONS,
-  QUIET_INTERRUPT_SYSTEM_MESSAGES,
+  ROUTINE_NOTICE_GROUP_ACTION,
   SYSTEM_GROUP_TIME_GAP_MS,
+  buildRoutineGroupLabel,
+  createRoutineNoticeGroup,
+  isFoldableRoutineNotice,
   isQuietProviderCompactionMarker,
   buildSystemGroupPreview,
   resolveSystemActionLabel,
@@ -291,20 +294,19 @@ export class DisplayItemProcessor {
     return nextMonotonicStreamingContent(previousContent, current);
   }
 
+  /**
+   * Structural markers stay hidden by their kind or flag, never by their wording.
+   * Notices that are merely routine are not hidden at all: they fold into one
+   * inspectable "N system events" row (see `foldRoutineNotice`). The
+   * `interrupt-boundary` markers stay hidden because their text is a raw
+   * phase/outcome code ("Interrupt requested: unresolved").
+   */
   private shouldSuppressInternalNotice(message: OutputMessage): boolean {
-    if (message.type !== 'system') {
-      return false;
-    }
-
-    if (
+    return message.type === 'system' && (
       message.metadata?.['kind'] === 'interrupt-boundary' ||
       message.metadata?.['contextCostRecovery'] === true ||
       isQuietProviderCompactionMarker(message)
-    ) {
-      return true;
-    }
-
-    return QUIET_INTERRUPT_SYSTEM_MESSAGES.has(message.content.trim());
+    );
   }
 
   private haveProcessedMessagesChanged(messages: readonly OutputMessage[]): boolean {
@@ -443,6 +445,13 @@ export class DisplayItemProcessor {
         continue;
       }
 
+      // Routine notices fold by their audience flag, whatever their action, and
+      // before the by-action orchestration fold below can claim them.
+      if (item.type === 'message' && item.message && isFoldableRoutineNotice(item.message)) {
+        this.foldRoutineNotice(item.message, item.bufferIndex);
+        continue;
+      }
+
       if (
         item.type === 'message' &&
         item.message?.type === 'system' &&
@@ -530,6 +539,7 @@ export class DisplayItemProcessor {
   }
 
   private isGroupableOrchestration(message: OutputMessage): boolean {
+    if (message.metadata?.['presentationKind'] === 'request-receipt' || message.metadata?.['errorPresentation']) return false;
     if ((message.metadata?.['source'] as string | undefined) !== 'orchestration') {
       return false;
     }
@@ -554,9 +564,28 @@ export class DisplayItemProcessor {
     return nextMessage.timestamp - lastEvent.timestamp <= SYSTEM_GROUP_TIME_GAP_MS;
   }
 
+  /**
+   * Add a routine notice to the fold directly before it, or start a new one. An
+   * attention message, a tool group or any other item in between splits the fold;
+   * empty assistant turns are absorbed, as they are for orchestration groups.
+   */
+  private foldRoutineNotice(message: OutputMessage, bufferIndex?: number): void {
+    const candidateIdx = this.findLastNonEmptyItemIndex();
+    const candidate = candidateIdx >= 0 ? this.items[candidateIdx] : undefined;
+    if (candidate?.type === 'system-event-group' && candidate.groupAction === ROUTINE_NOTICE_GROUP_ACTION) {
+      this.dropTrailingEmptyMessages(candidateIdx);
+      this.appendToSystemGroup(candidate, message, bufferIndex);
+      return;
+    }
+    this.items.push(createRoutineNoticeGroup(message, bufferIndex));
+  }
+
   private appendToSystemGroup(group: DisplayItem, message: OutputMessage, bufferIndex?: number): void {
     group.systemEvents = [...(group.systemEvents ?? []), message];
     group.groupPreview = buildSystemGroupPreview(message.content);
+    if (group.groupAction === ROUTINE_NOTICE_GROUP_ACTION) {
+      group.groupLabel = buildRoutineGroupLabel(group.systemEvents.length);
+    }
     group.timestamp = message.timestamp;
     group.bufferIndex = bufferIndex ?? group.bufferIndex;
   }

@@ -273,6 +273,30 @@ describe('browser-mcp-tools', () => {
       .not.toContain('managed profiles only');
   });
 
+  it('lets an agent say why, on every tool that can raise an approval and nowhere else', () => {
+    const tools = createBrowserMcpTools({ call: vi.fn() });
+    const properties = (name: string) =>
+      tools.find((tool) => tool.name === name)?.inputSchema['properties'] as
+        Record<string, { type?: string; description?: string }>;
+    const asksForApproval = [
+      'browser.click', 'browser.type', 'browser.fill_form', 'browser.select', 'browser.press_key',
+      'browser.upload_file', 'browser.download_file', 'browser.evaluate', 'browser.navigate',
+      'browser.close_tab', 'browser.request_grant',
+    ];
+    for (const name of asksForApproval) {
+      expect(properties(name)['reason'], `${name} takes a reason`).toMatchObject({ type: 'string' });
+      expect(properties(name)['reason']?.description, `${name} says who sees it`).toContain('person who approves');
+      expect(properties(name)['reason']?.description, `${name} warns about secrets`).toContain('secrets');
+      expect(
+        tools.find((tool) => tool.name === name)?.inputSchema['required'] as string[],
+        `${name} does not require a reason`,
+      ).not.toContain('reason');
+    }
+    for (const name of ['browser.snapshot', 'browser.screenshot', 'browser.list_targets', 'browser.query_elements']) {
+      expect(properties(name), `${name} has no reason`).not.toHaveProperty('reason');
+    }
+  });
+
   it('keeps the stdio bridge free of privileged browser/database imports', () => {
     const source = [
       'src/main/browser-gateway/browser-mcp-stdio-server.ts',

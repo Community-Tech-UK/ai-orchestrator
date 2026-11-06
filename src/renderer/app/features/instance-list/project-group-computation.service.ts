@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
 import type { Instance } from '../../core/state/instance.store';
 import type { ConversationHistoryEntry } from '../../../../shared/types/history.types';
+import { presentInstanceStatus } from '../../../../shared/attention/instance-status-presentation';
 import type {
   HierarchicalHistoryItem,
   HierarchicalInstance,
@@ -275,10 +276,10 @@ export class ProjectGroupComputationService {
     const statuses = new Set(liveItems.map((item) => item.instance.status));
 
     if (statuses.has('error')) {
-      return { projectStateLabel: 'Issue', projectStateTone: 'attention' };
+      return { projectStateLabel: presentInstanceStatus('error').label, projectStateTone: 'attention' };
     }
     if (statuses.has('waiting_for_input')) {
-      return { projectStateLabel: 'Awaiting input', projectStateTone: 'attention' };
+      return { projectStateLabel: presentInstanceStatus('waiting_for_input').label, projectStateTone: 'attention' };
     }
     if (statuses.has('busy')) {
       return { projectStateLabel: 'Working', projectStateTone: 'working' };

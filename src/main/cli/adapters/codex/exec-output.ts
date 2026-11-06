@@ -1,4 +1,5 @@
 import type { OutputMessage } from '../../../../shared/types/instance.types';
+import { classifyCommandOutcome, describeExitStatus, readExecutionEvidence } from '../../../../shared/tool-outcome';
 import { generateId } from '../../../../shared/utils/id-generator';
 import type { ThreadItem } from './app-server-types';
 import { parseCodexExecTranscript } from './exec-transcript-parser';
@@ -42,11 +43,23 @@ export class CodexExecOutput {
         }
         if (complete) {
           const exitCode = getCommandExitCode(item);
-          const isError = isFailedThreadItemStatus(item)
-            || (isCommandExecutionItem(item) && exitCode !== undefined && exitCode !== 0)
-            || item['is_error'] === true;
+          // Same rule as the app-server transcript: for a command, `is_error` means
+          // the item says it did not run to its own exit, and a check that did not
+          // pass is `checkFailed`.
+          const command = isCommandExecutionItem(item)
+            ? classifyCommandOutcome({
+                command: item.command,
+                exitCode,
+                status: item.status,
+                explicitIsCheck: typeof item['isCheck'] === 'boolean' ? item['isCheck'] : undefined,
+                explicitIsError: item['is_error'] === true,
+                ...readExecutionEvidence(item),
+              })
+            : undefined;
+          const isError = command?.isError ?? (isFailedThreadItemStatus(item) || item['is_error'] === true);
           this.publish('tool_result', this.toolResult(item, tool.content, isError), {
             ...metadata, status: item.status, exitCode, is_error: isError,
+            ...(command ? { isCheck: command.isCheck, checkFailed: command.checkFailed } : {}),
           });
         }
         return;
@@ -104,7 +117,7 @@ export class CodexExecOutput {
     if (isCommandExecutionItem(item)) {
       const exitCode = getCommandExitCode(item);
       return getCommandAggregatedOutput(item)
-        || (exitCode !== undefined ? `Command exited with code ${exitCode}` : `Command ${item.status || 'completed'}`);
+        || (exitCode !== undefined ? describeExitStatus(exitCode) : `Command ${item.status || 'completed'}`);
     }
     for (const key of ['output', 'result', 'content', 'text', 'description']) {
       const value = item[key];

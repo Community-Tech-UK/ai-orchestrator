@@ -60,6 +60,11 @@ describe('native catalog end-to-end source wiring', () => {
     const state = Object.assign(new EventEmitter(), { getInstance: () => instance, getAdapter: () => adapter });
     const manager = Object.assign(Object.create(InstanceManager.prototype), {
       state, communication, lifecycle: new EventEmitter(), orchestrationMgr: { getOrchestrationHandler: () => new EventEmitter() },
+      requestReceipts: {
+        setLocalResolutionHandler: () => undefined, observeInputRequired: () => undefined,
+        inputResolved: () => undefined, userActionSettled: () => undefined,
+        statusChanged: () => undefined, yoloEnabled: () => undefined, forgetInstance: () => undefined,
+      },
     }) as InstanceManager;
     (manager as unknown as { setupEventForwarding(): void }).setupEventForwarding();
     const listeners = new Map<string, Set<(event: unknown, payload: unknown) => void>>();

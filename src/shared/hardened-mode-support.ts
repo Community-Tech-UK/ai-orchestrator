@@ -17,27 +17,18 @@
  * new-session composer, so the two can never disagree.
  */
 
+import { providerName } from './display-names';
+
 const HARDENED_SUPPORTED_PROVIDERS: ReadonlySet<string> = new Set([
   'claude', 'codex', 'antigravity', 'grok', 'opencode', 'cursor', 'copilot',
 ]);
-
-const PROVIDER_SHORT_NAMES: Readonly<Record<string, string>> = {
-  codex: 'Codex',
-  gemini: 'Gemini',
-  antigravity: 'Antigravity',
-  copilot: 'Copilot',
-  cursor: 'Cursor',
-  grok: 'Grok',
-  opencode: 'OpenCode',
-  ollama: 'Ollama',
-};
 
 export function isHardenedModeSupported(provider: string): boolean {
   return HARDENED_SUPPORTED_PROVIDERS.has(provider);
 }
 
 export function hardenedProviderName(provider: string): string {
-  return PROVIDER_SHORT_NAMES[provider] ?? provider;
+  return providerName(provider);
 }
 
 export function hardenedModeUnsupportedMessage(provider: string): string {

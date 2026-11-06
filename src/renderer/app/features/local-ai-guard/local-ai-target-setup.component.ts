@@ -22,7 +22,7 @@ import type {
   LocalAiTarget,
 } from '../../../../shared/types/local-ai-guard.types';
 import { LOCAL_AI_TARGET_NUMERIC_LIMITS } from '../../../../shared/types/local-ai-guard.types';
-import { LocalAiGuardStore } from '../../core/state/local-ai-guard.store';
+import { LOCAL_AI_OPERATION_ERROR, LocalAiGuardStore } from '../../core/state/local-ai-guard.store';
 import {
   DEFAULT_LOCAL_AI_TARGET_SETUP_FORM,
   LOCAL_AI_ROLE_OPTIONS,
@@ -445,9 +445,7 @@ export class LocalAiTargetSetupComponent {
   }
 
   protected safeOperationError(): string | null {
-    return this.store.operationError()
-      ? 'The Local AI Guard operation could not be completed. Try again.'
-      : null;
+    return this.store.operationError() ? LOCAL_AI_OPERATION_ERROR : null;
   }
 
   private patchForm(patch: Partial<LocalAiTargetSetupForm>): void {
@@ -567,7 +565,7 @@ export class LocalAiTargetSetupComponent {
     if (!value.canaryModel || !value.expectedModels.includes(value.canaryModel)) {
       return 'Choose a test model in Advanced settings.';
     }
-    if (value.routingRoles.length === 0) return 'Choose at least one local AI job in Advanced settings.';
+    if (value.routingRoles.length === 0) return 'Choose at least one local model job in Advanced settings.';
     if (this.endpointIntervalError()) return this.endpointIntervalError();
     if (this.canaryIntervalError()) return this.canaryIntervalError();
     const contextError = value.expectedModels
@@ -615,7 +613,7 @@ export class LocalAiTargetSetupComponent {
   private validationLayerLabel(layer: LocalAiHealthLayer): string {
     switch (layer) {
       case 'worker': return 'Worker connection';
-      case 'endpoint': return 'Local AI service';
+      case 'endpoint': return 'Local model service';
       case 'model': return 'Model check';
       case 'inference': return 'Test response';
       case 'effectiveness': return 'Effectiveness check';

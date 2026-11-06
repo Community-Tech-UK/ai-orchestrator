@@ -397,7 +397,7 @@ export class InstanceStateManager extends EventEmitter {
         : sessionState?.providerSessionId ?? existing?.providerSessionId,
       restartEpoch: sessionState?.restartEpoch ?? existing?.restartEpoch,
       adapterGeneration: sessionState?.adapterGeneration ?? existing?.adapterGeneration,
-      activeTurnId: sessionState?.activeTurnId ?? existing?.activeTurnId,
+      activeTurnId: sessionState?.activeTurnId ?? (runtimeInstance ? runtimeInstance.activeTurnId : existing?.activeTurnId),
       interruptRequestId: sessionState?.interruptRequestId ?? existing?.interruptRequestId,
       interruptRequestedAt: sessionState?.interruptRequestedAt ?? existing?.interruptRequestedAt,
       interruptPhase: sessionState?.interruptPhase ?? existing?.interruptPhase,

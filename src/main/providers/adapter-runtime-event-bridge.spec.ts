@@ -295,7 +295,7 @@ describe('observeAdapterRuntimeEvents', () => {
       degradedReason: 'delayed',
     });
 
-    expect(events[0]?.event).toEqual({ kind: 'complete', degradedReason: 'delayed', turnEnding: { reason: 'completed', evidence: 'provider_completed' } });
+    expect(events[0]?.event).toEqual({ kind: 'complete', degradedReason: 'delayed', turnEnding: { reason: 'empty_result', evidence: 'empty_result' } });
   });
 
   it('omits degradedReason on healthy (untagged) completions', () => {

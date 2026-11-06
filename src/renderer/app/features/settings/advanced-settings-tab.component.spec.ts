@@ -198,6 +198,33 @@ describe('AdvancedSettingsTabComponent', () => {
     expect(expectedKeys.every((key) => definedKeys.has(key))).toBe(true);
   });
 
+  it('files the three Codex cost settings under their own plain heading, not under "debugging" Runtime controls', () => {
+    const keysUnder = (headingId: string): string[] => {
+      const card = fixture.nativeElement.querySelector(`#${headingId}`)?.closest('section');
+      return Array.from(card?.querySelectorAll('.stub-setting-row') ?? [])
+        .map((row) => (row as HTMLElement).getAttribute('data-setting-key') ?? '');
+    };
+
+    expect(fixture.nativeElement.querySelector('#codex-economy-heading')?.textContent?.trim()).toBe('Codex helpers & context tuning');
+    expect(keysUnder('codex-economy-heading')).toEqual([
+      'codexHelperAgentsChats',
+      'codexHelperAgentsHarnessWork',
+      'codexContextTuning',
+    ]);
+    expect(keysUnder('runtime-controls-heading')).not.toContain('codexContextTuning');
+    expect(keysUnder('runtime-controls-heading').some((key) => key.startsWith('codexHelperAgents'))).toBe(false);
+  });
+
+  it('gives the security fence section a plain heading', () => {
+    const tabs = fixture.nativeElement.querySelectorAll('[role="tab"]');
+    (tabs[1] as HTMLElement).click();
+    fixture.detectChanges();
+
+    const heading = fixture.nativeElement.querySelector('#session-process-fence-heading') as HTMLElement;
+    expect(heading.textContent?.trim()).toBe('Programs a session may stop');
+    expect(fixture.nativeElement.textContent).not.toContain('Session process fence');
+  });
+
   it('wires a Runtime setting-row change through onSettingChange to store.set', () => {
     const row = fixture.nativeElement.querySelector(
       '.stub-setting-row[data-setting-key="parserBufferMaxKB"]',

@@ -38,6 +38,7 @@ import type { CostPurposeSummary } from '../../../../shared/types/cost-purpose.t
 import { spendPurposeLabel } from '../../../../shared/types/spend-purpose-labels';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
+import { UsageWhereWentCardComponent } from '../usage-insight/usage-where-went-card.component';
 
 // ─── Local data shapes ────────────────────────────────────────────────────────
 
@@ -145,7 +146,7 @@ const EMPTY_BUDGET_STATUS: BudgetStatusData = {
 @Component({
   selector: 'app-cost-page',
   standalone: true,
-  imports: [CommonModule, EchartsThemedComponent, AioTooltipDirective, CostHistoryRestoreComponent],
+  imports: [CommonModule, EchartsThemedComponent, AioTooltipDirective, CostHistoryRestoreComponent, UsageWhereWentCardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './cost-page.component.html',
   styleUrl: './cost-page.component.scss',

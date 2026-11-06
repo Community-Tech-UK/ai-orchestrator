@@ -56,7 +56,10 @@ describe('Codex exec progress', () => {
       expect(complete).not.toHaveBeenCalled();
       expect(outputs.filter(o => o.type === 'assistant').map(o => o.content)).toEqual(['Checking the layout.']);
       expect(outputs.filter(o => o.metadata?.['id'] === 'command').map(o => o.type)).toEqual(['tool_use', 'tool_result']);
-      expect(outputs.find(o => o.type === 'tool_result' && o.metadata?.['id'] === 'command')?.metadata).toMatchObject({ is_error: true, exitCode: 2 });
+      // U1 step 5: a command that ran and exited non-zero is no longer written as an
+      // error. It keeps its exit status, and because `local-check` is a check, it is
+      // reported as a failed check (this assertion used to be `is_error: true`).
+      expect(outputs.find(o => o.type === 'tool_result' && o.metadata?.['id'] === 'command')?.metadata).toMatchObject({ is_error: false, exitCode: 2, isCheck: true, checkFailed: true });
       expect(outputs.find(o => o.type === 'tool_result' && o.metadata?.['id'] === 'edit')?.metadata).toMatchObject({ is_error: true });
       child.send('finish');
       await pending;

@@ -16,6 +16,7 @@ import { UsageStore } from './core/state/usage.store';
 import { SkillStore } from './core/state/skill.store';
 import { PromptHistoryStore } from './core/state/prompt-history.store';
 import { ModelFavoritesService } from './features/models/model-favorites.service';
+import { RunFailureStateService } from './features/instance-detail/run-failure-state.service';
 import { AwayRecapBannerComponent } from './shared/away-recap/away-recap-banner.component';
 import { TerminateConfirmDialogComponent } from './shared/terminate-confirm/terminate-confirm-dialog.component';
 import { ApprovalDigestBannerComponent } from './shared/approval-digest/approval-digest-banner.component';
@@ -34,6 +35,13 @@ import { GlobalPauseQueueController } from './core/state/global-pause/global-pau
 import { PauseBannerComponent } from './core/state/pause/pause-banner.component';
 import { PauseDetectorErrorModalComponent } from './core/state/pause/pause-detector-error-modal.component';
 import type { StartupCapabilityReport } from '../../shared/types/startup-capability.types';
+import {
+  startupAttentionChecks,
+  startupCheckFixAction,
+  startupChipLabel,
+  startupStatusHeadline,
+  type StartupFixAction,
+} from '../../shared/startup-attention';
 import { FirstRunService } from './core/services/first-run.service';
 import { ScratchDirectoryService } from './core/services/scratch-directory.service';
 import { RemoteNodeStore } from './core/state/remote-node.store';
@@ -55,11 +63,14 @@ import { KeepAwakeChipComponent } from './features/title-bar/keep-awake-chip.com
 import { LocalAiStatusChipComponent } from './features/local-ai-guard/local-ai-status-chip.component';
 import { LocalAiFallbackBannerComponent } from './features/local-ai-guard/local-ai-fallback-banner.component';
 import { BrowserComputerOfflineBannerComponent } from './features/remote-nodes/browser-computer-offline-banner.component';
-import { HelpDrawerComponent } from './shared/help/help-drawer.component';
 import { AioTooltipDirective } from './shared/tooltip/aio-tooltip.directive';
+import { HelpDrawerComponent } from './shared/help/help-drawer.component';
 import { copyFor } from './shared/tooltip/tooltip-copy';
 
 const STARTUP_BANNER_DISMISSAL_STORAGE_KEY = 'startup-capabilities-banner:dismissed-fingerprint';
+
+/** How many failing checks the banner spells out; the rest are counted and left to Setup. */
+const STARTUP_BANNER_CHECK_LIMIT = 3;
 
 /**
  * WS-A2 `instance:doom-loop` payload — mirrors `ToolLoopDetectionEvent` in
@@ -156,6 +167,9 @@ export class AppComponent implements OnInit, OnDestroy {
   // Eagerly constructed so the localStorage → modelPickerFavorites migration
   // runs at boot even if the model picker is never opened this session.
   private readonly modelFavorites = inject(ModelFavoritesService);
+  // Eagerly constructed so a failed run is remembered even for a session nobody
+  // has open: its failure notice reads this when that session's view mounts.
+  private readonly runFailures = inject(RunFailureStateService);
   protected readonly settingsStore = inject(SettingsStore);
   protected readonly pauseStore = inject(PauseStore);
   private pauseRendererController = inject(PauseRendererController);
@@ -203,12 +217,31 @@ export class AppComponent implements OnInit, OnDestroy {
   });
 
   /**
-   * Title-bar chip that links to /setup. Hidden once every startup check is
-   * ready: a healthy start needs no attention.
+   * Title-bar chip: only while startup needs the user. A ready startup shows
+   * nothing at all (healthy means hidden), so a normal launch leaves the title
+   * bar to the quota strip and notifications. Setup stays reachable from the
+   * banner's Setup button and from Settings → Doctor.
    */
   protected readonly startupStatusChipReport = computed(() => {
     const report = this.startupCapabilities();
     return report && report.status !== 'ready' ? report : null;
+  });
+
+  protected readonly startupChipLabel = startupChipLabel;
+  protected readonly startupBannerTitle = startupStatusHeadline;
+
+  /** The banner's rows: each failing check with its own plain sentence and its own fix button. */
+  protected readonly startupBannerItems = computed(() => {
+    const report = this.startupBannerReport();
+    return report
+      ? startupAttentionChecks(report, STARTUP_BANNER_CHECK_LIMIT)
+        .map((check) => ({ check, action: startupCheckFixAction(check) }))
+      : [];
+  });
+
+  protected readonly startupBannerHiddenCount = computed(() => {
+    const report = this.startupBannerReport();
+    return report ? Math.max(0, startupAttentionChecks(report).length - STARTUP_BANNER_CHECK_LIMIT) : 0;
   });
 
   protected readonly resumeToast = signal<ResumeEvent | null>(null);
@@ -390,19 +423,40 @@ export class AppComponent implements OnInit, OnDestroy {
       return '';
     }
 
-    const degradedChecks = report.checks.filter((check) => check.status !== 'ready' && check.status !== 'disabled');
-    if (degradedChecks.length === 0) {
-      return 'All optional startup checks passed.';
+    // Each summary is already a plain sentence that names its own tool, so
+    // they read as a paragraph without the old "Label:" prefixes.
+    const attention = startupAttentionChecks(report, STARTUP_BANNER_CHECK_LIMIT);
+    if (attention.length === 0) {
+      // Say what the chip says. A report that is not ready but names nothing to
+      // fix must not read "Everything is ready" under a warning.
+      return `${startupStatusHeadline(report.status)}.`;
     }
 
-    return degradedChecks
-      .slice(0, 3)
-      .map((check) => `${check.label}: ${check.summary}`)
-      .join(' ');
+    return attention.map((check) => check.summary).join(' ');
   }
 
   openSetupCenter(): void {
     void this.router.navigate(['/setup']);
+  }
+
+  /** Takes the user to the place that fixes one failing startup check. */
+  runStartupFix(action: StartupFixAction): void {
+    switch (action.fix) {
+      case 'accounts':
+        this.openProviderAccounts(action.provider);
+        return;
+      case 'remote-computers':
+        void this.router.navigate([getControlSurface('remote-nodes').path]);
+        return;
+      case 'browser':
+        // The Doctor's browser section lists what is wrong and how to fix it.
+        void this.router.navigate([getControlSurface('settings').path], {
+          queryParams: { tab: 'doctor', section: 'browser-automation' },
+        });
+        return;
+      default:
+        this.openSetupCenter();
+    }
   }
 
   /**

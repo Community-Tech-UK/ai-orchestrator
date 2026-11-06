@@ -92,7 +92,7 @@ describe('project list view model', () => {
     expect(groups[0].sessions[0]).toMatchObject({
       title: 'Polish Harness Mobile UX',
       subtitle: 'Codex · gpt-5.6',
-      statusLabel: 'busy',
+      statusLabel: 'Working',
       tone: 'working',
       live: true,
     });
@@ -298,5 +298,32 @@ describe('project attention and large-group previews', () => {
     expect(groups.flatMap((group) => group.sessions)).toHaveLength(200);
     expect(found[0].sessions[0].id).toBe('row-199');
     console.warn(`30-project/200-session view model: ${duration.toFixed(2)}ms`);
+  });
+});
+
+
+describe('canonical session words and colours on actual project rows', () => {
+  it('keeps a live question distinct from the pending-permission counter', () => {
+    const groups = buildProjectGroups([], [{ ...live[0], status: 'waiting_for_input', pendingApprovalCount: 1 }], [], []);
+    expect(groups[0].sessions[0]).toMatchObject({ statusLabel: 'Needs your answer', tone: 'attention', color: '#f59e0b' });
+  });
+
+  it('shows MiMo on identifiable models, hides backend aliases, and keeps a generic OpenCode session generic', () => {
+    const groups = buildProjectGroups([], [
+      { ...live[0], id: 'mimo', provider: 'opencode', model: 'aio-mimo-account-placeholder/mimo-v2.6-pro' },
+      { ...live[0], id: 'zen', provider: 'opencode', model: 'opencode/big-pickle' },
+    ], [], []);
+    const rows = groups[0].sessions;
+    expect(rows.find(row => row.id === 'mimo')?.subtitle).toBe('MiMo · mimo-v2.6-pro');
+    expect(rows.find(row => row.id === 'zen')?.subtitle).toBe('OpenCode · opencode/big-pickle');
+  });
+
+  it.each([
+    ['thinking_deeply', 'Thinking', '#4fa3a5'], ['respawning', 'Restarting', '#4fa3a5'],
+    ['hibernated', 'Asleep', '#4b5563'], ['terminated', 'Stopped', '#6b7280'],
+    ['interrupt-escalating', 'Stopping', '#ef4444'], ['degraded', 'Problem', '#f97316'],
+  ])('renders %s truthfully', (status, label, color) => {
+    const groups = buildProjectGroups([], [{ ...live[0], status }], [], []);
+    expect(groups[0].sessions[0]).toMatchObject({ statusLabel: label, color });
   });
 });

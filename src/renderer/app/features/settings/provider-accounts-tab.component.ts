@@ -39,25 +39,27 @@ import type {
   ProviderAccountPools,
 } from '../../../../shared/types/provider-account.types';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
+import { accountFamilyName, providerName } from '../../../../shared/display-names';
 import { accountMachinesFor, nodeLoginCommandFor, type AccountMachineState } from './provider-accounts-machines';
 
-const PROVIDERS: readonly { id: PooledProvider; label: string; subscription: string; vendor: string }[] = [
-  { id: 'claude', label: 'Claude', subscription: 'Claude', vendor: 'Anthropic' },
-  { id: 'codex', label: 'Codex', subscription: 'ChatGPT', vendor: 'OpenAI' },
-  { id: 'opencode', label: 'MiMo', subscription: 'MiMo Token Plan', vendor: 'Xiaomi' },
-];
+/**
+ * The accounts this page manages, each named by `accountFamilyName` so
+ * OpenCode's reads "MiMo": its accounts are always MiMo Token Plan accounts.
+ */
+const PROVIDERS: readonly { id: PooledProvider; label: string; subscription: string; vendor: string }[] = ([
+  { id: 'claude', subscription: 'Claude', vendor: 'Anthropic' },
+  { id: 'codex', subscription: 'ChatGPT', vendor: 'OpenAI' },
+  { id: 'opencode', subscription: 'MiMo Token Plan', vendor: 'Xiaomi' },
+] as const).map((provider) => ({ ...provider, label: accountFamilyName(provider.id) }));
 
 /**
  * Providers that only ever sign in once, through their own CLI — no account
  * list, ordering or limit-switching here. They still need a sign-in button on
  * this page so a "Reauth needed" banner always lands somewhere that can fix it.
  */
-const SIGN_IN_ONLY_PROVIDERS: readonly { id: ProviderId; label: string }[] = [
-  { id: 'gemini', label: 'Gemini' },
-  { id: 'antigravity', label: 'Antigravity' },
-  { id: 'cursor', label: 'Cursor' },
-  { id: 'grok', label: 'Grok' },
-];
+const SIGN_IN_ONLY_PROVIDERS: readonly { id: ProviderId; label: string }[] = (
+  ['gemini', 'antigravity', 'cursor', 'grok'] as const
+).map((id) => ({ id, label: providerName(id) }));
 
 const SIGN_IN_POLL_MS = 5_000;
 const SIGN_IN_POLL_LIMIT = 60;

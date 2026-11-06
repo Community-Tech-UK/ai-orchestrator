@@ -52,6 +52,13 @@ describe('extractObservationEvents', () => {
     expect(events).toEqual([expect.objectContaining({ type: 'error', priority: 1, content: 'Process exited with code 1' })]);
   });
 
+  it('records the real reason of an error that was shown in plain words, not the sentence', () => {
+    const events = extract([msg('error', 'Claude couldn\'t finish this request. What to do: Check Details, then try again.', {
+      metadata: { errorPresentation: { category: 'unknown', headline: 'x', whatToDo: 'y', rawDetail: 'spawn claude ENOENT\nat spawn' } },
+    })]);
+    expect(events).toEqual([expect.objectContaining({ type: 'error', priority: 1, content: 'spawn claude ENOENT' })]);
+  });
+
   it('records tool results as priority 3, capped at 150 chars, with the tool name', () => {
     const long = `output ${'y'.repeat(400)}`;
     const [event] = extract([msg('tool_result', long, { metadata: { toolName: 'Bash' } })]);

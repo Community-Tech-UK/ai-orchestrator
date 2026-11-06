@@ -13,14 +13,22 @@
  * Live wire capture of `grok agent stdio` (2026-09-24, LT-612): its `execute`
  * result carries the same information under different keys — a terminal
  * `tool_call_update` reports `{ type: "Bash", output_for_prompt, exit_code,
- * command, current_dir, ... }`, i.e. `exit_code` (snake_case), not Cursor's
- * `exitCode`. `content` (a text block on the notification, not `rawOutput`)
- * already carries the human-readable stdout/stderr, so `renderAcpRawOutput()`
- * is not the affected path — only `acpToolFailed()`'s `rawOutput.exitCode`
- * lookup was, and it now also reads `exit_code`. See `acpExitCode()` below.
+ * command, signal, timed_out, current_dir, ... }`, i.e. `exit_code` (snake_case),
+ * not Cursor's `exitCode`. `content` (a text block on the notification, not
+ * `rawOutput`) already carries the human-readable stdout/stderr, so
+ * `renderAcpRawOutput()` is not the affected path — only the exit-code lookup
+ * was, and it now also reads `exit_code`. See `acpExitCode()` below.
+ *
+ * What the exit status MEANS is decided by the shared rule in
+ * `shared/tool-outcome.ts`, the same one the Codex transcripts use: a status the
+ * command supplied is recorded as `exitCode` and is neutral (a `rg` that found
+ * nothing exits 1); only a check (tests, lint, build) that did not pass, or an
+ * explicit report that the call did not run to its own exit (`failed` with no
+ * exit status, Grok's `timed_out` or `signal`), is a failure.
  */
 
 import { buildToolOutcomeMessage } from '../../../shared/types/tool-outcome';
+import { classifyCommandOutcome, readExecutionEvidence, type CommandOutcome } from '../../../shared/tool-outcome';
 import type { OutputMessage } from '../../../shared/types/instance.types';
 import type { AcpToolKind } from '../../../shared/types/cli.types';
 
@@ -63,33 +71,48 @@ export function buildAcpMinableInput(
   return typeof command === 'string' && command.trim() ? { input: { command } } : {};
 }
 
+/** What the adapter knows about an ACP tool call when its final update arrives. */
+export interface AcpToolOutcomeSource {
+  status: string;
+  kind?: AcpToolKind;
+  rawInput?: Record<string, unknown>;
+  rawOutput?: Record<string, unknown>;
+}
+
 /**
  * LT-196: the fallback outcome record for an ACP tool call that produced no
  * rendered output.
  *
  * The visible `tool_result` — which carries `is_error` for the miner — is only
- * emitted when there is output to show. An exit-code-only failure therefore
- * left the miner's open invocation with nothing to close it, and the call was
- * silently dropped rather than mined. This supplies the invisible record in
- * exactly that case, so there is always exactly one correlated closing
- * message and never two racing to close first.
+ * emitted when there is output to show. A silent failure therefore left the
+ * miner's open invocation with nothing to close it, and the call was silently
+ * dropped rather than mined. This supplies the invisible record in exactly that
+ * case, so there is always exactly one correlated closing message and never two
+ * racing to close first. It says "failed" for the same things the visible result
+ * would (see `classifyAcpToolOutcome`), including a check that did not pass.
  *
  * Returns null when the visible message already covered it, or when the call
  * was `cancelled` — neither success nor failure, and a false success would
  * credit the miner +0.15 confidence for a fix that never ran.
  */
 export function buildAcpToolOutcomeFallback(
-  params: { toolCallId: string; status: string; title: string; hasRenderedOutput: boolean; rawOutput?: Record<string, unknown> },
+  params: AcpToolOutcomeSource & { toolCallId: string; title: string; hasRenderedOutput: boolean },
   id: string,
   timestamp: number,
 ): OutputMessage | null {
   if (params.hasRenderedOutput) return null;
-  if (params.status !== 'completed' && params.status !== 'failed') return null;
-  return buildToolOutcomeMessage(
-    { toolUseId: params.toolCallId, isError: acpToolFailed(params.status, params.rawOutput), toolName: params.title },
+  const outcome = classifyAcpToolOutcome(params);
+  if (!outcome) return null;
+  const message = buildToolOutcomeMessage(
+    {
+      toolUseId: params.toolCallId,
+      isError: outcome.isError,
+      toolName: params.title,
+    },
     id,
     timestamp,
   );
+  return { ...message, metadata: { ...message.metadata, ...acpToolOutcomeMetadata(params) } };
 }
 
 /** A status after which an ACP tool call sends no further updates. */
@@ -105,12 +128,11 @@ export function isAcpTerminalToolStatus(status: string): boolean {
  * (camelCase). `grok agent stdio` sends the same information as
  * `rawOutput.exit_code` (snake_case) — confirmed on a real terminal
  * `tool_call_update` for both a failing (`exit_code: 2`) and a succeeding
- * (`exit_code: 0`) bare shell command. `acpToolFailed()` originally read only
- * the camelCase key, so every Grok completed call fell through to "not
- * failed" regardless of the real exit status. Both keys are read here; if a
- * future provider sends both, the numeric one closest to "the real exit
- * code" is `exitCode` first (Cursor's existing contract), falling back to
- * `exit_code`.
+ * (`exit_code: 0`) bare shell command. The first reader looked only at the
+ * camelCase key, so every Grok completed call lost its real exit status. Both
+ * keys are read here; if a future provider sends both, the numeric one closest
+ * to "the real exit code" is `exitCode` first (Cursor's existing contract),
+ * falling back to `exit_code`. Copilot's and OpenCode's shapes were not captured.
  */
 function acpExitCode(rawOutput?: Record<string, unknown>): number | undefined {
   const camelCase = rawOutput?.['exitCode'];
@@ -120,11 +142,64 @@ function acpExitCode(rawOutput?: Record<string, unknown>): number | undefined {
   return undefined;
 }
 
-function acpToolFailed(status: string, rawOutput?: Record<string, unknown>): boolean {
-  if (status === 'failed') return true;
-  if (status !== 'completed') return false;
-  const exitCode = acpExitCode(rawOutput);
-  return typeof exitCode === 'number' && exitCode !== 0;
+/**
+ * The shell command of an ACP call: `rawInput.command` (where an `execute` call
+ * carries it) or, failing that, the `command` Grok repeats in its terminal
+ * `rawOutput`. An argv array is joined into one line.
+ */
+function acpCommandText(rawInput?: Record<string, unknown>, rawOutput?: Record<string, unknown>): string | undefined {
+  for (const value of [rawInput?.['command'], rawOutput?.['command']]) {
+    if (typeof value === 'string' && value.trim()) return value;
+    if (Array.isArray(value) && value.length > 0 && value.every((part) => typeof part === 'string')) return value.join(' ');
+  }
+  return undefined;
+}
+
+/** How an ACP tool call ended: its `is_error`, and for a command the shared command outcome. */
+export interface AcpToolOutcome {
+  isError: boolean;
+  /** Present for a command (an `execute` call, or any call that names a command or reports an exit status). */
+  command?: CommandOutcome;
+}
+
+/**
+ * Judge a settled ACP tool call by the shared rule (`shared/tool-outcome.ts`).
+ * Returns null while the call is unsettled or when it was `cancelled`: neither a
+ * success nor a failure, and the exit status of a call that was cancelled
+ * part-way is not a verdict either.
+ *
+ * A command is recognised by its kind, its command string or an exit status in
+ * its output, because servers label shell tools differently. Everything else
+ * fails only when the server says it failed (a failed edit stays an error).
+ */
+export function classifyAcpToolOutcome(source: AcpToolOutcomeSource): AcpToolOutcome | null {
+  if (source.status !== 'completed' && source.status !== 'failed') return null;
+  const exitCode = acpExitCode(source.rawOutput);
+  const command = acpCommandText(source.rawInput, source.rawOutput);
+  if ((source.kind !== undefined && source.kind !== 'execute' && source.kind !== 'other')
+    || (source.kind !== 'execute' && command === undefined && exitCode === undefined)) {
+    return { isError: source.status === 'failed' };
+  }
+  const outcome = classifyCommandOutcome({
+    command,
+    exitCode,
+    status: source.status,
+    ...readExecutionEvidence(source.rawOutput),
+  });
+  return { isError: outcome.isError, command: outcome };
+}
+
+/** Closed outcome facts shared by the visible, silent and raw result transports. */
+export function acpToolOutcomeMetadata(source: AcpToolOutcomeSource): Record<string, unknown> {
+  const outcome = classifyAcpToolOutcome(source);
+  return {
+    ...(outcome ? { is_error: outcome.isError } : {}),
+    ...(outcome?.command ? {
+      ...(outcome.command.exitCode === undefined ? {} : { exitCode: outcome.command.exitCode }),
+      isCheck: outcome.command.isCheck,
+      checkFailed: outcome.command.checkFailed,
+    } : {}),
+  };
 }
 
 /**
@@ -137,11 +212,13 @@ function acpToolFailed(status: string, rawOutput?: Record<string, unknown>): boo
  * and emits it once, when the call settles or its turn ends.
  */
 export function buildAcpToolResultMessage(
-  params: { toolCallId: string; title: string; status: string; sessionUpdate: string; output: string; rawOutput?: Record<string, unknown> },
+  params: AcpToolOutcomeSource & { toolCallId: string; title: string; sessionUpdate: string; output: string },
   id: string,
   timestamp: number,
 ): OutputMessage {
   const { toolCallId, title, status, sessionUpdate, output } = params;
+  // LT-196: outcome rides this already-correlated message; `cancelled` and an
+  // unsettled call are neither outcome, so it is left unset.
   return {
     id,
     timestamp,
@@ -153,9 +230,7 @@ export function buildAcpToolResultMessage(
       title,
       status,
       transport: 'acp',
-      // LT-196: outcome rides this already-correlated message; `cancelled`
-      // and an unsettled call are neither outcome, so it is left unset.
-      ...(status === 'completed' || status === 'failed' ? { is_error: acpToolFailed(status, params.rawOutput) } : {}),
+      ...acpToolOutcomeMetadata(params),
     },
   };
 }

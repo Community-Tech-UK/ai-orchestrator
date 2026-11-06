@@ -1,4 +1,5 @@
 import { resolveClaudeAllowRuleTool } from '../../../../shared/permissions/claude-allow-rule-tools';
+import { PERMISSION_SCOPE_WORDS } from '../../../../shared/permissions/permission-scope-presentation';
 export type InputRequiredScope = 'once' | 'session' | 'always';
 
 export interface InputRequiredRequestLike {
@@ -70,14 +71,20 @@ export function approveLabelFor(meta: PermissionMetadata, scope: InputRequiredSc
   if (permissionAskKind(meta) === 'claude-denial') {
     return canAddClaudeAllowRule(meta) ? 'Always allow (adds a rule to ~/.claude/settings.json and restarts)' : undefined;
   }
-  if (permissionAskKind(meta) === 'single' || scope === 'once') return 'Allow once';
-  return scope === 'session' ? 'Allow for this session' : 'Always allow this command';
+  if (permissionAskKind(meta) === 'single' || scope === 'once') return PERMISSION_SCOPE_WORDS.once.allow;
+  return scope === 'session'
+    ? PERMISSION_SCOPE_WORDS.session.allow
+    : `${PERMISSION_SCOPE_WORDS.always.allow} this command`;
 }
 
 export function rejectLabelFor(meta: PermissionMetadata, scope: InputRequiredScope): string {
-  if (permissionAskKind(meta) === 'claude-denial') return canAddClaudeAllowRule(meta) ? "Don't allow" : 'OK';
-  if (permissionAskKind(meta) === 'single' || scope === 'once') return "Don't allow";
-  return scope === 'session' ? 'Block for this session' : 'Always block this command';
+  if (permissionAskKind(meta) === 'claude-denial') {
+    return canAddClaudeAllowRule(meta) ? PERMISSION_SCOPE_WORDS.once.refuse : 'OK';
+  }
+  if (permissionAskKind(meta) === 'single' || scope === 'once') return PERMISSION_SCOPE_WORDS.once.refuse;
+  return scope === 'session'
+    ? PERMISSION_SCOPE_WORDS.session.refuse
+    : `${PERMISSION_SCOPE_WORDS.always.refuse} this command`;
 }
 
 export function decisionFor(meta: PermissionMetadata, approved: boolean, selected: InputRequiredScope):
@@ -91,7 +98,7 @@ export function decisionFor(meta: PermissionMetadata, approved: boolean, selecte
 }
 
 export function scopeOptionLabel(scope: InputRequiredScope): string {
-  return scope === 'session' ? 'This session' : scope === 'always' ? 'Always' : 'Once';
+  return PERMISSION_SCOPE_WORDS[scope].choice;
 }
 
 export function permissionHintFor(meta: PermissionMetadata, scope: InputRequiredScope): string {

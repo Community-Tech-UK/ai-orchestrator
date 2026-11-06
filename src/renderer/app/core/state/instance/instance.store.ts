@@ -44,6 +44,7 @@ import { withStatusTimeline } from './instance-status-timeline';
 import { withAutomationRevealed } from './instance-automation-metadata';
 import { RespawnWatchdog } from './instance-respawn-watchdog';
 import { InstanceTranscriptResync } from './instance-transcript-resync';
+import { projectActiveTurnId } from './turn-settlement';
 
 @Injectable({ providedIn: 'root' })
 export class InstanceStore implements OnDestroy {
@@ -274,10 +275,11 @@ export class InstanceStore implements OnDestroy {
         }
       })
     );
-    // Settled without the user (timeout, auto-approve, cancel): no longer pending.
+    // Settled without the user (timeout, auto-approve, cancel): no longer pending. A card the model
+    // raised itself never counted as pending, so its closing takes nothing away.
     this.addSubscription(
       this.eventBus.inputRequiredResolved$.subscribe((payload) => {
-        this.decrementPendingApproval(payload.instanceId);
+        if (payload.kind !== 'user-action') this.decrementPendingApproval(payload.instanceId);
       })
     );
   }
@@ -368,7 +370,7 @@ export class InstanceStore implements OnDestroy {
           providerSessionId: update.providerSessionId ?? inst.providerSessionId,
           restartEpoch: update.restartEpoch ?? inst.restartEpoch,
           adapterGeneration: update.adapterGeneration ?? inst.adapterGeneration,
-          activeTurnId: update.activeTurnId ?? inst.activeTurnId,
+          activeTurnId: projectActiveTurnId(inst, update),
           interruptRequestId: update.interruptRequestId ?? inst.interruptRequestId,
           interruptRequestedAt: update.interruptRequestedAt ?? inst.interruptRequestedAt,
           interruptPhase: update.interruptPhase ?? inst.interruptPhase,
@@ -492,7 +494,7 @@ export class InstanceStore implements OnDestroy {
             providerSessionId: update.providerSessionId ?? instance.providerSessionId,
             restartEpoch: update.restartEpoch ?? instance.restartEpoch,
             adapterGeneration: update.adapterGeneration ?? instance.adapterGeneration,
-            activeTurnId: update.activeTurnId ?? instance.activeTurnId,
+            activeTurnId: projectActiveTurnId(instance, update),
             interruptRequestId: update.interruptRequestId ?? instance.interruptRequestId,
             interruptRequestedAt: update.interruptRequestedAt ?? instance.interruptRequestedAt,
             interruptPhase: update.interruptPhase ?? instance.interruptPhase,

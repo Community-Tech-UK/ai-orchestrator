@@ -20,6 +20,10 @@
  *     on PATH, or diagnostics failed, or unhealthy) while at least one other
  *     provider is fine → warning, not blocking (the user may still want to
  *     try; switching providers is the remediation, not a hard stop).
+ *   - `provider.<id>` === 'disabled' with a recorded `details.problem`
+ *     for the composer's active provider → the same warning. Startup marks a
+ *     tool nobody set up as `disabled` so it never nags, but picking it in the
+ *     composer is choosing to use it.
  *
  * Deliberately EXCLUDED, with the existing owner noted so this file never
  * grows into a second, disagreeing health system:
@@ -99,11 +103,24 @@ export function buildRunReadinessReasons(inputs: RunReadinessInputs): RunReadine
       // didn't already fire — a single clear "nothing works" reason beats a
       // redundant per-provider one when every provider is broken.
       const providerCheck = report.checks.find((check) => check.id === `provider.${inputs.provider}`);
-      if (providerCheck?.status === 'degraded') {
+      const problem = providerCheck?.details?.['problem'];
+      const unusedButNeedsCheck = providerCheck?.status === 'disabled'
+        && (problem === 'not-signed-in' || problem === 'needs-attention' || problem === 'check-failed');
+      if (providerCheck?.status === 'degraded' || unusedButNeedsCheck) {
         reasons.push({
           id: `provider-degraded-${inputs.provider}`,
           severity: 'warning',
           message: providerCheck.summary,
+          action: OPEN_DOCTOR_ACTION,
+        });
+      } else if (providerCheck?.status === 'disabled' && providerCheck.details?.['problem'] === 'not-installed') {
+        // Startup leaves a tool nobody asked for as `disabled` so it stays quiet,
+        // but choosing it in the composer is asking for it. Its own summary
+        // ("You only need it to use Cursor") would be beside the point here.
+        reasons.push({
+          id: `provider-not-installed-${inputs.provider}`,
+          severity: 'warning',
+          message: `${providerCheck.label} isn't installed on this computer, so a session that uses it can't start.`,
           action: OPEN_DOCTOR_ACTION,
         });
       }

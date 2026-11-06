@@ -1,27 +1,10 @@
 import type { InstanceProvider, OutputMessage } from '../../core/state/instance.store';
 import type { ConversationHistoryEntry } from '../../../../shared/types/history.types';
+import { providerName } from '../../../../shared/display-names';
 
-export function providerDisplayName(provider: string): string {
-  switch (provider) {
-    case 'claude':
-      return 'Claude';
-    case 'codex':
-      return 'Codex';
-    case 'gemini':
-      return 'Gemini';
-    case 'ollama':
-      return 'Ollama';
-    case 'copilot':
-      return 'Copilot';
-    case 'cursor':
-      return 'Cursor';
-    case 'grok':
-      return 'Grok';
-    case 'opencode':
-      return 'OpenCode';
-    default:
-      return 'AI';
-  }
+/** The provider's name for a session. Pass its model so OpenCode on the MiMo plan reads "MiMo". */
+export function providerDisplayName(provider: string, model?: string | null): string {
+  return providerName(provider, { model });
 }
 
 export function shouldShowWakeupReviveToggle(status: string): boolean {
@@ -42,7 +25,7 @@ export function getHistoryPreviewSubtitle(
   provider: InstanceProvider,
 ): string {
   const path = entry.workingDirectory.trim() || 'No workspace';
-  return `${providerDisplayName(provider)} history - ${shortenPath(path)}`;
+  return `${providerDisplayName(provider, entry.currentModel)} history - ${shortenPath(path)}`;
 }
 
 export function buildHistoryPreviewPendingRestoreMessages(

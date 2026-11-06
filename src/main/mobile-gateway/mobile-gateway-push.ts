@@ -1,5 +1,10 @@
 import * as os from 'os';
 import { crossPlatformBasename } from '../../shared/utils/cross-platform-path';
+import {
+  isInstanceStatus,
+  liveActivityStatusKey,
+  presentInstanceStatus,
+} from '../../shared/attention/instance-status-presentation';
 import type { MobilePromptDto } from '../../shared/types/mobile-gateway.types';
 import type { ApnsAlert, ApnsSendResult, MobileApnsSender } from './mobile-apns-sender';
 import type { MobileDeviceRegistry } from './mobile-device-registry';
@@ -59,11 +64,12 @@ export function sendMobilePromptPush(deps: MobileGatewayPushDeps, prompt: Mobile
       ? crossPlatformBasename(instance.workingDirectory)
       : '';
     const agent = instance?.displayName || 'Agent';
+    const needsOk = presentInstanceStatus('waiting_for_permission').label;
     const title =
       prompt.kind === 'permission'
         ? prompt.toolName
-          ? `${prompt.toolName} needs approval`
-          : 'Approval needed'
+          ? `${prompt.toolName}: ${needsOk}`
+          : needsOk
         : prompt.title;
     const body = where ? `${agent} · ${where}` : agent;
     sendPersonalizedAlerts(deps, (hostDeviceId) => ({
@@ -85,22 +91,28 @@ export function sendMobilePromptPush(deps: MobileGatewayPushDeps, prompt: Mobile
   }
 }
 
-/** Instance status → the coarse label the Live Activity widget renders. */
+/**
+ * Instance status → the coarse key the Live Activity widget colours by.
+ *
+ * This stays a small fixed vocabulary on purpose: phones built earlier colour
+ * by exactly these keys, and the widget translates a key into the shared status
+ * words itself. A question is `waiting`, not `needs approval`. The mapping comes
+ * from the one status presenter; an unrecognised status (a newer app, a stale
+ * snapshot) keeps the old default of `working`.
+ */
 export function liveActivityStatusLabel(status: string): string {
-  switch (status) {
-    case 'waiting_for_permission':
-    case 'waiting_for_input':
-      return 'needs approval';
-    case 'error':
-    case 'failed':
-    case 'degraded':
-      return 'error';
-    case 'idle':
-    case 'ready':
-      return 'idle';
-    default:
-      return 'working';
-  }
+  return isInstanceStatus(status) ? liveActivityStatusKey(status) : 'working';
+}
+
+/**
+ * The exact words for the same status ("Thinking", "Restarting", "Asleep",
+ * "Stopped"), sent beside the key as `displayLabel`. The key is too coarse to
+ * carry them: it folds Thinking and Restarting into `working` and Asleep and
+ * Stopped into `idle`. A widget built before this field existed ignores it and
+ * keeps translating the key; a rebuilt one shows these words as sent.
+ */
+export function liveActivityDisplayLabel(status: string): string {
+  return presentInstanceStatus(isInstanceStatus(status) ? status : 'busy').label;
 }
 
 /**
@@ -162,6 +174,8 @@ function performLiveActivityPush(
         event,
         contentState: {
           status: liveActivityStatusLabel(status),
+          displayLabel: liveActivityDisplayLabel(status),
+          displayTone: presentInstanceStatus(isInstanceStatus(status) ? status : 'busy').tone,
           detail: where,
           hostDeviceId: deviceId,
         },
@@ -238,7 +252,7 @@ export function sendMobileCompletionPush(
     const agent = instance?.displayName || 'Agent';
     sendPersonalizedAlerts(deps, (hostDeviceId) => ({
         title: `${agent} finished`,
-        body: where ? `Idle · ${where}` : 'Ready for your next message',
+        body: where ? `${presentInstanceStatus('idle').label} · ${where}` : 'Ready for your next message',
         category: 'AIO_COMPLETE',
         threadId: instanceId,
         collapseId: `status-${instanceId}`.slice(0, 64),

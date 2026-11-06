@@ -1,4 +1,6 @@
 import type { OutputMessage } from '../../core/state/instance/instance.types';
+import { resolveSystemMessageAudience } from '../../../../shared/utils/system-message-audience';
+import type { DisplayItem } from './display-item.types';
 
 export const SYSTEM_GROUP_TIME_GAP_MS = 5 * 60 * 1000;
 
@@ -14,10 +16,70 @@ export const ALWAYS_VISIBLE_SYSTEM_ACTIONS: ReadonlySet<string> = new Set([
   'unknown',
 ]);
 
-export const QUIET_INTERRUPT_SYSTEM_MESSAGES = new Set<string>([
-  'Interrupted — waiting for input',
-  'Interrupted — session restarted (resume failed)',
+/**
+ * `groupAction` of the row that folds routine notices. Orchestration groups use
+ * their snake_case action name, so a fold can never be mistaken for one.
+ */
+export const ROUTINE_NOTICE_GROUP_ACTION = 'routine-notices';
+
+/** `metadata.type` values that mark an approval or question prompt. */
+const APPROVAL_PROMPT_TYPES: ReadonlySet<string> = new Set([
+  'permission_denial',
+  'secret_required',
+  'input_required',
+  'deferred_permission',
+  'acp_permission_request',
+  'mcp_elicitation',
+  'acp_elicitation',
 ]);
+
+/**
+ * Approvals and failed tools are never folded away, whatever an emit site
+ * flagged. The flag asks to be quiet; these have to stay in plain view.
+ */
+function mustStayOutsideRoutineFold(message: OutputMessage): boolean {
+  const metadata = message.metadata;
+  if (!metadata) return false;
+  const action = metadata['action'];
+  if (typeof action === 'string' && ALWAYS_VISIBLE_SYSTEM_ACTIONS.has(action)) return true;
+  const type = metadata['type'];
+  if (typeof type === 'string' && APPROVAL_PROMPT_TYPES.has(type)) return true;
+  return metadata['presentationKind'] === 'request-receipt'
+    || metadata['errorPresentation'] !== undefined
+    || metadata['permissionDecision'] === true
+    || metadata['secretRequestBlocked'] === true
+    || metadata['is_error'] === true
+    || metadata['isError'] === true
+    || metadata['checkFailed'] === true;
+}
+
+/**
+ * True for a system message its emit site flagged `audience: 'routine'` that is
+ * safe to fold into the "N system events" row. Unflagged messages are never
+ * routine, whatever they say.
+ */
+export function isFoldableRoutineNotice(message: OutputMessage): boolean {
+  return resolveSystemMessageAudience(message) === 'routine' && !mustStayOutsideRoutineFold(message);
+}
+
+/** "1 system event" / "3 system events". */
+export function buildRoutineGroupLabel(count: number): string {
+  return count === 1 ? '1 system event' : `${count} system events`;
+}
+
+/** A new fold row holding one routine notice. */
+export function createRoutineNoticeGroup(message: OutputMessage, bufferIndex?: number): DisplayItem {
+  return {
+    id: `sysgrp-${message.id}`,
+    type: 'system-event-group',
+    systemEvents: [message],
+    groupAction: ROUTINE_NOTICE_GROUP_ACTION,
+    groupLabel: buildRoutineGroupLabel(1),
+    groupPreview: buildSystemGroupPreview(message.content),
+    timestamp: message.timestamp,
+    bufferIndex,
+  };
+}
 
 /**
  * A provider compaction's start/finish notices. The compaction boundary row

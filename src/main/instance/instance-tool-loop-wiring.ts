@@ -49,6 +49,7 @@ import {
 import type { CliToolCall } from '../cli/adapters/base-cli-adapter';
 import type { ProviderRuntimeEvent } from '@contracts/types/provider-runtime-events';
 import { isMutatingProviderTool, isReadOnlyProviderTool } from '../cli/adapters/acp-doom-loop-permission';
+import { isToolResultFailed } from '../../shared/tool-outcome';
 import { recordInstanceTurnEnding } from './instance-turn-ending-state';
 
 const logger = getLogger('InstanceToolLoopWiring');
@@ -132,9 +133,16 @@ function readOutputMetadataArgs(metadata: Record<string, unknown> | undefined): 
   return args && typeof args === 'object' ? (args as Record<string, unknown>) : {};
 }
 
+/**
+ * A command that ran and exited non-zero is no longer written as `is_error`, so
+ * the flag alone would call a failing test run a success. The per-kind rule adds
+ * a check that did not pass; a result with no outcome fields at all stays unknown.
+ */
 function readOutputMetadataIsError(metadata: Record<string, unknown> | undefined): boolean | undefined {
-  const isError = metadata?.['is_error'] ?? metadata?.['isError'];
-  return typeof isError === 'boolean' ? isError : undefined;
+  if (!metadata) return undefined;
+  if (isToolResultFailed(readOutputMetadataToolName(metadata), metadata)) return true;
+  const isError = metadata['is_error'] ?? metadata['isError'];
+  return typeof isError === 'boolean' ? false : undefined;
 }
 
 /** LT-062 bridge: normalize a `tool_use`-typed `output` message into the same observation shape as a raw `tool_use` event. */

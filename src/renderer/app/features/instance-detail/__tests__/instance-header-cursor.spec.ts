@@ -14,27 +14,9 @@ import {
 } from '../instance-header.component';
 import type { InstanceRuntimeSummary } from '../../../../../shared/types/local-model-runtime.types';
 
-// Extract the pure logic mirrors from the component's getProviderDisplayName
-// and getProviderColor methods so we can test them without Angular DI.
-
-function getProviderDisplayName(provider: string): string {
-  switch (provider) {
-    case 'claude':
-      return 'Claude';
-    case 'codex':
-      return 'Codex';
-    case 'gemini':
-      return 'Gemini';
-    case 'ollama':
-      return 'Ollama';
-    case 'copilot':
-      return 'Copilot';
-    case 'cursor':
-      return 'Cursor';
-    default:
-      return 'AI';
-  }
-}
+// The display name is the real exported function (it reads the shared name
+// module). The colour switch still has to be mirrored here to test it without
+// Angular DI.
 
 function getProviderColor(provider: string): string {
   switch (provider) {
@@ -56,8 +38,8 @@ function getProviderColor(provider: string): string {
 }
 
 describe('InstanceHeaderComponent — cursor provider', () => {
-  it('getProviderDisplayName returns Cursor for cursor', () => {
-    expect(getProviderDisplayName('cursor')).toBe('Cursor');
+  it('names Cursor as Cursor', () => {
+    expect(resolveHeaderProviderDisplayName('cursor')).toBe('Cursor');
   });
 
   it('getProviderColor returns a color for cursor', () => {
@@ -70,10 +52,26 @@ describe('InstanceHeaderComponent — cursor provider', () => {
     expect(getProviderColor('cursor')).toBe('#E5E7EB');
   });
 
-  it('getProviderDisplayName still works for other providers', () => {
-    expect(getProviderDisplayName('claude')).toBe('Claude');
-    expect(getProviderDisplayName('gemini')).toBe('Gemini');
-    expect(getProviderDisplayName('unknown')).toBe('AI');
+  it('names the other providers with the one shared name', () => {
+    expect(resolveHeaderProviderDisplayName('claude')).toBe('Claude');
+    expect(resolveHeaderProviderDisplayName('gemini')).toBe('Gemini');
+    expect(resolveHeaderProviderDisplayName('codex')).toBe('Codex');
+  });
+
+  it('names OpenCode "OpenCode" unless the session\'s model is a MiMo plan model', () => {
+    expect(resolveHeaderProviderDisplayName('opencode')).toBe('OpenCode');
+    expect(resolveHeaderProviderDisplayName('opencode', undefined, 'opencode/big-pickle')).toBe('OpenCode');
+    expect(resolveHeaderProviderDisplayName('opencode', undefined, 'openrouter/anthropic/claude-sonnet-4')).toBe('OpenCode');
+    expect(resolveHeaderProviderDisplayName('opencode', undefined, 'xiaomi-token-plan-ams/mimo-v2.5-pro')).toBe('MiMo');
+    expect(resolveHeaderProviderDisplayName('opencode', undefined, 'aio-mimo-work/mimo-v2.5-pro')).toBe('MiMo');
+  });
+
+  it('ignores the model for every provider except OpenCode', () => {
+    expect(resolveHeaderProviderDisplayName('claude', undefined, 'xiaomi-token-plan-ams/mimo-v2.5-pro')).toBe('Claude');
+  });
+
+  it('shows an unknown provider in plain words rather than a bare "AI"', () => {
+    expect(resolveHeaderProviderDisplayName('some-new-tool')).toBe('Some new tool');
   });
 });
 
@@ -87,8 +85,8 @@ describe('InstanceHeaderComponent — local model runtime display', () => {
     modelId: 'qwen',
   };
 
-  it('uses Local Models and the runtime summary label for local-model sessions', () => {
-    expect(resolveHeaderProviderDisplayName('claude', runtimeSummary)).toBe('Local Models');
+  it('uses Local models and the runtime summary label for local-model sessions', () => {
+    expect(resolveHeaderProviderDisplayName('claude', runtimeSummary)).toBe('Local models');
     expect(
       resolveHeaderModelDisplayName({
         runtimeSummary,

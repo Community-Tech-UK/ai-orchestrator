@@ -125,7 +125,7 @@
           @if (activeManagementTab() === 'orchestrator') {
             <div class="provider-checks"><span class="field-label">Use in new local sessions from</span>
               @for (provider of orchestratorInjectionProviders; track provider) {
-                <label class="checkbox-row compact-check"><input type="checkbox" [checked]="isManagementProviderSelected('injectInto', provider)" (change)="toggleManagementProvider('injectInto', provider, $event)" />{{ provider }}</label>
+                <label class="checkbox-row compact-check"><input type="checkbox" [checked]="isManagementProviderSelected('injectInto', provider)" (change)="toggleManagementProvider('injectInto', provider, $event)" />{{ providerLabel(provider) }}</label>
               }
             </div>
           }

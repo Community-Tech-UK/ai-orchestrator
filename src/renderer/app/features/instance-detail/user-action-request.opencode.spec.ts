@@ -42,7 +42,7 @@ describe('OpenCode question forms', () => {
     options[0].click(); fixture.detectChanges();
     (fixture.nativeElement.querySelector('.btn-approve') as HTMLButtonElement).click();
     await fixture.whenStable();
-    expect(ipc.respondToInputRequired).toHaveBeenCalledWith('session', 'acp_elicitation:question', '{"manager":"Bun"}', 'acp_elicitation:question');
+    expect(ipc.respondToInputRequired).toHaveBeenCalledWith('session', 'acp_elicitation:question', '{"manager":"Bun"}', 'acp_elicitation:question', undefined, undefined, undefined, undefined, { kind: 'answered', summary: 'Bun' });
     fixture.destroy();
   });
 
@@ -50,7 +50,7 @@ describe('OpenCode question forms', () => {
     const { fixture, ipc } = await question();
     const request = fixture.componentInstance.pendingRequests()[0];
     await fixture.componentInstance.onSkipAskUserQuestion(request);
-    expect(ipc.respondToInputRequired).toHaveBeenCalledWith('session', 'acp_elicitation:question', 'cancel', 'acp_elicitation:question');
+    expect(ipc.respondToInputRequired).toHaveBeenCalledWith('session', 'acp_elicitation:question', 'cancel', 'acp_elicitation:question', undefined, undefined, undefined, undefined, { kind: 'skipped' });
     fixture.destroy();
   });
 });

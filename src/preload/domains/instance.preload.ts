@@ -3,6 +3,7 @@ import { IPC_CHANNELS } from '../generated/channels';
 import type { IpcResponse } from './types';
 import type { ModelRuntimeTarget } from '../../shared/types/local-model-runtime.types';
 import type { ReasoningEffort } from '../../shared/types/provider.types';
+import type { InstanceSendInputPayload } from '@contracts/schemas/instance';
 
 export function createInstanceDomain(
   ipcRenderer: IpcRenderer,
@@ -71,12 +72,7 @@ export function createInstanceDomain(
     /**
      * Send input to an instance
      */
-    sendInput: (payload: {
-      instanceId: string;
-      message: string;
-      attachments?: unknown[];
-      isRetry?: boolean; automatedInput?: boolean; queuedAdmissionId?: string;
-    }): Promise<IpcResponse> => {
+    sendInput: (payload: Omit<InstanceSendInputPayload, 'attachments'> & { attachments?: unknown[] }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.INSTANCE_SEND_INPUT, payload);
     },
 
@@ -622,7 +618,7 @@ export function createInstanceDomain(
 
     /** Input requests settled without the user (timeout, auto-approve, cancelled turn, exit): drop their cards. */
     onInputRequiredResolved: (callback: (payload: { instanceId: string; requestId: string;
-      reason: 'timeout' | 'auto_approved' | 'decided' | 'cancelled' | 'exited' }) => void): (() => void) => {
+      reason: 'timeout' | 'auto_approved' | 'decided' | 'cancelled' | 'exited'; kind?: 'user-action' }) => void): (() => void) => {
       const handler = (_event: IpcRendererEvent, payload: Parameters<typeof callback>[0]) => callback(payload);
       ipcRenderer.on(ch.INPUT_REQUIRED_RESOLVED, handler);
       return () => ipcRenderer.removeListener(ch.INPUT_REQUIRED_RESOLVED, handler);
@@ -651,6 +647,7 @@ export function createInstanceDomain(
       decisionScope?: 'once' | 'session' | 'always',
       metadata?: Record<string, unknown>,
       updatedInput?: Record<string, unknown>,
+      receipt?: { kind: 'answered' | 'skipped'; summary?: string },
     ): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.INPUT_REQUIRED_RESPOND, {
         instanceId,
@@ -661,6 +658,7 @@ export function createInstanceDomain(
         decisionScope,
         metadata,
         updatedInput,
+        receipt,
       });
     },
 

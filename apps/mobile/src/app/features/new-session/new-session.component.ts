@@ -33,6 +33,7 @@ import { MobileIconComponent } from '../../shared/mobile-icon.component';
 import { MobileSheetComponent } from '../../shared/mobile-sheet.component';
 import { ModelSheetComponent } from '../../shared/model-sheet.component';
 import {
+  accountFamilyDisplayName,
   buildCreateInstanceRequest,
   canStartSession,
   defaultReasoningEffortForProvider,
@@ -145,7 +146,7 @@ export class NewSessionComponent implements OnInit {
   protected readonly quotaWarning = computed(() => {
     if (!this.isCurrentHost()) return null;
     const provider = this.provider() === 'auto' ? this.plan()?.provider : this.provider();
-    return provider && this.usage.isExhausted(provider) ? `${providerDisplayName(provider)} usage limit reached` : null;
+    return provider && this.usage.isExhausted(provider) ? `${accountFamilyDisplayName(provider)} usage limit reached` : null;
   });
   protected readonly planSummary = computed(() =>
     this.planError() ? 'Resolution unavailable' : sessionPlanSummary(this.plan()),

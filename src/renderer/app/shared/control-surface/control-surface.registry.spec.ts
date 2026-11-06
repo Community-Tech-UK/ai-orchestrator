@@ -127,12 +127,13 @@ describe('control surface registry', () => {
     expect(CONTROL_SURFACES.some((surface) => surface.path === '/fleet')).toBe(false);
   });
 
-  it('registers Local AI Guard as a dashboard-visible Monitoring diagnostic', () => {
+  it('registers Local models as a dashboard-visible Monitoring diagnostic, under that one name', () => {
     const localAi = CONTROL_SURFACES.find((surface) => surface.id === 'local-ai');
 
     expect(localAi).toMatchObject({
       path: '/local-ai',
-      label: 'Local AI Guard',
+      label: 'Local models',
+      title: 'Local models',
       group: 'monitoring',
       kind: 'diagnostic',
       layout: 'wide',

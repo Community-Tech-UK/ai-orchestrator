@@ -32,6 +32,7 @@ import {
 } from '../../shared/types/provider-account.types';
 import { MAX_MODEL_ID_LENGTH, type ModelDisplayInfo } from '../../shared/types/provider.types';
 import { getUnifiedModelCatalog } from './unified-model-catalog-service';
+import { accountFamilyName } from '../../shared/display-names';
 
 const logger = getLogger('OpenCodeCliDiscovery');
 
@@ -43,17 +44,21 @@ export const OPENCODE_MODEL_DISCOVERY_INTERVAL_MS = 5 * 60_000;
 const MODEL_HEADER = /^([a-z0-9][\w.-]*)\/(\S+)\s*$/i;
 const NON_CHAT_NAME = /tts|voiceclone|voicedesign|embedding/i;
 
-/** Friendly group labels for backends James uses; others show their raw id. */
+/**
+ * Friendly group labels for backends James uses; others show their raw id.
+ * The MiMo Token Plan groups read "MiMo", as everywhere else on screen. OpenCode's
+ * own names for them ("Xiaomi Token Plan (Europe)") are matched elsewhere, in
+ * `OPENCODE_REGION_AUTH_LABELS`, and must stay as the CLI prints them.
+ */
 const BACKEND_LABELS: Record<string, string> = {
   'opencode': 'OpenCode Zen',
-  'xiaomi-token-plan-ams': 'Xiaomi Token Plan (Europe)',
-  'xiaomi-token-plan-sgp': 'Xiaomi Token Plan (Singapore)',
-  'xiaomi-token-plan-cn': 'Xiaomi Token Plan (China)',
-  'xiaomi': 'Xiaomi MiMo',
   'openrouter': 'OpenRouter',
 };
 
 export function openCodeBackendLabel(providerId: string): string {
+  if (providerId === 'xiaomi' || providerId.startsWith('xiaomi-token-plan') || providerId.startsWith('aio-mimo-')) {
+    return accountFamilyName('opencode');
+  }
   return BACKEND_LABELS[providerId] ?? providerId;
 }
 

@@ -403,7 +403,7 @@ describe('CliHealthSettingsTabComponent', () => {
     expect(component.severity(component.entries()[0]!)).toBe('warning');
   });
 
-  it('titles a card from the update plan name when there is no renderer override', async () => {
+  it('titles every card with the shared tool name, and marks only Gemini as legacy', async () => {
     diagnoseAllClis.mockResolvedValue({
       success: true,
       data: { entries: [multiCopyEntry(['1.0.34'])] },
@@ -411,8 +411,14 @@ describe('CliHealthSettingsTabComponent', () => {
     await component.refresh();
 
     expect(component.cliDisplayName('grok')).toBe('Grok Build');
-    // Renderer overrides still win for the names that carry UI-only wording.
-    expect(component.cliDisplayName('gemini')).toBe('Google Gemini');
+    expect(component.cliDisplayName('cursor')).toBe('Cursor');
+    expect(component.cliDisplayName('copilot')).toBe('GitHub Copilot');
+    expect(component.cliDisplayName('gemini')).toBe('Google Gemini (legacy)');
+    expect(component.cliDisplayName('antigravity')).not.toContain('legacy');
+  });
+
+  it('names two example tools in the empty state from the shared names', () => {
+    expect(component.installExamples).toBe('Claude Code or OpenAI Codex');
   });
 
   it('reflects the persisted cliUpdatePolicy in the segmented control', () => {

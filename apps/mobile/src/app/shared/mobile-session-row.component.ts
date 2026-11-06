@@ -6,6 +6,8 @@ export interface MobileSessionRowView {
   title: string;
   subtitle?: string;
   statusLabel: string;
+  /** Exact shared status colour for live sessions; absent for historical rows. */
+  color?: string;
   tone: 'working' | 'attention' | 'error' | 'loop' | 'idle' | 'history';
   unread: boolean;
   live: boolean;
@@ -42,7 +44,7 @@ export function mobileSessionRowAriaLabel(row: MobileSessionRowView): string {
           <span class="session-row__subtitle">{{ row().subtitle }}</span>
         }
       </span>
-      <span class="session-row__state" [attr.aria-label]="row().statusLabel">
+      <span class="session-row__state" [style.color]="row().color" [attr.aria-label]="row().statusLabel">
         @switch (row().tone) {
           @case ('working') {
             <span class="session-row__spinner" aria-hidden="true"></span>
@@ -118,7 +120,6 @@ export function mobileSessionRowAriaLabel(row: MobileSessionRowView): string {
         color: var(--text-secondary);
         font-size: var(--font-size-sm, 13px);
         text-overflow: ellipsis;
-        text-transform: capitalize;
         white-space: nowrap;
       }
 
@@ -154,7 +155,7 @@ export function mobileSessionRowAriaLabel(row: MobileSessionRowView): string {
         width: 19px;
         height: 19px;
         border: 3px solid rgba(255, 255, 255, 0.18);
-        border-top-color: var(--text-secondary);
+        border-top-color: currentColor;
         border-radius: 50%;
         animation: session-row-spin 850ms linear infinite;
       }

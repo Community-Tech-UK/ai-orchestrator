@@ -126,8 +126,11 @@ describe('rate-limit diagnostics tolerate native field types', () => {
       expect(errors).toHaveLength(0); expect(telemetry).toEqual([info]); expect(adapter.getLastRateLimitInfo()).toEqual(info);
       if (status !== 'allowed') {
         expect(outputs).toHaveLength(1);
-        expect(outputs[0]).toMatchObject({ content: `Provider rate limit "${status}" (${String(value)}). Resets at unknown.`,
-          metadata: { rateLimit: true, status, rateLimitType: value } });
+        expect(outputs[0]).toMatchObject({ metadata: { rateLimit: true, status, rateLimitType: value } });
+        // A status or window name of any type is evidence for Details; it never reaches the sentence.
+        const noticeText = (outputs[0] as { content: string }).content;
+        expect(noticeText).toContain('Your Claude account is close to its current allowance.');
+        expect(noticeText).not.toContain(source);
       } else expect(outputs).toHaveLength(0);
       proc.stdout.write(JSON.stringify({ type: 'system', content: source }) + '\n');
       expect(serialized(outputs)).toContain(source);

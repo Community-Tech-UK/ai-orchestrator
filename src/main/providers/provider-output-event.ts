@@ -3,8 +3,13 @@ import type {
   ProviderRuntimeEventEnvelope,
 } from '@contracts/types/provider-runtime-events';
 import type { OutputMessage } from '../../shared/types/instance.types';
+import { withExplicitAudience } from '../../shared/utils/system-message-audience';
 
-/** Convert a shared OutputMessage into a lossless ProviderOutputEvent payload. */
+/**
+ * Convert a shared OutputMessage into a lossless ProviderOutputEvent payload.
+ * A system message leaves with an explicit audience (`attention` unless its emit
+ * site said `routine`), so the default is a recorded decision rather than silence.
+ */
 export function toProviderOutputEvent(message: OutputMessage): ProviderOutputEvent {
   const event: ProviderOutputEvent = {
     kind: 'output',
@@ -14,8 +19,9 @@ export function toProviderOutputEvent(message: OutputMessage): ProviderOutputEve
     timestamp: message.timestamp,
   };
 
-  if (message.metadata !== undefined) {
-    event.metadata = { ...message.metadata };
+  const metadata = withExplicitAudience(message.type, message.metadata);
+  if (metadata !== undefined) {
+    event.metadata = { ...metadata };
   }
 
   if (message.attachments !== undefined) {
@@ -49,8 +55,11 @@ export function toOutputMessageFromProviderOutputEvent(
     content: event.content,
   };
 
-  if (event.metadata !== undefined) {
-    message.metadata = { ...event.metadata };
+  // Not every producer goes through `toProviderOutputEvent` (an adapter's string
+  // `pushOutput`, an older worker), so the default is also made explicit here.
+  const metadata = withExplicitAudience(message.type, event.metadata);
+  if (metadata !== undefined) {
+    message.metadata = { ...metadata };
   }
 
   if (defaults?.adapterGeneration !== undefined || defaults?.turnId !== undefined) {

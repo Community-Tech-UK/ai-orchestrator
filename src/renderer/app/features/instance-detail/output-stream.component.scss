@@ -857,3 +857,10 @@
         flex-direction: column;
         gap: 4px;
       }
+
+.request-receipt {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin: var(--spacing-sm) 0;
+  overflow-wrap: anywhere;
+}

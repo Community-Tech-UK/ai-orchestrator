@@ -22,7 +22,7 @@ import type {
   LocalAiTargetStatus,
   LocalAiPublicRecoveryAttempt,
 } from '../../../../shared/types/local-ai-guard.types';
-import { LocalAiGuardStore } from '../../core/state/local-ai-guard.store';
+import { LOCAL_AI_OPERATION_ERROR, LocalAiGuardStore } from '../../core/state/local-ai-guard.store';
 import { LOCAL_AI_FAILURE_REASONS } from './local-ai-failure-copy';
 import { LOCAL_AI_GUARD_CLOCK } from './local-ai-guard-clock';
 import { LocalAiModalCoordinator } from './local-ai-modal-coordinator';
@@ -125,9 +125,7 @@ const SLOT_LABELS: Record<AuxiliaryLlmSlot, string> = {
       </p>
 
       @if (store.operationError()) {
-        <p class="operation-error" role="alert">
-          The Local AI Guard operation could not be completed. Try again.
-        </p>
+        <p class="operation-error" role="alert">{{ operationErrorText }}</p>
       }
 
       <footer class="target-actions" aria-label="Target actions">
@@ -364,6 +362,7 @@ const SLOT_LABELS: Record<AuxiliaryLlmSlot, string> = {
 })
 export class LocalAiTargetCardComponent {
   protected readonly store = inject(LocalAiGuardStore);
+  protected readonly operationErrorText = LOCAL_AI_OPERATION_ERROR;
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
   private readonly clock = inject(LOCAL_AI_GUARD_CLOCK);

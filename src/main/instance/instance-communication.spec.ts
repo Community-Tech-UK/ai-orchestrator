@@ -106,6 +106,9 @@ import { getHandoffStateService, HandoffStateService } from '../session/handoff-
 import type { CliResponse } from '../cli/adapters/base-cli-adapter';
 import { ProviderAuthenticationError } from '../cli/adapters/provider-authentication-error';
 import { getInstanceProviderLimitHandler } from './instance-provider-limit-handler';
+import { reportUsageLimitHandling } from '../cli/usage-limit-dispatch';
+import { USAGE_LIMIT_WINDOW_KEY, usageLimitWindow } from '../cli/usage-limit-window';
+import { errorMessageText } from '../util/error-utils';
 
 const emitPluginHookMock = vi.mocked(emitPluginHook);
 
@@ -814,7 +817,96 @@ describe('InstanceCommunicationManager', () => {
     await flushOutputHandlers();
 
     const errorOutput = instance.outputBuffer.filter((message) => message.type === 'error').pop();
-    expect(errorOutput?.metadata).toEqual({ errorCode: 'ENOENT' });
+    expect(errorOutput?.metadata).toMatchObject({ errorCode: 'ENOENT' });
+    // The person reads plain words; the provider's own text is behind Details.
+    expect(errorOutput?.content).toBe('Claude couldn\'t finish this request. What to do: Check Details, then try again. Your message and the work above are kept.');
+    expect(errorOutput?.metadata?.['errorPresentation']).toMatchObject({ category: 'unknown', rawDetail: 'spawn claude ENOENT' });
+  });
+
+  it('shows a failed turn in plain words, with the real reason under Details and still readable for programs', async () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    manager.setupAdapterEvents(instance.id, adapter);
+
+    (adapter as unknown as EventEmitter).emit('error', Object.assign(new Error('read ECONNRESET at 10.0.0.7:443'), { code: 'ECONNRESET' }));
+    await flushOutputHandlers();
+
+    const shown = instance.outputBuffer.filter((message) => message.type === 'error');
+    expect(shown).toHaveLength(1);
+    expect(shown[0].content).toBe('The connection to Claude was interrupted. What to do: Check your connection, then try again.');
+    expect(shown[0].content).not.toMatch(/ECONNRESET|10\.0\.0\.7/);
+    expect(shown[0].metadata?.['errorPresentation']).toMatchObject({ category: 'network', action: 'retry', rawDetail: 'read ECONNRESET at 10.0.0.7:443' });
+    expect(errorMessageText(shown[0])).toBe('read ECONNRESET at 10.0.0.7:443');
+    // The stop hook and the log still get the real reason, not the sentence.
+    expect(lifecycleHookMocks.triggerLifecycleHooks).toHaveBeenCalledWith(
+      'StopFailure',
+      expect.objectContaining({ errorMessage: 'read ECONNRESET at 10.0.0.7:443' }),
+    );
+  });
+
+  it('does not let a changed reason hide behind identical plain words: different failures are all shown, however often they come in a row', async () => {
+    // A stateless exec adapter stays alive after a failed turn, so failures can follow one another.
+    const adapter = new FakeAdapter('copilot-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    manager.setupAdapterEvents(instance.id, adapter);
+
+    for (const reason of ['first reason', 'second reason', 'third reason', 'fourth reason', 'fifth reason']) {
+      instance.status = 'idle';
+      instance.outputBuffer.forEach((message) => { message.timestamp -= 10_000; });
+      (adapter as unknown as EventEmitter).emit('error', new Error(reason));
+      await flushOutputHandlers();
+    }
+
+    expect(instance.outputBuffer.filter((message) => message.type === 'error').map(errorMessageText))
+      .toEqual(['first reason', 'second reason', 'third reason', 'fourth reason', 'fifth reason']);
+  });
+
+  it('still stops repeating one failure that comes in again and again', async () => {
+    const adapter = new FakeAdapter('copilot-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    manager.setupAdapterEvents(instance.id, adapter);
+
+    for (let attempt = 0; attempt < 6; attempt++) {
+      instance.status = 'idle';
+      instance.outputBuffer.forEach((message) => { message.timestamp -= 10_000; });
+      (adapter as unknown as EventEmitter).emit('error', new Error('same reason every time'));
+      await flushOutputHandlers();
+    }
+
+    expect(instance.outputBuffer.filter((message) => message.type === 'error')).toHaveLength(3);
+  });
+
+  it('says the limit in plain words, once, when nothing held the session and the adapter had already said it', async () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    Object.assign(adapter, { getLastRateLimitInfo: () => ({ status: 'rejected', rateLimitType: 'seven_day', resetsAt: Math.floor((Date.now() + 3_600_000) / 1000) }) });
+    adapters.set(instance.id, adapter);
+    manager.setupAdapterEvents(instance.id, adapter);
+    const reset = Date.now() + 3_600_000;
+    instance.outputBuffer.push({
+      id: 'earlier-note', timestamp: Date.now() - 5_000, type: 'system', content: 'Your Claude account has used its weekly allowance.',
+      metadata: { [USAGE_LIMIT_WINDOW_KEY]: usageLimitWindow({ provider: 'claude', resetAt: reset, now: Date.now() - 5_000 }) },
+    });
+
+    (adapter as unknown as EventEmitter).emit('error', new Error('Claude stream closed before the turn finished'));
+    await flushOutputHandlers();
+
+    expect(instance.outputBuffer.filter((message) => message.type === 'error')).toHaveLength(0);
+    expect(instance.status).toBe('error');
+  });
+
+  it('says the limit in plain words, with the account, when nothing held the session and nothing had said it yet', async () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    Object.assign(adapter, { getLastRateLimitInfo: () => ({ status: 'rejected', rateLimitType: 'seven_day', resetsAt: Math.floor((Date.now() + 3_600_000) / 1000) }) });
+    adapters.set(instance.id, adapter);
+    manager.setupAdapterEvents(instance.id, adapter);
+
+    (adapter as unknown as EventEmitter).emit('error', new Error('Claude stream closed before the turn finished'));
+    await flushOutputHandlers();
+
+    const [shown] = instance.outputBuffer.filter((message) => message.type === 'error');
+    expect(shown.content).toMatch(/^Your Claude account has used its current allowance\. It resets at \d\d:\d\d\. What to do: Wait for the allowance to reset, or switch account\.$/);
+    expect(shown.metadata?.['errorPresentation']).toMatchObject({ category: 'quota', rawDetail: 'Claude stream closed before the turn finished' });
+    expect(shown.metadata?.[USAGE_LIMIT_WINDOW_KEY]).toMatchObject({ provider: 'claude', account: 'default' });
   });
 
   it('keeps ordinary adapter Error identity and payload for consumers while projecting diagnostic logs', async () => {
@@ -843,7 +935,7 @@ describe('InstanceCommunicationManager', () => {
     expect(error.code).toBe(`PROVIDER_${rawAlias}`);
     expect(error.cause).toBeDefined();
     expect(error.metadata).toEqual({ recoveryRef: rawAlias });
-    expect(instance.outputBuffer.some((message) => message.content === error.message)).toBe(true);
+    expect(instance.outputBuffer.some((message) => message.type === 'error' && errorMessageText(message) === error.message)).toBe(true);
     expect(JSON.stringify(emitProviderRuntimeEvent.mock.calls)).toContain(rawAlias);
     expect(JSON.stringify(communicationLoggerMocks.error.mock.calls)).not.toContain(rawAlias);
     expect(communicationLoggerMocks.error).toHaveBeenCalledWith('Instance error', undefined,
@@ -2627,9 +2719,10 @@ describe('InstanceCommunicationManager', () => {
     );
     await flushOutputHandlers();
 
+    // The adapter's own line and the app's plain-words message for the same failure, told apart by the real reason behind each.
     expect(
       instance.outputBuffer.filter(
-        (message) => message.type === 'error' && message.content === 'Copilot CLI timeout after 300000ms',
+        (message) => message.type === 'error' && errorMessageText(message) === 'Copilot CLI timeout after 300000ms',
       ),
     ).toHaveLength(2);
   });
@@ -3090,6 +3183,23 @@ describe('LT-023: a suppressed respawn defers and retries instead of dying silen
 
     expect(instance.status).toBe('error');
     expect(onUnexpectedExit).not.toHaveBeenCalled();
+  });
+
+  it('says in plain words that the process stopped, and keeps the exit facts for Details', () => {
+    instance.restartCount = 5;
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    manager.setupAdapterEvents(instance.id, adapter);
+
+    (adapter as unknown as EventEmitter).emit('exit', null, 'SIGKILL');
+
+    const update = queueUpdate.mock.calls.find(([, status]) => status === 'error');
+    const error = update?.[5] as { code: string; message: string; stack?: string };
+    expect(error.code).toBe('SIGNAL_SIGKILL');
+    expect(error.message).toContain('Claude stopped before this turn finished.');
+    expect(error.message).toContain('Your message and the work above are kept.');
+    expect(error.message).not.toMatch(/SIGKILL|exited unexpectedly/);
+    expect(error.stack).toBe('Process exited unexpectedly with signal SIGKILL');
   });
 });
 
@@ -3950,7 +4060,8 @@ describe('provider-limit park on thrown sendInput errors', () => {
     expect(instance.status).toBe('idle');
     const notes = instance.outputBuffer.filter((m) => m.type === 'system' && m.metadata?.['accountFailover'] === true);
     expect(notes).toHaveLength(1);
-    expect(notes[0].content).toMatch(/Moving the conversation to another account/);
+    expect(notes[0].content).toContain('No action needed: Harness is moving this conversation to another account.');
+    expect(notes[0].content).not.toMatch(/usage limit\.|Moving the conversation/);
     expect(instance.outputBuffer.some((m) => m.metadata?.['providerLimitParked'] === true)).toBe(false);
   });
 
@@ -3973,6 +4084,103 @@ describe('provider-limit park on thrown sendInput errors', () => {
     );
     expect(parkMessages).toHaveLength(1);
     expect(parkMessages[0].metadata?.['alreadyParked']).toBe(true);
+    expect(parkMessages[0].content).toContain('Your message was not sent. Press Resume, or send it again once the allowance resets.');
+    expect(parkMessages[0].content).not.toMatch(/Still parked|quota window/);
+  });
+
+  describe('the one note about a limit', () => {
+    const NOON = new Date(2026, 9, 20, 12);
+    const FIVE_ONE_PM = new Date(2026, 9, 20, 17, 1).getTime();
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(NOON);
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    const earlierNote = (window: Parameters<typeof usageLimitWindow>[0]): OutputMessage => ({
+      id: `seeded-${++msgCounter}`,
+      timestamp: window.now,
+      type: 'system',
+      content: 'An earlier note about the limit.',
+      metadata: { [USAGE_LIMIT_WINDOW_KEY]: usageLimitWindow(window) },
+    });
+
+    async function refusedSend(outcome: 'parked' | 'already-parked' | 'switching-account', handlerReports?: () => void) {
+      const adapter = new FakeAdapter('codex-cli');
+      adapter.sendInput.mockRejectedValue(new Error(LIVE_INCIDENT_MESSAGE));
+      adapters.set(instance.id, adapter as unknown as CliAdapter);
+      instance.status = 'busy';
+      const transitionState = vi.fn((inst: Instance, status) => { inst.status = status; });
+      const manager = createManager(vi.fn(() => { handlerReports?.(); return outcome; }), transitionState);
+      await manager.sendInput(instance.id, 'keep going');
+      return { transitionState };
+    }
+
+    it('says what the limit handler reported doing, with the reset time, in the shared wording and with the provider\'s words only in Details', async () => {
+      await refusedSend('parked', () => {
+        reportUsageLimitHandling('claude', { kind: 'parked', autoResume: true, heldMessage: true, metadata: { providerLimitParked: true } });
+      });
+
+      const [note] = instance.outputBuffer.filter((m) => m.metadata?.['providerLimitParked'] === true);
+      expect(note.content).toBe(
+        'Your Claude account has used its current allowance. It resets at 17:01. '
+        + 'What to do: Wait for the allowance to reset, or switch account. '
+        + 'Your message will be sent again automatically once the allowance resets.',
+      );
+      expect(note.metadata?.['errorPresentation']).toMatchObject({
+        category: 'quota',
+        action: 'switch-account',
+        rawDetail: expect.stringContaining('hit your usage limit'),
+      });
+      expect(note.metadata?.[USAGE_LIMIT_WINDOW_KEY]).toMatchObject({ provider: 'claude', account: 'default', resetAt: FIVE_ONE_PM });
+      expect(note.content).not.toMatch(/hit your usage limit|chatgpt|Provider limit reached/);
+    });
+
+    it('claims only what is certainly true when the handler said nothing about what it did', async () => {
+      await refusedSend('parked');
+
+      const [note] = instance.outputBuffer.filter((m) => m.metadata?.['providerLimitParked'] === true);
+      expect(note.content).toContain('Your message was not sent. Press Resume, or send it again once the allowance resets.');
+      expect(note.content).not.toContain('automatically');
+    });
+
+    it.each(['parked', 'already-parked', 'switching-account'] as const)(
+      'adds nothing when the transcript already holds the note for this window (%s), and still settles the session',
+      async (outcome) => {
+        instance.outputBuffer.push(earlierNote({ provider: 'claude', resetAt: FIVE_ONE_PM, now: NOON.getTime() - 10 * 60_000 }));
+
+        const { transitionState } = await refusedSend(outcome);
+
+        expect(instance.outputBuffer).toHaveLength(1);
+        if (outcome === 'already-parked') expect(transitionState).not.toHaveBeenCalled();
+        else expect(transitionState).toHaveBeenCalledWith(instance, 'idle');
+      },
+    );
+
+    it('treats a note written moments ago as the same refusal even if its reset time was read differently', async () => {
+      instance.outputBuffer.push(earlierNote({ provider: 'claude', resetAt: FIVE_ONE_PM + 3 * 24 * 60 * 60_000, now: NOON.getTime() - 30_000 }));
+
+      await refusedSend('already-parked');
+
+      expect(instance.outputBuffer).toHaveLength(1);
+    });
+
+    it.each([
+      ['another account\'s', { provider: 'claude', accountProfileId: 'other-1', resetAt: FIVE_ONE_PM, now: NOON.getTime() - 10 * 60_000 }],
+      ['another provider\'s', { provider: 'codex', resetAt: FIVE_ONE_PM, now: NOON.getTime() - 10 * 60_000 }],
+      ['a finished window\'s', { provider: 'claude', resetAt: NOON.getTime() - 60 * 60_000, now: NOON.getTime() - 3 * 60 * 60_000 }],
+      ['a different window\'s', { provider: 'claude', resetAt: FIVE_ONE_PM + 5 * 24 * 60 * 60_000, now: NOON.getTime() - 10 * 60_000 }],
+    ] as const)('still says it when the earlier note is %s', async (_label, earlier) => {
+      instance.outputBuffer.push(earlierNote({ ...earlier }));
+
+      await refusedSend('parked');
+
+      expect(instance.outputBuffer.filter((m) => m.metadata?.['providerLimitParked'] === true)).toHaveLength(1);
+      expect(instance.outputBuffer).toHaveLength(2);
+    });
   });
 
   it('rethrows exactly as before when the park handler skips (feature off / no hint)', async () => {

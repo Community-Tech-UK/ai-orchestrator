@@ -13,15 +13,7 @@ import { isActiveTurnStatus } from '../../core/state/instance/instance-messaging
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import { FLEET_COST_TOOLTIP } from '../../../../shared/types/session-cost-copy';
-
-/** Display labels for the per-provider cost breakdown tooltip. */
-const PROVIDER_COST_LABELS: Record<string, string> = {
-  claude: 'Claude',
-  codex: 'Codex',
-  gemini: 'Gemini',
-  copilot: 'Copilot',
-  cursor: 'Cursor',
-};
+import { providerName } from '../../../../shared/display-names';
 
 @Component({
   selector: 'app-sidebar-footer',
@@ -108,7 +100,7 @@ export class SidebarFooterComponent {
     const parts = this.store.costByProvider();
     if (parts.length === 0) return '';
     return parts
-      .map((p) => `${PROVIDER_COST_LABELS[p.provider] ?? p.provider} $${p.cost.toFixed(2)}`)
+      .map((p) => `${providerName(p.provider)} $${p.cost.toFixed(2)}`)
       .join(' + ');
   });
 

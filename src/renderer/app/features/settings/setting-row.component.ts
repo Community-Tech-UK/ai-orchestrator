@@ -7,6 +7,19 @@ import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive'
 import { DEFAULT_SETTINGS } from '../../../../shared/types/settings-defaults';
 import { badgesFor } from '../../../../shared/types/settings-stage';
 import type { SettingMetadata } from '../../../../shared/types/settings.types';
+import { USAGE_CAUSE_TOOLTIPS } from '../../../../shared/usage-insight/usage-cause-copy';
+
+/**
+ * The limits on how many helper agents a session may start. Each helper uses its
+ * own allowance, so these controls say so on hover, in the words the usage card
+ * uses. The Codex helper choices are left out on purpose: their descriptions
+ * already say what each choice costs for Codex.
+ */
+const HELPER_LIMIT_KEYS: ReadonlySet<string> = new Set([
+  'maxChildrenPerParent',
+  'allowNestedOrchestration',
+  'maxSpawnDepth',
+]);
 
 interface SettingRowApi {
   selectFolder?: () => Promise<{ success: boolean; data?: string }>;
@@ -57,7 +70,7 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
           >Reset</button>
         }
       </div>
-      <div class="setting-control">
+      <div class="setting-control" [appTooltip]="controlTooltip()">
         @switch (setting().type) {
           @case ('boolean') {
             <label class="toggle">
@@ -177,6 +190,11 @@ export class SettingRowComponent {
     if (fallback === undefined) return false;
     return JSON.stringify(current ?? null) !== JSON.stringify(fallback ?? null);
   });
+
+  /** Hover text for the control itself; only the helper limits have any. */
+  protected readonly controlTooltip = computed<string | null>(() =>
+    HELPER_LIMIT_KEYS.has(this.setting().key) ? USAGE_CAUSE_TOOLTIPS.helperControls : null,
+  );
 
   protected readonly resetTooltip = computed(() => {
     const fallback = this.defaultValue();

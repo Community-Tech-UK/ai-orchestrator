@@ -425,7 +425,8 @@ describe('LocalWhisperTranscriptionProvider', () => {
       available: false,
       configured: true,
       location: 'worker-node',
-      reason: expect.stringContaining('Pinned worker'),
+      reason: expect.stringContaining('Pinned computer win-stt'),
+      requiresSetup: 'Start the pinned computer and its local STT endpoint.',
     });
   });
 });

@@ -2,7 +2,13 @@ import { Injectable, effect, inject } from '@angular/core';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { GatewayClient } from './gateway-client.service';
 import { HostStore } from './host-store';
-import { isLiveActivityCandidate, liveActivityStatusLabel, needsAttention } from './status';
+import {
+  displayStatusLabel,
+  displayStatusTone,
+  isLiveActivityCandidate,
+  liveActivityStatusLabel,
+  needsAttention,
+} from './status';
 import type { MobileInstanceDto } from './models';
 
 interface LiveActivityPlugin {
@@ -11,10 +17,14 @@ interface LiveActivityPlugin {
     instanceId: string;
     sessionName: string;
     projectName: string;
+    /** The short key older widgets colour by (working, waiting, needs approval, looping). */
     status: string;
+    /** The exact words to show ("Thinking", "Needs your OK"); a widget that predates it ignores it. */
+    displayLabel: string;
+    displayTone: string;
     detail: string;
   }): Promise<{ id?: string }>;
-  update(options: { status: string; detail: string }): Promise<void>;
+  update(options: { status: string; displayLabel: string; displayTone: string; detail: string }): Promise<void>;
   end(): Promise<void>;
   addListener(
     eventName: 'activityPushToken',
@@ -27,6 +37,8 @@ const LiveActivity = registerPlugin<LiveActivityPlugin>('LiveActivity');
 interface ActivityState {
   instanceId: string;
   status: string;
+  displayLabel: string;
+  displayTone: string;
   detail: string;
 }
 
@@ -106,6 +118,8 @@ export class LiveActivityService {
       const next: ActivityState = {
         instanceId: hero.id,
         status: this.statusLabel(hero),
+        displayLabel: displayStatusLabel(hero),
+        displayTone: displayStatusTone(hero),
         detail: hero.projectName || '',
       };
       if (!this.current || this.current.instanceId !== next.instanceId) {
@@ -115,11 +129,18 @@ export class LiveActivityService {
           sessionName: hero.displayName,
           projectName: hero.projectName || '',
           status: next.status,
+          displayLabel: next.displayLabel,
+          displayTone: next.displayTone,
           detail: next.detail,
         });
-      } else if (this.current.status !== next.status || this.current.detail !== next.detail) {
+      } else if (
+        this.current.status !== next.status
+        || this.current.displayLabel !== next.displayLabel
+        || this.current.displayTone !== next.displayTone
+        || this.current.detail !== next.detail
+      ) {
         this.current = next;
-        await LiveActivity.update({ status: next.status, detail: next.detail });
+        await LiveActivity.update({ status: next.status, displayLabel: next.displayLabel, displayTone: next.displayTone, detail: next.detail });
       }
     } catch {
       /* ActivityKit denied (user setting) or transient failure — retry on next change */

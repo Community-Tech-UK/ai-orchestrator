@@ -5,7 +5,7 @@ describe('ProviderInstanceManager — cursor', () => {
   it('DEFAULT_PROVIDER_CONFIGS includes cursor entry', () => {
     expect(DEFAULT_PROVIDER_CONFIGS.cursor).toMatchObject({
       type: 'cursor',
-      name: 'Cursor CLI',
+      name: 'Cursor',
     });
   });
 

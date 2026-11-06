@@ -6,6 +6,7 @@ import {
   type ModelDisplayInfo,
 } from '../../../../shared/types/provider.types';
 import { getModelDefaultReasoningEffort } from '../../../../shared/types/model-reasoning';
+import { EFFORT_MAX_DESCRIPTION, EFFORT_WORKFLOW_DESCRIPTION } from '../../../../shared/usage-insight/usage-cause-copy';
 import { ChatStore } from '../../core/state/chat.store';
 import type { ChatRecord } from '../../../../shared/types/chat.types';
 import type {
@@ -257,8 +258,9 @@ export class ModelPickerController {
         { id: 'medium', label: 'Medium', description: 'Balanced thinking' },
         { id: 'high', label: 'High', description: "Claude's standard depth" },
         { id: 'xhigh', label: 'Extra', description: 'Deeper reasoning' },
-        { id: 'max', label: 'Max', description: 'Deepest session-only reasoning' },
-        { id: 'workflow', label: 'Workflow', description: 'Claude Code ultracode mode' },
+        // These two cost the most, so they say so in the words the usage card uses.
+        { id: 'max', label: 'Max', description: EFFORT_MAX_DESCRIPTION },
+        { id: 'workflow', label: 'Workflow', description: EFFORT_WORKFLOW_DESCRIPTION },
       ]);
     }
 

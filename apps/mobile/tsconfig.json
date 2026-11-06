@@ -15,7 +15,9 @@
     "target": "ES2022",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "paths": {
-      "@contracts/types/mobile-gateway": ["../../packages/contracts/src/types/mobile-gateway.types.ts"]
+      "@contracts/types/mobile-gateway": ["../../packages/contracts/src/types/mobile-gateway.types.ts"],
+      "@contracts/types/*": ["../../packages/contracts/src/types/*.types.ts", "../../packages/contracts/src/types/*.ts"],
+      "@contracts/schemas/*": ["../../packages/contracts/src/schemas/*.schemas.ts"]
     }
   },
   "angularCompilerOptions": {

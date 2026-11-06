@@ -5,7 +5,7 @@
 
   <div class="node-row node-row-header">
     <div>
-      <span class="node-id">{{ node().name }}</span>
+      <span class="node-id">{{ computerLabel() }}</span>
       <div class="node-meta">
         <span>{{ node().id }}</span>
         <span>{{ formatNodePlatformLabel(node().platform) }}</span>
@@ -63,10 +63,10 @@
       class="capability-chip browser-automation"
       [attr.data-state]="browserAutomationState(healthEntry())"
       tabindex="0" [appTooltip]="browserAutomationState(healthEntry()) === 'chrome-only'
-        ? 'Chrome is installed but automation is not enabled on this node.'
+        ? 'Chrome is installed but automation is not enabled on this computer.'
         : browserAutomationState(healthEntry()) === 'off'
-          ? 'No Chrome/Chromium runtime detected on this node.'
-          : 'Agents spawned on this node get chrome-devtools browser tools.'"
+          ? 'No Chrome/Chromium runtime detected on this computer.'
+          : 'Agents spawned on this computer get chrome-devtools browser tools.'"
     >
       {{ browserAutomationLabel(healthEntry()) }}
     </span>
@@ -74,10 +74,10 @@
       class="capability-chip browser-automation"
       [attr.data-state]="extensionRelayState(healthEntry())"
       tabindex="0" [appTooltip]="extensionRelayState(healthEntry()) === 'ready'
-        ? 'Chrome extension native-host relay is listening on this node.'
+        ? 'Chrome extension native-host relay is listening on this computer.'
         : extensionRelayState(healthEntry()) === 'enabled'
           ? 'Chrome extension relay is enabled but not currently running.'
-          : 'Chrome extension relay is off on this node.'"
+          : 'Chrome extension relay is off on this computer.'"
     >
       {{ extensionRelayLabel(healthEntry()) }}
     </span>
@@ -85,10 +85,10 @@
       class="capability-chip android-automation"
       [attr.data-state]="androidAutomationState(healthEntry())"
       tabindex="0" [appTooltip]="androidAutomationState(healthEntry()) === 'sdk-only'
-        ? 'Android SDK/ADB is detected, but automation is not ready on this node.'
+        ? 'Android SDK/ADB is detected, but automation is not ready on this computer.'
         : androidAutomationState(healthEntry()) === 'off'
-          ? 'No Android SDK/ADB state reported by this node.'
-          : 'Agents spawned on this node can receive mobile-mcp Android tools.'"
+          ? 'No Android SDK/ADB state reported by this computer.'
+          : 'Agents spawned on this computer can receive mobile-mcp Android tools.'"
     >
       {{ androidAutomationLabel(healthEntry()) }}
     </span>
@@ -118,7 +118,7 @@
           [checked]="baDraftEnabled()"
           (change)="baDraftEnabled.set(!baDraftEnabled())"
         />
-        <span>Enable browser automation on this node</span>
+        <span>Enable browser automation on this computer</span>
       </label>
 
       <label class="ba-field">
@@ -147,12 +147,12 @@
           [checked]="baDraftExtensionRelayEnabled()"
           (change)="baDraftExtensionRelayEnabled.set(!baDraftExtensionRelayEnabled())"
         />
-        <span>Enable shared-tab extension relay on this node</span>
+        <span>Enable shared-tab extension relay on this computer</span>
       </label>
 
       <p class="field-hint ba-warning">
         Browser automation has no per-action approval — only enable it on
-        trusted nodes, and point the profile at a dedicated Chrome profile
+        trusted computers, and point the profile at a dedicated Chrome profile
         (not your everyday browser). First use needs a one-time profile
         login on that machine.
       </p>
@@ -196,7 +196,7 @@
           }
 
           <p class="field-hint ba-warning">
-            Chrome opens on <strong>{{ node().name }}</strong>'s own screen —
+            Chrome opens on <strong>{{ computerLabel() }}</strong>'s own screen —
             you must be at that computer (or connected via remote desktop)
             to complete the login. Then close that Chrome window.
           </p>
@@ -211,7 +211,7 @@
               [disabled]="loginBusy()"
               (click)="requestRunLogin()"
             >
-              {{ loginBusy() ? 'Launching…' : 'Run on node' }}
+              {{ loginBusy() ? 'Launching…' : 'Open login on computer' }}
             </button>
           </div>
 

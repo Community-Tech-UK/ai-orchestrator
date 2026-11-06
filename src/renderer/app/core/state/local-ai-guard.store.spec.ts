@@ -423,7 +423,7 @@ describe('LocalAiGuardStore', () => {
     });
     await refreshing;
 
-    expect(store.error()).toBe('Local AI Guard status could not be refreshed.');
+    expect(store.error()).toBe("Harness couldn't refresh the local model status.");
   });
 
   it('marks status unavailable after both initialization fetches fail without inventing state', async () => {
@@ -438,7 +438,7 @@ describe('LocalAiGuardStore', () => {
     expect(store.isInitialized()).toBe(true);
     expect(store.hasAuthoritativeSnapshot()).toBe(false);
     expect(store.snapshot()).toBeNull();
-    expect(store.error()).toBe('Local AI Guard status could not be refreshed.');
+    expect(store.error()).toBe("Harness couldn't refresh the local model status.");
 
     const recovered = snapshot({
       revision: '1',
@@ -676,7 +676,7 @@ describe('LocalAiGuardStore', () => {
     await store.refresh();
 
     expect(store.snapshot()).toBe(original);
-    expect(store.error()).toBe('Local AI Guard status could not be refreshed.');
+    expect(store.error()).toBe("Harness couldn't refresh the local model status.");
 
     const recovered = snapshot({
       revision: '1',
@@ -1146,7 +1146,7 @@ describe('LocalAiGuardStore', () => {
     await Promise.all([first, duplicate]);
 
     expect(store.operationError()).toBe(
-      'The Local AI Guard operation could not be completed. Try again.',
+      "That local model action couldn't be completed. Try again.",
     );
     expect(store.operationError()).not.toContain('user:secret');
     expect(store.operationKey()).toBeNull();

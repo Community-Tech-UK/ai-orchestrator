@@ -170,6 +170,11 @@ export class InstanceIpcService {
     return this.api.quickAsk({ instanceId, question });
   }
 
+  async continueInterrupted(instanceId: string, message: string, idempotencyKey: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.sendInput({ instanceId, message, continueInterrupted: true, idempotencyKey });
+  }
+
   async steerInput(instanceId: string, message: string, attachments?: FileAttachment[]): Promise<IpcResponse> {
     if (!this.api?.steerInput) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.steerInput({ instanceId, message, attachments });
@@ -653,6 +658,7 @@ export class InstanceIpcService {
     instanceId: string;
     requestId: string;
     reason: 'timeout' | 'auto_approved' | 'decided' | 'cancelled' | 'exited';
+    kind?: 'user-action';
   }) => void): () => void {
     if (!this.api?.onInputRequiredResolved) return () => { /* noop */ };
     return this.api.onInputRequiredResolved((payload) => {
@@ -671,10 +677,11 @@ export class InstanceIpcService {
     decisionAction?: 'allow' | 'deny' | 'modify',
     decisionScope?: 'once' | 'session' | 'always',
     metadata?: Record<string, unknown>,
-    updatedInput?: Record<string, unknown>
+    updatedInput?: Record<string, unknown>,
+    receipt?: { kind: 'answered' | 'skipped'; summary?: string },
   ): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.respondToInputRequired(instanceId, requestId, response, permissionKey, decisionAction, decisionScope, metadata, updatedInput);
+    return this.api.respondToInputRequired(instanceId, requestId, response, permissionKey, decisionAction, decisionScope, metadata, updatedInput, receipt);
   }
 
   /**

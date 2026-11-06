@@ -6,6 +6,7 @@
  */
 
 import { BaseProvider } from './provider-interface';
+import { providerToolName } from '../../shared/display-names';
 import { CodexCliAdapter, CodexCliConfig } from '../cli/adapters/codex-cli-adapter';
 import { attachAccountRoute } from '../instance/lifecycle/account-route-preflight';
 import { resolveCodexAccountSpawnConfig } from '../cli/adapters/account-pool/account-adapter-guards';
@@ -48,7 +49,7 @@ export const DEFAULT_CODEX_CONFIG: ProviderConfig = {
 
 export const CODEX_DESCRIPTOR: ProviderAdapterDescriptor = {
   provider: 'codex',
-  displayName: 'OpenAI Codex',
+  displayName: providerToolName('codex'),
   capabilities: CODEX_CAPABILITIES,
   defaultConfig: DEFAULT_CODEX_CONFIG,
 };

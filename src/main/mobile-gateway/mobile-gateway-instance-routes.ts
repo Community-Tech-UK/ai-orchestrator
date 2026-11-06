@@ -57,11 +57,12 @@ const VALID_PROVIDERS = new Set([
 const VALID_REASONING_EFFORTS = new Set<string>(REASONING_EFFORTS);
 
 export interface GatewayOrchestrationSource extends EmitterLike {
+  /** `not-pending` means the card had already closed, so nothing was sent. */
   respondToUserAction(
     requestId: string,
     approved: boolean,
     selectedOption?: string,
-  ): void;
+  ): 'resolved' | 'not-pending' | 'dedicated-channel' | void;
 }
 
 export interface GatewayInstanceSource extends EmitterLike {
@@ -482,10 +483,14 @@ export class MobileGatewayInstanceRoutes {
     if (prompt.kind === "user-action") {
       const response =
         typeof body.response === "string" ? body.response : undefined;
-      this.source()
+      const outcome = this.source()
         .getOrchestrationHandler()
         .respondToUserAction(requestId, approved, response);
       this.deps.promptStore.clear(requestId);
+      if (outcome === "not-pending") {
+        sendJsonResponse(res, 409, { error: "That request has already closed, so nothing was sent" });
+        return;
+      }
       sendJsonResponse(res, 200, { ok: true, responded: true });
       return;
     }

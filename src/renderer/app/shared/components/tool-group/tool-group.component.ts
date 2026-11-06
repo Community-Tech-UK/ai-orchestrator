@@ -3,12 +3,17 @@
  *
  * Groups consecutive tool_use and tool_result messages behind an expandable section,
  * reducing visual noise in the conversation stream.
+ *
+ * The collapsed header keeps only the expand control and a count of failed calls.
+ * What the turn did overall is written once, under the turn, by the turn note
+ * (src/shared/summarise-turn.ts), so this header does not repeat it.
  */
 
 import { Component, input, computed, inject, ChangeDetectionStrategy } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import type { OutputMessage } from '../../../core/state/instance.store';
 import { ExpansionStateService } from '../../../features/instance-detail/expansion-state.service';
+import { countFailedToolCalls } from '../../../../../shared/turn-tool-events';
 
 @Component({
   selector: 'app-tool-group',
@@ -20,15 +25,15 @@ import { ExpansionStateService } from '../../../features/instance-detail/expansi
         class="tool-group-header"
         type="button"
         [attr.aria-expanded]="isExpanded()"
-        [attr.aria-label]="summaryLabel()"
+        [attr.aria-label]="controlLabel()"
         (click)="toggle()"
       >
-        <span class="tool-icon">{{ isExpanded() ? '▼' : '▶' }}</span>
-        <span class="tool-label">{{ summaryLabel() }}</span>
-        <span class="tool-time">
-          {{ timeRange() }}
-        </span>
-        <span class="tool-chevron">{{ isExpanded() ? '−' : '+' }}</span>
+        <span class="tool-icon" aria-hidden="true">{{ isExpanded() ? '▼' : '▶' }}</span>
+        <span class="tool-label">Tool calls</span>
+        @if (failedCount() > 0) {
+          <span class="tool-failed">{{ failedCount() }} failed</span>
+        }
+        <span class="tool-chevron" aria-hidden="true">{{ isExpanded() ? '−' : '+' }}</span>
       </button>
       @if (isExpanded()) {
         <div class="tool-group-content">
@@ -101,11 +106,11 @@ import { ExpansionStateService } from '../../../features/instance-detail/expansi
       letter-spacing: 0.03em;
     }
 
-    .tool-time {
+    .tool-failed {
       flex-shrink: 0;
-      font-family: var(--font-mono);
-      font-size: 10px;
-      opacity: 0.42;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--error-color);
     }
 
     .tool-chevron {
@@ -201,77 +206,15 @@ export class ToolGroupComponent {
   isExpanded = computed(() => this.expansionState.isExpanded(this.instanceId(), this.itemId()));
 
   /**
-   * Actual tool-call count in this group — counts real `tool_use` messages,
-   * never the combined tool_use+tool_result renderer wrapper count.
+   * Calls in this group that failed: an edit or write that errored, or a command
+   * that could not run or that the provider marked as a check and that exited
+   * non-zero. A search that finds nothing is not a failure.
    */
-  readonly toolCallCount = computed(
-    () => this.toolMessages().filter((msg) => msg.type === 'tool_use').length,
-  );
+  readonly failedCount = computed(() => countFailedToolCalls(this.toolMessages()));
 
-  /**
-   * Total characters of actual tool-result content currently held by this
-   * group's messages. Counts `content.length` on `tool_result` messages only
-   * — never a fabricated or renderer-side estimate.
-   */
-  readonly resultCharacterCount = computed(() => this.toolMessages()
-    .filter((msg) => msg.type === 'tool_result')
-    .reduce((total, msg) => total + (msg.content?.length ?? 0), 0));
-
-  /**
-   * Count of results whose metadata explicitly reports externalization
-   * (`metadata['externalized']` boolean). Returns `null` when no message in
-   * the group carries that field at all, so the summary can omit the segment
-   * rather than reporting a fabricated zero.
-   */
-  readonly externalizedResultCount = computed<number | null>(() => {
-    const flags = this.toolMessages()
-      .filter((msg) => msg.type === 'tool_result')
-      .map((msg) => msg.metadata?.['externalized']);
-    const hasExternalizationData = flags.some((flag) => typeof flag === 'boolean');
-    return hasExternalizationData ? flags.filter((flag) => flag === true).length : null;
-  });
-
-  /**
-   * Truthful collapsed summary, e.g. "44 calls · 900,532 characters · 25
-   * results externalized". Every segment is a real count derived from the
-   * messages this component received; the externalized segment is omitted
-   * entirely when that data isn't present rather than showing a guessed 0.
-   */
-  summaryLabel = computed(() => {
-    const callCount = this.toolCallCount();
-    const characterCount = this.resultCharacterCount();
-    const externalizedCount = this.externalizedResultCount();
-
-    const parts = [
-      `${callCount.toLocaleString('en-US')} call${callCount !== 1 ? 's' : ''}`,
-      `${characterCount.toLocaleString('en-US')} character${characterCount !== 1 ? 's' : ''}`,
-    ];
-    if (externalizedCount !== null) {
-      parts.push(`${externalizedCount.toLocaleString('en-US')} result${externalizedCount !== 1 ? 's' : ''} externalized`);
-    }
-    return parts.join(' · ');
-  });
-
-  /**
-   * Time range of the group
-   */
-  timeRange = computed(() => {
-    const msgs = this.toolMessages();
-    if (msgs.length === 0) return '';
-
-    const first = msgs[0];
-    const last = msgs[msgs.length - 1];
-
-    const formatTime = (ts: number) => {
-      const d = new Date(ts);
-      return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    };
-
-    if (first.timestamp === last.timestamp) {
-      return formatTime(first.timestamp);
-    }
-
-    return `${formatTime(first.timestamp)}–${formatTime(last.timestamp)}`;
+  readonly controlLabel = computed(() => {
+    const failed = this.failedCount();
+    return failed > 0 ? `Tool calls, ${failed} failed` : 'Tool calls';
   });
 
   toggle(): void {

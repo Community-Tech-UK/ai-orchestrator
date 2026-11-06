@@ -64,6 +64,7 @@ describe('SidebarFooterComponent', () => {
     showCost?: boolean;
     /** UX5's cost-hidden hint counts instances in an active turn. */
     instances?: { id: string; status: string }[];
+    costByProvider?: { provider: string; cost: number }[];
   }): Promise<string> {
     TestBed.resetTestingModule();
     await TestBed.configureTestingModule({
@@ -74,7 +75,7 @@ describe('SidebarFooterComponent', () => {
           useValue: {
             instanceCount: () => opts.instanceCount,
             totalContextUsage: () => opts.usage,
-            costByProvider: () => [],
+            costByProvider: () => opts.costByProvider ?? [],
             instances: () => opts.instances ?? [],
           },
         },
@@ -130,6 +131,21 @@ describe('SidebarFooterComponent', () => {
     expect(text).toContain('≈$2.50');
     expect(fixture.componentInstance.costTooltip()).toContain('at API prices');
     expect(fixture.nativeElement.querySelector('.cost-stat').tabIndex).toBe(0);
+  });
+
+  it('names each provider in the cost split with the one shared name, never a raw id', async () => {
+    await render({
+      instanceCount: 3,
+      usage: unreported(4),
+      costByProvider: [
+        { provider: 'claude', cost: 2 },
+        { provider: 'codex', cost: 0.5 },
+        { provider: 'opencode', cost: 1.5 },
+        { provider: 'grok', cost: 0 },
+      ],
+    });
+
+    expect(fixture.componentInstance.costBreakdown()).toBe('Claude $2.00 + Codex $0.50 + OpenCode $1.50 + Grok $0.00');
   });
 
   it('hides cost when the global cost setting is off', async () => {

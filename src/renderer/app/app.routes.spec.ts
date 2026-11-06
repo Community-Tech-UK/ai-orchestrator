@@ -106,7 +106,7 @@ describe('app routes', () => {
     expect(workRoute?.data?.['controlSurfaceId']).toBe('workboard');
   });
 
-  it('lazy-loads the Local AI health centre at /local-ai through Control Surface metadata', () => {
+  it('lazy-loads the Local models page at /local-ai through Control Surface metadata', () => {
     const shellRoute = findShellRoute(routes);
     const localAiRoute = (shellRoute?.children ?? []).find((route) => route.path === 'local-ai');
 

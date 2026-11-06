@@ -57,6 +57,7 @@ import type {
   CompletedChildSummary,
 } from './orchestration-handler.types';
 import { isParentUnavailableSuppression, OrchestrationResponseDelivery } from './orchestration-response-delivery';
+import { UserActionLifecycle, type UserActionChannel } from './user-action-lifecycle';
 import { computeCommandSignature } from './orchestration-command-signature';
 import { areAgentSecretCardRequestsAllowed } from '../secrets/secret-card-policy';
 import { normaliseName } from '../secrets/workspace-secret-store';
@@ -85,8 +86,10 @@ const logger = getLogger('OrchestrationHandler');
 
 export class OrchestrationHandler extends EventEmitter {
   private contexts = new Map<string, OrchestrationContext>();
-  private pendingUserActions = new Map<string, UserActionRequest>();
-  private userActionWaiters = new Map<string, (approved: boolean, selectedOption?: string) => void>();
+  /** Every open card, its timer, and the one place it can end. Each ending is announced as `user-action-resolved`. */
+  private readonly userActions = new UserActionLifecycle((settled) => { this.emit('user-action-resolved', settled); });
+  /** Ids of the tool-permission questions this handler raised itself; the model's own questions are not in here. */
+  private readonly toolPickers = new Set<string>();
   /** Tracks completed children per parent: parentId → Set<childId> */
   private completedChildrenIds = new Map<string, Set<string>>();
   /** Tracks active in-process consensus queries per instance. */
@@ -170,19 +173,35 @@ export class OrchestrationHandler extends EventEmitter {
     this.activeConsensusQueries.delete(instanceId);
     this.suppressedChildCompletions.delete(instanceId);
 
-    // Best-effort cleanup: drop any pending user actions for this instance.
-    // Otherwise they can linger if an instance is terminated while awaiting input.
-    for (const [requestId, request] of this.pendingUserActions.entries()) {
-      if (request.instanceId === instanceId) {
-        this.pendingUserActions.delete(requestId);
-        this.userActionWaiters.delete(requestId);
-      }
-    }
+    // Close any cards still open for this instance, so they do not linger (or time out later) once it is gone.
+    this.userActions.settleForInstance(instanceId, { reason: 'exited' });
 
     // Remove from parent's children list
     for (const ctx of this.contexts.values()) {
       ctx.childrenIds = ctx.childrenIds.filter((id) => id !== instanceId);
     }
+  }
+
+  /**
+   * The person stopped this instance's turn: cancel the tool-permission questions it was waiting on, so
+   * approving one later cannot run a tool the turn no longer wants. Questions the model asked stay open.
+   */
+  cancelToolPickers(instanceId: string): number {
+    return this.userActions.settleForInstance(instanceId, { reason: 'cancelled' }, (request) => this.toolPickers.has(request.id));
+  }
+
+  /** A stopped session cannot accept answers to questions from its cancelled turn. */
+  cancelUserActions(instanceId: string): number {
+    return this.endUserActions(instanceId, 'cancelled');
+  }
+
+  endUserActions(instanceId: string, reason: 'cancelled' | 'exited'): number {
+    return this.userActions.settleForInstance(instanceId, { reason });
+  }
+
+  /** Ends every open question and stops every timer. */
+  dispose(): void {
+    this.userActions.dispose();
   }
 
   /**
@@ -526,14 +545,15 @@ export class OrchestrationHandler extends EventEmitter {
     return depth;
   }
 
-  private async requestUserDecision(params: {
+  /** Asks for a tool-permission choice; `ended` distinguishes timeout, cancellation and exit. */
+  private requestUserDecision(params: {
     instanceId: string;
     title: string;
     message: string;
     options: { id: string; label: string; description?: string }[];
     context?: Record<string, unknown>;
     timeoutMs?: number;
-  }): Promise<{ selectedOption?: string }> {
+  }): Promise<{ selectedOption?: string; ended?: 'timeout' | 'cancelled' | 'exited' }> {
     const requestId = `uar-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     const request: UserActionRequest = {
       id: requestId,
@@ -546,22 +566,16 @@ export class OrchestrationHandler extends EventEmitter {
       createdAt: Date.now(),
     };
 
-    this.pendingUserActions.set(requestId, request);
-    this.emit('user-action-request', request);
-
-    const timeoutMs = params.timeoutMs ?? 5 * 60 * 1000;
-    return await new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        this.userActionWaiters.delete(requestId);
-        // Remove request from pending list if it still exists.
-        this.pendingUserActions.delete(requestId);
-        resolve({ selectedOption: undefined });
-      }, timeoutMs);
-
-      this.userActionWaiters.set(requestId, (_approved, selectedOption) => {
-        clearTimeout(timer);
-        resolve({ selectedOption });
+    return new Promise((resolve) => {
+      this.toolPickers.add(requestId);
+      this.userActions.open(request, {
+        timeoutMs: params.timeoutMs ?? 5 * 60 * 1000,
+        onSettled: ({ end }) => {
+          this.toolPickers.delete(requestId);
+          resolve(end.reason === 'decided' ? { selectedOption: end.selectedOption } : { ended: end.reason });
+        },
       });
+      this.emit('user-action-request', request);
     });
   }
 
@@ -688,7 +702,7 @@ export class OrchestrationHandler extends EventEmitter {
           { id: 'deny_always', label: 'Always deny', description: 'Auto-deny this tool in the future (non-persistent today).' },
         ];
 
-        const { selectedOption } = await this.requestUserDecision({
+        const { selectedOption, ended } = await this.requestUserDecision({
           instanceId,
           title: 'Tool Permission Required',
           message,
@@ -701,6 +715,9 @@ export class OrchestrationHandler extends EventEmitter {
             },
           },
         });
+
+        // Stopped or closed while asking: the turn no longer wants this tool, and there is no one to tell.
+        if (ended === 'cancelled' || ended === 'exited') return;
 
         if (!selectedOption) {
           this.injectResponse(instanceId, 'call_tool', false, {
@@ -865,8 +882,8 @@ export class OrchestrationHandler extends EventEmitter {
       createdAt: Date.now()
     };
 
-    // Store the pending request
-    this.pendingUserActions.set(requestId, request);
+    // Store the pending request. It waits for as long as it takes, until answered or the session closes.
+    this.userActions.open(request);
 
     // Emit event for UI to display the request
     this.emit('user-action-request', request);
@@ -879,7 +896,7 @@ export class OrchestrationHandler extends EventEmitter {
   }
 
   getPendingSecretRequest(instanceId: string, requestId: string): NonNullable<UserActionRequest['secretRequest']> | undefined {
-    const request = this.pendingUserActions.get(requestId);
+    const request = this.userActions.get(requestId);
     return request?.instanceId === instanceId && request.requestType === 'secret_required'
       ? request.secretRequest
       : undefined;
@@ -891,58 +908,46 @@ export class OrchestrationHandler extends EventEmitter {
     if (approved) {
       if (!reference || reference !== `secret://${normaliseName(secret.name)}`) return false;
     }
-    const request = this.pendingUserActions.get(requestId)!;
-    this.completeUserAction(request, approved, reference);
-    return true;
+    // The dedicated secret channel is this app's own window.
+    return this.completeUserAction(this.userActions.get(requestId)!, approved, reference, 'window');
   }
 
-  /**
-   * Respond to a pending user action request
-   */
+  /** Responds once; `not-pending` sends nothing for an unknown or closed request. */
   respondToUserAction(
     requestId: string,
     approved: boolean,
-    selectedOption?: string
-  ): void {
-    const request = this.pendingUserActions.get(requestId);
+    selectedOption?: string,
+    via: UserActionChannel = 'elsewhere',
+  ): 'resolved' | 'not-pending' | 'dedicated-channel' {
+    const request = this.userActions.get(requestId);
     if (!request) {
       logger.warn('No pending user action request found', { requestId });
-      return;
+      return 'not-pending';
     }
     if (request.requestType === 'secret_required') {
       logger.warn('Secret card requires the dedicated response channel', { requestId });
-      return;
+      return 'dedicated-channel';
     }
 
-    this.completeUserAction(request, approved, selectedOption);
+    return this.completeUserAction(request, approved, selectedOption, via) ? 'resolved' : 'not-pending';
   }
 
+  /** Closes a pending build-mode handoff card without telling the model; the handoff is done in this window. */
   dismissUserAction(requestId: string): void {
-    const request = this.pendingUserActions.get(requestId);
+    const request = this.userActions.get(requestId);
     if (!request || request.requestType !== 'switch_mode' || request.targetMode !== 'build') return;
-    this.completeUserAction({ ...request, context: { ...request.context, suppressInjectResponse: true } }, true);
+    this.completeUserAction({ ...request, context: { ...request.context, suppressInjectResponse: true } }, true, undefined, 'window');
   }
 
+  /** Closes the request as answered, then tells the model. False when it had already ended. */
   private completeUserAction(
     request: UserActionRequest,
     approved: boolean,
-    selectedOption?: string
-  ): void {
+    selectedOption: string | undefined,
+    via: UserActionChannel,
+  ): boolean {
     const requestId = request.id;
-
-    // Resolve any internal waiter first (tool permission gating, etc.).
-    const waiter = this.userActionWaiters.get(requestId);
-    if (waiter) {
-      this.userActionWaiters.delete(requestId);
-      try {
-        waiter(approved, selectedOption);
-      } catch {
-        /* intentionally ignored: waiter callback errors should not block the response flow */
-      }
-    }
-
-    // Remove from pending
-    this.pendingUserActions.delete(requestId);
+    if (!this.userActions.settle(requestId, { reason: 'decided', approved, selectedOption, via })) return false;
 
     const suppressInject = Boolean(request.context && (request.context as Record<string, unknown>)['suppressInjectResponse']);
     if (!suppressInject) {
@@ -957,22 +962,17 @@ export class OrchestrationHandler extends EventEmitter {
     }
 
     logger.info('User action responded', { requestId, approved });
+    return true;
   }
 
-  /**
-   * Get all pending user action requests
-   */
+  /** Lists all pending user actions. */
   getPendingUserActions(): UserActionRequest[] {
-    return Array.from(this.pendingUserActions.values());
+    return this.userActions.list();
   }
 
-  /**
-   * Get pending user actions for a specific instance
-   */
+  /** Lists pending user actions for one instance. */
   getPendingUserActionsForInstance(instanceId: string): UserActionRequest[] {
-    return Array.from(this.pendingUserActions.values()).filter(
-      (r) => r.instanceId === instanceId
-    );
+    return this.userActions.listForInstance(instanceId);
   }
 
   /**

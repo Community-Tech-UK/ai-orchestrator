@@ -9,6 +9,7 @@ import { getDebateCoordinator } from '../orchestration/debate-coordinator';
 import { getDoomLoopDetector } from '../orchestration/doom-loop-detector';
 import { toolLoopNotice } from '../orchestration/tool-loop-notice';
 import { getNotificationService } from '../notifications/notification-service';
+import { USER_ACTION_DEFAULT_BODY, userActionNotificationTitle } from '../notifications/user-action-notification';
 import { getSettingsManager } from '../core/config/settings-manager';
 import type { UserActionRequest } from '../orchestration/orchestration-handler';
 import { getOrchestrationActivityBridge } from '../orchestration/orchestration-activity-bridge';
@@ -86,6 +87,7 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
   const providerCompactionUsage = new ProviderCompactionUsageTracker();
   const providerCompactionLifecycle = new ProviderCompactionLifecycleRecorder();
   const toolEntryMerger = new ContinuityToolEntryMerger();
+  const resolvedRequests = new Set<string>();
 
   const continuityQueue = createContinuityForwardingQueue();
   setupInstanceTranscriptReplayForwarding({ instanceManager, windowManager, continuityQueue });
@@ -482,6 +484,7 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
   forwardCrossModelReviewEvents(crossModelReview, windowManager);
 
   instanceManager.on('instance:input-required', (payload) => {
+    resolvedRequests.delete(JSON.stringify([payload.instanceId, payload.requestId, 'native']));
     windowManager.sendToRenderer('instance:input-required', payload);
     observer.recordPrompt({
       id: payload.requestId,
@@ -494,6 +497,10 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
     });
   });
   instanceManager.on('instance:input-required-resolved', (payload) => {
+    const key = JSON.stringify([payload.instanceId, payload.requestId, payload.kind ?? 'native']);
+    if (resolvedRequests.has(key)) return;
+    resolvedRequests.add(key);
+    if (resolvedRequests.size > 500) resolvedRequests.delete(resolvedRequests.values().next().value!);
     windowManager.sendToRenderer(IPC_CHANNELS.INPUT_REQUIRED_RESOLVED, payload);
     observer.clearPrompt(payload.requestId);
   });
@@ -541,6 +548,7 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
 
   const orchestration = instanceManager.getOrchestrationHandler();
   orchestration.on('user-action-request', (request: UserActionRequest) => {
+    resolvedRequests.delete(JSON.stringify([request.instanceId, request.id, 'user-action']));
     logger.info('Forwarding user action request to renderer', { requestId: request.id });
     windowManager.sendToRenderer('user-action:request', request);
     observer.recordPrompt({
@@ -554,28 +562,9 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
       options: request.options?.map((option) => option.label) || request.questions,
     });
 
-    let title: string;
-    switch (request.requestType) {
-      case 'switch_mode': {
-        const modeLabel = request.targetMode
-          ? `${request.targetMode.charAt(0).toUpperCase()}${request.targetMode.slice(1)}`
-          : 'requested';
-        title = `Approval Needed: Switch to ${modeLabel} Mode`;
-        break;
-      }
-      case 'ask_questions':
-        title = 'Questions from AI Instance';
-        break;
-      case 'approve_action':
-        title = 'Approval Needed';
-        break;
-      default:
-        title = 'Input Needed';
-        break;
-    }
     windowManager.notifyUserActionRequest(
-      title,
-      request.message || 'An AI instance is waiting for your response.'
+      userActionNotificationTitle(request.requestType, request.targetMode),
+      request.message || USER_ACTION_DEFAULT_BODY
     );
   });
 

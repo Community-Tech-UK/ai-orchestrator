@@ -30,6 +30,8 @@ vi.mock('../core/error-recovery', () => ({
 
 import { InstanceCommunicationManager } from './instance-communication';
 import { GlobalPauseService } from '../global-pause/global-pause-service';
+import { ClaudeCliAdapter } from '../cli/adapters/claude-cli-adapter';
+import { getTurnFileBaselineService } from '../vcs/turn-file-baseline';
 
 class FakeAdapter extends EventEmitter {
   readonly sendInput = vi.fn(async () => undefined);
@@ -39,6 +41,40 @@ class FakeAdapter extends EventEmitter {
 
 describe('InstanceCommunicationManager input cancellation', () => {
   beforeEach(() => { lifecycleHookMocks.triggerLifecycleHooks.mockClear(); });
+  it('releases each unadmitted file snapshot when a pause races with native dispatch', async () => {
+    const instance = createInstance();
+    const adapter = new ClaudeCliAdapter({ workingDirectory: instance.workingDirectory });
+    let held = false;
+    const pause = Object.assign(new EventEmitter(), { holdsAutomaticInput: () => held, manualInput: vi.fn() });
+    const peek = vi.spyOn(GlobalPauseService, 'peek').mockReturnValue(pause as unknown as GlobalPauseService);
+    const first = { activate: vi.fn(), release: vi.fn().mockResolvedValue(undefined) };
+    const second = { activate: vi.fn(), release: vi.fn().mockResolvedValue(undefined) };
+    const baseline = vi.spyOn(getTurnFileBaselineService(), 'beforeDispatch')
+      .mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+    const nativeWrite = vi.fn();
+    let attempts = 0;
+    const sendInput = vi.spyOn(adapter, 'sendInput').mockImplementation(async (_message, _attachments, options) => {
+      held = attempts++ === 0;
+      try {
+        options!.dispatch!.beforeProviderDispatch!();
+        nativeWrite();
+      } finally { held = false; }
+    });
+    const manager = new InstanceCommunicationManager({ getInstance: () => instance, getAdapter: () => adapter,
+      setAdapter: vi.fn(), deleteAdapter: vi.fn(() => true), queueUpdate: vi.fn(), processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined), ingestToRLM: vi.fn(), ingestToUnifiedMemory: vi.fn() });
+    try {
+      await manager.sendInput(instance.id, 'Queued follow-up', undefined, null, { automatedInput: true });
+      expect(baseline).toHaveBeenCalledTimes(2);
+      expect(baseline).toHaveBeenNthCalledWith(1, instance.id, instance, true);
+      expect(baseline).toHaveBeenNthCalledWith(2, instance.id, instance, true);
+      expect(nativeWrite).toHaveBeenCalledOnce();
+      expect(first.activate).not.toHaveBeenCalled();
+      expect(first.release).toHaveBeenCalledOnce();
+      expect(second.activate).toHaveBeenCalledOnce();
+      expect(second.release).toHaveBeenCalledOnce();
+    } finally { peek.mockRestore(); baseline.mockRestore(); sendInput.mockRestore(); }
+  });
   it('holds a direct automated replay that reaches the communication layer during a global pause', async () => {
     const instance = createInstance();
     const adapter = new FakeAdapter();

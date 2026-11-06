@@ -1,5 +1,3 @@
-import { By } from '@angular/platform-browser';
-import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 /**
  * ComposerToolbarComponent spec
  *
@@ -16,6 +14,7 @@ import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive'
  */
 
 import { TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ComposerToolbarComponent,
@@ -26,8 +25,10 @@ import { InstanceIpcService } from '../../core/services/ipc';
 import { InstanceStore } from '../../core/state/instance.store';
 import { ToastService } from '../../core/services/toast.service';
 import { ProviderAccountIpcService } from '../../core/services/ipc/provider-account-ipc.service';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { HistoryPreviewSessionService } from './history-preview-session.service';
-import type { ContextUsage } from '../../core/state/instance/instance.types';
+import { USAGE_CAUSE_TOOLTIPS } from '../../../../shared/usage-insight/usage-cause-copy';
+import type { ContextUsage, InstanceStatus } from '../../core/state/instance/instance.types';
 import type {
   InstanceRuntimeSummary,
   ModelRuntimeTarget,
@@ -628,6 +629,68 @@ describe('ComposerToolbarComponent context ring label (rendered)', () => {
 
   it('does not let a large aggregate pin the ring at 100%', async () => {
     expect(await renderWith(makeAggregateUsage(400_000))).toBe('–');
+  });
+});
+
+describe('ComposerToolbarComponent context ring tooltip (rendered)', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  async function renderRing(inputs: { provider: string; status?: InstanceStatus; usage: ContextUsage }) {
+    await TestBed.configureTestingModule({
+      imports: [ComposerToolbarComponent],
+      providers: toolbarProviders,
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(ComposerToolbarComponent);
+    fixture.componentRef.setInput('instanceId', 'inst-ring');
+    fixture.componentRef.setInput('provider', inputs.provider);
+    fixture.componentRef.setInput('currentModel', 'claude-opus-4-5');
+    fixture.componentRef.setInput('contextUsage', inputs.usage);
+    if (inputs.status) fixture.componentRef.setInput('instanceStatus', inputs.status);
+    fixture.detectChanges();
+
+    const ring = fixture.debugElement.query(By.css('.ctx-ring-btn'));
+    return {
+      button: ring.nativeElement as HTMLButtonElement,
+      tooltip: ring.injector.get(AioTooltipDirective).appTooltip(),
+      reading: fixture.componentInstance.ringTitle(),
+    };
+  }
+
+  it('says why a long Claude chat costs more, after the reading', async () => {
+    const { tooltip, reading } = await renderRing({
+      provider: 'claude', status: 'busy', usage: makeUsage(180_000, 200_000),
+    });
+
+    expect(tooltip).toBe(`${reading}. ${USAGE_CAUSE_TOOLTIPS.contextRing}`);
+  });
+
+  it('says what coming back to a big chat costs while the session is at rest', async () => {
+    const { tooltip, reading } = await renderRing({
+      provider: 'claude', status: 'idle', usage: makeUsage(120_000, 200_000),
+    });
+
+    expect(tooltip).toBe(`${reading}. ${USAGE_CAUSE_TOOLTIPS.contextRingIdle}`);
+  });
+
+  it.each([
+    ['a small Claude chat', 'claude', 'idle', makeUsage(40_000, 200_000)],
+    ['a long Codex chat', 'codex', 'idle', makeUsage(180_000, 500_000)],
+  ] as const)('keeps just the reading for %s', async (_label, provider, status, usage) => {
+    const { tooltip, reading } = await renderRing({ provider, status, usage });
+
+    expect(tooltip).toBe(reading);
+  });
+
+  it('is an app tooltip, not a native title, and the spoken name stays just the reading', async () => {
+    const { button, reading } = await renderRing({
+      provider: 'claude', status: 'busy', usage: makeUsage(180_000, 200_000),
+    });
+
+    expect(button.hasAttribute('title')).toBe(false);
+    expect(button.getAttribute('aria-label')).toBe(reading);
   });
 });
 

@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
+import { By } from '@angular/platform-browser';
 import { TestBed } from '@angular/core/testing';
 import type { LoopRunSummaryPayload } from '@contracts/schemas/loop';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 import { LoopIpcService } from '../../core/services/ipc/loop-ipc.service';
 import { RendererPollSchedulerService } from '../../core/services/renderer-poll-scheduler.service';
 import { LoopStore } from '../../core/state/loop.store';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import {
   deriveReattemptSeed,
   canCloseStoredLoopRun,
@@ -168,8 +170,8 @@ describe('LoopPastRunsPanelComponent.onResolveBlocked', () => {
 
 
 describe('LoopPastRunsPanelComponent stored Close', () => {
-  function setup(response = { success: true, data: { ok: true } }) {
-    const run = { id: 'stranded', chatId: 'chat-1', status: 'paused', endedAt: null, initialPrompt: 'goal', totalIterations: 0, totalTokens: 0, totalCostCents: 0, startedAt: 100 } as LoopRunSummaryPayload;
+  function setup(response = { success: true, data: { ok: true } }, runOverrides: Partial<LoopRunSummaryPayload> = {}) {
+    const run = { id: 'stranded', chatId: 'chat-1', status: 'paused', endedAt: null, initialPrompt: 'goal', totalIterations: 0, totalTokens: 0, totalCostCents: 0, startedAt: 100, ...runOverrides } as LoopRunSummaryPayload;
     const cancel = vi.fn(async () => response);
     const refreshHistory = vi.fn(async () => undefined);
     const refreshRecentRuns = vi.fn(async () => ({ ok: true }));
@@ -195,6 +197,38 @@ describe('LoopPastRunsPanelComponent stored Close', () => {
     fixture.detectChanges();
     return { fixture, panel, run, cancel, refreshHistory, refreshRecentRuns, activeByChat };
   }
+
+  it.each([
+    [1, '1 round'],
+    [2, '2 rounds'],
+    [14, '14 rounds'],
+  ])('counts rounds in plain words with real plurals: %i', (count, label) => {
+    const { fixture } = setup(undefined, { totalIterations: count });
+
+    const meta = (fixture.nativeElement as HTMLElement).querySelector('.pr-meta')?.textContent ?? '';
+    expect(meta).toContain(`${label} ·`);
+    expect(meta).not.toMatch(/\biters?\b/);
+    fixture.destroy();
+  });
+
+  it('keeps AIO out of the mark-resolved tooltip', () => {
+    const { fixture } = setup(undefined, {
+      status: 'completed',
+      endedAt: 200,
+      worktreeLifecycle: { phase: 'blocked', sessionBranch: 'loop/x' } as LoopRunSummaryPayload['worktreeLifecycle'],
+    });
+
+    const resolve = [...(fixture.nativeElement as HTMLElement).querySelectorAll('button')]
+      .find((button) => button.textContent?.trim() === 'Mark resolved');
+    expect(resolve).toBeDefined();
+    const directive = fixture.debugElement
+      .queryAll(By.directive(AioTooltipDirective))
+      .map((node) => node.injector.get(AioTooltipDirective))
+      .find((candidate) => (candidate.appTooltip() ?? '').includes('blocked run'));
+    expect(directive?.appTooltip()).toContain('Stop retrying this blocked run');
+    expect(directive?.appTooltip()).not.toContain('AIO');
+    fixture.destroy();
+  });
 
   it('shows an eligible Close button and asks before sending IPC', async () => {
     const { fixture, panel, run, cancel, refreshHistory, refreshRecentRuns } = setup();

@@ -1,6 +1,7 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import type { EventEmitter } from 'events';
 import type { CliResponse, CliToolCall } from '../cli/adapters/base-cli-adapter';
+import { isToolResultFailed } from '../../shared/tool-outcome';
 import { toProviderOutputEvent } from './provider-output-event';
 import type { ContextUsage, OutputMessage } from '../../shared/types/instance.types';
 import type {
@@ -16,6 +17,7 @@ import { getLogger } from '../logging/logger';
 import { normalizeUsage, type UsageLike } from '../../shared/util/usage-normalization';
 import { toJsonSafeProviderEventPayload } from './provider-event-raw-payload';
 import { readCapturedToolArguments } from './tool-call-argument-material';
+import { hashStable, stableStringify, stripAnnotationFieldsForHash } from './tool-observation-hash';
 import { classifyTurnEnding, readTurnEndingMetadata } from '../cli/turn-ending-classifier';
 import { AdapterTurnEndingObservation } from './adapter-turn-ending-observation';
 import { remoteContextDetails } from '../remote-node/instance-interaction-schemas';
@@ -32,55 +34,6 @@ export const UNKNOWN_EVENT_PAYLOAD_MAX_BYTES = 4096;
 
 /** Bound on the human-readable tool observation summaries (args/result). */
 const TOOL_OBSERVATION_SUMMARY_MAX_CHARS = 200;
-
-/**
- * LT-061: top-level argument field names that, by convention, carry
- * human-facing narration attached to a tool call rather than data the tool
- * acts on — e.g. Anthropic's Bash tool `description`, documented as "shown
- * to the user before the command is executed" and not consumed by the
- * shell. CLIs vary this text between otherwise-identical calls (a polling
- * loop's Nth "(N/8)" caption), which would otherwise make every call hash
- * differently and defeat `repeat-no-progress`/`ping-pong` in
- * `doom-loop-detector.ts`.
- *
- * Deliberately scoped by FIELD NAME across every tool and provider, not by
- * tool name or provider: a denylist keyed to e.g. `toolName === 'Bash'`
- * rots the moment a different tool or CLI adds its own annotation field
- * under a different name. This still needs a new entry for a genuinely
- * novel field-name convention, but no longer needs one per tool or
- * provider.
- *
- * Safe against masking a *substantive* field that happens to share one of
- * these names (e.g. some tool's `description` being its actual payload):
- * both detectors additionally require the tool *result* to match/stay
- * stable across the repeated calls (see `checkRepeatNoProgress` /
- * `isAlternatingStableWindow`), and a call whose real effect lives in one
- * of these fields will almost always produce a different result each time,
- * so it will not falsely collapse into "no progress".
- */
-const ARGS_HASH_IGNORED_ANNOTATION_FIELDS = new Set([
-  'description',
-  'reason',
-  'rationale',
-  'explanation',
-  'justification',
-  'summary',
-  'note',
-  'thought',
-]);
-
-/**
- * Drop top-level `ARGS_HASH_IGNORED_ANNOTATION_FIELDS` keys before hashing
- * tool_use arguments for loop detection. Leaves non-object values (and
- * `argsSummary`, computed separately from the untouched arguments) alone.
- */
-function stripAnnotationFieldsForHash(value: unknown): unknown {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return value;
-  const entries = Object.entries(value as Record<string, unknown>).filter(
-    ([key]) => !ARGS_HASH_IGNORED_ANNOTATION_FIELDS.has(key),
-  );
-  return Object.fromEntries(entries);
-}
 
 export type AdapterRuntimeEventSource = Pick<EventEmitter, 'on' | 'off'> & { getName?(): string; getConfig?(): unknown };
 
@@ -253,7 +206,7 @@ export function mapAdapterRuntimeEvent(
         is_error?: boolean;
       };
       const output = rawPayload.result ?? rawPayload.content;
-      const isError = rawPayload.is_error === true;
+      const isError = isToolResultFailed(rawPayload.name, rawPayload as unknown as Record<string, unknown>);
       return {
         event: {
           kind: 'tool_result',
@@ -300,6 +253,7 @@ export function mapAdapterRuntimeEvent(
       return {
         event: {
           kind: 'complete',
+          ...(rawPayload.metadata?.['turnErrored'] === true ? { turnErrored: true } : {}),
           ...definedNumberField('tokensUsed', rawPayload.usage?.totalTokens),
           ...definedNumberField('inputTokens', rawPayload.usage?.inputTokens),
           ...definedNumberField('outputTokens', rawPayload.usage?.outputTokens),
@@ -656,30 +610,6 @@ export function toProviderToolResultObservedEvent(toolCall: CliToolCall): Provid
     ...(resultHash !== undefined ? { resultHash } : {}),
     resultSummary: summarizeForObservation(toolCall.result),
   };
-}
-
-/** sha256 hex digest (first 16 chars) — matches the pattern in loop-invoker-capture.ts. */
-function hashStable(value: string): string {
-  return createHash('sha256').update(value).digest('hex').slice(0, 16);
-}
-
-/** Deterministic JSON serialization (sorted keys) so equal values hash equal regardless of key order. */
-function stableStringify(value: unknown): string {
-  try {
-    return JSON.stringify(sortJsonKeys(value));
-  } catch {
-    return String(value);
-  }
-}
-
-function sortJsonKeys(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortJsonKeys);
-  if (!value || typeof value !== 'object') return value;
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, child]) => [key, sortJsonKeys(child)]),
-  );
 }
 
 function summarizeForObservation(value: unknown, maxLength = TOOL_OBSERVATION_SUMMARY_MAX_CHARS): string {

@@ -5,6 +5,7 @@
  * all async operations and authoritative state stay in the parent tab.
  */
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
+import { computerName } from '../../../../shared/display-names';
 import type { RemoteNodeRosterEntry } from '../../../../shared/types/worker-node.types';
 import { type NodeHealthEntry, buildNodeHealthEntries } from './remote-nodes-browser-automation';
 import { formatNodeCapacity, formatNodePlatformLabel } from './remote-nodes-pairing-ui';
@@ -31,7 +32,7 @@ import { formatNodeCapacity, formatNodePlatformLabel } from './remote-nodes-pair
             (click)="select(entry.id)"
           >
             <span class="node-list-row-main">
-              <span class="node-list-name">{{ entry.name }}</span>
+              <span class="node-list-name">{{ computerLabel(entry) }}</span>
               <span class="node-list-meta">
                 <span>{{ formatNodePlatformLabel(entry.platform) }}</span>
                 @if (entry.address) {
@@ -56,6 +57,7 @@ export class RemoteNodeListComponent {
   readonly selectedNodeId = input<string | null>(null);
   readonly nodeSelected = output<string>();
 
+  protected readonly computerLabel = computerName;
   protected readonly entries = computed<NodeHealthEntry[]>(() =>
     buildNodeHealthEntries([...this.nodes()]),
   );

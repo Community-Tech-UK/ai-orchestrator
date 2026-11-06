@@ -4,6 +4,7 @@ import type { CliAdapter } from '../../cli/adapters/adapter-factory';
 import { isSurfacedToUserError } from '../../cli/adapters/surfaced-error';
 import { getLogger } from '../../logging/logger';
 import { errorDiagnostic } from '../../logging/source-diagnostics';
+import { getTurnFileBaselineService } from '../../vcs/turn-file-baseline';
 import { GlobalPauseService } from '../../global-pause/global-pause-service';
 import { getSessionQueueService } from '../../session/session-queue-service';
 import { assertAutomaticStartupCurrent, isAutomaticStartupCancelled } from '../../work-admission/automatic-startup';
@@ -171,6 +172,8 @@ export async function deliverInitialPromptAfterSpawn(
     return;
   }
   try {
+    await getTurnFileBaselineService().beforeDispatch(instance.id, instance);
+    signal.throwIfAborted();
     await send();
   } catch (error) {
     if (isInitialPromptHeld(error)) {

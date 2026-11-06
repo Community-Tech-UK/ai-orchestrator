@@ -200,6 +200,8 @@ describe('remote ACP question and native-command wire integration', () => {
       respond: component.respond,
       draftKey: component.draftKey,
       isPermissionRequest: UserActionRequestComponent.prototype.isPermissionRequest,
+      requestClosed: () => false, answering: new Set<string>(), resolutions: new Map<string, never>(),
+      receiptStore: { chose: vi.fn(), closed: vi.fn() },
       ipc: { respondToInputRequired }, inputRequiredTexts: new Map(),
       eventBus: { dismissInputRequired: vi.fn() },
       pendingRequests: signal([request]), instanceStore: { decrementPendingApproval: vi.fn() } };

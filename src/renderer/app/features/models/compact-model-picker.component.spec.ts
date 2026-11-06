@@ -1,5 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
+import { By } from '@angular/platform-browser';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import {
   CompactModelPickerComponent,
@@ -138,6 +140,52 @@ describe('CompactModelPickerComponent', () => {
     fixture.detectChanges();
     const suffix = fixture.nativeElement.querySelector('.compact-picker__reasoning-suffix') as HTMLElement;
     expect(suffix?.textContent).toContain('High');
+  });
+
+  describe('the note on the chip about what the chosen effort costs', () => {
+    function chipNote(): string | null {
+      return fixture.debugElement
+        .query(By.directive(AioTooltipDirective))
+        .injector.get(AioTooltipDirective)
+        .appTooltip() ?? null;
+    }
+
+    it('warns that Max uses much more of the allowance', () => {
+      fixture.componentRef.setInput('mode', 'live-instance');
+      fixture.componentRef.setInput('chat', chatRecord({ provider: 'claude', model: 'sonnet', reasoningEffort: 'max' }));
+      fixture.detectChanges();
+
+      expect(chipNote()).toBe(
+        'Max: Thinks as long as it can on every step and uses much more of your allowance. Keep it for the hardest problems.',
+      );
+    });
+
+    it('warns that Workflow splits the work across helpers that each use their own allowance', () => {
+      fixture.componentRef.setInput('mode', 'live-instance');
+      fixture.componentRef.setInput('chat', chatRecord({ provider: 'claude', model: 'sonnet', reasoningEffort: 'workflow' }));
+      fixture.detectChanges();
+
+      expect(chipNote()).toBe(
+        'Workflow: Splits every task across many helper agents; each one uses its own allowance.',
+      );
+    });
+
+    it('has nothing to add when the provider decides the effort', () => {
+      fixture.componentRef.setInput('mode', 'live-instance');
+      fixture.componentRef.setInput('chat', chatRecord({ provider: 'claude', model: 'sonnet', reasoningEffort: null }));
+      fixture.detectChanges();
+
+      expect(chipNote()).toBeNull();
+    });
+
+    it('leaves the explanation to the disabled-reason text when the picker is locked', () => {
+      fixture.componentRef.setInput('mode', 'live-instance');
+      fixture.componentRef.setInput('chat', chatRecord({ provider: 'claude', model: 'sonnet', reasoningEffort: 'max' }));
+      fixture.componentRef.setInput('disabledReason', 'Model changes are only available while the instance is waiting');
+      fixture.detectChanges();
+
+      expect(chipNote()).toBeNull();
+    });
   });
 
   it.each([

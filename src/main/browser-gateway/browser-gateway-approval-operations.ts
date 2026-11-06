@@ -25,7 +25,7 @@ import {
 import type { BrowserGatewayContext } from './browser-gateway-service-types';
 import type { BrowserGatewayResultInput } from './browser-gateway-result';
 import { requiresAutonomousGrant } from './browser-grant-policy';
-import { grantScopeForApproval } from './browser-grant-scope';
+import { approvalComputerId, grantScopeForApproval } from './browser-grant-scope';
 import { getBrowserCredentialAccessService } from './browser-credential-access-service';
 
 interface BrowserGatewayApprovalOperationsDeps {
@@ -94,7 +94,8 @@ export class BrowserGatewayApprovalOperations {
       .map((approval) =>
         this.resolvePendingApprovalIfNeeded(this.expireApprovalIfNeeded(approval)),
       )
-      .filter((approval) => !request.status || approval.status === request.status);
+      .filter((approval) => !request.status || approval.status === request.status)
+      .map((approval) => this.withComputer(approval));
     return this.deps.result({
       context: request,
       action: 'list_approval_requests',
@@ -417,6 +418,13 @@ export class BrowserGatewayApprovalOperations {
     instanceId?: string,
   ): BrowserApprovalRequest | null {
     return this.deps.approvalStore.getRequest(requestId, instanceId);
+  }
+
+  /** Adds the computer the approval is about (worked out now, never stored). Saved-login requests carry their own. */
+  private withComputer(approval: BrowserApprovalRequest): BrowserApprovalRequest {
+    if (approval.credentialAccess) return approval;
+    const computerId = approvalComputerId(approval.profileId, (id) => this.deps.profileStore.getProfile(id));
+    return computerId ? { ...approval, computerId } : approval;
   }
 
   private expireApprovalIfNeeded(approval: BrowserApprovalRequest): BrowserApprovalRequest {

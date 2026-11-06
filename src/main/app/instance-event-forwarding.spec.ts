@@ -154,6 +154,35 @@ describe('setupInstanceEventForwarding', () => {
     expect(mockObserverClearPrompt).toHaveBeenCalledWith('acp_permission:7');
   });
 
+  it('forwards one resolution per request even when an adapter echoes after acknowledgement', () => {
+    const mgr = buildManager();
+    setupInstanceEventForwarding({ instanceManager: mgr, windowManager: mockWindowManager, isStatelessExecProvider: () => false, getNodeLatencyForInstance: () => undefined });
+    const payload = { instanceId: 'inst-1', requestId: 'shared', reason: 'decided' };
+    mgr.emit('instance:input-required-resolved', payload);
+    mgr.emit('instance:input-required-resolved', payload);
+    mgr.emit('instance:input-required-resolved', { ...payload, instanceId: 'inst-2' });
+    expect(mockSendToRenderer.mock.calls.filter(([channel]) => channel === IPC_CHANNELS.INPUT_REQUIRED_RESOLVED)).toHaveLength(2);
+    // An adapter can reuse its id for a later request.
+    mgr.emit('instance:input-required', { instanceId: 'inst-1', requestId: 'shared', prompt: 'Which?', timestamp: 2 });
+    mgr.emit('instance:input-required-resolved', payload);
+    expect(mockSendToRenderer.mock.calls.filter(([channel]) => channel === IPC_CHANNELS.INPUT_REQUIRED_RESOLVED)).toHaveLength(3);
+  });
+
+  it('carries a durable receipt through the real ordered continuity queue', async () => {
+    const mgr = buildManager();
+    setupInstanceEventForwarding({ instanceManager: mgr, windowManager: mockWindowManager, isStatelessExecProvider: () => false, getNodeLatencyForInstance: () => undefined });
+    mgr.emit('provider:normalized-event', {
+      ...makeEnvelope('output'), event: { kind: 'output', messageType: 'system', content: 'You answered: Bun', messageId: 'receipt', timestamp: 2,
+        metadata: { audience: 'attention', presentationKind: 'request-receipt', requestId: 'request-1', requestedAt: 1, outcome: 'answered' } },
+    } as ProviderRuntimeEventEnvelope);
+    await vi.waitFor(() => expect(mockContinuity.addConversationEntry).toHaveBeenCalledWith('inst-1', expect.objectContaining({
+      role: 'system', content: 'You answered: Bun', notice: expect.objectContaining({
+        audience: 'attention', presentationKind: 'request-receipt', requestId: 'request-1', requestedAt: 1, outcome: 'answered',
+      }),
+    })));
+    expect(mockSendToRenderer.mock.calls.filter(([channel]) => channel === IPC_CHANNELS.PROVIDER_RUNTIME_EVENT)).toHaveLength(1);
+  });
+
   it('forwards provider:normalized-event to renderer IPC', () => {
     const mgr = buildManager();
     setupInstanceEventForwarding({
@@ -275,7 +304,8 @@ describe('setupInstanceEventForwarding', () => {
       sessionId: 'provider-thread-1',
       messageId: 'msg-compact',
       createdAt: 1234,
-      messageMetadata: { threadCompacted: true },
+      // The transport writes the default audience onto every system message it carries.
+      messageMetadata: { threadCompacted: true, audience: 'attention' },
     });
     expect(mockSendToRenderer).toHaveBeenCalledWith(
       IPC_CHANNELS.PROVIDER_RUNTIME_EVENT,

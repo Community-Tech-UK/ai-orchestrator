@@ -148,6 +148,25 @@ describe('createThinClientCommandExecutor', () => {
     expect(respondToUserAction).toHaveBeenCalledWith('action-1', false, 'deny');
   });
 
+  it('says plainly when an answer arrives for a card that had already closed', async () => {
+    const respondToUserAction = vi.fn(() => 'not-pending' as const);
+    const clearPrompt = vi.fn();
+    const execute = createThinClientCommandExecutor({
+      instanceManager: {
+        getOrchestrationHandler: vi.fn(() => ({ respondToUserAction }) as unknown as OrchestrationHandler),
+      } as never,
+      pauseCoordinator: { isPaused: () => false },
+      remoteObserver: { clearPrompt },
+    });
+
+    const result = await execute('instance:respond-action', {
+      ipcAuthToken: 'secret', requestId: 'action-late', approved: true,
+    });
+
+    expect(result).toMatchObject({ success: false, error: { code: 'USER_ACTION_NOT_PENDING' } });
+    expect(clearPrompt).toHaveBeenCalledWith('action-late');
+  });
+
   it('implements loop command vocabulary against the loop coordinator', async () => {
     const state = {
       id: 'loop-1',

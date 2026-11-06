@@ -150,6 +150,61 @@ describe('WorkboardCardComponent', () => {
     expect(fixture.nativeElement.querySelector('.wb-card-action-approve')).toBeNull();
   });
 
+  it('takes the buttons away, without calling it done, when the request had already closed', async () => {
+    listUserActionRequestsForInstance.mockResolvedValue({ success: true, data: [actionRequest()] });
+    respondToUserAction.mockResolvedValue({ success: false, error: { code: 'USER_ACTION_NOT_PENDING', message: 'closed' } });
+    fixture.componentRef.setInput('item', item({ attentionLevel: 'blocked' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    (fixture.nativeElement.querySelector('.wb-card-action-approve') as HTMLButtonElement).click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(respondToUserAction).toHaveBeenCalledWith('req-1', true);
+    expect(fixture.nativeElement.querySelector('.wb-card-action-approve')).toBeNull();
+  });
+
+  it('keeps the buttons when the reply failed for any other reason, so it can be tried again', async () => {
+    listUserActionRequestsForInstance.mockResolvedValue({ success: true, data: [actionRequest()] });
+    respondToUserAction.mockResolvedValue({ success: false, error: { code: 'USER_ACTION_RESPOND_FAILED', message: 'boom' } });
+    fixture.componentRef.setInput('item', item({ attentionLevel: 'blocked' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    (fixture.nativeElement.querySelector('.wb-card-action-approve') as HTMLButtonElement).click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.wb-card-action-approve')).not.toBeNull();
+  });
+
+  it.each([true, false])('a late reply cannot remove another session\'s request (success: %s)', async success => {
+    let settle!: (value: unknown) => void;
+    respondToUserAction.mockReturnValue(new Promise(resolve => { settle = resolve; }));
+    listUserActionRequestsForInstance.mockResolvedValue({ success: true, data: [actionRequest()] });
+    fixture.componentRef.setInput('item', item({ attentionLevel: 'blocked' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    (fixture.nativeElement.querySelector('.wb-card-action-approve') as HTMLButtonElement).click();
+
+    listUserActionRequestsForInstance.mockResolvedValue({ success: true, data: [actionRequest({ id: 'req-2', instanceId: 'inst-2' })] });
+    fixture.componentRef.setInput('item', item({ id: 'instance:next', instanceId: 'inst-2', attentionLevel: 'blocked' }));
+    fixture.detectChanges();
+    await vi.waitFor(() => expect(listUserActionRequestsForInstance).toHaveBeenLastCalledWith('inst-2'));
+    await Promise.resolve();
+    settle({ success, error: success ? undefined : { code: 'USER_ACTION_NOT_PENDING', message: 'closed' } });
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.wb-card-action-approve')).not.toBeNull();
+    (fixture.nativeElement.querySelector('.wb-card-action-reject') as HTMLButtonElement).click();
+    expect(respondToUserAction).toHaveBeenLastCalledWith('req-2', false);
+  });
+
   it('rejecting dispatches respondToUserAction(id, false)', async () => {
     listUserActionRequestsForInstance.mockResolvedValue({ success: true, data: [actionRequest()] });
     fixture.componentRef.setInput('item', item({ attentionLevel: 'blocked' }));

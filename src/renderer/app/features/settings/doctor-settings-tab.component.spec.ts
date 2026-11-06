@@ -152,3 +152,88 @@ describe('DoctorSettingsTabComponent sign-in', () => {
     expect(runProviderLogin).not.toHaveBeenCalled();
   });
 });
+
+describe('DoctorSettingsTabComponent startup section', () => {
+  const navigate = vi.fn();
+  const check = (id: string, status: 'ready' | 'degraded' | 'unavailable' | 'disabled', summary: string) => ({
+    id,
+    label: id,
+    category: id.startsWith('provider.') ? 'provider' : 'native',
+    status,
+    critical: false,
+    summary,
+  });
+  const report = signal({
+    sections: [{ id: 'startup-capabilities', label: 'Startup', severity: 'ok', headline: 'Startup checks ready' }],
+    startupCapabilities: {
+      status: 'degraded',
+      generatedAt: 1,
+      checks: [
+        check('provider.cursor', 'disabled', "Cursor isn't installed. You only need it to use Cursor."),
+        check('provider.codex', 'degraded', "Codex isn't signed in."),
+        check('provider.claude', 'ready', 'Claude is ready.'),
+        check('native.sqlite', 'unavailable', "Harness couldn't open its local database."),
+      ],
+    },
+  });
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [DoctorSettingsTabComponent],
+      providers: [
+        {
+          provide: DoctorStore,
+          useValue: {
+            load: vi.fn(async () => undefined),
+            report: report.asReadonly(),
+            loading: signal(false).asReadonly(),
+            error: signal(null).asReadonly(),
+            activeSection: signal('startup-capabilities').asReadonly(),
+            setActiveSection: vi.fn(),
+          },
+        },
+        { provide: SettingsStore, useValue: { get: () => '', settings: signal({}), metadata: [] } },
+        { provide: ElectronIpcService, useValue: { getApi: vi.fn(() => ({})) } },
+        { provide: ActivatedRoute, useValue: { queryParamMap: of({ get: () => null }) } },
+        { provide: Router, useValue: { navigate } },
+      ],
+    }).compileComponents();
+  });
+
+  function render() {
+    const fixture = TestBed.createComponent(DoctorSettingsTabComponent);
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  function rowFor(fixture: ReturnType<typeof render>, id: string): HTMLElement {
+    const rows = [...fixture.nativeElement.querySelectorAll('.diagnostic-row')] as HTMLElement[];
+    const row = rows.find((candidate) => candidate.querySelector('strong')?.textContent?.trim() === id);
+    if (!row) throw new Error(`No row for ${id}`);
+    return row;
+  }
+
+  it('only offers "to fix" on a provider check that actually needs attention', () => {
+    const fixture = render();
+
+    expect(rowFor(fixture, 'provider.codex').textContent).toContain('Open Provider Health to fix');
+    // A tool nobody set up is switched off, not broken: nothing to fix.
+    expect(rowFor(fixture, 'provider.cursor').textContent).not.toContain('Open Provider Health to fix');
+    expect(rowFor(fixture, 'provider.claude').textContent).not.toContain('Open Provider Health to fix');
+    // The "to fix" link is for provider checks; the database check has no provider page.
+    expect(rowFor(fixture, 'native.sqlite').textContent).not.toContain('Open Provider Health to fix');
+  });
+
+  it('keeps the Setup page reachable now that the title-bar chip hides when everything is ready', () => {
+    const fixture = render();
+    const open = [...fixture.nativeElement.querySelectorAll('button')]
+      .find((button: HTMLButtonElement) => button.textContent?.trim() === 'Open Setup') as HTMLButtonElement | undefined;
+
+    expect(open).toBeDefined();
+    open?.click();
+
+    expect(navigate).toHaveBeenCalledExactlyOnceWith(['/setup']);
+  });
+});

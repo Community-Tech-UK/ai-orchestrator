@@ -246,7 +246,7 @@ describe('LocalAiGuardPageComponent', () => {
   it('loads inventory and renders worker → endpoint → model → canary evidence', () => {
     expect(store.initialize).toHaveBeenCalledOnce();
     expect(store.loadInventory).toHaveBeenCalledOnce();
-    expect(button('Add local AI')).not.toBeNull();
+    expect(button('Add a local model')).not.toBeNull();
 
     const card = fixture.nativeElement.querySelector('[data-target-id="target-1"]') as HTMLElement;
     expect(card.textContent).toContain('Studio worker');
@@ -436,7 +436,8 @@ describe('LocalAiGuardPageComponent', () => {
     await fixture.whenStable();
     fixture.detectChanges();
 
-    expect(fixture.nativeElement.textContent).toContain('Health status unavailable');
+    expect(fixture.nativeElement.textContent).toContain("Couldn't check your local models");
+    expect(fixture.nativeElement.textContent).not.toContain('Health status unavailable');
     expect(fixture.nativeElement.textContent).not.toContain('token=secret');
     click('Try again');
     await fixture.whenStable();
@@ -453,7 +454,7 @@ describe('LocalAiGuardPageComponent', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('No enrolled targets');
     expect(fixture.nativeElement.textContent).toContain('Choose a discovered endpoint below');
-    expect(buttons().some((candidate) => candidate.textContent?.trim() === 'Add local AI')).toBe(false);
+    expect(buttons().some((candidate) => candidate.textContent?.trim() === 'Add a local model')).toBe(false);
   });
 
   function click(label: string): void {

@@ -45,6 +45,7 @@ import type { PendingSelection, PickerProvider } from '../models/compact-model-p
 import { PROVIDER_MENU_LABELS, SIDE_CHAT_MENU_PROVIDERS } from '../models/provider-menu.constants';
 import { ChatOutputMessageMapper } from '../chats/chat-output-message.mapper';
 import { UserActionRequestComponent } from '../instance-detail/user-action-request.component';
+import { UserInputRequestRegistry } from '../instance-detail/user-input-request.registry';
 import { BrowserApprovalRequestComponent } from '../instance-detail/browser-approval-request.component';
 import { describePermissionPolicy } from './side-chat-permissions';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
@@ -86,6 +87,7 @@ export class SideChatPanelComponent {
   private readonly instanceStore = inject(InstanceStore);
   private readonly settingsStore = inject(SettingsStore);
   private readonly viewLayoutService = inject(ViewLayoutService);
+  private readonly questions = inject(UserInputRequestRegistry);
   private readonly elRef = inject<ElementRef<HTMLElement>>(ElementRef);
 
   /** Fallback working directory; main uses the parent's own workspace. */
@@ -387,6 +389,11 @@ export class SideChatPanelComponent {
     if (!parent || !text.trim() || this.sending()) {
       return;
     }
+    // A question waiting on this sidechat's own session gets the typed text, as in the main message box.
+    // Resending a failed question is a send, not an answer.
+    if (!options.allowStaleContext && await this.answerWaitingQuestion(parent, text)) {
+      return;
+    }
     const fallback = this.defaultSelection();
     await this.sideChatStore.send(parent, this.sideChatId(), text, this.workingDirectory() ?? '', {
       allowStaleContext: options.allowStaleContext,
@@ -513,6 +520,18 @@ export class SideChatPanelComponent {
     if (!parent || !chatId || !viewport || !atBottom || !this.hasUnreadAnswer()) return;
     if (typeof document !== 'undefined' && (document.visibilityState !== 'visible' || !document.hasFocus())) return;
     void this.sideChatStore.markRead(parent, chatId, this.latestAssistantSequence());
+  }
+
+  /** True when the text belonged to an agent question waiting on this sidechat's own session. */
+  private answerWaitingQuestion(parent: SideChatParentRef, text: string): Promise<boolean> {
+    const runtimeInstanceId = this.currentInstance()?.id;
+    if (!runtimeInstanceId) return Promise.resolve(false);
+    // Read and clear the draft of the sidechat the text came from, even if the person switches meanwhile.
+    const chatId = this.sideChatId();
+    return this.questions.handleComposerText(runtimeInstanceId, text, {
+      current: () => this.sideChatStore.draftFor(parent, chatId),
+      clear: () => this.sideChatStore.setDraft(parent, chatId, ''),
+    });
   }
 
   private scheduleViewCheck(): void {

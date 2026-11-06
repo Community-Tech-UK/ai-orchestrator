@@ -164,6 +164,34 @@ describe('InstanceChildCompletionHandler', () => {
     expect(terminateInstance).toHaveBeenCalledWith(child.id, false);
   });
 
+  it('tells the parent the real reason a child failed, not the plain words its transcript shows', async () => {
+    const child = instance({
+      outputBuffer: [
+        message('error', 'Codex couldn\'t finish this request. What to do: Check Details, then try again.', {
+          errorPresentation: { category: 'unknown', headline: 'x', whatToDo: 'y', rawDetail: 'spawn codex ENOENT: no such file' },
+        }),
+      ],
+    });
+    const handler = createHandler();
+
+    await handler.handleChildExit(child.id, child, 0);
+
+    const [, , , storedSummary, storedSuccess] = storage.storeFromOutputBuffer.mock.calls[0];
+    expect(storedSummary).toBe('Child errored before producing a reply: spawn codex ENOENT: no such file');
+    // No reply came, so even a clean exit is not a success.
+    expect(storedSuccess).toBe(false);
+  });
+
+  it('still reports an error message that carries no presentation as it is', async () => {
+    const child = instance({ outputBuffer: [message('error', 'Prompt is too long')] });
+    const handler = createHandler();
+
+    await handler.handleChildExit(child.id, child, 0);
+
+    const [, , , storedSummary] = storage.storeFromOutputBuffer.mock.calls[0];
+    expect(storedSummary).toBe('Child errored before producing a reply: Prompt is too long');
+  });
+
   it('persists a summary when the child exits with an empty buffer', async () => {
     const child = instance({ outputBuffer: [] });
     const handler = createHandler();

@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../../db/sqlite-driver';
-import { createMigrationsTable, createTables, runMigrations } from './rlm-schema';
+import {
+  computeMigrationChecksum,
+  createMigrationsTable,
+  createTables,
+  MIGRATIONS,
+  runMigrations,
+} from './rlm-schema';
 import { RLM_MIGRATIONS_076_080 } from './rlm-migrations-076-080';
 
 function columnNames(db: SqliteDriver, table: string): string[] {
@@ -117,5 +123,50 @@ describe('merged migration histories', () => {
       runMigrations(db, repeated);
       expect(repeated).not.toHaveBeenCalled();
     } finally { db.close(); }
+  });
+});
+
+describe('078_browser_approval_request_reason', () => {
+  let db: SqliteDriver;
+
+  beforeEach(() => {
+    db = defaultDriverFactory(':memory:');
+    db.pragma('foreign_keys = ON');
+    createTables(db);
+    createMigrationsTable(db);
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it('adds a nullable request_reason column and leaves old approval rows readable', () => {
+    const migration = MIGRATIONS.find((item) => item.name === '078_browser_approval_request_reason')!;
+    expect(migration).toBeDefined();
+    for (const earlier of MIGRATIONS.slice(0, MIGRATIONS.indexOf(migration))) {
+      db.exec(earlier.up);
+      db.prepare('INSERT INTO _migrations (name, applied_at, checksum) VALUES (?, ?, ?)')
+        .run(earlier.name, 1, computeMigrationChecksum(earlier));
+    }
+    db.prepare(`INSERT INTO browser_approval_requests
+      (id, request_id, instance_id, provider, profile_id, tool_name, action, action_class,
+      proposed_grant_json, status, created_at, expires_at)
+      VALUES ('old', 'old', 'session', 'codex', 'computer', 'browser.click', 'click', 'input', '{}', 'denied', 1, 100)`)
+      .run();
+    expect(columnNames(db, 'browser_approval_requests')).not.toContain('request_reason');
+
+    runMigrations(db);
+    runMigrations(db);
+
+    expect(columnNames(db, 'browser_approval_requests')).toContain('request_reason');
+    expect(db.prepare('SELECT status, request_reason FROM browser_approval_requests').get())
+      .toEqual({ status: 'denied', request_reason: null });
+  });
+
+  it('rolls the column back on down', () => {
+    runMigrations(db);
+    const migration = MIGRATIONS.find((item) => item.name === '078_browser_approval_request_reason')!;
+    db.exec(migration.down);
+    expect(columnNames(db, 'browser_approval_requests')).not.toContain('request_reason');
   });
 });

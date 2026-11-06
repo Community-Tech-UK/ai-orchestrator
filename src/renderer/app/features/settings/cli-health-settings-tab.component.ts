@@ -22,6 +22,7 @@ import { CliUpdatePillStore } from '../../core/state/cli-update-pill.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { SegmentedControlComponent, type SegmentOption } from './ui/segmented-control.component';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { isLegacyProvider, providerToolName } from '../../../../shared/display-names';
 import type { CliUpdatePolicy } from '../../../../shared/types/settings.types';
 import { copilotVersionWarning } from '../../../../shared/utils/copilot-version-warning';
 
@@ -162,7 +163,7 @@ interface CliUpdateResult {
       }
 
       @if (entries().length === 0 && !loading()) {
-        <p class="empty">No AI CLIs detected. Install Claude Code, Gemini, or another supported CLI and click Refresh.</p>
+        <p class="empty">No AI CLIs detected. Install {{ installExamples }}, or another supported CLI, and click Refresh.</p>
       }
 
       @for (entry of entries(); track entry.cli) {
@@ -335,15 +336,8 @@ export class CliHealthSettingsTabComponent implements OnInit {
   readonly updateResults = signal<Record<string, CliUpdateResult>>({});
   readonly updateSummary = signal<string | null>(null);
 
-  private readonly displayNames: Record<string, string> = {
-    claude: 'Claude Code',
-    codex: 'OpenAI Codex',
-    gemini: 'Google Gemini',
-    antigravity: 'Antigravity',
-    copilot: 'GitHub Copilot',
-    cursor: 'Cursor Agent',
-    ollama: 'Ollama',
-  };
+  /** Two tools to name in the "nothing detected" line. */
+  readonly installExamples = `${providerToolName('claude')} or ${providerToolName('codex')}`;
 
   async ngOnInit(): Promise<void> {
     await this.refresh();
@@ -465,15 +459,13 @@ export class CliHealthSettingsTabComponent implements OnInit {
   }
 
   /**
-   * Renderer-side display names first, then the name the main process sent with the update plan
-   * — which comes from CLI_REGISTRY, so a newly registered CLI reads as
-   * "Grok Build" rather than the raw `grok` id without a second edit here.
+   * The tool's shared name (`providerToolName`, the same one the main process
+   * puts in its update plans), with a "(legacy)" note for the one the app is
+   * retiring.
    */
   cliDisplayName(cli: string): string {
-    const override = this.displayNames[cli];
-    if (override) return override;
-    const planName = this.entries().find((entry) => entry.cli === cli)?.updatePlan?.displayName;
-    return planName || cli;
+    const name = providerToolName(cli);
+    return isLegacyProvider(cli) ? `${name} (legacy)` : name;
   }
 
   updateBadgeTooltip(entry: CliDiagnosisEntry): string {

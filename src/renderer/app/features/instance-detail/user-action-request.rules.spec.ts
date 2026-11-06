@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { PERMISSION_SCOPE_WORDS } from '../../../../shared/permissions/permission-scope-presentation';
 import {
   approveLabelFor,
   canAddClaudeAllowRule,
@@ -85,10 +86,10 @@ describe('permission card decisions', () => {
     expect(rejectLabelFor(denial, 'always')).toBe("Don't allow");
     expect(approveLabelFor({ ...denial, tool_name: 'WebFetch' }, 'always')).toBeUndefined();
     expect(rejectLabelFor({ ...denial, tool_name: 'WebFetch' }, 'always')).toBe('OK');
-    expect(approveLabelFor(single, 'once')).toBe('Allow once');
+    expect(approveLabelFor(single, 'once')).toBe('Allow this once');
     expect(rejectLabelFor(single, 'once')).toBe("Don't allow");
     const expected = [
-      ['once', 'Once', 'Allow once', "Don't allow"],
+      ['once', 'Once', 'Allow this once', "Don't allow"],
       ['session', 'This session', 'Allow for this session', 'Block for this session'],
       ['always', 'Always', 'Always allow this command', 'Always block this command'],
     ] as const;
@@ -96,6 +97,15 @@ describe('permission card decisions', () => {
       expect(scopeOptionLabel(scope)).toBe(option);
       expect(approveLabelFor(held, scope)).toBe(approve);
       expect(rejectLabelFor(held, scope)).toBe(reject);
+    }
+  });
+
+  it('takes every scope word from the list the browser and registry cards share', () => {
+    for (const scope of ['once', 'session', 'always'] as const) {
+      const words = PERMISSION_SCOPE_WORDS[scope];
+      expect(scopeOptionLabel(scope)).toBe(words.choice);
+      expect(approveLabelFor(held, scope)).toContain(words.allow);
+      expect(rejectLabelFor(held, scope)).toContain(words.refuse);
     }
   });
 

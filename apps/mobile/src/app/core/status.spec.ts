@@ -10,6 +10,7 @@ import {
   loopQuestionKindLabel,
   loopQuestionStatusLabel,
   loopStatusLabel,
+  statusColor,
 } from './status';
 
 describe('desktop-aligned active session status', () => {
@@ -53,7 +54,7 @@ describe('loop-aware session status display', () => {
   it('treats idle looping sessions as active loop sessions', () => {
     const session = { status: 'idle', isLooping: true };
 
-    expect(displayStatusLabel(session)).toBe('loop');
+    expect(displayStatusLabel(session)).toBe('Loop running');
     expect(displayStatusColor(session)).toBe('#a78bfa');
     expect(isWorkingOrLooping(session)).toBe(true);
     expect(isLiveActivityCandidate(session)).toBe(true);
@@ -63,8 +64,8 @@ describe('loop-aware session status display', () => {
   it('keeps attention states ahead of loop state', () => {
     const session = { status: 'waiting_for_permission', isLooping: true };
 
-    expect(displayStatusLabel(session)).toBe('waiting for permission');
-    expect(displayStatusColor(session)).toBe('var(--accent-attention)');
+    expect(displayStatusLabel(session)).toBe('Needs your OK');
+    expect(displayStatusColor(session)).toBe('#f59e0b');
     expect(isLiveActivityCandidate(session)).toBe(true);
     expect(liveActivityStatusLabel(session)).toBe('needs approval');
   });
@@ -72,11 +73,34 @@ describe('loop-aware session status display', () => {
   it('keeps normal working sessions active without a loop flag', () => {
     const session = { status: 'busy' };
 
-    expect(displayStatusLabel(session)).toBe('busy');
-    expect(displayStatusColor(session)).toBe('var(--accent-action)');
+    expect(displayStatusLabel(session)).toBe('Working');
+    expect(displayStatusColor(session)).toBe('#3b82f6');
     expect(isWorkingOrLooping(session)).toBe(true);
     expect(isLiveActivityCandidate(session)).toBe(true);
     expect(liveActivityStatusLabel(session)).toBe('working');
+  });
+});
+
+describe('lock-screen key for a session that is waiting on you', () => {
+  it('sends a question as waiting, not as needs approval', () => {
+    const session = { status: 'waiting_for_input' };
+
+    expect(isLiveActivityCandidate(session)).toBe(true);
+    expect(liveActivityStatusLabel(session)).toBe('waiting');
+  });
+
+  it('keeps a permission prompt as needs approval, including while a loop runs', () => {
+    expect(liveActivityStatusLabel({ status: 'waiting_for_permission' })).toBe('needs approval');
+    expect(liveActivityStatusLabel({ status: 'waiting_for_permission', isLooping: true })).toBe('needs approval');
+    expect(liveActivityStatusLabel({ status: 'waiting_for_input', isLooping: true })).toBe('waiting');
+  });
+});
+
+describe('colours follow the desktop status tones', () => {
+  it('draws a forced stop in the error colour and a stop in progress in the working colour', () => {
+    expect(statusColor('interrupt-escalating')).toBe('#ef4444');
+    expect(statusColor('cancelling')).toBe('#b89a66');
+    expect(statusColor('interrupting')).toBe('#b89a66');
   });
 });
 

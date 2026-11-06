@@ -5,6 +5,7 @@
  */
 
 import type { HelpEntry } from '../help-content.types';
+import { PERMISSION_SCOPE_WORDS } from '../../../../../shared/permissions/permission-scope-presentation';
 
 export const MCP_HELP: HelpEntry = {
   sections: [
@@ -74,19 +75,35 @@ export const BROWSER_GATEWAY_HELP: HelpEntry = {
     {
       kind: 'callout',
       variant: 'warning',
-      heading: 'Grants persist until revoked',
-      body: 'Approved permissions survive restarts. Review the Active Grants section periodically and revoke what you no longer need.',
+      heading: 'Check how long permission lasts',
+      body: `Permission lasts for the scope you choose. Only an ${PERMISSION_SCOPE_WORDS.always.allow} browser grant continues across sessions until you revoke it. Review Active grants and revoke what you no longer need.`,
+    },
+    {
+      kind: 'list',
+      heading: 'Browser action approvals',
+      items: [
+        `${PERMISSION_SCOPE_WORDS.once.allow}: covers one action. The next action asks again.`,
+        `${PERMISSION_SCOPE_WORDS.session.allow}: covers the listed actions until this session ends.`,
+        `${PERMISSION_SCOPE_WORDS['without-asking'].allow}: covers the listed actions until this session ends without asking again. Publishing or deleting still needs the typed confirmation phrase when you approve.`,
+        'Some requests offer fewer choices. Check the website, computer and requested actions before allowing.',
+      ],
+    },
+    {
+      kind: 'callout',
+      variant: 'tip',
+      heading: 'Saved-login approvals',
+      body: `A saved-login request covers only the named website, computer and saved login. Choose ${PERMISSION_SCOPE_WORDS.session.choice} or a fixed time in the length picker. A fixed-time permission lets any session use that saved login there without asking again until it expires. Check the Access and Vault folder lines before allowing.`,
     },
     {
       kind: 'recommend',
       items: [
         {
-          label: 'Execution node',
-          value: 'Local coordinator (default)',
-          why: 'Runs the browser on this machine; choose a remote node only for isolated automation.',
+          label: 'Browser computer',
+          value: 'A computer you trust',
+          why: 'Check which computer will run the browser before allowing an action.',
         },
         {
-          label: 'Autonomous submit/delete',
+          label: 'Publish, send, or submit / Delete or make destructive changes',
           value: 'Off',
           why: 'Keeping destructive actions behind approval prevents an agent posting or deleting on your behalf unnoticed.',
         },
@@ -101,13 +118,13 @@ export const FILES_HELP: HelpEntry = {
       kind: 'callout',
       variant: 'info',
       heading: 'What this does',
-      body: 'Moves files between this Mac and a connected worker node. The left pane browses local folders, the right pane browses the worker’s approved folders. Drag files across to copy them; every copy is checksummed.',
+      body: 'Moves files between this computer and a connected computer. The left pane browses local folders, the right pane browses the other computer’s approved folders. Drag files across to copy them; every copy is checksummed.',
     },
     {
       kind: 'steps',
       heading: 'Copying a file',
       items: [
-        'Pick a worker and one of its approved folders in the right pane.',
+        'Pick another computer and one of its approved folders in the right pane.',
         'Pick a local folder in the left pane.',
         'Drag files from one pane and drop them on the other.',
         'Watch the transfer log below the panes for the result.',
@@ -310,29 +327,29 @@ export const REMOTE_NODES_SURFACE_HELP: HelpEntry = {
       kind: 'callout',
       variant: 'info',
       heading: 'What this does',
-      body: 'Manages worker nodes: remote machines running the worker agent that execute tasks, run browsers, or take on compute jobs for Harness.',
+      body: 'Manages your other computers so they can run tasks, browsers, or compute jobs for this Harness.',
     },
     {
       kind: 'steps',
-      heading: 'Connecting a worker',
+      heading: 'Connecting another computer',
       items: [
-        'Start the worker agent on the remote machine.',
-        'It registers itself and appears in the nodes grid.',
-        'Click a node card to view its capabilities and status.',
-        'Use Start/Stop Server to control the worker registry.',
+        'Pair the other computer in Other computers settings, then choose Start sharing on its Help another Harness page.',
+        'It connects and appears on the Other computers page.',
+        'Click a computer card to view its capabilities and status.',
+        'Use Start Server or Stop Server to control connections to your other computers.',
       ],
     },
     {
       kind: 'callout',
       variant: 'tip',
-      heading: 'Check node readiness',
+      heading: 'Check computer readiness',
       body: 'Ready means browser MCP is available; Chrome only means the runtime alone; Off means neither.',
     },
     {
       kind: 'callout',
       variant: 'warning',
       heading: 'Trust the network',
-      body: 'Workers and Harness must reach each other over the network. Restrict access to machines you control.',
+      body: 'Your other computers and Harness must reach each other over the network. Restrict access to computers you control.',
     },
   ],
 };
@@ -343,13 +360,13 @@ export const WORKER_MODE_SURFACE_HELP: HelpEntry = {
       kind: 'callout',
       variant: 'info',
       heading: 'What this does',
-      body: 'Lets your main Harness send work to this computer. Harness stays fully usable here while the worker runs.',
+      body: 'Lets your main Harness send work to this computer. Harness stays fully usable here while sharing is on.',
     },
     {
       kind: 'steps',
       heading: 'Pairing this computer',
       items: [
-        'On the main Harness, open Remote Nodes settings and start pairing.',
+        'On the main Harness, open Other computers settings and start pairing.',
         'Here, choose Pair With Harness, or paste the invitation if it is not found.',
         'Check the code matches on both computers, then approve on the main Harness.',
         'Choose how it runs. On Windows, "Keep working when Harness is closed" starts it whenever you sign in; otherwise tick "Open Harness when I sign in" so it comes back after a restart.',
@@ -358,8 +375,8 @@ export const WORKER_MODE_SURFACE_HELP: HelpEntry = {
     {
       kind: 'callout',
       variant: 'tip',
-      heading: 'Pausing the worker',
-      body: 'Stop Worker pauses it: until Harness next opens, or, for a worker that keeps working with Harness closed, until you press Start Worker. Turn Off Worker Mode keeps the pairing but stops the worker until you switch it back on.',
+      heading: 'Pausing sharing',
+      body: 'Stop sharing pauses it: until Harness next opens, or, when sharing keeps working with Harness closed, until you press Start sharing. Turn off sharing keeps the pairing but stops sharing until you switch it back on.',
     },
   ],
 };

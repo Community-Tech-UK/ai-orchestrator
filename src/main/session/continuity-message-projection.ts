@@ -1,6 +1,7 @@
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import type { OutputMessage } from '../../shared/types/instance.types';
 import type { ConversationEntry } from './session-continuity.types';
+import { noticeToMetadata, readNoticeMetadata } from './continuity-notice-metadata';
 
 function metadataString(
   metadata: Record<string, unknown> | undefined,
@@ -109,6 +110,12 @@ export function outputMessageToContinuityEntry(
   const sessionBoundary = message.metadata?.['kind'] === 'session-boundary'
     ? { ...(sessionBoundaryArchived === undefined ? {} : { archived: sessionBoundaryArchived }) }
     : undefined;
+  // A command's own exit status and check verdict ride beside `is_error` (which only
+  // means "could not run"), so a failed check is still failed after a restore.
+  const exitCode = (message.type === 'tool_result' || message.type === 'tool_use') ? metadataNumber(message.metadata, ['exitCode']) : undefined;
+  const isCheck = (message.type === 'tool_result' || message.type === 'tool_use') ? metadataBoolean(message.metadata, ['isCheck']) : undefined;
+  const checkFailed = (message.type === 'tool_result' || message.type === 'tool_use') ? metadataBoolean(message.metadata, ['checkFailed']) : undefined;
+  const notice = role === 'system' ? readNoticeMetadata(message) : undefined;
 
   return {
     id: message.id,
@@ -119,6 +126,7 @@ export function outputMessageToContinuityEntry(
     ...(crossSessionMessage ? { crossSessionMessage: { ...crossSessionMessage } } : {}),
     ...(message.metadata?.agentAuthored ? { agentAuthored: true } : {}),
     ...(sessionBoundary ? { sessionBoundary } : {}),
+    ...(notice ? { notice } : {}),
     ...(tokens === undefined ? {} : { tokens }),
     ...(tokenUsage ? { tokenUsage } : {}),
     ...(toolName
@@ -129,13 +137,16 @@ export function outputMessageToContinuityEntry(
             input: message.metadata?.['input'] ?? null,
             ...(toolCallId ? { callId: toolCallId } : {}),
             ...(toolResultFor ? { resultForCallId: toolResultFor } : {}),
-            ...(message.type === 'tool_result'
+            ...((message.type === 'tool_result' || typeof message.metadata?.['is_error'] === 'boolean')
               ? { output: metadataString(message.metadata, ['output']) ?? message.content }
               : {}),
-            ...(message.type === 'tool_result'
+            ...((message.type === 'tool_result' || message.type === 'tool_use')
               && metadataBoolean(message.metadata, ['isError', 'is_error']) !== undefined
               ? { isError: metadataBoolean(message.metadata, ['isError', 'is_error']) }
               : {}),
+            ...(exitCode === undefined ? {} : { exitCode }),
+            ...(isCheck === undefined ? {} : { isCheck }),
+            ...(checkFailed === undefined ? {} : { checkFailed }),
           },
         }
       : {}),
@@ -236,6 +247,7 @@ export function continuityEntryToOutputMessage(entry: ConversationEntry): Output
     || entry.internalInput
     || entry.crossSessionMessage
     || entry.agentAuthored
+    || entry.notice
     ? {
         ...(entry.toolUse
           ? {
@@ -247,8 +259,12 @@ export function continuityEntryToOutputMessage(entry: ConversationEntry): Output
                 : {}),
               ...(entry.toolUse.output === undefined ? {} : { output: entry.toolUse.output }),
               ...(entry.toolUse.isError === undefined ? {} : { is_error: entry.toolUse.isError }),
+              ...(entry.toolUse.exitCode === undefined ? {} : { exitCode: entry.toolUse.exitCode }),
+              ...(entry.toolUse.isCheck === undefined ? {} : { isCheck: entry.toolUse.isCheck }),
+              ...(entry.toolUse.checkFailed === undefined ? {} : { checkFailed: entry.toolUse.checkFailed }),
             }
           : {}),
+        ...noticeToMetadata(entry.notice),
         ...(entry.tokens === undefined ? {} : { tokens: entry.tokens }),
         ...(entry.tokenUsage ? { tokenUsage: structuredClone(entry.tokenUsage) } : {}),
         ...(entry.isCompacted === undefined ? {} : { isCompacted: entry.isCompacted }),

@@ -20,6 +20,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { VerificationStore } from '../../../core/state/verification.store';
 import type { CliType } from '../../../core/state/verification.store';
+import { providerName } from '../../../../../shared/display-names';
 import type { PersonalityType } from '../../../../../shared/types/verification.types';
 import { AppIconButtonDirective } from '../../../shared/tooltip/icon-button.directive';
 import { copyFor } from '../../../shared/tooltip/tooltip-copy';
@@ -705,14 +706,9 @@ export class VerificationPreferencesComponent implements OnInit {
   ];
 
   // Available agents
-  availableAgents: { id: CliType; name: string }[] = [
-    { id: 'claude', name: 'Claude' },
-    { id: 'gemini', name: 'Gemini' },
-    { id: 'codex', name: 'Codex' },
-    { id: 'copilot', name: 'Copilot' },
-    { id: 'cursor', name: 'Cursor' },
-    { id: 'ollama', name: 'Ollama' },
-  ];
+  availableAgents: { id: CliType; name: string }[] = (
+    ['claude', 'gemini', 'codex', 'copilot', 'cursor', 'ollama'] as const
+  ).map((id) => ({ id, name: providerName(id) }));
 
   // Personality options
   personalityOptions = [

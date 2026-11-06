@@ -35,6 +35,11 @@ export const WORKSPACE_CHANNELS = {
   VCS_OPERATION_PROGRESS: 'vcs:operation-progress',
   /** Cancel an in-flight long-running operation by its opId. */
   VCS_OPERATION_CANCEL: 'vcs:operation-cancel',
+  /**
+   * Which files changed while one turn ran, from a snapshot of the folder taken
+   * when the turn began and another when it settled (see TurnFileBaselineService).
+   */
+  VCS_TURN_FILE_CHANGES: 'vcs:turn-file-changes',
 
   // Git Worktree operations
   WORKTREE_CREATE: 'worktree:create',

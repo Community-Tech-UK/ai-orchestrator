@@ -7,6 +7,7 @@
  */
 
 import { BaseProvider } from './provider-interface';
+import { providerToolName } from '../../shared/display-names';
 import { ClaudeCliAdapter } from '../cli/adapters/claude-cli-adapter';
 import type {
   ProviderType,
@@ -39,14 +40,14 @@ const CLAUDE_CAPABILITIES: ProviderAdapterCapabilities = {
 
 export const DEFAULT_CLAUDE_CONFIG: ProviderConfig = {
   type: 'claude-cli',
-  name: 'Claude Code CLI',
+  name: providerToolName('claude'),
   enabled: true,
   defaultModel: CLAUDE_MODELS.OPUS_1M,
 };
 
 export const CLAUDE_DESCRIPTOR: ProviderAdapterDescriptor = {
   provider: 'claude',
-  displayName: 'Claude Code',
+  displayName: providerToolName('claude'),
   capabilities: CLAUDE_CAPABILITIES,
   defaultConfig: DEFAULT_CLAUDE_CONFIG,
 };

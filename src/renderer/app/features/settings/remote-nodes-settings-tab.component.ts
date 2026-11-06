@@ -15,6 +15,8 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { computerName } from '../../../../shared/display-names';
+import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
 import { Router } from '@angular/router';
 import * as QRCode from 'qrcode';
 import { SettingsStore } from '../../core/state/settings.store';
@@ -24,10 +26,7 @@ import {
   RemoteNodeServerStatus,
   type BrowserAutomationConfigInput,
 } from '../../core/services/ipc/remote-node-ipc.service';
-import type {
-  RemotePairingCredentialInfo,
-  RemoteNodeRosterEntry,
-} from '../../../../shared/types/worker-node.types';
+import type { RemotePairingCredentialInfo, RemoteNodeRosterEntry } from '../../../../shared/types/worker-node.types';
 import type { HarnessRole } from '../../../../shared/types/pair-both.types';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 import { SaveStateBannerComponent, type SaveState } from './ui/save-state-banner.component';
@@ -90,10 +89,10 @@ export type { RemoteNodesSection };
 export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
   private readonly confirmService = inject(ConfirmService);
   protected readonly store = inject(SettingsStore);
+  protected readonly localComputer = computerName('local', inject(ElectronIpcService).platform);
   private readonly ipc = inject(RemoteNodeIpcService);
   private readonly clipboard = inject(CLIPBOARD_SERVICE);
   private readonly router = inject(Router);
-
   protected readonly serverStatus = signal<RemoteNodeServerStatus>({ running: false });
 
   protected readonly draftPort = signal(0);
@@ -456,11 +455,12 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
   async resetConnection(entry: NodeHealthEntry): Promise<void> {
     this.error.set(null);
     const reset = await this.ipc.resetConnection(entry.id).catch((err: Error) => void this.error.set(err.message));
-    if (reset === false) this.error.set(`${entry.name} is not connected, so there is no connection to reset.`);
+    if (reset === false) this.error.set(`${computerName(entry)} is not connected, so there is no connection to reset.`);
   }
 
   async revokeNode(nodeId: string): Promise<void> {
-    if (!await this.confirmService.confirm({ message: `Revoke node "${nodeId}"? It will no longer be able to connect.`, confirmLabel: 'Revoke node', danger: true })) {
+    const node = this.liveNodes().find((entry) => entry.id === nodeId);
+    if (!await this.confirmService.confirm({ message: `Revoke "${computerName(node ?? {})}"? It will no longer be able to connect.`, confirmLabel: 'Revoke computer', danger: true })) {
       return;
     }
     this.error.set(null);
@@ -515,8 +515,8 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
   /** Fire the login Chrome on the node (opens on that machine's screen). */
   private async runLoginOnNodeFor(nodeId: string, url: string): Promise<void> {
     const entry = this.nodeHealthEntries().find((e) => e.id === nodeId);
-    const ok = await this.confirmService.confirm({ message: `Open a login Chrome on "${entry?.name ?? nodeId}"?\n\n` +
-      "Chrome opens on that computer's screen and the node's managed Chrome is " +
+    const ok = await this.confirmService.confirm({ message: `Open a login Chrome on "${computerName(entry ?? {})}"?\n\n` +
+      "Chrome opens on that computer's screen and the computer's managed Chrome is " +
       'stopped first. You must be at that machine (or on remote desktop) to log in.', confirmLabel: 'Open login Chrome', danger: true });
     if (!ok) {
       return;
@@ -527,7 +527,7 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     try {
       await this.ipc.runBrowserLogin(nodeId, url.trim() || undefined);
       this.loginNotice.set(
-        `Chrome is opening on ${entry?.name ?? nodeId}. Log in there, then close that window — the session will be reused.`,
+        `Chrome is opening on ${computerName(entry ?? {})}. Log in there, then close that window — the session will be reused.`,
       );
     } catch (err) {
       this.error.set((err as Error).message);
@@ -550,9 +550,9 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     // shares the trusted-operator model with service.restart; this is the
     // in-app authorization gate).
     if (config.enabled && !wasEnabled) {
-      const ok = await this.confirmService.confirm({ message: `Enable browser automation on "${entry?.name ?? nodeId}"?\n\n` +
-        'Agents spawned on this node will be able to drive a logged-in Chrome ' +
-        'with no per-action approval. Only do this on a trusted node with a ' +
+      const ok = await this.confirmService.confirm({ message: `Enable browser automation on "${computerName(entry ?? {})}"?\n\n` +
+        'Agents spawned on this computer will be able to drive a logged-in Chrome ' +
+        'with no per-action approval. Only do this on a trusted computer with a ' +
         'dedicated automation profile.', confirmLabel: 'Enable browser automation', danger: true });
       if (!ok) {
         return;
@@ -597,9 +597,9 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     const wasEnabled = entry?.androidAutomation?.enabled ?? entry?.androidAutomationReady ?? false;
 
     if (payload.enabled && !wasEnabled) {
-      const ok = await this.confirmService.confirm({ message: `Enable Android automation on "${entry?.name ?? nodeId}"?\n\n` +
-        'Agents spawned on this node will be able to control the leased Android ' +
-        'device or emulator through mobile-mcp. Only enable this on a trusted node.', confirmLabel: 'Enable Android automation', danger: true });
+      const ok = await this.confirmService.confirm({ message: `Enable Android automation on "${computerName(entry ?? {})}"?\n\n` +
+        'Agents spawned on this computer will be able to control the leased Android ' +
+        'device or emulator through mobile-mcp. Only enable this on a trusted computer.', confirmLabel: 'Enable Android automation', danger: true });
       if (!ok) {
         return;
       }
@@ -670,7 +670,7 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
   }
 
   private async writeClipboard(text: string): Promise<void> {
-    const result = await this.clipboard.copyText(text, { label: 'remote node token' });
+    const result = await this.clipboard.copyText(text, { label: 'computer pairing details' });
     if (!result.ok) {
       // Clipboard access is not always available in the Electron sandbox.
       console.error('Failed to copy remote node value:', result.reason, result.cause);

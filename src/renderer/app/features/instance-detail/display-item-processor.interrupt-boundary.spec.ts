@@ -26,7 +26,11 @@ describe('DisplayItemProcessor interrupt noise', () => {
     expect(items).toEqual([]);
   });
 
-  it('suppresses interruption wait notices from the transcript', () => {
+  // U10: this used to assert the notice was hidden because of its exact wording.
+  // Wording no longer decides anything: the emit site flags the notice routine and
+  // the processor folds it into an "N system events" row (see
+  // display-item-processor.routine-notices.spec.ts); an unflagged copy is shown.
+  it('no longer hides an interruption wait notice by its wording', () => {
     const processor = new DisplayItemProcessor();
     const messages: OutputMessage[] = [
       {
@@ -42,7 +46,29 @@ describe('DisplayItemProcessor interrupt noise', () => {
 
     const items = processor.process(messages);
 
-    expect(items).toEqual([]);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ type: 'message', message: { content: 'Interrupted — waiting for input' } });
+  });
+
+  it('folds the same notice, rather than hiding it, once its emit site flags it routine', () => {
+    const processor = new DisplayItemProcessor();
+    const messages: OutputMessage[] = [
+      {
+        id: 'm1',
+        type: 'system',
+        content: 'Interrupted — waiting for input',
+        timestamp: 10,
+        metadata: {
+          audience: 'routine',
+          interruptStatus: 'interrupted',
+        },
+      },
+    ];
+
+    const items = processor.process(messages);
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ type: 'system-event-group', groupLabel: '1 system event' });
   });
 
   it('hides Codex recovery boundary notices while keeping compaction and pause messages', () => {

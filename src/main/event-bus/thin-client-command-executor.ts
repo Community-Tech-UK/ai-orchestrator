@@ -281,12 +281,16 @@ function respondAction(
       },
       'THIN_CLIENT_USER_ACTION_RESPOND',
     );
-    deps.instanceManager.getOrchestrationHandler().respondToUserAction(
+    const outcome = deps.instanceManager.getOrchestrationHandler().respondToUserAction(
       validated.requestId,
       validated.action === 'approve',
       validated.customValue,
     );
     clearRemotePrompt(deps, validated.requestId);
+    // The card already ended (timed out, answered elsewhere, turn stopped): say so rather than succeed.
+    if (outcome === 'not-pending') {
+      return errorResponse('USER_ACTION_NOT_PENDING', 'That request has already closed, so nothing was sent.');
+    }
     return {
       success: true,
       data: { requestId: validated.requestId, responded: true },

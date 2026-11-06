@@ -125,3 +125,17 @@ export function errorFromIdentity(message: string, identity: unknown): Error | u
   if (typeof errorCode === 'string') error.code = errorCode;
   return error;
 }
+
+/**
+ * The text a program should read from a transcript error message. An error shown in plain words keeps
+ * the real reason under `errorPresentation.rawDetail` (a person opens it under Details); the classifiers,
+ * summaries and repeat checks that need the real reason read it from here. Any other error message
+ * carries its text in `content`.
+ */
+export function errorMessageText(message: { content: string; metadata?: Record<string, unknown> }): string {
+  const presentation = message.metadata?.['errorPresentation'];
+  const rawDetail = typeof presentation === 'object' && presentation !== null
+    ? (presentation as Record<string, unknown>)['rawDetail']
+    : undefined;
+  return typeof rawDetail === 'string' && rawDetail ? rawDetail : message.content;
+}

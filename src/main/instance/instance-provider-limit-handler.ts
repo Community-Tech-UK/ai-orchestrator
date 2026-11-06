@@ -15,6 +15,7 @@ import { accountFailoverNote, type AccountFailoverNote } from './account-failove
 import { isPooledProvider } from '../../shared/types/provider-account.types';
 import { clearLimitLiftedSinceRecorded, snapshotShowsLimitLifted } from './provider-limit-lift';
 import { instanceProviderLimitScope } from './instance-provider-limit-scope';
+import { announceUsageLimit } from './instance-usage-limit-announcement';
 import { deriveProviderLimitResumeFromSnapshot, resolveUsageLimitStop, type UsageLimitStopParams } from './instance-usage-limit-stop';
 import {
   buildProviderLimitContinuationTurn,
@@ -263,12 +264,14 @@ export class InstanceProviderLimitHandler {
     // hour the ledger benches the account for (re-probed meanwhile), so a turn
     // that could not switch always has something to resume it.
     const parkAt = resumeAt ?? assumedResumeAt;
+    // An hour guessed for an unknown reset is a holding time, never a reset the user may be told about.
+    const holdOptions = { forceHold: effectiveParams.allowCredits === false, assumedReset: detectedResumeAt === null && (knownLimit === null || knownLimit.source === 'provider-limit-assumed') };
     if (failoverParams && failoverPlan?.kind === 'switch') {
-      this.startAccountFailover(failoverParams, effectiveParams, providerId, parkAt, { forceHold: effectiveParams.allowCredits === false });
+      this.startAccountFailover(failoverParams, effectiveParams, providerId, parkAt, holdOptions);
       return 'switching-account';
     }
     if (failoverParams && failoverPlan?.kind === 'offer') {
-      const parked = parkAt === null ? 'skipped' : this.park(effectiveParams, providerId, parkAt, { forceHold: effectiveParams.allowCredits === false });
+      const parked = parkAt === null ? 'skipped' : this.park(effectiveParams, providerId, parkAt, holdOptions);
       deps.accountFailover?.offer(failoverParams, failoverPlan.toProfileId);
       return parked;
     }
@@ -281,7 +284,7 @@ export class InstanceProviderLimitHandler {
       return 'skipped';
     }
 
-    return this.park(effectiveParams, providerId, parkAt, { forceHold: effectiveParams.allowCredits === false });
+    return this.park(effectiveParams, providerId, parkAt, holdOptions);
   }
 
   /** Stop paid overage first, then honour the pool policy using included usage only. */
@@ -292,6 +295,8 @@ export class InstanceProviderLimitHandler {
     if (this.parked.has(params.instanceId)) return 'already-parked';
     const stop = resolveUsageLimitStop(deps, params, ASSUMED_ACCOUNT_LIMIT_MS);
     if (!stop) return 'skipped';
+    // resolveUsageLimitStop guesses an hour when no source knows the reset; that guess is not a time to tell the user.
+    const holdOptions = { forceHold: true, assumedReset: Math.abs(stop.resumeAt - Date.now() - ASSUMED_ACCOUNT_LIMIT_MS) < 2_000 };
     const failoverParams = this.failoverParams(stop.params, stop.params.accountProfileId ?? null, stop.resumeAt);
     const continuation = failoverParams ? {
       ...failoverParams,
@@ -307,13 +312,12 @@ export class InstanceProviderLimitHandler {
       });
     }
     if (continuation && plan?.kind === 'switch') {
-      this.startAccountFailover(continuation, stop.params, stop.providerId, stop.resumeAt, { forceHold: true });
-      deps.emitSystemMessage?.(params.instanceId,
-        'This account reached its usage limit. Moving the conversation to another account with available usage to continue the interrupted task.',
-        { accountFailover: true });
+      this.startAccountFailover(continuation, stop.params, stop.providerId, stop.resumeAt, holdOptions);
+      announceUsageLimit(deps.emitSystemMessage, { instanceId: params.instanceId, provider: stop.providerId, accountProfileId: stop.params.accountProfileId, reason: params.reason,
+        ...(holdOptions.assumedReset ? {} : { resetAt: stop.resumeAt }), handling: { kind: 'switching', metadata: { accountFailover: true } } });
       return 'switching-account';
     }
-    const parked = this.park(stop.params, stop.providerId, stop.resumeAt, { forceHold: true });
+    const parked = this.park(stop.params, stop.providerId, stop.resumeAt, holdOptions);
     if (continuation && plan?.kind === 'offer') deps.accountFailover?.offer(continuation, plan.toProfileId);
     return parked;
   }
@@ -364,15 +368,16 @@ export class InstanceProviderLimitHandler {
     // may not be: switch before sending instead of holding the turn.
     const failoverParams = this.failoverParams(effectiveParams, accountProfileId, knownLimit.resumeAt);
     const plan = failoverParams ? deps.accountFailover?.plan(failoverParams) : undefined;
+    const holdOptions = { forceHold: true, assumedReset: knownLimit.source === 'provider-limit-assumed' };
     if (failoverParams && plan?.kind === 'switch') {
-      this.startAccountFailover(failoverParams, effectiveParams, providerId, knownLimit.resumeAt, { forceHold: true });
+      this.startAccountFailover(failoverParams, effectiveParams, providerId, knownLimit.resumeAt, holdOptions);
       return 'switching-account';
     }
     // forceHold: this is the pre-send gate — a known active limit must hold the
     // turn even when the auto-resume feature is off (the hold is not the spend;
     // the unattended re-send is). Without it a restart mid-window dropped the
     // in-memory park and dispatched straight through a still-refused window.
-    const parked = this.park({ ...effectiveParams, quotaBlind }, providerId, knownLimit.resumeAt, { forceHold: true });
+    const parked = this.park({ ...effectiveParams, quotaBlind }, providerId, knownLimit.resumeAt, holdOptions);
     if (failoverParams && plan?.kind === 'offer') deps.accountFailover?.offer(failoverParams, plan.toProfileId);
     return parked;
   }
@@ -485,14 +490,15 @@ export class InstanceProviderLimitHandler {
     params: MaybeParkKnownParams,
     providerId: ProviderId,
     resumeAt: number | null,
-    opts?: { forceHold?: boolean },
+    opts?: { forceHold?: boolean; assumedReset?: boolean },
   ): void {
     const coordinator = this.deps?.accountFailover;
     if (!coordinator || this.isSwitchingAccount(params.instanceId, failoverParams.exhaustedProfileId)) return;
     const token = Symbol();
     this.switching.set(params.instanceId, { token, exhaustedProfileId: failoverParams.exhaustedProfileId, resumePrompt: failoverParams.resumePrompt });
+    // The failover note that follows explains this hold, so the park itself stays quiet.
     const parkAfterFailure = (): boolean => resumeAt !== null && !this.parked.has(params.instanceId)
-      && this.park(params, providerId, resumeAt, opts) === 'parked';
+      && this.park(params, providerId, resumeAt, { ...opts, quiet: true }) === 'parked';
     const noteAfterFailure = (outcome: Parameters<typeof accountFailoverNote>[0], parked: boolean): void => {
       const autoResuming = parked && this.deps?.isEnabled() === true
         && Boolean(this.deps?.getWorkspaceCwd(params.instanceId));
@@ -545,7 +551,7 @@ export class InstanceProviderLimitHandler {
     params: MaybeParkKnownParams,
     providerId: ProviderId,
     resumeAt: number,
-    opts?: { forceHold?: boolean },
+    opts?: { forceHold?: boolean; assumedReset?: boolean; quiet?: boolean },
   ): ProviderLimitTurnOutcome {
     const deps = this.deps;
     if (!deps) return 'skipped';
@@ -643,23 +649,16 @@ export class InstanceProviderLimitHandler {
         holdOnly: true,
       });
     }
-    // forceHold parks swallow a turn that never ran (the pre-send gate, or the
-    // usage-overage stop) — unlike the error path there is no failure in the
-    // transcript to explain the silence, so say what happened to the message.
-    if (opts?.forceHold) {
-      const promptNote = params.resumePrompt
-        ? (autoResuming
-            ? ' Your message will be re-sent automatically once the window resets.'
-            : ' Your message was not sent — press Resume or re-send it once the window resets.')
-        : '';
+    // forceHold parks swallow a turn that never ran (the pre-send gate, or the usage-overage stop), so with
+    // no failure in the transcript to explain the silence they say what happened to the message. A park
+    // raised by a failed turn only reports what it did, to the caller writing the one note about that turn.
+    if (!opts?.quiet) {
       try {
-        deps.emitSystemMessage?.(
-          params.instanceId,
-          `Provider limit reached. ${autoResuming
-            ? 'This session is parked and will auto-resume when the quota window resets.'
-            : 'Holding this session until the quota window resets.'}${promptNote}`,
-          { providerLimitParked: true },
-        );
+        announceUsageLimit(opts?.forceHold ? deps.emitSystemMessage : undefined, {
+          instanceId: params.instanceId, provider: providerId, accountProfileId: params.accountProfileId, reason: params.reason,
+          ...(opts?.assumedReset ? {} : { resetAt: resumeAt }),
+          handling: { kind: 'parked', autoResume: autoResuming, heldMessage: Boolean(params.resumePrompt), metadata: { providerLimitParked: true } },
+        });
       } catch {
         // best-effort — the hold must never depend on a transcript write
       }

@@ -95,7 +95,12 @@ describe('real manager logging callers preserve their original payload', () => {
   it('forwards original input-required metadata while logging only diagnostics', async () => {
     const communication = new EventEmitter(); const state = Object.assign(new EventEmitter(), { isInstancePending: () => false });
     const lifecycle = new EventEmitter(); const handleInputRequired = vi.fn();
-    Reflect.get(InstanceManager.prototype, 'setupEventForwarding').call({ state, communication, lifecycle, permissionRequests: { handleInputRequired } });
+    const manager = Object.assign(new EventEmitter(), {
+      state, communication, lifecycle, permissionRequests: { handleInputRequired },
+      requestReceipts: { setLocalResolutionHandler: vi.fn() },
+      orchestrationMgr: { getOrchestrationHandler: () => new EventEmitter() },
+    });
+    Reflect.get(InstanceManager.prototype, 'setupEventForwarding').call(manager);
     const payload = { instanceId: 'local-instance', requestId: 'local-request', timestamp: 1, prompt: source,
       metadata: { type: source, action: source, path: source, permissionKey: source } };
     const log = vi.spyOn(mocks.logManager!, 'log'); const logError = vi.spyOn(mocks.logManager!, 'logError');

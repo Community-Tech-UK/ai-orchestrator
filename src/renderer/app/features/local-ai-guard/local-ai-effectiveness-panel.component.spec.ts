@@ -256,7 +256,7 @@ describe('LocalAiEffectivenessPanelComponent', () => {
       byIncident: {},
     }));
     await recreate();
-    expect(fixture.nativeElement.textContent).toContain('No eligible Local AI work in this period');
+    expect(fixture.nativeElement.textContent).toContain('No work suited to local models in this period');
   });
 
   function click(label: string): void {

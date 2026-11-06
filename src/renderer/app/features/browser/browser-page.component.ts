@@ -1,3 +1,4 @@
+import { computerName } from '../../../../shared/display-names';
 import { CommonModule } from '@angular/common';
 import {
   ChangeDetectionStrategy,
@@ -22,7 +23,7 @@ import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { BrowserApprovalsStore } from '../../core/state/browser-approvals.store';
 import { BrowserGatewayIpcService } from '../../core/services/ipc/browser-gateway-ipc.service';
 import { AuxiliaryLlmIpcService } from '../../core/services/ipc/auxiliary-llm-ipc.service';
-import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
+import { ElectronIpcService, type IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { BrowserUnattendedPanelComponent } from './browser-unattended-panel.component';
 import { BrowserGrantPaginator } from './browser-grant-paginator';
@@ -37,6 +38,7 @@ import {
   BrowserApprovalFocus,
   browserApprovalPosition,
   browserApprovalReceivedAt,
+  browserApprovalScopeWords,
   shortBrowserApprovalId,
 } from './browser-approval-page.utils';
 import {
@@ -86,6 +88,8 @@ export class BrowserPageComponent implements OnInit {
   private detailGeneration = 0;
   private readonly approvalFocus = new BrowserApprovalFocus(this.host.nativeElement);
 
+  readonly computerLabel = computerName;
+  readonly localPlatform = inject(ElectronIpcService).platform;
   readonly profiles = signal<BrowserProfile[]>([]);
   readonly targets = signal<BrowserTarget[]>([]);
   readonly auditEntries = signal<BrowserAuditEntry[]>([]);
@@ -389,7 +393,7 @@ export class BrowserPageComponent implements OnInit {
     const nodeId = this.profileExecutionNodeDraft();
     const node = nodeId ? this.remoteNodes.nodeById(nodeId) : undefined;
     if (nodeId && (!node || !this.isProfileNodeSelectable(node))) {
-      this.errorMessage.set('Selected node is not ready for remote browser automation.');
+      this.errorMessage.set('Selected computer is not ready for browser automation.');
       return;
     }
     const updated = await this.runGatewayAction(() =>
@@ -614,6 +618,7 @@ export class BrowserPageComponent implements OnInit {
   readonly exactApprovalOnly = browserApprovalExactOnly;
   readonly canApprove = browserApprovalCanApprove;
   readonly canApproveForever = browserApprovalCanApproveForever;
+  readonly scopeWords = browserApprovalScopeWords;
   readonly shortApprovalId = shortBrowserApprovalId;
   readonly approvalReceivedAt = browserApprovalReceivedAt;
   approvalPosition(approval: BrowserApprovalRequest): number { return browserApprovalPosition(approval, this.approvalRequests()); }
@@ -621,26 +626,20 @@ export class BrowserPageComponent implements OnInit {
   autonomousDestructiveIsEnabled(approval: BrowserApprovalRequest): boolean { return Boolean(this.autonomousDestructiveEnabled()[approval.requestId]); }
   autonomousConfirmation(approval: BrowserApprovalRequest): string { return this.autonomousConfirmations()[approval.requestId] ?? ''; }
   requiresAutonomousConfirmation(approval: BrowserApprovalRequest): boolean {
-    const grant = buildBrowserGrantProposal(
-      approval, 'autonomous',
-      this.autonomousSubmitIsEnabled(approval),
-      this.autonomousDestructiveIsEnabled(approval),
-    );
+    const grant = buildBrowserGrantProposal(approval, 'autonomous', this.autonomousSubmitIsEnabled(approval), this.autonomousDestructiveIsEnabled(approval));
     return grant !== null && browserGrantRequiresAutonomousConfirmation(grant);
   }
   confirmationPhrase(approval: BrowserApprovalRequest): string { return browserApprovalConfirmationPhrase(approval, this.profiles()); }
   profileExecutionLocationLabel(profile: BrowserProfile): string {
-    return formatBrowserProfileExecutionLocation(profile, this.remoteNodes.nodes());
+    return formatBrowserProfileExecutionLocation(profile, this.remoteNodes.nodes(), this.localPlatform);
   }
 
   readonly nodeReadinessLabel = browserNodeReadinessLabel;
   readonly isProfileNodeSelectable = isBrowserProfileNodeSelectable;
-
   toggleAuditHistory(): void { this.showAuditHistory.set(!this.showAuditHistory()); }
 
   readonly formatAuditAction = formatBrowserAuditAction;
   readonly formatAuditAge = formatBrowserAuditAge;
-
   private selectedTargetRequest(): { profileId: string; targetId: string } | null {
     const target = this.selectedTarget();
     return target?.profileId ? { profileId: target.profileId, targetId: target.id } : null;

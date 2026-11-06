@@ -1,7 +1,7 @@
 import type { Instance, OutputMessage } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
+import { presentFailure } from '../instance-failure-presentation';
 import type { InitialPromptRecoveryDeps } from './initial-prompt-recovery';
-import { redactSpawnFailureText } from './spawn-transaction';
 
 /**
  * Create-transaction rollback labels that make up the session RECORD: the
@@ -43,9 +43,10 @@ export function shouldRetainFailedCreation(input: {
 }
 
 /**
- * Settle a session whose runtime could not start into `error`, with the reason
- * posted beneath the user's prompt so they can see what happened and restart it
- * or start a corrected session.
+ * Settle a session whose runtime could not start into `error`, with what happened
+ * posted beneath the user's prompt so they can restart it or start a corrected
+ * session. The notice says it in plain words; the real reason, with secrets
+ * removed, is under its Details.
  */
 export function retainFailedCreation(
   instance: Instance,
@@ -60,15 +61,20 @@ export function retainFailedCreation(
       // and the notice below, which is what stops the session vanishing.
     }
   }
-  // Transcript output is only redacted for recovery sessions, and a launch
-  // error can echo argv or env, so scrub it the way the rollback log does.
-  const reason = redactSpawnFailureText(error instanceof Error ? error.message : String(error));
+  // Transcript output is only redacted for recovery sessions, and a launch error can echo
+  // argv or env, so presentFailure scrubs the reason the way the rollback log does.
+  const failure = presentFailure({
+    error,
+    message: error instanceof Error ? error.message : String(error),
+    instance,
+    lead: 'This session could not start.',
+  });
   const notice: OutputMessage = {
     id: generateId(),
     timestamp: Date.now(),
     type: 'error',
-    content: `This session could not start. Reason: ${reason}`,
-    metadata: { source: 'session-start-failed' },
+    content: failure.content,
+    metadata: { source: 'session-start-failed', ...failure.metadata },
   };
   deps.addToOutputBuffer(instance, notice);
   deps.emitOutput(instance.id, notice);

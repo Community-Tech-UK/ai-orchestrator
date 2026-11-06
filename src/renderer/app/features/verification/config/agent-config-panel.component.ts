@@ -17,6 +17,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import { VerificationStore } from '../../../core/state/verification.store';
 import type { CliType } from '../../../../../shared/types/unified-cli-response';
+import { providerName } from '../../../../../shared/display-names';
 import type { PersonalityType, SynthesisStrategy } from '../../../../../shared/types/verification.types';
 import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
 import { AppIconButtonDirective } from '../../../shared/tooltip/icon-button.directive';
@@ -549,17 +550,7 @@ export class AgentConfigPanelComponent implements OnInit {
   }
 
   getDisplayName(name: string): string {
-    const names: Record<string, string> = {
-      claude: 'Claude CLI',
-      codex: 'Codex CLI',
-      gemini: 'Gemini CLI',
-      ollama: 'Ollama (Local)',
-      aider: 'Aider',
-      continue: 'Continue',
-      cursor: 'Cursor',
-      copilot: 'GitHub Copilot',
-    };
-    return names[name] || name;
+    return providerName(name, { long: true });
   }
 
   getPersonalityDescription(personality: PersonalityType): string {

@@ -6,10 +6,14 @@ import type {
 } from '../../core/models';
 import {
   displayStatusLabel,
+  displayStatusColor,
   isActiveSessionStatus,
   isWorkingOrLooping,
   needsAttention,
+  statusLabel,
 } from '../../core/status';
+import { providerDisplayName } from '../new-session/new-session.presentation';
+import { isMiMoModel } from '../../../../../../src/shared/display-names';
 import type { MobileSessionRowView } from '../../shared/mobile-session-row.component';
 
 export type SessionStateFilter = 'all' | 'active' | 'attention';
@@ -243,12 +247,16 @@ function ensureProject(
 }
 
 function liveSessionRow(instance: MobileInstanceDto): ProjectSessionRow {
-  const status = instance.pendingApprovalCount > 0 ? 'Awaiting approval' : displayStatusLabel(instance);
+  const status = instance.pendingApprovalCount > 0 && !needsAttention(instance.status)
+    ? statusLabel('waiting_for_permission')
+    : displayStatusLabel(instance);
   return {
     id: instance.id,
     title: instance.displayName,
     subtitle: sessionSubtitle(instance.provider, instance.model),
     statusLabel: status,
+    color: displayStatusColor(instance.pendingApprovalCount > 0 && !needsAttention(instance.status)
+      ? { status: 'waiting_for_permission' } : instance),
     tone: sessionTone(instance),
     unread: instance.hasUnreadCompletion,
     live: true,
@@ -280,12 +288,9 @@ function sessionTone(instance: MobileInstanceDto): MobileSessionRowView['tone'] 
 }
 
 function sessionSubtitle(provider: string, model?: string): string {
-  const label = provider
-    .split(/[-_\s]+/)
-    .filter(Boolean)
-    .map((part) => part[0].toLocaleUpperCase() + part.slice(1))
-    .join(' ');
-  return model ? `${label} · ${model}` : label;
+  const label = providerDisplayName(provider, model);
+  const modelLabel = isMiMoModel(model) ? model?.split('/').at(-1) : model;
+  return modelLabel ? `${label} · ${modelLabel}` : label;
 }
 
 function projectKey(workingDirectory: string): string {

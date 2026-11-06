@@ -102,8 +102,8 @@ export class LocalAiGuardPageComponent implements OnInit {
       await this.store.loadInventory();
       this.announcement.set(
         this.store.hasAuthoritativeSnapshot()
-          ? 'Local AI health status refreshed.'
-          : 'Local AI health status remains unavailable.',
+          ? 'Local models status refreshed.'
+          : "Couldn't check your local models.",
       );
     } finally {
       this.loading.set(false);
@@ -127,7 +127,7 @@ export class LocalAiGuardPageComponent implements OnInit {
 
   protected setupSaved(): void {
     this.announcement.set(
-      this.editingTargetId() ? 'Target changes saved.' : 'Local AI target enrolled.',
+      this.editingTargetId() ? 'Target changes saved.' : 'Local model added.',
     );
     this.closeSetup();
   }

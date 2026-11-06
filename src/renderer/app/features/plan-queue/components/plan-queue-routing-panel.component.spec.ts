@@ -338,6 +338,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
   it('refuses OpenCode accounts without a MiMo Token Plan model', async () => {
     await mount({ workers: [{ provider: 'opencode', accountProfileIds: ['mimo-a'] }], verifiers: [] });
     expect(q('.pq-routing-workers .pq-routing-error')?.textContent).toContain('MiMo Token Plan');
+    expect(q('.pq-routing-workers .pq-routing-error')?.textContent).not.toMatch(/xiaomi|aio-mimo/i);
     await expectReasonDisabled(saveButton(), () => setSetting.mock.calls.length);
 
     await type(q<HTMLInputElement>('.pq-routing-workers input[type="text"]'), 'xiaomi-token-plan/mimo-v2.6-pro');

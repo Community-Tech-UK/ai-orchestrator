@@ -189,7 +189,7 @@ describe('ComputerUseSettingsTabComponent', () => {
     expect(desktop.getAuditLog).toHaveBeenCalledOnce();
   });
 
-  it('offers repair and relaunch controls inside AIO settings', () => {
+  it('offers repair and relaunch controls inside Harness settings', () => {
     configure();
     permissionStore.repairReady.set(true);
     const fixture = render();
@@ -197,9 +197,11 @@ describe('ComputerUseSettingsTabComponent', () => {
     (fixture.nativeElement as HTMLElement)
       .querySelector<HTMLButtonElement>('[aria-label="Repair macOS permissions"]')
       ?.click();
-    (fixture.nativeElement as HTMLElement)
-      .querySelector<HTMLButtonElement>('[aria-label="Restart Harness"]')
-      ?.click();
+    const restart = (fixture.nativeElement as HTMLElement)
+      .querySelector<HTMLButtonElement>('[aria-label="Restart Harness"]');
+    expect(restart?.textContent?.trim()).toBe('Restart Harness');
+    expect(fixture.nativeElement.textContent).not.toContain('AIO');
+    restart?.click();
 
     expect(permissionStore.repairPermissions).toHaveBeenCalledOnce();
     expect(permissionStore.relaunchApplication).toHaveBeenCalledOnce();

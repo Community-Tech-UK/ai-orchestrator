@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { DatePipe } from '@angular/common';
 import { MobileSheetComponent } from '../../shared/mobile-sheet.component';
 import { MobileIconComponent } from '../../shared/mobile-icon.component';
-import { providerDisplayName } from '../new-session/new-session.presentation';
+import { accountFamilyDisplayName } from '../new-session/new-session.presentation';
 import { UsageStore, type UsageAccountView } from './usage.store';
 
 export interface UsageStripPart {
@@ -40,14 +40,14 @@ export function planLabel(plan: string): string {
 export class UsageComponent {
   protected readonly usage = inject(UsageStore);
   protected readonly open = signal(false);
-  protected readonly providerName = providerDisplayName;
+  protected readonly providerName = accountFamilyDisplayName;
   protected readonly planLabel = planLabel;
   protected readonly strip = computed<UsageStripEntry[]>(() => this.usage.providers().flatMap(provider => {
     const usable = provider.accounts.filter(account => !account.disabled);
     const parts = usable.flatMap(account => usageStripPart(account) ?? []);
     const plan = usable.find(account => account.plan && account.freshness !== 'unavailable')?.plan;
     if (!parts.length && !plan) return [];
-    const name = providerDisplayName(provider.provider);
+    const name = accountFamilyDisplayName(provider.provider);
     return [{ provider: provider.provider, name,
       parts: parts.length ? parts : [{ text: planLabel(plan!), band: 'normal', stale: false }] }];
   }));

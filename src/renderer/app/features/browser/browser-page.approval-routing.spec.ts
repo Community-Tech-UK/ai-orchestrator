@@ -113,7 +113,8 @@ describe('BrowserPageComponent approval deep link', () => {
     const labels = Array.from(card?.querySelectorAll('.permission-actions button') ?? [])
       .map((button) => button.textContent?.trim());
     expect(labels).toEqual([
-      'Allow once', 'Allow for session', 'Allow unattended', 'Allow forever', 'Deny',
+      'Allow this once', 'Allow for this session', 'Allow without asking (this session)',
+      'Always allow on this website', 'Deny',
     ]);
 
     const nextRequestId = 'request-unknown-5678';
@@ -140,7 +141,7 @@ describe('BrowserPageComponent approval deep link', () => {
     expect(nextCard).not.toBeNull();
     expect(nextCard?.querySelector('.autonomous-controls')).toBeNull();
     expect(Array.from(nextCard?.querySelectorAll('.permission-actions button') ?? [])
-      .map((button) => button.textContent?.trim())).toEqual(['Allow once', 'Deny']);
+      .map((button) => button.textContent?.trim())).toEqual(['Allow this once', 'Deny']);
     expect(nextCard?.style.outline).toContain('2px solid');
     expect(focus).toHaveBeenCalledTimes(2);
     expect(document.activeElement).toBe(nextCard);

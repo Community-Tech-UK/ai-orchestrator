@@ -1621,6 +1621,50 @@ describe('ChannelMessageRouter', () => {
 
       expect(instanceManager.resumeAfterDeferredPermission).not.toHaveBeenCalled();
     });
+
+    it('stops offering a question once it has closed, so a later reply is not taken as its answer', async () => {
+      await routeInitialTurn();
+      const orchestration = instanceManager.getOrchestrationHandler();
+      const request = {
+        id: 'uar-9',
+        instanceId: 'inst-1',
+        requestType: 'ask_questions',
+        title: 'Need details',
+        message: 'A couple of questions:',
+        questions: ['Which environment?'],
+      };
+      orchestration.emit('user-action-request', request);
+      await Promise.resolve();
+
+      // The question timed out (or was answered somewhere else) while the instance stayed in the same state.
+      orchestration.emit('user-action-resolved', { request, waitedMs: 300_000, end: { reason: 'timeout' } });
+      await router.handleInboundMessage(
+        makeMessage({ id: 'late', chatId: 'c1', messageId: 'l9', content: 'staging' }),
+      );
+
+      expect(orchestration.respondToUserAction).not.toHaveBeenCalled();
+    });
+
+    it('does not claim an answer was sent when the question had closed a moment before the click', async () => {
+      await routeInitialTurn();
+      const orchestration = instanceManager.getOrchestrationHandler();
+      orchestration.emit('user-action-request', {
+        id: 'uar-8', instanceId: 'inst-1', requestType: 'select_option', title: 'Pick', message: 'Which?',
+        options: [{ id: 'main', label: 'main' }, { id: 'dev', label: 'dev' }],
+      });
+      await Promise.resolve();
+      adapter.sendMessage.mockClear();
+      orchestration.respondToUserAction.mockReturnValueOnce('not-pending' as never);
+
+      await router.handleInboundMessage(
+        makeMessage({ id: 'click', chatId: 'c1', messageId: 'k1', content: 'dev' }),
+      );
+
+      const acknowledgements = adapter.sendMessage.mock.calls.filter(
+        (call) => typeof call[1] === 'string' && call[1].includes('Selected'),
+      );
+      expect(acknowledgements).toEqual([]);
+    });
   });
 
   // -------------------------------------------------------------------------

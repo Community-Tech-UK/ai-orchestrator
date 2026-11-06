@@ -32,6 +32,55 @@ describe('toolDetails', () => {
     expect(details).toContain(JSON.stringify({ command }, null, 2));
     expect(details).toContain('Error');
   });
+
+  // What the desktop writes on a command's result (`src/main/cli/adapters/codex/*`):
+  // `is_error` only means "could not run"; the exit status and check verdict ride beside it.
+  const result = (content: string, metadata: Record<string, unknown>): MobileMessageDto =>
+    msg({ type: 'tool_result', content, metadata: { name: 'Bash', ...metadata } });
+
+  it('still shows a real failed test as an error, though the command ran', () => {
+    const details = toolDetails(result('3 tests failed', { is_error: false, exitCode: 1, isCheck: true, checkFailed: true }));
+
+    expect(details.startsWith('Error')).toBe(true);
+    expect(details).toContain('3 tests failed');
+    expect(details).toContain('Exited with status 1');
+  });
+
+  it('does not call a search that found nothing an error', () => {
+    const details = toolDetails(result('Exited with status 1', { is_error: false, exitCode: 1, isCheck: false, checkFailed: false }));
+
+    expect(details).toBe('Exited with status 1');
+  });
+
+  it('adds the exit status after the output instead of calling it an error', () => {
+    const details = toolDetails(result('stopping on purpose', { is_error: false, exitCode: 127, isCheck: false, checkFailed: false }));
+
+    expect(details).toBe('stopping on purpose\n\nExited with status 127');
+  });
+
+  it('leaves a clean exit, and a result with no status, as they were', () => {
+    expect(toolDetails(result('all green', { is_error: false, exitCode: 0, isCheck: true, checkFailed: false }))).toBe('all green');
+    expect(toolDetails(result('ok', {}))).toBe('ok');
+  });
+
+  it('still shows a command that could not run as an error', () => {
+    const details = toolDetails(result('Command declined', { is_error: true, isCheck: false, checkFailed: false }));
+
+    expect(details.startsWith('Error')).toBe(true);
+  });
+
+  it('keeps showing an older result that was marked an error for its exit status', () => {
+    const details = toolDetails(result('boom', { is_error: true, exitCode: 2 }));
+
+    expect(details.startsWith('Error')).toBe(true);
+    expect(details).toContain('Exited with status 2');
+  });
+
+  it('does not let a stray check flag turn a file edit into a failure', () => {
+    const details = toolDetails(msg({ type: 'tool_result', content: 'patched', metadata: { name: 'apply_patch', isCheck: true, checkFailed: true, exitCode: 1 } }));
+
+    expect(details.startsWith('Error')).toBe(false);
+  });
 });
 
 describe('isLoopTranscriptMessage', () => {

@@ -326,6 +326,16 @@ export const VcsOperationCancelPayloadSchema = z.object({
 });
 
 /**
+ * Ask which files changed while one turn ran. The turn is named by the id of
+ * the message that started it, which is the same id in the transcript and in
+ * the main process.
+ */
+export const VcsTurnFileChangesPayloadSchema = z.object({
+  instanceId: z.string().min(1).max(200),
+  turnKey: z.string().min(1).max(200),
+});
+
+/**
  * WS-B1 phase 1 — create a GitHub pull request from a completed
  * loop/worktree branch via `gh`. Gated end-to-end in `PrCreationService`
  * (per-project opt-in + never-delegable `external_publish` approval);

@@ -77,6 +77,59 @@ describe('buildRunReadinessReasons', () => {
     ]);
   });
 
+  it('still warns when the composer uses a tool startup treats as unused because it is not installed', () => {
+    // Startup stays quiet about a tool nobody asked for (`disabled`), but picking
+    // it in the composer is asking for it: a session on it cannot start.
+    const reasons = buildRunReadinessReasons({
+      provider: 'cursor',
+      startupCapabilities: report([
+        check({ id: 'provider.any', status: 'ready', critical: true }),
+        check({
+          id: 'provider.cursor',
+          label: 'Cursor',
+          status: 'disabled',
+          summary: "Cursor isn't installed. You only need it to use Cursor.",
+          details: { problem: 'not-installed' },
+        }),
+      ]),
+    });
+    expect(reasons).toEqual<RunReadinessReason[]>([
+      {
+        id: 'provider-not-installed-cursor',
+        severity: 'warning',
+        message: "Cursor isn't installed on this computer, so a session that uses it can't start.",
+        action: { label: 'Open Doctor', commandId: 'app.open-doctor' },
+      },
+    ]);
+  });
+
+  it('stays quiet about a disabled provider check that is not a missing install', () => {
+    const reasons = buildRunReadinessReasons({
+      provider: 'cursor',
+      startupCapabilities: report([
+        check({ id: 'provider.any', status: 'ready', critical: true }),
+        check({ id: 'provider.cursor', status: 'disabled', summary: 'Switched off.' }),
+      ]),
+    });
+    expect(reasons).toEqual([]);
+  });
+
+  it.each(['not-signed-in', 'needs-attention', 'check-failed'])(
+    'warns when the composer selects an unused provider with a %s problem', (problem) => {
+      const reasons = buildRunReadinessReasons({
+        provider: 'codex',
+        startupCapabilities: report([
+          check({ id: 'provider.any', status: 'ready', critical: true }),
+          check({ id: 'provider.codex', status: 'disabled', summary: 'Codex needs a check.', details: { problem } }),
+        ]),
+      });
+      expect(reasons).toEqual([{
+        id: 'provider-degraded-codex', severity: 'warning', message: 'Codex needs a check.',
+        action: { label: 'Open Doctor', commandId: 'app.open-doctor' },
+      }]);
+    },
+  );
+
   it('does not warn about a different provider than the one the composer is using', () => {
     const reasons = buildRunReadinessReasons({
       provider: 'claude',

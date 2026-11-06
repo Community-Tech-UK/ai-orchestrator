@@ -1,3 +1,4 @@
+import { OTHER_COMPUTERS_TITLE } from '../../../../shared/display-names';
 import { controlSurfaceIcon } from './control-surface-icons';
 import type {
   ControlSurfaceGroup,
@@ -87,13 +88,13 @@ export const CONTROL_SURFACES: readonly ControlSurfaceItem[] = [
   surface({ id: 'lsp', path: '/lsp', label: 'Language Server', subtitle: 'Inspect language-server integration state.', group: 'code', kind: 'tool', dashboard: true }),
   surface({ id: 'mcp', path: '/mcp', label: 'MCP Servers', subtitle: 'Manage tool servers shared across provider CLIs.', group: 'integrations', kind: 'integration', dashboard: true, settings: true }),
   surface({ id: 'browser', path: '/browser', label: 'Browser Gateway', subtitle: 'Control managed browser automation.', group: 'integrations', kind: 'tool', layout: 'wide', dashboard: true }),
-  surface({ id: 'files', path: '/files', label: 'Files', subtitle: 'Move files between this Mac and worker nodes.', group: 'integrations', kind: 'tool', layout: 'wide', dashboard: true }),
+  surface({ id: 'files', path: '/files', label: 'Files', subtitle: 'Move files between this computer and your other computers.', group: 'integrations', kind: 'tool', layout: 'wide', dashboard: true }),
   surface({ id: 'vcs', path: '/vcs', label: 'Git', subtitle: 'Review source-control state and changes.', group: 'code', kind: 'tool', dashboard: true }),
   surface({ id: 'tasks', path: '/tasks', label: 'Background Jobs', subtitle: 'Monitor local background repo jobs.', group: 'code', kind: 'diagnostic', dashboard: true }),
   surface({ id: 'plan', path: '/plan', label: 'Plan Mode', subtitle: 'Draft and review structured implementation plans.', group: 'code', kind: 'tool', dashboard: true }),
   surface({ id: 'stats', path: '/stats', label: 'Statistics', subtitle: 'Inspect app metrics and throughput.', group: 'monitoring', kind: 'diagnostic', dashboard: true }),
   surface({ id: 'cost', path: '/cost', label: 'Costs & Usage', subtitle: 'Track provider spend and usage.', group: 'monitoring', kind: 'diagnostic', dashboard: true }),
-  surface({ id: 'local-ai', path: '/local-ai', label: 'Local AI Guard', title: 'Local AI Health Centre', subtitle: 'Prove local capacity, control routing, and recover enrolled targets.', group: 'monitoring', kind: 'diagnostic', layout: 'wide', dashboard: true }),
+  surface({ id: 'local-ai', path: '/local-ai', label: 'Local models', title: 'Local models', subtitle: 'Check that your local models work, control what they are used for, and get them running again.', group: 'monitoring', kind: 'diagnostic', layout: 'wide', dashboard: true }),
   surface({ id: 'snapshots', path: '/snapshots', label: 'Snapshots', subtitle: 'Capture and restore workspace checkpoints.', group: 'storage', kind: 'tool', dashboard: true, settings: true }),
   surface({ id: 'replay', path: '/replay', label: 'Replay', subtitle: 'Replay sessions and observation streams.', group: 'monitoring', kind: 'view', layout: 'wide', dashboard: true }),
   surface({ id: 'remote-access', path: '/remote-access', label: 'Remote Access', subtitle: 'Control remote access and pairing surfaces.', group: 'integrations', kind: 'integration', dashboard: true }),
@@ -112,8 +113,8 @@ export const CONTROL_SURFACES: readonly ControlSurfaceItem[] = [
   surface({ id: 'archive', path: '/archive', label: 'Archive', subtitle: 'Browse and restore archived sessions.', group: 'storage', kind: 'view', dashboard: true, settings: true }),
   surface({ id: 'semantic-search', path: '/semantic-search', label: 'Semantic Search', subtitle: 'Search code and memory semantically.', group: 'code', kind: 'tool', dashboard: true }),
   surface({ id: 'channels', path: '/channels', label: 'Discord & WhatsApp', title: 'Discord & WhatsApp', subtitle: 'Connect external messaging channels.', group: 'integrations', kind: 'integration', dashboard: true }),
-  surface({ id: 'remote-nodes', path: '/remote-nodes', label: 'Remote Nodes', subtitle: 'Pair and monitor remote worker nodes.', group: 'integrations', kind: 'integration', dashboard: true }),
-  surface({ id: 'worker-mode', path: '/worker-mode', label: 'Worker Mode', subtitle: 'Let another Harness use this computer for work, while you keep using it here.', group: 'integrations', kind: 'integration', dashboard: true }),
+  surface({ id: 'remote-nodes', path: '/remote-nodes', label: OTHER_COMPUTERS_TITLE, subtitle: 'Pair and monitor your other computers.', group: 'integrations', kind: 'integration', dashboard: true }),
+  surface({ id: 'worker-mode', path: '/worker-mode', label: 'Help another Harness', subtitle: 'Let another Harness use this computer for work, while you keep using it here.', group: 'integrations', kind: 'integration', dashboard: true }),
   surface({ id: 'ask-council', path: '/ask-council', label: 'Ask Council', subtitle: 'Compare answers across multiple providers.', group: 'agents', kind: 'workflow', layout: 'wide' }),
   surface({ id: 'workboard', path: '/work', label: 'Workboard', subtitle: 'See what needs you across sessions, loops, automations, and jobs.', group: 'automation', kind: 'view', layout: 'fullBleed', dashboard: true }),
   surface({ id: 'compare-split', path: '/compare/split', label: 'Split Compare', subtitle: 'Compare two sessions side by side.', group: 'monitoring', kind: 'tool', layout: 'fullBleed' }),

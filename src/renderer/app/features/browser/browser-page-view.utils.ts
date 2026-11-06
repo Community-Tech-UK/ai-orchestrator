@@ -1,3 +1,4 @@
+import { computerName } from '../../../../shared/display-names';
 import type {
   BrowserAllowedOrigin,
   BrowserActionClass,
@@ -102,11 +103,14 @@ export function isBrowserProfileNodeSelectable(node: RemoteNodeRosterEntry): boo
 export function formatBrowserProfileExecutionLocation(
   profile: BrowserProfile,
   nodes: RemoteNodeRosterEntry[],
+  localPlatform?: string,
 ): string {
   const nodeId = profile.executionNodeId;
-  if (!nodeId) return 'Local coordinator';
+  if (!nodeId) return computerName('local', localPlatform);
   const node = nodes.find((candidate) => candidate.id === nodeId);
-  return node ? `${node.name} · ${browserNodeReadinessLabel(node)}` : `${nodeId} · Missing`;
+  return node
+    ? `${computerName({ name: node.name, platform: node.platform ?? node.capabilities.platform })} · ${browserNodeReadinessLabel(node)}`
+    : `${computerName({})} · Missing`;
 }
 
 export function formatBrowserUploadRoots(approval: BrowserApprovalRequest): string {

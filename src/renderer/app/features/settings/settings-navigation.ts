@@ -1,5 +1,6 @@
 import type { InlineHelpVariant } from '../../shared/help/inline-help.component';
 import { listSettingsExternalLinks } from '../../shared/control-surface/control-surface-nav';
+import { OTHER_COMPUTERS_TITLE } from '../../../../shared/display-names';
 
 export type SettingsTab =
   | 'general'
@@ -254,7 +255,7 @@ export const NAV_ITEMS: SettingsNavItem[] = [
   },
   {
     id: 'remote-nodes',
-    label: 'Remote Nodes',
+    label: OTHER_COMPUTERS_TITLE,
     summary: 'Connect another computer to run browser, GPU, or extra CLI work for this app.',
     group: 'Network & Remote',
     keywords: 'remote nodes offload distributed gpu browser worker pair',

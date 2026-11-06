@@ -2,7 +2,7 @@
   <div class="panel-heading">
     <div>
       <p class="eyebrow">Routing outcomes</p>
-      <h2 id="local-ai-effectiveness-title">Local AI effectiveness</h2>
+      <h2 id="local-ai-effectiveness-title">How your local models are doing</h2>
     </div>
     <div class="window-filter" aria-label="Effectiveness period">
       <button
@@ -33,7 +33,7 @@
   } @else if (store.effectiveness(); as summary) {
     @if (isEmpty()) {
       <div class="panel-state empty">
-        <strong>No eligible Local AI work in this period</strong>
+        <strong>No work suited to local models in this period</strong>
         <span>Routing outcomes will appear after an enrolled target handles or escalates work.</span>
       </div>
     } @else {

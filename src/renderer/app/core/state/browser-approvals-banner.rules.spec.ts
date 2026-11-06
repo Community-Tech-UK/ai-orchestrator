@@ -1,17 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import type { BrowserApprovalRequest } from '@contracts/types/browser';
 import { BrowserApproveRequestPayloadSchema } from '@contracts/schemas/browser';
+import { PERMISSION_SCOPE_WORDS } from '../../../../shared/permissions/permission-scope-presentation';
 import { buildBrowserGrantProposal } from '../../features/browser/browser-page-view.utils';
 import {
+  CREDENTIAL_ACCESS_DURATIONS,
   bannerCanQuickApprove,
   bannerConfirmationPhrase,
   bannerGrantModes,
   bannerGrantRequiresConfirmation,
+  bannerModeChoice,
   bannerModeLabel,
   buildBannerGrant,
   credentialAccessChoice,
   credentialAccessErrorText,
   credentialAccessPurpose,
+  credentialAccessWords,
 } from './browser-approvals-banner.rules';
 
 function makeApproval(overrides: Partial<BrowserApprovalRequest> = {}): BrowserApprovalRequest {
@@ -66,9 +70,10 @@ describe('browser-approvals-banner.rules', () => {
     const approval = makeApproval();
     expect(bannerCanQuickApprove(approval)).toBe(true);
     expect(bannerGrantModes(approval)).toEqual(['per_action', 'session', 'autonomous', 'persistent']);
-    expect(bannerModeLabel('per_action')).toBe('Approve once');
-    expect(bannerModeLabel('autonomous')).toBe('Allow unattended');
-    expect(bannerModeLabel('persistent')).toBe('Allow forever');
+    expect(bannerModeLabel('per_action')).toBe('Allow this once');
+    expect(bannerModeLabel('session')).toBe('Allow for this session');
+    expect(bannerModeLabel('autonomous')).toBe('Allow without asking (this session)');
+    expect(bannerModeLabel('persistent')).toBe('Always allow on this website');
     expect(buildBannerGrant(approval, 'session')).toEqual({
       mode: 'session',
       allowedOrigins: approval.proposedGrant.allowedOrigins,
@@ -78,7 +83,39 @@ describe('browser-approvals-banner.rules', () => {
     });
   });
 
-  it('keeps the full proposed classes on Approve once for request_grant', () => {
+  it('words every browser permission length with the scope phrases the other cards use', () => {
+    expect(bannerModeLabel('per_action')).toBe(PERMISSION_SCOPE_WORDS.once.allow);
+    expect(bannerModeLabel('session')).toBe(PERMISSION_SCOPE_WORDS.session.allow);
+    expect(bannerModeLabel('autonomous')).toBe(PERMISSION_SCOPE_WORDS['without-asking'].allow);
+    expect(bannerModeLabel('persistent')).toBe(`${PERMISSION_SCOPE_WORDS.always.allow} on this website`);
+  });
+
+  it('names a grant length in the short shared words, for lists of active grants', () => {
+    expect(bannerModeChoice('per_action')).toBe('Once');
+    expect(bannerModeChoice('session')).toBe('This session');
+    expect(bannerModeChoice('autonomous')).toBe('Without asking (this session)');
+    expect(bannerModeChoice('persistent')).toBe('Always');
+  });
+
+  it('words the saved-login lengths as this session or a fixed time, and never calls it a task', () => {
+    expect(CREDENTIAL_ACCESS_DURATIONS.map((duration) => [duration.value, duration.label])).toEqual([
+      ['task', 'This session'],
+      ['1h', 'For 1 hour'],
+      ['24h', 'For 24 hours'],
+      ['7d', 'For 7 days'],
+      ['30d', 'For 30 days'],
+      ['90d', 'For 90 days'],
+      ['365d', 'For 1 year'],
+    ]);
+    for (const duration of CREDENTIAL_ACCESS_DURATIONS) {
+      expect(duration.label.toLowerCase()).not.toContain('task');
+    }
+    expect(credentialAccessWords('task').allow).toBe('Allow for this session');
+    expect(credentialAccessWords('7d').allow).toBe('Allow for 7 days');
+    expect(credentialAccessWords('7d').lasts).toBe('for 7 days');
+  });
+
+  it('keeps the full proposed classes on Allow this once for request_grant', () => {
     const approval = makeApproval();
     expect(buildBannerGrant(approval, 'per_action')?.allowedActionClasses).toEqual([
       'read',
@@ -320,7 +357,7 @@ describe('browser-approvals-banner.rules', () => {
     expect(credentialAccessErrorText('vault_locked')).toBe('The password vault is locked. Unlock it, then approve again.');
     expect(credentialAccessErrorText('target_closed')).toContain('open a fresh sign-in tab');
     expect(credentialAccessErrorText('vault_relock_failed:placeholder_reason')).toContain('could not be unlocked again');
-    expect(credentialAccessErrorText('placeholder_unknown_reason')).toBe('placeholder unknown reason');
+    expect(credentialAccessErrorText('placeholder_unknown_reason')).toBe("The saved login couldn't be prepared. Check Details, then try again.");
   });
 });
 

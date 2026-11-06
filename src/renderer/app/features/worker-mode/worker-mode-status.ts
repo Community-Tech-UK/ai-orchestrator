@@ -29,11 +29,11 @@ export function describeWorkerStatus(
   context: WorkerStatusContext,
 ): WorkerStatusView {
   if (!status) {
-    return { text: 'Checking the worker...', warning: false };
+    return { text: 'Checking this computer...', warning: false };
   }
   if (status.backgroundService) {
     return {
-      text: 'The background service runs this worker, even when Harness is closed.',
+      text: 'The background service lets this computer help, even when Harness is closed.',
       warning: false,
     };
   }
@@ -48,7 +48,7 @@ export function describeWorkerStatus(
     return {
       text: externalWorker
         ? 'A worker started outside Harness is running on this computer but has not reported for a few minutes. If your main Harness does not list this computer, restart this computer.'
-        : 'The worker is running but has not reported for a few minutes. If your main Harness does not list this computer, press Stop Worker and then Start Worker.',
+        : 'The worker is running but has not reported for a few minutes. If your main Harness does not list this computer, press Stop sharing and then Start sharing.',
       warning: true,
     };
   }
@@ -63,10 +63,10 @@ export function describeWorkerStatus(
       return { text: `The background worker could not start: ${failed}`, warning: true };
     }
     if (context.signInStarting || status.runtime.state === 'running') {
-      return { text: 'Starting the background worker...', warning: false };
+      return { text: 'Starting background sharing...', warning: false };
     }
     return {
-      text: 'The background worker is stopped. Press Start Worker to start it; it then also starts whenever you sign in to Windows.',
+      text: 'Background sharing is stopped. Press Start sharing to start it; it then also starts whenever you sign in to Windows.',
       warning: true,
     };
   }
@@ -77,10 +77,10 @@ export function describeWorkerStatus(
     return { text: 'Starting the worker...', warning: false };
   }
   if (status.runtime.error) {
-    return { text: `${status.runtime.error} Press Start Worker to try again.`, warning: true };
+    return { text: `${status.runtime.error} Start sharing to try again.`, warning: true };
   }
   return {
-    text: 'The worker is stopped. Press Start Worker so your main Harness can send work to this computer.',
+    text: 'Sharing is stopped. Start sharing to take work from the main Harness.',
     warning: true,
   };
 }
@@ -109,7 +109,7 @@ export function describeConnection(
       // The network advice is wrong when the fault was on this computer.
       if (connection.message === WORKER_INTERNAL_CONNECT_ERROR) {
         return {
-          text: `${connection.message} Still trying. If this does not clear, press Stop Worker and then Start Worker.`,
+          text: `${connection.message} Still trying. If this does not clear, press Stop sharing and then Start sharing.`,
           warning: true,
         };
       }

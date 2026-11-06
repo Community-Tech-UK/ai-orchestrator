@@ -23,6 +23,11 @@ import type {
 } from '../../../../shared/types/side-chat.types';
 import { SIDE_CHAT_PROVIDERS } from '../../../../shared/types/side-chat.types';
 import type { PendingSelection } from '../models/compact-model-picker.types';
+import type { Instance } from '../../core/state/instance/instance.types';
+import {
+  UserInputRequestRegistry,
+  type QuestionOfferResult,
+} from '../instance-detail/user-input-request.registry';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
 
@@ -420,5 +425,156 @@ describe('SideChatPanelComponent', () => {
     retry!.click();
     await settle();
     expect(ipc['sideChatSend']).toHaveBeenLastCalledWith({ chatId: 's1', text: 'Status?', allowStaleContext: true });
+  });
+
+  describe('when the sidechat\'s own session is waiting on a question', () => {
+    const RUNTIME_ID = 'inst-side';
+    let store: SideChatStore;
+
+    /** s1 is open and its live session is the one the question card is shown for. */
+    async function openWithLiveSession(): Promise<void> {
+      lists.set('thread-a', [summary('s1', PARENT_A, 0, 0)]);
+      details.update((map) => new Map(map).set('s1', {
+        chat: { ...chat('s1'), currentInstanceId: RUNTIME_ID },
+        conversation: { thread: {} as ChatDetail['conversation']['thread'], messages: [] },
+        currentInstance: null,
+      }));
+      vi.mocked(TestBed.inject(InstanceStore).getInstance).mockReturnValue(
+        { id: RUNTIME_ID, status: 'waiting_for_input', outputBuffer: [] } as unknown as Instance);
+      fixture.componentRef.setInput('parent', PARENT_A);
+      await settle();
+      expect(fixture.componentInstance.sideChatId()).toBe('s1');
+    }
+
+    function question(
+      result: QuestionOfferResult | Promise<QuestionOfferResult>,
+      instanceId = RUNTIME_ID,
+      requestId = 'q1',
+    ) {
+      const handle = { requestId, instanceId, createdAt: 1, answer: vi.fn(async () => result) };
+      TestBed.inject(UserInputRequestRegistry).replace(`test ${requestId}`, [handle]);
+      return handle;
+    }
+
+    beforeEach(async () => {
+      store = TestBed.inject(SideChatStore);
+      await openWithLiveSession();
+    });
+
+    it('gives the typed text to the question instead of asking a new one', async () => {
+      const card = question('answered');
+      store.setDraft(PARENT_A, 's1', 'Bun');
+
+      await fixture.componentInstance.send();
+
+      expect(card.answer).toHaveBeenCalledWith('Bun');
+      expect(ipc['sideChatSend']).not.toHaveBeenCalled();
+      expect(store.draftFor(PARENT_A, 's1')).toBe('');
+    });
+
+    it('answers when Enter is pressed in the message box', async () => {
+      const card = question('answered');
+      const textarea = el().querySelector<HTMLTextAreaElement>('textarea')!;
+      textarea.value = 'Bun';
+      textarea.dispatchEvent(new Event('input'));
+
+      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', cancelable: true }));
+      await settle();
+
+      expect(card.answer).toHaveBeenCalledWith('Bun');
+      expect(ipc['sideChatSend']).not.toHaveBeenCalled();
+      expect(textarea.value).toBe('');
+    });
+
+    it('clears the box when a card with several questions took the text but wants more', async () => {
+      question('partial');
+      store.setDraft(PARENT_A, 's1', 'first answer');
+
+      await fixture.componentInstance.send();
+
+      expect(ipc['sideChatSend']).not.toHaveBeenCalled();
+      expect(store.draftFor(PARENT_A, 's1')).toBe('');
+    });
+
+    it('keeps the typed text when the answer could not be delivered', async () => {
+      question('failed');
+      store.setDraft(PARENT_A, 's1', 'Bun');
+
+      await fixture.componentInstance.send();
+
+      expect(ipc['sideChatSend']).not.toHaveBeenCalled();
+      expect(store.draftFor(PARENT_A, 's1')).toBe('Bun');
+    });
+
+    it('keeps the typed text and sends nothing while an earlier answer is still on its way', async () => {
+      question('busy');
+      store.setDraft(PARENT_A, 's1', 'Bun');
+
+      await fixture.componentInstance.send();
+
+      expect(ipc['sideChatSend']).not.toHaveBeenCalled();
+      expect(store.draftFor(PARENT_A, 's1')).toBe('Bun');
+    });
+
+    it('asks the sidechat normally when the question has already gone', async () => {
+      question('not-applicable');
+      store.setDraft(PARENT_A, 's1', 'Status?');
+
+      await fixture.componentInstance.send();
+
+      expect(ipc['sideChatSend']).toHaveBeenCalledWith({ chatId: 's1', text: 'Status?' });
+    });
+
+    it('asks the sidechat normally when no question is waiting, as with a permission card', async () => {
+      store.setDraft(PARENT_A, 's1', 'Status?');
+
+      await fixture.componentInstance.send();
+
+      expect(ipc['sideChatSend']).toHaveBeenCalledWith({ chatId: 's1', text: 'Status?' });
+    });
+
+    it('ignores a question that belongs to another session', async () => {
+      const other = question('answered', 'inst-elsewhere');
+      store.setDraft(PARENT_A, 's1', 'Status?');
+
+      await fixture.componentInstance.send();
+
+      expect(other.answer).not.toHaveBeenCalled();
+      expect(ipc['sideChatSend']).toHaveBeenCalledWith({ chatId: 's1', text: 'Status?' });
+    });
+
+    it('treats "Send with the last saved context" as a send, never as an answer', async () => {
+      ipc['sideChatSend'].mockResolvedValueOnce({
+        success: false,
+        error: { message: 'Parent session is gone' },
+        data: { ok: false, code: 'parent-unavailable', lastSnapshotAvailable: true },
+      });
+      store.setDraft(PARENT_A, 's1', 'Status?');
+      await fixture.componentInstance.send();
+      const card = question('answered');
+
+      await fixture.componentInstance.send({ allowStaleContext: true });
+
+      expect(card.answer).not.toHaveBeenCalled();
+      expect(ipc['sideChatSend']).toHaveBeenLastCalledWith({ chatId: 's1', text: 'Status?', allowStaleContext: true });
+    });
+
+    it('clears only the draft the answer came from if the person switched sidechats meanwhile', async () => {
+      lists.set('thread-a', [summary('s1', PARENT_A, 0, 0), summary('s2', PARENT_A, 0, 0)]);
+      await store.refresh(PARENT_A);
+      let deliver!: (result: QuestionOfferResult) => void;
+      const card = question(new Promise<QuestionOfferResult>((resolveAnswer) => { deliver = resolveAnswer; }));
+      store.setDraft(PARENT_A, 's1', 'Bun');
+
+      const sending = fixture.componentInstance.send();
+      fixture.componentInstance.selectSideChat('s2');
+      store.setDraft(PARENT_A, 's2', 'Bun');
+      deliver('answered');
+      await sending;
+
+      expect(card.answer).toHaveBeenCalledWith('Bun');
+      expect(store.draftFor(PARENT_A, 's1')).toBe('');
+      expect(store.draftFor(PARENT_A, 's2')).toBe('Bun');
+    });
   });
 });

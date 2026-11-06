@@ -19,9 +19,9 @@ import { VoiceIpcService } from '../../core/services/ipc/voice-ipc.service';
 import { SettingsStore } from '../../core/state/settings.store';
 
 const ROUTING_MODES: readonly { value: VoiceSttRoutingMode; label: string }[] = [
-  { value: 'auto', label: 'Auto (this device, worker, OpenAI)' },
+  { value: 'auto', label: 'Auto (this device, remote computer, OpenAI)' },
   { value: 'this-device', label: 'This device' },
-  { value: 'worker-node', label: 'Worker GPU' },
+  { value: 'worker-node', label: 'Remote computer' },
   { value: 'cloud', label: 'OpenAI cloud' },
   { value: 'this-device-or-cloud', label: 'This device or OpenAI' },
 ];
@@ -85,7 +85,7 @@ const MAX_SEGMENT_MS = 30_000;
         @if (localSttEmptyState()) {
           <div class="setup-callout">
             <strong>No local STT engine detected</strong>
-            <span>Start speaches on a worker node or a whisper.cpp endpoint on this device.</span>
+            <span>Start speaches on a paired computer or a whisper.cpp endpoint on this device.</span>
           </div>
         }
       </section>
@@ -126,7 +126,7 @@ const MAX_SEGMENT_MS = 30_000;
 
         <div class="field-grid">
           <label class="form-field">
-            <span class="field-label">Worker node id</span>
+            <span class="field-label">Remote computer ID</span>
             <input
               name="voice-worker-node-id"
               type="text"
@@ -179,7 +179,7 @@ const MAX_SEGMENT_MS = 30_000;
 
       <section class="card">
         <h3 class="section-title">This device endpoint</h3>
-        <p class="section-desc">Loopback OpenAI-compatible STT endpoint on this Mac.</p>
+        <p class="section-desc">Loopback OpenAI-compatible STT endpoint on this device.</p>
 
         <div class="field-grid">
           <label class="form-field wide">
@@ -314,7 +314,7 @@ export class VoiceSettingsTabComponent implements OnInit {
 
   protected locationLabel(provider: VoiceProviderStatus): string {
     if (provider.location === 'this-device') return 'This device';
-    if (provider.location === 'worker-node') return 'Worker node';
+    if (provider.location === 'worker-node') return 'Remote computer';
     if (provider.location === 'cloud') return 'OpenAI cloud';
     return 'Unknown';
   }
@@ -326,8 +326,8 @@ export class VoiceSettingsTabComponent implements OnInit {
   }
 
   protected privacyLabel(provider: VoiceProviderStatus): string {
-    if (provider.location === 'this-device') return 'Audio stays on this Mac';
-    if (provider.location === 'worker-node') return 'Audio stays on your machines';
+    if (provider.location === 'this-device') return 'Audio stays on this device';
+    if (provider.location === 'worker-node') return 'Audio stays on your computers';
     if (provider.location === 'cloud' || provider.privacy === 'provider-cloud') {
       return 'Audio is sent to the provider cloud';
     }

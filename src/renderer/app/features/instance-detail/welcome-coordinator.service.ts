@@ -395,7 +395,7 @@ export class WelcomeCoordinatorService {
       const node = this.remoteNodeStore.nodeById(forceNodeId);
       if (!node || !isRemoteNodeOnline(node)) {
         return this.failPreparation(
-          'Selected remote node is no longer connected. Please choose another node or use Local.',
+          'The selected computer is no longer connected. Choose another computer or run the session on this computer.',
         );
       }
 
@@ -412,7 +412,7 @@ export class WelcomeCoordinatorService {
         effectiveWorkingDir = allowedDirs[0];
       } else if (!isWorkingDirOnNode) {
         return this.failPreparation(
-          'The current working directory is not available on the remote node. Please browse and select a remote folder first.',
+          'The current working folder is not available on the other computer. Browse and select a folder on that computer first.',
         );
       }
     }

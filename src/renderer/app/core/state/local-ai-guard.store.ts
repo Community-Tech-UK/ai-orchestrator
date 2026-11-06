@@ -30,10 +30,10 @@ const EMPTY_AGGREGATE: LocalAiAggregateStatus = {
   paused: 0,
 };
 
-export const LOCAL_AI_STATUS_ERROR = 'Local AI Guard status could not be refreshed.';
+export const LOCAL_AI_STATUS_ERROR = "Harness couldn't refresh the local model status.";
 export const LOCAL_AI_RESOLUTION_ERROR = 'Fallback decision could not be saved. Try again.';
 export const LOCAL_AI_OPERATION_ERROR =
-  'The Local AI Guard operation could not be completed. Try again.';
+  "That local model action couldn't be completed. Try again.";
 export const LOCAL_AI_EFFECTIVENESS_ERROR =
   'Effectiveness data could not be loaded.';
 

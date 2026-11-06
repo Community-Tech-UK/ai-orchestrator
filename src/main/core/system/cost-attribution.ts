@@ -59,6 +59,12 @@ export interface PlanQueueCostContext {
 export interface CostAttributionRecord {
   planQueue?: PlanQueueCostContext;
   sessionId?: string;
+  /**
+   * `instance-turn` only: the effort setting the session ran this turn at
+   * (`max`, `workflow`, ...). Lets "Where your usage went" tell max-effort and
+   * workflow usage apart; turns recorded before this field existed have none.
+   */
+  reasoningEffort?: string;
   subagentUsage?: true;
   finalContextTokens?: number;
   toolUses?: number;
@@ -98,7 +104,6 @@ export interface CostAttributionRecord {
   /** Resolved CLI/provider type (claude, gemini, codex, ollama, ...). */
   provider?: string;
   model?: string;
-  reasoningEffort?: string;
   usage?: CostAttributionUsage;
   /** False when the provider reported no cost and 0 was assumed. */
   costKnown?: boolean;
@@ -252,6 +257,7 @@ export function recordInstanceTurnAttribution(args: {
   purpose?: string;
   origin?: string;
   purposeDetail?: string;
+  /** The provider's own session id for the turn (the Claude transcript's session). */
   sessionId?: string;
   rtkArm?: 'on' | 'off' | 'n/a';
   rtkTrialEligible?: boolean;
@@ -276,7 +282,7 @@ export function recordInstanceTurnAttribution(args: {
     purpose: args.purpose ?? role,
     ...(args.origin !== undefined ? { origin: args.origin } : {}),
     purposeDetail: args.purposeDetail,
-    sessionId: args.sessionId,
+    ...(args.sessionId ? { sessionId: args.sessionId } : {}),
     rtkArm: args.rtkArm,
     rtkTrialEligible: args.rtkTrialEligible,
     rtkTrialKey: args.rtkTrialKey,
@@ -290,7 +296,7 @@ export function recordInstanceTurnAttribution(args: {
     usage: args.usage,
     costKnown: args.costKnown,
     costSource: args.costSource ?? (args.costKnown ? 'provider' : 'unknown'),
-    reasoningEffort: args.reasoningEffort,
+    ...(args.reasoningEffort ? { reasoningEffort: args.reasoningEffort } : {}),
     isEstimated: args.isEstimated,
   });
 }

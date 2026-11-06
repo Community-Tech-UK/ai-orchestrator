@@ -101,6 +101,9 @@ import { assertAdapterInputCurrent, createAdapterInputDispatch } from './adapter
 import { deferUntilResponseUsageSettled } from './deferred-response-usage';
 import { ClaudeResidentTurnSettlement } from './claude-resident-turn-settlement';
 import { ClaudeResidentRequest } from './claude-resident-request';
+import { claudeRateLimitNotice } from './claude-rate-limit-notice';
+import { dispatchRateLimitTelemetry } from '../usage-limit-dispatch';
+import { getAdapterAccountRoute } from '../../providers/account-pool/adapter-account-routes';
 
 export type { DeferredToolUse } from './claude-cli-adapter.types';
 export type { ClaudeCliSpawnOptions } from './claude-cli-adapter.types';
@@ -1879,7 +1882,6 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         // session shows *why* instead of going silent.
         const info = (raw as { rate_limit_info?: CliRateLimitInfo }).rate_limit_info ?? null;
         this.lastRateLimitInfo = info;
-        if (info) this.emit('rate-limit-telemetry', info); // account-pool quota bridge
         const status = info?.status;
         const throttled = Boolean(status && status !== 'allowed');
         const resetsAtMs = typeof info?.resetsAt === 'number' ? info.resetsAt * 1000 : undefined;
@@ -1894,10 +1896,13 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           resetsAtMs !== this.lastEmittedRateLimitResetsAt;
         const alreadyNotified =
           this.lastEmittedRateLimitStatus === status && !isNewWindow;
-        if (throttled && !alreadyNotified) {
+        const announce = throttled && !alreadyNotified;
+        // The account-pool bridge and the usage-overage stop hear the raw event first. When the stop
+        // holds the session it reports back, so the one note below says what happened and what Harness did.
+        const handling = info ? dispatchRateLimitTelemetry('claude', announce, () => this.emit('rate-limit-telemetry', info)) : undefined;
+        if (announce) {
           this.lastEmittedRateLimitStatus = status ?? null;
           this.lastEmittedRateLimitResetsAt = resetsAtMs;
-          const resetText = resetsAtMs ? new Date(resetsAtMs).toLocaleTimeString() : 'unknown';
           logger.warn('Provider rate limit active', {
             status: typeof status === 'string' ? textDiagnostic(status) : undefined,
             rateLimitType: typeof info?.rateLimitType === 'string' ? textDiagnostic(info.rateLimitType) : undefined,
@@ -1908,13 +1913,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
             id: generateId(),
             timestamp: message.timestamp || Date.now(),
             type: 'system',
-            content: `Provider rate limit "${status}" (${info?.rateLimitType ?? 'window'}). Resets at ${resetText}.`,
-            metadata: {
-              rateLimit: true,
-              status,
-              rateLimitType: info?.rateLimitType,
-              resetsAt: resetsAtMs,
-            },
+            ...claudeRateLimitNotice({ info, resetsAtMs, route: getAdapterAccountRoute(this), handling }),
           });
         } else {
           logger.debug('Rate limit telemetry', {

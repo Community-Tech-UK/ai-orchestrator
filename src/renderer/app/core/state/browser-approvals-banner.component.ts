@@ -29,6 +29,7 @@ import type {
 import { BrowserGatewayIpcService } from '../services/ipc/browser-gateway-ipc.service';
 import { BrowserApprovalsStore } from './browser-approvals.store';
 import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
+import { presentError } from '../../../../shared/present-error';
 import {
   type BannerGrantMode,
   type CredentialAccessDuration,
@@ -37,12 +38,14 @@ import {
   credentialAccessErrorText,
   credentialAccessMovement,
   credentialAccessPurpose,
+  credentialAccessWords,
   bannerCanQuickApprove,
   bannerConfirmationPhrase,
   bannerGrantModes,
   bannerGrantRequiresConfirmation,
   bannerModeLabel,
   buildBannerGrant,
+  browserApprovalFailureText,
 } from './browser-approvals-banner.rules';
 
 @Component({
@@ -103,7 +106,7 @@ import {
                     <option [value]="duration.value">{{ duration.label }}</option>
                   }
                 </select>
-                <span class="banner-duration">Only this website, computer, saved login and sign-in purpose. {{ credentialDuration() === 'task' ? 'Access ends with this task.' : 'Permission expires after the selected period.' }}</span>
+                <span class="banner-duration">Only this website, computer, saved login and sign-in purpose. {{ savedLoginLasts() }}</span>
               }
               @if (needsConfirmation(approval)) {
                 <label class="banner-confirm">
@@ -164,6 +167,12 @@ import {
               appIconButton="Minimize browser approval banner"
               (click)="minimize()"
             >×</button>
+            @if (detailFor(approval); as diagnostic) {
+              <details class="banner-details">
+                <summary>Details</summary>
+                <span class="banner-raw">{{ diagnostic }}</span>
+              </details>
+            }
           </div>
         </section>
       }
@@ -284,6 +293,29 @@ import {
       font-size: 0.72rem;
     }
 
+    .banner-details {
+      flex-basis: 100%;
+      color: var(--text-secondary, #cbd5e1);
+      font-size: 0.72rem;
+    }
+
+    .banner-details summary {
+      width: fit-content;
+      margin-left: auto;
+      cursor: pointer;
+    }
+
+    .banner-details summary:focus-visible {
+      outline: 2px solid var(--warning-color, #f59e0b);
+      outline-offset: 2px;
+    }
+
+    .banner-raw {
+      display: block;
+      overflow-wrap: anywhere;
+      font-family: var(--font-mono, monospace);
+    }
+
     .banner-btn {
       height: 28px;
       padding: 0 0.75rem;
@@ -382,6 +414,8 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
   readonly confirmation = signal('');
   readonly working = signal<string | null>(null);
   readonly errorMessage = signal<string | null>(null);
+  /** The raw diagnostic behind a failure sentence, shown only under Details. */
+  readonly errorDetail = signal<string | null>(null);
   private readonly boundRequestId = signal('');
 
   constructor() {
@@ -395,7 +429,7 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
       this.selectedMode.set(approval ? (this.modesFor(approval)[0] ?? 'per_action') : 'per_action');
       this.credentialDuration.set('task');
       this.confirmation.set('');
-      this.errorMessage.set(null);
+      this.clearError();
     });
   }
 
@@ -444,9 +478,35 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
     this.credentialDuration.set((event.target as HTMLSelectElement).value as CredentialAccessDuration);
   }
 
+  /** What the chosen saved-login length means, including who else can use a longer one. */
+  savedLoginLasts(): string {
+    const duration = this.credentialDuration();
+    return duration === 'task'
+      ? 'Access ends with this session.'
+      : `Any session can use this saved login without asking again ${credentialAccessWords(duration).lasts}.`;
+  }
+
   credentialPurpose = credentialAccessPurpose;
   credentialMovement = credentialAccessMovement;
   credentialError = credentialAccessErrorText;
+
+  /**
+   * The raw code to open under Details. A fresh failure brings its own; with none showing,
+   * it is the code stored on the request, whose sentence is the one on screen.
+   */
+  detailFor(approval: BrowserApprovalRequest): string | null {
+    return this.errorDetail() ?? (this.errorMessage() ? null : approval.credentialAccess?.operationError ?? null);
+  }
+
+  private clearError(): void {
+    this.errorMessage.set(null);
+    this.errorDetail.set(null);
+  }
+
+  private setFailure(sentence: string, diagnostic: unknown): void {
+    this.errorMessage.set(sentence);
+    this.errorDetail.set(presentError(diagnostic).rawDetail || null);
+  }
 
   formatExpiry(expiresAt: number): string {
     return new Date(expiresAt).toLocaleString();
@@ -487,7 +547,7 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
       return;
     }
     this.working.set(approval.requestId);
-    this.errorMessage.set(null);
+    this.clearError();
     try {
       const response = await this.browserGateway.approveRequest({
         requestId: approval.requestId,
@@ -499,13 +559,14 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
       });
       if (!response.success || response.data?.decision !== 'allowed' || response.data.outcome !== 'succeeded') {
         const reason = response.data?.reason;
-        this.errorMessage.set(response.error?.message ?? (reason ? (approval.credentialAccess ? credentialAccessErrorText(reason) : reason.replaceAll('_', ' ')) : 'Approval could not be completed. The request is still waiting.'));
+        this.setFailure(reason ? (approval.credentialAccess ? credentialAccessErrorText(reason) : browserApprovalFailureText(reason))
+          : "Approval couldn't be completed. Check Details, then try again. The request is still waiting.", response.error ?? reason);
         return;
       }
       this.approvals.removeRequest(approval.requestId);
       await this.refresh();
-    } catch {
-      this.errorMessage.set('Approval could not be completed. Try again after checking the connection.');
+    } catch (error) {
+      this.setFailure("Approval couldn't be completed. Check the connection, then try again.", error);
     } finally {
       this.working.set(null);
     }
@@ -516,20 +577,21 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
       return;
     }
     this.working.set(approval.requestId);
-    this.errorMessage.set(null);
+    this.clearError();
     try {
       const response = await this.browserGateway.denyRequest({
         requestId: approval.requestId,
         reason: 'Denied from approvals banner',
       });
       if (!response.success || response.data?.decision !== 'allowed' || response.data.outcome !== 'succeeded') {
-        this.errorMessage.set(response.error?.message ?? response.data?.reason?.replaceAll('_', ' ') ?? 'The request could not be denied.');
+        const reason = response.data?.reason;
+        this.setFailure(reason ? browserApprovalFailureText(reason) : "The request couldn't be denied. Check Details, then try again.", response.error ?? reason);
         return;
       }
       this.approvals.removeRequest(approval.requestId);
       await this.refresh();
-    } catch {
-      this.errorMessage.set('The request could not be denied. Try again after checking the connection.');
+    } catch (error) {
+      this.setFailure("The request couldn't be denied. Check the connection, then try again.", error);
     } finally {
       this.working.set(null);
     }
@@ -578,7 +640,7 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
       case 'session':
         return 'Allowed for session from browser permission bar';
       case 'autonomous':
-        return 'Allowed unattended from browser permission bar';
+        return 'Allowed without asking from browser permission bar';
       case 'persistent':
         return 'Allowed until revoked from browser permission bar';
     }

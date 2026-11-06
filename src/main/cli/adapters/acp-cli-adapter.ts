@@ -27,6 +27,7 @@ import {
   type ResumeAttemptResult,
   ndjsonSafeStringify,
 } from './base-cli-adapter';
+import { buildAcpErrorOutput } from './acp-error-output';
 import { buildAcpSystemPromptBlock, type AcpSystemPromptDelivery } from './acp-system-prompt-delivery';
 import { StderrTailBuffer } from './acp-stderr-tail';
 import { AcpNdjsonFramer } from './acp-ndjson-framer';
@@ -146,7 +147,7 @@ import type { AcpPendingRequest } from './acp-pending-request.types';
 import { forkAcpSession } from './acp-session-fork';
 import { AcpSessionReplay, acpResumeCursor } from './acp-session-replay';
 import {
-  buildAcpMinableInput, buildAcpToolCallArguments, buildAcpToolOutcomeFallback, buildAcpToolResultMessage,
+  acpToolOutcomeMetadata, buildAcpMinableInput, buildAcpToolCallArguments, buildAcpToolOutcomeFallback, buildAcpToolResultMessage,
   isAcpTerminalToolStatus, renderAcpRawOutput,
 } from './acp-tool-call-material';
 import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
@@ -700,22 +701,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       }
       if (!lifecycle.isCurrent() && (writePhase.accepted || isAcpInputWriteFailure(err))) throw err;
       const isRecoverablePromptTimeout = isAcpPromptRequestTimeout(err);
-      const errorMessage: OutputMessage = {
-        id: generateId(),
-        timestamp: Date.now(),
-        type: 'error',
-        content: err.message,
-        metadata: {
-          source: 'acp-send-input',
-          transport: 'acp',
-          adapter: this.getName(),
-          ...(isRecoverablePromptTimeout ? {
-            recoverable: true,
-            retryKind: 'acp-prompt-timeout',
-          } : {}),
-        },
-      };
-      this.emit('output', errorMessage);
+      this.emit('output', buildAcpErrorOutput(err, this.acpConfig.concurrencyKey, isRecoverablePromptTimeout, this.getName()));
       this.emit('status', isRecoverablePromptTimeout ? 'idle' : 'error');
       this.emit('error', err);
       // A post-write provider failure still owns its turn through events. A
@@ -1764,7 +1750,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
     if (output) {
       this.emit('output', buildAcpToolResultMessage(
-        { toolCallId, title, status, sessionUpdate: update.sessionUpdate, output, rawOutput: update.rawOutput },
+        { toolCallId, title, status, sessionUpdate: update.sessionUpdate, output, rawOutput: update.rawOutput, kind, rawInput },
         generateId(), Date.now(),
       ));
     }
@@ -1772,13 +1758,14 @@ export class AcpCliAdapter extends BaseCliAdapter {
       id: toolCallId,
       name: title,
       arguments: buildAcpToolCallArguments(kind, update.rawInput ?? observed?.rawInput),
+      ...acpToolOutcomeMetadata({ status, kind, rawInput, rawOutput: update.rawOutput }),
       // No `result` key when nothing was captured: downstream hashing fails open on absent, not on ''.
       ...(output ? { result: output } : {}),
     };
     this.emit('tool_result', toolCall);
     // LT-196: covers a terminal call that rendered no output (see helper).
     const fallback = buildAcpToolOutcomeFallback(
-      { toolCallId, status, title, hasRenderedOutput: Boolean(output), rawOutput: update.rawOutput },
+      { toolCallId, status, title, hasRenderedOutput: Boolean(output), rawOutput: update.rawOutput, kind, rawInput },
       generateId(), Date.now(),
     );
     if (fallback) this.emit('output', fallback);

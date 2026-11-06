@@ -4,58 +4,12 @@
 
 import { Component, input, computed, ChangeDetectionStrategy } from '@angular/core';
 import { InstanceStatus } from '../../core/state/instance.store';
+import type { InstanceWaitReason } from '../../../../shared/types/instance-wait-reason.types';
+import {
+  describeInstanceStatus,
+  presentInstanceStatus,
+} from '../../../../shared/attention/instance-status-presentation';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
-
-const STATUS_COLORS: Record<InstanceStatus, string> = {
-  initializing: '#f59e0b', // Amber
-  ready: '#10b981',        // Green - fully started
-  idle: '#10b981',         // Green
-  busy: '#3b82f6',         // Blue
-  processing: '#3b82f6',   // Blue - alive but no output yet (remote heartbeat)
-  thinking_deeply: '#4fa3a5', // Teal - extended thinking (90s+ no stdout)
-  waiting_for_input: '#f59e0b', // Amber
-  waiting_for_permission: '#f59e0b', // Amber - needs approval
-  interrupting: '#b89a66', // Bronze - interrupt requested
-  cancelling: '#b89a66',   // Bronze - cancellation finalizing
-  'interrupt-escalating': '#ef4444', // Red - forced escalation
-  cancelled: '#6b7280',    // Gray - cancelled, recoverable
-  superseded: '#6b7280',   // Gray - replaced by edit/fork
-  respawning: '#4fa3a5',   // Teal - recovering from interrupt
-  hibernating: '#6b7280',  // Gray - transitioning
-  hibernated: '#4b5563',   // Darker gray - resting
-  waking: '#f59e0b',       // Amber - waking up
-  degraded: '#f97316',     // Orange - remote node disconnected
-  error: '#ef4444',        // Red
-  failed: '#ef4444',       // Red - unrecoverable failure
-  terminated: '#6b7280',   // Gray
-};
-
-/** Steel blue — shared with the rail's background-waiting ring. */
-const BACKGROUND_WAITING_COLOR = '#7aa2c8';
-
-const STATUS_LABELS: Record<InstanceStatus, string> = {
-  initializing: 'Initializing...',
-  ready: 'Ready',
-  idle: 'Idle',
-  busy: 'Processing...',
-  processing: 'Processing...',
-  thinking_deeply: 'Thinking deeply...',
-  waiting_for_input: 'Waiting for input',
-  waiting_for_permission: 'Needs approval',
-  interrupting: 'Interrupting...',
-  cancelling: 'Cancelling...',
-  'interrupt-escalating': 'Escalating interrupt...',
-  cancelled: 'Cancelled',
-  superseded: 'Superseded',
-  respawning: 'Recovering session...',
-  hibernating: 'Hibernating...',
-  hibernated: 'Hibernated',
-  waking: 'Waking up...',
-  degraded: 'Degraded',
-  error: 'Error',
-  failed: 'Failed',
-  terminated: 'Closed',
-};
 
 @Component({
   selector: 'app-status-indicator',
@@ -169,42 +123,36 @@ export class StatusIndicatorComponent {
   showLabel = input<boolean>(false);
   /** Live provider-owned background tasks; only changes the display while idle. */
   backgroundWorkCount = input<number>(0);
+  /**
+   * Why the session is waiting, when it is. A session parked on a usage limit
+   * or signed out is `idle` by status, so only this makes the dot say so.
+   */
+  waitReason = input<InstanceWaitReason | null | undefined>(null);
+
+  /** Words, colour and dot behaviour all come from the one status presenter. */
+  private readonly presentation = computed(() => presentInstanceStatus(
+    this.status(),
+    this.waitReason(),
+    { backgroundWorkCount: this.backgroundWorkCount() },
+  ));
 
   /**
-   * Idle between turns while the provider still owns background work. Checked
-   * against settled statuses only, so a running turn keeps its spinner.
+   * Idle between turns while the provider still owns background work. The
+   * presenter only reports this for settled statuses, so a running turn keeps
+   * its spinner.
    */
-  isBackgroundWaiting = computed(() =>
-    this.backgroundWorkCount() > 0
-    && (this.status() === 'idle' || this.status() === 'ready')
-  );
+  isBackgroundWaiting = computed(() => this.presentation().tone === 'background');
 
-  color = computed(() => this.isBackgroundWaiting() ? BACKGROUND_WAITING_COLOR : STATUS_COLORS[this.status()]);
-  label = computed(() => this.isBackgroundWaiting() ? 'Waiting on background work' : STATUS_LABELS[this.status()]);
-  visibleLabel = computed(() => this.label());
+  color = computed(() => this.presentation().color);
+  /** The accessible name and the tooltip: one string. */
+  label = computed(() => describeInstanceStatus(this.presentation()));
+  visibleLabel = computed(() => this.presentation().label);
 
-  isPulsing = computed(() =>
-    this.status() === 'initializing' ||
-    this.status() === 'respawning' ||
-    this.status() === 'hibernating' ||
-    this.status() === 'waking' ||
-    this.status() === 'interrupting' ||
-    this.status() === 'cancelling' ||
-    this.status() === 'interrupt-escalating' ||
-    // Waiting states are still "live" (waiting on the user, not dead) — a static
-    // dot reads as stopped/finished. Pulse them so the difference from a truly
-    // settled state (idle/ready) stays visible without reusing the busy spinner,
-    // which would incorrectly imply the CLI itself is actively working.
-    this.status() === 'waiting_for_input' ||
-    this.status() === 'waiting_for_permission'
-  );
+  // Waiting states are still "live" (waiting on the user, not dead) — a static
+  // dot reads as stopped/finished, so the presenter pulses them. That keeps the
+  // difference from a truly settled state (idle/ready) visible without reusing
+  // the busy spinner, which would imply the CLI itself is actively working.
+  isPulsing = computed(() => this.presentation().pulse);
 
-  showSpinnerIndicator = computed(() =>
-    this.status() === 'busy' ||
-    this.status() === 'processing' ||
-    this.status() === 'thinking_deeply' ||
-    this.status() === 'interrupting' ||
-    this.status() === 'cancelling' ||
-    this.status() === 'interrupt-escalating'
-  );
+  showSpinnerIndicator = computed(() => this.presentation().spinner);
 }

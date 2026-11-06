@@ -48,7 +48,7 @@
           @if (isCompacting()) {
             <div class="recovery-banner" role="status" aria-live="polite">
               <div class="recovery-banner-body">
-                <span class="recovery-banner-title">{{ getProviderDisplayName(inst.provider) }} is compacting context</span>
+                <span class="recovery-banner-title">{{ getProviderDisplayName(inst.provider, inst.currentModel) }} is compacting context</span>
                 <span class="recovery-banner-desc">Messages will remain queued and send when compaction finishes.</span>
               </div>
             </div>
@@ -101,7 +101,7 @@
               </svg>
               <div class="recovery-banner-body">
                 <span class="recovery-banner-title">Session resumed with condensed context</span>
-                <span class="recovery-banner-desc">Your conversation history is shown above. {{ getProviderDisplayName(inst.provider) }} could not prove native context, so a condensed transcript will attach automatically to your next message.</span>
+                <span class="recovery-banner-desc">Your conversation history is shown above. {{ getProviderDisplayName(inst.provider, inst.currentModel) }} could not prove native context, so a condensed transcript will attach automatically to your next message.</span>
               </div>
               <div class="recovery-banner-actions">
                 <button class="recovery-action recovery-action-primary" (click)="onRecoverySummarize()">Continue</button>
@@ -139,15 +139,18 @@
               [showToolMessages]="showToolMessages()"
               [isChild]="!!inst.parentId"
               [tablePicksToComposer]="true"
+              [reviewPanelAvailable]="true"
+              (reviewRequested)="openReviewPanel()"
               (resendEdited)="onResendEdited($event)"
               (appendToComposer)="appendTextToComposer($event)"
             />
-            @if (inst.status === 'busy' || inst.status === 'processing' || inst.status === 'thinking_deeply' || inst.status === 'initializing') {
+            @if (inst.status === 'busy' || inst.status === 'processing' || inst.status === 'thinking_deeply' || inst.status === 'initializing' || inst.waitReason?.kind === 'backoff') {
               <app-activity-status
                 [status]="inst.status"
                 [activity]="currentActivity()"
                 [busySince]="busySince()"
                 [lastEventAt]="inst.lastActivity"
+                [waitReason]="inst.waitReason"
               />
               <app-working-tip [context]="workingTipContext()" />
             }
@@ -157,9 +160,13 @@
           @if (showCrossModelReviewPanel() && currentReview()) {
             <app-cross-model-review-panel
               [review]="currentReview()"
+              [provider]="inst.provider"
               (actionPerformed)="onReviewAction($event)"
             />
           }
+
+          <!-- Session status and usage: closed until the reader opens it -->
+          <app-session-status-card [instance]="inst" />
 
           <!-- Approvals and questions stay outside the status dock, so
                collapsing the strip can never hide a decision. The loop
@@ -248,7 +255,7 @@
               <span class="history-preview-subtitle">{{ preview.subtitle }}</span>
             </div>
             <div class="history-preview-meta">
-              <span class="history-preview-provider">{{ getProviderDisplayName(preview.provider) }}</span>
+              <span class="history-preview-provider">{{ getProviderDisplayName(preview.provider, preview.currentModel) }}</span>
               @if (preview.restoring) {
                 <span class="history-preview-status">Restoring</span>
               }

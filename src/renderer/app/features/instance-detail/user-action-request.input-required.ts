@@ -4,6 +4,8 @@
  * user-action-request.component.ts to keep that file under its size ceiling.
  */
 
+import type { IpcFacadeService } from '../../core/services/ipc';
+import type { UserChoice } from '../../../../shared/utils/request-outcome';
 import type { AskUserQuestionEntry } from '../../../../shared/types/ask-user-question.types';
 import type { UserActionRequest } from './user-action-request.types';
 import type { InputRequiredEvent } from '../../core/services/ipc/ipc-event-bus.service';
@@ -23,7 +25,7 @@ export function isAcpInputRequired(request: UserActionRequest): boolean {
  * before this reply arrived, so the card is stale rather than failed.
  */
 export function isInputRequiredNotPending(result: unknown): boolean {
-  return (result as { error?: { code?: unknown } })?.error?.code === 'INPUT_REQUIRED_NOT_PENDING';
+  return ['INPUT_REQUIRED_NOT_PENDING', 'USER_ACTION_NOT_PENDING'].includes(String((result as { error?: { code?: unknown } })?.error?.code));
 }
 
 /**
@@ -87,4 +89,19 @@ export function toInputRequiredRequest(payload: InputRequiredEvent): UserActionR
     askQuestions,
     secretRequest,
   };
+}
+
+/** Optional question-only receipt facts travel separately from permission decisions. */
+export function respondToQuestion(
+  ipc: Pick<IpcFacadeService, 'respondToInputRequired'>,
+  request: UserActionRequest,
+  text: string,
+  choice?: UserChoice,
+) {
+  const key = isAcpInputRequired(request) ? request.id : undefined;
+  const receipt = choice?.kind === 'skipped' ? { kind: 'skipped' as const }
+    : choice?.kind === 'answered' ? { kind: 'answered' as const, summary: choice.answer.slice(0, 2000) } : undefined;
+  return receipt
+    ? ipc.respondToInputRequired(request.instanceId, request.id, text, key, undefined, undefined, undefined, undefined, receipt)
+    : ipc.respondToInputRequired(request.instanceId, request.id, text, key);
 }

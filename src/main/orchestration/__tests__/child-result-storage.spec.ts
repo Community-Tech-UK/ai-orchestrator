@@ -171,4 +171,33 @@ describe('ChildResultStorage', () => {
     expect(result.artifacts[2].metadata?.['networkPath']).toBe(networkPath);
     expect(result.artifacts[3].metadata?.['tracePath']).toBe(tracePath);
   });
+
+  it('stores the real reason of an error that was shown in plain words, not the sentence', async () => {
+    const storageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'child-result-storage-'));
+    tempDirs.push(storageDir);
+    const { ChildResultStorage } = await import('../child-result-storage');
+    const storage = ChildResultStorage.getInstance({ storagePath: storageDir });
+
+    const result = await storage.storeFromOutputBuffer(
+      'child-failed',
+      'parent-failed',
+      'Run the checks',
+      'The child failed',
+      false,
+      [
+        {
+          id: 'error-1',
+          timestamp: Date.now(),
+          type: 'error',
+          content: 'Codex couldn\'t finish this request. What to do: Check Details, then try again.',
+          metadata: { errorPresentation: { category: 'unknown', headline: 'x', whatToDo: 'y', rawDetail: 'spawn codex ENOENT' } },
+        },
+        { id: 'error-2', timestamp: Date.now(), type: 'error', content: 'Prompt is too long' },
+      ],
+      Date.now() - 100,
+    );
+
+    expect(result.artifacts.filter((artifact) => artifact.type === 'error').map((artifact) => artifact.content))
+      .toEqual(['spawn codex ENOENT', 'Prompt is too long']);
+  });
 });

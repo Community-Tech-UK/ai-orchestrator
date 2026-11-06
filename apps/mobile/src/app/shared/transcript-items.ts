@@ -1,4 +1,5 @@
 import type { MobileMessageDto } from '../core/models';
+import { exitStatusLine, toolResultFailed } from './tool-result-outcome';
 
 const STAMP_GAP_MS = 15 * 60_000;
 const LOOP_TRANSCRIPT_KINDS = new Set<string>([
@@ -65,8 +66,13 @@ export function toolLabel(message: MobileMessageDto): string {
 export function toolDetails(message: MobileMessageDto): string {
   const metadata = message.metadata ?? {};
   const sections: string[] = [];
-  if (metadata['is_error'] === true || metadata['isError'] === true) sections.push('Error');
+  const toolName = metadata['toolName'] ?? metadata['tool_name'] ?? metadata['name'];
+  // Failed means it errored or was a check that did not pass; a command that ran
+  // and exited non-zero is shown with its status but not called an error.
+  if (toolResultFailed(typeof toolName === 'string' ? toolName : undefined, metadata)) sections.push('Error');
   if (message.content) sections.push(message.content);
+  const exitLine = exitStatusLine(metadata);
+  if (exitLine && !message.content.includes(exitLine)) sections.push(exitLine);
   const input = metadata['tool_input'] ?? metadata['toolInput'] ?? metadata['input'];
   if (input !== undefined) sections.push(`Input\n${typeof input === 'string' ? input : JSON.stringify(input, null, 2)}`);
   const result = metadata['result'] ?? metadata['output'] ?? metadata['error'];

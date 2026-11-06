@@ -4,6 +4,13 @@
  * formatting are unit-testable without Angular or IPC.
  */
 
+import {
+  PERMISSION_SCOPE_WORDS,
+  timedScopeWords,
+  type PermissionScopeWords,
+} from '../../../../shared/permissions/permission-scope-presentation';
+import type { PendingApprovalItem } from '../../../../shared/types/permission-registry.types';
+
 export type PermissionRiskTier = 'critical' | 'warning' | 'info';
 
 export interface PermissionRiskInfo {
@@ -33,6 +40,49 @@ export function classifyPermissionRisk(action: string): PermissionRiskInfo {
 
 function humanizeAction(action: string): string {
   return action.replace(/_/g, ' ').trim() || 'Permission';
+}
+
+export interface ApprovalScopeInfo {
+  /** The allow button, worded like the command and browser cards. */
+  allowLabel: string;
+  /** One sentence saying how long an approval stands. */
+  lasts: string;
+}
+
+/** Each of these asks again for the next operation, so one approval covers one operation. */
+const ONE_OPERATION_ACTIONS = new Set(['store_release_mutation', 'calendar_mutation', 'calendar_account_connect']);
+
+function scopeInfo(words: PermissionScopeWords, tail = ''): ApprovalScopeInfo {
+  return { allowLabel: words.allow, lasts: `Lasts ${words.lasts}${tail}.` };
+}
+
+/**
+ * How long an approval stands, for the allow button and a "Lasts…" line.
+ *
+ * A registry approval is one yes or no: the requester decides the scope, not the
+ * person answering, so this reads it from what the request says. Returns null
+ * when the request does not say, so the card keeps a plain "Approve" and makes
+ * no promise it cannot keep.
+ *
+ * Computer Use grants follow `DesktopGrantApprovalController`: `session` stops
+ * after an hour (DEFAULT_GRANT_TTL_MS) and only works for the requesting
+ * session; `boundedMinutes` is the same, for the stated minutes; `untilRevoked`
+ * is durable and works from every session.
+ */
+export function describeApprovalScope(
+  item: Pick<PendingApprovalItem, 'action' | 'details'>,
+): ApprovalScopeInfo | null {
+  if (ONE_OPERATION_ACTIONS.has(item.action)) return scopeInfo(PERMISSION_SCOPE_WORDS.once);
+  if (item.action !== 'desktop_computer_use_grant') return null;
+
+  const duration = item.details?.['duration'];
+  if (duration === 'session') return scopeInfo(PERMISSION_SCOPE_WORDS.session, ', and no longer than an hour');
+  if (duration === 'untilRevoked') return scopeInfo(PERMISSION_SCOPE_WORDS.always, ', in every session');
+  const minutes = item.details?.['minutes'];
+  if (duration === 'boundedMinutes' && typeof minutes === 'number' && Number.isFinite(minutes) && minutes > 0) {
+    return scopeInfo(timedScopeWords(minutes * 60_000), ', in this session only');
+  }
+  return null;
 }
 
 /** Renders a countdown like "42s left" / "2m 05s left", or "expiring…" once past deadline. */

@@ -39,25 +39,33 @@ import type {
   ProviderQuotaWindow,
 } from '../../../../../shared/types/provider-quota.types';
 import { formatQuotaAmount } from '../../../../../shared/util/provider-quota-format';
+import { accountFamilyName } from '../../../../../shared/display-names';
 import {
   LEGACY_SECTION_ID,
   quotaAccountSections,
-  quotaSummaryWindow,
   type QuotaAccountProfile,
   type QuotaAccountSection,
 } from '../../../../../shared/utils/provider-quota-account-sections';
+import {
+  BAND_COLORS,
+  quotaStripEntry,
+  windowPercent,
+  type QuotaChipBand,
+  type QuotaStripEntry,
+} from './provider-quota-strip';
 
 export type QuotaChipVariant = 'window' | 'plan' | 'empty';
-export type QuotaChipBand = 'green' | 'yellow' | 'orange' | 'red';
-
-interface QuotaStripPart { text: string; fg: string; percent: number }
+export type { QuotaChipBand };
 
 interface QuotaDetailSection {
   id: string;
   label: string | null;
+  /** Who is signed out: the account's own name, or the provider when it has one account. */
+  signedOutName: string;
   updatedText: string;
   status: string;
   needsReauth: boolean;
+  /** The probe's own instruction or the shell command that signs in again. Shown only under Details. */
   reauthHint: string | null;
   windows: ProviderQuotaWindow[];
 }
@@ -69,25 +77,7 @@ interface QuotaDetailEntry {
   sections: QuotaDetailSection[];
 }
 
-const BAND_COLORS: Record<QuotaChipBand, { fg: string; bg: string }> = {
-  green:  { fg: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
-  yellow: { fg: '#eab308', bg: 'rgba(234,179,8,0.12)' },
-  orange: { fg: '#f97316', bg: 'rgba(249,115,22,0.12)' },
-  red:    { fg: '#ef4444', bg: 'rgba(239,68,68,0.14)' },
-};
 const NEUTRAL = { fg: '#9a9aa0', bg: 'rgba(154,154,160,0.10)' };
-const STRIP_NEUTRAL_FG = '#d4d4d8';
-
-const PROVIDER_LABELS: Record<ProviderId, string> = {
-  claude: 'Claude',
-  codex: 'Codex',
-  gemini: 'Gemini',
-  antigravity: 'Antigravity',
-  copilot: 'Copilot',
-  cursor: 'Cursor',
-  grok: 'Grok',
-  opencode: 'OpenCode',
-};
 
 @Component({
   selector: 'app-provider-quota-chip',
@@ -116,12 +106,7 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
           @if (stripEntries().length > 0) {
             @for (entry of stripEntries(); track entry.provider) {
               <span class="provider-entry" [style.color]="entry.fg">
-                <span class="provider-code">{{ entry.code }}</span>
-                <span class="provider-value">
-                  @for (part of entry.parts; track $index) {
-                    @if (!$first) {<span class="account-separator">·</span>}<span [style.color]="part.fg">{{ part.text }}</span>
-                  }
-                </span>
+                <span class="provider-name">{{ entry.name }}</span>{{ ' ' }}<span class="provider-value">{{ entry.text }}</span>
                 @if (pacingProvider() === entry.provider) {
                   <svg
                     class="pacing-badge"
@@ -171,13 +156,27 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
                     </span>
                   }
                   @if (section.needsReauth) {
-                    <button
-                      type="button"
-                      class="reauth-row reauth-action"
-                      [attr.data-testid]="section.id === 'legacy' ? 'quota-reauth-' + provider.provider : 'quota-reauth-' + provider.provider + '-' + section.id"
-                      [appTooltip]="reauthActionTitle(provider.provider)"
-                      (click)="openAccounts(provider.provider)"
-                    >⚠ Reauth needed — {{ section.reauthHint }}</button>
+                    <span
+                      class="reauth-row"
+                      [attr.data-testid]="section.id === 'legacy' ? 'quota-reauth-row-' + provider.provider : 'quota-reauth-row-' + provider.provider + '-' + section.id"
+                    >
+                      <span class="reauth-main">
+                        <span class="reauth-text">Signed out of {{ section.signedOutName }}.</span>
+                        <button
+                          type="button"
+                          class="reauth-action"
+                          [attr.data-testid]="section.id === 'legacy' ? 'quota-reauth-' + provider.provider : 'quota-reauth-' + provider.provider + '-' + section.id"
+                          [appTooltip]="reauthActionTitle(provider.provider)"
+                          (click)="openAccounts(provider.provider)"
+                        >Sign in</button>
+                      </span>
+                      @if (section.reauthHint) {
+                        <details class="reauth-details" data-testid="quota-reauth-details">
+                          <summary>Details</summary>
+                          <span class="reauth-hint">{{ section.reauthHint }}</span>
+                        </details>
+                      }
+                    </span>
                   }
                   @for (window of section.windows; track window.id) {
                     <span class="window-row">
@@ -219,8 +218,8 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
     .dot {
       width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
     }
-    .provider-entry { display: inline-flex; align-items: baseline; gap: 3px; }
-    .provider-code { font-weight: 700; }
+    .provider-entry { display: inline-flex; align-items: baseline; gap: 4px; }
+    .provider-name { font-weight: 700; }
     .provider-value { opacity: 0.82; font-variant-numeric: tabular-nums; }
     .pacing-badge { width: 11px; height: 11px; color: #f6c453; flex-shrink: 0; }
     .text { text-transform: none; }
@@ -228,7 +227,6 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
     .account-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; font-size: 0.72rem; }
     .account-label { font-weight: 600; opacity: 0.9; }
     .account-age { flex-shrink: 0; font-size: 0.66rem; color: var(--text-secondary, #a0a0a0); }
-    .account-separator { margin: 0 2px; opacity: 0.55; }
     .aux { opacity: 0.75; font-weight: 500; }
     .popover {
       position: absolute; right: 0; top: calc(100% + 8px); z-index: 20;
@@ -260,15 +258,23 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
     .window-reset { grid-column: 1 / -1; opacity: 0.68; }
     .muted { color: var(--text-secondary, #a0a0a0); }
     .reauth-row {
-      font-size: 0.7rem; font-weight: 600; line-height: 1.3;
-      color: #f6c453;
+      display: grid; gap: 4px;
+      font-size: 0.7rem; line-height: 1.3;
       padding: 4px 7px; border-radius: 6px;
       background: rgba(239,68,68,0.10);
       border: 1px solid rgba(239,68,68,0.28);
     }
-    .reauth-action { font-family: inherit; text-align: left; cursor: pointer; }
+    .reauth-main { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .reauth-text { font-weight: 600; color: #f6c453; }
+    .reauth-action {
+      flex-shrink: 0; font: inherit; font-size: 0.66rem; font-weight: 650; cursor: pointer;
+      padding: 2px 8px; border-radius: 6px; color: inherit; background: transparent;
+      border: 1px solid color-mix(in srgb, currentColor 40%, transparent);
+    }
     .reauth-action:hover { background: rgba(239,68,68,0.18); }
     .reauth-action:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+    .reauth-details summary { cursor: pointer; font-size: 0.66rem; color: var(--text-secondary, #a0a0a0); }
+    .reauth-hint { display: block; margin-top: 3px; color: var(--text-secondary, #a0a0a0); overflow-wrap: anywhere; }
   `],
 })
 export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
@@ -338,12 +344,12 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
   readonly primaryText = computed<string>(() => {
     const w = this.store.mostConstrainedWindow();
     if (w) {
-      return `${PROVIDER_LABELS[w.provider]} · ${formatQuotaAmount(w.window.used)}/${formatQuotaAmount(w.window.limit)}`;
+      return `${accountFamilyName(w.provider)} · ${formatQuotaAmount(w.window.used)}/${formatQuotaAmount(w.window.limit)}`;
     }
     const ok = this.firstOkSnapshot();
     if (ok) {
       const plan = ok.plan ?? 'signed in';
-      return `${PROVIDER_LABELS[ok.provider]} · ${plan}`;
+      return `${accountFamilyName(ok.provider)} · ${plan}`;
     }
     return '—';
   });
@@ -361,7 +367,7 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
     const summary = this.quotaSummary();
     const pacing = this.pacingProvider();
     if (!pacing) return summary;
-    const warning = `${PROVIDER_LABELS[pacing]}: ${copyFor('shell.quotaPacing')}`;
+    const warning = `${accountFamilyName(pacing)}: ${copyFor('shell.quotaPacing')}`;
     return summary ? `${summary}\n${warning}` : warning;
   });
 
@@ -377,56 +383,28 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
       const account = sections.find((section) =>
         section.id === (w.accountProfileId ?? LEGACY_SECTION_ID))?.label ?? w.accountProfileId ?? null;
       const pool = sections.length > 1 ? ` · ${sections.length} accounts` : '';
-      return `${PROVIDER_LABELS[w.provider]}${account ? ` (${account})` : ''}${pool}: ${w.window.label}: ${amount}`;
+      return `${accountFamilyName(w.provider)}${account ? ` (${account})` : ''}${pool}: ${w.window.label}: ${amount}`;
     }
     const ok = this.firstOkSnapshot();
-    if (ok) return `${PROVIDER_LABELS[ok.provider]} signed in (plan: ${ok.plan ?? 'unknown'})`;
+    if (ok) return `${accountFamilyName(ok.provider)} signed in (plan: ${ok.plan ?? 'unknown'})`;
     return '';
   });
 
   /**
-   * One entry per provider with each account's summary percentage, existing
-   * sign-in first: "CC 100%·7%" is one provider with two accounts. Each
-   * percentage carries its own colour; the provider code takes the worst.
+   * One entry per provider: its short name and the worst percentage across its
+   * accounts ("Claude 100%"). Each account's own figure, under its own name, is
+   * in the popover.
    */
-  readonly stripEntries = computed(() => {
+  readonly stripEntries = computed<QuotaStripEntry[]>(() => {
     const snaps = this.store.snapshots();
-    const entries: { provider: ProviderId; code: string; parts: QuotaStripPart[]; fg: string }[] = [];
+    const entries: QuotaStripEntry[] = [];
     for (const provider of PROVIDER_ORDER) {
       // A missing CLI, or a provider whose quota doesn't apply under the
       // current config (LT-650), means "nothing to show" — hide it rather
       // than rendering an error/plan row.
       if (snaps[provider]?.cliNotInstalled || snaps[provider]?.notApplicable) continue;
-      const family = this.accountSections(provider).map((section) => section.snapshot);
-      if (family.length === 0) continue;
-      const code = PROVIDER_CODES[provider];
-      const parts: QuotaStripPart[] = [];
-      for (const snap of family) {
-        const summary = snap.ok || (snap.needsReauth && snap.windows.length > 0)
-          ? quotaSummaryWindow(snap)
-          : null;
-        if (summary) {
-          const percent = this.windowPercent(summary);
-          parts.push({
-            // A warning glyph when last-known numbers are shown but the login
-            // that produced them has expired.
-            text: `${Math.round(percent)}%${snap.needsReauth ? ' ⚠' : ''}`,
-            fg: snap.needsReauth ? BAND_COLORS.red.fg : stripEntryColor(percent),
-            percent: snap.needsReauth ? 100 : percent,
-          });
-        } else if (snap.needsReauth) {
-          // No usable windows and the user must sign in again — make it
-          // visible rather than hiding the account.
-          parts.push({ text: 'reauth', fg: BAND_COLORS.red.fg, percent: 100 });
-        }
-      }
-      if (parts.length > 0) {
-        const worst = parts.reduce((a, b) => (b.percent > a.percent ? b : a));
-        entries.push({ provider, code, parts, fg: worst.fg });
-      } else if (family.some((entry) => entry.ok)) {
-        const plan = family.find((entry) => entry.ok && entry.plan)?.plan ?? 'ok';
-        entries.push({ provider, code, parts: [{ text: plan, fg: STRIP_NEUTRAL_FG, percent: 0 }], fg: STRIP_NEUTRAL_FG });
-      }
+      const entry = quotaStripEntry(provider, this.accountSections(provider));
+      if (entry) entries.push(entry);
     }
     return entries;
   });
@@ -444,7 +422,7 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
       const newest = Math.max(...sections.map((section) => section.snapshot.takenAt));
       entries.push({
         provider,
-        label: PROVIDER_LABELS[provider],
+        label: accountFamilyName(provider),
         updatedText: formatUpdatedAge(snaps[provider]?.takenAt ?? newest, now),
         sections: sections.map((section) => detailSection(provider, section, now)),
       });
@@ -509,8 +487,7 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
   }
 
   windowPercent(window: ProviderQuotaWindow): number {
-    if (window.limit <= 0) return 0;
-    return Math.max(0, Math.min(100, (window.used / window.limit) * 100));
+    return windowPercent(window);
   }
 
   formatWindowValue(window: ProviderQuotaWindow): string {
@@ -541,6 +518,7 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
     }
     return null;
   }
+
 }
 
 /** Format a positive ms duration as "1d 2h 3m" / "1h 23m" / "47m" / "0m". */
@@ -560,11 +538,13 @@ function detailSection(provider: ProviderId, section: QuotaAccountSection, now: 
   return {
     id: section.id,
     label: section.label,
+    signedOutName: section.label ?? accountFamilyName(provider),
     updatedText: formatUpdatedAge(snap.takenAt, now),
     status: snap.ok ? `Signed in · ${snap.plan ?? 'unknown plan'}` : (snap.error ?? 'Unavailable'),
     needsReauth,
     // The probe's error string is already the actionable instruction; fall
-    // back to a per-provider hint when it isn't present.
+    // back to a per-provider hint when it isn't present. Either way it is shell
+    // commands and developer wording, so the popover keeps it under Details.
     reauthHint: needsReauth ? (snap.error ?? PROVIDER_REAUTH_HINTS[provider]) : null,
     windows: snap.windows.filter((window) => window.limit > 0 && (snap.ok || snap.needsReauth)),
   };
@@ -580,24 +560,8 @@ function formatUpdatedAge(takenAt: number, now: number): string {
   return `updated ${Math.floor(totalHours / 24)}d ago`;
 }
 
-function stripEntryColor(percent: number): string {
-  if (percent >= 90) return BAND_COLORS.red.fg;
-  if (percent >= 75) return BAND_COLORS.orange.fg;
-  return STRIP_NEUTRAL_FG;
-}
-
 const PROVIDER_ORDER: ProviderId[] = ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode'];
-const PROVIDER_CODES: Record<ProviderId, string> = {
-  claude: 'CC',
-  codex: 'CX',
-  gemini: 'GM',
-  antigravity: 'AG',
-  copilot: 'CP',
-  cursor: 'CU',
-  grok: 'GX',
-  opencode: 'OC',
-};
-/** Fallback reauth instruction when a probe didn't supply its own. */
+/** Fallback sign-in instruction when a probe didn't supply its own. Shown only under "Details". */
 const PROVIDER_REAUTH_HINTS: Record<ProviderId, string> = {
   claude: 'Run `claude` to sign in again',
   codex: 'Run `codex login` to sign in again',

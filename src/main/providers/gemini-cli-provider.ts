@@ -6,6 +6,7 @@
  */
 
 import { BaseProvider } from './provider-interface';
+import { providerToolName } from '../../shared/display-names';
 import { GeminiCliAdapter, GeminiCliConfig } from '../cli/adapters/gemini-cli-adapter';
 import type {
   ProviderType,
@@ -44,7 +45,7 @@ export const DEFAULT_GEMINI_CONFIG: ProviderConfig = {
 
 export const GEMINI_DESCRIPTOR: ProviderAdapterDescriptor = {
   provider: 'gemini',
-  displayName: 'Google Gemini',
+  displayName: providerToolName('gemini'),
   capabilities: GEMINI_CAPABILITIES,
   defaultConfig: DEFAULT_GEMINI_CONFIG,
 };

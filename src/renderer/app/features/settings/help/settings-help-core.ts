@@ -436,6 +436,7 @@ export const ADVANCED_TAB_HELP: HelpEntry = {
       heading: 'Runtime',
       items: [
         'Runtime controls, Browser DevTools attach, and code-memory/legacy search indexing.',
+        'Codex costs: helper agents and long-chat limits.',
         'Quota pacing warnings and Knowledge Graph auto-build.',
         'Session failover and handoff, deferred tool loading, and the optional remote model catalog.',
       ],
@@ -446,7 +447,7 @@ export const ADVANCED_TAB_HELP: HelpEntry = {
       items: [
         'MCP safety guards and hook approvals.',
         'Instruction/memory trust gates and the Claude subprocess environment scrub.',
-        'The Local AI paid-fallback guard.',
+        'The paid backup for local models: what happens, how much it may cost, and when Harness asks first.',
         'Credentials & secrets, set apart at the bottom: the browser credential vault, workspace secrets, and shared-tab credential fill.',
       ],
     },

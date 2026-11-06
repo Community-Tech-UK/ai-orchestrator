@@ -56,6 +56,7 @@ import { UnifiedCatalogStore } from '../models/unified-catalog.store';
 import { getModelsForProvider } from '../../../../shared/types/provider.types';
 import { describeModelSwitchEffect } from '../models/model-switch-note';
 import { HistoryPreviewSessionService, historyEntryIdFromPreview } from './history-preview-session.service';
+import { contextSizeAdvice } from './context-size-advice';
 
 /** Circumference of the SVG ring (r=8, so C ≈ 50.27). */
 const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
@@ -71,7 +72,7 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
       <button
         type="button"
         class="ctx-ring-btn"
-        [appTooltip]="ringTitle()"
+        [appTooltip]="ringTooltip()"
         [attr.aria-label]="ringTitle()"
       >
         <svg
@@ -456,6 +457,20 @@ export class ComposerToolbarComponent {
     if (u.occupancyIsAggregate) return 'Context window: no data';
     const pct = this.ringPct().toFixed(0);
     return `Context window: ${pct}% used (${u.used.toLocaleString()} / ${u.total.toLocaleString()} tokens)`;
+  });
+
+  /**
+   * What the ring says on hover: the reading, then why a big chat costs more
+   * when this one is big enough for that to matter. The spoken name stays just
+   * the reading (`ringTitle`).
+   */
+  readonly ringTooltip = computed(() => {
+    const advice = contextSizeAdvice({
+      provider: this.provider(),
+      tokens: this.occupancyKnown() ? this.contextUsage()?.used : undefined,
+      status: this.instanceStatus(),
+    });
+    return advice ? `${this.ringTitle()}. ${advice}` : this.ringTitle();
   });
 
   protected readonly historyEntryId = computed(() => historyEntryIdFromPreview(this.instanceId()));

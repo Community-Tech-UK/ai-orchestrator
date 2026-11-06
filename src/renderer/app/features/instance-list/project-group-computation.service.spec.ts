@@ -467,4 +467,31 @@ describe('ProjectGroupComputationService filtering', () => {
       )
     ).toBe(true);
   });
+
+  describe('project header state words come from the one status presenter', () => {
+    const live = (status: Instance['status']) => ({
+      kind: 'live' as const,
+      instance: makeInstance({ status }),
+      railTitle: 'Session',
+      hasChildren: false,
+      childrenCount: 0,
+      isExpanded: false,
+      children: [],
+    });
+
+    it('says "Needs your answer" for a waiting question, not "Awaiting input"', () => {
+      expect(service.getProjectStateSummary([live('idle'), live('waiting_for_input')], [], false))
+        .toEqual({ projectStateLabel: 'Needs your answer', projectStateTone: 'attention' });
+    });
+
+    it('says "Problem" for an errored session, not "Issue", and ranks it above a question', () => {
+      expect(service.getProjectStateSummary([live('waiting_for_input'), live('error')], [], false))
+        .toEqual({ projectStateLabel: 'Problem', projectStateTone: 'attention' });
+    });
+
+    it('keeps the quieter project states as they were', () => {
+      expect(service.getProjectStateSummary([live('busy')], [], false).projectStateLabel).toBe('Working');
+      expect(service.getProjectStateSummary([live('idle')], [], false).projectStateLabel).toBe('Ready');
+    });
+  });
 });

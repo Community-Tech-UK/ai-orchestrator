@@ -1,3 +1,4 @@
+import { accountFamilyName, providerName } from '../../../../../../src/shared/display-names';
 import type {
   MobileAttachmentDto,
   MobileCreateInstanceRequest,
@@ -21,13 +22,13 @@ export interface CreateInstanceInput {
   attachments: MobileAttachmentDto[];
 }
 
-export function providerDisplayName(provider: string): string {
-  if (provider === 'opencode') return 'OpenCode';
-  return provider
-    .split(/[-_\s]+/)
-    .filter(Boolean)
-    .map((part) => part[0].toLocaleUpperCase() + part.slice(1))
-    .join(' ');
+/** Name the session's provider, using the model when it identifies MiMo. */
+export function providerDisplayName(provider: string, model?: string | null): string {
+  return providerName(provider, { model });
+}
+
+export function accountFamilyDisplayName(provider: string): string {
+  return accountFamilyName(provider);
 }
 
 export function sessionPlanSummary(plan: MobileSessionPlan | null): string {

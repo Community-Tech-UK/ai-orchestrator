@@ -13,6 +13,7 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import {
   Component,
   input,
+  signal,
   ɵresolveComponentResources as resolveComponentResources,
 } from '@angular/core';
 import { RouterTestingModule } from '@angular/router/testing';
@@ -21,8 +22,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { CostPageComponent, type CostSummaryData, type CostEntry } from './cost-page.component';
 import { CostHistoryRestoreComponent } from './cost-history-restore.component';
 import { CostIpcService } from '../../core/services/ipc/cost-ipc.service';
+import { UsageInsightIpcService } from '../../core/services/ipc/usage-insight-ipc.service';
+import { InstanceStore } from '../../core/state/instance';
+import { ProviderQuotaStore } from '../../core/state/provider-quota.store';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { UsageWhereWentCardComponent } from '../usage-insight/usage-where-went-card.component';
 import type { EChartsOption } from 'echarts';
+import type { UsageInsightResponse } from '../../../../shared/usage-insight/usage-insight.types';
+
+const SCANNING: UsageInsightResponse = { status: 'scanning', progress: { filesDone: 1, filesTotal: 4, bytesDone: 10, bytesTotal: 40 } };
 
 @Component({ selector: 'app-echarts-themed', template: '' })
 class CostChartStubComponent {
@@ -30,6 +38,18 @@ class CostChartStubComponent {
   readonly loading = input(false);
   readonly height = input('300px');
   readonly emptyMessage = input('No data available');
+}
+
+/**
+ * The usage breakdown card on the page is the real one, fed from stand-ins
+ * for its data sources. Its behaviour has its own spec.
+ */
+function usageInsightProviders() {
+  return [
+    { provide: UsageInsightIpcService, useValue: { get: vi.fn().mockResolvedValue({ success: true, data: SCANNING }) } },
+    { provide: InstanceStore, useValue: { instancesMap: signal(new Map()), selectedInstance: signal(null) } },
+    { provide: ProviderQuotaStore, useValue: { snapshots: signal({ claude: null }), accountSnapshots: signal([]) } },
+  ];
 }
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
@@ -142,7 +162,7 @@ describe('CostPageComponent — computed signals', () => {
     TestBed.resetTestingModule();
     mockIpc = buildMockIpc();
     TestBed.overrideComponent(CostPageComponent, {
-      set: { imports: [CommonModule, CostChartStubComponent, AioTooltipDirective],
+      set: { imports: [CommonModule, CostChartStubComponent, AioTooltipDirective, UsageWhereWentCardComponent],
         template: readFileSync(resolve(specDirectory, 'cost-page.component.html'), 'utf8'),
         templateUrl: undefined, styles: [], styleUrl: undefined, styleUrls: [] },
     });
@@ -151,6 +171,7 @@ describe('CostPageComponent — computed signals', () => {
       imports: [CostPageComponent, RouterTestingModule],
       providers: [
         { provide: CostIpcService, useValue: mockIpc },
+        ...usageInsightProviders(),
       ],
     }).compileComponents();
 
@@ -478,6 +499,21 @@ describe('CostPageComponent — computed signals', () => {
     expect(fixture.nativeElement.textContent).toContain('Cost log is switched off');
     expect(fixture.nativeElement.querySelector('[data-testid="unknown-cost-footnote"]')).toBeNull();
   });
+  it('shows "Where your usage went" first, ahead of every dollar figure', async () => {
+    // No chart data, so the page does not try to draw canvases in the test browser.
+    mockIpc.costGetEntries.mockResolvedValue({ success: true, data: [] });
+    mockIpc.costGetSummary.mockResolvedValue({ success: true, data: { ...MOCK_SUMMARY, byModel: {} } });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const cards = root.querySelectorAll('app-usage-where-went-card');
+    expect(cards).toHaveLength(1);
+    expect(cards[0].textContent).toContain('Where your usage went');
+    expect(cards[0].textContent).toContain('Reading your Claude records: 1 of 4 files.');
+    const firstFigures = root.querySelector('.metrics-row')!;
+    expect(cards[0].compareDocumentPosition(firstFigures) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
   it('discloses excluded historical Claude dollar amounts only when present', () => {
     const row = { key: 'all', calls: 2, inputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
       outputTokens: 0, reasoningTokens: 0, cost: 0, estimatedCost: 0, estimatedShare: 0,
@@ -501,7 +537,7 @@ describe('Cost estimate focus hints', () => {
     TestBed.resetTestingModule();
     TestBed.overrideComponent(CostPageComponent, {
       set: {
-        imports: [CommonModule, CostChartStubComponent, AioTooltipDirective, CostHistoryRestoreComponent],
+        imports: [CommonModule, CostChartStubComponent, AioTooltipDirective, CostHistoryRestoreComponent, UsageWhereWentCardComponent],
         template: readFileSync(resolve(specDirectory, 'cost-page.component.html'), 'utf8'),
         templateUrl: undefined,
         styles: [],
@@ -511,7 +547,7 @@ describe('Cost estimate focus hints', () => {
     });
     await TestBed.configureTestingModule({
       imports: [CostPageComponent, RouterTestingModule],
-      providers: [{ provide: CostIpcService, useValue: buildMockIpc() }],
+      providers: [{ provide: CostIpcService, useValue: buildMockIpc() }, ...usageInsightProviders()],
       errorOnUnknownElements: true,
     }).compileComponents();
     const fixture = TestBed.createComponent(CostPageComponent);

@@ -1,5 +1,8 @@
 /**
- * System Event Group Component - collapsible panel for repetitive orchestration messages.
+ * System Event Group Component - collapsible panel for system notices that are
+ * not worth a row each: repetitive orchestration messages, and routine notices
+ * (`metadata.audience: 'routine'`) folded into one "N system events" row that
+ * carries the most serious severity among its events.
  */
 
 import {
@@ -13,6 +16,13 @@ import { DatePipe } from '@angular/common';
 import type { OutputMessage } from '../../../core/state/instance/instance.types';
 import { MarkdownService } from '../../../core/services/markdown.service';
 import { ExpansionStateService } from '../../../features/instance-detail/expansion-state.service';
+import { buildRoutineGroupLabel } from '../../../features/instance-detail/display-item-system-events';
+import {
+  resolveSystemMessageAudience,
+  resolveSystemMessageSeverity,
+  worstSystemMessageSeverity,
+  type SystemMessageSeverity,
+} from '../../../../../shared/utils/system-message-audience';
 import { AioTooltipDirective } from '../../tooltip/aio-tooltip.directive';
 
 @Component({
@@ -20,11 +30,16 @@ import { AioTooltipDirective } from '../../tooltip/aio-tooltip.directive';
   standalone: true,
   imports: [DatePipe, AioTooltipDirective],
   template: `
-    <div class="system-event-group" [class.expanded]="isExpanded()">
-      <button class="seg-header" type="button" [appTooltip]="preview()" (click)="toggle()">
+    <div class="system-event-group" [class.expanded]="isExpanded()" [attr.data-severity]="severity()">
+      <button class="seg-header" type="button" [appTooltip]="preview()" [attr.aria-expanded]="isExpanded()" (click)="toggle()">
         <span class="seg-icon">{{ isExpanded() ? '▼' : '▶' }}</span>
-        <span class="seg-label">{{ label() }}</span>
-        <span class="seg-count">({{ events().length }}x)</span>
+        <span class="seg-label">{{ heading() }}</span>
+        @if (!isRoutine()) {
+          <span class="seg-count">({{ events().length }}x)</span>
+        }
+        @if (severity() !== 'info') {
+          <span class="seg-severity" [class.seg-severity-error]="severity() === 'error'">{{ severityLabel() }}</span>
+        }
         @if (preview()) {
           <span class="seg-preview">- {{ preview() }}</span>
         }
@@ -34,7 +49,7 @@ import { AioTooltipDirective } from '../../tooltip/aio-tooltip.directive';
       @if (isExpanded()) {
         <div class="seg-content">
           @for (event of events(); track event.id) {
-            <div class="seg-event">
+            <div class="seg-event" [attr.data-severity]="eventSeverity(event)">
               <span class="seg-event-time">{{ event.timestamp | date: 'HH:mm:ss' }}</span>
               <div class="seg-event-body markdown-content" [innerHTML]="renderEvent(event.content)"></div>
             </div>
@@ -93,6 +108,37 @@ import { AioTooltipDirective } from '../../tooltip/aio-tooltip.directive';
       flex-shrink: 0;
       font-size: 11px;
       color: var(--text-muted);
+    }
+
+    .seg-severity {
+      flex-shrink: 0;
+      padding: 0 6px;
+      border: 1px solid var(--warning-border, var(--warning-color));
+      border-radius: 999px;
+      color: var(--warning-color);
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    .seg-severity-error {
+      border-color: var(--error-color);
+      color: var(--error-color);
+    }
+
+    .system-event-group[data-severity='warning'] {
+      border-color: var(--warning-border, var(--border-color));
+    }
+
+    .system-event-group[data-severity='error'] {
+      border-color: var(--error-color);
+    }
+
+    .seg-event[data-severity='warning'] .seg-event-body {
+      color: var(--warning-color);
+    }
+
+    .seg-event[data-severity='error'] .seg-event-body {
+      color: var(--error-color);
     }
 
     .seg-preview {
@@ -164,6 +210,25 @@ export class SystemEventGroupComponent {
   protected isExpanded = computed(() =>
     this.expansionState.isExpanded(this.instanceId(), this.itemId()),
   );
+
+  /** A group made only of routine notices; the processor never mixes the two. */
+  protected isRoutine = computed(() => {
+    const events = this.events();
+    return events.length > 0 && events.every((event) => resolveSystemMessageAudience(event) === 'routine');
+  });
+
+  /** "N system events" for a routine fold (derived, so it can never lag the events); else the given label. */
+  protected heading = computed(() =>
+    this.isRoutine() ? buildRoutineGroupLabel(this.events().length) : this.label(),
+  );
+
+  protected severity = computed<SystemMessageSeverity>(() => worstSystemMessageSeverity(this.events()));
+
+  protected severityLabel = computed(() => (this.severity() === 'error' ? 'Error' : 'Warning'));
+
+  protected eventSeverity(event: OutputMessage): SystemMessageSeverity {
+    return resolveSystemMessageSeverity(event);
+  }
 
   protected toggle(): void {
     this.expansionState.toggleExpanded(this.instanceId(), this.itemId());

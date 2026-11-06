@@ -110,6 +110,7 @@ import {
 } from './browser-extension-node-contact';
 import { BrowserGatewayActionGuard, type BrowserGatewayPreparedMutation } from './browser-gateway-action-guard';
 import { providerFromContext } from './browser-provider';
+import { statedReason } from './browser-approval-reason';
 import { autoApproveBrowserApproval } from './browser-auto-approve';
 import { HEAVY_DOM_COMMAND_TIMEOUT_MS } from './browser-mutation-safety';
 import {
@@ -2151,6 +2152,7 @@ export class BrowserGatewayService {
       selector: request.selector,
       filePath: uploadDecision.resolvedPath ?? request.filePath,
       detectedFileType: uploadDecision.detectedFileType,
+      requestReason: statedReason(request.reason),
       proposedGrant: {
         mode: uploadDecision.requiresPerActionApproval ? 'per_action' : 'session',
         allowedOrigins: prepared.grant.allowedOrigins,

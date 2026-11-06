@@ -84,7 +84,7 @@ export class LocalAiEffectivenessPanelComponent implements OnInit {
 
   protected completionLabel(): string {
     const summary = this.store.effectiveness();
-    if (!summary) return 'No Local AI effectiveness data';
+    if (!summary) return 'No local model effectiveness data';
     return `${summary.localTasks} of ${this.eligibleTasks()} eligible tasks completed locally, ${this.completionPercent()} percent`;
   }
 

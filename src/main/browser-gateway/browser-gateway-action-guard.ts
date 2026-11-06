@@ -29,6 +29,7 @@ import { redactElementContext } from './browser-redaction';
 import { existingTabGrantNodeId } from './browser-grant-scope';
 import { BrowserExactApprovalRedeemer } from './browser-exact-approval-redemption';
 import { createOrReusePendingBrowserApproval } from './browser-pending-approval-match';
+import { statedReason } from './browser-approval-reason';
 import { providerFromContext } from './browser-provider';
 import { refreshRegisteredBrowserTarget } from './browser-live-target';
 import { prepareReusableCredentialApproval } from './browser-reusable-credential-approval';
@@ -112,7 +113,6 @@ export class BrowserGatewayActionGuard {
     actionHint?: string,
     classificationOverride?: BrowserActionClassification,
   ): Promise<BrowserGatewayMutationPreparation> {
-
     const profile = this.profileStore.getProfile(request.profileId);
     const { target, error } = profile
       ? await refreshRegisteredBrowserTarget(
@@ -189,6 +189,7 @@ export class BrowserGatewayActionGuard {
         origin: originDecision.origin,
         url: currentUrl,
         selector,
+        requestReason: statedReason(request.reason),
         proposedGrant: {
           mode: 'per_action',
           allowedOrigins: [originDecision.matchedOrigin],
@@ -280,9 +281,7 @@ export class BrowserGatewayActionGuard {
         classification,
         { profileId: profile.id, targetId: target.id, origin: originDecision.origin, url: currentUrl },
       );
-      if (escalated) {
-        return { result: escalated };
-      }
+      if (escalated) return { result: escalated };
       // Legal-declaration auto-fire (operator opted into hands-off submits):
       // under a valid autonomous campaign grant a binding declaration proceeds
       // rather than blocking, and is recorded as an audit note. Without such a
@@ -329,6 +328,7 @@ export class BrowserGatewayActionGuard {
         url: currentUrl,
         selector,
         elementContext,
+        requestReason: statedReason(request.reason),
         proposedGrant: {
           mode: 'per_action',
           allowedOrigins: [originDecision.matchedOrigin],
@@ -376,7 +376,7 @@ export class BrowserGatewayActionGuard {
   }
 
   recheckPreparedGrant(
-    request: BrowserGatewayContext & { profileId: string; targetId: string },
+    request: BrowserGatewayContext & { profileId: string; targetId: string; reason?: string },
     action: string,
     toolName: string,
     prepared: BrowserGatewayPreparedMutation,
@@ -423,6 +423,7 @@ export class BrowserGatewayActionGuard {
       actionClass: prepared.actionClass,
       origin: prepared.origin,
       url: prepared.url,
+      requestReason: statedReason(request.reason),
       proposedGrant: {
         mode: 'per_action',
         allowedOrigins: prepared.grant.allowedOrigins,
@@ -596,9 +597,7 @@ export class BrowserGatewayActionGuard {
           url: attachment.url,
         },
       );
-      if (escalated) {
-        return { result: escalated };
-      }
+      if (escalated) return { result: escalated };
       if (classification.reason === LEGAL_DECLARATION_REASON && match.grant) {
         recordDeclarationAutoFireNote(
           { result: this.result },
@@ -642,6 +641,7 @@ export class BrowserGatewayActionGuard {
         url: attachment.url,
         selector,
         elementContext,
+        requestReason: statedReason(request.reason),
         proposedGrant: {
           mode: 'per_action',
           ...(nodeId ? { nodeId } : {}),

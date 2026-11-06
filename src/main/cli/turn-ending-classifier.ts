@@ -94,7 +94,7 @@ export function classifyTurnEnding(input: TurnEndingInput): TurnEndingClassifica
     });
   }
   if (native.some((reason) => ['tool_calls', 'tool_use', 'pause_turn', 'tool_deferred'].includes(reason))) return result('completed', 'provider_tool_boundary', { autoContinueSuppressed: true });
-  const failed = input.kind === 'error' || native.includes('error') || meta['is_error'] === true || Boolean(meta['error']) || meta['completionStatus'] === 'failed';
+  const failed = input.kind === 'error' || meta['turnErrored'] === true || native.includes('error') || meta['is_error'] === true || Boolean(meta['error']) || meta['completionStatus'] === 'failed';
   // Codex reports model overload as "Selected model is at capacity" (codex_error_info server_overloaded).
   // Only a failed turn counts, because Codex also reports errors that it then recovers from.
   const transient = [502, 503, 504].includes(Number(status)) || /\b(?:overloaded|server_error|temporarily unavailable|retryable recovery|retrying)\b/i.test(failureText)
@@ -107,6 +107,7 @@ export function classifyTurnEnding(input: TurnEndingInput): TurnEndingClassifica
     && /\b(?:interrupted by (?:the )?user|user interrupted)\b/i.test(failureText);
   if (userStopped) return result('completed', 'client_cancelled', { autoContinueSuppressed: true });
   if (failed) return result('unknown_error', 'provider_error');
+  if (meta['emptyResult'] === true && !providerRetrying) return result('empty_result', 'empty_result');
   return result('completed', 'provider_completed');
 }
 

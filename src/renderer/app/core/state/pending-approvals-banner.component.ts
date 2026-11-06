@@ -29,8 +29,10 @@ import type { PendingApprovalItem } from '../../../../shared/types/permission-re
 import { PermissionRegistryIpcService } from '../services/ipc/permission-registry-ipc.service';
 import {
   classifyPermissionRisk,
+  describeApprovalScope,
   formatDetails,
   formatRemaining,
+  type ApprovalScopeInfo,
   type PermissionRiskInfo,
 } from './pending-approvals-banner.rules';
 
@@ -68,10 +70,20 @@ const EXTEND_MS = 2 * 60_000;
                 <span class="approval-meta">
                   {{ item.instanceLabel || item.instanceId }}
                   @if (item.instanceProvider) { &middot; {{ item.instanceProvider }} }
-                  @if (item.toolName) { &middot; {{ item.toolName }} }
                 </span>
-                @if (details(item); as d) {
-                  <span class="approval-details">{{ d }}</span>
+                @if (scope(item); as howLong) {
+                  <span class="approval-lasts">{{ howLong.lasts }}</span>
+                }
+                @if (item.toolName || details(item)) {
+                  <details class="approval-more">
+                    <summary>Details</summary>
+                    @if (item.toolName) {
+                      <span class="approval-raw">Tool: {{ item.toolName }}</span>
+                    }
+                    @if (details(item); as d) {
+                      <span class="approval-raw">{{ d }}</span>
+                    }
+                  </details>
                 }
               </div>
               <div class="approval-actions">
@@ -80,7 +92,7 @@ const EXTEND_MS = 2 * 60_000;
                   class="banner-btn primary"
                   [disabled]="working() !== null"
                   (click)="approve(item)"
-                >{{ working() === item.id ? 'Approving…' : 'Approve' }}</button>
+                >{{ working() === item.id ? 'Approving…' : approveLabel(item) }}</button>
                 <button
                   type="button"
                   class="banner-btn danger"
@@ -211,10 +223,35 @@ const EXTEND_MS = 2 * 60_000;
       font-size: 0.84rem;
     }
 
-    .approval-meta,
-    .approval-details {
+    .approval-meta {
       font-size: 0.74rem;
       color: var(--text-secondary, #94a3b8);
+    }
+
+    .approval-lasts {
+      font-size: 0.76rem;
+      color: var(--text-secondary, #cbd5e1);
+    }
+
+    .approval-more {
+      font-size: 0.74rem;
+      color: var(--text-secondary, #94a3b8);
+    }
+
+    .approval-more summary {
+      width: fit-content;
+      cursor: pointer;
+    }
+
+    .approval-more summary:focus-visible {
+      outline: 2px solid var(--warning-color, #f59e0b);
+      outline-offset: 2px;
+    }
+
+    .approval-raw {
+      display: block;
+      overflow-wrap: anywhere;
+      font-family: var(--font-mono, monospace);
     }
 
     .approval-actions {
@@ -328,6 +365,14 @@ export class PendingApprovalsBannerComponent implements OnInit, OnDestroy {
 
   details(item: PendingApprovalItem): string {
     return formatDetails(item.details);
+  }
+
+  scope(item: PendingApprovalItem): ApprovalScopeInfo | null {
+    return describeApprovalScope(item);
+  }
+
+  approveLabel(item: PendingApprovalItem): string {
+    return describeApprovalScope(item)?.allowLabel ?? 'Approve';
   }
 
   async approve(item: PendingApprovalItem): Promise<void> {

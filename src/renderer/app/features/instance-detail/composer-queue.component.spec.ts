@@ -5,7 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ComposerQueueComponent } from './composer-queue.component';
 import { glossaryPlain } from '../../../../shared/glossary/glossary';
@@ -21,6 +21,33 @@ await resolveComponentResources((url) => {
 });
 
 describe('ComposerQueueComponent', () => {
+  afterEach(() => { TestBed.resetTestingModule(); vi.useRealTimers(); });
+
+  it('ticks an actual wait and lets the user keep waiting or recover the queued message', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(200_000);
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({ imports: [ComposerQueueComponent] }).compileComponents();
+    const fixture = TestBed.createComponent(ComposerQueueComponent);
+    fixture.componentRef.setInput('messages', [{ message: 'Keep this message' }]);
+    fixture.componentRef.setInput('waitReason', { kind: 'interrupt-ack', startedAt: 1000, attempt: 1 });
+    const cancelled: number[] = [];
+    fixture.componentInstance.cancelMessage.subscribe(index => cancelled.push(index));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('waiting 199 s');
+    const button = (label: string) => [...fixture.nativeElement.querySelectorAll('button')]
+      .find((item: unknown) => (item as HTMLButtonElement).textContent?.trim() === label) as HTMLButtonElement | undefined;
+    button('Keep waiting')!.click();
+    fixture.detectChanges();
+    expect(button('Keep waiting')).toBeUndefined();
+    vi.advanceTimersByTime(120_000);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('waiting 319 s');
+    button('Stop waiting and keep my message')!.click();
+    expect(cancelled).toEqual([0]);
+    fixture.destroy();
+  });
+
   it('shows the steering definition on keyboard-visible focus', async () => {
     TestBed.resetTestingModule();
     await TestBed.configureTestingModule({ imports: [ComposerQueueComponent] }).compileComponents();

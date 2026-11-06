@@ -23,6 +23,7 @@ import { McpPresetCatalogComponent } from './mcp-preset-catalog.component';
 import { WorkspaceMcpConnectorsPanelComponent } from './workspace-mcp-connectors-panel.component';
 import { BrowserAutomationIpcService } from '../../core/services/ipc/browser-automation-ipc.service';
 import { McpMultiProviderStore } from './state/mcp-multi-provider.store';
+import { providerName } from '../../../../shared/display-names';
 import {
   REDACTED_SENTINEL,
   type RedactedMcpServerDto,
@@ -125,6 +126,9 @@ type ManagementTab = 'orchestrator' | 'workspace' | SupportedProvider;
 type ManagementMode = 'create' | 'edit';
 type ManagementProviderField = 'injectInto';
 
+/** The providers that get their own tab, in tab order. */
+const PROVIDER_TAB_IDS: readonly SupportedProvider[] = ['claude', 'codex', 'gemini', 'copilot', 'grok', 'opencode'];
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 @Component({
@@ -183,12 +187,7 @@ export class McpPageComponent implements OnInit, OnDestroy {
   readonly managementTabs: { id: ManagementTab; label: string }[] = [
     { id: 'orchestrator', label: 'Connectors' },
     { id: 'workspace', label: 'Workspace' },
-    { id: 'claude', label: 'Claude' },
-    { id: 'codex', label: 'Codex' },
-    { id: 'gemini', label: 'Gemini' },
-    { id: 'copilot', label: 'Copilot' },
-    { id: 'grok', label: 'Grok' },
-    { id: 'opencode', label: 'OpenCode' },
+    ...PROVIDER_TAB_IDS.map((id) => ({ id, label: providerName(id) })),
   ];
 
   readonly activeManagementTab = signal<ManagementTab>('orchestrator');
@@ -313,7 +312,7 @@ export class McpPageComponent implements OnInit, OnDestroy {
     const tab = this.activeManagementTab();
     if (tab === 'orchestrator') return 'No connectors added.';
     if (tab === 'workspace') return '';
-    return `No ${tab} MCP servers discovered.`;
+    return `No ${providerName(tab)} MCP servers discovered.`;
   });
 
   // ── Tab definitions ───────────────────────────────────────────────────────
@@ -475,7 +474,12 @@ export class McpPageComponent implements OnInit, OnDestroy {
     const tab = this.activeManagementTab();
     if (tab === 'orchestrator') return `${action} connector`;
     if (tab === 'workspace') return `${action} Workspace MCP`;
-    return `${action} ${tab} User MCP`;
+    return `${action} ${providerName(tab)} User MCP`;
+  }
+
+  /** The name to show for a provider in this page's lists and messages. */
+  providerLabel(provider: string): string {
+    return providerName(provider);
   }
 
   beginCreateManagementServer(): void {
@@ -648,7 +652,7 @@ export class McpPageComponent implements OnInit, OnDestroy {
     if (!entry) return '';
     const state = entry.authStatus?.state;
     const signIn = state === 'expired' ? 'Sign in again' : state === 'signed-out' ? 'Sign-in needed' : '';
-    return [entry.record.autoConnect ? `Used by: ${entry.injectInto.join(', ') || 'No providers selected'}` : 'Turned off',
+    return [entry.record.autoConnect ? `Used by: ${entry.injectInto.map((provider) => this.providerLabel(provider)).join(', ') || 'No providers selected'}` : 'Turned off',
       entry.record.kind === 'microsoft365' ? `Agents may write: ${entry.agentsMayWrite ? 'yes' : 'no'}` : '', signIn].filter(Boolean).join(' · ');
   }
 
@@ -670,7 +674,7 @@ export class McpPageComponent implements OnInit, OnDestroy {
     }
     await this.runManagementOp(
       () => this.mcpIpc.providerOpenScopeFile({ provider: tab, scope: 'user' }),
-      `${tab} user MCP config opened.`,
+      `${providerName(tab)} user MCP config opened.`,
       'Failed to open provider MCP config.',
     );
   }

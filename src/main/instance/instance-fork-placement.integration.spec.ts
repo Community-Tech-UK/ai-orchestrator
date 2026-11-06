@@ -8,6 +8,7 @@ import type { WorkerNodeConnectionServer } from '../remote-node/worker-node-conn
 import type { UnifiedSpawnOptions } from '../cli/adapters/adapter-factory.types';
 import { getMocks, makeHarness } from './__tests__/instance-lifecycle-source-diagnostics.fixture';
 import { InstancePersistenceManager } from './instance-persistence';
+import { errorMessageText } from '../util/error-utils';
 import { createOpenCodeAdapter } from '../cli/adapters/opencode-adapter-factory';
 import { RemoteCliAdapter } from '../cli/adapters/remote-cli-adapter';
 import { normalizeOpenCodeNativeConfig } from '../cli/adapters/opencode-v2-config';
@@ -94,7 +95,7 @@ describe('fork placement through actual lifecycle, central policy and provider g
       const fork = await persistence.forkInstance({ instanceId: original.id, preserveRuntimeSettings: true });
       await fork.readyPromise?.catch(() => undefined);
       expect(fork.status).toBe('error');
-      expect(fork.outputBuffer.some(message => message.type === 'error' && message.content.includes('requires OpenCode 2'))).toBe(true);
+      expect(fork.outputBuffer.some(message => message.type === 'error' && errorMessageText(message).includes('requires OpenCode 2'))).toBe(true);
       expect(fork.nodePlacement).toEqual(snapshot);
       expect(fork.nodePlacement).not.toBe(original.nodePlacement);
       expect(original.nodePlacement).toEqual(snapshot);
@@ -122,7 +123,7 @@ describe('fork placement through actual lifecycle, central policy and provider g
       const fork = await persistence.forkInstance({ instanceId: original.id });
       await fork.readyPromise?.catch(() => undefined);
       expect(fork.status).toBe('error');
-      expect(fork.outputBuffer.some(message => message.type === 'error' && message.content.includes('requires OpenCode 2'))).toBe(true);
+      expect(fork.outputBuffer.some(message => message.type === 'error' && errorMessageText(message).includes('requires OpenCode 2'))).toBe(true);
       expect(fork.nodePlacement).toMatchObject({ requiresOpenCodeMajor: 2 });
       expect(original.nodePlacement).toBeUndefined();
       expect(boundary.probe).not.toHaveBeenCalled();
@@ -159,7 +160,7 @@ describe('fork placement through actual lifecycle, central policy and provider g
       const fork = await persistence.forkInstance({ instanceId: original.id });
       await fork.readyPromise?.catch(() => undefined);
       expect(fork.status).toBe('error');
-      expect(fork.outputBuffer.some(message => message.type === 'error' && message.content.includes(major === 'offline' ? 'unavailable' : 'OpenCode 2.0.30'))).toBe(true);
+      expect(fork.outputBuffer.some(message => message.type === 'error' && errorMessageText(message).includes(major === 'offline' ? 'unavailable' : 'OpenCode 2.0.30'))).toBe(true);
       expect(configs[0]).toMatchObject({ forceNodeId: nodeId, nodePlacement: { requiresCli: 'opencode', requiresOpenCodeMajor: 2 } });
       expect(sendRpc).not.toHaveBeenCalled();
       expect(clone).not.toHaveBeenCalled();

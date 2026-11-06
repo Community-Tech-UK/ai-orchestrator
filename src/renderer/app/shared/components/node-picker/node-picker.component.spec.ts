@@ -82,8 +82,8 @@ describe('NodePickerComponent', () => {
   });
 
   it.each([
-    [makeNode('disconnected', false), 'Node is disconnected'],
-    [makeNode('connected', true, { supportedClis: [] }), 'claude CLI not installed on this node'],
+    [makeNode('disconnected', false), 'Computer is disconnected'],
+    [makeNode('connected', true, { supportedClis: [] }), 'claude CLI not installed on this computer'],
   ] as const)('keeps an unavailable node focusable and explains it without selecting it', (node, reason) => {
     nodes.set([node]);
     fixture.componentRef.setInput('selectedCli', 'claude');
@@ -105,11 +105,17 @@ describe('NodePickerComponent', () => {
     expect(component.isOpen()).toBe(true);
   });
 
+  it('uses shared computer names for local and missing selections', () => {
+    expect(component.selectedLabel()).toBe('this computer');
+    (component as unknown as { selectedNodeId: () => string }).selectedNodeId = () => 'missing-id';
+    expect(component.selectedTooltip()).toBe('Computer not found');
+  });
+
   it('does not allow stale connected-status nodes without a live socket', () => {
     const node = makeNode('connected', false);
 
     expect(component.isNodeSelectable(node)).toBe(false);
-    expect(component.nodeDisabledReason(node)).toBe('Node is disconnected');
+    expect(component.nodeDisabledReason(node)).toBe('Computer is disconnected');
   });
 
   it('allows degraded nodes when the live socket is still connected', () => {
@@ -163,7 +169,7 @@ describe('NodePickerComponent', () => {
     button.focus();
     fixture.detectChanges();
     expect(document.activeElement).toBe(button);
-    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('Node is disconnected');
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('Computer is disconnected');
     const selected = vi.fn();
     fixture.componentInstance.nodeSelected.subscribe(selected);
     button.click();

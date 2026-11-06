@@ -144,6 +144,26 @@ describe('ProviderAccountRoutingService', () => {
     expect(outcome).toMatchObject({ ok: false, code: 'profile-missing' });
   });
 
+  it.each(['claude', 'codex', 'opencode'] as const)('names the restored session in a removed-account failure for %s', async provider => {
+    profiles = profiles.map(entry => ({ ...entry, provider }));
+    const outcome = await service().resolveRouteForSpawn({ provider, origin: 'interactive', persistedProfileId: 'gone', sessionName: 'Release notes', instanceId: 'internal-id' });
+    expect(outcome).toMatchObject({ ok: false, code: 'profile-missing', profileId: 'gone', detail: expect.stringContaining('Session "Release notes"') });
+    expect(outcome.ok ? '' : outcome.detail).not.toContain('internal-id');
+    expect(outcome.ok ? '' : outcome.detail).toContain(provider === 'opencode' ? 'MiMo' : provider === 'claude' ? 'Claude' : 'Codex');
+  });
+
+  it('uses a plain fallback when a removed-account session has no name', async () => {
+    const outcome = await service().resolveRouteForSpawn({ provider: 'claude', origin: 'interactive', persistedProfileId: 'gone', instanceId: 'internal-id' });
+    expect(outcome).toMatchObject({ code: 'profile-missing', detail: expect.stringContaining('This session ran on a Claude account') });
+    expect(outcome.ok ? '' : outcome.detail).not.toContain('internal-id');
+  });
+
+  it('refuses the removed account even after the pool shrinks to legacy only', async () => {
+    profiles = [profile('legacy', 0)];
+    await expect(service().resolveRouteForSpawn({ provider: 'claude', origin: 'interactive', persistedProfileId: 'gone', sessionName: 'Release notes' }))
+      .resolves.toMatchObject({ ok: false, code: 'profile-missing', detail: expect.stringContaining('Release notes') });
+  });
+
   it('admission never substitutes: an unauthenticated explicit profile fails', async () => {
     bindingStates = { 'max-b': 'unauthenticated' };
     const outcome = await service().resolveRouteForSpawn({ provider: 'claude', origin: 'interactive', explicitProfileId: 'max-b' });

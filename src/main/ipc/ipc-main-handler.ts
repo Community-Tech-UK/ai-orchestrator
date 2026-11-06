@@ -132,6 +132,8 @@ import { registerCircuitBreaker } from '../security/circuit-breaker-registration
 import { getCostTracker } from '../core/system/cost-tracker';
 import { registerStorageHandlers } from './handlers/storage-handlers';
 import { registerRuntimeProviderSessionHandlers } from './handlers/runtime-provider-session-handlers';
+import { registerUsageInsightHandlers } from './handlers/usage-insight-handlers';
+import { registerTurnBaselineHandlers } from './handlers/turn-baseline-handlers';
 import { registerGlobalPauseHandlers } from './handlers/global-pause-handlers';
 import { registerWorktreeLeftoverHandlers } from './handlers/worktree-leftover-handlers';
 import { initializeRlmStorageMaintenance } from '../rlm/rlm-storage-maintenance-runtime';
@@ -267,6 +269,7 @@ export class IpcMainHandler {
         this.instanceManager.getOrchestrationHandler().getPendingSecretRequest(id, requestId),
       resolveOrchestrationSecretRequest: (id, requestId, approved, reference) =>
         this.instanceManager.getOrchestrationHandler().resolveSecretRequest(id, requestId, approved, reference),
+      onNativeCardHandled: (event) => this.instanceManager.getRequestReceipts().secretHandled(event),
     });
     setWorkspaceSecretWorkingDirectoryLookup(
       (id) => this.instanceManager.getInstance(id)?.workingDirectory,
@@ -335,6 +338,7 @@ export class IpcMainHandler {
     registerResumeHandlers({ instanceManager: this.instanceManager });
     registerWorkflowHandlers();
     registerDiagnosticsHandlers({ instanceManager: this.instanceManager });
+    registerUsageInsightHandlers({ instanceManager: this.instanceManager, ensureTrustedSender: this.ensureTrustedSender.bind(this) });
     registerStorageHandlers({ getLiveIds: () => new Set(this.instanceManager.getAllInstances().map(instance => instance.id)), ensureTrustedSender: this.ensureTrustedSender.bind(this) });
     registerWorktreeLeftoverHandlers({ getLiveSessions: () => this.instanceManager.getAllInstances().filter(instance => instance.executionLocation?.type !== 'remote').map(instance => ({ id: instance.id, cwd: instance.workingDirectory, status: instance.status })), ensureTrustedSender: this.ensureTrustedSender.bind(this) });
     registerNotificationHandlers({ windowManager: this.windowManager });
@@ -368,6 +372,8 @@ export class IpcMainHandler {
     // VCS handlers (Git integration). windowManager is required for the
     // VCS_STATUS_CHANGED event push from GitStatusWatcher.
     registerVcsHandlers({ windowManager: this.windowManager });
+    // "Changed N files while this reply ran": snapshots taken as turns start and settle.
+    registerTurnBaselineHandlers({ instanceManager: this.instanceManager, ensureTrustedSender: this.ensureTrustedSender.bind(this) });
 
     // Snapshot handlers (File revert)
     registerSnapshotHandlers();

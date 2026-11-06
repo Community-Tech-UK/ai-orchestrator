@@ -5,7 +5,9 @@ import { GatewayClient } from '../../core/gateway-client.service';
 import { HostStore } from '../../core/host-store';
 import { newSessionPresetState } from '../new-session/new-session.navigation';
 import { MobileBrowseStateStore } from '../../core/mobile-browse-state.store';
-import { isWorking, statusLabel } from '../../core/status';
+import { displayStatusColor, isWorking, needsAttention, statusLabel } from '../../core/status';
+import { providerDisplayName } from '../new-session/new-session.presentation';
+import { isMiMoModel } from '../../../../../../src/shared/display-names';
 import { PullRefreshDirective } from '../../shared/pull-refresh.directive';
 import { MobileHeaderComponent } from '../../shared/mobile-header.component';
 import { MobileIconComponent } from '../../shared/mobile-icon.component';
@@ -36,7 +38,8 @@ export interface SessionChipInput {
 }
 
 export function sessionChipForRow(row: SessionChipInput): SessionRowChip {
-  if (row.pendingApprovalCount > 0) return { kind: 'attention', label: 'Awaiting approval' };
+  if (row.live && needsAttention(row.status)) return { kind: 'attention', label: statusLabel(row.status) };
+  if (row.pendingApprovalCount > 0) return { kind: 'attention', label: statusLabel('waiting_for_permission') };
   if (!row.live) return { kind: 'past', label: 'past' };
   if (row.isLooping) return { kind: 'loop', label: 'Loop' };
   return { kind: 'status', label: statusLabel(row.status) };
@@ -56,7 +59,7 @@ export function sessionsShowMoreLabel(hiddenCount: number, pageSize = SESSION_PA
 }
 
 function sessionTone(row: SessionChipInput): MobileSessionRowView['tone'] {
-  if (row.pendingApprovalCount > 0) return 'attention';
+  if (row.pendingApprovalCount > 0 || (row.live && needsAttention(row.status))) return 'attention';
   if (!row.live) return 'history';
   if (row.isLooping) return 'loop';
   if (row.status === 'error' || row.status === 'failed' || row.status === 'degraded') return 'error';
@@ -153,7 +156,10 @@ export class SessionsComponent {
         return {
           id: instance.id,
           title: instance.displayName,
-          subtitle: [instance.provider, instance.model].filter(Boolean).join(' · '),
+          subtitle: [providerDisplayName(instance.provider, instance.model),
+            isMiMoModel(instance.model) ? instance.model?.split('/').at(-1) : instance.model].filter(Boolean).join(' · '),
+          color: displayStatusColor(instance.pendingApprovalCount > 0 && !needsAttention(instance.status)
+            ? { status: 'waiting_for_permission' } : instance),
           status: instance.status,
           statusLabel: chip.label,
           tone: sessionTone({
@@ -186,7 +192,8 @@ export class SessionsComponent {
         return {
           id: session.id,
           title: session.name,
-          subtitle: [session.provider ?? 'session', session.model].filter(Boolean).join(' · '),
+          subtitle: [providerDisplayName(session.provider ?? 'session', session.model),
+            isMiMoModel(session.model) ? session.model?.split('/').at(-1) : session.model].filter(Boolean).join(' · '),
           status: 'idle',
           statusLabel: chip.label,
           tone: 'history',

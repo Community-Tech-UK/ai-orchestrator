@@ -114,6 +114,8 @@ import {
   type NewSessionSubmitRequest,
 } from './input-panel-new-session-submit';
 import { ComposerSubmissionService } from '../../core/services/composer-submission.service';
+import { InterruptedContinuationComponent } from './interrupted-continuation.component';
+import { UserInputRequestRegistry } from './user-input-request.registry';
 import {
   ImageLightboxComponent,
   type LightboxItem,
@@ -146,8 +148,10 @@ const LOOP_START_ACK_TIMEOUT_MS = 30_000;
 @Component({
   selector: 'app-input-panel',
   standalone: true,
-  imports: [InlineHintComponent, 
-    AioTooltipDirective, AppIconButtonDirective,
+  imports: [InlineHintComponent,
+    InterruptedContinuationComponent,
+    AioTooltipDirective,
+    AppIconButtonDirective,
     AgentSelectorComponent,
     CompactModelPickerComponent,
     ComposerAutocompleteComponent,
@@ -190,6 +194,7 @@ export class InputPanelComponent implements OnDestroy {
   private promptHistoryStore = inject(PromptHistoryStore);
   private loopPanelOpener = inject(LoopPanelOpenerService);
   private submissions = inject(ComposerSubmissionService);
+  private questions = inject(UserInputRequestRegistry);
   protected voice = inject(VoiceConversationStore);
   private filePreviewUrls = new Map<File, string>();
   private textareaRef = viewChild<ElementRef<HTMLTextAreaElement>>('textareaRef');
@@ -451,7 +456,7 @@ export class InputPanelComponent implements OnDestroy {
   // Computed: filter commands based on input
   filteredCommands = computed(() => {
     const msg = this.message();
-    if (!msg.startsWith('/')) return [];
+    if (this.questions.hasWaitingQuestion(this.instanceId()) || !msg.startsWith('/')) return [];
 
     const query = msg.slice(1).toLowerCase().split(/\s/)[0];
     const commands = this.commandStore.commands();
@@ -479,6 +484,7 @@ export class InputPanelComponent implements OnDestroy {
     return [];
   });
   visibleCommandSuggestions = computed(() => {
+    if (this.questions.hasWaitingQuestion(this.instanceId())) return [];
     const resolution = this.resolutionCommands();
     return resolution.length > 0 ? resolution : this.filteredCommands();
   });
@@ -1011,7 +1017,7 @@ export class InputPanelComponent implements OnDestroy {
 
     // Show command suggestions when typing "/" unless the leading token is a
     // path like "/Users/foo/file.md".
-    if (value.startsWith('/') && !value.includes('\n') && !startsWithLikelyPath(value)) {
+    if (!this.questions.hasWaitingQuestion(this.instanceId()) && value.startsWith('/') && !value.includes('\n') && !startsWithLikelyPath(value)) {
       this.showCommandSuggestions.set(true);
       this.selectedCommandIndex.set(0);
       void this.refreshSlashResolution(value);
@@ -1314,7 +1320,7 @@ export class InputPanelComponent implements OnDestroy {
 
   onKeyDown(event: KeyboardEvent): void {
     // Handle command suggestions navigation
-    if (this.showCommandSuggestions() && this.visibleCommandSuggestions().length > 0) {
+    if (!this.questions.hasWaitingQuestion(this.instanceId()) && this.showCommandSuggestions() && this.visibleCommandSuggestions().length > 0) {
       const commands = this.visibleCommandSuggestions();
 
       switch (event.key) {
@@ -1478,19 +1484,15 @@ export class InputPanelComponent implements OnDestroy {
   async onSend(): Promise<void> {
     if (!this.canSend() || this.disabled() || this.submission.submitting()) return;
 
-    // When the loop config panel is open, Send means "start the loop with
-    // this config + textarea content". This replaces the panel's removed
-    // Start Loop button with a single, unambiguous send action.
+    const text = this.message().trim();
+    const questionSession = this.instanceId();
+    // A waiting question gets typed text before commands or a new loop can consume it.
+    if (await this.questions.handleComposerText(questionSession, text, { current: () => this.instanceId() === questionSession ? this.message() : '', clear: () => this.clearSubmittedMessage() })) return;
     if (this.loopArmed()) {
       await this.tryStartLoopFromPanel();
       return;
     }
-
-    const text = this.message().trim();
-
-    if (await this.handleSlashCommand(text)) {
-      return;
-    }
+    if (await this.handleSlashCommand(text)) return;
 
     // New sessions have nothing durable behind them until the main process
     // returns an instance id, so the composer must survive until it does.
@@ -1504,7 +1506,6 @@ export class InputPanelComponent implements OnDestroy {
     this.clearSubmittedMessage();
   }
 
-
   onInterruptClick(): void {
     this.interruptRequested.emit();
   }
@@ -1514,9 +1515,7 @@ export class InputPanelComponent implements OnDestroy {
 
     const text = this.message().trim();
 
-    if (await this.handleSlashCommand(text)) {
-      return;
-    }
+    if (await this.handleSlashCommand(text)) return;
 
     this.recordPromptHistory(text, false);
     this.steerMessage.emit(text);

@@ -37,7 +37,6 @@ import { supportsCodexInlineImage } from './codex/attachments';
 import { generateId } from '../../../shared/utils/id-generator';
 import { wrapCodexSystemInstructions } from './codex/codex-prompt-blocks';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
-import type { CodexDiagnostic } from './codex/exec-diagnostics';
 import {
   runCodexExecProcess,
   type CodexExecProcessResult,
@@ -335,11 +334,11 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
       })),
     };
     const response = await this.sendMessage(cliMessage, dispatch) as CliResponse & {
-      metadata?: { diagnostics?: CodexDiagnostic[] };
       thinking?: ThinkingBlock[];
     };
 
-    this.emitDiagnostics(response.metadata?.diagnostics);
+    // Stderr log lines are shown by the process runner as they arrive (exec-process-runner.ts), through
+    // the shared presenter, so there is nothing left to print here at the end of the turn.
     // Native stdout already published each item while the process was alive.
     // Keep the full response for callers/usage without replaying the transcript.
     if (response.metadata?.['execOutputStreamed'] !== true) {
@@ -464,29 +463,6 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
       if (!writePhase.accepted && error instanceof Error) noteUnacceptedCodexExecInput(error);
       throw error;
     }).finally(() => { if (this.execInputWrite === writePhase) this.execInputWrite = null; });
-  }
-
-  private emitDiagnostics(diagnostics?: CodexDiagnostic[]): void {
-    if (!diagnostics?.length) return;
-    const seen = new Set<string>();
-    for (const diagnostic of diagnostics) {
-      if (diagnostic.level === 'info' || diagnostic.streamed) continue;
-      const key = `${diagnostic.category}:${diagnostic.line}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      this.emit('output', {
-        id: generateId(),
-        timestamp: Date.now(),
-        type: diagnostic.fatal ? 'error' : 'system',
-        content: `[codex] ${diagnostic.line}`,
-        metadata: {
-          diagnostic: true,
-          category: diagnostic.category,
-          fatal: diagnostic.fatal,
-          level: diagnostic.level,
-        },
-      });
-    }
   }
 
   protected shouldUseResumeCommand(): boolean {

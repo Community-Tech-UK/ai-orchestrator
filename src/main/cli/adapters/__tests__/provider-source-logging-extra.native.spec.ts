@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { inspect } from 'node:util';
 import { getLogManager } from '../../../logging/logger';
+import { errorMessageText } from '../../../util/error-utils';
 import { CodexCliAdapter } from '../codex-cli-adapter';
 import { CopilotCliAdapter, resetCopilotModelDiscoveryCache } from '../copilot-cli-adapter';
 import { CursorCliAdapter } from '../cursor-cli-adapter';
@@ -206,7 +207,7 @@ describe('additional native provider logging boundaries', () => {
     const { adapter, output } = redirect(new CodexCliAdapter({ workingDir: native.dir, timeout: mode === 'timeout' ? 1_000 : 3_000, ...(mode === 'model' ? { model: 'fixture-model' } : {}), ...(mode === 'resume' ? { resume: true, sessionId: 'disposable-thread' } : {}) }), native.path);
     if (mode === 'timeout') {
       await expect(adapter.sendMessage({ role: 'user', content: prompt })).rejects.toThrow(marker);
-      expect(output.some(message => message.content.includes(marker))).toBe(true);
+      expect(output.some(message => errorMessageText(message).includes(marker))).toBe(true);
     } else expect((await adapter.sendMessage({ role: 'user', content: prompt })).content).toBe(marker);
     expect(readFileSync(native.receipt, 'utf8')).toContain(prompt);
     verify(`codex-exec-${mode}`, [mode === 'timeout' ? 'Codex exec timed out — not retrying' : mode === 'model' ? 'Codex rejected the requested model; retrying with codex default model' : mode === 'resume' ? 'Codex exec resume failed, retrying with a fresh session' : mode === 'malformed' ? 'Failed to parse Codex exec JSONL line' : 'Codex exec threw transient error, retrying']);

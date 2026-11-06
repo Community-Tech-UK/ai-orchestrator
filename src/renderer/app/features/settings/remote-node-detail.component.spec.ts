@@ -85,6 +85,20 @@ describe('RemoteNodeDetailComponent', () => {
     expect(backSpy).toHaveBeenCalled();
   });
 
+  it('uses shared computer wording in the header and automation controls while keeping the warning exact', () => {
+    fixture.componentRef.setInput('node', makeNode({ name: '' }));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.node-id')?.textContent).toBe('your other Mac');
+    const buttons = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button'));
+    buttons.find((button) => button.textContent?.includes('Configure browser automation'))!.click();
+    fixture.detectChanges();
+    const form = fixture.nativeElement.querySelector('.ba-config-form') as HTMLElement;
+    expect(form.textContent).toContain('Enable browser automation on this computer');
+    expect(form.querySelector('.ba-warning')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      'Browser automation has no per-action approval — only enable it on trusted computers, and point the profile at a dedicated Chrome profile (not your everyday browser). First use needs a one-time profile login on that machine.',
+    );
+  });
+
   it('emits a revoke action with the current node id', () => {
     const emit = vi.spyOn(fixture.componentInstance.actionRequested, 'emit');
     const revoke = fixture.nativeElement.querySelector('.btn-danger') as HTMLButtonElement;

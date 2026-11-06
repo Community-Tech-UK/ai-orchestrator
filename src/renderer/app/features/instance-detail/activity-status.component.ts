@@ -19,6 +19,9 @@ import { ProcessingSpinnerComponent } from './processing-spinner.component';
 import { InstanceStatus } from '../../core/state/instance.store';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
+import type { InstanceWaitReason } from '../../../../shared/types/instance.types';
+import { presentInstanceStatus } from '../../../../shared/attention/instance-status-presentation';
+import { formatWaitReasonLabel } from './input-panel-formatters';
 
 function formatElapsed(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
@@ -96,11 +99,12 @@ export class ActivityStatusComponent implements OnDestroy {
   busySince = input<number | undefined>(undefined);
   lastEventAt = input<number | undefined>(undefined);
   readonly quietTooltip = copyFor('workingQuietly');
+  waitReason = input<InstanceWaitReason>();
 
   /** Whether to show the activity status */
   isActive = computed(() => {
     const s = this.status();
-    return s === 'busy'
+    return this.waitReason()?.kind === 'backoff' || s === 'busy'
       || s === 'processing'
       || s === 'thinking_deeply'
       || s === 'initializing'
@@ -111,6 +115,8 @@ export class ActivityStatusComponent implements OnDestroy {
 
   /** Text to display */
   displayText = computed(() => {
+    const waitReason = this.waitReason();
+    if (waitReason?.kind === 'backoff') return formatWaitReasonLabel(waitReason, this._tick()) ?? '';
     const activity = this.activity();
     if (activity) {
       return activity;
@@ -122,21 +128,7 @@ export class ActivityStatusComponent implements OnDestroy {
     if ((s === 'busy' || s === 'processing') && lastEventAt !== undefined && this._tick() - lastEventAt >= 10_000) {
       return 'Working quietly';
     }
-    switch (s) {
-      case 'initializing':
-        return 'Initializing...';
-      case 'busy':
-      case 'processing':
-        return 'Processing...';
-      case 'interrupting':
-        return 'Interrupting...';
-      case 'cancelling':
-        return 'Cancelling...';
-      case 'interrupt-escalating':
-        return 'Escalating interrupt...';
-      default:
-        return '';
-    }
+    return presentInstanceStatus(s, waitReason).label;
   });
 
   /** Elapsed time display text */
@@ -152,7 +144,7 @@ export class ActivityStatusComponent implements OnDestroy {
   });
 
   // Internal tick signal that forces re-computation every second
-  private _tick = signal(0);
+  private _tick = signal(Date.now());
   private _timerHandle: ReturnType<typeof setInterval> | null = null;
 
   constructor() {

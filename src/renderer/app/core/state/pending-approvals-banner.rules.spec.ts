@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { classifyPermissionRisk, formatDetails, formatRemaining } from './pending-approvals-banner.rules';
+import {
+  classifyPermissionRisk,
+  describeApprovalScope,
+  formatDetails,
+  formatRemaining,
+} from './pending-approvals-banner.rules';
 
 describe('classifyPermissionRisk', () => {
   it('marks a public app store release as critical', () => {
@@ -37,6 +42,56 @@ describe('formatRemaining', () => {
 
   it('renders "expiring…" once the deadline has passed', () => {
     expect(formatRemaining(1_000, 5_000)).toBe('expiring…');
+  });
+});
+
+describe('describeApprovalScope', () => {
+  it.each(['store_release_mutation', 'calendar_mutation', 'calendar_account_connect'])(
+    '%s covers exactly one operation, because every one asks again',
+    (action) => {
+      expect(describeApprovalScope({ action })).toEqual({
+        allowLabel: 'Allow this once',
+        lasts: 'Lasts just this once.',
+      });
+    },
+  );
+
+  it('names a session Computer Use grant as this session, with the one-hour limit', () => {
+    expect(describeApprovalScope({ action: 'desktop_computer_use_grant', details: { duration: 'session' } })).toEqual({
+      allowLabel: 'Allow for this session',
+      lasts: 'Lasts until this session ends, and no longer than an hour.',
+    });
+  });
+
+  it('names a timed Computer Use grant by its minutes, in this session only', () => {
+    expect(describeApprovalScope({
+      action: 'desktop_computer_use_grant',
+      details: { duration: 'boundedMinutes', minutes: 30 },
+    })).toEqual({
+      allowLabel: 'Allow for 30 minutes',
+      lasts: 'Lasts for 30 minutes, in this session only.',
+    });
+    expect(describeApprovalScope({
+      action: 'desktop_computer_use_grant',
+      details: { duration: 'boundedMinutes', minutes: 1 },
+    })?.allowLabel).toBe('Allow for 1 minute');
+  });
+
+  it('warns that an until-revoked Computer Use grant applies in every session', () => {
+    expect(describeApprovalScope({ action: 'desktop_computer_use_grant', details: { duration: 'untilRevoked' } })).toEqual({
+      allowLabel: 'Always allow',
+      lasts: 'Lasts until you take it back, in every session.',
+    });
+  });
+
+  it.each([
+    [{ action: 'desktop_computer_use_grant' }],
+    [{ action: 'desktop_computer_use_grant', details: { duration: 'forever' } }],
+    [{ action: 'desktop_computer_use_grant', details: { duration: 'boundedMinutes' } }],
+    [{ action: 'desktop_computer_use_grant', details: { duration: 'boundedMinutes', minutes: -5 } }],
+    [{ action: 'some_future_action' }],
+  ])('makes no promise about how long %j lasts', (item) => {
+    expect(describeApprovalScope(item)).toBeNull();
   });
 });
 

@@ -10,6 +10,7 @@
 import { createHash } from 'node:crypto';
 import { redactSecrets as redactDetectedSecrets } from '../security/secret-detector';
 import { redactSecrets as redactAssignmentSecrets } from './context-compaction-prompt';
+import { errorMessageText } from '../util/error-utils';
 import type {
   ObservationEvent,
   ObservationEventPriority,
@@ -114,7 +115,9 @@ export function extractObservationEvents(
     if (text.trimStart().startsWith(CONTINUITY_PACKAGE_MARKER)) return;
 
     if (message.type === 'error') {
-      push(turn, message, 'error', 1, text.split('\n').find((line) => line.trim()) ?? text);
+      // An error shown in plain words keeps its real reason under Details; the log wants that.
+      const reason = errorMessageText(message);
+      push(turn, message, 'error', 1, reason.split('\n').find((line) => line.trim()) ?? reason);
       return;
     }
     if (message.type === 'tool_result') {

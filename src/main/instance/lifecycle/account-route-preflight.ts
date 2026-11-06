@@ -102,6 +102,8 @@ export interface AttachAccountRouteOptions {
    * target. Never set for an account handoff, whose target was just chosen.
    */
   moveOffLimitedAccount?: boolean;
+  /** Session display name for a removed-account failure. */
+  sessionName?: string;
   instanceId?: string;
   routingService?: ProviderAccountRoutingService;
 }
@@ -149,6 +151,7 @@ export async function attachAccountRoute(
     moveOffLimitedAccount: attachOptions.moveOffLimitedAccount,
     resume: Boolean(options.resume),
     instanceId: attachOptions.instanceId ?? options.instanceId,
+    sessionName: attachOptions.sessionName,
   });
   if (!outcome.ok) {
     throw new AccountRoutingError(outcome);

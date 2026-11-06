@@ -1,8 +1,8 @@
 <div class="remote-nodes-tab">
-  <h3 class="section-title">Remote Nodes</h3>
+  <h3 class="section-title">Other computers</h3>
   <p class="section-desc">
-    Let another computer on your network do work for this app — running a web
-    browser, using its GPU, or adding extra AI&nbsp;CLI capacity.
+    Let your other computers do work for Harness: running a web
+    browser, using their GPUs, or adding extra AI&nbsp;CLI capacity.
   </p>
 
   @if (error()) {
@@ -12,7 +12,7 @@
   <app-settings-section-tabs
     [tabs]="sectionTabs()"
     [activeId]="activeSection()"
-    ariaLabel="Remote Nodes sections"
+    ariaLabel="Other computers sections"
     (activeIdChange)="onSectionChange($event)"
   />
 
@@ -24,10 +24,10 @@
             <div>
               <span class="card-name">Computer Role</span>
               <p class="field-hint section-inline-hint">
-                Choose whether this computer coordinates work or runs as a worker for another Harness.
+                Choose whether {{ localComputer }} manages work or helps another Harness.
               </p>
             </div>
-            <span class="status-badge connected">{{ store.harnessRole() }}</span>
+            <span class="status-badge connected">{{ store.harnessRole() === 'coordinator' ? 'Main Harness' : store.harnessRole() === 'worker' ? 'Helps another Harness' : 'Ask on launch' }}</span>
           </div>
 
           <div class="role-choice-row">
@@ -45,7 +45,7 @@
               [class.selected]="store.harnessRole() === 'worker'"
               (click)="changeComputerRole('worker')"
             >
-              Worker
+              Help another Harness
             </button>
             <button
               class="btn btn-secondary"
@@ -58,11 +58,11 @@
           </div>
           @if (store.harnessRole() === 'worker') {
             <p class="field-hint section-inline-hint">
-              This computer still works as a normal Harness. Pair it and start or stop the worker on the Worker Mode page.
+              You can keep using Harness on {{ localComputer }}. Pair it and choose when it helps another Harness.
             </p>
             <div class="role-choice-row">
               <button class="btn btn-primary" type="button" (click)="openWorkerMode()">
-                Open Worker Mode
+                Set up this computer
               </button>
             </div>
           }
@@ -71,7 +71,7 @@
         <div class="connection-card">
           <div class="card-row">
             <div class="card-info">
-              <span class="card-name">Enable Remote Node Server</span>
+              <span class="card-name">Let your other computers connect</span>
             </div>
             <label class="toggle-label">
               <input
@@ -87,10 +87,12 @@
           </div>
 
           <p class="field-hint">
-            Starts a small server on <strong>this</strong> machine that other computers
-            dial into. Turning it off disconnects every remote node. Traffic stays on
+            Starts a small server on <strong>{{ localComputer }}</strong> that other computers
+            dial into. Turning it off disconnects every other computer. Traffic stays on
             your local network — nothing is sent to the internet.
           </p>
+
+          <p class="field-hint">Configured: {{ store.remoteNodesEnabled() ? 'On' : 'Off' }}. Live connection status is shown below.</p>
 
           <p class="field-hint connection-summary">
             @if (serverStatus().running) {
@@ -105,7 +107,7 @@
 
           @if (serverStatus().running && serverStatus().localIps?.length) {
             <p class="field-hint connection-summary">
-              Workers should connect to
+              Your other computers should connect to
               @for (ip of serverStatus().localIps!; track ip; let last = $last) {
                 <span class="machine-ip">{{ ip }}:{{ serverStatus().port ?? store.remoteNodesServerPort() }}</span>@if (!last) {<span> or </span>}
               }
@@ -114,8 +116,8 @@
 
           <app-validation-row
             [status]="serverStatus().running ? 'pass' : 'warn'"
-            [label]="serverStatus().running ? 'Server accepting workers' : 'Server stopped'"
-            [detail]="serverStatus().running ? 'Remote workers can pair and receive eligible tasks.' : 'Enable the server before sharing pairing credentials.'"
+            [label]="serverStatus().running ? 'Accepting connections' : 'Not accepting connections'"
+            [detail]="serverStatus().running ? 'Your other computers can pair and receive eligible tasks.' : 'Enable the server before sharing pairing credentials.'"
           />
         </div>
 
@@ -154,7 +156,7 @@
       </summary>
       <div class="card-row">
         <div>
-          <span class="card-name">Pair this computer</span>
+          <span class="card-name">Pair another computer</span>
           <p class="field-hint section-inline-hint">
             Create a temporary credential, then run the generated
             <code>aio-worker pair</code> command on the other computer. The
@@ -224,7 +226,7 @@
       </div>
 
       @if (!serverStatus().running) {
-        <p class="field-hint">Start the remote-node server before sharing pairing credentials.</p>
+        <p class="field-hint">Allow connections in Overview before sharing pairing credentials.</p>
       }
 
       @if (activePairing(); as pairing) {
@@ -267,7 +269,7 @@
 
             <p class="field-hint">
               Advanced: the raw one-time credential is not enough by itself; the
-              worker also needs the pairing link or canonical config so it knows
+              other computer also needs the pairing link or canonical config so it knows
               where the coordinator is.
             </p>
 
@@ -315,7 +317,7 @@
     </details>
 
         } @else {
-          <p class="field-hint">Enable the remote-node server in Overview to pair another computer.</p>
+          <p class="field-hint">Allow connections in Overview to pair another computer.</p>
         }
       </section>
     }
@@ -325,7 +327,7 @@
           <div class="card-row computers-header">
             <span class="card-name">Connected Computers</span>
             <span class="status-badge" [class]="connectedCount() > 0 ? 'status-badge connected' : 'status-badge disconnected'">
-              {{ connectedCount() }} {{ connectedCount() === 1 ? 'node' : 'nodes' }} connected
+              {{ connectedCount() }} {{ connectedCount() === 1 ? 'computer' : 'computers' }} connected
             </span>
           </div>
 
@@ -354,7 +356,7 @@
             </div>
           </div>
         } @else {
-          <p class="field-hint">Enable the remote-node server in Overview to see connected computers.</p>
+          <p class="field-hint">Allow connections in Overview to see connected computers.</p>
         }
       </section>
     }
@@ -364,9 +366,9 @@
           <div class="connection-card">
             <span class="card-name">Server and routing</span>
             <p class="field-hint">
-              How this machine listens for remote computers. The defaults work for most
-              setups — only change these if a port is already taken or you run more than
-              one separate group of machines.
+              How {{ localComputer }} listens for your other computers. The defaults work for most
+              setups. Only change these if a port is already taken or you run more than
+              one separate group of computers.
             </p>
 
             <div class="field-grid">
@@ -383,7 +385,7 @@
                   placeholder="4878"
                 />
                 <p class="field-hint">
-                  The network port remote computers connect to. Default is 4878 —
+                  The network port remote computers connect to. Default is 4878;
                   change it only if another program is already using that port.
                 </p>
               </div>
@@ -400,8 +402,8 @@
                 />
                 <p class="field-hint">
                   Which connections to accept. <code>0.0.0.0</code> = any computer on
-                  your network (the normal choice). <code>127.0.0.1</code> = this
-                  machine only, so nothing else can connect.
+                  your network (the normal choice). <code>127.0.0.1</code> = {{ localComputer }}
+                  only, so nothing else can connect.
                 </p>
               </div>
 
@@ -416,7 +418,7 @@
                   placeholder="default"
                 />
                 <p class="field-hint">
-                  A label that groups machines together. A remote computer only
+                  A label that groups computers together. A remote computer only
                   auto-finds this app when its namespace matches. Leave it as
                   <code>default</code> unless you deliberately run several separate
                   clusters.
@@ -485,7 +487,7 @@
               </div>
               <p class="field-hint">
                 When a job needs a real web browser and a connected computer has one,
-                send it there automatically instead of running it on this machine.
+                send it there automatically instead of running it on {{ localComputer }}.
               </p>
             </div>
 
@@ -630,7 +632,7 @@
       }
     </app-danger-zone>
         } @else {
-          <p class="field-hint">Enable the remote-node server in Overview to edit server and routing settings.</p>
+          <p class="field-hint">Allow connections in Overview to edit server and routing settings.</p>
         }
       </section>
     }

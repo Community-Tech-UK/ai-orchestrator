@@ -1376,6 +1376,25 @@ describe('MobileGatewayServer', () => {
     }
   });
 
+  it('tells the phone when the card it answered had already closed, instead of reporting success', async () => {
+    const token = await pairToken();
+    source.orchestration.emit('user-action-request', {
+      id: 'uar-late', instanceId: 'a', requestType: 'confirm', title: 'Proceed?', message: 'Run it?',
+    });
+    source.orchestration.respondToUserAction.mockReturnValueOnce('not-pending');
+
+    const res = await authed(token, '/api/instances/a/respond', {
+      method: 'POST',
+      body: JSON.stringify({ requestId: 'uar-late', decisionAction: 'allow' }),
+    });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining('already closed') });
+    // The phone must stop offering the card.
+    const prompts = (await (await authed(token, '/api/prompts')).json()) as unknown[];
+    expect(prompts).toHaveLength(0);
+  });
+
   it('rejects respond without a valid decisionAction', async () => {
     const token = await pairToken();
     const res = await authed(token, '/api/instances/a/respond', {

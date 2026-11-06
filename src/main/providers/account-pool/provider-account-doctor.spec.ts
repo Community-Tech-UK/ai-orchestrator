@@ -81,9 +81,11 @@ describe('buildProviderAccountDoctorReport for MiMo accounts', () => {
     expect(report.usableProfileIds).toEqual(['legacy', 'max-c-2b3c']);
     expect(report.ambientAuthVariablesPresent).toEqual([]);
     expect(report.warnings.join(' ')).toMatch(/MiMo max-b-1a2b needs attention: unauthenticated/);
-    expect(report.warnings.join(' ')).toMatch(/MiMo max-c-2b3c has no model metadata for xiaomi-token-plan-sgp/);
+    expect(report.warnings.join(' ')).toMatch(/MiMo max-c-2b3c has no MiMo model list for its region on this computer/);
+    // The warning never prints OpenCode's backend id.
+    expect(report.warnings.join(' ')).not.toMatch(/xiaomi-token-plan|aio-mimo/);
     // The legacy account uses OpenCode's own provider and needs no metadata copy.
-    expect(report.warnings.join(' ')).not.toMatch(/MiMo legacy has no model metadata/);
+    expect(report.warnings.join(' ')).not.toMatch(/MiMo legacy has no MiMo model list/);
   });
 
   it('warns about nothing on a healthy MiMo pool', async () => {
@@ -96,6 +98,6 @@ describe('buildProviderAccountDoctorReport for MiMo accounts', () => {
       env: {},
       getRegionModelMetadata: () => [{}],
     });
-    expect(report.warnings.join(' ')).not.toMatch(/needs attention|no model metadata/);
+    expect(report.warnings.join(' ')).not.toMatch(/needs attention|no MiMo model list/);
   });
 });

@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BrowserPageComponent } from './browser-page.component';
 import { BrowserGatewayIpcService } from '../../core/services/ipc/browser-gateway-ipc.service';
 import { AuxiliaryLlmIpcService } from '../../core/services/ipc/auxiliary-llm-ipc.service';
+import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 
@@ -291,6 +292,7 @@ describe('BrowserPageComponent', () => {
     await TestBed.configureTestingModule({
       imports: [BrowserPageComponent],
       providers: [
+        { provide: ElectronIpcService, useValue: { platform: 'darwin' } },
         { provide: BrowserGatewayIpcService, useValue: service },
         { provide: AuxiliaryLlmIpcService, useValue: auxService },
         { provide: RemoteNodeStore, useValue: remoteNodeStore },
@@ -314,7 +316,7 @@ describe('BrowserPageComponent', () => {
   });
 
   it.each([
-    ['.profile-binding button', 'updateProfileExecutionNode', 'The execution node is unchanged.'],
+    ['.profile-binding button', 'updateProfileExecutionNode', 'The computer is unchanged.'],
     ['[data-testid="navigate-button"]', 'navigate', 'Enter a page address first.'],
   ] as const)('explains a lasting disabled browser action %s on focus', (selector, action, reason) => {
     fixture.componentInstance.navigateUrl.set('');
@@ -1046,6 +1048,34 @@ describe('BrowserPageComponent', () => {
     expect(rawHealth.open).toBe(false);
   });
 
+  it('names the computer controls and retains readiness for an unnamed computer', () => {
+    remoteNodeStore.nodes.update((nodes) => nodes.map((node) => ({ ...node, name: '' })));
+    fixture.detectChanges();
+    const binding = fixture.nativeElement.querySelector('.profile-binding') as HTMLElement;
+    expect(binding.textContent).toContain('Computer');
+    expect(binding.textContent).toContain('this Mac');
+    expect(binding.querySelector('.binding-summary strong')?.textContent).toBe('this Mac');
+    expect(binding.textContent).toContain('your Windows PC · Ready');
+    expect(binding.textContent).toContain('your Linux computer · Chrome only');
+    expect(binding.textContent).toContain('Save computer');
+    expect(binding.textContent).not.toMatch(/Execution node|Local coordinator|Save node/);
+  });
+
+  it('keeps a computer without browser automation unavailable when saving the profile', async () => {
+    fixture.componentInstance.profileExecutionNodeDraft.set('node-chrome-only');
+    await fixture.componentInstance.updateProfileExecutionNode();
+    expect(service.updateProfile).not.toHaveBeenCalled();
+    expect(fixture.componentInstance.errorMessage()).toBe('Selected computer is not ready for browser automation.');
+    const option = fixture.nativeElement.querySelector('option[value="node-chrome-only"]') as HTMLOptionElement;
+    expect(option.disabled).toBe(true);
+    expect(option.textContent).toContain('Chrome only');
+  });
+
+  it('keeps missing execution computer ids out of the visible location label', () => {
+    const profile = { ...fixture.componentInstance.profiles()[0]!, executionNodeId: 'internal-node-id' };
+    expect(fixture.componentInstance.profileExecutionLocationLabel(profile)).toBe('another computer · Missing');
+  });
+
   it('renders remote browser node status and saves the selected execution node', async () => {
     const text = fixture.nativeElement.textContent;
     expect(text).toContain('Run browser on');
@@ -1498,7 +1528,7 @@ describe('BrowserPageComponent', () => {
 
     const button = Array.from((fixture.nativeElement as HTMLElement)
       .querySelectorAll<HTMLButtonElement>('.permission-actions button'))
-      .find((candidate) => candidate.textContent?.trim() === 'Allow forever');
+      .find((candidate) => candidate.textContent?.trim() === 'Always allow on this website');
     expect(button).toBeDefined();
     button!.click();
     await vi.advanceTimersByTimeAsync(100);
@@ -1515,6 +1545,38 @@ describe('BrowserPageComponent', () => {
     });
   });
 
+  it.each([
+    ['per_action', 'Once'],
+    ['session', 'This session'],
+    ['autonomous', 'Without asking (this session)'],
+    ['persistent', 'Always'],
+  ] as const)('names a %s grant in the shared scope words', (mode, label) => {
+    fixture.componentInstance.activeGrants.update((grants) => [{
+      ...grants[0]!,
+      mode,
+      autonomous: mode === 'autonomous' || mode === 'persistent',
+    }]);
+    openView('permissions');
+
+    expect((fixture.nativeElement as HTMLElement).querySelector('.grant-row .audit-tool')?.textContent?.trim())
+      .toBe(label);
+  });
+
+  it('explains what Always allow covers next to the button, in the same words', () => {
+    const component = fixture.componentInstance;
+    const approval: BrowserApprovalRequest = {
+      ...component.approvalRequests()[0]!,
+      actionClass: 'credential',
+      proposedGrant: { ...component.approvalRequests()[0]!.proposedGrant, allowedActionClasses: ['credential'] },
+    };
+    component.approvalRequests.set([approval]);
+    openView('permissions');
+
+    expect((fixture.nativeElement as HTMLElement).querySelector('.approval-row')?.textContent).toContain(
+      'Always allow applies to the approved sites and computer across agent sessions, until you revoke it.',
+    );
+  });
+
   it('shows the site and Until revoked for a forever grant and keeps revocation available', () => {
     fixture.componentInstance.activeGrants.update((grants) => [{
       ...grants[0]!,
@@ -1524,7 +1586,7 @@ describe('BrowserPageComponent', () => {
     openView('permissions');
 
     const grant = (fixture.nativeElement as HTMLElement).querySelector('.grant-row');
-    expect(grant?.textContent).toContain('Forever');
+    expect(grant?.textContent).toContain('Always');
     expect(grant?.textContent).toContain('http://localhost:4567');
     expect(grant?.querySelector('.grant-expiry')?.textContent?.trim()).toBe('Until revoked');
     expect(grant?.querySelector('button')?.textContent?.trim()).toBe('Revoke grant');
@@ -1540,7 +1602,9 @@ describe('BrowserPageComponent', () => {
       const buttons = Array.from((fixture.nativeElement as HTMLElement)
         .querySelectorAll<HTMLButtonElement>('.permission-actions button'))
         .map((button) => button.textContent?.trim());
-      expect(buttons).toEqual(['Allow once', 'Allow for session', 'Allow unattended', 'Deny']);
+      expect(buttons).toEqual([
+        'Allow this once', 'Allow for this session', 'Allow without asking (this session)', 'Deny',
+      ]);
 
       await component.approveApprovalRequest(approval, 'persistent');
 

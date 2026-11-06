@@ -12,6 +12,7 @@ import type { LoopActivityKind } from '@contracts/schemas/loop';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type { CliResponse, CliToolCall } from '../cli/adapters/base-cli-adapter.types';
 import { describeStallProcessFacts, isNotableStallFact, sampleStallProcessFacts } from '../instance/stall-process-facts';
+import { isToolResultFailed } from '../../shared/tool-outcome';
 
 /**
  * Derived from the contracts package (LT-021) so the renderer-boundary
@@ -320,7 +321,9 @@ function describeAdapterOutput(output: unknown): LoopInvocationActivity {
           ? metadata['id']
           : undefined;
     const name = typeof metadata['name'] === 'string' ? metadata['name'] : undefined;
-    const isError = output['is_error'] === true || metadata['is_error'] === true;
+    // `is_error` alone is not the loop's verdict: a command that ran and exited
+    // non-zero is neutral, but a check (tests, lint, build) that did not pass is a failure.
+    const isError = output['is_error'] === true || isToolResultFailed(name, metadata);
     return {
       kind: 'tool_result',
       message: summarizeActivityText(name ? `Tool result: ${name}` : content || 'Tool result'),
@@ -373,6 +376,9 @@ function describeToolEvent(toolCall: unknown, kind: 'tool_use' | 'tool_result'):
       name,
       input,
       ...(result !== undefined ? { result } : {}),
+      ...(kind === 'tool_result' && (typeof call['is_error'] === 'boolean' || typeof call['checkFailed'] === 'boolean')
+        ? { success: !isToolResultFailed(name, call),
+          ...Object.fromEntries(['exitCode', 'isCheck', 'checkFailed'].filter(key => call[key] !== undefined).map(key => [key, call[key]])) } : {}),
     },
   };
 }

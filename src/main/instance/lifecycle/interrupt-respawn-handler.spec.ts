@@ -963,3 +963,234 @@ describe('InterruptRespawnHandler recovery-ladder exhaustion (WS7 Phase B)', () 
     expect(observable).not.toContain(sourceAlias);
   });
 });
+
+/**
+ * U10: the renderer used to hide these two notices by matching their exact
+ * wording. The emit sites now say they are routine (`metadata.audience`), so the
+ * renderer can fold them into an inspectable "N system events" row and a
+ * rewording can no longer make them reappear.
+ */
+describe('InterruptRespawnHandler routine interrupt notices (U10)', () => {
+  const WAITING = 'Interrupted — waiting for input';
+  const RESTARTED = 'Interrupted — session restarted (resume failed)';
+
+  function notice(state: FakeDepsState, content: string): OutputMessage | undefined {
+    return state.outputMessages.find((message) => message.content === content);
+  }
+
+  function emptyState(instance: Instance, adapter: CliAdapter): FakeDepsState {
+    return { instance, adapter, queueUpdateCalls: [], outputMessages: [], transitions: [] };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCircuitBreaker.recordAttempt.mockReturnValue(0);
+    mockPlanSessionRecovery.mockReturnValue({
+      kind: 'fresh',
+      reason: 'test fresh recovery',
+      providerSessionPersisted: false,
+    });
+    mockSessionMutex.acquire.mockImplementation(async () => {
+      mockSessionMutex.getLockInfo.mockReturnValue({
+        source: 'respawn-interrupt', acquiredAt: Date.now(), durationMs: 0,
+      });
+      return vi.fn();
+    });
+  });
+
+  it('flags the in-place settle notice routine and keeps the metadata it already carried', () => {
+    vi.useFakeTimers();
+    try {
+      const state = emptyState(makeInstance({ status: 'busy' }), makeAdapter());
+      const handler = new InterruptRespawnHandler(makeDeps(state));
+
+      handler.interrupt('inst-1');
+      state.instance!.status = 'idle';
+      handler.noteInterruptSettled('inst-1');
+
+      const settled = notice(state, WAITING);
+      expect(settled?.metadata).toMatchObject({ audience: 'routine', interruptStatus: 'interrupted', turnId: 'turn-1' });
+      expect(settled?.metadata?.['severity']).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('flags the completion-proof notice routine', async () => {
+    const adapter = makeAdapter({
+      interrupt: vi.fn(() => ({
+        status: 'accepted',
+        turnId: 'turn-1',
+        completion: Promise.resolve({ status: 'interrupted', turnId: 'turn-1' }),
+      } as InterruptResult)),
+    });
+    const state = emptyState(makeInstance({ status: 'busy' }), adapter);
+    const handler = new InterruptRespawnHandler(makeDeps(state));
+
+    handler.interrupt('inst-1');
+    await vi.waitFor(() => expect(notice(state, WAITING)).toBeDefined());
+
+    expect(notice(state, WAITING)?.metadata).toMatchObject({
+      audience: 'routine', interruptStatus: 'interrupted', turnId: 'turn-1',
+    });
+  });
+
+  function respawnState(): FakeDepsState {
+    return emptyState(
+      makeInstance({
+        status: 'respawning',
+        executionLocation: { type: 'local' },
+        sessionId: 'old-session',
+        providerSessionPersisted: true,
+        outputBuffer: [{ id: 'user-1', type: 'user', content: 'Keep this context', timestamp: Date.now() }],
+      }),
+      makeAdapter(),
+    );
+  }
+
+  /**
+   * A native-resume plan whose resume health verdict is chosen by the test. The
+   * shared `makeDeps` reconciler has no `evaluateResumeHealth`, so a native
+   * resume can never succeed through it; this one can, and so can its failure.
+   */
+  function nativeResumeDeps(state: FakeDepsState, resumeHealthy: boolean): InterruptRespawnDeps {
+    mockPlanSessionRecovery.mockReturnValue({
+      kind: 'native-resume',
+      reason: 'persisted provider session is resumable',
+      providerSessionPersisted: true,
+    });
+    mockCreateAdapter.mockReturnValue(makeAdapter({ spawn: vi.fn().mockResolvedValue(81) }));
+    const deps = makeDeps(state);
+    deps.getAdapterRuntimeCapabilities = vi.fn(() => ({
+      supportsResume: true,
+      supportsForkSession: false,
+      supportsNativeCompaction: false,
+      supportsPermissionPrompts: false,
+      supportsDeferPermission: false,
+      selfManagedAutoCompaction: false,
+    }));
+    deps.queueContinuityPreamble = vi.fn();
+    const reconciler = new RuntimeReconciler({
+      getInstance: deps.getInstance,
+      setAdapter: deps.setAdapter,
+      setupAdapterEvents: deps.setupAdapterEvents,
+      createRuntimeAdapter: (cliType: unknown, options: unknown, executionLocation: unknown) =>
+        mockCreateAdapter(cliType, options, executionLocation),
+      evaluateResumeHealth: async () => (resumeHealthy ? 'healthy' : 'unrecoverable'),
+      buildReplayContinuityMessage: deps.buildReplayContinuityMessage,
+      buildFallbackHistory: deps.buildFallbackHistory,
+    } as unknown as RuntimeReconcilerDeps);
+    deps.applyRecoveryRespawn = (instanceId, request, hooks) =>
+      reconciler.applyRecoveryRespawn(instanceId, request, hooks);
+    return deps;
+  }
+
+  it('flags the respawn notice routine when native resume worked', async () => {
+    const state = respawnState();
+    await new InterruptRespawnHandler(nativeResumeDeps(state, true)).respawnAfterInterrupt('inst-1');
+
+    expect(notice(state, WAITING)?.metadata).toMatchObject({ audience: 'routine' });
+    expect(notice(state, WAITING)?.metadata?.['severity']).toBeUndefined();
+    expect(notice(state, WAITING)?.metadata?.['resumeFailed']).toBeUndefined();
+    expect(notice(state, RESTARTED)).toBeUndefined();
+  });
+
+  it('flags the "resume failed" respawn notice routine, with a warning severity', async () => {
+    const state = respawnState();
+    await new InterruptRespawnHandler(nativeResumeDeps(state, false)).respawnAfterInterrupt('inst-1');
+
+    expect(notice(state, RESTARTED)?.metadata).toMatchObject({ audience: 'routine', severity: 'warning', resumeFailed: true });
+    expect(notice(state, WAITING)).toBeUndefined();
+  });
+
+  it('flags the respawn notice routine when there was no native resume to attempt', async () => {
+    const state = respawnState();
+    mockCreateAdapter.mockReturnValue(makeAdapter({ spawn: vi.fn().mockResolvedValue(82) }));
+    await new InterruptRespawnHandler(makeDeps(state)).respawnAfterInterrupt('inst-1');
+
+    expect(notice(state, WAITING)?.metadata).toMatchObject({ audience: 'routine' });
+    // Nothing was tried, so nothing failed.
+    expect(notice(state, WAITING)?.metadata?.['resumeFailed']).toBeUndefined();
+  });
+
+  const RESUME_FAILED_AUTO = 'Session restarted automatically (resume failed)';
+
+  async function stuckRespawn(): Promise<FakeDepsState> {
+    // A busy session with no interrupt in flight is the stuck-detector path: not an interrupt notice.
+    const stuck = emptyState(
+      makeInstance({ status: 'busy', executionLocation: { type: 'local' }, sessionId: 'old-session', outputBuffer: [] }),
+      makeAdapter(),
+    );
+    mockCreateAdapter.mockReturnValue(makeAdapter({ spawn: vi.fn().mockResolvedValue(83) }));
+    await new InterruptRespawnHandler(makeDeps(stuck)).respawnAfterInterrupt('inst-1');
+    return stuck;
+  }
+
+  async function exitedRespawn(): Promise<FakeDepsState> {
+    const exited = emptyState(
+      makeInstance({ status: 'respawning', executionLocation: { type: 'local' }, sessionId: 'old-session', outputBuffer: [] }),
+      makeAdapter(),
+    );
+    mockCreateAdapter.mockReturnValue(makeAdapter({ spawn: vi.fn().mockResolvedValue(84) }));
+    await new InterruptRespawnHandler(makeDeps(exited)).respawnAfterUnexpectedExit('inst-1');
+    return exited;
+  }
+
+  it('leaves the automatic-recovery notices as attention messages', async () => {
+    const stuck = await stuckRespawn();
+    const reconnected = notice(stuck, RESUME_FAILED_AUTO) ?? notice(stuck, 'Session reconnected automatically');
+    expect(reconnected?.metadata).toMatchObject({ autoRespawn: true, recoveryCause: 'stuck' });
+    expect(reconnected?.metadata?.['audience']).toBeUndefined();
+
+    const exited = await exitedRespawn();
+    const afterExit = notice(exited, RESUME_FAILED_AUTO) ?? notice(exited, 'Session reconnected automatically');
+    expect(afterExit?.metadata).toMatchObject({ autoRespawn: true });
+    expect(afterExit?.metadata?.['audience']).toBeUndefined();
+  });
+
+  it('marks every "(resume failed)" notice with resumeFailed, and no other notice', async () => {
+    mockPlanSessionRecovery.mockReturnValue({ kind: 'fresh', reason: 'test fresh recovery', providerSessionPersisted: false });
+    const interruptFailed = respawnState();
+    await new InterruptRespawnHandler(nativeResumeDeps(interruptFailed, false)).respawnAfterInterrupt('inst-1');
+    const interruptWorked = respawnState();
+    await new InterruptRespawnHandler(nativeResumeDeps(interruptWorked, true)).respawnAfterInterrupt('inst-1');
+    const stuck = await stuckRespawn();
+    const exited = await exitedRespawn();
+
+    // The scenarios must really produce the notices this test is about.
+    expect(notice(interruptFailed, RESTARTED)?.metadata?.['resumeFailed']).toBe(true);
+    expect(notice(stuck, RESUME_FAILED_AUTO)?.metadata).toMatchObject({ autoRespawn: true, recoveryCause: 'stuck', resumeFailed: true });
+    expect(notice(exited, RESUME_FAILED_AUTO)?.metadata).toMatchObject({ autoRespawn: true, resumeFailed: true });
+
+    const notices = [interruptFailed, interruptWorked, stuck, exited]
+      .flatMap((state) => state.outputMessages)
+      .filter((message) => message.type === 'system');
+    expect(notices.length).toBeGreaterThanOrEqual(4);
+    for (const message of notices) {
+      const saysResumeFailed = message.content.endsWith('(resume failed)');
+      expect(message.metadata?.['resumeFailed'] === true, message.content).toBe(saysResumeFailed);
+    }
+  });
+
+  it('keeps the cancel notices that need the user as attention messages', () => {
+    vi.useFakeTimers();
+    try {
+      const escalated = emptyState(makeInstance({ status: 'busy' }), makeAdapter());
+      const handler = new InterruptRespawnHandler(makeDeps(escalated));
+      handler.interrupt('inst-1');
+      handler.interrupt('inst-1'); // second request escalates
+      const cancelled = escalated.outputMessages.find((m) => /session cancelled/i.test(m.content));
+      expect(cancelled).toBeDefined();
+      expect(cancelled?.metadata?.['audience']).toBeUndefined();
+
+      const forced = emptyState(makeInstance({ status: 'busy' }), makeAdapter());
+      new InterruptRespawnHandler(makeDeps(forced)).interrupt('inst-1');
+      vi.advanceTimersByTime(31_000);
+      const timedOut = forced.outputMessages.find((m) => /force-cancelled/i.test(m.content));
+      expect(timedOut).toBeDefined();
+      expect(timedOut?.metadata?.['audience']).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

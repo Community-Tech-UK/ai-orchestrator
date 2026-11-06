@@ -5,6 +5,7 @@ import type {
   OperatorArtifactExportRequest,
 } from '../../shared/types/diagnostics.types';
 import type { StorageCleanupTarget } from '../../shared/types/storage.types';
+import type { UsageInsightRequest, UsageInsightResponse } from '../../shared/usage-insight/usage-insight.types';
 import type { IpcResponse } from './types';
 
 export function createDiagnosticsDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNELS) {
@@ -38,6 +39,9 @@ export function createDiagnosticsDomain(ipcRenderer: IpcRenderer, ch: typeof IPC
 
     cacheAnalyticsGet: (payload: { instanceId: string }): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.CACHE_ANALYTICS_GET, payload),
+
+    usageInsightGet: (payload?: UsageInsightRequest): Promise<IpcResponse<UsageInsightResponse>> =>
+      ipcRenderer.invoke(ch.USAGE_INSIGHT_GET, payload ?? {}),
 
     contextManifestGet: (payload: { instanceId: string }): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.CONTEXT_MANIFEST_GET, payload),

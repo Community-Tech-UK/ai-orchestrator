@@ -96,6 +96,8 @@ export interface InputRequiredResolvedEvent {
   instanceId: string;
   requestId: string;
   reason: 'timeout' | 'auto_approved' | 'decided' | 'cancelled' | 'exited';
+  /** `user-action` for a card the model raised itself, which never counted toward the pending-approval badge. */
+  kind?: 'user-action';
 }
 
 export interface InputRequiredEvent {

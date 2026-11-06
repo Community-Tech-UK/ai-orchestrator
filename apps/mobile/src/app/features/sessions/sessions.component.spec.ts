@@ -37,7 +37,7 @@ describe('session row status chip', () => {
       isLooping: true,
       status: 'waiting_for_permission',
       pendingApprovalCount: 1,
-    })).toEqual({ kind: 'attention', label: 'Awaiting approval' });
+    })).toEqual({ kind: 'attention', label: 'Needs your OK' });
 
     expect(sessionChipForRow({
       live: false,
@@ -60,5 +60,18 @@ describe('SessionsComponent connection header', () => {
     expect(source).toContain('[subtitle]="connectionHeadline()"');
     expect(source).toContain('connectionHeadline(this.gateway.state())');
     expect(source).not.toContain("online() ? 'Connected' : 'Offline'");
+  });
+});
+
+
+describe('canonical live question on session rows', () => {
+  it('keeps a question ahead of loop state even when no permission counter is present', () => {
+    expect(sessionChipForRow({ live: true, isLooping: true, status: 'waiting_for_input', pendingApprovalCount: 0 }))
+      .toEqual({ kind: 'attention', label: 'Needs your answer' });
+  });
+
+  it('does not relabel a question as permission when the generic pending count is positive', () => {
+    expect(sessionChipForRow({ live: true, isLooping: true, status: 'waiting_for_input', pendingApprovalCount: 1 }))
+      .toEqual({ kind: 'attention', label: 'Needs your answer' });
   });
 });

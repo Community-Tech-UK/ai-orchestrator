@@ -48,6 +48,19 @@ export const RLM_MIGRATIONS_076_080: Migration[] = [
     `,
   },
   {
+    // What the agent said it was asking for, apart from anything read off the
+    // page. Kept in its own column (not inside element_context_json) so page
+    // text and agent text cannot be confused, and so the duplicate-request check
+    // that compares element context is unaffected. Old rows stay NULL.
+    name: '078_browser_approval_request_reason',
+    up: `
+      ALTER TABLE browser_approval_requests ADD COLUMN request_reason TEXT;
+    `,
+    down: `
+      ALTER TABLE browser_approval_requests DROP COLUMN request_reason;
+    `,
+  },
+  {
     // Main and phase-1 migrations share numeric prefixes 078–080. They are
     // tracked by full name and may already be applied on real databases, so
     // preserve every name and SQL checksum from both branches.

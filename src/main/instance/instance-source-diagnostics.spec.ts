@@ -16,6 +16,7 @@ import { getSessionMutex, _resetSessionMutexForTesting } from '../session/sessio
 import type { HookManager } from '../hooks/hook-manager';
 import { getSessionAdmissionService, _resetSessionAdmissionServiceForTesting } from '../session/session-admission-service';
 import { SessionAdmissionStore } from '../session/session-admission-store';
+import { errorMessageText } from '../util/error-utils';
 
 const logging = vi.hoisted(() => ({ manager: null as LogManager | null }));
 vi.mock('../logging/logger', async (importOriginal) => {
@@ -117,8 +118,9 @@ describe('source-safe diagnostics through the actual logger sink', () => {
       expect(errors[0].stack).toContain(source);
       expect(serialized(f.runtime.mock.calls)).toContain(source);
       expect(serialized(f.output.mock.calls)).toContain(source);
-      const errorOutput = f.instance.outputBuffer.find((message) => message.type === 'error' && message.content.includes(source));
+      const errorOutput = f.instance.outputBuffer.find((message) => message.type === 'error' && errorMessageText(message).includes(source));
       expect(errorOutput).toBeDefined();
+      expect(errorOutput!.content).not.toContain(source);
       requireLog('Instance error');
       if (kind === 'provider-error') {
         for (let i = 0; i < 4; i++) f.manager.addToOutputBuffer(f.instance, { ...errorOutput!, id: `repeat-${i}` });
@@ -151,7 +153,7 @@ describe('source-safe diagnostics through the actual logger sink', () => {
       const label = kind === 'overflow' ? 'Context overflow detected via output path' : 'Corrupted session detected via output path';
       await vi.waitFor(() => expect(logging.manager!.getRecentLogs().some((row) => row.message === label)).toBe(true));
       expect(requireLog(label).data).toMatchObject({ textChars: nativeErrorText.length, textHash: expect.stringMatching(/^[a-f0-9]{16}$/) });
-      expect(f.instance.outputBuffer.some((message) => message.content === nativeErrorText)).toBe(true);
+      expect(f.instance.outputBuffer.some((message) => errorMessageText(message) === nativeErrorText && !message.content.includes(source))).toBe(true);
       assertPrivateLogs();
     } finally { f.close(); }
   });
@@ -195,7 +197,7 @@ describe('source-safe diagnostics through the actual logger sink', () => {
       f.adapter.emit('error', error);
       await vi.waitFor(() => expect(requireLog('Error during force cleanup')).toBeDefined());
       expect(received).toHaveBeenCalledExactlyOnceWith(error);
-      expect(f.instance.outputBuffer.some((message) => message.content === source)).toBe(true);
+      expect(f.instance.outputBuffer.some((message) => errorMessageText(message) === source && !message.content.includes(source))).toBe(true);
       expect(serialized(f.runtime.mock.calls)).toContain(source);
       const queueUpdate = vi.fn();
       settleExitRecoveryFailure({ queueUpdate, transitionInstanceStatus: (instance, status) => { instance.status = status; },

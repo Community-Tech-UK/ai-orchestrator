@@ -57,7 +57,8 @@ describe('describeTruncatedAcpTurn', () => {
     // Informational, not an error: the detection can misfire, so a wrong
     // note must not read as a failed turn.
     expect(report.notice.type).toBe('system');
-    expect(report.notice.content).toContain(FAILURE);
+    expect(report.notice.content).not.toContain(FAILURE);
+    expect(report.notice.metadata).toMatchObject({ errorPresentation: { rawDetail: FAILURE } });
     expect(report.notice.content).toContain('continue');
     // Must not assert truncation outright.
     expect(report.notice.content).toContain('may be cut off');
@@ -139,7 +140,8 @@ describe('describeTruncatedAcpTurn for a refusal', () => {
     });
 
     expect(report.notice.type).toBe('system');
-    expect(report.notice.content).toContain(REFUSAL);
+    expect(report.notice.content).not.toContain(REFUSAL);
+    expect(report.notice.metadata).toMatchObject({ errorPresentation: { rawDetail: REFUSAL } });
     // Same hedge as the transport notice: the detection is text classification.
     expect(report.notice.content).toContain('may be cut off');
     // The two things a status code alone does not tell the user.

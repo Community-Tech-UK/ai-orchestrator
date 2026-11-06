@@ -42,17 +42,26 @@ export async function runHelperPauseExpirySmoke(): Promise<void> {
     const backoff = new AuxiliarySlotBackoff(Date.now, (pauses, transition) => getLocalAiAuxiliaryHooks().helperBackoffChanged?.(pauses, transition));
     backoff.recordFailure('compression'); backoff.recordFailure('compression');
     await Promise.resolve(); fixture.detectChanges();
+    // While the pause is real the chip is on screen. Its name is the visible text;
+    // the paused helper type and the reason sit in the description a screen
+    // reader reads with it (the chip used to carry them in an aria-label).
     const chip = fixture.nativeElement.querySelector('button') as HTMLButtonElement;
     expect(chip.textContent).toContain('helpers paused until');
-    expect(chip.getAttribute('aria-label')).toContain('compression');
+    const describedBy = chip.getAttribute('aria-describedby');
+    expect(describedBy).toBeTruthy();
+    const description = fixture.nativeElement.querySelector(`#${describedBy}`) as HTMLElement;
+    expect(description.textContent).toContain('compression');
     const before = store.snapshot()!.revision;
     await vi.advanceTimersByTimeAsync(60000); fixture.detectChanges();
     expect(backoff.active('compression')).toBeUndefined();
     expect(store.helperPauses()).toEqual([]);
     expect(store.snapshot()!.revision).not.toBe(before);
-    expect(chip.textContent).not.toContain('helpers paused until');
-    expect(chip.getAttribute('aria-label')).not.toContain('helpers paused until');
-    expect(chip.textContent).not.toContain('Healthy');
+    // When the pause actually expires the chip is gone, not relabelled "Healthy":
+    // healthy and not-set-up show nothing at all, and nothing is left for a
+    // screen reader to find either.
+    expect(fixture.nativeElement.querySelector('button')).toBeNull();
+    expect(fixture.nativeElement.querySelector(`#${describedBy}`)).toBeNull();
+    expect(fixture.nativeElement.textContent.trim()).toBe('');
   } finally {
     store.destroy(); fixture.destroy(); cleanup(); uninstall(); guard.dispose();
     vi.useRealTimers(); TestBed.resetTestingModule(); handle.mockRestore();

@@ -8,6 +8,7 @@ import { emitPluginHook } from '../plugins/hook-emitter';
 import { getLogger } from '../logging/logger';
 import { ownedByEngine } from '../work-admission/engine-ownership';
 import { recordSessionPolicy } from '../core/system/session-policy-log';
+import { errorMessageText } from '../util/error-utils';
 
 const logger = getLogger('InstanceChildCompletion');
 
@@ -242,7 +243,7 @@ export class InstanceChildCompletionHandler {
     const summary = lastAssistant
       ? lastAssistant.content.substring(0, 500)
       : lastError
-        ? `Child errored before producing a reply: ${lastError.content.substring(0, 500)}`
+        ? `Child errored before producing a reply: ${errorMessageText(lastError).substring(0, 500)}`
         : 'Child exited without producing any output.';
 
     return {

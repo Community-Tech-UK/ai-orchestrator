@@ -201,6 +201,9 @@ struct HarnessSessionAttributes: ActivityAttributes {
     public struct ContentState: Codable, Hashable {
         var status: String
         var detail: String
+        // Optional so an activity started or pushed by an older build still decodes.
+        var displayLabel: String?
+        var displayTone: String?
     }
 
     var sessionName: String
@@ -242,7 +245,9 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         )
         let state = HarnessSessionAttributes.ContentState(
             status: call.getString("status") ?? "working",
-            detail: call.getString("detail") ?? ""
+            detail: call.getString("detail") ?? "",
+            displayLabel: call.getString("displayLabel"),
+            displayTone: call.getString("displayTone")
         )
         Task {
             // One live activity at a time — replace any stale ones.
@@ -268,7 +273,9 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         let state = HarnessSessionAttributes.ContentState(
             status: call.getString("status") ?? "working",
-            detail: call.getString("detail") ?? ""
+            detail: call.getString("detail") ?? "",
+            displayLabel: call.getString("displayLabel"),
+            displayTone: call.getString("displayTone")
         )
         Task {
             for activity in Activity<HarnessSessionAttributes>.activities {

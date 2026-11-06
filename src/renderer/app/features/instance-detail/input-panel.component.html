@@ -315,6 +315,11 @@
     }
   }
 
+  <!-- Continue after an interrupted turn. Only on a bare composer, so it never sits above a draft or an attachment. -->
+  @if (!isDraftComposer() && !disabled() && !editMode() && !showLoopPanel() && !message().trim() && pendingFiles().length === 0 && pendingFolders().length === 0) {
+    <app-interrupted-continuation class="continue-row" [instanceId]="instanceId()" />
+  }
+
   <!-- Input area -->
   <div class="input-row">
     <div class="textarea-wrapper" [class.has-ghost]="showGhostText()"
@@ -582,6 +587,7 @@
     <app-composer-queue
       [messages]="queuedMessages()"
       [holdReasonLabel]="holdReasonLabel()"
+      [waitReason]="waitReason()"
       [canSteer]="canSteerActiveTurn()"
       [parked]="queueParked()"
       (editMessage)="onEditQueuedMessage($event)"

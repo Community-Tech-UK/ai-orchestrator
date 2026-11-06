@@ -3,6 +3,7 @@ import {
   getConversationHistoryTitle,
   type ConversationHistoryEntry,
 } from '../../../../shared/types/history.types';
+import { providerName } from '../../../../shared/display-names';
 import { InstanceStateService } from '../../core/state/instance/instance-state.service';
 import type { HierarchicalHistoryItem } from './instance-list.types';
 
@@ -261,26 +262,27 @@ export class HistoryRailService {
   }
 
   getHistoryProviderVisual(entry: ConversationHistoryEntry): HistoryProviderVisual {
+    const label = providerName(entry.provider, { model: entry.currentModel });
     switch (entry.provider) {
       case 'claude':
-        return { icon: 'anthropic', color: '#D97706', label: 'Claude' };
+        return { icon: 'anthropic', color: '#D97706', label };
       case 'codex':
-        return { icon: 'openai', color: '#10A37F', label: 'Codex' };
+        return { icon: 'openai', color: '#10A37F', label };
       case 'gemini':
-        return { icon: 'google', color: '#4285F4', label: 'Gemini' };
+        return { icon: 'google', color: '#4285F4', label };
       case 'antigravity':
-        return { icon: 'google', color: '#00B8D4', label: 'Antigravity' };
+        return { icon: 'google', color: '#00B8D4', label };
       case 'copilot':
-        return { icon: 'github', color: '#B89A66', label: 'Copilot' };
+        return { icon: 'github', color: '#B89A66', label };
       case 'cursor':
         // Cursor's brand mark is monochrome (black on light / white on dark).
         // Use a light neutral so it stays visible on the app's dark surfaces
         // instead of disappearing as a black-on-black square.
-        return { icon: 'cursor', color: '#E5E7EB', label: 'Cursor' };
+        return { icon: 'cursor', color: '#E5E7EB', label };
       case 'grok':
-        return { icon: 'grok', color: '#1DA1F2', label: 'Grok' };
+        return { icon: 'grok', color: '#1DA1F2', label };
       case 'opencode':
-        return { icon: 'opencode', color: '#D4D4D8', label: 'OpenCode' };
+        return { icon: 'opencode', color: '#D4D4D8', label };
       default:
         return { icon: 'generic', color: 'rgba(214, 221, 208, 0.76)', label: 'AI session' };
     }

@@ -53,7 +53,7 @@ export class RemoteTerminalSessionService implements TerminalSession {
   async spawn(opts: TerminalSpawnOptions): Promise<{ sessionId: TerminalSessionId; pid: number }> {
     if (!opts.nodeId) {
       throw new Error(
-        'Select a worker node to open a remote terminal — local terminals are not supported yet.',
+        'Select another computer to open a terminal. Terminals on this computer are not supported yet.',
       );
     }
     const res = await this.requireApi().terminalSpawn({

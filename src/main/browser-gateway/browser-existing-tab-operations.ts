@@ -26,6 +26,7 @@ import {
 } from './browser-extension-command-failures';
 import { allowedOriginFromUrl, extractTabPayload } from './browser-gateway-service-helpers';
 import { providerFromContext } from './browser-provider';
+import { statedReason } from './browser-approval-reason';
 import { findMatchingBrowserGrant } from './browser-grant-policy';
 import { existingTabGrantNodeId } from './browser-grant-scope';
 import { browserSnapshotText } from './browser-snapshot-text';
@@ -140,6 +141,7 @@ export class BrowserExistingTabOperations {
           actionClass: 'navigate',
           origin,
           url: request.url,
+          requestReason: statedReason(request.reason),
           proposedGrant: {
             mode: 'per_action',
             allowedOrigins: [allowedOrigin],

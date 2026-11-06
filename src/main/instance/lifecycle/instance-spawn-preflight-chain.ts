@@ -165,6 +165,7 @@ export class InstanceSpawnPreflightChain {
       routedSpawnOptions,
       routeOrigin,
       {
+        sessionName: config.displayName,
         explicitProfileId: config.resume ? undefined : config.accountProfileId,
         restrictTo: config.allowedAccountProfileIds,
         preferences: instance.accountPreferences,

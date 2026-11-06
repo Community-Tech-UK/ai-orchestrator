@@ -8,6 +8,7 @@
  */
 
 import { BaseProvider } from './provider-interface';
+import { providerToolName } from '../../shared/display-names';
 import { AcpCliAdapter } from '../cli/adapters/acp-cli-adapter';
 import { createGrokAdapter } from '../cli/adapters/adapter-factory';
 import type {
@@ -39,14 +40,14 @@ const GROK_CAPABILITIES: ProviderAdapterCapabilities = {
 
 export const DEFAULT_GROK_CONFIG: ProviderConfig = {
   type: 'grok',
-  name: 'Grok Build',
+  name: providerToolName('grok'),
   enabled: false,
   defaultModel: GROK_MODELS.GROK_47,
 };
 
 export const GROK_DESCRIPTOR: ProviderAdapterDescriptor = {
   provider: 'grok',
-  displayName: 'Grok',
+  displayName: providerToolName('grok'),
   capabilities: GROK_CAPABILITIES,
   defaultConfig: DEFAULT_GROK_CONFIG,
 };

@@ -1124,8 +1124,8 @@ describe('InstanceManager', () => {
       const request: UserActionRequest = { id: 'pending-mode', instanceId, requestType: 'switch_mode',
         title: 'Switch mode', message: 'Switch to build?', targetMode: 'build', createdAt: Date.now(),
         context: { suppressInjectResponse: true } };
-      const handler = manager.getOrchestrationHandler() as unknown as { pendingUserActions: Map<string, UserActionRequest> };
-      handler.pendingUserActions.set(request.id, request);
+      const handler = manager.getOrchestrationHandler() as unknown as { userActions: import('../../orchestration/user-action-lifecycle').UserActionLifecycle };
+      handler.userActions.open(request);
       return request;
     }
 
@@ -1139,11 +1139,12 @@ describe('InstanceManager', () => {
       const respond = vi.spyOn(handler, 'respondToUserAction');
       respond.mockImplementation((...args) => {
         expect(store.get(admissionId)?.state).toBe('recorded');
-        respondToUserAction(...args);
+        return respondToUserAction(...args);
       });
       mockAdapterSendInput.mockClear();
       await manager.sendInput(instance.id, 'no', undefined, { queuedAdmissionId: admissionId, automatedInput: true });
-      expect(respond).toHaveBeenCalledExactlyOnceWith(request.id, false);
+      expect(respond).toHaveBeenCalledExactlyOnceWith(request.id, false, undefined, 'typed-reply');
+      expect(instance.outputBuffer.filter(m => m.metadata?.['presentationKind'] === 'request-receipt' && m.metadata?.['requestId'] === request.id).map(m => m.content)).toEqual(['You said no: Switch mode']);
       expect(handler.getPendingUserActionsForInstance(instance.id)).toEqual([]);
       expect(store.get(admissionId)?.state).toBe('delivered');
       expect(store.listQueued(instance.id)).toEqual([]);
@@ -1230,6 +1231,37 @@ describe('InstanceManager', () => {
       vi.spyOn(manager, 'changeAgentMode').mockRejectedValue(new Error('mode change failed'));
       await expect(manager.sendInput(instance.id, 'yes', undefined, { queuedAdmissionId: admissionId })).rejects.toThrow('mode change failed');
       expect(store.get(admissionId)).toMatchObject({ state: 'failed', errorText: 'mode change failed' });
+      expect(store.listQueued(instance.id)).toEqual([]);
+    });
+
+    it.each([true, false])('handles a stale mode reply without losing delivery ownership (queued=%s)', async queued => {
+      const instance = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+      await instance.readyPromise;
+      const request = pendingModeReply(instance.id);
+      const admissionId = queued ? promote(instance.id, 'yes') : undefined;
+      const handler = manager.getOrchestrationHandler();
+      const original = handler.respondToUserAction.bind(handler);
+      const respond = vi.spyOn(handler, 'respondToUserAction').mockImplementation((...args) => {
+        original(request.id, false); // A competing answer closes the card first.
+        return original(...args);
+      });
+      const changeMode = vi.spyOn(manager, 'changeAgentMode');
+      mockAdapterSendInput.mockClear();
+      const sending = manager.sendInput(instance.id, 'yes', undefined, { queuedAdmissionId: admissionId });
+      if (queued) {
+        const message = 'That request closed before your reply arrived, so nothing was sent. Send your message again.';
+        await expect(sending).rejects.toThrow(message);
+        expect(store.get(admissionId!)).toMatchObject({ state: 'failed', errorText: message });
+        expect(mockAdapterSendInput).not.toHaveBeenCalled();
+        expect(instance.outputBuffer.filter(m => m.type === 'user' && m.content === 'yes')).toEqual([]);
+      } else {
+        await sending;
+        expect(mockAdapterSendInput).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('yes'), undefined);
+        expect(instance.outputBuffer.filter(m => m.type === 'user' && m.content === 'yes')).toHaveLength(1);
+      }
+      expect(respond).toHaveBeenCalledExactlyOnceWith(request.id, true, undefined, 'typed-reply');
+      expect(changeMode).not.toHaveBeenCalled();
+      expect(handler.getPendingUserActionsForInstance(instance.id)).toEqual([]);
       expect(store.listQueued(instance.id)).toEqual([]);
     });
   });

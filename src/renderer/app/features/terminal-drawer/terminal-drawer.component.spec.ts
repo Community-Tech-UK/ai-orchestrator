@@ -142,7 +142,7 @@ describe('TerminalDrawerComponent', () => {
 
     expect(fake.spawn).not.toHaveBeenCalled();
     const notice = (fixture.nativeElement as HTMLElement).querySelector('.terminal-drawer__notice');
-    expect(notice?.textContent ?? '').toMatch(/worker node/i);
+    expect(notice?.textContent ?? '').toMatch(/computer/i);
   });
 
   it('surfaces lifecycle errors in the notice line', () => {

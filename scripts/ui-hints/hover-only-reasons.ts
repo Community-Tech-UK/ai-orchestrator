@@ -19,4 +19,5 @@ export const HOVER_ONLY_REASONS: Record<string, string> = {
   [prefix + 'models/model-row-facts.component.ts#span.']: 'visible text is the price line the note explains',
   [prefix + 'settings/rtk-savings-tab.component.ts#h4.section-subhead']: 'visible text is the section heading being defined',
   [prefix + 'settings/rtk-savings-tab.component.ts#div.summary-label']: 'visible text is the card label being defined',
+  [prefix + 'settings/setting-row.component.ts#div.setting-control']: 'visible text already names the setting the hint explains',
 };

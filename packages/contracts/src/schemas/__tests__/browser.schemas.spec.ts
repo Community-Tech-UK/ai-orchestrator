@@ -5,6 +5,8 @@ import {
   BrowserAttachExistingTabRequestSchema,
   BrowserCreateProfileRequestSchema,
   BrowserDownloadFileRequestSchema,
+  BrowserEvaluateRequestSchema,
+  BrowserPressKeyRequestSchema,
   BrowserGatewayResultSchema,
   BrowserFindOrOpenRequestSchema,
   BrowserPermissionGrantSchema,
@@ -382,6 +384,65 @@ describe('browser.schemas', () => {
     });
 
     expect(result.success).toBe(true);
+  });
+
+  it('carries the agent’s stated reason and the computer on an approval request', () => {
+    const base = {
+      id: 'request-1',
+      requestId: 'request-1',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      profileId: 'existing-tab:n.windows-pc:1:2',
+      toolName: 'browser.click',
+      action: 'click',
+      actionClass: 'submit',
+      proposedGrant: {
+        mode: 'per_action',
+        allowedOrigins: [{ scheme: 'https', hostPattern: 'shop.example.com', includeSubdomains: false }],
+        allowedActionClasses: ['submit'],
+        autonomous: false,
+        allowExternalNavigation: false,
+      },
+      status: 'pending',
+      createdAt: 1,
+      expiresAt: 60_001,
+    };
+    const parsed = BrowserApprovalRequestSchema.parse({
+      ...base,
+      requestReason: 'Placing the order you asked for',
+      computerId: 'windows-pc',
+    });
+    expect(parsed.requestReason).toBe('Placing the order you asked for');
+    expect(parsed.computerId).toBe('windows-pc');
+    expect(BrowserApprovalRequestSchema.safeParse(base).success).toBe(true);
+    expect(BrowserApprovalRequestSchema.safeParse({ ...base, requestReason: '' }).success).toBe(false);
+    expect(BrowserApprovalRequestSchema.safeParse({ ...base, computerId: '' }).success).toBe(false);
+  });
+
+  it('accepts an optional stated reason on every action that can raise an approval', () => {
+    const target = { profileId: 'profile-1', targetId: 'target-1' };
+    const reason = 'Placing the order you asked for';
+    const withReason: [string, { safeParse: (value: unknown) => { success: boolean } }, object][] = [
+      ['click', BrowserClickRequestSchema, { selector: '#buy' }],
+      ['type', BrowserTypeRequestSchema, { selector: '#name', value: 'Ada' }],
+      ['select', BrowserSelectRequestSchema, { selector: '#size', value: 'm' }],
+      ['fill_form', BrowserFillFormRequestSchema, { fields: [{ selector: '#a', value: 'b' }] }],
+      ['evaluate', BrowserEvaluateRequestSchema, { expression: 'document.title' }],
+      ['upload_file', BrowserUploadFileRequestSchema, { selector: '#file', filePath: '/tmp/example.txt' }],
+      ['download_file', BrowserDownloadFileRequestSchema, { selector: '#download' }],
+      ['navigate', BrowserNavigateRequestSchema, { url: 'https://example.com/next' }],
+      ['close_tab', BrowserCloseTabRequestSchema, {}],
+      ['press_key', BrowserPressKeyRequestSchema, { key: 'Enter' }],
+    ];
+    for (const [name, schema, extra] of withReason) {
+      expect(schema.safeParse({ ...target, ...extra, reason }).success, `${name} accepts a reason`).toBe(true);
+      expect(schema.safeParse({ ...target, ...extra }).success, `${name} still works without one`).toBe(true);
+      expect(schema.safeParse({ ...target, ...extra, reason: '' }).success, `${name} rejects an empty reason`).toBe(false);
+      expect(
+        schema.safeParse({ ...target, ...extra, reason: 'x'.repeat(1001) }).success,
+        `${name} rejects a reason over 1,000 characters`,
+      ).toBe(false);
+    }
   });
 
   it('validates mutating browser action payloads', () => {

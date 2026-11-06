@@ -31,6 +31,7 @@ import { VerificationMonitorComponent } from '../execution/verification-monitor.
 import { VerificationResultsComponent } from '../results/verification-results.component';
 import { DropZoneComponent } from '../../file-drop/drop-zone.component';
 import type { CliType } from '../../../../../shared/types/unified-cli-response';
+import { providerName } from '../../../../../shared/display-names';
 import type { SynthesisStrategy } from '../../../../../shared/types/verification.types';
 import type { TaskPreflightReport } from '../../../../../shared/types/task-preflight.types';
 import { TaskPreflightCardComponent } from '../../../shared/components/task-preflight-card.component';
@@ -192,17 +193,7 @@ export class VerificationDashboardComponent implements OnDestroy, AfterViewInit 
   }
 
   getAgentDisplayName(agent: string): string {
-    const displayNames: Record<string, string> = {
-      claude: 'Claude',
-      codex: 'Codex',
-      gemini: 'Gemini',
-      ollama: 'Ollama',
-      aider: 'Aider',
-      continue: 'Continue',
-      cursor: 'Cursor',
-      copilot: 'Copilot',
-    };
-    return displayNames[agent] || agent;
+    return providerName(agent);
   }
 
   // ============================================

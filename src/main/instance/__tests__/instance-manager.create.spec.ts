@@ -1078,6 +1078,10 @@ describe('InstanceManager', () => {
       );
       expect(notice?.content).toContain('This session could not start');
       expect(notice?.content).not.toContain('sk-test-1234567890abcdef');
+      // The real reason sits under Details, with the secret removed.
+      const rawDetail = (notice?.metadata?.['errorPresentation'] as { rawDetail: string }).rawDetail;
+      expect(rawDetail).toContain('spawn token=');
+      expect(rawDetail).not.toContain('sk-test-1234567890abcdef');
       expect(mockSupervisorTree.unregisterInstance).not.toHaveBeenCalledWith(instance.id);
       expect(removedPayloads).not.toContain(instance.id);
 

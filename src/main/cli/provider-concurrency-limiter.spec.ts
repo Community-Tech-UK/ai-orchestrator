@@ -20,6 +20,8 @@ vi.mock('../logging/logger', () => ({
 
 import { ProviderConcurrencyLimiter, applyProviderConcurrencyLimits, DEFAULT_PROVIDER_LIMITS } from './provider-concurrency-limiter';
 import { DEFAULT_SETTINGS } from '../../shared/types/settings.types';
+import { FailoverError, coerceToFailoverError } from '../core/failover-error';
+import { classifyLoopError } from '../core/loop-error-classification';
 
 describe('ProviderConcurrencyLimiter', () => {
   beforeEach(() => {
@@ -246,9 +248,14 @@ describe('ProviderConcurrencyLimiter', () => {
     const overflowB = await limiter.acquire('cursor', { priority: 'overflow' });
     expect(limiter.getStats('cursor').active).toBe(4);
 
+    // The overflow rule widens this wait's cap to 2 + 2, and the message reports that real figure.
     await expect(
       limiter.acquire('cursor', { priority: 'overflow', timeoutMs: 20 }),
-    ).rejects.toThrow(/Timed out waiting 20ms for 'cursor' provider concurrency slot/);
+    ).rejects.toMatchObject({
+      message: expect.stringContaining('Cursor is already running its maximum of 4 sessions'),
+      provider: 'cursor',
+      maxSessions: 4,
+    });
 
     overflowB();
     overflowA();
@@ -262,12 +269,77 @@ describe('ProviderConcurrencyLimiter', () => {
     limiter.setLimit('cursor', 1);
 
     const held = await limiter.acquire('cursor');
-    await expect(limiter.acquire('cursor', { timeoutMs: 20 })).rejects.toThrow(
-      /Timed out waiting 20ms for 'cursor' provider concurrency slot/,
-    );
+    await expect(limiter.acquire('cursor', { timeoutMs: 20 })).rejects.toMatchObject({
+      message: expect.stringContaining('Cursor is already running its maximum of'),
+      maxSessions: 1,
+    });
     const overflow = await limiter.acquire('cursor', { priority: 'overflow' });
     expect(limiter.getStats('cursor').active).toBe(2);
     overflow();
     held();
+  });
+});
+
+describe('ProviderConcurrencyLimiter slot timeout', () => {
+  beforeEach(() => {
+    ProviderConcurrencyLimiter._resetForTesting();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    ProviderConcurrencyLimiter._resetForTesting();
+  });
+
+  /** Saturate a provider, wait for `waitMs`, and return what the waiter was rejected with. */
+  async function timeOut(provider: string, limit: number, waitMs: number): Promise<unknown> {
+    const limiter = ProviderConcurrencyLimiter.getInstance();
+    limiter.setLimit(provider, limit);
+    for (let slot = 0; slot < limit; slot += 1) await limiter.acquire(provider);
+    const outcome = limiter.acquire(provider, { timeoutMs: waitMs })
+      .then(() => undefined, (error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(waitMs);
+    return outcome;
+  }
+
+  it('tells the user in plain words which provider is full, its real maximum and how long this one waited', async () => {
+    const error = await timeOut('opencode', 20, 60_000) as Error;
+    expect(error.message).toContain('OpenCode is already running its maximum of 20 sessions; this one waited a minute.');
+    expect(error.message).toMatch(/What to do:/);
+    expect(error.message).not.toMatch(/Timed out waiting|provider concurrency slot|60000ms/);
+  });
+
+  it('reports the wait that really happened, not a fixed one-minute claim', async () => {
+    const error = await timeOut('codex', 3, 12_000) as Error;
+    expect(error.message).toContain('Codex is already running its maximum of 3 sessions; this one waited 12 seconds.');
+  });
+
+  it('carries the structured figures and the original wording for Details', async () => {
+    const error = await timeOut('claude', 2, 30_000) as Error & Record<string, unknown>;
+    expect(error).toMatchObject({
+      name: 'ProviderConcurrencyTimeoutError',
+      code: 'concurrency',
+      provider: 'claude',
+      maxSessions: 2,
+      waitedMs: 30_000,
+    });
+    expect(error['errorPresentation']).toMatchObject({
+      category: 'concurrency',
+      action: 'retry',
+      rawDetail: "Timed out waiting 30000ms for 'claude' provider concurrency slot",
+    });
+  });
+
+  it('is still classified as a timeout by the loop and failover retry logic, whatever the wording', async () => {
+    const error = await timeOut('opencode', 1, 5_000);
+    expect(error).toBeInstanceOf(FailoverError);
+    expect(classifyLoopError(error)).toMatchObject({ reason: 'timeout', axes: { retryable: true } });
+    expect(coerceToFailoverError(error)?.reason).toBe('timeout');
+  });
+
+  it('does not name a provider it does not know', async () => {
+    const error = await timeOut('PRIVATE_PROVIDER_KEY', 1, 5_000) as Error & { provider: string };
+    expect(error.message).not.toContain('PRIVATE_PROVIDER_KEY');
+    expect(error.provider).toBe('PRIVATE_PROVIDER_KEY');
   });
 });

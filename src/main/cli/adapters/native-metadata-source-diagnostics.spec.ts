@@ -144,7 +144,9 @@ describe('native cumulative diagnostics and real overage parking', () => {
     });
     const teardown = attachUsageOverageStopGuard(adapter, 'LOCAL_OVERAGE_INSTANCE');
     const telemetry: unknown[] = [];
+    const announced: Array<{ content: string; metadata?: Record<string, unknown> }> = [];
     adapter.on('rate-limit-telemetry', value => telemetry.push(value));
+    adapter.on('output', value => announced.push(value));
     adapter.on('error', () => undefined);
     try {
       await adapter.spawn();
@@ -171,7 +173,11 @@ describe('native cumulative diagnostics and real overage parking', () => {
       });
       expect(resend).not.toHaveBeenCalled();
       expect(schedule).toHaveBeenCalledTimes(autoResume ? 1 : 0);
-      expect(notice).toHaveBeenCalledTimes(1);
+      // One message for the one event: the adapter's note carries what the stop did, so the handler stays quiet.
+      expect(notice).not.toHaveBeenCalled();
+      expect(announced).toHaveLength(1);
+      expect(announced[0].metadata).toMatchObject({ rateLimit: true, providerLimitParked: true });
+      expect(announced[0].content).not.toContain(marker);
       if (autoResume)
         expect(schedule.mock.calls[0][0].request.reason).toBe(hold.mock.calls[0][1].reason);
       const rows = state.manager!.getRecentLogs();

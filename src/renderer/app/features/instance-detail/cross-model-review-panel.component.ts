@@ -18,6 +18,7 @@ import {
   countReviewResultsWithConcerns,
   getReviewResultConcernItems,
 } from '../../../../shared/utils/cross-model-review-concerns';
+import { providerName } from '../../../../shared/display-names';
 
 @Component({
   selector: 'app-cross-model-review-panel',
@@ -60,7 +61,7 @@ import {
               <button class="btn-review-action" type="button" (click)="onAction('dismiss')">Dismiss</button>
               @if (hasConcerns()) {
                 <button class="btn-review-action btn-primary" type="button" (click)="onAction('ask-primary')">
-                  Ask Claude to Address
+                  {{ askPrimaryLabel() }}
                 </button>
               }
               <button class="btn-review-action" type="button" (click)="toggleAllReviewers()">
@@ -261,7 +262,14 @@ import {
 })
 export class CrossModelReviewPanelComponent {
   review = input<AggregatedReview | null>(null);
+  /** The reviewed session's own provider, so the button names whoever will act on the concerns. */
+  provider = input<string | null>(null);
   actionPerformed = output<{ reviewId: string; instanceId: string; action: ReviewActionType }>();
+
+  askPrimaryLabel = computed(() => {
+    const provider = this.provider();
+    return provider ? `Ask ${providerName(provider)} to Address` : 'Ask This Session to Address';
+  });
 
   expanded = signal(true);
   showingFull = signal(false);

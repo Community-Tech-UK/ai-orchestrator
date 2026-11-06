@@ -21,6 +21,8 @@ import {
 import { FileExplorerComponent } from '../file-explorer/file-explorer.component';
 import { RemoteNodesStore } from '../remote-nodes/remote-nodes.store';
 import { RemoteNodeIpcService } from '../../core/services/ipc/remote-node-ipc.service';
+import { computerName } from '../../../../shared/display-names';
+import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
 import { isRemoteNodeOnline } from '../../core/state/remote-node-connectivity';
 
 interface TransferRootOption {
@@ -47,7 +49,7 @@ type DragSource = 'local' | 'remote' | null;
     <div class="files-page">
       <header class="files-header">
         <h1>Files</h1>
-        <p class="subtitle">Drag files between this Mac and a worker to copy them.</p>
+        <p class="subtitle">Drag files between {{ localComputer }} and another computer to copy them.</p>
       </header>
 
       <div class="files-panes">
@@ -57,7 +59,7 @@ type DragSource = 'local' | 'remote' | null;
           (dragover)="onDragOver($event, 'remote')"
           (drop)="onDropToLocal($event)"
         >
-          <div class="pane-title">This Mac</div>
+          <div class="pane-title">{{ localComputer }}</div>
           <app-file-explorer
             #localPane
             (filesDragged)="onPaneDragStart('local', $event.paths)"
@@ -74,22 +76,22 @@ type DragSource = 'local' | 'remote' | null;
           <div class="pane-title">
             <select
               class="pane-select"
-              aria-label="Worker node"
+              aria-label="Other computer"
               (change)="onNodeChange($event)"
             >
               @if (!selectedNodeId()) {
-                <option value="" selected>Select worker…</option>
+                <option value="" selected>Select a computer…</option>
               }
               @for (node of connectedNodes(); track node.id) {
                 <option [value]="node.id" [selected]="node.id === selectedNodeId()">
-                  {{ node.name }}
+                  {{ computerLabel(node) }}
                 </option>
               }
             </select>
             @if (remoteRoots().length > 0) {
               <select
                 class="pane-select"
-                aria-label="Worker folder"
+                aria-label="Folder on the other computer"
                 (change)="onRootChange($event)"
               >
                 @for (root of remoteRoots(); track root.path) {
@@ -111,9 +113,9 @@ type DragSource = 'local' | 'remote' | null;
           } @else {
             <div class="pane-empty">
               @if (connectedNodes().length === 0) {
-                <p>No workers connected.</p>
+                <p>None of your other computers are connected.</p>
               } @else {
-                <p>Select a worker to browse its approved folders.</p>
+                <p>Select a computer to browse its approved folders.</p>
               }
             </div>
           }
@@ -125,7 +127,7 @@ type DragSource = 'local' | 'remote' | null;
           @for (transfer of transfers(); track $index) {
             <div class="transfer-row" [class.failed]="transfer.status === 'failed'">
               <span class="transfer-name">{{ transfer.name }}</span>
-              <span class="transfer-direction">{{ transfer.direction === 'send' ? '→ worker' : '→ Mac' }}</span>
+              <span class="transfer-direction">{{ transfer.direction === 'send' ? '→ other computer' : '→ ' + localComputer }}</span>
               <span class="transfer-status">
                 {{ transfer.status === 'copying' ? 'Copying…' : transfer.status === 'done' ? 'Done' : transfer.error }}
               </span>
@@ -244,6 +246,8 @@ type DragSource = 'local' | 'remote' | null;
   `],
 })
 export class FilesPageComponent implements OnInit {
+  readonly computerLabel = computerName;
+  readonly localComputer = computerName('local', inject(ElectronIpcService).platform);
   private readonly nodesStore = inject(RemoteNodesStore);
   private readonly remoteNodeIpc = inject(RemoteNodeIpcService);
 

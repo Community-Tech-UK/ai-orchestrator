@@ -157,13 +157,14 @@ You can write detailed, multi-line prompts here. The textarea will expand as nee
                     <span class="form-label">Selected Agents</span>
                     <div class="agent-chips">
                       @for (agent of validSelectedAgents(); track agent) {
+                        @let agentName = getAgentDisplayName(agent);
                         <span class="agent-chip">
-                          {{ getAgentDisplayName(agent) }}
+                          {{ agentName }}
                           <button
                             class="chip-remove"
                             type="button"
                             (click)="store.removeSelectedAgent(agent)"
-                            [appIconButton]="'Remove ' + getAgentDisplayName(agent)"
+                            [appIconButton]="'Remove ' + agentName"
                           >
                             ×
                           </button>

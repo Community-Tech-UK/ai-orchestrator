@@ -99,6 +99,7 @@ describe('permission card refusal through IPC and PermissionManager', () => {
         resumeAfterDeferredPermission: async (_id: string, approved: boolean) => { resumed.push(approved); },
         clearPendingInputRequiredPermission: (instanceId: string, requestId: string) => flow.clearPending(instanceId, requestId),
         recordInputRequiredPermissionDecision: (params: Parameters<InstancePermissionRequestFlow['recordUserDecision']>[0]) => flow.recordUserDecision(params),
+        getRequestReceipts: () => ({ beginReply: () => ({ commit: () => true, abort: () => undefined }) }),
       } as unknown as InstanceManager,
       windowManager: {} as WindowManager,
     });

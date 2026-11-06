@@ -42,6 +42,11 @@ describe('InstanceSpawnPreflightChain — account routing origin and fence', () 
     expect(routes.account[0]?.[3]).toMatchObject({ restrictTo: undefined });
   });
 
+  it('passes the restored session name to account routing', async () => {
+    await prepare({ resume: true, displayName: 'Release notes', accountProfileId: 'gone' });
+    expect(routes.account[0]?.[3]).toMatchObject({ sessionName: 'Release notes', persistedProfileId: 'gone' });
+  });
+
   it('routes an automation run as automatic work', async () => {
     await prepare({ metadata: { automationId: 'a-1' } });
     expect(routes.account[0]?.[2]).toBe('automation');

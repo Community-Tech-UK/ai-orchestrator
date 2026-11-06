@@ -44,16 +44,16 @@ type DrawerStatus = 'idle' | 'connecting' | 'running' | 'exited' | 'error';
             [appTooltipDisabledReason]="isLive() ? 'Stop the terminal before changing its working folder' : null"
             [appTooltip]="selectedNodeRoots().length
               ? 'Allowed roots: ' + selectedNodeRoots().join(', ')
-              : 'Pick a worker node first'">
+              : 'Pick another computer first'">
           <input
             class="terminal-drawer__cwd"
             type="text"
-            placeholder="Working directory on worker"
+            placeholder="Working directory on the other computer"
             [ngModel]="cwd()"
             (ngModelChange)="cwd.set($event)"
             [disabled]="isLive()"
             list="terminal-drawer-roots"
-            aria-label="Working directory on the worker (must be inside an allowed root)"
+            aria-label="Working directory on the other computer (must be inside an allowed root)"
           />
           </span>
           <datalist id="terminal-drawer-roots">
@@ -316,12 +316,12 @@ export class TerminalDrawerComponent {
   protected async open(): Promise<void> {
     const nodeId = this.selectedNodeId();
     if (!nodeId) {
-      this.statusMessage.set('Pick a connected worker node to open a remote terminal.');
+      this.statusMessage.set('Pick a connected computer to open a remote terminal.');
       return;
     }
     const cwd = this.cwd().trim();
     if (!cwd) {
-      this.statusMessage.set('Enter a working directory on the worker to start the terminal.');
+      this.statusMessage.set('Enter a working directory on the other computer to start the terminal.');
       return;
     }
     this.status.set('connecting');

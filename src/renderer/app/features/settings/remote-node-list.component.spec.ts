@@ -84,6 +84,12 @@ describe('RemoteNodeListComponent', () => {
     expect(rows[0].textContent).toContain('0/4 capacity');
   });
 
+  it('uses the shared computer fallback when no name was reported', async () => {
+    await render([makeNode({ id: 'internal-node-id', name: '', platform: 'win32' })]);
+    expect(fixture.nativeElement.querySelector('.node-list-name')?.textContent).toBe('your Windows PC');
+    expect(fixture.nativeElement.querySelector('.node-list-name')?.textContent).not.toContain('internal-node-id');
+  });
+
   it('marks the selected node with aria-current and a selected class', async () => {
     await render(
       [makeNode({ id: 'node-a' }), makeNode({ id: 'node-b' })],

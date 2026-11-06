@@ -29,7 +29,7 @@ describe('worker mode status wording', () => {
       { ...report('unreachable', 'ws://mac:4878'), message: 'Something went wrong on this computer while connecting.' },
       false,
     );
-    expect(view.text).toBe('Something went wrong on this computer while connecting. Still trying. If this does not clear, press Stop Worker and then Start Worker.');
+    expect(view.text).toBe('Something went wrong on this computer while connecting. Still trying. If this does not clear, press Stop sharing and then Start sharing.');
     expect(view.warning).toBe(true);
   });
 
@@ -43,7 +43,7 @@ describe('worker mode status wording', () => {
     const context = { connection: report('unreachable'), externalWorker: false, signInStarting: false, startedAt: null };
     expect(describeWorkerStatus(paired, context).text).toContain('Cannot reach your main Harness');
     expect(describeWorkerStatus(paired, { ...context, connection: null }).text).toBe('Starting the worker...');
-    expect(describeWorkerStatus(null, context).text).toBe('Checking the worker...');
+    expect(describeWorkerStatus(null, context).text).toBe('Checking this computer...');
   });
 
   it('shows a fresh failure reason even while the supervisor is still retrying', () => {

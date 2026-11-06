@@ -13,6 +13,7 @@ import { StatusIndicatorComponent } from '../instance-list/status-indicator.comp
 })
 class StatusIndicatorStubComponent {
   @Input() status: unknown;
+  @Input() waitReason: unknown;
 }
 
 describe('ChildInstancesPanelComponent', () => {
@@ -60,6 +61,33 @@ describe('ChildInstancesPanelComponent', () => {
     expect(text).toContain('1 waiting');
     expect(text).toContain('Running checks');
     expect(text).toContain('worker');
+  });
+
+  it('names each child with the same words the sidebar uses', () => {
+    const statusOf = (id: string): string | undefined =>
+      findRow(id, fixture.nativeElement).querySelector('.child-status')?.textContent?.trim();
+    expect(statusOf('active-1')).toBe('Working');
+    expect(statusOf('waiting-1')).toBe('Needs your OK');
+    expect(fixture.nativeElement.textContent).not.toMatch(/\b(running|recovering|hibernating|interrupting)\b/);
+  });
+
+  it('tells a question from an approval', () => {
+    instances.set('asking-1', makeInstance('asking-1', 'waiting_for_input'));
+    const refreshed = TestBed.createComponent(ChildInstancesPanelComponent);
+    (refreshed.componentInstance as unknown as { childrenIds: () => string[] }).childrenIds = () => ['asking-1'];
+    refreshed.detectChanges();
+    expect(findRow('asking-1', refreshed.nativeElement).querySelector('.child-status')?.textContent?.trim())
+      .toBe('Needs your answer');
+  });
+
+  it('passes the child\'s wait reason on, so a parked child is not shown as ready', () => {
+    const waitReason = { kind: 'quota-park', provider: 'claude', resumeAt: 1_900_000_900_000 } as const;
+    instances.set('parked-1', { ...makeInstance('parked-1', 'idle'), waitReason });
+    const refreshed = TestBed.createComponent(ChildInstancesPanelComponent);
+    (refreshed.componentInstance as unknown as { childrenIds: () => string[] }).childrenIds = () => ['parked-1'];
+    refreshed.detectChanges();
+    expect(findRow('parked-1', refreshed.nativeElement).querySelector('.child-status')?.textContent?.trim())
+      .toBe('Asleep');
   });
 
   it('emits a focus selection when the Focus action is clicked', () => {

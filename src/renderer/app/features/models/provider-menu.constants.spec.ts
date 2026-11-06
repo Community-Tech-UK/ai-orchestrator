@@ -42,8 +42,9 @@ describe('provider menu constants', () => {
       copilot: 'Copilot',
       cursor: 'Cursor',
       grok: 'Grok',
+      // The menu picks a provider before any model, so OpenCode is not yet "MiMo".
       opencode: 'OpenCode',
-      'local-model': 'Local Models',
+      'local-model': 'Local models',
     });
     expect(PROVIDER_MENU_COLORS.cursor).toBe('var(--text-primary)');
     expect(PROVIDER_MENU_COLORS.grok).toBe('#1da1f2');

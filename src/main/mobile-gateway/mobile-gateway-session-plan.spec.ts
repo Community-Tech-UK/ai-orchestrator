@@ -95,4 +95,26 @@ describe('resolveMobileSessionPlan', () => {
     const plan = await resolveMobileSessionPlan({ provider: 'codex' });
     expect(plan.model).not.toBe('claude-opus-4');
   });
+
+  it('names OpenCode "OpenCode" unless the model proves it is the MiMo plan', async () => {
+    resolveCliType.mockResolvedValue('opencode');
+    getKnownModelsForCli.mockResolvedValue([
+      'xiaomi-token-plan-ams/mimo-v2.5-pro',
+      'opencode/big-pickle',
+      'openrouter/anthropic/claude-sonnet-4',
+    ]);
+
+    const generic = await resolveMobileSessionPlan({ provider: 'opencode' });
+    expect(generic.providerLabel).toBe('OpenCode');
+
+    const mimo = await resolveMobileSessionPlan({ provider: 'opencode', model: 'xiaomi-token-plan-ams/mimo-v2.5-pro' });
+    expect(mimo.model).toBe('xiaomi-token-plan-ams/mimo-v2.5-pro');
+    expect(mimo.providerLabel).toBe('MiMo');
+
+    for (const model of ['opencode/big-pickle', 'openrouter/anthropic/claude-sonnet-4']) {
+      const other = await resolveMobileSessionPlan({ provider: 'opencode', model });
+      expect(other.model).toBe(model);
+      expect(other.providerLabel).toBe('OpenCode');
+    }
+  });
 });

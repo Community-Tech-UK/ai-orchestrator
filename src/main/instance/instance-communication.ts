@@ -19,6 +19,7 @@ import { getOutputStorageManager } from '../memory/output-storage';
 import { InstanceCompletionTasks, captureCompletionCostIdentity, toProviderCompleteEvent, waitForCompletionUsage, type CompletionCostIdentity, recordCompletionCost as recordCompletionCostImpl, recordEstimationTelemetry as recordEstimationTelemetryImpl } from './communication-completion-cost';
 import { getHandoffStateService } from '../session/handoff-state-service';
 import { noteSandboxDenialOnExit } from './lifecycle/sandbox-exit-advice';
+import { buildProcessExitError, describeProcessCrash } from './instance-crash-notice';
 import { getHookManager } from '../hooks/hook-manager';
 import type {
   FileAttachment,
@@ -27,7 +28,6 @@ import type {
   ContextUsage,
   OutputMessage,
 } from '../../shared/types/instance.types';
-import type { ErrorInfo } from '../../shared/types/ipc.types';
 import {
   buildUnsupportedAttachmentWarnings,
   isUnsupportedOrchestratorAttachmentError,
@@ -118,6 +118,9 @@ import { getHarnessGuidance } from '../orchestration/harness-guidance';
 import { assertGlobalPauseInputCurrent, runWithGlobalPauseInput, waitForGlobalPauseInput } from '../global-pause/global-pause-input';
 import { isAdapterStopping } from '../providers/adapter-stop-state';
 import { InstanceQueuedInputHandoff, transitionQueuedAdapterStatus } from './instance-queued-input-handoff';
+import { errorMessageText } from '../util/error-utils';
+import { getTurnFileBaselineService, type TurnBaselineDispatchReservation } from '../vcs/turn-file-baseline';
+import { projectToolOutcome, safeToolOutcome } from './turn-tool-outcome-projection';
 export type { CommunicationDependencies } from './instance-communication.types';
 const logger = getLogger('InstanceCommunication');
 export class InstanceCommunicationManager extends EventEmitter {
@@ -619,11 +622,17 @@ export class InstanceCommunicationManager extends EventEmitter {
   ): Promise<void> {
     await waitForGlobalPauseInput(instanceId, options);
     throwIfInstanceInputAborted(options?.signal);
-    const dispatch = () => runWithGlobalPauseInput(instanceId, options, () => deferredDispatch
+    let baselineReservation: TurnBaselineDispatchReservation | undefined;
+    const dispatch = () => runWithGlobalPauseInput(instanceId, options, async () => {
+      await baselineReservation?.release();
+      baselineReservation = await getTurnFileBaselineService().beforeDispatch(instanceId, instance!, deferredDispatch && !committed);
+      throwIfInstanceInputAborted(options?.signal);
+      return deferredDispatch
       ? adapter!.sendInput(finalMessage, attachments, { internalSource: options?.internalSource, dispatch: inputDispatch })
       : options?.internalSource
         ? adapter!.sendInput(finalMessage, attachments, { internalSource: options.internalSource })
-        : adapter!.sendInput(finalMessage, attachments));
+        : adapter!.sendInput(finalMessage, attachments);
+    });
     logger.info('sendInput called', { instanceId, autoContinuation: options?.autoContinuation === true });
     const instance = this.deps.getInstance(instanceId);
     let adapter = this.deps.getAdapter(instanceId);
@@ -875,6 +884,7 @@ export class InstanceCommunicationManager extends EventEmitter {
     const commitDispatch = (): void => {
       throwIfInstanceInputAborted(options?.signal);
       if (committed) return;
+      baselineReservation?.activate();
       options?.beforeProviderDispatch?.();
       receipt.record();
       throwIfInstanceInputAborted(options?.signal);
@@ -1026,7 +1036,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         }
       }
       throw sendError;
-    } finally { failureScope.close(); }
+    } finally { failureScope.close(); await baselineReservation?.release(); }
   }
 
   /**
@@ -1148,13 +1158,16 @@ export class InstanceCommunicationManager extends EventEmitter {
       ticket: OutputPublicationTicket,
     ): Promise<void> => {
       if (ticket.turn) await ticket.turn;
-      // LT-196: never enters the visible transcript. Held in a side store and
-      // merged in only at archive assembly, keeping it out of `outputBuffer`,
-      // disk storage, every buffer consumer and the event bus. See
-      // `tool-outcome-store.ts`. Children are never archived, so never mined;
-      // recording theirs would only churn the store's instance cap.
       if (message.type === 'tool_outcome') {
-        if (!this.deps.getInstance(instanceId)?.parentId) recordToolOutcome(instanceId, message);
+        const instance = this.deps.getInstance(instanceId);
+        if (!instance) return;
+        const outcome = safeToolOutcome(this.withRuntimeMetadata(message, adapterGenerationAtSubscribe,
+          this.getMessageTurnId(message) ?? this.getAdapterCurrentTurnId(adapter)));
+        if (!instance.parentId) recordToolOutcome(instanceId, safeToolOutcome(message));
+        const call = projectToolOutcome(instance.outputBuffer, outcome);
+        if (call) {
+          this.addToOutputBuffer(instance, call); // same-id update publishes once
+        }
         return;
       }
       // Persist provenance before instance metadata is added below. The visible
@@ -1197,7 +1210,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         this.toolResultProcessor.captureParsedEvidence(instance, message);
         reconcileClaudeSafetyRouteModel(instanceId, instance, message, this.deps.queueUpdate);
 
-        if (message.type === 'error' && isSessionNotFoundText(message.content)) {
+        if (message.type === 'error' && isSessionNotFoundText(errorMessageText(message))) {
           const firstBlacklist = !instance.sessionResumeBlacklisted;
           instance.sessionResumeBlacklisted = true;
           logger.warn('Session id blacklisted due to resume failure output', {
@@ -1373,8 +1386,8 @@ export class InstanceCommunicationManager extends EventEmitter {
         // Detect corrupted session errors (empty user messages stored in CLI history).
         // These surface as API 400 "user messages must have non-empty content" on --resume.
         // Show a clear recovery message instead of a cryptic API error.
-        if (message.type === 'error' && isCorruptedSessionMessage(message.content)) {
-          logger.warn('Corrupted session detected via output path', { instanceId, ...textDiagnostic(message.content) });
+        if (message.type === 'error' && isCorruptedSessionMessage(errorMessageText(message))) {
+          logger.warn('Corrupted session detected via output path', { instanceId, ...textDiagnostic(errorMessageText(message)) });
 
           const recoveryMessage: OutputMessage = {
             id: generateId(),
@@ -1404,11 +1417,11 @@ export class InstanceCommunicationManager extends EventEmitter {
         // event: an active scope keeps the printed text for that owner instead
         // of stopping the instance. Only unscoped output needs the terminal
         // fallback below.
-        if (message.type === 'error' && isContextOverflowMessage(message.content) && !failureScope?.hasRecovery) {
-          const tokenInfo = extractOverflowTokenCount(message.content);
+        if (message.type === 'error' && isContextOverflowMessage(errorMessageText(message)) && !failureScope?.hasRecovery) {
+          const tokenInfo = extractOverflowTokenCount(errorMessageText(message));
           logger.warn('Context overflow detected via output path', {
             instanceId,
-            ...textDiagnostic(message.content),
+            ...textDiagnostic(errorMessageText(message)),
             observedTokens: tokenInfo.observed,
             maximumTokens: tokenInfo.maximum,
             inFlightSend: Boolean(failureScope?.active),
@@ -1417,7 +1430,7 @@ export class InstanceCommunicationManager extends EventEmitter {
             // An exec CLI prints this before its process exits. The send is still
             // in flight, and its error event or rejection owns compact-and-retry;
             // stopping here would remove the adapter that recovery is about to use.
-            failureScope.noteOverflowOutput(message.content);
+            failureScope.noteOverflowOutput(errorMessageText(message));
           } else {
             this.stopForOutputOverflow(instanceId, instance, message);
             return; // Don't add duplicate errors to buffer
@@ -1776,6 +1789,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         if (isStaleAdapterEvent('complete')) {
           return;
         }
+        getTurnFileBaselineService().settleTurn(instanceId, `${adapterGenerationAtSubscribe}:${response.id}`);
         const instanceAtCompletion = this.deps.getInstance(instanceId);
         const requestCountAtProviderCompletion = instanceAtCompletion?.requestCount;
         const billingIdentity = instanceAtCompletion ? captureCompletionCostIdentity(instanceAtCompletion) : undefined;
@@ -2062,11 +2076,8 @@ export class InstanceCommunicationManager extends EventEmitter {
         return;
       }
 
-      const buildCrashError = (reason: string): ErrorInfo => ({
-        code: signal ? `SIGNAL_${signal}` : `EXIT_${code ?? 'unknown'}`,
-        message: redactRecoveryText(instance, reason),
-        timestamp: Date.now(),
-      });
+      const buildCrashError = (reason: string, detail?: string) =>
+        buildProcessExitError(code, signal, reason, detail, text => redactRecoveryText(instance, text));
 
       // Hibernation kills the adapter on purpose to free memory; the instance
       // survives in the store and comes back through wakeInstance(). Treating
@@ -2227,26 +2238,18 @@ export class InstanceCommunicationManager extends EventEmitter {
         logger.info('Instance exited unexpectedly', { instanceId, newStatus, code, signal });
         // WS13 slice 3: hardened-denial classification + notification (see
         // lifecycle/sandbox-exit-advice.ts). Empty string when not a denial.
-        const sandboxAdvice = newStatus === 'error'
-          ? noteSandboxDenialOnExit(instanceId, code, instance.outputBuffer)
-          : '';
-        if (newStatus === 'error') {
+        const crash = newStatus === 'error' ? describeProcessCrash(instance.provider, code, signal, noteSandboxDenialOnExit(instanceId, code, instance.outputBuffer)) : undefined;
+        if (crash) {
           dispatchInstanceLifecycleHook('StopFailure', instance, {
-            errorMessage: `Process exited unexpectedly with ${signal ? `signal ${signal}` : `code ${code ?? 'unknown'}`}`,
+            errorMessage: crash.rawDetail,
             errorProvider: instance.provider,
             stopReason: 'process-exit',
           }, logger, this.hookManager);
         }
         this.transitionInstanceStatus(instance, newStatus);
         instance.processId = null;
-        this.deps.queueUpdate(
-          instanceId,
-          instance.status,
-          undefined,
-          undefined,
-          undefined,
-          newStatus === 'error' ? buildCrashError(`Process exited unexpectedly with ${signal ? `signal ${signal}` : `code ${code ?? 'unknown'}`}${sandboxAdvice}`) : undefined
-        );
+        this.deps.queueUpdate(instanceId, instance.status, undefined, undefined, undefined,
+          crash ? buildCrashError(crash.message, crash.rawDetail) : undefined);
 
         this.deps.deleteAdapter(instanceId);
 
@@ -2322,17 +2325,18 @@ export class InstanceCommunicationManager extends EventEmitter {
       // genuine progress from repeated identical output.
       this.deps.onOutput?.(instance.id, message.content);
     }
-    // Suppress repeated identical error messages (e.g., "Prompt is too long" spam)
+    // Suppress repeated identical error messages (e.g., "Prompt is too long" spam). Errors shown in
+    // plain words are compared by the real reason behind them, so different failures are never merged.
     if (message.type === 'error') {
       const lastError = this.lastErrorContent.get(instance.id);
-      if (lastError && lastError.content === message.content) {
+      if (lastError && lastError.content === errorMessageText(message)) {
         lastError.count++;
         if (lastError.count > 3) {
           logger.warn('Suppressing repeated error', buildRepeatedErrorDiagnosticFields({ instanceId: instance.id, content: message.content, count: lastError.count, status: instance.status, adapter: this.deps.getAdapter(instance.id) }));
           return;
         }
       } else {
-        this.lastErrorContent.set(instance.id, { content: message.content, count: 1 });
+        this.lastErrorContent.set(instance.id, { content: errorMessageText(message), count: 1 });
       }
     } else {
       // Non-error message resets the repeated error tracker

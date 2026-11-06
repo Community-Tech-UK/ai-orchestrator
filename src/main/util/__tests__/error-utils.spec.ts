@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { shortErrorStack, isAbortError, isFsInaccessible, truncateErrorForContext, TelemetrySafeError, createSafeErrorInfo, errorIdentityOf, errorFromIdentity } from '../error-utils';
+import { shortErrorStack, isAbortError, isFsInaccessible, truncateErrorForContext, TelemetrySafeError, createSafeErrorInfo, errorIdentityOf, errorFromIdentity, errorMessageText } from '../error-utils';
 import { ChildErrorClassifier } from '../../orchestration/child-error-classifier';
 
 describe('shortErrorStack', () => {
@@ -253,6 +253,17 @@ describe('createSafeErrorInfo', () => {
     const info = createSafeErrorInfo(err, 'EMPTY');
     expect(info.code).toBe('EMPTY');
     expect(info.message).toBe('Unknown error');
+  });
+});
+
+describe('errorMessageText', () => {
+  it('reads the real reason from an error shown in plain words, and the message text from any other', () => {
+    const shown = { content: 'Claude couldn\'t finish this request.', metadata: { errorPresentation: { rawDetail: 'spawn claude ENOENT' } } };
+    expect(errorMessageText(shown)).toBe('spawn claude ENOENT');
+    expect(errorMessageText({ content: 'Prompt is too long' })).toBe('Prompt is too long');
+    expect(errorMessageText({ content: 'text', metadata: { errorPresentation: { rawDetail: '' } } })).toBe('text');
+    expect(errorMessageText({ content: 'text', metadata: { errorPresentation: null } })).toBe('text');
+    expect(errorMessageText({ content: 'text', metadata: { errorPresentation: { rawDetail: 7 } } })).toBe('text');
   });
 });
 

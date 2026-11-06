@@ -11,6 +11,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { IpcFacadeService, IpcEventBusService, InstanceIpcService } from '../../core/services/ipc';
 import { InstanceStore } from '../../core/state/instance.store';
+import type { AskAnswerDrafts } from './user-input-request.ask-drafts';
+import { PERMISSION_SCOPE_WORDS } from '../../../../shared/permissions/permission-scope-presentation';
 import {
   UserActionRequestComponent,
   type UserActionRequest,
@@ -167,7 +169,7 @@ describe('UserActionRequestComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Allow update_automation?');
     expect(fixture.nativeElement.querySelector('.question-input')).toBeNull();
     expect(fixture.nativeElement.querySelector('.scope-select')).toBeNull();
-    expect(fixture.nativeElement.querySelector('.btn-approve')?.textContent?.trim()).toBe('Allow once');
+    expect(fixture.nativeElement.querySelector('.btn-approve')?.textContent?.trim()).toBe(PERMISSION_SCOPE_WORDS.once.allow);
 
     const approve = fixture.nativeElement.querySelector('.btn-approve') as HTMLButtonElement;
     approve.click();
@@ -365,43 +367,43 @@ describe('UserActionRequestComponent', () => {
     component.onInputRequiredScopeChange('permission', { target: { value: 'session' } } as unknown as Event);
     component.toggleModifyPanel(permission());
     component.onModifyInputTextChange('permission', { target: { value: '{"command":"echo parent"}' } } as unknown as Event);
-    component.toggleAskOption('question', 0, 'First', false);
-    component.onAskTextChange('question', 1, { target: { value: 'Parent explanation' } } as unknown as Event);
+    asks(component).toggle('question', 0, 'First', false);
+    asks(component).setText('question', 1, 'Parent explanation');
     currentInstanceId.set('child');
     fixture.detectChanges();
     await settle(fixture);
     expect(component.getInputRequiredScope(permission())).toBe('once');
     expect(component.isModifyPanelOpen('permission')).toBe(false);
-    expect(component.isAskOptionSelected('question', 0, 'First')).toBe(false);
-    expect(component.askTextValue('question', 1)).toBe('');
-    component.toggleAskOption('question', 0, 'Second', false);
-    component.onAskTextChange('question', 1, { target: { value: 'Child explanation' } } as unknown as Event);
+    expect(asks(component).isPicked('question', 0, 'First')).toBe(false);
+    expect(asks(component).text('question', 1)).toBe('');
+    asks(component).toggle('question', 0, 'Second', false);
+    asks(component).setText('question', 1, 'Child explanation');
     currentInstanceId.set('parent');
     fixture.detectChanges();
     await settle(fixture);
     expect(component.getInputRequiredScope(permission())).toBe('session');
     expect(component.isModifyPanelOpen('permission')).toBe(true);
     expect((fixture.nativeElement.querySelector('.modify-textarea') as HTMLTextAreaElement).value).toBe('{"command":"echo parent"}');
-    expect(component.isAskOptionSelected('question', 0, 'First')).toBe(true);
-    expect(component.isAskOptionSelected('question', 0, 'Second')).toBe(false);
-    expect(component.askTextValue('question', 1)).toBe('Parent explanation');
+    expect(asks(component).isPicked('question', 0, 'First')).toBe(true);
+    expect(asks(component).isPicked('question', 0, 'Second')).toBe(false);
+    expect(asks(component).text('question', 1)).toBe('Parent explanation');
     expect(Array.from(fixture.nativeElement.querySelectorAll('textarea') as NodeListOf<HTMLTextAreaElement>).some(textarea => textarea.value === 'Parent explanation')).toBe(true);
     fakeIpc.respondToInputRequired.mockResolvedValueOnce({ success: false, error: { message: 'Try again' } });
     await component.onSubmitAskUserQuestion(component.pendingRequests().find(request => request.id === 'question')!);
-    expect(component.isAskOptionSelected('question', 0, 'First')).toBe(true);
-    expect(component.askTextValue('question', 1)).toBe('Parent explanation');
+    expect(asks(component).isPicked('question', 0, 'First')).toBe(true);
+    expect(asks(component).text('question', 1)).toBe('Parent explanation');
     currentInstanceId.set('child');
     fixture.detectChanges();
     await settle(fixture);
     onInputRequiredResolved({ instanceId: 'parent', requestId: 'question', reason: 'decided' });
     fixture.detectChanges();
-    expect(component.askTextValue('question', 1)).toBe('Child explanation');
+    expect(asks(component).text('question', 1)).toBe('Child explanation');
     onInputRequired({ instanceId: 'parent', requestId: 'question', prompt: 'Fresh question', timestamp: 3 });
     currentInstanceId.set('parent');
     fixture.detectChanges();
     await settle(fixture);
-    expect(component.askTextValue('question', 1)).toBe('');
-    expect(component.isAskOptionSelected('question', 0, 'First')).toBe(false);
+    expect(asks(component).text('question', 1)).toBe('');
+    expect(asks(component).isPicked('question', 0, 'First')).toBe(false);
   });
 
   it('clears typed secret values when changing sessions even when request ids coincide', async () => {
@@ -651,7 +653,7 @@ describe('UserActionRequestComponent', () => {
   it('refuses a held command without a scope so it is not cached for an hour', async () => {
     await showPermission({ type: 'deferred_permission', tool_name: 'Bash', tool_use_id: 'toolu_1' });
     expect(fixture.nativeElement.textContent).toContain('Also allows the same command for the next hour.');
-    expect(fixture.nativeElement.querySelector('.btn-approve')?.textContent?.trim()).toBe('Allow once');
+    expect(fixture.nativeElement.querySelector('.btn-approve')?.textContent?.trim()).toBe(PERMISSION_SCOPE_WORDS.once.allow);
     buttonByText("Don't allow").click();
     await settle(fixture);
     expect(fakeIpc.respondToInputRequired).toHaveBeenCalledWith(
@@ -1176,6 +1178,11 @@ function overrideInputs(
   instanceId: () => string | null,
 ): void {
   (component as unknown as { instanceId: () => string | null }).instanceId = instanceId;
+}
+
+/** The component's drafts for the session it is showing; the buttons and the message box share them. */
+function asks(component: UserActionRequestComponent): AskAnswerDrafts {
+  return (component as unknown as { asks: AskAnswerDrafts }).asks;
 }
 
 async function settle(fixture: ComponentFixture<UserActionRequestComponent>): Promise<void> {

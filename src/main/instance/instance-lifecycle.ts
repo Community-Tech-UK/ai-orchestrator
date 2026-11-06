@@ -847,7 +847,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     });
     // Claude/Codex account pools: a respawn keeps the account the session runs on.
     const accountRoutedOptions = await attachAccountRoute(cliType, routedOptions, routeOrigin, {
-      persistedProfileId: persistedAccountProfileId(instance, durableOptions.resume),
+      persistedProfileId: persistedAccountProfileId(instance, durableOptions.resume), sessionName: instance?.displayName,
       restrictTo: instance?.allowedAccountProfileIds,
       preferences: instance?.accountPreferences,
       moveOffLimitedAccount: routing?.moveOffLimitedAccount,

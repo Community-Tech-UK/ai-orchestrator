@@ -38,6 +38,7 @@ import type {
 import { getSessionMutex, type SessionLockOwnerMetadata } from '../../session/session-mutex';
 import { planSessionRecovery, computeResumeConfigFingerprint } from './session-recovery';
 import { generateId } from '../../../shared/utils/id-generator';
+import { ROUTINE_AUDIENCE_METADATA } from '../../../shared/utils/system-message-audience';
 import { getLogger } from '../../logging/logger';
 import {
   emitInterruptBoundaryDisplayMarker,
@@ -613,7 +614,7 @@ export class InterruptRespawnHandler {
       timestamp: Date.now(),
       type: 'system',
       content: 'Interrupted — waiting for input',
-      metadata: { interruptStatus: 'interrupted', turnId: instance.activeTurnId },
+      metadata: { ...ROUTINE_AUDIENCE_METADATA, interruptStatus: 'interrupted', turnId: instance.activeTurnId },
     });
     this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage, undefined, undefined, undefined, undefined, {
       activeTurnId: instance.activeTurnId,
@@ -721,6 +722,7 @@ export class InterruptRespawnHandler {
       type: 'system',
       content: 'Interrupted — waiting for input',
       metadata: {
+        ...ROUTINE_AUDIENCE_METADATA,
         interruptStatus: result.status,
         ...(result.turnId ? { turnId: result.turnId } : {}),
         ...(result.reason ? { interruptReason: result.reason } : {}),
@@ -1017,16 +1019,23 @@ export class InterruptRespawnHandler {
         }
         instance.lastActivity = Date.now();
 
+        // Both interrupt notices are routine (folded, not hidden, in the transcript);
+        // a failed resume carries a warning so the folded row still shows it. Every
+        // "(resume failed)" notice also says so in `resumeFailed`, so recovery does not
+        // have to match its wording.
+        const interruptResumeFailed = triggeredByInterrupt && !actuallyResumed && canAttemptNativeResume;
         const message = {
           id: generateId(),
           type: 'system' as const,
           content: triggeredByInterrupt
-            ? (actuallyResumed || !canAttemptNativeResume
-                ? 'Interrupted — waiting for input'
-                : 'Interrupted — session restarted (resume failed)')
+            ? (interruptResumeFailed
+                ? 'Interrupted — session restarted (resume failed)'
+                : 'Interrupted — waiting for input')
             : (actuallyResumed ? 'Session reconnected automatically' : 'Session restarted automatically (resume failed)'),
           timestamp: Date.now(),
-          metadata: triggeredByInterrupt ? undefined : { autoRespawn: true, recoveryCause: 'stuck' },
+          metadata: triggeredByInterrupt
+            ? { ...ROUTINE_AUDIENCE_METADATA, ...(interruptResumeFailed ? { severity: 'warning' as const, resumeFailed: true } : {}) }
+            : { autoRespawn: true, recoveryCause: 'stuck', ...(actuallyResumed ? {} : { resumeFailed: true }) },
         };
         this.emitRecoverySafeOutput(instance, message);
 
@@ -1342,7 +1351,7 @@ export class InterruptRespawnHandler {
             ? 'Session reconnected automatically'
             : 'Session restarted automatically (resume failed)',
           timestamp: Date.now(),
-          metadata: { autoRespawn: true },
+          metadata: { autoRespawn: true, ...(actuallyResumed ? {} : { resumeFailed: true }) },
         };
         this.emitRecoverySafeOutput(instance, message);
 

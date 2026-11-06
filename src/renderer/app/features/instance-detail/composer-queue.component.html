@@ -2,12 +2,18 @@
   <div class="queue-header">
     <span class="queue-badge">{{ messages().length }}</span>
     <span class="queue-text">message{{ messages().length > 1 ? 's' : '' }} queued</span>
-    @if (holdReasonLabel()) {
-      <span class="queue-hold-reason">{{ holdReasonLabel() }}</span>
+    @if (liveHoldReason()) {
+      <span class="queue-hold-reason">{{ liveHoldReason() }}</span>
     }
   </div>
   @if (hasUnsavedMessages()) {
     <p class="queue-unsaved-warning" role="status">Not saved yet. If Harness crashes now, the marked message could be lost.</p>
+  }
+  @if (longWait()) {
+    <div role="status">
+      <button type="button" (click)="keepWaiting()">Keep waiting</button>
+      <button type="button" (click)="cancelMessage.emit(0)">Stop waiting and keep my message</button>
+    </div>
   }
   @if (parked()) {
     <!-- B7: Stop holds the queue. Said plainly, because a queue that silently

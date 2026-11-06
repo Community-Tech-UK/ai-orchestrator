@@ -69,6 +69,9 @@ describe('LocalAiFallbackBannerComponent', () => {
   const error = signal<string | null>(null);
   const isInitialized = signal(true);
   const hasAuthoritativeSnapshot = signal(true);
+  const healthyAggregate: LocalAiAggregateStatus = {
+    state: 'healthy', enrolled: 1, healthy: 1, degraded: 0, unavailable: 0, paused: 0,
+  };
   const unavailableAggregate: LocalAiAggregateStatus = {
     state: 'unavailable',
     enrolled: 1,
@@ -231,6 +234,32 @@ describe('LocalAiFallbackBannerComponent', () => {
     pendingFallbacks.set([]);
     fixture.detectChanges();
     expect(live.textContent).toBe('Paid fallback queue cleared.');
+  });
+
+  it('does not fail when the status chip is hidden because the local models are healthy', async () => {
+    aggregate.set(healthyAggregate);
+    // The chip only shows when something needs a look, so there may be no chip
+    // to return focus to once the last decision is made.
+    pendingFallbacks.set([request('only-request', 1_000)]);
+    resolveFallback.mockImplementationOnce(async () => {
+      pendingFallbacks.set([]);
+    });
+    const shell = TestBed.createComponent(LocalAiFallbackShellHostComponent);
+    document.body.appendChild(shell.nativeElement);
+    shell.detectChanges();
+
+    const allow = Array.from(
+      shell.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>,
+    ).find((candidate) => candidate.textContent?.trim() === 'Allow once');
+    allow?.click();
+    await shell.whenStable();
+    shell.detectChanges();
+    await shell.whenStable();
+
+    expect(shell.nativeElement.querySelector('.local-ai-fallback-banner')).toBeNull();
+    expect(shell.nativeElement.querySelector('[data-testid="local-ai-status-chip"]')).toBeNull();
+    shell.destroy();
+    shell.nativeElement.remove();
   });
 
   it.each([

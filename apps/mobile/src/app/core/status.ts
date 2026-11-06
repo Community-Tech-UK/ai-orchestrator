@@ -1,36 +1,28 @@
-/**
- * Session status → colour/label, mirroring the desktop
- * status-indicator.component.ts mapping so phone and desktop agree.
- */
+/** Phone status words and colours come from the desktop's shared presenter. */
+import {
+  isInstanceStatus,
+  liveActivityStatusKey,
+  presentInstanceStatus,
+} from '../../../../../src/shared/attention/instance-status-presentation';
+
+function presentation(status: string) {
+  return presentInstanceStatus(isInstanceStatus(status) ? status : 'busy');
+}
 
 export function statusColor(status: string): string {
-  switch (status) {
-    case 'waiting_for_permission':
-    case 'waiting_for_input':
-      return 'var(--accent-attention)';
-    case 'error':
-    case 'failed':
-    case 'degraded':
-      return 'var(--accent-error)';
-    case 'busy':
-    case 'processing':
-    case 'thinking_deeply':
-    case 'initializing':
-    case 'waking':
-    case 'respawning':
-    case 'interrupting':
-      return 'var(--accent-action)';
-    case 'idle':
-    case 'ready':
-      return 'var(--accent-online)';
-    default:
-      return 'var(--text-secondary)';
-  }
+  return presentation(status).color;
+}
+
+export function statusTone(status: string): string {
+  return presentation(status).tone;
 }
 
 export function statusLabel(status: string): string {
-  return status.replace(/[_-]/g, ' ');
+  return presentation(status).label;
 }
+
+/** What the desktop shows for a looping session beside its status ("Loop running · Working"). */
+export const LOOP_RUNNING_LABEL = 'Loop running';
 
 const LOOP_STATUS_COLOR = '#a78bfa';
 
@@ -102,11 +94,17 @@ export function isWorking(status: string): boolean {
   }
 }
 
+/** The words for a session, which put a question or an approval ahead of a running loop. */
 export function displayStatusLabel(session: SessionStatusView | null | undefined): string {
   const status = session?.status ?? 'idle';
   if (needsAttention(status)) return statusLabel(status);
-  if (session?.isLooping === true) return 'loop';
+  if (session?.isLooping === true) return LOOP_RUNNING_LABEL;
   return statusLabel(status);
+}
+
+export function displayStatusTone(session: SessionStatusView | null | undefined): string {
+  if (session?.isLooping === true && !needsAttention(session.status ?? 'idle')) return 'loop';
+  return statusTone(session?.status ?? 'idle');
 }
 
 export function displayStatusColor(session: SessionStatusView | null | undefined): string {
@@ -124,11 +122,21 @@ export function isLiveActivityCandidate(session: SessionStatusView): boolean {
   return needsAttention(session.status ?? 'idle') || isWorkingOrLooping(session);
 }
 
+/**
+ * The key the lock-screen widget colours by. Phones built earlier know exactly
+ * these keys, and the Mac sends the same ones (`mobile-gateway-push.ts`): a
+ * question is `waiting`, and only a permission prompt is `needs approval`. A
+ * widget that only knows the key turns it into the shared words ("Needs your
+ * answer"). The exact words travel beside it as `displayLabel`
+ * (`displayStatusLabel`), so "Thinking" or "Restarting" is not flattened to
+ * "Working" on a rebuilt widget.
+ */
 export function liveActivityStatusLabel(session: SessionStatusView): string {
   const status = session.status ?? 'idle';
-  if (needsAttention(status)) return 'needs approval';
+  if (status === 'waiting_for_input') return 'waiting';
+  if (status === 'waiting_for_permission') return 'needs approval';
   if (session.isLooping === true) return 'looping';
-  return 'working';
+  return liveActivityStatusKey(isInstanceStatus(status) ? status : 'busy');
 }
 
 /**

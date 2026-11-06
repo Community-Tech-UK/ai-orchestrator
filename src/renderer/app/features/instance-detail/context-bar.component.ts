@@ -12,6 +12,16 @@ import { ContextAttributionPanelComponent } from './context-attribution-panel.co
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { SESSION_COST_TOOLTIP } from '../../../../shared/types/session-cost-copy';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
+import { contextSizeAdvice } from './context-size-advice';
+import { CACHE_MISS_ADVICE, LONG_CONTEXT_ADVICE } from '../../../../shared/usage-insight/usage-cause-copy';
+
+/**
+ * OpenAI bills a request that sends more than this many input tokens at about
+ * twice the rate, for the whole request (the Codex price line; see the Oct-2
+ * backlog item T2). Below it a long chat costs the ordinary rate.
+ */
+const CODEX_PRICE_LINE_TOKENS = 272_000;
+const CODEX_PRICE_LINE_NOTE = '272K tokens. Requests above this cost double.';
 
 @Component({
   selector: 'app-context-bar',
@@ -19,13 +29,25 @@ import { copyFor } from '../../shared/tooltip/tooltip-copy';
   imports: [DecimalPipe, ContextEvidencePanelComponent, ContextAttributionPanelComponent, AioTooltipDirective],
   template: `
     <div class="context-bar" [class.compact]="compact()">
-      <div class="bar-track">
-        <div
-          class="bar-fill"
-          [style.width.%]="percentage()"
-          [class.warning]="percentage() > 70"
-          [class.danger]="percentage() > 90"
-        ></div>
+      <div class="bar-meter">
+        <div class="bar-track" [appTooltip]="sizeAdvice() === idleAdvice ? idleAdvice : sizeAdvice() ? longAdvice : null" [attr.tabindex]="sizeAdvice() ? 0 : null">
+          <div
+            class="bar-fill"
+            [style.width.%]="percentage()"
+            [class.warning]="percentage() > 70"
+            [class.danger]="percentage() > 90"
+          ></div>
+        </div>
+        @if (priceLine(); as line) {
+          <span
+            class="price-line"
+            role="img"
+            tabindex="0"
+            [style.left.%]="line.percent"
+            [attr.aria-label]="line.note"
+            [appTooltip]="line.note"
+          ></span>
+        }
       </div>
 
       @if (showDetails()) {
@@ -38,7 +60,7 @@ import { copyFor } from '../../shared/tooltip/tooltip-copy';
             @if (isEstimated()) {
               <span class="estimated-badge" tabindex="0" [appTooltip]="copy('context.estimated')">~</span>
             }
-            <span class="used">{{ usage().used | number:'1.0-0' }}</span>
+            <span class="used" [appTooltip]="sizeAdvice() === idleAdvice ? idleAdvice : sizeAdvice() ? longAdvice : null" [attr.tabindex]="sizeAdvice() ? 0 : null">{{ usage().used | number:'1.0-0' }}</span>
             <span class="separator">/</span>
             <span class="total">{{ usage().total | number:'1.0-0' }}</span>
             <span class="percentage">({{ isEstimated() ? '~' : '' }}{{ percentage() | number:'1.0-0' }}%)</span>
@@ -116,6 +138,11 @@ import { copyFor } from '../../shared/tooltip/tooltip-copy';
       width: 72px;
     }
 
+    .bar-meter {
+      position: relative;
+      min-width: 0;
+    }
+
     .bar-track {
       min-width: 0;
       height: 10px;
@@ -147,6 +174,32 @@ import { copyFor } from '../../shared/tooltip/tooltip-copy';
 
     .bar-fill.danger {
       background: linear-gradient(90deg, rgba(var(--error-rgb), 0.72), var(--error-color));
+    }
+
+    /* A thin tick where the price doubles. The element is wider than the line it
+       draws so there is something to hover and focus. */
+    .price-line {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 9px;
+      margin-left: -4px;
+      cursor: help;
+    }
+
+    .price-line::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 4px;
+      width: 1px;
+      background: var(--warning-color);
+    }
+
+    .price-line:focus-visible {
+      outline: 2px solid var(--primary-color);
+      outline-offset: -2px;
     }
 
     .bar-details {
@@ -234,6 +287,9 @@ import { copyFor } from '../../shared/tooltip/tooltip-copy';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ContextBarComponent {
+  // Explicit literal bindings keep both shared sentences available to the static wording audit.
+  protected readonly idleAdvice = CACHE_MISS_ADVICE;
+  protected readonly longAdvice = LONG_CONTEXT_ADVICE;
   protected readonly copy = copyFor;
   readonly costTooltip = SESSION_COST_TOOLTIP;
   usage = input.required<ContextUsage>();
@@ -290,6 +346,36 @@ export class ContextBarComponent {
   });
 
   isEstimated = computed(() => this.usage().isEstimated === true);
+
+  /**
+   * Where the Codex price line falls on this bar, or null when it should not
+   * be drawn: not a Codex session, no real window reading to draw it on, or a
+   * window that ends before the line (nothing to warn about).
+   */
+  readonly priceLine = computed<{ percent: number; note: string } | null>(() => {
+    if (!this.occupancyKnown()) return null;
+    const id = this.instanceId();
+    if (!id || this.instanceStore.getInstance(id)?.provider !== 'codex') return null;
+    const total = this.usage().total;
+    if (!(total > CODEX_PRICE_LINE_TOKENS)) return null;
+    return { percent: (CODEX_PRICE_LINE_TOKENS / total) * 100, note: CODEX_PRICE_LINE_NOTE };
+  });
+
+  /**
+   * Why a chat this big costs more, once it is big enough for that to matter
+   * (Claude sessions only; see `contextSizeAdvice`). Shown on hover over the bar
+   * and the numbers beside it, which read as one thing.
+   */
+  readonly sizeAdvice = computed<string | null>(() => {
+    const id = this.instanceId();
+    if (!id || !this.occupancyKnown()) return null;
+    const instance = this.instanceStore.getInstance(id);
+    return contextSizeAdvice({
+      provider: instance?.provider,
+      tokens: this.usage().used,
+      status: instance?.status,
+    });
+  });
 
   /** LT-034: the dash is ambiguous on its own, so the tooltip carries the why. */
   readonly compactLabelTitle = computed(() => {

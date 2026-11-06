@@ -148,7 +148,8 @@ describe('deliberate termination preserves runtime observation until a successfu
       expect(f.instances.has(f.instance.id)).toBe(false);
       expect(f.adapters.has(f.instance.id)).toBe(false);
       expect(f.archives).toEqual([{ sessionId: 'live-provider-session', providerSessionId: 'live-provider-session',
-        content: ['Check the work.', 'later provider error', 'Final observed answer.'] }]);
+        // The transcript says it in plain words; the provider's own text stays in the message's Details.
+        content: ['Check the work.', "Claude couldn't finish this request. What to do: Check Details, then try again. Your message and the work above are kept.", 'Final observed answer.'] }]);
       expect(f.effects).toEqual([]);
     } finally { settle(); await flush(); }
   });

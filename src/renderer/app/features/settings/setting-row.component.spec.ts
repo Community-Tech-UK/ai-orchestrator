@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { SettingMetadata } from '../../../../shared/types/settings.types';
 import { DEFAULT_SETTINGS } from '../../../../shared/types/settings-defaults';
+import { USAGE_CAUSE_TOOLTIPS } from '../../../../shared/usage-insight/usage-cause-copy';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { SettingRowComponent } from './setting-row.component';
 
@@ -242,6 +243,36 @@ describe('SettingRowComponent — reset to default (S1.3)', () => {
     // is not in `keyof AppSettings`.
     const orphan = { ...booleanSetting, key: 'notARealSettingKey' } as unknown as SettingMetadata;
     expect(resetButton(render(orphan, true))).toBeNull();
+  });
+});
+
+/**
+ * The three limits on how many helper agents a session may start. Every helper
+ * uses its own allowance, so hovering any of these controls says so.
+ */
+describe('SettingRowComponent — helper limit controls', () => {
+  const metadata = (key: SettingMetadata['key'], type: SettingMetadata['type']): SettingMetadata => ({
+    key, label: key, description: 'A setting.', type, category: 'orchestration',
+  });
+
+  function controlTooltip(fixture: ReturnType<typeof render>): string | null | undefined {
+    return fixture.debugElement.query(By.css('.setting-control')).injector.get(AioTooltipDirective).appTooltip();
+  }
+
+  it.each([
+    ['maxChildrenPerParent', 'number', 10],
+    ['allowNestedOrchestration', 'boolean', false],
+    ['maxSpawnDepth', 'number', 3],
+  ] as const)('says what extra helpers cost on the %s control', (key, type, value) => {
+    expect(controlTooltip(render(metadata(key, type), value))).toBe(USAGE_CAUSE_TOOLTIPS.helperControls);
+  });
+
+  it.each([
+    ['an ordinary number setting', numberSetting, 2],
+    // The Codex helper choices say what each choice costs in their own description.
+    ['a Codex helper choice', metadata('codexHelperAgentsChats', 'select'), 'trial'],
+  ] as const)('adds nothing to %s', (_label, setting, value) => {
+    expect(controlTooltip(render(setting, value))).toBeNull();
   });
 });
 

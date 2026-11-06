@@ -50,7 +50,7 @@ import type { ChildInfo } from '../orchestration/orchestration-handler.types';
 import type { OrchestrationResponseAdapter } from './orchestration/orchestration-response-adapter.types';
 import { assertQueuedResponseDeliverable, orchestrationDeliveryFailureNote } from './orchestration/orchestration-delivery-failure';
 import { OrchestrationResponseHeldError } from '../orchestration/orchestration-response-delivery';
-import { errorFromIdentity } from '../util/error-utils';
+import { errorFromIdentity, errorMessageText } from '../util/error-utils';
 import { getWorkAdmission } from '../work-admission/work-admission';
 import { runHelperStartup } from '../work-admission/helper-startup';
 import { ownedByEngine } from '../work-admission/engine-ownership';
@@ -732,7 +732,7 @@ export class InstanceOrchestrationManager {
       const lastError = child.outputBuffer
         .filter(m => m.type === 'error')
         .pop();
-      const errorText = lastError?.content ?? `Instance ended with status: ${child.status}`;
+      const errorText = lastError ? errorMessageText(lastError) : `Instance ended with status: ${child.status}`;
       const rawError = errorFromIdentity(errorText, lastError?.metadata);
       errorClassification = getChildErrorClassifier().classify(errorText, child.status, false, rawError);
     }

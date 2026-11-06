@@ -349,12 +349,12 @@ export class SettingsComponent implements AfterViewChecked {
   readonly remoteNodesHelpStatus = computed<HelpStatus>(() => {
     const nodes = this.remoteNodes.nodes();
     if (nodes.length === 0) {
-      return { variant: 'info', text: 'No remote nodes are enrolled yet.' };
+      return { variant: 'info', text: 'None of your other computers are paired yet.' };
     }
     const connected = nodes.filter(isRemoteNodeOnline).length;
     return {
       variant: connected === nodes.length ? 'info' : 'warning',
-      text: `${connected} of ${nodes.length} enrolled ${nodes.length === 1 ? 'node is' : 'nodes are'} connected.`,
+      text: `${connected} of ${nodes.length} paired ${nodes.length === 1 ? 'computer is' : 'computers are'} connected.`,
     };
   });
 

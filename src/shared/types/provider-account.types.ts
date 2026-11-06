@@ -19,6 +19,7 @@
  * node from the validated profile ID (see `provider-account-home-resolver.ts`).
  */
 
+import { accountFamilyName } from '../display-names';
 import type { CopilotInvocationOrigin } from './copilot-account.types';
 import { isAutomaticCopilotOrigin } from './copilot-account.types';
 
@@ -279,7 +280,7 @@ export function clonePoolPolicy(policy: ProviderAccountPoolPolicy): ProviderAcco
   return { ...policy, preemptive: { ...policy.preemptive } };
 }
 
-/** Display label for a provider's accounts. */
+/** Display label for a provider's accounts: the account family, from the one name module. */
 export function pooledProviderLabel(provider: PooledProvider): string {
-  return provider === 'claude' ? 'Claude' : provider === 'codex' ? 'Codex' : 'MiMo';
+  return accountFamilyName(provider);
 }

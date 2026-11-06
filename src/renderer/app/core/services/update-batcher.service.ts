@@ -10,6 +10,7 @@ import type { InstanceWaitReason, InstanceBackgroundWork, DesiredRuntime, Contex
 import type { InstanceRuntimeSummary } from '../../../../shared/types/local-model-runtime.types';
 import type { ComputerUseAutonomyLevel } from '../../../../shared/types/desktop-gateway-settings.types';
 import type { AccountRouteSource } from '../../../../shared/types/provider-account.types';
+import { projectActiveTurnId } from '../state/instance/turn-settlement';
 
 export interface StateUpdate {
   instanceId: string;
@@ -119,6 +120,7 @@ export class UpdateBatcherService {
       ...existing,
       ...update,
       queuedInputReadyId: update.queuedInputReadyId ?? existing?.queuedInputReadyId,
+      activeTurnId: projectActiveTurnId(existing ?? {}, update),
       // Preserve diffStats only when the new update doesn't carry them at all.
       diffStats: update.diffStats !== undefined ? update.diffStats : existing?.diffStats,
       // Preserve displayName if the new update doesn't carry it

@@ -16,6 +16,7 @@ import type { ProviderLimitEvent } from '../core/system/provider-limit-ledger';
 import type { CompactionRecord } from '../context/compaction-epoch';
 import type { AutomationRun } from '../../shared/types/automation.types';
 import type { AdmissionRecord, AdmissionState } from '../session/session-admission-store';
+import { accountFamilyName } from '../../shared/display-names';
 
 /** Total entries kept per item, across every source, after merging. */
 export const WORKBOARD_DECISIONS_MAX = 20;
@@ -23,10 +24,6 @@ export const WORKBOARD_DECISIONS_MAX = 20;
 function firstLine(text: string, maxChars = 140): string {
   const line = (text.split('\n')[0] ?? '').trim();
   return line.length > maxChars ? `${line.slice(0, maxChars - 1).trimEnd()}…` : line;
-}
-
-function providerLabel(provider: string): string {
-  return provider.length > 0 ? provider.charAt(0).toUpperCase() + provider.slice(1) : provider;
 }
 
 // ---------------------------------------------------------------------------
@@ -48,7 +45,8 @@ export function buildProviderLimitDecisions(
   opts: { activeEventId: string | null; loopRunId?: string; loopResumable: boolean },
 ): OperationalDecision[] {
   return events.map((event) => {
-    const label = providerLabel(event.provider);
+    // A usage limit belongs to the account behind the tool, so OpenCode's reads "MiMo".
+    const label = accountFamilyName(event.provider);
     const isActive = opts.activeEventId !== null && event.id === opts.activeEventId;
     const decision: OperationalDecision = {
       id: `pl:${event.id}`,

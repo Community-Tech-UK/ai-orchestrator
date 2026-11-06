@@ -225,24 +225,27 @@ vi.mock('../instance-communication', async () => {
   }
   return { InstanceCommunicationManager: MockInstanceCommunicationManager };
 });
-vi.mock('../instance-orchestration', () => ({
-  InstanceOrchestrationManager: vi.fn().mockImplementation(function () {
-    return {
-      getOrchestrationHandler: vi.fn(() => ({
+vi.mock('../instance-orchestration', async () => {
+  const { EventEmitter } = await import('node:events');
+  return {
+    InstanceOrchestrationManager: vi.fn().mockImplementation(function () {
+      return {
+        getOrchestrationHandler: vi.fn(() => Object.assign(new EventEmitter(), {
+          hasActiveWork: vi.fn(() => false),
+          getPendingUserActionsForInstance: vi.fn(() => []),
+          respondToUserAction: vi.fn(),
+          notifyError: vi.fn(),
+        })),
         hasActiveWork: vi.fn(() => false),
-        getPendingUserActionsForInstance: vi.fn(() => []),
-        respondToUserAction: vi.fn(),
-        notifyError: vi.fn(),
-      })),
-      hasActiveWork: vi.fn(() => false),
-      setupOrchestrationHandlers: vi.fn(),
-      processOrchestrationOutput: vi.fn(),
-      registerInstance: vi.fn(),
-      unregisterInstance: vi.fn(),
-      getLaterTurnReminderIfRelevant: vi.fn(() => null),
-    };
-  }),
-}));
+        setupOrchestrationHandlers: vi.fn(),
+        processOrchestrationOutput: vi.fn(),
+        registerInstance: vi.fn(),
+        unregisterInstance: vi.fn(),
+        getLaterTurnReminderIfRelevant: vi.fn(() => null),
+      };
+    }),
+  };
+});
 vi.mock('../instance-persistence', () => ({
   InstancePersistenceManager: vi.fn().mockImplementation(function () {
     return {

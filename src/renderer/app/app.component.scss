@@ -59,10 +59,6 @@
   top: 12px;
 }
 
-.title-bar-overlay app-local-ai-status-chip {
-  display: inline-flex;
-}
-
 /* The quota chip is the one widget allowed to shrink below its content; its
  * provider strip scrolls horizontally when the window is narrow. */
 .title-bar-overlay app-provider-quota-chip {
@@ -96,7 +92,6 @@
   background: var(--pill-warn-bg);
   color: var(--pill-warn-fg);
   cursor: pointer;
-  text-transform: capitalize;
 }
 
 .startup-status-chip.failed {
@@ -139,11 +134,28 @@
 .startup-banner-title {
   font-size: 0.8125rem;
   font-weight: 700;
-  text-transform: capitalize;
+}
+
+/* One row per failing check: its own sentence and its own fix button. */
+.startup-banner-checks {
+  flex: 1 1 20rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.startup-banner-check {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
 }
 
 .startup-banner-body {
-  flex: 1 1 20rem;
+  flex: 1 1 14rem;
   font-size: 0.8125rem;
   color: var(--text-secondary);
 }

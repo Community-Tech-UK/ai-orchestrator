@@ -144,6 +144,8 @@ function makeMockInstanceManager(): InstanceManager {
     serializeForIpc: vi.fn((inst: unknown) => inst as Record<string, unknown>),
     getOrchestrationHandler: vi.fn().mockReturnValue(orchestration),
     sendInputResponse: vi.fn(),
+    // The receipt for a reply is covered in input-required-respond.spec.ts; here it only has to exist.
+    getRequestReceipts: vi.fn(() => ({ beginReply: vi.fn(() => ({ commit: vi.fn(), abort: vi.fn() })) })),
     resumeAfterDeferredPermission: vi.fn(),
     respawnAfterUnexpectedExit: vi.fn(),
     emitSystemMessage: vi.fn(),
@@ -1057,7 +1059,29 @@ describe('instance-handlers', () => {
       expect(result.data).toEqual({ requestId: 'req-1', responded: true });
 
       const orchestration = mockInstanceManager.getOrchestrationHandler();
-      expect(orchestration.respondToUserAction).toHaveBeenCalledWith('req-1', true, undefined);
+      expect(orchestration.respondToUserAction).toHaveBeenCalledWith('req-1', true, undefined, 'window');
+    });
+
+    it('says plainly when the request had already closed, rather than reporting a success', async () => {
+      const orchestration = mockInstanceManager.getOrchestrationHandler();
+      vi.mocked(orchestration.respondToUserAction).mockReturnValue('not-pending');
+
+      const result = await invoke(IPC_CHANNELS.USER_ACTION_RESPOND, { requestId: 'req-late', approved: true });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('USER_ACTION_NOT_PENDING');
+      expect(result.data).toBeUndefined();
+      // The window and the phone must stop offering the card.
+      expect(mockClearPrompt).toHaveBeenCalledWith('req-late');
+    });
+
+    it('reports a success only when the request was really answered', async () => {
+      const orchestration = mockInstanceManager.getOrchestrationHandler();
+      vi.mocked(orchestration.respondToUserAction).mockReturnValue('resolved');
+
+      const result = await invoke(IPC_CHANNELS.USER_ACTION_RESPOND, { requestId: 'req-ok', approved: true });
+
+      expect(result).toMatchObject({ success: true, data: { requestId: 'req-ok', responded: true } });
     });
 
     it('dispatches rejection when approved=false', async () => {
@@ -1068,7 +1092,7 @@ describe('instance-handlers', () => {
       });
 
       const orchestration = mockInstanceManager.getOrchestrationHandler();
-      expect(orchestration.respondToUserAction).toHaveBeenCalledWith('req-2', false, 'cancel');
+      expect(orchestration.respondToUserAction).toHaveBeenCalledWith('req-2', false, 'cancel', 'window');
     });
 
     it('rejects missing requestId with structured error', async () => {
@@ -1296,22 +1320,13 @@ describe('instance-handlers', () => {
         },
       });
 
-      expect(result.success).toBe(true);
-      expect(result.data).toEqual({
-        requestId: 'req-self-2',
-        responded: true,
-        granted: false,
-        rulePattern: undefined,
-        alreadyExisted: undefined,
-        respawned: false,
-      });
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('PERMISSION_GRANT_FAILED');
+      expect(result.data).toBeUndefined();
       expect(mockInstanceManager.recordInputRequiredPermissionDecision).not.toHaveBeenCalled();
-      expect(mockInstanceManager.clearPendingInputRequiredPermission).toHaveBeenCalledWith(
-        'inst-58',
-        'req-self-2',
-      );
+      expect(mockInstanceManager.clearPendingInputRequiredPermission).not.toHaveBeenCalled();
       expect(mockInstanceManager.respawnAfterUnexpectedExit).not.toHaveBeenCalled();
-      expect(mockClearPrompt).toHaveBeenCalledWith('req-self-2');
+      expect(mockClearPrompt).not.toHaveBeenCalled();
     });
 
     it('rejects permission denial responses while paused before self-grant work', async () => {

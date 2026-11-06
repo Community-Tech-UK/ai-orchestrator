@@ -118,7 +118,7 @@ export function deriveReattemptSeed(
                 <div class="pr-row-head">
                   <span class="pr-status" [attr.data-status]="run.status" [attr.data-tone]="statusTone(run.status)">{{ statusLabel(run.status) }}</span>
                   <span class="pr-time" tabindex="0" [appTooltip]="absoluteTime(run.startedAt)">{{ relTime(run.startedAt) }}</span>
-                  <span class="pr-meta">{{ run.totalIterations }} iter · {{ tokens(run.totalTokens) }} · {{ cost(run.totalCostCents) }}</span>
+                  <span class="pr-meta">{{ roundsLabel(run.totalIterations) }} · {{ tokens(run.totalTokens) }} · {{ cost(run.totalCostCents) }}</span>
                   @if (managedStatus(run); as managed) {
                     <span
                       class="pr-managed"
@@ -512,6 +512,11 @@ export class LoopPastRunsPanelComponent implements OnDestroy {
 
   protected statusTone(status: string): string {
     return loopStatusTone(status);
+  }
+
+  /** "1 round" / "3 rounds": the loop's iterations in the word the end-of-run wording already uses. */
+  protected roundsLabel(count: number): string {
+    return `${count} ${count === 1 ? 'round' : 'rounds'}`;
   }
 
   protected tokens(n: number): string {

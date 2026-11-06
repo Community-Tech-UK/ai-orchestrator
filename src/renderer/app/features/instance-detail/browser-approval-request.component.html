@@ -1,136 +1,111 @@
 @if (pendingRequests().length > 0 || errorMessage()) {
   <div class="browser-approval-requests">
     @if (errorMessage(); as error) {
-      <div class="browser-approval-error">{{ error }}</div>
+      <div class="browser-approval-error" role="alert">{{ error }}</div>
+      @if (errorDetail(); as diagnostic) {
+        <details class="browser-approval-more browser-approval-error-details"><summary>Details</summary><pre>{{ diagnostic }}</pre></details>
+      }
     }
 
-    @for (approval of pendingRequests(); track approval.requestId) {
-      <article class="browser-approval-card">
+    @for (view of views(); track view.approval.requestId; let position = $index; let total = $count) {
+      <article class="browser-approval-card" [attr.data-kind]="view.kind">
         <div class="browser-approval-header">
-          <span class="browser-approval-kicker">{{ approval.credentialAccess ? 'Saved-login permission' : 'Browser Request' }}</span>
-          <span class="browser-approval-status">{{ approval.status }}</span>
+          <span class="browser-approval-kicker">{{ view.kindLabel }}</span>
+          @if (total > 1) {
+            <span class="browser-approval-position">{{ position + 1 }} of {{ total }}</span>
+          }
         </div>
 
         <div class="browser-approval-main">
-          <div class="browser-approval-title">{{ approval.credentialAccess?.itemTitle || approval.toolName }}</div>
-          <div class="browser-approval-meta">
-            {{ approval.actionClass }} · {{ approval.origin || approval.url || approval.profileId }}
-          </div>
+          <div class="browser-approval-title">{{ view.headline }}</div>
         </div>
 
-        <dl class="browser-approval-details">
-          @if (approval.credentialAccess; as access) {
-            <div><dt>Session</dt><dd>{{ access.sessionName }}</dd></div>
-            <div><dt>Reason</dt><dd>{{ access.reason }}</dd></div>
-            <div><dt>Website</dt><dd>{{ access.origin }}</dd></div>
-            <div><dt>Computer</dt><dd>{{ access.computerName }}</dd></div>
-            <div><dt>Access</dt><dd>{{ credentialPurpose(approval) }}. Only this website, computer and saved login.</dd></div>
-            <div><dt>Vault folder</dt><dd>{{ credentialMovement(approval) }}</dd></div>
-            <div><dt>Duration</dt><dd>{{ credentialDuration(approval) === 'task' ? 'Access ends with this task.' : 'Permission expires after the selected period.' }}</dd></div>
-            @if (credentialDuration(approval) === 'task' && access.permissionExpiresAt; as expiresAt) {
-              <div><dt>Latest expiry</dt><dd>{{ formatExpiry(expiresAt) }}</dd></div>
+        <dl class="browser-approval-facts">
+          @for (fact of view.facts; track fact.label) {
+            <div><dt>{{ fact.label }}</dt><dd>{{ fact.value }}</dd></div>
+          }
+          @if (view.approval.credentialAccess?.operationError; as operationError) {
+            @if (errorMessage() !== credentialError(operationError)) {
+              <div class="browser-approval-error"><dt>Needs attention</dt><dd>{{ credentialError(operationError) }}</dd></div>
             }
-            @if (access.operationError && errorMessage() !== credentialError(access.operationError)) {
-              <div class="browser-approval-error"><dt>Needs attention</dt><dd>{{ credentialError(access.operationError) }}</dd></div>
-            }
-          } @else {
-          <div>
-            <dt>Scope</dt>
-            <dd>{{ formatApprovalScope(approval) }}</dd>
-          </div>
-          }
-          <div>
-            <dt>{{ approval.credentialAccess ? 'Reply before' : 'Expires' }}</dt>
-            <dd>{{ formatExpiry(approval.expiresAt) }}</dd>
-          </div>
-          @if (approval.selector) {
-            <div>
-              <dt>Selector</dt>
-              <dd>{{ approval.selector }}</dd>
-            </div>
-          }
-          @if (approval.elementContext; as element) {
-            <div>
-              <dt>Element</dt>
-              <dd>{{ formatElementContext(element) }}</dd>
-            </div>
-          }
-          @if (approval.filePath) {
-            <div>
-              <dt>File</dt>
-              <dd>{{ approval.filePath }}</dd>
-            </div>
-          }
-          @if (approval.detectedFileType) {
-            <div>
-              <dt>Type</dt>
-              <dd>{{ approval.detectedFileType }}</dd>
-            </div>
-          }
-          @if (approval.proposedGrant.uploadRoots?.length) {
-            <div>
-              <dt>Roots</dt>
-              <dd>{{ approval.proposedGrant.uploadRoots?.join(', ') }}</dd>
-            </div>
           }
         </dl>
 
-        @if (requiresAutonomousConfirmation(approval)) {
+        <details class="browser-approval-more">
+          <summary>Details</summary>
+          <dl class="browser-approval-raw">
+            @for (fact of view.details; track fact.label) {
+              <div><dt>{{ fact.label }}</dt><dd>{{ fact.value }}</dd></div>
+            }
+          </dl>
+        </details>
+
+        @if (view.phrase; as phrase) {
           <label class="browser-approval-confirmation">
             <span>
-              Type <strong>{{ confirmationPhrase(approval) }}</strong> to allow publishing or deleting without another prompt.
+              Type <strong>{{ phrase }}</strong> to allow publishing or deleting without another prompt.
             </span>
             <input
               type="text"
-              [placeholder]="confirmationPhrase(approval)"
-              [value]="autonomousConfirmation(approval)"
+              [placeholder]="phrase"
+              [value]="typedPhrase(view.approval)"
               [disabled]="workingRequestId() !== null"
-              (input)="onAutonomousConfirmationInput(approval, $event)"
+              (input)="onPhraseInput(view.approval, $event)"
             />
           </label>
         }
 
+        @if (view.note; as note) {
+          <p class="browser-approval-note">{{ note }}</p>
+        }
+
         <div class="browser-approval-actions">
-          @if (approval.credentialAccess) {
-            <select
-              class="browser-approval-mode credential-access-duration"
-              aria-label="How long to allow this saved login"
-              [value]="credentialDuration(approval)"
-              [disabled]="workingRequestId() !== null"
-              (change)="onCredentialDurationChange(approval, $event)"
-            >
-              @for (duration of credentialDurations; track duration.value) {
-                <option [value]="duration.value">{{ duration.label }}</option>
-              }
-            </select>
-          } @else {
-          <select
-            class="browser-approval-mode"
-            [value]="selectedMode(approval)"
-            [disabled]="workingRequestId() !== null"
-            (change)="onModeChange(approval, $event)"
-          >
-            <option value="per_action">Once</option>
-            <option value="session">Session</option>
-            <option value="autonomous">Autonomous</option>
-          </select>
-          }
           <button
-            class="browser-approval-button secondary"
+            class="browser-approval-button quiet"
             type="button"
             [disabled]="workingRequestId() !== null"
-            (click)="denyRequest(approval)"
+            (click)="denyRequest(view.approval)"
           >
             Deny
           </button>
-          <button
-            class="browser-approval-button primary"
-            type="button"
-            [disabled]="workingRequestId() !== null"
-            (click)="approveRequest(approval)"
-          >
-            {{ isWorking(approval) ? 'Approving...' : 'Approve' }}
-          </button>
+          @if (view.kind === 'saved-login') {
+            <label class="browser-approval-length">
+              <span>How long</span>
+              <select
+                class="browser-approval-mode credential-access-duration"
+                aria-label="How long to allow this saved login"
+                [value]="credentialDuration(view.approval)"
+                [disabled]="workingRequestId() !== null"
+                (change)="onCredentialDurationChange(view.approval, $event)"
+              >
+                @for (duration of credentialDurations; track duration.value) {
+                  <option [value]="duration.value">{{ duration.label }}</option>
+                }
+              </select>
+            </label>
+            <button
+              class="browser-approval-button primary"
+              type="button"
+              [disabled]="workingRequestId() !== null"
+              (click)="approveSavedLogin(view.approval)"
+            >
+              {{ isWorking(view.approval) ? 'Allowing…' : savedLoginLabel(view.approval) }}
+            </button>
+          } @else {
+            @for (choice of view.choices; track choice.id) {
+              <button
+                class="browser-approval-button"
+                type="button"
+                [class.primary]="choice.id === 'once'"
+                [attr.data-choice]="choice.id"
+                [appTooltip]="choice.hint"
+                [disabled]="workingRequestId() !== null"
+                (click)="approveRequest(view.approval, choice.id)"
+              >
+                {{ isWorking(view.approval, choice.id) ? 'Allowing…' : choice.label }}
+              </button>
+            }
+          }
         </div>
       </article>
     }

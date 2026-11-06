@@ -9,6 +9,7 @@ import { By } from '@angular/platform-browser';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { RemoteNodesSettingsTabComponent } from './remote-nodes-settings-tab.component';
 import { SettingsStore } from '../../core/state/settings.store';
+import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
 import { RemoteNodeIpcService, type RemoteNodeServerStatus } from '../../core/services/ipc/remote-node-ipc.service';
 import { PairBothIpcService } from '../../core/services/ipc/pair-both-ipc.service';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
@@ -122,6 +123,7 @@ describe('RemoteNodesSettingsTabComponent', () => {
     await TestBed.configureTestingModule({
       imports: [RemoteNodesSettingsTabComponent],
       providers: [
+        { provide: ElectronIpcService, useValue: { platform: 'darwin' } },
         { provide: SettingsStore, useValue: store },
         { provide: RemoteNodeIpcService, useValue: ipc },
         { provide: PairBothIpcService, useValue: pairBoth },
@@ -180,7 +182,40 @@ describe('RemoteNodesSettingsTabComponent', () => {
     expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('Copy token');
     button.click();
     await fixture.whenStable();
-    expect(clipboard.copyText).toHaveBeenCalledExactlyOnceWith('EXAMPLE_TOKEN', { label: 'remote node token' });
+    expect(clipboard.copyText).toHaveBeenCalledExactlyOnceWith('EXAMPLE_TOKEN', { label: 'computer pairing details' });
+  });
+
+  it('names computers and keeps a configured connection switch separate from live readiness', () => {
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelector('.section-title')?.textContent).toBe('Other computers');
+    expect(root.textContent).toContain('Let your other computers connect');
+    expect(root.textContent).toContain('Choose whether this Mac manages work');
+    expect(root.textContent).toContain('Configured: On');
+    expect(root.textContent).toContain('Not accepting connections');
+    expect(root.textContent).not.toMatch(/Remote Nodes|Remote Node Server|\bworker\b|\bcoordinator\b/i);
+    expect(root.querySelector<HTMLInputElement>('.toggle-input')?.checked).toBe(true);
+  });
+
+  it('shows a live listener even when the saved switch is off', () => {
+    store.remoteNodesEnabled.mockReturnValue(false);
+    (component as unknown as { serverStatus: WritableSignal<RemoteNodeServerStatus> }).serverStatus
+      .set({ running: true, host: '127.0.0.1', port: 4878 });
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelector<HTMLInputElement>('.toggle-input')?.checked).toBe(false);
+    expect(root.textContent).toContain('Configured: Off');
+    expect(root.textContent).toContain('Accepting connections');
+    expect(root.textContent).toContain('127.0.0.1:4878');
+  });
+
+  it('uses the computer name in revocation while retaining the exact revoke target', async () => {
+    (component as unknown as { liveNodes: WritableSignal<RemoteNodeRosterEntry[]> }).liveNodes
+      .set([makeRosterEntry({ id: 'node-a', name: 'Studio PC', platform: 'win32' })]);
+    const confirm = vi.spyOn(TestBed.inject(ConfirmService), 'confirm').mockResolvedValue(true);
+    await component.revokeNode('node-a');
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ message: 'Revoke "Studio PC"? It will no longer be able to connect.' }));
+    expect(ipc.revokeNode).toHaveBeenCalledWith('node-a');
   });
 
   it('prefers the Tailscale IP when generating worker pairing connection details', () => {
@@ -382,7 +417,7 @@ describe('RemoteNodesSettingsTabComponent', () => {
       fixture.detectChanges();
 
       const pairing = fixture.nativeElement.querySelector('#remote-nodes-panel-pairing');
-      expect(pairing?.textContent).toContain('Enable the remote-node server in Overview');
+      expect(pairing?.textContent).toContain('Allow connections in Overview');
     });
     it('renders four section tabs with matching tab panels, only the active panel visible', () => {
       fixture.detectChanges();
@@ -412,12 +447,12 @@ describe('RemoteNodesSettingsTabComponent', () => {
       expect(fixture.nativeElement.querySelector('#remote-nodes-panel-computers')).not.toBeNull();
     });
 
-    it('shows the Computer Role and Enable Remote Node Server controls on Overview', () => {
+    it('shows the Computer Role and Let your other computers connect controls on Overview', () => {
       fixture.detectChanges();
 
       const overview = fixture.nativeElement.querySelector('#remote-nodes-panel-overview');
       expect(overview?.textContent).toContain('Computer Role');
-      expect(overview?.textContent).toContain('Enable Remote Node Server');
+      expect(overview?.textContent).toContain('Let your other computers connect');
     });
 
     it('navigates to Advanced from the Overview "Server & advanced settings" action', () => {
@@ -532,7 +567,7 @@ describe('RemoteNodesSettingsTabComponent', () => {
       onDetailAction({ type: 'copy', value: 'some-diagnostics-json', description: 'remote node diagnostics' });
       await Promise.resolve();
 
-      expect(clipboard.copyText).toHaveBeenCalledWith('some-diagnostics-json', { label: 'remote node token' });
+      expect(clipboard.copyText).toHaveBeenCalledWith('some-diagnostics-json', { label: 'computer pairing details' });
     });
   });
 });

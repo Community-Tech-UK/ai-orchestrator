@@ -111,6 +111,8 @@ describe('ComputerUsePermissionBannerComponent', () => {
     expect(fixture.nativeElement.textContent).toContain(
       'Registrations reset. Enable both permissions, then restart Harness.',
     );
+    expect(fixture.nativeElement.textContent).not.toContain('AIO');
+    expect(restart?.textContent?.trim()).toBe('Restart Harness');
     restart?.click();
     expect(store.relaunchApplication).toHaveBeenCalledOnce();
   });

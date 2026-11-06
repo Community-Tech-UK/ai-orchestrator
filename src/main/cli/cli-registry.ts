@@ -8,6 +8,7 @@
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { getCliAdditionalPaths } from './cli-environment';
+import { providerToolName } from '../../shared/display-names';
 
 /**
  * CLI type identifiers. Gemini (`gemini`) and Antigravity (`agy`) are
@@ -75,7 +76,7 @@ export const CLI_REGISTRY: Record<CliType, CliRegistryEntry> = {
   claude: {
     name: 'claude',
     command: 'claude',
-    displayName: 'Claude Code',
+    displayName: providerToolName('claude'),
     versionFlag: '--version',
     versionPattern: /(\d+\.\d+\.\d+)/,
     capabilities: [
@@ -96,7 +97,7 @@ export const CLI_REGISTRY: Record<CliType, CliRegistryEntry> = {
   codex: {
     name: 'codex',
     command: 'codex',
-    displayName: 'OpenAI Codex CLI',
+    displayName: providerToolName('codex'),
     versionFlag: '--version',
     versionPattern: /(\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)/,
     capabilities: [
@@ -116,7 +117,7 @@ export const CLI_REGISTRY: Record<CliType, CliRegistryEntry> = {
   gemini: {
     name: 'gemini',
     command: 'gemini',
-    displayName: 'Google Gemini CLI',
+    displayName: providerToolName('gemini'),
     versionFlag: '--version',
     versionPattern: /(\d+\.\d+\.\d+)/,
     capabilities: ['streaming', 'tool-use', 'file-access', 'shell', 'multi-turn', 'vision', 'large-context'],
@@ -129,7 +130,7 @@ export const CLI_REGISTRY: Record<CliType, CliRegistryEntry> = {
   antigravity: {
     name: 'antigravity',
     command: 'agy',
-    displayName: 'Antigravity',
+    displayName: providerToolName('antigravity'),
     versionFlag: '--version',
     versionPattern: /(\d+\.\d+\.\d+)/,
     capabilities: ['tool-use', 'file-access', 'shell', 'multi-turn', 'large-context'],
@@ -142,7 +143,7 @@ export const CLI_REGISTRY: Record<CliType, CliRegistryEntry> = {
   copilot: {
     name: 'copilot',
     command: 'copilot',
-    displayName: 'GitHub Copilot',
+    displayName: providerToolName('copilot'),
     versionFlag: '--version',
     versionPattern: /(\d+\.\d+\.\d+)/,
     capabilities: [
@@ -164,7 +165,7 @@ export const CLI_REGISTRY: Record<CliType, CliRegistryEntry> = {
   cursor: {
     name: 'cursor',
     command: 'cursor-agent',
-    displayName: 'Cursor CLI',
+    displayName: providerToolName('cursor'),
     versionFlag: '--version',
     versionPattern: /(\d+\.\d+\.\d+)/,
     capabilities: [
@@ -185,7 +186,7 @@ export const CLI_REGISTRY: Record<CliType, CliRegistryEntry> = {
   grok: {
     name: 'grok',
     command: 'grok',
-    displayName: 'Grok Build',
+    displayName: providerToolName('grok'),
     versionFlag: '--version',
     versionPattern: /(\d+\.\d+\.\d+)/,
     capabilities: [
@@ -216,7 +217,7 @@ export const CLI_REGISTRY: Record<CliType, CliRegistryEntry> = {
   opencode: {
     name: 'opencode',
     command: 'opencode',
-    displayName: 'OpenCode',
+    displayName: providerToolName('opencode'),
     versionFlag: '--version',
     versionPattern: /(\d+\.\d+\.\d+)/,
     capabilities: [
@@ -250,7 +251,7 @@ export const CLI_REGISTRY: Record<CliType, CliRegistryEntry> = {
   ollama: {
     name: 'ollama',
     command: 'ollama',
-    displayName: 'Ollama',
+    displayName: providerToolName('ollama'),
     versionFlag: '--version',
     versionPattern: /(\d+\.\d+\.\d+)/,
     capabilities: ['streaming', 'multi-turn', 'local'],

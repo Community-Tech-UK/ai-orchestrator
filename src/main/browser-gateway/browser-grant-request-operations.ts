@@ -10,6 +10,7 @@ import type { BrowserExistingTabAttachment, BrowserExtensionTabStore } from './b
 import type { BrowserGrantStore } from './browser-grant-store';
 import type { BrowserProfileStore } from './browser-profile-store';
 import { providerFromContext } from './browser-provider';
+import { statedReason } from './browser-approval-reason';
 import type { BrowserGatewayResultInput } from './browser-gateway-result';
 import { primaryActionClass } from './browser-gateway-service-helpers';
 import type { BrowserGatewayContext } from './browser-gateway-service-types';
@@ -142,6 +143,7 @@ export class BrowserGrantRequestOperations {
       actionClass,
       origin: originDecision.origin,
       url: currentUrl,
+      requestReason: statedReason(request.reason),
       proposedGrant: { ...request.proposedGrant, nodeId: profile.executionNodeId ?? 'local' },
       expiresAt: Date.now() + 30 * 60 * 1000,
     });
@@ -259,6 +261,7 @@ export class BrowserGrantRequestOperations {
       actionClass,
       origin: originDecision.origin,
       url: attachment.url,
+      requestReason: statedReason(request.reason),
       proposedGrant: { ...request.proposedGrant, nodeId },
       expiresAt: Date.now() + 30 * 60 * 1000,
     });

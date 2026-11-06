@@ -41,8 +41,8 @@
       <p id="disk-cleanup-consequence">{{ preview.consequence }}</p>
       @if (preview.keptBackup; as backup) { <p>Your newest backup stays: {{ date(backup.createdAt) }}, {{ bytes(backup.bytes) }}.</p> }
       @if (preview.target === 'event-record-shrink') {
-        <p>The scratch trial took about 2 seconds for 249 MB of live data; your file may take longer.</p>
-        <p>Live data: {{ bytes(preview.liveBytes ?? 0) }}. Free disk needed for a moment: {{ bytes(preview.requiredDiskBytes ?? 0) }}. Available: {{ bytes(preview.availableDiskBytes ?? 0) }}.</p>
+        <p>This can take a while on a large file, so pick a quiet moment.</p>
+        <p>Data in use: {{ bytes(preview.liveBytes ?? 0) }}. Free disk space needed for a moment: {{ bytes(preview.requiredDiskBytes ?? 0) }}. Free now: {{ bytes(preview.availableDiskBytes ?? 0) }}.</p>
       }
       @if (preview.target !== 'event-record' && preview.items.length) {
         <details><summary>Exact files to remove ({{ preview.items.length }})</summary><ul>

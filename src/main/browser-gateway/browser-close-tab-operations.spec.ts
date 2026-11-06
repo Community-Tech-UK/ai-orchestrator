@@ -67,6 +67,7 @@ function makeOps(options: {
     }),
   ];
   const detached: string[] = [];
+  const createRequest = vi.fn((input) => ({ ...input, requestId: 'req-1' }));
   const ops = new BrowserCloseTabOperations({
     targetRegistry: {
       listTargets: () => (options.targets ?? []).map((target) => ({
@@ -99,17 +100,37 @@ function makeOps(options: {
       consumeGrant: vi.fn((id: string) => grants.find((grant) => grant.id === id) ?? null),
     },
     approvalStore: {
-      createRequest: vi.fn((input) => ({ ...input, requestId: 'req-1' })),
+      createRequest,
       listRequests: vi.fn(() => []),
     },
     autoApproveApproval: () => null,
     getWorkerNodes: () => [],
     result: (params) => params as never,
   });
-  return { ops, sendCommand, closeTarget, detached };
+  return { ops, sendCommand, closeTarget, detached, createRequest };
 }
 
 describe('BrowserCloseTabOperations', () => {
+  it('records the reason the agent gave on the approval it raises to close a tab', async () => {
+    const { ops, sendCommand, createRequest } = makeOps({ grants: [] });
+
+    const result = await ops.closeTab({
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      reason: 'Closing the checkout tab you finished with',
+    });
+
+    expect(result.decision).toBe('requires_user');
+    expect(createRequest).toHaveBeenCalledWith(expect.objectContaining({
+      toolName: 'browser.close_tab',
+      actionClass: 'destructive',
+      requestReason: 'Closing the checkout tab you finished with',
+    }));
+    expect(sendCommand).not.toHaveBeenCalled();
+  });
+
   it('closes an existing Chrome tab under a destructive grant and detaches it', async () => {
     const { ops, sendCommand, detached } = makeOps();
     const result = await ops.closeTab({

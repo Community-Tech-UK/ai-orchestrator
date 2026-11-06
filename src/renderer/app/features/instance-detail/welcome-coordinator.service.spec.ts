@@ -452,7 +452,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
 
     expect(launched).toBe(false);
     expect(store.setError).toHaveBeenCalledWith(
-      'Selected remote node is no longer connected. Please choose another node or use Local.',
+      'The selected computer is no longer connected. Choose another computer or run the session on this computer.',
     );
     expect(store.createInstanceWithMessageResult).not.toHaveBeenCalled();
     expect(creatingChange).not.toHaveBeenCalled();

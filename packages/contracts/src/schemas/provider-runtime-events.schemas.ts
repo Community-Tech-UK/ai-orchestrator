@@ -70,7 +70,7 @@ const ProviderPromptWeightBreakdownSchema = z.object({
 export const TurnEndingClassificationSchema = z.object({
   reason: z.enum(['completed', 'max_output', 'content_filter', 'truncated_transport',
     'quota', 'auth', 'billing', 'context_overflow', 'retryable', 'doom_loop',
-    'parent_silent', 'crash', 'dangling_tool_result', 'unknown_error']),
+    'parent_silent', 'crash', 'dangling_tool_result', 'empty_result', 'unknown_error']),
   evidence: z.string().min(1).max(100),
   reasoningCollapsed: z.boolean().optional(),
   visibleAnswerComplete: z.boolean().optional(),
@@ -166,6 +166,7 @@ const ProviderSpawnedEventSchema = z.object({
 
 const ProviderCompleteEventSchema = z.object({
   kind: z.literal('complete'),
+  turnErrored: z.boolean().optional(),
   requestCountAtCompletion: z.number().int().nonnegative().optional(),
   tokensUsed: z.number().int().nonnegative().optional(),
   inputTokens: z.number().int().nonnegative().optional(),

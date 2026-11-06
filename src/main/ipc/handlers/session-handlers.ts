@@ -31,7 +31,7 @@ import {
   SessionHandlerEmptyPayloadSchema,
 } from '@contracts/schemas/session';
 import type { ExportedSession } from '../../../shared/types/instance.types';
-import { isVisibleOutputMessage } from '../../../shared/types/tool-outcome';
+import { projectArchivedToolOutcomes } from '../../instance/turn-tool-outcome-projection';
 import type { InstanceManager } from '../../instance/instance-manager';
 import { getAutoTitleService } from '../../instance/auto-title-service';
 import { getHistoryManager } from '../../history';
@@ -428,11 +428,11 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
         };
       }
       // LT-196: the archive holds miner-only `tool_outcome` records. The
-      // renderer has no use for them and its history views render every
-      // message verbatim, so they stop at this boundary.
+      // renderer receives their outcome on the existing call; the hidden records
+      // stop at this boundary so they never become extra transcript rows.
       return {
         success: true,
-        data: { ...data, messages: data.messages.filter(isVisibleOutputMessage) },
+        data: { ...data, messages: projectArchivedToolOutcomes(data.messages) },
       };
     },
     'HISTORY_LOAD_FAILED',

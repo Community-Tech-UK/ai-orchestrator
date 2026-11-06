@@ -19,6 +19,13 @@ export const targetIdProp = {
   ...stringProp,
   description: 'Browser Gateway target id.',
 };
+/** Optional on every tool that can raise an approval; the approval card shows it as the reason. */
+export const reasonProp = {
+  ...stringProp,
+  description:
+    'Why you are doing this, in one plain sentence. It is shown to the person who approves the '
+    + 'action. Do not include passwords or other secrets.',
+};
 export const selectorProp = {
   ...stringProp,
   description:

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { BrowserStatedReasonSchema } from './browser-stated-reason.schemas';
 
 /**
  * Schemas for browser.press_key / browser.set_viewport / browser.set_zoom —
@@ -68,6 +69,7 @@ export const BrowserPressKeyRequestSchema = z
     key: BrowserPressKeySchema,
     modifiers: z.array(BrowserPressKeyModifierSchema).max(3).optional(),
     actionHint: z.string().min(1).max(500).optional(),
+    reason: BrowserStatedReasonSchema.optional(),
     expectUrlChange: z.boolean().optional(),
     expectChange: BrowserEffectExpectationSchema.optional(),
     /**

@@ -459,7 +459,8 @@
     "id": "149804a95d40c69c",
     "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
     "text": "hibernated — send a message to wake",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Phase E uses Asleep and the shared status presenter retains the instruction to send a message to wake the session."
   },
   {
     "id": "1ce54ddc29aecbe9",
@@ -492,7 +493,8 @@
     "id": "640da151e81fce8b",
     "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
     "text": "' disconnected — session may be interrupted",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Phase E names the computer and says it is offline; the same tooltip still warns that this session may be interrupted."
   },
   {
     "id": "df14aab4d37f322a",
@@ -510,7 +512,8 @@
     "id": "4e7b9227f40bc061",
     "owner": "src/renderer/app/features/local-ai-guard/local-ai-status-chip.component.ts",
     "text": "Local AI Guard: Status unavailable. Open Local AI health centre.",
-    "why": "long"
+    "why": "long",
+    "retired": "Phase E renames Local AI health centre to Local models and retains the full current problem in the linked button description."
   },
   {
     "id": "652105c82803b580",
@@ -865,37 +868,43 @@
     "id": "164e2224350ee790",
     "owner": "src/renderer/app/features/settings/remote-node-detail.component.ts",
     "text": "Android SDK/ADB is detected, but automation is not ready on this node.",
-    "why": "long"
+    "why": "long",
+    "retired": "Phase E changes node to computer in this browser or Android capability hint, retaining its capability consequence (164e2224350ee790)."
   },
   {
     "id": "21ad095a102267e7",
     "owner": "src/renderer/app/features/settings/remote-node-detail.component.ts",
     "text": "No Chrome/Chromium runtime detected on this node.",
-    "why": "long"
+    "why": "long",
+    "retired": "Phase E changes node to computer in this browser or Android capability hint, retaining its capability consequence (21ad095a102267e7)."
   },
   {
     "id": "51ff5b0fc2456bcd",
     "owner": "src/renderer/app/features/settings/remote-node-detail.component.ts",
     "text": "No Android SDK/ADB state reported by this node.",
-    "why": "long"
+    "why": "long",
+    "retired": "Phase E changes node to computer in this browser or Android capability hint, retaining its capability consequence (51ff5b0fc2456bcd)."
   },
   {
     "id": "624866aae4f08dc6",
     "owner": "src/renderer/app/features/settings/remote-node-detail.component.ts",
     "text": "Agents spawned on this node can receive mobile-mcp Android tools.",
-    "why": "long"
+    "why": "long",
+    "retired": "Phase E changes node to computer in this browser or Android capability hint, retaining its capability consequence (624866aae4f08dc6)."
   },
   {
     "id": "7467982b728487fb",
     "owner": "src/renderer/app/features/settings/remote-node-detail.component.ts",
     "text": "Chrome extension native-host relay is listening on this node.",
-    "why": "long"
+    "why": "long",
+    "retired": "Phase E changes node to computer in this browser or Android capability hint, retaining its capability consequence (7467982b728487fb)."
   },
   {
     "id": "89109a25039baed0",
     "owner": "src/renderer/app/features/settings/remote-node-detail.component.ts",
     "text": "Chrome is installed but automation is not enabled on this node.",
-    "why": "long"
+    "why": "long",
+    "retired": "Phase E changes node to computer in this browser or Android capability hint, retaining its capability consequence (89109a25039baed0)."
   },
   {
     "id": "ad876171d5fb09fc",
@@ -913,13 +922,15 @@
     "id": "ddb564dd82a8724a",
     "owner": "src/renderer/app/features/settings/remote-node-detail.component.ts",
     "text": "Agents spawned on this node get chrome-devtools browser tools.",
-    "why": "long"
+    "why": "long",
+    "retired": "Phase E changes node to computer in this browser or Android capability hint, retaining its capability consequence (ddb564dd82a8724a)."
   },
   {
     "id": "eed511e774a00fa5",
     "owner": "src/renderer/app/features/settings/remote-node-detail.component.ts",
     "text": "Chrome extension relay is off on this node.",
-    "why": "long"
+    "why": "long",
+    "retired": "Phase E changes node to computer in this browser or Android capability hint, retaining its capability consequence (eed511e774a00fa5)."
   },
   {
     "id": "10bda22346c8d94b",
@@ -1015,7 +1026,8 @@
     "id": "e9146aafe6bc4c20",
     "owner": "src/renderer/app/shared/components/node-picker/node-picker.component.ts",
     "text": "Node is disconnected",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Phase E replaces Node is disconnected with Computer is disconnected; unavailable options remain focusable with the reason."
   },
   {
     "id": "833e230c83e87d71",
@@ -1770,7 +1782,8 @@
     "id": "feb716db8f905408",
     "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
     "text": "This session has a pending permission request",
-    "why": "long"
+    "why": "long",
+    "retired": "The session row now says 'This session is waiting for you to approve something' and its chip reads Needs your OK from the shared status wording (2026-11-06 merge of the calm screen)."
   },
   {
     "id": "d97a79b51676bceb",
@@ -2344,7 +2357,8 @@
     "id": "160fff3d145c96aa",
     "owner": "src/renderer/app/features/local-ai-guard/local-ai-status-chip.component.ts",
     "text": " Helper models: daily limit reached. Paid fallbacks resume tomorrow.",
-    "why": "long"
+    "why": "long",
+    "retired": "The title-bar chip builds its tooltip at runtime from the models' state; the daily-limit sentence is still said in it, word for word, with Open Local models (2026-11-06 merge of the calm screen)."
   },
   {
     "id": "02f34310c61de286",
@@ -2398,6 +2412,96 @@
     "id": "f3ab010777243b8e",
     "owner": "src/renderer/app/features/automations/automations-page.component.ts",
     "text": "Remove the check to save: a one-time job has no earlier run to compare with",
+    "why": "consequence"
+  },
+  {
+    "id": "18793f03e2f04171",
+    "owner": "src/renderer/app/features/instance-detail/context-bar.component.ts",
+    "text": "Every message in a chat over 150K reads the whole chat again, so a size cap that summarises earlier keeps each message cheaper.",
+    "why": "long"
+  },
+  {
+    "id": "2692e4c15b3c11db",
+    "owner": "src/renderer/app/features/instance-detail/context-bar.component.ts",
+    "text": "After a break, Claude reads a long chat again at full price; compacting it first shrinks that re-read.",
+    "why": "long"
+  },
+  {
+    "id": "8e1c02ef53a2e029",
+    "owner": "src/renderer/app/features/instance-detail/turn-summary-row.component.ts",
+    "text": "Open the review panel to look over the changes",
+    "why": "long"
+  },
+  {
+    "id": "53b98ee025490d86",
+    "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
+    "text": " is offline — this session may be interrupted",
+    "why": "long"
+  },
+  {
+    "id": "a5dc17bc17f7b0b3",
+    "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
+    "text": "This session is waiting for you to approve something",
+    "why": "long"
+  },
+  {
+    "id": "2371d53b0a2ce85c",
+    "owner": "src/renderer/app/features/settings/remote-node-detail.component.ts",
+    "text": "Chrome extension relay is off on this computer.",
+    "why": "long"
+  },
+  {
+    "id": "287656b1506bf820",
+    "owner": "src/renderer/app/features/settings/remote-node-detail.component.ts",
+    "text": "Chrome extension native-host relay is listening on this computer.",
+    "why": "long"
+  },
+  {
+    "id": "32c0b21e63166aa5",
+    "owner": "src/renderer/app/features/settings/remote-node-detail.component.ts",
+    "text": "Chrome is installed but automation is not enabled on this computer.",
+    "why": "long"
+  },
+  {
+    "id": "4a725b4cea9bce78",
+    "owner": "src/renderer/app/features/settings/remote-node-detail.component.ts",
+    "text": "No Android SDK/ADB state reported by this computer.",
+    "why": "long"
+  },
+  {
+    "id": "66b2d6676fc1b202",
+    "owner": "src/renderer/app/features/settings/remote-node-detail.component.ts",
+    "text": "Android SDK/ADB is detected, but automation is not ready on this computer.",
+    "why": "long"
+  },
+  {
+    "id": "bd5d97800baf4ca2",
+    "owner": "src/renderer/app/features/settings/remote-node-detail.component.ts",
+    "text": "Agents spawned on this computer get chrome-devtools browser tools.",
+    "why": "long"
+  },
+  {
+    "id": "ce3093c49299494a",
+    "owner": "src/renderer/app/features/settings/remote-node-detail.component.ts",
+    "text": "Agents spawned on this computer can receive mobile-mcp Android tools.",
+    "why": "long"
+  },
+  {
+    "id": "d98f6e6ceaad6203",
+    "owner": "src/renderer/app/features/settings/remote-node-detail.component.ts",
+    "text": "No Chrome/Chromium runtime detected on this computer.",
+    "why": "long"
+  },
+  {
+    "id": "cab89d478e32c704",
+    "owner": "src/renderer/app/shared/components/node-picker/node-picker.component.ts",
+    "text": "Computer is disconnected",
+    "why": "consequence"
+  },
+  {
+    "id": "b50e450d62d4219b",
+    "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
+    "text": " allowance resets at ",
     "why": "consequence"
   }
 ]

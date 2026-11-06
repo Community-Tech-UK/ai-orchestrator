@@ -64,7 +64,7 @@
 
     <ng-template #itemBody let-item>
           @if (item.type === 'thought-group') {
-            @if (hasThoughtGroupContent(item, showThinking()) || item.collapsedThinkingFallback) {
+            @if (messageFormat.hasThoughtGroupContent(item, showThinking()) || item.collapsedThinkingFallback) {
               <div class="thought-group">
                 @if ((item.thinking && item.thinking.length > 0) || (item.thoughts && item.thoughts.length > 0)) {
                   @if (showThinking() || item.collapsedThinkingFallback) {
@@ -81,7 +81,7 @@
                   <div class="message message-assistant" [class.continuation]="item.showHeader === false">
                     @if (item.showHeader !== false) {
                       <div class="message-header">
-                        <span class="message-type">{{ getProviderDisplayName(provider()) }}</span>
+                        <span class="message-type">{{ messageFormat.getProviderDisplayName(provider()) }}</span>
                         <span class="message-time" tabindex="0">{{ item.response.timestamp | date: 'HH:mm:ss' }}</span>
                       </div>
                     }
@@ -131,23 +131,23 @@
                     <button
                       type="button"
                       class="compaction-recover-btn"
-                      [class.queued]="compactionRecoveryState()[markerId] === 'queued'"
-                      [class.failed]="compactionRecoveryState()[markerId] === 'failed'"
-                      [disabled]="compactionRecoveryState()[markerId] === 'recovering'"
-                      [appTooltipDisabledReason]="compactionRecoveryState()[markerId] === 'queued' ? compactionQueuedReason : null"
-                      (click)="recoverCompactionContext($event, markerId)"
-                      [appTooltip]="compactionRecoveryHint">
-                      {{ compactionRecoveryLabel(markerId) }}
+                      [class.queued]="compactionRecovery.states()[markerId] === 'queued'"
+                      [class.failed]="compactionRecovery.states()[markerId] === 'failed'"
+                      [disabled]="compactionRecovery.states()[markerId] === 'recovering'"
+                      [appTooltipDisabledReason]="compactionRecovery.states()[markerId] === 'queued' ? compactionCopy.queued : null"
+                      (click)="compactionRecovery.recover($event, markerId)"
+                      [appTooltip]="compactionCopy.hint">
+                      {{ compactionRecovery.label(markerId) }}
                     </button>
                   }
                   <span class="compaction-summary-time">{{ item.compactionSummary.at | date: 'HH:mm:ss' }}</span>
                 </span>
               </div>
               <div class="compaction-summary-body">
-                <span>{{ formatCompactionReason(item.compactionSummary.reason) }}</span>
+                <span>{{ messageFormat.formatCompactionReason(item.compactionSummary.reason) }}</span>
                 <span>{{ item.compactionSummary.beforeCount }} -> {{ item.compactionSummary.afterCount }} messages</span>
                 @if (item.compactionSummary.fallbackMode) {
-                  <span>{{ formatCompactionFallbackMode(item.compactionSummary.fallbackMode) }}</span>
+                  <span>{{ messageFormat.formatCompactionFallbackMode(item.compactionSummary.fallbackMode) }}</span>
                 }
               </div>
             </div>
@@ -170,8 +170,8 @@
             <div class="work-cycle" [class.expanded]="isCycleExpanded(item.id)">
               <button class="work-cycle-header" (click)="toggleCycle(item.id)">
                 <span class="cycle-toggle-icon">{{ isCycleExpanded(item.id) ? '▾' : '▸' }}</span>
-                <span class="cycle-summary">{{ summarizeCycle(item) }}</span>
-                @if (formatCycleDuration(item); as dur) {
+                <span class="cycle-summary">{{ messageFormat.summarizeCycle(item) }}</span>
+                @if (messageFormat.formatCycleDuration(item); as dur) {
                   <span class="cycle-duration">{{ dur }}</span>
                 }
               </button>
@@ -186,26 +186,31 @@
               }
             </div>
           } @else if (item.message) {
-            @if (isCompactionBoundary(item.message)) {
+            @if (requestReceipt(item.message); as receipt) {
+              <div class="request-receipt" [attr.data-request-id]="receipt.requestId" [attr.data-outcome]="receipt.outcome">
+                <span>{{ receipt.text }}</span>
+                @if (receipt.subject) { <span> ({{ receipt.subject }})</span> }
+              </div>
+            } @else if (isCompactionBoundary(item.message)) {
               <div class="compaction-boundary">
                 <div class="boundary-line"></div>
-                <span class="boundary-label" [attr.tabindex]="item.message.metadata?.method === 'restart-with-summary' ? 0 : null" [appTooltip]="getCompactionTooltip(item.message)">{{ getCompactionLabel(item.message) }}</span>
-                @if (getCompactionMarkerId(item.message); as markerId) {
+                <span class="boundary-label" [attr.tabindex]="item.message.metadata?.method === 'restart-with-summary' ? 0 : null" [appTooltip]="getCompactionTooltip(item.message)">{{ messageFormat.getCompactionLabel(item.message, provider()) }}</span>
+                @if (messageFormat.getCompactionMarkerId(item.message); as markerId) {
                   <button
                     type="button"
                     class="compaction-recover-btn boundary-recover-btn"
-                    [class.queued]="compactionRecoveryState()[markerId] === 'queued'"
-                    [class.failed]="compactionRecoveryState()[markerId] === 'failed'"
-                    [disabled]="compactionRecoveryState()[markerId] === 'recovering'"
-                    [appTooltipDisabledReason]="compactionRecoveryState()[markerId] === 'queued' ? compactionQueuedReason : null"
-                    (click)="recoverCompactionContext($event, markerId)"
-                    [appTooltip]="compactionRecoveryHint">
-                    {{ compactionRecoveryLabel(markerId) }}
+                    [class.queued]="compactionRecovery.states()[markerId] === 'queued'"
+                    [class.failed]="compactionRecovery.states()[markerId] === 'failed'"
+                    [disabled]="compactionRecovery.states()[markerId] === 'recovering'"
+                    [appTooltipDisabledReason]="compactionRecovery.states()[markerId] === 'queued' ? compactionCopy.queued : null"
+                    (click)="compactionRecovery.recover($event, markerId)"
+                    [appTooltip]="compactionCopy.hint">
+                    {{ compactionRecovery.label(markerId) }}
                   </button>
                 }
                 <div class="boundary-line"></div>
               </div>
-            } @else if (isRestoreNotice(item.message)) {
+            } @else if (messageFormat.isRestoreNotice(item.message)) {
               <div class="restore-notice">
                 <svg class="restore-notice-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <circle cx="12" cy="12" r="10"></circle>
@@ -249,8 +254,8 @@
                   <div class="message-header">
                     <span class="message-type"
                       [class.message-type-internal]="!!item.message.metadata?.internalInput"
-                      [appTooltip]="describeMessageSender(item.message) || null"
-                      [attr.tabindex]="describeMessageSender(item.message) ? 0 : null">{{ formatMessageLabel(item.message, provider()) }}</span>
+                      [appTooltip]="messageFormat.describeMessageSender(item.message) || null"
+                      [attr.tabindex]="messageFormat.describeMessageSender(item.message) ? 0 : null">{{ messageFormat.formatMessageLabel(item.message, provider()) }}</span>
                     @if (item.repeatCount && item.repeatCount > 1) {
                       <span class="repeat-badge">&times;{{ item.repeatCount }}</span>
                     }
@@ -287,9 +292,9 @@
                   @if (item.message.type === 'tool_use' || item.message.type === 'tool_result') {
                     <div class="code-block-wrapper">
                       <div class="code-block-header">
-                        <span class="code-language">{{ getToolName(item.message) }}</span>
+                        <span class="code-language">{{ messageFormat.getToolName(item.message) }}</span>
                       </div>
-                      <pre class="hljs"><code>{{ formatContent(item.message) }}</code></pre>
+                      <pre class="hljs"><code>{{ messageFormat.formatContent(item.message) }}</code></pre>
                     </div>
                   } @else {
                     <div
@@ -306,6 +311,9 @@
                         [target]="asyncAnswerTarget()"
                         [transcript]="messages()" />
                     }
+                  }
+                  @if (item.message.type === 'error' || item.message.type === 'system') {
+                    <app-event-error-details [metadata]="item.message.metadata" />
                   }
                   @if (item.message.attachments && item.message.attachments.length > 0) {
                     <app-message-attachments [attachments]="item.message.attachments" />
@@ -370,7 +378,20 @@
               }
             }
           }
+          <!-- The quiet note under a finished turn sits under the turn's last row. -->
+          @if (turnNotes.noteFor(item.id); as note) {
+            <app-turn-summary-row
+              [summary]="note.summary"
+              [warning]="note.warning"
+              [changedFiles]="note.changedFiles"
+              [reviewable]="reviewPanelAvailable()"
+              (reviewRequested)="onTurnReviewRequested(note)" />
+          }
     </ng-template>
+
+    @if (isLiveView()) {
+      <app-run-failure-notice [instanceId]="instanceId()" />
+    }
 
     <!-- Scroll to top button -->
     @if (showScrollToTop()) {

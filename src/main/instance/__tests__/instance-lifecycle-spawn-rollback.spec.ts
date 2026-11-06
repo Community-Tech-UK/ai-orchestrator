@@ -27,6 +27,7 @@ import {
   getOrCreateTurnSupervisor,
   getTurnSupervisor,
 } from '../../session/session-turn-supervisor';
+import { ProviderConcurrencyTimeoutError } from '../../cli/provider-concurrency-limiter';
 
 const mocks = vi.hoisted(() => ({
   resolveAgent: vi.fn(),
@@ -905,8 +906,38 @@ describe('createInstance spawn transaction rollback', () => {
     expect(instance.outputBuffer.some((m) => m.type === 'user' && m.content === 'check the docs are correct')).toBe(true);
     const notice = instance.outputBuffer.find((m) => m.metadata?.['source'] === 'session-start-failed');
     expect(notice?.type).toBe('error');
-    expect(notice?.content).toContain('Hardened mode is not supported for Codex yet');
+    // The person reads plain words; the real reason is behind Details on the same message.
+    expect(notice?.content).toBe(
+      'This session could not start. What to do: Check Details, then try again. Your message and the work above are kept.',
+    );
+    expect(notice?.metadata?.['errorPresentation']).toMatchObject({
+      category: 'unknown',
+      rawDetail: expect.stringContaining('Hardened mode is not supported for Codex yet'),
+    });
     expect(harness.deps.queueUpdate).toHaveBeenCalledWith(instance.id, 'error', instance.contextUsage);
+  });
+
+  it('says a provider concurrency timeout in the limiter\'s own plain sentence when a session could not start', async () => {
+    const harness = makeHarness();
+    mocks.createAdapter.mockImplementation(() => {
+      throw new ProviderConcurrencyTimeoutError('codex', 6, 60_000, 60_000);
+    });
+
+    const instance = await createAndAwaitFailure(harness, {
+      workingDirectory: '/tmp/project',
+      provider: 'codex',
+      initialPrompt: 'check the docs are correct',
+    });
+
+    const notice = instance.outputBuffer.find((m) => m.metadata?.['source'] === 'session-start-failed');
+    expect(notice?.content).toBe(
+      'This session could not start. Codex is already running its maximum of 6 sessions; this one waited a minute. '
+      + 'What to do: Wait for another session to finish, then try again.',
+    );
+    expect(notice?.metadata?.['errorPresentation']).toMatchObject({
+      category: 'concurrency',
+      rawDetail: "Timed out waiting 60000ms for 'codex' provider concurrency slot",
+    });
   });
 
   it('preserves the session when the initial prompt send fails after a successful spawn', async () => {

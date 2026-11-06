@@ -76,6 +76,8 @@ describe('deriveAutomationAuthority', () => {
       const nodeStatement = withNode.statements.find((s) => s.source === 'action.forceNodeId');
       expect(nodeStatement?.enforcement).toBe('technical');
       expect(nodeStatement?.statement).toContain('node-7');
+      expect(nodeStatement?.statement).toContain('pinned computer');
+      expect(nodeStatement?.statement).toContain('will not fall back to any other computer');
     });
   });
 

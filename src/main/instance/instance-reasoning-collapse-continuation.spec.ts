@@ -115,7 +115,7 @@ describe('InstanceReasoningCollapseContinuation', () => {
     expect(emitSystemMessage).toHaveBeenCalledWith(
       ID,
       REASONING_COLLAPSE_NOTICE,
-      { source: 'reasoning-collapse' },
+      { source: 'reasoning-collapse', action: 'continue' },
     );
     expect(emitSystemMessage).toHaveBeenCalledWith(
       ID,
@@ -140,7 +140,7 @@ describe('InstanceReasoningCollapseContinuation', () => {
     expect(emitSystemMessage).toHaveBeenCalledWith(
       ID,
       CONTENT_FILTER_NOTICE,
-      { source: 'content-filter' },
+      { source: 'content-filter', action: 'continue' },
     );
   });
 
@@ -165,7 +165,7 @@ describe('InstanceReasoningCollapseContinuation', () => {
     collapseComplete();
     await flush();
 
-    expect(emitSystemMessage).toHaveBeenCalledWith(ID, REASONING_COLLAPSE_NOTICE, { source: 'reasoning-collapse' });
+    expect(emitSystemMessage).toHaveBeenCalledWith(ID, REASONING_COLLAPSE_NOTICE, { source: 'reasoning-collapse', action: 'continue' });
     expect(sendInput).not.toHaveBeenCalled();
   });
 

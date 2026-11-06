@@ -27,6 +27,8 @@
  * cross-session aggregation, egress redaction, and proposal capture.
  */
 
+import { isToolResultFailed } from '../../shared/tool-outcome';
+
 export type ErrorClass =
   | 'PermissionDenied'
   | 'CommandNotFound'
@@ -104,15 +106,37 @@ function extractToolUseId(metadata: Record<string, unknown> | undefined): string
   );
 }
 
+/**
+ * The id a result carries for the call it answers. Claude's `tool_outcome` and the
+ * hand-built results use `tool_use_id`, ACP uses `toolCallId`, and Codex puts its
+ * item id under plain `id` on BOTH the call and the result (the shape every real
+ * Codex transcript has), so `id` is the last fallback. A result whose id matches no
+ * open call is dropped, so reading `id` can only close a call, never invent one.
+ */
 function extractResultCorrelationId(metadata: Record<string, unknown> | undefined): string | null {
   return (
     readStringField(metadata, 'tool_use_id')
     ?? readStringField(metadata, 'toolCallId')
     ?? readStringField(metadata, 'callId')
+    ?? readStringField(metadata, 'id')
   );
 }
 
-function extractIsError(metadata: Record<string, unknown> | undefined): boolean | null {
+/**
+ * Whether a finished command counts as a failed ATTEMPT to learn from.
+ *
+ * The shared rule (`shared/tool-outcome.ts`) decides what failed: a call that could
+ * not run, or a check that did not pass. A command that ran and exited non-zero is
+ * otherwise neutral there — a `rg` that found nothing exits 1 and is no correction.
+ * Output text is never execution-failure evidence: a command can print those
+ * words while exiting voluntarily. Error classes are read only after the shared
+ * outcome has established a real failure.
+ */
+function extractIsError(
+  metadata: Record<string, unknown> | undefined,
+  toolName: string,
+): boolean | null {
+  if (isToolResultFailed(toolName, metadata)) return true;
   const value = metadata?.['is_error'];
   return typeof value === 'boolean' ? value : null;
 }
@@ -163,7 +187,7 @@ export function extractToolInvocations(messages: readonly MinableMessage[]): Too
         toolName: pending.toolName,
         command: pending.command,
         resultText: message.content ?? null,
-        isError: extractIsError(message.metadata),
+        isError: extractIsError(message.metadata, pending.toolName),
       };
       invocations.push(invocation);
     }

@@ -1,0 +1,8 @@
+{
+  "src/main/cli/adapters/antigravity-cli-adapter.ts:91a8a5077a068dce": 1,
+  "src/main/cli/adapters/codex-app-server-turn-adapter.ts:91a8a5077a068dce": 1,
+  "src/main/cli/adapters/local-model-chat-adapter.ts:c9f1d59ce2f27735": 1,
+  "src/main/commands/goal-loop-command.ts:4af2856ec253e2df": 1,
+  "src/main/instance/instance-lifecycle.ts:e8a338f7fbf062e5": 1,
+  "src/main/instance/orchestration/orchestration-delivery-failure.ts:91a8a5077a068dce": 1
+}

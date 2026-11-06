@@ -116,9 +116,10 @@ describe('VoiceSettingsTabComponent', () => {
 
     expect(voiceIpc.getStatus).toHaveBeenCalledOnce();
     expect(text).toContain('Local Whisper STT');
-    expect(text).toContain('Worker node');
+    expect(fixture.nativeElement.querySelector('.active-provider .badge-row')?.textContent)
+      .toContain('Remote computer');
     expect(text).toContain('Near realtime');
-    expect(text).toContain('Audio stays on your machines');
+    expect(text).toContain('Audio stays on your computers');
   });
 
   it('shows the local STT empty state when no local engine is detected', async () => {
@@ -139,7 +140,7 @@ describe('VoiceSettingsTabComponent', () => {
           latencyClass: 'near-realtime',
           location: 'this-device',
           reason: 'No local STT backend is available.',
-          requiresSetup: 'Start speaches on a worker node.',
+          requiresSetup: 'Start speaches on another computer and wait for its next status update.',
         },
       ],
     }));
@@ -155,6 +156,7 @@ describe('VoiceSettingsTabComponent', () => {
       'select[name="voice-routing-mode"]'
     ) as HTMLSelectElement;
     routingSelect.value = 'worker-node';
+    expect(routingSelect.selectedOptions[0]?.textContent?.trim()).toBe('Remote computer');
     routingSelect.dispatchEvent(new Event('change'));
     await fixture.whenStable();
 

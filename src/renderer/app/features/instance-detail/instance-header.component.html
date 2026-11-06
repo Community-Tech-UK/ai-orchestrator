@@ -8,6 +8,7 @@
             <app-status-indicator
               [status]="instance().status"
               [backgroundWorkCount]="instance().backgroundWork?.count ?? 0"
+              [waitReason]="instance().waitReason"
             />
             @if (isEditingName()) {
               <input

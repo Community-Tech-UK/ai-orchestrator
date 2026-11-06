@@ -8,6 +8,8 @@ import {
   output,
   signal,
 } from '@angular/core';
+import { computerName } from '../../../../../shared/display-names';
+import { ElectronIpcService } from '../../../core/services/ipc/electron-ipc.service';
 import { RemoteNodeStore } from '../../../core/state/remote-node.store';
 import { SettingsStore } from '../../../core/state/settings.store';
 import { isRemoteNodeOnline } from '../../../core/state/remote-node-connectivity';
@@ -48,8 +50,8 @@ import { formatRemoteNodePlatformLabel } from '../../remote-node-display';
               >
                 <span class="node-health-dot health-local"></span>
                 <div class="node-option-content">
-                  <span class="node-option-name">Local</span>
-                  <span class="node-option-detail">This machine</span>
+                  <span class="node-option-name">{{ localComputer }}</span>
+                  <span class="node-option-detail">Where Harness is open</span>
                 </div>
               </button>
 
@@ -69,7 +71,7 @@ import { formatRemoteNodePlatformLabel } from '../../remote-node-display';
               >
                 <span class="node-health-dot" [class]="healthClass(node)"></span>
                 <div class="node-option-content">
-                  <span class="node-option-name">{{ node.name }}</span>
+                  <span class="node-option-name">{{ computerLabel(node) }}</span>
                   <span class="node-option-detail">{{ nodeSubtitle(node) }}</span>
                   @if (nodeDisabledReason(node); as reason) { <span class="node-option-detail">{{ reason }}</span> }
                 </div>
@@ -84,7 +86,7 @@ import { formatRemoteNodePlatformLabel } from '../../remote-node-display';
             type="button"
             class="node-picker-backdrop"
             data-ui-hints-exempt="backdrop"
-            aria-label="Close node picker"
+            aria-label="Close computer picker"
             (click)="isOpen.set(false)"
           ></button>
         }
@@ -181,6 +183,8 @@ import { formatRemoteNodePlatformLabel } from '../../remote-node-display';
   `],
 })
 export class NodePickerComponent {
+  readonly localComputer = computerName('local', inject(ElectronIpcService).platform);
+  readonly computerLabel = computerName;
   private readonly nodeStore = inject(RemoteNodeStore);
   private readonly settingsStore = inject(SettingsStore);
 
@@ -211,9 +215,9 @@ export class NodePickerComponent {
 
   readonly selectedLabel = computed(() => {
     const id = this.selectedNodeId();
-    if (!id) return this.allowLocal() ? 'Local' : 'Select node';
+    if (!id) return this.allowLocal() ? this.localComputer : 'Select computer';
     const node = this.nodeStore.nodeById(id);
-    return node?.name ?? id.slice(0, 8);
+    return computerName(node ?? {});
   });
 
   readonly selectedHealthClass = computed(() => {
@@ -227,10 +231,10 @@ export class NodePickerComponent {
 
   readonly selectedTooltip = computed(() => {
     const id = this.selectedNodeId();
-    if (!id) return 'Running on this machine';
+    if (!id) return `Running on ${this.localComputer}`;
     const node = this.nodeStore.nodeById(id);
-    if (!node) return 'Node not found';
-    return `Running on ${node.name} (${formatRemoteNodePlatformLabel(node.platform)})`;
+    if (!node) return 'Computer not found';
+    return `Running on ${computerName(node)} (${formatRemoteNodePlatformLabel(node.platform)})`;
   });
 
   toggleOpen(): void {
@@ -259,18 +263,18 @@ export class NodePickerComponent {
 
   nodeDisabledReason(node: RemoteNodeRosterEntry): string {
     if (!isRemoteNodeOnline(node)) {
-      if (node.status === 'connecting') return 'Node is connecting...';
-      return 'Node is disconnected';
+      if (node.status === 'connecting') return 'Computer is connecting...';
+      return 'Computer is disconnected';
     }
     const localModelTarget = this.selectedLocalModelTarget();
     if (localModelTarget?.kind === 'local-model') {
       return nodeAdvertisesLocalModelTarget(node, localModelTarget)
         ? ''
-        : `${localModelTarget.modelId} is not available on this node`;
+        : `${localModelTarget.modelId} is not available on this computer`;
     }
     const cli = this.selectedCli();
     if (cli !== 'auto' && !node.capabilities.supportedClis.includes(cli as never)) {
-      return `${cli} CLI not installed on this node`;
+      return `${cli} CLI not installed on this computer`;
     }
     return '';
   }

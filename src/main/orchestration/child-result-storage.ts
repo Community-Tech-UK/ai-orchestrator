@@ -14,6 +14,7 @@ import * as path from 'path';
 import { LLMService } from '../rlm/llm-service';
 import { getLogger } from '../logging/logger';
 import { getArtifactAttributionStore } from '../session/artifact-attribution-store';
+import { errorMessageText } from '../util/error-utils';
 
 const logger = getLogger('ChildResultStorage');
 import type {
@@ -679,7 +680,7 @@ export class ChildResultStorage {
         artifacts.push({
           type: 'error',
           severity: 'high',
-          content: msg.content,
+          content: errorMessageText(msg),
         });
       }
 

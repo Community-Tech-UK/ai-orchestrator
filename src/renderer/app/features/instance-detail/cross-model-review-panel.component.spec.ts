@@ -55,6 +55,58 @@ describe('CrossModelReviewPanelComponent local review authority', () => {
     expect(performAction).not.toHaveBeenCalled();
   });
 
+  describe('the "ask the session to address it" button', () => {
+    function panel(provider: string | null, withConcern = true) {
+      const value = review(
+        [result('codex', 'remote', withConcern)],
+        undefined,
+      );
+      const component = TestBed.runInInjectionContext(() => new CrossModelReviewPanelComponent());
+      (component as unknown as { review: ReturnType<typeof signal<AggregatedReview | null>> }).review = signal(value);
+      (component as unknown as { provider: ReturnType<typeof signal<string | null>> }).provider = signal(provider);
+      return component;
+    }
+
+    it.each([
+      ['claude', 'Ask Claude to Address'],
+      ['codex', 'Ask Codex to Address'],
+      ['copilot', 'Ask Copilot to Address'],
+      ['cursor', 'Ask Cursor to Address'],
+      ['opencode', 'Ask OpenCode to Address'],
+    ])('names the session\'s own provider: %s', (provider, label) => {
+      expect(panel(provider).askPrimaryLabel()).toBe(label);
+    });
+
+    it('does not guess Claude when the session\'s provider is not known', () => {
+      expect(panel(null).askPrimaryLabel()).toBe('Ask This Session to Address');
+    });
+
+    it('renders that label on the real button, and still offers it only when there are concerns', async () => {
+      TestBed.resetTestingModule();
+      await TestBed.configureTestingModule({
+        providers: [{ provide: CrossModelReviewIpcService, useValue: { performAction, dismiss } }],
+      }).compileComponents();
+      const fixture = TestBed.createComponent(CrossModelReviewPanelComponent);
+      const reviewSignal = signal<AggregatedReview | null>(review([result('claude', 'remote', true)], undefined));
+      const instance = fixture.componentInstance as unknown as {
+        review: typeof reviewSignal;
+        provider: ReturnType<typeof signal<string | null>>;
+      };
+      instance.review = reviewSignal;
+      instance.provider = signal('codex');
+      fixture.detectChanges();
+
+      const labelsNow = () => [...fixture.nativeElement.querySelectorAll('button')]
+        .map((button: HTMLButtonElement) => button.textContent?.trim());
+      expect(labelsNow()).toContain('Ask Codex to Address');
+      expect(labelsNow()).not.toContain('Ask Claude to Address');
+
+      reviewSignal.set(review([result('claude', 'remote', false)], undefined));
+      fixture.detectChanges();
+      expect(labelsNow()).not.toContain('Ask Codex to Address');
+    });
+  });
+
   it('keeps remote concerns authoritative while surfacing a skipped local status', async () => {
     const value = review(
       [result('codex', 'remote', true)],

@@ -94,6 +94,8 @@ describe('task tools production lifecycle wiring', () => {
       lifecycle,
       state: Object.assign(new EventEmitter(), { getInstance: () => undefined }),
       communication: new EventEmitter(),
+      orchestrationMgr: { getOrchestrationHandler: () => new EventEmitter() },
+      requestReceipts: { setLocalResolutionHandler: () => undefined },
       childCompletion: { removeParent: () => undefined },
       continuityRecovery: { removeInstance: () => undefined },
       providerEventBus: { removeInstance: () => undefined },

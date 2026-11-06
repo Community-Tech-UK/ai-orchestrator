@@ -309,7 +309,7 @@ describe('ReviewSettingsTabComponent', () => {
     store.setValue('crossModelReviewModelByProvider', { codex: 'gpt-5.6-sol' });
     fixture.detectChanges();
     const reset = fixture.nativeElement.querySelector(
-      'button[aria-label="Let OpenAI Codex CLI choose its review model"]',
+      'button[aria-label="Let OpenAI Codex choose its review model"]',
     ) as HTMLButtonElement;
     reset.click();
     expect(store.set).toHaveBeenCalledWith('crossModelReviewModelByProvider', {});
@@ -344,7 +344,7 @@ describe('ReviewSettingsTabComponent', () => {
       fixture.nativeElement.querySelectorAll('.reviewer-list__name'),
       (element: Element) => element.textContent?.trim(),
     );
-    expect(names).toEqual(['Antigravity', 'OpenAI Codex CLI']);
+    expect(names).toEqual(['Antigravity', 'OpenAI Codex']);
   });
 
   it('offers all six canonical remote reviewer providers', () => {
@@ -354,10 +354,12 @@ describe('ReviewSettingsTabComponent', () => {
 
     const text = fixture.nativeElement.textContent ?? '';
     expect(text).toContain('Claude Code');
-    expect(text).toContain('OpenAI Codex CLI');
+    expect(text).toContain('OpenAI Codex');
+    expect(text).not.toContain('OpenAI Codex CLI');
     expect(text).toContain('Antigravity');
     expect(text).toContain('GitHub Copilot');
-    expect(text).toContain('Cursor CLI');
+    expect(text).toContain('Cursor');
+    expect(text).not.toContain('Cursor CLI');
     expect(text).toContain('Grok Build');
   });
 
