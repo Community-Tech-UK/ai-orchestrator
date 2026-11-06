@@ -1193,7 +1193,9 @@ describe('ClaudeCliAdapter — spawn/terminate lifecycle', () => {
     });
 
     it('a reused one-shot adapter that resumes books only the new spend', async () => {
-      const { adapter } = adapterWithResidentProcess();
+      // One-shot reuse starts without a resident process. Borrowing a live
+      // process is exercised through requestResponse in the resident suite.
+      const adapter = new ClaudeCliAdapter({});
       vi.spyOn(transcriptRegistry, 'nativeTranscriptExists').mockReturnValue(true);
       for (const [total, expected] of [[0.5, 0.5], [1.25, 0.75]]) {
         const pending = adapter.sendMessage({ role: 'user', content: 'turn' });

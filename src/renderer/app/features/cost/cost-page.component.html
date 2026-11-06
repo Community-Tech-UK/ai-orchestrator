@@ -30,8 +30,8 @@
   <!-- Metric cards row 1: cost & session aggregates -->
   <div class="metrics-row">
     <div class="metric-card">
-      <div class="metric-value" [attr.tabindex]="hasEstimatedEntries() ? 0 : null" [appTooltip]="hasEstimatedEntries() ? ('Includes ~\$' + totalEstimatedCost().toFixed(4) + ' estimated (no provider-reported usage for those turns)') : ''">
-        {{ hasEstimatedEntries() ? '~' : '' }}\${{ totalCost().toFixed(4) }}
+      <div class="metric-value" [attr.tabindex]="hasEstimatedEntries() ? 0 : null" [appTooltip]="hasEstimatedEntries() ? ('Includes ~$' + totalEstimatedCost().toFixed(4) + ' estimated (no provider-reported usage for those turns)') : ''">
+        {{ hasEstimatedEntries() ? '~' : '' }}${{ totalCost().toFixed(4) }}
       </div>
       <div class="metric-label">
         Total Spend
@@ -49,7 +49,7 @@
       <div class="metric-label">Sessions</div>
     </div>
     <div class="metric-card">
-      <div class="metric-value">\${{ avgCostPerSession().toFixed(4) }}</div>
+      <div class="metric-value">${{ avgCostPerSession().toFixed(4) }}</div>
       <div class="metric-label">Avg Cost / Session</div>
     </div>
   </div>
@@ -155,17 +155,17 @@
     <div class="metric-card" [class.over-budget]="budgetStatus().daily.percentage >= 100">
       <div class="metric-value">{{ budgetStatus().daily.percentage.toFixed(1) }}%</div>
       <div class="metric-label">Daily Budget Used</div>
-      <div class="metric-sub">\${{ budgetStatus().daily.usage.toFixed(4) }} / \${{ budgetStatus().daily.limit.toFixed(2) }}</div>
+      <div class="metric-sub">${{ budgetStatus().daily.usage.toFixed(4) }} / ${{ budgetStatus().daily.limit.toFixed(2) }}</div>
     </div>
     <div class="metric-card" [class.over-budget]="budgetStatus().weekly.percentage >= 100">
       <div class="metric-value">{{ budgetStatus().weekly.percentage.toFixed(1) }}%</div>
       <div class="metric-label">Weekly Budget Used</div>
-      <div class="metric-sub">\${{ budgetStatus().weekly.usage.toFixed(4) }} / \${{ budgetStatus().weekly.limit.toFixed(2) }}</div>
+      <div class="metric-sub">${{ budgetStatus().weekly.usage.toFixed(4) }} / ${{ budgetStatus().weekly.limit.toFixed(2) }}</div>
     </div>
     <div class="metric-card" [class.over-budget]="budgetStatus().monthly.percentage >= 100">
       <div class="metric-value">{{ budgetStatus().monthly.percentage.toFixed(1) }}%</div>
       <div class="metric-label">Monthly Budget Used</div>
-      <div class="metric-sub">\${{ budgetStatus().monthly.usage.toFixed(4) }} / \${{ budgetStatus().monthly.limit.toFixed(2) }}</div>
+      <div class="metric-sub">${{ budgetStatus().monthly.usage.toFixed(4) }} / ${{ budgetStatus().monthly.limit.toFixed(2) }}</div>
     </div>
     <div class="metric-card">
       <div class="metric-value">{{ modelCount() }}</div>
@@ -219,7 +219,7 @@
               <tr>
                 <td class="provider-cell">{{ row.model }}</td>
                 <td class="num-col mono" [attr.tabindex]="row.hasEstimated ? 0 : null" [appTooltip]="row.hasEstimated ? 'Includes at least one estimated entry (no provider-reported usage for that turn)' : ''">
-                  {{ row.hasEstimated ? '~' : '' }}\${{ row.cost.toFixed(6) }}
+                  {{ row.hasEstimated ? '~' : '' }}${{ row.cost.toFixed(6) }}
                 </td>
                 <td class="num-col">
                   <div class="bar-cell">
@@ -260,7 +260,7 @@
               <tr>
                 <td class="mono truncate-cell">{{ row.sessionId }}</td>
                 <td class="num-col mono" [attr.tabindex]="row.hasEstimated ? 0 : null" [appTooltip]="row.hasEstimated ? 'Includes at least one estimated entry (no provider-reported usage for that turn)' : ''">
-                  {{ row.hasEstimated ? '~' : '' }}\${{ row.cost.toFixed(6) }}
+                  {{ row.hasEstimated ? '~' : '' }}${{ row.cost.toFixed(6) }}
                 </td>
                 <td class="num-col">
                   <div class="bar-cell">
@@ -307,7 +307,7 @@
                 <td class="mono truncate-cell" tabindex="0" [appTooltip]="entry.sessionId">{{ entry.sessionId }}</td>
                 <td class="num-col mono">{{ entry.inputTokens.toLocaleString() }}</td>
                 <td class="num-col mono">{{ entry.outputTokens.toLocaleString() }}</td>
-                <td class="num-col mono">{{ entry.isEstimated ? '~' : '' }}\${{ entry.cost.toFixed(6) }}</td>
+                <td class="num-col mono">{{ entry.isEstimated ? '~' : '' }}${{ entry.cost.toFixed(6) }}</td>
                 <td>
                   @if (entry.isEstimated) {
                     <span class="estimated-badge" tabindex="0" [appTooltip]="estimatedEntryHint">~ estimated</span>

@@ -84,6 +84,8 @@ export function invokeLoopChildIteration(input: InvokeLoopChildIterationInput): 
     );
     let timeout: ReturnType<typeof setTimeout> | undefined;
     let lastActivityAt = 0;
+    let permissionWaitStarted: number | undefined;
+    let permissionWaitMs = 0;
     const startedAt = Date.now();
     const maxWallMs = iterationTimeoutMs * 2;
     const seq = state.totalIterations;
@@ -93,6 +95,20 @@ export function invokeLoopChildIteration(input: InvokeLoopChildIterationInput): 
       if (timedOut) return;
       const activity = payload as LoopActivityPayload;
       if (activity.loopRunId !== state.id || activity.seq !== seq) return;
+      if (activity.kind === 'input_required' && activity.detail?.['type'] === 'deferred_permission') {
+        permissionWaitStarted ??= Date.now();
+        if (timeout) clearTimeout(timeout);
+        timeout = undefined;
+        return;
+      }
+      if (permissionWaitStarted !== undefined) {
+        // Only native resumption/progress ends the hold; warnings, heartbeat
+        // and repeated permission cards cannot start the deadline again.
+        if (!['spawned', 'assistant', 'tool_use', 'tool_result', 'complete'].includes(activity.kind ?? '')) return;
+        permissionWaitMs += Date.now() - permissionWaitStarted;
+        permissionWaitStarted = undefined;
+        scheduleTimeout(iterationTimeoutMs);
+      }
       // L4: advisory phase inference, before the deadline filter — a heartbeat
       // never reaches here anyway, and a tool_use should update the phase even
       // if a later rule changes what counts as deadline progress.
@@ -139,7 +155,8 @@ export function invokeLoopChildIteration(input: InvokeLoopChildIterationInput): 
         return;
       }
       const now = Date.now();
-      const elapsedMs = now - startedAt;
+      if (permissionWaitStarted !== undefined) return;
+      const elapsedMs = now - startedAt - permissionWaitMs;
       const remainingWallMs = maxWallMs - elapsedMs;
       if (remainingWallMs <= 0) {
         beginTimeoutSettlement();

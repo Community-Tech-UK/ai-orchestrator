@@ -3,6 +3,7 @@ import { resolve, join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { IPC_CHANNELS, type IpcResponse } from '../../../../shared/types/ipc.types';
 import { CostTracker } from '../../../core/system/cost-tracker';
+import { sendValidatedRendererEvent } from '../../../event-bus/renderer-event-validation';
 
 // Inject a FRESH real CostTracker per test (the class is kept; only the singleton
 // accessor is overridden). Using the real tracker means the test drives the actual
@@ -42,6 +43,8 @@ function setup(usageFile?: string): { tracker: CostTracker; sent: Sent[] } {
     sendToRenderer: (channel: string, data: unknown) => sent.push({ channel, data }),
   };
   registerCostHandlers({ windowManager: windowManager as never, ephemeralUsageFile: usageFile });
+  // Registration rehydrates the shared test DB. Each case owns its ledger.
+  holder.tracker!.clearEntries();
   return { tracker: holder.tracker!, sent };
 }
 
@@ -147,6 +150,29 @@ describe('cost-handlers event forwarding', () => {
     expect(usage).toHaveLength(1);
     expect((usage[0].data as { instanceId: string; cost: number }).instanceId).toBe('inst-1');
     expect((usage[0].data as { cost: number }).cost).toBe(0.42);
+  });
+
+  it('delivers measured and estimated model breakdowns through strict renderer validation', () => {
+    const { tracker, sent } = setup();
+    const byModel = [{ model: 'claude-opus-5-5', inputTokens: 100, outputTokens: 200,
+      cacheReadTokens: 300, cacheWriteTokens: 400, costUsd: 0.42 }];
+    const delivered: unknown[] = [];
+    for (const isEstimated of [false, true]) {
+      tracker.recordUsage('model-event', 'model-session', 'claude-opus-5-5', 100, 200, 300, 400,
+        0.42, 0, isEstimated, { provider: 'claude', byModel });
+    }
+    for (const event of sent.filter(event => event.channel === IPC_CHANNELS.COST_USAGE_RECORDED)) {
+      expect(sendValidatedRendererEvent({ send: (_channel, payload) => delivered.push(payload) },
+        event.channel, event.data)).toBe(true);
+    }
+    expect(delivered).toEqual([expect.objectContaining({ byModel, isEstimated: false }),
+      expect.objectContaining({ byModel, isEstimated: true })]);
+    expect(tracker.getSessionCost('model-session')).toBe(0.84);
+    const valid = delivered[0] as object;
+    expect(sendValidatedRendererEvent({ send: vi.fn() }, IPC_CHANNELS.COST_USAGE_RECORDED,
+      { ...valid, unrelated: true })).toBe(false);
+    expect(sendValidatedRendererEvent({ send: vi.fn() }, IPC_CHANNELS.COST_USAGE_RECORDED,
+      { ...valid, byModel: [{ ...byModel[0], costUsd: -1 }] })).toBe(false);
   });
 
   it('forwards a budget warning (<100%) on cost:budget-warning with a message', () => {

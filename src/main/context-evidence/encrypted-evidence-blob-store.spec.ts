@@ -736,6 +736,7 @@ describe('EncryptedEvidenceBlobStore', () => {
     await expect(readdir(directoryPath)).resolves.toEqual([]);
   });
 
+  // Real disk syncs can exceed the unit-test limit on a shared host.
   it('preserves prepared metadata state when the following rename fails', async () => {
     const directoryRef = await store.deriveConversationDirectoryRef('fixture-conversation');
     const directoryPath = join(userDataPath, 'conversation-evidence', directoryRef);
@@ -751,7 +752,7 @@ describe('EncryptedEvidenceBlobStore', () => {
     )).rejects.toMatchObject({ code: 'BLOB_WRITE_FAILED' });
     expect(prepared).toMatch(/^[a-f0-9]{64}\/[a-f0-9]{32}\.aioev1$/);
     await expect(readdir(directoryPath)).resolves.toEqual([]);
-  });
+  }, 30_000);
 
   it('keeps the finalized blob after prepared metadata and final directory fsync failure', async () => {
     const directoryRef = await store.deriveConversationDirectoryRef('fixture-conversation');

@@ -142,7 +142,7 @@ function bindSqlParams(sql, params) {
 function queryWithSqliteCli(path, sql, params, reason) {
   const suffix = reason ? `: ${reason}` : '';
   console.error(`(using sqlite3 CLI fallback for ${path}${suffix})\n`);
-  const output = execFileSync('sqlite3', ['-json', path, bindSqlParams(sql, params)], {
+  const output = execFileSync('sqlite3', ['-readonly', '-json', path, bindSqlParams(sql, params)], {
     encoding: 'utf8',
     maxBuffer: 10 * 1024 * 1024,
   }).trim();

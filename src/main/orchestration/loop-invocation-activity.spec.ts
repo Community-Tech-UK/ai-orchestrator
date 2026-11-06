@@ -80,6 +80,15 @@ describe('boundActivityDetail', () => {
 
 describe('attachInvocationActivity', () => {
   afterEach(() => vi.restoreAllMocks());
+  it('leaves deferred permission to the operator without terminating or auto-answering', () => {
+    const emitter = Object.assign(new EventEmitter(), { terminate: vi.fn(async () => undefined),
+      sendRaw: vi.fn(), hasPendingResidentRequest: () => true });
+    const detach = attachInvocationActivity(emitter as unknown as CliAdapter, vi.fn(), { autoAnswerInputRequired: true });
+    emitter.emit('input_required', { id: 'held', prompt: 'Approve command', metadata: { type: 'deferred_permission' } });
+    expect(emitter.terminate).not.toHaveBeenCalled();
+    expect(emitter.sendRaw).not.toHaveBeenCalled();
+    detach();
+  });
 
   const stopped: StallProcessFacts = { pid: 100, state: 'stopped', cpuPercent: 0, rssMb: 2, child: null, sampledAt: 1234 };
   it('sends the base stream-idle line then a notable process observation', async () => {

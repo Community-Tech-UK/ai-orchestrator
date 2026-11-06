@@ -10,6 +10,7 @@ import {
   RequiredModelIdSchema,
 } from './common.schemas';
 import { ProviderAccountProfileIdSchema } from './provider-account.schemas';
+import { CostModelUsageDeltaSchema } from './cost-model-usage.schemas';
 export * from './session-admission.schemas';
 export * from './session-snapshot.schemas';
 export * from './session-recovery.schemas';
@@ -774,6 +775,7 @@ export const CostEntryEventSchema = z.object({
   cost: z.number().nonnegative().finite(),
   /** LT-100: true when tokens/cost are a heuristic estimate, not measured. */
   isEstimated: z.boolean().optional(),
+  byModel: z.array(CostModelUsageDeltaSchema).max(100).optional(),
 }).strict();
 
 export const CostBudgetAlertEventSchema = z.object({

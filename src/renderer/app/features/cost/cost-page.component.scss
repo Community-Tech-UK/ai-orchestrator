@@ -320,3 +320,14 @@
   display: flex;
   justify-content: flex-end;
 }
+
+@media (max-width: 768px) {
+  .metrics-row,
+  .budget-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .charts-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -1,30 +1,17 @@
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { join, basename, dirname } from 'node:path';
+import { transcriptRate, TRANSCRIPT_PRICING_VERSION } from './claude-transcript-pricing.mjs';
 
 export const COMPARISON_CAVEATS = ['Turns that cross midnight', 'Killed processes',
   "Claude Code's 30-day transcript cleanup", 'Price-table drift (override with --prices <json>)'];
-const defaults = {opus:{input:5,output:25},sonnet:{input:3,output:15},haiku:{input:1,output:5},fable:{input:10,output:50}};
-function rate(model, prices) {
-  if (prices[model]) {
-    const value=prices[model];
-    if (![value.input,value.output].every(amount=>typeof amount==='number' && Number.isFinite(amount) && amount>=0)) throw new Error(`Invalid price for ${model}`);
-    return value;
-  }
-  if (model.includes('sonnet-5')) return {input:2,output:10};
-  if (model.includes('claude-3-opus')) return {input:15,output:75};
-  if (model.includes('claude-3-5-haiku')) return {input:0.8,output:4};
-  if (model.includes('claude-3-haiku')) return {input:0.25,output:1.25};
-  if (model.includes('claude-3-sonnet')) return {input:3,output:15};
-  return Object.entries(defaults).find(([family]) => model.includes(family))?.[1];
-}
 function tokens(value) { return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0; }
 function price(usage, rates) {
   const writes = usage.cache_creation;
   const short = tokens(writes?.ephemeral_5m_input_tokens);
   const long = tokens(writes?.ephemeral_1h_input_tokens);
   const unspecified = Math.max(0,tokens(usage.cache_creation_input_tokens)-short-long);
-  return ((tokens(usage.input_tokens) + tokens(usage.cache_read_input_tokens)*0.1
-    + (short+unspecified)*1.25 + long*2)*rates.input + tokens(usage.output_tokens)*rates.output)/1e6;
+  return (tokens(usage.input_tokens)*rates.input + tokens(usage.cache_read_input_tokens)*rates.cacheRead
+    + (short+unspecified)*rates.cacheWrite + long*rates.cacheWrite1h + tokens(usage.output_tokens)*rates.output)/1e6;
 }
 /** Resolve shared/symlinked projects before walking; never read the same file twice. */
 export function compareTranscriptCosts({rows, roots, start, end, prices={}, maxDiffPct=5, byModel=[]}) {
@@ -67,7 +54,7 @@ export function compareTranscriptCosts({rows, roots, start, end, prices={}, maxD
       seen.add(messageId);
       const item=entry(subagent ? fallbackSession : record.sessionId || fallbackSession);
       item.transcriptPresent=true;
-      const rates=rate(record.message.model || '',prices);
+      const rates=transcriptRate(record.message.model || '',prices);
       if (!rates) { unpricedModels.add(record.message.model || '(missing)'); continue; }
       item[subagent ? 'subagent' : 'main']+=price(record.message.usage,rates);
     }
@@ -79,7 +66,7 @@ export function compareTranscriptCosts({rows, roots, start, end, prices={}, maxD
   const subagent=list.reduce((sum,item)=>sum+item.subagent,0);
   const transcript=main+subagent;
   const gapPct=transcript>0 ? Math.abs(stored-transcript)/transcript*100 : stored>0 ? null : 0;
-  return {stored,transcript,main,subagent,gapPct,
+  return {stored,transcript,main,subagent,gapPct,pricingVersion:TRANSCRIPT_PRICING_VERSION,
     exceeded:unpricedModels.size>0 || gapPct===null || gapPct>maxDiffPct,
     largestGaps:list.sort((a,b)=>Math.abs(b.gap)-Math.abs(a.gap)).slice(0,10),
     storedOnly:list.filter(item=>item.storedPresent&&!item.transcriptPresent).map(item=>item.sessionId),

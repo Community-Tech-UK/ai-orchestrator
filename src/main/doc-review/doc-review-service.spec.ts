@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -94,6 +94,20 @@ describe('DocReviewService', () => {
       sessionId: 'provider-session-1',
     });
     expect(service.listSessions('pending')).toHaveLength(1);
+  });
+
+  it('finishes protecting review artifacts from Git before returning the session', async () => {
+    const { getDocReviewService } = await loadService();
+    await getDocReviewService().createSession({
+      instanceId: 'inst-1',
+      workspacePath: workspace,
+      title: 'Test Plan',
+      artifactPath: writeArtifact(),
+    });
+
+    const gitignorePath = join(workspace, '.gitignore');
+    expect(existsSync(gitignorePath)).toBe(true);
+    expect(readFileSync(gitignorePath, 'utf8')).toContain('.aio-review/');
   });
 
   it('rejects an artifact path outside .aio-review/', async () => {

@@ -137,6 +137,11 @@ describe('CostPageComponent — computed signals', () => {
   beforeEach(async () => {
     TestBed.resetTestingModule();
     mockIpc = buildMockIpc();
+    TestBed.overrideComponent(CostPageComponent, {
+      set: { imports: [CommonModule, CostChartStubComponent, AioTooltipDirective],
+        template: readFileSync(resolve(specDirectory, 'cost-page.component.html'), 'utf8'),
+        templateUrl: undefined, styles: [], styleUrl: undefined, styleUrls: [] },
+    });
 
     await TestBed.configureTestingModule({
       imports: [CostPageComponent, RouterTestingModule],
@@ -380,6 +385,25 @@ describe('CostPageComponent — computed signals', () => {
   it('refreshAll populates summary signal', async () => {
     await component.refreshAll(false);
     expect(component.totalCost()).toBeCloseTo(MOCK_SUMMARY.totalCost, 6);
+  });
+  it('renders dollar text without backslashes in metrics, budgets and every cost table', async () => {
+    await component.refreshAll(false);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelector('.metric-value')?.textContent?.trim()).toBe('$0.0123');
+    const tableFor = (title: string) => Array.from(root.querySelectorAll('.panel-card'))
+      .find(panel => panel.querySelector('.panel-title')?.textContent?.trim() === title)
+      ?.querySelector('table');
+    expect(tableFor('Per-Model Breakdown')?.querySelector('tbody tr td:nth-child(2)')?.textContent?.trim()).toBe('$0.009000');
+    expect(tableFor('Per-Session Breakdown')?.querySelector('tbody tr td:nth-child(2)')?.textContent?.trim()).toBe('$0.007000');
+    expect(tableFor('Recent Entries')?.querySelector('tbody tr td:nth-child(7)')?.textContent?.trim()).toBe('$0.004500');
+    expect(root.textContent).not.toContain('\\$');
+    component.entries.set([{ ...MOCK_ENTRIES[0], isEstimated: true }]);
+    component.summary.set({ ...MOCK_SUMMARY, hasEstimatedEntries: true, totalEstimatedCost: 0.002 });
+    fixture.detectChanges();
+    expect(root.querySelector('.metric-value')?.textContent?.trim()).toBe('~$0.0123');
+    expect(root.textContent).toContain('~$0.004500');
+    expect(root.textContent).toContain('~ estimated');
   });
   it('renders separate cache cards and switches the purpose table to providers', async()=>{
     await component.refreshAll(false);

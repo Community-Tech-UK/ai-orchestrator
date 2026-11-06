@@ -158,7 +158,10 @@ export function attachInvocationActivity(
       },
     });
 
-    if (!options.autoAnswerInputRequired) {
+    // The visible parent owns native deferred decisions. Killing its borrowed
+    // adapter here races that decision and turns a held goal into a retry.
+    const residentRequest = adapter as unknown as { hasPendingResidentRequest?: () => boolean };
+    if ((promptType === 'deferred_permission' && residentRequest.hasPendingResidentRequest?.()) || !options.autoAnswerInputRequired) {
       return;
     }
 

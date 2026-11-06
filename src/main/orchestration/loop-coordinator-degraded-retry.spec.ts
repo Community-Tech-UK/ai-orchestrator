@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,10 +7,14 @@ import type { ProviderLimitResumeScheduler } from './loop-coordinator.types';
 import { runLoopControlCli } from './loop-control-cli';
 import { CompletedFileWatcher } from './loop-completion-detector';
 import { classifyDegradedIteration } from './loop-coordinator-block-utils';
-import { defaultLoopConfig } from '../../shared/types/loop.types';
+import type { LoopStageMachine } from './loop-stage-machine';
+import { defaultLoopConfig, type LoopState } from '../../shared/types/loop.types';
+
+type LoopExecution = (state: LoopState, stageMachine: LoopStageMachine) => Promise<void>;
 
 let workspace: string;
 let coordinator: LoopCoordinator;
+let execution: MockInstance<LoopExecution>;
 
 beforeEach(() => {
   workspace = mkdtempSync(join(tmpdir(), 'loop-degraded-retry-'));
@@ -20,11 +24,16 @@ beforeEach(() => {
   vi.spyOn(CompletedFileWatcher.prototype, 'stop').mockResolvedValue();
   vi.spyOn(CompletedFileWatcher.prototype, 'scanOnce').mockReturnValue(null);
   coordinator = new LoopCoordinator();
+  execution = vi.spyOn(coordinator as unknown as { runLoop: LoopExecution }, 'runLoop');
 });
 
 afterEach(async () => {
   for (const loop of coordinator.getActiveLoops()) {
     try { await coordinator.cancelLoop(loop.id); } catch { /* noop */ }
+  }
+  // Cancellation publishes terminal state before the iteration finishes its writes.
+  for (const result of execution.mock.results) {
+    if (result.type === 'return') await result.value;
   }
   vi.restoreAllMocks();
   try { rmSync(workspace, { recursive: true, force: true }); } catch { /* noop */ }

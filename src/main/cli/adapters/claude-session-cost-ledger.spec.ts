@@ -2,6 +2,25 @@ import { describe, it, expect } from 'vitest';
 import { ClaudeSessionCostLedger } from './claude-session-cost-ledger';
 
 describe('ClaudeSessionCostLedger', () => {
+  it('seeds a fork from the source native receipt, including a zero-token inherited result', () => {
+    const ledger = new ClaudeSessionCostLedger();
+    const models = { main: { inputTokens: 100, outputTokens: 20, costUSD: 306.046325 } };
+    ledger.onSpawn('fork', 306.046325, models);
+    expect(ledger.settle(306.046325, 0, structuredClone(models))).toBe(0);
+    expect(ledger.byModel?.[0].costUsd).toBe(0);
+    expect(ledger.settle(307.046325, 1, { main: { inputTokens: 110, outputTokens: 40, costUSD: 307.046325 } })).toBeCloseTo(1);
+  });
+  it('does not book unknown inherited fork history and still settles the next result', () => {
+    const ledger = new ClaudeSessionCostLedger(); ledger.onSpawn('fork');
+    expect(ledger.settle(25, 0.1)).toBeUndefined();
+    expect(ledger.settle(25.2, 0.1)).toBeCloseTo(0.2);
+  });
+  it('includes genuinely new side-model work after a fork with zero main-thread tokens', () => {
+    const ledger = new ClaudeSessionCostLedger();
+    ledger.onSpawn('fork', 1, { main: { inputTokens: 100, costUSD: 1 } });
+    expect(ledger.settle(1.3, 0, { main: { inputTokens: 100, costUSD: 1 }, side: { inputTokens: 20, costUSD: 0.3 } })).toBeCloseTo(0.3);
+    expect(ledger.byModel?.find(delta => delta.model === 'side')?.costUsd).toBe(0.3);
+  });
   it('differences rising totals and books a dropped counter from zero', () => {
     const ledger = new ClaudeSessionCostLedger();
     ledger.onSpawn('fresh');
@@ -10,10 +29,17 @@ describe('ClaudeSessionCostLedger', () => {
     expect(ledger.settle(0.2, 0.1)).toBe(0.2);
     expect(ledger.settle(0.2, 0)).toBe(0);
   });
-  it.each(['fresh', 'fork'] as const)('%s books the first total despite a seed', mode => {
+  it('a genuinely fresh conversation books its first total despite a seed', () => {
     const ledger = new ClaudeSessionCostLedger();
-    ledger.onSpawn(mode, 10);
+    ledger.onSpawn('fresh', 10);
     expect(ledger.settle(11, 0.5)).toBe(11);
+  });
+  it('a native fork subtracts inherited history and still handles a real counter reset', () => {
+    const ledger = new ClaudeSessionCostLedger();
+    ledger.onSpawn('fork', 10);
+    expect(ledger.settle(11, 0.5)).toBe(1);
+    ledger.onSpawn('fork', 10);
+    expect(ledger.settle(0.4, 0.4)).toBe(0.4);
   });
   it('resumes a seeded running total and handles a reset below the seed', () => {
     const ledger = new ClaudeSessionCostLedger();

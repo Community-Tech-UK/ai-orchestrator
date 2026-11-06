@@ -18,9 +18,11 @@ export class ClaudeSessionCostLedger {
 
   onSpawn(mode: 'fresh' | 'fork' | 'resume', seedTotalUsd?: number,
     seedModels?: ClaudeModelUsageSnapshot): void {
-    this.resumePending = mode === 'resume';
-    this.baseline = mode === 'resume' ? (valid(seedTotalUsd) ? seedTotalUsd : undefined) : 0;
-    this.models = mode === 'resume' ? seedModels : undefined;
+    // Native --fork-session inherits both cumulative dollars and model usage.
+    // Only a genuinely fresh conversation starts at zero.
+    this.resumePending = mode !== 'fresh';
+    this.baseline = this.resumePending ? (valid(seedTotalUsd) ? seedTotalUsd : undefined) : 0;
+    this.models = this.resumePending ? seedModels : undefined;
     this.deltas = undefined;
   }
 

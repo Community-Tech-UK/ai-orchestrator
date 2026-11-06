@@ -158,12 +158,12 @@ export class ClaudeOneShotLifecycle {
     if (this.stopping) return this.stopping;
     ++this.epoch;
     if (cancelCurrent) this.current?.cancel();
-    const pending = operation();
-    this.stopping = pending;
-    const clear = () => {
+    // Returning the chain makes "await terminate" include releasing the fence,
+    // even when the host wraps Promise.then (as the shared test runtime does).
+    const pending = operation().finally(() => {
       if (this.stopping === pending) this.stopping = undefined;
-    };
-    void pending.then(clear, clear);
+    });
+    this.stopping = pending;
     return pending;
   }
 

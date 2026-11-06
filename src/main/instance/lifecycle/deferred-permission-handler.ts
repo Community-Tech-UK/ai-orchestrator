@@ -11,7 +11,7 @@
 import type { Instance, InstanceStatus, ContextUsage } from '../../../shared/types/instance.types';
 import type { CliAdapter } from '../../cli/adapters/adapter-factory';
 import type { UnifiedSpawnOptions } from '../../cli/adapters/adapter-factory';
-import type { ClaudeCliAdapter } from '../../cli/adapters/claude-cli-adapter';
+import { ClaudeCliAdapter } from '../../cli/adapters/claude-cli-adapter';
 import type { ExecutionLocation } from '../../../shared/types/worker-node.types';
 import type { BrowserGatewayMcpConfigOptions } from '../../browser-gateway/browser-mcp-config';
 import type { ChromeDevtoolsMcpConfigOptions } from '../../browser-gateway/chrome-devtools-mcp-config';
@@ -241,6 +241,26 @@ export class DeferredPermissionHandler {
         approved ? 'User approved via orchestrator UI' : 'User denied via orchestrator UI',
         updatedInput,
       );
+
+      // A loop is awaiting this adapter's resident response. Keep its process
+      // owner and listeners rather than leaving that promise on a dead adapter.
+      if (oldAdapter instanceof ClaudeCliAdapter && oldAdapter.hasPendingResidentRequest()) {
+        this.ops.transitionState(instance, 'respawning');
+        try {
+          instance.processId = await oldAdapter.resumePendingResidentRequest(this.services.getDecisionDir(), instance.yoloMode);
+          instance.sessionId = deferred.sessionId;
+          if (!await this.ops.waitForResumeHealth(instanceId)) throw new Error('Native resume did not stabilize after deferred permission');
+          if (this.deps.getInstance(instanceId) !== instance) throw new Error('Instance closed during deferred permission recovery');
+          this.ops.transitionState(instance, oldAdapter.hasPendingResidentRequest() ? 'busy' : 'idle');
+          this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
+        } catch (error) {
+          instance.yoloMode = previousYoloMode;
+          await oldAdapter.terminate(false);
+          this.ops.transitionState(instance, 'error');
+          throw error;
+        }
+        return;
+      }
 
       // 2. Terminate old adapter (process already exited, but clean up state)
       this.ops.transitionState(instance, 'respawning');

@@ -37,6 +37,26 @@ describe('invokeLoopChildIteration timeout', () => {
     const result = await invokeLoopChildIteration({emitter,state:makeState(),prompt:'你好',stage:'IMPLEMENT',forceContextReset:false,idempotencyKey:'bytes'});
     expect(result.promptBytes).toBe(6);
   });
+  it('excludes an operator permission wait from both iteration deadlines', async () => {
+    const emitter = new EventEmitter();
+    let callback!: (result: unknown) => void;
+    emitter.on('loop:invoke-iteration', payload => { callback = payload.callback; });
+    const timeout = vi.fn(); emitter.on('loop:iteration-timeout', timeout);
+    const pending = invokeLoopChildIteration({ emitter, state: makeState(), prompt: 'go',
+      stage: 'IMPLEMENT', forceContextReset: false, idempotencyKey: 'held-permission' });
+    void pending.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(10);
+    emitter.emit('loop:activity', { loopRunId: 'loop-1', seq: 0, kind: 'input_required',
+      message: 'Approval required', detail: { type: 'deferred_permission' } });
+    await vi.advanceTimersByTimeAsync(100_000);
+    expect(timeout).not.toHaveBeenCalled();
+    emitter.emit('loop:activity', { loopRunId: 'loop-1', seq: 0, kind: 'spawned', message: 'Resuming approved tool' });
+    await vi.advanceTimersByTimeAsync(10);
+    callback({ childInstanceId: null, output: 'finished', tokens: 0, filesChanged: [], toolCalls: [],
+      errors: [], testPassCount: null, testFailCount: null, exitedCleanly: true });
+    expect((await pending).output).toBe('finished');
+    expect(emitter.listenerCount('loop:activity')).toBe(0);
+  });
 
   it('emits loop:iteration-timeout then rejects when the child stays silent', async () => {
     const emitter = new EventEmitter();

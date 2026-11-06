@@ -10,7 +10,7 @@ afterEach(()=>dirs.splice(0).forEach(dir=>rmSync(dir,{recursive:true,force:true}
 function fixture() {
   const root=mkdtempSync(join(tmpdir(),'cost-transcript-')); dirs.push(root);
   const projects=join(root,'projects'); mkdirSync(join(projects,'repo','s1','subagents'),{recursive:true});
-  const record=(id:string,usage:object, model='haiku')=>JSON.stringify({type:'assistant',sessionId:'s1',
+  const record=(id:string,usage:object, model='claude-haiku-4-5-20251001')=>JSON.stringify({type:'assistant',sessionId:'s1',
     timestamp:'2026-10-09T12:00:00Z',message:{id,model,usage}});
   writeFileSync(join(projects,'repo','s1.jsonl'),[
     record('main',{input_tokens:100,output_tokens:10,cache_read_input_tokens:100,
@@ -35,11 +35,11 @@ describe('transcript cost comparison',()=>{
     expect(result.caveats).toHaveLength(4);
   });
   it('accepts explicit price overrides',()=>{
-    const result=compareTranscriptCosts({...fixture(),rows:[],prices:{haiku:{input:2,output:10}}});
+    const result=compareTranscriptCosts({...fixture(),rows:[],prices:{'claude-haiku-4-5-20251001':{input:2,output:10}}});
     expect(result.transcript).toBeCloseTo(0.00096);
   });
   it('rejects invalid explicit prices instead of passing with NaN totals',()=>{
-    expect(()=>compareTranscriptCosts({...fixture(),rows:[],prices:{haiku:{input:-1,output:10}}})).toThrow('Invalid price');
+    expect(()=>compareTranscriptCosts({...fixture(),rows:[],prices:{'claude-haiku-4-5-20251001':{input:-1,output:10}}})).toThrow('Invalid price');
   });
   it('does not silently pass when transcripts are absent',()=>{
     const result=compareTranscriptCosts({rows:[{session_id:'s',cost:1}],roots:[],start:0,end:1});

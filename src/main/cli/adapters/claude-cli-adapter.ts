@@ -3,7 +3,7 @@
  * Extends BaseCliAdapter for multi-CLI support
  */
 
-import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import type { ChildProcess } from 'child_process';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -94,6 +94,7 @@ import type { ProviderContextCapabilities } from '@contracts/types/context-evide
 import { assertAdapterInputCurrent, createAdapterInputDispatch } from './adapter-input-dispatch';
 import { deferUntilResponseUsageSettled } from './deferred-response-usage';
 import { ClaudeResidentTurnSettlement } from './claude-resident-turn-settlement';
+import { ClaudeResidentRequest } from './claude-resident-request';
 
 export type { DeferredToolUse } from './claude-cli-adapter.types';
 export type { ClaudeCliSpawnOptions } from './claude-cli-adapter.types';
@@ -182,6 +183,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   private residentTurnActive = false;
   private residentTurnCompletedByError = false;
   private readonly residentSettlement = new ClaudeResidentTurnSettlement(response => this.settleResponseUsage(response));
+  private readonly residentRequest = new ClaudeResidentRequest(this);
+  private restartingResidentRequest = false;
   private readonly sessionCostLedger = new ClaudeSessionCostLedger();
   private costSanityWarned = false;
   private readonly compactionObserver = new ClaudeCompactionObserver();
@@ -230,6 +233,57 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
   /** Clears deferred tool use state (e.g., after successful resume). */
   clearDeferredToolUse(): void { this.deferredToolUse = null; }
+
+  hasPendingResidentRequest(): boolean { return this.residentRequest.pending; }
+
+  /** Preserve the borrowed request and its listeners across a native hook decision. */
+  async resumePendingResidentRequest(decisionDir: string, yoloMode: boolean): Promise<number> {
+    const deferred = this.deferredToolUse;
+    if (!deferred || !this.residentRequest.pending) throw new Error('No deferred resident request to resume');
+    this.config.env = { ...this.config.env, ORCHESTRATOR_DECISION_DIR: decisionDir };
+    const pid = await this.restartResidentRequest(deferred.sessionId, yoloMode);
+    this.residentTurnActive = true;
+    return pid;
+  }
+
+  private async restartResidentRequest(sessionId: string, yoloMode: boolean): Promise<number> {
+    this.restartingResidentRequest = true;
+    try {
+      const awaitClose = this.process ? watchClaudeProcessClose(this.process) : undefined;
+      await this.terminateProcess(true, false);
+      await awaitClose?.();
+      if (!this.residentRequest.pending) throw new Error('Claude CLI cancelled before resident restart');
+      this.sessionId = sessionId;
+      this.spawnOptions = { ...this.spawnOptions, resume: true, forkSession: false, yoloMode };
+      this.clearDeferredToolUse();
+      return await this.spawn();
+    } finally { this.restartingResidentRequest = false; }
+  }
+
+  override async requestResponse(message: CliMessage): Promise<CliResponse> {
+    if (this.deferredToolUse) throw markProviderDispatchNotStarted(new Error('Claude is waiting for a permission decision'));
+    if (this.awaitingOneShotCompletion || this.residentTurnActive) throw markProviderDispatchNotStarted(new Error('Claude is still completing the previous turn'));
+    if (this.process && this.formatter?.isWritable()) {
+      const override = this.disallowedToolsOverride;
+      return this.residentRequest.run(async () => {
+        // The wrap-up denylist is a spawn-time setting. Reap the original
+        // resident before reopening the same native session with that limit.
+        if (this.disallowedToolsOverride?.length) await this.restartResidentRequest(this.sessionId!, this.spawnOptions.yoloMode ?? false);
+        await this.sendInput(message.content, message.attachments?.map((attachment, index) => {
+          const data = attachment.content ?? (attachment.path ? readFileSync(attachment.path).toString('base64') : '');
+          return { name: attachment.name ?? `attachment-${index}`, data, size: data.length,
+            type: attachment.mimeType ?? (attachment.type === 'image' ? 'image/png' : 'application/octet-stream') };
+        }));
+      }, override?.length ? async () => {
+        // Spawn-time restrictions must not leak into the next normal chat turn.
+        this.disallowedToolsOverride = null;
+        try { await this.restartResidentRequest(this.sessionId!, this.spawnOptions.yoloMode ?? false); }
+        finally { this.disallowedToolsOverride = override; }
+      } : undefined);
+    }
+    if (this.residentRequest.pending) throw new Error('Claude resident request is awaiting a permission decision');
+    return super.requestResponse(message);
+  }
 
   /**
    * Last accurate per-API-call context occupancy. Unlike the cumulative
@@ -564,6 +618,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   }
 
   async sendMessage(message: CliMessage): Promise<CliResponse> {
+    if (this.process) throw markProviderDispatchNotStarted(new Error('Claude process already spawned; use requestResponse'));
     const admission = this.oneShotLifecycle.prepare();
     const turn = new ClaudeOneShotTurn(this);
     this.oneShotLifecycle.current = turn;
@@ -837,6 +892,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   }
 
   async *sendMessageStream(message: CliMessage): AsyncIterable<string> {
+    if (this.process) throw markProviderDispatchNotStarted(new Error('Claude process already spawned; use requestResponse'));
     await this.primeCliVersion();
     await this.prepareHardenedLogin();
     const args = this.buildArgs(message);
@@ -915,7 +971,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     });
     const mode = args.includes('--fork-session') ? 'fork' : args.includes('--resume') ? 'resume' : 'fresh';
     if (mode !== 'resume') this.costSanityWarned = false;
-    const seed = mode === 'resume' && this.sessionId
+    const seed = mode !== 'fresh' && this.sessionId
       ? readLastClaudeCostState(this.spawnOptions.workingDirectory, this.sessionId, this.config.env?.['CLAUDE_CONFIG_DIR']) : undefined;
     this.sessionCostLedger.onSpawn(mode, seed?.totalCostUSD ?? this.sessionCostLedger.lastTotalUsd,
       seed?.modelUsage ?? this.sessionCostLedger.lastModelUsage);
@@ -1137,6 +1193,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   }
 
   override terminate(graceful = true): Promise<void> {
+    this.residentRequest.cancel();
     return this.terminateProcess(graceful);
   }
 
@@ -1253,7 +1310,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       });
     }
 
-    this.emit('exit', code, signal);
+    if (!this.restartingResidentRequest) this.emit('exit', code, signal);
   }
 
   private processCliMessage(message: CliStreamMessage): void {
@@ -1562,6 +1619,15 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         // When a PreToolUse hook returns `defer`, the CLI emits a result with
         // stop_reason: "tool_deferred" and a deferred_tool_use object, then exits.
         if (resultMsg.stop_reason === 'tool_deferred' && resultMsg.deferred_tool_use) {
+          // Book paid work before the pause once. The borrowed request retains
+          // these segments for its loop total; instance accounting receives each separately.
+          if (!this.awaitingOneShotCompletion && this.residentTurnActive && this.residentRequest.pending) {
+            const partial = this.parseOutput(this.residentTurnRawOutput);
+            this.settleResponseUsage(partial);
+            this.emit('usage', partial.usage);
+            this.residentTurnRawOutput = '';
+            this.residentTurnActive = false;
+          }
           const deferred = resultMsg.deferred_tool_use;
           this.deferredToolUse = {
             toolName: deferred.name,
