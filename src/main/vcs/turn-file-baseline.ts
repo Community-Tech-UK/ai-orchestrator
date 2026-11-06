@@ -46,6 +46,12 @@ const logger = getLogger('TurnFileBaseline');
  */
 const DISPATCH_WAIT_MS = 300;
 /**
+ * The snapshot taken when a turn ends holds nothing up, so it keeps the longer limit; the snapshot's
+ * own two-second deadline still caps it. Cutting it at the dispatch wait would drop the count of any
+ * turn that added a few hundred files.
+ */
+const END_SNAPSHOT_WAIT_MS = 2_500;
+/**
  * A folder whose snapshot ran out of time or went over its limits is not tried again for this long,
  * so every later message to it goes out at once instead of paying the wait again.
  */
@@ -374,7 +380,7 @@ export class TurnFileBaselineService {
         controller.abort();
         if (folder && snapshotting) this.slowFolders.set(folder, Date.now());
         resolve('git-error');
-      }, DISPATCH_WAIT_MS);
+      }, settledAt === undefined ? DISPATCH_WAIT_MS : END_SNAPSHOT_WAIT_MS);
     });
     return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
   }

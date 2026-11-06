@@ -436,6 +436,7 @@ describe('TurnFileBaselineService', () => {
   });
 
   describe('a folder too slow to snapshot', () => {
+    const realSnapshot = snapshotGit.snapshotWorkingTree; // before any spy replaces it
     let calls: number;
     let mock: MockInstance<typeof snapshotGit.snapshotWorkingTree>;
     /** One send, as the dispatch path makes it: the input is published, then the baseline is awaited. */
@@ -466,6 +467,19 @@ describe('TurnFileBaselineService', () => {
       expect(await send('second')).toBeLessThan(150);
       expect(calls).toBe(1);
       expect(await service.getResult('inst-1', 'second')).toEqual({ state: 'unavailable', reason: 'git-error' });
+    });
+
+    it('lets the end-of-turn snapshot take longer than a send may wait, since nothing is held up for it', async () => {
+      mock.mockImplementation(async (cwd, dir, signal, settledAt, paths) => {
+        if (settledAt !== undefined) await new Promise(resolve => setTimeout(resolve, 600));
+        return realSnapshot(cwd, dir, signal, settledAt, paths);
+      });
+      userInput('u1');
+      await service.getResult('inst-1', 'u1');
+      await fs.writeFile(path.join(repo, 'a.txt'), 'agent change\n');
+      await complete();
+
+      expect(ready(await service.getResult('inst-1', 'u1')).files.map(file => file.path)).toEqual(['a.txt']);
     });
 
     it('stops trying after a snapshot fails for being over its limits', async () => {
