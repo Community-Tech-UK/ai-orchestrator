@@ -5,6 +5,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { signal, ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { InstanceStore } from '../../core/state/instance.store';
+import { InstanceMessagingStore } from '../../core/state/instance/instance-messaging.store';
 import { HistoryStore } from '../../core/state/history.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { IpcFacadeService, RecentDirectoriesIpcService } from '../../core/services/ipc';
@@ -26,6 +27,7 @@ import { LoopPromptHistoryService } from '../loop/loop-prompt-history.service';
 import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
 import type { ConversationData, ConversationHistoryEntry } from '../../../../shared/types/history.types';
 import type { Instance, OutputMessage } from '../../core/state/instance/instance.types';
+import { DEFAULT_SETTINGS } from '../../../../shared/types/settings.types';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
 const instanceDetailTemplate = readFileSync(
@@ -130,6 +132,7 @@ describe('InstanceDetailComponent history preview restore send', () => {
       imports: [InstanceDetailComponent],
       providers: [
         { provide: InstanceStore, useValue: instanceStore },
+        { provide: InstanceMessagingStore, useValue: { getQueuedMessageCount: vi.fn(() => 0) } },
         { provide: InstanceIpcService, useValue: { changeModel } },
         { provide: HistoryStore, useValue: historyStore },
         { provide: SettingsStore, useValue: createSettingsStoreMock() },
@@ -489,6 +492,8 @@ function createInstance(): Instance {
 
 function createSettingsStoreMock(): Partial<SettingsStore> {
   return {
+    settings: signal(DEFAULT_SETTINGS),
+    isInitialized: signal(true),
     defaultWorkingDirectory: signal('/tmp/project'),
     showThinking: signal(true),
     thinkingDefaultExpanded: signal(false),

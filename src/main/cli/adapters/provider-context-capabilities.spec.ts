@@ -34,7 +34,7 @@ const expected = {
     transcriptControl: 'none',
     occupancyReporting: 'current',
     interruptProof: 'acknowledged-only',
-    compactionProof: 'none',
+    compactionProof: 'observed',
     sameThreadContinuation: true,
   },
   claudeNonresident: {
@@ -121,7 +121,7 @@ describe('provider context-capability matrix', () => {
     await fallback.terminate();
   });
 
-  it('locks resident and nonresident Claude without treating protocol acknowledgement as observation', () => {
+  it('locks Claude compaction observation separately from interrupt acknowledgement and drops proof without residency', () => {
     const adapter = new ClaudeCliAdapter({ residentClaude: true });
 
     expect(adapter.getContextCapabilities()).toEqual(expected.claudeNonresident);
@@ -133,6 +133,13 @@ describe('provider context-capability matrix', () => {
     });
     expect(adapter.getContextCapabilities()).toEqual(expected.claudeResident);
     expect(adapter.getContextCapabilities().interruptProof).toBe('acknowledged-only');
+
+    adapter.getAdapterCapabilities = () => ({
+      residentSession: false,
+      liveInterrupt: false,
+      liveSteer: false,
+    });
+    expect(adapter.getContextCapabilities()).toEqual(expected.claudeNonresident);
   });
 
   it('locks stateless Gemini to aggregate-only accounting', () => {

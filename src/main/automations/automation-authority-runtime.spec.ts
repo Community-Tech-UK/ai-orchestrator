@@ -47,7 +47,9 @@ describe('automation caller authority through MCP, persistence and real spawn de
     return createAutomationToolDefinitions({ instanceId: callerInstanceId, ...impl });
   }
   async function invoke(name: string, args: Record<string, unknown>, id: string | null = 'caller') {
-    return tools(id).find(tool => tool.name === name)!.handler(args);
+    // These cases are about authority, not how often a job runs, so the person has confirmed the cadence.
+    const confirmed = name === 'create_automation' || name === 'update_automation' ? { confirmedByUser: true, ...args } : args;
+    return tools(id).find(tool => tool.name === name)!.handler(confirmed);
   }
   async function seed(action: Partial<AutomationAction> = {}) {
     return store.create({ name: 'Existing job', schedule: { type: 'cron', expression: '*/10 * * * *', timezone: 'UTC' },

@@ -44,7 +44,7 @@ async function publicLoopIteration(adapter: ClaudeCliAdapter, regular = false) {
     }
   });
   registerDefaultLoopInvoker({ getInstance: () => undefined, queueInstanceUpdate: () => undefined } as never);
-  const result = await new Promise<Record<string, unknown>>(resolve => state.coordinator.emit('loop:invoke-iteration', { correlationId: 'disposable-public-loop', loopRunId: 'disposable-public-loop', chatId: 'disposable-chat', provider: 'claude', model: 'claude-opus-5', workspaceCwd: '/tmp', stage: 'IMPLEMENT', seq: 0, idempotencyKey: 'disposable-output', prompt: 'Disposable loop fixture', config: { contextStrategy: 'fresh-child' }, iterationTimeoutMs: 150, streamIdleTimeoutMs: 25, callback: resolve }));
+  const result = await new Promise<Record<string, unknown>>(resolve => state.coordinator.emit('loop:invoke-iteration', { correlationId: 'disposable-public-loop', loopRunId: 'disposable-public-loop', chatId: 'disposable-chat', provider: 'claude', model: 'claude-opus-5', workspaceCwd: '/tmp', stage: 'IMPLEMENT', seq: 0, idempotencyKey: 'disposable-output', prompt: 'Disposable loop fixture', config: { contextStrategy: 'fresh-child' }, iterationTimeoutMs: 1_000, streamIdleTimeoutMs: 25, callback: resolve }));
   if ('error' in result)
     throw lastResponse instanceof Error ? lastResponse : new Error(String(result['error']));
   return lastResponse as Awaited<ReturnType<typeof original>>;
@@ -91,7 +91,10 @@ it.each([
   vi.spyOn(adapter as unknown as {
     spawnProcess(args: string[]): ReturnType<typeof spawn>;
   }, 'spawnProcess').mockImplementation(() => {
-    child = spawn(process.execPath, ['-e', `process.stdin.once('data',()=>{process.stdout.write(${JSON.stringify(JSON.stringify(paid) + '\n')},()=>setTimeout(()=>{process.stdout.write(${JSON.stringify(JSON.stringify(result) + (mode === 'partial-no-final-lf' ? '' : '\n'))},()=>process.stderr.write('FINAL_WRITTEN'));},25));});setInterval(()=>{},1000);`], { stdio: ['pipe', 'pipe', 'pipe'], detached: true });
+    // The final result and the FINAL_WRITTEN marker are written with
+    // synchronous writes in one turn: SIGKILL can only land before or after
+    // both, never between the result and its completion marker.
+    child = spawn(process.execPath, ['-e', `process.stdin.once('data',()=>{process.stdout.write(${JSON.stringify(JSON.stringify(paid) + '\n')},()=>setTimeout(()=>{require('fs').writeSync(1,${JSON.stringify(JSON.stringify(result) + (mode === 'partial-no-final-lf' ? '' : '\n'))});require('fs').writeSync(2,'FINAL_WRITTEN');},25));});setInterval(()=>{},1000);`], { stdio: ['pipe', 'pipe', 'pipe'], detached: true });
     closed = once(child, 'close');
     child.once('close', () => { closeSeen = true; });
     child.once('exit', () => child.stdout.resume());

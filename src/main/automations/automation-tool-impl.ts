@@ -38,6 +38,8 @@ import { findEquivalentAutomation } from './automation-equivalence';
 import type { AutomationStore } from './automation-store';
 import type { AutomationEventMap } from './automation-events';
 import { resolveNewAutomationModelSelection } from '../../shared/automations/new-automation-model-default';
+import { assertAgentCadenceAllowed } from '../../shared/automations/automation-cadence';
+import { assertCheckedJobStays } from './automation-pre-check-guard';
 
 /** Minimal scheduler surface the automation tools depend on. */
 export interface AutomationToolScheduler {
@@ -203,6 +205,8 @@ export function createAutomationToolImplementations(
         schedule = { type: 'oneTime', runAt, timezone };
       }
 
+      assertAgentCadenceAllowed(schedule, args.confirmedByUser);
+
       const input: CreateAutomationInput = {
         name: args.name,
         description: args.description,
@@ -345,6 +349,8 @@ export function createAutomationToolImplementations(
         schedule = { ...existing.schedule, timezone };
       }
 
+      if (scheduleProvided) assertAgentCadenceAllowed(schedule, args.confirmedByUser);
+
       const enabled = args.enabled ?? existing.enabled;
       const scheduleChanged = scheduleProvided && !isDeepStrictEqual(schedule, existing.schedule);
       const enabling = enabled && !existing.enabled;
@@ -397,6 +403,8 @@ export function createAutomationToolImplementations(
         ...(action ? { action } : {}),
         ...(args.hidden !== undefined ? { hidden: args.hidden } : {}),
       };
+
+      assertCheckedJobStays(existing, updates);
 
       const effectiveSchedule = scheduleProvided ? schedule : existing.schedule;
       // Metadata and action edits must not undo a deliberate postponement or

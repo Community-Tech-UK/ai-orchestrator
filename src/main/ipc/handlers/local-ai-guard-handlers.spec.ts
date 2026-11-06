@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { IPC_CHANNELS } from '@contracts/channels';
+import type { AuxiliaryHelperPause } from '../../../shared/types/auxiliary-llm.types';
 import type {
   LocalAiEndpointIdentity,
   LocalAiTarget,
@@ -87,6 +88,49 @@ describe('registerLocalAiGuardHandlers', () => {
     expect(h.runtime.health.listRecoveryAttempts).toHaveBeenCalledWith('target-1');
     expect(JSON.stringify(response)).not.toContain('config_json');
     expect(JSON.stringify(response)).not.toContain('routing_events');
+  });
+
+  it('projects the current helper retry deadline in the authoritative snapshot', async () => {
+    const h = harness();
+    h.runtime.helperPauses.push({
+      slot: 'compression', pausedUntil: 61_000, failures: 2,
+      startedAt: 1_000, reason: 'Paused until 00:01 after 2 failures',
+    });
+    h.register();
+
+    const response = await invoke(IPC_CHANNELS.LOCAL_AI_GUARD_GET_SNAPSHOT);
+
+    expect(response).toMatchObject({ success: true, data: { helperPauses: [{
+      slot: 'compression', pausedUntil: 61_000,
+    }] } });
+  });
+
+  it('requires a trusted sender and valid slot before retrying a paused helper', async () => {
+    const trustError = {
+      success: false,
+      error: { code: 'IPC_TRUST_FAILED', message: 'Untrusted sender', timestamp: 123 },
+    };
+    const h = harness({ trustError });
+    h.runtime.helperPauses.push({
+      slot: 'titleGeneration', pausedUntil: 61_000, failures: 2,
+      startedAt: 1_000, reason: 'Paused until 00:01 after 2 failures',
+    });
+    h.register();
+    const channel = 'local-ai-guard:retry-helper-now';
+
+    await expect(invoke(channel, { slot: 'titleGeneration' })).resolves.toEqual(trustError);
+    expect(h.retryHelperNow).not.toHaveBeenCalled();
+    h.ensureTrustedSender.mockReturnValue(null);
+    expect((await invoke(channel, { slot: 'invalid-slot' })).error?.code).toBe('VALIDATION_FAILED');
+    expect(h.retryHelperNow).not.toHaveBeenCalled();
+
+    await expect(invoke(channel, { slot: 'titleGeneration' })).resolves.toMatchObject({
+      success: true, data: { helperPauses: [] },
+    });
+    expect(h.retryHelperNow).toHaveBeenCalledExactlyOnceWith('titleGeneration');
+    expect(h.ensureTrustedSender).toHaveBeenCalledWith(
+      expect.anything(), channel,
+    );
   });
 
   it('requires a trusted sender for every active operation before touching runtime state', async () => {
@@ -866,6 +910,7 @@ function harness(options: {
   let changedDuringSnapshot = false;
   let remainingSnapshotDrifts = options.snapshotDriftCount ?? 0;
   let targetIndex: Map<string, LocalAiTarget> | undefined;
+  const helperPauses: AuxiliaryHelperPause[] = [];
   const runtime = {
     get revision() {
       return revision.toString();
@@ -948,6 +993,7 @@ function harness(options: {
       resolve: vi.fn(() => ({ ...pending, status: 'deferred', resolution: 'defer' })),
     },
     fallbackNotifications: [notified],
+    helperPauses,
     notifyChanged: vi.fn(() => {
       revision += 1n;
       emitListener?.();
@@ -959,6 +1005,10 @@ function harness(options: {
   };
   const ensureTrustedSender = vi.fn(() => options.trustError ?? null);
   const sendToRenderer = vi.fn();
+  const retryHelperNow = vi.fn(() => {
+    runtime.helperPauses = [];
+    runtime.notifyChanged();
+  });
   const discoverCandidates = vi.fn(options.discoverOperation ?? (async () =>
     (options.discoverCandidates ?? [{
       endpoint: {
@@ -974,7 +1024,7 @@ function harness(options: {
     }]) as never));
   return {
     runtime, target, status, incident, pending, notified, ensureTrustedSender, sendToRenderer,
-    discoverCandidates, unsubscribe,
+    discoverCandidates, unsubscribe, retryHelperNow,
     emit: () => runtime.notifyChanged(),
     register: () => {
       return registerLocalAiGuardHandlers({
@@ -982,6 +1032,7 @@ function harness(options: {
         ensureTrustedSender,
         getRuntime: () => runtime as never,
         discoverCandidates: discoverCandidates as never,
+        retryHelperNow,
       });
     },
   };

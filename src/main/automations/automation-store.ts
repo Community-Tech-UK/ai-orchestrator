@@ -5,6 +5,7 @@ import { withRunLimits } from './automation-run-policy';
 import { readRunFacts, writeRunResult, markDeliveryStarted, addProcessedUsage, recordStopFailure } from './automation-run-facts';
 import type { AutomationResult } from '@contracts/schemas/automation';
 import type { SqliteDriver } from '../db/sqlite-driver';
+import { AutomationPreCheckPolicySchema } from '@contracts/schemas/automation';
 import { generateId } from '../../shared/utils/id-generator';
 import { toWorkspaceId } from '../../shared/utils/workspace-key';
 import type {
@@ -42,6 +43,8 @@ import {
   type PendingRetryRecord,
 } from './automation-store-retry-ops';
 import { recordRunOutcomeRecord } from './automation-store-outcome-ops';
+import { markThreadPromptAttemptRecord, markThreadPromptDeliveredRecord } from './automation-store-thread-delivery-ops';
+import { cancelPendingRuns } from './automation-store-cancel-ops';
 import type { AutomationRunDecisionOptions } from './automation-store-types';
 import { listActiveAutomationRuns } from './automation-store-admission';
 export type { PendingRetryRecord } from './automation-store-retry-ops';
@@ -68,6 +71,7 @@ export class AutomationStore {
   ) {}
 
   async create(input: CreateAutomationInput, nextFireAt: number | null, now = Date.now()): Promise<Automation> {
+    AutomationPreCheckPolicySchema.parse(input);
     const id = generateId();
     const prepared = await this.attachmentService.prepare(id, input.action.attachments, now);
     const schedule = input.schedule;
@@ -125,6 +129,7 @@ export class AutomationStore {
     }
 
     const mergedAction = updates.action ? { ...existing.action, ...updates.action } : existing.action;
+    AutomationPreCheckPolicySchema.parse({ action: mergedAction, schedule: updates.schedule ?? existing.schedule });
     const hasAttachmentUpdate = updates.action && Object.prototype.hasOwnProperty.call(updates.action, 'attachments');
     const prepared = hasAttachmentUpdate
       ? await this.attachmentService.prepare(id, mergedAction.attachments, now)
@@ -369,6 +374,16 @@ export class AutomationStore {
     return this.getRun(runId);
   }
 
+  /** An attempted send is unknown until acknowledgement; never erase a confirmed delivery. */
+  markThreadPromptAttempt(runId: string, instanceId: string, notDelivered = false, now = Date.now()): AutomationRun | null {
+    return markThreadPromptAttemptRecord(this.db, runId, instanceId, notDelivered, now) ? this.getRun(runId) : null;
+  }
+
+  /** Preserve actual thread delivery even when redelivery follows a terminal skipped run. */
+  markThreadPromptDelivered(runId: string, instanceId: string, now = Date.now()): AutomationRun | null {
+    return markThreadPromptDeliveredRecord(this.db, runId, instanceId, now) ? this.getRun(runId) : null;
+  }
+
   /** WS5: link the loop run a loop-action automation run spawned. */
   attachLoopRun(runId: string, loopRunId: string, now = Date.now()): AutomationRun | null {
     this.db.prepare(`
@@ -522,29 +537,7 @@ export class AutomationStore {
   }
 
   cancelPending(automationId: string, now = Date.now()): AutomationRun[] {
-    const pending = this.db.prepare(`
-      SELECT *
-      FROM automation_runs
-      WHERE automation_id = ? AND status = 'pending'
-      ORDER BY scheduled_at ASC
-    `).all<AutomationRunRow>(automationId);
-
-    this.db.prepare(`
-      UPDATE automation_runs
-      SET status = 'cancelled',
-          finished_at = ?,
-          error = 'Pending automation run cancelled',
-          updated_at = ?
-      WHERE automation_id = ? AND status = 'pending'
-    `).run(now, now, automationId);
-
-    return pending.map((row) => ({
-      ...this.mapRun(row),
-      status: 'cancelled',
-      finishedAt: now,
-      error: 'Pending automation run cancelled',
-      updatedAt: now,
-    }));
+    return cancelPendingRuns(this.db, automationId, now);
   }
 
   recordSkipped(
@@ -759,8 +752,8 @@ export class AutomationStore {
         (id, automation_id, status, trigger, scheduled_at, started_at, finished_at,
          instance_id, error, output_summary, output_full_ref, idempotency_key,
          trigger_source_json, delivery_mode, seen_at, config_snapshot_json,
-         attempt, max_attempts, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, NULL, ?, ?, ?, NULL, ?, ?, ?, ?, ?)
+         attempt, max_attempts, created_at, updated_at, thread_prompt_delivered)
+      VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, NULL, ?, ?, ?, NULL, ?, ?, ?, ?, ?, NULL)
     `).run(
       id,
       automation.id,

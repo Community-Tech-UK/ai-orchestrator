@@ -12,11 +12,15 @@ import { describe, it, expect, beforeEach, afterEach, vi, Mock } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { FileAttachmentService } from './file-attachment.service';
 import { IpcFacadeService, FileIpcService } from '../../core/services/ipc';
+import { DraftService } from '../../core/services/draft.service';
+import { ToastService } from '../../core/services/toast.service';
+import { identityOf } from '../../core/services/attachment-identity';
 
 describe('FileAttachmentService', () => {
   let service: FileAttachmentService;
   let ipc: { selectFiles: Mock };
   let fileIpc: { getFileStats: Mock; readFileBytes: Mock };
+  const toastShow = vi.fn();
 
   /**
    * Build a successful readFileBytes result containing `contents` as raw bytes.
@@ -33,6 +37,7 @@ describe('FileAttachmentService', () => {
   }
 
   beforeEach(() => {
+    toastShow.mockReset();
     ipc = {
       selectFiles: vi.fn(),
     };
@@ -44,6 +49,8 @@ describe('FileAttachmentService', () => {
     TestBed.configureTestingModule({
       providers: [
         FileAttachmentService,
+        DraftService,
+        { provide: ToastService, useValue: { show: toastShow } },
         { provide: IpcFacadeService, useValue: ipc },
         { provide: FileIpcService, useValue: fileIpc },
       ],
@@ -149,6 +156,21 @@ describe('FileAttachmentService', () => {
       expect(files[0]).toBeInstanceOf(File);
       expect(files[0].name).toBe('doc.md');
       expect(files[0].type).toBe('text/markdown');
+      expect(identityOf(files[0])).toMatch(/^fp:/);
+    });
+
+    it('keeps one copy of equal bytes from different paths through the draft API', async () => {
+      fileIpc.readFileBytes.mockResolvedValue(mockBytesResult('same bytes'));
+      const drafts = TestBed.inject(DraftService);
+      const first = await service.loadFilesFromPaths(['/a.txt']);
+      const second = await service.loadFilesFromPaths(['/b.txt']);
+      drafts.addPendingFiles('session', first);
+      drafts.addPendingFiles('session', second);
+
+      expect(first[0].name).toBe('a.txt');
+      expect(second[0].name).toBe('b.txt');
+      expect(drafts.getPendingFiles('session')).toEqual(first);
+      expect(toastShow).toHaveBeenCalledExactlyOnceWith('Already attached.');
     });
 
     it('uses application/octet-stream when extension is unknown', async () => {

@@ -170,6 +170,10 @@ import { dispatchNativeOpenCodeCommand } from './instance-native-command-input';
 import { runInstanceLocalInput } from './instance-local-input';
 import { parseSwitchModeApprovalReply } from './instance-switch-mode-reply';
 import { bindInstanceNativeCommandForwarding } from './instance-native-command-catalog';
+import { getHarnessGuidance } from '../orchestration/harness-guidance';
+import { findPendingInitialPrompt, takePendingInitialPromptGuidance } from './lifecycle/initial-prompt-recovery';
+import { compactForOverflow } from './overflow-compaction-route';
+import { captureOverflowRecoveryOwner } from './overflow-recovery-owner';
 const logger = getLogger('InstanceManager');
 const CHILD_STARTUP_TIMEOUT_MS = 60_000;
 const INPUT_PREFLIGHT_DEADLINE_MS = 5_000;
@@ -390,26 +394,15 @@ export class InstanceManager extends EventEmitter {
       }),
       ingestToRLM: (id, msg) => this.context.ingestToRLM(id, msg),
       ingestToUnifiedMemory: (inst, msg) => this.context.ingestToUnifiedMemory(inst, msg),
-      compactContext: async (id) => {
-        const instance = this.state.getInstance(id);
-        if (instance) {
-          // Try native adapter compaction first (e.g., Codex thread/compact/start).
-          // This actually reduces the provider's context window usage.
-          const adapter = this.state.getAdapter(id);
-          if (adapter && 'compactContext' in adapter && typeof (adapter as { compactContext: () => Promise<boolean> }).compactContext === 'function') {
-            try {
-              const nativeResult = await (adapter as { compactContext: () => Promise<boolean> }).compactContext();
-              logger.info('Native adapter compaction attempted', { instanceId: id, success: nativeResult });
-            } catch (err) {
-              logger.warn('Native adapter compaction failed, continuing with local compaction', {
-                instanceId: id,
-                ...errorDiagnostic(err),
-              });
-            }
-          }
-          await this.context.compactContext(id, instance);
-        }
-      },
+      compactContext: (id, resumeTurn) => compactForOverflow({
+        getInstance: (instanceId) => this.state.getInstance(instanceId),
+        getAdapter: (instanceId) => this.state.getAdapter(instanceId),
+        compactBuffers: (instanceId, instance) => this.context.compactContext(instanceId, instance),
+        compactInstance: (instanceId, options) => getContextEngine().compactInstance(instanceId, options),
+        emitSystemNotice: (instance, content) => this.emitSystemMessage(instance.id, content),
+      }, id, resumeTurn, captureOverflowRecoveryOwner(
+        id, (instanceId) => this.state.getInstance(instanceId), (instanceId) => this.state.getAdapter(instanceId),
+      )),
       refreshAdapterRuntimeConfig: (id) => this.lifecycle.refreshAdapterRuntimeConfig(id),
       onChildExit: (childId, child, exitCode) => this.handleChildExit(childId, child, exitCode),
       onOutput: (id, content) => this.stuckDetector.recordOutput(id, content),
@@ -786,6 +779,7 @@ export class InstanceManager extends EventEmitter {
       this.emitObserversSafely('instance:created', payload);
     });
     this.lifecycle.on('removed', (instanceId) => {
+      this.childCompletion.removeParent(instanceId);
       const instance = this.state.getInstance(instanceId);
       this.continuityRecovery.removeInstance(instanceId);
       this.providerEventBus.removeInstance(instanceId);
@@ -1250,8 +1244,8 @@ export class InstanceManager extends EventEmitter {
     return this.lifecycle.restartInstance(instanceId);
   }
 
-  async restartFreshInstance(instanceId: string): Promise<string | undefined> {
-    return this.lifecycle.restartFreshInstance(instanceId);
+  async restartFreshInstance(instanceId: string, assertBeforeRestart?: () => void): Promise<string | undefined> {
+    return this.lifecycle.restartFreshInstance(instanceId, assertBeforeRestart);
   }
 
   async terminateAll(): Promise<void> {
@@ -1588,6 +1582,10 @@ export class InstanceManager extends EventEmitter {
     // LT-657: Harness-authored text is not a user submission and must never be
     // interpreted as one (hooks, switch-mode replies, slash commands, history).
     const internalSource = options?.internalSource;
+    const pendingInitialPrompt = instance.depth === 0 && !internalSource && !options?.autoContinuation
+      ? findPendingInitialPrompt(instance, message)
+      : undefined;
+    if (pendingInitialPrompt) message = pendingInitialPrompt.message;
     if (!options?.isRetry && !options?.autoContinuation && !internalSource) {
       await assertInstanceLifecycleHookAllowed('UserPromptSubmit', instance, {
         userPrompt: message,
@@ -1790,7 +1788,8 @@ export class InstanceManager extends EventEmitter {
           this.publishOutput(instanceId, userMessage);
         }
 
-        void getContextEngine().compactInstance(instanceId).catch((error: unknown) =>
+        // A typed /compact is the user's own action, so the helper limit does not refuse its summary.
+        void getContextEngine().compactInstance(instanceId, { trigger: 'manual' }).catch((error: unknown) =>
           logger.error('Typed compaction command failed', error instanceof Error ? error : undefined, { instanceId }));
       });
       return;
@@ -1853,8 +1852,6 @@ export class InstanceManager extends EventEmitter {
     const hasPriorConversationHistory = instance.outputBuffer.some(
       (output) => output.type === 'user' || output.type === 'assistant'
     );
-    // Prepend orchestration prompt only for genuinely fresh conversations.
-    const orchestrationPromptInjected = isFirstTrackedInput && !hasPriorConversationHistory;
     const commitFirstMessageTracking = (): void => {
       if (!isFirstTrackedInput) return;
       this.hasReceivedFirstMessage.add(instanceId);
@@ -1879,26 +1876,17 @@ export class InstanceManager extends EventEmitter {
         ).catch(() => { /* non-critical */ });
       }
     };
-    if (isFirstTrackedInput) {
-      if (!deferInputCommitUntilDispatch) commitFirstMessageTracking();
+    if (isFirstTrackedInput && !deferInputCommitUntilDispatch) commitFirstMessageTracking();
 
-      if (!hasPriorConversationHistory) {
-        const orchestrationPrompt = this.orchestrationMgr.getOrchestrationPrompt(instanceId, instance.currentModel);
-        const prefix = contextBlock ? `${contextBlock}\n\n` : '';
-        contextBlock = `${prefix}${orchestrationPrompt}\n\n---`;
-      }
-    }
-
-    // Re-surface relevant orchestration guidance after the full first-turn prompt
-    // has scrolled out of the active context. Detection only selects static,
-    // conditional reminders; user text is never interpolated into them.
-    if (!orchestrationPromptInjected) {
-      const laterTurnReminder =
-        this.orchestrationMgr.getLaterTurnReminderIfRelevant(message);
-      if (laterTurnReminder) {
-        const prefix = contextBlock ? `${contextBlock}\n\n` : '';
-        contextBlock = `${prefix}${laterTurnReminder}`;
-      }
+    const guidance = pendingInitialPrompt
+      ? takePendingInitialPromptGuidance(instance, pendingInitialPrompt)
+      : instance.depth === 0 && !internalSource
+      && !options?.automatedInput && !options?.autoContinuation
+      ? getHarnessGuidance().takeHarnessGuidance(instance, message, 'later-turn')
+      : undefined;
+    if (guidance?.text) {
+      const prefix = contextBlock ? `${contextBlock}\n\n` : '';
+      contextBlock = `${prefix}${guidance.text}`;
     }
 
     // Add user message to output buffer BEFORE sending to CLI.
@@ -1932,6 +1920,10 @@ export class InstanceManager extends EventEmitter {
       queuedAdmissionId: options?.queuedAdmissionId,
       signal: options?.signal,
       beforeProviderDispatch,
+      onProviderInputDelivered: guidance || options?.onProviderInputDelivered ? () => {
+        guidance?.commit();
+        options?.onProviderInputDelivered?.();
+      } : undefined,
       assertProviderDispatchCurrent: options?.assertProviderDispatchCurrent,
     });
     } catch (error) {
@@ -2507,7 +2499,13 @@ export class InstanceManager extends EventEmitter {
   // Cleanup
   // ============================================
 
+  /** Stop child wake-ups before process shutdown; ordinary Close all remains reusable. */
+  prepareForShutdown(): void {
+    this.childCompletion.dispose();
+  }
+
   destroy(): void {
+    this.prepareForShutdown();
     getPauseCoordinator().removeListener('pause', this.handlePause);
     getTaskManager().stopTimeoutChecker();
     this.settledTracker.destroy();

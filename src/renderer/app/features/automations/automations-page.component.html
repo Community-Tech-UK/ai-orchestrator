@@ -315,6 +315,10 @@
                   </label>
                 }
 
+                @if (form().triggerKind === 'schedule') {
+                  <div class="hint" [appTooltip]="scheduleCadenceTooltip">{{ scheduleCadenceLine() }}</div>
+                }
+
                 <div class="form-grid">
                   <label>
                     <span>Missed Runs</span>
@@ -340,6 +344,34 @@
                     <span class="hint">Use {{ '{' }}{{ '{' }}payload.field{{ '}' }}{{ '}' }} to insert webhook payload values (secrets are redacted).</span>
                   }
                 </label>
+
+                @if (form().triggerKind === 'schedule') {
+                  <label>
+                    <span [appTooltip]="checkCommandTooltip">Check before starting the AI (optional)</span>
+                    <input name="preCheckCommand" [ngModel]="form().preCheckCommand"
+                      [attr.aria-describedby]="form().forceNodeId && form().preCheckCommand.trim() ? 'automation-check-target-error' : null"
+                      (ngModelChange)="onPreCheckCommandChange($event)" placeholder="e.g. ls -t ~/Maildir/new | head -1 (prints the newest message)" />
+                    <span class="hint">The same output as last time means the AI is not started. It runs up to 30 seconds in the job's folder; Run now ignores the check.</span>
+                    @if (form().forceNodeId && form().preCheckCommand.trim()) {
+                      <span id="automation-check-target-error" class="error" role="alert">Checks run on this computer only. Remove the check to keep this job on its selected computer.</span>
+                    }
+                  </label>
+                  @if (form().preCheckCommand.trim()) {
+                    <label>
+                      <span [appTooltip]="checkErrorRuleTooltip">If the check fails</span>
+                      <select name="preCheckOnError" [ngModel]="form().preCheckOnError"
+                        (ngModelChange)="patchForm({ preCheckOnError: $event })">
+                        <option value="run-anyway">run the AI anyway</option>
+                        <option value="stop">stop this run</option>
+                      </select>
+                    </label>
+                    @if (checkModelSuggestionVisible()) {
+                      <span class="hint">Runs that a check starts usually need less; Sonnet is suggested. Change it here.</span>
+                    }
+                  }
+                } @else {
+                  <span class="hint">Webhooks always start the AI; checks apply to scheduled runs only.</span>
+                }
 
                 <div class="form-grid">
                   <label><span>Stop after (minutes)</span>
@@ -540,7 +572,7 @@
                 }
 
                 <div class="actions">
-                  <button class="btn btn--primary" type="submit" [disabled]="store.preflightLoading()" [appTooltipDisabledReason]="!form().name.trim() ? 'Enter an automation name first' : !form().workingDirectory.trim() ? tooltipChooseFolder : !form().prompt.trim() ? tooltipEnterPrompt : form().triggerKind === 'webhook' && !form().webhookRouteId.trim() ? 'Select a webhook route first' : !validRunMinutes() ? 'Enter whole minutes, 1 or more' : !validTokenLimit() ? 'Enter a whole token limit from 1 to 1,000,000,000' : null">Save</button>
+                  <button class="btn btn--primary" type="submit" [disabled]="store.preflightLoading()" [appTooltipDisabledReason]="!form().name.trim() ? 'Enter an automation name first' : !form().workingDirectory.trim() ? tooltipChooseFolder : !form().prompt.trim() ? tooltipEnterPrompt : form().triggerKind === 'webhook' && !form().webhookRouteId.trim() ? 'Select a webhook route first' : !validRunMinutes() ? 'Enter whole minutes, 1 or more' : !validTokenLimit() ? 'Enter a whole token limit from 1 to 1,000,000,000' : pinnedCheckBlocksSave() ? 'Remove the check to save: checks run on this computer only' : null">Save</button>
                   <button class="btn" type="button" (click)="closeOverlay()">Cancel</button>
                 </div>
               </form>
@@ -577,6 +609,9 @@
                   <div><span>Next</span><strong>{{ formatTime(automation.nextFireAt) }}</strong></div>
                   <div><span>Last</span><strong>{{ formatTime(automation.lastFiredAt) }}</strong></div>
                   <div><span>Status</span><strong>{{ automation.enabled && automation.active ? 'Active' : 'Paused' }}</strong></div>
+                  @if (checkStatsLine(); as statsLine) {
+                    <div class="stats__check"><span>Checks</span><strong>{{ statsLine }}</strong></div>
+                  }
                 </div>
 
                 <p>{{ nextCheckExplanation(automation) }}</p>
@@ -593,11 +628,13 @@
                 <h3>Recent Runs</h3>
                 <div class="runs">
                   @for (run of selectedRuns(); track run.id) {
-                    <div [class]="'run-row run-row--' + run.status" [class.run-row--quiet]="isQuietRun(run)">
-                      <span>{{ isQuietRun(run) ? 'Nothing needed action' : run.status }}</span>
+                    <div [class]="runRowClasses(run)">
+                      <span>{{ runDisplay(run).label }}</span>
                       <span>{{ run.trigger }}</span>
                       <span>{{ formatTime(run.scheduledAt) }}</span>
-                      <span class="run-error">{{ run.error || run.outputSummary || '' }}</span>
+                      @if (runDisplay(run).detail; as detail) {
+                        <div class="run-detail"><span>Details</span> {{ detail }}</div>
+                      }
                       @if (run.status === 'failed' && run.nextRetryAt !== null && run.nextRetryAt !== undefined) {
                         <span class="run-retry">Will run again {{ formatTime(run.nextRetryAt) }}</span>
                       }

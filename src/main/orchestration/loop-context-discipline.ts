@@ -96,6 +96,8 @@ export function shouldRecycleLoopContext(input: {
     maxIterations?: number;
     maxAggregateTokens?: number;
   };
+  /** Known provider occupancy ceiling; zero leaves the percentage rule unchanged. */
+  absoluteCeilingTokens?: number;
 }): ContextRecycleDecision {
   const pct = (v: number): string => `${Math.round(v * 100)}%`;
   if (!input.enabled) {
@@ -116,6 +118,7 @@ export function shouldRecycleLoopContext(input: {
     observation,
     resetAtUtilization: input.resetAtUtilization,
     calibratedWindowTokens: input.calibratedWindowTokens,
+    absoluteCeilingTokens: input.absoluteCeilingTokens,
     aggregateNote,
     pct,
   });
@@ -126,6 +129,7 @@ function occupancyRecycleDecision(args: {
   observation: ContextUsageObservation;
   resetAtUtilization: number;
   calibratedWindowTokens?: number;
+  absoluteCeilingTokens?: number;
   aggregateNote: string;
   pct: (v: number) => string;
 }): ContextRecycleDecision {
@@ -175,6 +179,16 @@ function occupancyRecycleDecision(args: {
     };
   }
   const recycle = utilization >= args.resetAtUtilization;
+  const ceiling = args.absoluteCeilingTokens;
+  if (!recycle && typeof ceiling === 'number' && Number.isFinite(ceiling)
+    && ceiling > 0 && observation.used >= ceiling) {
+    return {
+      recycle: true,
+      utilization,
+      reason: `context ${Math.round(observation.used / 1_000)}K is over the ${Math.round(ceiling / 1_000)}K ceiling; recycling to a fresh session`,
+      occupancyUnavailable: false,
+    };
+  }
   return {
     recycle,
     utilization,

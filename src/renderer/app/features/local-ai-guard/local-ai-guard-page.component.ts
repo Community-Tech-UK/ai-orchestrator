@@ -7,6 +7,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import type { AuxiliaryLlmSlot } from '../../../../shared/types/auxiliary-llm.types';
 import type {
   LocalAiDiscoveredEndpoint,
   LocalAiIncident,
@@ -80,13 +81,17 @@ export class LocalAiGuardPageComponent implements OnInit {
     }
   }
 
-  protected async retryHelperNow(slot: import('../../../../shared/types/auxiliary-llm.types').AuxiliaryLlmSlot): Promise<void> {
+  protected async retryHelperNow(slot: AuxiliaryLlmSlot): Promise<void> {
     const result = await this.store.retryHelperNow(slot);
-    this.announcement.set(result ? `${slot} can retry now.` : 'Helper retry could not be saved. Try again.');
+    this.announcement.set(result
+      ? `${slot} can retry now.`
+      : 'Helper retry could not be saved. Try again.');
   }
 
   protected helperRetryTime(at: number): string {
-    return new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    return new Date(at).toLocaleTimeString([], {
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    });
   }
 
   protected async recover(): Promise<void> {

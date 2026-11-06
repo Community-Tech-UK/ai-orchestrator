@@ -227,7 +227,7 @@ export class PuppeteerBrowserDriver {
     return {
       title: await page.title(),
       url: page.url(),
-      text: String(text).slice(0, 12_000),
+      text: String(text).slice(0, 1_000_000),
     };
   }
 

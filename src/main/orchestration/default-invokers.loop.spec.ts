@@ -32,6 +32,7 @@ import type { LoopState } from '../../shared/types/loop.types';
 // loop coordinator is constructed inside beforeEach instead.
 const hoisted = vi.hoisted(() => ({
   loopModel: undefined as string | undefined,
+  rtkScope: 'off' as 'off' | 'trial',
   initializeForRequest: vi.fn(),
   requestResponse: vi.fn(),
   sendMessage: vi.fn(),
@@ -107,6 +108,18 @@ vi.mock('../core/config/settings-manager', () => ({
   })),
 }));
 
+vi.mock('../cli/rtk/rtk-rollout', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../cli/rtk/rtk-rollout')>();
+  return {
+    ...actual,
+    getAutomationRtk: (key?: string) => hoisted.rtkScope === 'trial' && key
+      ? { enabled: true, binaryPath: '/bin/rtk', rtkArm: key.includes('off') ? 'off' : 'on',
+          rtkTrialEligible: true, rtkTrialKey: key,
+          ...(key.includes('off') ? {} : { yoloHookPath: '/hook.mjs' }) }
+      : undefined,
+  };
+});
+
 vi.mock('../core/circuit-breaker', () => ({
   getCircuitBreakerRegistry: vi.fn(() => ({ getBreaker: hoisted.getBreaker })),
 }));
@@ -128,6 +141,7 @@ vi.mock('../automations', () => ({
 
 import { registerDefaultLoopInvoker, buildLoopBranchSelectorDeps } from './default-invokers';
 import { isAdapterOnLoan, _resetAdapterLoansForTesting } from '../instance/lifecycle/adapter-loan-registry';
+import { subscribeCostAttribution, type CostAttributionRecord } from '../core/system/cost-attribution';
 import type { BranchSelectInput } from './loop-branch-select';
 
 describe('LF-5 branch-select deps', () => {
@@ -162,6 +176,7 @@ describe('Loop Mode invoker plumbing', () => {
     _resetAdapterLoansForTesting();
     _resetLoopAccountFailoverForTesting();
     hoisted.loopModel = undefined;
+    hoisted.rtkScope = 'off';
     vi.mocked(getDefaultModelForCli).mockReturnValue('default-model');
     // Fresh emitter per test; registerDefaultLoopInvoker bails if a listener
     // already exists, so we must reset both the coordinator mock and the
@@ -562,6 +577,56 @@ describe('Loop Mode invoker plumbing', () => {
     expect(callArg.options.concurrencyPriority).toBe('overflow');
     expect(callArg.options.permissionHookPath).toBeUndefined();
     expect(callArg.options.rtk).toBeUndefined();
+  });
+
+  it.each([
+    ['fresh-child', 'off'], ['fresh-child', 'on'],
+    ['same-session', 'off'], ['same-session', 'on'],
+  ] as const)(
+    'retains %s loop provenance and cost in the %s arm', async (contextStrategy, arm) => {
+      hoisted.rtkScope = 'trial';
+      (hoisted.adapterRef.current as unknown as { getSessionId: () => string }).getSessionId = () => `native-${arm}`;
+      const rows: CostAttributionRecord[] = [];
+      const unsubscribe = subscribeCostAttribution((row) => rows.push(row));
+      try {
+        registerDefaultLoopInvoker({} as never);
+        hoisted.sendMessage.mockResolvedValue({ content: 'ok', usage: { totalTokens: 2, cost: 0.01 } });
+        await emitIteration({ loopRunId: `loop-${arm}`, correlationId: `loop-${arm}::0`, config: { contextStrategy } });
+        expect(hoisted.createAdapter.mock.calls[0][0].options.rtk).toMatchObject({
+          rtkArm: arm, rtkTrialEligible: true, rtkTrialKey: `loop-${arm}`,
+        });
+        expect(hoisted.createAdapter.mock.calls[0][0].options.rtk.yoloHookPath)
+          .toBe(arm === 'on' ? '/hook.mjs' : undefined);
+        expect(rows.find((row) => row.sessionId === `native-${arm}`)).toMatchObject({
+          provider: 'claude', rtkArm: arm, rtkTrialEligible: true,
+          rtkTrialKey: `loop-${arm}`, rtkTrialSurface: 'loop',
+        });
+      } finally {
+        unsubscribe();
+      }
+    },
+  );
+
+  it('keeps the persistent adapter trial arm when settings change between iterations', async () => {
+    hoisted.rtkScope = 'trial';
+    (hoisted.adapterRef.current as unknown as { getSessionId: () => string }).getSessionId = () => 'native-stable';
+    const rows: CostAttributionRecord[] = [];
+    const unsubscribe = subscribeCostAttribution((row) => rows.push(row));
+    try {
+      registerDefaultLoopInvoker({} as never);
+      hoisted.sendMessage.mockResolvedValue({ content: 'ok', usage: { totalTokens: 2, cost: 0.01 } });
+      const config = { contextStrategy: 'same-session' };
+      await emitIteration({ loopRunId: 'loop-off', correlationId: 'loop-off::0', config });
+      hoisted.rtkScope = 'off';
+      await emitIteration({ loopRunId: 'loop-off', correlationId: 'loop-off::1', seq: 1, config });
+      expect(hoisted.createAdapter).toHaveBeenCalledTimes(1);
+      expect(rows.filter((row) => row.sessionId === 'native-stable')).toEqual([
+        expect.objectContaining({ rtkArm: 'off', rtkTrialEligible: true, rtkTrialKey: 'loop-off' }),
+        expect.objectContaining({ rtkArm: 'off', rtkTrialEligible: true, rtkTrialKey: 'loop-off' }),
+      ]);
+    } finally {
+      unsubscribe();
+    }
   });
 
   it('interrupts the live loop adapter when the iteration timeout fires', async () => {

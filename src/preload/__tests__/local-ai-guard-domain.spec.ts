@@ -83,6 +83,21 @@ describe('Local AI Guard preload domain', () => {
       listener,
     );
   });
+
+  it('sends a helper retry request on the dedicated channel', async () => {
+    const ipcRenderer = {
+      invoke: vi.fn().mockResolvedValue({ success: true }),
+      on: vi.fn(),
+      removeListener: vi.fn(),
+    } as unknown as IpcRenderer;
+    const domain = createLocalAiGuardDomain(ipcRenderer, IPC_CHANNELS);
+
+    await domain.localAiGuardRetryHelperNow({ slot: 'compression' });
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledExactlyOnceWith(
+      'local-ai-guard:retry-helper-now', { slot: 'compression' },
+    );
+  });
 });
 
 function targetConfig() {

@@ -12,6 +12,7 @@ import type {
   LocalAiRecheckRequest,
   LocalAiRepairRequest,
   LocalAiRepairResult,
+  LocalAiRetryHelperRequest,
   LocalAiSummaryRequest,
   LocalAiTarget,
   LocalAiTargetCreateRequest,
@@ -29,7 +30,9 @@ export function createLocalAiGuardDomain(
   ch: typeof IPC_CHANNELS,
 ) {
   return {
-    localAiGuardRetryHelperNow: (request: { slot: import('../../shared/types/auxiliary-llm.types').AuxiliaryLlmSlot }): Promise<IpcResponse<LocalAiGuardSnapshot>> =>
+    localAiGuardRetryHelperNow: (
+      request: LocalAiRetryHelperRequest,
+    ): Promise<IpcResponse<LocalAiGuardSnapshot>> =>
       ipcRenderer.invoke(ch.LOCAL_AI_GUARD_RETRY_HELPER_NOW, request),
     localAiGuardGetSnapshot: (): Promise<IpcResponse<LocalAiGuardSnapshot>> =>
       ipcRenderer.invoke(ch.LOCAL_AI_GUARD_GET_SNAPSHOT),

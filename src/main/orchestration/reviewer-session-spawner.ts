@@ -9,6 +9,8 @@ import { trackConsult } from '../work-admission/consult-admission';
 import { trackConsultAdapter } from '../work-admission/consult-adapter-lifecycle';
 
 const logger = getLogger('ReviewerSessionSpawner');
+export type ReviewerSessionManager = Pick<InstanceManager,
+  'createInstance' | 'waitForInstanceSettled' | 'getInstance' | 'terminateInstance' | 'exportSessionMarkdown' | 'interruptInstance' | 'sendInput'>;
 
 /**
  * Terminal outcome of a single awaited review session.
@@ -66,6 +68,8 @@ export interface ReviewSessionResult {
   finalOutput: string;
   /** The spawned (now-terminated) reviewer instance id, or '' on spawn failure. */
   instanceId: string;
+  /** Actual native Codex identity captured before disposable-session teardown. */
+  providerThreadId?: string;
   /** Tokens the reviewer consumed (folded into the loop budget). */
   tokensUsed: number;
   /** Estimated reviewer cost in cents (folded into the loop budget). */
@@ -96,7 +100,7 @@ export interface ReviewSessionResult {
  */
 export class ReviewerSessionSpawner {
   private static instance: ReviewerSessionSpawner | null = null;
-  private instanceManager: InstanceManager | null = null;
+  private instanceManager: ReviewerSessionManager | null = null;
 
   static getInstance(): ReviewerSessionSpawner {
     if (!this.instance) {
@@ -119,7 +123,7 @@ export class ReviewerSessionSpawner {
    * Inject the InstanceManager. Main-process startup calls this after the
    * InstanceManager is constructed (mirrors CrossModelReviewService).
    */
-  setInstanceManager(im: InstanceManager): void {
+  setInstanceManager(im: ReviewerSessionManager): void {
     this.instanceManager = im;
   }
 
@@ -253,6 +257,8 @@ export class ReviewerSessionSpawner {
         outcome: failed ? 'failed' : 'settled',
         finalOutput,
         instanceId,
+        providerThreadId: live.id === instanceId && live.provider === 'codex'
+          ? live.providerSessionId : undefined,
         tokensUsed,
         costCents,
         exactCostCents: Math.ceil(spend.exactUsd * 100),
@@ -315,7 +321,7 @@ export class ReviewerSessionSpawner {
 
   /** Read the reviewer's last assistant message as plain text. */
   private extractFinalOutput(
-    im: InstanceManager,
+    im: ReviewerSessionManager,
     instanceId: string,
     preferredInstance?: Instance,
   ): string {

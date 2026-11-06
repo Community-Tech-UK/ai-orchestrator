@@ -31,6 +31,7 @@ import {
   effect,
   inject,
   input,
+  output,
   signal,
   untracked,
 } from '@angular/core';
@@ -53,6 +54,7 @@ import type { PendingSelection, PickerProvider } from '../models/compact-model-p
 import { DEFAULT_INSTANCE_PROVIDERS, PROVIDER_MENU_LABELS } from '../models/provider-menu.constants';
 import { UnifiedCatalogStore } from '../models/unified-catalog.store';
 import { getModelsForProvider } from '../../../../shared/types/provider.types';
+import { describeModelSwitchEffect } from '../models/model-switch-note';
 import { HistoryPreviewSessionService, historyEntryIdFromPreview } from './history-preview-session.service';
 
 /** Circumference of the SVG ring (r=8, so C ≈ 50.27). */
@@ -113,6 +115,7 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
           [disabledReason]="modelSwitchDisabledReason()"
           [showSelectionStatus]="false"
           [statusText]="selectionStatus()"
+          [switchNoteForProvider]="modelSwitchNoteForProvider"
           (selectionChange)="onPickerSelectionChange($event)"
         />
       }
@@ -128,6 +131,10 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
         [chosenProfileId]="continuationAccountId()"
         (accountChosen)="onContinuationAccount($event)"
       />
+
+      @if (provider() === 'claude' && (instanceStatus() === 'idle' || instanceStatus() === 'busy' || instanceStatus() === 'waiting_for_input')) {
+        <button type="button" class="quick-ask-trigger" [appTooltip]="copy('quickAsk.button')" (click)="quickAskRequested.emit()">Quick ask</button>
+      }
 
       <!-- (d) Queued change badge — a swap requested while busy applies on the
            next idle; clicking the ✕ cancels it. -->
@@ -208,6 +215,8 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
       white-space: nowrap;
     }
 
+    .quick-ask-trigger { border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 13px; background: transparent; color: inherit; padding: 5px 10px; font: inherit; cursor: pointer; }
+
     .pending-model-chip__x {
       opacity: 0.8;
     }
@@ -237,6 +246,7 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
   `],
 })
 export class ComposerToolbarComponent {
+  readonly quickAskRequested = output<void>();
   protected readonly copy = copyFor;
   private readonly ipc = inject(InstanceIpcService);
   private readonly toast = inject(ToastService);
@@ -315,6 +325,13 @@ export class ComposerToolbarComponent {
 
   /** Context usage from the running instance. When absent, ring shows 0%. */
   contextUsage = input<ContextUsage | undefined>(undefined);
+  hasConversation = input(false);
+  residentClaude = input(false);
+  remoteExecution = input(false);
+  readonly modelSwitchNoteForProvider = (target: PickerProvider) => describeModelSwitchEffect({
+    provider: this.runtimeSummary()?.kind === 'local-model' ? 'local-model' : this.provider(), targetProvider: target, hasConversation: this.hasConversation(),
+    usedTokens: this.contextUsage()?.occupancyReported && !this.contextUsage()?.occupancyIsAggregate ? this.contextUsage()!.used : null,
+    residentClaude: this.residentClaude(), executionLocationType: this.remoteExecution() ? 'remote' : 'local' });
 
   /** Current provider for the instance (drives picker initial state). */
   provider = input<InstanceProvider>('claude');

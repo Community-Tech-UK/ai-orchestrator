@@ -364,7 +364,12 @@ export class ContextCompactor extends EventEmitter {
    * mutating the shared `config.preserveRecent` default. Omitting it is
    * byte-compatible with the pre-WS-B7 behavior (uses `config.preserveRecent`).
    */
-  async compact(options?: { preserveRecentOverride?: number; force?: boolean; priorSummary?: string | null; summaryPrompt?: string }): Promise<CompactionResult> {
+  async compact(options?: {
+    preserveRecentOverride?: number;
+    force?: boolean;
+    priorSummary?: string | null;
+    summaryPrompt?: string; userInitiated?: boolean; // userInitiated: a person asked, so the helper limit never refuses it
+  }): Promise<CompactionResult> {
     this.rebuildWorkingStateFromSource();
     const originalTokens = this.state.totalTokens;
     const originalTurnCount = this.state.turns.length;
@@ -435,7 +440,7 @@ export class ContextCompactor extends EventEmitter {
         (found, t, i) => (found === -1 && t.role === 'user' ? i : found),
         -1
       );
-      if (lastUserTurnIdx !== -1 && !preservedTurns.some(turn => turn.role === 'user')) {
+      if (lastUserTurnIdx !== -1 && (!options?.force || !preservedTurns.some(turn => turn.role === 'user'))) {
         const [protectedUserTurn] = turnsToCompact.splice(lastUserTurnIdx, 1);
         preservedTurns.unshift(protectedUserTurn);
       }
@@ -455,7 +460,8 @@ export class ContextCompactor extends EventEmitter {
       }
 
       // Generate summary with safety timeout
-      const summary = await this.generateSummaryWithTimeout(turnsToCompact, options?.priorSummary ?? this.state.summaries.at(-1)?.content ?? null, options?.summaryPrompt);
+      const priorSummary = options?.priorSummary ?? this.state.summaries.at(-1)?.content ?? null;
+      const summary = await this.generateSummaryWithTimeout(turnsToCompact, priorSummary, options?.summaryPrompt, options?.userInitiated);
 
       // Apply tool call retention strategy
       const processedTurns = this.applyToolCallRetention(preservedTurns);
@@ -560,7 +566,11 @@ export class ContextCompactor extends EventEmitter {
    * Generate a summary with a safety timeout to prevent hanging on slow LLM calls.
    * If the timeout fires, falls back to local summary generation.
    */
-  private async generateSummaryWithTimeout(turns: ConversationTurn[], priorSummary: string | null, summaryPrompt?: string): Promise<ConversationSummary> {
+  private async generateSummaryWithTimeout(
+    turns: ConversationTurn[],
+    priorSummary: string | null,
+    summaryPrompt?: string, userInitiated?: boolean,
+  ): Promise<ConversationSummary> {
     let timeout: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeout = setTimeout(() => reject(new Error('Compaction summary timed out')), COMPACTION_TIMEOUT_MS);
@@ -568,7 +578,7 @@ export class ContextCompactor extends EventEmitter {
 
     try {
       return await Promise.race([
-        this.generateSummary(turns, priorSummary, summaryPrompt),
+        this.generateSummary(turns, priorSummary, summaryPrompt, userInitiated),
         timeoutPromise,
       ]);
     } catch (error) {
@@ -601,7 +611,11 @@ export class ContextCompactor extends EventEmitter {
    * The most recent prior summary (if any) is passed as an anchor so decisions and
    * state from earlier compaction rounds survive across multiple compactions.
    */
-  private async generateSummary(turns: ConversationTurn[], priorSummary: string | null, summaryPrompt?: string): Promise<ConversationSummary> {
+  private async generateSummary(
+    turns: ConversationTurn[],
+    priorSummary: string | null,
+    summaryPrompt?: string, userInitiated?: boolean,
+  ): Promise<ConversationSummary> {
     const evidenceWorkingSet = collectEvidenceWorkingSet(turns);
     const conversationText = turns
       .map(t => {
@@ -627,7 +641,6 @@ export class ContextCompactor extends EventEmitter {
     const llm = this.llmService ?? getLLMService();
     const isLlmAvailable = await llm.isAvailable();
     if (isLlmAvailable) {
-      // Restart compaction supplies the exact complete request already fitted to the helper budget.
       const compactionPrompt = summaryPrompt ?? buildCompactionPrompt(
         conversationText,
         priorSummary,
@@ -645,7 +658,8 @@ export class ContextCompactor extends EventEmitter {
         'compression',
         compactionSystemPrompt,
         compactionPrompt,
-        summaryPrompt === undefined ? undefined : { preserveInput: true },
+        summaryPrompt === undefined && !userInitiated ? undefined
+          : { ...(summaryPrompt === undefined ? {} : { preserveInput: true }), ...(userInitiated ? { userInitiated: true } : {}) },
       );
       if (auxDecision.source !== 'fallback' && auxText.trim()) {
         summaryContent = auxText;
@@ -848,9 +862,7 @@ export class ContextCompactor extends EventEmitter {
     this.emit('compaction-completed', result);
   }
 
-  /**
-   * Get compaction history
-   */
+  /** Get compaction history. */
   getCompactionHistory(): CompactionResult[] {
     return [...this.compactionHistory];
   }

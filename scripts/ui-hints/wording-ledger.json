@@ -2115,7 +2115,8 @@
     "id": "b966464eeb5df275",
     "owner": "src/renderer/app/features/plan/plan-page.component.ts",
     "text": "The plan must be waiting for approval first",
-    "why": "long"
+    "why": "long",
+    "retired": "The Plan Mode page has no awaiting-approval state; Approve now needs plan mode and non-empty plan text (Step 15a)."
   },
   {
     "id": "11dacb1fcb5296c9",
@@ -2295,6 +2296,96 @@
     "id": "cc41c19a5c7c186c",
     "owner": "src/renderer/app/features/automations/automations-page.component.ts",
     "text": "Enter a whole token limit from 1 to 1,000,000,000",
+    "why": "long"
+  },
+  {
+    "id": "0bd47e3f45e6be69",
+    "owner": "src/renderer/app/features/automations/automations-page.component.ts",
+    "text": "Choose whether a failed check still starts the AI or stops that scheduled run.",
+    "why": "consequence"
+  },
+  {
+    "id": "fbc4cdcb634b67b1",
+    "owner": "src/renderer/app/features/automations/automations-page.component.ts",
+    "text": "Runs a command for up to 30 seconds before a scheduled run. If its output is unchanged, the AI is not started. Run now skips the check.",
+    "why": "long"
+  },
+  {
+    "id": "ff9fc9443068d96c",
+    "owner": "src/renderer/app/features/automations/automations-page.component.ts",
+    "text": "Estimates the busiest day in the next week. A check may prevent some AI starts.",
+    "why": "long"
+  },
+  {
+    "id": "66513f7eb346abae",
+    "owner": "src/renderer/app/features/instance-detail/cold-cache-chip.component.ts",
+    "text": "Make a checkpoint and summarize the conversation before the next message. The summary keeps key context but can omit detail; choose full history to skip this once.",
+    "why": "long"
+  },
+  {
+    "id": "b030f6da8216ab5a",
+    "owner": "src/renderer/app/features/instance-detail/composer-toolbar.component.ts",
+    "text": "Ask this running Claude conversation a question without saving the answer to its transcript. It rereads the current conversation.",
+    "why": "long"
+  },
+  {
+    "id": "73f65dbf13197294",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Compact and send",
+    "why": "consequence"
+  },
+  {
+    "id": "c5edf25500ea80b3",
+    "owner": "src/renderer/app/features/instance-detail/quick-ask-panel.component.ts",
+    "text": "Close quick ask",
+    "why": "consequence"
+  },
+  {
+    "id": "160fff3d145c96aa",
+    "owner": "src/renderer/app/features/local-ai-guard/local-ai-status-chip.component.ts",
+    "text": " Helper models: daily limit reached. Paid fallbacks resume tomorrow.",
+    "why": "long"
+  },
+  {
+    "id": "02f34310c61de286",
+    "owner": "src/renderer/app/features/settings/rtk-savings-tab.component.ts",
+    "text": "Commands that ran through RTK without shortening their output.",
+    "why": "long"
+  },
+  {
+    "id": "11f189355522eb3c",
+    "owner": "src/renderer/app/features/settings/rtk-savings-tab.component.ts",
+    "text": "Commands whose output RTK shortened before the agent read it.",
+    "why": "long"
+  },
+  {
+    "id": "8505d730cbc847e0",
+    "owner": "src/renderer/app/features/settings/rtk-savings-tab.component.ts",
+    "text": "An estimate capped at the output size the AI could have seen.",
+    "why": "long"
+  },
+  {
+    "id": "c8f7e7cb884d0fde",
+    "owner": "src/renderer/app/features/settings/rtk-savings-tab.component.ts",
+    "text": "Shows which sessions use the hook, instructions, a trial, or no output compression.",
+    "why": "long"
+  },
+  {
+    "id": "c9478a7d27e16e7e",
+    "owner": "src/renderer/app/features/settings/rtk-savings-tab.component.ts",
+    "text": "Output reduction weighted by command size among shortened commands.",
+    "why": "long"
+  },
+  {
+    "id": "dd95e34a7850d8d0",
+    "owner": "src/renderer/app/features/automations/automations-page.component.ts",
+    "text": "Remove the check to save: checks run on this computer only",
+    "why": "consequence"
+  },
+  {
+    "id": "8d7f6a5e6ac4929b",
+    "owner": "src/renderer/app/features/plan/plan-page.component.ts",
+    "text": "Enter plan mode and write a plan first",
     "why": "long"
   }
 ]

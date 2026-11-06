@@ -85,6 +85,36 @@ export function modelChangeNoticeText(params: {
 }
 
 /**
+ * What the user reads when a Claude model or thinking change restarted the
+ * session from a replay summary (plan 14d item 4). Says what changed (an
+ * effort-only change is not "Model changed from X to X") and only claims a
+ * summary of N messages when there was a conversation to summarise.
+ */
+export function claudeReplayUserText(params: {
+  oldModel: string | undefined;
+  newModel: string | undefined;
+  oldReasoningEffort: ReasoningEffort | null | undefined;
+  newReasoningEffort: ReasoningEffort | null | undefined;
+  keptTurns: number;
+}): string {
+  const modelChanged = params.oldModel !== params.newModel;
+  const effortChanged = params.oldReasoningEffort !== params.newReasoningEffort;
+  const model = `Model changed from ${modelLabel(params.oldModel)} to ${modelLabel(params.newModel)}`;
+  const thinking = `thinking from ${effortLabel(params.oldReasoningEffort)} to ${effortLabel(params.newReasoningEffort)}`;
+  const change = !modelChanged && effortChanged
+    ? `Thinking changed from ${effortLabel(params.oldReasoningEffort)} to ${effortLabel(params.newReasoningEffort)}.`
+    : modelChanged && effortChanged
+      ? `${model}, and ${thinking}.`
+      : `${model}.`;
+  if (params.keptTurns <= 0) {
+    return `${change} Harness restarted this session. There was no earlier conversation to carry over.`;
+  }
+  const summarised = params.keptTurns === 1 ? 'the last message' : `the last ${params.keptTurns} messages`;
+  return `${change} Harness restarted this session from a summary of ${summarised}.`
+    + ' Tool results and file contents were not carried over, so the next reply may need to read files again.';
+}
+
+/**
  * GitHub Copilot account handoff. Deliberately explicit that the conversation
  * crossed accounts and that the provider session is new — a reader looking at
  * a Copilot transcript later must be able to tell which seat served which
@@ -121,6 +151,7 @@ export function accountChangeNoticeText(params: {
 /** One notice to deliver and render. */
 export interface RuntimeChangeNotice {
   text: string;
+  userText?: string;
   kind: RuntimeChangeNoticeKind;
 }
 
@@ -142,6 +173,7 @@ export function runtimeChangeNoticesFor(params: {
   newModel: string | undefined;
   oldReasoningEffort: ReasoningEffort | null | undefined;
   newReasoningEffort: ReasoningEffort | null | undefined;
+  replayWindow?: { keptTurns: number; omittedTurns: number; maxChars: number };
   /** Set only on an explicit GitHub Copilot account handoff. */
   copilotAccountChange?: {
     oldProfileLabel: string | undefined;
@@ -184,7 +216,13 @@ export function runtimeChangeNoticesFor(params: {
 
   const primary: RuntimeChangeNotice = params.isProviderSwap
     ? { text: providerChangeNoticeText(params), kind: 'provider-changed' }
-    : { text: modelChangeNoticeText(params), kind: 'model-changed' };
+    : {
+        text: modelChangeNoticeText(params),
+        kind: 'model-changed',
+        ...(params.newProvider === 'claude' && params.replayWindow ? {
+          userText: claudeReplayUserText({ ...params, keptTurns: params.replayWindow.keptTurns }),
+        } : {}),
+      };
 
   const base = [...accountNotices, primary];
   return params.yoloModeChanged ? [...base, yolo] : base;
@@ -300,7 +338,7 @@ export async function announceRuntimeChangeSet(params: {
   for (const notice of params.notices) {
     params.assertCurrent?.();
     try {
-      params.emitSystemNotice(params.instance, notice.text, { kind: notice.kind });
+      params.emitSystemNotice(params.instance, notice.userText ?? notice.text, { kind: notice.kind });
     } catch (error) {
       logger.warn('Runtime-change notice could not be rendered', {
         instanceId: params.instance.id,

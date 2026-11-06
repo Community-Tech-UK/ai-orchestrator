@@ -186,6 +186,20 @@ describe('registerCommandHandlers', () => {
     expect(mocks.contextEngine.compactInstance).not.toHaveBeenCalled();
   });
 
+  it('Step 7 item 5: a typed /compact is a manual compaction, so the helper limit does not refuse its summary', async () => {
+    const compactCommand = { ...goalCommand, id: 'builtin-compact', name: 'compact', execution: { type: 'compact' } };
+    mocks.commandManager.executeCommand.mockResolvedValue({
+      command: compactCommand, args: [], resolvedPrompt: '', execution: { type: 'compact' },
+    });
+    mocks.contextEngine.compactInstance.mockResolvedValue({ success: true, method: 'restart-with-summary', blocking: true });
+    registerCommandHandlers(makeInstanceManager() as never);
+
+    const response = await invoke(IPC_CHANNELS.COMMAND_EXECUTE, { instanceId: 'inst-1', commandId: 'builtin-compact' });
+
+    expect(response.success).toBe(true);
+    expect(mocks.contextEngine.compactInstance).toHaveBeenCalledWith('inst-1', { trigger: 'manual' });
+  });
+
   it('lists and executes a real remote catalog through IPC and refuses a command removed from that live session', async () => {
     const registry = new EventEmitter(); mocks.registry = registry;
     const sendRpc = vi.fn(async (_node: string, _method: string, _params: unknown) => ({ instanceId: 'remote-session' }));

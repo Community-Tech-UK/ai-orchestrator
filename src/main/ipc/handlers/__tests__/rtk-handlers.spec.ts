@@ -47,7 +47,8 @@ const settingsMocks = vi.hoisted(() => ({
   ]),
 }));
 
-vi.mock('../../../cli/rtk/rtk-runtime', () => ({
+vi.mock('../../../cli/rtk/rtk-runtime', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../cli/rtk/rtk-runtime')>(),
   getRtkRuntime: (opts?: { bundledOnly?: boolean }) => {
     runtimeMocks.factory(opts ?? {});
     return {
@@ -78,6 +79,10 @@ vi.mock('../../../core/config/settings-manager', () => ({
   getSettingsManager: () => ({
     get: (key: string) => settingsMocks.values.get(key),
   }),
+}));
+
+vi.mock('../../../core/system/cost-attribution', () => ({
+  getCostAttributionFilePath: () => null,
 }));
 
 vi.mock('../../../logging/logger', () => ({
@@ -116,6 +121,8 @@ describe('rtk-handlers', () => {
         version: '0.39.0',
         trackingDbPath: '/tmp/tracking.db',
         trackingDbAvailable: true,
+        coverage: expect.any(Array),
+        trial: null,
       },
     });
     // Settings → runtime should pass `bundledOnly` through.

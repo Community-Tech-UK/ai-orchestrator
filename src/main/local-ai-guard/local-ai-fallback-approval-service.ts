@@ -46,12 +46,15 @@ export interface LocalAiFallbackApprovalServiceOptions {
 export interface LocalAiFallbackApprovalCreation {
   routingEvent: LocalAiRoutingEvent;
   reservationLimits: LocalAiFallbackReservationLimits;
+  /** Server-owned action provenance; orphaned requests are blocked on restart. */
+  userInitiated?: boolean;
 }
 
 interface PendingAwaiter {
   resolve(resolution: LocalAiFallbackResolution): void;
   reject(error: Error): void;
   expiresAt: number;
+  userInitiated: boolean;
   timer?: unknown;
 }
 
@@ -139,6 +142,7 @@ export class LocalAiFallbackApprovalService {
       resolve: settle,
       reject: rejectWaiter,
       expiresAt: parsed.expiresAt,
+      userInitiated: creation?.userInitiated === true,
     });
     this.armTimeout(request.id);
     try {
@@ -162,7 +166,10 @@ export class LocalAiFallbackApprovalService {
   ): LocalAiFallbackRequest {
     if (this.disposed) throw new Error('Local AI fallback approval service is disposed');
     const pending = this.repository.getFallbackRequest(requestId);
-    const limits = pending ? this.resolveReservationLimits(pending) : undefined;
+    let limits = pending ? this.resolveReservationLimits(pending) : undefined;
+    if (limits && this.awaiters.get(requestId)?.userInitiated) {
+      limits = { ...limits, globalDailyBudgetUsd: null };
+    }
     const request = this.repository.resolveFallbackRequest(requestId, decision, limits);
     if (!request?.resolution) throw new Error(`Local AI fallback request not found: ${requestId}`);
     this.installIncidentAllowance(request);

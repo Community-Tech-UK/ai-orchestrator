@@ -194,6 +194,7 @@
               [providers]="pickerProviders"
               [selection]="pickerSelection()"
               [disabledReason]="pickerDisabledReason()"
+              [switchNoteForProvider]="modelSwitchNoteForProvider"
               (selectionChange)="modelSelectionChange.emit($event)"
             />
             @if (desiredRuntimeLabel(); as pendingLabel) {

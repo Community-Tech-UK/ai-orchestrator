@@ -16,6 +16,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { DropZoneComponent } from './drop-zone.component';
+import { DraftService } from '../../core/services/draft.service';
+import { ToastService } from '../../core/services/toast.service';
+import { identityOf } from '../../core/services/attachment-identity';
 
 /**
  * Build a minimal DragEvent-shaped object. jsdom doesn't implement DragEvent or
@@ -57,10 +60,13 @@ function makeFile(name: string, type = 'text/plain', pathOverride?: string): Fil
 describe('DropZoneComponent', () => {
   let component: DropZoneComponent;
   let fixture: ComponentFixture<DropZoneComponent>;
+  const toastShow = vi.fn();
 
   beforeEach(async () => {
+    toastShow.mockReset();
     await TestBed.configureTestingModule({
       imports: [DropZoneComponent],
+      providers: [DraftService, { provide: ToastService, useValue: { show: toastShow } }],
     }).compileComponents();
 
     fixture = TestBed.createComponent(DropZoneComponent);
@@ -159,11 +165,11 @@ describe('DropZoneComponent', () => {
       expect(component.isDragOver()).toBe(false);
     });
 
-    it('emits filesDropped with dropped files', () => {
+    it('emits filesDropped with dropped files', async () => {
       const emit = vi.spyOn(component.filesDropped, 'emit');
       const file = makeFile('hello.txt');
 
-      component.onDrop(makeDragEvent({
+      await component.onDrop(makeDragEvent({
         dataTransfer: {
           items: [{ webkitGetAsEntry: () => ({ isDirectory: false }) }],
           files: [file],
@@ -189,13 +195,13 @@ describe('DropZoneComponent', () => {
       expect(filesEmit).not.toHaveBeenCalled();
     });
 
-    it('emits both folderDropped and filesDropped when mixed', () => {
+    it('emits both folderDropped and filesDropped when mixed', async () => {
       const folderEmit = vi.spyOn(component.folderDropped, 'emit');
       const filesEmit = vi.spyOn(component.filesDropped, 'emit');
       const folderFile = makeFile('some-dir', '', '/abs/some-dir');
       const regularFile = makeFile('note.md', 'text/markdown');
 
-      component.onDrop(makeDragEvent({
+      await component.onDrop(makeDragEvent({
         dataTransfer: {
           items: [
             { webkitGetAsEntry: () => ({ isDirectory: true }) },
@@ -421,7 +427,7 @@ describe('DropZoneComponent', () => {
   // ============================================
 
   describe('Paste Handling', () => {
-    it('emits imagesPasted when an image is in the clipboard', () => {
+    it('emits fingerprinted imagesPasted when an image is in the clipboard', async () => {
       const emit = vi.spyOn(component.imagesPasted, 'emit');
       const imageFile = makeFile('clipboard.png', 'image/png');
 
@@ -438,18 +444,21 @@ describe('DropZoneComponent', () => {
         },
       } as unknown as ClipboardEvent;
 
-      component.onPaste(event);
+      const pending = component.onPaste(event);
 
       expect(event.preventDefault).toHaveBeenCalled();
+      expect(emit).not.toHaveBeenCalled();
+      await pending;
       expect(emit).toHaveBeenCalledTimes(1);
       const pasted = emit.mock.calls[0][0];
       expect(pasted).toHaveLength(1);
       expect(pasted[0].type).toBe('image/png');
       // File is renamed to pasted-image-N.png
       expect(pasted[0].name).toMatch(/^pasted-image-\d+\.png$/);
+      expect(identityOf(pasted[0])).toMatch(/^fp:/);
     });
 
-    it('ignores non-image clipboard items', () => {
+    it('ignores non-image clipboard items', async () => {
       const emit = vi.spyOn(component.imagesPasted, 'emit');
 
       const event = {
@@ -462,13 +471,13 @@ describe('DropZoneComponent', () => {
         },
       } as unknown as ClipboardEvent;
 
-      component.onPaste(event);
+      await component.onPaste(event);
 
       expect(emit).not.toHaveBeenCalled();
       expect(event.preventDefault).not.toHaveBeenCalled();
     });
 
-    it('lets the text through when a copied message carries text and an image', () => {
+    it('lets the text through when a copied message carries text and an image', async () => {
       // Regression: copying a chat message with an image puts text, HTML and
       // the image on the clipboard. Pasting it used to attach the image and
       // cancel the paste, silently dropping the message text.
@@ -488,14 +497,14 @@ describe('DropZoneComponent', () => {
         },
       } as unknown as ClipboardEvent;
 
-      component.onPaste(event);
+      await component.onPaste(event);
 
       expect(event.preventDefault).not.toHaveBeenCalled();
       expect(emit).toHaveBeenCalledTimes(1);
       expect(emit.mock.calls[0][0][0].type).toBe('image/png');
     });
 
-    it('suppresses the filename text when an image file is copied from Finder', () => {
+    it('suppresses the filename text when an image file is copied from Finder', async () => {
       const emit = vi.spyOn(component.imagesPasted, 'emit');
       const imageFile = makeFile('Screenshot 2026-09-22.png', 'image/png');
 
@@ -510,13 +519,29 @@ describe('DropZoneComponent', () => {
         },
       } as unknown as ClipboardEvent;
 
-      component.onPaste(event);
+      const pending = component.onPaste(event);
 
       expect(event.preventDefault).toHaveBeenCalled();
+      await pending;
       expect(emit).toHaveBeenCalledTimes(1);
     });
 
-    it('handles clipboard with no items gracefully', () => {
+    it('keeps one copy of repeated pasted bytes through the real draft API', async () => {
+      const drafts = TestBed.inject(DraftService);
+      component.imagesPasted.subscribe(files => drafts.addPendingFiles('session', files));
+      const imageFile = makeFile('clipboard.png', 'image/png');
+      const event = { preventDefault: vi.fn(), clipboardData: {
+        items: [{ type: 'image/png', getAsFile: () => imageFile }], getData: () => '',
+      } } as unknown as ClipboardEvent;
+
+      await component.onPaste(event);
+      await component.onPaste(event);
+
+      expect(drafts.getPendingFiles('session')).toHaveLength(1);
+      expect(toastShow).toHaveBeenCalledExactlyOnceWith('Already attached.');
+    });
+
+    it('handles clipboard with no items gracefully', async () => {
       const emit = vi.spyOn(component.imagesPasted, 'emit');
 
       const event = {
@@ -524,7 +549,7 @@ describe('DropZoneComponent', () => {
         clipboardData: null,
       } as unknown as ClipboardEvent;
 
-      component.onPaste(event);
+      await component.onPaste(event);
 
       expect(emit).not.toHaveBeenCalled();
     });

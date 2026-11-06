@@ -52,10 +52,8 @@ export const ADVANCED_SECTION_DEFINITIONS: readonly AdvancedSectionDefinition[] 
       'parserBufferMaxKB',
       'commandDiagnosticsAvailable',
       'claudeCliDebugLogging',
+      'claudeBashOutputMaxChars',
       'broadRootFileThreshold',
-      'codexHelperAgentsChats',
-      'codexHelperAgentsHarnessWork',
-      'codexContextTuning',
     ],
   },
   {
@@ -143,6 +141,20 @@ export const ADVANCED_SECTION_DEFINITIONS: readonly AdvancedSectionDefinition[] 
       'browserMcpToolDeferral',
       'orchestratorMcpToolDeferral',
     ],
+  },
+  {
+    id: 'codex-economy-heading',
+    title: 'Codex helpers & context tuning',
+    description: 'Whether Codex may start its own helper agents (each costs about as much as the main agent), and whether Harness trims long command output and tidies Codex\'s memory earlier. Applies when a Codex session starts or resumes.',
+    group: 'runtime',
+    keys: ['codexHelperAgentsChats', 'codexHelperAgentsHarnessWork', 'codexContextTuning'],
+  },
+  {
+    id: 'claude-helper-agents-heading',
+    title: 'Claude helper agents',
+    description: 'What model Claude\'s built-in general-purpose helper agents run on. Helper agents that name their own model keep it.',
+    group: 'runtime',
+    keys: ['claudeHelperAgentModel'],
   },
   {
     id: 'model-catalog-heading',

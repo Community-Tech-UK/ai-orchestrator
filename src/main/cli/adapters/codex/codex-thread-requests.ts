@@ -1,5 +1,4 @@
 import { recordSessionPolicy } from '../../../core/system/session-policy-log';
-import { codexTrialArm } from './codex-thread-policy';
 import { startThreadWithRetry, type ThreadStartClient } from './thread-start-retry';
 import { resumeThreadWithRetry, type ThreadResumeClient } from './thread-resume-retry';
 import type { AppServerRequestParams } from './app-server-types';
@@ -33,5 +32,6 @@ export async function resumeCodexThread(client:ThreadResumeClient,params:AppServ
 function logPolicy(threadId:string|undefined,policy:CodexThreadPolicy,config:CodexCliConfig|undefined,applied:boolean):void {
   if(!threadId)return;
   recordSessionPolicy({provider:'codex',threadId,sessionKind:config?.sessionKind??'chat',level:policy.level,
-    arm:config?.trialArm??codexTrialArm(config?.trialKey),armKey:config?.trialKey,outputLimit:policy.outputLimit,postTurnCompactPercent:policy.postTurnCompactPercent,applied});
+    arm:policy.arm,armKey:policy.armKey??config?.trialKey,armSource:policy.armSource??config?.trialKeySource,
+    instanceId:config?.harnessInstanceId,outputLimit:policy.outputLimit,postTurnCompactPercent:policy.postTurnCompactPercent,applied});
 }

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { EventEmitter } from 'events';
 import { CrossModelReviewService } from './cross-model-review-service';
 import { resolveCliType } from '../cli/adapters/adapter-factory';
 import {
@@ -16,6 +17,8 @@ import type { ProviderQuotaSnapshot } from '../../shared/types/provider-quota.ty
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import { _resetReviewDispatchLedgerForTesting } from './review-dispatch-ledger';
 import { _resetAutomationProviderExclusionsForTesting } from '../providers/automation-provider-exclusions';
+import { CLAUDE_REVIEWER_MAX_TURNS } from '../cli/adapters/claude-machine-session-policy';
+import { subscribeCostAttribution, type CostAttributionRecord } from '../core/system/cost-attribution';
 
 /**
  * `CliAdapter` is a large union of concrete adapter classes, and
@@ -622,6 +625,96 @@ describe('CrossModelReviewService', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
+  describe('in-session reviewer billing', () => {
+    async function collectRows(run: (rows: CostAttributionRecord[]) => Promise<void>): Promise<void> {
+      const previous = process.env['AIO_COST_ATTRIBUTION'];
+      process.env['AIO_COST_ATTRIBUTION'] = '0';
+      const rows: CostAttributionRecord[] = [];
+      const unsubscribe = subscribeCostAttribution(row => rows.push(row));
+      try { await run(rows); }
+      finally {
+        unsubscribe();
+        if (previous === undefined) delete process.env['AIO_COST_ATTRIBUTION'];
+        else process.env['AIO_COST_ATTRIBUTION'] = previous;
+      }
+    }
+
+    it('records initial paid and repair zero receipts as separate review dispatches', async () => collectRows(async rows => {
+      const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+      reviewTestState.modelByProvider = { claude: 'claude-sonnet-4-6-20260401' };
+      const sendMessage = vi.fn()
+        .mockResolvedValueOnce({ content: 'not valid json', usage: { inputTokens: 20, cost: 0.07 } })
+        .mockResolvedValueOnce({ content: JSON.stringify({
+          correctness: { reasoning: 'ok', score: 4, issues: [] },
+          completeness: { reasoning: 'ok', score: 4, issues: [] },
+          security: { reasoning: 'ok', score: 4, issues: [] },
+          consistency: { reasoning: 'ok', score: 4, issues: [] },
+          overall_verdict: 'APPROVE', summary: 'approved',
+        }), usage: { inputTokens: 10, cost: 0 } });
+      mockCreateAdapterReturnValue({ sendMessage, terminate: vi.fn().mockResolvedValue(undefined) });
+
+      await service.executeOneReview(makeRequest({ id: 'review-bill', instanceId: 'builder-1' }),
+        'claude', 30, new AbortController().signal);
+
+      expect(sendMessage).toHaveBeenCalledTimes(2);
+      expect(rows).toHaveLength(2);
+      expect(rows).toEqual([
+        expect.objectContaining({ source: 'one-shot', purpose: 'cross-model-review',
+          correlationId: 'review-bill', instanceId: 'builder-1', provider: 'claude',
+          model: 'claude-sonnet-4-6-20260401', outcome: 'success', costSource: 'provider', costUsd: 0.07 }),
+        expect.objectContaining({ source: 'one-shot', purpose: 'cross-model-review',
+          correlationId: 'review-bill', instanceId: 'builder-1', provider: 'claude',
+          model: 'claude-sonnet-4-6-20260401', outcome: 'success', costSource: 'provider', costUsd: 0 }),
+      ]);
+    }));
+
+    it.each([
+      ['paid', { inputTokens: 20, cost: 0.09 }, 'provider', 0.09],
+      ['unknown', { inputTokens: 20 }, 'unknown', null],
+    ] as const)('records a failed reviewer with %s dollars', async (_case, usage, costSource, costUsd) => collectRows(async rows => {
+      const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+      const events = new EventEmitter();
+      const adapter = Object.assign(events, {
+        sendMessage: async () => { events.emit('usage', usage); throw new Error('provider failed'); },
+        terminate: vi.fn().mockResolvedValue(undefined),
+      });
+      mockCreateAdapterReturnValue(adapter);
+
+      await expect(service.executeOneReview(makeRequest({ id: 'review-failed' }),
+        'claude', 30, new AbortController().signal)).rejects.toThrow('provider failed');
+
+      expect(rows).toEqual([expect.objectContaining({ purpose: 'cross-model-review',
+        correlationId: 'review-failed', provider: 'claude', outcome: 'error', costSource, costUsd })]);
+    }));
+
+    it('records native paid usage that arrives while a reviewer is cancelled', async () => collectRows(async rows => {
+      const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+      const abort = new AbortController();
+      let rejectSend!: (error: Error) => void;
+      const events = new EventEmitter();
+      const adapter = Object.assign(events, {
+        sendMessage: vi.fn(() => new Promise<never>((_resolve, reject) => { rejectSend = reject; })),
+        interrupt: vi.fn(),
+        terminate: vi.fn(async () => {
+          events.emit('usage', { inputTokens: 15, cost: 0.08 });
+          rejectSend(new Error('review cancelled by provider'));
+        }),
+      });
+      mockCreateAdapterReturnValue(adapter);
+
+      const pending = service.executeOneReview(makeRequest({ id: 'review-cancelled' }),
+        'claude', 30, abort.signal);
+      await vi.waitFor(() => expect(adapter.sendMessage).toHaveBeenCalledOnce());
+      abort.abort();
+      await expect(pending).rejects.toThrow('Review cancelled');
+      await vi.waitFor(() => expect(rows).toHaveLength(1));
+
+      expect(rows).toEqual([expect.objectContaining({ purpose: 'cross-model-review',
+        correlationId: 'review-cancelled', provider: 'claude', outcome: 'cancelled',
+        costSource: 'provider', costUsd: 0.08 })]);
+    }));
+  });
+
   it('passes a configured reviewer model override into the adapter options', async () => {
     const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
     reviewTestState.modelByProvider = { copilot: 'claude-sonnet-46' };
@@ -855,6 +948,51 @@ describe('CrossModelReviewService', () => {
     await service.executeOneReview(makeRequest(), 'codex', 120, new AbortController().signal);
 
     expect(capturedTimeout).toBe(300_000);
+  });
+
+  describe('reviewer spawn options', () => {
+    async function spawnOptionsFor(cliType: string): Promise<Record<string, unknown>> {
+      const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+      let captured: Record<string, unknown> | undefined;
+      mockCreateAdapter(({ options }) => {
+        captured = options as Record<string, unknown>;
+        return {
+          sendMessage: async () => ({
+            content: JSON.stringify({
+              correctness: { reasoning: 'ok', score: 4, issues: [] },
+              completeness: { reasoning: 'ok', score: 4, issues: [] },
+              security: { reasoning: 'ok', score: 4, issues: [] },
+              consistency: { reasoning: 'ok', score: 4, issues: [] },
+              overall_verdict: 'APPROVE',
+              summary: 'approved',
+            }),
+          }),
+          terminate: vi.fn().mockResolvedValue(undefined),
+        };
+      });
+      await service.executeOneReview(makeRequest(), cliType, 30, new AbortController().signal);
+      if (!captured) throw new Error('createAdapter was not called');
+      return captured;
+    }
+
+    it('a Claude second-opinion reviewer carries readOnlyReview and the turn cap', async () => {
+      const options = await spawnOptionsFor('claude');
+      expect(options).toMatchObject({
+        workingDirectory: '/tmp/review-context',
+        yoloMode: false,
+        readOnlyReview: true,
+        maxTurns: CLAUDE_REVIEWER_MAX_TURNS,
+        maxBudgetUsd: 1,
+      });
+    });
+
+    it('a non-Claude reviewer gets neither readOnlyReview nor the Claude turn cap', async () => {
+      const options = await spawnOptionsFor('codex');
+      expect(options['yoloMode']).toBe(false);
+      expect(options).not.toHaveProperty('readOnlyReview');
+      expect(options).not.toHaveProperty('maxTurns');
+      expect(options).not.toHaveProperty('maxBudgetUsd');
+    });
   });
 
   describe('reviewer timeout floor', () => {

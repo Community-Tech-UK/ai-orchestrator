@@ -25,6 +25,8 @@ import { getLatestContextManifest } from '../../context/context-manifest-store';
 import { createInitializedAgentHarness, TestAcpCliAdapter } from '../../cli/adapters/acp-cli-adapter.test-helpers';
 import type { AcpJsonRpcRequest, AcpSessionPromptParams } from '../../../shared/types/cli.types';
 import { SYSTEM_PROMPT_BLOCK_SEPARATOR } from '../../context/prompt-injection-contract';
+import { HARNESS_GUIDE } from '../../orchestration/harness-guidance';
+import { CLAUDE_HELPER_REVIEWER_RULE } from '../../cli/adapters/claude-subagent-policy';
 
 const mocks = vi.hoisted(() => ({
   resolveAgent: vi.fn(),
@@ -439,6 +441,8 @@ describe('instance-lifecycle system-prompt composition (WS-B4 regression)', () =
     const expected = [
       agent.systemPrompt,
       buildToolPermissionPrompt(instance.yoloMode),
+      CLAUDE_HELPER_REVIEWER_RULE,
+      HARNESS_GUIDE,
     ].join(SYSTEM_PROMPT_BLOCK_SEPARATOR);
 
     expect(mocks.createAdapter).toHaveBeenCalledWith(
@@ -477,6 +481,8 @@ describe('instance-lifecycle system-prompt composition (WS-B4 regression)', () =
       'Project: ai-orchestrator. Electron + Angular desktop app.',
       '## Lessons\n- Always run tsc --noEmit before claiming done.',
       buildToolPermissionPrompt(instance.yoloMode),
+      CLAUDE_HELPER_REVIEWER_RULE,
+      HARNESS_GUIDE,
     ].join(SYSTEM_PROMPT_BLOCK_SEPARATOR);
 
     expect(mocks.createAdapter).toHaveBeenCalledWith(
@@ -486,6 +492,56 @@ describe('instance-lifecycle system-prompt composition (WS-B4 regression)', () =
     );
   });
 
+  it.each([
+    { requested: 'auto', resolved: 'claude', delivered: true },
+    { requested: undefined, resolved: 'claude', delivered: true },
+    { requested: 'auto', resolved: 'codex', delivered: false },
+  ])('gives the Claude helper rule to the resolved CLI ($requested resolving to $resolved)', async ({ requested, resolved, delivered }) => {
+    const harness = makeHarness();
+    try {
+      mocks.resolveCliType.mockResolvedValue(resolved);
+      mocks.createAdapter.mockReturnValue(makeFakeAdapter());
+      const instance = await harness.manager.createInstance({
+        workingDirectory: '/tmp/project', provider: requested as Instance['provider'] | undefined,
+      });
+      await instance.readyPromise;
+      const systemPrompt = mocks.createAdapter.mock.calls[0][0].options.systemPrompt as string;
+      expect(systemPrompt.includes(CLAUDE_HELPER_REVIEWER_RULE)).toBe(delivered);
+    } finally {
+      harness.manager.destroy();
+    }
+  });
+
+  it.each([
+    { requested: 'auto', resolved: 'codex', omitted: 'PROJECT_AGENTS', retained: 'PROJECT_CLAUDE' },
+    { requested: 'auto', resolved: 'claude', omitted: 'PROJECT_CLAUDE', retained: 'PROJECT_AGENTS' },
+    { requested: 'codex', resolved: 'claude', omitted: 'PROJECT_CLAUDE', retained: 'PROJECT_AGENTS' },
+  ])('applies native instruction ownership for $requested resolving to $resolved', async ({ requested, resolved, omitted, retained }) => {
+    const harness = makeHarness();
+    try {
+      mocks.resolveCliType.mockResolvedValue(resolved);
+      mocks.resolveInstructionStack.mockResolvedValue({
+        mergedContent: ['GLOBAL_AIO', 'PROJECT_CLAUDE', 'PROJECT_AGENTS'].join('\n\n---\n\n'),
+        sources: [
+          { path: '/global/INSTRUCTIONS.md', kind: 'orchestrator', scope: 'user', loaded: true, applied: true, priority: 0, label: 'Global AIO' },
+          { path: '/tmp/project/CLAUDE.md', kind: 'claude', scope: 'project', loaded: true, applied: true, priority: 1, label: 'Claude' },
+          { path: '/tmp/project/AGENTS.md', kind: 'agents', scope: 'project', loaded: true, applied: true, priority: 2, label: 'Agents' },
+        ],
+      });
+      mocks.createAdapter.mockReturnValue(makeFakeAdapter());
+      const instance = await harness.manager.createInstance({
+        workingDirectory: '/tmp/project', provider: requested as Instance['provider'],
+      });
+      await instance.readyPromise;
+      const systemPrompt = mocks.createAdapter.mock.calls[0][0].options.systemPrompt as string;
+      expect(systemPrompt).toContain('GLOBAL_AIO');
+      expect(systemPrompt).toContain(retained);
+      expect(systemPrompt).not.toContain(omitted);
+      expect(instance.provider).toBe(resolved);
+    } finally {
+      harness.manager.destroy();
+    }
+  });
   it('delivers global rules, mode instructions and permissions to an OpenCode root without duplicate AGENTS text', async () => {
     const globalRules = '# Global rules\n' + 'Read before editing. '.repeat(1200);
     const nativeProjectRules = 'NATIVE_AGENTS_SENTINEL';
@@ -513,7 +569,7 @@ describe('instance-lifecycle system-prompt composition (WS-B4 regression)', () =
       const firstPrompt = proc.receivedMessages.find((message): message is AcpJsonRpcRequest<AcpSessionPromptParams> =>
         'method' in message && message.method === 'session/prompt')!.params!.prompt;
       const instructions = firstPrompt[0];
-      const expected = [globalRules, agent.systemPrompt, buildToolPermissionPrompt(instance.yoloMode)].join(SYSTEM_PROMPT_BLOCK_SEPARATOR);
+      const expected = [globalRules, agent.systemPrompt, buildToolPermissionPrompt(instance.yoloMode), HARNESS_GUIDE].join(SYSTEM_PROMPT_BLOCK_SEPARATOR);
       expect(instructions).toEqual({ type: 'text', text: `[SYSTEM INSTRUCTIONS]\n${expected}\n[/SYSTEM INSTRUCTIONS]` });
       expect(JSON.stringify(firstPrompt)).not.toContain(nativeProjectRules);
       expect(getLatestContextManifest(instance.id)?.entries.find((entry) => entry.kind === 'instructions')).toMatchObject({ status: 'supplied', charLength: globalRules.length + agent.systemPrompt.length + SYSTEM_PROMPT_BLOCK_SEPARATOR.length });

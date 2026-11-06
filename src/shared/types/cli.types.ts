@@ -8,9 +8,7 @@
 import type { AcpMcpServerConfig } from './acp-mcp.types';
 import type { AcpAgentThoughtChunkUpdate, AcpUsageUpdate } from './acp-session-update.types';
 
-/**
- * Base type for all CLI stream messages
- */
+/** Base type for all CLI stream messages. */
 export interface CliStreamMessageBase {
   type: string;
   timestamp?: number;
@@ -39,7 +37,9 @@ export interface CliUserMessage extends CliStreamMessageBase {
 export interface CliSystemMessage extends CliStreamMessageBase {
   type: 'system';
   subtype: 'init' | 'context_usage' | 'session' | 'info' | 'warning' | 'compact_boundary';
-  compact_metadata?: { trigger?: string; pre_tokens?: number };
+  compact_metadata?: { trigger?: string; pre_tokens?: number; post_tokens?: number };
+  /** Executing Claude binary version on the stream-json init packet. */
+  claude_code_version?: string;
   content?: string;
   session_id?: string;
   usage?: CliContextUsage;

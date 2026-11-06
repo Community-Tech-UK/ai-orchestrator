@@ -15,6 +15,7 @@ vi.mock('../../logging/logger', () => ({
   getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
 
+import { describeReplayWindow } from '../../session/replay-continuity';
 import {
   announceRuntimeChangeSet,
   modelChangeNoticeText,
@@ -103,6 +104,94 @@ describe('runtimeChangeNoticesFor', () => {
     expect(notices.map((n) => n.kind)).toEqual(['model-changed']);
   });
 
+  it('shows Claude replay limits to the user while preserving the model-facing notice', () => {
+    const notices = runtimeChangeNoticesFor({
+      ...base,
+      isYoloOnlyChange: false,
+      replayWindow: { keptTurns: 24, omittedTurns: 6, maxChars: 800 },
+    });
+    expect(notices[0].userText).toContain('summary of the last 24 messages');
+    expect(notices[0].userText).toContain('Tool results and file contents were not carried over');
+    expect(notices[0].text).toBe(modelChangeNoticeText(base));
+  });
+
+  it('does not claim a summary of 0 messages when there is no conversation to replay', () => {
+    const [notice] = runtimeChangeNoticesFor({
+      ...base,
+      isYoloOnlyChange: false,
+      replayWindow: { keptTurns: 0, omittedTurns: 0, maxChars: 800 },
+    });
+    expect(notice.userText).toBe(
+      'Model changed from sonnet to opus. Harness restarted this session. There was no earlier conversation to carry over.',
+    );
+    expect(notice.userText).not.toMatch(/last 0 messages/);
+    expect(notice.userText).not.toContain('Tool results');
+  });
+
+  it('uses the real replay window of a session with no conversation yet (what the reconciler passes)', () => {
+    const [notice] = runtimeChangeNoticesFor({
+      ...base,
+      isYoloOnlyChange: false,
+      replayWindow: describeReplayWindow([
+        { id: 's1', type: 'system', content: 'Session started', timestamp: 1 },
+      ]),
+    });
+    expect(notice.userText).toContain('There was no earlier conversation to carry over.');
+    expect(notice.userText).not.toMatch(/last 0 messages/);
+  });
+
+  it('says "the last message" for a single replayed message', () => {
+    const [notice] = runtimeChangeNoticesFor({
+      ...base,
+      isYoloOnlyChange: false,
+      replayWindow: { keptTurns: 1, omittedTurns: 0, maxChars: 800 },
+    });
+    expect(notice.userText).toContain('from a summary of the last message.');
+    expect(notice.userText).not.toContain('1 messages');
+  });
+
+  it('names the thinking change, not "Model changed from X to X", for an effort-only fallback', () => {
+    const [notice] = runtimeChangeNoticesFor({
+      ...base,
+      isYoloOnlyChange: false,
+      oldModel: 'opus',
+      newModel: 'opus',
+      oldReasoningEffort: 'low',
+      newReasoningEffort: 'high',
+      replayWindow: { keptTurns: 12, omittedTurns: 0, maxChars: 800 },
+    });
+    expect(notice.userText).toBe(
+      'Thinking changed from low to high. Harness restarted this session from a summary of the last 12 messages.'
+        + ' Tool results and file contents were not carried over, so the next reply may need to read files again.',
+    );
+    expect(notice.userText).not.toContain('Model changed');
+  });
+
+  it('names both changes when model and thinking change together', () => {
+    const [notice] = runtimeChangeNoticesFor({
+      ...base,
+      isYoloOnlyChange: false,
+      oldReasoningEffort: 'low',
+      newReasoningEffort: 'high',
+      replayWindow: { keptTurns: 24, omittedTurns: 6, maxChars: 800 },
+    });
+    expect(notice.userText).toContain('Model changed from sonnet to opus, and thinking from low to high.');
+  });
+
+  it('keeps the model-facing text byte-identical whatever the replay wording', () => {
+    const effortOnly = {
+      ...base,
+      isYoloOnlyChange: false,
+      oldModel: 'opus',
+      newModel: 'opus',
+      oldReasoningEffort: 'low' as const,
+      newReasoningEffort: 'high' as const,
+      replayWindow: { keptTurns: 0, omittedTurns: 0, maxChars: 800 },
+    };
+    const [notice] = runtimeChangeNoticesFor(effortOnly);
+    expect(notice.text).toBe(modelChangeNoticeText(effortOnly));
+  });
+
   it('announces both when a queued model swap and yolo flip land together', () => {
     const notices = runtimeChangeNoticesFor({
       ...base,
@@ -148,6 +237,17 @@ describe('announceRuntimeChangeSet (LT-030)', () => {
     expect(body).toBe('PREAMBLE\n\nMODEL\n\nYOLO');
     // Both rendered BEFORE anything was delivered.
     expect(order.slice(0, 2)).toEqual(['render:MODEL', 'render:YOLO']);
+  });
+
+  it('renders userText but sends text to the model', async () => {
+    const emitSystemNotice = vi.fn();
+    const adapter = { sendInput: vi.fn(async () => undefined) };
+    await announceRuntimeChangeSet({
+      instance, adapter, emitSystemNotice,
+      notices: [{ kind: 'model-changed', text: 'MODEL CONTROL', userText: 'Visible replay limits' }],
+    });
+    expect(emitSystemNotice).toHaveBeenCalledWith(instance, 'Visible replay limits', { kind: 'model-changed' });
+    expect(adapter.sendInput).toHaveBeenCalledWith('MODEL CONTROL');
   });
 
   // The history turn can be stopped before the provider stores it (a send

@@ -18,6 +18,7 @@ import type {
   CrossSessionMessageResult,
   MessageableSession,
 } from '@contracts/schemas/instance';
+import type { QuickAskResultPayload } from '../../../../../preload/domains/quick-ask.preload';
 
 export interface CreateInstanceConfig {
   workingDirectory: string;
@@ -161,6 +162,12 @@ export class InstanceIpcService {
   async sendInput(instanceId: string, message: string, attachments?: FileAttachment[], isRetry?: boolean, automatedInput?: boolean, queuedAdmissionId?: string): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.sendInput({ instanceId, message, attachments, isRetry, automatedInput, queuedAdmissionId });
+  }
+
+  /** Ask the resident Claude conversation without adding to its transcript. */
+  async quickAsk(instanceId: string, question: string): Promise<IpcResponse<QuickAskResultPayload>> {
+    if (!this.api?.quickAsk) return { success: false, error: { message: 'Quick ask is unavailable' } };
+    return this.api.quickAsk({ instanceId, question });
   }
 
   async steerInput(instanceId: string, message: string, attachments?: FileAttachment[]): Promise<IpcResponse> {

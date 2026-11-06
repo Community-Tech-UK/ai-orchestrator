@@ -227,6 +227,7 @@ export class ConsensusCoordinator extends EventEmitter {
         // Codex desktop surfaces persisted threads; consensus fan-out should stay hidden.
         ephemeral: cliType === 'codex',
         maxBudgetUsd: cliType === 'claude' ? 1 : undefined,
+        readOnlyReview: cliType === 'claude',
         yoloMode: false,
       };
 
@@ -249,6 +250,7 @@ export class ConsensusCoordinator extends EventEmitter {
         if (runtime.kind === 'error') providerFailed = true;
       });
       dispatched = true;
+
       // Collect output
       const response = await this.collectResponse(adapter, prompt, timeoutMs, isAborted);
 
@@ -361,7 +363,10 @@ export class ConsensusCoordinator extends EventEmitter {
       if (isAborted() || completion?.degradedReason === 'cancelled') outcome = 'cancelled';
       else if (completion?.metadata?.['budgetExceeded']) outcome = 'budget-exceeded';
       else if (providerFailed || completion?.metadata?.['turnErrored']) outcome = 'error';
-      if (dispatched && observation?.dispatched) recordModelCall({ purpose: 'consensus', provider: cliType, model: spec.model, usage: observation.usage, outcome, correlationId: queryId });
+      if (dispatched && observation?.dispatched) recordModelCall({
+        purpose: 'consensus', provider: cliType, model: spec.model, usage: observation.usage,
+        outcome, correlationId: queryId,
+      });
     }
   }
 

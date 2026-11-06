@@ -56,7 +56,7 @@
         <strong>Helpers paused</strong>
         @for (pause of store.helperPauses(); track pause.slot) {
           <div>
-            <span>{{ pause.slot }}: helpers paused until {{ helperRetryTime(pause.pausedUntil) }}. {{ pause.reason }}</span>
+            <span>{{ pause.slot }}: helpers paused until {{ helperRetryTime(pause.pausedUntil) }} after {{ pause.failures }} failures.</span>
             <button type="button" class="button secondary" [disabled]="store.operationKey() !== null" (click)="retryHelperNow(pause.slot)">Retry now</button>
           </div>
         }

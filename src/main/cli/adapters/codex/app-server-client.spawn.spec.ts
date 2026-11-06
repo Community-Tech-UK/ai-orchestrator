@@ -15,9 +15,17 @@ vi.mock('child_process', async (importOriginal) => {
 });
 
 import { connectToAppServer } from './app-server-client';
+import { startCodexThread } from './codex-thread-requests';
+import { resolveCodexThreadPolicy } from './codex-thread-policy';
 import { unwrapSignalFence } from '../../../sandbox/signal-fence';
 
-function makeFakeProc(options?: { failExitCode?: number; stderr?: string }): ChildProcess {
+type FakeProc = ChildProcess & {
+  stdout: PassThrough;
+  stderr: PassThrough;
+  stdin: PassThrough;
+};
+
+function makeFakeProc(options?: { failExitCode?: number; stderr?: string }): FakeProc {
   const proc = new EventEmitter() as EventEmitter & {
     stdout: PassThrough;
     stderr: PassThrough;
@@ -38,7 +46,7 @@ function makeFakeProc(options?: { failExitCode?: number; stderr?: string }): Chi
       proc.stderr.write(options.stderr);
     }
     process.nextTick(() => proc.emit('exit', options.failExitCode, null));
-    return proc as unknown as ChildProcess;
+    return proc as unknown as FakeProc;
   }
 
   proc.stdin.on('data', (chunk: Buffer | string) => {
@@ -55,7 +63,7 @@ function makeFakeProc(options?: { failExitCode?: number; stderr?: string }): Chi
     queueMicrotask(() => proc.emit('exit', 0, null));
   });
 
-  return proc as unknown as ChildProcess;
+  return proc as unknown as FakeProc;
 }
 
 describe('isolated app-server spawn output limit', () => {
@@ -128,6 +136,47 @@ describe('isolated app-server spawn output limit', () => {
         spawnMock.mock.calls[1]?.[1] as string[],
       ).args).toEqual(['app-server']);
       expect(client.getOutputLimitState()).toBe('unsupported');
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('keeps the thread output limit after the process-level override is rejected', async () => {
+    const starts: Record<string, unknown>[] = [];
+    spawnMock
+      .mockImplementationOnce(() => makeFakeProc({
+        failExitCode: 2,
+        stderr: 'error: unknown override tool_output_token_limit',
+      }))
+      .mockImplementationOnce(() => {
+        const proc = makeFakeProc();
+        proc.stdin.on('data', (chunk: Buffer | string) => {
+          for (const line of chunk.toString().split('\n').filter(Boolean)) {
+            const message = JSON.parse(line) as { id: number; method: string; params: Record<string, unknown> };
+            if (message.method !== 'thread/start') continue;
+            starts.push(message.params);
+            proc.stdout.write(JSON.stringify({ id: message.id, result: { threadId: 'fixture-thread' } }) + '\n');
+          }
+        });
+        return proc;
+      });
+
+    const client = await connectToAppServer('/tmp/project', { disableBroker: true });
+    try {
+      const result = await startCodexThread(client, { cwd: '/tmp/project' },
+        resolveCodexThreadPolicy({ kind: 'chat', chatsSetting: 'full', tuningSetting: 'harness' }));
+
+      expect(result.threadId).toBe('fixture-thread');
+      expect(client.getOutputLimitState()).toBe('unsupported');
+      expect(spawnMock).toHaveBeenCalledTimes(2);
+      expect(unwrapSignalFence(
+        spawnMock.mock.calls[1]?.[0] as string,
+        spawnMock.mock.calls[1]?.[1] as string[],
+      ).args).toEqual(['app-server']);
+      expect(starts).toEqual([{
+        cwd: '/tmp/project',
+        config: { tool_output_token_limit: 6000, model_post_turn_compact_threshold_percent: 70 },
+      }]);
     } finally {
       await client.close();
     }

@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ALL_INSTANCE_STATUSES } from '../../shared/attention/attention-level';
 
-const { mockAuxGenerate, mockCreateAdapter, mockResolveCliType, mockSendMessage, mockIsCliAvailable } = vi.hoisted(() => {
+const { mockAuxGenerate, mockSlotAllowsFrontier, mockCreateAdapter, mockResolveCliType, mockSendMessage, mockIsCliAvailable } = vi.hoisted(() => {
   const sendMessage = vi.fn();
 
   return {
     mockAuxGenerate: vi.fn(),
+    mockSlotAllowsFrontier: vi.fn(() => true),
     mockSendMessage: sendMessage,
     mockCreateAdapter: vi.fn(() => ({
       sendMessage,
@@ -32,6 +33,7 @@ vi.mock('../cli/cli-detection', () => ({
 vi.mock('../rlm/auxiliary-llm-service', () => ({
   getAuxiliaryLlmService: vi.fn(() => ({
     generate: mockAuxGenerate,
+    slotAllowsFrontier: mockSlotAllowsFrontier,
   })),
 }));
 
@@ -57,7 +59,16 @@ vi.mock('../providers/automation-provider-exclusions', () => ({
   filterProvidersForAutomation: mockFilterProvidersForAutomation,
 }));
 
-import { AutoTitleService } from './auto-title-service';
+// Spy that still forwards to the real recorder: other tests here assert on the
+// real cost-attribution rows.
+const recordModelCall = vi.hoisted(() => vi.fn());
+vi.mock('../core/system/model-call-recorder', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../core/system/model-call-recorder')>();
+  recordModelCall.mockImplementation(actual.recordModelCall);
+  return { ...actual, recordModelCall };
+});
+
+import { AutoTitleService, TITLE_CLI_SPAWN_ENABLED } from './auto-title-service';
 
 describe('AutoTitleService', () => {
   beforeEach(() => {
@@ -84,6 +95,59 @@ describe('AutoTitleService', () => {
     // after it.
     mockCreateAdapter.mockReturnValue({ sendMessage: mockSendMessage });
     AutoTitleService._resetForTesting();
+    // Preserve coverage of the dormant legacy path while production keeps it off.
+    AutoTitleService.getInstance().setCliSpawnEnabledForTesting(true);
+  });
+
+  it('uses a resident title after a local miss without spawning a CLI', async () => {
+    const service = AutoTitleService.getInstance();
+    service.setCliSpawnEnabledForTesting(false);
+    const liveTitle = vi.fn().mockResolvedValue('Fix the deploy pipeline');
+    service.setLiveTitleSource(liveTitle);
+    const applyTitle = vi.fn();
+    await service.maybeGenerateTitle('instance-1', 'Fix the broken deploy pipeline', applyTitle);
+    expect(liveTitle).toHaveBeenCalledWith('instance-1', 'Fix the broken deploy pipeline');
+    expect(applyTitle).toHaveBeenCalledWith('instance-1', 'Fix the deploy pipeline', 'ai');
+    expect(mockCreateAdapter).not.toHaveBeenCalled();
+  });
+
+  it('ships with new-CLI title spawning off (default pinned)', async () => {
+    // A new CLI consumed ~35.8K tokens for an 80-character label. Production
+    // keeps it off: the constant and a freshly built service must both say so.
+    expect(TITLE_CLI_SPAWN_ENABLED).toBe(false);
+    AutoTitleService._resetForTesting();
+    const service = AutoTitleService.getInstance();
+    service.setLiveTitleSource(vi.fn().mockResolvedValue(null));
+    const applyTitle = vi.fn();
+    await service.maybeGenerateTitle('instance-1', 'Fix the broken deploy pipeline', applyTitle);
+    expect(mockCreateAdapter).not.toHaveBeenCalled();
+    expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(applyTitle.mock.calls).toEqual([[
+      'instance-1', 'Fix the broken deploy pipeline', 'instant',
+    ]]);
+  });
+
+  it('records no helper/claude ledger row itself when the live source made no request', async () => {
+    // A Codex chat has no resident Claude channel, so the live source returns
+    // null without asking anything. The service must not invent a Claude error
+    // row for that; the source records its own row when it does ask.
+    const service = AutoTitleService.getInstance();
+    service.setCliSpawnEnabledForTesting(false);
+    service.setLiveTitleSource(vi.fn().mockResolvedValue(null));
+    await service.maybeGenerateTitle('codex-chat', 'Fix the broken deploy pipeline', vi.fn());
+    expect(recordModelCall).not.toHaveBeenCalled();
+  });
+
+  it('keeps the instant title when no resident title is available', async () => {
+    const service = AutoTitleService.getInstance();
+    service.setCliSpawnEnabledForTesting(false);
+    service.setLiveTitleSource(vi.fn().mockResolvedValue(null));
+    const applyTitle = vi.fn();
+    await service.maybeGenerateTitle('instance-1', 'Fix the broken deploy pipeline', applyTitle);
+    expect(applyTitle.mock.calls).toEqual([[
+      'instance-1', 'Fix the broken deploy pipeline', 'instant',
+    ]]);
+    expect(mockCreateAdapter).not.toHaveBeenCalled();
   });
 
   it('prefers antigravity for title generation even when copilot, claude, and codex are available', async () => {
@@ -388,6 +452,47 @@ describe('AutoTitleService', () => {
     expect(mockIsCliAvailable).not.toHaveBeenCalled();
     expect(applyTitle).toHaveBeenCalledWith('paused', expect.any(String), 'instant');
     expect(applyTitle).not.toHaveBeenCalledWith('paused', expect.any(String), 'ai');
+  });
+
+  it('uses the live session while its helper is paused (the real paused decision shape)', async () => {
+    // A paused helper reports allowFrontierFallback:false with pausedUntil set
+    // (auxiliary-backoff-integration.spec.ts pins that shape).
+    mockAuxGenerate.mockResolvedValue({ text: '', decision: { slot: 'titleGeneration', provider: 'local-fallback', source: 'fallback', reason: 'Paused until 12:00', allowFrontierFallback: false, pausedUntil: Date.now() + 60_000 } });
+    const service = AutoTitleService.getInstance();
+    const liveTitle = vi.fn().mockResolvedValue('Investigate failing helper');
+    service.setLiveTitleSource(liveTitle);
+    const applyTitle = vi.fn();
+    await service.maybeGenerateTitle('paused-live', 'Investigate the failing helper model.', applyTitle);
+    expect(liveTitle).toHaveBeenCalledTimes(1);
+    expect(applyTitle).toHaveBeenLastCalledWith('paused-live', 'Investigate failing helper', 'ai');
+    expect(mockCreateAdapter).not.toHaveBeenCalled();
+    expect(mockIsCliAvailable).not.toHaveBeenCalled();
+  });
+
+  it('does not use the live session while paused when the slot forbids frontier fallback', async () => {
+    mockAuxGenerate.mockResolvedValue({ text: '', decision: { slot: 'titleGeneration', provider: 'local-fallback', source: 'fallback', reason: 'Paused until 12:00', allowFrontierFallback: false, pausedUntil: Date.now() + 60_000 } });
+    mockSlotAllowsFrontier.mockReturnValueOnce(false);
+    const service = AutoTitleService.getInstance();
+    const liveTitle = vi.fn().mockResolvedValue('Never used');
+    service.setLiveTitleSource(liveTitle);
+    await service.maybeGenerateTitle('paused-private', 'Investigate the failing helper model.', vi.fn());
+    expect(liveTitle).not.toHaveBeenCalled();
+  });
+
+  it('logs "AI title upgrade skipped" once per instance, however often a title is requested', async () => {
+    const service = AutoTitleService.getInstance();
+    service.setCliSpawnEnabledForTesting(false);
+    service.setLiveTitleSource(vi.fn().mockResolvedValue(null));
+    const skipped = () => mockLog.info.mock.calls.filter(([message]) =>
+      String(message).startsWith('AI title upgrade skipped')).length;
+    await service.generateTitle('Fix the broken deploy pipeline', [], 'chat-a');
+    await service.generateTitle('Fix the broken deploy pipeline', [], 'chat-a');
+    expect(skipped()).toBe(1);
+    await service.generateTitle('Fix the broken deploy pipeline', [], 'chat-b');
+    expect(skipped()).toBe(2);
+    service.clearInstance('chat-a');
+    await service.generateTitle('Fix the broken deploy pipeline', [], 'chat-a');
+    expect(skipped()).toBe(3);
   });
 
   it('stops title candidates after a budget stop and retains the billed cost', async () => {

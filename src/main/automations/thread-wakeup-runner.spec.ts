@@ -24,6 +24,7 @@ vi.mock('../session/session-admission-service', () => ({
 }));
 
 import { ThreadWakeupRunner } from './thread-wakeup-runner';
+import { classifyAutomationRunFailure } from './automation-run-failure-class';
 import {
   buildProviderLimitContinuationPrompt,
   buildProviderLimitContinuationTurn,
@@ -83,6 +84,7 @@ function makeRun(overrides: Partial<AutomationRun> = {}): AutomationRun {
 
 describe('ThreadWakeupRunner', () => {
   const sendInput = vi.fn();
+  const getInstance = vi.fn();
   const revive = vi.fn();
   const attachInstance = vi.fn();
   const terminalizeRun = vi.fn();
@@ -90,10 +92,12 @@ describe('ThreadWakeupRunner', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    getInstance.mockReturnValue(undefined);
     mockAdmitAutomatedWrite.mockReturnValue({ kind: 'admitted', admissionId: 'adm-default' });
     runner = new ThreadWakeupRunner(
       {
         sendInput,
+        getInstance,
       } as unknown as InstanceManager,
       {
         revive,
@@ -141,7 +145,7 @@ describe('ThreadWakeupRunner', () => {
       'instance-1',
       'Continue the work',
       automation.action.attachments,
-      { automatedInput: true },
+      { automatedInput: true, beforeProviderDispatch: expect.any(Function), onProviderInputDelivered: expect.any(Function) },
     );
     expect(terminalizeRun).toHaveBeenCalledWith(
       'run-1',
@@ -168,7 +172,7 @@ describe('ThreadWakeupRunner', () => {
       'instance-1',
       buildProviderLimitContinuationPrompt(),
       automation.action.attachments,
-      { automatedInput: true, internalSource: 'provider-limit-resume' },
+      { automatedInput: true, internalSource: 'provider-limit-resume', beforeProviderDispatch: expect.any(Function), onProviderInputDelivered: expect.any(Function) },
     );
   });
 
@@ -232,7 +236,7 @@ describe('ThreadWakeupRunner', () => {
   });
 
   describe('SessionAdmissionService gating (A5)', () => {
-    it('does not send when admission suppresses the revived instance, and marks the run deferred/failed', async () => {
+    it('defers a busy ordinary wake-up once, with a ready-edge redelivery', async () => {
       const destination: AutomationDestination = {
         kind: 'thread',
         instanceId: 'instance-1',
@@ -243,8 +247,8 @@ describe('ThreadWakeupRunner', () => {
       const attached = { ...run, instanceId: 'instance-1' };
       const deferred = {
         ...attached,
-        status: 'failed' as const,
-        error: 'Thread wakeup deferred: instance not ready to receive input (awaiting-human).',
+        status: 'skipped' as const,
+        error: 'That conversation was busy. Harness will send this when its current turn ends.',
       };
 
       revive.mockResolvedValue({ status: 'live', instanceId: 'instance-1' });
@@ -265,15 +269,98 @@ describe('ThreadWakeupRunner', () => {
         message: 'Continue the work',
         attachments: automation.action.attachments,
         sourceMetadata: { automationId: 'automation-1', runId: 'run-1' },
+        requireReadyForInput: true,
+        coalesceKey: 'automation:automation-1',
       });
       expect(terminalizeRun).toHaveBeenCalledWith(
         'run-1',
-        'failed',
-        expect.stringContaining('awaiting-human'),
+        'skipped',
+        'That conversation was busy. Harness will send this when its current turn ends.',
         undefined,
         3_000,
       );
       expect(result).toEqual(deferred);
+    });
+
+    it.each(['terminal', 'unknown-instance'] as const)(
+      'ends the run failed with target_missing when admission says the target is %s',
+      async (reason) => {
+        const destination: AutomationDestination = {
+          kind: 'thread',
+          instanceId: 'instance-1',
+          reviveIfArchived: false,
+        };
+        const automation = makeAutomation(destination);
+        const run = makeRun();
+        const failed = {
+          ...run,
+          instanceId: 'instance-1',
+          status: 'failed' as const,
+          error: `Thread wakeup failed: target_missing (${reason})`,
+        };
+
+        revive.mockResolvedValue({ status: 'live', instanceId: 'instance-1' });
+        attachInstance.mockReturnValue({ ...run, instanceId: 'instance-1' });
+        terminalizeRun.mockReturnValue(failed);
+        mockAdmitAutomatedWrite.mockReturnValue({
+          kind: 'suppressed',
+          reason,
+          admissionId: 'adm-gone',
+        });
+
+        const result = await runner.fireThreadWakeup({ run, automation, destination });
+
+        // The run is failed (not skipped as "busy"), with the exact prefix the
+        // 8a classifier treats as never-retry, and the admission is closed.
+        expect(terminalizeRun).toHaveBeenCalledTimes(1);
+        expect(terminalizeRun).toHaveBeenCalledWith(
+          'run-1',
+          'failed',
+          `Thread wakeup failed: target_missing (${reason})`,
+          undefined,
+          3_000,
+        );
+        expect(mockMarkFailed).toHaveBeenCalledWith('adm-gone', reason);
+        expect(sendInput).not.toHaveBeenCalled();
+        expect(result).toEqual(failed);
+      },
+    );
+
+    it('classifies the target_missing failure text as never-retry', () => {
+      for (const reason of ['terminal', 'unknown-instance']) {
+        expect(classifyAutomationRunFailure(`Thread wakeup failed: target_missing (${reason})`)).toBe('never');
+      }
+    });
+
+    it('treats a working provider-limit resume as already succeeded', async () => {
+      const destination: AutomationDestination = { kind: 'thread', instanceId: 'instance-1', reviveIfArchived: true };
+      const automation = makeAutomation(destination);
+      automation.action.systemAction = { type: 'instanceProviderLimitResume', instanceId: 'instance-1' };
+      revive.mockResolvedValue({ status: 'live', instanceId: 'instance-1' });
+      getInstance.mockReturnValue({ status: 'busy', activeTurnId: 'turn-1' });
+      terminalizeRun.mockImplementation((_id: string, status: string, _error: unknown, summary: string) => ({
+        ...makeRun(), status, outputSummary: summary,
+      }));
+      const result = await runner.fireThreadWakeup({ run: makeRun(), automation, destination });
+      expect(result.status).toBe('succeeded');
+      expect(result.outputSummary).toContain('already working again');
+      expect(mockAdmitAutomatedWrite).not.toHaveBeenCalled();
+      expect(sendInput).not.toHaveBeenCalled();
+    });
+
+    it('treats a provider-limit active-turn send race as already working', async () => {
+      const destination: AutomationDestination = { kind: 'thread', instanceId: 'instance-1', reviveIfArchived: true };
+      const automation = makeAutomation(destination);
+      automation.action.systemAction = { type: 'instanceProviderLimitResume', instanceId: 'instance-1' };
+      revive.mockResolvedValue({ status: 'live', instanceId: 'instance-1' });
+      sendInput.mockRejectedValue(new Error('Codex app-server runtime already has an active turn'));
+      terminalizeRun.mockImplementation((_id: string, status: string, _error: unknown, summary: string) => ({
+        ...makeRun(), status, outputSummary: summary,
+      }));
+      const result = await runner.fireThreadWakeup({ run: makeRun(), automation, destination });
+      expect(result.status).toBe('succeeded');
+      expect(result.outputSummary).toContain('already working again');
+      expect(mockMarkFailed).toHaveBeenCalledWith('adm-default', expect.stringContaining('active turn'));
     });
 
     it('sends and marks delivered when admission admits', async () => {
@@ -299,7 +386,7 @@ describe('ThreadWakeupRunner', () => {
         'instance-1',
         'Continue the work',
         automation.action.attachments,
-        { automatedInput: true },
+        { automatedInput: true, beforeProviderDispatch: expect.any(Function), onProviderInputDelivered: expect.any(Function) },
       );
       expect(mockMarkDelivered).toHaveBeenCalledWith('adm-admitted');
     });
@@ -320,7 +407,7 @@ describe('ThreadWakeupRunner', () => {
         'instance-9',
         'wake up',
         undefined,
-        { automatedInput: true },
+        { automatedInput: true, beforeProviderDispatch: expect.any(Function), onProviderInputDelivered: expect.any(Function) },
       );
     });
   });
@@ -350,6 +437,10 @@ describe('ThreadWakeupRunner', () => {
 
     expect(restartInstance).toHaveBeenCalledExactlyOnceWith('retry-copy');
     expect(restore).not.toHaveBeenCalled();
-    expect(sendInput).toHaveBeenCalledWith('retry-copy', 'Continue the work', expect.any(Array), { automatedInput: true });
+    expect(sendInput).toHaveBeenCalledWith('retry-copy', 'Continue the work', expect.any(Array), {
+      automatedInput: true,
+      beforeProviderDispatch: expect.any(Function),
+      onProviderInputDelivered: expect.any(Function),
+    });
   });
 });

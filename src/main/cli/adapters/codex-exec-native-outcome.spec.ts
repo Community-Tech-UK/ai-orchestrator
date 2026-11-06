@@ -2,12 +2,42 @@ import { tmpdir } from 'node:os';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ChildProcess } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ProcessFixtureRegistry } from '../../../tests/fixtures/process-fixture';
 import { CodexCliAdapter } from './codex-cli-adapter';
 import { getLogManager } from '../../logging/logger';
 const fixtures = new ProcessFixtureRegistry();
-afterEach(() => fixtures.cleanup());
+const readinessClock = { setTimeout, clearTimeout };
+afterEach(() => { vi.useRealTimers(); return fixtures.cleanup(); });
+
+function waitForNativeEvidence(
+  evidence: EventEmitter,
+  ready: () => boolean,
+  turn: Promise<unknown>,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let guard: ReturnType<typeof setTimeout>;
+    const finish = (error?: unknown): void => {
+      if (settled) return;
+      settled = true;
+      readinessClock.clearTimeout(guard);
+      evidence.off('change', check);
+      if (error) reject(error);
+      else resolve();
+    };
+    const check = (): void => { if (ready()) finish(); };
+    // This real-clock guard also runs while the partial-timeout watchdog is paused.
+    guard = readinessClock.setTimeout(() => finish(new Error('Native fixture did not become ready')), 3_000);
+    evidence.on('change', check);
+    check();
+    void turn.then(
+      () => { if (!settled) finish(new Error('Native fixture finished before its readiness evidence arrived')); },
+      error => finish(error),
+    );
+  });
+}
 
 function nativeFixture(mode: 'answer' | 'provider-error' | 'silent', code = 0) {
   const dir = mkdtempSync(join(tmpdir(), 'codex-exec-control-'));
@@ -19,7 +49,7 @@ function nativeFixture(mode: 'answer' | 'provider-error' | 'silent', code = 0) {
     if (mode === 'silent') { setInterval(() => {}, 1000); return; }
     process.stdout.write(JSON.stringify(mode === 'answer' ? {type:'item.completed',item:{type:'agent_message',text:'LOCAL_NATIVE_ANSWER'}} : {type:'turn.failed',error:{message:'LOCAL_PROVIDER_FAILURE'}})+'\n');
     process.exitCode = ` + code + String.raw`; });`);
-  const adapter = new CodexCliAdapter({ workingDir: dir, timeout: 500 });
+  const adapter = new CodexCliAdapter({ workingDir: dir });
   Object.assign(adapter, { useAppServer: false, isSpawned: true });
   const access = adapter as unknown as {
     config: {
@@ -33,10 +63,11 @@ function nativeFixture(mode: 'answer' | 'provider-error' | 'silent', code = 0) {
   access.config.args = [path];
   const spawn = access.spawnProcess.bind(adapter);
   const children: ChildProcess[] = [];
+  const evidence = new EventEmitter();
   let stderr = '';
-  access.spawnProcess = args => { const child = fixtures.track(spawn(args)); children.push(child); child.stderr!.on('data', chunk => { stderr += chunk.toString(); }); return child; };
+  access.spawnProcess = args => { const child = fixtures.track(spawn(args)); children.push(child); child.stderr!.on('data', chunk => { stderr += chunk.toString(); evidence.emit('change'); }); return child; };
   adapter.on('error', () => { /* Keep native EventEmitter errors observed during fixture cleanup. */ });
-  return { adapter, access, children, stderr: () => stderr, cleanup: async () => { await adapter.terminate(false); rmSync(dir, { recursive: true, force: true }); } };
+  return { adapter, access, children, evidence, stderr: () => stderr, cleanup: async () => { try { await adapter.terminate(false); } finally { rmSync(dir, { recursive: true, force: true }); } } };
 }
 it.each([0, 7])('accepted real child retains exact answer/thread for native exit %s', async (code) => {
   getLogManager().updateConfig({ enableConsole: false, enableFile: false });
@@ -71,7 +102,7 @@ it('accepted real turn that failed after doing work shows the native failure bef
   const dir = mkdtempSync(join(tmpdir(), 'codex-exec-late-failure-'));
   const file = join(dir, 'fixture.cjs');
   writeFileSync(file, String.raw`let prompt='';process.stdin.on('data',chunk=>prompt+=chunk);process.stdin.on('end',()=>{if(prompt.includes('LOCAL_SECOND')){process.stderr.write('ERROR codex_core::session: failed to record rollout items: thread LOCAL_CHILD_THREAD not found\n');process.exitCode=1;return;}const out=e=>process.stdout.write(JSON.stringify(e)+'\n');out({type:'thread.started',thread_id:'LOCAL_LATE_FAILURE_THREAD'});out({type:'item.completed',item:{id:'item_1',type:'agent_message',text:'LOCAL_PARTIAL_WORK'}});out({type:'error',message:'Reconnecting... 1/5'});out({type:'turn.failed',error:{message:'LOCAL_MODEL_AT_CAPACITY'}});process.stderr.write('ERROR codex_core::session: failed to record rollout items: thread LOCAL_CHILD_THREAD not found\n');process.exitCode=1;});`);
-  const adapter = new CodexCliAdapter({ workingDir: dir, timeout: 1000 });
+  const adapter = new CodexCliAdapter({ workingDir: dir });
   Object.assign(adapter, { useAppServer: false, isSpawned: true });
   const access = adapter as unknown as { config: { command: string; args: string[] }; spawnProcess(args: string[]): ChildProcess };
   access.config.command = process.execPath;
@@ -115,7 +146,8 @@ it('accepted real ordinary Stop terminates native silence without a second promp
   native.adapter.on('output', outputs);
   try {
     const pending = native.adapter.sendInput('LOCAL_PROMPT').then(() => ({ status: 'fulfilled' as const }), error => ({ status: 'rejected' as const, error }));
-    await vi.waitFor(() => expect(native.stderr()).toContain('LOCAL_ACCEPTED_BYTES=12'));
+    await waitForNativeEvidence(native.evidence, () => native.stderr().includes('LOCAL_ACCEPTED_BYTES=12'), pending);
+    expect(native.stderr()).toContain('LOCAL_ACCEPTED_BYTES=12');
     expect(native.adapter.interrupt().status).toBe('accepted');
     const result = await pending;
     expect(native.children[0].signalCode).toBe('SIGINT');
@@ -153,12 +185,19 @@ it.each(['partial-timeout', 'meaningful-stop'] as const)('accepted actual child 
   access.config.args = [file];
   const spawn = access.spawnProcess.bind(adapter);
   const children: ChildProcess[] = [];
+  const evidence = new EventEmitter();
+  let parsedAnswer = false;
   let stderr = '';
-  access.spawnProcess = args => { const child = fixtures.track(spawn(args)); children.push(child); child.stderr!.on('data', chunk => stderr += chunk.toString()); return child; };
+  access.spawnProcess = args => { const child = fixtures.track(spawn(args)); children.push(child); child.stderr!.on('data', chunk => { stderr += chunk.toString(); evidence.emit('change'); }); return child; };
+  adapter.on('output', (message: { content: string }) => { if (message.content === 'LOCAL_POSITIVE_ANSWER') parsedAnswer = true; evidence.emit('change'); });
   adapter.on('error', () => { /* Keep native EventEmitter errors observed during fixture cleanup. */ });
   try {
+    // Keep the 200 ms timeout, but start its clock after real child acceptance and parsed output.
+    if (scenario === 'partial-timeout') vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const pending = adapter.sendMessage({ role: 'user', content: 'LOCAL_PROMPT', metadata: { allowPartialOnTimeout: true } });
-    await vi.waitFor(() => expect(stderr).toContain('LOCAL_ACK=12'));
+    await waitForNativeEvidence(evidence, () => stderr.includes('LOCAL_ACK=12') && (scenario !== 'partial-timeout' || parsedAnswer), pending);
+    expect(stderr).toContain('LOCAL_ACK=12');
+    if (scenario === 'partial-timeout') await vi.advanceTimersByTimeAsync(200);
     if (scenario === 'meaningful-stop')
       expect(adapter.interrupt().status).toBe('accepted');
     const response = await pending;
@@ -171,8 +210,9 @@ it.each(['partial-timeout', 'meaningful-stop'] as const)('accepted actual child 
       expect(children[0].exitCode).toBe(0);
   }
   finally {
-    await adapter.terminate(false);
-    rmSync(dir, { recursive: true, force: true });
+    vi.useRealTimers();
+    try { await adapter.terminate(false); }
+    finally { rmSync(dir, { recursive: true, force: true }); }
   }
 });
 it('native old child close cannot disable or clear a live manual successor', async () => {
@@ -182,7 +222,7 @@ it('native old child close cannot disable or clear a live manual successor', asy
   const newFile = join(dir, 'new.cjs');
   writeFileSync(oldFile, String.raw`require('node:fs').closeSync(0);process.stderr.write('LOCAL_OLD_READY\n');setTimeout(()=>{},180);`);
   writeFileSync(newFile, String.raw`process.stdin.resume();process.stdin.on('end',()=>{process.stderr.write('LOCAL_NEW_ACK\n');setTimeout(()=>{process.stdout.write(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:'LOCAL_REPLACEMENT_ANSWER'}})+'\n');},450);});`);
-  const adapter = new CodexCliAdapter({ workingDir: dir, timeout: 1000 });
+  const adapter = new CodexCliAdapter({ workingDir: dir });
   Object.assign(adapter, { useAppServer: false, isSpawned: true });
   const access = adapter as unknown as {
     config: {
@@ -197,9 +237,10 @@ it('native old child close cannot disable or clear a live manual successor', asy
   access.config.args = [oldFile];
   const spawn = access.spawnProcess.bind(adapter);
   const children: ChildProcess[] = [];
+  const evidence = new EventEmitter();
   let stderr = '';
   let failures = 0;
-  access.spawnProcess = args => { const child = fixtures.track(spawn(args)); children.push(child); child.stderr!.on('data', chunk => stderr += chunk.toString()); child.stdin!.on('error', () => failures++); return child; };
+  access.spawnProcess = args => { const child = fixtures.track(spawn(args)); children.push(child); child.stderr!.on('data', chunk => { stderr += chunk.toString(); evidence.emit('change'); }); child.stdin!.on('error', () => { failures++; evidence.emit('change'); }); return child; };
   const statuses: string[] = [];
   const complete = vi.fn();
   const errors = vi.fn();
@@ -217,11 +258,14 @@ it('native old child close cannot disable or clear a live manual successor', asy
     }
   }).then(() => ({ ok: true }), error => ({ ok: false, error }));
   try {
-    await vi.waitFor(() => { expect(stderr).toContain('LOCAL_OLD_READY'); expect(failures).toBe(1); });
+    await waitForNativeEvidence(evidence, () => stderr.includes('LOCAL_OLD_READY') && failures === 1, old);
+    expect(stderr).toContain('LOCAL_OLD_READY');
+    expect(failures).toBe(1);
     current = false;
     access.config.args = [newFile];
     const next = adapter.sendInput('LOCAL_NEXT_PROMPT');
-    await vi.waitFor(() => expect(stderr).toContain('LOCAL_NEW_ACK'));
+    await waitForNativeEvidence(evidence, () => stderr.includes('LOCAL_NEW_ACK'), next);
+    expect(stderr).toContain('LOCAL_NEW_ACK');
     expect(access.process).toBe(children[1]);
     expect(access.processAlive).toBe(true);
     const prior = await old;

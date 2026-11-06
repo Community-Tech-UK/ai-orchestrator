@@ -76,3 +76,28 @@ export function normalizeReviewerFindings(raw: unknown): NormalizedReviewerFindi
   }
   return { findings, dropped };
 }
+
+/** Cap on NEW low/medium findings per round to throttle nitpick churn. */
+const MAX_NEW_LOW_FINDINGS = 5;
+
+/** Throttle nitpick churn: keep all blocking findings, cap NEW low/medium ones. */
+export function capLowSeverityChurn(
+  findings: PingPongReviewFinding[],
+  blocking: readonly PingPongSeverity[],
+): PingPongReviewFinding[] {
+  const blockingSet = new Set(blocking);
+  const kept: PingPongReviewFinding[] = [];
+  let lowCount = 0;
+  for (const f of findings) {
+    if (blockingSet.has(f.severity)) {
+      kept.push(f);
+      continue;
+    }
+    if (f.novelty === 'new') {
+      if (lowCount >= MAX_NEW_LOW_FINDINGS) continue;
+      lowCount++;
+    }
+    kept.push(f);
+  }
+  return kept;
+}

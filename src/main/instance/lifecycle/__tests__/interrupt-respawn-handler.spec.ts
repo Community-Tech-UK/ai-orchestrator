@@ -115,7 +115,11 @@ class RespawnReplacementAdapter extends EventEmitter {
  * invoked with the {cliType, options, executionLocation} shape the
  * assertions below rely on).
  */
-function withRealRecoveryCore(deps: InterruptRespawnDeps): InterruptRespawnDeps {
+function withRealRecoveryCore(
+  partial: Omit<InterruptRespawnDeps, 'getRtkSpawnConfig'> & Partial<Pick<InterruptRespawnDeps, 'getRtkSpawnConfig'>>,
+): InterruptRespawnDeps {
+  // RTK is off in these scenarios unless a test supplies a resolver.
+  const deps: InterruptRespawnDeps = { getRtkSpawnConfig: () => undefined, ...partial };
   const reconciler = new RuntimeReconciler({
     getInstance: deps.getInstance,
     setAdapter: deps.setAdapter,

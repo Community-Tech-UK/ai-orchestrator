@@ -19,4 +19,10 @@ export interface McpServerToolDefinition {
    * `notifications/tools/list_changed` refresh.
    */
   hidden?: boolean;
+  /** Null opts out of the default 12 KB serialized result cap. */
+  maxResultChars?: number | null;
+  /** Server-owned wrapper policy, resolved from its selected tool after dispatch. */
+  resolveMaxResultChars?: (args: Record<string, unknown>) => number | null | undefined;
 }
+
+export const DEFAULT_MAX_RESULT_CHARS = 12_000;

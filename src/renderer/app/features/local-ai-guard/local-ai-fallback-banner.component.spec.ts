@@ -92,6 +92,7 @@ describe('LocalAiFallbackBannerComponent', () => {
     isInitialized: isInitialized.asReadonly(),
     hasAuthoritativeSnapshot: hasAuthoritativeSnapshot.asReadonly(),
     aggregate: aggregate.asReadonly(),
+    helperBudget: signal(undefined).asReadonly(),
     helperPauses: signal<AuxiliaryHelperPause[]>([]).asReadonly(),
     targets: signal([]).asReadonly(),
     resolveFallback,

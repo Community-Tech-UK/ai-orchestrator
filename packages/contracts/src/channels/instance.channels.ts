@@ -21,6 +21,7 @@ export const INSTANCE_CHANNELS = {
   INSTANCE_FAST_TOGGLED: 'instance:fast-toggled',
   INSTANCE_CHANGE_MODEL: 'instance:change-model',
   INSTANCE_SEND_INPUT: 'instance:send-input',
+  INSTANCE_QUICK_ASK: 'instance:quick-ask',
   INSTANCE_STEER_INPUT: 'instance:steer-input',
   INSTANCE_INTERRUPT: 'instance:interrupt',
   /** Resume a session parked on a provider limit immediately (skip the wait). */

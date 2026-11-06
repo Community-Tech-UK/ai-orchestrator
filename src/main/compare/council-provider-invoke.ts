@@ -113,6 +113,7 @@ export async function invokeProviderOneShot(
           workingDirectory: options.workingDirectory ?? process.cwd(),
           model,
           yoloMode: false,
+          readOnlyReview: true,
           timeout: PROVIDER_INVOKE_TIMEOUT,
           maxBudgetUsd: cliType === 'claude' ? 1 : undefined,
         },

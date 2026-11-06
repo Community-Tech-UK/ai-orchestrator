@@ -23,13 +23,19 @@ async function harness() {
     status: 'initializing', contextUsage: { used: 0, total: 1000, percentage: 0 } } as unknown as Instance;
   const ingested: OutputMessage[] = [];
   const progress: string[] = [];
+  const compactionBoundaries: OutputMessage[] = [];
+  adapter.on('output', (message: OutputMessage) => {
+    if (message.metadata?.['threadCompacted'] === true) compactionBoundaries.push(message);
+  });
   const communication = new InstanceCommunicationManager({ getInstance: () => instance, getAdapter: () => adapter,
     setAdapter: () => undefined, deleteAdapter: () => false, queueUpdate: () => undefined,
     processOrchestrationOutput: () => undefined, onInterruptedExit: async () => undefined,
     ingestToRLM: (_id, message) => ingested.push(message), ingestToUnifiedMemory: () => undefined,
     onOutput: (_id, content) => { if (content) progress.push(content); } });
   const visible: OutputMessage[] = [];
+  const published: OutputMessage[] = [];
   communication.on('output', ({ message }: { message: OutputMessage }) => {
+    published.push(message);
     appendInstanceOutputMessage(visible, toOutputMessageFromProviderOutputEvent(toProviderOutputEvent(message)), new Set());
   });
   communication.setupAdapterEvents(instance.id, adapter);
@@ -41,7 +47,7 @@ async function harness() {
     await Promise.resolve();
     communication.cleanupCircuitBreaker(instance.id);
   };
-  return { proc, adapter, instance, communication, visible, ingested, progress, update, status, finish };
+  return { proc, adapter, instance, communication, visible, published, ingested, progress, compactionBoundaries, update, status, finish };
 }
 
 describe('ACP status updates through the main buffer and ordinary renderer merge', () => {
@@ -59,6 +65,13 @@ describe('ACP status updates through the main buffer and ordinary renderer merge
       // Updates replace a record; only the first record enters context ingestion.
       expect(h.ingested).toHaveLength(1);
       expect(h.progress).toEqual(['Compacting the session…', expected]);
+      expect(h.compactionBoundaries).toHaveLength(phase === 'completed' ? 1 : 0);
+      expect(h.published.filter(message => message.metadata?.['threadCompacted'] === true))
+        .toHaveLength(phase === 'completed' ? 1 : 0);
+      if (phase === 'completed') {
+        expect(h.compactionBoundaries[0].id).toBe(h.visible[0].id);
+        expect(h.visible[0].metadata).toMatchObject({ threadCompacted: true, providerCompaction: 'completed' });
+      }
     } finally { await h.finish(); }
   });
 
@@ -114,6 +127,10 @@ describe('ACP status updates through the main buffer and ordinary renderer merge
       }
       expect(h.status('acp-compaction').map(message => message.content)).toEqual(['Compaction completed.', 'Compaction completed.']);
       expect(new Set(h.visible.map(message => message.id)).size).toBe(2);
+      expect(h.compactionBoundaries).toHaveLength(2);
+      expect(h.published.filter(message => message.metadata?.['threadCompacted'] === true)).toHaveLength(2);
+      expect(h.compactionBoundaries.map(message => message.id)).toEqual(h.visible.map(message => message.id));
+      expect(h.status('acp-compaction').every(message => message.metadata?.['threadCompacted'] === true)).toBe(true);
     } finally { await h.finish(); }
   });
 
@@ -129,6 +146,7 @@ describe('ACP status updates through the main buffer and ordinary renderer merge
       await h.adapter.sendMessage({ role: 'user', content: 'second turn' });
       expect(h.status('acp-compaction').map(message => message.content)).toEqual(['Compaction completed.', 'Compaction completed.']);
       expect(new Set(h.status('acp-compaction').map(message => message.id)).size).toBe(2);
+      expect(h.compactionBoundaries).toHaveLength(2);
     } finally { await h.finish(); }
   });
 

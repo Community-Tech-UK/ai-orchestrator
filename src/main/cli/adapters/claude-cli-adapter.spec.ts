@@ -432,6 +432,22 @@ describe('ClaudeCliAdapter WS14 flag pack', () => {
     expect(env?.['DISABLE_UPDATES']).toBe('1');
     expect(env?.['CLAUDE_CODE_TMPDIR']).toContain('aio-claude-tmp');
   });
+
+  it('puts rewrite-only RTK variables into the actual Claude child env only with a YOLO hook', () => {
+    const makeEnv = (options: ConstructorParameters<typeof ClaudeCliAdapter>[0]) =>
+      (new ClaudeCliAdapter(options) as unknown as { buildSpawnEnv: () => NodeJS.ProcessEnv }).buildSpawnEnv();
+    const rtk = { enabled: true, binaryPath: '/rtk-placeholder', yoloHookPath: '/hook-placeholder' };
+    const on = makeEnv({ sessionId: 'native-on', yoloMode: true, rtk });
+    expect(on).toMatchObject({
+      ORCHESTRATOR_RTK_ENABLED: '1', ORCHESTRATOR_RTK_PATH: '/rtk-placeholder',
+      ORCHESTRATOR_RTK_REWRITE_ONLY: '1', RTK_TELEMETRY_DISABLED: '1',
+    });
+    const noHook = makeEnv({ sessionId: 'native-off', yoloMode: true,
+      rtk: { enabled: true, binaryPath: '/rtk-placeholder' } });
+    const approval = makeEnv({ sessionId: 'native-approval', yoloMode: false, rtk });
+    expect(noHook['ORCHESTRATOR_RTK_REWRITE_ONLY']).toBeUndefined();
+    expect(approval['ORCHESTRATOR_RTK_REWRITE_ONLY']).toBeUndefined();
+  });
 });
 
 describe('ClaudeCliAdapter --max-turns backstop', () => {
@@ -820,7 +836,7 @@ describe('ClaudeCliAdapter rate_limit_event handling', () => {
     const getLastRateLimitInfo = (
       adapter as unknown as { getLastRateLimitInfo: () => { status?: string } | null }
     ).getLastRateLimitInfo.bind(adapter);
-    (adapter as unknown as { resetResidentTurn(): void }).resetResidentTurn();
+    (adapter as unknown as { resetResidentTurn: () => void }).resetResidentTurn();
     return { adapter, outputs, processCliMessage, getLastRateLimitInfo };
   }
 
@@ -917,7 +933,7 @@ describe('ClaudeCliAdapter LT-105 errored resident turn completion', () => {
       resetResidentTurn: () => void;
       awaitingOneShotCompletion: boolean;
     };
-    internals.resetResidentTurn(); // Establish the input-owned turn modeled by this fixture.
+    internals.resetResidentTurn(); // Establish an active resident turn before injecting events.
     return { completions, errors, internals };
   }
 
@@ -948,7 +964,7 @@ describe('ClaudeCliAdapter LT-105 errored resident turn completion', () => {
 
     internals.processCliMessage(streamError);
     internals.resetResidentTurn(); // what sendInputImpl does when the next turn starts
-    internals.processCliMessage(result); // old trailing result must not complete the newer input
+    internals.processCliMessage(result); // stale result from the errored turn
     expect(completions).toHaveLength(1);
     internals.processCliMessage({ type: 'assistant', message: { content: [{ type: 'text', text: 'Next turn.' }] } });
     internals.processCliMessage(result);

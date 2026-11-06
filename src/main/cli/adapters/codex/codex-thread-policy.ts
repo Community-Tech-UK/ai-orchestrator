@@ -1,36 +1,121 @@
 import { createHash } from 'node:crypto';
 import type { SessionKind } from '../../../../shared/types/session-kind.types';
+import type { TrialKeySource } from '../../../../shared/utils/machine-session';
 import type { CodexCliConfig } from '../codex-adapter-config';
 import type { AppSettings } from '../../../../shared/types/settings.types';
 import { getSettingsManager } from '../../../core/config/settings-manager';
 import { getLogger } from '../../../logging/logger';
 import { errorDiagnostic } from '../../../logging/source-diagnostics';
+
 const logger = getLogger('CodexThreadPolicy');
-export type CodexTrialArm = 'control' | 'candidate' | 'unassigned';
-export interface CodexThreadPolicy { level:'off'|'economy'|'full'; config:Record<string,unknown>; outputLimit:number|null; postTurnCompactPercent:number|null }
-export function codexTrialArm(key:string|undefined):CodexTrialArm {
-  return key ? createHash('sha256').update(key).digest()[0] % 2 === 0 ? 'control' : 'candidate' : 'unassigned';
+export type CodexTrialArm = 'cheaper' | 'full' | 'off' | 'unassigned';
+export type CodexChatsSetting = 'economy' | 'full' | 'off' | 'trial';
+export type CodexHarnessWorkSetting = 'off' | 'full' | 'trial';
+export type CodexTuningSetting = 'harness' | 'codex';
+
+export const CODEX_HARNESS_WORK_KINDS: readonly SessionKind[] = [
+  'loop', 'plan-queue', 'child', 'automation', 'review',
+];
+
+export interface CodexThreadPolicy {
+  level: 'off' | 'economy' | 'full';
+  /** Includes output and compaction overrides exactly once. */
+  config: Record<string, unknown>;
+  outputLimit: number | null;
+  postTurnCompactPercent: number | null;
+  arm?: CodexTrialArm;
+  armKey?: string | null;
+  armSource?: TrialKeySource | null;
 }
-export function resolveCodexThreadPolicy(input:{kind:SessionKind;chatsSetting?:'economy'|'full'|'off'|'trial';harnessWorkSetting?:'off'|'full'|'trial';tuningSetting?:'harness'|'codex';arm?:CodexTrialArm}):CodexThreadPolicy {
-  const chat=input.kind==='chat';
-  const selected=chat ? input.chatsSetting ?? 'trial' : input.harnessWorkSetting ?? 'trial';
-  const level=selected==='trial' ? input.arm==='candidate' ? chat ? 'economy' : 'off' : 'full' : selected;
-  const config:Record<string,unknown>=level==='off' ? {'agents.enabled':false} : level==='economy' ? {'agents.default_subagent_reasoning_effort':'medium','agents.max_concurrent_threads_per_session':2} : {};
-  const outputLimit=input.tuningSetting==='codex' ? null : chat ? 6000 : 4000;
-  const postTurnCompactPercent=input.tuningSetting==='codex' ? null : chat ? 70 : 60;
-  if(outputLimit!==null)config['tool_output_token_limit']=outputLimit;
-  if(postTurnCompactPercent!==null)config['model_post_turn_compact_threshold_percent']=postTurnCompactPercent;
-  return {level,config,outputLimit,postTurnCompactPercent};
+
+/** The same raw key always picks the same half of its trial. */
+export function resolveTrialArm(
+  key: string | null | undefined,
+  setting: CodexChatsSetting | CodexHarnessWorkSetting,
+  isHarnessWork: boolean,
+): CodexTrialArm {
+  if (!key || setting !== 'trial') return 'unassigned';
+  const firstByte = createHash('sha256').update(key).digest()[0];
+  return firstByte % 2 === 0 ? (isHarnessWork ? 'off' : 'cheaper') : 'full';
 }
-export function codexThreadPolicyForConfig(config:CodexCliConfig):CodexThreadPolicy {
-  let settings:AppSettings;
+
+export function resolveCodexThreadPolicy(input: {
+  kind: SessionKind;
+  chatsSetting?: CodexChatsSetting;
+  harnessWorkSetting?: CodexHarnessWorkSetting;
+  tuningSetting?: CodexTuningSetting;
+  arm?: CodexTrialArm;
+}): CodexThreadPolicy {
+  const harnessWork = CODEX_HARNESS_WORK_KINDS.includes(input.kind);
+  const selected = harnessWork ? input.harnessWorkSetting ?? 'trial' : input.chatsSetting ?? 'trial';
+  const arm = input.arm ?? 'unassigned';
+  const level = selected === 'trial'
+    ? arm === 'off' && harnessWork ? 'off'
+      : arm === 'cheaper' && !harnessWork ? 'economy' : 'full'
+    : selected;
+  const config: Record<string, unknown> = level === 'off'
+    ? { 'agents.enabled': false }
+    : level === 'economy'
+      ? { 'agents.default_subagent_reasoning_effort': 'medium', 'agents.max_concurrent_threads_per_session': 2 }
+      : {};
+  const outputLimit = input.tuningSetting === 'codex' ? null : input.kind === 'chat' ? 6000 : 4000;
+  const postTurnCompactPercent = input.tuningSetting === 'codex' ? null : input.kind === 'chat' ? 70 : 60;
+  if (outputLimit !== null) config['tool_output_token_limit'] = outputLimit;
+  if (postTurnCompactPercent !== null) config['model_post_turn_compact_threshold_percent'] = postTurnCompactPercent;
+  return { level, config, outputLimit, postTurnCompactPercent, arm };
+}
+
+/** True only in the Electron main process, the one place the settings store exists. */
+function isElectronMainProcess(): boolean {
+  return Boolean(process.versions.electron) && (process as NodeJS.Process & { type?: string }).type === 'browser';
+}
+
+let settingsStoreUnavailableLogged = false;
+/** Test hook: lets the once-only log line fire again. */
+export function _resetCodexThreadPolicyForTesting(): void {
+  settingsStoreUnavailableLogged = false;
+}
+
+/** What a worker without a settings store sends: no overrides, Codex's own defaults. */
+function noPerThreadConfigPolicy(config: CodexCliConfig): CodexThreadPolicy {
+  return {
+    level: 'full', config: {}, outputLimit: null, postTurnCompactPercent: null,
+    arm: 'unassigned', armKey: config.trialKey ?? null, armSource: config.trialKeySource ?? null,
+  };
+}
+
+/**
+ * A settings failure inside Electron main is fatal: a guessed trial default could change paid
+ * work. A plain-Node process (the remote worker bundle) has no settings store at all, so it
+ * starts the thread with no per-thread config instead of failing the whole session.
+ */
+export function codexThreadPolicyForConfig(config: CodexCliConfig): CodexThreadPolicy {
+  let settings: AppSettings;
   try {
-    settings=getSettingsManager().getAll();
-  }catch(error){
-    // Fail closed: resolving trial defaults from empty settings would launch
-    // the thread on a machine-session policy the user never configured.
-    logger.warn('Codex thread policy could not read settings; failing closed',{ ...errorDiagnostic(error) });
+    settings = getSettingsManager().getAll();
+  } catch (error) {
+    if (!isElectronMainProcess()) {
+      if (!settingsStoreUnavailableLogged) {
+        settingsStoreUnavailableLogged = true;
+        logger.info('Codex thread policy: no settings store outside Electron main; starting threads with no per-thread config');
+      }
+      return noPerThreadConfigPolicy(config);
+    }
+    logger.warn('Codex thread policy could not read settings; failing closed', { ...errorDiagnostic(error) });
     throw error;
   }
-  return resolveCodexThreadPolicy({kind:config.sessionKind ?? 'chat',chatsSetting:settings.codexHelperAgentsChats,harnessWorkSetting:settings.codexHelperAgentsHarnessWork,tuningSetting:settings.codexContextTuning,arm:config.trialArm ?? codexTrialArm(config.trialKey)});
+  const kind = config.sessionKind ?? 'chat';
+  const harnessWork = CODEX_HARNESS_WORK_KINDS.includes(kind);
+  const setting = harnessWork ? settings.codexHelperAgentsHarnessWork ?? 'trial'
+    : settings.codexHelperAgentsChats ?? 'trial';
+  const arm = config.trialArm ?? resolveTrialArm(config.trialKey, setting, harnessWork);
+  config.trialArm = arm;
+  return {
+    ...resolveCodexThreadPolicy({ kind, chatsSetting: settings.codexHelperAgentsChats,
+      harnessWorkSetting: settings.codexHelperAgentsHarnessWork,
+      tuningSetting: settings.codexContextTuning, arm }),
+    arm,
+    armKey: config.trialKey ?? null,
+    armSource: config.trialKeySource ?? null,
+  };
 }

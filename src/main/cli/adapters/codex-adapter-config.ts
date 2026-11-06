@@ -1,5 +1,6 @@
 import type { SessionKind } from '../../../shared/types/session-kind.types';
 import type { CodexTrialArm } from './codex/codex-thread-policy';
+import type { TrialKeySource } from '../../../shared/utils/machine-session';
 import type { CodexReasoningEffort } from './codex/app-server-types';
 
 type CodexApprovalMode = 'suggest' | 'auto-edit' | 'full-auto';
@@ -16,6 +17,7 @@ export interface CodexCliConfig {
   onEphemeralUsage?: (receipt: import('../../../shared/types/codex-ephemeral-usage.types').CodexEphemeralUsage) => void;
   sessionKind?: SessionKind;
   trialKey?: string;
+  trialKeySource?: TrialKeySource;
   trialArm?: CodexTrialArm;
   additionalWritableDirs?: string[];
   approvalMode?: CodexApprovalMode;
@@ -33,6 +35,8 @@ export interface CodexCliConfig {
   env?: Record<string, string>;
   ephemeral?: boolean;
   fastMode?: boolean;
+  /** Harness instance identity for trial outcomes; sessionId is the native Codex resume target. */
+  harnessInstanceId?: string;
   mcpServersConfigToml?: string;
   model?: string;
   outputSchema?: Record<string, unknown>;

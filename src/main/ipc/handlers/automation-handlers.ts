@@ -70,7 +70,7 @@ export function registerAutomationHandlers(): void {
     async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
       try {
         const validated = validateIpcPayload(AutomationCreatePayloadSchema, payload, 'AUTOMATION_CREATE');
-        return { success: true, data: await createAutomationWithScheduling(validated) };
+        return { success: true, data: await createAutomationWithScheduling(validated, 'automations-page') };
       } catch (error) {
         return responseError('AUTOMATION_CREATE_FAILED', error);
       }
@@ -86,6 +86,9 @@ export function registerAutomationHandlers(): void {
         if (!existing) {
           return { success: false, error: { code: 'AUTOMATION_NOT_FOUND', message: 'Automation not found', timestamp: Date.now() } };
         }
+        // Validate the complete next job: a partial schedule edit must not
+        // bypass restrictions on the check already stored with its action.
+        validateIpcPayload(AutomationCreatePayloadSchema, { ...existing, ...validated.updates }, 'AUTOMATION_UPDATE');
         const schedule = validated.updates.schedule ?? existing.schedule;
         const enabled = validated.updates.enabled ?? existing.enabled;
         const active = validated.updates.active ?? existing.active;

@@ -3,10 +3,12 @@ import type { LoopConfig } from '../../shared/types/loop.types';
 import { createHash } from 'crypto';
 import type { LoopErrorRecord, LoopProvider } from '../../shared/types/loop.types';
 import { resolveCliType } from '../cli/adapters/adapter-factory';
+import { getAutomationRtk, rememberRtkAdapterConfig } from '../cli/rtk/rtk-rollout';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 import { attachProviderRoutes } from '../instance/lifecycle/provider-route-preflight';
 import { resolveAutomationDefaultModel } from './automation-model-defaults';
 import { rememberLoopAdapterInvocation } from './loop-adapter-account-scope';
+import { applyAutomationSpawnFields } from './automation-spawn-fields';
 
 export function enableAdapterResume(adapter: unknown): void {
   const setResume = (adapter as { setResume?: (resume: boolean) => void } | null | undefined)?.setResume;
@@ -51,11 +53,12 @@ export async function createPersistentLoopAdapter(opts: {
 }): Promise<unknown> {
   const cliType = await resolveCliType(opts.provider as Parameters<typeof resolveCliType>[0], 'claude');
   const model = opts.model ?? resolveAutomationDefaultModel(cliType);
+  const rtk = cliType === 'claude' ? getAutomationRtk(opts.trialKey) : undefined;
   // Copilot account routing: a persistent loop session is an automatic
   // surface, and the loop's workspace is what decides the account.
   const spawnOptions = await attachProviderRoutes(
     cliType,
-    {
+    applyAutomationSpawnFields(cliType, {
       workingDirectory: opts.workingDirectory,
       model,
       ...(cliType === 'codex' ? { ephemeral: false } : {}),
@@ -67,10 +70,12 @@ export async function createPersistentLoopAdapter(opts: {
       trialKey: opts.trialKey,
       jobId: opts.jobId,
       instanceId: opts.instanceId,
-    },
+      rtk,
+    }, opts.trialKey ? 'loop-run' : undefined),
     'loop',
   );
   const adapter = getProviderRuntimeService().createAdapter({ cliType, options: spawnOptions });
+  rememberRtkAdapterConfig(adapter, rtk);
   rememberLoopAdapterInvocation(adapter, cliType, model);
   rememberLoopExecutionSettings(adapter, opts.executionConfig ?? {});
   if (typeof opts.streamIdleTimeoutMs === 'number') {

@@ -35,12 +35,6 @@ export interface CliAdapterConfig {
   maxRetries?: number;
   /** Support session persistence/resumption */
   sessionPersistence?: boolean;
-  /**
-   * When true (default), large accumulated output buffers are persisted to disk
-   * and replaced with a compact preview before being processed further.
-   * Disable only in contexts where full output must be retained in-process.
-   */
-  persistLargeOutputs?: boolean;
 }
 
 /**
@@ -146,6 +140,10 @@ export interface AdapterInputDispatch {
   beforeProviderDispatch?: () => void;
   /** Revalidate the committed request before subsequent input RPCs. */
   assertCurrent?: () => void;
+  /** Originating logical lifetime, captured before the original send can fail or be superseded. */
+  isRecoveryCurrent?: () => boolean;
+  /** Caller ownership without the old adapter/session fence, for intentional overflow replacement. */
+  assertLogicalCurrent?: (reason: AdapterInputRetryReason) => void;
   /** Narrow original-request recovery scope; remains in-process and preserves cancellation. */
   runInputRetry?: (reason: AdapterInputRetryReason, work: () => Promise<void>) => Promise<void>;
 }
@@ -210,6 +208,10 @@ export interface CliToolCall {
 export interface CliUsage {
   /** Raw Claude session total; never a per-turn charge until settlement. */
   providerSessionTotalUsd?: number;
+  /** Native cumulative per-model counters, including subagents. */
+  providerModelUsage?: ClaudeModelUsageSnapshot;
+  /** Settled per-turn differences for model-level attribution. */
+  byModel?: ModelUsageDelta[];
   inputTokens?: number;
   outputTokens?: number;
   /**
@@ -230,8 +232,6 @@ export interface CliUsage {
   reasoningTokens?: number;
   totalTokens?: number;
   cost?: number;
-  providerModelUsage?: ClaudeModelUsageSnapshot;
-  byModel?: ModelUsageDelta[];
   duration?: number;
   /**
    * True when the token counts above are a heuristic estimate (e.g.

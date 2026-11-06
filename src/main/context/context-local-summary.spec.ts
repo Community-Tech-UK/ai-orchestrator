@@ -14,6 +14,14 @@ function makeTurn(overrides: Partial<ConversationTurn> = {}): ConversationTurn {
 }
 
 describe('generateLocalSummary — tool output line (P0.2 never-worse guard)', () => {
+  it('keeps the entire prior summary, including an unresolved ask beyond 600 characters', () => {
+    const prior = `${'Earlier state. '.repeat(70)}Final unresolved ask: restore the export.`;
+
+    const summary = generateLocalSummary([makeTurn({ content: 'new work' })], prior);
+
+    expect(summary).toContain('Final unresolved ask: restore the export.');
+  });
+
   it('uses the full output verbatim when it is already short (truncation would not help)', () => {
     const turns: ConversationTurn[] = [
       makeTurn({

@@ -1,4 +1,5 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
+import type { AuxiliaryLlmSlot } from '../../../../shared/types/auxiliary-llm.types';
 import type {
   LocalAiAggregateStatus,
   LocalAiDiagnosticReport,
@@ -20,7 +21,6 @@ import type {
 import { compareLocalAiRevisionCursors } from '../../../../shared/types/local-ai-guard.types';
 import type { IpcResponse } from '../services/ipc/electron-ipc.service';
 import { LocalAiGuardIpcService } from '../services/ipc/local-ai-guard-ipc.service';
-
 const EMPTY_AGGREGATE: LocalAiAggregateStatus = {
   state: 'not-configured',
   enrolled: 0,
@@ -84,7 +84,6 @@ export class LocalAiGuardStore {
     active: null,
     pending: [],
   };
-  private readonly helperOperations = new Map<string, Promise<LocalAiGuardSnapshot | undefined>>();
   private readonly discoveryOperations =
     new Map<string, Promise<LocalAiDiscoveredEndpoint[] | undefined>>();
   private readonly validationOperations =
@@ -99,6 +98,7 @@ export class LocalAiGuardStore {
     new Map<string, Promise<LocalAiDiagnosticReport | undefined>>();
   private readonly repairOperations =
     new Map<string, Promise<LocalAiRepairResult | undefined>>();
+  private readonly retryOperations = new Map<string, Promise<LocalAiGuardSnapshot | undefined>>();
   private generation = 0;
   private latestFetchToken = 0;
   private highestRevision: string | null = null;
@@ -112,7 +112,6 @@ export class LocalAiGuardStore {
   readonly discoveries = this._discoveries.asReadonly();
   readonly operationKey = this._operationKey.asReadonly();
   readonly operationError = this._operationError.asReadonly();
-  readonly helperPauses = computed(() => this._snapshot()?.helperPauses ?? []);
   readonly aggregate = computed(() => this._snapshot()?.aggregate ?? EMPTY_AGGREGATE);
   readonly targets = computed(() => this._snapshot()?.targets ?? []);
   readonly activeIncidents = computed(() =>
@@ -131,6 +130,8 @@ export class LocalAiGuardStore {
       .filter((event) => !dismissed.has(event.id));
   });
   readonly recoveryAttempts = computed(() => this._snapshot()?.recoveryAttempts ?? []);
+  readonly helperBudget = computed(() => this._snapshot()?.helperBudget);
+  readonly helperPauses = computed(() => this._snapshot()?.helperPauses ?? []);
   readonly effectiveness = this._effectiveness.asReadonly();
   readonly effectivenessWindow = this._effectivenessWindow.asReadonly();
   readonly effectivenessLoading = this._effectivenessLoading.asReadonly();
@@ -201,11 +202,6 @@ export class LocalAiGuardStore {
     });
     this.resolutionInFlight = operation;
     return this.resolutionInFlight;
-  }
-
-  retryHelperNow(slot: import('../../../../shared/types/auxiliary-llm.types').AuxiliaryLlmSlot): Promise<LocalAiGuardSnapshot | undefined> {
-    return this.runOperation(`helper:${slot}`, `helper:${slot}`, this.helperOperations,
-      () => this.ipc.retryHelperNow(slot), snapshot => this.applyServerSnapshot(snapshot), false);
   }
 
   loadInventory(): Promise<LocalAiDiscoveredEndpoint[] | undefined> {
@@ -313,6 +309,12 @@ export class LocalAiGuardStore {
       () => this.ipc.repair(targetId, action, mode),
       (result) => this.updateMap(this._repairs, targetId, result),
     );
+  }
+
+  retryHelperNow(slot: AuxiliaryLlmSlot): Promise<LocalAiGuardSnapshot | undefined> {
+    return this.runOperation(`retry-helper:${slot}`, `retry-helper:${slot}`,
+      this.retryOperations, () => this.ipc.retryHelperNow(slot),
+      (snapshot) => this.applyServerSnapshot(snapshot), false);
   }
 
   async loadEffectiveness(
@@ -498,7 +500,6 @@ export class LocalAiGuardStore {
   }
 
   private clearOperationMaps(): void {
-    this.helperOperations.clear();
     this.discoveryOperations.clear();
     this.validationOperations.clear();
     this.targetOperations.clear();
@@ -506,6 +507,7 @@ export class LocalAiGuardStore {
     this.incidentOperations.clear();
     this.diagnosticOperations.clear();
     this.repairOperations.clear();
+    this.retryOperations.clear();
   }
 
   private runOperation<T>(

@@ -20,6 +20,8 @@ import {
   SessionTranscriptReader,
 } from '../session/session-transcript-reader';
 import type { OutputMessage } from '../../shared/types/instance.types';
+import { CONTINUITY_WAIT_RULE } from '../context/compaction-continuity';
+import { getLLMService } from '../rlm/llm-service';
 
 const settingsManagerMock = vi.hoisted(() => ({
   get: vi.fn(() => 0),
@@ -707,7 +709,7 @@ describe('setupCompactionCoordinator', () => {
       'inst-1',
       expect.stringContaining('[Context Compaction Continuity Package]'),
       undefined,
-      { automatedInput: true, internalSource: 'compaction-continuity' },
+      { automatedInput: true, internalSource: 'compaction-continuity', onProviderInputDelivered: expect.any(Function) },
     );
     // Real compaction → boundary marker should be emitted.
     expect(emitOutputMessage).toHaveBeenCalledWith(
@@ -717,6 +719,100 @@ describe('setupCompactionCoordinator', () => {
         content: '— Context compacted —',
       }),
     );
+  });
+
+  it.each(['accepted', 'resolved-no-send', 'rejected'] as const)('sends an overflow request and its attachments once through a fresh summary restart: %s', async (delivery) => {
+    vi.spyOn(getLLMService(), 'isAvailable').mockResolvedValue(false);
+    const attachment = { name: 'note.txt', type: 'text/plain', size: 4, data: 'data:text/plain;base64,bm90ZQ==' };
+    const sendInput = vi.fn(async (...args: Parameters<InstanceManager['sendInput']>) => {
+      if (delivery === 'rejected') throw new Error('inert provider rejection');
+      if (delivery === 'accepted') args[3]?.onProviderInputDelivered?.();
+    });
+    const restartFreshInstance = vi.fn(async () => undefined);
+    const instance = {
+      id: 'inst-overflow', provider: 'gemini', status: 'idle',
+      contextUsage: { used: 200_000, total: 200_000, percentage: 100 },
+      outputBuffer: [
+        { id: 'old-user', type: 'user' as const, content: 'Build the report.', timestamp: 1 },
+        { id: 'old-assistant', type: 'assistant' as const, content: 'Update the report using a single table.', timestamp: 2 },
+        { id: 'cut-off', type: 'user' as const, content: 'Finish the note', timestamp: 3 },
+      ],
+    };
+    const manager = {
+      getAdapterRuntimeCapabilities: () => ({ supportsNativeCompaction: false }),
+      getAdapter: () => ({}), getInstance: () => instance,
+      restartFreshInstance, sendInput, emitOutputMessage: vi.fn(), updateInstanceStatus: vi.fn(),
+    } as unknown as InstanceManager;
+    setupCompactionCoordinator(manager, makeWindowManager());
+    const result = await CompactionCoordinator.getInstance().compactInstance(instance.id, {
+      trigger: 'overflow', resumeTurn: { text: 'Finish the note', attachments: [attachment] },
+    });
+    expect(result).toMatchObject({ success: delivery !== 'rejected', method: 'restart-with-summary' });
+    if (delivery !== 'rejected') expect(result.resumeDelivered).toBe(delivery === 'accepted');
+    expect(restartFreshInstance).toHaveBeenCalledOnce();
+    expect(sendInput).toHaveBeenCalledOnce();
+    const [, prompt, sentAttachments, sendOptions] = sendInput.mock.calls[0]!;
+    expect(prompt).toContain('<interrupted_request>');
+    expect(prompt.match(/Finish the note/g)).toHaveLength(1);
+    expect(prompt).toContain('single table');
+    expect(prompt).not.toContain(CONTINUITY_WAIT_RULE);
+    expect(sentAttachments).toEqual([attachment]);
+    expect(sendOptions).toEqual({ automatedInput: true, internalSource: 'compaction-continuity', onProviderInputDelivered: expect.any(Function) });
+    expect(restartFreshInstance.mock.invocationCallOrder[0]).toBeLessThan(sendInput.mock.invocationCallOrder[0]!);
+  });
+
+  it('keeps Harness-authored interrupted input identified in overflow continuity', async () => {
+    vi.spyOn(getLLMService(), 'isAvailable').mockResolvedValue(false);
+    const sendInput = vi.fn(async (..._args: Parameters<InstanceManager['sendInput']>) => undefined);
+    const instance = {
+      id: 'inst-internal-overflow', provider: 'gemini', status: 'idle',
+      outputBuffer: [
+        { id: 'old-user', type: 'user' as const, content: 'Create the handoff.', timestamp: 1 },
+        { id: 'old-assistant', type: 'assistant' as const, content: 'The handoff should include tests.', timestamp: 2 },
+        { id: 'cut-off', type: 'system' as const, content: 'Advance plan queue.', timestamp: 3,
+          metadata: { internalInput: { actor: 'harness', source: 'plan-queue' } } },
+      ],
+    };
+    const manager = {
+      getAdapterRuntimeCapabilities: () => ({ supportsNativeCompaction: false }),
+      getAdapter: () => ({}), getInstance: () => instance,
+      restartFreshInstance: vi.fn(async () => undefined), sendInput,
+      emitOutputMessage: vi.fn(), updateInstanceStatus: vi.fn(),
+    } as unknown as InstanceManager;
+    setupCompactionCoordinator(manager, makeWindowManager());
+    const result = await CompactionCoordinator.getInstance().compactInstance(instance.id, {
+      trigger: 'overflow', resumeTurn: { text: 'Advance plan queue.', internalSource: 'plan-queue' },
+    });
+    expect(result.success).toBe(true);
+    expect(sendInput).toHaveBeenCalledOnce();
+    const prompt = sendInput.mock.calls[0]![1];
+    expect(prompt.match(/Advance plan queue\./g)).toHaveLength(1);
+    expect(prompt).toContain('Original input was sent by Harness (source: plan-queue).');
+    expect(sendInput.mock.calls[0]?.[3]).toEqual({ automatedInput: true, internalSource: 'plan-queue', onProviderInputDelivered: expect.any(Function) });
+  });
+
+  it('leaves the original session and input intact when summary preparation fails', async () => {
+    vi.spyOn(ContextCompactor.prototype, 'compact').mockRejectedValueOnce(new Error('summary unavailable'));
+    const restartFreshInstance = vi.fn();
+    const sendInput = vi.fn();
+    const outputBuffer = [
+      { id: 'old-user', type: 'user' as const, content: 'Original work.', timestamp: 1 },
+      { id: 'old-assistant', type: 'assistant' as const, content: 'State to preserve.', timestamp: 2 },
+      { id: 'cut-off', type: 'user' as const, content: 'Finish the note', timestamp: 3 },
+    ];
+    const manager = {
+      getAdapterRuntimeCapabilities: () => ({ supportsNativeCompaction: false }),
+      getAdapter: () => ({}), getInstance: () => ({ id: 'inst-failed-summary', outputBuffer }),
+      restartFreshInstance, sendInput, emitOutputMessage: vi.fn(),
+    } as unknown as InstanceManager;
+    setupCompactionCoordinator(manager, makeWindowManager());
+    const result = await CompactionCoordinator.getInstance().compactInstance('inst-failed-summary', {
+      trigger: 'overflow', resumeTurn: { text: 'Finish the note' },
+    });
+    expect(result.success).toBe(false);
+    expect(restartFreshInstance).not.toHaveBeenCalled();
+    expect(sendInput).not.toHaveBeenCalled();
+    expect(outputBuffer.at(-1)?.content).toBe('Finish the note');
   });
 
   it('includes only blob-authenticated evidence in restart continuity packages', async () => {
@@ -963,7 +1059,7 @@ describe('applyCompaction (WS-B7)', () => {
     expect(instanceManager.sendInput).toHaveBeenCalledWith('inst-restart', expect.stringContaining('[user]: three'), undefined, expect.anything());
   });
 
-  it('keeps a small whole conversation without calling a summary model', async () => {
+  it('keeps the manual wait contract when no older turn needs summarising', async () => {
     const instance = {
       id: 'inst-restart-default',
       outputBuffer: [
@@ -986,6 +1082,9 @@ describe('applyCompaction (WS-B7)', () => {
     await applyCompaction(instanceManager, 'inst-restart-default');
 
     expect(compactSpy).not.toHaveBeenCalled();
+    const prompt = vi.mocked(instanceManager.sendInput).mock.calls[0]?.[1];
+    expect(prompt).toContain(CONTINUITY_WAIT_RULE);
+    expect(prompt).not.toContain('Previous conversation context was compacted.');
     expect(instanceManager.sendInput).toHaveBeenCalledWith('inst-restart-default', expect.stringContaining('[user]: one'), undefined, expect.anything());
   });
 });

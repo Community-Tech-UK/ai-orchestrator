@@ -35,6 +35,7 @@ import { OutputStreamComponent } from './output-stream.component';
 import { InputPanelComponent } from './input-panel.component';
 import { appendTextToComposer } from './append-text-to-composer';
 import { mergeComposerRestoreText } from './composer-restore-text';
+import { ColdCacheResumeService } from './cold-cache-resume.service';
 import { DropZoneComponent } from '../file-drop/drop-zone.component';
 import { ActivityStatusComponent } from './activity-status.component';
 import { ChildDiagnosticBundleModalComponent } from '../orchestration/child-diagnostic-bundle.modal.component';
@@ -64,7 +65,7 @@ import { FileAttachmentService } from './file-attachment.service';
 import { UnifiedCatalogStore } from '../models/unified-catalog.store';
 import type { PendingSelection } from '../models/compact-model-picker.types';
 import type { HudQuickAction } from '../../../../shared/types/orchestration-hud.types';
-import { resolveContextWarningLevel } from './context-warning-level';
+import { resolveClaudeContextNote, resolveContextWarningLevel } from './context-warning-level';
 import {
   getConversationHistoryTitle,
   inferConversationHistoryProvider,
@@ -176,6 +177,7 @@ export class InstanceDetailComponent {
     isCompactionPreviewControlAvailable(this.contextWarningLevel(), this.contextWarningDismissed(), this.isCompacting()));
   readonly workingTipContext = createWorkingTipRuntime(this.store, this.settingsStore, this.loopStore,
     () => this.inputPanel(), () => this.compactPreviewControlAvailable());
+  private readonly coldCache = inject(ColdCacheResumeService);
 
   instance = this.store.selectedInstance;
   historyPreview = computed<HistoryPreviewView | null>(() => {
@@ -222,6 +224,12 @@ export class InstanceDetailComponent {
     hasMore: false,
     totalStored: this.historyPreview()?.messages.length ?? 0,
   });
+  readonly pasteDraftOwner = (): string => {
+    const instance = this.instance();
+    if (instance) return `instance:${instance.id}`;
+    const preview = this.historyPreview();
+    return preview ? `history:${preview.id}` : `new:${this.newSessionDraft.activeKey()}`;
+  };
   currentActivity = this.store.selectedInstanceActivity;
   busySince = computed(() => this.store.getSelectedInstanceBusySince());
   currentReview = computed(() => {
@@ -312,6 +320,16 @@ export class InstanceDetailComponent {
     const inst = this.instance();
     if (!inst) return null;
     return resolveContextWarningLevel(inst.contextUsage, inst.selfManagesAutoCompaction);
+  });
+
+  readonly claudeContextNote = computed(() => {
+    const inst = this.instance();
+    if (!inst) return null;
+    const settings = this.settingsStore.settings();
+    return resolveClaudeContextNote(inst, {
+      machineContextCeilingTokens: settings.machineContextCeilingTokens,
+      ownChatContextCeilingTokens: settings.ownChatContextCeilingTokens,
+    });
   });
 
   // Effect to reset dismissal when usage increases >5% since dismissal
@@ -709,6 +727,25 @@ export class InstanceDetailComponent {
     this.store.sendInput(inst.id, finalMessage, this.pendingFiles());
     this.draftService.clearPendingFiles(inst.id);
     this.draftService.clearPendingFolders(inst.id);
+  }
+
+  /** Only a human composer send uses the optional cold-return summary. */
+  onComposerSend(message: string): void {
+    const inst = this.instance();
+    if (!inst) return;
+    const files = [...this.pendingFiles()];
+    const folders = [...this.pendingFolders()];
+    const finalMessage = this.fileAttachment.prependPendingFolders(message, folders);
+    void this.coldCache.compactThenSend(inst.id, message, () => {
+      void this.store.sendInput(inst.id, finalMessage, files);
+      for (const file of files) this.draftService.removePendingFile(inst.id, file);
+      for (const folder of folders) this.draftService.removePendingFolder(inst.id, folder);
+    }, text => {
+      const existing = this.draftService.getDraft(inst.id);
+      const restored = existing ? `${text}\n${existing}` : text;
+      if (this.instance()?.id === inst.id) this.inputPanel()?.restoreTextToComposer(restored);
+      else this.draftService.setDraft(inst.id, restored);
+    });
   }
 
   onHistoryPreviewDraftStarted(): void {

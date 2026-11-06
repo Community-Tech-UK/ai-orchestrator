@@ -384,8 +384,14 @@ export function compareLocalAiRevisionCursors(
   return left < right ? -1 : 1;
 }
 
+export interface LocalAiHelperBudgetStatus {
+  blockedAt: number;
+  resetsAt: number;
+}
+
 export interface LocalAiGuardSnapshot {
-  helperPauses?: AuxiliaryHelperPause[];
+  /** A global paid-helper refusal, active until the next UTC day. */
+  helperBudget?: LocalAiHelperBudgetStatus;
   /** Main-process monotonic cursor used to order snapshots and status deltas. */
   revision: LocalAiRevisionCursor;
   aggregate: LocalAiAggregateStatus;
@@ -403,6 +409,8 @@ export interface LocalAiGuardSnapshot {
    * record.
    */
   fallbackNotifications: LocalAiRoutingEvent[];
+  /** Active helper retries; an expired pause means retry eligible, not recovered. */
+  helperPauses?: AuxiliaryHelperPause[];
 }
 
 export interface LocalAiPublicRecoveryAttempt {
@@ -476,4 +484,8 @@ export interface LocalAiSummaryRequest {
 export interface LocalAiFallbackResolveRequest {
   requestId: string;
   resolution: LocalAiFallbackResolution;
+}
+
+export interface LocalAiRetryHelperRequest {
+  slot: AuxiliaryLlmSlot;
 }

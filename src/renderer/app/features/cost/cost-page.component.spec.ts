@@ -110,7 +110,7 @@ function buildMockIpc(
 ) {
   return {
     costGetEphemeralUsage: vi.fn().mockResolvedValue({success:true,data:{entries:[],truncated:false,skippedLines:0}}),
-    costGetPurposeSummary: vi.fn().mockResolvedValue({success:true,data:null}),
+    costGetPurposeSummary: vi.fn().mockResolvedValue({ success: true, data: null }),
     costGetSummary: vi.fn().mockResolvedValue({ success: true, data: summaryData }),
     costGetEntries: vi.fn().mockResolvedValue({ success: true, data: entriesData }),
     costGetBudgetStatus: vi.fn().mockResolvedValue({
@@ -378,7 +378,7 @@ describe('CostPageComponent — computed signals', () => {
     expect(mockIpc.costGetEntries).toHaveBeenCalledWith(100);
     expect(mockIpc.costGetSummary).toHaveBeenCalled();
     expect(mockIpc.costGetBudgetStatus).toHaveBeenCalled();
-    expect(mockIpc.costGetPurposeSummary).toHaveBeenCalledWith({startTime:expect.any(Number),endTime:expect.any(Number)});
+    expect(mockIpc.costGetPurposeSummary).toHaveBeenCalledWith({ startTime: expect.any(Number), endTime: expect.any(Number) });
   });
 
   it('refreshAll populates entries signal', async () => {
@@ -409,6 +409,52 @@ describe('CostPageComponent — computed signals', () => {
     expect(root.textContent).toContain('~$0.004500');
     expect(root.textContent).toContain('~ estimated');
   });
+
+  it('renders readable purpose labels while preserving the raw provider grouping', async () => {
+    await component.refreshAll(false);
+    const row = { key: 'all', calls: 1, inputTokens: 10, cacheReadTokens: 20,
+      cacheWriteTokens: 30, outputTokens: 40, reasoningTokens: 0,
+      cost: 0.5, estimatedCost: 0, estimatedShare: 0,
+      unknownCostCalls: 0, freeCalls: 0 };
+    component.purposeSummary.set({ enabled: true, totals: row,
+      byPurpose: ['plan-queue', 'repo-job', 'remote-node', 'quick-ask', 'helper']
+        .map(key => ({ ...row, key })), byProvider: [{ ...row, key: 'claude' }] });
+    fixture.detectChanges();
+    const section = fixture.nativeElement.querySelector('[aria-label="Spend by purpose"]') as HTMLElement;
+    for (const label of ['Plan queue', 'Repo jobs', 'Remote machines', 'Quick ask', 'Helpers']) {
+      expect(section.textContent).toContain(label);
+    }
+    expect(section.textContent).not.toContain('plan-queue');
+    expect(fixture.nativeElement.textContent).toContain('Cache read');
+    expect(fixture.nativeElement.textContent).toContain('Cache write');
+    const providerButton = Array.from(section.querySelectorAll('button'))
+      .find(button => button.textContent?.trim() === 'By provider')!;
+    providerButton.click();
+    fixture.detectChanges();
+    expect(section.querySelector('tbody')?.textContent).toContain('claude');
+    expect(section.querySelector('tbody')?.textContent).not.toContain('Plan queue');
+  });
+
+  it('shows unknown quick-ask dollars as unknown and discloses legacy exclusions', async () => {
+    await component.refreshAll(false);
+    const row = { key: 'quick-ask', calls: 1, inputTokens: 0, cacheReadTokens: 0,
+      cacheWriteTokens: 0, outputTokens: 0, reasoningTokens: 0,
+      cost: 0, estimatedCost: 0, estimatedShare: 0,
+      unknownCostCalls: 1, historicalCostUnknownCalls: 1, freeCalls: 0 };
+    component.purposeSummary.set({ enabled: true, totals: row,
+      byPurpose: [row], byProvider: [] });
+    fixture.detectChanges();
+    const section = fixture.nativeElement.querySelector('[aria-label="Spend by purpose"]') as HTMLElement;
+    const quickAsk = section.querySelector('tbody tr') as HTMLTableRowElement;
+    expect(quickAsk.textContent).toContain('Quick ask');
+    expect(quickAsk.textContent).toContain('Unknown');
+    expect(quickAsk.textContent).not.toContain('$0.0000');
+    expect(section.querySelector('[data-testid="unknown-cost-footnote"]')?.textContent).toContain('1 calls have no reliable cost');
+    expect(section.querySelector('[data-testid="historical-cost-footnote"]')?.textContent).toContain('1 historical Claude turns');
+    component.purposeSummary.set({ enabled: false, totals: row, byPurpose: [], byProvider: [] });
+    fixture.detectChanges();
+    expect(section.textContent).toContain('Cost log is switched off');
+  });
   it('renders separate cache cards and switches the purpose table to providers', async()=>{
     await component.refreshAll(false);
     const row={key:'helper',calls:2,inputTokens:10,cacheReadTokens:20,cacheWriteTokens:30,outputTokens:40,
@@ -417,7 +463,7 @@ describe('CostPageComponent — computed signals', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('Cache read');
     expect(fixture.nativeElement.textContent).toContain('Cache write');
-    expect(fixture.nativeElement.querySelector('[aria-label="Spend by purpose"]').textContent).toContain('helper');
+    expect(fixture.nativeElement.querySelector('[aria-label="Spend by purpose"]').textContent).toContain('Helpers');
     const buttons=Array.from(fixture.nativeElement.querySelectorAll('button')) as HTMLButtonElement[];
     buttons.find(button=>button.textContent?.trim()==='By provider')!.click();fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('[aria-label="Spend by purpose"]').textContent).toContain('ollama');

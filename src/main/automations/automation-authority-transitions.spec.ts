@@ -38,7 +38,7 @@ describe('authenticated automation execution transitions', () => {
 
   function update(args: Record<string, unknown>, id: string | null = 'caller') {
     return createAutomationToolDefinitions({ instanceId: id, ...impl })
-      .find(tool => tool.name === 'update_automation')!.handler(args);
+      .find(tool => tool.name === 'update_automation')!.handler({ confirmedByUser: true, ...args }); // authority cases, not cadence
   }
   function postpone(args: Record<string, unknown>) {
     return createAutomationToolDefinitions({ instanceId: 'caller', ...impl })
@@ -136,7 +136,7 @@ describe('authenticated automation execution transitions', () => {
 
   it('leaves human reactivation and schedule updates unrestricted', async () => {
     const job = await seed({ enabled: false });
-    await impl.updateAutomation({ id: job.id, enabled: true, cron: '* * * * *' });
+    await impl.updateAutomation({ id: job.id, enabled: true, cron: '* * * * *', confirmedByUser: true });
     expect(await store.get(job.id)).toMatchObject({ enabled: true, action: job.action, nextFireAt: NOW + 60_000 });
   });
 });

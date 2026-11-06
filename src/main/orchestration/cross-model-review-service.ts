@@ -600,13 +600,21 @@ export class CrossModelReviewService extends EventEmitter {
             const prompt = effectiveDepth === 'tiered'
               ? buildTieredReviewPrompt(request.taskDescription, request.content, undefined, request.changedFiles)
               : buildStructuredReviewPrompt(request.taskDescription, request.content, undefined, request.changedFiles);
+            const usageContext = {
+              purpose: 'cross-model-review',
+              taskType: `cross-model-review:${request.trigger ?? 'automatic'}`,
+              correlationId: request.id,
+              instanceId: request.instanceId,
+              provider: resolvedCli,
+              model: reviewerModel,
+            };
 
             const initialResponse = await sendAbortableReviewerMessage(
               adapter,
               { role: 'user', content: prompt },
               operationSignal,
               () => { cancelled = true; },
-              { purpose: 'cross-model-review', taskType: `cross-model-review:${request.trigger ?? 'automatic'}`, correlationId: request.id, instanceId: request.instanceId, provider: resolvedCli, model: reviewerModel },
+              usageContext,
             );
 
             if (initialResponse.metadata?.['budgetExceeded'] === true) throw new Error('Reviewer budget exceeded');
@@ -627,7 +635,7 @@ export class CrossModelReviewService extends EventEmitter {
                 { role: 'user', content: buildReviewFormatRepairPrompt(effectiveDepth, initialResponse.content) },
                 operationSignal,
                 () => { cancelled = true; },
-                { purpose: 'cross-model-review', taskType: `cross-model-review:${request.trigger ?? 'automatic'}`, correlationId: request.id, instanceId: request.instanceId, provider: resolvedCli, model: reviewerModel },
+                usageContext,
               );
               if (repairResponse.metadata?.['budgetExceeded'] === true) throw new Error('Reviewer budget exceeded');
               const repairedParsed = this.parseReviewResponse(reviewerCli, repairResponse.content, effectiveDepth, Date.now() - startTime);

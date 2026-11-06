@@ -25,6 +25,8 @@ import {
   CLAUDE_LEGACY_PRICING_ALIASES,
   CLAUDE_PINNED_MODELS,
   GROK_MODELS,
+  OPENAI_MODELS,
+  PROVIDER_MODEL_LIST,
   getPrimaryModelForProvider,
   normalizeModelForProvider,
   type ModelDisplayInfo,
@@ -1141,5 +1143,62 @@ describe('UnifiedModelCatalogService — FIX 2: pricing attribution via pricingS
     expect(entry).toBeDefined();
     expect(entry!.pricing).toBeUndefined();
     expect(entry!.pricingSource).toBeUndefined();
+  });
+});
+
+describe('UnifiedModelCatalogService — static context-window fallback (plan Step 12a)', () => {
+  const SIZED_PROVIDERS = ['claude', 'codex', 'gemini', 'grok'] as const;
+  const rowOf = (svc: UnifiedModelCatalogService, provider: string, id: string) =>
+    svc.getModelsByProvider(provider).find((e) => e.id === id);
+
+  it('gives every default Claude, Codex, Gemini and Grok row a context window before any models.dev data', () => {
+    const svc = makeServiceWithMock();
+    for (const provider of SIZED_PROVIDERS) {
+      const listed = PROVIDER_MODEL_LIST[provider] ?? [];
+      expect(listed.length).toBeGreaterThan(0);
+      const missing = listed
+        .filter((m) => !((rowOf(svc, provider, m.id)?.contextWindow ?? 0) > 0))
+        .map((m) => `${provider}:${m.id}`);
+      expect(missing).toEqual([]);
+    }
+  });
+
+  it('sizes the bare aliases from the context-bar table, with [1m] at 1M and haiku at 200K', () => {
+    const svc = makeServiceWithMock();
+    expect(rowOf(svc, 'claude', 'opus[1m]')?.contextWindow).toBe(1_000_000);
+    expect(rowOf(svc, 'claude', 'sonnet[1m]')?.contextWindow).toBe(1_000_000);
+    expect(rowOf(svc, 'claude', 'opus')?.contextWindow).toBe(1_000_000);
+    expect(rowOf(svc, 'claude', 'sonnet')?.contextWindow).toBe(1_000_000);
+    expect(rowOf(svc, 'claude', 'haiku')?.contextWindow).toBe(200_000);
+    expect(rowOf(svc, 'codex', OPENAI_MODELS.GPT55)?.contextWindow).toBe(200_000);
+    expect(rowOf(svc, 'grok', GROK_MODELS.GROK_47)?.contextWindow).toBe(500_000);
+    expect(rowOf(svc, 'gemini', 'gemini-2.5-pro')?.contextWindow).toBe(1_000_000);
+  });
+
+  it('keeps the fallback under the live sources: a models.dev window still wins on a static row', () => {
+    const svc = makeServiceWithMock({ opus: 123_456, [OPENAI_MODELS.GPT55]: 321_000 });
+    expect(rowOf(svc, 'claude', 'opus')?.contextWindow).toBe(123_456);
+    expect(rowOf(svc, 'codex', OPENAI_MODELS.GPT55)?.contextWindow).toBe(321_000);
+    // Untouched rows still carry the fallback.
+    expect(rowOf(svc, 'claude', 'sonnet')?.contextWindow).toBe(1_000_000);
+  });
+
+  it('keeps a size on rows that CLI discovery replaces, and lets models.dev win there too', () => {
+    const svc = makeServiceWithMock({ [GROK_MODELS.GROK_46]: 777_000 });
+    svc.onCliDiscoveryRefreshed('grok', [
+      { id: GROK_MODELS.GROK_47, name: 'Grok 4.7', tier: 'powerful' },
+      { id: GROK_MODELS.GROK_46, name: 'Grok 4.6', tier: 'powerful' },
+    ]);
+    vi.runAllTimers();
+    expect(rowOf(svc, 'grok', GROK_MODELS.GROK_47)?.source).toBe('cli-discovered');
+    expect(rowOf(svc, 'grok', GROK_MODELS.GROK_47)?.contextWindow).toBe(500_000);
+    expect(rowOf(svc, 'grok', GROK_MODELS.GROK_46)?.contextWindow).toBe(777_000);
+  });
+
+  it('does not invent a window for a provider or model the tables do not cover', () => {
+    const svc = makeServiceWithMock();
+    svc.onCliDiscoveryRefreshed('copilot', [{ id: 'brand-new-model', name: 'Brand New', tier: 'balanced' }]);
+    vi.runAllTimers();
+    expect(rowOf(svc, 'copilot', 'brand-new-model')?.contextWindow).toBeUndefined();
   });
 });

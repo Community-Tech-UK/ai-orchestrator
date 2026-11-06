@@ -320,7 +320,7 @@ describe('scheduled run settlement through provider communication', () => {
     try {
       const client = new OrchestratorToolsRpcClient({ env: { AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET: server.getSocketPath()!,
         AI_ORCHESTRATOR_INSTANCE_ID: 'caller', AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_CAPABILITY: server.getInstanceCapability('caller')! } });
-      const created = await client.call('orchestrator_tools.create_automation', { name: 'Monitor server', prompt: 'Check status', cron: '*/10 * * * *' }) as { id: string };
+      const created = await client.call('orchestrator_tools.create_automation', { name: 'Monitor server', prompt: 'Check status', cron: '*/10 * * * *', confirmedByUser: true }) as { id: string };
       expect((await store.get(created.id))?.action).toMatchObject({ model: 'sonnet', reasoningEffort: 'low', yoloMode: false });
       for (const change of [{ model: 'opus' }, { reasoningEffort: 'high' }, { yoloMode: true }]) {
         await expect(client.call('orchestrator_tools.update_automation', { id: created.id, ...change })).rejects.toThrow('calling session');

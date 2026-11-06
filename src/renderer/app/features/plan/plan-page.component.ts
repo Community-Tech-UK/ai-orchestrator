@@ -8,6 +8,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   OnDestroy,
+  OnInit,
   computed,
   inject,
   signal,
@@ -16,34 +17,26 @@ import { CommonModule } from '@angular/common';
 import { PlanModeIpcService } from '../../core/services/ipc/plan-mode-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import { RendererPollSchedulerService } from '../../core/services/renderer-poll-scheduler.service';
-
-interface PlanHistoryEntry {
-  version: number;
-  content: string;
-  timestamp: number;
-  action: 'created' | 'updated' | 'approved';
-}
+import { InstanceStore } from '../../core/state/instance.store';
+import { PlanHandoffDialogComponent } from '../instance-detail/plan-handoff-dialog.component';
 
 interface PlanState {
   instanceId: string;
   mode: 'idle' | 'planning' | 'awaiting_approval' | 'implementing';
   planContent?: string;
-  enteredAt?: number;
-  version?: number;
-  history?: PlanHistoryEntry[];
 }
 
 @Component({
   selector: 'app-plan-page',
   standalone: true,
-  imports: [CommonModule, AioTooltipDirective],
+  imports: [CommonModule, AioTooltipDirective, PlanHandoffDialogComponent],
   template: `
     <div class="page">
       <!-- Page header -->
       <div class="page-header">
         <div class="header-title">
           <span class="title">Plan Mode</span>
-          <span class="subtitle">Plan mode control and review for agent sessions</span>
+          <span class="subtitle">Plan mode control and review for Harness sessions</span>
         </div>
         <div class="header-actions">
           <button class="btn" type="button" [disabled]="busy()" (click)="refreshState()">
@@ -52,22 +45,16 @@ interface PlanState {
         </div>
       </div>
 
-      <!-- Instance selector bar -->
+      <!-- Session selector bar -->
       <div class="selector-bar">
         <label class="selector-field">
-          <span class="label">Session ID</span>
-          <input
-            class="input"
-            type="text"
-            [value]="instanceIdInput()"
-            placeholder="Enter session ID"
-            (input)="onInstanceIdInput($event)"
-            (keydown.enter)="loadState()"
-          />
+          <span class="label">Session</span>
+          <select class="input" [value]="selectedSessionId()" (change)="onSessionChange($event)">
+            @for (instance of instances(); track instance.id) {
+              <option [value]="instance.id" [selected]="instance.id === selectedSessionId()">{{ instance.displayName }}</option>
+            }
+          </select>
         </label>
-        <button class="btn primary" type="button" [disabled]="busy()" [appTooltipDisabledReason]="!instanceIdInput().trim() ? 'Enter a session ID first' : null" (click)="loadState()">
-          Load State
-        </button>
       </div>
 
       @if (errorMessage()) {
@@ -85,7 +72,7 @@ interface PlanState {
           <span class="state-badge" [class]="stateBadgeClass()">
             {{ stateBadgeLabel() }}
           </span>
-          <span class="state-instance">{{ planState()!.instanceId }}</span>
+          <span class="state-instance">{{ currentSessionName() }}</span>
         </div>
       }
 
@@ -113,6 +100,10 @@ interface PlanState {
                       (click)="updatePlan()"
                     >
                       {{ busy() ? 'Updating...' : 'Update Plan' }}
+                    </button>
+                    <button class="btn success" type="button"
+                      [disabled]="busy() || !editablePlanContent().trim()" (click)="approvePlan()">
+                      {{ busy() ? 'Approving...' : 'Approve Plan' }}
                     </button>
                   </div>
                 </div>
@@ -157,6 +148,9 @@ interface PlanState {
                 <div class="plan-readonly-area">
                   <pre class="plan-display">{{ planState()!.planContent || '(no plan content)' }}</pre>
                   <div class="panel-actions">
+                    <button class="btn primary" type="button" (click)="planHandoffOpen.set(true)">
+                      Build in a new session
+                    </button>
                     <button
                       class="btn danger"
                       type="button"
@@ -197,7 +191,7 @@ interface PlanState {
                 <button
                   class="btn success full-width"
                   type="button"
-                  [disabled]="busy()" [appTooltipDisabledReason]="planState()!.mode !== 'awaiting_approval' ? 'The plan must be waiting for approval first' : null"
+                  [disabled]="busy()" [appTooltipDisabledReason]="planState()!.mode !== 'planning' ? 'Enter plan mode and write a plan first' : !editablePlanContent().trim() ? 'Write the plan before approving' : null"
                   (click)="approvePlan()"
                 >
                   Approve Plan
@@ -222,49 +216,10 @@ interface PlanState {
               </label>
             </div>
 
-            <!-- State metadata -->
             <div class="panel-card">
-              <div class="panel-title">Metadata</div>
-              <div class="meta-list">
-                <div class="meta-row">
-                  <span class="meta-key">Session</span>
-                  <span class="meta-value">{{ planState()!.instanceId }}</span>
-                </div>
-                @if (planState()!.enteredAt) {
-                  <div class="meta-row">
-                    <span class="meta-key">Entered At</span>
-                    <span class="meta-value">{{ formatTimestamp(planState()!.enteredAt!) }}</span>
-                  </div>
-                }
-                @if (planState()!.version !== undefined) {
-                  <div class="meta-row">
-                    <span class="meta-key">Plan Version</span>
-                    <span class="meta-value">v{{ planState()!.version }}</span>
-                  </div>
-                }
-              </div>
+              <div class="panel-title">Session</div>
+              <div class="meta-value">{{ currentSessionName() }}</div>
             </div>
-
-            <!-- Plan history -->
-            @if (planHistory().length > 0) {
-              <div class="panel-card">
-                <div class="panel-title">Plan History</div>
-                <div class="history-list">
-                  @for (entry of planHistory(); track entry.version) {
-                    <div class="history-card">
-                      <div class="history-header">
-                        <span class="history-version">v{{ entry.version }}</span>
-                        <span class="history-action" [class]="'action-' + entry.action">
-                          {{ entry.action }}
-                        </span>
-                        <span class="history-time">{{ formatTimestamp(entry.timestamp) }}</span>
-                      </div>
-                      <div class="history-preview">{{ truncate(entry.content, 120) }}</div>
-                    </div>
-                  }
-                </div>
-              </div>
-            }
           </div>
         </div>
       }
@@ -272,8 +227,13 @@ interface PlanState {
       @if (!planState()) {
         <div class="empty-state">
           <div class="empty-title">No session loaded</div>
-          <div class="empty-desc">Enter a session ID above and click "Load State" to begin.</div>
+          <div class="empty-desc">Pick a session above to begin.</div>
         </div>
+      }
+
+      @if (planHandoffOpen() && planState()) {
+        <app-plan-handoff-dialog [sourceId]="planState()!.instanceId"
+          (closed)="planHandoffOpen.set(false)" />
       }
 
       <!-- Bottom action bar -->
@@ -772,21 +732,22 @@ interface PlanState {
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class PlanPageComponent implements OnDestroy {
+export class PlanPageComponent implements OnInit, OnDestroy {
   private readonly planModeIpc = inject(PlanModeIpcService);
   private readonly pollScheduler = inject(RendererPollSchedulerService);
+  private readonly instanceStore = inject(InstanceStore);
 
-  readonly instanceIdInput = signal('');
+  readonly selectedSessionId = signal('');
+  readonly planHandoffOpen = signal(false);
   readonly planState = signal<PlanState | null>(null);
+  readonly instances = computed(() => this.instanceStore.instances());
+  readonly currentSessionName = computed(() => this.instances()
+    .find((instance) => instance.id === this.planState()?.instanceId)?.displayName ?? 'Session unavailable');
   readonly editablePlanContent = signal('');
   readonly forceExit = signal(false);
   readonly busy = signal(false);
   readonly errorMessage = signal<string | null>(null);
   readonly infoMessage = signal<string | null>(null);
-
-  readonly planHistory = computed<PlanHistoryEntry[]>(() => {
-    return this.planState()?.history ?? [];
-  });
 
   readonly stateBadgeClass = computed(() => {
     const mode = this.planState()?.mode ?? 'idle';
@@ -799,7 +760,7 @@ export class PlanPageComponent implements OnDestroy {
       idle: 'Idle',
       planning: 'Planning',
       awaiting_approval: 'Awaiting Approval',
-      implementing: 'Implementing',
+      implementing: 'Approved',
     };
     return labels[mode];
   });
@@ -807,13 +768,24 @@ export class PlanPageComponent implements OnDestroy {
   private stopScheduledPoll: (() => void) | null = null;
   private refreshInFlight = false;
 
+  ngOnInit(): void {
+    const selected = this.instanceStore.selectedInstanceId()
+      ?? this.instanceStore.instances()[0]?.id
+      ?? '';
+    if (selected) {
+      this.selectedSessionId.set(selected);
+      void this.loadState();
+    }
+  }
+
   ngOnDestroy(): void {
     this.stopPolling();
   }
 
-  onInstanceIdInput(event: Event): void {
-    const target = event.target as HTMLInputElement;
-    this.instanceIdInput.set(target.value);
+  onSessionChange(event: Event): void {
+    this.selectedSessionId.set((event.target as HTMLSelectElement).value);
+    this.planState.set(null);
+    void this.loadState();
   }
 
   onPlanContentInput(event: Event): void {
@@ -827,7 +799,7 @@ export class PlanPageComponent implements OnDestroy {
   }
 
   async loadState(): Promise<void> {
-    const instanceId = this.instanceIdInput().trim();
+    const instanceId = this.selectedSessionId().trim();
     if (!instanceId) {
       return;
     }
@@ -836,7 +808,7 @@ export class PlanPageComponent implements OnDestroy {
     this.busy.set(true);
     try {
       const response = await this.planModeIpc.getPlanModeState(instanceId);
-      this.applyStateResponse(instanceId, response);
+      if (this.selectedSessionId() === instanceId) this.applyStateResponse(instanceId, response);
     } finally {
       this.busy.set(false);
     }
@@ -853,7 +825,7 @@ export class PlanPageComponent implements OnDestroy {
     this.refreshInFlight = true;
     try {
       const response = await this.planModeIpc.getPlanModeState(instanceId);
-      this.applyStateResponse(instanceId, response);
+      if (this.selectedSessionId() === instanceId) this.applyStateResponse(instanceId, response);
     } finally {
       this.refreshInFlight = false;
     }
@@ -910,7 +882,8 @@ export class PlanPageComponent implements OnDestroy {
     this.clearMessages();
     this.busy.set(true);
     try {
-      const planContent = this.planState()?.planContent;
+      const planContent = this.planState()?.mode === 'planning'
+        ? this.editablePlanContent() : this.planState()?.planContent;
       const response = await this.planModeIpc.approvePlan(instanceId, planContent);
       if (!response.success) {
         this.errorMessage.set(response.error?.message ?? 'Failed to approve plan.');
@@ -945,22 +918,6 @@ export class PlanPageComponent implements OnDestroy {
     }
   }
 
-  formatTimestamp(ts: number): string {
-    return new Date(ts).toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  }
-
-  truncate(text: string, maxLen: number): string {
-    if (text.length <= maxLen) {
-      return text;
-    }
-    return text.slice(0, maxLen) + '...';
-  }
-
   private applyStateResponse(instanceId: string, response: IpcResponse): void {
     if (!response.success) {
       this.errorMessage.set(response.error?.message ?? 'Failed to load plan state.');
@@ -973,23 +930,20 @@ export class PlanPageComponent implements OnDestroy {
       return;
     }
 
-    const mode = (raw['mode'] as PlanState['mode']) ?? 'idle';
     const planContent = typeof raw['planContent'] === 'string' ? raw['planContent'] : undefined;
+    const mode: PlanState['mode'] = raw['enabled'] !== true
+      ? 'idle'
+      : raw['state'] === 'approved' ? 'implementing' : 'planning';
+    const previous = this.planState();
+    const hasDraft = previous?.instanceId === instanceId
+      && previous.mode === 'planning' && mode === 'planning'
+      && this.editablePlanContent() !== (previous.planContent ?? '');
+    this.planState.set({ instanceId, mode, planContent });
 
-    const state: PlanState = {
-      instanceId,
-      mode,
-      planContent,
-      enteredAt: typeof raw['enteredAt'] === 'number' ? raw['enteredAt'] : undefined,
-      version: typeof raw['version'] === 'number' ? raw['version'] : undefined,
-      history: Array.isArray(raw['history']) ? (raw['history'] as PlanHistoryEntry[]) : undefined,
-    };
-
-    this.planState.set(state);
-
-    // Seed editable content when entering planning mode
-    if (mode === 'planning' && planContent !== undefined) {
-      this.editablePlanContent.set(planContent);
+    // Polls may update persisted state, but only a clean draft follows it.
+    // Session/mode changes seed fresh content; save echoes leave newer edits intact.
+    if (!hasDraft) {
+      this.editablePlanContent.set(planContent ?? '');
     }
   }
 

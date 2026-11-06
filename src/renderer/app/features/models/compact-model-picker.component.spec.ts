@@ -503,4 +503,18 @@ describe('CompactModelPickerComponent', () => {
     fixture.destroy();
     vi.advanceTimersByTime(60_000);
   });
+  it('leaves document Tab behavior unchanged when modal trapping is not requested', async () => {
+    fixture.componentRef.setInput('mode', 'pending-create');
+    fixture.componentRef.setInput('selection', { provider: 'claude', model: 'sonnet', reasoning: null });
+    fixture.detectChanges();
+    (fixture.nativeElement.querySelector('.compact-picker__chip') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const search = document.querySelector('.model-picker-search__input') as HTMLInputElement;
+    expect(document.activeElement).toBe(search);
+    const event = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    search.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
 });

@@ -127,6 +127,16 @@ describe('UnifiedCatalogStore', () => {
     ]);
   });
 
+  it('retains context size and priced-source facts for picker rows', async () => {
+    ipc = makeIpc([entry({ id: 'opus', provider: 'claude', contextWindow: 200_000,
+      pricing: { inputPerMillion: 3, outputPerMillion: 15 }, pricingSource: 'models-dev' })]);
+    const store = setup();
+    await store.refresh();
+    expect(store.displayModelsForProvider('claude')[0]).toMatchObject({
+      contextWindow: 200_000, pricing: { inputPerMillion: 3, outputPerMillion: 15 }, pricingSource: 'models-dev',
+    });
+  });
+
   it('pins a newly discovered Grok default and does not keep a stale static pin', async () => {
     ipc = makeIpc([
       entry({

@@ -1110,7 +1110,7 @@ describe('InstanceCommunicationManager', () => {
     });
 
     it('computes cost from tokens when the provider does not supply one', () => {
-      instance.currentModel = 'claude-sonnet-4-6';
+      instance.currentModel = 'claude-sonnet-4-6-20260401';
       emitComplete('claude-cli', {
         inputTokens: 1_000_000,
         outputTokens: 0,
@@ -2196,9 +2196,20 @@ describe('InstanceCommunicationManager', () => {
       const compactContext = vi.fn().mockResolvedValue(undefined);
       const execManager = createExecManager(adapter, compactContext);
 
-      await execManager.sendInput(instance.id, 'summarize the workspace');
+      await execManager.sendInput(instance.id, 'summarize the workspace', undefined, null, {
+        internalSource: 'async-work-continuation',
+      });
 
-      expect(compactContext).toHaveBeenCalledWith(instance.id);
+      expect(compactContext).toHaveBeenCalledWith(instance.id, {
+        text: 'summarize the workspace', attachments: undefined,
+        internalSource: 'async-work-continuation',
+        recoveryOwner: {
+          signal: undefined,
+          assertCurrent: expect.any(Function),
+          assertBeforeRestart: expect.any(Function),
+          assertProviderDispatchCurrent: expect.any(Function),
+        },
+      });
       expect(adapter.sendInput).toHaveBeenCalledTimes(2);
       expect(instance.status).not.toBe('error');
       expect(instance.outputBuffer.some(isStopNotice)).toBe(false);
@@ -2435,7 +2446,15 @@ describe('InstanceCommunicationManager', () => {
 
     await manager.sendInput(instance.id, 'summarize the workspace');
 
-    expect(compactContext).toHaveBeenCalledWith(instance.id);
+    expect(compactContext).toHaveBeenCalledWith(instance.id, {
+      text: 'summarize the workspace', attachments: undefined, internalSource: undefined,
+      recoveryOwner: {
+        signal: undefined,
+        assertCurrent: expect.any(Function),
+        assertBeforeRestart: expect.any(Function),
+        assertProviderDispatchCurrent: expect.any(Function),
+      },
+    });
     expect(adapter.sendInput).toHaveBeenCalledTimes(2);
     expect(adapter.sendInput.mock.calls[1][0]).toBe('summarize the workspace');
     expect(instance.outputBuffer.some(message => message.metadata?.['contextOverflow'] === true)).toBe(true);
@@ -2486,7 +2505,15 @@ describe('InstanceCommunicationManager', () => {
 
     await manager.sendInput(instance.id, 'continue');
 
-    expect(compactContext).toHaveBeenCalledWith(instance.id);
+    expect(compactContext).toHaveBeenCalledWith(instance.id, {
+      text: 'continue', attachments: undefined, internalSource: undefined,
+      recoveryOwner: {
+        signal: undefined,
+        assertCurrent: expect.any(Function),
+        assertBeforeRestart: expect.any(Function),
+        assertProviderDispatchCurrent: expect.any(Function),
+      },
+    });
     expect(adapter.sendInput).toHaveBeenCalledTimes(2);
     expect(adapter.sendInput.mock.calls[1][0]).toBe('continue');
     expect(instance.status).toBe('busy');
@@ -4182,7 +4209,15 @@ describe('provider-limit park on thrown sendInput errors', () => {
 
     await manager.sendInput(instance.id, 'summarize the workspace');
 
-    expect(compactContext).toHaveBeenCalledWith(instance.id);
+    expect(compactContext).toHaveBeenCalledWith(instance.id, {
+      text: 'summarize the workspace', attachments: undefined, internalSource: undefined,
+      recoveryOwner: {
+        signal: undefined,
+        assertCurrent: expect.any(Function),
+        assertBeforeRestart: expect.any(Function),
+        assertProviderDispatchCurrent: expect.any(Function),
+      },
+    });
     expect(onProviderLimitTurn).not.toHaveBeenCalled();
     expect(adapter.sendInput).toHaveBeenCalledTimes(2);
   });

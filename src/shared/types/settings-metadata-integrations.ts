@@ -118,15 +118,28 @@ export const INTEGRATION_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'rtkEnabled',
     label: 'Compress command output to save tokens',
-    description: 'Shrink the shell-command output sent to the model by 60–90% using the bundled "RTK" tool, so you spend fewer tokens. Restart the app to apply this to running instances.',
+    description: 'Shortens long command output (git, tests, builds, searches) before the AI reads it. Over a whole session this may save a few per cent. Changes apply to new sessions.',
     type: 'boolean',
     category: 'rtk',
   },
   {
     key: 'rtkBundledOnly',
     label: 'Only use the built-in RTK',
-    description: 'Always use the RTK tool shipped inside this app, never one installed elsewhere on your system. Keeps behavior consistent across machines.',
+    description: 'Prefer the RTK copy shipped inside Harness. A system-installed copy is used only when it is newer. Turn this on to always use the bundled copy. Changes apply to new sessions.',
     type: 'boolean',
+    category: 'rtk',
+  },
+  {
+    key: 'rtkAutoApproveScope',
+    label: 'Output compression in auto-approve sessions and loops',
+    description: 'Controls the rewrite-only RTK hook in auto-approve Claude sessions and loops. Off is the default until the hook has been fully checked. Trial assigns half of eligible sessions to the hook and records results for comparison. Changes apply to new sessions.',
+    type: 'select',
+    options: [
+      { value: 'off', label: 'Off' },
+      { value: 'trial', label: 'Trial: half of sessions, to measure it' },
+      { value: 'on', label: 'On' },
+      { value: 'sessions-only', label: 'On for sessions, off for loops' },
+    ],
     category: 'rtk',
   },
   {

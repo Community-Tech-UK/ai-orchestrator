@@ -27,9 +27,9 @@ afterEach(()=>{vi.unstubAllGlobals();native.request.mockReset();});
 describe('actual Gemini event-owned recovery joins rejected send once',()=>{
  // The provider session is new only on a first reply; later replies skip the
  // identity save, so recovery must not depend on that save's delay.
- for(const knownSession of [false,true]) it.each(['overflow-success','overflow-failure','stop','manual-input','adapter-replaced','park','reentrant-error','observer-manual','old-request-error','ordinary-overflow-success','ordinary-park'] as const)(`keeps recovery and persisted receipt truthful for %s${knownSession?' with the provider session already known':''}`,async scenario=>{
+ for(const knownSession of [false,true]) it.each(['overflow-success','overflow-failure','stop','manual-input','adapter-replaced','park','reentrant-error','observer-manual','old-request-error','ordinary-overflow-success','ordinary-park','observer-throws'] as const)(`keeps recovery and persisted receipt truthful for %s${knownSession?' with the provider session already known':''}`,async scenario=>{
   const ordinary=scenario==='ordinary-overflow-success'||scenario==='ordinary-park';
-  const mode=scenario==='ordinary-overflow-success'?'overflow-success':scenario==='ordinary-park'?'park':scenario;
+  const mode=scenario==='observer-throws'?'overflow-success':scenario==='ordinary-overflow-success'?'overflow-success':scenario==='ordinary-park'?'park':scenario;
   const adapter=new GeminiCliAdapter({timeout:1000});Object.assign(adapter,{isSpawned:true});
   const instance=buildInstanceRecord({workingDirectory:'/tmp/event-owned-recovery',provider:'gemini',sessionId:adapter.getSessionId()??undefined},getDefaultAgent(),{defaultYoloMode:false,getParent:()=>undefined});
   Object.assign(instance,{id:'event-owned-'+scenario,status:'idle',requestCount:4,lastActivity:0,providerSessionId:knownSession?adapter.getSessionId():undefined});
@@ -57,7 +57,8 @@ describe('actual Gemini event-owned recovery joins rejected send once',()=>{
   if(mode==='reentrant-error')adapter.once('error',()=>adapter.emit('error',new Error('other failure object from same native send')));
   const cleanup=vi.spyOn(communication,'forceCleanupAdapter');
   const service=getSessionAdmissionService();const recorded=vi.spyOn(service,'recordUserSend');const delivered=vi.spyOn(service,'markDelivered');const failed=vi.spyOn(service,'markFailed');
-  const sending=communication.sendInput(instance.id,'Synthetic event-owned recovery',undefined,undefined,ordinary?undefined:{signal:controller.signal,beforeProviderDispatch:()=>admissions++});
+  const observer=vi.fn(()=>{if(scenario==='observer-throws')throw new Error('inert receipt observer failure');});
+  const sending=communication.sendInput(instance.id,'Synthetic event-owned recovery',undefined,undefined,ordinary?{onProviderInputDelivered:observer}:{signal:controller.signal,beforeProviderDispatch:()=>admissions++,onProviderInputDelivered:observer});
   if(mode!=='park'&&mode!=='observer-manual'&&mode!=='old-request-error'){
    await compactEntered;
    if(mode==='stop'){instance.status='interrupting';controller.abort();}
@@ -77,6 +78,7 @@ describe('actual Gemini event-owned recovery joins rejected send once',()=>{
   const nativeFailure=mode==='park'?'usage limit reached':'context_length_exceeded';
   expect(runtimeErrors).toEqual(mode==='old-request-error'?[]:[{event:expect.objectContaining({kind:'error',message:nativeFailure}),raw:expect.objectContaining({source:'adapter-event:error',payload:expect.objectContaining({message:nativeFailure})})}]);
   expect(admissions).toBe(ordinary?0:1);expect(recorded).toHaveBeenCalledOnce();expect(rows).toHaveLength(1);expect(delivered).toHaveBeenCalledTimes(success?1:0);expect(failed).toHaveBeenCalledOnce();expect(rows[0].state).toBe(success?'delivered':'failed');
+  expect(observer).toHaveBeenCalledTimes(success?1:0);
   expect(nativeInputs).toBe(success||mode==='overflow-failure'?2:1);expect(compactions).toBe(mode==='park'||mode==='observer-manual'||mode==='old-request-error'?0:1);expect(park).toHaveBeenCalledTimes(mode==='park'?1:0);
   if(mode==='park')expect(outputs.filter(o=>(o['metadata'] as Record<string,unknown>)?.['providerLimitParked'])).toHaveLength(1);
   if(ordinary){

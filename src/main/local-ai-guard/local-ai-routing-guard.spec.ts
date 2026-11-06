@@ -1,4 +1,9 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+const loggerMocks = vi.hoisted(() => ({ warn: vi.fn() }));
+vi.mock('../logging/logger', () => ({
+  getLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: loggerMocks.warn, error: vi.fn() }),
+}));
+
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import { RLM_MIGRATIONS_051_055 } from '../persistence/rlm/rlm-migrations-051-055';
@@ -587,15 +592,15 @@ describe('LocalAiRoutingGuard', () => {
     });
   });
 
-  it('hard-blocks unknown estimates under configured daily or incident ceilings', async () => {
+  it('reserves five cents for unknown estimates and blocks only when the ceiling is lower', async () => {
     const daily = createGuard({
       db: openDb(),
-      settings: settings({ localAiGuardDailyFallbackBudgetUsd: 100 }),
+      settings: settings({ localAiGuardDailyFallbackBudgetUsd: 0.04 }),
       fallbackModel: { provider: 'unknown', model: 'unpriced-model' },
     });
     const incidentSetup = createGuard({
       db: openDb(),
-      targetConfig: config({ incidentFallbackBudgetUsd: 100 }),
+      targetConfig: config({ incidentFallbackBudgetUsd: 0.04 }),
       fallbackModel: { provider: 'unknown', model: 'unpriced-model' },
     });
     incidentSetup.health.upsertIncident({
@@ -618,10 +623,60 @@ describe('LocalAiRoutingGuard', () => {
     });
   });
 
-  it('treats a known model under the wrong provider as unpriced beneath a hard ceiling', async () => {
+  it('Step 7 item 5: a user-initiated fallback is allowed past the daily limit and its estimate is still recorded', async () => {
     const setup = createGuard({
       db: openDb(),
-      settings: settings({ localAiGuardDailyFallbackBudgetUsd: 100 }),
+      settings: settings({ localAiGuardDailyFallbackBudgetUsd: 0.04 }),
+      fallbackModel: { provider: 'unknown', model: 'unpriced-model' },
+    });
+
+    await expect(setup.guard.authorizeFallback({ ...fallbackInput, userInitiated: true })).resolves.toMatchObject({
+      allowed: true,
+      disposition: 'allowed',
+    });
+    // The user action is not refused, but the day's ledger still carries its cost.
+    expect(setup.health.getRoutingEvent('routing-1')).toMatchObject({
+      disposition: 'allowed',
+      actualRoute: 'frontier',
+      decisionReason: 'policy',
+      estimatedCostUsd: 0.05,
+    });
+    expect(setup.guard.fallbackSpendTodayUsd()).toBeCloseTo(0.05, 10);
+  });
+
+  it('Step 7 item 5: the same fallback without the flag is still blocked by the daily limit', async () => {
+    const setup = createGuard({
+      db: openDb(),
+      settings: settings({ localAiGuardDailyFallbackBudgetUsd: 0.04 }),
+      fallbackModel: { provider: 'unknown', model: 'unpriced-model' },
+    });
+
+    await expect(setup.guard.authorizeFallback(fallbackInput)).resolves.toMatchObject({
+      allowed: false,
+      disposition: 'blocked',
+    });
+    expect(setup.health.getRoutingEvent('routing-1')).toMatchObject({ decisionReason: 'daily-budget' });
+  });
+
+  it('Step 7 item 5: a user action still obeys a block-paid-fallback policy and a slot that forbids frontier', async () => {
+    const blocked = createGuard({
+      db: openDb(),
+      settings: settings({ localAiGuardDefaultFallbackPolicy: 'block-paid-fallback' }),
+    });
+    const noFrontier = createGuard({ db: openDb(), settings: settings() });
+
+    await expect(blocked.guard.authorizeFallback({ ...fallbackInput, userInitiated: true })).resolves.toMatchObject({
+      allowed: false, disposition: 'blocked',
+    });
+    await expect(noFrontier.guard.authorizeFallback({
+      ...fallbackInput, userInitiated: true, slotAllowsFrontier: false,
+    })).resolves.toMatchObject({ allowed: false, disposition: 'blocked' });
+  });
+
+  it('prices a known model under the wrong provider as an unknown five-cent reservation', async () => {
+    const setup = createGuard({
+      db: openDb(),
+      settings: settings({ localAiGuardDailyFallbackBudgetUsd: 0.04 }),
       fallbackModel: { provider: 'openai', model: 'opus' },
     });
 
@@ -637,7 +692,7 @@ describe('LocalAiRoutingGuard', () => {
       model: 'opus',
       decisionReason: 'daily-budget',
     });
-    expect(stored).not.toHaveProperty('estimatedCostUsd');
+    expect(stored?.estimatedCostUsd).toBe(0.05);
   });
 
   it('counts post-midnight completions and unresolved prior-day reservations against the new UTC day', async () => {
@@ -823,6 +878,78 @@ describe('LocalAiRoutingGuard', () => {
     });
   });
 });
+describe('LocalAiRoutingGuard.fallbackSpendTodayUsd', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    for (const db of dbs.splice(0)) db.close();
+  });
+
+  it('reads today as the sum of known, estimated and five-cent unknown rows', () => {
+    const db = openDb();
+    const setup = createGuard({ db, now: 5_000 });
+    setup.health.appendRoutingEvent(eventForSpend('priced', 1_000, 0.25));
+    expect(setup.guard.fallbackSpendTodayUsd()).toBeCloseTo(0.25);
+  });
+
+  it('reports unknown spend as unbounded, never zero, when the ledger read fails', () => {
+    const setup = createGuard({ db: openDb(), now: 5_000 });
+    vi.spyOn(setup.health, 'getFallbackSpend').mockImplementation(() => {
+      throw new Error('database disk image is malformed');
+    });
+
+    let spend = Number.NaN;
+    expect(() => { spend = setup.guard.fallbackSpendTodayUsd(); }).not.toThrow();
+
+    expect(spend).toBe(Number.POSITIVE_INFINITY);
+    // What AuxiliaryDailySpendCap.reserve does with it: nothing is left under a $2 limit.
+    expect(Math.max(0, 2 - spend)).toBe(0);
+  });
+
+  it('fails closed against a real closed database', () => {
+    const db = openDb();
+    const setup = createGuard({ db, now: 5_000 });
+    setup.health.appendRoutingEvent(eventForSpend('priced', 1_000, 0.25));
+    db.close();
+
+    expect(setup.guard.fallbackSpendTodayUsd()).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it('logs an unreadable ledger once, not on every call', () => {
+    loggerMocks.warn.mockClear();
+    const setup = createGuard({ db: openDb(), now: 5_000 });
+    vi.spyOn(setup.health, 'getFallbackSpend').mockImplementation(() => {
+      throw new Error('database is locked');
+    });
+
+    setup.guard.fallbackSpendTodayUsd();
+    setup.guard.fallbackSpendTodayUsd();
+
+    expect(loggerMocks.warn).toHaveBeenCalledOnce();
+    expect(JSON.stringify(loggerMocks.warn.mock.calls[0])).toContain('database is locked');
+  });
+
+  it('returns to the real total as soon as reads work again', () => {
+    const setup = createGuard({ db: openDb(), now: 5_000 });
+    setup.health.appendRoutingEvent(eventForSpend('priced', 1_000, 0.25));
+    vi.spyOn(setup.health, 'getFallbackSpend').mockImplementationOnce(() => {
+      throw new Error('database is locked');
+    });
+
+    expect(setup.guard.fallbackSpendTodayUsd()).toBe(Number.POSITIVE_INFINITY);
+    expect(setup.guard.fallbackSpendTodayUsd()).toBeCloseTo(0.25);
+  });
+
+  it.each([
+    { knownCostUsd: Number.NaN, estimatedCostUsd: 0, unknownReservations: 0 },
+    { knownCostUsd: 0, estimatedCostUsd: Number.POSITIVE_INFINITY, unknownReservations: 0 },
+  ])('treats a non-finite ledger total as unknown: %j', (spend) => {
+    const setup = createGuard({ db: openDb(), now: 5_000 });
+    vi.spyOn(setup.health, 'getFallbackSpend').mockReturnValue(spend);
+
+    expect(setup.guard.fallbackSpendTodayUsd()).toBe(Number.POSITIVE_INFINITY);
+  });
+});
+
 function eventForSpend(
   id: string,
   createdAt: number,

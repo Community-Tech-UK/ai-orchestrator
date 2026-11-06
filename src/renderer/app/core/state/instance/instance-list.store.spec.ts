@@ -225,6 +225,7 @@ describe('InstanceListStore', () => {
       waitReason: { kind: 'quota-park', provider: 'claude', resumeAt: 999 },
       backgroundWork: { count: 2, since: 444 },
       selfManagesAutoCompaction: true,
+      residentClaude: true,
     };
 
     // Deliberately NOT wire-carried by design — excluded from this check.
@@ -236,6 +237,18 @@ describe('InstanceListStore', () => {
       if (intentionallyExcluded.has(key)) continue;
       expect(instance[key], `field "${key}" should survive deserializeInstance()`).toEqual(value);
     }
+  });
+
+  it('forwards only boolean resident Claude state from snapshots and created events', async () => {
+    store.addInstance({ id: 'resident', provider: 'claude', residentClaude: true });
+    expect(stateService.getInstance('resident')?.residentClaude).toBe(true);
+    ipc.stateResync.mockResolvedValue({ success: true, data: { instances: [
+      { id: 'resident', provider: 'claude', residentClaude: false },
+      { id: 'unknown', provider: 'claude', residentClaude: 'true' },
+    ] } });
+    await store.loadInitialInstances();
+    expect(stateService.getInstance('resident')?.residentClaude).toBe(false);
+    expect(stateService.getInstance('unknown')?.residentClaude).toBeUndefined();
   });
 
   it('keeps every shared reasoning effort, including max, ultra and workflow', () => {

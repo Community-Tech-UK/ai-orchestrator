@@ -9,6 +9,7 @@ import {
   LocalAiRoutingEventSchema,
 } from '../../shared/validation/local-ai-guard.schemas';
 import type { SqliteDriver } from '../db/sqlite-driver';
+import { UNKNOWN_FALLBACK_COST_USD } from './helper-daily-budget';
 import {
   getLocalAiFallbackSpend,
   type LocalAiFallbackSpend,
@@ -271,8 +272,9 @@ function exceedsConfiguredCeiling(
   spend: LocalAiFallbackSpend,
 ): boolean {
   if (ceiling === null || ceiling === undefined) return false;
-  if (estimate === undefined || spend.unknownReservations > 0) return true;
-  return spend.knownCostUsd + spend.estimatedCostUsd + estimate > ceiling;
+  return spend.knownCostUsd + spend.estimatedCostUsd
+    + spend.unknownReservations * UNKNOWN_FALLBACK_COST_USD
+    + (estimate ?? UNKNOWN_FALLBACK_COST_USD) > ceiling;
 }
 
 export function insertLocalAiRoutingEvent(db: SqliteDriver, event: LocalAiRoutingEvent): void {

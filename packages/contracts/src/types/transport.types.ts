@@ -134,6 +134,14 @@ export interface InstanceStateUpdatePayload {
    */
   selfManagesAutoCompaction?: boolean;
   /**
+   * True when the session runs on a resident (long-lived) Claude process, so a
+   * model or effort change can be applied in place. Main resolves it in
+   * background init, AFTER the created event, so a session created in this run
+   * learns it only from state updates. Enriched from the live instance at
+   * flush time; undefined preserves the renderer's existing value.
+   */
+  residentClaude?: boolean;
+  /**
    * Provider after a cross-provider swap of an existing session. Optional
    * because almost all state updates don't change it; undefined preserves
    * the renderer's existing value.

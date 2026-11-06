@@ -1,3 +1,4 @@
+import { beginOverflowReplacementReadiness } from './lifecycle/overflow-replacement-readiness';
 /**
  * Instance Lifecycle Manager - Create, terminate, restart, and mode management
  */
@@ -75,6 +76,8 @@ import {
 import { emitInstanceLifecycleCreatedObservers, getLifecycleEventInstanceId } from './lifecycle/safe-event-observers';
 import {
   deliverInitialPromptAfterSpawn,
+  sendInitialPromptWithAttachmentFallback,
+  type InitialPromptSendDeps,
   type InitialPromptRecoveryDeps,
 } from './lifecycle/initial-prompt-recovery';
 import {
@@ -144,14 +147,13 @@ import { recordLifecycleTrace } from '../observability/lifecycle-trace';
 import { warmCodememWithTimeout } from './warm-codemem';
 import {
   buildUnsupportedAttachmentWarnings,
-  isUnsupportedOrchestratorAttachmentError,
 } from './orchestrator-attachment-fallback';
-import { isOrchestratorPausedError } from '../pause/orchestrator-paused-error';
 import {
   attachToolFilterMetadata,
   buildToolPermissionConfig,
 } from './lifecycle/tool-permission-config';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
+import { stampRtkArm } from '../cli/rtk/rtk-rollout';
 import { getPromptHistoryService } from '../prompt-history/prompt-history-service';
 import { summarizeCreateInstanceConfig } from './lifecycle/instance-create-logging';
 import { LifecycleMemoryPressureMonitor } from './lifecycle/memory-pressure-monitor';
@@ -171,7 +173,7 @@ import type {
   ModelRuntimeTarget,
 } from '../../shared/types/local-model-runtime.types';
 
-import { recordInitialPromptIntent, sendInitialPromptToAdapter } from './lifecycle/initial-prompt-dispatch';
+import { recordInitialPromptIntent } from './lifecycle/initial-prompt-dispatch';
 const logger = getLogger('InstanceLifecycle');
 
 function localModelInventoryEntryMatchesTarget(
@@ -488,6 +490,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         this.spawnConfigBuilder.getBrowserGatewayMcpOptions(loc, instanceId, provider),
       getChromeDevtoolsMcpOptions: (loc) => this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(loc),
       getPermissionHookPath: (yolo) => this.spawnConfigBuilder.getPermissionHookPath(yolo),
+      getRtkSpawnConfig: (key) => this.spawnConfigBuilder.getRtkSpawnConfig(key),
       waitForResumeHealth: (id, timeoutMs) => this.waitForResumeHealth(id, timeoutMs),
       waitForAdapterWritable: (id, timeoutMs) => this.waitForAdapterWritable(id, timeoutMs),
       buildReplayContinuityMessage: (instance, reason) => this.buildReplayContinuityMessage(instance, reason),
@@ -1012,60 +1015,14 @@ export class InstanceLifecycleManager extends EventEmitter {
     this.emit('output', { instanceId: instance.id, message: notice });
   }
 
-  private async sendInitialPromptWithAttachmentFallback(params: {
-    instance: Instance;
-    adapter: CliAdapter;
-    resolvedCliType: CliType;
-    message: string;
-    contextBlock?: string;
-    attachments?: InstanceCreateConfig['attachments'];
-  }): Promise<void> {
-    const { instance, adapter, resolvedCliType, message } = params;
-    // Same provider-limit funnel as sendInput(): hold on a known limit (or move
-    // to another pool account) before sending, and park/fail over on a limit error.
-    const limitGate = this.deps.initialPromptProviderLimitGate;
-    if (limitGate?.holdBeforeSend(instance, message)) return;
-    const runtimeMessage = params.contextBlock?.trim()
-      ? `${params.contextBlock}\n\n${message}`
-      : message;
-    let attachments = params.attachments;
+  private get initialPromptSendDeps(): InitialPromptSendDeps {
+    return {
+      providerLimitGate: this.deps.initialPromptProviderLimitGate,
+      queuePausedPrompt: params => this.queuePausedInitialPrompt(params),
+      emitAttachmentDropWarnings: (instance, adapterName, attachments) =>
+        this.emitAttachmentDropWarnings(instance.id, instance, adapterName, attachments),
+    };
 
-    try {
-      await sendInitialPromptToAdapter(instance, adapter, runtimeMessage, attachments);
-      return;
-    } catch (initialError) {
-      if (isOrchestratorPausedError(initialError)) {
-        this.queuePausedInitialPrompt({ instance, message: runtimeMessage, attachments });
-        return;
-      }
-      if (limitGate?.handleSendError(instance, adapter, initialError, message)) return;
-
-      if (!attachments?.length || !isUnsupportedOrchestratorAttachmentError(initialError)) {
-        throw initialError;
-      }
-
-      this.emitAttachmentDropWarnings(instance.id, instance, adapter.getName(), attachments);
-
-      if (!runtimeMessage.trim()) {
-        logger.info('Dropped unsupported attachments from attachment-only initial prompt', {
-          instanceId: instance.id,
-          provider: resolvedCliType,
-        });
-        return;
-      }
-
-      attachments = undefined;
-      try {
-        await sendInitialPromptToAdapter(instance, adapter, runtimeMessage, attachments);
-      } catch (retryError) {
-        if (isOrchestratorPausedError(retryError)) {
-          this.queuePausedInitialPrompt({ instance, message: runtimeMessage, attachments });
-          return;
-        }
-        if (limitGate?.handleSendError(instance, adapter, retryError, message)) return;
-        throw retryError;
-      }
-    }
   }
 
   /**
@@ -1512,39 +1469,12 @@ export class InstanceLifecycleManager extends EventEmitter {
         );
         attachToolFilterMetadata(instance, toolPermissions.toolFilter);
 
-        const executionLocation = resolveExecutionLocation(config);
-        // Load instruction hierarchy (skip for child instances to reduce token overhead)
-        const instructionPrompts = instance.depth === 0
-          ? await this.loadPromptHierarchy(instance.workingDirectory, config.provider, { remote: executionLocation.type === 'remote' })
-          : [];
-
-        if (signal.aborted) return;
-
-        // Build the system prompt via the locked injection contract (WS-B4)
-        // and the initial-turn runtime context block. Extracted to
-        // instance-system-prompt.ts; see that module's header for the full
-        // rationale and the byte-identical-behaviour contract it must uphold.
-        const { systemPrompt, initialRuntimeContextBlock } = await assembleInstanceSystemPrompt({
-          instance,
-          config,
-          resolvedAgent,
-          instructionPrompts,
-          initialUserMessageContent: initialUserMessage?.content,
-          deps: {
-            buildObservationContext: this.deps.buildObservationContext,
-            buildWakeContextText: this.deps.buildWakeContextText,
-            buildMcpRuntimeToolContextSelection: this.deps.buildMcpRuntimeToolContextSelection,
-            deferEnricherPreamble: (instanceId, label, text) => this.deferEnricherPreamble(instanceId, label, text),
-          },
-        });
-
-        if (signal.aborted) return;
-
-        // Resolve CLI provider type
+        // Resolve the CLI before deciding which instruction files it reads natively.
         const settingsAll = this.settings.getAll();
         const localModelTarget = config.modelRuntimeTarget?.kind === 'local-model'
           ? config.modelRuntimeTarget
           : null;
+        const executionLocation = resolveExecutionLocation(config);
         const preserveForcedRemoteProvider = executionLocation.type === 'remote'
           && config.forceNodeId !== undefined
           && config.provider !== undefined
@@ -1560,6 +1490,34 @@ export class InstanceLifecycleManager extends EventEmitter {
 
         if (signal.aborted) return;
 
+        // Load instruction hierarchy (skip for child instances to reduce token overhead)
+        const instructionPrompts = instance.depth === 0
+          ? await this.loadPromptHierarchy(instance.workingDirectory, resolvedCliType, { remote: executionLocation.type === 'remote' })
+          : [];
+
+        if (signal.aborted) return;
+
+        // Build the system prompt via the locked injection contract (WS-B4)
+        // and the initial-turn runtime context block. Extracted to
+        // instance-system-prompt.ts; see that module's header for the full
+        // rationale and the byte-identical-behaviour contract it must uphold.
+        const { systemPrompt, initialRuntimeContextBlock, initialPromptGuidance } = await assembleInstanceSystemPrompt({
+          instance,
+          config,
+          resolvedProvider: resolvedCliType,
+          resolvedAgent,
+          instructionPrompts,
+          initialUserMessageContent: initialUserMessage?.content,
+          deps: {
+            buildObservationContext: this.deps.buildObservationContext,
+            buildWakeContextText: this.deps.buildWakeContextText,
+            buildMcpRuntimeToolContextSelection: this.deps.buildMcpRuntimeToolContextSelection,
+            deferEnricherPreamble: (instanceId, label, text) => this.deferEnricherPreamble(instanceId, label, text),
+          },
+        });
+
+        if (signal.aborted) return;
+
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CliType (cli-detection) vs CliType (settings) mismatch
         instance.provider = resolvedCliType as any;
         configureInstanceTaskTools(instance, settingsAll.claudeShowTaskList, executionLocation, resolvedCliType);
@@ -1572,6 +1530,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           this.emit('output', { instanceId: instance.id, message: seededInitialUserMessage });
         }
         logger.info('Resolved CLI provider', {
+          requested: config.provider,
           cliType: resolvedCliType,
           displayName: getCliDisplayName(resolvedCliType)
         });
@@ -1612,6 +1571,9 @@ export class InstanceLifecycleManager extends EventEmitter {
         }
 
         instance.currentModel = resolvedModel;
+        // Before the state-update below: the early created event could not
+        // carry it, and the renderer's switch note reads it (plan 14d item 5).
+        instance.residentClaude = settingsAll.residentClaudeSession ?? true;
         const resolvedReasoningEffort = resolveSpawnReasoningEffort(config, resolvedCliType, resolvedModel);
         instance.reasoningEffort = resolvedReasoningEffort;
         // The early created event intentionally precedes model resolution AND
@@ -1625,6 +1587,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           status: instance.status,
           reasoningEffort: resolvedReasoningEffort ?? null,
           contextEvidence: instance.contextEvidence,
+          residentClaude: instance.residentClaude,
           timestamp: Date.now(),
         });
 
@@ -1638,7 +1601,6 @@ export class InstanceLifecycleManager extends EventEmitter {
           defaultFastMode: settingsAll.defaultFastMode,
         });
         instance.fastMode = resolvedFastMode;
-        instance.residentClaude = settingsAll.residentClaudeSession ?? true;
         instance.contextUsage = {
           ...instance.contextUsage,
           total: getProviderModelContextWindow(resolvedCliType, resolvedModel),
@@ -1681,13 +1643,12 @@ export class InstanceLifecycleManager extends EventEmitter {
           ) ?? undefined,
           nodePlacement: instance.nodePlacement,
           permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
-          rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
+          rtk: this.spawnConfigBuilder.getRtkSpawnConfig(instance.id),
           modelRuntimeTarget: config.modelRuntimeTarget,
         };
-
-        const preflight = await this.spawnPreflight.prepare({
-          config, instance, provider: resolvedCliType, spawnOptions, executionLocation,
-        });
+        const preflight = await this.spawnPreflight.prepare({ config, instance, provider: resolvedCliType, spawnOptions, executionLocation });
+        stampRtkArm(instance, preflight.kind === 'warm' ? undefined : preflight.spawnOptions.rtk, resolvedCliType,
+          preflight.kind !== 'warm' && preflight.executionLocation.type === 'local');
         let adapter: CliAdapter;
         if (preflight.kind === 'warm') {
           logger.info('Using warm-start adapter (skipping spawn)', { provider: resolvedCliType, instanceId: instance.id });
@@ -1743,14 +1704,15 @@ export class InstanceLifecycleManager extends EventEmitter {
             await deliverInitialPromptAfterSpawn(
               instance,
               signal,
-              () => this.sendInitialPromptWithAttachmentFallback({
+              () => sendInitialPromptWithAttachmentFallback({
                 instance,
                 adapter,
                 resolvedCliType,
                 message: initialUserMessage.content,
                 contextBlock: initialRuntimeContextBlock,
+                guidance: initialPromptGuidance,
                 attachments: config.attachments,
-              }),
+              }, this.initialPromptSendDeps),
               this.initialPromptRecoveryDeps,
             );
           }
@@ -1839,14 +1801,15 @@ export class InstanceLifecycleManager extends EventEmitter {
               await deliverInitialPromptAfterSpawn(
                 instance,
                 signal,
-                () => this.sendInitialPromptWithAttachmentFallback({
+                () => sendInitialPromptWithAttachmentFallback({
                   instance,
                   adapter,
                   resolvedCliType,
                   message: initialUserMessage.content,
                   contextBlock: initialRuntimeContextBlock,
+                  guidance: initialPromptGuidance,
                   attachments: config.attachments,
-                }),
+                }, this.initialPromptSendDeps),
                 this.initialPromptRecoveryDeps,
               );
             }
@@ -2224,9 +2187,8 @@ export class InstanceLifecycleManager extends EventEmitter {
           ) ?? undefined,
           nodePlacement: instance.nodePlacement,
           permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
-          rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
+          rtk: stampRtkArm(instance, this.spawnConfigBuilder.getRtkSpawnConfig(instance.id), cliType, instance.executionLocation.type === 'local'),
         };
-
         let adapter = await this.createRuntimeAdapter(cliType, spawnOptions, instance.executionLocation);
         this.deps.setupAdapterEvents(instanceId, adapter);
         this.deps.setAdapter(instanceId, adapter);
@@ -2509,7 +2471,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         ) ?? undefined,
         nodePlacement: instance.nodePlacement,
         permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
-          rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
+          rtk: stampRtkArm(instance, this.spawnConfigBuilder.getRtkSpawnConfig(instance.id), cliType, instance.executionLocation.type === 'local'),
       },
       instance.executionLocation, { moveOffLimitedAccount: true },
     );
@@ -2587,7 +2549,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         ) ?? undefined,
         nodePlacement: instance.nodePlacement,
         permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
-          rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
+          rtk: stampRtkArm(instance, this.spawnConfigBuilder.getRtkSpawnConfig(instance.id), cliType, instance.executionLocation.type === 'local'),
       },
       instance.executionLocation, { moveOffLimitedAccount: true },
     );
@@ -2818,24 +2780,27 @@ export class InstanceLifecycleManager extends EventEmitter {
     this.emit('output', { instanceId: instance.id, message: notice });
   }
 
-  async restartFreshInstance(instanceId: string): Promise<string | undefined> {
+  async restartFreshInstance(instanceId: string, assertBeforeRestart?: () => void): Promise<string | undefined> {
     const release = await getSessionMutex().acquire(instanceId, 'restart-fresh');
+    let replacementReadiness: ReturnType<typeof beginOverflowReplacementReadiness> | undefined;
     try {
+      assertBeforeRestart?.();
       const instance = this.deps.getInstance(instanceId);
       if (!instance) {
         throw new Error(`Instance ${instanceId} not found`);
       }
-
       const cliType = await this.resolveCliTypeForInstance(instance);
+      assertBeforeRestart?.();
+      // Newer input revokes ownership immediately, then waits for the replacement.
+      if (assertBeforeRestart) replacementReadiness = beginOverflowReplacementReadiness(instance,
+        (target, status) => this.transitionState(target, status));
       const previousMessages = [...instance.outputBuffer];
       const lastPreFreshMessageId = previousMessages.at(-1)?.id;
-
       instance.restartEpoch += 1;
       instance.recoveryMethod = undefined;
       instance.processId = null;
       this.deps.clearPendingState?.(instanceId);
       this.deps.stopStuckTracking?.(instanceId);
-
       const oldAdapter = this.deps.getAdapter(instanceId);
       if (oldAdapter) {
         try {
@@ -2847,7 +2812,6 @@ export class InstanceLifecycleManager extends EventEmitter {
           });
         }
       }
-
       const restartArchiveId = await this.archiveRestartSnapshot(instance, previousMessages);
       if (lastPreFreshMessageId) {
         instance.archivedUpToMessageId = lastPreFreshMessageId;
@@ -2855,7 +2819,6 @@ export class InstanceLifecycleManager extends EventEmitter {
       } else {
         instance.archivedUpToMessageId = undefined;
       }
-
       instance.historyThreadId = generateId();
       await initializeInstanceEvidenceOwnership(instance, this.settings.getAll());
       const newProviderSessionId = generateId();
@@ -2867,7 +2830,6 @@ export class InstanceLifecycleManager extends EventEmitter {
         resetFirstMessageTracking: true,
       });
       const spawnTransaction = createSpawnTransaction(`restart-fresh:${instanceId}`);
-
       const adapter = await this.createRuntimeAdapter(
         cliType,
         {
@@ -2889,18 +2851,18 @@ export class InstanceLifecycleManager extends EventEmitter {
           ) ?? undefined,
           nodePlacement: instance.nodePlacement,
           permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
-          rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
+          rtk: stampRtkArm(instance, this.spawnConfigBuilder.getRtkSpawnConfig(instance.id), cliType, instance.executionLocation.type === 'local'),
         },
         instance.executionLocation, { moveOffLimitedAccount: true },
       );
-
       this.deps.setupAdapterEvents(instanceId, adapter);
       this.deps.setAdapter(instanceId, adapter);
       this.addAdapterRollback(spawnTransaction, instanceId, adapter);
-
       instance.restartCount += 1;
-      this.resetTerminalStateForRestart(instance);
-      this.transitionState(instance, 'initializing');
+      if (!assertBeforeRestart) {
+        this.resetTerminalStateForRestart(instance);
+        this.transitionState(instance, 'initializing');
+      }
       this.deps.queueUpdate(
         instanceId,
         'initializing',
@@ -2916,21 +2878,17 @@ export class InstanceLifecycleManager extends EventEmitter {
           historyThreadId: instance.historyThreadId,
         }
       );
-
       try {
         const pid = await adapter.spawn();
         instance.processId = pid;
         await this.waitForInputReadinessBoundary(instanceId, adapter);
         instance.recoveryMethod = 'fresh';
-        this.transitionState(instance, 'idle');
+        // Owned replacement preserves newer state; manual restart keeps its existing behavior.
+        if (!assertBeforeRestart || instance.status === 'initializing') this.transitionState(instance, 'idle');
         this.deps.startStuckTracking?.(instanceId);
         spawnTransaction.commit();
-        // WS-C6: a fresh restart (used by restart-with-summary compaction
-        // and the manual "clear context" action) re-spawns the CLI with NO
-        // AIO system-prompt blocks re-injected — assembleInstanceSystemPrompt
-        // is not called on this path, only the continuity-package user
-        // message the caller sends next. Record that honestly as an empty
-        // epoch rather than silently leaving the manifest history stale.
+        // WS-C6: fresh restart injects no system-prompt blocks; the caller sends
+        // only continuity. Record an empty epoch so the manifest stays honest.
         recordContextManifest(instanceId, 'restart-compact', [], {
           note:
             'Fresh restart: no AIO system-prompt blocks were re-injected. Only a '
@@ -2944,7 +2902,6 @@ export class InstanceLifecycleManager extends EventEmitter {
           instanceId,
         });
       }
-
       this.deps.queueUpdate(
         instanceId,
         instance.status,
@@ -2963,7 +2920,11 @@ export class InstanceLifecycleManager extends EventEmitter {
       );
       if (instance.recoveryMethod === 'failed') throw new Error('Fresh restart failed');
       return restartArchiveId;
+    } catch (error) {
+      replacementReadiness?.fail();
+      throw error;
     } finally {
+      replacementReadiness?.close();
       release();
     }
   }
@@ -3075,7 +3036,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         ) ?? undefined,
         nodePlacement: instance.nodePlacement,
         permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
-        rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
+          rtk: stampRtkArm(instance, this.spawnConfigBuilder.getRtkSpawnConfig(instance.id), cliType, instance.executionLocation.type === 'local'),
       };
 
       let adapter = await this.createRuntimeAdapter(cliType, spawnOptions, instance.executionLocation);

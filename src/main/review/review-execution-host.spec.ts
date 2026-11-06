@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { ProviderReviewExecutionHost, resolveReviewerModelOverride, sendAbortableReviewerMessage } from './review-execution-host';
+import { EventEmitter } from 'node:events';
 import { subscribeCostAttribution, type CostAttributionRecord } from '../core/system/cost-attribution';
+import { CLAUDE_REVIEWER_MAX_TURNS } from '../cli/adapters/claude-machine-session-policy';
+import { ProviderReviewExecutionHost, resolveReviewerModelOverride, sendAbortableReviewerMessage } from './review-execution-host';
 import { pauseConsults } from '../work-admission/consult-admission';
 
 // Mutable holder so each test can configure the per-reviewer model override.
@@ -243,6 +245,43 @@ describe('ProviderReviewExecutionHost', () => {
     expect(usage).toHaveLength(2); expect(usage[1]).toMatchObject({ tokens: 0, costUsd: null, costSource: 'unknown' });
   });
 
+  describe('reviewer spawn options', () => {
+    async function spawnOptionsFor(provider: string): Promise<Record<string, unknown>> {
+      let captured: Record<string, unknown> | undefined;
+      hostTestState.createAdapter.mockImplementation(({ options }: { options: Record<string, unknown> }) => {
+        captured = options;
+        return {
+          sendMessage: vi.fn().mockResolvedValue({ content: '{}' }),
+          terminate: vi.fn().mockResolvedValue(undefined),
+        };
+      });
+      await new ProviderReviewExecutionHost().dispatchReviewerPrompt(
+        provider, 'review this', '/repo', new AbortController().signal,
+      );
+      if (!captured) throw new Error('createAdapter was not called');
+      return captured;
+    }
+
+    it('Claude reviewer gets readOnlyReview and maxTurns', async () => {
+      const options = await spawnOptionsFor('claude');
+      expect(options).toMatchObject({
+        workingDirectory: '/repo',
+        yoloMode: false,
+        readOnlyReview: true,
+        maxTurns: CLAUDE_REVIEWER_MAX_TURNS,
+        maxBudgetUsd: 1,
+      });
+    });
+
+    it('a non-Claude reviewer gets neither readOnlyReview nor the Claude turn cap', async () => {
+      const options = await spawnOptionsFor('codex');
+      expect(options['yoloMode']).toBe(false);
+      expect(options).not.toHaveProperty('readOnlyReview');
+      expect(options).not.toHaveProperty('maxTurns');
+      expect(options).not.toHaveProperty('maxBudgetUsd');
+    });
+  });
+
   it('routes an exhausted Antigravity Gemini override to Sonnet', async () => {
     hostTestState.modelByProvider = { antigravity: 'Gemini 3.8 Flash (Medium)' };
     hostTestState.quotaSnapshot = {
@@ -270,5 +309,39 @@ describe('ProviderReviewExecutionHost', () => {
     );
 
     expect(capturedModel).toBe('Claude Sonnet 5.5 (Medium)');
+  });
+});
+
+describe('sendAbortableReviewerMessage usage ownership', () => {
+  it('acknowledges cancellation immediately and records late native usage once after termination', async () => {
+    vi.stubEnv('AIO_COST_ATTRIBUTION', '0');
+    const abort = new AbortController();
+    const rows: CostAttributionRecord[] = [];
+    const unsubscribe = subscribeCostAttribution(row => rows.push(row));
+    let rejectSend!: (error: Error) => void;
+    const sent = new Promise<never>((_resolve, reject) => { rejectSend = reject; });
+    const adapter = Object.assign(new EventEmitter(), {
+      sendMessage: () => sent,
+      terminate: async () => {
+        adapter.emit('usage', { inputTokens: 100, outputTokens: 10, cost: 0.25 });
+        rejectSend(new Error('closed after cancellation'));
+      },
+    });
+
+    try {
+      const pending = sendAbortableReviewerMessage(adapter, { role: 'user', content: 'review' },
+        abort.signal, undefined,
+        { purpose: 'cross-model-review', provider: 'claude', model: 'claude-sonnet-4-6-20260401' });
+      abort.abort();
+      await expect(pending).rejects.toThrow('Review cancelled');
+      await vi.waitFor(() => expect(rows).toHaveLength(1));
+      expect(rows[0]).toMatchObject({ outcome: 'cancelled', costSource: 'provider',
+        costKnown: true, usage: { inputTokens: 100, outputTokens: 10, cost: 0.25 } });
+      expect(adapter.listenerCount('usage')).toBe(0);
+      expect(adapter.listenerCount('complete')).toBe(0);
+    } finally {
+      unsubscribe();
+      vi.unstubAllEnvs();
+    }
   });
 });

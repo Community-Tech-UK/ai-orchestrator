@@ -114,6 +114,7 @@ import { handleInstanceAdapterError } from './instance-adapter-error-handler';
 import { createInstanceAdapterInputDispatch, createInstanceInputReceipt } from './instance-adapter-input-dispatch';
 import { buildSpawnStallNotice } from './stall-notices';
 import { bindInstanceAcpHistoryReplay } from './instance-acp-history-replay';
+import { getHarnessGuidance } from '../orchestration/harness-guidance';
 import { assertGlobalPauseInputCurrent, runWithGlobalPauseInput, waitForGlobalPauseInput } from '../global-pause/global-pause-input';
 import { isAdapterStopping } from '../providers/adapter-stop-state';
 import { InstanceQueuedInputHandoff, transitionQueuedAdapterStatus } from './instance-queued-input-handoff';
@@ -335,8 +336,9 @@ export class InstanceCommunicationManager extends EventEmitter {
    * turn-complete path.
    */
   private recordCompletionCost(instanceId: string, instance: Instance, response: CliResponse, identity?: CompletionCostIdentity): void {
-    recordCompletionCostImpl(instanceId, instance, response, () => this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage), identity);
-    this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
+    const publish = (): void => this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
+    // A completion whose usage is still settling publishes once it is booked, not before.
+    if (recordCompletionCostImpl(instanceId, instance, response, publish, identity)) publish();
   }
 
   /**
@@ -613,7 +615,7 @@ export class InstanceCommunicationManager extends EventEmitter {
     message: string,
     attachments?: FileAttachment[],
     contextBlock?: string | null,
-    options?: Pick<InstanceSendInputOptions, 'autoContinuation' | 'automatedInput' | 'queuedAdmissionId' | 'signal' | 'beforeProviderDispatch' | 'assertProviderDispatchCurrent' | 'internalSource' | 'providerNativeCommandId' | 'crossSessionSourceId'>,
+    options?: Pick<InstanceSendInputOptions, 'autoContinuation' | 'automatedInput' | 'queuedAdmissionId' | 'signal' | 'beforeProviderDispatch' | 'onProviderInputDelivered' | 'assertProviderDispatchCurrent' | 'internalSource' | 'providerNativeCommandId' | 'crossSessionSourceId'>,
   ): Promise<void> {
     await waitForGlobalPauseInput(instanceId, options);
     throwIfInstanceInputAborted(options?.signal);
@@ -867,7 +869,7 @@ export class InstanceCommunicationManager extends EventEmitter {
     await waitForGlobalPauseInput(instanceId, options);
     logger.info('Sending message to adapter');
     // Observe admitted sends; commit context and watchdog state only while dispatch remains eligible.
-    const receipt = createInstanceInputReceipt(instanceId, () => ({ message: finalMessage, attachments, contextBlock: finalContextBlock }), options?.queuedAdmissionId);
+    const receipt = createInstanceInputReceipt(instanceId, () => ({ message: finalMessage, attachments, contextBlock: finalContextBlock }), options?.queuedAdmissionId, () => { if (committed) options?.onProviderInputDelivered?.(); });
     let committed = false;
     const deferredDispatch = (adapter instanceof BaseCliAdapter || adapter instanceof RemoteCliAdapter) && Boolean(options?.queuedAdmissionId || options?.signal || options?.beforeProviderDispatch || options?.assertProviderDispatchCurrent || isAutomaticInstanceInput(options));
     const commitDispatch = (): void => {
@@ -1226,8 +1228,10 @@ export class InstanceCommunicationManager extends EventEmitter {
         const cliSessionId = adapter.getSessionId();
         if (cliSessionId && cliSessionId !== instance.providerSessionId) {
           const previousSessionId = instance.sessionId;
+          const previousProviderSessionId = instance.providerSessionId;
           instance.providerSessionId = cliSessionId;
           instance.sessionId = cliSessionId;
+          getHarnessGuidance().adoptProviderSessionId(instance, previousProviderSessionId, cliSessionId);
           this.inputFailureScopes.adoptSessionId(instanceId, adapter, previousSessionId, cliSessionId);
           if (previousSessionId !== cliSessionId) {
             getTodoManager().copyTodos(previousSessionId, cliSessionId);
@@ -1336,18 +1340,19 @@ export class InstanceCommunicationManager extends EventEmitter {
             if (this.deps.compactContext) {
               ticket.release();
               try {
-                await this.deps.compactContext(instanceId);
+                const outcome = await this.deps.compactContext(instanceId);
                 this.resetCircuitBreaker(instanceId);
-
-                const recoveryMessage: OutputMessage = {
-                  id: generateId(),
-                  timestamp: Date.now(),
-                  type: 'system',
-                  content: 'Context compacted. You can continue the conversation.',
-                  metadata: { circuitBreakerRecovered: true }
-                };
-                this.addToOutputBuffer(instance, recoveryMessage);
-                this.emit('output', { instanceId, message: recoveryMessage });
+                if (outcome?.method === 'native' || outcome?.method === 'restart-with-summary') {
+                  const recoveryMessage: OutputMessage = {
+                    id: generateId(),
+                    timestamp: Date.now(),
+                    type: 'system',
+                    content: 'Context compacted. You can continue the conversation.',
+                    metadata: { circuitBreakerRecovered: true }
+                  };
+                  this.addToOutputBuffer(instance, recoveryMessage);
+                  this.emit('output', { instanceId, message: recoveryMessage });
+                }
               } catch (compactErr) {
                 logger.error('Compaction failed during circuit breaker recovery', undefined, { instanceId, ...errorDiagnostic(compactErr) });
               }
@@ -1419,7 +1424,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           }
         }
 
-        this.addToOutputBuffer(instance, message, { countAsProcessOutput: true });
+        this.addToOutputBuffer(instance, message, { countAsProcessOutput: true, emitStreamingUpdate: false });
         this.emit('output', {
           instanceId,
           message,
@@ -2303,7 +2308,7 @@ export class InstanceCommunicationManager extends EventEmitter {
   addToOutputBuffer(
     instance: Instance,
     message: OutputMessage,
-    options?: { countAsProcessOutput?: boolean }
+    options?: { countAsProcessOutput?: boolean; emitStreamingUpdate?: boolean }
   ): void {
     message = redactRecoveryOutputMessage(instance, message);
     // A watchdog's own "this looks stuck" notice is not the process making
@@ -2370,9 +2375,9 @@ export class InstanceCommunicationManager extends EventEmitter {
             : previous.thinking,
           thinkingExtracted: message.thinkingExtracted ?? previous.thinkingExtracted,
         };
-        this.emit('output', {
-          instanceId: instance.id,
-          message: instance.outputBuffer[existingIndex]
+        // Adapter output publishes once, with raw provenance, after the buffer update.
+        if (options?.emitStreamingUpdate !== false) this.emit('output', {
+          instanceId: instance.id, message: instance.outputBuffer[existingIndex]
         });
         return;
       }

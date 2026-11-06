@@ -27,7 +27,8 @@ const STATE_LABELS: Record<LocalAiAggregateStatus['state'], string> = {
         data-testid="local-ai-status-chip"
         [attr.data-state]="!store.hasAuthoritativeSnapshot()
           ? 'unavailable'
-          : store.helperPauses().length > 0
+          : store.helperPauses().length > 0 || (store.helperBudget()
+            && ['healthy', 'not-configured'].includes(store.aggregate().state))
           ? 'degraded'
           : store.aggregate().state === 'not-configured'
           ? 'neutral'
@@ -119,6 +120,11 @@ export class LocalAiStatusChipComponent {
       && this.store.aggregate().state === 'healthy'));
 
   protected readonly stateLabel = computed(() => {
+    const health = this.healthLabel();
+    return this.store.hasAuthoritativeSnapshot() && this.store.helperBudget()
+      ? `${health} · helper daily limit reached` : health;
+  });
+  private readonly healthLabel = computed(() => {
     if (!this.store.hasAuthoritativeSnapshot()) return 'Status unavailable';
     const pauses = this.store.helperPauses();
     if (pauses.length) return `helpers paused until ${this.formatRetry(Math.min(...pauses.map(pause => pause.pausedUntil)))}`;
@@ -148,11 +154,16 @@ export class LocalAiStatusChipComponent {
     if (!this.store.hasAuthoritativeSnapshot()) {
       return 'Local AI Guard: Status unavailable. Open Local AI health centre.';
     }
+    const budget = this.store.helperBudget()
+      ? ' Helper models: daily limit reached. Paid fallbacks resume tomorrow.' : '';
     const pauses = this.store.helperPauses();
-    if (pauses.length) return `Local AI: ${this.stateLabel()}. ${pauses.map(pause => `${pause.slot}: ${pause.reason}`).join('; ')}. Open Local AI health centre.`;
+    if (pauses.length > 0) {
+      const reasons = pauses.map((pause) => `${pause.slot}: ${pause.reason}`).join('; ');
+      return `Local AI: ${this.stateLabel()}. ${reasons}.${budget} Open Local AI health centre.`;
+    }
     const aggregate = this.store.aggregate();
     const targetNoun = aggregate.enrolled === 1 ? 'target' : 'targets';
-    return `Local AI Guard: ${this.stateLabel()}. ${aggregate.enrolled} enrolled ${targetNoun}. Open Local AI health centre.`;
+    return `Local AI Guard: ${this.stateLabel()}. ${aggregate.enrolled} enrolled ${targetNoun}.${budget} Open Local AI health centre.`;
   });
 
   protected openHealthCentre(): void {

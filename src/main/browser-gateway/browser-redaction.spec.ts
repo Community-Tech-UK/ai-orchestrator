@@ -1,4 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { _setToolOutputDirForTesting } from '../util/tool-output-truncation';
 import { boundBrowserText, redactBrowserText, redactBrowserUrl, redactHeaders } from './browser-redaction';
 
 describe('browser-redaction', () => {
@@ -61,12 +65,39 @@ describe('boundBrowserText (WS11.1 page-text spillover cap)', () => {
   });
 
   it('caps an oversized synthetic page with a spillover reference instead of silently dropping text', () => {
-    // ~40k lines / ~400 KB — far over the 2000-line / 51 KB preview caps.
-    const hugePage = Array.from({ length: 40_000 }, (_, i) => `line-${i} content`).join('\n');
-    const bounded = boundBrowserText(hugePage);
-    expect(bounded.length).toBeLessThan(hugePage.length);
-    expect(bounded).toContain('line-0 content'); // head preserved
-    expect(bounded).toContain('[Output truncated'); // spill marker present
-    expect(bounded).not.toContain('line-39999'); // tail actually cut from preview
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aio-page-spill-'));
+    _setToolOutputDirForTesting(dir);
+    try {
+      // ~40k lines / ~400 KB — far over the 2000-line / 51 KB preview caps.
+      const hugePage = Array.from({ length: 40_000 }, (_, i) => `line-${i} content`).join('\n');
+      const bounded = boundBrowserText(hugePage);
+      expect(bounded.length).toBeLessThan(hugePage.length);
+      expect(bounded).toContain('line-0 content'); // head preserved
+      expect(bounded).toContain('[Output truncated'); // spill marker present
+      expect(bounded).not.toContain('line-39999'); // tail actually cut from preview
+    } finally {
+      _setToolOutputDirForTesting(null);
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps the page preview within 12 KB and spills only redacted text', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aio-page-cap-'));
+    _setToolOutputDirForTesting(dir);
+    try {
+      const bounded = boundBrowserText(`password: placeholder\n${'x'.repeat(40_000)}`);
+      expect(Buffer.byteLength(bounded.split('\n\n[Output truncated')[0])).toBeLessThanOrEqual(12_000);
+      expect(bounded).toContain('password: [REDACTED]');
+      expect(bounded).not.toContain('placeholder');
+      const file = fs.readdirSync(dir)[0];
+      expect(file).toBeDefined();
+      const spill = fs.readFileSync(path.join(dir, file), 'utf8');
+      expect(spill).toContain('password: [REDACTED]');
+      expect(spill).not.toContain('placeholder');
+      expect(spill.length).toBeGreaterThan(12_000);
+    } finally {
+      _setToolOutputDirForTesting(null);
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

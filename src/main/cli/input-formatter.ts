@@ -161,13 +161,17 @@ export class InputFormatter {
    * @param subtype - control request subtype, e.g. `'interrupt'`
    * @param requestId - correlation id echoed back in the `control_response`
    */
-  async sendControlRequest(subtype: string, requestId: string): Promise<void> {
+  async sendControlRequest(subtype: string, requestId: string, fields: Record<string, unknown> = {}): Promise<void> {
     logger.debug('sendControlRequest called', { subtype, requestId });
     await this.writeToStdin({
       type: 'control_request',
       request_id: requestId,
-      request: { subtype },
+      request: { subtype, ...fields },
     });
+  }
+
+  async sendCancelControlRequest(requestId: string): Promise<void> {
+    await this.writeToStdin({ type: 'control_cancel_request', request_id: requestId });
   }
 
   /**

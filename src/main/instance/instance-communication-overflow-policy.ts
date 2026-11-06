@@ -9,13 +9,14 @@ import type { FileAttachment, Instance, InstanceStatus, OutputMessage } from '..
 import type { InstanceCommunicationOverflowTracker, LastSentTurn } from './instance-communication-overflow-tracker';
 import { transitionQueuedAdapterStatus } from './instance-queued-input-handoff';
 import { captureInstanceRecoveryEpoch, invalidateInstanceRecoveryEpoch, isInstanceRecoveryEpochCurrent, recordInstanceTurnEnding } from './instance-turn-ending-state';
+import type { OverflowCompactionOutcome, OverflowResumeTurn } from './overflow-compaction-route';
 
 const logger = getLogger('InstanceCommunication');
 
 const OVERFLOW_STOP_NOTICE = 'The context is still too long after recovery. Work is preserved. Shorten the next request before trying again.';
 
 export interface OverflowPolicyHost {
-  getCompactContext(): ((instanceId: string) => Promise<void>) | undefined;
+  getCompactContext(): ((instanceId: string, resumeTurn?: OverflowResumeTurn) => Promise<OverflowCompactionOutcome | void>) | undefined;
   addToOutputBuffer(instance: Instance, message: OutputMessage): void;
   emitOutput(instanceId: string, message: OutputMessage): void;
   transitionInstanceStatus(instance: Instance, status: InstanceStatus): void;
@@ -137,10 +138,13 @@ export class InstanceCommunicationOverflowPolicy {
     this.host.addToOutputBuffer(opts.instance, compactingMessage);
     this.host.emitOutput(opts.instanceId, compactingMessage);
     try {
-      await compactContext(opts.instanceId);
       if (!current()) return true;
-      this.host.resetCircuitBreaker(opts.instanceId);
-      this.tracker.clearWarning(opts.instanceId);
+      const outcome = await compactContext(opts.instanceId);
+      if (!current()) return true;
+      if (!outcome || outcome.method !== 'buffers-only') {
+        this.host.resetCircuitBreaker(opts.instanceId);
+        this.tracker.clearWarning(opts.instanceId);
+      }
       return true;
     } catch (compactErr) {
       if (!current()) return true;
@@ -171,7 +175,11 @@ export class InstanceCommunicationOverflowPolicy {
     const compactContext = this.host.getCompactContext();
     if (!compactContext) return false;
 
+    // A late rejection must not adopt the epoch created by Stop or a newer input.
+    if (opts.dispatch?.isRecoveryCurrent?.() === false) return true;
+
     const sendInputPath = opts.path === 'sendInput';
+    const epoch = captureInstanceRecoveryEpoch(opts.instanceId);
     const current = this.recoveryFence(opts.instanceId, opts.instance);
     if (!current()) return true;
     recordInstanceTurnEnding(opts.instanceId, 'context_overflow');
@@ -184,11 +192,51 @@ export class InstanceCommunicationOverflowPolicy {
     this.logOverflowAttempt(opts.instanceId, opts.tokenSource, opts.path, opts.extraFields);
     this.emitCompacting(opts.instance, opts.instanceId);
 
+    const assertOwner = (): void => {
+      if (isInstanceRecoveryEpochCurrent(opts.instanceId, epoch) && !opts.dispatch?.signal?.aborted) return;
+      const error = new Error('Overflow recovery no longer owns the original request');
+      error.name = 'AbortError';
+      throw error;
+    };
+    const assertProviderDispatchCurrent = (): void => {
+      assertOwner();
+      opts.dispatch?.assertLogicalCurrent?.('context-overflow');
+      assertOwner();
+    };
     try {
-      await compactContext(opts.instanceId);
+      const resumeTurn = opts.retryTurn ? {
+        text: buildOverflowRetryMessage(opts.retryTurn, opts.finalMessage),
+        attachments: opts.retryTurn.attachments,
+        internalSource: opts.retryTurn.internalSource,
+        recoveryOwner: {
+          signal: opts.dispatch?.signal,
+          assertCurrent: assertOwner,
+          assertBeforeRestart: () => {
+            assertProviderDispatchCurrent();
+            if (!current()) {
+              const error = new Error('Overflow recovery provider changed before restart');
+              error.name = 'AbortError';
+              throw error;
+            }
+          },
+          assertProviderDispatchCurrent,
+        },
+      } : undefined;
       if (!current()) return true;
+      const outcome = await compactContext(opts.instanceId, resumeTurn);
+      if (outcome && outcome.method === 'restart-with-summary' && outcome.resumeDelivered) {
+        this.tracker.markRetried(opts.instanceId);
+        this.tracker.clearWarning(opts.instanceId);
+        opts.onRetryDelivered?.();
+        return true;
+      }
+      if (!current()) return true;
+      // Typed outcomes carry the logical owner through the real overflow route.
+      // Legacy void hooks retain their existing retry-phase eligibility check.
+      if (outcome) assertProviderDispatchCurrent();
+      const contextCompacted = outcome?.method === 'native' || outcome?.method === 'restart-with-summary';
       logger.info(
-        sendInputPath ? 'Context compaction completed (sendInput path)' : 'Context compaction completed',
+        sendInputPath ? 'Context recovery handler returned (sendInput path)' : 'Context recovery handler returned',
         { instanceId: opts.instanceId },
       );
       this.tracker.clearWarning(opts.instanceId);
@@ -202,8 +250,8 @@ export class InstanceCommunicationOverflowPolicy {
           id: generateId(),
           timestamp: Date.now(),
           type: 'system',
-          content: 'Context compacted. Retrying the original request once.',
-          metadata: { contextCompacted: true, retrying: true },
+          content: `${contextCompacted ? 'Context compacted. ' : ''}Retrying the original request once.`,
+          metadata: { ...(contextCompacted ? { contextCompacted: true } : {}), retrying: true },
         };
         this.host.addToOutputBuffer(opts.instance, retryNote);
         this.host.emitOutput(opts.instanceId, retryNote);
@@ -260,7 +308,7 @@ export class InstanceCommunicationOverflowPolicy {
         this.goIdle(
           opts.instance,
           opts.instanceId,
-          'Context compacted. Work is preserved. Send a shorter request to resume.',
+          `${contextCompacted ? 'Context compacted. ' : ''}Work is preserved. Send a shorter request to resume.`,
         );
         return true;
       }

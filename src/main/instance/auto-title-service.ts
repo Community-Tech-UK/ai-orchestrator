@@ -78,6 +78,8 @@ const MAX_GENERATED_TITLE_LENGTH = 80;
 
 /** Provider preference order for title generation (fastest first) */
 const FAST_PROVIDER_PREFERENCE = ['antigravity', 'claude', 'codex'] as const;
+/** A new CLI consumed roughly 35.8K tokens to produce an 80-character label. */
+export const TITLE_CLI_SPAWN_ENABLED = false;
 
 /**
  * Derive a short title from the raw first user message.
@@ -198,6 +200,17 @@ export class AutoTitleService {
 
   /** Instance IDs that have already been auto-titled (or are in-flight) */
   private processed = new Set<string>();
+  private liveTitleSource?: (instanceId: string, description: string) => Promise<string | null>;
+  private cliSpawnEnabled = TITLE_CLI_SPAWN_ENABLED;
+  /** Instances (or `''` for callers with none) already told the upgrade was skipped. */
+  private skipLogged = new Set<string>();
+
+  setLiveTitleSource(source: (instanceId: string, description: string) => Promise<string | null>): void {
+    this.liveTitleSource = source;
+  }
+
+  /** Keeps the old escalation path testable without enabling it in production. */
+  setCliSpawnEnabledForTesting(enabled: boolean): void { this.cliSpawnEnabled = enabled; }
 
   // eslint-disable-next-line @typescript-eslint/no-empty-function
   private constructor() {}
@@ -257,7 +270,7 @@ export class AutoTitleService {
     // Phase 2: Upgrade with an AI-generated title via the fastest available CLI
     // (Haiku tier). Non-critical — on any failure the instant title remains.
     try {
-      const title = await this.generateTitle(message, attachmentNames);
+      const title = await this.generateTitle(message, attachmentNames, instanceId);
       if (!this.processed.has(instanceId)) return;
       if (title) {
         applyTitle(instanceId, title, 'ai');
@@ -338,6 +351,7 @@ export class AutoTitleService {
   async generateTitle(
     text: string,
     attachmentNames: readonly string[] = [],
+    instanceId?: string,
   ): Promise<string | null> {
     // A loop started with attachments prepends an injected "Attached files …"
     // block. Strip it so the model summarizes the real prompt, and fold the
@@ -383,7 +397,12 @@ export class AutoTitleService {
           outputLength: auxTitle?.length ?? 0,
         });
       }
-      if (!auxDecision.allowFrontierFallback) {
+      // A helper back-off turns `allowFrontierFallback` off to stop paid title
+      // spawns (plan 7f). The live title asks the session's own Claude, so a
+      // pause alone must not stop it; the slot's own setting still does.
+      const liveTitleAllowed = auxDecision.allowFrontierFallback
+        || (auxDecision.pausedUntil !== undefined && getAuxiliaryLlmService().slotAllowsFrontier('titleGeneration'));
+      if (!liveTitleAllowed) {
         // Nothing else may run: the local model failed (or was never reachable)
         // and this slot is not allowed to escalate. The instant first-message
         // title is what the session keeps. Logged because this used to be a
@@ -398,6 +417,22 @@ export class AutoTitleService {
       }
       fallbackDecision = auxDecision;
     } catch {
+      return null;
+    }
+
+    if (instanceId && this.liveTitleSource) {
+      const liveTitle = await this.liveTitleSource(instanceId, modelMessage).catch(() => null);
+      // The resident-session ledger row is recorded by `requestLiveTitle`, only
+      // when a request was actually made.
+      const cleaned = finalizeDocumentTitle(liveTitle, modelMessage, labels, documentSubject);
+      if (cleaned) return cleaned;
+    }
+    if (!this.cliSpawnEnabled) {
+      const key = instanceId ?? '';
+      if (!this.skipLogged.has(key)) {
+        this.skipLogged.add(key);
+        logger.info('AI title upgrade skipped: no live session and spawning a new CLI for a label is switched off', { instanceId });
+      }
       return null;
     }
 
@@ -506,6 +541,7 @@ export class AutoTitleService {
    */
   clearInstance(instanceId: string): void {
     this.processed.delete(instanceId);
+    this.skipLogged.delete(instanceId);
   }
 }
 

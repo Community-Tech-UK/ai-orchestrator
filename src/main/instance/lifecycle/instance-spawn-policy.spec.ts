@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { applyInstanceSpawnPolicy } from './instance-spawn-policy';
+import { _setOutputCapSettingsReaderForTesting } from '../../cli/adapters/claude-output-caps';
+import { resolveTrialArm } from '../../cli/adapters/codex/codex-thread-policy';
 describe('machine session spawn policy',()=>{
   it('keeps explicit semantic identity separate from experiment grouping', () => {
     const instance = { id: 'instance-placeholder', depth: 1, parentId: 'parent-placeholder', metadata: { planQueueRunId: 'run-placeholder', planQueueItemId: 'item-placeholder' } };
@@ -20,6 +22,7 @@ describe('machine session spawn policy',()=>{
     expect(applyInstanceSpawnPolicy('codex', { id: 'coordinator-placeholder', depth: 0, parentId: null, metadata: { planQueueRunId: 'run-placeholder', planQueueRole: 'coordinator' } }, {}))
       .toMatchObject({ jobId: 'run-placeholder', sessionKind: 'plan-queue' });
   });
+  afterEach(() => _setOutputCapSettingsReaderForTesting(null));
   it.each([{}, { resume: true }, { forkSession: true, resume: true }])('binds every tracked OpenCode spawn to its main-instance checkpoint (%j)', (settings) => {
     const instance = { id: 'main-placeholder', depth: 0, parentId: null, metadata: {} };
     const options = applyInstanceSpawnPolicy('opencode', instance, { ...settings, sessionId: 'transport-placeholder' });
@@ -44,5 +47,37 @@ describe('machine session spawn policy',()=>{
   it('preserves explicit tags and durability for root Codex chats',()=>{
     expect(applyInstanceSpawnPolicy('codex',{depth:0,parentId:null,metadata:{},id:'chat'},{})).toMatchObject({ephemeral:false,sessionKind:'chat'});
     expect(applyInstanceSpawnPolicy('codex',undefined,{machineSession:'review',sessionKind:'review',trialKey:'caller'})).toMatchObject({machineSession:'review',sessionKind:'review',trialKey:'caller'});
+  });
+  it('carries the raw trial key and its source across all provider spawns', () => {
+    const queue = { depth: 1, parentId: 'parent', metadata: { planQueueRunId: 'run', planQueueItemId: 'item' }, id: 'worker' };
+    expect(applyInstanceSpawnPolicy('codex', queue, {})).toMatchObject({ trialKey: 'item', trialKeySource: 'plan-queue-item' });
+    expect(applyInstanceSpawnPolicy('claude', queue, { trialKey: 'explicit' })).toMatchObject({ trialKey: 'explicit' });
+    expect(applyInstanceSpawnPolicy('claude', queue, { trialKey: 'explicit' }).trialKeySource).toBeUndefined();
+  });
+  it.each([['item-a', 'off'], ['item-d', 'full']] as const)(
+    'keeps worker and verifier rounds in the %s item\'s %s trial group', (itemId, expectedArm) => {
+      const rounds = [
+        { id: 'worker-round-1', parentId: 'worker-parent-1', role: 'worker' },
+        { id: 'verifier-round-1', parentId: 'verifier-parent-1', role: 'verifier' },
+        { id: 'worker-round-2', parentId: 'worker-parent-2', role: 'worker' },
+      ];
+      for (const round of rounds) {
+        const options = applyInstanceSpawnPolicy('codex', {
+          id: round.id, parentId: round.parentId, depth: 1,
+          metadata: { planQueueRunId: 'queue-run', planQueueItemId: itemId, planQueueRole: round.role },
+        }, {});
+        expect(options).toMatchObject({
+          sessionKind: 'plan-queue', trialKey: itemId, trialKeySource: 'plan-queue-item',
+        });
+        expect(resolveTrialArm(options.trialKey, 'trial', true)).toBe(expectedArm);
+      }
+    },
+  );
+  it('uses the configured Claude output cap and preserves explicit spawn overrides', () => {
+    _setOutputCapSettingsReaderForTesting((key) => key === 'claudeBashOutputMaxChars' ? 12_000 : undefined);
+    const chat = { depth: 0, parentId: null, metadata: {}, id: 'chat' };
+    expect(applyInstanceSpawnPolicy('claude', chat, {}).bashOutputMaxChars).toBe(12_000);
+    expect(applyInstanceSpawnPolicy('claude', chat, { bashOutputMaxChars: 0 }).bashOutputMaxChars).toBe(0);
+    expect(applyInstanceSpawnPolicy('codex', chat, {}).bashOutputMaxChars).toBeUndefined();
   });
 });

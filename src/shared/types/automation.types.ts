@@ -6,6 +6,7 @@ export type AutomationMissedRunPolicy = 'skip' | 'notify' | 'runOnce';
 export type AutomationConcurrencyPolicy = 'skip' | 'queue';
 export type AutomationTrigger = 'scheduled' | 'catchUp' | 'manual' | 'webhook' | 'channel' | 'providerRuntime' | 'orchestrationEvent';
 export type AutomationRunStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'cancelled';
+export type AutomationRunOutcome = 'no-change' | 'changed' | 'first-check' | 'check-failed' | 'quiet';
 export type AutomationReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra' | 'workflow';
 export type AutomationDeliveryMode = 'notify' | 'silent' | 'localOnly';
 
@@ -109,6 +110,12 @@ export interface AutomationAuthorityScope {
   automationAuthority?: Readonly<AutomationExecutionAuthority>;
 }
 
+/** Only the Automations page may configure commands that run before a scheduled AI job. */
+export interface AutomationPreCheck {
+  command: string;
+  onError?: 'run-anyway' | 'stop';
+}
+
 export interface AutomationAction {
   executionAuthority?: Readonly<AutomationExecutionAuthority>;
   maxRunMinutes?: number;
@@ -139,6 +146,7 @@ export interface AutomationAction {
    * rather than an unstated implementation detail.
    */
   containedFallback?: 'fail';
+  preCheck?: AutomationPreCheck;
   systemAction?:
     | {
         type: 'loopProviderLimitResume';
@@ -265,6 +273,8 @@ export interface AutomationRun {
   startedAt: number | null;
   finishedAt: number | null;
   instanceId: string | null;
+  /** Thread send evidence: true delivered, false tracked/no send, null/absent unconfirmed (including historical rows). */
+  threadPromptDelivered?: boolean | null;
   /** WS5: the loop run this automation run spawned (loop actions only). */
   loopRunId: string | null;
   error: string | null;
@@ -277,10 +287,19 @@ export interface AutomationRun {
   createdAt: number;
   updatedAt: number;
   configSnapshot: AutomationConfigSnapshot | null;
+  /** Additional result for checked or quiet runs; absent on older rows. */
+  outcome?: AutomationRunOutcome | null;
   /** 1-based attempt number; 1 = first try, 2 = first retry, etc. */
   attempt: number;
   /** Maximum number of attempts allowed (including the first try). */
   maxAttempts: number;
+}
+
+/** Delivery evidence may arrive after a run is terminal; it is not a new unread result. */
+export interface AutomationRunChangedEvent {
+  automationId: string;
+  run: AutomationRun;
+  updateKind?: 'delivery-evidence';
 }
 
 export interface CreateAutomationInput {

@@ -4,6 +4,8 @@
  */
 
 export { registerInstanceHandlers } from './instance-handlers';
+export { registerInstanceQuickAskHandlers } from './instance-quick-ask-handlers';
+export { registerPlanHandoffHandlers } from './plan-handoff-handlers';
 export { registerSettingsHandlers } from './settings-handlers';
 export { registerInstructionHandlers } from './instruction-handlers';
 export { registerSessionHandlers } from './session-handlers';

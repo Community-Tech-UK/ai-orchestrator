@@ -56,6 +56,8 @@ const MANIFEST_BLOCK_LABELS: Record<ContextManifestBlockKind, string> = {
   'wake-context': 'Wake context',
   'mcp-tool-context': 'MCP tool context',
   'tool-permissions': 'Tool permissions',
+  'claude-helper-rules': 'Helper agent rules',
+  'harness-guide': 'Harness guide',
   'adapter-browser-gateway': 'Browser Gateway adapter',
   'adapter-chrome-devtools': 'Chrome DevTools adapter',
   'adapter-mobile-mcp': 'Mobile MCP adapter',

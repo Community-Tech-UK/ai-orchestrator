@@ -8,7 +8,9 @@ import {
 } from '../../shared/types/local-ai-guard.types';
 import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
 import { WorkerNodeRegistry } from '../remote-node/worker-node-registry';
+import { AuxiliarySlotBackoff } from '../rlm/auxiliary-slot-backoff';
 import { LocalAiActivityRegistry } from './local-ai-activity-registry';
+import { getLocalAiAuxiliaryHooks, installLocalAiAuxiliaryRuntimeHooks } from './local-ai-auxiliary-bridge';
 import { LocalAiHealthScheduler } from './local-ai-health-scheduler';
 import {
   _resetLocalAiGuardRuntimeForTesting,
@@ -17,6 +19,11 @@ import {
   LocalAiGuardRuntime,
   notifyFallbackInto,
 } from './local-ai-runtime';
+
+const helperNotices = vi.hoisted(() => ({ notify: vi.fn() }));
+vi.mock('../notifications/notification-service', () => ({
+  getNotificationService: () => helperNotices,
+}));
 
 function services(
   scheduler: Record<string, unknown>,
@@ -625,4 +632,94 @@ describe('LT-189: notify-and-allow fallback notifications', () => {
       expect(current.fallbackNotifications).toEqual([routingEvent('event-2')]);
     });
   });
+});
+
+describe('helper pause publication', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    helperNotices.notify.mockClear();
+  });
+
+  afterEach(() => vi.useRealTimers());
+
+  it('publishes a pause through the auxiliary bridge and expires it at the retry deadline', async () => {
+    const runtime = new LocalAiGuardRuntime(services(
+      schedulerDouble(), { dispose: vi.fn() }, { subscribe: () => () => undefined },
+    ));
+    const uninstall = installLocalAiAuxiliaryRuntimeHooks(runtime);
+    const backoff = new AuxiliarySlotBackoff(Date.now, (pauses, transition) =>
+      getLocalAiAuxiliaryHooks().helperBackoffChanged?.(pauses, transition));
+    const revisions: string[] = [];
+    runtime.subscribe(() => revisions.push(runtime.revision));
+    try {
+      backoff.recordFailure('compression');
+      backoff.recordFailure('compression');
+      expect(runtime.helperPauses).toMatchObject([{
+        slot: 'compression', failures: 2, pausedUntil: 61_000,
+      }]);
+      expect(helperNotices.notify).toHaveBeenCalledWith(expect.objectContaining({
+        kind: 'local-ai-helper-paused',
+        fingerprintFields: { slot: 'compression', startedAt: 1_000 },
+      }));
+      expect(revisions).toEqual(['1']);
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(runtime.helperPauses).toEqual([]);
+      expect(runtime.revision).toBe('2');
+      expect(revisions).toEqual(['1', '2']);
+      expect(helperNotices.notify).toHaveBeenCalledTimes(1);
+      expect(backoff.active('compression')).toBeUndefined();
+    } finally {
+      uninstall();
+      runtime.dispose();
+    }
+  });
+
+  it('makes manual retry eligible without claiming recovery, then notifies on success', () => {
+    const runtime = new LocalAiGuardRuntime(services(
+      schedulerDouble(), { dispose: vi.fn() }, { subscribe: () => () => undefined },
+    ));
+    const uninstall = installLocalAiAuxiliaryRuntimeHooks(runtime);
+    const backoff = new AuxiliarySlotBackoff(Date.now, (pauses, transition) =>
+      getLocalAiAuxiliaryHooks().helperBackoffChanged?.(pauses, transition));
+    try {
+      backoff.recordFailure('titleGeneration');
+      backoff.recordFailure('titleGeneration');
+      backoff.retryNow('titleGeneration');
+      expect(runtime.helperPauses).toEqual([]);
+      expect(helperNotices.notify).toHaveBeenCalledTimes(1);
+
+      backoff.recordSuccess('titleGeneration');
+      expect(helperNotices.notify).toHaveBeenCalledWith(expect.objectContaining({
+        kind: 'local-ai-helper-resumed',
+        fingerprintFields: { slot: 'titleGeneration', startedAt: 1_000 },
+      }));
+    } finally {
+      uninstall();
+      runtime.dispose();
+    }
+  });
+
+  it.each(['snapshot read', 'periodic refresh'] as const)(
+    'drops an expired pause during %s when its deadline timer did not run', (path) => {
+      const runtime = new LocalAiGuardRuntime(services(
+        schedulerDouble(), { dispose: vi.fn() }, { subscribe: () => () => undefined },
+      ));
+      runtime.recordHelperPauses([{
+        slot: 'compression', pausedUntil: 61_000, failures: 2,
+        startedAt: 1_000, reason: 'Paused after 2 failures',
+      }]);
+      const before = runtime.revision;
+
+      vi.setSystemTime(61_000);
+      if (path === 'snapshot read') void runtime.revision;
+      else runtime.notifyChanged();
+
+      expect(runtime.helperPauses).toEqual([]);
+      expect(runtime.revision).not.toBe(before);
+      expect(helperNotices.notify).not.toHaveBeenCalled();
+      runtime.dispose();
+    },
+  );
 });

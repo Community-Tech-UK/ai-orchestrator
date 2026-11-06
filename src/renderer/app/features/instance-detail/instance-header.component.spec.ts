@@ -1,7 +1,7 @@
+import { Component, signal, ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { By } from '@angular/platform-browser';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { KeybindingService } from '../../core/services/keybinding.service';
-import { ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -16,6 +16,11 @@ import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { CrossModelReviewIpcService } from '../../core/services/ipc/cross-model-review-ipc.service';
 import type { Instance } from '../../core/state/instance.store';
+import { InstanceListStore } from '../../core/state/instance/instance-list.store';
+import { InstanceStateService } from '../../core/state/instance/instance-state.service';
+import { IpcFacadeService } from '../../core/services/ipc';
+import { ProviderStateService } from '../../core/services/provider-state.service';
+import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
 import { HelpDrawerService } from '../../shared/help/help-drawer.service';
 import { InstanceStore } from '../../core/state/instance.store';
 import { SettingsStore } from '../../core/state/settings.store';
@@ -45,6 +50,15 @@ function instance(provider: Instance['provider']): Instance {
   } as Instance;
 }
 
+@Component({
+  standalone: true,
+  imports: [InstanceHeaderComponent],
+  template: '<app-instance-header [instance]="session()" [currentModel]="session().currentModel" [contextUsage]="session().contextUsage" />',
+})
+class BoundInstanceHeaderHostComponent {
+  readonly session = signal<Instance>(instance('claude'));
+}
+
 describe('InstanceHeaderComponent interrupt tooltip', () => {
   let fixture: ComponentFixture<InstanceHeaderComponent>;
   let showCost = true;
@@ -52,7 +66,7 @@ describe('InstanceHeaderComponent interrupt tooltip', () => {
   beforeEach(async () => {
     showCost = true;
     await TestBed.configureTestingModule({
-      imports: [InstanceHeaderComponent],
+      imports: [InstanceHeaderComponent, BoundInstanceHeaderHostComponent],
       providers: [
         { provide: KeybindingService, useValue: { formatBindingByAction: () => 'Escape', ariaShortcutsByAction: () => 'Escape' } },
         { provide: SettingsStore, useValue: { showCost: () => showCost, settings: () => ({}), update: vi.fn() } },
@@ -76,6 +90,10 @@ describe('InstanceHeaderComponent interrupt tooltip', () => {
           },
         },
         { provide: RemoteNodeStore, useValue: { nodeById: () => null } },
+        InstanceListStore,
+        InstanceStateService,
+        { provide: IpcFacadeService, useValue: {} },
+        { provide: ProviderStateService, useValue: {} },
         {
           provide: CrossModelReviewIpcService,
           useValue: {
@@ -136,6 +154,85 @@ describe('InstanceHeaderComponent interrupt tooltip', () => {
     fixture.detectChanges();
     expect(document.getElementById(mode.getAttribute('aria-describedby')!)?.textContent).toContain('Cannot change mode while the session is running or recovering');
     expect(fixture.nativeElement.querySelectorAll('[title]')).toHaveLength(0);
+  });
+
+  it('uses serialized resident Claude state for the bound model-switch note', () => {
+    const list = TestBed.inject(InstanceListStore);
+    const base = { ...instance('claude'), outputBuffer: [
+      { id: 'reply', type: 'assistant', content: 'Ready', timestamp: 1 },
+    ] };
+    fixture.componentRef.setInput('instance', list.deserializeInstance({ ...base, residentClaude: true }));
+    fixture.detectChanges();
+    const picker = fixture.debugElement.query(By.directive(CompactModelPickerComponent))
+      .componentInstance as CompactModelPickerComponent;
+    expect(picker.switchNoteForProvider()?.('claude')).toContain('including tool results');
+
+    fixture.componentRef.setInput('instance', list.deserializeInstance({ ...base, residentClaude: false }));
+    fixture.detectChanges();
+    expect(picker.switchNoteForProvider()?.('claude')).toContain('tool results and file contents are not carried over');
+  });
+
+  it('offers no switch note for a system-only buffer, since there is nothing to replay', () => {
+    const list = TestBed.inject(InstanceListStore);
+    const noteFor = (outputBuffer: unknown[]) => {
+      fixture.componentRef.setInput('instance', list.deserializeInstance({ ...instance('claude'), outputBuffer }));
+      fixture.detectChanges();
+      const picker = fixture.debugElement.query(By.directive(CompactModelPickerComponent))
+        .componentInstance as CompactModelPickerComponent;
+      return picker.switchNoteForProvider()?.('claude') ?? null;
+    };
+    expect(noteFor([])).toBeNull();
+    expect(noteFor([{ id: 'sys', type: 'system', content: 'Session started', timestamp: 1 }])).toBeNull();
+    expect(noteFor([
+      { id: 'sys', type: 'system', content: 'Session started', timestamp: 1 },
+      { id: 'u1', type: 'user', content: 'Hello', timestamp: 2 },
+    ])).toContain('tool results and file contents are not carried over');
+  });
+
+  it('binds replay wording for Gemini and local models while keeping Codex continuation', () => {
+    const list = TestBed.inject(InstanceListStore);
+    const note = (provider: Instance['provider'], local = false) => {
+      fixture.componentRef.setInput('instance', list.deserializeInstance({ ...instance(provider),
+        outputBuffer: [{ id: 'reply', type: 'assistant', content: 'Ready', timestamp: 1 }],
+        ...(local ? { runtimeSummary: { kind: 'local-model', label: 'Fixture local model' } } : {}),
+      }));
+      fixture.detectChanges();
+      const pickerElement = fixture.debugElement.query(By.directive(CompactModelPickerComponent));
+      if (local) {
+        expect(pickerElement).toBeNull(); // The header shows a local-model badge instead of the CLI picker.
+        return fixture.componentInstance.modelSwitchNoteForProvider('codex');
+      }
+      const picker = pickerElement.componentInstance as CompactModelPickerComponent;
+      return picker.switchNoteForProvider()?.(provider === 'gemini' ? 'gemini' : 'codex');
+    };
+    expect(note('gemini')).toContain('recent messages in shortened form');
+    expect(note('codex')).toContain('conversation continues');
+    expect(note('codex', true)).toContain('starts a new session');
+  });
+
+  it('updates the real header picker through a bound host for resident, remote, and nonresident Claude', () => {
+    fixture.destroy();
+    const host = TestBed.createComponent(BoundInstanceHeaderHostComponent);
+    const base = { ...instance('claude'), status: 'idle', outputBuffer: [
+      { id: 'reply', type: 'assistant', content: 'Ready', timestamp: 1 },
+    ] };
+    host.componentInstance.session.set({ ...base, residentClaude: true } as Instance);
+    host.detectChanges();
+
+    const picker = host.debugElement.query(By.directive(CompactModelPickerComponent))
+      .componentInstance as CompactModelPickerComponent;
+    expect(host.nativeElement.querySelector('.compact-picker__chip')).not.toBeNull();
+    expect(picker.switchNoteForProvider()?.('claude')).toContain('including tool results');
+
+    host.componentInstance.session.set({
+      ...base, residentClaude: true, executionLocation: { type: 'remote', nodeId: 'remote-1' },
+    } as Instance);
+    host.detectChanges();
+    expect(picker.switchNoteForProvider()?.('claude')).toContain('tool results and file contents are not carried over');
+
+    host.componentInstance.session.set({ ...base, residentClaude: false } as Instance);
+    host.detectChanges();
+    expect(picker.switchNoteForProvider()?.('claude')).toContain('tool results and file contents are not carried over');
   });
 
   it('opens session help from the header action cluster', () => {

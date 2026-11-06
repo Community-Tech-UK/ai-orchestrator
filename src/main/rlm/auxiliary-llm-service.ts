@@ -61,8 +61,8 @@ import {
 import {
   auxiliaryWorkerSourceKeys,
   collectAuxiliaryWorkerEndpointConfigs,
-  resolveAuxiliaryWorkerModels,
   discoverAuxiliaryCandidates,
+  resolveAuxiliaryWorkerModels,
 } from './auxiliary-discovery';
 // remote-node imports are lazy — worker-node-connection and service-rpc-client
 // transitively import electron via remote-auth → settings-manager, which
@@ -113,11 +113,17 @@ export class AuxiliaryLlmService extends EventEmitter {
   private qualityModel = '';
   private readonly lastIntendedTargets = new Map<AuxiliaryLlmSlot, string | undefined>();
   private readonly backoff = new AuxiliarySlotBackoff(Date.now, (pauses, transition) => {
-    try { getLocalAiAuxiliaryHooks().helperBackoffChanged?.(pauses, transition); } catch { /* Health display cannot break helpers. */ }
+    try {
+      this.emit('auxiliary:helper-backoff-changed', pauses, transition);
+    } catch {
+      // Event observers cannot break helper routing.
+    }
+    try {
+      getLocalAiAuxiliaryHooks().helperBackoffChanged?.(pauses, transition);
+    } catch {
+      // A health-display failure cannot break helper routing.
+    }
   });
-  getHelperPauses() { return this.backoff.snapshot(); }
-  retryHelperNow(slot: AuxiliaryLlmSlot): void { this.backoff.retryNow(slot); }
-
   private readonly dailySpendCap = new AuxiliaryDailySpendCap();
 
   private readonly endpointHealth = new AuxiliaryEndpointHealthCache();
@@ -145,6 +151,13 @@ export class AuxiliaryLlmService extends EventEmitter {
   static _resetForTesting(): void {
     AuxiliaryLlmService.instance = null;
   }
+
+  getHelperPauses() { return this.backoff.snapshot(); }
+
+  /** The slot's own frontier setting, ignoring the back-off that forces it off for paid title spawns (7f). */
+  slotAllowsFrontier(slot: AuxiliaryLlmSlot): boolean { return this.slots[slot]?.allowFrontierFallback ?? true; }
+
+  retryHelperNow(slot: AuxiliaryLlmSlot): void { this.backoff.retryNow(slot); }
 
   // ─── Configuration ─────────────────────────────────────────────────────────
 
@@ -191,8 +204,12 @@ export class AuxiliaryLlmService extends EventEmitter {
   // ─── Discovery ─────────────────────────────────────────────────────────────
 
   async discoverCandidates(): Promise<AuxiliaryLlmCandidate[]> {
-    return discoverAuxiliaryCandidates({ endpoints: this.endpoints, useLocalhostOllama: this.useLocalhostOllama,
-      allowRemoteWorkerModels: this.allowRemoteWorkerModels, probe: (endpoint, signal) => this.probeCandidate(endpoint, signal) });
+    return discoverAuxiliaryCandidates({
+      endpoints: this.endpoints,
+      useLocalhostOllama: this.useLocalhostOllama,
+      allowRemoteWorkerModels: this.allowRemoteWorkerModels,
+      probe: (endpoint, signal) => this.probeCandidate(endpoint, signal),
+    });
   }
 
   // ─── Generation ────────────────────────────────────────────────────────────
@@ -201,15 +218,12 @@ export class AuxiliaryLlmService extends EventEmitter {
     slot: AuxiliaryLlmSlot,
     systemPrompt: string,
     userPrompt: string,
-    options?: { preserveInput?: boolean },
+    options?: { preserveInput?: boolean; userInitiated?: boolean },
   ): Promise<{ text: string; decision: AuxiliaryLlmDecision }> {
-    // A fitted continuity request must remain intact even if settings changed during preparation.
     const slotConfig = this.slots[slot];
-    if (options?.preserveInput && slotConfig) {
-      const counter = getTokenCounter();
-      if (counter.countTokens(systemPrompt) + counter.countTokens(userPrompt) > slotConfig.maxInputTokens) {
-        throw new Error('The compression input limit changed after fitting; use the intact local summary instead.');
-      }
+    if (options?.preserveInput && slotConfig
+      && getTokenCounter().countTokens(systemPrompt) + getTokenCounter().countTokens(userPrompt) > slotConfig.maxInputTokens) {
+      throw new Error('The compression input limit changed after fitting; use the intact local summary instead.');
     }
     const fallback = async (
       reason: string,
@@ -220,8 +234,10 @@ export class AuxiliaryLlmService extends EventEmitter {
     ) => {
       const pause = this.backoff.active(slot);
       const result = await buildAuthorizedAuxiliaryFallback({
-        slot, reason, slotAllowsFrontier: pause && slot === 'titleGeneration' ? false : slotAllowsFrontier,
-        intendedTargetId, estimatedOutputTokens, systemPrompt: prompts.system, userPrompt: prompts.user,
+        slot, reason,
+        slotAllowsFrontier: pause && slot === 'titleGeneration' ? false : slotAllowsFrontier,
+        intendedTargetId, estimatedOutputTokens, userInitiated: options?.userInitiated,
+        systemPrompt: prompts.system, userPrompt: prompts.user,
       });
       if (pause) result.decision.pausedUntil = pause.pausedUntil;
       return result;
@@ -229,18 +245,20 @@ export class AuxiliaryLlmService extends EventEmitter {
     if (!this.enabled || this.routingMode === 'off') {
       return fallback('Service disabled or routing mode is off', true);
     }
-
     if (!slotConfig?.enabled) {
       return fallback('Slot is disabled', true);
     }
-
     const pause = this.backoff.active(slot);
     if (pause) {
-      const result = await fallback(pause.reason, slotConfig.allowFrontierFallback, undefined, this.lastIntendedTargets.get(slot), slotConfig.maxOutputTokens);
+      const result = await fallback(
+        pause.reason, slotConfig.allowFrontierFallback,
+        undefined, this.lastIntendedTargets.get(slot), slotConfig.maxOutputTokens,
+      );
       result.decision.pausedUntil = pause.pausedUntil;
       return result;
     }
-    const truncated = this.maybeTruncatePrompt(slot, slotConfig, systemPrompt, userPrompt);
+    const truncated = options?.preserveInput ? { system: systemPrompt, user: userPrompt }
+      : this.maybeTruncatePrompt(slot, slotConfig, systemPrompt, userPrompt);
     const localAiContext: LocalAiResolutionContext = {};
     const resolved = await this.resolveEndpointForSlot(slot, slotConfig, localAiContext);
     this.lastIntendedTargets.set(slot, resolved?.intendedTargetId ?? localAiContext.intendedTargetId);
@@ -254,7 +272,6 @@ export class AuxiliaryLlmService extends EventEmitter {
     }
 
     const { endpoint, model, intendedTargetId, autoPicked } = resolved;
-
     const source = classifyAuxiliarySource(endpoint, intendedTargetId);
 
     const spendCapReason = this.dailySpendCap.reserve({
@@ -266,6 +283,7 @@ export class AuxiliaryLlmService extends EventEmitter {
       systemPrompt: truncated.system,
       userPrompt: truncated.user,
       source,
+      userInitiated: options?.userInitiated,
     });
     if (spendCapReason) {
       return fallback(spendCapReason, false, truncated,

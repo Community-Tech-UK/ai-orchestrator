@@ -1,6 +1,7 @@
 import type { ProviderRuntimeEvent } from '@contracts/types/provider-runtime-events';
 import { extractProviderErrorDiagnostics } from './instance-communication.diagnostics';
 import { machineSessionReasonOf } from '../../shared/utils/machine-session';
+import { resolveSpendPurpose } from '../core/system/spend-purpose';
 /**
  * Per-turn cost recording and estimate-vs-actual telemetry.
  *
@@ -21,10 +22,12 @@ import { deferUntilResponseUsageSettled } from '../cli/adapters/deferred-respons
 
 const logger = getLogger('InstanceCommunication');
 
-export type CompletionCostIdentity = Pick<Instance, 'sessionId' | 'provider' | 'currentModel' | 'parentId' | 'agentId' | 'metadata'>;
+export type CompletionCostIdentity = Pick<Instance,
+  'sessionId' | 'provider' | 'currentModel' | 'parentId' | 'agentId' | 'metadata' | 'reasoningEffort'>;
 export function captureCompletionCostIdentity(instance: Instance): CompletionCostIdentity {
   return { sessionId: instance.sessionId, provider: instance.provider, currentModel: instance.currentModel,
-    parentId: instance.parentId, agentId: instance.agentId, metadata: { ...instance.metadata } };
+    parentId: instance.parentId, agentId: instance.agentId, metadata: { ...instance.metadata },
+    reasoningEffort: instance.reasoningEffort };
 }
 
 function queueCostContext(metadata: Instance['metadata']): PlanQueueCostContext | undefined {
@@ -37,17 +40,18 @@ function queueCostContext(metadata: Instance['metadata']): PlanQueueCostContext 
     round: typeof round === 'number' && Number.isSafeInteger(round) && round >= 0 ? round : null };
 }
 
+/** Returns false when booking waits for the provider to settle usage; `onUsageSettled` then runs after it is booked. */
 export function recordCompletionCost(
   instanceId: string,
   instance: Instance,
   response: CliResponse,
   onUsageSettled?: () => void,
   identity = captureCompletionCostIdentity(instance),
-): void {
+): boolean {
   if (deferUntilResponseUsageSettled(response, () => {
     recordCompletionCost(instanceId, instance, response, undefined, identity);
     onUsageSettled?.();
-  })) return;
+  })) return false;
   const billingInstance = { ...instance, ...identity };
   try {
     const rawProviderCost = response.usage?.cost;
@@ -64,7 +68,27 @@ export function recordCompletionCost(
     const observedTokens = { inputTokens: input, outputTokens: output, cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite, reasoningTokens: reasoning };
     const machineReason = machineSessionReasonOf(billingInstance);
     const origin = machineReason ? 'machine' : 'user';
-    const purpose = machineReason === 'plan-queue' ? 'plan-queue' : typeof billingInstance.metadata?.['spendPurpose'] === 'string' ? billingInstance.metadata['spendPurpose'] : undefined;
+    const spend = resolveSpendPurpose(billingInstance);
+    const rtkArm = billingInstance.metadata?.['rtkArm'];
+    const rtkTrialKey = billingInstance.metadata?.['rtkTrialKey'];
+    const knownRtkArm: 'on' | 'off' | 'n/a' | undefined = rtkArm === 'on' || rtkArm === 'off' || rtkArm === 'n/a' ? rtkArm : undefined;
+    const trialEligible = billingInstance.provider === 'claude'
+      && typeof billingInstance.sessionId === 'string' && billingInstance.sessionId.length > 0
+      && billingInstance.metadata?.['rtkTrialEligible'] === true
+      && (rtkArm === 'on' || rtkArm === 'off')
+      && rtkTrialKey === instanceId;
+    // Purpose, session and RTK trial membership are the same for the usage-less and the measured row.
+    const attribution = {
+      planQueue: queueCostContext(billingInstance.metadata),
+      purpose: spend.purpose,
+      purposeDetail: spend.purposeDetail,
+      origin,
+      sessionId: billingInstance.sessionId,
+      rtkArm: knownRtkArm,
+      ...(trialEligible ? { rtkTrialEligible: true, rtkTrialKey: rtkTrialKey as string,
+        rtkTrialSurface: 'interactive' as const } : {}),
+      reasoningEffort: billingInstance.reasoningEffort ?? undefined,
+    };
     if (!positiveProviderCost && input === 0 && output === 0 && cacheRead === 0 && cacheWrite === 0 && reasoning === 0) {
       // Every completed turn counts, even without usage (A#158). An absent
       // cost stays unknown; preserve a supplied $0 on usage so the real
@@ -73,8 +97,8 @@ export function recordCompletionCost(
         provider: billingInstance.provider, byModel: response.usage?.byModel, origin,
       });
       recordInstanceTurnAttribution({
-        planQueue: queueCostContext(billingInstance.metadata),
-        purpose, origin, instanceId, parentId: billingInstance.parentId, agentId: billingInstance.agentId,
+        ...attribution,
+        instanceId, parentId: billingInstance.parentId, agentId: billingInstance.agentId,
         provider: billingInstance.provider, model,
         usage: { ...observedTokens, ...(providerCost === undefined ? {} : { cost: providerCost }) },
         costKnown: providerCost !== undefined,
@@ -82,7 +106,7 @@ export function recordCompletionCost(
         ...(billingInstance.metadata?.['spendPurpose'] === 'automation' || billingInstance.metadata?.['spendPurpose'] === 'channel'
           ? { spendPurpose: billingInstance.metadata['spendPurpose'] } : {}),
       });
-      return;
+      return true;
     }
     const freeProvider = ['copilot', 'cursor', 'ollama', 'lmstudio'].includes(billingInstance.provider.toLowerCase());
     const pricedCost = !isEstimated && !freeProvider
@@ -103,9 +127,7 @@ export function recordCompletionCost(
     );
     instance.contextUsage.costEstimate = (instance.contextUsage.costEstimate ?? 0) + entry.cost;
     recordInstanceTurnAttribution({
-      planQueue: queueCostContext(billingInstance.metadata),
-      purpose,
-      origin,
+      ...attribution,
       instanceId,
       parentId: billingInstance.parentId,
       agentId: billingInstance.agentId,
@@ -124,6 +146,7 @@ export function recordCompletionCost(
   } catch (err) {
     logger.debug('recordCompletionCost failed', { instanceId, error: String(err) });
   }
+  return true;
 }
 
 export function recordEstimationTelemetry(

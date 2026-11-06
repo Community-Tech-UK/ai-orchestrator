@@ -605,7 +605,7 @@ export class RepoJobService extends EventEmitter {
       initialPrompt: prompt,
       agentId,
       yoloMode: false,
-      metadata: { repoJobId: job.id, spendPurpose: 'repo-job' },
+      metadata: { spendPurpose: 'repo-job', repoJobId: job.id },
     });
     // Retain late startup identity even when its cleanup fails, so Pause can retry it.
     job.instanceId = instance.id;

@@ -5,6 +5,7 @@ import type {
 } from '../../shared/types/automation.types';
 import type { AutomationRow } from './automation-store-records';
 import { isProviderLimitRunError } from './automation-run-provider-limit';
+import { classifyAutomationRunFailure } from './automation-run-failure-class';
 
 export function recordRunOutcomeRecord(
   deps: {
@@ -37,7 +38,7 @@ export function recordRunOutcomeRecord(
             updated_at = ?
         WHERE id = ?
       `).run(now, automationId);
-    } else if (isProviderLimitRunError(reason)) {
+    } else if (isProviderLimitRunError(reason) || classifyAutomationRunFailure(reason) === 'wait') {
       // A provider limit says nothing about the automation itself, so it records the
       // failure without growing the streak or tripping auto-disable.
       deps.db.prepare(`

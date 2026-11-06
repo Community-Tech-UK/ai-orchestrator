@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerProviderModelRates, clearModelRateOverlay } from '../../../shared/data/model-pricing';
-import { recordModelCall, resolveModelCallCost } from './model-call-recorder';
+import { recordModelCall, resolveModelCallCost, purposeOf } from './model-call-recorder';
 import { subscribeCostAttribution, type CostAttributionRecord } from './cost-attribution';
 import { withLocalAiCostCorrelation } from '../../local-ai-guard/local-ai-cost-correlation';
 
@@ -125,5 +125,44 @@ describe('truthful model call costs', () => {
     const rows: unknown[] = []; const stop = subscribeCostAttribution((record) => rows.push(record));
     recordModelCall({ purpose: 'review', provider: 'claude', model: 'unknown', usage: { cache_read_input_tokens: 25 }, outcome: 'error' }); stop();
     expect(rows[0]).toMatchObject({ purpose: 'review', costSource: 'unknown', usage: { cacheReadTokens: 25 }, outcome: 'error' });
+  });
+
+  it('keeps a failed known-model call without reported dollars unknown', () => {
+    registerProviderModelRates([{ provider: 'claude', id: 'priced-fixture', rate: { input: 2, output: 10 } }]);
+    const record = recordModelCall({ purpose: 'review', provider: 'claude', model: 'priced-fixture',
+      usage: { input_tokens: 1_000_000 }, outcome: 'error' });
+    expect(record).toMatchObject({ outcome: 'error', costSource: 'unknown', costUsd: null, costKnown: false });
+    expect(record?.usage?.cost).toBeUndefined();
+  });
+
+  it('keeps settled failed-call billing and genuine free execution', () => {
+    const billed = recordModelCall({ purpose: 'consensus', provider: 'claude', outcome: 'cancelled',
+      usage: { input_tokens: 100, cost: 0.25 } });
+    expect(billed).toMatchObject({ costSource: 'provider', costKnown: true, costUsd: 0.25,
+      usage: { cost: 0.25 } });
+    const free = recordModelCall({ purpose: 'helper', provider: 'aio-basic-summary', costSource: 'free' });
+    expect(free).toMatchObject({ source: 'auxiliary', costSource: 'free', costKnown: true,
+      costUsd: 0, usage: { cost: 0 } });
+  });
+
+  it('prices measured cache splits and keeps multi-model aggregates unpriced', () => {
+    registerProviderModelRates([{ provider: 'claude', id: 'priced-fixture', rate: { input: 2, output: 10 } }]);
+    const priced = recordModelCall({ purpose: 'review', provider: 'claude', model: 'priced-fixture',
+      usage: { input_tokens: 1_000_000, cache_read_input_tokens: 500, cache_creation_input_tokens: 200 } });
+    expect(priced).toMatchObject({ costSource: 'priced', costKnown: true,
+      usage: { inputTokens: 1_000_000, cacheReadTokens: 500, cacheWriteTokens: 200 } });
+    expect(priced?.usage?.cost).toBeGreaterThan(0);
+    const aggregate = recordModelCall({ purpose: 'consensus', provider: 'claude', model: 'priced-fixture',
+      usage: { input_tokens: 1_000_000, byModel: [{ model: 'priced-fixture' }, { model: 'other' }] } });
+    expect(aggregate).toMatchObject({ costSource: 'unknown', costUsd: null });
+    expect(aggregate?.model).toBeUndefined();
+    expect(aggregate?.usage?.cost).toBeUndefined();
+  });
+
+  it('keeps explicit purpose and maps legacy task prefixes to stable keys', () => {
+    expect(purposeOf({ purpose: 'plan-queue', taskType: 'child:build' })).toBe('plan-queue');
+    expect(purposeOf({ taskType: 'aux:compression' })).toBe('helper');
+    expect(purposeOf({ taskType: 'review-orchestration' })).toBe('review');
+    expect(purposeOf({ taskType: 'unclassified' })).toBe('unknown');
   });
 });

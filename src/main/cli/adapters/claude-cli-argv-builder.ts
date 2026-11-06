@@ -16,7 +16,8 @@ import { CLAUDE_READ_ONLY_REVIEW_TOOLS, MACHINE_SESSION_DISABLED_PLUGINS } from 
 
 import { claudeOutputCapSettings, resolveClaudeBashOutputMaxChars } from './claude-output-caps';
 import { nativeSessionIdInUse } from './claude-transcript-registry';
-import { buildDeferPermissionHookCommand } from '../hooks/hook-path-resolver';
+import { resolveBashHookCommand } from '../hooks/hook-path-resolver';
+import { CLAUDE_SUBAGENT_WAITING_RULE_ROLLOUT, materializeSubagentWaitingRuleFile, resolveClaudeSubagentPromptArgs } from './claude-subagent-policy';
 import { DEFAULT_DISALLOWED_TOOLS } from './host-cli-tool-policy';
 import { EXCLUDE_DYNAMIC_SECTIONS_FLAG, EXCLUDE_DYNAMIC_MIN_VERSION, RECORDED_PROMPT_MIN_VERSION, isVersionAtLeast, isKnownOlderThan, resolveClaudeCliVersion } from './claude-cli-feature-probes';
 import { getLogger } from '../../logging/logger';
@@ -60,7 +61,8 @@ export function mapClaudeReasoningEffort(
 /** The subset of spawn options `buildClaudeSettingsOverlay` reads. */
 export type ClaudeSettingsOverlaySpawnOptions = Pick<
   ClaudeCliSpawnOptions,
-  'reasoningEffort' | 'fastMode' | 'permissionHookPath' | 'machineSession' | 'bashOutputMaxChars'
+  'reasoningEffort' | 'fastMode' | 'permissionHookPath' | 'machineSession'
+  | 'bashOutputMaxChars' | 'yoloMode' | 'rtk'
 >;
 
 export function buildClaudeSettingsOverlay(
@@ -82,7 +84,7 @@ export function buildClaudeSettingsOverlay(
         }[];
       }[];
     };
-  } = claudeOutputCapSettings(resolveClaudeBashOutputMaxChars(spawnOptions.bashOutputMaxChars), cliVersion);
+  } = {};
 
   if (spawnOptions.machineSession) settings.enabledPlugins = Object.fromEntries(MACHINE_SESSION_DISABLED_PLUGINS.map(id => [id, false]));
 
@@ -99,13 +101,21 @@ export function buildClaudeSettingsOverlay(
     settings.fastMode = true;
   }
 
-  if (permissionHookEnabled && spawnOptions.permissionHookPath) {
+  Object.assign(settings, claudeOutputCapSettings(
+    resolveClaudeBashOutputMaxChars(spawnOptions.bashOutputMaxChars), cliVersion,
+  ));
+  const bashHookCommand = resolveBashHookCommand({
+    yoloMode: spawnOptions.yoloMode,
+    permissionHookPath: permissionHookEnabled ? spawnOptions.permissionHookPath : undefined,
+    rtk: spawnOptions.rtk,
+  });
+  if (bashHookCommand) {
     settings.hooks = {
       PreToolUse: [{
         matcher: 'Bash',
         hooks: [{
           type: 'command',
-          command: buildDeferPermissionHookCommand(spawnOptions.permissionHookPath),
+          command: bashHookCommand,
         }],
       }],
     };
@@ -132,6 +142,8 @@ export interface BuildClaudeCliArgsInput {
    * adapter's temp-file lifecycle state.
    */
   materializeInlineJsonArg: (value: string, forceFile?: boolean) => string;
+  /** Explicit test/probe seam. Production leaves the fork-cache gate closed. */
+  subagentWaitingRuleOptIn?: boolean;
 }
 
 export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
@@ -321,6 +333,12 @@ export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
       ? '--system-prompt'
       : '--append-system-prompt';
     args.push(flag, spawnOptions.systemPrompt!);
+  }
+
+  const waitingRuleEnabled = input.subagentWaitingRuleOptIn ?? CLAUDE_SUBAGENT_WAITING_RULE_ROLLOUT;
+  if (waitingRuleEnabled && isVersionAtLeast(cliVersion, '2.1.261')) {
+    const ruleFile = materializeSubagentWaitingRuleFile();
+    if (ruleFile) args.push(...resolveClaudeSubagentPromptArgs(cliVersion, ruleFile, waitingRuleEnabled));
   }
 
   // MCP server configurations may contain decrypted workspace secrets. Keep

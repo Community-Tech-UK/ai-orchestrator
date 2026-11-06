@@ -8,7 +8,7 @@ const tokens = z.object({ input: count.nullable(), cache: count.nullable(), outp
 export const CodexEphemeralUsageSchema = z.object({
   version: z.literal(1), threadId: CodexUsageIdSchema, instanceId: CodexUsageIdSchema.nullable(), jobId: CodexUsageIdSchema.nullable(),
   kind: z.enum(['chat', 'child', 'loop', 'plan-queue', 'automation', 'review']),
-  trialKey: z.string().regex(/^[a-f0-9]{64}$/).nullable(), trialArm: z.enum(['control', 'candidate', 'unassigned']),
+  trialKey: z.string().regex(/^[a-f0-9]{64}$/).nullable(), trialArm: z.enum(['cheaper', 'full', 'off', 'control', 'candidate', 'unassigned']),
   requests: count.nullable(), requestsAvailable: z.boolean(), tokens,
   helpers: z.object({ count: count.nullable(), tokens }).strict(), compactions: count.nullable(), startedAt: count, endedAt: count,
   durationMs: count, finishReason: z.enum(['stopped', 'runtime-exit', 'reopened', 'exec-exit', 'exec-failed', 'abandoned']),

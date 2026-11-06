@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest';
-import { applyOpenCodeContextCeiling, contextCeilingApplies, resolveContextCeilingTokens, selfCompactThreshold } from './context-ceiling';
+import { applyOpenCodeContextCeiling, contextCeilingApplies, resolveContextCeilingTokens } from './context-ceiling';
+import { selfCompactThreshold } from '../../../shared/utils/context-occupancy';
 import { serializeOpenCodeConfigForV2 } from './opencode-v2-config';
 it('selects chat or machine settings, disabled by default and clamps enabled ceilings', () => {
  const read = (key: string) => key === 'machineContextCeilingTokens' ? 120_000 : 200_000;

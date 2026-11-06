@@ -11,7 +11,6 @@ import { errorDiagnostic } from '../../logging/source-diagnostics';
 import { getSafeEnvForTrustedProcess } from '../../security/env-filter';
 import { resolveHardenedSpawn } from '../../sandbox/seatbelt';
 import { isSignalFenceSettingEnabled } from '../../sandbox/signal-fence-setting';
-import { getOutputPersistenceManager } from '../../context/output-persistence';
 import { buildCliSpawnOptions } from '../cli-environment';
 import { getPauseCoordinator } from '../../pause/pause-coordinator';
 import { OrchestratorPausedError } from '../../pause/orchestrator-paused-error';
@@ -495,6 +494,7 @@ export abstract class BaseCliAdapter extends EventEmitter {
       selfManagedAutoCompaction: false,
     };
   }
+  async compactContext(): Promise<boolean> { return false; }
 
   getContextCapabilities(): import('@contracts/types/context-evidence').ProviderContextCapabilities {
     return { ...CONSERVATIVE_PROVIDER_CONTEXT_CAPABILITIES };
@@ -884,30 +884,6 @@ export abstract class BaseCliAdapter extends EventEmitter {
    */
   protected async safeStdinWrite(data: string, onAccepted?: () => void): Promise<void> {
     await writeChildStdin(this.process, data, onAccepted);
-  }
-
-  /**
-   * Flush the accumulated output buffer, optionally externalising large content.
-   *
-   * Subclasses that accumulate output in `this.outputBuffer` and then process it
-   * should call this instead of reading `this.outputBuffer` directly.  When
-   * `persistLargeOutputs` is true (the default) and the buffer exceeds the
-   * default threshold (50 K chars), the full content is saved to disk and a
-   * compact preview is returned instead — preventing large tool outputs from
-   * inflating the context window.
-   *
-   * The method resets `this.outputBuffer` to `''` after reading.
-   */
-  protected async flushOutputBuffer(toolName = 'default'): Promise<string> {
-    const content = this.outputBuffer;
-    this.outputBuffer = '';
-
-    const persist = this.config.persistLargeOutputs ?? true;
-    if (!persist) {
-      return content;
-    }
-
-    return getOutputPersistenceManager().maybeExternalize(toolName, content);
   }
 
   /**

@@ -22,6 +22,8 @@ export type ContextManifestBlockKind =
   | 'wake-context'
   | 'mcp-tool-context'
   | 'tool-permissions'
+  | 'claude-helper-rules'
+  | 'harness-guide'
   | 'adapter-browser-gateway'
   | 'adapter-chrome-devtools'
   | 'adapter-mobile-mcp'

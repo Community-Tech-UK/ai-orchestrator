@@ -9,6 +9,7 @@ import type { UnifiedReasoningOption, UnifiedSelection } from './model-selection
 import { ModelUsageMemoryService } from './model-usage-memory.service';
 import { UnifiedCatalogStore } from './unified-catalog.store';
 import type { UnifiedModelEntry } from '../../../../shared/types/unified-model-catalog.types';
+import { describeModelSwitchEffect } from './model-switch-note';
 
 const PROVIDER_LABELS: Record<string, string> = {
   claude: 'Claude',
@@ -211,6 +212,54 @@ describe('ModelSelectionPanelComponent', () => {
     fixture.componentInstance.selection.subscribe(selection => selections.push(selection));
     (fixture.nativeElement.querySelector('.model-picker-row__select') as HTMLButtonElement).click();
     expect(selections).toEqual([{ kind: 'model', provider: 'copilot', modelId: 'claude-opus-5.5' }]);
+  });
+
+  it('renders model facts and changes the visible switch note with the provider tab', () => {
+    setInputs({ modelsForProvider: provider => provider === 'claude'
+      ? [{ id: 'opus', name: 'Opus', tier: 'balanced', contextWindow: 200_000,
+        pricing: { inputPerMillion: 3, outputPerMillion: 15 }, pricingSource: 'models-dev' }]
+      : [{ id: 'gpt', name: 'GPT', tier: 'fast' }] });
+    fixture.componentRef.setInput('noteForProvider', (provider: PickerProvider) => provider === 'claude'
+      ? 'Claude keeps the whole conversation.' : 'Switching provider starts a new session.');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.model-picker-row')?.textContent).toContain('Balanced');
+    expect(fixture.nativeElement.querySelector('.model-picker-row')?.textContent).toContain('200K context');
+    expect(fixture.nativeElement.querySelector('.model-picker-row')?.textContent).toContain('$3 in / $15 out');
+    expect(fixture.nativeElement.querySelector('[role="note"]')?.textContent).toContain('Claude keeps');
+    (fixture.nativeElement.querySelector('[data-provider="codex"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[role="note"]')?.textContent).toContain('Switching provider');
+    expect(fixture.nativeElement.querySelector('.model-picker-row')?.textContent).toContain('Price unknown');
+  });
+
+  it('describes each favourite target before mouse or keyboard selection', () => {
+    setInputs();
+    fixture.componentRef.setInput('noteForProvider', (targetProvider: PickerProvider) => describeModelSwitchEffect({
+      provider: 'claude', targetProvider, residentClaude: true, hasConversation: true,
+    }));
+    fixture.detectChanges();
+    const rows = Array.from(fixture.nativeElement.querySelectorAll('.model-picker-row')) as HTMLElement[];
+    expect(rows[0].querySelector('[role="note"]')?.textContent).toContain('Switches in place.');
+    expect(rows[1].querySelector('[role="note"]')?.textContent).toContain('Switching provider starts a new session.');
+    expect(rows[1].textContent).not.toContain('Switches in place.');
+    const targetButton = rows[1].querySelector('.model-picker-row__select') as HTMLButtonElement;
+    const targetNote = rows[1].querySelector('[role="note"]') as HTMLElement;
+    expect(targetButton.contains(targetNote)).toBe(false);
+    expect(targetButton.getAttribute('aria-describedby')).toBe(targetNote.id);
+    const emitted: UnifiedSelection[] = [];
+    fixture.componentInstance.selection.subscribe(selection => emitted.push(selection));
+    (rows[1].querySelector('.model-picker-row__select') as HTMLButtonElement).click();
+    fixture.nativeElement.querySelector('.model-picker-panel').dispatchEvent(
+      new KeyboardEvent('keydown', { key: '2', ctrlKey: true, bubbles: true }),
+    );
+    expect(emitted).toEqual([
+      { kind: 'model', provider: 'codex', modelId: 'gpt-5.5' },
+      { kind: 'model', provider: 'codex', modelId: 'gpt-5.5' },
+    ]);
+    (fixture.nativeElement.querySelector('[data-provider="codex"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('[role="note"]')).toHaveLength(1);
+    expect(fixture.nativeElement.querySelector('[role="note"]')?.textContent).toContain('Switching provider');
   });
 
   it('uses Ctrl shortcut labels away from Apple platforms', () => {

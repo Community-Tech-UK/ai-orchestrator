@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { McpServer } from '../mcp-server';
 import type { McpServerToolDefinition } from '../mcp-server-tools';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { _setToolOutputDirForTesting } from '../../util/tool-output-truncation';
 
 describe('McpServer', () => {
   beforeEach(() => {
@@ -85,6 +89,62 @@ describe('McpServer', () => {
     expect(result.content).toHaveLength(1);
     expect(result.content[0].type).toBe('text');
     expect(JSON.parse(result.content[0].text ?? '{}').outcome).toBe('failed');
+  });
+
+  it('spills a large result and leaves an opted-out result intact', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aio-mcp-cap-'));
+    _setToolOutputDirForTesting(dir);
+    try {
+      const server = McpServer.getInstance();
+      const payload = { blob: 'x'.repeat(40_000) };
+      server.registerTools([
+        { name: 'bounded', description: '', inputSchema: {}, handler: async () => payload },
+        { name: 'evidence', description: '', inputSchema: {}, maxResultChars: null, handler: async () => payload },
+      ]);
+      const bounded = await server.handleRequest({ method: 'tools/call', params: { name: 'bounded' } }) as { content: Array<{ text: string }> };
+      expect(bounded.content[0].text).toContain('saved at');
+      expect(bounded.content[0].text).not.toContain('x'.repeat(20_000));
+      const spill = fs.readdirSync(dir);
+      expect(spill).toHaveLength(1);
+      expect(fs.readFileSync(path.join(dir, spill[0]), 'utf8')).toBe(JSON.stringify(payload));
+      const full = await server.handleRequest({ method: 'tools/call', params: { name: 'evidence' } }) as { content: Array<{ text: string }> };
+      expect(full.content[0].text).toBe(JSON.stringify(payload));
+    } finally {
+      _setToolOutputDirForTesting(null);
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ['no limit override', {}],
+    ['an explicit character limit', { maxResultChars: 10 }],
+    ['an opted-out limit', { maxResultChars: null }],
+    ['a per-call limit resolver', { resolveMaxResultChars: () => 10 }],
+    ['the image path', { producesImage: true }],
+  ] as const)('answers a handler returning undefined with a text-less block (%s)', async (_label, options) => {
+    const server = McpServer.getInstance();
+    server.registerTools([{
+      name: 'returns-nothing', description: '', inputSchema: {}, ...options, handler: async () => undefined,
+    }]);
+
+    const result = await server.handleRequest({ method: 'tools/call', params: { name: 'returns-nothing', arguments: {} } });
+
+    // JSON.stringify(undefined) is undefined; the wire form has always been a type-only text block.
+    expect(JSON.stringify(result)).toBe('{"content":[{"type":"text"}]}');
+  });
+
+  it('keeps null and falsy results as their JSON text', async () => {
+    const server = McpServer.getInstance();
+    server.registerTools([
+      { name: 'null', description: '', inputSchema: {}, handler: async () => null },
+      { name: 'zero', description: '', inputSchema: {}, handler: async () => 0 },
+      { name: 'empty', description: '', inputSchema: {}, handler: async () => '' },
+    ]);
+    const call = (name: string) => server.handleRequest({ method: 'tools/call', params: { name } });
+
+    expect(await call('null')).toEqual({ content: [{ type: 'text', text: 'null' }] });
+    expect(await call('zero')).toEqual({ content: [{ type: 'text', text: '0' }] });
+    expect(await call('empty')).toEqual({ content: [{ type: 'text', text: '""' }] });
   });
 
   it('throws on unknown tool', async () => {

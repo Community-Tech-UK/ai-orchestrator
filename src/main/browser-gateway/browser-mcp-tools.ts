@@ -859,7 +859,7 @@ function toolDescription(name: BrowserMcpToolName): string {
       + 'never receives) resets that connection. Calls the worker service and never opens Chrome, tabs or CLIs.';
   }
   if (name === 'browser.close_tab') {
-    return `${UNTRUSTED_WARNING} Close one Browser Gateway tab. Destructive: requires an approved destructive grant. Use profileId and targetId from list_targets (targetId is also exposed as id).`;
+    return `${UNTRUSTED_WARNING} Close one Browser Gateway tab. Destructive: requires an approved destructive grant. Use profileId and targetId from list_targets.`;
   }
   const sessionDescription = sessionToolDescription(name);
   if (sessionDescription) {
@@ -895,5 +895,6 @@ export function createBrowserMcpTools(
     // MCP image content block so clients can render it instead of receiving
     // an unreadable base64 text blob.
     producesImage: name === 'browser.screenshot',
+    maxResultChars: name === 'browser.snapshot' ? null : undefined,
   }));
 }

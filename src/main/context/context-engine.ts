@@ -16,7 +16,7 @@
  */
 
 import type { ContextUsage, Instance, InstanceStatus, OutputMessage } from '../../shared/types/instance.types';
-import type { CompactionBoundaryOptions } from '../../shared/types/compaction-preview.types';
+import type { CompactionExecutionOptions } from './compaction-execution-options';
 import type { IndexedCodebaseContextInfo } from '../indexing/indexed-codebase-context';
 import type { InstanceContextPort } from '../instance/instance-context-port';
 import type { ContextBudget, RlmContextInfo, UnifiedMemoryContextInfo } from '../instance/instance-types';
@@ -82,7 +82,7 @@ export interface ContextEngine {
   /** Called when an instance turn settles. */
   afterTurn(request: ContextAfterTurnRequest): void;
   /** Explicit user/IPC-driven compaction. `options` carries the WS-B7 manual boundary. */
-  compactInstance(instanceId: string, options?: CompactionBoundaryOptions): Promise<CompactionResult>;
+  compactInstance(instanceId: string, options?: CompactionExecutionOptions): Promise<CompactionResult>;
   /** Current context status for the instance. */
   getStatus(instanceId: string): ContextStatus;
   /** Release per-instance state (on terminate/restart). */
@@ -142,7 +142,7 @@ export class LegacyContextEngine implements ContextEngine {
     }
   }
 
-  compactInstance(instanceId: string, options?: CompactionBoundaryOptions): Promise<CompactionResult> {
+  compactInstance(instanceId: string, options?: CompactionExecutionOptions): Promise<CompactionResult> {
     return this.coordinator.compactInstance(instanceId, options);
   }
 
@@ -233,7 +233,7 @@ export class SafeContextEngine implements ContextEngine {
     }
   }
 
-  compactInstance(instanceId: string, options?: CompactionBoundaryOptions): Promise<CompactionResult> {
+  compactInstance(instanceId: string, options?: CompactionExecutionOptions): Promise<CompactionResult> {
     // Manual compaction is IPC-driven; let errors propagate to the caller.
     return this.inner.compactInstance(instanceId, options);
   }

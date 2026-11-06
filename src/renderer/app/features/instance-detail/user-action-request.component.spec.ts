@@ -1150,6 +1150,25 @@ describe('UserActionRequestComponent', () => {
     expect(fixture.nativeElement.querySelector('.secret-card-warning')).toBeNull();
     expect(input.getAttribute('aria-describedby')).toBeNull();
   });
+
+  it('offers a separate Build session only on a build-mode request and clears the card after handoff', async () => {
+    currentInstanceId.set('inst-a'); fixture.detectChanges(); await settle(fixture);
+    onUserActionRequest({ id: 'build-request', instanceId: 'inst-a', requestType: 'switch_mode',
+      targetMode: 'build', title: 'Ready to Implement', message: 'Plan ready.', createdAt: 1 });
+    onUserActionRequest({ id: 'plan-request', instanceId: 'inst-a', requestType: 'switch_mode',
+      targetMode: 'plan', title: 'Plan', message: 'Plan?', createdAt: 1 });
+    fixture.detectChanges();
+    const buttons = Array.from(fixture.nativeElement.querySelectorAll('.btn-secondary')) as HTMLButtonElement[];
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].textContent).toContain('Build in a new session');
+    buttons[0].click();
+    expect((fixture.componentInstance as unknown as { planHandoff: () => unknown }).planHandoff())
+      .toEqual({ id: 'build-request', instanceId: 'inst-a' });
+    expect(fakeInstanceStore.changeAgentMode).not.toHaveBeenCalled();
+    fixture.componentInstance.onPlanHandoffStarted('build-request'); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).not.toContain('Ready to Implement');
+    expect(fixture.nativeElement.textContent).toContain('Plan?');
+  });
 });
 
 function overrideInputs(

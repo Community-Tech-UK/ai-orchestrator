@@ -23,6 +23,7 @@ describe('LocalAiGuardIpcService', () => {
     vi.clearAllMocks();
     deltaListener = undefined;
     api.localAiGuardGetSnapshot.mockResolvedValue({ success: true, data: snapshot() });
+    api.localAiGuardRetryHelperNow.mockResolvedValue({ success: true, data: snapshot() });
     api.localAiGuardSetTargetLifecycle.mockResolvedValue({ success: true, data: {} });
     api.localAiGuardResolveFallback.mockResolvedValue({
       success: true,
@@ -79,6 +80,15 @@ describe('LocalAiGuardIpcService', () => {
 
     expect(callback).toHaveBeenCalledWith(snapshot());
     expect(unsubscribe).toHaveBeenCalledOnce();
+  });
+
+  it('routes helper retry through the typed preload method', async () => {
+    const service = TestBed.inject(LocalAiGuardIpcService);
+
+    await expect(service.retryHelperNow('compression')).resolves.toEqual({
+      success: true, data: snapshot(),
+    });
+    expect(api.localAiGuardRetryHelperNow).toHaveBeenCalledExactlyOnceWith({ slot: 'compression' });
   });
 });
 

@@ -23,12 +23,15 @@ import {
 } from './base-cli-adapter';
 
 import { assertAdapterInputCurrent, createAdapterInputDispatch } from './adapter-input-dispatch';
+import { compactLocalHistory, estimateHistoryTokens } from './local-model-history-compaction';
+import { resolveCompactionInputLimit } from '../../context/compaction-input-limit';
 
 const logger = getLogger('LocalModelChatAdapter');
 
 export interface LocalModelChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
+  harnessContinuity?: true;
 }
 
 export interface LocalModelToolCall {
@@ -151,12 +154,34 @@ export abstract class BaseLocalModelChatAdapter
     return {
       supportsResume: false,
       supportsForkSession: false,
-      supportsNativeCompaction: false,
+      supportsNativeCompaction: true,
       supportsPermissionPrompts: false,
       supportsDeferPermission: false,
       selfManagedAutoCompaction: false,
     };
   }
+
+  override async compactContext(options?: { userInitiated?: boolean }): Promise<boolean> {
+    if (this.activeAbortController && !this.activeAbortController.signal.aborted) return false;
+    const history = this.history;
+    const length = history.length;
+    const result = await compactLocalHistory(history, {
+      windowTokens: this.contextWindow, maxInputTokens: resolveCompactionInputLimit(),
+      ...(options?.userInitiated ? { userInitiated: true } : {}),
+    });
+    if (this.history !== history || history.length !== length || this.activeAbortController) return false;
+    if (!result) return false;
+    this.history = result.history;
+    const used = estimateHistoryTokens(this.history);
+    this.emit('context', {
+      used, total: this.contextWindow,
+      percentage: this.contextWindow > 0 ? Math.min(100, used / this.contextWindow * 100) : 0,
+      cumulativeTokens: this.cumulativeTokensUsed,
+    });
+    return true;
+  }
+
+  nativeCompactionKnownUnsupported(): boolean { return false; }
 
   protected override async sendInputImpl(
     message: string,
@@ -247,7 +272,7 @@ export abstract class BaseLocalModelChatAdapter
   }
 
   protected buildMessages(newUserMessage: LocalModelChatMessage): LocalModelChatMessage[] {
-    return [...this.history, newUserMessage];
+    return [...this.history, newUserMessage].map(({ role, content }) => ({ role, content }));
   }
 
   protected appendAssistantTurn(

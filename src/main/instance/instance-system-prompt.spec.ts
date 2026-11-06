@@ -45,6 +45,10 @@ vi.mock('../core/config/settings-manager', () => ({
   }),
 }));
 
+vi.mock('../cli/cli-detection', () => ({
+  getCliDetectionService: () => ({ peekCachedResult: () => null }),
+}));
+
 vi.mock('../mcp/mcp-manager', () => ({
   getMcpManager: () => ({
     exportRuntimeToolContextSnapshot: () => ({ servers: [], tools: [] }),
@@ -77,6 +81,10 @@ vi.mock('../indexing/indexed-codebase-context', () => ({
 }));
 
 import { PolicyAdapter } from '../observation/policy-adapter';
+import { buildClaudeCliArgs } from '../cli/adapters/claude-cli-argv-builder';
+import { claudePolicyExposure } from '../cli/adapters/claude-policy-exposure';
+import { CLAUDE_HELPER_REVIEWER_RULE } from '../cli/adapters/claude-subagent-policy';
+import { HARNESS_GUIDE } from '../orchestration/harness-guidance';
 import type { Reflection } from '../observation/observation.types';
 
 import { assembleInstanceSystemPrompt } from './instance-system-prompt';
@@ -339,5 +347,143 @@ describe('assembleInstanceSystemPrompt observation retrieval (MEM-4)', () => {
     await assemble(initialPrompt, deps);
     expect(deps.buildObservationContext).not.toHaveBeenCalled();
     expect(getContextManifestHistory('inst-1')[0].entries.find((entry) => entry.kind === 'observation-memory')?.status).toBe('skipped-empty');
+  });
+});
+
+
+describe('claude-helper-rules block (A18, plan Step 2 item 5)', () => {
+  beforeEach(() => {
+    _resetAllContextManifestsForTesting();
+  });
+
+  async function assemble(
+    provider: InstanceCreateConfig['provider'],
+    extra: { id?: string; resolvedProvider?: string } = {},
+  ) {
+    const config: InstanceCreateConfig = { workingDirectory: '/tmp/project', provider };
+    return assembleInstanceSystemPrompt({
+      instance: makeInstance({ id: extra.id ?? 'inst-1' }),
+      config,
+      resolvedAgent: baseAgent,
+      instructionPrompts: [],
+      initialUserMessageContent: undefined,
+      deps: makeDeps(),
+      ...(extra.resolvedProvider ? { resolvedProvider: extra.resolvedProvider } : {}),
+    });
+  }
+
+  it('gives a Claude session the reviewer rule exactly once, as its own manifest block', async () => {
+    const result = await assemble('claude');
+    expect(result.systemPrompt.split(CLAUDE_HELPER_REVIEWER_RULE)).toHaveLength(2);
+    const entry = result.systemPromptManifest.find((e) => e.kind === 'claude-helper-rules');
+    expect(entry?.charLength).toBe(CLAUDE_HELPER_REVIEWER_RULE.length);
+    expect(getContextManifestHistory('inst-1')[0].entries.find((e) => e.kind === 'claude-helper-rules')?.status)
+      .toBe('supplied');
+  });
+
+  it('gives every Claude session identical rule text, so the cache write is shared', async () => {
+    const first = await assemble('claude', { id: 'inst-a' });
+    const second = await assemble('claude', { id: 'inst-b' });
+    expect(first.systemPromptManifest.find((e) => e.kind === 'claude-helper-rules')?.contentHash)
+      .toBe(second.systemPromptManifest.find((e) => e.kind === 'claude-helper-rules')?.contentHash);
+  });
+
+  it.each(['codex', 'gemini', 'copilot'] as const)('does not give a %s session the rule', async (provider) => {
+    const result = await assemble(provider);
+    expect(result.systemPrompt).not.toContain('helper agent to review');
+    expect(result.systemPromptManifest.find((e) => e.kind === 'claude-helper-rules')).toBeUndefined();
+    expect(getContextManifestHistory('inst-1')[0].entries.find((e) => e.kind === 'claude-helper-rules')?.status)
+      .toBe('skipped-empty');
+  });
+
+  it.each([undefined, 'auto'] as const)(
+    'follows the resolved provider when the request said %s',
+    async (requested) => {
+      const claude = await assemble(requested, { resolvedProvider: 'claude' });
+      expect(claude.systemPrompt).toContain(CLAUDE_HELPER_REVIEWER_RULE);
+      const codex = await assemble(requested, { id: 'inst-2', resolvedProvider: 'codex' });
+      expect(codex.systemPrompt).not.toContain(CLAUDE_HELPER_REVIEWER_RULE);
+    },
+  );
+
+  it('reaches the real Claude argv, so the exposure record says delivered', async () => {
+    const claude = await assemble('claude');
+    const args = buildClaudeCliArgs({
+      spawnOptions: { systemPrompt: claude.systemPrompt },
+      sessionId: 'session-a1',
+      excludeDynamicSectionsSupported: null,
+      cliVersion: null,
+      disallowedToolsOverride: null,
+      shouldUseNativeResume: false,
+      shouldUsePermissionHook: false,
+      materializeInlineJsonArg: (value: string) => value,
+    });
+    expect(claudePolicyExposure('session-a1', {}, {}, args).reviewerRuleDelivered).toBe(true);
+  });
+
+  it('does not report delivery for a session whose prompt lacks the rule', async () => {
+    const codex = await assemble('codex');
+    const args = buildClaudeCliArgs({
+      spawnOptions: { systemPrompt: codex.systemPrompt },
+      sessionId: 'session-a1',
+      excludeDynamicSectionsSupported: null,
+      cliVersion: null,
+      disallowedToolsOverride: null,
+      shouldUseNativeResume: false,
+      shouldUsePermissionHook: false,
+      materializeInlineJsonArg: (value: string) => value,
+    });
+    expect(claudePolicyExposure('session-a1', {}, {}, args).reviewerRuleDelivered).toBe(false);
+  });
+});
+
+describe('harness-guide block (A12, plan Step 10 item 3)', () => {
+  beforeEach(() => {
+    _resetAllContextManifestsForTesting();
+  });
+
+  async function assemble(
+    instanceOverrides: Partial<Instance> = {},
+    configOverrides: Partial<InstanceCreateConfig> = {},
+  ) {
+    const config: InstanceCreateConfig = { workingDirectory: '/tmp/project', provider: 'claude', ...configOverrides };
+    return assembleInstanceSystemPrompt({
+      instance: makeInstance(instanceOverrides),
+      config,
+      resolvedAgent: baseAgent,
+      instructionPrompts: [],
+      initialUserMessageContent: undefined,
+      deps: makeDeps(),
+    });
+  }
+
+  const entryOf = (result: Awaited<ReturnType<typeof assemble>>) =>
+    result.systemPromptManifest.find((e) => e.kind === 'harness-guide');
+
+  it('adds the Harness guide as the last block of a root chat', async () => {
+    const result = await assemble();
+    expect(result.systemPrompt.endsWith(HARNESS_GUIDE)).toBe(true);
+    expect(result.systemPrompt.split(HARNESS_GUIDE)).toHaveLength(2);
+    expect(entryOf(result)?.charLength).toBe(HARNESS_GUIDE.length);
+    expect(result.systemPromptManifest.at(-1)?.kind).toBe('harness-guide');
+    expect(getContextManifestHistory('inst-1')[0].entries.find((e) => e.kind === 'harness-guide')?.status)
+      .toBe('supplied');
+  });
+
+  it.each([
+    ['a child (depth and parent)', { depth: 1 }, { parentId: 'parent-1' }],
+    ['a child by depth alone', { depth: 1 }, {}],
+    ['a child by parent alone', {}, { parentId: 'parent-1' }],
+    ['an automation run', {}, { metadata: { automationId: 'auto-1' } }],
+    ['a plan-queue root', {}, { metadata: { planQueueRunId: 'run-1' } }],
+    ['a repo job', {}, { metadata: { spendPurpose: 'repo-job' } }],
+    ['a reviewer', {}, { metadata: { spendPurpose: 'review', pingPongReviewer: true } }],
+  ] as const)('omits it for %s', async (_name, instanceOverrides, configOverrides) => {
+    const result = await assemble(instanceOverrides, configOverrides);
+    expect(result.systemPrompt).not.toContain(HARNESS_GUIDE);
+    expect(result.systemPrompt).not.toContain('## Harness commands');
+    expect(entryOf(result)).toBeUndefined();
+    expect(getContextManifestHistory('inst-1')[0].entries.find((e) => e.kind === 'harness-guide')?.status)
+      .toBe('skipped-empty');
   });
 });

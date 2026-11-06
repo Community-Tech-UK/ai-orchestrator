@@ -35,6 +35,7 @@ import { EchartsThemedComponent } from '../../shared/components/echarts-themed/e
 import type { EChartsOption } from 'echarts';
 import { RendererPollSchedulerService } from '../../core/services/renderer-poll-scheduler.service';
 import type { CostPurposeSummary } from '../../../../shared/types/cost-purpose.types';
+import { spendPurposeLabel } from '../../../../shared/types/spend-purpose-labels';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
 
@@ -322,7 +323,7 @@ export class CostPageComponent implements OnInit, OnDestroy {
         this.costIpc.costGetEntries(100),
 
         this.costIpc.costGetBudgetStatus(),
-        this.costIpc.costGetPurposeSummary({startTime:now - 30 * 86400000,endTime:now}),
+        this.costIpc.costGetPurposeSummary({ startTime: now - 30 * 86_400_000, endTime: now }),
         this.costIpc.costGetEphemeralUsage(100),
       ]);
 
@@ -411,5 +412,9 @@ export class CostPageComponent implements OnInit, OnDestroy {
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
     if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
     return n.toString();
+  }
+
+  purposeLabel(key: string): string {
+    return spendPurposeLabel(key);
   }
 }

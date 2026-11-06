@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync, existsSync } from 'fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
@@ -9,6 +9,7 @@ import {
   recordInstanceTurnAttribution,
   subscribeCostAttribution,
   reserveAuxiliarySpend,
+  getReservedAuxiliarySpendToday,
   getCostAttributionFilePath,
   _resetCostAttributionForTesting,
   type CostAttributionRecord,
@@ -166,6 +167,21 @@ describe('cost-attribution', () => {
     expect(child['parentId']).toBe('inst-1');
   });
 
+  it('writes explicit raw RTK trial identity alongside the legacy arm', () => {
+    recordInstanceTurnAttribution({
+      instanceId: 'instance-trial', sessionId: 'native-trial',
+      provider: 'claude', model: 'claude-sonnet-4-6',
+      usage: { inputTokens: 12 }, costKnown: false,
+      rtkArm: 'on', rtkTrialEligible: true,
+      rtkTrialKey: 'queue-item-1', rtkTrialSurface: 'interactive',
+    });
+    const [line] = readFileSync(getCostAttributionFilePath()!, 'utf8').trim().split('\n');
+    expect(JSON.parse(line)).toMatchObject({
+      source: 'instance-turn', sessionId: 'native-trial', rtkArm: 'on',
+      rtkTrialEligible: true, rtkTrialKey: 'queue-item-1', rtkTrialSurface: 'interactive',
+    });
+  });
+
   // LT-100: an ACP-transport turn with no provider usage now records a
   // heuristic estimate rather than nothing. The offline audit trail must be
   // able to tell it apart from a measured turn.
@@ -310,6 +326,30 @@ describe('cost-attribution', () => {
 
       expect(first).toEqual({ allowed: true, spentUsd: 0.004 });
       expect(second).toEqual({ allowed: false, spentUsd: 0.004 });
+    });
+
+    describe('getReservedAuxiliarySpendToday (shared helper limit, Step 7)', () => {
+      const reservation = { capUsd: 5, amountUsd: 0.25, slot: 'compression' };
+
+      it('sums today\'s real reservation records', () => {
+        reserveAuxiliarySpend(reservation);
+        reserveAuxiliarySpend(reservation);
+        expect(getReservedAuxiliarySpendToday()).toBeCloseTo(0.5, 10);
+      });
+
+      it('is zero when nothing has been reserved yet, and when the sink is off', () => {
+        expect(getReservedAuxiliarySpendToday()).toBe(0);
+        process.env['AIO_COST_ATTRIBUTION'] = '0';
+        expect(getReservedAuxiliarySpendToday()).toBe(0);
+      });
+
+      it('is unbounded, never zero, when the reservation file cannot be read', () => {
+        // A directory where the day file should be: existsSync passes, readFileSync throws EISDIR.
+        const file = getCostAttributionFilePath()!;
+        mkdirSync(file);
+        expect(() => getReservedAuxiliarySpendToday()).not.toThrow();
+        expect(getReservedAuxiliarySpendToday()).toBe(Number.POSITIVE_INFINITY);
+      });
     });
   });
 });

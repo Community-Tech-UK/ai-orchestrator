@@ -49,7 +49,7 @@ const wireId = 'provider-session-placeholder';
 const trialKey = 'GROUPING_ONLY_DO_NOT_LOG';
 const jobId = 'queue-job-placeholder';
 const options: UnifiedSpawnOptions = { instanceId: owner, sessionId: wireId, jobId, sessionKind: 'plan-queue',
-  trialKey, trialArm: 'candidate', ephemeral: true, workingDirectory: '/tmp' };
+  trialKey, trialArm: 'cheaper', ephemeral: true, workingDirectory: '/tmp' };
 const unused = (): never => { throw new Error('Unexpected external dependency'); };
 
 describe('remote Codex ownership and final numeric receipts over authenticated worker transport', () => {
@@ -167,14 +167,14 @@ describe('remote Codex ownership and final numeric receipts over authenticated w
   it('keeps semantic owner independent of provider wire identity through schema and real factory', async () => {
     await remote.spawn();
     expect(InstanceSpawnParamsSchema.parse(spawns[0])).toMatchObject({ instanceId: wireId, owningInstanceId: owner,
-      jobId, sessionKind: 'plan-queue', trialKey, trialArm: 'candidate', ephemeral: true, codexUsageProtocol: 1 });
-    expect(workerOptions).toMatchObject({ instanceId: owner, sessionId: wireId, jobId, sessionKind: 'plan-queue', trialKey, trialArm: 'candidate', ephemeral: true });
-    expect(workerConfig).toMatchObject({ instanceId: owner, sessionId: wireId, jobId, sessionKind: 'plan-queue', trialKey, trialArm: 'candidate', ephemeral: true });
+      jobId, sessionKind: 'plan-queue', trialKey, trialArm: 'cheaper', ephemeral: true, codexUsageProtocol: 1 });
+    expect(workerOptions).toMatchObject({ instanceId: owner, sessionId: wireId, jobId, sessionKind: 'plan-queue', trialKey, trialArm: 'cheaper', ephemeral: true });
+    expect(workerConfig).toMatchObject({ instanceId: owner, sessionId: wireId, jobId, sessionKind: 'plan-queue', trialKey, trialArm: 'cheaper', ephemeral: true });
   });
   it.each([false, true])('ingests the real final tracker receipt into the controller reader once (exec=%s)', async exec => {
     await remote.spawn(); finish(exec); lateFinalize!();
     expect(entries()).toHaveLength(1);
-    expect(entries()[0]).toMatchObject({ instanceId: owner, jobId, kind: 'plan-queue', trialArm: 'candidate',
+    expect(entries()[0]).toMatchObject({ instanceId: owner, jobId, kind: 'plan-queue', trialArm: 'cheaper',
       trialKey: createHash('sha256').update(trialKey).digest('hex'), tokens: { input: 20, cache: 7, output: 5, reasoning: 2, total: 25 } });
     expect(usageFrames()).toHaveLength(1);
     expect(InstanceTelemetryParamsSchema.safeParse(usageFrames()[0].params).success).toBe(true);

@@ -2,10 +2,7 @@
 
 import type { PlanQueueAccountRules, PlanQueueFolderChecklist, PlanQueueRouting } from '@contracts/schemas/plan-queue';
 import type { AuxiliaryLlmRoutingMode } from './auxiliary-llm.types';
-import type {
-  CopilotAccountProfile,
-  CopilotAccountRoutingRule,
-} from './copilot-account.types';
+import type { CopilotAccountProfile, CopilotAccountRoutingRule } from './copilot-account.types';
 import type { DesktopComputerUseSettings } from './desktop-gateway-settings.types';
 import type { DisplaySettings } from './display-settings.types';
 import type { ProviderAccountPools, ProviderAccountProfile } from './provider-account.types';
@@ -15,6 +12,7 @@ import type { WorkerModeSettings } from './pair-both.types';
 import type { ObservationSettings } from './observation-settings.types';
 import type { WorkloadSettings } from './workload-settings.types';
 import type { RemoteReviewerProvider } from './reviewer-provider.types';
+import type { TokenLeverSettings } from './token-lever-settings.types';
 
 export type { ModelUsageEntry } from './model-usage.types';
 
@@ -45,7 +43,8 @@ import type {
 export type * from './settings-primitives.types';
 
 /** Application settings that are persisted to disk. */
-export interface AppSettings extends DesktopComputerUseSettings, DisplaySettings, ObservationSettings, WorkloadSettings {
+export interface AppSettings
+  extends DesktopComputerUseSettings, DisplaySettings, ObservationSettings, TokenLeverSettings, WorkloadSettings {
   // General
   /** Keep the system awake; the display may still sleep. */
   keepAwakeMode: 'off' | 'while-working' | 'always';
@@ -146,21 +145,6 @@ export interface AppSettings extends DesktopComputerUseSettings, DisplaySettings
   leftoverProcessCleanup: 'off' | 'notify' | 'stop-cpu-hogs' | 'stop-all'; // orphaned programs agent sessions left running
   recordProviderEvents: boolean;
   persistSessionContent: boolean; // persist session content (conversation/tool output) to disk
-  /**
-   * Cost-cap compaction trigger (claude2_todo #34b): auto-compact an instance
-   * once its cumulative token spend *since the last compaction* exceeds this
-   * many tokens, independent of context-window fill %. Catches long sessions
-   * (incl. self-managing CLIs that keep the window small while cost climbs).
-   * 0 = disabled.
-   */
-  cumulativeTokenCompactionTrigger: number;
-  ownChatContextCeilingTokens: number;
-  machineContextCeilingTokens: number;
-  codexHelperAgentsChats: 'economy' | 'full' | 'off' | 'trial';
-  codexHelperAgentsHarnessWork: 'off' | 'full' | 'trial';
-  codexContextTuning: 'harness' | 'codex';
-  /** Restart-with-summary compaction also records and injects a heuristic decision log. Default off. */
-  compactionDecisionLogEnabled: boolean;
   /**
    * Output style (claude2_todo #29): appends a communication-style directive to
    * the system prompt of new root sessions ('default' = no change). Built-ins:
@@ -276,8 +260,6 @@ export interface AppSettings extends DesktopComputerUseSettings, DisplaySettings
    * retry with this model when the primary is overloaded. Empty = off.
    */
   claudeFallbackModel: string;
-  /** Successful command output Claude sees directly; 0 keeps its own default. */
-  claudeBashOutputMaxChars: number;
   /**
    * WS14 — `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` on Claude spawns. Default OFF:
    * the scrub could strip the ORCHESTRATOR_* vars AIO's PreToolUse hook and
@@ -635,12 +617,6 @@ export interface AppSettings extends DesktopComputerUseSettings, DisplaySettings
   graphScopesJson: string;
   /** JSON array of account emails agents may mutate; reads remain available to all connected accounts. */
   graphAgentWritableAccountsJson: string;
-  // RTK (Rust Token Killer) — compresses LLM-bound shell command output 60–90%.
-  // See bigchange_rtk_integration.md for details. On by default; users can opt out
-  // via the RTK Savings settings tab.
-  rtkEnabled: boolean;
-  /** When true, never use a system-installed rtk; only the bundled binary. */
-  rtkBundledOnly: boolean;
 
   // Notifications
   /** Show a desktop notification when an agent transitions from busy to idle. Default: true. */

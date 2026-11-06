@@ -6,7 +6,9 @@
  * Also stores pending file attachments per context.
  */
 
-import { Injectable, computed, signal } from '@angular/core';
+import { Injectable, computed, inject, signal } from '@angular/core';
+import { notifySkippedAttachments, splitNewAttachments } from './attachment-identity';
+import { ToastService } from './toast.service';
 
 // Special context keys for non-instance views
 export const VERIFICATION_DRAFT_KEY = '__verification__';
@@ -15,6 +17,7 @@ export const VERIFICATION_DRAFT_KEY = '__verification__';
   providedIn: 'root'
 })
 export class DraftService {
+  private readonly toast = inject(ToastService);
   // Storage for drafts keyed by context
   private drafts = new Map<string, string>();
 
@@ -115,10 +118,15 @@ export class DraftService {
   /**
    * Add files to pending files for a context
    */
-  addPendingFiles(contextKey: string, files: File[]): void {
+  addPendingFiles(contextKey: string, files: File[]): number {
     const existing = this.pendingFiles.get(contextKey) || [];
-    this.pendingFiles.set(contextKey, [...existing, ...files]);
-    this.bumpAttachmentVersion();
+    const { added, skipped } = splitNewAttachments(existing, files);
+    if (added.length > 0) {
+      this.pendingFiles.set(contextKey, [...existing, ...added]);
+      this.bumpAttachmentVersion();
+    }
+    notifySkippedAttachments(this.toast, skipped);
+    return skipped;
   }
 
   /**

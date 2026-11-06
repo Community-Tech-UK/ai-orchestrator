@@ -198,20 +198,6 @@ export class InstanceOrchestrationManager {
     this.orchestration.processOutput(instanceId, content);
   }
 
-  /**
-   * Get orchestration prompt for first message
-   */
-  getOrchestrationPrompt(instanceId: string, currentModel?: string): string {
-    return this.orchestration.getOrchestrationPrompt(instanceId, currentModel);
-  }
-
-  /**
-   * Returns relevant orchestration reminders for turns after the first message.
-   */
-  getLaterTurnReminderIfRelevant(message: string): string | null {
-    return this.orchestration.getLaterTurnReminderIfRelevant(message);
-  }
-
   // ============================================
   // Orchestration Event Handlers Setup
   // ============================================

@@ -11,7 +11,7 @@ vi.mock('../../cli/provider-notice', () => ({
 
 import { invokeProviderOneShot, type ProviderInvokeDeps } from '../council-provider-invoke';
 import { subscribeCostAttribution, type CostAttributionRecord } from '../../core/system/cost-attribution';
-import type { CliAdapter } from '../../cli/adapters/adapter-factory';
+import type { CliAdapter, UnifiedSpawnOptions } from '../../cli/adapters/adapter-factory';
 
 function makeDeps(answers: Record<string, string | Error | null>): {
   deps: ProviderInvokeDeps;
@@ -98,6 +98,27 @@ describe('invokeProviderOneShot', () => {
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({ outcome: 'cancelled', costSource: 'provider', costKnown: true, usage: { cost: 0.1 } });
     } finally { stop(); }
+  });
+
+  it('spawns the one-shot read-only, never auto-approving, and stamps it a review machine session', async () => {
+    const captured: UnifiedSpawnOptions[] = [];
+    const { deps } = makeDeps({ claude: 'hello' });
+    const create = deps.createAdapter;
+    deps.createAdapter = (type, options) => { captured.push(options); return create(type, options); };
+    expect((await invokeProviderOneShot(deps, 'claude', 'review this')).ok).toBe(true);
+    expect(captured[0]).toMatchObject({
+      readOnlyReview: true, yoloMode: false, machineSession: 'consensus', sessionKind: 'review',
+    });
+  });
+
+  it('keeps yolo off for a non-Claude one-shot as well (only Claude maps readOnlyReview)', async () => {
+    const captured: UnifiedSpawnOptions[] = [];
+    const { deps } = makeDeps({ codex: 'hello' });
+    const create = deps.createAdapter;
+    deps.createAdapter = (type, options) => { captured.push(options); return create(type, options); };
+    await invokeProviderOneShot(deps, 'codex', 'review this');
+    expect(captured[0]).toMatchObject({ yoloMode: false, machineSession: 'consensus' });
+    expect(captured[0]).not.toHaveProperty('maxBudgetUsd', 1);
   });
 
   it('returns the answer on success', async () => {

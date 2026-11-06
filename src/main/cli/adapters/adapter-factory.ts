@@ -17,10 +17,7 @@ import { CodexCliAdapter, CodexCliConfig } from './codex-cli-adapter';
 import { GeminiCliAdapter, GeminiCliConfig } from './gemini-cli-adapter';
 import { AntigravityCliAdapter, AntigravityCliConfig } from './antigravity-cli-adapter';
 import { OllamaCliAdapter } from './ollama-cli-adapter';
-import {
-  OpenAICompatibleChatAdapter,
-  type OpenAICompatibleChatConfig,
-} from './openai-compatible-chat-adapter';
+import { OpenAICompatibleChatAdapter, type OpenAICompatibleChatConfig } from './openai-compatible-chat-adapter';
 import { AcpCliAdapter } from './acp-cli-adapter';
 import { resolveAcpStallWarningMs } from './acp-prompt-timeout-policy';
 import { RemoteCliAdapter } from './remote-cli-adapter';
@@ -243,7 +240,7 @@ export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdap
     disallowedTools: options.disallowedTools,
     resume: options.resume,
     forkSession: options.forkSession,
-    mcpConfig: buildClaudeMcpConfig(options),
+    mcpConfig: buildClaudeMcpConfig(options, accountEnv),
     reasoningEffort: options.reasoningEffort,
     fastMode: options.fastMode,
     fallbackModel: options.fallbackModel,
@@ -256,6 +253,7 @@ export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdap
     excludeDynamicSystemPromptSections: options.excludeDynamicSystemPromptSections ?? true,
     chrome: options.chrome,
     permissionHookPath: options.permissionHookPath,
+    trialKey: options.trialKey, trialKeySource: options.trialKeySource,
     env,
     ...(accountEnv.envRemove.length > 0 ? { envRemove: accountEnv.envRemove } : {}),
     rtk: options.rtk,
@@ -293,12 +291,13 @@ export function createCodexAdapter(options: UnifiedSpawnOptions): CodexCliAdapte
   const codexConfig: CodexCliConfig = {
     instanceId: options.instanceId, jobId: options.jobId,
     onEphemeralUsage: options.onCodexEphemeralUsage,
-    sessionKind: options.sessionKind, trialKey: options.trialKey, trialArm: options.trialArm,
+    sessionKind: options.sessionKind, trialKey: options.trialKey,
+    trialKeySource: options.trialKeySource, trialArm: options.trialArm,
     // Harness owns its own session/history surface. Codex threads
     // created here should not leak into the standalone Codex desktop app
     // unless a caller explicitly opts out.
     ephemeral: options.ephemeral ?? true,
-    sessionId: options.sessionId,
+    sessionId: options.sessionId, harnessInstanceId: options.instanceId,
     resume: options.resume,
     workingDir: options.workingDirectory,
     model: options.model,

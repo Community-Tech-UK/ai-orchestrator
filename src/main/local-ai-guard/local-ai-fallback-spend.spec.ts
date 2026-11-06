@@ -129,3 +129,86 @@ describe('getLocalAiFallbackSpend', () => {
     ]);
   });
 });
+
+describe('getLocalAiFallbackSpend unknown-cost reservations (Step 7)', () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const UNTIL = 10 * DAY_MS;
+
+  afterEach(() => {
+    for (const db of dbs.splice(0)) db.close();
+  });
+
+  function paid(id: string, patch: Partial<LocalAiRoutingEvent> = {}): LocalAiRoutingEvent {
+    const { estimatedCostUsd: _estimate, completedAt: _completed, ...base } = routingEvent(id);
+    return {
+      ...base,
+      actualRoute: 'frontier',
+      disposition: 'allowed',
+      decisionReason: 'policy',
+      createdAt: UNTIL - 1_000,
+      ...patch,
+    };
+  }
+
+  it('counts a fresh open reservation with no cost as unknown', () => {
+    const db = openMigratedDb();
+    const health = new LocalAiHealthRepository(db);
+    health.appendRoutingEvent(paid('fresh-open', { createdAt: UNTIL - 60 * 60 * 1000 }));
+
+    expect(getLocalAiFallbackSpend(db, { since: UNTIL - DAY_MS, until: UNTIL }))
+      .toEqual({ knownCostUsd: 0, estimatedCostUsd: 0, unknownReservations: 1 });
+  });
+
+  it('ignores open unknown reservations older than 24 hours, however many there are', () => {
+    const db = openMigratedDb();
+    const health = new LocalAiHealthRepository(db);
+    for (let n = 0; n < 50; n += 1) {
+      health.appendRoutingEvent(paid(`stale-${n}`, { createdAt: UNTIL - DAY_MS - 1 - n * 1_000 }));
+    }
+
+    expect(getLocalAiFallbackSpend(db, { since: UNTIL - DAY_MS, until: UNTIL }).unknownReservations)
+      .toBe(0);
+    expect(getLocalAiFallbackSpend(db, { since: 0, until: UNTIL, reservationsOnly: true }).unknownReservations)
+      .toBe(0);
+  });
+
+  it('keeps the boundary at exactly 24 hours inside the bound', () => {
+    const db = openMigratedDb();
+    const health = new LocalAiHealthRepository(db);
+    health.appendRoutingEvent(paid('exactly-24h', { createdAt: UNTIL - DAY_MS }));
+    health.appendRoutingEvent(paid('just-over-24h', { createdAt: UNTIL - DAY_MS - 1 }));
+
+    expect(getLocalAiFallbackSpend(db, { since: 0, until: UNTIL }).unknownReservations).toBe(1);
+  });
+
+  it('still counts a completed row with no cost as unknown, whatever its age', () => {
+    const db = openMigratedDb();
+    const health = new LocalAiHealthRepository(db);
+    health.appendRoutingEvent(paid('completed-unknown', {
+      createdAt: UNTIL - 5 * DAY_MS,
+      completedAt: UNTIL - 1_000,
+    }));
+
+    expect(getLocalAiFallbackSpend(db, { since: UNTIL - DAY_MS, until: UNTIL }).unknownReservations)
+      .toBe(1);
+  });
+
+  it('never ages out an open reservation that carries an estimate or a known cost', () => {
+    const db = openMigratedDb();
+    const health = new LocalAiHealthRepository(db);
+    health.appendRoutingEvent(paid('old-estimated', {
+      createdAt: UNTIL - 3 * DAY_MS,
+      estimatedCostUsd: 0.25,
+    }));
+    health.appendRoutingEvent(paid('old-known', {
+      createdAt: UNTIL - 3 * DAY_MS,
+      knownCostUsd: 0.5,
+    }));
+
+    expect(getLocalAiFallbackSpend(db, { since: UNTIL - DAY_MS, until: UNTIL })).toEqual({
+      knownCostUsd: 0.5,
+      estimatedCostUsd: 0.25,
+      unknownReservations: 0,
+    });
+  });
+});

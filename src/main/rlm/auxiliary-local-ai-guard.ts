@@ -156,6 +156,8 @@ export async function buildAuthorizedAuxiliaryFallback(input: {
   userPrompt: string;
   intendedTargetId?: string;
   estimatedOutputTokens?: number;
+  /** An explicit user action: the daily helper limit does not refuse it (Step 7 item 5). */
+  userInitiated?: boolean;
 }): Promise<{ text: string; decision: AuxiliaryLlmDecision }> {
   const tokenCounter = getTokenCounter();
   const verdict = await getLocalAiAuxiliaryHooks().authorizeFallback({
@@ -166,6 +168,7 @@ export async function buildAuthorizedAuxiliaryFallback(input: {
       tokenCounter.countTokens(input.systemPrompt) + tokenCounter.countTokens(input.userPrompt),
     estimatedOutputTokens: input.estimatedOutputTokens ?? 0,
     slotAllowsFrontier: input.slotAllowsFrontier,
+    ...(input.userInitiated ? { userInitiated: true } : {}),
   });
   const allowFrontierFallback = input.slotAllowsFrontier && verdict.allowed;
   const decision: AuxiliaryLlmDecision = {

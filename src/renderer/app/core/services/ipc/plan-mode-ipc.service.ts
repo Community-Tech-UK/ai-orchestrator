@@ -56,4 +56,20 @@ export class PlanModeIpcService {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.getPlanModeState(instanceId);
   }
+
+  async previewPlanHandoff(instanceId: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.previewPlanHandoff(instanceId);
+  }
+
+  async startPlanHandoff(payload: {
+    instanceId: string;
+    requestId?: string;
+    planText?: string;
+    model?: string;
+    idempotencyKey?: string;
+  }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.startPlanHandoff(payload);
+  }
 }

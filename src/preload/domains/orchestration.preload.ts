@@ -208,6 +208,17 @@ export function createOrchestrationDomain(ipcRenderer: IpcRenderer, ch: typeof I
       return ipcRenderer.invoke(ch.PLAN_MODE_GET_STATE, { instanceId });
     },
 
+    previewPlanHandoff: (instanceId: string): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.PLAN_HANDOFF_PREVIEW, { instanceId }),
+
+    startPlanHandoff: (payload: {
+      instanceId: string;
+      requestId?: string;
+      planText?: string;
+      model?: string;
+      idempotencyKey?: string;
+    }): Promise<IpcResponse> => ipcRenderer.invoke(ch.PLAN_HANDOFF_START, payload),
+
     // ============================================
     // Phase 6: Workflows (6.1)
     // ============================================

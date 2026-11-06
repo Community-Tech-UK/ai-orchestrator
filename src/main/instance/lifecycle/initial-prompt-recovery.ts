@@ -1,4 +1,4 @@
-import type { Instance, InstanceStatus, OutputMessage } from '../../../shared/types/instance.types';
+import type { Instance, InstanceStatus, OutputMessage, FileAttachment } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
 import type { CliAdapter } from '../../cli/adapters/adapter-factory';
 import { isSurfacedToUserError } from '../../cli/adapters/surfaced-error';
@@ -8,13 +8,123 @@ import { GlobalPauseService } from '../../global-pause/global-pause-service';
 import { getSessionQueueService } from '../../session/session-queue-service';
 import { assertAutomaticStartupCurrent, isAutomaticStartupCancelled } from '../../work-admission/automatic-startup';
 
-import { isInitialPromptHeld } from './initial-prompt-dispatch';
+import { isInitialPromptHeld, sendInitialPromptToAdapter } from './initial-prompt-dispatch';
+
+import { isOrchestratorPausedError } from '../../pause/orchestrator-paused-error';
+import { isUnsupportedOrchestratorAttachmentError } from '../orchestrator-attachment-fallback';
+import { getHarnessGuidance, type HarnessGuidanceHandle } from '../../orchestration/harness-guidance';
 
 const logger = getLogger('InitialPromptRecovery');
 const pendingQueue = new WeakMap<Instance, { queued: boolean }>();
 export function hasPendingInitialPrompt(instance: Instance): boolean { return pendingQueue.has(instance); }
 export async function retryPendingInitialPrompt(instance: Instance): Promise<void> {
   if (pendingQueue.has(instance)) await queueInitialPromptForResume(instance);
+}
+
+/** Prepared at trusted first-person assembly; delivery, not assembly, owns commit. */
+export interface InitialPromptGuidance extends HarnessGuidanceHandle {
+  contextBlockBeforeGuidance?: string;
+}
+
+export interface PendingInitialPrompt {
+  readonly message: string;
+  readonly queuedMessage: string;
+  readonly contextBlock: string | undefined;
+  deliveryToken?: symbol;
+}
+
+// Process-local provenance only. This neither schedules a retry nor survives app restart.
+const pendingInitialPrompts = new WeakMap<Instance, PendingInitialPrompt>();
+
+function withContext(message: string, contextBlock?: string): string {
+  return contextBlock?.trim() ? `${contextBlock}\n\n${message}` : message;
+}
+
+/** Exact generated payload matching; never infer person provenance from text patterns. */
+export function findPendingInitialPrompt(instance: Instance, message: string): PendingInitialPrompt | undefined {
+  const pending = pendingInitialPrompts.get(instance);
+  return pending && (message === pending.message || message === pending.queuedMessage) ? pending : undefined;
+}
+
+function deliveryCommit(instance: Instance, pending: PendingInitialPrompt, guidance: HarnessGuidanceHandle): () => void {
+  const token = Symbol('initial-guidance-delivery');
+  pending.deliveryToken = token;
+  return () => {
+    guidance.commit();
+    if (pendingInitialPrompts.get(instance) === pending && pending.deliveryToken === token) {
+      pendingInitialPrompts.delete(instance);
+    }
+  };
+}
+
+/** Re-select for the current conversation after readiness/preparation awaits. */
+export function takePendingInitialPromptGuidance(instance: Instance, pending: PendingInitialPrompt): HarnessGuidanceHandle {
+  const guidance = getHarnessGuidance().takeHarnessGuidance(instance, pending.message, 'later-turn');
+  return {
+    text: [pending.contextBlock, guidance.text].filter(Boolean).join('\n\n') || null,
+    commit: deliveryCommit(instance, pending, guidance),
+  };
+}
+
+export interface InitialPromptSendDeps {
+  providerLimitGate?: DirectTurnProviderLimitGate;
+  queuePausedPrompt(params: { instance: Instance; message: string; attachments?: FileAttachment[] }): void;
+  emitAttachmentDropWarnings(instance: Instance, adapterName: string, attachments: FileAttachment[]): void;
+}
+
+/** The direct initial turn and its attachment retry share one actual-delivery boundary. */
+export async function sendInitialPromptWithAttachmentFallback(params: {
+  instance: Instance;
+  adapter: CliAdapter;
+  resolvedCliType: string;
+  message: string;
+  contextBlock?: string;
+  attachments?: FileAttachment[];
+  guidance?: InitialPromptGuidance;
+}, deps: InitialPromptSendDeps): Promise<void> {
+  const { instance, adapter, resolvedCliType, message, guidance } = params;
+  const runtimeMessage = withContext(message, params.contextBlock);
+  const queuedMessage = guidance ? withContext(message, guidance.contextBlockBeforeGuidance) : runtimeMessage;
+  let commit: (() => void) | undefined;
+  if (guidance?.text) {
+    const pending: PendingInitialPrompt = { message, queuedMessage, contextBlock: guidance.contextBlockBeforeGuidance };
+    pendingInitialPrompts.set(instance, pending);
+    commit = deliveryCommit(instance, pending, guidance);
+  }
+  const limitGate = deps.providerLimitGate;
+  if (limitGate?.holdBeforeSend(instance, message)) return;
+  let attachments = params.attachments;
+  try {
+    await sendInitialPromptToAdapter(instance, adapter, runtimeMessage, attachments);
+    commit?.();
+    return;
+  } catch (initialError) {
+    if (isOrchestratorPausedError(initialError)) {
+      deps.queuePausedPrompt({ instance, message: queuedMessage, attachments });
+      return;
+    }
+    if (limitGate?.handleSendError(instance, adapter, initialError, message)) return;
+    if (!attachments?.length || !isUnsupportedOrchestratorAttachmentError(initialError)) throw initialError;
+    deps.emitAttachmentDropWarnings(instance, adapter.getName(), attachments);
+    if (!runtimeMessage.trim()) {
+      logger.info('Dropped unsupported attachments from attachment-only initial prompt', {
+        instanceId: instance.id, provider: resolvedCliType,
+      });
+      return;
+    }
+    attachments = undefined;
+    try {
+      await sendInitialPromptToAdapter(instance, adapter, runtimeMessage, attachments);
+      commit?.();
+    } catch (retryError) {
+      if (isOrchestratorPausedError(retryError)) {
+        deps.queuePausedPrompt({ instance, message: queuedMessage, attachments });
+        return;
+      }
+      if (limitGate?.handleSendError(instance, adapter, retryError, message)) return;
+      throw retryError;
+    }
+  }
 }
 
 /**

@@ -87,6 +87,8 @@ export interface LoopChildResult {
   unresolvedToolCalls?: boolean;
   exitedCleanly: boolean;
   contextCompacted?: { previousUtilization: number; newUtilization: number; reason: string };
+  /** Known provider occupancy at seal time, used for cold-cache restart. */
+  contextOccupancy?: { used: number; total: number };
   /** A3: adapter-layer degraded classification, when the feature flag was on. */
   degradedReason?: DegradedReason;
   /** The provider rejected the turn at a plan limit via a structured signal, even with clean output. */

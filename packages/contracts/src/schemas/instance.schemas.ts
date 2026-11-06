@@ -1,12 +1,7 @@
 import { z } from 'zod';
 import {
-  InstanceIdSchema,
-  SessionIdSchema,
-  DisplayNameSchema,
-  WorkingDirectorySchema,
-  FileAttachmentSchema,
-  ModelIdSchema,
-  RequiredModelIdSchema,
+  InstanceIdSchema, SessionIdSchema, DisplayNameSchema, WorkingDirectorySchema,
+  FileAttachmentSchema, ModelIdSchema, RequiredModelIdSchema,
 } from './common.schemas';
 import { CopilotProfileIdSchema } from './copilot-account.schemas';
 import { ProviderAccountProfileIdSchema } from './provider-account.schemas';
@@ -188,10 +183,8 @@ export const InstanceCreatePayloadSchema = z.object({
   provider: InstanceCreateProviderSchema.optional(),
   model: ModelIdSchema.optional(),
   /**
-   * Omitted/null means "unspecified" — the spawn path then applies the
-   * app-level per-provider default (`getDefaultReasoningEffort`). Without this
-   * field the picker's chosen effort could not reach a new session at all, so
-   * every fresh session fell back to the CLI's own default.
+   * Omitted/null uses the app's per-provider `getDefaultReasoningEffort`.
+   * A provided value preserves the picker's selection on a fresh session.
    */
   reasoningEffort: ReasoningEffortSchema.nullable().optional(),
   modelRuntimeTarget: ModelRuntimeTargetSchema.optional(),
@@ -272,11 +265,7 @@ export const InstanceSendInputPayloadSchema = z.object({
   automatedInput: z.boolean().optional(),
   /** Explicit durable queue ownership; validated again at provider dispatch. */
   queuedAdmissionId: z.string().min(1).max(200).optional(),
-  /**
-   * Optional stable key for at-most-once delivery (B2). A retried send carrying
-   * the same key is recognised as a duplicate and skipped instead of dispatching
-   * the input twice.
-   */
+  /** Optional stable key for at-most-once delivery (B2); repeated keys skip dispatch. */
   idempotencyKey: z.string().min(1).max(200).optional(),
 }).refine(
   (data) => data.message.trim().length > 0 || (data.attachments && data.attachments.length > 0),
@@ -475,6 +464,13 @@ export const InstanceCompactPayloadSchema = z.object({
 
 export type ValidatedInstanceCompactPayload = z.infer<typeof InstanceCompactPayloadSchema>;
 
+/** A side question for a live Claude session; never saved to the conversation. */
+export const InstanceQuickAskPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  question: z.string().trim().min(1).max(4000),
+});
+export type ValidatedInstanceQuickAskPayload = z.infer<typeof InstanceQuickAskPayloadSchema>;
+
 export const InstanceRecoverCompactionContextPayloadSchema = z.object({
   instanceId: InstanceIdSchema,
   markerId: z.string().min(1).max(200),
@@ -610,6 +606,17 @@ export const PlanModeUpdatePayloadSchema = z.object({
 
 export const PlanModeGetStatePayloadSchema = z.object({
   instanceId: InstanceIdSchema,
+});
+
+export const PlanHandoffPreviewPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+});
+export const PlanHandoffStartPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  requestId: z.string().min(1).max(200).optional(),
+  planText: z.string().max(60000).optional(),
+  model: ModelIdSchema.optional(),
+  idempotencyKey: z.string().min(1).max(200).optional(),
 });
 
 // ============ Memory Load History ============

@@ -29,6 +29,13 @@ describe('CostTracker.recordUsage', () => {
     );
   });
 
+  it('honors provider-reported paid and zero dollar amounts before token pricing', () => {
+    const paid = tracker.recordUsage('i', 's', 'claude-sonnet-4-6', 1_000, 500, 0, 0, 0.7, 0, false, { provider: 'copilot' });
+    const free = tracker.recordUsage('i', 's', 'claude-sonnet-4-6', 1_000, 500, 0, 0, 0, 0, false, { provider: 'claude' });
+    expect(paid.cost).toBe(0.7);
+    expect(free.cost).toBe(0);
+  });
+
   it.each(['copilot', 'cursor'])('does not invent dollar pricing for %s', provider => {
     expect(tracker.recordUsage('i', 's', 'claude-opus-5', 1000, 500, 0, 0, undefined, 0, false, { provider }).cost).toBe(0);
     expect(tracker.recordUsage('i', 's', 'claude-opus-5', 1000, 500, 0, 0, 0.7, 0, false, { provider }).cost).toBe(0.7);
@@ -109,7 +116,7 @@ describe('CostTracker.recordUsage', () => {
   });
 
   it('emits cost-recorded so downstream consumers (e.g. the cost circuit breaker) observe spend', () => {
-    const seen: Array<{ instanceId: string; cost: number }> = [];
+    const seen: { instanceId: string; cost: number }[] = [];
     tracker.on('cost-recorded', (e) => seen.push({ instanceId: e.instanceId, cost: e.cost }));
     tracker.recordUsage('inst-9', 'sess-9', 'claude-sonnet-4-6', 100, 50, 0, 0, 0.005);
     expect(seen).toEqual([{ instanceId: 'inst-9', cost: 0.005 }]);
@@ -204,6 +211,29 @@ describe('CostTracker persistence (E15)', () => {
     expect(row?.cost).toBeCloseTo(0.0731, 10);
     expect(row?.cache_read_tokens).toBe(10);
     expect(row?.reasoning_tokens).toBe(12);
+  });
+
+  it('persists per-model cache and cost evidence without adding side-model tokens to the turn', () => {
+    const tracker = new CostTracker();
+    tracker.setDatabase(db);
+    const byModel = [
+      { model: 'claude-sonnet-4-6', inputTokens: 100, outputTokens: 10, cacheReadTokens: 20, cacheWriteTokens: 5, costUsd: 0.2 },
+      { model: 'claude-haiku-4-5', inputTokens: 200, outputTokens: 20, cacheReadTokens: 30, cacheWriteTokens: 6, costUsd: 0.3 },
+    ];
+    const entry = tracker.recordUsage('i', 's', 'claude-sonnet-4-6', 100, 10, 20, 5, 0.5, 0, false, { provider: 'claude', byModel });
+    byModel[0].costUsd = 99;
+    const rows = db.prepare('SELECT model, input_tokens, cache_read_tokens, cache_write_tokens, cost_usd FROM cost_entry_model_usage WHERE entry_id = ? ORDER BY model')
+      .all<{ model: string; input_tokens: number; cache_read_tokens: number; cache_write_tokens: number; cost_usd: number }>(entry.id);
+    expect(rows).toEqual([
+      { model: 'claude-haiku-4-5', input_tokens: 200, cache_read_tokens: 30, cache_write_tokens: 6, cost_usd: 0.3 },
+      { model: 'claude-sonnet-4-6', input_tokens: 100, cache_read_tokens: 20, cache_write_tokens: 5, cost_usd: 0.2 },
+    ]);
+    expect(tracker.getSummary()).toMatchObject({ totalCost: 0.5, totalInputTokens: 100, totalCacheReadTokens: 20, totalCacheWriteTokens: 5 });
+    const restored = new CostTracker();
+    restored.setDatabase(db);
+    expect(restored.getEntries()[0].byModel?.find(delta => delta.model === 'claude-sonnet-4-6')?.costUsd).toBe(0.2);
+    tracker.clearEntries();
+    expect(db.prepare('SELECT COUNT(*) AS n FROM cost_entry_model_usage').get<{ n: number }>()?.n).toBe(0);
   });
 
   it('adds is_estimated persistence via migration 059 (LT-100), defaulting existing/omitted rows to measured', () => {

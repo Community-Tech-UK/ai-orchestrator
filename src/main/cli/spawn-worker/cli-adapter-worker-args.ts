@@ -3,18 +3,8 @@ import type { CliMessage } from '../adapters/base-cli-adapter';
 import { resolveClaudeDebugLogging } from '../adapters/claude-env-pack';
 import { claudeOutputCapSettings, resolveClaudeBashOutputMaxChars } from '../adapters/claude-output-caps';
 import { DEFAULT_DISALLOWED_TOOLS } from '../adapters/host-cli-tool-policy';
+import { resolveBashHookCommand } from '../hooks/hook-path-resolver';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
-
-function quoteHookArg(hookPath: string, platform: NodeJS.Platform = process.platform): string {
-  if (platform === 'win32') {
-    return `"${hookPath.replace(/"/g, '""')}"`;
-  }
-  return `'${hookPath.replace(/'/g, `'\\''`)}'`;
-}
-
-function buildDeferPermissionHookCommand(hookPath: string): string {
-  return `node ${quoteHookArg(hookPath)}`;
-}
 
 export function buildWorkerArgs(
   cliType: 'claude' | 'gemini',
@@ -76,25 +66,31 @@ function buildClaudeArgs(options: UnifiedSpawnOptions, sessionId: string | null)
 function buildClaudeSettingsOverlay(options: UnifiedSpawnOptions): string | undefined {
   // This isolated spawn path has no detected CLI version, so the cap is omitted.
   const settings: {
-    bashOutputMaxChars?: number;
     ultracode?: true;
+    bashOutputMaxChars?: number;
     hooks?: {
       PreToolUse: {
         matcher: string;
         hooks: { type: 'command'; command: string }[];
       }[];
     };
-  } = claudeOutputCapSettings(resolveClaudeBashOutputMaxChars(options.bashOutputMaxChars), null);
+  } = {};
   if (options.reasoningEffort === 'workflow') {
     settings.ultracode = true;
   }
-  if (!options.yoloMode && options.permissionHookPath) {
+  Object.assign(settings, claudeOutputCapSettings(resolveClaudeBashOutputMaxChars(options.bashOutputMaxChars), null));
+  const bashHookCommand = resolveBashHookCommand({
+    yoloMode: options.yoloMode,
+    permissionHookPath: options.permissionHookPath,
+    rtk: options.rtk,
+  });
+  if (bashHookCommand) {
     settings.hooks = {
       PreToolUse: [{
         matcher: 'Bash',
         hooks: [{
           type: 'command',
-          command: buildDeferPermissionHookCommand(options.permissionHookPath),
+          command: bashHookCommand,
         }],
       }],
     };

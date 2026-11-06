@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { EventEmitter } from 'events';
-import { generateKeyPairSync } from 'crypto';
+import { generateKeyPairSync, X509Certificate } from 'crypto';
 import { WebSocket } from 'ws';
 import * as os from 'os';
 import * as fs from 'fs';
@@ -2274,6 +2274,19 @@ beforeAll(async () => {
 });
 
 describe('extractCertHostname', () => {
+  it('uses a short-lived EC-P256 fixture with DNS and loopback IP SANs', () => {
+    const cert = new X509Certificate(fixtureCert);
+    expect(cert.publicKey.asymmetricKeyType).toBe('ec');
+    expect(cert.publicKey.asymmetricKeyDetails?.namedCurve).toBe('prime256v1');
+    expect(cert.checkHost('test-mac.tailnet.ts.net')).toBe('test-mac.tailnet.ts.net');
+    expect(cert.checkIP('127.0.0.1')).toBe('127.0.0.1');
+    const notBefore = Date.parse(cert.validFrom);
+    const notAfter = Date.parse(cert.validTo);
+    expect(notBefore).toBeLessThanOrEqual(Date.now());
+    expect(notAfter).toBeGreaterThan(Date.now());
+    expect(notAfter - notBefore).toBeLessThanOrEqual(24 * 60 * 60_000 + 60_000);
+  });
+
   it('returns the first DNS SAN from a PEM cert', () => {
     expect(extractCertHostname(fixtureCert)).toBe('test-mac.tailnet.ts.net');
   });
@@ -2301,11 +2314,12 @@ describe('MobileGatewayServer TLS (wss)', () => {
     keyPath = path.join(dir, 'key.pem');
     fs.writeFileSync(certPath, fixtureCert);
     fs.writeFileSync(keyPath, fixtureKey, { mode: 0o600 });
+    if (process.platform !== 'win32') expect(fs.statSync(keyPath).mode & 0o777).toBe(0o600);
   });
 
   afterEach(async () => {
-    await server.stop();
-    fs.rmSync(dir, { recursive: true, force: true });
+    try { await server.stop(); } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    expect(fs.existsSync(dir)).toBe(false);
   });
 
   it('serves https and reports secure status + wss tailnetUrl from the cert hostname', async () => {

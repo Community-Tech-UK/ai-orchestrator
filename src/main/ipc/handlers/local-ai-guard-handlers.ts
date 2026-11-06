@@ -2,11 +2,10 @@ import type { IpcMainInvokeEvent } from 'electron';
 import { ipcMain } from 'electron';
 import type { ZodType } from 'zod';
 import { IPC_CHANNELS } from '@contracts/channels';
-import type { AuxiliaryLlmCandidate } from '../../../shared/types/auxiliary-llm.types';
+import type { AuxiliaryLlmCandidate, AuxiliaryLlmSlot } from '../../../shared/types/auxiliary-llm.types';
 import type { LocalAiGuardSnapshot } from '../../../shared/types/local-ai-guard.types';
 import {
   LocalAiEmptyRequestSchema,
-  LocalAiRetryHelperRequestSchema,
   LocalAiFallbackRequestSchema,
   LocalAiFallbackResolveRequestSchema,
   LocalAiGuardSnapshotSchema,
@@ -16,6 +15,7 @@ import {
   LocalAiPublicDiagnosticReportSchema,
   LocalAiPublicEffectivenessSummarySchema,
   LocalAiRecheckRequestSchema,
+  LocalAiRetryHelperRequestSchema,
   LocalAiRepairResultSchema,
   LocalAiRepairRequestSchema,
   LocalAiSummaryRequestSchema,
@@ -61,6 +61,7 @@ export interface LocalAiGuardHandlerDependencies {
   workerName?: (nodeId: string) => string | undefined;
   now?: () => number;
   createId?: () => string;
+  retryHelperNow?: (slot: AuxiliaryLlmSlot) => void;
 }
 
 let activeCleanup: (() => void) | null = null;
@@ -81,12 +82,6 @@ export function registerLocalAiGuardHandlers(
     return registerUnavailableHandlers(dependencies.ensureTrustedSender);
   }
 
-  register(IPC_CHANNELS.LOCAL_AI_GUARD_RETRY_HELPER_NOW, LocalAiRetryHelperRequestSchema,
-    async ({ slot }) => runtimeOperation(runtime, 'LOCAL_AI_GUARD_RETRY_HELPER_FAILED', async () => {
-      getAuxiliaryLlmService().retryHelperNow(slot);
-      return success(buildSnapshot(runtime, now()));
-    }), dependencies.ensureTrustedSender);
-
   const discoverCandidates = dependencies.discoverCandidates
     ?? (() => getAuxiliaryLlmService().discoverCandidates());
   const now = dependencies.now ?? Date.now;
@@ -106,6 +101,17 @@ export function registerLocalAiGuardHandlers(
       'LOCAL_AI_GUARD_SNAPSHOT_FAILED',
       async () => success(buildSnapshot(runtime, now())),
     ),
+  );
+  register(
+    IPC_CHANNELS.LOCAL_AI_GUARD_RETRY_HELPER_NOW,
+    LocalAiRetryHelperRequestSchema,
+    async ({ slot }) => runtimeOperation(runtime, 'LOCAL_AI_GUARD_RETRY_HELPER_FAILED', async () => {
+      (dependencies.retryHelperNow ?? ((requestedSlot) =>
+        getAuxiliaryLlmService().retryHelperNow(requestedSlot)))(slot);
+      runtime.notifyChanged();
+      return success(buildSnapshot(runtime, now()));
+    }),
+    dependencies.ensureTrustedSender,
   );
   register(
     IPC_CHANNELS.LOCAL_AI_GUARD_TARGET_CREATE,
@@ -326,6 +332,7 @@ function buildSnapshot(runtime: LocalAiGuardRuntime, now: number): LocalAiGuardS
     const snapshot = {
       revision,
       helperPauses: runtime.helperPauses ?? [],
+      ...(runtime.helperBudget ? { helperBudget: runtime.helperBudget } : {}),
       aggregate: runtime.engine.aggregate(targets),
       targets,
       targetConfigs,

@@ -178,7 +178,8 @@ export function registerCommandHandlers(
 
         // Special handling for /compact command — route through the ContextEngine boundary
         if (executed.execution.type === 'compact') {
-          const result = await getContextEngine().compactInstance(validated.instanceId);
+          // A typed /compact is the user's own action, so the helper limit does not refuse its summary.
+          const result = await getContextEngine().compactInstance(validated.instanceId, { trigger: 'manual' });
           if (result.success) {
             getUsageTracker().record('command', executed.command.id, workingDirectory);
           }

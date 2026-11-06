@@ -181,12 +181,12 @@ describe('LocalAiGuardPageComponent', () => {
     refresh: vi.fn(async () => undefined),
     loadInventory: vi.fn(async () => undefined),
     snapshot: vi.fn(() => snapshot()),
-    helperPauses: vi.fn<() => AuxiliaryHelperPause[]>(() => []),
-    retryHelperNow: vi.fn(async () => snapshot()),
     hasAuthoritativeSnapshot: vi.fn(() => true),
     aggregate: vi.fn(() => snapshot().aggregate),
     targets: vi.fn(() => [status()]),
     activeIncidents: vi.fn(() => snapshot().incidents),
+    helperPauses: vi.fn<() => AuxiliaryHelperPause[]>(() => []),
+    retryHelperNow: vi.fn(async () => snapshot()),
     discoveries: vi.fn(() => [discovery()]),
     error: vi.fn((): string | null => null),
     operationError: vi.fn((): string | null => null),
@@ -214,9 +214,9 @@ describe('LocalAiGuardPageComponent', () => {
     vi.useFakeTimers();
     clockNow = NOW;
     vi.clearAllMocks();
-    store.helperPauses.mockReturnValue([]);
     store.discoveries.mockReturnValue([discovery()]);
     store.knownTarget.mockReturnValue(configuredTarget());
+    store.helperPauses.mockReturnValue([]);
     await TestBed.configureTestingModule({
       imports: [LocalAiGuardPageComponent],
       providers: [
@@ -273,6 +273,21 @@ describe('LocalAiGuardPageComponent', () => {
     expect(store.loadEffectiveness).toHaveBeenCalledWith('24h');
     expect(store.targets()).toEqual(targetBefore);
     expect(store.activeIncidents()).toEqual(incidentBefore);
+  });
+
+  it('shows a paused helper and sends Retry now through the store', async () => {
+    store.helperPauses.mockReturnValue([{
+      slot: 'compression', pausedUntil: NOW + 60_000, failures: 2,
+      startedAt: NOW, reason: 'Paused after 2 failures',
+    }]);
+    await recreateFixture();
+
+    expect(fixture.nativeElement.textContent).toContain('Helpers paused');
+    click('Retry now');
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(store.retryHelperNow).toHaveBeenCalledExactlyOnceWith('compression');
+    expect(fixture.nativeElement.textContent).toContain('compression can retry now.');
   });
 
   it('retains authoritative worker identity when the endpoint is not currently advertised', async () => {

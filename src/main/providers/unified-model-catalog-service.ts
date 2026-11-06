@@ -31,6 +31,7 @@ import {
 } from '../../shared/types/provider.types';
 import { getModelsDevService, type ModelsDevService } from './models-dev-service';
 import { getModelRate, DEFAULT_MODEL_RATE, hasOverlayRate } from '../../shared/data/model-pricing';
+import { getStaticContextWindow } from '../../shared/data/static-context-window';
 import type { CatalogOverrideEntry } from './catalog-override-source';
 import {
   catalogKey,
@@ -522,7 +523,9 @@ export class UnifiedModelCatalogService extends EventEmitter {
         const known = staticById.get(m.id);
         const tier = m.tier ?? known?.tier ?? 'balanced';
         const family = m.family ?? known?.family;
-        const contextWindow = this.modelsDevSvc.getContextWindow(m.id);
+        // The static rows were just dropped above, so keep their size as the floor.
+        const contextWindow = this.modelsDevSvc.getContextWindow(m.id)
+          ?? getStaticContextWindow(provider, m.id);
         const { pricing, pricingSource } = this.getEnrichedPricingWithSource(m.id);
 
         const entry: UnifiedModelEntry = {
@@ -620,6 +623,9 @@ export class UnifiedModelCatalogService extends EventEmitter {
       family: m.family,
       pricing,
       pricingSource,
+      // Offline floor so a row has a size before any models.dev data; Layer 2
+      // still overwrites it when models.dev knows the id.
+      contextWindow: getStaticContextWindow(provider, m.id),
       source: 'static',
       discoveredAt: now,
     };

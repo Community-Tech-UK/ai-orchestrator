@@ -145,12 +145,14 @@ class HarnessApp {
     this.shutdownOperations = createHarnessShutdownOperations({
       shutdownContinuitySync: () => getSessionContinuityManagerIfInitialized()?.shutdown(),
       killActiveProcessesSync: () => {
+        this.instanceManager.prepareForShutdown();
         // Sync cleanup signals providers before the async terminate phase.
         try { getPlanQueueCoordinator().shutdown(); } catch { /* best effort */ }
         BaseCliAdapter.killAllActiveProcesses();
       },
       stopRemoteServices,
       terminateInstances: () => {
+        this.instanceManager.prepareForShutdown();
         try { getPlanQueueCoordinator().shutdown(); } catch { /* best effort */ }
         return this.instanceManager.terminateAll();
       },

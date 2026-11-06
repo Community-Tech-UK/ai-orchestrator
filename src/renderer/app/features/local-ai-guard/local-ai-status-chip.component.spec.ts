@@ -50,11 +50,13 @@ describe('LocalAiStatusChipComponent', () => {
   const initialized = signal(true);
   const hasAuthoritativeSnapshot = signal(true);
   const currentAggregate = signal(aggregate('not-configured'));
+  const helperPauses = signal<import('../../../../shared/types/auxiliary-llm.types').AuxiliaryHelperPause[]>([]);
   const store = {
     isInitialized: initialized.asReadonly(),
     hasAuthoritativeSnapshot: hasAuthoritativeSnapshot.asReadonly(),
     aggregate: currentAggregate.asReadonly(),
-    helperPauses: signal<import('../../../../shared/types/auxiliary-llm.types').AuxiliaryHelperPause[]>([]),
+    helperBudget: signal(undefined).asReadonly(),
+    helperPauses: helperPauses.asReadonly(),
     targets: signal<LocalAiTargetStatus[]>([]),
   };
   const router = { navigateByUrl: vi.fn(async () => true) };
@@ -65,7 +67,7 @@ describe('LocalAiStatusChipComponent', () => {
     initialized.set(true);
     hasAuthoritativeSnapshot.set(true);
     currentAggregate.set(aggregate('not-configured'));
-    store.helperPauses.set([]);
+    helperPauses.set([]);
     store.targets.set([]);
     TestBed.configureTestingModule({
       imports: [LocalAiStatusChipComponent],
@@ -130,7 +132,7 @@ describe('LocalAiStatusChipComponent', () => {
   });
 
   it('preserves the complete helper pause explanation and name on the real directive', () => {
-    store.helperPauses.set([{ slot: 'compression', pausedUntil: Date.now() + 60_000, failures: 2,
+    helperPauses.set([{ slot: 'compression', pausedUntil: Date.now() + 60_000, failures: 2,
       startedAt: Date.now(), reason: 'Paused until retry after 2 failures' }]);
     const fixture = TestBed.createComponent(LocalAiStatusChipComponent); fixture.detectChanges();
     const button = fixture.debugElement.query(By.css('button'));
@@ -158,7 +160,7 @@ describe('LocalAiStatusChipComponent', () => {
 
   it('still shows a healthy aggregate when helpers are paused', () => {
     currentAggregate.set(aggregate('healthy', 1));
-    store.helperPauses.set([{ slot: 'compression', pausedUntil: Date.now() + 60_000, failures: 2, startedAt: Date.now(), reason: 'Paused until retry after 2 failures' }]);
+    helperPauses.set([{ slot: 'compression', pausedUntil: Date.now() + 60_000, failures: 2, startedAt: Date.now(), reason: 'Paused until retry after 2 failures' }]);
     const fixture = TestBed.createComponent(LocalAiStatusChipComponent);
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('button')?.dataset['state']).toBe('degraded');
@@ -166,7 +168,7 @@ describe('LocalAiStatusChipComponent', () => {
 
   it('shows helper pauses and lists the affected types and reason', () => {
     const at = Date.now() + 60_000;
-    store.helperPauses.set([{ slot: 'compression', pausedUntil: at, failures: 2, startedAt: Date.now(), reason: 'Paused until retry after 2 failures' }]);
+    helperPauses.set([{ slot: 'compression', pausedUntil: at, failures: 2, startedAt: Date.now(), reason: 'Paused until retry after 2 failures' }]);
     const fixture = TestBed.createComponent(LocalAiStatusChipComponent); fixture.detectChanges();
     const button = fixture.nativeElement.querySelector('button') as HTMLButtonElement;
     expect(button.textContent).toContain('Local AI: helpers paused until');
@@ -215,5 +217,20 @@ describe('LocalAiStatusChipComponent', () => {
     const button = fixture.nativeElement.querySelector('button') as HTMLButtonElement;
     expect(button.textContent).toContain('1 target');
     expect(button.getAttribute('aria-label')).toContain('1 enrolled target.');
+  });
+
+  it('shows a helper retry deadline and its reason without calling the target paused', () => {
+    currentAggregate.set(aggregate('healthy', 1));
+    helperPauses.set([{
+      slot: 'compression', pausedUntil: Date.now() + 60_000, failures: 2,
+      startedAt: Date.now(), reason: 'Paused after 2 failures',
+    }]);
+    const fixture = TestBed.createComponent(LocalAiStatusChipComponent);
+    fixture.detectChanges();
+
+    const button = fixture.nativeElement.querySelector('button') as HTMLButtonElement;
+    expect(button.textContent).toContain('helpers paused until');
+    expect(button.dataset['state']).toBe('degraded');
+    expect(button.getAttribute('aria-label')).toContain('compression: Paused after 2 failures');
   });
 });

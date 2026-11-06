@@ -91,11 +91,11 @@ describe('PuppeteerBrowserDriver', () => {
     });
   });
 
-  it('returns bounded snapshots and base64 screenshots', async () => {
+  it('preserves page text beyond 12,000 characters for the gateway to bound and spill', async () => {
     const page = {
       url: () => 'http://localhost:4567',
       title: async () => 'Local',
-      evaluate: async () => 'x'.repeat(13_000),
+      evaluate: async () => 'x'.repeat(40_000),
       screenshot: vi.fn().mockResolvedValue('base64-image'),
     };
     const browser = {
@@ -118,7 +118,7 @@ describe('PuppeteerBrowserDriver', () => {
     expect(snapshot).toEqual({
       title: 'Local',
       url: 'http://localhost:4567',
-      text: 'x'.repeat(12_000),
+      text: 'x'.repeat(40_000),
     });
     expect(screenshot).toBe('base64-image');
     expect(page.screenshot).toHaveBeenCalledWith({

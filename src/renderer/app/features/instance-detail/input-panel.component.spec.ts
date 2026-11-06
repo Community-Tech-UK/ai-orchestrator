@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProviderType } from '../../core/services/provider-state.service';
 import type { HybridSearchOptions, HybridSearchResult } from '../../../../shared/types/codebase.types';
 import { ActionDispatchService } from '../../core/services/action-dispatch.service';
+import { AppIpcService } from '../../core/services/ipc/app-ipc.service';
 import { InstanceStore } from '../../core/state/instance.store';
 import { DraftService } from '../../core/services/draft.service';
 import { KeybindingService } from '../../core/services/keybinding.service';
@@ -36,6 +37,12 @@ import { SettingsStore } from '../../core/state/settings.store';
 import { VoiceConversationStore } from '../../core/voice/voice-conversation.store';
 import { ComposerAutocompleteComponent } from './composer-autocomplete';
 import { InputPanelComponent } from './input-panel.component';
+import { ColdCacheResumeService } from './cold-cache-resume.service';
+import { ComposerRecoveryBannerComponent } from './composer-recovery-banner.component';
+import { RunReadinessBannerComponent } from './run-readiness-banner.component';
+import { InlineHintComponent } from '../../shared/hint/inline-hint.component';
+import type { InstanceStatus } from '../../core/state/instance/instance.types';
+import type { ContextUsage, InstanceWaitReason } from '../../../../shared/types/instance.types';
 import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
@@ -161,13 +168,29 @@ class LoopConfigPanelStubComponent {
 class ComposerToolbarStubComponent {
   @Input() instanceId = '';
   @Input() contextUsage: unknown = undefined;
+  @Input() hasConversation = false;
+  @Input() residentClaude = false;
+  @Input() remoteExecution = false;
   @Input() provider = 'claude';
   @Input() currentModel: string | undefined = undefined;
   @Input() currentReasoningEffort: unknown = undefined;
+  @Input() runtimeSummary: unknown = undefined;
+  @Input() desiredRuntime: unknown = undefined;
   @Input() instanceStatus = 'idle';
   @Input() accountProfileId: string | undefined = undefined;
   @Input() accountRoutingSource: string | undefined = undefined;
+  @Output() quickAskRequested = new EventEmitter<void>();
 }
+
+@Component({ selector: 'app-quick-ask-panel', standalone: true, template: '<div class="quick-ask-test">Quick ask open</div>' })
+class QuickAskPanelStubComponent {
+  @Input() instanceId = '';
+  @Input() contextUsage: ContextUsage | null = null;
+  @Output() closed = new EventEmitter<void>();
+}
+
+@Component({ selector: 'app-cold-cache-chip', standalone: true, template: '' })
+class ColdCacheChipStubComponent { @Input() instanceId = ''; }
 
 @Component({
   selector: 'app-composer-queue',
@@ -178,9 +201,35 @@ class ComposerQueueStubComponent {
   @Input() messages: unknown[] = [];
   @Input() holdReasonLabel: string | null = null;
   @Input() canSteer = false;
+  @Input() parked = false;
   @Output() editMessage = new EventEmitter<number>();
   @Output() steerMessage = new EventEmitter<number>();
   @Output() cancelMessage = new EventEmitter<number>();
+  @Output() resumeQueue = new EventEmitter<void>();
+}
+
+@Component({ selector: 'app-composer-banners', standalone: true, template: '' })
+class ComposerBannersStubComponent {
+  @Input() instanceId = '';
+  @Input() waitReason: InstanceWaitReason | undefined;
+  @Input() instanceStatus: InstanceStatus = 'idle';
+}
+
+@Component({ selector: 'app-copilot-account-chip', standalone: true, template: '' })
+class CopilotAccountChipStubComponent {
+  @Input() provider: string | null = null;
+  @Input() workingDirectory: string | null = null;
+  @Output() blocked = new EventEmitter<boolean>();
+  @Output() accountResolved = new EventEmitter<string | null>();
+}
+
+@Component({ selector: 'app-provider-account-chip', standalone: true, template: '' })
+class ProviderAccountChipStubComponent {
+  @Input() provider: string | null = null;
+  @Input() model: string | null = null;
+  @Input() executionNodeId: string | null = null;
+  @Input() chosenProfileId: string | null = null;
+  @Output() accountChosen = new EventEmitter<string | null>();
 }
 
 @Component({
@@ -231,15 +280,24 @@ describe('InputPanelComponent composer autocomplete integration', () => {
         styleUrl: undefined,
         styleUrls: [],
         imports: [
-          AioTooltipDirective, AppIconButtonDirective,
+          AioTooltipDirective,
+          InlineHintComponent,
+          AppIconButtonDirective,
           AgentSelectorStubComponent,
           CompactModelPickerStubComponent,
+          ComposerBannersStubComponent,
+          ComposerRecoveryBannerComponent,
+          RunReadinessBannerComponent,
           LoopToggleStubComponent,
           LoopConfigPanelStubComponent,
           ComposerToolbarStubComponent,
+          QuickAskPanelStubComponent,
+          ColdCacheChipStubComponent,
           ComposerQueueStubComponent,
           ComposerAutocompleteComponent,
           ImageLightboxStubComponent,
+          CopilotAccountChipStubComponent,
+          ProviderAccountChipStubComponent,
         ],
       },
     });
@@ -263,9 +321,11 @@ describe('InputPanelComponent composer autocomplete integration', () => {
           useValue: { setContext: vi.fn(), onAction: vi.fn(() => vi.fn()), formatBindingByAction: () => 'Live binding', ariaShortcutsByAction: () => 'Control+Enter' },
         },
         { provide: OrchestrationIpcService, useValue: createOrchestrationIpcMock() },
+        { provide: AppIpcService, useValue: { getStartupCapabilities: vi.fn(async () => null) } },
         { provide: ElectronIpcService, useValue: { platform: 'darwin' } },
         { provide: PromptHistoryStore, useValue: createPromptHistoryStoreMock() },
         { provide: VoiceConversationStore, useValue: createVoiceConversationStoreMock() },
+        { provide: ColdCacheResumeService, useValue: { shouldCompactFirst: () => false, phaseFor: () => 'idle' } },
         { provide: CodebaseIpcService, useValue: { search: codebaseSearch } },
       ],
     }).compileComponents();
@@ -670,6 +730,62 @@ describe('InputPanelComponent composer autocomplete integration', () => {
     expect(hints).not.toContain('Codex');
     expect(hints).toContain('your message will send afterwards');
     expect(hints).not.toContain('Esc interrupts');
+  });
+
+  it('opens quick ask from the live toolbar and closes it when the selected session changes', () => {
+    const usage: ContextUsage = { used: 120_000, total: 200_000, percentage: 60,
+      occupancyReported: true, occupancyIsAggregate: true };
+    fixture.componentRef.setInput('contextUsage', usage);
+    const toolbar = fixture.debugElement.query(By.directive(ComposerToolbarStubComponent));
+    expect(toolbar).toBeDefined();
+    (toolbar!.componentInstance as ComposerToolbarStubComponent).quickAskRequested.emit();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.quick-ask-test')).not.toBeNull();
+    const quickAsk = fixture.debugElement.query(By.directive(QuickAskPanelStubComponent))
+      .componentInstance as QuickAskPanelStubComponent;
+    expect(quickAsk.contextUsage).toBe(usage);
+    fixture.componentRef.setInput('contextUsage', undefined);
+    fixture.detectChanges();
+    expect(quickAsk.contextUsage).toBeNull();
+
+    fixture.componentRef.setInput('instanceId', 'inst-2');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.quick-ask-test')).toBeNull();
+  });
+
+  it('forwards resident and remote session flags to the bound composer toolbar', () => {
+    fixture.componentRef.setInput('residentClaude', true);
+    fixture.componentRef.setInput('remoteExecution', true);
+    fixture.detectChanges();
+    const toolbar = fixture.debugElement.query(By.directive(ComposerToolbarStubComponent))
+      .componentInstance as ComposerToolbarStubComponent;
+    expect(toolbar.residentClaude).toBe(true);
+    expect(toolbar.remoteExecution).toBe(true);
+
+    fixture.componentRef.setInput('residentClaude', false);
+    fixture.componentRef.setInput('remoteExecution', false);
+    fixture.detectChanges();
+    expect(toolbar.residentClaude).toBe(false);
+    expect(toolbar.remoteExecution).toBe(false);
+  });
+
+  it('binds the active session to both banners and the send tooltip', () => {
+    const banners = fixture.debugElement.query(By.directive(ComposerBannersStubComponent))
+      .componentInstance as ComposerBannersStubComponent;
+    const readiness = fixture.debugElement.query(By.directive(RunReadinessBannerComponent))
+      .componentInstance as RunReadinessBannerComponent;
+    const sendButton = fixture.debugElement.query(By.css('.btn-send'));
+
+    expect(banners.instanceId).toBe('inst-1');
+    expect(banners.instanceStatus).toBe('idle');
+    expect(readiness.instanceId()).toBe('inst-1');
+    expect(readiness.reasons()).toEqual([]);
+    expect(sendButton.injector.get(AioTooltipDirective).appTooltip()).toBe('Send message');
+
+    fixture.componentRef.setInput('instanceId', 'inst-2');
+    fixture.detectChanges();
+    expect(banners.instanceId).toBe('inst-2');
+    expect(readiness.instanceId()).toBe('inst-2');
   });
 
   function hintFor(selector: string): AioTooltipDirective {

@@ -1,3 +1,6 @@
+import type { FileAttachment } from './instance.types';
+import type { InternalInputSource } from './input-provenance.types';
+
 /**
  * Manual compaction preview types (WS-B7).
  *
@@ -72,4 +75,11 @@ export interface CompactionPreview {
 export interface CompactionBoundaryOptions {
   /** Keep the latest N exchanges verbatim; omit for the pre-WS-B7 default behavior. */
   keepLatestExchanges?: number;
+  trigger?: 'manual' | 'overflow';
+  /** A cut-off request carried exactly once into the replacement runtime. */
+  resumeTurn?: {
+    text: string;
+    attachments?: FileAttachment[];
+    internalSource?: InternalInputSource;
+  };
 }

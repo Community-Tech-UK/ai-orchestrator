@@ -1,4 +1,5 @@
-import type { MachineSessionReason } from '../../../shared/utils/machine-session';
+import type { MachineSessionReason, TrialKeySource } from '../../../shared/utils/machine-session';
+import type { CodexTrialArm } from './codex/codex-thread-policy';
 import type { SessionKind } from '../../../shared/types/session-kind.types';
 /**
  * Shared types for the CLI adapter factory.
@@ -41,7 +42,8 @@ export interface UnifiedSpawnOptions {
   jobId?: string;
   sessionKind?: SessionKind;
   trialKey?: string;
-  trialArm?: 'control' | 'candidate' | 'unassigned';
+  trialKeySource?: TrialKeySource;
+  trialArm?: CodexTrialArm;
   machineSession?: MachineSessionReason;
   contextCeilingTokens?: number;
   readOnlyReview?: boolean;
@@ -160,6 +162,7 @@ export interface UnifiedSpawnOptions {
   rtk?: {
     enabled: boolean;
     binaryPath?: string;
+    yoloHookPath?: string;
   };
   /** Instance ID, used by ACP-backed adapters (Copilot, Cursor) to tag
    *  permission requests routed through `PermissionRegistry`. When omitted,

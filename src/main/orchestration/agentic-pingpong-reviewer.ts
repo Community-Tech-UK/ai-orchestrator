@@ -1,5 +1,6 @@
 import { reconstructLoopSpend, type LoopSpendPortion, type LoopUsageProvenance } from '../../shared/types/loop-spend.types';
 import { getLogger } from '../logging/logger';
+import { recordSessionPolicy } from '../core/system/session-policy-log';
 import type {
   PingPongIssue,
   PingPongIssueStatus,
@@ -22,6 +23,7 @@ import {
 import { REVIEW_SEVERITY_RUBRIC } from '../../shared/types/review-severity';
 import {
   normalizeReviewerFindings,
+  capLowSeverityChurn,
   REVIEWER_FINDING_FIELDS_INSTRUCTION,
 } from './pingpong-reviewer-findings';
 import { extractLastJsonPayload } from '../agents/review-json-extract';
@@ -143,6 +145,7 @@ export interface PingPongReviewResult {
   costBasis?: LoopUsageProvenance;
   spendBreakdown?: LoopSpendPortion[];
   reviewerInstanceId?: string;
+  reviewerThreadId?: string;
   /** Raw spawn outcome — lets the branch tell `cancelled` from `failed`. */
   spawnOutcome?: ReviewSessionOutcome;
   /** Why the verdict is UNRELIABLE (or other diagnostic context). */
@@ -161,8 +164,6 @@ export type PingPongReviewer = (
 
 /** Minimum work the reviewer must show to be trusted (else UNRELIABLE). */
 const MIN_FILES_INSPECTED = 1;
-/** Cap on NEW low/medium findings per round to throttle nitpick churn. */
-const MAX_NEW_LOW_FINDINGS = 5;
 const MAX_FORMAT_REPAIR_PROMPT_CHARS = 40_000;
 
 function escapeClosingTag(text: string, tagName: string): string {
@@ -449,28 +450,6 @@ function normalizeLedgerClassifications(raw: unknown): PingPongLedgerClassificat
   return out;
 }
 
-/** Throttle nitpick churn: keep all blocking findings, cap NEW low/medium ones. */
-function capLowSeverityChurn(
-  findings: PingPongReviewFinding[],
-  blocking: readonly PingPongSeverity[],
-): PingPongReviewFinding[] {
-  const blockingSet = new Set(blocking);
-  const kept: PingPongReviewFinding[] = [];
-  let lowCount = 0;
-  for (const f of findings) {
-    if (blockingSet.has(f.severity)) {
-      kept.push(f);
-      continue;
-    }
-    if (f.novelty === 'new') {
-      if (lowCount >= MAX_NEW_LOW_FINDINGS) continue;
-      lowCount++;
-    }
-    kept.push(f);
-  }
-  return kept;
-}
-
 /** A fresh different-provider review uses read-only tools where enforced.
  * Infrastructure failure or an unusable verdict never becomes a clean pass. */
 export const agenticPingPongReviewer: PingPongReviewer = async (input) => {
@@ -531,6 +510,7 @@ export const agenticPingPongReviewer: PingPongReviewer = async (input) => {
   let costBasis = session.costBasis;
   const spendBreakdown = session.spendBreakdown?.length ? [...session.spendBreakdown] : reconstructLoopSpend(session.tokensUsed, session.costCents, session.costBasis, session.exactCostCents, session.spendRecords);
   let reviewerInstanceId = session.instanceId;
+  let reviewerThreadId = session.providerThreadId;
   let spawnOutcome = session.outcome;
   const base = (): Partial<PingPongReviewResult> => ({
     reviewerProvider: provider,
@@ -597,6 +577,7 @@ export const agenticPingPongReviewer: PingPongReviewer = async (input) => {
     else if (repair.costBasis === 'computed' || costBasis === 'computed') costBasis = 'computed';
     else costBasis = repair.costBasis ?? costBasis;
     reviewerInstanceId = repair.instanceId || reviewerInstanceId;
+    reviewerThreadId = repair.instanceId ? repair.providerThreadId : undefined;
     spawnOutcome = repair.outcome;
 
     if (repair.outcome !== 'settled') {
@@ -668,6 +649,10 @@ export const agenticPingPongReviewer: PingPongReviewer = async (input) => {
     : 'APPROVED';
   if (!hasBlocking && claimedVerdict === 'CHANGES_REQUESTED') logger.info('Reviewer requested changes without blocking findings; kept suggestions for James', { loopRunId: input.loopRunId });
 
+  if (provider === 'codex' && reviewerInstanceId && reviewerThreadId) {
+    recordSessionPolicy({ provider: 'codex', recordType: 'review-outcome',
+      instanceId: reviewerInstanceId, threadId: reviewerThreadId, verdict });
+  }
   logger.info('Ping-pong reviewer produced a verdict', {
     loopRunId: input.loopRunId,
     round: input.roundNumber,
@@ -692,6 +677,7 @@ export const agenticPingPongReviewer: PingPongReviewer = async (input) => {
     costBasis,
     spendBreakdown,
     reviewerInstanceId,
+    reviewerThreadId,
     spawnOutcome,
   };
 };

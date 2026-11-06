@@ -48,7 +48,9 @@ export type SystemPromptBlockKind =
   | 'repo-map'
   | 'wake-context'
   | 'mcp-tool-context'
-  | 'tool-permissions';
+  | 'tool-permissions'
+  | 'claude-helper-rules'
+  | 'harness-guide';
 
 /**
  * The locked block order. Changing this array is a cache-busting release
@@ -65,6 +67,8 @@ export const SYSTEM_PROMPT_BLOCK_ORDER: readonly SystemPromptBlockKind[] = [
   'wake-context',
   'mcp-tool-context',
   'tool-permissions',
+  'claude-helper-rules',
+  'harness-guide',
 ];
 
 /** The exact separator used between blocks throughout the codebase today. */

@@ -2,6 +2,7 @@
  * Orchestration Handler - Executes orchestrator commands from Claude instances
  */
 
+import { createHash } from 'node:crypto';
 import { EventEmitter } from 'events';
 import { getLogger } from '../logging/logger';
 import {
@@ -21,14 +22,7 @@ import {
   parseOrchestratorCommands,
   ORCHESTRATION_MARKER_START,
   ORCHESTRATION_MARKER_END,
-  generateOrchestrationPrompt,
-  detectsConsensusIntent,
-  detectsSchedulingIntent,
-  CONSENSUS_INTENT_REMINDER,
-  SCHEDULING_INTENT_REMINDER,
-  type OrchestratorNodeSummary
 } from './orchestration-protocol';
-import { getRemoteNodeRosterService } from '../remote-node/remote-node-roster-service';
 import { getConsensusCoordinator } from './consensus-coordinator';
 import type { ConsensusProviderSpec } from './consensus.types';
 import {
@@ -54,6 +48,7 @@ import { emitPluginHook } from '../plugins/hook-emitter';
 import { evaluateOrchestrationCapability, inferRoleFromContext } from './role-capability-policy';
 import { createAutomationWithScheduling } from '../automations/automation-create-service';
 import { resolveNewAutomationModelSelection } from '../../shared/automations/new-automation-model-default';
+import { assertAgentCadenceAllowed } from '../../shared/automations/automation-cadence';
 import type {
   OrchestrationContext,
   UserActionRequest,
@@ -265,6 +260,11 @@ export class OrchestrationHandler extends EventEmitter {
     return completed?.has(childId) ?? false;
   }
 
+  /** Authoritative active count, re-read after asynchronous completion diagnostics. */
+  getActiveChildCount(parentId: string): number {
+    return this.contexts.get(parentId)?.childrenIds.length ?? 0;
+  }
+
   /**
    * Get completed child IDs for a parent
    */
@@ -305,44 +305,6 @@ export class OrchestrationHandler extends EventEmitter {
       this.activeConsensusQueries.set(instanceId, next);
     }
     return next;
-  }
-
-  /**
-   * Get the orchestration prompt to prepend to the first message
-   */
-  getOrchestrationPrompt(instanceId: string, currentModel?: string): string {
-    const connectedNodes: OrchestratorNodeSummary[] = getRemoteNodeRosterService()
-      .list()
-      .filter((node) => node.status === 'connected')
-      .map((n) => ({
-        id: n.id,
-        name: n.name,
-        platform: n.platform,
-        cpuCores: n.capabilities.cpuCores,
-        totalMemoryMB: n.capabilities.totalMemoryMB,
-        gpuName: n.gpuName,
-        supportedClis: n.supportedClis,
-        hasBrowserRuntime: n.hasBrowserRuntime,
-        hasDocker: n.hasDocker,
-        activeInstances: n.activeInstances,
-        maxConcurrentInstances: n.maxConcurrentInstances,
-      }));
-    return generateOrchestrationPrompt(instanceId, currentModel, connectedNodes);
-  }
-
-  /**
-   * Re-surfaces relevant orchestration guidance after the first conversation turn.
-   * Multiple matching reminders are returned in a stable order.
-   */
-  getLaterTurnReminderIfRelevant(message: string): string | null {
-    const reminders: string[] = [];
-    if (detectsSchedulingIntent(message)) {
-      reminders.push(SCHEDULING_INTENT_REMINDER);
-    }
-    if (detectsConsensusIntent(message)) {
-      reminders.push(CONSENSUS_INTENT_REMINDER);
-    }
-    return reminders.length > 0 ? reminders.join('\n\n') : null;
   }
 
   /**
@@ -430,7 +392,8 @@ export class OrchestrationHandler extends EventEmitter {
 
       // Check for duplicate command within the dedup window
       if (active.some((entry) => entry.signature === signature)) {
-        logger.warn('Duplicate command suppressed (dedup)', { action: command.action, instanceId, signature });
+        // Log a hash, not the signature: create_automation signatures carry the whole automation JSON.
+        logger.warn('Duplicate command suppressed (dedup)', { action: command.action, instanceId, signatureHash: createHash('sha256').update(signature).digest('hex').slice(0, 12) });
         return;
       }
 
@@ -847,6 +810,12 @@ export class OrchestrationHandler extends EventEmitter {
         return;
       }
 
+      // Same firm reminder as the MCP create_automation tool (8f). This is the
+      // agent path only: the Automations page creates through its own IPC
+      // handler and never reaches here.
+      assertAgentCadenceAllowed(parsed.data.schedule, command.confirmedByUser,
+        'In the command, put "confirmedByUser": true next to "automation".');
+
       const automation = await createAutomationWithScheduling(parsed.data);
       if (!automation) {
         this.injectResponse(instanceId, 'create_automation', false, {
@@ -946,6 +915,12 @@ export class OrchestrationHandler extends EventEmitter {
     }
 
     this.completeUserAction(request, approved, selectedOption);
+  }
+
+  dismissUserAction(requestId: string): void {
+    const request = this.pendingUserActions.get(requestId);
+    if (!request || request.requestType !== 'switch_mode' || request.targetMode !== 'build') return;
+    this.completeUserAction({ ...request, context: { ...request.context, suppressInjectResponse: true } }, true);
   }
 
   private completeUserAction(
@@ -1056,6 +1031,7 @@ export class OrchestrationHandler extends EventEmitter {
     }
 
     this.injectResponse(parentId, 'spawn_child', true, responseData);
+    this.emit('child-spawned', parentId, childId);
   }
 
   /**
@@ -1077,7 +1053,8 @@ export class OrchestrationHandler extends EventEmitter {
   notifyChildTerminated(
     parentId: string,
     childId: string,
-    resultData?: { name: string; summary: string; success: boolean; conclusions: string[] }
+    resultData?: { name: string; summary: string; success: boolean; conclusions: string[] },
+    options?: { deliver?: boolean },
   ): ChildTerminationResult {
     const ctx = this.contexts.get(parentId);
     if (ctx) {
@@ -1099,18 +1076,23 @@ export class OrchestrationHandler extends EventEmitter {
       this.consecutiveFailures.set(parentId, 0);
     }
 
-    // Inject rich result data (not just "terminated") so parent Claude sees findings
-    const responseData: Record<string, unknown> = {
-      childId,
-      message: resultData
-        ? `Child "${resultData.name}" completed: ${resultData.summary}`
-        : 'Child instance terminated'
-    };
+    if (options?.deliver !== false) this.deliverChildCompleted(parentId, childId, resultData);
+    return { remainingChildren: ctx ? ctx.childrenIds.length : 0 };
+  }
+
+  deliverChildCompleted(
+    parentId: string,
+    childId: string,
+    resultData?: { name: string; summary: string; success: boolean; conclusions: string[] },
+  ): void {
+    const responseData: Record<string, unknown> = { childId };
     if (resultData) {
       responseData['name'] = resultData.name;
       responseData['summary'] = resultData.summary;
       responseData['success'] = resultData.success;
       responseData['conclusions'] = resultData.conclusions;
+    } else {
+      responseData['message'] = 'Child instance terminated';
     }
 
     const injection = this.injectResponse(parentId, 'child_completed', true, responseData);
@@ -1118,8 +1100,6 @@ export class OrchestrationHandler extends EventEmitter {
       this.trackSuppressedChildCompletion(parentId, childId, injection.admissionId);
     }
 
-    const remainingChildren = ctx ? ctx.childrenIds.length : 0;
-    return { remainingChildren };
   }
 
   /**
@@ -1128,29 +1108,18 @@ export class OrchestrationHandler extends EventEmitter {
    */
   notifyAllChildrenCompleted(
     parentId: string,
-    childSummaries: CompletedChildSummary[]
+    childSummaries: CompletedChildSummary[],
+    options?: { othersStillRunning?: boolean },
   ): void {
-    const summaryLines = childSummaries.map((cs) => {
-      const statusLabel = cs.success ? 'SUCCESS' : 'FAILED';
-      const conclusionLines = cs.conclusions.length > 0
-        ? cs.conclusions.map(c => `    - ${c}`).join('\n')
-        : '    (no conclusions reported)';
-      return `  [${statusLabel}] ${cs.name} (${cs.childId}):\n    Summary: ${cs.summary}\n    Conclusions:\n${conclusionLines}`;
-    });
-
-    const synthesisPrompt = [
-      `All ${childSummaries.length} child instances have completed.`,
-      '',
-      'Results:',
-      ...summaryLines,
-      '',
-      'Please synthesize these results into a comprehensive report for the user.',
-      'Highlight key findings, any failures, and recommended next steps.'
-    ].join('\n');
+    const lead = options?.othersStillRunning
+      ? `These ${childSummaries.length} helper agents, started together, have completed. Other helper agents are still running.`
+      : `All ${childSummaries.length} child instances have completed.`;
+    const synthesisPrompt = `${lead} Their results are in \`summaries\`, listed once. Please synthesize them into a report for the user. Highlight key findings, any failures, and recommended next steps.`;
 
     this.injectResponse(parentId, 'all_children_completed', true, {
       totalChildren: childSummaries.length,
       summaries: childSummaries,
+      ...(options?.othersStillRunning ? { othersStillRunning: true } : {}),
       message: synthesisPrompt
     });
   }

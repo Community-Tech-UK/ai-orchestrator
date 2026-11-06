@@ -399,6 +399,25 @@ export const TOOLTIP_COPY = {
     label: 'Remember this decision',
     meaning: 'Once: just this command (an identical one in the next hour is allowed too). This session: this exact command until the session closes. Always: this exact command in every session.',
   },
+  'automations.checkCommand': {
+    label: 'Check before starting the AI',
+    meaning: 'Runs a command for up to 30 seconds before a scheduled run. If its output is unchanged, the AI is not started. Run now skips the check.',
+  },
+  'automations.scheduleCadence': {
+    label: 'Estimated daily starts',
+    meaning: 'Estimates the busiest day in the next week. A check may prevent some AI starts.',
+  },
+  'automations.checkErrorRule': {
+    label: 'If the check fails',
+    meaning: 'Choose whether a failed check still starts the AI or stops that scheduled run.',
+  },
+  'rtk.filtered': { label: 'Commands made shorter', meaning: 'Commands whose output RTK shortened before the agent read it.' },
+  'rtk.ranInFull': { label: 'Ran in full', meaning: 'Commands that ran through RTK without shortening their output.' },
+  'rtk.savedCapped': { label: 'Output tokens saved', meaning: 'An estimate capped at the output size the AI could have seen.' },
+  'rtk.weighted': { label: 'Typical reduction', meaning: 'Output reduction weighted by command size among shortened commands.' },
+  'rtk.scope': { label: 'Where it applies', meaning: 'Shows which sessions use the hook, instructions, a trial, or no output compression.' },
+  'quickAsk.button': { label: 'Quick ask', meaning: 'Ask this running Claude conversation a question without saving the answer to its transcript. It rereads the current conversation.' },
+  'coldCache.compactFirst': { label: 'Compact first', meaning: 'Make a checkpoint and summarize the conversation before the next message. The summary keeps key context but can omit detail; choose full history to skip this once.' },
 } as const satisfies Record<string, TooltipCopyEntry>;
 
 export type TooltipCopyKey = keyof typeof TOOLTIP_COPY;

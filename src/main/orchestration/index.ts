@@ -13,7 +13,7 @@ export { Supervisor, getSupervisor } from './supervisor';
 
 // Orchestration protocol
 export {
-  generateOrchestrationPrompt,
+  HARNESS_GUIDE,
   generateChildPrompt,
   parseOrchestratorCommands,
   formatCommandResponse,

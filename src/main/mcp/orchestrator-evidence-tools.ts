@@ -91,7 +91,7 @@ export function createOrchestratorEvidenceToolDefinitions(
     if (!context.conversationId?.trim()) throw new Error('EVIDENCE_CONVERSATION_UNRESOLVED');
     return context.conversationId;
   };
-  return [
+  const tools: McpServerToolDefinition[] = [
     {
       name: 'evidence_list',
       description: 'List content-free metadata for evidence owned by the current AIO conversation.',
@@ -205,6 +205,7 @@ export function createOrchestratorEvidenceToolDefinitions(
       }),
     },
   ];
+  return tools.map((tool) => ({ ...tool, maxResultChars: null }));
 }
 
 function rangeJsonSchema() {

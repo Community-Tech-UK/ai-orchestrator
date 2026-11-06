@@ -126,6 +126,8 @@ export function automationToForm(automation: Automation): AutomationFormModel {
     maxRunMinutes: policy.maxRunMinutes ?? 90,
     maxProcessedTokens: policy.maxProcessedTokens ?? (automation.schedule.type === 'oneTime' ? 100_000_000 : 30_000_000),
     slowWhenUnchanged: policy.slowWhenUnchanged ?? false,
+    preCheckCommand: automation.action.preCheck?.command ?? '',
+    preCheckOnError: automation.action.preCheck?.onError ?? 'run-anyway',
   };
 }
 

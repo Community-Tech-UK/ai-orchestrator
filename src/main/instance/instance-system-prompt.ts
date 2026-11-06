@@ -34,6 +34,7 @@ import { getProjectKnowledgeCoordinator } from '../memory/project-knowledge-coor
 import { getIndexedCodebaseContextService } from '../indexing/indexed-codebase-context';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
+import { getHarnessGuidance, HARNESS_GUIDE, shouldReceiveHarnessGuide } from '../orchestration/harness-guidance';
 import { callWithDeadline } from '../util/deadline';
 import {
   applyOutputStyle,
@@ -42,6 +43,7 @@ import {
 } from './output-style';
 import { getOutputStyleRegistry } from './output-style-registry';
 import { buildToolPermissionPrompt } from './lifecycle/tool-permission-prompt';
+import { CLAUDE_HELPER_REVIEWER_RULE } from '../cli/adapters/claude-subagent-policy';
 import { isRestoreOrReplayContinuity } from './lifecycle/create-validation-helpers';
 import type {
   SystemPromptBlockKind,
@@ -53,6 +55,7 @@ import {
   recordContextManifest,
 } from '../context/context-manifest-store';
 import type { LifecycleDependencies } from './instance-lifecycle.types';
+import type { InitialPromptGuidance } from './lifecycle/initial-prompt-recovery';
 
 const logger = getLogger('InstanceSystemPrompt');
 
@@ -85,6 +88,12 @@ export interface AssembleInstanceSystemPromptParams {
   /** The initial user message content, if any — feeds the indexed codebase context lookup. */
   initialUserMessageContent: string | undefined;
   deps: AssembleInstanceSystemPromptDeps;
+  /**
+   * The provider the session will actually run on. `config.provider` can be
+   * undefined or 'auto' (it defaults to the user's default CLI), so callers
+   * that have resolved it pass it here; otherwise `config.provider` is used.
+   */
+  resolvedProvider?: string;
 }
 
 export interface AssembleInstanceSystemPromptResult {
@@ -92,6 +101,7 @@ export interface AssembleInstanceSystemPromptResult {
   systemPromptManifest: SystemPromptBlockManifestEntry[];
   /** Hidden runtime-only context to prepend to the initial prompt sent to the provider. */
   initialRuntimeContextBlock: string | undefined;
+  initialPromptGuidance?: InitialPromptGuidance;
 }
 
 /**
@@ -105,11 +115,11 @@ async function buildInitialRuntimeContextBlock(
   instance: Instance,
   config: InstanceCreateConfig,
   initialPrompt: string | undefined,
-): Promise<string | undefined> {
+): Promise<Pick<AssembleInstanceSystemPromptResult, 'initialRuntimeContextBlock' | 'initialPromptGuidance'>> {
   const blocks = [config.initialContextBlock?.trim()].filter(Boolean) as string[];
   const prompt = initialPrompt?.trim();
   if (!prompt || instance.depth !== 0 || isRestoreOrReplayContinuity(config)) {
-    return blocks.length > 0 ? blocks.join('\n\n') : undefined;
+    return { initialRuntimeContextBlock: blocks.length > 0 ? blocks.join('\n\n') : undefined };
   }
 
   try {
@@ -138,7 +148,15 @@ async function buildInitialRuntimeContextBlock(
     });
   }
 
-  return blocks.length > 0 ? blocks.join('\n\n') : undefined;
+  let initialPromptGuidance: InitialPromptGuidance | undefined;
+  if (config.initialUserMessageSource === 'current-submission'
+    && shouldReceiveHarnessGuide(instance, config)) {
+    const guidance = getHarnessGuidance().takeHarnessGuidance(instance, prompt, 'first-message');
+    initialPromptGuidance = { ...guidance, contextBlockBeforeGuidance: blocks.join('\n\n') || undefined };
+    if (guidance.text) blocks.push(guidance.text);
+  }
+
+  return { initialRuntimeContextBlock: blocks.length > 0 ? blocks.join('\n\n') : undefined, initialPromptGuidance };
 }
 
 /**
@@ -393,7 +411,7 @@ export async function assembleInstanceSystemPrompt(
     });
   }
 
-  const initialRuntimeContextBlock = await buildInitialRuntimeContextBlock(
+  const initialRuntimeContext = await buildInitialRuntimeContextBlock(
     instance,
     config,
     initialUserMessageContent,
@@ -467,6 +485,17 @@ export async function assembleInstanceSystemPrompt(
 
   systemPromptComposer.add('tool-permissions', buildToolPermissionPrompt(instance.yoloMode));
 
+  // A18: the reviewer rule for Claude sessions (fixed text, governing, so not
+  // in ADVISORY_CHAR_BUDGETS; one cache write per session). It reaches chats,
+  // children, plan-queue workers and scheduled jobs alike. Other providers add
+  // an empty block so the contract order stays enforced.
+  const helperRulesProvider = params.resolvedProvider ?? config.provider;
+  systemPromptComposer.add(
+    'claude-helper-rules',
+    helperRulesProvider === 'claude' ? CLAUDE_HELPER_REVIEWER_RULE : '',
+  );
+  systemPromptComposer.add('harness-guide', shouldReceiveHarnessGuide(instance, config) ? HARNESS_GUIDE : '');
+
   const { text: systemPrompt, manifest: systemPromptManifest } = systemPromptComposer.compose();
   logger.debug('Composed system prompt manifest', {
     instanceId: instance.id,
@@ -492,5 +521,5 @@ export async function assembleInstanceSystemPrompt(
     { note: systemPromptComposer.budgetNote() },
   );
 
-  return { systemPrompt, systemPromptManifest, initialRuntimeContextBlock };
+  return { systemPrompt, systemPromptManifest, ...initialRuntimeContext };
 }

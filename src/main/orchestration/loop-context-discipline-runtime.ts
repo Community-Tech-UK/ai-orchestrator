@@ -11,6 +11,8 @@
 
 import type { ContextUsageObservation } from '../cli/adapters/base-cli-adapter.types';
 import { copilotNeedsContextRecycle, type CopilotNumericUsage } from '../../shared/utils/copilot-usage';
+import { resolveContextCeilingTokens } from '../cli/adapters/context-ceiling';
+import { getLoopAdapterInvocation } from './loop-adapter-account-scope';
 import {
   shouldRecycleLoopContext,
   type ContextRecycleDecision,
@@ -29,12 +31,14 @@ export interface LoopContextDisciplineInput {
   alreadyNotifiedUnavailable: boolean;
   /** Same-session iterations since the last recycle (T1 ceiling). */
   iterationsSinceRecycle?: number;
+  readSetting?: (key: string) => unknown;
 }
 
 export interface LoopContextDisciplineOutcome {
   decision: ContextRecycleDecision;
   /** True when the caller should emit the once-per-loop unavailable diagnostic now. */
   notifyUnavailable: boolean;
+  observation: ContextUsageObservation;
 }
 
 export function evaluateLoopContextDiscipline(
@@ -46,19 +50,23 @@ export function evaluateLoopContextDiscipline(
     getLastContextUsage?: () => ContextUsageObservation;
     getRuntimeCapabilities?: () => { supportsResume?: boolean };
   } | undefined;
+  const observation: ContextUsageObservation = source?.getLastContextUsage?.()
+    ?? { status: 'unknown', reason: 'not-reported' };
   const copilot = source?.getName?.()?.includes('copilot') ? source.getCopilotUsage?.() : undefined;
   if (copilotNeedsContextRecycle(copilot)) {
     return { decision: { recycle: true, utilization: copilot!.postCompactionTokens! / copilot!.tokenLimit!,
-      reason: 'Copilot compaction left root context above 90%', occupancyUnavailable: false }, notifyUnavailable: false };
+      reason: 'Copilot compaction left root context above 90%', occupancyUnavailable: false }, notifyUnavailable: false, observation };
   }
-  const observation: ContextUsageObservation = source?.getLastContextUsage?.()
-    ?? { status: 'unknown', reason: 'not-reported' };
   const supportsResume = source?.getRuntimeCapabilities?.()?.supportsResume === true;
+  const provider = getLoopAdapterInvocation(input.adapter)?.provider;
+  const absoluteCeilingTokens = provider === 'codex'
+    ? undefined : resolveContextCeilingTokens(true, input.readSetting);
   const decision = shouldRecycleLoopContext({
     enabled: input.enabled,
     resetAtUtilization: input.resetAtUtilization,
     observation,
     cumulativeTokens: input.cumulativeTokens,
+    absoluteCeilingTokens,
     ...(typeof input.calibratedWindowTokens === 'number'
       && Number.isFinite(input.calibratedWindowTokens)
       && input.calibratedWindowTokens > 0
@@ -75,5 +83,6 @@ export function evaluateLoopContextDiscipline(
       && !decision.recycle
       && input.enabled
       && !input.alreadyNotifiedUnavailable,
+    observation,
   };
 }

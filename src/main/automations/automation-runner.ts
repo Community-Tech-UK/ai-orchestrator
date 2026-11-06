@@ -60,6 +60,9 @@ import {
 import { isProviderExcludedFromAutomation } from '../providers/automation-provider-exclusions';
 import { revealHiddenAutomationSession, stampHiddenAutomationOutcome } from './automation-hidden-outcome';
 import { defaultAutomationNetworkGate, type AutomationNetworkGate } from './automation-network-gate';
+import { runAutomationPreCheckGate, type AutomationPreCheckGate } from './automation-pre-check-gate';
+import { appendQuietReplyContract, isQuietReply, stripQuietSentinel } from './automation-run-quiet';
+import { getAutomationCheckStore } from './automation-check-store';
 import { automationAccountPreferences, type AutomationAccountPreferencesResolver } from './automation-account-rules';
 import { GlobalPauseService } from '../global-pause/global-pause-service';
 import { AutomationPauseStartup } from './automation-pause-startup';
@@ -112,6 +115,7 @@ export class AutomationRunner {
     private readonly isProviderExcluded: (provider: string) => boolean = isProviderExcludedFromAutomation,
     private readonly networkGate: AutomationNetworkGate = defaultAutomationNetworkGate,
     private readonly accountPreferencesFor: AutomationAccountPreferencesResolver = automationAccountPreferences,
+    private readonly preCheckGate: AutomationPreCheckGate = runAutomationPreCheckGate,
   ) {}
 
   /**
@@ -162,6 +166,7 @@ export class AutomationRunner {
     for (const runId of pausedRuns) this.pauseStartup.pause(runId);
     const failed = this.store.failRunningRuns(RESTART_INTERRUPTION, this.now(), pausedRuns);
     for (const run of failed) {
+      if (run.configSnapshot?.action.preCheck) getAutomationCheckStore().clearPending(run.id);
       this.events.emitRunChanged({ automationId: run.automationId, run });
       this.events.emitRunTerminal({ automationId: run.automationId, runId: run.id, status: 'failed' });
       if (this.isOneTimeRun(run)) {
@@ -346,6 +351,12 @@ export class AutomationRunner {
       return;
     }
 
+    if (await this.preCheckGate(claimed, {
+      store: this.store,
+      now: () => this.now(),
+      handleTerminalRun: (run, options) => this.handleTerminalRun(run, options),
+    })) return;
+
     if (claimed.snapshot.destination.kind === 'thread') {
       const terminal = await this.requireThreadWakeupRunner().fireThreadWakeup({
         run: claimed.run,
@@ -384,7 +395,7 @@ export class AutomationRunner {
         displayName: claimed.run.attempt > 1 ? `${claimed.snapshot.name} (retry ${claimed.run.attempt})` : claimed.snapshot.name,
         isRenamed: true,
         workingDirectory: claimed.snapshot.action.workingDirectory,
-        initialPrompt: claimed.snapshot.action.prompt,
+        initialPrompt: appendQuietReplyContract(claimed.snapshot.action.prompt, claimed.run.trigger),
         attachments: claimed.snapshot.action.attachments,
         // WS-C7: contained forces the CLI's sandbox read-only via yoloMode=false.
         yoloMode: contained ? false : claimed.snapshot.action.yoloMode,
@@ -452,6 +463,8 @@ export class AutomationRunner {
     this.trackingByInstance.set(instanceId, {
       runId: run.id,
       automationId: run.automationId,
+      quietReplyEligible: (run.trigger === 'scheduled' || run.trigger === 'catchUp')
+        && run.configSnapshot?.destination.kind === 'newInstance' && !run.configSnapshot.action.loop,
       seenAssistantOutput: false,
       outputChunks: [],
     });
@@ -647,6 +660,10 @@ export class AutomationRunner {
     const status = reportedStatus;
     const error = reportedError;
     this.limits?.clear(instanceId);
+    const quietReply = tracking.quietReplyEligible && status === 'succeeded' && isQuietReply(tracking.lastAssistantOutput);
+    const summarySource = quietReply && tracking.lastAssistantOutput
+      ? stripQuietSentinel(tracking.lastAssistantOutput)
+      : tracking.lastAssistantOutput;
 
     this.trackingByInstance.delete(instanceId);
     this.instanceByRun.delete(tracking.runId);
@@ -654,15 +671,21 @@ export class AutomationRunner {
     stampHiddenAutomationOutcome(this.instanceManager, instanceId, status);
 
     const outputFullRef = writeFullOutput(tracking);
-    const run = this.store.terminalizeRun(
+    let run = this.store.terminalizeRun(
       tracking.runId,
       status,
       error,
-      tracking.lastAssistantOutput ? tracking.lastAssistantOutput.slice(0, 4000) : undefined,
+      summarySource ? summarySource.slice(0, 4000) : undefined,
       { now: this.now(), outputFullRef, monitorOutput: monitorAssistantOutput(tracking) },
     );
     if (!run) {
       return;
+    }
+
+    if (quietReply) {
+      getAutomationCheckStore().setRunOutcome(run.id, 'quiet');
+      this.store.markSeen({ runId: run.id });
+      run = { ...run, outcome: 'quiet', seenAt: this.now() };
     }
 
     this.handleTerminalRun(run, options);
@@ -760,6 +783,7 @@ export class AutomationRunner {
   private readonly notifyAutoDisabled = notifyAutomationDisabled;
 
   recordGiveUpOutcome(originalRun: AutomationRun): void {
+    if (originalRun.configSnapshot?.action.preCheck) getAutomationCheckStore().clearPending(originalRun.id);
     const outcome = this.store.recordRunOutcome(
       originalRun.automationId,
       'failed',

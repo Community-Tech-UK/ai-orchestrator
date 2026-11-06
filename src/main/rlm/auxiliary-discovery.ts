@@ -1,6 +1,6 @@
 import {
-  AUXILIARY_DISCOVERY_MAX_CANDIDATES,
   AUXILIARY_DISCOVERY_DEADLINE_MS,
+  AUXILIARY_DISCOVERY_MAX_CANDIDATES,
   type AuxiliaryLlmCandidate,
   AUXILIARY_DISCOVERY_MAX_MODELS,
   AUXILIARY_WORKER_ENDPOINT_MAX_DESCRIPTORS,
@@ -202,7 +202,7 @@ export async function settleBeforeAbort<T>(
   });
 }
 
-
+/** Keep the aggregate deadline and candidate cap shared across every source. */
 export async function discoverAuxiliaryCandidates(input: {
   endpoints: AuxiliaryLlmEndpointConfig[];
   useLocalhostOllama: boolean;
@@ -222,17 +222,31 @@ export async function discoverAuxiliaryCandidates(input: {
     if (local) await appendProbe(local);
     for (const endpoint of input.endpoints) {
       if (controller.signal.aborted || candidates.length >= AUXILIARY_DISCOVERY_MAX_CANDIDATES) break;
-      if (endpoint.enabled && (input.allowRemoteWorkerModels || endpoint.source !== 'worker-node')) await appendProbe(endpoint);
+      if (endpoint.enabled && (input.allowRemoteWorkerModels || endpoint.source !== 'worker-node')) {
+        await appendProbe(endpoint);
+      }
     }
     const remaining = AUXILIARY_DISCOVERY_MAX_CANDIDATES - candidates.length;
     if (controller.signal.aborted || remaining <= 0) return candidates;
     const workers = input.allowRemoteWorkerModels
-      ? collectAuxiliaryWorkerEndpoints(auxiliaryRemoteHooks.connectedWorkerNodes(), remaining, auxiliaryWorkerSourceKeys(input.endpoints)) : [];
+      ? collectAuxiliaryWorkerEndpoints(
+          auxiliaryRemoteHooks.connectedWorkerNodes(), remaining, auxiliaryWorkerSourceKeys(input.endpoints),
+        )
+      : [];
     for (const worker of workers) {
       if (controller.signal.aborted || candidates.length >= AUXILIARY_DISCOVERY_MAX_CANDIDATES) break;
-      candidates.push({ endpoint: worker.endpoint, models: worker.models, healthy: worker.healthy,
-        reason: worker.healthy ? worker.models.length === 0 ? 'No models reported' : undefined : 'Worker Ollama unhealthy' });
+      candidates.push({
+        endpoint: worker.endpoint,
+        models: worker.models,
+        healthy: worker.healthy,
+        reason: worker.healthy
+          ? worker.models.length === 0 ? 'No models reported' : undefined
+          : 'Worker Ollama unhealthy',
+      });
     }
     return candidates;
-  } finally { clearTimeout(deadline); controller.abort(); }
+  } finally {
+    clearTimeout(deadline);
+    controller.abort();
+  }
 }

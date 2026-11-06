@@ -386,6 +386,7 @@ export class InstanceStore implements OnDestroy {
             update.backgroundWork !== undefined ? (update.backgroundWork ?? undefined) : inst.backgroundWork,
           selfManagesAutoCompaction:
             update.selfManagesAutoCompaction ?? inst.selfManagesAutoCompaction,
+          residentClaude: update.residentClaude ?? inst.residentClaude,
           // Provider changes after a cross-provider swap of an existing session.
           ...(update.provider ? { provider: update.provider as Instance['provider'] } : {}),
           // null clears a queued model change; undefined preserves existing.
@@ -509,6 +510,7 @@ export class InstanceStore implements OnDestroy {
               update.backgroundWork !== undefined ? (update.backgroundWork ?? undefined) : instance.backgroundWork,
             selfManagesAutoCompaction:
               update.selfManagesAutoCompaction ?? instance.selfManagesAutoCompaction,
+            residentClaude: update.residentClaude ?? instance.residentClaude,
             // Provider changes after a cross-provider swap of an existing session.
             ...(update.provider ? { provider: update.provider as Instance['provider'] } : {}),
             // null clears a queued model change; undefined preserves existing.
@@ -829,11 +831,13 @@ export class InstanceStore implements OnDestroy {
   }
 
   /** Compact context for an instance */
-  async compactInstance(instanceId: string): Promise<void> {
+  async compactInstance(instanceId: string): Promise<boolean> {
     const response = await this.instanceIpc.compactInstance(instanceId);
-    if (!response.success) {
+    const completed = response.success && (response.data as { success?: boolean } | undefined)?.success === true;
+    if (!completed) {
       console.error('Compaction failed:', response.error?.message);
     }
+    return completed;
   }
 
   /** Decrement pending approval count for an instance (called after approval response) */

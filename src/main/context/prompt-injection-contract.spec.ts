@@ -26,6 +26,12 @@ describe('SYSTEM_PROMPT_BLOCK_ORDER snapshot', () => {
       'wake-context',
       'mcp-tool-context',
       'tool-permissions',
+      // Phase 1 Step 2 (A18) appends the Claude helper-agent reviewer rule
+      // after tool-permissions. Cache-busting by design: the kind only ever
+      // adds a new last block, earlier prefixes survive.
+      'claude-helper-rules',
+      // Phase 1 Step 10 (A12) appends the short Harness guide after it.
+      'harness-guide',
     ]);
   });
 });

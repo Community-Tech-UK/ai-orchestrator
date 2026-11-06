@@ -13,6 +13,19 @@ const DEFAULT_MAX_UNRESOLVED = 5;
 /** Share of a truncated message's budget spent on its opening. */
 const TRUNCATION_HEAD_RATIO = 0.6;
 
+export function describeReplayWindow(messages: OutputMessage[]): {
+  keptTurns: number;
+  omittedTurns: number;
+  maxChars: number;
+} {
+  const turns = messages.filter((message) => message.type === 'user' || message.type === 'assistant').length;
+  return {
+    keptTurns: Math.min(turns, DEFAULT_MAX_TURNS),
+    omittedTurns: Math.max(0, turns - DEFAULT_MAX_TURNS),
+    maxChars: DEFAULT_MAX_CHARS_PER_MESSAGE,
+  };
+}
+
 function normalizeWhitespace(value: string): string {
   return value.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }

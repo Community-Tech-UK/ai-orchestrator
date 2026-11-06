@@ -14,6 +14,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from './generated/channels';
 
 import { createInstanceDomain } from './domains/instance.preload';
+import { createQuickAskDomain } from './domains/quick-ask.preload';
 import { createFileDomain } from './domains/file.preload';
 import { createSessionDomain } from './domains/session.preload';
 import { createOrchestrationDomain } from './domains/orchestration.preload';
@@ -72,6 +73,7 @@ const withAuth = (
  */
 const electronAPI = {
   ...createInstanceDomain(ipcRenderer, IPC_CHANNELS, withAuth),
+  ...createQuickAskDomain(ipcRenderer, IPC_CHANNELS),
   ...createFileDomain(ipcRenderer, IPC_CHANNELS),
   ...createSessionDomain(ipcRenderer, IPC_CHANNELS),
   ...createOrchestrationDomain(ipcRenderer, IPC_CHANNELS),

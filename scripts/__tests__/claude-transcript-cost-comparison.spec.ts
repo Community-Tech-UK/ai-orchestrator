@@ -2,8 +2,6 @@ import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'node
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
-// Standalone audit is intentionally plain Node JavaScript.
-// @ts-expect-error untyped standalone module
 import { compareTranscriptCosts } from '../claude-transcript-cost-comparison.mjs';
 const dirs:string[]=[];
 afterEach(()=>dirs.splice(0).forEach(dir=>rmSync(dir,{recursive:true,force:true})));

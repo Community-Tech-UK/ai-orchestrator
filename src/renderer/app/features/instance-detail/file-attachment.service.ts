@@ -1,5 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { IpcFacadeService, FileIpcService } from '../../core/services/ipc';
+import { fingerprintFile } from '../../core/services/attachment-identity';
 
 const MIME_BY_EXT: Record<string, string> = {
   txt: 'text/plain',
@@ -80,6 +81,7 @@ export class FileAttachmentService {
         const fileName = filePath.split(/[/\\]/).pop() || 'file';
         const mimeType = guessMimeType(fileName);
         const file = new File([result.buffer], fileName, { type: mimeType });
+        await fingerprintFile(file);
         files.push(file);
       } catch (error) {
         console.warn(`Failed to load file: ${filePath}`, error);

@@ -1,4 +1,6 @@
 import type { ClaudeCliSpawnOptions } from './claude-cli-adapter.types';
+import { resolveClaudeCliVersion } from './claude-cli-feature-probes';
+import { claudeSubagentArmForSession, resolveClaudeSubagentEnv, type ClaudeHelperAgentModelSetting } from './claude-subagent-policy';
 /**
  * WS14 — Claude CLI hygiene env/flag pack.
  *
@@ -11,6 +13,17 @@ import type { ClaudeCliSpawnOptions } from './claude-cli-adapter.types';
  *   `CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS`. Harness sets none of them on purpose.
  *   Do not shorten Harness's own stall timers for Claude below 5 minutes
  *   without reading CHANGELOG.md:4179.
+ *
+ * Resume cache (10 Oct transcript scan): after edits/commits and a restart
+ * within 55 minutes, 24 of 26 resumes read at least 90% of prior context from
+ * cache (average 190K tokens); 34 of 34 without edits did so. All 82 resumes
+ * after more than 55 minutes lost cache. Disabling git instructions offers
+ * no measured gain and removes the git snapshot and built-in git safety rules,
+ * so Harness does not set `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS`.
+ *
+ * Machine-started sessions disable security-guidance through the settings
+ * plugin overlay and `SECURITY_GUIDANCE_DISABLE`: its Stop hook performs an
+ * additional git-diff model review. Interactive chats retain the plugin.
  *
  * Unknown env vars are inert to older CLIs, so version gating is unnecessary
  * for the vars we do set. `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` is nevertheless
@@ -52,6 +65,11 @@ export function _setSettingsReaderForTesting(reader: ((key: string) => unknown) 
   readSetting = reader ?? defaultReadSetting;
 }
 
+export function resolveClaudeHelperAgentModelSetting(): ClaudeHelperAgentModelSetting {
+  const configured = readSetting('claudeHelperAgentModel');
+  return configured === 'parent' || configured === 'sonnet' || configured === 'trial' ? configured : 'parent';
+}
+
 /**
  * Apply the hygiene vars to a spawn env in place. Caller-provided values are
  * never clobbered. The per-session tmp dir is created eagerly; if creation
@@ -62,6 +80,11 @@ export function applyClaudeHygieneEnv(
   sessionId?: string,
   options?: ClaudeCliSpawnOptions,
 ): void {
+  const setting = resolveClaudeHelperAgentModelSetting();
+  const arm = sessionId ? claudeSubagentArmForSession(sessionId) : null;
+  const subagentEnv = resolveClaudeSubagentEnv({ setting, sessionModel: options?.model,
+    cliVersion: resolveClaudeCliVersion(null), arm, env });
+  Object.assign(env, subagentEnv);
   if (options?.contextCeilingTokens && !('CLAUDE_CODE_AUTO_COMPACT_WINDOW' in env)
       && process.env['CLAUDE_CODE_AUTO_COMPACT_WINDOW'] === undefined) {
     env['CLAUDE_CODE_AUTO_COMPACT_WINDOW'] = String(options.contextCeilingTokens);

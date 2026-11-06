@@ -5,29 +5,28 @@ import { recordCostAttribution, type CostAttributionRecord, type CostAttribution
 
 export type ModelCallCostSource = 'provider' | 'priced' | 'unknown' | 'free';
 
-/** Providers that never bill; their calls resolve to a known $0 free cost. */
-const FREE_PROVIDERS = ['copilot', 'cursor', 'ollama', 'lmstudio'];
+const FREE_PROVIDERS = new Set<string>(['copilot', 'cursor', 'ollama', 'lmstudio']);
 
-/**
- * Resolve a call's dollar cost without recording: provider-reported dollars
- * (including zero) first, known free providers next, token pricing for a known
- * model, and `unknown` when no evidence can price the call.
- */
+/** Resolve only evidenced dollars: native billing, known free execution, or a priced token breakdown. */
 export function resolveModelCallCost(provider: string | undefined, model: string | undefined, usage?: CostAttributionUsage): { costUsd: number | null; costSource: ModelCallCostSource } {
   if (typeof usage?.cost === 'number' && Number.isFinite(usage.cost) && usage.cost >= 0) return { costUsd: usage.cost, costSource: 'provider' };
-  if (FREE_PROVIDERS.includes(provider?.toLowerCase() ?? '')) return { costUsd: 0, costSource: 'free' };
+  if (FREE_PROVIDERS.has(provider?.toLowerCase() ?? '')) return { costUsd: 0, costSource: 'free' };
   const normalized = normalizeUsage(usage as UsageLike | undefined);
-  if (!normalized || !['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning'].some((key) => normalized[key as keyof typeof normalized] !== undefined)) return { costUsd: null, costSource: 'unknown' };
-  const priced = computeProviderTokenCost(provider, model, { inputTokens: normalized.input, outputTokens: normalized.output, cacheReadTokens: normalized.cacheRead, cacheWriteTokens: normalized.cacheWrite, reasoningTokens: normalized.reasoning });
+  if (!normalized || [normalized.input, normalized.output, normalized.cacheRead, normalized.cacheWrite, normalized.reasoning].every(value => value === undefined)) {
+    return { costUsd: null, costSource: 'unknown' };
+  }
+  const priced = computeProviderTokenCost(provider, model, { inputTokens: normalized.input, outputTokens: normalized.output,
+    cacheReadTokens: normalized.cacheRead, cacheWriteTokens: normalized.cacheWrite, reasoningTokens: normalized.reasoning });
   return typeof priced === 'number' && Number.isFinite(priced) && priced >= 0
     ? { costUsd: priced, costSource: 'priced' } : { costUsd: null, costSource: 'unknown' };
 }
 
-export interface ModelCallRecordInput {
+export interface ModelCallRecordInput extends Pick<CostAttributionRecord,
+  'sessionId' | 'reasoningEffort' | 'rtkArm' | 'rtkTrialEligible' | 'rtkTrialKey' | 'rtkTrialSurface'> {
   /** Canonical values are {@link ModelCallPurpose}; open tags pass through. */
   purpose: ModelCallPurpose | (string & {});
   taskType?: string;
-  provider: string;
+  provider?: string;
   model?: string;
   usage?: unknown;
   correlationId?: string;
@@ -39,7 +38,7 @@ export interface ModelCallRecordInput {
   isEstimated?: boolean;
 }
 
-/** Undefined means no model evidence; an empty set means it cannot identify one model. */
+/** A multi-model aggregate cannot be charged to the requested model. */
 function reportedModels(value: unknown): string[] | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const usage = value as Record<string, unknown>;
@@ -64,13 +63,13 @@ function reportedModels(value: unknown): string[] | undefined {
   return undefined;
 }
 
-/** Record one dispatched model call. Attribution must never break execution. */
+/** Record one dispatched call without letting spend observation interrupt the caller. */
 export function recordModelCall(input: ModelCallRecordInput): CostAttributionRecord | undefined {
   try {
-    const models = reportedModels(input.usage);
-    const model = models === undefined ? input.model : models.length === 1 ? models[0] : undefined;
-    const isEstimated = input.isEstimated === true || (input.usage as { isEstimated?: unknown } | undefined)?.isEstimated === true;
-    const normalized = normalizeUsage(input.usage as UsageLike | undefined);
+    const reported = reportedModels(input.usage);
+    const model = reported === undefined ? input.model : reported.length === 1 ? reported[0] : undefined;
+    const rawUsage = input.usage as (UsageLike & { cost?: unknown; isEstimated?: unknown }) | undefined;
+    const normalized = normalizeUsage(rawUsage);
     const usage: CostAttributionUsage = {};
     if (normalized?.input !== undefined) usage.inputTokens = normalized.input;
     if (normalized?.output !== undefined) usage.outputTokens = normalized.output;
@@ -78,15 +77,16 @@ export function recordModelCall(input: ModelCallRecordInput): CostAttributionRec
     if (normalized?.cacheWrite !== undefined) usage.cacheWriteTokens = normalized.cacheWrite;
     if (normalized?.reasoning !== undefined) usage.reasoningTokens = normalized.reasoning;
     if (normalized?.total !== undefined) usage.totalTokens = normalized.total;
-    const rawCost = (input.usage as { cost?: unknown } | undefined)?.cost;
+
+    const rawCost = rawUsage?.cost;
     const reportedCost = typeof rawCost === 'number' && Number.isFinite(rawCost) && rawCost >= 0 ? rawCost : undefined;
+    const free = input.costSource === 'free' || (reportedCost === undefined && FREE_PROVIDERS.has(input.provider?.toLowerCase() ?? ''));
     const failed = input.outcome !== undefined && input.outcome !== 'success';
-    const explicitFree = input.costSource === 'free';
-    const free = explicitFree || (reportedCost === undefined && FREE_PROVIDERS.includes(input.provider.toLowerCase()));
-    const hasBreakdown = normalized && [normalized.input, normalized.output, normalized.cacheRead, normalized.cacheWrite, normalized.reasoning].some(value => value !== undefined);
-    const priced = !failed && !free && hasBreakdown ? computeProviderTokenCost(input.provider, model, usage) : undefined;
-    const cost = free ? 0 : failed ? reportedCost : reportedCost ?? priced;
-    const costSource = cost === undefined ? 'unknown' : free ? 'free' : reportedCost !== undefined ? 'provider' : 'priced';
+    const isEstimated = input.isEstimated === true || rawUsage?.isEstimated === true;
+    const priced = !failed && !free && reportedCost === undefined ? resolveModelCallCost(input.provider, model, usage) : undefined;
+    const cost = free ? 0 : reportedCost ?? (failed ? undefined : priced?.costUsd ?? undefined);
+    const costSource: ModelCallCostSource = cost === undefined ? 'unknown'
+      : free ? 'free' : reportedCost !== undefined ? 'provider' : 'priced';
     if (cost !== undefined) usage.cost = cost;
     const record: CostAttributionRecord = {
       source: input.source ?? (input.purpose === 'helper' ? 'auxiliary' : 'one-shot'),
@@ -96,11 +96,17 @@ export function recordModelCall(input: ModelCallRecordInput): CostAttributionRec
       model,
       correlationId: input.correlationId,
       instanceId: input.instanceId,
+      sessionId: input.sessionId,
+      reasoningEffort: input.reasoningEffort,
+      rtkArm: input.rtkArm,
+      rtkTrialEligible: input.rtkTrialEligible,
+      rtkTrialKey: input.rtkTrialKey,
+      rtkTrialSurface: input.rtkTrialSurface,
       outcome: input.outcome ?? 'success',
       usage: Object.keys(usage).length ? usage : undefined,
-      costKnown: cost !== undefined && (!isEstimated || reportedCost !== undefined || free),
       costSource,
       costUsd: cost ?? null,
+      costKnown: cost !== undefined && (!isEstimated || reportedCost !== undefined || free),
       ...(isEstimated ? { isEstimated: true } : {}),
     };
     recordCostAttribution(record);
@@ -109,3 +115,5 @@ export function recordModelCall(input: ModelCallRecordInput): CostAttributionRec
     return undefined;
   }
 }
+
+export { purposeOf } from './cost-attribution';

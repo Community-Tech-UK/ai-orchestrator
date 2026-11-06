@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { OutputMessage } from '../../shared/types/instance.types';
 import {
   buildReplayContinuityMessage,
+  describeReplayWindow,
   truncateTranscriptContent,
 } from './replay-continuity';
 
@@ -27,6 +28,11 @@ describe('truncateTranscriptContent', () => {
 });
 
 describe('buildReplayContinuityMessage', () => {
+  it('reports the same default turn window as the replay builder', () => {
+    const turns = Array.from({ length: 30 }, (_, index) => message(`a${index}`, 'assistant', `turn ${index}`));
+    expect(describeReplayWindow(turns)).toEqual({ keptTurns: 24, omittedTurns: 6, maxChars: 800 });
+    expect(buildReplayContinuityMessage(turns, { reason: 'model-change' })).toContain('6 earlier turns omitted');
+  });
   const pendingQuestion = [
     'Nearest Meetings is fully implemented and committed on `feat/nearest-meetings`.',
     'filler '.repeat(200),

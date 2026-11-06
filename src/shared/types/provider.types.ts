@@ -4,7 +4,7 @@
 
 import type { PluginProviderName } from '@contracts/types/provider-runtime-events';
 import { getProviderModelContextWindow } from './provider-context-window';
-import type { LocalModelCatalogMetadata } from './unified-model-catalog.types';
+import type { CatalogSource, LocalModelCatalogMetadata } from './unified-model-catalog.types';
 import type { ModelReasoningCapabilities } from './model-reasoning';
 
 export { getProviderModelContextWindow };
@@ -524,6 +524,9 @@ export interface ModelDisplayInfo {
   family?: string;
   localModel?: LocalModelCatalogMetadata;
   reasoning?: ModelReasoningCapabilities;
+  contextWindow?: number;
+  pricing?: { inputPerMillion: number; outputPerMillion: number };
+  pricingSource?: CatalogSource;
 }
 
 /**

@@ -14,11 +14,13 @@ import {
   ORCHESTRATION_MARKER_START,
   formatCommandResponse,
   generateChildPrompt,
-  generateOrchestrationPrompt,
+  HARNESS_GUIDE,
+  buildSchedulingRules,
+  CONSENSUS_RULES,
+  SCHEDULING_RULES_REPEAT_LINE,
+  CONSENSUS_RULES_REPEAT_LINE,
   detectsConsensusIntent,
   detectsSchedulingIntent,
-  CONSENSUS_INTENT_REMINDER,
-  SCHEDULING_INTENT_REMINDER,
   parseOrchestratorCommands,
   stripOrchestrationMarkers,
   type OrchestratorCommand,
@@ -43,354 +45,162 @@ describe('orchestration-protocol module', () => {
   });
 });
 
-describe('generateOrchestrationPrompt', () => {
-  const instanceId = 'inst_test_42';
-  const prompt = generateOrchestrationPrompt(instanceId, 'claude-sonnet-4');
+describe('Harness prompt contract (A12)', () => {
+  const scheduling = buildSchedulingRules(new Date('2026-10-10T15:42:00Z'), 'Europe/London');
 
-  it('interpolates the instance id into the prompt body', () => {
-    expect(prompt).toContain(`**Instance ID:** ${instanceId}`);
+  it('exports a cache-stable guide with a parsable, fence-free command example', () => {
+    expect(HARNESS_GUIDE).toContain('## Harness commands');
+    expect(HARNESS_GUIDE).toContain('without a code fence');
+    expect(HARNESS_GUIDE).not.toMatch(/Workers connected|Instance ID|Local time now/);
+    expect(HARNESS_GUIDE).toContain('For review or summary work, prefer a non-Claude provider');
+    expect(HARNESS_GUIDE).toContain('get_child_summary');
+    expect(HARNESS_GUIDE).toContain('request_user_action');
+    expect(HARNESS_GUIDE).toContain('create_automation');
+    expect(HARNESS_GUIDE).toContain('consensus_query');
+    expect(parseOrchestratorCommands(HARNESS_GUIDE)).toMatchObject([
+      { action: 'spawn_child', provider: 'codex', name: 'route-audit' },
+    ]);
   });
 
-  it('interpolates the current model into the identity preamble when supplied', () => {
-    expect(prompt).toContain('You are currently running as **claude-sonnet-4**');
-  });
-
-  it('omits the identity preamble when no model is supplied', () => {
-    const bare = generateOrchestrationPrompt(instanceId);
-    expect(bare).not.toContain('You are currently running as');
-    expect(bare).toContain(`**Instance ID:** ${instanceId}`);
-  });
-
-  describe('connected worker nodes snapshot', () => {
-    it('lists connected workers with the exact name to use as the node value', () => {
-      const withNodes = generateOrchestrationPrompt(instanceId, 'claude-sonnet-4', [
-        {
-          id: 'n1',
-          name: 'windows-pc',
-          platform: 'win32',
-          cpuCores: 32,
-          totalMemoryMB: 65536,
-          gpuName: 'RTX 5090',
-          supportedClis: ['claude', 'codex'],
-          activeInstances: 1,
-          maxConcurrentInstances: 4,
-        },
-      ]);
-      expect(withNodes).toContain('Workers connected right now');
-      expect(withNodes).toContain('`windows-pc`');
-      expect(withNodes).toContain('GPU: RTX 5090');
-      expect(withNodes).toContain('CLIs: claude/codex');
-      expect(withNodes).toContain('as of session start');
-    });
-
-    it('tells parents that Windows worker children use Bash instead of PowerShell', () => {
-      const withWindowsNode = generateOrchestrationPrompt(instanceId, 'claude-sonnet-4', [
-        {
-          id: 'n1',
-          name: 'windows-pc',
-          platform: 'win32',
-        },
-      ]);
-      expect(withWindowsNode).toContain('Windows worker shell rule');
-      expect(withWindowsNode).toContain('Bash/Git Bash');
-      expect(withWindowsNode).toContain('avoid PowerShell');
-    });
-
-    it('states explicitly when no workers are connected', () => {
-      expect(prompt).toContain('No worker nodes are connected right now');
+  it('delivers conditional scheduling rules with a parsable native automation example', () => {
+    expect(scheduling).toContain('If it does, create a Harness automation');
+    expect(scheduling).toContain("the CLI's own scheduler and cloud routines run without this machine's browser and tools");
+    expect(scheduling).toContain('If time is only mentioned in passing, continue with the task.');
+    expect(scheduling).toContain('5-field expression and an IANA timezone');
+    expect(scheduling).toContain('One later run: "oneTime"');
+    expect(scheduling).toContain('When the cadence is unclear, ask with `request_user_action`');
+    expect(scheduling).toContain('`missedRunPolicy` "notify"');
+    expect(scheduling).toContain('`concurrencyPolicy` "skip"');
+    expect(scheduling).toContain('`list_automations`');
+    expect(scheduling).toContain('`update_automation`');
+    expect(scheduling).toContain('`postpone_automation`');
+    expect(scheduling).toContain('`delete_automation`');
+    expect(scheduling).toContain('confirmedByUser: true');
+    expect(scheduling).toContain('Local time now: 2026-10-10T16:42 (Europe/London).');
+    expect(parseOrchestratorCommands(scheduling)[0]).toMatchObject({
+      action: 'create_automation',
+      automation: { name: 'Weekday CI check' },
     });
   });
 
-  describe('delegation rules', () => {
-    it('tells the parent to spawn children only for parallel or specialized work', () => {
-      expect(prompt).toMatch(/Spawn children ONLY when:[\s\S]*2\+ independent tasks/);
-      expect(prompt).toMatch(/specialized focus/);
-    });
+  it('labels the actual UTC fallback when the configured time zone is invalid', () => {
+    expect(buildSchedulingRules(new Date('2026-10-10T15:42:00Z'), 'Fixture/Invalid'))
+      .toContain('Local time now: 2026-10-10T15:42 (UTC).');
+  });
 
-    it('tells the parent not to spawn children for sequential, single-file, or simple-read tasks', () => {
-      expect(prompt).toMatch(/Do NOT spawn children for:[\s\S]*Sequential analysis/);
-      expect(prompt).toMatch(/Single-file or few-file edits/);
-      expect(prompt).toMatch(/Simple file reading/);
-    });
-
-    it('tells the parent that large multi-file edit batches are a good child target (Part C)', () => {
-      expect(prompt).toMatch(/Spawn children ONLY when:[\s\S]*multi-file edit batch/i);
-    });
-
-    it('tells the parent to retry once and then do the work directly on failure', () => {
-      expect(prompt).toMatch(/On failure:[\s\S]*retry once[\s\S]*do the work directly/);
-    });
-
-    it('tells the parent to terminate children when done', () => {
-      expect(prompt).toMatch(/[Aa]lways terminate children when done/);
+  it('delivers conditional, evidence-led consensus rules with a parsable example', () => {
+    expect(CONSENSUS_RULES).toContain('high-impact, uncertain decision');
+    expect(CONSENSUS_RULES).toContain('conflicting evidence, repeated failed attempts');
+    expect(CONSENSUS_RULES).toContain('If so, run `consensus_query`');
+    expect(CONSENSUS_RULES).toContain('when direct, reproducible evidence already settles the question, continue without it');
+    expect(CONSENSUS_RULES).toContain('compare them with your current plan');
+    expect(CONSENSUS_RULES).toContain('agreement, real dissent and provider failures');
+    expect(CONSENSUS_RULES).toContain('prefer authoritative sources over vote counts');
+    expect(CONSENSUS_RULES).toContain('Tell the user whether the result changed your conclusion.');
+    expect(parseOrchestratorCommands(CONSENSUS_RULES)[0]).toMatchObject({
+      action: 'consensus_query',
+      question: expect.any(String),
     });
   });
 
-  describe('retrieval-first preference', () => {
-    it('prefers structured retrieval over raw output', () => {
-      expect(prompt).toMatch(/prefer structured retrieval over raw output/i);
-    });
+  it('exports the short repeat lines after detailed rules have been delivered', () => {
+    expect(SCHEDULING_RULES_REPEAT_LINE).toContain('scheduling rules given earlier');
+    expect(CONSENSUS_RULES_REPEAT_LINE).toContain('consensus rules given earlier');
+    expect(SCHEDULING_RULES_REPEAT_LINE).not.toContain(ORCHESTRATION_MARKER_START);
+    expect(CONSENSUS_RULES_REPEAT_LINE).not.toContain(ORCHESTRATION_MARKER_START);
+  });
+});
 
-    it('lists every structured-retrieval command', () => {
-      expect(prompt).toContain('get_child_summary');
-      expect(prompt).toContain('get_child_artifacts');
-      expect(prompt).toContain('get_child_section');
-    });
-
-    it('warns that get_child_output is a last-resort raw read', () => {
-      expect(prompt).toMatch(/get_child_output[\s\S]*Raw output[\s\S]*last resort/);
-    });
+describe('scheduling intent reinforcement', () => {
+  it('detects the screenshot-reported phrasing "create an automation"', () => {
+    expect(detectsSchedulingIntent('Please create an automation for this')).toBe(true);
   });
 
-  describe('code navigation guidance', () => {
-    it('points agents at codemem tools and indexed context instead of legacy lsp tool names', () => {
-      expect(prompt).toContain('Use codemem tools when navigating code');
-      expect(prompt).toContain('Indexed Codebase Context');
-      expect(prompt).toContain('verify important details against repository files before editing');
-      expect(prompt).toContain('mcp__codemem__find_symbol');
-      expect(prompt).toContain('mcp__codemem__find_references');
-      expect(prompt).toContain('[Indexed Codebase Context]');
-      expect(prompt).not.toContain('mcp__lsp__lsp_goto_definition');
-      expect(prompt).not.toContain('persisted BM25/vector codebase index');
-    });
+  it.each([
+    'set this up to run every morning',
+    'do this daily at 8am',
+    'run it twice daily',
+    'schedule a weekly report',
+    'make this a recurring task',
+    'keep doing this on a loop',
+    'remind me tomorrow',
+    'run this next Friday',
+    'add a cron job for this',
+    'turn this into a routine',
+  ])('detects scheduling intent in: %s', (text) => {
+    expect(detectsSchedulingIntent(text)).toBe(true);
   });
 
-  describe('model and provider routing guidance', () => {
-    it('tells the parent to set both provider and model when the user names both', () => {
-      expect(prompt).toContain('set both `provider` and `model`');
-    });
-
-    it('lists supported providers', () => {
-      expect(prompt).toMatch(/Providers:[\s\S]*claude[\s\S]*codex[\s\S]*gemini[\s\S]*copilot/);
-    });
-
-    it('lists model tiers', () => {
-      expect(prompt).toMatch(/Model tiers:[\s\S]*fast[\s\S]*balanced[\s\S]*powerful/);
-    });
-
-    it('steers scaffolding children to non-Claude providers by default', () => {
-      expect(prompt).toMatch(/verification[\s\S]*review[\s\S]*debate positions[\s\S]*summarization/);
-      expect(prompt).toMatch(/prefer a non-Claude `provider`/);
-      expect(prompt).toMatch(/`gemini`[\s\S]*`codex`[\s\S]*`copilot`[\s\S]*`cursor`/);
-    });
+  it.each([
+    'fix the failing test',
+    'explain how this function works',
+    'refactor this component',
+    '',
+  ])('does not trigger on non-scheduling message: %s', (text) => {
+    expect(detectsSchedulingIntent(text)).toBe(false);
   });
 
-  describe('native cross-LLM coordination', () => {
-    it('tells the parent to use spawn_child.provider for cross-LLM work', () => {
-      expect(prompt).toContain('always use `spawn_child` with the `provider` field');
-    });
+  it('handles null/undefined input', () => {
+    expect(detectsSchedulingIntent(undefined)).toBe(false);
+    expect(detectsSchedulingIntent(null)).toBe(false);
+  });
+});
 
-    it('explicitly forbids the MCP wrappers for provider coordination', () => {
-      expect(prompt).toContain('mcp__copilot__copilot_chat');
-      expect(prompt).toContain('mcp__gemini-cli__gemini');
-      expect(prompt).toContain('mcp__codex-cli__*');
-      expect(prompt).toMatch(/Do NOT use:/);
-    });
+describe('consensus intent reinforcement', () => {
+  it.each([
+    'Please run a consensus check on this migration plan',
+    'Fact-check this claim',
+    'Cross-check this conclusion',
+    'Consensus please',
+    'Second opinion please',
+    'Can you fact-check this with another model?',
+    'Verify this conclusion with the other providers',
+    'I want a second opinion on the security assessment',
+    'Cross-check this conclusion across multiple providers',
+    'This is a high-risk decision and I am not sure which option is safe',
+    'Is this production migration safe or too risky?',
+    'The security reviewers disagree about the correct fix',
+    'The CLI tools contradict each other about the result',
+    'There is no consensus among reviewers',
+    'There is no consensus among security reviewers about whether this deployment is safe',
+    'No consensus exists because the reviewers disagree',
+    'There is conflicting evidence about whether the migration is safe',
+    'The same fix failed again after a second attempt',
+    'This still fails after another attempt',
+    'The same fix failed twice',
+    'Our strategy has failed twice',
+    'The approach failed on the second attempt',
+    'This fix failed after two attempts',
+    'This is the second failed attempt',
+    'This was our third failed attempt',
+    'We have now failed twice',
+    'This failed after two attempts',
+  ])('detects consensus-worthy intent in: %s', (text) => {
+    expect(detectsConsensusIntent(text)).toBe(true);
   });
 
-  describe('user interaction', () => {
-    it('documents request_user_action and the core prompt-table request types', () => {
-      expect(prompt).toContain('request_user_action');
-      for (const requestType of ['switch_mode', 'approve_action', 'ask_questions']) {
-        expect(prompt).toContain(requestType);
-      }
-    });
+  it.each([
+    'Explain how the Raft consensus algorithm works',
+    'Look up the current Node version',
+    'Verify that the import resolves',
+    'Fix the failing test',
+    'The first attempt failed, please apply the obvious correction',
+    '',
+  ])('does not trigger on routine message: %s', (text) => {
+    expect(detectsConsensusIntent(text)).toBe(false);
   });
 
-  describe('command output contract', () => {
-    it('shows a complete marker-wrapped, fence-free command example', () => {
-      expect(prompt).toContain(`${ORCHESTRATION_MARKER_START}\n{"action":"get_children"}\n${ORCHESTRATION_MARKER_END}`);
-      expect(prompt).toContain('no code fences');
-      expect(prompt).not.toContain('{"action": "command_name", ...params}');
-    });
-
-    it('does not teach markerless fenced command examples', () => {
-      expect(prompt).not.toContain('```json');
-    });
+  it.each([
+    "Don't run a consensus check; just show me the logs",
+    'Skip the second opinion and use the existing evidence',
+    'Proceed without a cross-check',
+  ])('honours explicit opt-out phrasing in: %s', (text) => {
+    expect(detectsConsensusIntent(text)).toBe(false);
   });
 
-  describe('saved automations guidance', () => {
-    it('documents create_automation for recurring and deferred work', () => {
-      expect(prompt).toContain('create_automation');
-      expect(prompt).toMatch(/every morning[\s\S]*daily[\s\S]*on repeat[\s\S]*on a loop/);
-      expect(prompt).toContain('"provider":"claude","model":"opus[1m]"');
-    });
-
-    it('requires a clarifying question when loop cadence is ambiguous', () => {
-      expect(prompt).toMatch(/cadence is ambiguous[\s\S]*request_user_action/);
-    });
-
-    it('documents the management tools for existing automations', () => {
-      expect(prompt).toContain('list_automations');
-      expect(prompt).toContain('update_automation');
-      expect(prompt).toContain('postpone_automation');
-      expect(prompt).toContain('delete_automation');
-    });
-
-    it('steers scheduling to native create_automation and away from host CLI schedulers', () => {
-      expect(prompt).toMatch(/native `create_automation`/);
-      expect(prompt).toMatch(/Claude Code's `\/schedule`/);
-      expect(prompt).toContain('CronCreate');
-      expect(prompt).toMatch(/cloud remote agents/);
-    });
-
-    it('reminds the model that AIO automations run locally with browser-gateway access', () => {
-      expect(prompt).toMatch(/locally on this machine/);
-      expect(prompt).toMatch(/browser gateway to the user's real, authenticated Chrome/);
-    });
-  });
-
-  describe('scheduling intent reinforcement', () => {
-    it('detects the screenshot-reported phrasing "create an automation"', () => {
-      expect(detectsSchedulingIntent('Please create an automation for this')).toBe(true);
-    });
-
-    it.each([
-      'set this up to run every morning',
-      'do this daily at 8am',
-      'run it twice daily',
-      'schedule a weekly report',
-      'make this a recurring task',
-      'keep doing this on a loop',
-      'remind me tomorrow',
-      'run this next Friday',
-      'add a cron job for this',
-      'turn this into a routine',
-    ])('detects scheduling intent in: %s', (text) => {
-      expect(detectsSchedulingIntent(text)).toBe(true);
-    });
-
-    it.each([
-      'fix the failing test',
-      'explain how this function works',
-      'refactor this component',
-      '',
-    ])('does not trigger on non-scheduling message: %s', (text) => {
-      expect(detectsSchedulingIntent(text)).toBe(false);
-    });
-
-    it('handles null/undefined input', () => {
-      expect(detectsSchedulingIntent(undefined)).toBe(false);
-      expect(detectsSchedulingIntent(null)).toBe(false);
-    });
-
-    it('reminder steers to native create_automation and away from the host CLI scheduler', () => {
-      expect(SCHEDULING_INTENT_REMINDER).toContain('create_automation');
-      expect(SCHEDULING_INTENT_REMINDER).toContain('CronCreate');
-      expect(SCHEDULING_INTENT_REMINDER).toMatch(/native automation/i);
-    });
-
-    it('reminder is conditional so over-eager detection cannot induce spurious automations', () => {
-      // The detector intentionally over-triggers (e.g. "daily", "tomorrow", "routine").
-      // The reminder must therefore be conditional, never an unconditional command to
-      // create an automation, or a false positive would push the model to create one.
-      expect(SCHEDULING_INTENT_REMINDER).toMatch(/\bif\b/i);
-      expect(SCHEDULING_INTENT_REMINDER).toMatch(/not actually about scheduling[\s\S]*do not create/i);
-    });
-
-    it('reminder carries a compact marker-wrapped create_automation skeleton', () => {
-      expect(SCHEDULING_INTENT_REMINDER).toContain(ORCHESTRATION_MARKER_START);
-      expect(SCHEDULING_INTENT_REMINDER).toContain('"action":"create_automation"');
-      expect(SCHEDULING_INTENT_REMINDER).not.toContain('those are blocked here');
-    });
-  });
-
-  describe('consensus guidance', () => {
-    it('requires consensus_query for selective high-value validation triggers', () => {
-      expect(prompt).toMatch(/consensus_query[\s\S]*high-impact[\s\S]*conflicting evidence/i);
-      expect(prompt).toMatch(/repeated failed attempts[\s\S]*explicitly asks/i);
-    });
-
-    it('requires the primary model to reconcile the result and revise its course when warranted', () => {
-      expect(prompt).toMatch(/inspect[\s\S]*agreement[\s\S]*dissent[\s\S]*provider failures/i);
-      expect(prompt).toMatch(/revise[\s\S]*conclusion changed/i);
-      expect(prompt).toMatch(/compare[\s\S]*current hypothesis or plan/i);
-      expect(prompt).toMatch(/gather direct evidence[\s\S]*material conflicts/i);
-      expect(prompt).toMatch(/continue investigating[\s\S]*material disagreement remains/i);
-    });
-
-    it('warns against consensus for routine or directly evidenced work', () => {
-      expect(prompt).toMatch(/Do NOT use[\s\S]*simple lookups[\s\S]*directly evidenced/i);
-    });
-  });
-
-  describe('consensus intent reinforcement', () => {
-    it.each([
-      'Please run a consensus check on this migration plan',
-      'Fact-check this claim',
-      'Cross-check this conclusion',
-      'Consensus please',
-      'Second opinion please',
-      'Can you fact-check this with another model?',
-      'Verify this conclusion with the other providers',
-      'I want a second opinion on the security assessment',
-      'Cross-check this conclusion across multiple providers',
-      'This is a high-risk decision and I am not sure which option is safe',
-      'Is this production migration safe or too risky?',
-      'The security reviewers disagree about the correct fix',
-      'The CLI tools contradict each other about the result',
-      'There is no consensus among reviewers',
-      'There is no consensus among security reviewers about whether this deployment is safe',
-      'No consensus exists because the reviewers disagree',
-      'There is conflicting evidence about whether the migration is safe',
-      'The same fix failed again after a second attempt',
-      'This still fails after another attempt',
-      'The same fix failed twice',
-      'Our strategy has failed twice',
-      'The approach failed on the second attempt',
-      'This fix failed after two attempts',
-      'This is the second failed attempt',
-      'This was our third failed attempt',
-      'We have now failed twice',
-      'This failed after two attempts',
-    ])('detects consensus-worthy intent in: %s', (text) => {
-      expect(detectsConsensusIntent(text)).toBe(true);
-    });
-
-    it.each([
-      'Explain how the Raft consensus algorithm works',
-      'Look up the current Node version',
-      'Verify that the import resolves',
-      'Fix the failing test',
-      'The first attempt failed, please apply the obvious correction',
-      '',
-    ])('does not trigger on routine message: %s', (text) => {
-      expect(detectsConsensusIntent(text)).toBe(false);
-    });
-
-    it.each([
-      "Don't run a consensus check; just show me the logs",
-      'Skip the second opinion and use the existing evidence',
-      'Proceed without a cross-check',
-    ])('honours explicit opt-out phrasing in: %s', (text) => {
-      expect(detectsConsensusIntent(text)).toBe(false);
-    });
-
-    it('handles null/undefined input', () => {
-      expect(detectsConsensusIntent(undefined)).toBe(false);
-      expect(detectsConsensusIntent(null)).toBe(false);
-    });
-
-    it('reminder is conditional and requires evidence-led reconciliation', () => {
-      expect(CONSENSUS_INTENT_REMINDER).toMatch(/\bif\b/i);
-      expect(CONSENSUS_INTENT_REMINDER).toContain('consensus_query');
-      expect(CONSENSUS_INTENT_REMINDER).toMatch(/agreement[\s\S]*dissent[\s\S]*provider failures/i);
-      expect(CONSENSUS_INTENT_REMINDER).toMatch(/authoritative[\s\S]*reproducible evidence/i);
-      expect(CONSENSUS_INTENT_REMINDER).toMatch(/direct authoritative evidence[\s\S]*skip/i);
-      expect(CONSENSUS_INTENT_REMINDER).toMatch(/high-impact[\s\S]*conflicting evidence/i);
-      expect(CONSENSUS_INTENT_REMINDER).toMatch(/whether your conclusion changed/i);
-      expect(CONSENSUS_INTENT_REMINDER).toMatch(/compare[\s\S]*current hypothesis or plan/i);
-      expect(CONSENSUS_INTENT_REMINDER).toMatch(/gather direct evidence[\s\S]*material conflicts/i);
-      expect(CONSENSUS_INTENT_REMINDER).toMatch(
-        /continue investigating[\s\S]*material disagreement remains/i,
-      );
-    });
-
-    it('reminder carries a compact marker-wrapped consensus_query skeleton', () => {
-      expect(CONSENSUS_INTENT_REMINDER).toContain(ORCHESTRATION_MARKER_START);
-      expect(CONSENSUS_INTENT_REMINDER).toContain('"action":"consensus_query"');
-      expect(CONSENSUS_INTENT_REMINDER).toMatch(/not actually warrant consensus[\s\S]*ignore/i);
-    });
+  it('handles null/undefined input', () => {
+    expect(detectsConsensusIntent(undefined)).toBe(false);
+    expect(detectsConsensusIntent(null)).toBe(false);
   });
 });
 

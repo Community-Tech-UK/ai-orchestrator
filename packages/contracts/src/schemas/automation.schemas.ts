@@ -128,7 +128,43 @@ export const AutomationActionSchema = z.object({
   // happen.
   executionProfile: z.enum(['standard', 'contained']).optional(),
   containedFallback: z.literal('fail').optional(),
+  preCheck: z.object({
+    command: z.string().trim().min(1).max(4000),
+    onError: z.enum(['run-anyway', 'stop']).optional(),
+  }).optional(),
 });
+
+function validatePreCheck(
+  value: { action?: Pick<z.infer<typeof AutomationActionSchema>, 'preCheck' | 'executionProfile' | 'forceNodeId'>; schedule?: z.infer<typeof AutomationScheduleSchema> },
+  ctx: z.RefinementCtx,
+): void {
+  if (!value.action?.preCheck) return;
+  if (value.action.forceNodeId) {
+    ctx.addIssue({
+      code: 'custom', path: ['action', 'preCheck'],
+      message: 'Checks run on this computer only, so jobs pinned to another computer cannot have one.',
+    });
+  }
+  if (value.action.executionProfile === 'contained') {
+    ctx.addIssue({
+      code: 'custom', path: ['action', 'preCheck'],
+      message: 'A check runs outside the sandbox, so contained jobs cannot have one.',
+    });
+  }
+  if (value.schedule?.type === 'oneTime') {
+    ctx.addIssue({
+      code: 'custom', path: ['action', 'preCheck'],
+      message: 'A check compares against the previous successful run, so it needs a recurring schedule.',
+    });
+  }
+}
+
+/** Reusable at persistence and dispatch, including hydrated attachment shapes. */
+export const AutomationPreCheckPolicySchema = z.object({
+  // Persisted placement may use a worker name; this policy needs its presence, not wire-format validation.
+  action: AutomationActionSchema.pick({ preCheck: true, executionProfile: true }).extend({ forceNodeId: z.string().optional() }),
+  schedule: AutomationScheduleSchema,
+}).superRefine(validatePreCheck);
 
 export const AutomationDestinationSchema = z.discriminatedUnion('kind', [
   z.object({
@@ -172,7 +208,7 @@ export const AutomationCreatePayloadSchema = z.object({
   destination: AutomationDestinationSchema.default({ kind: 'newInstance' }),
   action: AutomationActionSchema.omit({ executionAuthority: true }),
   hidden: z.boolean().optional(),
-});
+}).superRefine(validatePreCheck);
 
 export const AutomationUpdatePayloadSchema = z.object({
   id: AutomationIdSchema,
@@ -191,7 +227,7 @@ export const AutomationUpdatePayloadSchema = z.object({
     active: z.boolean().optional(),
     hidden: z.boolean().optional(),
     dismissModelHint: z.literal(true).optional(),
-  }),
+  }).superRefine(validatePreCheck),
 });
 
 export const AutomationGetPayloadSchema = z.object({
@@ -275,7 +311,10 @@ const AutomationConfigSnapshotSchema = z.object({
   missedRunPolicy: AutomationMissedRunPolicySchema,
   concurrencyPolicy: z.enum(['skip', 'queue']),
   destination: AutomationDestinationSchema,
-  action: AutomationActionSchema,
+  // Run snapshots include runtime check notes and are copied intact on retry.
+  // Generated notes have no total authoring bound; this read-side field keeps
+  // their complete persisted text. AutomationActionSchema still bounds writes.
+  action: AutomationActionSchema.extend({ prompt: z.string().min(1) }),
   hidden: z.boolean().optional(),
 });
 
@@ -297,6 +336,7 @@ export const AutomationRunSchema = z.object({
   startedAt: z.number().int().nonnegative().nullable(),
   finishedAt: z.number().int().nonnegative().nullable(),
   instanceId: z.string().min(1).max(200).nullable(),
+  threadPromptDelivered: z.boolean().nullable().optional(),
   loopRunId: z.string().min(1).max(200).nullable(),
   error: z.string().nullable(),
   outputSummary: z.string().nullable(),
@@ -308,6 +348,7 @@ export const AutomationRunSchema = z.object({
   createdAt: z.number().int().nonnegative(),
   updatedAt: z.number().int().nonnegative(),
   configSnapshot: AutomationConfigSnapshotSchema.nullable(),
+  outcome: z.enum(['no-change', 'changed', 'first-check', 'check-failed', 'quiet']).nullable().optional(),
   attempt: z.number().int().positive(),
   maxAttempts: z.number().int().positive(),
   result: AutomationResultSchema.nullable().optional(),
@@ -323,6 +364,7 @@ export const AutomationChangedEventSchema = z.object({
 export const AutomationRunChangedEventSchema = z.object({
   run: AutomationRunSchema,
   automationId: AutomationIdSchema,
+  updateKind: z.literal('delivery-evidence').optional(),
 }).strict();
 
 export type AutomationCreatePayload = z.infer<typeof AutomationCreatePayloadSchema>;

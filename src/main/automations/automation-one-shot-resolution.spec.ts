@@ -60,7 +60,9 @@ describe('one-shot MCP authority through persistence, actual lifecycle and actua
       scheduler: { schedule: vi.fn(), deactivate: vi.fn() }, runner: { untrackInstances: vi.fn() }, events: getAutomationEvents(),
       createWithScheduling: input => store.create(input, NOW + 600_000), handlePastOneTime: async () => undefined,
       resolveCaller: () => caller, resolveWorkingDirectory: () => '/missing-authority-fixture', resolveTimezone: () => 'UTC', now: () => NOW });
-    return createAutomationToolDefinitions({ instanceId: 'caller', ...impl }).find(t => t.name === name)!.handler(args);
+    // These cases are about authority and one-shot handling, not cadence, so the person has confirmed it.
+    const confirmed = name === 'create_automation' || name === 'update_automation' ? { confirmedByUser: true, ...args } : args;
+    return createAutomationToolDefinitions({ instanceId: 'caller', ...impl }).find(t => t.name === name)!.handler(confirmed);
   }
   async function createJob() {
     await invoke('create_automation', { name: 'Monitor status', prompt: 'Check status', cron: '*/10 * * * *' });

@@ -15,7 +15,8 @@ export interface CodexEphemeralUsage {
   kind: 'chat' | 'child' | 'loop' | 'plan-queue' | 'automation' | 'review';
   /** SHA-256 grouping key; raw configuration never enters the log. */
   trialKey: string | null;
-  trialArm: 'control' | 'candidate' | 'unassigned';
+  /** `control` and `candidate` are the arm names earlier builds saved; they stay readable. */
+  trialArm: 'cheaper' | 'full' | 'off' | 'control' | 'candidate' | 'unassigned';
   requests: number | null;
   requestsAvailable: boolean;
   /** Root only. Helper usage is separate, never included twice. */

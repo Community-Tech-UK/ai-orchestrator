@@ -207,6 +207,7 @@ function makeDeps(state: FakeDepsState): InterruptRespawnDeps {
     buildReplayContinuityMessage: vi.fn(() => 'replay preamble'),
     buildFallbackHistory: vi.fn().mockResolvedValue('fallback history'),
     applyRecoveryRespawn: undefined as unknown as InterruptRespawnDeps['applyRecoveryRespawn'],
+    getRtkSpawnConfig: () => undefined,
     emitOutput: vi.fn(),
   };
   // Real spawn core so the fallback-ordering tests keep exercising the actual

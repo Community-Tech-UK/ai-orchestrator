@@ -227,6 +227,40 @@ describe('InstanceSpawnPreflightChain', () => {
     }
   });
 
+  it.each([
+    { name: 'a plan-queue worker', extra: { metadata: { planQueueRunId: 'run-1' } } },
+    { name: 'a plan-queue triage session', extra: { metadata: { planQueueRole: 'triage' } } },
+    { name: 'a child session', extra: { parentId: 'parent-1' } },
+    { name: 'an automation run', extra: { metadata: { automationId: 'auto-1' } } },
+    { name: 'a repo job', extra: { metadata: { spendPurpose: 'repo-job' } } },
+    { name: 'a run_on_node child', extra: { metadata: { spawnParentInstanceId: 'parent-1' } } },
+    { name: 'a ping-pong reviewer', extra: { metadata: { pingPongReviewer: true } } },
+  ])('never adopts a warm adapter for $name', async ({ extra }) => {
+    const deps = makeDeps();
+    deps.consumeWarmAdapter.mockReturnValue({ getName: () => 'claude' } as CliAdapter);
+    const result = await new InstanceSpawnPreflightChain(deps).prepare({
+      config: { workingDirectory: '/tmp/project', provider: 'claude', ...extra },
+      instance: { workingDirectory: '/tmp/project', bareMode: false },
+      provider: 'claude',
+      spawnOptions: makeSpawnOptions({ browserGatewayMcp: undefined }),
+    });
+    expect(result.kind).toBe('fresh');
+    expect(deps.consumeWarmAdapter).not.toHaveBeenCalled();
+  });
+
+  it('still adopts a warm adapter for a person-started channel session', async () => {
+    const deps = makeDeps();
+    const adapter = { getName: () => 'claude' } as CliAdapter;
+    deps.consumeWarmAdapter.mockReturnValue(adapter);
+    const result = await new InstanceSpawnPreflightChain(deps).prepare({
+      config: { workingDirectory: '/tmp/project', provider: 'claude', metadata: { spendPurpose: 'channel' } },
+      instance: { workingDirectory: '/tmp/project', bareMode: false },
+      provider: 'claude',
+      spawnOptions: makeSpawnOptions({ browserGatewayMcp: undefined }),
+    });
+    expect(result).toEqual({ kind: 'warm', adapter });
+  });
+
   it('forces a fresh local preflight for resume and warms the workspace', async () => {
     const deps = makeDeps();
     const chain = new InstanceSpawnPreflightChain(deps);

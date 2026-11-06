@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import { getLogger } from '../logging/logger';
-import { type McpServerToolDefinition } from './mcp-server-tools';
+import { DEFAULT_MAX_RESULT_CHARS, type McpServerToolDefinition } from './mcp-server-tools';
+import { truncateToolOutput } from '../util/tool-output-truncation';
 
 const logger = getLogger('McpServer');
 
@@ -126,7 +127,16 @@ export class McpServer extends EventEmitter {
             return { content: imageContent };
           }
         }
-        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+        // JSON.stringify(undefined) is undefined: a handler that returns nothing gets a
+        // text block with no text, as it always has, rather than a thrown TypeError.
+        const text: string | undefined = JSON.stringify(result);
+        const configuredLimit = tool.resolveMaxResultChars
+          ? tool.resolveMaxResultChars(params.arguments ?? {}) : tool.maxResultChars;
+        const limit = configuredLimit === undefined ? DEFAULT_MAX_RESULT_CHARS : configuredLimit;
+        if (text !== undefined && limit !== null && text.length > limit) {
+          return { content: [{ type: 'text', text: truncateToolOutput(text, { maxBytes: limit, maxLines: 600 }).content }] };
+        }
+        return { content: [{ type: 'text', text }] };
       }
 
       default:

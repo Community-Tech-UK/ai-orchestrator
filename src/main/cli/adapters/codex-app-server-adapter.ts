@@ -238,7 +238,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
   }
 
   /** Triggers native app-server compaction and requires the completion notification. */
-  async compactContext(): Promise<boolean> {
+  override async compactContext(): Promise<boolean> {
     return this.contextCostController.compactContext(CODEX_TIMEOUTS.COMPACTION_SETTLE_MS);
   }
 

@@ -1,5 +1,5 @@
 import type { BrowserElementContext } from '@contracts/types/browser';
-import { truncateToolOutput } from '../util/tool-output-truncation';
+import { truncateToolOutput, type TruncationOptions } from '../util/tool-output-truncation';
 
 const REDACTED = '[REDACTED]';
 
@@ -37,24 +37,37 @@ export function redactHeaders(headers: Record<string, string>): Record<string, s
 
 export function redactBrowserText(value: string): string {
   let redacted = value;
+  // One `\s*` after the colon, folded into the optional scheme group. The old
+  // `\s*(?:scheme)?\s*token` split a single whitespace run across two adjacent
+  // `\s*`, so a header followed by N spaces and no token retried the second
+  // `\s*` from every split point: quadratic. Whitespace cannot start a token, so
+  // the match set and match ends are unchanged.
   redacted = redacted.replace(
-    /\b(authorization|proxy-authorization)\s*:\s*(?:Bearer|Basic|Digest)?\s*[A-Za-z0-9._~+/=-]+/gi,
+    /\b(authorization|proxy-authorization)\s*:\s*(?:(?:Bearer|Basic|Digest)\s*)?[A-Za-z0-9._~+/=-]+/gi,
     (_match, key: string) => `${key}: ${REDACTED}`,
   );
   redacted = redacted.replace(
     /\b(cookie|set-cookie)\s*:\s*[^\r\n]+/gi,
     (_match, key: string) => `${key}: ${REDACTED}`,
   );
+  // The lookahead (atomic in JS) finds the keyword once per quoted segment.
+  // Putting the keyword inside the capture, between two `[^"]*`, retried the
+  // trailing `[^"]*"` from every keyword position: quadratic on an unterminated
+  // quote followed by repeated keywords.
   redacted = redacted.replace(
-    /"([^"]*(?:authorization|cookie|set-cookie|token|password|secret|key|session)[^"]*)"\s*:\s*"[^"]*"/gi,
+    /"(?=[^"]*(?:authorization|cookie|set-cookie|token|password|secret|key|session))([^"]*)"\s*:\s*"[^"]*"/gi,
     (_match, key: string) => `"${key}": "${REDACTED}"`,
   );
+  // The two patterns below start only at the beginning of a [A-Za-z0-9_-] run.
+  // A `\b` start retried the whole run tail from every `-` inside it (cubic on
+  // `key-key-key-...`), and any later start in a run fails whenever the first
+  // one does: the run's end and the keyword test are the same.
   redacted = redacted.replace(
-    /\b([A-Za-z0-9_-]*(?:authorization|cookie|set-cookie|token|password|secret|key|session)[A-Za-z0-9_-]*)\s*=\s*([^\s&]+)/gi,
+    /(?<![A-Za-z0-9_-])(?=[A-Za-z0-9_-]*(?:authorization|cookie|set-cookie|token|password|secret|key|session))([A-Za-z0-9_-]+)\s*=\s*([^\s&]+)/gi,
     (_match, key: string) => `${key}=${REDACTED}`,
   );
   redacted = redacted.replace(
-    /\b([A-Za-z0-9_-]*(?:authorization|cookie|set-cookie|token|password|secret|key|session)[A-Za-z0-9_-]*)\s*:\s*([^\s]+)/gi,
+    /(?<![A-Za-z0-9_-])(?=[A-Za-z0-9_-]*(?:authorization|cookie|set-cookie|token|password|secret|key|session))([A-Za-z0-9_-]+)\s*:\s*([^\s]+)/gi,
     (_match, key: string) => `${key}: ${REDACTED}`,
   );
   return redacted;
@@ -137,11 +150,15 @@ function isStringRecord(value: unknown): value is Record<string, string> {
 
 /**
  * Fable WS11.1 — redact then BOUND page text through the shared tool-output
- * spillover util (51 KB / 2000-line preview; full redacted text spilled to a
+ * spillover util (12,000-byte / 400-line preview; full redacted text spilled to a
  * file the agent can Read with offset/limit). Replaces the old silent
  * `.slice(0, 12_000)` that dropped the rest of large pages irrecoverably.
  * Redaction runs FIRST so the spilled file never contains raw secrets.
  */
-export function boundBrowserText(value: string): string {
-  return truncateToolOutput(redactBrowserText(value)).content;
+export function boundBrowserText(value: string, options?: Partial<TruncationOptions>): string {
+  return truncateToolOutput(redactBrowserText(value), {
+    maxBytes: 12_000,
+    maxLines: 400,
+    ...options,
+  }).content;
 }

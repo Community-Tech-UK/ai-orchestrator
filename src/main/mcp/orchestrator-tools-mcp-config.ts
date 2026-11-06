@@ -3,6 +3,7 @@ import { isOrchestratorRuntimeInjectionProvider } from '../../shared/types/mcp-s
 import { ORCHESTRATOR_TOOL_DEFERRAL_ENV } from './orchestrator-mcp-deferral';
 import { ORCHESTRATOR_TOOL_STABLE_ENV } from './orchestrator-mcp-stable-tools';
 import { INTER_SESSION_MESSAGING_ENABLED_ENV } from './orchestrator-session-messaging-tools';
+import type { ClaudeNativeToolSearchState } from '../cli/adapters/claude-native-tool-search';
 
 /**
  * MCP config writer for the orchestrator-tools stdio forwarder.
@@ -40,6 +41,7 @@ export interface OrchestratorToolsMcpConfigOptions {
    * dynamic clients reveal tools on demand. Cursor stays eager until proven.
    */
   toolDeferral?: boolean;
+  nativeToolSearch?: ClaudeNativeToolSearchState;
   /** Advertise the cross-session messaging MCP tools for this spawned CLI. */
   sessionMessagingEnabled?: boolean;
   exists?: (candidatePath: string) => boolean;
@@ -56,7 +58,9 @@ export function supportsDeferredOrchestratorTools(provider?: string): boolean {
 export function resolveOrchestratorToolMode(
   provider?: string,
   toolDeferral = false,
+  options: { nativeToolSearch?: ClaudeNativeToolSearchState } = {},
 ): OrchestratorToolMode {
+  if (provider?.trim().toLowerCase() === 'claude' && options.nativeToolSearch === 'on') return 'eager';
   if (!toolDeferral) return 'eager';
   if (provider?.trim().toLowerCase() === 'codex') return 'stable';
   return supportsDeferredOrchestratorTools(provider) ? 'deferred' : 'eager';
@@ -76,7 +80,7 @@ export function resolveOrchestratorToolsBridgeSpec(
     return null;
   }
 
-  const toolMode = resolveOrchestratorToolMode(options.provider, options.toolDeferral);
+  const toolMode = resolveOrchestratorToolMode(options.provider, options.toolDeferral, options);
   return {
     command: options.aioMcpCliPath,
     args: ['orchestrator-tools'],

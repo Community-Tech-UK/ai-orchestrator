@@ -18,12 +18,6 @@ vi.mock('../../security/env-filter', () => ({
   getSafeEnvForTrustedProcess: () => ({ ...process.env }),
 }));
 
-vi.mock('../../context/output-persistence', () => ({
-  getOutputPersistenceManager: () => ({
-    maybeExternalize: (_name: string, content: string) => Promise.resolve(content),
-  }),
-}));
-
 import { CopilotCliAdapter } from './copilot-cli-adapter';
 
 describe('CopilotCliAdapter stream JSON parsing', () => {

@@ -6,7 +6,8 @@
  * `{userData}/tool-output/` and a truncated preview is returned along with the file path.
  * Agents can then use the Read tool with offset/limit to examine specific sections.
  *
- * Files are automatically cleaned up after 7 days via `initTruncationCleanup()`.
+ * `initTruncationCleanup()` schedules seven-day cleanup for the caller's resolved
+ * user-data directory. It does not sweep separate headless or temp fallback folders.
  */
 
 import * as fs from 'fs';
@@ -92,14 +93,21 @@ function getUserDataPath(): string {
 /** Lazily-resolved tool-output directory; created on first use. */
 let toolOutputDir: string | undefined;
 let fallbackToolOutputDir: string | undefined;
+let toolOutputDirForTesting: string | null = null;
+
+export function _setToolOutputDirForTesting(dir: string | null): void {
+  toolOutputDirForTesting = dir;
+}
 
 /**
- * Returns the tool-output directory, creating it if it does not exist yet.
+ * Resolve the tool-output directory. The writer creates and secures it before use.
  */
 function getToolOutputDir(): string {
+  if (toolOutputDirForTesting) {
+    return toolOutputDirForTesting;
+  }
   if (!toolOutputDir) {
     toolOutputDir = path.join(getUserDataPath(), 'tool-output');
-    fs.mkdirSync(toolOutputDir, { recursive: true });
   }
   return toolOutputDir;
 }
@@ -107,15 +115,29 @@ function getToolOutputDir(): string {
 function getFallbackToolOutputDir(): string {
   if (!fallbackToolOutputDir) {
     fallbackToolOutputDir = path.join(os.tmpdir(), 'orchestrator-tool-output');
-    fs.mkdirSync(fallbackToolOutputDir, { recursive: true });
   }
   return fallbackToolOutputDir;
 }
 
 function writeToolOutputFile(dir: string, id: string, text: string): string {
-  fs.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  // Do not chmod or write through an existing directory link to another destination.
+  const directory = fs.lstatSync(dir);
+  if (directory.isSymbolicLink() || !directory.isDirectory()) {
+    throw new Error('Tool-output destination must be a directory, not a symbolic link');
+  }
+  // mkdir's mode does not affect an existing directory created by an older version.
+  fs.chmodSync(dir, 0o700);
   const filePath = path.join(dir, `${id}.txt`);
-  fs.writeFileSync(filePath, text, 'utf8');
+  // Exclusive creation also refuses a pre-existing file or link with the same name.
+  const descriptor = fs.openSync(filePath, 'wx', 0o600);
+  try {
+    // A restrictive process mask must not make the saved output unreadable to its owner.
+    fs.fchmodSync(descriptor, 0o600);
+    fs.writeFileSync(descriptor, text, 'utf8');
+  } finally {
+    fs.closeSync(descriptor);
+  }
   return filePath;
 }
 
@@ -245,14 +267,16 @@ export function truncateToolOutput(
 
   const preview = applyTruncation(text, opts);
   const hint =
-    `\n\n[Output truncated. Full output (${byteCount} bytes) saved to ${outputPath}. ` +
-    `Use Read tool with offset/limit to examine specific sections.]`;
+    `\n\n[Output truncated. The full output (${byteCount} bytes) is saved at ${outputPath}. ` +
+    `Read that file in sections if you need more.]`;
 
   return { content: preview + hint, truncated: true, outputPath };
 }
 
 /**
- * Delete tool-output files older than `maxAgeMs` milliseconds (default 7 days).
+ * Delete tool-output files older than `maxAgeMs` milliseconds (default 7 days)
+ * from this process's resolved user-data folder only. Additional legacy and
+ * temporary-folder sweeping remains separately gated.
  *
  * @returns The number of files successfully deleted.
  */

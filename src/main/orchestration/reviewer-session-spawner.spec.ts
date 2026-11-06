@@ -1,4 +1,5 @@
 import { recordCostAttribution } from '../core/system/cost-attribution';
+import { resolveSpendPurpose } from '../core/system/spend-purpose';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { Instance } from '../../shared/types/instance.types';
@@ -83,6 +84,22 @@ describe('ReviewerSessionSpawner', () => {
     expect(createArg.workingDirectory).toBe('/repo');
     // Disposable: terminated even on success.
     expect(manager.terminateInstance).toHaveBeenCalledWith('rev-1', false);
+  });
+
+  it('tags the reviewer session so its turns file under review (Step 6, A0-S)', async () => {
+    const manager = makeManager();
+    const spawner = getReviewerSessionSpawner();
+    spawner.setInstanceManager(manager);
+
+    await spawner.runReviewSession({
+      provider: 'codex', workingDirectory: '/repo', prompt: 'deep dive', timeoutMs: 5000,
+    });
+
+    const createArg = (manager.createInstance as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(createArg.metadata).toMatchObject({ spendPurpose: 'review', pingPongReviewer: true });
+    // Root level on purpose, so the purpose cannot come from a parent: the tag must carry it.
+    expect(createArg.parentId).toBeUndefined();
+    expect(resolveSpendPurpose({ metadata: createArg.metadata }).purpose).toBe('review');
   });
 
   it('includes a final turn attribution arriving just after idle', async () => {

@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -14,11 +14,13 @@ const execFileAsync = promisify(execFile);
 const electronPath = createRequire(import.meta.url)('electron') as string;
 const directories: string[] = [];
 const dbs: SqliteDriver[] = [];
+const reservationProcesses: { child: ChildProcess; closed: Promise<void> }[] = [];
+const reservationLifetimes: { disposed: boolean }[] = [];
 
 const reservationProcessScript = String.raw`
   require('tsx/cjs');
   const path = require('node:path');
-  const [mode, filename, id = '', startAtText = '0'] = process.argv.slice(1);
+  const [mode, filename, id] = process.argv.slice(1);
   const { defaultDriverFactory } = require(
     path.join(process.cwd(), 'src/main/db/better-sqlite3-driver.ts'),
   );
@@ -38,34 +40,42 @@ const reservationProcessScript = String.raw`
       if (!migration) throw new Error('Missing migration 054_local_ai_guard');
       db.exec(migration.up);
       db.exec('ALTER TABLE local_ai_incidents ADD COLUMN unpriced_dispatch_count INTEGER NOT NULL DEFAULT 0;');
-      console.log('AIO_RESERVATION_RESULT:' + JSON.stringify({ setup: true }));
-    } else {
+    }
+  } catch (error) {
+    db.close();
+    throw error;
+  }
+  // Both real file connections must be ready before either reservation starts.
+  // Waiting on stdin consumes no CPU and does not guess how long imports take.
+  process.stdin.once('data', () => {
+    try {
       const repository = new LocalAiHealthRepository(db, undefined, () => 1000);
-      while (Date.now() < Number(startAtText)) {}
       const stored = repository.reserveFallbackRoutingEvent({
-      id,
-      slot: 'compression',
-      intendedRoute: 'local',
-      actualRoute: 'frontier',
-      policy: 'allow-silently',
-      disposition: 'allowed',
-      decisionReason: 'policy',
-      provider: 'openai',
-      model: 'race-model',
-      inputTokens: 1000,
-      outputTokens: 0,
-      estimatedCostUsd: 1,
-      createdAt: 1000,
-    }, {
-      at: 1000,
-      dayStart: 0,
-      globalDailyBudgetUsd: 1.5,
+        id,
+        slot: 'compression',
+        intendedRoute: 'local',
+        actualRoute: 'frontier',
+        policy: 'allow-silently',
+        disposition: 'allowed',
+        decisionReason: 'policy',
+        provider: 'openai',
+        model: 'race-model',
+        inputTokens: 1000,
+        outputTokens: 0,
+        estimatedCostUsd: 1,
+        createdAt: 1000,
+      }, {
+        at: 1000,
+        dayStart: 0,
+        globalDailyBudgetUsd: 1.5,
       });
       console.log('AIO_RESERVATION_RESULT:' + JSON.stringify(stored));
+    } finally {
+      db.close();
+      process.stdin.destroy();
     }
-  } finally {
-    db.close();
-  }
+  });
+  console.log('AIO_RESERVATION_READY:' + id);
 `;
 
 const dispatchRestartScript = String.raw`
@@ -195,7 +205,13 @@ const dispatchRestartScript = String.raw`
   secondDb.close();
 `;
 
-afterEach(() => {
+afterEach(async () => {
+  // Fence suspended test continuations before any buffered READY message can resume them.
+  for (const lifetime of reservationLifetimes.splice(0)) lifetime.disposed = true;
+  await Promise.all(reservationProcesses.splice(0).map(async ({ child, closed }) => {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    await closed;
+  }));
   for (const db of dbs.splice(0)) db.close();
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
@@ -363,33 +379,55 @@ describe('Local AI fallback reservation store', () => {
     const directory = mkdtempSync(join(tmpdir(), 'aio-fallback-reservation-'));
     directories.push(directory);
     const filename = join(directory, 'guard.sqlite');
-    const run = async (mode: 'setup' | 'reserve', id = '', startAt = 0) => {
-      const { stdout } = await execFileAsync(electronPath, [
-        '-e',
-        reservationProcessScript,
-        mode,
-        filename,
-        id,
-        String(startAt),
+    const lifetime = { disposed: false };
+    reservationLifetimes.push(lifetime);
+    const assertCurrent = (): void => {
+      if (lifetime.disposed) throw new Error('Reservation fixture has been disposed');
+    };
+    const start = (mode: 'setup' | 'reserve', id: string) => {
+      assertCurrent();
+      const execution = execFileAsync(electronPath, [
+        '-e', reservationProcessScript, mode, filename, id,
       ], {
         cwd: process.cwd(),
         env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
       });
-      const prefix = 'AIO_RESERVATION_RESULT:';
-      const line = stdout.split('\n').find((candidate) => candidate.startsWith(prefix));
-      if (!line) throw new Error('Reservation process returned no result');
-      return JSON.parse(line.slice(prefix.length)) as {
-        disposition: string;
-        decisionReason: string;
+      const child = execution.child;
+      const closed = new Promise<void>((resolve) => child.once('close', () => resolve()));
+      reservationProcesses.push({ child, closed });
+      const ready = new Promise<void>((resolve, reject) => {
+        let output = '';
+        child.stdout?.on('data', (chunk: Buffer) => {
+          if (lifetime.disposed) { reject(new Error('Reservation fixture has been disposed')); return; }
+          output += chunk.toString();
+          if (output.includes('AIO_RESERVATION_READY:' + id)) resolve();
+        });
+        void execution.then(() => reject(new Error('Reservation process exited before release')), reject);
+      });
+      return {
+        ready,
+        release: () => { assertCurrent(); child.stdin?.end('reserve\n'); },
+        result: async () => {
+          const { stdout } = await execution;
+          const prefix = 'AIO_RESERVATION_RESULT:';
+          const line = stdout.split('\n').find((candidate) => candidate.startsWith(prefix));
+          if (!line) throw new Error('Reservation process returned no result');
+          return JSON.parse(line.slice(prefix.length)) as {
+            disposition: string;
+            decisionReason: string;
+          };
+        },
       };
     };
-    await run('setup');
-
-    const startAt = Date.now() + 1_000;
-    const results = await Promise.all([
-      run('reserve', 'race-a', startAt),
-      run('reserve', 'race-b', startAt),
-    ]);
+    // The first reservation process also initializes the disposable database;
+    // no third cold process or wall-clock rendezvous is needed.
+    const first = start('setup', 'race-a');
+    await first.ready;
+    const second = start('reserve', 'race-b');
+    await second.ready;
+    first.release();
+    second.release();
+    const results = await Promise.all([first.result(), second.result()]);
 
     expect(results.filter((result) => result.disposition === 'allowed')).toHaveLength(1);
     expect(results.filter((result) => result.disposition === 'blocked')).toEqual([
@@ -432,5 +470,127 @@ describe('Local AI fallback reservation store', () => {
         expiresAt: 3_000,
       }),
     });
+  });
+});
+
+describe('daily helper limit arithmetic (Step 7, A0-H)', () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  function setup(): { db: SqliteDriver; repository: LocalAiHealthRepository } {
+    const db = defaultDriverFactory(':memory:');
+    dbs.push(db);
+    db.exec('PRAGMA foreign_keys = ON;');
+    const migration = RLM_MIGRATIONS_051_055.find((item) => item.name === '054_local_ai_guard');
+    if (!migration) throw new Error('Missing migration 054_local_ai_guard');
+    db.exec(migration.up);
+    db.exec('ALTER TABLE local_ai_incidents ADD COLUMN unpriced_dispatch_count INTEGER NOT NULL DEFAULT 0;');
+    return { db, repository: new LocalAiHealthRepository(db, undefined, () => 2_000) };
+  }
+
+  function insertEvent(
+    db: SqliteDriver,
+    id: string,
+    row: {
+      estimatedCostUsd?: number | null;
+      knownCostUsd?: number | null;
+      createdAt: number;
+      completedAt?: number | null;
+    },
+  ): void {
+    db.prepare(`
+      INSERT INTO local_ai_routing_events (
+        id, slot, intended_route, actual_route, policy, disposition, decision_reason,
+        input_tokens, output_tokens, known_cost_usd, estimated_cost_usd, created_at, completed_at
+      ) VALUES (?, 'compression', 'local', 'frontier', 'allow-silently', 'allowed', 'policy', 1, 0, ?, ?, ?, ?)
+    `).run(
+      id,
+      row.knownCostUsd ?? null,
+      row.estimatedCostUsd ?? null,
+      row.createdAt,
+      row.completedAt ?? null,
+    );
+  }
+
+  function reserveEvent(
+    repository: LocalAiHealthRepository,
+    estimatedCostUsd: number | undefined,
+    globalDailyBudgetUsd: number,
+    id = 'next',
+  ): { disposition?: string; decisionReason?: string } {
+    return repository.reserveFallbackRoutingEvent({
+      id,
+      slot: 'compression',
+      intendedRoute: 'local',
+      actualRoute: 'frontier',
+      policy: 'allow-silently',
+      disposition: 'allowed',
+      decisionReason: 'policy',
+      inputTokens: 1,
+      outputTokens: 0,
+      ...(estimatedCostUsd === undefined ? {} : { estimatedCostUsd }),
+      createdAt: 2_000,
+    }, {
+      at: 2_000,
+      dayStart: 1_000,
+      globalDailyBudgetUsd,
+    });
+  }
+
+  it('a configured budget does not block when the estimate is missing', () => {
+    const { db, repository } = setup();
+    insertEvent(db, 'unknown-1', { createdAt: 1_500 });
+
+    const stored = reserveEvent(repository, undefined, 1);
+
+    expect(stored.decisionReason).not.toBe('daily-budget');
+    expect(stored.disposition).not.toBe('blocked');
+  });
+
+  it('unknown-cost rows count five cents each, not the whole day', () => {
+    const { db, repository } = setup();
+    insertEvent(db, 'unknown-1', { createdAt: 1_500 });
+    insertEvent(db, 'unknown-2', { createdAt: 1_600 });
+    insertEvent(db, 'unknown-3', { createdAt: 1_700 });
+
+    // Three unknown rows (0.15) plus this 0.05 estimate is 0.20: not over a 0.20 limit.
+    expect(reserveEvent(repository, 0.05, 0.2, 'next-a').disposition).not.toBe('blocked');
+
+    // A fourth unknown row tips it: 0.20 + 0.05 > 0.20.
+    insertEvent(db, 'unknown-4', { createdAt: 1_800 });
+    const blocked = reserveEvent(repository, 0.05, 0.2, 'next-b');
+    expect(blocked.disposition).toBe('blocked');
+    expect(blocked.decisionReason).toBe('daily-budget');
+  });
+
+  it('the ceiling is reached by known plus estimated plus unknown', () => {
+    const { db, repository } = setup();
+    insertEvent(db, 'known-1', { knownCostUsd: 0.6, createdAt: 1_500, completedAt: 1_550 });
+    insertEvent(db, 'estimated-1', { estimatedCostUsd: 0.3, createdAt: 1_600 });
+    insertEvent(db, 'unknown-1', { createdAt: 1_700 });
+
+    // 0.6 + 0.3 + 0.05 = 0.95; a 0.06 estimate reaches 1.01 > 1.
+    const blocked = reserveEvent(repository, 0.06, 1);
+    expect(blocked.disposition).toBe('blocked');
+    expect(blocked.decisionReason).toBe('daily-budget');
+  });
+
+  it('stale unpriced reservations do not accumulate against the limit', () => {
+    const { db, repository } = setup();
+    // Open, unpriced rows more than a day old are dispatch bookkeeping that
+    // never completed. 100 of them at five cents would be $5 against a $2 limit
+    // and would block every paid helper call for good.
+    for (let n = 0; n < 100; n += 1) {
+      insertEvent(db, `stale-${n}`, { createdAt: 2_000 - DAY_MS - 1_000 - n });
+    }
+
+    const allowed = reserveEvent(repository, 0.01, 2);
+    expect(allowed.decisionReason).not.toBe('daily-budget');
+    expect(allowed.disposition).not.toBe('blocked');
+
+    // A fresh unpriced reservation still counts five cents and tips a tight limit.
+    insertEvent(db, 'fresh-unknown', { createdAt: 1_500 });
+    const blocked = reserveEvent(repository, 0.01, 0.05, 'next-b');
+    expect(blocked.disposition).toBe('blocked');
+    expect(blocked.decisionReason).toBe('daily-budget');
   });
 });

@@ -2,7 +2,7 @@ import type { EventEmitter } from 'node:events';
 import type { CliResponse } from '../cli/adapters/base-cli-adapter';
 import { isModelCallCancelled, observeModelCallUsage } from '../core/system/observed-model-call-usage';
 import { purposeOf } from '../core/system/cost-attribution';
-import { recordModelCall } from '../core/system/model-call-recorder';
+import { recordModelCall, type ModelCallRecordInput } from '../core/system/model-call-recorder';
 import type { ModelCallOutcome } from '../../shared/types/cost-attribution.types';
 import { deferUntilResponseUsageSettled } from '../cli/adapters/deferred-response-usage';
 export { waitForCompletionUsage } from '../instance/communication-completion-cost';
@@ -13,6 +13,7 @@ interface CallContext {
   model?: string;
   correlationId: string;
   instanceId?: string;
+  attribution?: () => Pick<ModelCallRecordInput, 'sessionId' | 'reasoningEffort' | 'rtkArm' | 'rtkTrialEligible' | 'rtkTrialKey' | 'rtkTrialSurface'>;
   outcomeForResponse?: (response: CliResponse) => ModelCallOutcome;
 }
 
@@ -23,7 +24,7 @@ export async function sendRecordedOrchestrationCall(
   send: () => Promise<CliResponse>,
 ): Promise<CliResponse> {
   const purpose = context.taskType.startsWith('loop-branch:') ? 'branch-select' : purposeOf(context);
-  const { outcomeForResponse, ...recordContext } = context;
+  const { outcomeForResponse, attribution, ...recordContext } = context;
   const record = { ...recordContext, purpose: purpose === 'unknown' ? 'workflow' as const : purpose };
   const observed = observeModelCallUsage(adapter);
   try {
@@ -32,7 +33,7 @@ export async function sendRecordedOrchestrationCall(
       const settled = observeModelCallUsage(undefined);
       settled.observe(observed.usage);
       settled.observe(response.usage);
-      recordModelCall({ ...record, usage: settled.usage, isEstimated: settled.usage?.isEstimated,
+      recordModelCall({ ...record, ...attribution?.(), usage: settled.usage, isEstimated: settled.usage?.isEstimated,
         outcome: outcomeForResponse?.(response) ?? (response.metadata?.['budgetExceeded'] === true ? 'budget-exceeded'
           : response.degradedReason === 'cancelled' ? 'cancelled' : 'success') });
     };
@@ -40,7 +41,7 @@ export async function sendRecordedOrchestrationCall(
     return response;
   } catch (error) {
     observed.observeError(error);
-    if (observed.dispatched) recordModelCall({ ...record, usage: observed.usage, isEstimated: observed.usage?.isEstimated,
+    if (observed.dispatched) recordModelCall({ ...record, ...attribution?.(), usage: observed.usage, isEstimated: observed.usage?.isEstimated,
       outcome: isModelCallCancelled(error) ? 'cancelled' : 'error' });
     throw error;
   } finally {

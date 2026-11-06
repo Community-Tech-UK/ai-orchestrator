@@ -10,7 +10,7 @@ export const RemoteSpawnMetadataSchema = z.object({
   jobId: CodexUsageIdSchema.optional(),
   sessionKind: z.enum(['chat', 'child', 'loop', 'plan-queue', 'automation', 'review']).optional(),
   trialKey: z.string().max(4096).optional(),
-  trialArm: z.enum(['control', 'candidate', 'unassigned']).optional(),
+  trialArm: z.enum(['cheaper', 'full', 'off', 'unassigned']).optional(),
   ephemeral: z.boolean().optional(),
   codexUsageProtocol: z.literal(1).optional(),
   /** Plan Queue session: the node builds the push guard. Only sent to workers advertising `queuePushGuard: 1`. */

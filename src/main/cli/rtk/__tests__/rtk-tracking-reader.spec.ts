@@ -205,6 +205,107 @@ describe('rtk-tracking-reader', () => {
       expect(summary?.byCommand[1]?.saved).toBe(1440);
     });
 
+    it('caps only positive savings from shortened commands and excludes raw runs from program counts', () => {
+      const factory = buildSharedDriver([
+        {
+          timestamp: '2026-05-01T10:00:00.000Z', original: 'git log', rewritten: 'rtk git log',
+          inputTokens: 50_000, outputTokens: 10,
+        },
+        {
+          timestamp: '2026-05-01T11:00:00.000Z', original: 'git status', rewritten: 'rtk git status',
+          inputTokens: 10, outputTokens: 20,
+        },
+        {
+          timestamp: '2026-05-01T12:00:00.000Z', original: 'cargo test', rewritten: 'rtk proxy cargo test',
+          inputTokens: 40_000, outputTokens: 10,
+        },
+        {
+          timestamp: '2026-05-01T13:00:00.000Z', original: 'npm test', rewritten: 'rtk fallback npm test',
+          inputTokens: 40_000, outputTokens: 10,
+        },
+      ]);
+      writeFileSync(dbPath, '');
+      const summary = new RtkTrackingReader({ dbPathOverride: dbPath, driverFactory: factory }).getSummary();
+      expect(summary?.commandsFiltered).toBe(1);
+      expect(summary?.commandsRanInFull).toBe(2);
+      expect(summary?.savedTokensCapped).toBe(7_500);
+      expect(summary?.byProgram).toEqual([{ program: 'git', count: 1, savedTokensCapped: 7_500 }]);
+      expect(summary?.weightedReductionPct).toBeCloseTo(100 * 7_500 / 7_510, 10);
+      expect(summary?.commands).toBe(4);
+      expect(summary?.totalSaved).toBe(129_960);
+    });
+
+    it.each([10, 20])('keeps output %i raw while excluding non-shortening from savings', (outputTokens) => {
+      const factory = buildSharedDriver([{ timestamp: '2026-05-01T10:00:00.000Z', original: 'git status',
+        rewritten: 'rtk git status', inputTokens: 10, outputTokens }]);
+      writeFileSync(dbPath, '');
+      const reader = new RtkTrackingReader({ dbPathOverride: dbPath, driverFactory: factory });
+      const summary = reader.getSummary();
+      expect(summary).toMatchObject({ commands: 1, commandsFiltered: 0, commandsRanInFull: 0,
+        totalInput: 10, totalOutput: outputTokens, totalSaved: 10 - outputTokens,
+        savedTokensCapped: 0, weightedReductionPct: 0, byProgram: [] });
+      expect(summary?.byCommand[0].saved).toBe(10 - outputTokens);
+      expect(reader.getRecentHistory()[0].savedTokens).toBe(10 - outputTokens);
+      expect(reader.getCompliance()).toMatchObject({ filtered: 1, proxied: 0, proxyRatePct: 0 });
+      reader.close();
+    });
+
+    it('weights only positive-savings rows while preserving mixed raw totals and routing', () => {
+      const factory = buildSharedDriver([
+        { timestamp: '2026-05-01T10:00:00.000Z', original: 'git log', rewritten: 'rtk git log', inputTokens: 1000, outputTokens: 100 },
+        { timestamp: '2026-05-01T11:00:00.000Z', original: 'git status', rewritten: 'rtk git status', inputTokens: 1000, outputTokens: 1000 },
+        { timestamp: '2026-05-01T12:00:00.000Z', original: 'git diff', rewritten: 'rtk git diff', inputTokens: 10, outputTokens: 20 },
+        { timestamp: '2026-05-01T13:00:00.000Z', original: 'npm test', rewritten: 'rtk npm test', inputTokens: 500, outputTokens: 100 },
+        { timestamp: '2026-05-01T14:00:00.000Z', original: 'cargo test', rewritten: 'rtk proxy cargo test', inputTokens: 1000, outputTokens: 100 },
+        { timestamp: '2026-05-01T15:00:00.000Z', original: 'cargo build', rewritten: 'rtk fallback cargo build', inputTokens: 1000, outputTokens: 100 },
+      ]);
+      writeFileSync(dbPath, '');
+      const reader = new RtkTrackingReader({ dbPathOverride: dbPath, driverFactory: factory });
+      const summary = reader.getSummary();
+      expect(summary).toMatchObject({ commands: 6, commandsFiltered: 2, commandsRanInFull: 2,
+        totalInput: 4510, totalOutput: 1420, totalSaved: 3090, savedTokensCapped: 1300 });
+      expect(summary?.weightedReductionPct).toBeCloseTo(100 * 1300 / 1500, 10);
+      expect(summary?.byProgram).toEqual([{ program: 'git', count: 1, savedTokensCapped: 900 },
+        { program: 'npm', count: 1, savedTokensCapped: 400 }]);
+      expect(summary?.byCommand.find(row => row.rtkCmd === 'rtk git diff')?.saved).toBe(-10);
+      expect(reader.getCompliance()).toMatchObject({ filtered: 4, proxied: 2 });
+      reader.close();
+    });
+
+    it('counts observed zero output as shortened when recorded savings are positive', () => {
+      const factory = buildSharedDriver([{ timestamp: '2026-05-01T10:00:00.000Z', original: 'git status',
+        rewritten: 'rtk git status', inputTokens: 10, outputTokens: 0 }]);
+      writeFileSync(dbPath, '');
+      const reader = new RtkTrackingReader({ dbPathOverride: dbPath, driverFactory: factory });
+      expect(reader.getSummary()).toMatchObject({ commands: 1, commandsFiltered: 1, savedTokensCapped: 10,
+        weightedReductionPct: 100, byProgram: [{ program: 'git', count: 1, savedTokensCapped: 10 }] });
+      reader.close();
+    });
+
+    it('applies project/time filters and topN without changing the shortened population denominator', () => {
+      const row = (timestamp: string, rewritten: string, inputTokens: number, outputTokens: number, projectPath = '/proj/a'): FixtureRow =>
+        ({ timestamp, rewritten, original: rewritten, inputTokens, outputTokens, projectPath });
+      const factory = buildSharedDriver([
+        row('2026-05-01T10:00:00.000Z', 'rtk git log', 1000, 100),
+        row('2026-05-03T10:00:00.000Z', 'rtk git log', 1000, 100, '/proj/b'),
+        row('2026-05-03T10:00:00.000Z', 'rtk git diff', 100, 10),
+        row('2026-05-03T10:00:00.000Z', 'rtk git status', 1000, 1000),
+        row('2026-05-03T10:00:00.000Z', 'rtk git show', 10, 20),
+        row('2026-05-03T10:00:00.000Z', 'rtk npm test', 200, 20),
+        row('2026-05-03T10:00:00.000Z', 'rtk proxy cargo test', 1000, 100),
+      ]);
+      writeFileSync(dbPath, '');
+      const reader = new RtkTrackingReader({ dbPathOverride: dbPath, driverFactory: factory });
+      const summary = reader.getSummary({ projectPath: '/proj/a', sinceMs: Date.parse('2026-05-03T00:00:00.000Z'), topN: 1 });
+      expect(summary).toMatchObject({ commands: 5, commandsFiltered: 2, commandsRanInFull: 1,
+        totalInput: 2310, totalOutput: 1150, totalSaved: 1160, savedTokensCapped: 270, weightedReductionPct: 90 });
+      expect(summary?.byProgram).toEqual([{ program: 'npm', count: 1, savedTokensCapped: 180 }]);
+      expect(summary?.byCommand).toHaveLength(1);
+      expect(reader.getSummary({ projectPath: '/absent' })).toMatchObject({ commands: 0, commandsFiltered: 0,
+        savedTokensCapped: 0, weightedReductionPct: 0, byProgram: [] });
+      reader.close();
+    });
+
     it('filters by project_path', () => {
       const factory = buildSharedDriver([
         {
@@ -503,11 +604,24 @@ describe('incremental daily rollup', () => {
       { timestamp: '2026-10-14T12:00:00.000Z', original: 'git status', rewritten: 'rtk git status', inputTokens: 300, outputTokens: 60, projectPath: '/a' },
       { timestamp: '2026-10-14T13:00:00.000Z', original: 'cargo test', rewritten: 'rtk cargo test', inputTokens: 1000, outputTokens: 10, projectPath: '/b' },
     ];
-    const source = buildSharedDriver(rows)(':memory:');
+    const factory = buildSharedDriver(rows);
+    const source = factory(':memory:');
     const cache = createSqliteWasmDatabase(':memory:') as unknown as SqliteDriver;
     const now = Date.parse('2026-10-20T10:00:00.000Z');
     const opts = { sinceMs: now - 7 * 86_400_000 };
     const rollup = new RtkDailyRollup(cache);
+    const root = mkdtempSync(path.join(tmpdir(), 'rtk-rollup-'));
+    try {
+      const dbPath = path.join(root, 'history.db');
+      writeFileSync(dbPath, '');
+      const reader = new RtkTrackingReader({ dbPathOverride: dbPath, driverFactory: factory });
+      expect(rollup.getSummary(source, 'source-1', true, opts, now)).toEqual(reader.getSummary({ ...opts }));
+      expect(rollup.getSummary(source, 'source-1', true, { ...opts, projectPath: '/a' }, now))
+        .toEqual(reader.getSummary({ ...opts, projectPath: '/a' }));
+      reader.close();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
     expect(rollup.getSummary(source, 'source-1', true, opts, now)).toMatchObject({ commands: 3, totalSaved: 1300 });
     expect(rollup.getSummary(source, 'source-1', true, { ...opts, projectPath: '/a' }, now))
       .toMatchObject({ commands: 2, totalSaved: 310, avgSavingsPct: 75 });

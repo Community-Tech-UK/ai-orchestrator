@@ -19,4 +19,19 @@ describe('Claude compaction observer', () => {
     observer.observe({ type: 'system', subtype: 'compact_boundary', compact_metadata: { pre_tokens } });
     expect(observer.getTurnCompaction()).toEqual({ count: 1 });
   });
+  it('notifies subscribers after recording the boundary and allows explicit removal', () => {
+    const observer = new ClaudeCompactionObserver();
+    const snapshots: unknown[] = [];
+    const unsubscribe = observer.onCompactionObserved(() => snapshots.push(observer.getTurnCompaction()));
+    observer.observe({ type: 'system', subtype: 'compact_boundary', compact_metadata: { pre_tokens: 47076, post_tokens: 10236 } });
+    expect(snapshots).toEqual([{ count: 1, preTokens: 47076, postTokens: 10236 }]);
+    unsubscribe();
+    observer.observe({ type: 'system', subtype: 'compact_boundary' });
+    expect(snapshots).toHaveLength(1);
+  });
+  it.each([NaN, Infinity, -1])('keeps invalid post-compaction occupancy unknown (%s)', post_tokens => {
+    const observer = new ClaudeCompactionObserver();
+    observer.observe({ type: 'system', subtype: 'compact_boundary', compact_metadata: { post_tokens } });
+    expect(observer.getTurnCompaction()).toEqual({ count: 1 });
+  });
 });

@@ -103,6 +103,9 @@ export function insertRetryRun(
       },
     );
     clearPendingRetry(deps.db, originalRun.id);
+    deps.db.prepare(`
+      UPDATE automation_check_state SET pending_run_id = ? WHERE pending_run_id = ?
+    `).run(inserted.id, originalRun.id);
     if (restart) {
       deps.db.prepare(`INSERT INTO automation_run_facts(run_id, restart_retry_used, restart_source_run_id) VALUES (?, 1, ?)`)
         .run(inserted.id, originalRun.id);
@@ -230,6 +233,9 @@ export function insertPendingRetryRun(
       },
     );
     clearPendingRetry(deps.db, originalRun.id);
+    deps.db.prepare(`
+      UPDATE automation_check_state SET pending_run_id = ? WHERE pending_run_id = ?
+    `).run(inserted.id, originalRun.id);
     if (restart) {
       deps.db.prepare(`INSERT INTO automation_run_facts(run_id, restart_retry_used, restart_source_run_id) VALUES (?, 1, ?)`)
         .run(inserted.id, originalRun.id);

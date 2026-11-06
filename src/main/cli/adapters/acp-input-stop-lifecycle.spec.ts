@@ -57,7 +57,7 @@ async function fixture() {
     setupAdapterEvents: (id, target) => manager.setupAdapterEvents(id, target),
     transitionState: (target, status) => { transitions.push(status); target.status = status; },
     getAdapterRuntimeCapabilities: () => adapter.getRuntimeCapabilities(), resolveCliTypeForInstance: async () => 'opencode',
-    getMcpConfig: () => [], getPermissionHookPath: () => undefined,
+    getMcpConfig: () => [], getPermissionHookPath: () => undefined, getRtkSpawnConfig: () => undefined,
     waitForResumeHealth: async () => true, waitForAdapterWritable: async () => true,
     buildReplayContinuityMessage: () => '', buildFallbackHistory: async () => '',
     applyRecoveryRespawn: async () => { recovery(); throw new Error('Unexpected recovery after ACP Stop'); },

@@ -1,12 +1,13 @@
 import type { SessionKind } from '../../../shared/types/session-kind.types';
 import type { MachineSessionReason } from '../../../shared/utils/machine-session';
+import type { TrialKeySource } from '../../../shared/utils/machine-session';
+import type { ClaudeModelUsageSnapshot } from '../../../shared/types/provider-model-usage.types';
 /**
  * Types for the Claude CLI Adapter.
  * Extracted from claude-cli-adapter.ts to keep that file under its line-count ceiling.
  * All symbols remain importable from `claude-cli-adapter.ts` via re-exports there.
  */
 
-import type { ClaudeModelUsageSnapshot } from '../../../shared/types/provider-model-usage.types';
 import type {
   OutputMessage,
   ContextUsage,
@@ -115,9 +116,11 @@ export type UnifiedReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'hi
  */
 export interface ClaudeCliSpawnOptions {
   sessionKind?: SessionKind;
-  bashOutputMaxChars?: number;
   machineSession?: MachineSessionReason;
+  trialKey?: string;
+  trialKeySource?: TrialKeySource;
   contextCeilingTokens?: number;
+  bashOutputMaxChars?: number;
   readOnlyReview?: boolean;
   sessionId?: string;
   workingDirectory?: string;
@@ -192,18 +195,26 @@ export interface ClaudeCliSpawnOptions {
    *  Only effective with the default system prompt (ignored with --system-prompt). */
   excludeDynamicSystemPromptSections?: boolean;
   /** Path to a PreToolUse hook script for defer-based permission approval.
-   *  When set, the adapter generates a settings overlay and passes it via --settings.
-   *  The hook intercepts dangerous tools (Bash, etc.) and returns `defer` to pause
-   *  execution, allowing the orchestrator to surface approval UI. */
+   *  Set only for sessions that ask for approval (never in yolo mode, where
+   *  `getPermissionHookPath(true)` returns undefined). When set, the adapter
+   *  generates a settings overlay and passes it via --settings. The hook
+   *  intercepts dangerous tools (Bash, etc.) and returns `defer` to pause
+   *  execution, allowing the orchestrator to surface approval UI. With RTK on,
+   *  this is the combined RTK + defer script (rtk-defer-hook.mjs). */
   permissionHookPath?: string;
   /** RTK rewrite integration. When `enabled` is true and `binaryPath` resolves,
    *  the spawned CLI receives ORCHESTRATOR_RTK_ENABLED=1 and ORCHESTRATOR_RTK_PATH
-   *  in its env, and the rtk-defer-hook.mjs variant is used (caller passes the
-   *  rtk hook path via permissionHookPath). The hook calls `rtk rewrite` on Bash
-   *  tool input and compresses output 60–90%. See bigchange_rtk_integration.md. */
+   *  in its env. Auto-approve (yolo) sessions carry no `permissionHookPath`; their
+   *  Bash hook is `yoloHookPath` (the same rtk-defer-hook.mjs script), installed by
+   *  `resolveBashHookCommand` and run with ORCHESTRATOR_RTK_REWRITE_ONLY=1, so it
+   *  applies RTK's rewrite but never asks and never denies. The hook only
+   *  calls `rtk rewrite` on Bash tool input; any output saving is RTK's, is not
+   *  guaranteed, and is measured by the RTK trial (`npm run audit:rtk-trial`)
+   *  rather than assumed. See bigchange_rtk_integration.md. */
   rtk?: {
     enabled: boolean;
     binaryPath?: string;
+    yoloHookPath?: string;
   };
 }
 

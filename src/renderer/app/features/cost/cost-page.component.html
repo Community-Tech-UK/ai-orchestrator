@@ -91,10 +91,23 @@
         </div>
         <div class="table-wrapper">
           <table class="data-table">
-            <thead><tr><th>{{ purposeGrouping() === 'purpose' ? 'Purpose' : 'Provider' }}</th><th>Calls</th><th>Uncached input</th><th>Cache read</th><th>Cache write</th><th>Output</th><th>Cost</th></tr></thead>
+            <thead>
+              <tr><th>{{ purposeGrouping() === 'purpose' ? 'Purpose' : 'Provider' }}</th><th class="num-col">Calls</th><th class="num-col">Uncached input</th><th class="num-col">Cache read</th><th class="num-col">Cache write</th><th class="num-col">Output</th><th class="num-col">Cost</th></tr>
+            </thead>
             <tbody>
               @for (row of purposeRows(); track row.key) {
-                <tr><td>{{ row.key }}</td><td class="num-col">{{ row.calls }}</td><td class="num-col">{{ formatTokens(row.inputTokens) }}</td><td class="num-col">{{ formatTokens(row.cacheReadTokens) }}</td><td class="num-col">{{ formatTokens(row.cacheWriteTokens) }}</td><td class="num-col">{{ formatTokens(row.outputTokens) }}</td><td class="num-col mono">{{ row.estimatedCost > 0 ? '~' : '' }}${{ row.cost.toFixed(4) }}</td></tr>
+                <tr>
+                  <td>{{ purposeGrouping() === 'purpose' ? purposeLabel(row.key) : row.key }}</td>
+                  <td class="num-col">{{ row.calls }}</td>
+                  <td class="num-col">{{ formatTokens(row.inputTokens) }}</td>
+                  <td class="num-col">{{ formatTokens(row.cacheReadTokens) }}</td>
+                  <td class="num-col">{{ formatTokens(row.cacheWriteTokens) }}</td>
+                  <td class="num-col">{{ formatTokens(row.outputTokens) }}</td>
+                  <td class="num-col mono">
+                    @if (row.unknownCostCalls === row.calls && row.cost === 0) { Unknown }
+                    @else { {{ row.estimatedCost > 0 ? '~' : '' }}${{ row.cost.toFixed(4) }} }
+                  </td>
+                </tr>
               } @empty {
                 <tr><td colspan="7">No model calls recorded in this period.</td></tr>
               }

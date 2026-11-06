@@ -12,9 +12,13 @@ import { encodeJsonChunks } from '../../shared/utils/json-chunks';
 function statusSequence(phase: string): OutputMessage[] {
   if (phase === 'completed' || phase === 'failed') {
     const updates = new OpenCodeAcpUpdates();
-    return ['started', 'in_progress', phase].map(status => updates.compaction({
-      sessionUpdate: 'compaction_update', compactionId: 'native-compact', status,
-    }, () => 'compact-notice')!);
+    return ['started', 'in_progress', phase].map(status => {
+      const message = updates.compaction({
+        sessionUpdate: 'compaction_update', compactionId: 'native-compact', status,
+      }, () => 'compact-notice');
+      if (!message) throw new Error(`Fixture compaction marker was suppressed: ${status}`);
+      return message;
+    });
   }
   const start = buildRetryStateMessage({ sessionUpdate: 'retry_state', type: 'retrying', attempt: 1,
     max_retries: 15, reason: 'Provider returned HTTP 429.' }, 'retry-notice');

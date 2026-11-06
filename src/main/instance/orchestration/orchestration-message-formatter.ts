@@ -319,7 +319,14 @@ export class OrchestrationMessageFormatter {
 
   private formatAllChildrenCompletedMessage(data: OrchestrationData): string {
     const parts: string[] = [];
-    parts.push(`**All ${data['totalChildren']} children completed**`);
+    // `notifyAllChildrenCompleted` flags a batch that finished while other helpers still run.
+    const partialBatch = data['othersStillRunning'] === true;
+    const total = Number(data['totalChildren']);
+    if (partialBatch) {
+      parts.push(`**${total} ${total === 1 ? 'child' : 'children'} completed** (other helpers are still running)`);
+    } else {
+      parts.push(`**All ${data['totalChildren']} children completed**`);
+    }
     parts.push('');
     const summaries = data['summaries'] as { success: boolean; name: string; summary: string }[] | undefined;
     if (summaries && summaries.length > 0) {

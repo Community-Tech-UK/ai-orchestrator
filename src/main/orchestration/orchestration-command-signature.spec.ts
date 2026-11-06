@@ -32,6 +32,36 @@ describe('computeCommandSignature', () => {
     expect(computeCommandSignature(command)).toBe(computeCommandSignature({ ...command }));
   });
 
+  describe('create_automation (R2C S6)', () => {
+    const automation = {
+      name: 'Mail check',
+      schedule: { type: 'cron', expression: '*/5 * * * *', timezone: 'UTC' },
+      action: { prompt: 'Check the mailbox.' },
+    };
+    const create = (extra: Record<string, unknown> = {}, patch: Record<string, unknown> = {}): OrchestratorCommand => ({
+      action: 'create_automation',
+      automation: { ...automation, ...patch },
+      ...extra,
+    } as OrchestratorCommand);
+
+    it('is identical for an identical repeat', () => {
+      expect(computeCommandSignature(create())).toBe(computeCommandSignature(create()));
+    });
+
+    it('differs once the command carries confirmedByUser: true', () => {
+      expect(computeCommandSignature(create({ confirmedByUser: true }))).not.toBe(computeCommandSignature(create()));
+    });
+
+    it('treats an absent flag and an explicit false the same, and a non-true flag as unconfirmed', () => {
+      expect(computeCommandSignature(create({ confirmedByUser: false }))).toBe(computeCommandSignature(create()));
+      expect(computeCommandSignature(create({ confirmedByUser: 'true' }))).toBe(computeCommandSignature(create()));
+    });
+
+    it('differs when a corrected retry changes a field outside name, schedule and prompt', () => {
+      expect(computeCommandSignature(create({}, { enabled: false }))).not.toBe(computeCommandSignature(create()));
+    });
+  });
+
   it('falls back to action plus a JSON slice for unknown shapes', () => {
     expect(computeCommandSignature({
       action: 'get_children',

@@ -14,6 +14,9 @@ import {
 } from '@contracts/schemas/rtk';
 import { validatedHandler, type IpcResponse } from '../validated-handler';
 import { getRtkRuntime } from '../../cli/rtk/rtk-runtime';
+import { describeRtkCoverage } from '../../cli/rtk/rtk-rollout';
+import { getCostAttributionFilePath } from '../../core/system/cost-attribution';
+import { readRtkTrialInfo } from '../rtk-trial-info';
 import {
   getRtkTrackingReader,
   RtkTrackingReader,
@@ -51,6 +54,12 @@ export function registerRtkHandlers(): void {
             version: runtime.version(),
             trackingDbPath: reader.getDbPath(),
             trackingDbAvailable: reader.isAvailable(),
+            coverage: describeRtkCoverage({
+              rtkEnabled: enabled,
+              rtkBundledOnly: bundledOnly,
+              rtkAutoApproveScope: settings.get('rtkAutoApproveScope') ?? 'off',
+            }),
+            trial: await readRtkTrialInfo(settings.get('rtkAutoApproveScope') ?? 'off', getCostAttributionFilePath()),
           },
         };
       } catch (error) {

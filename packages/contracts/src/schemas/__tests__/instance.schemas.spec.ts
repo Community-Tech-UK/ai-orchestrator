@@ -4,6 +4,9 @@ import {
   InstanceCreatePayloadSchema,
   InstanceCreateWithMessagePayloadSchema,
   InstanceCompactStatusEventSchema,
+  InstanceQuickAskPayloadSchema,
+  PlanHandoffPreviewPayloadSchema,
+  PlanHandoffStartPayloadSchema,
 } from '../instance.schemas';
 
 describe('instance.schemas', () => {
@@ -348,6 +351,29 @@ describe('instance.schemas', () => {
         modelId: 'qwen2.5',
       },
     }).success).toBe(false);
+  });
+});
+
+describe('quick ask and plan handoff payloads', () => {
+  it('validates a bounded question for a real instance', () => {
+    expect(InstanceQuickAskPayloadSchema.parse({ instanceId: 'instance-1', question: 'What changed?' }))
+      .toEqual({ instanceId: 'instance-1', question: 'What changed?' });
+    expect(InstanceQuickAskPayloadSchema.safeParse({ instanceId: '', question: 'q' }).success).toBe(false);
+    expect(InstanceQuickAskPayloadSchema.safeParse({ instanceId: 'instance-1', question: '' }).success).toBe(false);
+    expect(InstanceQuickAskPayloadSchema.safeParse({ instanceId: 'instance-1', question: 'x'.repeat(4001) }).success).toBe(false);
+    expect(InstanceQuickAskPayloadSchema.safeParse({ instanceId: 'instance-1', question: 'x'.repeat(4000) }).success).toBe(true);
+  });
+
+  it('requires a source for a handoff preview', () => {
+    expect(PlanHandoffPreviewPayloadSchema.safeParse({ instanceId: '' }).success).toBe(false);
+    expect(PlanHandoffPreviewPayloadSchema.parse({ instanceId: 'instance-1' })).toEqual({ instanceId: 'instance-1' });
+  });
+
+  it('bounds the edited plan without losing model and idempotency options', () => {
+    const payload = { instanceId: 'instance-1', planText: 'x'.repeat(60_000), model: 'sonnet', idempotencyKey: 'build-1' };
+    expect(PlanHandoffStartPayloadSchema.parse(payload)).toEqual(payload);
+    expect(PlanHandoffStartPayloadSchema.safeParse({ ...payload, planText: 'x'.repeat(60_001) }).success).toBe(false);
+    expect(PlanHandoffStartPayloadSchema.safeParse({ ...payload, instanceId: '' }).success).toBe(false);
   });
 });
 

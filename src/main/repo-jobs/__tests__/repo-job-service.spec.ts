@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Instance, InstanceCreateConfig, OutputMessage } from '../../../shared/types/instance.types';
+import { machineSessionReasonOf } from '../../../shared/utils/machine-session';
 import { RepoJobService, getRepoJobService } from '../repo-job-service';
 import { BackgroundTaskManager } from '../../tasks/background-task-manager';
 
@@ -311,6 +312,23 @@ describe('RepoJobService', () => {
     const firstCall = createInstanceMock.mock.calls[0]?.[0] as InstanceCreateConfig | undefined;
     expect(firstCall?.initialPrompt).toContain('Browser evidence: enabled.');
     expect(firstCall?.initialPrompt).toContain('Attach browser evidence summaries');
+  });
+
+  it('tags the job session as a repo job, so spend and warm-start rules see a machine session', async () => {
+    const { service, createInstanceMock } = buildService();
+    const repoDir = createTestWorkspace();
+    tempDirs.push(repoDir);
+
+    const job = service.submitJob({
+      type: 'pr-review',
+      workingDirectory: repoDir,
+      title: 'Review README changes',
+    });
+    await service.waitForJob(job.id, 5000);
+
+    const config = createInstanceMock.mock.calls[0]?.[0] as InstanceCreateConfig | undefined;
+    expect(config?.metadata).toEqual({ spendPurpose: 'repo-job', repoJobId: job.id });
+    expect(machineSessionReasonOf(config!)).toBe('repo-job');
   });
 
   it('uses the event-based instance settled API instead of polling output buffers', async () => {

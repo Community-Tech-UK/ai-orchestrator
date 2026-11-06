@@ -9,6 +9,8 @@ import * as crypto from 'crypto';
 import { getLogger } from '../logging/logger';
 import { installIpcHandlerTiming } from './ipc-handler-timing';
 import { InstanceManager } from '../instance/instance-manager';
+import { getAutoTitleService } from '../instance/auto-title-service';
+import { requestLiveTitle } from '../instance/live-title-source';
 import { WindowManager } from '../window-manager';
 import type { IpcResponse } from '../../shared/types/ipc.types';
 import { registerOrchestrationHandlers } from './orchestration-ipc-handler';
@@ -42,6 +44,8 @@ import { initializeThinClientWsServer } from '../event-bus/thin-client-ws-server
 // Import extracted handlers
 import {
   registerInstanceHandlers,
+  registerInstanceQuickAskHandlers,
+  registerPlanHandoffHandlers,
   registerSettingsHandlers,
   registerInstructionHandlers,
   registerSessionHandlers,
@@ -316,6 +320,10 @@ export class IpcMainHandler {
 
     // Command and plan mode handlers
     registerCommandHandlers(this.instanceManager);
+    registerInstanceQuickAskHandlers(this.instanceManager);
+    registerPlanHandoffHandlers(this.instanceManager);
+    getAutoTitleService().setLiveTitleSource((instanceId, description) =>
+      requestLiveTitle(this.instanceManager, instanceId, description));
     registerMagicPromptHandlers();
     registerCompareHandlers({ windowManager: this.windowManager });
     registerLspFeedback({ instanceManager: this.instanceManager });

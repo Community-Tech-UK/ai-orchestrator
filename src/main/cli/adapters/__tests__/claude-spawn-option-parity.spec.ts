@@ -10,6 +10,8 @@ const transport = {
   bashOutputMaxChars: 'policy', maxTurns: 'policy', maxBudgetUsd: 'policy', timeout: 'policy',
   systemPromptMode: 'policy', fastMode: 'policy', fallbackModel: 'policy', jsonSchema: 'policy',
   residentClaude: 'policy', bare: 'policy', name: 'policy', chrome: 'policy', excludeDynamicSystemPromptSections: 'policy',
+  trialKey: 'spawn',
+  trialKeySource: 'local: only labels the policy-log line the executing machine writes for itself',
   sessionId: 'spawn', workingDirectory: 'spawn', model: 'spawn', yoloMode: 'spawn', resume: 'spawn', forkSession: 'spawn',
   allowedTools: 'spawn', disallowedTools: 'spawn', systemPrompt: 'spawn', mcpConfig: 'spawn', reasoningEffort: 'spawn', rtk: 'spawn',
   env: 'local: environment and credentials are composed on the executing worker',

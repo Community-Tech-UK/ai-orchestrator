@@ -20,6 +20,7 @@ import type { ProviderId } from '../../shared/types/provider-quota.types';
 import type { RuntimeToolResultEvidenceCaptureInput } from '../context-evidence/context-evidence-coordinator';
 import type { AuthRepairTurn } from './instance-auth-repair-handler';
 import type { ContextEvidenceMode } from '../../shared/types/settings.types';
+import type { OverflowCompactionOutcome, OverflowResumeTurn } from './overflow-compaction-route';
 
 /**
  * Dependencies required by the communication manager.
@@ -86,7 +87,7 @@ export interface CommunicationDependencies {
   ingestContext?: (instance: Instance, message: OutputMessage) => void;
   ingestToRLM: (instanceId: string, message: OutputMessage) => void;
   ingestToUnifiedMemory: (instance: Instance, message: OutputMessage) => void;
-  compactContext?: (instanceId: string) => Promise<void>;
+  compactContext?: (instanceId: string, resumeTurn?: OverflowResumeTurn) => Promise<OverflowCompactionOutcome | void>;
   refreshAdapterRuntimeConfig?: (instanceId: string) => Promise<void>;
   onOutput?: (instanceId: string, content?: string) => void;
   onToolStateChange?: (instanceId: string, state: 'generating' | 'tool_executing' | 'idle') => void;

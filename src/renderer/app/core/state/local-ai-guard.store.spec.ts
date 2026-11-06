@@ -117,6 +117,7 @@ describe('LocalAiGuardStore', () => {
       return unsubscribe;
     }),
     resolveFallback: vi.fn(),
+    retryHelperNow: vi.fn(),
     discover: vi.fn(),
     validate: vi.fn(),
     createTarget: vi.fn(),
@@ -141,6 +142,10 @@ describe('LocalAiGuardStore', () => {
         resolution: 'allow-once',
         resolvedAt: 2_000,
       }),
+    });
+    ipc.retryHelperNow.mockResolvedValue({
+      success: true,
+      data: snapshot({ revision: '1', helperPauses: [] }),
     });
     ipc.discover.mockResolvedValue({ success: true, data: [discoveredEndpoint()] });
     ipc.validate.mockResolvedValue({ success: true, data: validationResults() });
@@ -509,6 +514,25 @@ describe('LocalAiGuardStore', () => {
 
     // A dismissal is a local UI affordance only — it never calls the IPC layer.
     expect(ipc.resolveFallback).not.toHaveBeenCalled();
+  });
+
+  it('uses the authoritative retry response to clear a helper pause', async () => {
+    ipc.getSnapshot.mockResolvedValue({
+      success: true,
+      data: snapshot({ helperPauses: [{
+        slot: 'compression', pausedUntil: 61_000, failures: 2,
+        startedAt: 1_000, reason: 'Paused after 2 failures',
+      }] }),
+    });
+    const store = TestBed.inject(LocalAiGuardStore);
+    await store.initialize();
+    expect(store.helperPauses()).toHaveLength(1);
+
+    await expect(store.retryHelperNow('compression')).resolves.toMatchObject({
+      revision: '1', helperPauses: [],
+    });
+    expect(store.helperPauses()).toEqual([]);
+    expect(ipc.retryHelperNow).toHaveBeenCalledExactlyOnceWith('compression');
   });
 
   it('LT-189: keeps a dismissal in effect across a fresh snapshot that still contains that event', async () => {

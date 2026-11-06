@@ -29,6 +29,12 @@ const logger = getLogger('RtkRuntime');
 export const RTK_BUNDLED_VERSION = '0.52.0';
 /** Minimum acceptable system-installed rtk version. Their `rtk rewrite` API was added in 0.23.0. */
 export const RTK_MIN_VERSION = '0.23.0';
+/** First version with the safe rewrite-only exit protocol. */
+export const RTK_MIN_REWRITE_VERSION = '0.49.0';
+
+export function supportsRewriteVersion(version: string | null | undefined): boolean {
+  return version != null && compareVersions(version, RTK_MIN_REWRITE_VERSION) >= 0;
+}
 /** Default timeout for rtk rewrite invocations — RTK benchmarks <10ms; 2s is generous safety margin. */
 const REWRITE_TIMEOUT_MS = 2_000;
 /**
@@ -73,6 +79,7 @@ export interface RtkRuntime {
   binarySource(): 'bundled' | 'system' | 'override' | 'none';
   /** Version reported by `rtk --version`, or null if not detected. */
   version(): string | null;
+  supportsRewrite(): boolean;
   /** Run `rtk rewrite <cmd>` synchronously and return the typed result. */
   rewrite(cmd: string): RtkRewriteResult;
 }
@@ -299,6 +306,10 @@ class RtkRuntimeImpl implements RtkRuntime {
 
   version(): string | null {
     return this.resolved?.version ?? null;
+  }
+
+  supportsRewrite(): boolean {
+    return supportsRewriteVersion(this.resolved?.version ?? null);
   }
 
   rewrite(cmd: string): RtkRewriteResult {

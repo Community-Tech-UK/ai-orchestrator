@@ -21,19 +21,14 @@ import {
 } from '../../../shared/types/mcp-scopes.types';
 import {
   buildBrowserGatewayMcpConfigJson,
-  createBrowserMcpTools,
-  createDeferredBrowserMcpTools,
   getBrowserGatewayRpcSocketPath,
   getBrowserGatewayRpcInstanceCapability,
-  measureToolSchemaBytes,
   type BrowserGatewayMcpConfigOptions,
   buildChromeDevtoolsMcpConfigJson,
   resolveChromeDevtoolsBrowserUrl,
   resolveBrowserGatewayToolMode,
-  type BrowserGatewayToolMode,
   type ChromeDevtoolsMcpConfigOptions,
 } from '../../browser-gateway';
-import { createStableBrowserMcpTools } from '../../browser-gateway/browser-mcp-stable-tools';
 import { maybePruneBrowserForwarderLogs } from '../../browser-gateway/browser-forwarder-log-retention';
 import {
   buildComputerUseMcpConfigJson,
@@ -43,7 +38,7 @@ import {
   type ComputerUseMcpConfigOptions,
 } from '../../desktop-gateway';
 import { ensureHookScript, ensureRtkDeferHookScript } from '../../cli/hooks/hook-path-resolver';
-import { getRtkRuntime } from '../../cli/rtk/rtk-runtime';
+import { isRtkHookEligible, resolveRtkSpawnConfig, type RtkSpawnConfig } from '../../cli/rtk/rtk-rollout';
 import {
   buildCodememMcpConfig,
   type CodememMcpConfigOptions,
@@ -59,20 +54,14 @@ import { materializeWorkspaceMcpConnectors } from '../../mcp/workspace-mcp-conne
 import {
   buildOrchestratorToolsMcpConfig,
   resolveOrchestratorToolMode,
-  type OrchestratorToolMode,
   type OrchestratorToolsMcpConfigOptions,
 } from '../../mcp/orchestrator-tools-mcp-config';
 import {
   getOrchestratorToolsRpcInstanceCapability,
   getOrchestratorToolsRpcSocketPath,
 } from '../../mcp/orchestrator-tools-rpc-server';
-import { createOrchestratorToolsForwarderTools } from '../../mcp/orchestrator-tools-mcp-forwarder';
-import {
-  createDeferredOrchestratorTools,
-  measureOrchestratorToolSchemaBytes,
-} from '../../mcp/orchestrator-mcp-deferral';
-import { createStableOrchestratorTools } from '../../mcp/orchestrator-mcp-stable-tools';
 import { resolveAioMcpCliPath } from '../../util/aio-mcp-cli-path';
+import { ToolSchemaTelemetry } from './spawn-tool-schema-telemetry';
 import {
   getInstanceBrowserToolsMode,
   resolveBrowserToolsMode,
@@ -103,19 +92,7 @@ export interface SpawnConfigBuilderDeps {
  * require a restart to change.
  */
 export class SpawnConfigBuilder {
-  private rtkHookEligibility: boolean | null = null;
-  private browserToolSchemaMeasurements = new Map<BrowserGatewayToolMode, {
-    visibleToolCount: number;
-    visibleSchemaBytes: number;
-    fullToolCount: number;
-    fullSchemaBytes: number;
-  }>();
-  private orchestratorToolSchemaMeasurements = new Map<string, {
-    visibleToolCount: number;
-    visibleSchemaBytes: number;
-    fullToolCount: number;
-    fullSchemaBytes: number;
-  }>();
+  private readonly schemaTelemetry = new ToolSchemaTelemetry();
   private readonly settings: SettingsManager;
 
   constructor(deps: SpawnConfigBuilderDeps) {
@@ -376,7 +353,8 @@ export class SpawnConfigBuilder {
       settings.orchestratorMcpToolDeferral,
     );
     const sessionMessagingEnabled = settings.interSessionMessaging.enabled === true;
-    this.logOrchestratorToolSchemaBytes(instanceId, toolMode, sessionMessagingEnabled);
+    this.schemaTelemetry.reportOrchestrator(
+      instanceId, provider, settings.orchestratorMcpToolDeferral, sessionMessagingEnabled);
     return {
       aioMcpCliPath,
       socketPath,
@@ -425,7 +403,7 @@ export class SpawnConfigBuilder {
     // Log and return the effective mode, not the requested UI mode.
     const toolMode = resolveBrowserGatewayToolMode(provider, mode === 'deferred');
     const toolDeferral = toolMode !== 'eager';
-    this.logBrowserToolSchemaBytes(instanceId, toolMode);
+    this.schemaTelemetry.reportBrowser(instanceId, provider, mode === 'deferred');
     const browserForwarderLogRoot = path.join(app.getPath('userData'), 'browser-forwarders');
     try {
       const { removed } = maybePruneBrowserForwarderLogs(browserForwarderLogRoot);
@@ -449,118 +427,6 @@ export class SpawnConfigBuilder {
       ...(provider ? { provider } : {}),
       ...(toolDeferral ? { toolDeferral } : {}),
     };
-  }
-
-  /**
-   * WS9 telemetry: log the browser tool-schema bytes a session will receive
-   * from its initial tools/list, next to the full-surface cost, so the
-   * deferral win is measurable per spawn. Computed from static tool
-   * definitions only — no gateway round trip.
-   */
-  private logBrowserToolSchemaBytes(instanceId: string, toolMode: BrowserGatewayToolMode): void {
-    try {
-      const measurement = this.getBrowserToolSchemaMeasurement(toolMode);
-      if (toolMode === 'eager') {
-        logger.info('Browser gateway tool schemas injected eagerly', {
-          instanceId,
-          toolCount: measurement.fullToolCount,
-          schemaBytes: measurement.fullSchemaBytes,
-        });
-        return;
-      }
-      logger.info('Browser gateway tool schemas deferred', { instanceId, toolMode, ...measurement });
-    } catch (error) {
-      logger.warn('Failed to measure browser tool schema bytes', {
-        instanceId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  /** Static per-process measurement — tool definitions never change at runtime. */
-  private getBrowserToolSchemaMeasurement(toolMode: BrowserGatewayToolMode): {
-    visibleToolCount: number;
-    visibleSchemaBytes: number;
-    fullToolCount: number;
-    fullSchemaBytes: number;
-  } {
-    let measurement = this.browserToolSchemaMeasurements.get(toolMode);
-    if (!measurement) {
-      const noopClient = { call: async () => ({}) };
-      const fullTools = createBrowserMcpTools(noopClient);
-      const deferredTools = toolMode === 'stable'
-        ? createStableBrowserMcpTools(noopClient)
-        : createDeferredBrowserMcpTools(noopClient, { onReveal: () => undefined });
-      const visibleTools = deferredTools.filter((tool) => !tool.hidden);
-      measurement = {
-        visibleToolCount: visibleTools.length,
-        visibleSchemaBytes: measureToolSchemaBytes(visibleTools),
-        fullToolCount: fullTools.length,
-        fullSchemaBytes: measureToolSchemaBytes(fullTools),
-      };
-      this.browserToolSchemaMeasurements.set(toolMode, measurement);
-    }
-    return measurement;
-  }
-
-  private logOrchestratorToolSchemaBytes(
-    instanceId: string,
-    toolMode: OrchestratorToolMode,
-    sessionMessagingEnabled: boolean,
-  ): void {
-    try {
-      const measurement = this.getOrchestratorToolSchemaMeasurement(
-        toolMode,
-        sessionMessagingEnabled,
-      );
-      if (toolMode === 'eager') {
-        logger.info('Orchestrator tool schemas injected eagerly', {
-          instanceId,
-          toolCount: measurement.fullToolCount,
-          schemaBytes: measurement.fullSchemaBytes,
-        });
-        return;
-      }
-      logger.info('Orchestrator tool schemas deferred', { instanceId, toolMode, ...measurement });
-    } catch (error) {
-      logger.warn('Failed to measure orchestrator tool schema bytes', {
-        instanceId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  private getOrchestratorToolSchemaMeasurement(
-    toolMode: OrchestratorToolMode,
-    sessionMessagingEnabled: boolean,
-  ): {
-    visibleToolCount: number;
-    visibleSchemaBytes: number;
-    fullToolCount: number;
-    fullSchemaBytes: number;
-  } {
-    const cacheKey = `${toolMode}:${sessionMessagingEnabled ? 'session-messaging-on' : 'session-messaging-off'}`;
-    let measurement = this.orchestratorToolSchemaMeasurements.get(cacheKey);
-    if (!measurement) {
-      const noopClient = { call: async () => ({}) };
-      const fullTools = createOrchestratorToolsForwarderTools(noopClient, {
-        sessionMessagingEnabled,
-      });
-      const listed = toolMode === 'eager'
-        ? fullTools
-        : toolMode === 'stable'
-          ? createStableOrchestratorTools(fullTools)
-          : createDeferredOrchestratorTools(fullTools, { onReveal: () => undefined });
-      const visibleTools = listed.filter((tool) => !tool.hidden);
-      measurement = {
-        visibleToolCount: visibleTools.length,
-        visibleSchemaBytes: measureOrchestratorToolSchemaBytes(visibleTools),
-        fullToolCount: fullTools.length,
-        fullSchemaBytes: measureOrchestratorToolSchemaBytes(fullTools),
-      };
-      this.orchestratorToolSchemaMeasurements.set(cacheKey, measurement);
-    }
-    return measurement;
   }
 
   getComputerUseMcpOptions(
@@ -656,32 +522,29 @@ export class SpawnConfigBuilder {
   /**
    * Whether to use the RTK + defer combined hook for this orchestrator
    * process. Requires both the rtkEnabled setting AND a usable rtk binary
-   * on disk. Result is computed lazily and cached for the process lifetime;
-   * toggling the setting requires a restart to take effect.
+   * on disk. The answer is cached only while `rtkEnabled` and `rtkBundledOnly`
+   * stay the same (see `isRtkHookEligible`), so toggling either applies to the
+   * next new session without a restart.
    */
   private shouldUseRtkHook(): boolean {
-    if (this.rtkHookEligibility !== null) return this.rtkHookEligibility;
-    const enabled = this.settings.get('rtkEnabled');
-    if (!enabled) {
-      this.rtkHookEligibility = false;
-      return false;
-    }
-    const bundledOnly = Boolean(this.settings.get('rtkBundledOnly'));
-    const runtime = getRtkRuntime({ bundledOnly });
-    this.rtkHookEligibility = runtime.isAvailable();
-    return this.rtkHookEligibility;
+    const settings = this.settings.getAll();
+    return isRtkHookEligible({
+      rtkEnabled: Boolean(settings.rtkEnabled),
+      rtkBundledOnly: Boolean(settings.rtkBundledOnly),
+    });
   }
 
   /**
    * Resolved RTK config to pass to spawn options when the hook is in use.
    * Returns undefined when the RTK feature is disabled or unavailable.
    */
-  getRtkSpawnConfig(): { enabled: boolean; binaryPath: string } | undefined {
-    if (!this.shouldUseRtkHook()) return undefined;
-    const bundledOnly = Boolean(this.settings.get('rtkBundledOnly'));
-    const runtime = getRtkRuntime({ bundledOnly });
-    if (!runtime.isAvailable()) return undefined;
-    return { enabled: true, binaryPath: runtime.binaryPath() };
+  getRtkSpawnConfig(key?: string): RtkSpawnConfig | undefined {
+    const settings = this.settings.getAll();
+    return resolveRtkSpawnConfig({
+      rtkEnabled: Boolean(settings.rtkEnabled),
+      rtkBundledOnly: Boolean(settings.rtkBundledOnly),
+      rtkAutoApproveScope: settings.rtkAutoApproveScope ?? 'off',
+    }, 'session', key);
   }
 }
 

@@ -14,9 +14,6 @@ export function resolveContextCeilingTokens(machineSession: boolean, read: (key:
  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return undefined;
  return Math.min(1_000_000, Math.max(100_000, Math.floor(value)));
 }
-export function selfCompactThreshold(modelWindow: number, ceiling?: number): number {
- return Math.max(0, Math.min(modelWindow, ceiling ?? modelWindow) - 33_000);
-}
 /** True when the ceiling has a model and a positive budget to apply. */
 export function contextCeilingApplies(model: string | undefined, ceilingTokens: number | undefined): boolean {
  return Boolean(model && model.indexOf('/') > 0

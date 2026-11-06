@@ -307,6 +307,67 @@ describe('AuxiliaryLlmService — daily spend cap', () => {
     expect(mocks.generateOpenAi).not.toHaveBeenCalled();
   });
 
+  it('Step 7 item 5: a user-initiated call still dispatches to the metered endpoint at the cap; an automatic one does not', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOpenAi.mockResolvedValue(true);
+    mocks.listOpenAi.mockResolvedValue([
+      { id: 'gpt-5.4-mini', name: 'gpt-5.4-mini', provider: 'openai-compatible', endpointId: 'ep1' },
+    ]);
+    mocks.generateOpenAi.mockResolvedValue('paid summary');
+    service.configure(baseSettings({
+      auxiliaryLlmRoutingMode: 'manual-only',
+      auxiliaryLlmDailySpendCapUsd: 0.000001,
+      auxiliaryLlmEndpointsJson: JSON.stringify([{
+        id: 'ep1', label: 'Metered cloud', provider: 'openai-compatible',
+        baseUrl: 'https://example.invalid', source: 'manual', enabled: true,
+      }]),
+      auxiliaryLlmSlotsJson: JSON.stringify({
+        compression: { enabled: true, provider: 'auto', endpointId: 'ep1', model: 'gpt-5.4-mini', maxInputTokens: 96000, maxOutputTokens: 4096, temperature: 0.2, timeoutMs: 60000, requireJson: false, allowFrontierFallback: true },
+      }),
+    }));
+
+    const automatic = await service.generate('compression', 'sys', 'user');
+    expect(automatic.decision.source).toBe('fallback');
+    expect(mocks.generateOpenAi).not.toHaveBeenCalled();
+
+    const manual = await service.generate('compression', 'sys', 'user', { userInitiated: true });
+    expect(manual.text).toBe('paid summary');
+    expect(manual.decision.source).toBe('cheap-cloud');
+    expect(mocks.generateOpenAi).toHaveBeenCalledOnce();
+  });
+
+  it('Step 7 item 5: the user-initiated flag reaches the fallback authorisation, and only when it was set', async () => {
+    const { __setLocalAiAuxiliaryHooksForTesting, __resetLocalAiAuxiliaryHooksForTesting } =
+      await import('../../local-ai-guard/local-ai-auxiliary-bridge');
+    const authorizeFallback = vi.fn(async () => ({
+      allowed: true, disposition: 'allowed' as const, policy: 'allow-silently' as const, routingEventId: 'r1',
+    }));
+    __setLocalAiAuxiliaryHooksForTesting({
+      findTarget: () => undefined,
+      evaluateLocalTarget: async () => ({ eligible: true, reason: 'unmanaged-compatibility' }),
+      acquireTarget: () => () => undefined,
+      invalidateTarget: () => undefined,
+      authorizeFallback,
+      markFallbackDispatched: () => undefined,
+      recordLocalCompletion: () => undefined,
+    });
+    try {
+      const service = await getService();
+      service.configure(baseSettings({ auxiliaryLlmEnabled: false }));
+
+      await service.generate('compression', 'sys', 'user');
+      await service.generate('compression', 'sys', 'user', { userInitiated: true });
+
+      const calls = authorizeFallback.mock.calls as unknown as [{ userInitiated?: boolean }][];
+      expect(calls).toHaveLength(2);
+      expect(calls[0]![0].userInitiated).toBeUndefined();
+      expect(calls[1]![0].userInitiated).toBe(true);
+    } finally {
+      __resetLocalAiAuxiliaryHooksForTesting();
+    }
+  });
+
   it('keeps local auxiliary execution available when the cap is zero', async () => {
     const service = await getService();
     const mocks = await getMocks();
@@ -1996,5 +2057,22 @@ describe('AuxiliaryLlmService — auto-picked model that fails is not picked aga
 
     expect(mocks.generateOllama.mock.calls.some(
       ([, req]) => (req as { model: string }).model === 'gpt-oss:120b')).toBe(true);
+  });
+});
+
+describe('AuxiliaryLlmService — slotAllowsFrontier (live-title gate)', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    const { AuxiliaryLlmService } = await import('../auxiliary-llm-service');
+    AuxiliaryLlmService._resetForTesting();
+  });
+
+  it('reports the slot setting itself, not the back-off-forced decision value', async () => {
+    const service = await getService();
+    const slots = JSON.parse(baseSettings().auxiliaryLlmSlotsJson);
+    slots.titleGeneration.allowFrontierFallback = true;
+    service.configure(baseSettings({ auxiliaryLlmSlotsJson: JSON.stringify(slots) }));
+    expect(service.slotAllowsFrontier('titleGeneration')).toBe(true);
+    expect(service.slotAllowsFrontier('compression')).toBe(false);
   });
 });

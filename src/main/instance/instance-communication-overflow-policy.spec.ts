@@ -17,6 +17,46 @@ function createInstance(): Instance {
 }
 
 describe('InstanceCommunicationOverflowPolicy', () => {
+  it.each(['buffers-only', 'native', undefined] as const)(
+    'keeps a no-request recovery notice truthful after %s', async method => {
+      const instance = createInstance();
+      const policy = new InstanceCommunicationOverflowPolicy(new InstanceCommunicationOverflowTracker(), {
+        getCompactContext: () => vi.fn().mockResolvedValue(method ? { method, resumeDelivered: false } : undefined),
+        addToOutputBuffer: (inst, msg) => { inst.outputBuffer.push(msg); },
+        emitOutput: vi.fn(), transitionInstanceStatus: (inst, status) => { inst.status = status; },
+        queueUpdate: vi.fn(), getAdapter: () => undefined, resetCircuitBreaker: vi.fn(),
+      });
+      expect(await policy.recoverAdapterErrorOverflow({ instanceId: instance.id, instance, errorText: 'context overflow' })).toBe(true);
+      expect(instance.status).toBe('idle');
+      expect(instance.outputBuffer.at(-1)?.content)
+        .toBe(`${method === 'native' ? 'Context compacted. ' : ''}Work is preserved. Send a shorter request to resume.`);
+    },
+  );
+
+  it.each(['buffers-only', 'native', 'restart-with-summary', undefined] as const)(
+    'only claims verified provider compaction when retrying after %s', async method => {
+      const instance = createInstance();
+      const tracker = new InstanceCommunicationOverflowTracker();
+      const adapter = { sendInput: vi.fn().mockResolvedValue(undefined) };
+      const compactContext = vi.fn().mockResolvedValue(method ? { method, resumeDelivered: false } : undefined);
+      const policy = new InstanceCommunicationOverflowPolicy(tracker, {
+        getCompactContext: () => compactContext,
+        addToOutputBuffer: (inst, msg) => { inst.outputBuffer.push(msg); },
+        emitOutput: vi.fn(), transitionInstanceStatus: (inst, status) => { inst.status = status; },
+        queueUpdate: vi.fn(), getAdapter: () => adapter as unknown as CliAdapter, resetCircuitBreaker: vi.fn(),
+      });
+      expect(await policy.recoverSendInputOverflow({ instanceId: instance.id, instance,
+        errorText: 'context overflow', message: 'original request', adapter: adapter as unknown as CliAdapter,
+      })).toBe(true);
+      const retry = instance.outputBuffer.find(message => message.metadata?.['retrying']);
+      const compacted = method === 'native' || method === 'restart-with-summary';
+      expect(retry?.content).toBe(`${compacted ? 'Context compacted. ' : ''}Retrying the original request once.`);
+      expect(retry?.metadata?.['contextCompacted'] === true).toBe(compacted);
+      expect(adapter.sendInput).toHaveBeenCalledOnce();
+      expect(adapter.sendInput.mock.calls[0]?.[0]).toBe('original request');
+    },
+  );
+
   it('does not compact a second time after partial assistant output on the same logical send', async () => {
     const tracker = new InstanceCommunicationOverflowTracker();
     tracker.rememberLastSent('inst-1', { message: 'original request' });
@@ -67,7 +107,11 @@ describe('InstanceCommunicationOverflowPolicy', () => {
     });
 
     expect(handled).toBe(true);
-    expect(compactContext).toHaveBeenCalledWith('inst-1');
+    expect(compactContext).toHaveBeenCalledWith('inst-1', {
+      text: 'summarize the workspace', attachments: undefined, internalSource: undefined,
+      recoveryOwner: { signal: undefined, assertCurrent: expect.any(Function),
+        assertBeforeRestart: expect.any(Function), assertProviderDispatchCurrent: expect.any(Function) },
+    });
     expect(adapter.sendInput).toHaveBeenCalledTimes(1);
     expect(adapter.sendInput.mock.calls[0]?.[0]).toBe('summarize the workspace');
     expect(instance.outputBuffer.some((message) => message.metadata?.['contextOverflow'] === true)).toBe(true);
@@ -122,6 +166,37 @@ describe('InstanceCommunicationOverflowPolicy', () => {
 
     expect(adapter.sendInput).toHaveBeenCalledTimes(1);
     expect(adapter.sendInput.mock.calls[0]?.[2]).toEqual({ internalSource: 'child-announcement', dispatch: { assertCurrent: expect.any(Function) } });
+  });
+
+  it('consumes a restart-delivered request before the old-adapter fence can retry it', async () => {
+    const tracker = new InstanceCommunicationOverflowTracker();
+    const originalAdapter = { sendInput: vi.fn() };
+    const replacementAdapter = { sendInput: vi.fn() };
+    let currentAdapter = originalAdapter;
+    const attachment = { name: 'note.txt', type: 'text/plain', size: 4, data: 'data:text/plain;base64,bm90ZQ==' };
+    const compactContext = vi.fn(async (_id: string, resumeTurn?: { text: string }) => {
+      expect(resumeTurn).toMatchObject({ text: 'context\n\nfinish the note', attachments: [attachment] });
+      currentAdapter = replacementAdapter;
+      return { method: 'restart-with-summary' as const, resumeDelivered: true };
+    });
+    const onRetryDelivered = vi.fn();
+    const instance = createInstance();
+    const policy = new InstanceCommunicationOverflowPolicy(tracker, {
+      getCompactContext: () => compactContext,
+      addToOutputBuffer: (inst, msg) => { inst.outputBuffer.push(msg); },
+      emitOutput: vi.fn(), transitionInstanceStatus: (inst, status) => { inst.status = status; },
+      queueUpdate: vi.fn(), getAdapter: () => currentAdapter as unknown as CliAdapter,
+      resetCircuitBreaker: vi.fn(),
+    });
+    expect(await policy.recoverSendInputOverflow({
+      instanceId: instance.id, instance, errorText: 'context overflow',
+      message: 'finish the note', contextBlock: 'context', attachments: [attachment],
+      adapter: originalAdapter as unknown as CliAdapter, onRetryDelivered,
+    })).toBe(true);
+    expect(tracker.hasRetried(instance.id)).toBe(true);
+    expect(onRetryDelivered).toHaveBeenCalledOnce();
+    expect(originalAdapter.sendInput).not.toHaveBeenCalled();
+    expect(replacementAdapter.sendInput).not.toHaveBeenCalled();
   });
 
   it('goes idle instead of retrying a second overflow', async () => {

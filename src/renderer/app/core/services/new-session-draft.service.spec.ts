@@ -4,6 +4,8 @@ import { NewSessionDraftService } from './new-session-draft.service';
 import { ProviderStateService } from './provider-state.service';
 import { WorkspaceIpcService } from './ipc/workspace-ipc.service';
 import { ScratchDirectoryService } from './scratch-directory.service';
+import { ToastService } from './toast.service';
+import { fingerprintFile } from './attachment-identity';
 import { clearKnownModelCatalogSnapshotForTesting } from '../../../../shared/types/provider.types';
 import { INTERACTIVE_LAUNCH_MODE_AVAILABLE } from '../../../../shared/types/instance.types';
 
@@ -41,8 +43,10 @@ describe('NewSessionDraftService', () => {
     init: ReturnType<typeof vi.fn>;
     isScratch: ReturnType<typeof vi.fn>;
   };
+  const toastShow = vi.fn();
 
   beforeEach(() => {
+    toastShow.mockReset();
     window.localStorage.clear();
     clearKnownModelCatalogSnapshotForTesting();
     workspaceIpc = {
@@ -59,9 +63,22 @@ describe('NewSessionDraftService', () => {
         { provide: ProviderStateService, useClass: StubProviderStateService },
         { provide: WorkspaceIpcService, useValue: workspaceIpc },
         { provide: ScratchDirectoryService, useValue: scratchDirectory },
+        { provide: ToastService, useValue: { show: toastShow } },
       ],
     });
     service = createService();
+  });
+
+  it('deduplicates repeated and same-batch arrivals within the active draft', async () => {
+    const first = new File(['image'], 'first.png', { type: 'image/png' });
+    const repeated = new File(['image'], 'second.png', { type: 'image/png' });
+    const other = new File(['other'], 'second.png', { type: 'image/png' });
+    await Promise.all([first, repeated, other].map(fingerprintFile));
+
+    expect(service.addPendingFiles([first])).toBe(0);
+    expect(service.addPendingFiles([repeated, repeated, other])).toBe(2);
+    expect(service.pendingFiles()).toEqual([first, other]);
+    expect(toastShow).toHaveBeenCalledExactlyOnceWith('Already attached.');
   });
 
   it('moves the default draft into a project when the project draft is empty', () => {

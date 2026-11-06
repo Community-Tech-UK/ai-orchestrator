@@ -7,7 +7,6 @@ import type { CodexCliConfig } from './codex-adapter-config';
 import { createMockProcess } from './codex-cli-adapter.test-helpers';
 
 vi.mock('./codex/codex-thread-policy', () => ({
-  codexTrialArm: () => 'candidate',
   codexThreadPolicyForConfig: () => ({ level: 'off', config: {}, outputLimit: null, postTurnCompactPercent: null }),
 }));
 vi.mock('./codex/child-rollout-usage', () => ({ readChildRolloutUsage: async () => [] }));
@@ -17,7 +16,7 @@ function fixture(ephemeral = true, configOverrides: Partial<CodexCliConfig> = {}
   mkdirSync(resolve('_scratch'), { recursive: true });
   const dir = mkdtempSync(resolve('_scratch/step13-runtime-')); directories.push(dir);
   const file = join(dir, 'usage.jsonl');
-  const adapter = new CodexCliAdapter({ ephemeral, sessionKind: 'plan-queue', jobId: 'job-example', trialKey: 'job-example',
+  const adapter = new CodexCliAdapter({ ephemeral, sessionKind: 'plan-queue', jobId: 'job-example', trialKey: 'job-example', trialArm: 'cheaper',
     env: { AI_ORCHESTRATOR_INSTANCE_ID: 'instance-example', UNUSED_PRIVATE_VALUE: 'DO_NOT_RECORD' },
     usageLogFile: file, ...configOverrides });
   let exit!: () => void;
@@ -76,7 +75,7 @@ describe('durable ephemeral Codex thread usage', () => {
     await h.adapter.terminate(false); await h.adapter.terminate(false);
     expect(h.lines()).toHaveLength(1);
     expect(h.lines()[0]).toMatchObject({ threadId: 'root-1', jobId: 'job-example', instanceId: 'instance-example',
-      kind: 'plan-queue', trialArm: 'candidate', requests: null, requestsAvailable: false,
+      kind: 'plan-queue', trialArm: 'cheaper', requests: null, requestsAvailable: false,
       tokens: { input: 100, cache: 50, output: 20, reasoning: 10, total: 120 },
       helpers: { count: 1, tokens: { input: 60, output: 20, total: 80 } }, compactions: 1,
     });

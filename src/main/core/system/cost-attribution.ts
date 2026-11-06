@@ -76,6 +76,13 @@ export interface CostAttributionRecord {
   /** Resolved dollar cost from {@link resolveModelCallCost} when a caller books one. */
   costUsd?: number | null;
   outcome?: ModelCallOutcome;
+  purposeDetail?: string;
+  rtkArm?: 'on' | 'off' | 'n/a';
+  /** Explicit Claude auto-approve trial membership, never inferred from arm alone. */
+  rtkTrialEligible?: boolean;
+  /** Raw stable assignment key for offline arm and session reconciliation. */
+  rtkTrialKey?: string;
+  rtkTrialSurface?: 'interactive' | 'loop';
   /** Which seam produced the record. */
   source: 'one-shot' | 'instance-turn' | 'auxiliary';
   /**
@@ -91,6 +98,7 @@ export interface CostAttributionRecord {
   /** Resolved CLI/provider type (claude, gemini, codex, ollama, ...). */
   provider?: string;
   model?: string;
+  reasoningEffort?: string;
   usage?: CostAttributionUsage;
   /** False when the provider reported no cost and 0 was assumed. */
   costKnown?: boolean;
@@ -243,6 +251,12 @@ export function recordInstanceTurnAttribution(args: {
   planQueue?: PlanQueueCostContext;
   purpose?: string;
   origin?: string;
+  purposeDetail?: string;
+  sessionId?: string;
+  rtkArm?: 'on' | 'off' | 'n/a';
+  rtkTrialEligible?: boolean;
+  rtkTrialKey?: string;
+  rtkTrialSurface?: 'interactive' | 'loop';
   instanceId: string;
   parentId?: string | null;
   agentId?: string;
@@ -250,9 +264,10 @@ export function recordInstanceTurnAttribution(args: {
   model?: string;
   usage: CostAttributionUsage;
   costKnown: boolean;
+  costSource?: CostAttributionRecord['costSource'];
+  reasoningEffort?: string;
   isEstimated?: boolean;
   spendPurpose?: 'automation' | 'channel';
-  costSource?: ModelCallCostSource;
 }): void {
   const role = args.spendPurpose ?? (args.parentId ? 'child' : 'chat');
   recordCostAttribution({
@@ -260,8 +275,13 @@ export function recordInstanceTurnAttribution(args: {
     ...(args.planQueue ? { planQueue: args.planQueue } : {}),
     purpose: args.purpose ?? role,
     ...(args.origin !== undefined ? { origin: args.origin } : {}),
+    purposeDetail: args.purposeDetail,
+    sessionId: args.sessionId,
+    rtkArm: args.rtkArm,
+    rtkTrialEligible: args.rtkTrialEligible,
+    rtkTrialKey: args.rtkTrialKey,
+    rtkTrialSurface: args.rtkTrialSurface,
     taskType: `${role}:${args.agentId ?? 'unknown'}`,
-    costSource: args.costSource ?? (args.costKnown ? 'provider' : 'unknown'),
     instanceId: args.instanceId,
     parentId: args.parentId ?? null,
     agentId: args.agentId,
@@ -269,6 +289,8 @@ export function recordInstanceTurnAttribution(args: {
     model: args.model,
     usage: args.usage,
     costKnown: args.costKnown,
+    costSource: args.costSource ?? (args.costKnown ? 'provider' : 'unknown'),
+    reasoningEffort: args.reasoningEffort,
     isEstimated: args.isEstimated,
   });
 }
@@ -396,6 +418,29 @@ function readReservedAuxiliarySpend(file: string): number {
     }
   }
   return total;
+}
+
+/**
+ * UTC-day cheap-cloud reservations, for the shared helper limit. No sink or no
+ * file yet really is zero (nothing can have been reserved: `reserveAuxiliarySpend`
+ * refuses without a sink). A file that exists but cannot be read is unknown
+ * spend, not zero spend: it returns `Infinity`, so every caller's remaining
+ * limit collapses to nothing and paid helper calls are refused (Step 7: unknown
+ * must not look like headroom). Callers must not report that as "limit reached".
+ */
+export function getReservedAuxiliarySpendToday(): number {
+  try {
+    const file = getCostAttributionFilePath();
+    return file ? readReservedAuxiliarySpend(file) : 0;
+  } catch (err) {
+    if (!warnedOnce) {
+      warnedOnce = true;
+      logger.warn('Auxiliary spend reservations unreadable; treating today as over the helper limit', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return Number.POSITIVE_INFINITY;
+  }
 }
 
 /** Test-only: clear cached directory resolution and warning latch. */

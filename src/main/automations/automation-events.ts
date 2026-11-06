@@ -1,9 +1,9 @@
 import { EventEmitter } from 'events';
-import type { Automation, AutomationRun, AutomationRunStatus } from '../../shared/types/automation.types';
+import type { Automation, AutomationRunStatus, AutomationRunChangedEvent } from '../../shared/types/automation.types';
 
 export interface AutomationEventMap {
   changed: { automation: Automation | null; automationId: string; type: 'created' | 'updated' | 'deleted' };
-  runChanged: { run: AutomationRun; automationId: string };
+  runChanged: AutomationRunChangedEvent;
   runTerminal: {
     automationId: string;
     runId: string;

@@ -15,6 +15,12 @@
 
 import { CodexAppServerTurnAdapter } from './codex-app-server-turn-adapter';
 import type { CodexCliConfig } from './codex-adapter-config';
+import type { FileAttachment } from '../../../shared/types/instance.types';
+import type { AdapterInputOptions } from './base-cli-adapter.types';
+import { CodexStandingNotes } from './codex/codex-standing-notes';
+import { developerMessageItem } from './codex/app-server-thread-runtime';
+import { getLogger } from '../../logging/logger';
+import { errorDiagnostic } from '../../logging/source-diagnostics';
 import type {
   ContextUsage,
   InstanceStatus,
@@ -53,6 +59,7 @@ export type { CodexExecPhase, CodexTimeoutKind };
  * exec (spawn-per-message) with automatic detection and fallback.
  */
 export class CodexCliAdapter extends CodexAppServerTurnAdapter {
+  private readonly standingNotes = new CodexStandingNotes();
   private turnCompaction = { count: 0 };
   private compactionOuterSendId: string | null = null;
 
@@ -65,14 +72,38 @@ export class CodexCliAdapter extends CodexAppServerTurnAdapter {
     return { ...this.turnCompaction };
   }
 
+  constructor(config: CodexCliConfig = {}) {
+    super(config);
+  }
+
+  override async sendInput(message: string, attachments?: FileAttachment[], options?: AdapterInputOptions): Promise<void> {
+    this.standingNotes.record(this.getAppServerThreadId(), options?.internalSource, message);
+    await super.sendInput(message, attachments, options);
+  }
+
+  protected override async reopenAppServerThread(): Promise<void> {
+    const previous = this.getAppServerThreadId();
+    await super.reopenAppServerThread();
+    if (previous !== this.getAppServerThreadId()) this.standingNotes.clear();
+  }
+
   protected override handleObservedThreadCompaction(threadId: string, completesLifecycle = true): void {
     this.getTurnCompaction();
     this.turnCompaction.count += 1;
     super.handleObservedThreadCompaction(threadId, completesLifecycle);
+    void this.reinjectStandingNotes(threadId);
   }
 
-  constructor(config: CodexCliConfig = {}) {
-    super(config);
+  private async reinjectStandingNotes(threadId: string): Promise<void> {
+    if (threadId !== this.getAppServerThreadId()) return;
+    const text = this.standingNotes.buildInjectionText(threadId);
+    const client = this.getAppServerClient();
+    if (!text || !client) return;
+    try {
+      await client.request('thread/inject_items', { threadId, items: [developerMessageItem(text)] });
+    } catch (error) {
+      getLogger('CodexCliAdapter').warn('Standing-notes injection failed', { threadId, ...errorDiagnostic(error) });
+    }
   }
 
   /**

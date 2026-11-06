@@ -9,7 +9,9 @@ function record(value: unknown): value is Record<string, unknown> {
 /** Metadata-only child ownership; never append child answers to the parent transcript. */
 export class OpenCodeAcpUpdates {
   private readonly children = new Map<string, { rootId: string; title: string; createdAt: number }>();
-  private readonly compactions = new Map<string, string>();
+  private readonly compactions = new Map<string, { id: string; completed: boolean }>();
+
+  constructor(private readonly onCompactionFailed: () => void = () => undefined) {}
 
   clear(): void { this.children.clear(); this.compactions.clear(); }
 
@@ -43,19 +45,28 @@ export class OpenCodeAcpUpdates {
     };
   }
 
-  compaction(update: Record<string, unknown>, newId: () => string): OutputMessage | undefined {
+  /** False means a keyed marker was handled without another output. */
+  compaction(update: Record<string, unknown>, newId: () => string): OutputMessage | false | undefined {
     const meta = update['_meta'];
     const marker = update['sessionUpdate'] === 'compaction_update' ? update
       : record(meta) && record(meta['opencode/compaction']) ? meta['opencode/compaction'] : undefined;
     if (!marker) return undefined;
     const status = marker['status'];
     if (!['started', 'in_progress', 'completed', 'failed'].includes(String(status))) return undefined;
+    if (status === 'failed') this.onCompactionFailed();
     const key = marker['compactionId'] ?? marker['messageId'];
-    if (typeof key !== 'string' || (!this.compactions.has(key) && this.compactions.size >= 128)) return undefined;
-    const id = this.compactions.get(key) ?? newId();
-    this.compactions.set(key, id);
+    if (typeof key !== 'string') return undefined;
+    if (!this.compactions.has(key) && this.compactions.size >= 128) return false;
+    const state = this.compactions.get(key) ?? { id: newId(), completed: false };
+    if (status === 'completed' && state.completed) return false;
+    const firstCompletion = status === 'completed' && !state.completed;
+    if (firstCompletion) state.completed = true;
+    this.compactions.set(key, state);
     const content = status === 'completed' ? 'Compaction completed.' : status === 'failed' ? 'Compaction failed.' : 'Compacting the session…';
-    return { id, timestamp: Date.now(), type: 'system', content,
-      metadata: { source: 'acp-compaction', transport: 'acp', phase: status, streaming: status === 'started' || status === 'in_progress', accumulatedContent: content } };
+    return { id: state.id, timestamp: Date.now(), type: 'system', content,
+      metadata: { source: 'acp-compaction', transport: 'acp', phase: status, streaming: status === 'started' || status === 'in_progress', accumulatedContent: content,
+        // Record the boundary on the status row once, without appending another notice.
+        ...(firstCompletion ? { threadCompacted: true, providerCompaction: 'completed' } : {}),
+      } };
   }
 }

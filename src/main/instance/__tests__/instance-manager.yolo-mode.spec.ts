@@ -398,12 +398,10 @@ vi.mock('../../../shared/utils/permission-mapper', () => ({
 // ---------------------------------------------------------------------------
 vi.mock('../../orchestration/orchestration-protocol', () => ({
   generateChildPrompt: vi.fn().mockReturnValue('child prompt'),
-  generateOrchestrationPrompt: vi.fn().mockReturnValue('[ORCHESTRATION SYSTEM PROMPT]'),
   formatCommandResponse: vi.fn((action: string, success: boolean, data: unknown) =>
     `[Orchestrator Response]\nAction: ${action}\nStatus: ${success ? 'SUCCESS' : 'FAILED'}\n${JSON.stringify(data)}\n[/Orchestrator Response]`
   ),
   detectsSchedulingIntent: vi.fn().mockReturnValue(false),
-  SCHEDULING_INTENT_REMINDER: '[SCHEDULING REMINDER]',
 }));
 
 // ---------------------------------------------------------------------------

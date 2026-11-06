@@ -213,6 +213,8 @@ export interface Instance {
    * suppressed. Populated from the live adapter capabilities by the backend.
    */
   selfManagesAutoCompaction?: boolean;
+  /** Whether the resident Claude control channel is available for an in-place model switch. */
+  residentClaude?: boolean;
   /** Whether this session currently accepts incoming cross-session messages. Off by default. */
   allowIncomingSessionMessages?: boolean;
 }

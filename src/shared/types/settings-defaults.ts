@@ -159,13 +159,17 @@ export const DEFAULT_SETTINGS: AppSettings = {
   leftoverProcessCleanup: 'stop-cpu-hogs', // stop runaway leftovers; only report idle ones
   recordProviderEvents: false,
   persistSessionContent: true,
-  ownChatContextCeilingTokens: 0, // Replay evidence is unavailable; ceiling remains disabled.
+  // James's Decision 4 (20 Oct, oct2-decisions-for-james): both ship at 0 (Claude's own limit). Own chats move to about
+  // 270K only after Phase D's recall check; Harness-started work stays on Claude's own limit.
+  ownChatContextCeilingTokens: 0,
   machineContextCeilingTokens: 0,
   codexHelperAgentsChats: 'trial',
   codexHelperAgentsHarnessWork: 'trial',
   codexContextTuning: 'harness',
+  claudeHelperAgentModel: 'trial',
   cumulativeTokenCompactionTrigger: 0, // disabled by default (opt-in cost cap)
   compactionDecisionLogEnabled: false, // opt-in decision log on restart-with-summary compaction
+  coldCacheCompactFirst: true, // Phase 0 real summaries are available; the offer remains optional at send.
   outputStyle: 'default', // no style directive injected unless changed
 
   // Display
@@ -386,6 +390,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // RTK
   rtkEnabled: true,
   rtkBundledOnly: false,
+  rtkAutoApproveScope: 'off', // Plan 18b: 'trial' only after Live check 1 has fully passed. A stored user value is never overwritten.
 
   // Notifications
   notifyOnAgentCompletion: true,

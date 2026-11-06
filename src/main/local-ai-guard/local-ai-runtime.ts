@@ -1,14 +1,15 @@
 import type { AuxiliaryHelperPause } from '../../shared/types/auxiliary-llm.types';
-import type { HelperBackoffTransition } from '../rlm/auxiliary-slot-backoff';
 import type { LocalAiRoutingEvent, LocalAiTarget } from '../../shared/types/local-ai-guard.types';
 import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
 import { computeProviderTokenCost } from '../../shared/data/model-pricing';
 import { getSettingsManager } from '../core/config/settings-manager';
 import {
+  getReservedAuxiliarySpendToday,
   subscribeCostAttribution,
   type CostAttributionRecord,
 } from '../core/system/cost-attribution';
 import { getNotificationService } from '../notifications/notification-service';
+import type { HelperBackoffTransition } from '../rlm/auxiliary-slot-backoff';
 import { getWorkerNodeRegistry } from '../remote-node/worker-node-registry';
 import { registerCleanup } from '../util/cleanup-registry';
 import { LocalAiActivityRegistry } from './local-ai-activity-registry';
@@ -23,6 +24,8 @@ import { LocalAiProbeService } from './local-ai-probe-service';
 import { LocalAiRecoveryService } from './local-ai-recovery-service';
 import { LocalAiRoutingGuard } from './local-ai-routing-guard';
 import { LocalAiTargetRepository } from './local-ai-target-repository';
+import { fallbackPriceFor, resolveHelperDailyBudgetUsd } from './helper-daily-budget';
+import { HelperBudgetNotice } from './helper-budget-notice';
 
 interface WorkerRosterEvents {
   on(event: string, listener: (node: WorkerNodeInfo) => void): unknown;
@@ -65,6 +68,9 @@ export class LocalAiGuardRuntime {
   private disposed = false;
   private readonly listeners = new Set<() => void>();
   private statusRevision = 0n;
+  private readonly helperBudgetNotice = new HelperBudgetNotice(() => this.notifyChanged());
+  get helperBudget() { return this.helperBudgetNotice.snapshot; }
+  recordHelperBudgetExceeded(): void { this.helperBudgetNotice.record(); }
   helperPauses: AuxiliaryHelperPause[] = [];
   private helperPauseExpiry?: ReturnType<typeof setTimeout>;
   /**
@@ -99,20 +105,24 @@ export class LocalAiGuardRuntime {
 
   recordHelperPauses(pauses: AuxiliaryHelperPause[], transition?: HelperBackoffTransition): void {
     if (this.disposed) return;
-    this.helperPauses = pauses.map(pause => ({ ...pause }));
+    this.helperPauses = pauses.filter((pause) => pause.pausedUntil > Date.now())
+      .map((pause) => ({ ...pause }));
     this.scheduleHelperPauseExpiry();
     this.notifyChanged();
     if (!transition) return;
     const { kind, pause } = transition;
     try {
-      getNotificationService().notify({ kind: `local-ai-helper-${kind}`,
+      getNotificationService().notify({
+        kind: `local-ai-helper-${kind}`,
         title: kind === 'paused' ? 'Local helper model offline' : 'Local helper model recovered',
         body: kind === 'paused'
           ? `Summaries and titles are using the basic fallback. Next retry ${new Date(pause.pausedUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}.`
           : `${pause.slot} is using its helper model again.`,
         fingerprintFields: { slot: pause.slot, startedAt: pause.startedAt },
       });
-    } catch { /* Notifications are best effort. */ }
+    } catch {
+      // Notification delivery cannot interrupt helper routing.
+    }
   }
 
   get isDisposed(): boolean {
@@ -120,14 +130,15 @@ export class LocalAiGuardRuntime {
   }
 
   get revision(): string {
+    this.helperBudgetNotice.refresh();
     if (this.expireHelperPauses()) this.notifyChanged();
     return this.statusRevision.toString();
   }
 
-  /** Retry eligibility expires by time; recovery still requires a success. */
+  /** Expiry permits another attempt; only a successful helper call proves recovery. */
   private expireHelperPauses(): boolean {
     if (this.disposed) return false;
-    const active = this.helperPauses.filter(pause => pause.pausedUntil > Date.now());
+    const active = this.helperPauses.filter((pause) => pause.pausedUntil > Date.now());
     if (active.length === this.helperPauses.length) return false;
     this.helperPauses = active;
     this.scheduleHelperPauseExpiry();
@@ -138,7 +149,7 @@ export class LocalAiGuardRuntime {
     clearTimeout(this.helperPauseExpiry);
     this.helperPauseExpiry = undefined;
     if (this.disposed || !this.helperPauses.length) return;
-    const deadline = Math.min(...this.helperPauses.map(pause => pause.pausedUntil));
+    const deadline = Math.min(...this.helperPauses.map((pause) => pause.pausedUntil));
     this.helperPauseExpiry = setTimeout(() => {
       this.helperPauseExpiry = undefined;
       if (this.expireHelperPauses()) this.notifyChanged();
@@ -219,6 +230,7 @@ export class LocalAiGuardRuntime {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.helperBudgetNotice.dispose();
     clearTimeout(this.helperPauseExpiry);
     this.helperPauseExpiry = undefined;
     this.listeners.clear();
@@ -320,7 +332,10 @@ export function initializeLocalAiGuardRuntime(
               new Date(at).getUTCMonth(),
               new Date(at).getUTCDate(),
             ),
-            globalDailyBudgetUsd: settings.localAiGuardDailyFallbackBudgetUsd,
+            globalDailyBudgetUsd: (() => {
+              const limit = resolveHelperDailyBudgetUsd(settings);
+              return limit === null ? null : Math.max(0, limit - getReservedAuxiliarySpendToday());
+            })(),
             targetDailyBudgetUsd: target?.dailyFallbackBudgetUsd,
             incidentBudgetUsd: incident ? target?.incidentFallbackBudgetUsd : undefined,
           };
@@ -337,16 +352,16 @@ export function initializeLocalAiGuardRuntime(
           return {
             localAiGuardDefaultFallbackPolicy: settings.localAiGuardDefaultFallbackPolicy,
             localAiGuardDailyFallbackBudgetUsd: settings.localAiGuardDailyFallbackBudgetUsd,
+            auxiliaryLlmDailySpendCapUsd: settings.auxiliaryLlmDailySpendCapUsd,
             localAiGuardConfirmAboveInputTokens: settings.localAiGuardConfirmAboveInputTokens,
           };
         },
-        resolveFallbackModel: () => {
-          const settings = getSettingsManager().getAll();
-          const provider = settings.defaultCli;
-          const model = settings.defaultModelByProvider[provider] ?? settings.defaultModel;
-          return provider !== 'auto' && model ? { provider, model } : undefined;
-        },
+        resolveFallbackModel: (slot) => fallbackPriceFor(slot, undefined, {
+          anthropic: Boolean(process.env['ANTHROPIC_API_KEY']),
+          openai: Boolean(process.env['OPENAI_API_KEY']),
+        }),
         notifyFallback: notifyFallbackInto(() => runtime),
+        notifyHelperBudgetExceeded: () => runtime?.recordHelperBudgetExceeded(),
       });
       services = {
         targets,

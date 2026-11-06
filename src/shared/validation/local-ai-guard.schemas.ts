@@ -602,13 +602,18 @@ export const LocalAiPublicRecoveryAttemptSchema = z.object({
 }).strict();
 
 export const LocalAiHelperPauseSchema = z.object({
-  slot: AuxiliaryLlmSlotSchema, pausedUntil: TimestampSchema, startedAt: TimestampSchema,
-  failures: CountSchema, reason: z.string().min(1).max(512),
+  slot: AuxiliaryLlmSlotSchema,
+  pausedUntil: TimestampSchema,
+  failures: CountSchema,
+  startedAt: TimestampSchema,
+  reason: z.string().trim().min(1).max(512),
 }).strict();
-export const LocalAiRetryHelperRequestSchema = z.object({ slot: AuxiliaryLlmSlotSchema }).strict();
 
 export const LocalAiGuardSnapshotSchema = z.object({
-  helperPauses: z.array(LocalAiHelperPauseSchema).max(12).default([]),
+  helperBudget: z.object({
+    blockedAt: TimestampSchema,
+    resetsAt: TimestampSchema,
+  }).strict().refine((state) => state.resetsAt > state.blockedAt).optional(),
   revision: LocalAiRevisionCursorSchema,
   aggregate: LocalAiAggregateStatusSchema,
   targets: z.array(LocalAiTargetStatusSchema).max(1_000),
@@ -624,6 +629,7 @@ export const LocalAiGuardSnapshotSchema = z.object({
    * effectiveness dashboard remains that.
    */
   fallbackNotifications: z.array(LocalAiRoutingEventSchema).max(50),
+  helperPauses: z.array(LocalAiHelperPauseSchema).max(12).default([]),
 }).strict();
 
 export const LocalAiEmptyRequestSchema = z.undefined();
@@ -680,4 +686,8 @@ export const LocalAiSummaryRequestSchema = z.object({
 export const LocalAiFallbackResolveRequestSchema = z.object({
   requestId: IdSchema,
   resolution: LocalAiFallbackResolutionSchema,
+}).strict();
+
+export const LocalAiRetryHelperRequestSchema = z.object({
+  slot: AuxiliaryLlmSlotSchema,
 }).strict();

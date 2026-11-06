@@ -1,5 +1,6 @@
     @if (instance(); as inst) {
       <app-drop-zone
+        [pasteOwner]="pasteDraftOwner"
         class="full-drop-zone"
         (filesDropped)="onFilesDropped($event)"
         (imagesPasted)="onImagesPasted($event)"
@@ -65,6 +66,10 @@
               (previewRequested)="onPreviewCompaction()"
               (dismiss)="onDismissContextWarning()"
             />
+          }
+
+          @if (claudeContextNote(); as note) {
+            <p class="context-near-limit-note" role="status">{{ note }}</p>
           }
 
           @if (inst.status === 'error' && inst.recoveryMethod === 'failed') {
@@ -198,6 +203,8 @@
             [accountProfileId]="inst.accountProfileId"
             [accountRoutingSource]="inst.accountRoutingSource"
             [contextUsage]="inst.contextUsage"
+            [residentClaude]="inst.residentClaude === true"
+            [remoteExecution]="inst.executionLocation?.type === 'remote'"
             [workingDirectory]="inst.workingDirectory"
             [loopChatId]="inst.id"
             [isReplayFallback]="isReplayFallback()"
@@ -205,7 +212,8 @@
             [hasThreadWakeups]="threadWakeups().length > 0"
             [showWakeupReviveToggle]="showWakeupReviveToggle(inst.status)"
             [waitReason]="inst.waitReason"
-            (sendMessage)="onSendMessage($event)"
+            [coldCacheCompactFirst]="true"
+            (sendMessage)="onComposerSend($event)"
             (steerMessage)="onSteerMessage($event)"
             (removeFile)="onRemoveFile($event)"
             (removeFolder)="onRemoveFolder($event)"
@@ -224,6 +232,7 @@
       </app-drop-zone>
     } @else if (historyPreview(); as preview) {
       <app-drop-zone
+        [pasteOwner]="pasteDraftOwner"
         class="full-drop-zone"
         (filesDropped)="onHistoryPreviewFilesDropped($event)"
         (imagesPasted)="onHistoryPreviewImagesPasted($event)"
@@ -314,6 +323,7 @@
       </div>
     } @else {
       <app-instance-welcome
+        [pasteOwner]="pasteDraftOwner"
         [workingDirectory]="welcomeWorkingDirectory()"
         [pendingFiles]="welcomePendingFiles()"
         [pendingFolders]="welcomePendingFolders()"

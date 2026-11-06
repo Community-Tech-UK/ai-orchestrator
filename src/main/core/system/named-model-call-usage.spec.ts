@@ -65,7 +65,7 @@ describe('actual named sends retain observed paid usage on settlement', () => {
   afterEach(() => { stop(); vi.unstubAllEnvs(); AutoTitleService._resetForTesting(); });
 
   describe.each(paths)('%s public send', path => {
-    it.each(['usage', 'complete', 'attached-usage', 'attached-partial', 'cancelled', 'unknown', 'zero', 'success'] as const)('records one row for %s evidence', async mode => {
+    it.each(['usage', 'complete', 'attached-usage', 'attached-partial', 'cancelled', 'unknown', 'zero', 'success'] as const)(path === 'title' ? 'keeps title CLI disabled despite available %s evidence' : 'records one row for %s evidence', async mode => {
       const adapter = Object.assign(new EventEmitter(), { sendMessage: vi.fn(async () => {
         if (mode === 'success') {
           adapter.emit('usage', paid);
@@ -83,10 +83,17 @@ describe('actual named sends retain observed paid usage on settlement', () => {
       const add = vi.spyOn(abort.signal, 'addEventListener');
       const remove = vi.spyOn(abort.signal, 'removeEventListener');
       await run(path, adapter, abort.signal).catch(() => undefined);
+      if (path === 'title') {
+        expect(adapter.sendMessage).not.toHaveBeenCalled();
+        expect(rows).toHaveLength(0);
+        expect(adapter.listenerCount('usage')).toBe(0);
+        expect(adapter.listenerCount('complete')).toBe(0);
+        return;
+      }
       expect(adapter.sendMessage).toHaveBeenCalledOnce();
       expect(rows).toHaveLength(1);
       assertIdentity(path, rows[0]);
-      expect(rows[0].provider).toBe(path === 'title' && mode === 'success' ? 'anthropic' : 'claude');
+      expect(rows[0].provider).toBe('claude');
       if (path === 'reviewer' || path === 'review-host') {
         const handler = add.mock.calls.find(call => call[0] === 'abort')?.[1];
         expect(remove).toHaveBeenCalledWith('abort', handler);

@@ -28,6 +28,28 @@ describe('loopContextUtilization (diagnostic-only helper)', () => {
 });
 
 describe('shouldRecycleLoopContext — known occupancy', () => {
+  it('recycles on a trusted absolute ceiling below the utilization threshold', () => {
+    const decision = shouldRecycleLoopContext({
+      enabled: true, resetAtUtilization: 0.85,
+      observation: known(412_000, 1_000_000), absoluteCeilingTokens: 400_000,
+    });
+    expect(decision.recycle).toBe(true);
+    expect(decision.reason).toContain('400K ceiling');
+    expect(shouldRecycleLoopContext({
+      enabled: true, resetAtUtilization: 0.85,
+      observation: known(412_000, 1_000_000), absoluteCeilingTokens: 0,
+    }).recycle).toBe(false);
+  });
+
+  it('does not treat an untrusted window as evidence for an absolute ceiling', () => {
+    const decision = shouldRecycleLoopContext({
+      enabled: true, resetAtUtilization: 0.85,
+      observation: { status: 'known', used: 412_000, total: 1_000_000,
+        source: 'provider-session', windowTrusted: false },
+      absoluteCeilingTokens: 400_000,
+    });
+    expect(decision.recycle).toBe(false);
+  });
   it('REGRESSION (incident): 7M aggregate tokens + a current 60k/200k observation is 30% and must NOT recycle at 60%', () => {
     const d = shouldRecycleLoopContext({
       enabled: true,

@@ -156,6 +156,8 @@ export const ORCHESTRATION_CHANNELS = {
   PLAN_MODE_APPROVE: 'plan:approve',
   PLAN_MODE_UPDATE: 'plan:update',
   PLAN_MODE_GET_STATE: 'plan:get-state',
+  PLAN_HANDOFF_PREVIEW: 'plan-handoff:preview',
+  PLAN_HANDOFF_START: 'plan-handoff:start',
 
   // LLM Service operations (streaming)
   LLM_SUMMARIZE: 'llm:summarize',

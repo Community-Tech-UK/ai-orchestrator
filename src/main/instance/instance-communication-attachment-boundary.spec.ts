@@ -41,7 +41,10 @@ describe('actual attachment fallback native boundary', () => {
     expect(receipts.delivered).not.toHaveBeenCalled();
   });
 
-  it.each(['success', 'stop', 'new-input', 'auto-stop', 'auto-new-input'] as const)('retains one admission and receipt through %s', async mode => {
+  it.each(['success', 'success-observer-failure', 'queued-success', 'queued-success-observer-failure', 'stop', 'new-input', 'auto-stop', 'auto-new-input'] as const)('retains one admission and receipt through %s', async mode => {
+    const queuedAdmissionId = mode.startsWith('queued-') ? 'queued-attachment-admission' : undefined;
+    const success = mode.includes('success');
+    const observed = vi.fn(() => { if (mode.endsWith('observer-failure')) throw new Error('inert observer failure'); });
     receipts.record.mockClear(); receipts.delivered.mockClear(); receipts.failed.mockClear();
     const adapter = new AdvertisedAttachmentCopilot({ accountProfileId: 'disposable-profile' }); Object.assign(adapter, { isSpawned: true });
     const instance = { id: 'attachment-boundary', provider: 'copilot', status: 'idle', sessionId: 'attachment-session', adapterGeneration: 1, requestCount: 3, lastActivity: 0, outputBuffer: [] } as unknown as Instance;
@@ -54,13 +57,15 @@ describe('actual attachment fallback native boundary', () => {
     const manager = new InstanceCommunicationManager({ getInstance: () => instance, getAdapter: () => adapter as unknown as CliAdapter, setAdapter: () => undefined, deleteAdapter: () => false, queueUpdate: () => undefined, processOrchestrationOutput: () => undefined, onInterruptedExit: async () => undefined, ingestToRLM: () => undefined, ingestToUnifiedMemory: () => undefined });
     manager.on('output', () => { if (mode === 'stop' || mode === 'auto-stop') { instance.status = 'interrupting'; controller.abort(); } if (mode === 'new-input' || mode === 'auto-new-input') { instance.status = 'busy'; instance.requestCount++; } });
     const pending = manager.sendInput(instance.id, 'synthetic request', [{ name: 'synthetic.png', type: 'image/png', size: 1, data: 'eA==' }], undefined, {
-      signal: controller.signal, autoContinuation: mode.startsWith('auto-'), beforeProviderDispatch: admission,
+      queuedAdmissionId, signal: controller.signal, autoContinuation: mode.startsWith('auto-'), beforeProviderDispatch: admission, onProviderInputDelivered: observed,
       assertProviderDispatchCurrent: () => { if (instance.requestCount !== 3) { const error = new Error('request changed'); error.name = 'AbortError'; throw error; } },
     });
-    if (mode === 'success' || mode.startsWith('auto-')) await pending; else await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
-    expect(nativeArgs).toHaveLength(mode === 'success' ? 1 : 0); expect(admission).toHaveBeenCalledTimes(mode === 'success' ? 1 : 0);
-    expect(receipts.record).toHaveBeenCalledTimes(mode === 'success' ? 1 : 0); expect(receipts.delivered).toHaveBeenCalledTimes(mode === 'success' ? 1 : 0); expect(receipts.failed).not.toHaveBeenCalled();
-    if (mode === 'success') expect(nativeArgs[0]).toContain('synthetic request');
+    if (success || mode.startsWith('auto-')) await pending; else await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(nativeArgs).toHaveLength(success ? 1 : 0); expect(admission).toHaveBeenCalledTimes(success ? 1 : 0);
+    expect(receipts.record).toHaveBeenCalledTimes(success ? 1 : 0); expect(receipts.delivered).toHaveBeenCalledTimes(success ? 1 : 0); expect(receipts.failed).not.toHaveBeenCalled();
+    expect(observed).toHaveBeenCalledTimes(success ? 1 : 0);
+    if (queuedAdmissionId) expect(receipts.record).toHaveBeenCalledExactlyOnceWith(instance.id, 'synthetic request', undefined, undefined, queuedAdmissionId);
+    if (success) expect(nativeArgs[0]).toContain('synthetic request');
     if (mode === 'stop' || mode === 'auto-stop') expect(instance.status).toBe('interrupting');
     if (mode === 'new-input' || mode === 'auto-new-input') expect(instance.status).toBe('busy');
   });

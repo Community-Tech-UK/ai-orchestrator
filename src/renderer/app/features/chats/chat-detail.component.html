@@ -1,5 +1,6 @@
 @if (detail(); as detail) {
   <app-drop-zone
+    [pasteOwner]="pasteDraftOwner"
     class="full-drop-zone"
     (filesDropped)="onFilesDropped($event)"
     (imagesPasted)="onImagesPasted($event)"

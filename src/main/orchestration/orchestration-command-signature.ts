@@ -20,7 +20,11 @@ export function computeCommandSignature(command: OrchestratorCommand): string {
     case 'request_user_action':
       return `request_user_action:${command.requestType}:${command.title}`;
     case 'create_automation':
-      return `create_automation:${command.automation.name}:${JSON.stringify(command.automation.schedule)}:${command.automation.action.prompt.slice(0, 80)}`;
+      // Dedup is recorded before the handler runs, so a refused command (8f cadence
+      // reminder, invalid payload) must not shadow its corrected retry. Anything the
+      // agent can change to fix a refusal is part of the signature: the literal
+      // `confirmedByUser: true` and the whole automation body, not just name/prompt.
+      return `create_automation:${command.confirmedByUser === true ? 'confirmed' : 'unconfirmed'}:${command.automation.name}:${JSON.stringify(command.automation)}`;
     case 'call_tool':
       return `call_tool:${command.toolId}:${JSON.stringify(command.args || '').slice(0, 80)}`;
     default:

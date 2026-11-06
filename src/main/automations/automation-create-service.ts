@@ -6,6 +6,7 @@ import {
   getAutomationStore,
 } from './index';
 import { getAutomationEvents } from './automation-events';
+import { assertCheckOriginAllowed, type AutomationCheckOrigin } from './automation-pre-check-guard';
 
 export async function handlePastOneTimeAutomation(automation: Automation): Promise<void> {
   if (automation.schedule.type !== 'oneTime' || automation.schedule.runAt > Date.now()) {
@@ -34,7 +35,11 @@ export async function handlePastOneTimeAutomation(automation: Automation): Promi
   events.emitScheduleDeactivated({ automationId: automation.id });
 }
 
-export async function createAutomationWithScheduling(input: CreateAutomationInput): Promise<Automation | null> {
+export async function createAutomationWithScheduling(
+  input: CreateAutomationInput,
+  origin: AutomationCheckOrigin = 'agent',
+): Promise<Automation | null> {
+  assertCheckOriginAllowed(input.action, origin);
   const store = getAutomationStore();
   const events = getAutomationEvents();
   const now = Date.now();

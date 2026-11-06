@@ -15,6 +15,7 @@ const CHANNEL_DELIVERY_MAX_CHARS = 3500;
 export interface RunTracking {
   runId: string;
   automationId: string;
+  quietReplyEligible: boolean;
   seenAssistantOutput: boolean;
   completionReceipt?: CompletionReceipt;
   lastAssistantOutput?: string;
@@ -75,6 +76,7 @@ export function writeFullOutput(tracking: RunTracking): string | undefined {
 
 export async function deliverRunSummaryToChannel(run: AutomationRun, claimDelivery: () => boolean): Promise<void> {
   if (run.status === 'succeeded' && run.result?.notify === false) return;
+  if (run.outcome === 'quiet') return;
   if (run.deliveryMode !== 'notify') {
     return;
   }

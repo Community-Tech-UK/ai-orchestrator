@@ -48,6 +48,9 @@ export const RLM_MIGRATIONS_076_080: Migration[] = [
     `,
   },
   {
+    // Main and phase-1 migrations share numeric prefixes 078–080. They are
+    // tracked by full name and may already be applied on real databases, so
+    // preserve every name and SQL checksum from both branches.
     name: '078_wake_hint_tombstones',
     up: `
       CREATE TABLE wake_hint_tombstones (
@@ -58,6 +61,47 @@ export const RLM_MIGRATIONS_076_080: Migration[] = [
       );
     `,
     down: `DROP TABLE wake_hint_tombstones;`,
+  },
+  {
+    name: '078_automation_pre_check',
+    up: `
+      ALTER TABLE automation_runs ADD COLUMN outcome TEXT;
+      CREATE TABLE automation_check_state (
+        automation_id TEXT PRIMARY KEY REFERENCES automations(id) ON DELETE CASCADE,
+        baseline_hash TEXT,
+        baseline_output TEXT,
+        baseline_at INTEGER,
+        pending_run_id TEXT,
+        pending_hash TEXT,
+        pending_output TEXT,
+        failure_streak INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL
+      );
+    `,
+    down: `
+      DROP TABLE automation_check_state;
+      ALTER TABLE automation_runs DROP COLUMN outcome;
+    `,
+  },
+  {
+    name: '079_automation_thread_prompt_delivery',
+    up: `
+      ALTER TABLE automation_runs ADD COLUMN thread_prompt_delivered INTEGER
+        CHECK(thread_prompt_delivered IS NULL OR thread_prompt_delivered IN (0, 1));
+    `,
+    down: `
+      ALTER TABLE automation_runs DROP COLUMN thread_prompt_delivered;
+    `,
+  },
+  {
+    name: '080_helper_budget_notice_day',
+    up: `
+      CREATE TABLE local_ai_helper_budget_notice (
+        singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+        day TEXT NOT NULL
+      );
+    `,
+    down: `DROP TABLE local_ai_helper_budget_notice;`,
   },
   {
     name: '079_global_pause_batches',

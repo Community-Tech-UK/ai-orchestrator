@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { computeTokenCost } from '../../src/shared/data/model-pricing';
-// @ts-expect-error standalone Node audit module
 import { compareTranscriptCosts } from '../claude-transcript-cost-comparison.mjs';
 
 const dirs: string[] = [];

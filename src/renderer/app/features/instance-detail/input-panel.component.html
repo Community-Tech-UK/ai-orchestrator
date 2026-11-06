@@ -46,7 +46,7 @@
         </div>
       }
       <!-- File previews -->
-      @for (preview of pendingFilePreviews(); track preview.file.name) {
+      @for (preview of pendingFilePreviews(); track preview.file) {
         @if (preview.isImage) {
           <div class="file-preview-card">
             <button type="button" class="file-preview-trigger" [appTooltip]="copy('composer.previewAttachment')"
@@ -103,6 +103,9 @@
     <app-composer-toolbar
       [instanceId]="instanceId()"
       [contextUsage]="contextUsage()"
+      [hasConversation]="hasConversation()"
+      [residentClaude]="residentClaude()"
+      [remoteExecution]="remoteExecution()"
       [provider]="provider()"
       [currentModel]="currentModel()"
       [currentReasoningEffort]="currentReasoningEffort()"
@@ -111,7 +114,15 @@
       [desiredRuntime]="desiredRuntime()"
       [accountProfileId]="accountProfileId()"
       [accountRoutingSource]="accountRoutingSource()"
+      (quickAskRequested)="quickAskOpen.set(!quickAskOpen())"
     />
+    @if (quickAskOpen()) {
+      <app-quick-ask-panel
+        [instanceId]="instanceId()"
+        [contextUsage]="contextUsage() ?? null"
+        (closed)="quickAskOpen.set(false)"
+      />
+    }
   }
 
   @if (isDraftComposer()) {
@@ -449,6 +460,7 @@
         <!-- Quota notices mount here, after the single hint line. -->
       </div>
 
+      @if (coldCacheOffered()) { <app-cold-cache-chip [instanceId]="instanceId()" /> }
       <div class="composer-actions-right">
         <button
           class="btn-voice"

@@ -194,6 +194,8 @@ export class ChatDetailComponent {
     return id ? `chat:${id}` : null;
   });
 
+  readonly pasteDraftOwner = (): string | null => this.chatDraftKey();
+
   readonly pendingFiles = computed<File[]>(() => {
     // Subscribe to DraftService attachment changes so this computed
     // re-evaluates whenever files are added/removed.

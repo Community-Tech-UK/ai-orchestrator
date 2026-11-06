@@ -3,6 +3,7 @@ import type {
   AutomationDeliveryMode,
   AutomationMissedRunPolicy,
   AutomationRunStatus,
+  AutomationRunOutcome,
   AutomationTrigger,
   AutomationTriggerSource,
 } from '../../shared/types/automation.types';
@@ -40,11 +41,13 @@ export interface AutomationRunRow {
   id: string;
   automation_id: string;
   status: AutomationRunStatus;
+  outcome?: AutomationRunOutcome | null;
   trigger: AutomationTrigger;
   scheduled_at: number;
   started_at: number | null;
   finished_at: number | null;
   instance_id: string | null;
+  thread_prompt_delivered?: number | null;
   loop_run_id: string | null;
   error: string | null;
   output_summary: string | null;

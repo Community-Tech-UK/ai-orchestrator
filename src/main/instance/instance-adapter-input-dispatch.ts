@@ -5,6 +5,9 @@ import { getSessionAdmissionService } from '../session/session-admission-service
 import type { FileAttachment } from '../../shared/types/instance.types';
 import type { Instance } from '../../shared/types/instance.types';
 import { throwIfInstanceInputAborted, type InstanceSendInputOptions } from './instance-input-cancellation';
+import { getLogger } from '../logging/logger';
+import { captureInstanceRecoveryEpoch, isInstanceRecoveryEpochCurrent } from './instance-turn-ending-state';
+const logger = getLogger('InstanceInputReceipt');
 
 /** Keeps request and provider identity authoritative after the first input write commits. */
 export function createInstanceAdapterInputDispatch(
@@ -15,6 +18,7 @@ export function createInstanceAdapterInputDispatch(
   getInstance: (id: string) => Instance | undefined,
   getAdapter: (id: string) => CliAdapter | undefined,
 ): AdapterInputDispatch {
+  const recoveryEpoch = captureInstanceRecoveryEpoch(instance.id);
   let retryReason: AdapterInputRetryReason | undefined;
   let identity: Pick<Instance, 'requestCount' | 'sessionId' | 'adapterGeneration' | 'provider'> | undefined;
   const assertCurrent = (): void => {
@@ -30,6 +34,11 @@ export function createInstanceAdapterInputDispatch(
   };
   return {
     signal: options?.signal, autoContinuation: options?.autoContinuation, assertCurrent,
+    isRecoveryCurrent: () => isInstanceRecoveryEpochCurrent(instance.id, recoveryEpoch),
+    assertLogicalCurrent: (reason) => {
+      throwIfInstanceInputAborted(options?.signal);
+      options?.assertProviderDispatchCurrent?.(reason);
+    },
     runInputRetry: async (reason, work) => {
       const previous = retryReason;
       retryReason = reason;
@@ -50,8 +59,10 @@ export function createInstanceInputReceipt(
   instanceId: string,
   getInput: () => { message: string; attachments?: FileAttachment[]; contextBlock?: string | null },
   queuedAdmissionId?: string,
+  onDelivered?: () => void,
 ): { record: () => void; delivered: () => void; failed: (error: unknown) => void } {
   let admission: ReturnType<ReturnType<typeof getSessionAdmissionService>['recordUserSend']> = null;
+  let observed = false;
   return {
     record: () => {
       if (admission) return; // The same send may consume a preparation failure locally.
@@ -59,7 +70,12 @@ export function createInstanceInputReceipt(
       admission = getSessionAdmissionService().recordUserSend(instanceId, input.message, input.attachments, input.contextBlock,
         ...(queuedAdmissionId ? [queuedAdmissionId] as const : [] as const));
     },
-    delivered: () => { if (admission) getSessionAdmissionService().markDelivered(admission.admissionId); },
+    delivered: () => {
+      if (admission) getSessionAdmissionService().markDelivered(admission.admissionId);
+      if (observed) return;
+      observed = true;
+      try { onDelivered?.(); } catch (error) { logger.warn('Provider delivery observer failed', { instanceId, error }); }
+    },
     failed: (error) => {
       if (admission) getSessionAdmissionService().markFailed(admission.admissionId, error instanceof Error ? error.message : String(error));
     },

@@ -9,16 +9,25 @@ import {
 import { CommonModule } from '@angular/common';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { FormsModule } from '@angular/forms';
+import { By } from '@angular/platform-browser';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Automation } from '../../../../shared/types/automation.types';
+import type { Automation, AutomationExecutionProfile, AutomationRun } from '../../../../shared/types/automation.types';
+import type { InstanceProvider } from '../../../../shared/types/instance.types';
 import { CLAUDE_MODELS } from '../../../../shared/types/provider.types';
 import type { PendingSelection } from '../models/compact-model-picker.types';
 import { AutomationStore } from '../../core/state/automation.store';
 import { InstanceStore } from '../../core/state/instance/instance.store';
 import { AutomationsPageComponent } from './automations-page.component';
+import { estimateDailyRuns } from '../../../../shared/automations/automation-cadence';
+
+// Pass-through spy: the real estimate runs, but its calls can be counted.
+vi.mock('../../../../shared/automations/automation-cadence', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../shared/automations/automation-cadence')>();
+  return { ...actual, estimateDailyRuns: vi.fn(actual.estimateDailyRuns) };
+});
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 
@@ -74,6 +83,13 @@ class AutomationAuthorityPanelStubComponent {
   @Input() authorityInput: unknown;
   @Input() templates: unknown;
   @Output() templateApplied = new EventEmitter<unknown>();
+}
+
+@Component({ selector: 'app-automation-execution-profile-selector', standalone: true, template: '' })
+class AutomationExecutionProfileSelectorStubComponent {
+  @Input() value: AutomationExecutionProfile = 'standard';
+  @Input() resolvedProvider: InstanceProvider | undefined;
+  @Output() valueChange = new EventEmitter<AutomationExecutionProfile>();
 }
 
 function makeAutomation(overrides: Partial<Automation> = {}): Automation {
@@ -169,6 +185,7 @@ describe('AutomationsPageComponent row actions', () => {
           PageHeaderStubComponent,
           AutomationWebhooksPanelStubComponent,
           AutomationAuthorityPanelStubComponent,
+          AutomationExecutionProfileSelectorStubComponent,
           AioTooltipDirective,
           AppIconButtonDirective,
         ],
@@ -243,6 +260,92 @@ describe('AutomationsPageComponent row actions', () => {
     fixture.detectChanges();
 
     expect(fixture.nativeElement.querySelector('.row.row--paused')).not.toBeNull();
+  });
+
+  it('shows checked-run outcomes in plain words with the raw details and counts', () => {
+    const automation = makeAutomation({ action: {
+      prompt: 'Check the repo', workingDirectory: '/repo',
+      preCheck: { command: 'check-news', onError: 'stop' },
+    } });
+    automations.set([automation]);
+    const run = (id: string, outcome: AutomationRun['outcome'], outputSummary: string): AutomationRun => ({
+      id, automationId: automation.id, status: 'succeeded', trigger: 'scheduled',
+      scheduledAt: 1_900_000_000_000, startedAt: null, finishedAt: null,
+      instanceId: outcome === 'quiet' ? 'actually-attached-instance' : null, loopRunId: null, error: null, outputSummary,
+      outputFullRef: null, idempotencyKey: null, triggerSource: null,
+      deliveryMode: 'notify', seenAt: null, createdAt: 1_900_000_000_000,
+      updatedAt: 1_900_000_000_000, configSnapshot: automation,
+      outcome, attempt: 1, maxAttempts: 1,
+    });
+    store.runs.set([run('one', 'no-change', 'same hash'), run('two', 'quiet', 'no update')]);
+    fixture.componentInstance.select(automation);
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelectorAll('.run-row--quiet')).toHaveLength(2);
+    expect(root.textContent).toContain('Nothing changed');
+    expect(root.textContent).toContain('Quiet');
+    expect(root.textContent).toContain('Details same hash');
+    expect(root.textContent).toContain('checked 2 times, started the AI 1 time');
+  });
+
+  it('keeps the schedule cadence and optional check visible in the form', () => {
+    fixture.componentInstance.startCreate();
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.textContent).toContain('Starts the AI about 1 time a day');
+    expect(root.textContent).toContain('Check before starting the AI (optional)');
+    fixture.componentInstance.onPreCheckCommandChange('check-news');
+    fixture.detectChanges();
+    expect(root.textContent).toContain('If the check fails');
+    expect(root.textContent).toContain('Run now ignores the check');
+    const profile = fixture.debugElement.query(By.directive(AutomationExecutionProfileSelectorStubComponent))
+      .componentInstance as AutomationExecutionProfileSelectorStubComponent;
+    expect(profile.value).toBe('standard');
+    expect(profile.resolvedProvider).toBe('claude');
+    profile.valueChange.emit('contained');
+    expect(fixture.componentInstance.form().executionProfile).toBe('contained');
+  });
+
+  it('works out the schedule line once per schedule change, not on every render or unrelated edit', () => {
+    const component = fixture.componentInstance;
+    const root = fixture.nativeElement as HTMLElement;
+    component.startCreate();
+    fixture.detectChanges();
+    const estimate = vi.mocked(estimateDailyRuns);
+    estimate.mockClear();
+
+    fixture.detectChanges();
+    fixture.detectChanges();
+    component.patchForm({ prompt: 'a different prompt' });
+    component.patchForm({ name: 'Another name' });
+    fixture.detectChanges();
+    expect(estimate).not.toHaveBeenCalled();
+
+    component.patchForm({ cronExpression: '*/5 * * * *' });
+    fixture.detectChanges();
+    fixture.detectChanges();
+    expect(estimate).toHaveBeenCalledTimes(1);
+    expect(root.textContent).toContain('Starts the AI about 288 times a day');
+  });
+
+  it('gives a check example that prints state, so its output changes when the state does', () => {
+    fixture.componentInstance.startCreate();
+    fixture.detectChanges();
+    const input = fixture.nativeElement.querySelector('input[name="preCheckCommand"]') as HTMLInputElement;
+    const placeholder = input.getAttribute('placeholder') ?? '';
+    expect(placeholder).toContain('ls -t ~/Maildir/new | head -1');
+    // An exit-status test such as `test -s file` prints nothing, so it never changes the output.
+    expect(placeholder).not.toMatch(/\btest -[a-z]\b/);
+  });
+
+  it('keeps an explicit Opus choice when a new check command is edited', () => {
+    const component = fixture.componentInstance;
+    component.startCreate();
+    component.onModelPicked({ provider: 'claude', model: CLAUDE_MODELS.OPUS, reasoning: null });
+    component.onPreCheckCommandChange('check-news');
+    expect(component.form().model).toBe(CLAUDE_MODELS.OPUS);
+    expect(component.checkModelSuggestionVisible()).toBe(false);
   });
 
   it('requires row-level confirmation before deleting an automation', async () => {

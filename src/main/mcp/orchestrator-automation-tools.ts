@@ -64,6 +64,7 @@ export const CreateAutomationArgsSchema = z
     maxRunMinutes: AutomationActionSchema.shape.maxRunMinutes,
     maxProcessedTokens: AutomationActionSchema.shape.maxProcessedTokens,
     slowWhenUnchanged: AutomationActionSchema.shape.slowWhenUnchanged,
+    confirmedByUser: z.boolean().optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -233,6 +234,7 @@ export const UpdateAutomationArgsSchema = z
     maxRunMinutes: AutomationActionSchema.shape.maxRunMinutes,
     maxProcessedTokens: AutomationActionSchema.shape.maxProcessedTokens,
     slowWhenUnchanged: AutomationActionSchema.shape.slowWhenUnchanged,
+    confirmedByUser: z.boolean().optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -379,6 +381,10 @@ export function createAutomationToolDefinitions(
             description:
               'Keep this automation\'s sessions out of the project rail. Set it for work whose real output lands elsewhere — a health check that only matters when it fails, or a run that delivers an email or a board card. Hidden is quiet, not invisible: the Automations page still shows the automation and every run, and a run that fails or stops for permission is shown in the rail anyway. Defaults to false (visible).',
           },
+          confirmedByUser: {
+            type: 'boolean',
+            description: 'Set true only after James has agreed in this chat to a schedule that starts a new AI session more than 24 times a day.',
+          },
         },
         required: ['name', 'prompt'],
         additionalProperties: false,
@@ -515,6 +521,10 @@ export function createAutomationToolDefinitions(
             type: 'boolean',
             description:
               'Keep this automation\'s sessions out of the project rail. Use it for work whose real output lands elsewhere — a health check that only matters when it fails, or a run that delivers an email or a board card. Hidden is quiet, not invisible: the Automations page still shows the automation and every run, and a run that fails or stops for permission is shown in the rail anyway. Omit to leave unchanged.',
+          },
+          confirmedByUser: {
+            type: 'boolean',
+            description: 'Set true only after James has agreed in this chat to this faster schedule.',
           },
         },
         required: ['id'],

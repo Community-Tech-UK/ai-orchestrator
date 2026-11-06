@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AutomationActionSchema,
+  AutomationPreCheckPolicySchema,
+  AutomationPreflightPayloadSchema,
   AutomationCreatePayloadSchema,
   AutomationResultSchema,
   AutomationMarkSeenPayloadSchema,
+  AutomationRunSchema,
   AutomationUpdatePayloadSchema,
 } from '../automation.schemas';
 
@@ -284,5 +288,72 @@ describe('scheduled job policy contracts', () => {
     expect(AutomationResultSchema.parse({ outcome: 'needs_attention', notify: true })).toEqual({ outcome: 'needs_attention', notify: true });
     expect(AutomationResultSchema.safeParse({ outcome: 'no_change' }).success).toBe(false);
     expect(AutomationResultSchema.safeParse({ outcome: 'failed', notify: true }).success).toBe(false);
+  });
+});
+
+describe('automation pre-check contracts', () => {
+  const preCheck = { command: 'check.sh', onError: 'run-anyway' as const };
+
+  it('preserves a check through create and update validation', () => {
+    expect(AutomationCreatePayloadSchema.parse({
+      ...baseCreatePayload, action: { ...baseAction, preCheck },
+    }).action.preCheck).toEqual(preCheck);
+    expect(AutomationUpdatePayloadSchema.parse({
+      id: 'automation-1', updates: { action: { ...baseAction, preCheck } },
+    }).updates.action?.preCheck).toEqual(preCheck);
+  });
+
+  it('rejects pre-checks for contained jobs on both write paths', () => {
+    const action = { ...baseAction, preCheck, executionProfile: 'contained' };
+    expect(AutomationCreatePayloadSchema.safeParse({ ...baseCreatePayload, action }).success).toBe(false);
+    expect(AutomationUpdatePayloadSchema.safeParse({ id: 'automation-1', updates: { action } }).success).toBe(false);
+  });
+
+  it('rejects pre-checks with one-time schedules on both write paths', () => {
+    const action = { ...baseAction, preCheck };
+    const schedule = { type: 'oneTime', runAt: 1_800_000_000_000 };
+    expect(AutomationCreatePayloadSchema.safeParse({ ...baseCreatePayload, action, schedule }).success).toBe(false);
+    expect(AutomationUpdatePayloadSchema.safeParse({ id: 'automation-1', updates: { action, schedule } }).success).toBe(false);
+  });
+
+  it('rejects local pre-checks on jobs pinned to another computer on both write paths', () => {
+    const action = { ...baseAction, preCheck, forceNodeId: '11111111-2222-4333-8444-555555555555' };
+    expect(AutomationCreatePayloadSchema.safeParse({ ...baseCreatePayload, action }).success).toBe(false);
+    expect(AutomationUpdatePayloadSchema.safeParse({ id: 'automation-1', updates: { action } }).success).toBe(false);
+    expect(AutomationCreatePayloadSchema.safeParse({
+      ...baseCreatePayload, action: { ...action, preCheck: undefined },
+    }).success).toBe(true);
+  });
+
+  it.each(['11111111-2222-4333-8444-555555555555', 'windows-pc'])(
+    'checks placement without changing persisted unchecked target support: %s', (forceNodeId) => {
+      const config = { ...baseCreatePayload, action: { ...baseAction, forceNodeId } };
+      expect(AutomationPreCheckPolicySchema.safeParse(config).success).toBe(true);
+      expect(AutomationPreCheckPolicySchema.safeParse({
+        ...config, action: { ...config.action, preCheck },
+      }).success).toBe(false);
+    },
+  );
+
+  it.each(['no-change', 'changed', 'first-check', 'check-failed', 'quiet'])('preserves the run outcome %s', (outcome) => {
+    const run = AutomationRunSchema.parse({
+      id: 'run-1', automationId: 'automation-1', status: 'skipped', trigger: 'scheduled',
+      scheduledAt: 1, startedAt: 1, finishedAt: 2, instanceId: null, loopRunId: null,
+      error: null, outputSummary: null, outputFullRef: null, idempotencyKey: null,
+      triggerSource: null, deliveryMode: 'notify', seenAt: 2, createdAt: 1, updatedAt: 2,
+      configSnapshot: null, attempt: 1, maxAttempts: 3, outcome,
+    });
+    expect(run.outcome).toBe(outcome);
+  });
+});
+
+describe('authored automation prompt limits stay separate from runtime notes', () => {
+  it.each([500_000, 500_001])('validates %i authored characters consistently on every input surface', (length) => {
+    const action = { ...baseAction, prompt: 'x'.repeat(length) };
+    const accepted = length === 500_000;
+    expect(AutomationActionSchema.safeParse(action).success).toBe(accepted);
+    expect(AutomationCreatePayloadSchema.safeParse({ ...baseCreatePayload, action }).success).toBe(accepted);
+    expect(AutomationUpdatePayloadSchema.safeParse({ id: 'automation-1', updates: { action } }).success).toBe(accepted);
+    expect(AutomationPreflightPayloadSchema.safeParse(action).success).toBe(accepted);
   });
 });

@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { computeProviderTokenCost } from '../../shared/data/model-pricing';
+import { getReservedAuxiliarySpendToday } from '../core/system/cost-attribution';
+import { getLogger } from '../logging/logger';
 import type { AuxiliaryLlmSlot } from '../../shared/types/auxiliary-llm.types';
 import type {
   LocalAiFallbackPolicy,
@@ -21,6 +23,8 @@ import type { LocalAiIncidentService } from './local-ai-incident-service';
 import type { LocalAiTargetRepository } from './local-ai-target-repository';
 import type { LocalAiFallbackApprovalCreation } from './local-ai-fallback-approval-service';
 import type { LocalAiFallbackReservationLimits } from './local-ai-fallback-store';
+import { estimateFallbackCallUsd, resolveHelperDailyBudgetUsd,
+  UNKNOWN_FALLBACK_COST_USD, type FallbackRung } from './helper-daily-budget';
 
 interface RoutingApprovalService {
   request(
@@ -36,7 +40,7 @@ type GuardSettings = Pick<
   | 'localAiGuardDefaultFallbackPolicy'
   | 'localAiGuardDailyFallbackBudgetUsd'
   | 'localAiGuardConfirmAboveInputTokens'
->;
+> & Partial<Pick<AppSettings, 'auxiliaryLlmDailySpendCapUsd'>>;
 
 export interface LocalAiRoutingGuardDependencies {
   targets: Pick<LocalAiTargetRepository, 'get'>;
@@ -48,14 +52,15 @@ export interface LocalAiRoutingGuardDependencies {
     | 'getRoutingEvent'
     | 'markFallbackDispatched'
     | 'listIncidents'
-  >;
+  > & { getFallbackSpend?: LocalAiHealthRepository['getFallbackSpend'] };
   approvals: RoutingApprovalService;
   incidents?: Pick<LocalAiIncidentService, 'recordFallback'>;
   settings: () => GuardSettings;
   resolveFallbackModel?: (
     slot: AuxiliaryLlmSlot,
-  ) => { provider: string; model: string } | undefined;
+  ) => FallbackRung | undefined;
   notifyFallback?: (event: LocalAiRoutingEvent) => void;
+  notifyHelperBudgetExceeded?: () => void;
   now?: () => number;
   createId?: () => string;
 }
@@ -67,6 +72,16 @@ export interface LocalAiFallbackAuthorizationInput {
   estimatedInputTokens: number;
   estimatedOutputTokens: number;
   slotAllowsFrontier: boolean;
+  intendedProvider?: string;
+  intendedModel?: string;
+  /**
+   * Set only by an explicit user action such as "Compact now" (Step 7 item 5:
+   * not a helper call, not capped). It skips the shared daily helper limit. The
+   * event is still stored with its estimate, so the day's spend stays truthful.
+   * The fallback policy, the slot's own frontier setting and any per-target or
+   * incident ceiling still apply.
+   */
+  userInitiated?: boolean;
 }
 
 export interface LocalAiLocalCompletionInput {
@@ -86,11 +101,13 @@ interface PolicyDecision {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
+const logger = getLogger('LocalAiRoutingGuard');
 
 export class LocalAiRoutingGuard {
   private readonly now: () => number;
   private readonly createId: () => string;
   private readonly dispatched = new Set<string>();
+  private spendReadFailureLogged = false;
 
   constructor(private readonly dependencies: LocalAiRoutingGuardDependencies) {
     this.now = dependencies.now ?? Date.now;
@@ -152,13 +169,13 @@ export class LocalAiRoutingGuard {
       && rawTarget.lifecycle !== 'retired'
       ? rawTarget
       : undefined;
-    const fallbackModel = this.dependencies.resolveFallbackModel?.(input.slot);
-    const estimate = fallbackModel
-      ? computeProviderTokenCost(fallbackModel.provider, fallbackModel.model, {
-          inputTokens: input.estimatedInputTokens,
-          outputTokens: input.estimatedOutputTokens,
-        })
-      : undefined;
+    const fallbackModel = input.intendedProvider && input.intendedModel
+      ? { provider: input.intendedProvider, model: input.intendedModel }
+      : this.dependencies.resolveFallbackModel?.(input.slot);
+    const estimate = estimateFallbackCallUsd(fallbackModel, {
+      inputTokens: input.estimatedInputTokens,
+      outputTokens: input.estimatedOutputTokens,
+    });
     const currentSettings = this.dependencies.settings();
     const decision = input.slotAllowsFrontier
       ? this.resolvePolicy(
@@ -179,18 +196,20 @@ export class LocalAiRoutingGuard {
     const reservationLimits: LocalAiFallbackReservationLimits = {
       at,
       dayStart: utcDayStart(at),
-      globalDailyBudgetUsd: currentSettings.localAiGuardDailyFallbackBudgetUsd,
+      // Separate stores are not read atomically; one concurrent call can overshoot.
+      globalDailyBudgetUsd: input.userInitiated ? null : sharedFallbackLimit(currentSettings),
       targetDailyBudgetUsd: target?.dailyFallbackBudgetUsd,
       incidentBudgetUsd: decision.incident ? target?.incidentFallbackBudgetUsd : undefined,
     };
     if (proposedEvent.policy === 'require-confirmation') {
-      return this.confirm(proposedEvent, decision.incident, reservationLimits);
+      return this.confirm(proposedEvent, decision.incident, reservationLimits, input.userInitiated === true);
     }
     const event = this.dependencies.health.reserveFallbackRoutingEvent(
       proposedEvent,
       reservationLimits,
     );
 
+    if (proposedEvent.disposition === 'allowed' && !input.userInitiated) this.notifyGlobalBudgetRefusal(event);
     switch (event.policy) {
       case 'allow-silently':
         return this.allowedVerdict(event);
@@ -224,8 +243,7 @@ export class LocalAiRoutingGuard {
     const fallbackModel = this.dependencies.resolveFallbackModel?.(input.slot);
     const avoided = fallbackModel
       ? computeProviderTokenCost(fallbackModel.provider, fallbackModel.model, {
-          inputTokens: input.inputTokens,
-          outputTokens: input.outputTokens,
+          inputTokens: input.inputTokens, outputTokens: input.outputTokens,
         })
       : undefined;
     this.dependencies.health.appendRoutingEvent({
@@ -258,6 +276,41 @@ export class LocalAiRoutingGuard {
     if (!completed) return;
     this.dependencies.incidents?.recordFallback(completed);
     this.dispatched.add(eventId);
+  }
+
+  /**
+   * Paid fallback spend since UTC midnight, for the shared helper limit. A failed
+   * or non-finite ledger read is unknown spend, not zero spend: it returns
+   * `Infinity`, so the caller's remaining cap collapses to nothing and the paid
+   * call is refused (Step 7: unknown must not look like headroom). Never throws.
+   */
+  fallbackSpendTodayUsd(): number {
+    try {
+      const now = this.currentTimestamp();
+      const spend = this.dependencies.health.getFallbackSpend?.({
+        since: utcDayStart(now), until: now,
+      });
+      if (!spend) return 0;
+      const total = spend.knownCostUsd + spend.estimatedCostUsd
+        + spend.unknownReservations * UNKNOWN_FALLBACK_COST_USD;
+      if (Number.isFinite(total)) {
+        this.spendReadFailureLogged = false;
+        return total;
+      }
+      this.logSpendReadFailure(new Error('non-finite fallback spend total'));
+      return Number.POSITIVE_INFINITY;
+    } catch (err) {
+      this.logSpendReadFailure(err);
+      return Number.POSITIVE_INFINITY;
+    }
+  }
+
+  private logSpendReadFailure(err: unknown): void {
+    if (this.spendReadFailureLogged) return;
+    this.spendReadFailureLogged = true;
+    logger.warn('Fallback spend unreadable; treating today as over the helper limit', {
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 
   private resolvePolicy(
@@ -331,6 +384,7 @@ export class LocalAiRoutingGuard {
     event: LocalAiRoutingEvent,
     incident: LocalAiIncident | undefined,
     reservationLimits: LocalAiFallbackReservationLimits,
+    userInitiated: boolean,
   ): Promise<LocalAiFallbackVerdict> {
     const expiresAt = Math.min(Number.MAX_SAFE_INTEGER, event.createdAt + 5 * 60_000);
     const pending = this.dependencies.approvals.request(
@@ -342,7 +396,7 @@ export class LocalAiRoutingGuard {
         ...(event.estimatedCostUsd === undefined ? {} : { estimatedCostUsd: event.estimatedCostUsd }),
         expiresAt,
       },
-      { routingEvent: event, reservationLimits },
+      { routingEvent: event, reservationLimits, userInitiated },
     );
     const fallbackRequestId = this.dependencies.approvals.listPending?.()
       .find((request) => request.routingEventId === event.id)?.id;
@@ -351,6 +405,7 @@ export class LocalAiRoutingGuard {
     if (!resolvedEvent || !['allowed', 'deferred', 'blocked'].includes(resolvedEvent.disposition)) {
       throw new Error(`Local AI fallback request did not durably resolve: ${event.id}`);
     }
+    if (!userInitiated) this.notifyGlobalBudgetRefusal(resolvedEvent);
     const disposition = resolvedEvent.disposition as LocalAiFallbackVerdict['disposition'];
     const allowed = disposition === 'allowed';
     return {
@@ -377,6 +432,31 @@ export class LocalAiRoutingGuard {
       policy: event.policy,
       routingEventId: event.id,
     };
+  }
+
+  private notifyGlobalBudgetRefusal(event: LocalAiRoutingEvent): void {
+    if (event.disposition !== 'blocked' || event.decisionReason !== 'daily-budget') return;
+    // A target ceiling shares the stored reason. Verify the global ceiling too;
+    // exclude this event so an approval reservation is never counted twice.
+    try {
+      // Unreadable cheap-cloud reservations refuse the call (the shared limit
+      // collapses to zero) but are unknown spend, not proof the limit was reached.
+      const reservedUsd = getReservedAuxiliarySpendToday();
+      if (!Number.isFinite(reservedUsd)) return;
+      const limit = sharedFallbackLimit(this.dependencies.settings(), reservedUsd);
+      if (limit === null) return;
+      const at = this.currentTimestamp();
+      const spend = this.dependencies.health.getFallbackSpend?.({
+        since: utcDayStart(at), until: at, excludeEventId: event.id,
+      });
+      if (spend && spend.knownCostUsd + spend.estimatedCostUsd
+        + spend.unknownReservations * UNKNOWN_FALLBACK_COST_USD
+        + (event.estimatedCostUsd ?? UNKNOWN_FALLBACK_COST_USD) > limit) {
+        this.dependencies.notifyHelperBudgetExceeded?.();
+      }
+    } catch {
+      // A status/notification failure cannot change a blocked authorization.
+    }
   }
 
   private notify(event: LocalAiRoutingEvent): void {
@@ -431,6 +511,20 @@ function utcDayStart(timestamp: number): number {
   const date = new Date(timestamp);
   const start = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
   return Number.isSafeInteger(start) ? start : Math.max(0, timestamp - DAY_MS);
+}
+
+/**
+ * The paid-fallback share of the one helper limit: the limit minus today's
+ * cheap-cloud reservations. Unreadable reservations arrive as `Infinity`
+ * (unknown spend), which leaves nothing, so unknown never looks like headroom.
+ */
+function sharedFallbackLimit(
+  settings: GuardSettings,
+  reservedUsd: number = getReservedAuxiliarySpendToday(),
+): number | null {
+  const limit = resolveHelperDailyBudgetUsd(settings);
+  if (limit === null) return null;
+  return Number.isFinite(reservedUsd) ? Math.max(0, limit - reservedUsd) : 0;
 }
 
 function validateTokenEstimate(value: number, field: string): void {

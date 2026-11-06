@@ -24,6 +24,18 @@ export interface ClaudeSystemMessageHost {
 export function processClaudeSystemMessage(host: ClaudeSystemMessageHost, message: CliSystemMessage, raw: RawCliPayload): void {
   observeClaudeSubagentUsage(host, raw);
   host.compactionObserver.observe(message);
+  if (message.subtype === 'compact_boundary') {
+    // A boundary invalidates cumulative-result occupancy even without a post_tokens sample.
+    host.hasPerCallUsageThisTurn = true;
+    const postTokens = host.compactionObserver.getTurnCompaction().postTokens;
+    host.lastObservedContextUsage = postTokens === undefined ? null : { used: postTokens, total: host.lastKnownContextWindow };
+    if (postTokens !== undefined) {
+      host.emit('context', {
+        used: postTokens, total: host.lastKnownContextWindow,
+        percentage: Math.min(100, postTokens / host.lastKnownContextWindow * 100),
+      });
+    }
+  }
   for (const event of host.backgroundTasks.observe(raw)) {
     host.emitAsyncWork(event);
   }

@@ -164,7 +164,7 @@ export class ScriptedCliAdapter extends BaseCliAdapter {
   readonly inputs: { message: string; attachments?: FileAttachment[] }[] = [];
 
   constructor(options: ScriptedAdapterOptions = {}) {
-    super({ command: 'scripted-mock', sessionPersistence: true, persistLargeOutputs: false });
+    super({ command: 'scripted-mock', sessionPersistence: true });
     this.receipts = options.receiptBus ?? new ReceiptBus();
     this.capabilities = { ...DEFAULT_CAPABILITIES, ...options.capabilities };
     this.runtimeCaps = {

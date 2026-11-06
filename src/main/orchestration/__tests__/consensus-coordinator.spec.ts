@@ -49,6 +49,7 @@ import { subscribeCostAttribution, type CostAttributionRecord } from '../../core
 import { ConsensusCoordinator } from '../consensus-coordinator';
 import { registerProviderModelRates, clearModelRateOverlay } from '../../../shared/data/model-pricing';
 import { markProviderDispatchNotStarted } from '../../cli/adapters/provider-dispatch-status';
+import { createClaudeAdapter } from '../../cli/adapters/adapter-factory';
 
 class MockConsensusAdapter extends EventEmitter {
   spawn = vi.fn().mockResolvedValue(1234);
@@ -242,6 +243,23 @@ describe('ConsensusCoordinator', () => {
     expect(prompt).toContain('<\\/consensus_context>');
     expect(prompt).toContain('<\\/consensus_question>');
     expect(prompt).toContain('Confidence: NN/100');
+  });
+
+  it('routes Claude consensus through the real factory and read-only argv, preserving ordinary chat permissions', async () => {
+    detectAllMock.mockResolvedValue({ available: [{ name: 'claude' }] });
+    let args: string[] = [];
+    createAdapterMock.mockImplementation(({ options }) => {
+      const real = createClaudeAdapter(options) as unknown as { buildArgs(): string[] };
+      args = real.buildArgs();
+      return new MockConsensusAdapter();
+    });
+    const result = await ConsensusCoordinator.getInstance().query('Review this change', undefined, { providers: [{ provider: 'claude' }] });
+    expect(result.successCount).toBe(1);
+    expect(args[args.indexOf('--permission-mode') + 1]).toBe('dontAsk');
+    expect(args[args.indexOf('--tools') + 1]).toBe('Read,Grep,Glob,ToolSearch,Skill');
+    const chat = createClaudeAdapter({ workingDirectory: '/tmp/project', yoloMode: false }) as unknown as { buildArgs(): string[] };
+    const chatArgs = chat.buildArgs();
+    expect(chatArgs[chatArgs.indexOf('--permission-mode') + 1]).toBe('acceptEdits');
   });
 
   it('collects only assistant output when providers emit mixed message types', async () => {

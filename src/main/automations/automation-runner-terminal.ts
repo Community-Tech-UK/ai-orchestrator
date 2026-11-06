@@ -16,6 +16,8 @@ import type {
 import { emitPluginHook } from '../plugins/hook-emitter';
 import { computeRetryDelayMs } from './automation-retry';
 import { isProviderLimitRunError } from './automation-run-provider-limit';
+import { classifyAutomationRunFailure } from './automation-run-failure-class';
+import { getAutomationCheckStore } from './automation-check-store';
 import { deliverRunSummaryToChannel } from './automation-runner-helpers';
 import type { RetrySchedulerCallback } from './automation-runner-types';
 
@@ -79,7 +81,13 @@ export function handleTerminalRun(
 ): void {
   // A provider-limit failure is never auto-retried: a retry would hit the same limit, and
   // could duplicate an opt-in park-resume. The next scheduled fire is the recovery.
-  const retryable = (options?.retryable ?? true) && !isProviderLimitRunError(run.error);
+  const retryable = (options?.retryable ?? true)
+    && !isProviderLimitRunError(run.error)
+    && classifyAutomationRunFailure(run.error) !== 'never';
+  const willRetry = run.status === 'failed'
+    && retryable
+    && (run.attempt ?? 1) < (run.maxAttempts ?? 1)
+    && host.retryScheduler !== null;
   host.events.emitRunChanged({ automationId: run.automationId, run });
   host.events.emitRunTerminal({
     automationId: run.automationId,
@@ -151,15 +159,25 @@ export function handleTerminalRun(
     }
   }
 
+  if (run.configSnapshot?.action.preCheck) {
+    const checkStore = getAutomationCheckStore();
+    // A handled thread wakeup can succeed without dispatching its prompt.
+    // Only explicit no-delivery evidence excludes that check from the baseline;
+    // legacy/unknown receipts and system actions retain their existing semantics.
+    const threadPromptNotDelivered = run.configSnapshot.destination.kind === 'thread'
+      && !run.configSnapshot.action.systemAction
+      && run.threadPromptDelivered === false;
+    if (run.status === 'succeeded' && !threadPromptNotDelivered) {
+      checkStore.promotePending(run.id);
+    } else if (!willRetry) {
+      checkStore.clearPending(run.id);
+    }
+  }
+
   if (run.status === 'succeeded') host.emitAutomationState(run.automationId);
   if (host.isOneTimeRun(run)) {
     host.emitAutomationState(run.automationId);
-    const hasRetryPending =
-      run.status === 'failed' &&
-      retryable &&
-      (run.attempt ?? 1) < (run.maxAttempts ?? 1) &&
-      host.retryScheduler !== null;
-    if (!hasRetryPending) {
+    if (!willRetry) {
       host.events.emitScheduleDeactivated({ automationId: run.automationId });
     }
   }

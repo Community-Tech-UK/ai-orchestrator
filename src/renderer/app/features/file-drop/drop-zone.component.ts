@@ -5,12 +5,14 @@
 import {
   Component,
   output,
+  input,
   signal,
   HostListener,
   ChangeDetectionStrategy,
   DestroyRef,
   inject,
 } from '@angular/core';
+import { fingerprintFile } from '../../core/services/attachment-identity';
 
 @Component({
   selector: 'app-drop-zone',
@@ -78,6 +80,8 @@ export class DropZoneComponent {
   private static pastedImageCounter = 1;
   filesDropped = output<File[]>();
   imagesPasted = output<File[]>();
+  /** Read the current draft directly, even before Angular renders a selection change. */
+  pasteOwner = input<(() => string | null) | undefined>();
 
   isDragOver = signal(false);
 
@@ -167,11 +171,13 @@ export class DropZoneComponent {
   folderDropped = output<string>();
 
   @HostListener('drop', ['$event'])
-  onDrop(event: DragEvent): void {
+  async onDrop(event: DragEvent): Promise<void> {
     event.preventDefault();
     event.stopPropagation();
     this.dragCounter = 0;
     this.isDragOver.set(false);
+    const readOwner = this.pasteOwner();
+    const owner = readOwner?.();
 
     // Check for native file drop first
     const items = Array.from(event.dataTransfer?.items || []);
@@ -213,6 +219,8 @@ export class DropZoneComponent {
 
       // Emit actual files
       if (actualFiles.length > 0) {
+        await Promise.all(actualFiles.map(fingerprintFile));
+        if (this.destroyRef.destroyed || this.pasteOwner() !== readOwner || readOwner?.() !== owner) return;
         this.filesDropped.emit(actualFiles);
       }
 
@@ -332,7 +340,7 @@ export class DropZoneComponent {
     }
   }
 
-  onPaste(event: ClipboardEvent): void {
+  async onPaste(event: ClipboardEvent): Promise<void> {
     const items = event.clipboardData?.items;
     if (!items) return;
 
@@ -365,6 +373,10 @@ export class DropZoneComponent {
     if (!text || sourceNames.has(text)) {
       event.preventDefault();
     }
+    const readOwner = this.pasteOwner();
+    const owner = readOwner?.();
+    await Promise.all(imageFiles.map(fingerprintFile));
+    if (this.destroyRef.destroyed || this.pasteOwner() !== readOwner || readOwner?.() !== owner) return;
     this.imagesPasted.emit(imageFiles);
   }
 }

@@ -33,6 +33,7 @@ import {
   shouldClearRequestAfterYoloEnabled
 } from './user-action-request.rules';
 import type { UserActionRequest } from './user-action-request.types';
+import { PlanHandoffDialogComponent } from './plan-handoff-dialog.component';
 import {
   toInputRequiredRequest,
   isAcpInputRequired,
@@ -58,7 +59,7 @@ export type { UserActionRequest } from './user-action-request.types';
 @Component({
   selector: 'app-user-action-request',
   standalone: true,
-  imports: [AioTooltipDirective],
+  imports: [AioTooltipDirective, PlanHandoffDialogComponent],
   templateUrl: './user-action-request.component.html',
   styleUrl: './user-action-request.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -76,6 +77,9 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
   });
 
   pendingRequests = signal<UserActionRequest[]>([]);
+  protected readonly planHandoff = signal<{ id: string; instanceId: string } | null>(null);
+  openPlanHandoff(request: UserActionRequest): void { this.planHandoff.set({ id: request.id, instanceId: request.instanceId }); }
+  onPlanHandoffStarted(requestId: string): void { this.pendingRequests.update(requests => requests.filter(request => request.id !== requestId)); }
   isResponding = signal(false);
   responseErrors = signal<Map<string, string>>(new Map());
 
@@ -115,6 +119,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
           if (request.instanceId !== id) this.secretCardDrafts.clear(request.id);
         }
       });
+      if (this.planHandoff() && this.planHandoff()!.instanceId !== id) this.planHandoff.set(null);
       if (id) {
         this.pendingRequests.update((requests) =>
           requests.filter((r) => this.isRequestForInstance(r, id))

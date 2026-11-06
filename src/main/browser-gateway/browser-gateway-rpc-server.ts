@@ -54,6 +54,7 @@ import {
   type BrowserToolRevealStore,
 } from './browser-tool-reveal-store';
 import { routeBrowserGatewayRequest } from './browser-remote-offload-policy';
+import { compactAgentTargetListing } from './browser-agent-target-listing';
 
 interface BrowserGatewayRpcRequest {
   jsonrpc?: '2.0';
@@ -306,7 +307,7 @@ export class BrowserGatewayRpcServer {
       case 'browser.create_profile':
         return this.requireMethod('createProfile')(withContext);
       case 'browser.list_targets':
-        return this.requireMethod('listTargets')(withContext);
+        return Promise.resolve(this.requireMethod('listTargets')(withContext)).then(compactAgentTargetListing);
       case 'browser.preflight_target':
         return this.requireMethod('preflightTarget')(withContext);
       case 'browser.find_or_open':

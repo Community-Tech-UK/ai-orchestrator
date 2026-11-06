@@ -3,6 +3,7 @@ import { extractThinkingContent } from '../../../shared/utils/thinking-extractor
 import { generateId } from '../../../shared/utils/id-generator';
 import { getLogger } from '../../logging/logger';
 import { errorDiagnostic, textDiagnostic } from '../../logging/source-diagnostics';
+import { recordSessionPolicy } from '../../core/system/session-policy-log';
 import type {
   AppServerNotification,
   CodexMessagePhase,
@@ -29,6 +30,8 @@ const INFERRED_COMPLETION_MS = 250;
 /** App-server notification routing and streamed-message reconciliation. */
 export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAdapter {
   private readonly reportedStreamedCharacters = new WeakMap<TurnCaptureState, number>();
+  /** Distinct helper threads seen under each root thread, across all of its turns. */
+  private readonly helperThreadsByRoot = new Map<string, Set<string>>();
 
   protected unreportedStreamedCharacters(state: TurnCaptureState): number {
     const streamed = Array.from(state.streamingAgentMessages.values())
@@ -295,10 +298,23 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
       ? item['agentThreadId'] ?? item['agent_thread_id']
       : undefined;
     const ids = [activityChild, ...(item.type === 'collabAgentToolCall' ? item.receiverThreadIds ?? [] : [])];
+    const helpers = this.helperThreadsByRoot.get(state.threadId) ?? new Set<string>();
+    const known = helpers.size;
     for (const id of ids) {
       if (typeof id !== 'string' || !id || id === state.threadId) continue;
       this.usageAccounting.trackThread(id);
       state.threadIds.add(id);
+      helpers.add(id);
+    }
+    // Plan-queue threads are ephemeral, so Codex's state database never records
+    // their helpers. Log the running count when it grows, for the trial report.
+    if (helpers.size > known) {
+      this.helperThreadsByRoot.set(state.threadId, helpers);
+      recordSessionPolicy({
+        provider: 'codex', recordType: 'helper-count', threadId: state.threadId,
+        ...(this.cliConfig.harnessInstanceId ? { instanceId: this.cliConfig.harnessInstanceId } : {}),
+        helperThreads: helpers.size,
+      });
     }
   }
 

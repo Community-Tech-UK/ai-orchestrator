@@ -256,4 +256,29 @@ describe('OpenCode budget actual spawn preparation', () => {
     expect(mocks.nativeLimits).not.toHaveBeenCalled();
     expect(mocks.readSetting).not.toHaveBeenCalled();
   });
+    it.each([1, 2] as const)('selected %s emits title-off/build-plan30 and preserves task budget', async (major) => {
+        mocks.launch.major = major;
+        mocks.probe.mockImplementation(async (params) => projectOpenCodeConfig(major === 2 ? normalizeOpenCodeNativeConfig([{ type: 'document', info: JSON.parse(params.env.OPENCODE_CONFIG_CONTENT) }]) : JSON.parse(params.env.OPENCODE_CONFIG_CONTENT), params.model));
+        const original = { agent: { title: { description: 'Retain title settings' }, build: { description: 'Retain build settings' }, plan: { description: 'Retain plan settings' }, task: { steps: 9, description: 'Retain task settings' } } };
+        const adapter = createOpenCodeAdapter({ workingDirectory: '/tmp', maxTurns: 30, env: { OPENCODE_CONFIG_CONTENT: JSON.stringify(original) } });
+        const config = Reflect.get(adapter, 'acpConfig');
+        const cleanup = await config.prepareSpawn();
+        try {
+            const content = JSON.parse(config.env.OPENCODE_CONFIG_CONTENT);
+            const agents = major === 2 ? content.agents : content.agent;
+            expect(agents.build).toMatchObject({ steps: 30, description: 'Retain build settings' });
+            expect(agents.plan).toMatchObject({ steps: 30, description: 'Retain plan settings' });
+            expect(agents.task).toMatchObject({ steps: 9, description: 'Retain task settings' });
+            expect(agents.title).toMatchObject({ [major === 2 ? 'disabled' : 'disable']: true, description: 'Retain title settings' });
+            if (major === 1)
+                expect(content.compaction).toMatchObject({ prune: true });
+            else
+                expect(content.compaction?.prune).toBeUndefined();
+            expect(mocks.prepare).toHaveBeenCalledOnce();
+            expect(mocks.prepare.mock.calls[0][1].OPENCODE_CONFIG_CONTENT).toBe(config.env.OPENCODE_CONFIG_CONTENT);
+        }
+        finally {
+            cleanup();
+        }
+    });
 });

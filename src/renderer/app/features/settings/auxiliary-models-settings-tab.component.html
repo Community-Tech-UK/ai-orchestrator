@@ -30,11 +30,11 @@
         <div class="card">
           <div class="field-row">
             <div>
-              <div class="field-label">Daily cloud spend cap (USD)</div>
+              <div class="field-label">Daily limit for helper spend (USD)</div>
               <div class="field-hint">
-                Leave blank for no cap. When set, local models remain free and a
-                metered auxiliary request is reserved at its maximum configured
-                output cost before it is sent. Unknown-priced cloud models are blocked.
+                Covers cheap cloud helper models and paid fallbacks such as
+                conversation summaries. Leave blank for no limit. Local models remain free.
+                Metered calls reserve their estimated cost before they run.
               </div>
             </div>
             <input

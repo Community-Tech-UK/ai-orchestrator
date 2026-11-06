@@ -68,6 +68,13 @@ export class AutomationScheduler {
     // 'running' rows, so 'failed' rows with next_retry_at are untouched.
     const pendingRetries = this.store.listPendingRetries();
     for (const pending of pendingRetries) {
+      if (this.retryHandles.has(pending.runId)) {
+        // Already armed: the startup catch-up sweep runs in the background, so a
+        // run that failed during it was armed (and persisted) by scheduleRetry
+        // before this loop read the persisted marker back. Arming again would
+        // leave an orphaned timer that dispatches the same retry twice.
+        continue;
+      }
       const delay = Math.max(0, pending.nextRetryAt - this.now());
       const originalRun = this.store.getRun(pending.runId);
       if (!originalRun) {

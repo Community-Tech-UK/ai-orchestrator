@@ -3,9 +3,16 @@ import { isVersionAtLeast } from './claude-cli-feature-probes';
 /** Claude's successful-command output setting was introduced in this release. */
 export const BASH_OUTPUT_MAX_CHARS_MIN_VERSION = '2.1.261';
 
+/** Test seam: the lazy `require` below bypasses vitest's mock registry. */
+let readerForTesting: ((key: string) => unknown) | null = null;
+export function _setOutputCapSettingsReaderForTesting(reader: ((key: string) => unknown) | null): void {
+  readerForTesting = reader;
+}
+
 /** Main has persisted settings; standalone workers may have no settings manager. */
 function readSetting(key: string): unknown {
   try {
+    if (readerForTesting) return readerForTesting(key);
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { getSettingsManager } = require('../../core/config/settings-manager') as {
       getSettingsManager: () => { get: (key: string) => unknown };

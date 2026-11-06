@@ -26,6 +26,11 @@ import type {
   SqliteDriverFactory,
 } from '../../db/sqlite-driver';
 import { getLogger } from '../../logging/logger';
+import {
+  complianceSplitSql,
+  summaryByProgramSql,
+  summaryTotalsSql,
+} from './rtk-summary-queries';
 
 import { RtkDailyRollup } from './rtk-daily-rollup';
 
@@ -35,20 +40,38 @@ const logger = getLogger('RtkTrackingReader');
 export interface RtkSavingsSummary {
   /** Number of commands recorded in the queried window. */
   commands: number;
+  /** Non-proxy/fallback rows with positive recorded savings; excludes unchanged/expanded output. */
+  commandsFiltered: number;
+  /** Explicit proxy/fallback rows only; together with commandsFiltered need not sum to commands. */
+  commandsRanInFull: number;
   /** Projects exceeding 2,000 recorded invocations in the last hour. */
   projectBursts?: { projectPath: string; commands: number }[];
   /** Sum of input_tokens (raw command output before filtering). */
   totalInput: number;
   /** Sum of output_tokens (filtered output sent to LLM). */
   totalOutput: number;
-  /** Sum of saved_tokens (input - output). */
+  /** Sum of saved_tokens (input - output). Raw: includes proxy/fallback noise. */
   totalSaved: number;
+  /** Capped estimate of tokens saved on shortened rows only (18a item 3). */
+  savedTokensCapped: number;
+  /** Typical reduction on shortened commands, output-weighted (estimate). */
+  weightedReductionPct: number;
   /** Average savings_pct across rows ([0, 100]). */
   avgSavingsPct: number;
+  /** Width of the queried window in days (at least 1 when there is data). */
+  windowDays: number;
   /** Top commands by tokens saved. */
   byCommand: RtkCommandStat[];
+  /** Shortened-only savings grouped by the program word (`git`, `npm`, …). */
+  byProgram: RtkProgramStat[];
   /** ISO timestamp of the most recent command, or null if none. */
   lastCommandAt: string | null;
+}
+
+export interface RtkProgramStat {
+  program: string;
+  count: number;
+  savedTokensCapped: number;
 }
 
 export interface RtkCommandStat {
@@ -82,7 +105,7 @@ export interface RtkCommandStat {
  * is unknown — not zero. `unmeasurable` below exists to say so out loud.
  */
 export interface RtkComplianceSummary {
-  /** Commands rtk actually filtered. */
+  /** Commands routed through a filter, including unchanged or expanded output. */
   filtered: number;
   /** Commands routed through `rtk proxy` — tracked, but deliberately unfiltered. */
   proxied: number;
@@ -297,12 +320,7 @@ export class RtkTrackingReader {
 
     try {
       const row = driver
-        .prepare(
-          `SELECT
-             COALESCE(SUM(CASE WHEN rtk_cmd LIKE 'rtk proxy%' THEN 1 ELSE 0 END), 0) AS proxied,
-             COALESCE(SUM(CASE WHEN rtk_cmd LIKE 'rtk proxy%' THEN 0 ELSE 1 END), 0) AS filtered
-           FROM commands ${filter.clause}`,
-        )
+        .prepare(complianceSplitSql(filter.clause))
         .get(...filter.params) as { proxied: number; filtered: number } | undefined;
 
       const proxied = row?.proxied ?? 0;
@@ -379,34 +397,35 @@ export class RtkTrackingReader {
 
     try {
       const summaryRow = driver
-        .prepare(
-          `SELECT
-            COUNT(*) AS commands,
-            COALESCE(SUM(input_tokens), 0) AS totalInput,
-            COALESCE(SUM(output_tokens), 0) AS totalOutput,
-            COALESCE(SUM(saved_tokens), 0) AS totalSaved,
-            COALESCE(AVG(savings_pct), 0) AS avgSavingsPct,
-            MAX(timestamp) AS lastCommandAt
-          FROM commands
-          ${filter.clause}`,
-        )
+        .prepare(summaryTotalsSql(filter.clause))
         .get<{
           commands: number;
+          commandsRanInFull: number;
+          commandsFiltered: number;
+          savedTokensCapped: number;
+          weightedReductionPct: number;
           totalInput: number;
           totalOutput: number;
           totalSaved: number;
           avgSavingsPct: number;
+          firstCommandAt: string | null;
           lastCommandAt: string | null;
         }>(...filter.params);
 
       if (!summaryRow) {
         return {
           commands: 0,
+          commandsFiltered: 0,
+          commandsRanInFull: 0,
           totalInput: 0,
           totalOutput: 0,
           totalSaved: 0,
+          savedTokensCapped: 0,
+          weightedReductionPct: 0,
           avgSavingsPct: 0,
+          windowDays: 0,
           byCommand: [],
+          byProgram: [],
           lastCommandAt: null,
         };
       }
@@ -426,17 +445,39 @@ export class RtkTrackingReader {
         )
         .all<RtkCommandStat>(...filter.params, topN);
 
+      const byProgramRows = driver
+        .prepare(summaryByProgramSql(filter.clause))
+        .all<{ program: string; count: number; savedTokensCapped: number }>(...filter.params, topN);
+
+      const firstMs = summaryRow.firstCommandAt ? Date.parse(summaryRow.firstCommandAt) : NaN;
+      const lastMs = summaryRow.lastCommandAt ? Date.parse(summaryRow.lastCommandAt) : NaN;
+      const spanMs = Number.isFinite(firstMs) && Number.isFinite(lastMs) && lastMs > firstMs
+        ? lastMs - firstMs
+        : opts.sinceMs !== undefined
+          ? Date.now() - opts.sinceMs
+          : 0;
+
       return {
         commands: Number(summaryRow.commands ?? 0),
+        commandsFiltered: Number(summaryRow.commandsFiltered ?? 0),
+        commandsRanInFull: Number(summaryRow.commandsRanInFull ?? 0),
         totalInput: Number(summaryRow.totalInput ?? 0),
         totalOutput: Number(summaryRow.totalOutput ?? 0),
         totalSaved: Number(summaryRow.totalSaved ?? 0),
+        savedTokensCapped: Number(summaryRow.savedTokensCapped ?? 0),
+        weightedReductionPct: Number(summaryRow.weightedReductionPct ?? 0),
         avgSavingsPct: Number(summaryRow.avgSavingsPct ?? 0),
+        windowDays: spanMs > 0 ? Math.max(1, Math.round(spanMs / 86_400_000)) : 0,
         byCommand: byCommandRows.map((r) => ({
           rtkCmd: r.rtkCmd,
           count: Number(r.count),
           saved: Number(r.saved),
           avgSavingsPct: Number(r.avgSavingsPct),
+        })),
+        byProgram: byProgramRows.map((r) => ({
+          program: r.program,
+          count: Number(r.count),
+          savedTokensCapped: Number(r.savedTokensCapped),
         })),
         lastCommandAt: summaryRow.lastCommandAt ?? null,
       };

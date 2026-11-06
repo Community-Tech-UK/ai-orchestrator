@@ -155,8 +155,8 @@ export async function sendAbortableReviewerMessage(
   const cancelled = new Promise<never>((_resolve, reject) => {
     const handleAbort = () => {
       onAbort?.();
-      cancelAdapter(adapter);
       reject(reviewAbortError(signal));
+      cancelAdapter(adapter);
     };
     signal.addEventListener('abort', handleAbort, { once: true });
     removeAbortListener = () => signal.removeEventListener('abort', handleAbort);
@@ -169,19 +169,23 @@ export async function sendAbortableReviewerMessage(
     sent = adapter.sendMessage(message);
     const response = await Promise.race([sent, cancelled]);
     observed.observe(response.usage);
-    if (recordContext && observed.dispatched) recordModelCall({ ...recordContext, usage: observed.usage, outcome: response.metadata?.['budgetExceeded'] === true ? 'budget-exceeded' : 'success' });
+    if (recordContext && observed.dispatched) {
+      recordModelCall({ ...recordContext, usage: observed.usage,
+        outcome: response.metadata?.['budgetExceeded'] === true ? 'budget-exceeded' : 'success' });
+    }
     return response;
   } catch (error) {
     observed.observeError(error);
     const outcome = signal.aborted || isModelCallCancelled(error) ? 'cancelled' : 'error';
     if (outcome === 'cancelled' && sent) {
-      // Cancellation acknowledgement stays immediate. The native request can
-      // reject with paid partial usage only after asynchronous process closure.
-      // Keep its accounting observer until that send actually settles.
+      // The caller gets cancellation immediately; native usage can arrive only
+      // when the underlying process closes and the send promise settles.
       deferredRecording = true;
       const finish = (): void => {
         try {
-          if (recordContext && observed.dispatched) recordModelCall({ ...recordContext, usage: observed.usage, outcome });
+          if (recordContext && observed.dispatched) {
+            recordModelCall({ ...recordContext, usage: observed.usage, outcome });
+          }
         } finally { observed.dispose(); }
       };
       void sent.then(response => {
@@ -269,7 +273,8 @@ export class ProviderReviewExecutionHost implements ReviewExecutionHost {
         { role: 'user', content: prompt },
         signal,
         () => { cancelled = true; },
-        { purpose: options?.purpose ?? 'review-cli', correlationId: options?.correlationId, provider: resolvedCli, model: reviewerModel },
+        { purpose: options?.purpose ?? 'review-cli', correlationId: options?.correlationId,
+          provider: resolvedCli, model: reviewerModel },
       );
       const model = reviewerModel ?? (typeof response.metadata?.['model'] === 'string' ? response.metadata['model'] : undefined);
       const resolved = resolveModelCallCost(resolvedCli, model, response.usage);

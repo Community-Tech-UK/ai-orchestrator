@@ -28,7 +28,7 @@ export class AutomationLoopRunLimits {
     const deadline = (run.startedAt ?? this.now()) + action.maxRunMinutes! * 60_000;
     const timer = scheduleAutomationDeadline(deadline, this.now, () => { this.check(loopId); });
     this.limits.set(loopId, { run, deadline, minutes: action.maxRunMinutes!, cap: action.maxProcessedTokens!, processedTokens: run.processedTokens ?? 0, timer,
-      output: { runId: run.id, automationId: run.automationId, seenAssistantOutput: false, outputChunks: [] } });
+      output: { runId: run.id, automationId: run.automationId, quietReplyEligible: false, seenAssistantOutput: false, outputChunks: [] } });
     this.unsubscribe ??= subscribeCostAttribution(record => {
       for (const [id, limit] of this.limits) {
         if (record.source !== 'one-shot' || !(record.correlationId === id || record.correlationId?.startsWith(`${id}::`))) continue;

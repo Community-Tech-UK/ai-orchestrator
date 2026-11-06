@@ -27,6 +27,18 @@ describe('restart compaction handoff', () => {
     const cut = selectCompactionTail(turns.map(turn => ({ role: turn.type as 'user' | 'assistant', content: turn.content })), 10000);
     expect(prepared.stats.recentTurns).toBe(cut.keptIndices.length);
   });
+  it('Step 7 item 5: carries the user-initiated flag to the summary helper only when the caller set it', async () => {
+    const turns = Array.from({ length: 6 }, (_, i) => message(String(i), i % 2 ? 'assistant' : 'user', i < 4 ? `turn${i} `.repeat(5000) : `latest ${i}`));
+
+    await prepareRestartCompaction(instance('manual', turns), { userInitiated: true });
+    expect(models.generate).toHaveBeenCalledOnce();
+    expect(models.generate.mock.calls[0]![3]).toEqual({ preserveInput: true, userInitiated: true });
+
+    models.generate.mockClear();
+    await prepareRestartCompaction(instance('automatic', turns));
+    expect(models.generate).toHaveBeenCalledOnce();
+    expect(models.generate.mock.calls[0]![3]).toEqual({ preserveInput: true });
+  });
   it('keeps an entire short conversation without a helper call', async () => {
     const prepared = await prepareRestartCompaction(instance('small', [message('1', 'user', 'hello'), message('2', 'assistant', 'reply')]));
     expect(models.generate).not.toHaveBeenCalled();

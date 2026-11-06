@@ -93,6 +93,11 @@ export function createStableOrchestratorTools(
 
   const execute: McpServerToolDefinition = {
     name: ORCHESTRATOR_TOOL_EXECUTE_NAME,
+    resolveMaxResultChars: args => {
+      const tool = typeof args['name'] === 'string' ? byName.get(args['name']) : undefined;
+      return tool?.resolveMaxResultChars && objectArgs(args['arguments'])
+        ? tool.resolveMaxResultChars(args['arguments']) : tool?.maxResultChars;
+    },
     description:
       'Execute a non-core Harness orchestrator tool found by tool_search/tool_describe. '
       + 'Pass its exact name and an arguments object matching its described schema. '

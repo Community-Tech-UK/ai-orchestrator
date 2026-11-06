@@ -64,6 +64,26 @@ describe('CompactionCoordinator strategy selection', () => {
     expect(restartCompact).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    { success: true, resumeDelivered: true },
+    { success: true, resumeDelivered: false },
+    { success: false, resumeDelivered: true },
+  ])('keeps restart success separate from its confirmed receipt: %o', async (restartResult) => {
+    const coordinator = CompactionCoordinator.getInstance();
+    coordinator.configure({ restartCompact: async () => restartResult });
+    const result = await coordinator.compactInstance('inst-restart-receipt');
+    expect(result.success).toBe(restartResult.success);
+    expect(result.method).toBe('restart-with-summary');
+    expect(result.resumeDelivered).toBe(restartResult.success ? restartResult.resumeDelivered : undefined);
+  });
+
+  it('keeps legacy restart success compatible without inventing a receipt', async () => {
+    const coordinator = CompactionCoordinator.getInstance();
+    coordinator.configure({ restartCompact: async () => true });
+    expect(await coordinator.compactInstance('inst-legacy-restart'))
+      .toMatchObject({ success: true, method: 'restart-with-summary', resumeDelivered: false });
+  });
+
   // W6 item 4: mid-turn, the native compact goes unconfirmed and the fallback
   // restarted the instance under the live turn.
   it('refuses manual compaction while the provider turn is active, running neither strategy', async () => {

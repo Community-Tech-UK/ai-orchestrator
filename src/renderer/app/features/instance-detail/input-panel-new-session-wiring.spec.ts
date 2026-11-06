@@ -33,6 +33,7 @@ import { OrchestrationIpcService } from '../../core/services/ipc';
 import { InstanceIpcService } from '../../core/services/ipc/instance-ipc.service';
 import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
 import { InstanceStore } from '../../core/state/instance.store';
+import { InstanceMessagingStore } from '../../core/state/instance/instance-messaging.store';
 import { PromptHistoryStore } from '../../core/state/prompt-history.store';
 import { VoiceConversationStore } from '../../core/voice/voice-conversation.store';
 import { LoopPanelOpenerService } from '../loop/loop-panel-opener.service';
@@ -143,6 +144,7 @@ describe('InputPanelComponent new-session submission wiring', () => {
         { provide: KeybindingService, useValue: { setContext: vi.fn(), onAction: vi.fn(() => vi.fn()) } },
         { provide: OrchestrationIpcService, useValue: { workflowNlSuggest: vi.fn(async () => ({ success: false })), workflowCanTransition: vi.fn(), workflowStart: vi.fn() } },
         { provide: InstanceIpcService, useValue: {} },
+        { provide: InstanceMessagingStore, useValue: { getQueuedMessageCount: vi.fn(() => 0) } },
         { provide: ElectronIpcService, useValue: { platform: 'darwin' } },
         { provide: InstanceStore,
           useValue: { getInstance: vi.fn(() => undefined), isQueueParked: () => false },

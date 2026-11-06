@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolveContextWarningLevel } from './context-warning-level';
+import { buildClaudeContextNoteSentence, resolveClaudeContextNote, resolveContextWarningLevel } from './context-warning-level';
 import { RESTORED_CONTEXT_USAGE_SOURCE } from '../../../../shared/types/instance.types';
 import type { ContextUsage } from '../../core/state/instance/instance.types';
 
@@ -102,5 +102,47 @@ describe('resolveContextWarningLevel', () => {
     it('defers to the provider even at emergency occupancy', () => {
       expect(resolveContextWarningLevel(occupancy(99), true)).toBeNull();
     });
+  });
+});
+
+describe('resolveClaudeContextNote', () => {
+  const ceilings = { machineContextCeilingTokens: 400_000, ownChatContextCeilingTokens: 400_000 };
+  const instance = {
+    provider: 'claude', selfManagesAutoCompaction: true,
+    contextUsage: { used: 303_000, total: 1_000_000, percentage: 30, occupancyReported: true },
+  };
+
+  it('shows the gap to Claude’s actual summary trigger', () => {
+    expect(resolveClaudeContextNote(instance, ceilings))
+      .toBe('Claude will summarise this conversation in about 64K tokens.');
+    expect(buildClaudeContextNoteSentence(-10)).toContain('about 0 tokens');
+  });
+
+  it('stays quiet until 100K before the trigger and ignores aggregate readings', () => {
+    expect(resolveClaudeContextNote({ ...instance, contextUsage: {
+      ...instance.contextUsage, used: 266_999,
+    } }, ceilings)).toBeNull();
+    expect(resolveClaudeContextNote({ ...instance, contextUsage: {
+      ...instance.contextUsage, used: 267_000,
+    } }, ceilings)).toContain('about 100K');
+    expect(resolveClaudeContextNote({ ...instance, contextUsage: {
+      ...instance.contextUsage, occupancyIsAggregate: true,
+    } }, ceilings)).toBeNull();
+  });
+
+  it('uses the shared machine-session classifier for the lower machine ceiling', () => {
+    const split = { machineContextCeilingTokens: 400_000, ownChatContextCeilingTokens: 500_000 };
+    const nearMachine = { ...instance, contextUsage: { ...instance.contextUsage, used: 320_000 } };
+    expect(resolveClaudeContextNote(nearMachine, split)).toBeNull();
+    expect(resolveClaudeContextNote({ ...nearMachine, metadata: { spendPurpose: 'plan-queue' } }, split))
+      .toContain('about 47K');
+    expect(resolveClaudeContextNote({ ...nearMachine, parentId: 'parent' }, split))
+      .toContain('about 47K');
+  });
+
+  it('requires a self-compacting Claude session and a positive ceiling', () => {
+    expect(resolveClaudeContextNote({ ...instance, provider: 'codex' }, ceilings)).toBeNull();
+    expect(resolveClaudeContextNote({ ...instance, selfManagesAutoCompaction: false }, ceilings)).toBeNull();
+    expect(resolveClaudeContextNote(instance, { ...ceilings, ownChatContextCeilingTokens: 0 })).toBeNull();
   });
 });

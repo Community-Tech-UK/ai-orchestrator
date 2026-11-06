@@ -3,6 +3,7 @@ import type { Instance, OutputMessage } from '../../../shared/types/instance.typ
 import type { InstanceContextPort } from '../instance-context-port';
 import type { RlmContextInfo, UnifiedMemoryContextInfo } from '../instance-types';
 import type { IndexedCodebaseContextInfo } from '../../indexing/indexed-codebase-context';
+import { getHarnessGuidance } from '../../orchestration/harness-guidance';
 
 const CONTEXT_DEADLINE_MS = 500;
 let InstanceManager: typeof import('../instance-manager').InstanceManager;
@@ -11,6 +12,7 @@ vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 const {
   mockCommunicationSendInput,
+  mockCommunicationHooks,
   mockCommandExecuteCommandString,
   mockIndexedBuildContext,
   mockIndexedFormatContextBlock,
@@ -18,11 +20,11 @@ const {
   mockQueueContinuityPreamble,
   mockQueueRetrievedContext,
   mockQueueUpdate,
-  mockGetLaterTurnReminder,
   mockStateInstances,
   MockEmitter,
 } = vi.hoisted(() => ({
   mockCommunicationSendInput: vi.fn(),
+  mockCommunicationHooks: { compactContext: undefined as undefined | ((id: string, resumeTurn?: unknown) => Promise<unknown>) },
   mockCommandExecuteCommandString: vi.fn(),
   mockIndexedBuildContext: vi.fn(),
   mockIndexedFormatContextBlock: vi.fn(),
@@ -30,7 +32,6 @@ const {
   mockQueueContinuityPreamble: vi.fn(),
   mockQueueRetrievedContext: vi.fn(),
   mockQueueUpdate: vi.fn(),
-  mockGetLaterTurnReminder: vi.fn(),
   mockStateInstances: new Map<string, Instance>(),
   MockEmitter: class {
     on(): this { return this; }
@@ -224,6 +225,10 @@ vi.mock('../instance-state', () => {
 
 vi.mock('../instance-communication', () => {
   class InstanceCommunicationManager extends MockEmitter {
+    constructor(deps: { compactContext: (id: string, resumeTurn?: unknown) => Promise<unknown> }) {
+      super();
+      mockCommunicationHooks.compactContext = deps.compactContext;
+    }
     sendInput = mockCommunicationSendInput;
     queueContinuityPreamble = mockQueueContinuityPreamble;
     queueRetrievedContext = mockQueueRetrievedContext;
@@ -281,10 +286,6 @@ vi.mock('../instance-orchestration', () => {
     registerInstance(): void { return undefined; }
     unregisterInstance(): void { return undefined; }
     hasActiveWork(): boolean { return false; }
-    getOrchestrationPrompt(): string { return '[ORCHESTRATION PROMPT]'; }
-    getLaterTurnReminderIfRelevant(message: string): string | null {
-      return mockGetLaterTurnReminder(message) as string | null;
-    }
     getOrchestrationHandler(): Record<string, unknown> {
       return {
         getPendingUserActionsForInstance: vi.fn(() => []),
@@ -381,6 +382,8 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
     ],
     contextUsage: { used: 0, total: 1000, percentage: 0 },
     parentId: null,
+    depth: 0,
+    providerSessionId: 'provider-session-1',
     childrenIds: [],
     processId: 123,
     errorCount: 0,
@@ -455,12 +458,12 @@ describe('InstanceManager context deadline', () => {
     vi.clearAllMocks();
     mockStateInstances.clear();
     mockCommunicationSendInput.mockResolvedValue(undefined);
+    mockCommunicationHooks.compactContext = undefined;
     mockCommandExecuteCommandString.mockReset();
     mockCommandExecuteCommandString.mockResolvedValue(null);
     mockIndexedBuildContext.mockResolvedValue(null);
     mockIndexedFormatContextBlock.mockReturnValue('[Indexed]\nindex context');
-    mockGetLaterTurnReminder.mockReset();
-    mockGetLaterTurnReminder.mockReturnValue(null);
+    getHarnessGuidance()._resetForTesting();
   });
 
   afterEach(() => {
@@ -488,6 +491,58 @@ describe('InstanceManager context deadline', () => {
       expect(interrupt).toHaveBeenCalledWith(instance.id, 'renderer-ipc');
     } finally {
       interrupt.mockRestore();
+    }
+  });
+
+  it('wires overflow through the context engine with the interrupted turn', async () => {
+    const { getContextEngine } = await import('../../context/context-engine.js');
+    const compact = vi.spyOn(getContextEngine(), 'compactInstance').mockResolvedValue({
+      success: true, method: 'restart-with-summary', blocking: false, resumeDelivered: true,
+    });
+    const instance = makeInstance({ provider: 'gemini' });
+    mockStateInstances.set(instance.id, instance);
+    try {
+      new InstanceManager(undefined, createContextPort());
+      const resumeTurn = { text: 'Finish the interrupted request.', attachments: [] };
+      const result = await mockCommunicationHooks.compactContext?.(instance.id, resumeTurn);
+      const owner = compact.mock.calls[0]?.[1]?.recoveryOwner;
+      expect(compact).toHaveBeenCalledWith(instance.id, {
+        trigger: 'overflow', resumeTurn: { ...resumeTurn, internalSource: undefined },
+        recoveryOwner: { assertCurrent: expect.any(Function), assertBeforeRestart: expect.any(Function),
+          assertProviderDispatchCurrent: expect.any(Function) },
+      });
+      owner!.assertCurrent();
+      owner!.assertBeforeRestart();
+      owner!.assertProviderDispatchCurrent();
+      expect(result).toEqual({ method: 'restart-with-summary', resumeDelivered: true });
+    } finally {
+      compact.mockRestore();
+    }
+  });
+
+  it.each([undefined, false])('does not acknowledge overflow resume delivery without a receipt: %s', async (resumeDelivered) => {
+    const { getContextEngine } = await import('../../context/context-engine.js');
+    const compact = vi.spyOn(getContextEngine(), 'compactInstance').mockResolvedValue({
+      success: true, method: 'restart-with-summary', blocking: false, resumeDelivered,
+    });
+    const instance = makeInstance({ provider: 'gemini' });
+    mockStateInstances.set(instance.id, instance);
+    try {
+      new InstanceManager(undefined, createContextPort());
+      const resumeTurn = { text: 'Finish the interrupted request.', attachments: [] };
+      const result = await mockCommunicationHooks.compactContext?.(instance.id, resumeTurn);
+      const owner = compact.mock.calls[0]?.[1]?.recoveryOwner;
+      expect(compact).toHaveBeenCalledWith(instance.id, {
+        trigger: 'overflow', resumeTurn: { ...resumeTurn, internalSource: undefined },
+        recoveryOwner: { assertCurrent: expect.any(Function), assertBeforeRestart: expect.any(Function),
+          assertProviderDispatchCurrent: expect.any(Function) },
+      });
+      owner!.assertCurrent();
+      owner!.assertBeforeRestart();
+      owner!.assertProviderDispatchCurrent();
+      expect(result).toEqual({ method: 'restart-with-summary', resumeDelivered: false });
+    } finally {
+      compact.mockRestore();
     }
   });
 
@@ -848,14 +903,7 @@ describe('InstanceManager context deadline', () => {
     expect(mockCommunicationSendInput).not.toHaveBeenCalled();
   });
 
-  // makeInstance() seeds prior conversation history, so the first tracked input is
-  // NOT a fresh-conversation first message — i.e. the orchestration prompt is not
-  // (re)injected. This is exactly the long-conversation case where the scheduling
-  // reminder must be re-surfaced.
-  it('injects the scheduling reminder into the context block on a later-turn scheduling request', async () => {
-    mockGetLaterTurnReminder.mockImplementation((msg: string) =>
-      msg.includes('automation') ? '[SCHED REMINDER]' : null,
-    );
+  it('injects scheduling rules into the context block on a later-turn scheduling request', async () => {
     const contextPort = createContextPort({
       buildRlmContext: vi.fn().mockResolvedValue(null),
       buildUnifiedMemoryContext: vi.fn().mockResolvedValue(null),
@@ -868,15 +916,11 @@ describe('InstanceManager context deadline', () => {
 
     await manager.sendInput(instance.id, 'please create an automation for this');
 
-    expect(mockGetLaterTurnReminder).toHaveBeenCalledWith(
-      'please create an automation for this',
-    );
     const contextBlock = mockCommunicationSendInput.mock.calls[0]?.[3] as string | null;
-    expect(contextBlock).toContain('[SCHED REMINDER]');
+    expect(contextBlock).toContain('## Harness scheduling rules');
   });
 
-  it('prepends the reminder alongside retrieved context without dropping it', async () => {
-    mockGetLaterTurnReminder.mockReturnValue('[SCHED REMINDER]');
+  it('adds scheduling rules alongside retrieved context without dropping it', async () => {
     const contextPort = createContextPort({
       buildRlmContext: vi.fn().mockResolvedValue({
         context: 'rlm context',
@@ -896,35 +940,26 @@ describe('InstanceManager context deadline', () => {
     await manager.sendInput(instance.id, 'schedule something daily');
 
     const contextBlock = mockCommunicationSendInput.mock.calls[0]?.[3] as string | null;
-    expect(contextBlock).toContain('[SCHED REMINDER]');
+    expect(contextBlock).toContain('## Harness scheduling rules');
     expect(contextBlock).toContain('[RLM]\nrlm context');
   });
 
-  it('injects the consensus reminder on a later-turn high-risk validation request', async () => {
-    mockGetLaterTurnReminder.mockImplementation((msg: string) =>
-      msg.includes('consensus') ? '[CONSENSUS REMINDER]' : null,
-    );
+  it('injects consensus rules on a later-turn high-risk validation request', async () => {
     const instance = makeInstance();
     mockStateInstances.set(instance.id, instance);
     const manager = new InstanceManager(undefined, createContextPort());
 
     await manager.sendInput(instance.id, 'run a consensus check on this migration');
 
-    expect(mockGetLaterTurnReminder).toHaveBeenCalledWith(
-      'run a consensus check on this migration',
-    );
     expect(mockCommunicationSendInput.mock.calls[0]?.[1]).toBe(
       'run a consensus check on this migration',
     );
     const contextBlock = mockCommunicationSendInput.mock.calls[0]?.[3] as string | null;
-    expect(contextBlock).toContain('[CONSENSUS REMINDER]');
-    expect(contextBlock).not.toContain('[ORCHESTRATION PROMPT]');
+    expect(contextBlock).toContain('## Harness consensus rules');
+    expect(contextBlock).not.toContain('## Harness commands');
   });
 
-  it('does not inject a reminder for routine messages', async () => {
-    mockGetLaterTurnReminder.mockImplementation((msg: string) =>
-      msg.includes('automation') ? '[SCHED REMINDER]' : null,
-    );
+  it('does not inject guidance for routine messages', async () => {
     const instance = makeInstance();
     mockStateInstances.set(instance.id, instance);
     const manager = new InstanceManager(undefined, createContextPort());
@@ -932,6 +967,6 @@ describe('InstanceManager context deadline', () => {
     await manager.sendInput(instance.id, 'fix the failing test');
 
     const contextBlock = mockCommunicationSendInput.mock.calls[0]?.[3] as string | null;
-    expect(contextBlock ?? '').not.toContain('[SCHED REMINDER]');
+    expect(contextBlock ?? '').not.toContain('## Harness scheduling rules');
   });
 });

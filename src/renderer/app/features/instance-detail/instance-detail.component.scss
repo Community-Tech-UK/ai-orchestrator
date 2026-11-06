@@ -114,6 +114,13 @@
         color: rgba(245, 158, 11, 0.85);
       }
 
+      .context-near-limit-note {
+        margin: 0 4px;
+        color: var(--text-muted);
+        font-size: 11px;
+        line-height: 1.4;
+      }
+
       .recovery-banner-error {
         background: rgba(var(--error-rgb), 0.08);
         border-color: rgba(var(--error-rgb), 0.18);

@@ -762,10 +762,8 @@ export class InstanceListStore {
       desiredRuntime: this.isRecord(d['desiredRuntime'])
         ? (d['desiredRuntime'] as unknown as Instance['desiredRuntime'])
         : undefined,
-      selfManagesAutoCompaction:
-        typeof d['selfManagesAutoCompaction'] === 'boolean'
-          ? d['selfManagesAutoCompaction']
-          : undefined,
+      selfManagesAutoCompaction: typeof d['selfManagesAutoCompaction'] === 'boolean' ? d['selfManagesAutoCompaction'] : undefined,
+      residentClaude: typeof d['residentClaude'] === 'boolean' ? d['residentClaude'] : undefined,
       workingDirectory: d['workingDirectory'] as string,
       additionalDirectories: normalizeOpenCodeAdditionalDirectories(d['additionalDirectories'], providerDetails.provider),
       yoloMode: (d['yoloMode'] as boolean) ?? false,

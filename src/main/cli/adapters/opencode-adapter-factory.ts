@@ -24,6 +24,7 @@ import { readOpenCodeNativeModelLimits } from './opencode-native-model-limits';
 import { selectOpenCodeLaunch } from './opencode-cli-launch';
 import { readOpenCodeEffectiveBudgetConfig } from './opencode-effective-budget-config';
 import { serializeOpenCodeConfigForV2 } from './opencode-v2-config';
+import { applyOpenCodeSessionLevers } from './opencode-session-levers';
 import { applyOpenCodePermissionPolicy, assertOpenCodePermissionPolicy } from './opencode-permission-policy';
 export { buildOpenCodePermissionBlock } from './opencode-permission-policy';
 import {
@@ -164,6 +165,8 @@ export function createOpenCodeAdapter(options: UnifiedSpawnOptions): AcpCliAdapt
   const childProgress = createOpenCodeChildProgressSource(workingDirectory);
   const adapter: AcpCliAdapter = new AcpCliAdapter({
     adapterName: 'opencode-acp',
+    contextCapabilityProfile: 'opencode-acp',
+    nativeCompaction: { command: '/compact', timeoutMs: promptTimeoutMs ?? 600_000 },
     command: 'opencode',
     resolveCommand: async () => (await withOpenCodeProcessGate(() => selectOpenCodeLaunch({
       workingDirectory, env, writableRoots: adapter.getHardenedWritableRoots(), requiredMajor,
@@ -225,6 +228,7 @@ export function createOpenCodeAdapter(options: UnifiedSpawnOptions): AcpCliAdapt
       }
       applyOpenCodeAccountProviderBlocks(currentConfig, accountBlocks);
       applyOpenCodePermissionPolicy(currentConfig, yoloMode, effectiveConfig);
+      applyOpenCodeSessionLevers(currentConfig, { major: launch.major, maxTurns: options.maxTurns });
       if (generationBudget && model) Object.assign(generationBudget, applyOpenCodeGenerationBudget(currentConfig, model, effectiveConfig));
       // Every native read must receive the selected major's configuration,
       // including freshly resolved account providers, not the early overlay.

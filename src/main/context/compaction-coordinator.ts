@@ -14,7 +14,7 @@ import type { ProviderContextCapabilities } from '@contracts/types/context-evide
 import { getLogger } from '../logging/logger';
 import type { ContextUsage } from '../../shared/types/instance.types';
 import type { ContextEvidenceMode } from '../../shared/types/settings.types';
-import type { CompactionBoundaryOptions } from '../../shared/types/compaction-preview.types';
+import type { CompactionExecutionOptions } from './compaction-execution-options';
 import { TokenBudgetTracker } from './token-budget-tracker';
 import { CompactionEpochTracker } from './compaction-epoch';
 import { measureAsync } from '../util/slow-operations';
@@ -43,6 +43,8 @@ export interface CompactionResult {
    * different outcomes — the fallback mints a new provider session id (LT-017).
    */
   nativeAttemptFailed?: boolean;
+  /** Confirmed provider delivery of the interrupted request in a successful restart. */
+  resumeDelivered?: boolean;
   /**
    * Set when manual compaction was refused because the provider turn is still
    * running. Neither strategy ran: native compaction cannot be confirmed
@@ -60,8 +62,19 @@ export const COMPACTION_BUSY_ERROR = 'Busy: compaction is available once the cur
  */
 export type CompactionStrategy = (
   instanceId: string,
-  options?: CompactionBoundaryOptions,
+  options?: CompactionExecutionOptions,
 ) => Promise<boolean>;
+
+/** Restart completion and interrupted-request delivery are separate outcomes. */
+export interface RestartCompactionResult {
+  success: boolean;
+  resumeDelivered: boolean;
+}
+
+export type RestartCompactionStrategy = (
+  instanceId: string,
+  options?: CompactionExecutionOptions,
+) => Promise<boolean | RestartCompactionResult>;
 
 /** Circuit breaker state per instance */
 interface CircuitBreakerState {
@@ -131,7 +144,7 @@ export class CompactionCoordinator extends EventEmitter {
 
   // Strategy callbacks (injected by wiring code)
   private nativeCompactStrategy: CompactionStrategy | null = null;
-  private restartCompactStrategy: CompactionStrategy | null = null;
+  private restartCompactStrategy: RestartCompactionStrategy | null = null;
 
   // Native compaction capability lookup
   private supportsNativeCompactionForInstance: ((instanceId: string) => boolean) | null = null;
@@ -186,7 +199,7 @@ export class CompactionCoordinator extends EventEmitter {
    */
   configure(options: {
     nativeCompact?: CompactionStrategy;
-    restartCompact?: CompactionStrategy;
+    restartCompact?: RestartCompactionStrategy;
     supportsNativeCompaction?: (instanceId: string) => boolean;
     /**
      * Lookup that returns true when the adapter manages its own internal
@@ -350,7 +363,7 @@ export class CompactionCoordinator extends EventEmitter {
    */
   async compactInstance(
     instanceId: string,
-    options?: CompactionBoundaryOptions,
+    options?: CompactionExecutionOptions,
   ): Promise<CompactionResult> {
     if (this.compactingInstances.has(instanceId)) {
       return { success: false, method: 'native', blocking: true, error: 'Compaction already in progress' };
@@ -525,7 +538,7 @@ export class CompactionCoordinator extends EventEmitter {
   private async executeCompaction(
     instanceId: string,
     blocking = true,
-    options?: CompactionBoundaryOptions,
+    options?: CompactionExecutionOptions,
   ): Promise<CompactionResult> {
     this.compactingInstances.add(instanceId);
     const previousUsage = this.latestUsage.get(instanceId);
@@ -553,6 +566,7 @@ export class CompactionCoordinator extends EventEmitter {
       // LT-017: remember that the native path was tried and failed, so the
       // result can say so instead of presenting the fallback as a plain success.
       let nativeAttemptFailed = false;
+      let resumeDelivered = false;
 
       if (nativeCompactionSupported && this.nativeCompactStrategy) {
         // Try native strategy first when provider supports it
@@ -567,7 +581,9 @@ export class CompactionCoordinator extends EventEmitter {
         // rather than compacting it in place, so the caller is told the native
         // attempt failed even though the overall operation succeeds.
         const strategy = this.restartCompactStrategy;
-        success = await measureAsync('context.compact', () => strategy(instanceId, options));
+        const restartResult = await measureAsync('context.compact', () => strategy(instanceId, options));
+        success = typeof restartResult === 'boolean' ? restartResult : restartResult.success === true;
+        resumeDelivered = success && typeof restartResult !== 'boolean' && restartResult.resumeDelivered === true;
         method = 'restart-with-summary';
       }
 
@@ -602,6 +618,7 @@ export class CompactionCoordinator extends EventEmitter {
         blocking,
         previousUsage,
         ...(nativeAttemptFailed ? { nativeAttemptFailed: true } : {}),
+        ...(method === 'restart-with-summary' ? { resumeDelivered } : {}),
       };
       if (nativeAttemptFailed) {
         logger.warn('Native compaction failed; recovered via restart-with-summary', {

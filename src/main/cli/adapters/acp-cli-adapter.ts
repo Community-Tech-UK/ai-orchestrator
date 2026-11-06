@@ -125,6 +125,8 @@ import {
 } from './acp-prompt-timeout-policy';
 import { classifyMissingUsage } from './acp-transport-failure';
 import { buildRetryRecoveredMessage, buildRetryStateMessage } from './acp-retry-state';
+import { AcpNativeCompactionOperation, bareAcpCommandPrompt, buildAcpThreadCompactedNotice, classifyAcpBareCommand, resolveAcpContextCapabilities, type AcpNativeCompactionConfig } from './acp-native-compaction';
+import { dispatchOpenCodeSessionInfoMarker } from './opencode-acp-markers';
 import { buildAcpElicitationResponse } from './acp-elicitation-response';
 import { cancelAcpElicitations } from './acp-elicitation-cleanup';
 import type { AcpSessionConfigRequest } from './acp-session-config-options';
@@ -247,9 +249,7 @@ interface AcpPendingPermissionRequest {
   title: string;
   kind: AcpToolKind;
   options: AcpPermissionOption[];
-  /** When the request arrived. `pendingPermissionRequests` is not cleared at
-   *  turn boundaries (a failed `sendResponse` write leaks the entry), so the
-   *  turn diagnosis filters on this rather than blaming a dead turn's request. */
+  /** Arrival time for turn diagnosis; stale leaked requests belong to earlier turns. */
   createdAt: number;
 }
 interface AcpPendingElicitationRequest {
@@ -259,10 +259,9 @@ interface AcpPendingElicitationRequest {
 }
 export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 'cwd'> {
   adapterName?: string;
-  contextCapabilityProfile?: 'copilot-acp';
-  /** ACP authentication method to invoke after initialize and before opening
-   *  a session. Provider-scoped opt-in: agents that do not require the ACP
-   *  authenticate handshake leave this unset. */
+  contextCapabilityProfile?: 'copilot-acp' | 'opencode-acp';
+  nativeCompaction?: AcpNativeCompactionConfig;
+  /** Optional provider authentication method, invoked before opening a session. */
   authMethodId?: string;
   command?: string;
   /** Resolve provider-selected installs before every availability check. */
@@ -270,10 +269,7 @@ export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 
   model?: string;
   systemPrompt?: string;
   systemPromptMaxChars?: number;
-  /** When true, prepend the RTK awareness prompt on the first turn so the
-   *  model prefixes shell commands with `rtk`. ACP-backed providers
-   *  (Copilot, Cursor) lack a Claude-style PreToolUse hook surface, so
-   *  awareness-via-prompt is the integration point. */
+  /** Prepend RTK shell guidance on the first turn; ACP agents have no Claude hook. */
   rtkEnabled?: boolean;
   workingDirectory: string;
   sessionId?: string;
@@ -291,12 +287,9 @@ export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 
     childId?: string;
     yoloMode?: boolean;
   };
-  /** Per-method JSON-RPC timeout override for non-prompt requests.
-   *  Defaults to {@link DEFAULT_REQUEST_TIMEOUT_MS}. */
+  /** Non-prompt JSON-RPC timeout; defaults to {@link DEFAULT_REQUEST_TIMEOUT_MS}. */
   requestTimeoutMs?: number;
-  /** Maximum time to wait for a provider concurrency slot during startup.
-   *  Without this, a stale held slot can leave a child permanently
-   *  `initializing` before the ACP process is even spawned. */
+  /** Startup slot deadline prevents a stale slot from holding a child in `initializing`. */
   concurrencyAcquireTimeoutMs?: number;
   /** Timeout for `session/prompt` RPCs. Prompt turns are long-running so
    *  this is intentionally looser than `requestTimeoutMs`. Defaults to
@@ -412,7 +405,8 @@ export class AcpCliAdapter extends BaseCliAdapter {
   private recentReadToolCallId: string | null = null;
   private openCodeV2 = false;
   private nativeForkInProgress = false;
-  private readonly openCodeUpdates = new OpenCodeAcpUpdates();
+  private readonly nativeCompaction = new AcpNativeCompactionOperation<AcpPendingPromptTurn>();
+  private readonly openCodeUpdates = new OpenCodeAcpUpdates(() => this.nativeCompaction.fail(this.currentPrompt));
   private availableCommands: { name: string; description?: string }[] = [];
   private openingReplay: AcpSessionReplay | null = null;
   private promptLifecycleEpoch = 0;
@@ -429,7 +423,6 @@ export class AcpCliAdapter extends BaseCliAdapter {
       envRemove: config.envRemove,
       maxRetries: config.maxRetries,
       sessionPersistence: true,
-      persistLargeOutputs: config.persistLargeOutputs,
     });
     this.acpConfig = {
       permissionRequestTimeoutMs: 60_000,
@@ -475,27 +468,27 @@ export class AcpCliAdapter extends BaseCliAdapter {
     return {
       supportsResume: this.agentCapabilities?.loadSession === true,
       supportsForkSession: this.openCodeV2 && Boolean(this.agentCapabilities?.sessionCapabilities?.fork),
-      supportsNativeCompaction: false,
-      supportsPermissionPrompts: true,
-      supportsDeferPermission: false,
+      supportsNativeCompaction: Boolean(this.acpConfig.nativeCompaction),
+      supportsPermissionPrompts: true, supportsDeferPermission: false,
     };
   }
 
   override getContextCapabilities(): ProviderContextCapabilities {
-    if (this.acpConfig.contextCapabilityProfile !== 'copilot-acp') {
-      const base = super.getContextCapabilities();
-      return this.measuredOccupancy ? { ...base, occupancyReporting: 'current' } : base;
-    }
-    return {
-      toolResultControl: 'post-retention',
-      toolResultVisibility: 'full',
-      transcriptControl: 'none',
-      occupancyReporting: 'aggregate-only',
-      cumulativeReporting: 'available',
-      interruptProof: 'none',
-      compactionProof: 'none',
-      sameThreadContinuation: false,
-    };
+    return resolveAcpContextCapabilities(super.getContextCapabilities(), this.acpConfig.contextCapabilityProfile, this.measuredOccupancy);
+  }
+
+  override compactContext(): Promise<boolean> {
+    return this.nativeCompaction.run({
+      config: this.acpConfig.nativeCompaction,
+      currentTurn: () => this.currentPrompt,
+      isPromptInFlight: () => this.currentPrompt !== null || this.currentPromptRequestId !== null,
+      send: message => this.sendMessage(message),
+      observe: listener => {
+        this.on('output', listener);
+        return () => this.removeListener('output', listener);
+      },
+      emit: message => this.emit('output', message),
+    });
   }
 
   getResumeAttemptResult(): ResumeAttemptResult | undefined {
@@ -763,11 +756,11 @@ export class AcpCliAdapter extends BaseCliAdapter {
       );
     }
 
-    const commandName = /^\/([^\s]+)(?:\s|$)/.exec(message.content)?.[1];
-    const nativeCommand = this.openCodeV2 && this.availableCommands.some((command) => command.name === commandName);
-    const queuedContext = nativeCommand ? [] : this.nextPromptContext.slice();
+    // A native command must lead the prompt text, so queued context and first-turn blocks wait.
+    const bareCommand = classifyAcpBareCommand(message, this.openCodeV2 ? this.availableCommands : undefined, this.acpConfig.nativeCompaction);
+    const queuedContext = bareCommand ? [] : this.nextPromptContext.slice();
     const previousPromptFlags = { system: this.systemPromptSent, rtk: this.rtkAwarenessSent };
-    const preparedPrompt = nativeCommand ? { prompt: [{ type: 'text' as const, text: message.content }], systemPromptDelivery: undefined } : this.toPromptBlocks(message);
+    const preparedPrompt = bareCommand ? bareAcpCommandPrompt(message.content) : this.toPromptBlocks(message);
     const promptParams: AcpSessionPromptParams = {
       sessionId: this.sessionId,
       prompt: [...queuedContext.map((text) => ({ type: 'text' as const, text })), ...preparedPrompt.prompt],
@@ -784,6 +777,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     const turn: AcpPendingPromptTurn = createAcpAssistantTurn(responseId);
     turn.writePhase = writePhase;
     this.currentPrompt = turn;
+    this.nativeCompaction.bindTurn(turn, message.content, this.acpConfig.nativeCompaction?.command);
     const promptProcess = this.process;
     let preparing = true;
 
@@ -794,7 +788,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       if (this.acpConfig.beforeProviderPrompt) await this.acpConfig.beforeProviderPrompt();
       assertAdapterInputCurrent(admission);
       if (this.currentPrompt !== turn) throw Object.assign(new Error(ACP_PROMPT_CANCELLED_BY_CLIENT_MESSAGE), { name: 'AbortError' });
-      if (nativeCommand && !this.availableCommands.some((command) => command.name === commandName)) throw new Error('The selected native command is no longer available in this session.');
+      if (bareCommand === 'catalog' && classifyAcpBareCommand(message, this.availableCommands, undefined) !== 'catalog') throw new Error('The selected native command is no longer available in this session.');
       preparing = false;
       const result = await this.sendRequest<AcpSessionPromptResult>('session/prompt', promptParams, admission, writePhase, preparedPrompt.systemPromptDelivery);
       const duration = Date.now() - turn.startedAt;
@@ -1504,19 +1498,20 @@ export class AcpCliAdapter extends BaseCliAdapter {
     }
 
     const update = rawUpdate as unknown as AcpSessionUpdate;
+    let compact: OutputMessage | false | undefined;
     if (this.openCodeV2) {
       const child = this.openCodeUpdates.child(rawUpdate, sessionId);
       if (child !== undefined) {
         if (child && this.currentPrompt) this.delegatedLiveness.observeNativeChild(child);
         return;
       }
-      const retry = this.openCodeUpdates.retry(rawUpdate);
+      const retry = sessionUpdate === 'session_info_update' ? undefined : this.openCodeUpdates.retry(rawUpdate);
       if (retry) this.handleRetryState(retry);
-      else if (retry === null && this.currentPrompt?.retryNoticeId) {
-        this.emitStructuredOutput('system', 'Provider is trying the request again.', { source: 'acp-retry-state', phase: 'attempting' });
+      else if (retry === null && this.currentPrompt?.retryNoticeId) this.resolveRetryNotice(this.currentPrompt);
+      compact = this.openCodeUpdates.compaction(rawUpdate, generateId);
+      if (compact) {
+        this.emit('output', compact);
       }
-      const compact = this.openCodeUpdates.compaction(rawUpdate, generateId);
-      if (compact) this.emit('output', compact);
     }
     switch (sessionUpdate) {
       case 'agent_message_chunk':
@@ -1564,6 +1559,13 @@ export class AcpCliAdapter extends BaseCliAdapter {
         if (Array.isArray(rawUpdate['configOptions'])) this.sessionConfigOptions = rawUpdate['configOptions'];
         break;
       case 'session_info_update':
+        if (this.openCodeV2 && dispatchOpenCodeSessionInfoMarker(rawUpdate, {
+          onRetry: update => this.handleRetryState(update),
+          onRetryCleared: () => { if (this.currentPrompt) this.resolveRetryNotice(this.currentPrompt); }, onCompactionCompleted: () => {
+            // Keyed markers already use the status row and its completion dedup.
+            if (compact === undefined) this.emit('output', buildAcpThreadCompactedNotice('opencode-compaction'));
+          },
+        })) break;
         // Titles and summaries remain silent metadata.
         logger.debug('ACP session metadata update', safeAcpProtocolDetails({ sessionId, sessionUpdate }));
         break;

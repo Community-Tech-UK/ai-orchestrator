@@ -25,6 +25,7 @@ import { normalizeOpenCodeAdditionalDirectories } from '../../../shared/utils/op
 import { getModelSwitchUnavailableReason } from '../../../shared/types/instance-status-policy';
 import { getSessionMutex } from '../../session/session-mutex';
 import { getSessionAdmissionService } from '../../session/session-admission-service';
+import { describeReplayWindow } from '../../session/replay-continuity';
 import {
   getSessionContinuityManager,
   getSessionContinuityManagerIfInitialized,
@@ -59,7 +60,9 @@ import { prepareRemoteModelChange } from './remote-runtime-model-change';
 import { assertRuntimeChangeOwner, createOwnedRuntimeAdapter, evaluateOwnedResumeHealth, publishRuntimeChange } from './runtime-reconciler-ownership';
 import { assertAdapterNotOnLoan, beginRuntimeChange, type RuntimeChangeClaim } from './adapter-loan-registry';
 import { announceRuntimeChangeSet, runtimeChangeNoticesFor } from './runtime-change-notices';
+import { canTryLiveSwitch, tryLiveClaudeSwitch } from './runtime-live-switch';
 import type { UnifiedSpawnOptions } from '../../cli/adapters/adapter-factory';
+import { stampRtkArm } from '../../cli/rtk/rtk-rollout';
 import type { DesiredRuntime, Instance } from '../../../shared/types/instance.types';
 import { isLogicalMiMoModel } from '../../../shared/types/provider-account.types';
 import { initializeInstanceEvidenceOwnership } from '../../context-evidence/evidence-conversation-resolver';
@@ -162,6 +165,15 @@ export class RuntimeReconciler {
         return;
       }
       assertCurrent();
+      if (canTryLiveSwitch({ diff, desired, instance, adapter: this.deps.getAdapter(instanceId) })
+        && await tryLiveClaudeSwitch({
+          diff, desired, instance, adapter: this.deps.getAdapter(instanceId),
+          oldModel: oldCurrentModel, oldReasoningEffort,
+          assertCurrent,
+          emitSystemNotice: this.deps.emitSystemNotice.bind(this.deps),
+          queueUpdate: this.deps.queueUpdate.bind(this.deps),
+          emitRuntimeChanged: this.deps.emitRuntimeChanged.bind(this.deps),
+        })) return instance;
       const isProviderSwap = diff.providerChanged;
       const targetProvider = desired.provider as SwapTargetProvider;
       const settingsAll = this.deps.getSettings();
@@ -437,7 +449,7 @@ export class RuntimeReconciler {
           ) ?? undefined,
           nodePlacement: instance.nodePlacement,
           permissionHookPath: spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
-          rtk: spawnConfigBuilder.getRtkSpawnConfig(),
+          rtk: stampRtkArm(instance, spawnConfigBuilder.getRtkSpawnConfig(instance.id), cliType, instance.executionLocation.type === 'local'),
           ...(localModelTarget ? { modelRuntimeTarget: localModelTarget } : {}),
         };
 
@@ -582,6 +594,9 @@ export class RuntimeReconciler {
             newModel: validatedModel,
             oldReasoningEffort,
             newReasoningEffort: nextReasoningEffort,
+            ...(!actuallyResumed && !isProviderSwap && instance.provider === 'claude'
+              ? { replayWindow: describeReplayWindow(instance.outputBuffer) }
+              : {}),
             ...(diff.copilotAccountChanged
               ? {
                   copilotAccountChange: {

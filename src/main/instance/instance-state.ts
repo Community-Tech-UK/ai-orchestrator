@@ -471,9 +471,16 @@ export class InstanceStateManager extends EventEmitter {
 
     const updates = Array.from(this.pendingUpdates.values()).map((update) => {
       const selfManaged = this.getSelfManagesAutoCompaction(update.instanceId);
-      return selfManaged === undefined
+      // Resolved in background init, after the created event, so only the
+      // updates that follow can tell the renderer (plan 14d item 5).
+      const residentClaude = this.getRuntimeInstance(update.instanceId)?.residentClaude;
+      return selfManaged === undefined && residentClaude === undefined
         ? update
-        : { ...update, selfManagesAutoCompaction: selfManaged };
+        : {
+            ...update,
+            ...(selfManaged === undefined ? {} : { selfManagesAutoCompaction: selfManaged }),
+            ...(residentClaude === undefined ? {} : { residentClaude }),
+          };
     });
     this.pendingUpdates.clear();
 

@@ -97,6 +97,10 @@ import {
 } from '../../../../shared/types/instance.types';
 import type { AccountRouteSource } from '../../../../shared/types/provider-account.types';
 import { ComposerToolbarComponent } from './composer-toolbar.component';
+import { QuickAskPanelComponent } from './quick-ask-panel.component';
+import { ColdCacheChipComponent } from './cold-cache-chip.component';
+import { ColdCacheResumeService } from './cold-cache-resume.service';
+import { setTextareaValueAtEnd } from './input-panel-textarea';
 import { ComposerBannersComponent } from './composer-banners.component';
 import { ComposerRecoveryBannerComponent } from './composer-recovery-banner.component';
 import { RunReadinessBannerComponent, RunReadinessGate } from './run-readiness-banner.component';
@@ -151,6 +155,8 @@ const LOOP_START_ACK_TIMEOUT_MS = 30_000;
     ComposerQueueComponent,
     ComposerRecoveryBannerComponent,
     ComposerToolbarComponent,
+    QuickAskPanelComponent,
+    ColdCacheChipComponent,
     RunReadinessBannerComponent,
     LoopToggleComponent,
     LoopConfigPanelComponent,
@@ -180,6 +186,7 @@ export class InputPanelComponent implements OnDestroy {
   private instanceIpc = inject(InstanceIpcService);
   private electronIpc = inject(ElectronIpcService);
   private instanceStoreRef = inject(InstanceStore);
+  protected coldCache = inject(ColdCacheResumeService);
   private promptHistoryStore = inject(PromptHistoryStore);
   private loopPanelOpener = inject(LoopPanelOpenerService);
   private submissions = inject(ComposerSubmissionService);
@@ -215,6 +222,11 @@ export class InputPanelComponent implements OnDestroy {
   workingDirectory = input<string | null>(null);
   loopChatId = input<string | null>(null);
   contextUsage = input<ContextUsage | undefined>(undefined);
+  residentClaude = input(false);
+  /** Host opt-in: only the instance-detail composer compacts first; Chat's send path does not. */
+  coldCacheCompactFirst = input(false);
+  remoteExecution = input(false);
+  readonly quickAskOpen = signal(false);
   isReplayFallback = input<boolean>(false);
   showWakeupControls = input<boolean>(false);
   hasThreadWakeups = input<boolean>(false);
@@ -222,7 +234,6 @@ export class InputPanelComponent implements OnDestroy {
   waitReason = input<InstanceWaitReason | undefined>(undefined);
 
   readonly holdReasonLabel = computed<string | null>(() => formatWaitReasonLabel(this.waitReason()));
-
   readonly runReadiness = new RunReadinessGate(this.provider);
 
   // Computed preview data for pending files
@@ -407,6 +418,8 @@ export class InputPanelComponent implements OnDestroy {
   private stashedDraft = signal<string | null>(null);
   private editMessageIndex = signal<number | null>(null);
 
+  protected readonly hasConversation = computed(() => this.outputMessages().some(m => m.type === 'user' || m.type === 'assistant'));
+
   private lastUserMessage = computed(() => {
     const msgs = this.outputMessages();
     for (let i = msgs.length - 1; i >= 0; i--) {
@@ -493,8 +506,7 @@ export class InputPanelComponent implements OnDestroy {
   });
 
   isDraftComposer = computed(() => this.instanceId() === 'new');
-
-  /** True when the instance is starting up or waking from hibernation — input should be blocked */
+  coldCacheOffered = computed(() => this.coldCacheCompactFirst() && !this.isDraftComposer());
   /**
    * UX3 — the composer's primary control. Its only content is a glyph
    * (`↑` / `↻`), so without this it has NO accessible name at all: a screen
@@ -506,11 +518,11 @@ export class InputPanelComponent implements OnDestroy {
     if (this.loopStarting()) return 'Starting loop…';
     if (this.submission.submitting()) return 'Sending…';
     if (this.loopArmed()) return 'Start loop';
+    if (this.coldCacheOffered() && this.coldCache.shouldCompactFirst(this.instanceId())) return 'Compact and send';
     return this.isInitializing() || this.isSteeringTarget()
       ? 'Queue message'
       : 'Send message';
   });
-
   readonly isInitializing = computed(() => {
     const status = this.instanceStatus();
     return status === 'initializing' || status === 'waking';
@@ -799,6 +811,7 @@ export class InputPanelComponent implements OnDestroy {
     effect(() => {
       this.instanceId(); // track changes to the active instance
       untracked(() => {
+        this.quickAskOpen.set(false);
         if (this.editMode()) {
           this.editMode.set(false);
           this.stashedDraft.set(null);
@@ -807,7 +820,6 @@ export class InputPanelComponent implements OnDestroy {
         this.resetPromptRecall({ restoreStash: false });
       });
     });
-
     effect(() => {
       const requested = this.promptHistoryStore.requestedRecallEntry();
       if (!requested) {
@@ -952,8 +964,8 @@ export class InputPanelComponent implements OnDestroy {
     this.keybindingService.setContext('global');
     this.voice.stop();
   }
-
   canSend(): boolean {
+    if (this.coldCacheOffered() && this.coldCache.phaseFor(this.instanceId()) === 'compacting') return false;
     if (this.loopStarting()) return false; // double-start dedupe
     if (this.submission.submitting()) return false; // one in-flight submission at a time
     if (this.runReadiness.blocking()) return false; // WS-C3: readiness checkpoint
@@ -1898,13 +1910,8 @@ export class InputPanelComponent implements OnDestroy {
   private syncTextareaValue(value: string): void {
     requestAnimationFrame(() => {
       const textarea = this.textareaRef()?.nativeElement;
-      if (!textarea) {
-        return;
-      }
-      textarea.value = value;
-      textarea.selectionStart = value.length;
-      textarea.selectionEnd = value.length;
-      textarea.focus();
+      if (!textarea) return;
+      setTextareaValueAtEnd(textarea, value);
       this.scheduleTextareaResize(textarea);
     });
   }

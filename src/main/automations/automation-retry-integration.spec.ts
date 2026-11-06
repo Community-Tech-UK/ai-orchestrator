@@ -1025,6 +1025,41 @@ describe('BUG 2 — durable pending-retry: persist on arm, clear on fire/cancel,
     void automationId;
   });
 
+  it('initialize() does not arm a second timer for a retry the scheduler already armed', async () => {
+    // The startup catch-up sweep runs in the background after the scheduler object exists, so
+    // a run that fails during the sweep gets a retry via scheduleRetry (timer + persisted
+    // marker) BEFORE initialize() reads the persisted markers back.
+    const { runId } = await createRunAndFail();
+
+    const runner = new AutomationRunner(store, getAutomationEvents(), () => Date.now(),
+      vi.fn().mockReturnValue({ fireThreadWakeup: vi.fn() }), 3, 100);
+    const catchUp = new CatchUpCoordinator(store, runner, getAutomationEvents(), () => Date.now());
+    const scheduler = new AutomationScheduler(store, runner, catchUp, getAutomationEvents(), () => Date.now());
+
+    const insertSpy = vi.spyOn(store, 'insertRetryRun').mockReturnValue(null);
+    vi.spyOn(store, 'listRuns').mockReturnValue([]);
+    vi.spyOn(runner, 'fire').mockResolvedValue({ status: 'skipped', reason: 'mocked' });
+
+    scheduler.scheduleRetry(store.getRun(runId)!, 2, 3, 5_000);
+    const retryHandles = (scheduler as unknown as {
+      retryHandles: Map<string, { timeout: NodeJS.Timeout }>;
+    }).retryHandles;
+    const armedTimeout = retryHandles.get(runId)?.timeout;
+    expect(armedTimeout).toBeDefined();
+
+    scheduler.initialize();
+
+    // The already-armed timer is kept, not replaced by a second one.
+    expect(retryHandles.size).toBe(1);
+    expect(retryHandles.get(runId)?.timeout).toBe(armedTimeout);
+
+    vi.advanceTimersByTime(6_000);
+    await Promise.resolve();
+
+    // Exactly one retry is dispatched for the failed run.
+    expect(insertSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('listPendingRetries does NOT return a run that already has a successor retry run', async () => {
     const { runId, automationId } = await createRunAndFail();
 
@@ -1252,5 +1287,134 @@ describe('BUG 4 — cancellation clears persistence; double-scheduling does not 
     await Promise.resolve();
 
     expect(fireCount).toBe(1);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Tests: 8a — retry only what a retry can fix
+//
+// `classifyAutomationRunFailure` is unit-tested on its own; these drive the real
+// runner terminal path (automation-runner-terminal.ts: the `never` mapping that
+// forces retryable=false) and the real store (automation-store-outcome-ops.ts:
+// the `wait` streak exclusion) with the exact strings seen in the 30-day table.
+// ──────────────────────────────────────────────────────────────────────────────
+
+describe('8a — failure classes decide whether a run is retried and whether it counts', () => {
+  const TARGET_MISSING = 'Thread wakeup failed: target_missing (the conversation no longer exists)';
+  const CODEX_STALL = 'Codex turn stalled: no notifications received for 900000ms';
+  const GOVERNOR_REFUSAL = 'Instance creation is paused by the resource governor (memory pressure).';
+  const BUSY_RACE = 'Thread wakeup send failed: Instance i-1 already has an active turn';
+
+  let db: SqliteDriver;
+  let store: AutomationStore;
+  let capturedRetries: { originalRun: AutomationRun; nextAttempt: number; maxAttempts: number; delayMs: number }[];
+
+  beforeEach(() => {
+    resetAutomationEventsForTesting();
+    db = createDb();
+    // Threshold 3, so a streak that wrongly grows is visible as an auto-disable.
+    store = makeStore(db, 3);
+    capturedRetries = [];
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  function makeRunner(maxRetryAttempts = 3): AutomationRunner {
+    const runner = new AutomationRunner(
+      store,
+      getAutomationEvents(),
+      () => Date.now(),
+      vi.fn().mockReturnValue({ fireThreadWakeup: vi.fn() }),
+      maxRetryAttempts,
+      100,
+    );
+    runner.setRetryScheduler((originalRun, nextAttempt, maxAttempts, delayMs) => {
+      capturedRetries.push({ originalRun, nextAttempt, maxAttempts, delayMs });
+    });
+    return runner;
+  }
+
+  /** Start a fresh run with `maxAttempts` allowed and fail it on attempt 1 with `reason`. */
+  async function failFirstAttempt(
+    runner: AutomationRunner,
+    id: string,
+    reason: string,
+    maxAttempts: number,
+    at: number,
+  ): Promise<void> {
+    const automation = await store.get(id);
+    const decision = store.decideAndInsertRun(automation, 'scheduled', at, at, { maxAttempts, attempt: 1 });
+    expect(decision.kind).toBe('started');
+    if (decision.kind !== 'started') return;
+    const failed = store.terminalizeRun(decision.run.id, 'failed', reason, undefined, at + 1)!;
+    (runner as unknown as { handleTerminalRun: (r: AutomationRun) => void }).handleTerminalRun(failed);
+  }
+
+  it('target_missing is not retried', async () => {
+    const id = await createTestAutomation(store);
+    const runner = makeRunner(3);
+
+    // Attempt 1 of 3: a normal failure would be retried here.
+    await failFirstAttempt(runner, id, TARGET_MISSING, 3, 1_000);
+
+    expect(capturedRetries).toHaveLength(0);
+    // It is a final give-up straight away: recorded once, counted once.
+    const after = await store.get(id);
+    expect(after?.consecutiveFailures).toBe(1);
+    expect(after?.lastFailureReason).toBe(TARGET_MISSING);
+  });
+
+  it('a Codex 15-minute stall is not retried', async () => {
+    const id = await createTestAutomation(store);
+    const runner = makeRunner(3);
+
+    await failFirstAttempt(runner, id, CODEX_STALL, 3, 1_000);
+
+    expect(capturedRetries).toHaveLength(0);
+    const after = await store.get(id);
+    expect(after?.consecutiveFailures).toBe(1);
+    expect(after?.lastFailureReason).toBe(CODEX_STALL);
+  });
+
+  it('control: an ordinary failure on attempt 1 of 3 is still retried', async () => {
+    const id = await createTestAutomation(store);
+    const runner = makeRunner(3);
+
+    await failFirstAttempt(runner, id, 'Instance entered error', 3, 1_000);
+
+    expect(capturedRetries).toHaveLength(1);
+    expect(capturedRetries[0]!.nextAttempt).toBe(2);
+    expect((await store.get(id))?.consecutiveFailures).toBe(0);
+  });
+
+  it.each([
+    ['a governor refusal', GOVERNOR_REFUSAL],
+    ['a busy-conversation send race', BUSY_RACE],
+  ])('%s is retried but never grows the failure streak', async (_label, reason) => {
+    const id = await createTestAutomation(store);
+    const runner = makeRunner(3);
+
+    // Retried: a retry costs no tokens when no instance was created.
+    await failFirstAttempt(runner, id, reason, 3, 1_000);
+    expect(capturedRetries).toHaveLength(1);
+    expect(capturedRetries[0]!.nextAttempt).toBe(2);
+    expect((await store.get(id))?.consecutiveFailures).toBe(0);
+
+    // Give up on three separate runs (the auto-disable threshold): the reason is
+    // recorded each time but the streak never moves and the job stays enabled.
+    for (let i = 0; i < 3; i += 1) {
+      await failFirstAttempt(runner, id, reason, 1, 10_000 + i * 1_000);
+    }
+    const afterGiveUps = await store.get(id);
+    expect(afterGiveUps?.consecutiveFailures).toBe(0);
+    expect(afterGiveUps?.lastFailureReason).toBe(reason);
+    expect(afterGiveUps?.lastFailureAt).not.toBeNull();
+    expect(afterGiveUps?.enabled).toBe(true);
+
+    // The streak still counts a real failure afterwards.
+    await failFirstAttempt(runner, id, 'Instance entered error', 1, 20_000);
+    expect((await store.get(id))?.consecutiveFailures).toBe(1);
   });
 });

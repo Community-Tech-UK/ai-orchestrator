@@ -20,6 +20,8 @@ import { ProviderStateService, type ProviderType } from './provider-state.servic
 import { WorkspaceIpcService } from './ipc/workspace-ipc.service';
 import { ScratchDirectoryService } from './scratch-directory.service';
 import { seedProviderModelIntoKnownCatalog } from './provider-model-snapshot-seeding';
+import { notifySkippedAttachments, splitNewAttachments } from './attachment-identity';
+import { ToastService } from './toast.service';
 import type {
   NewSessionDraftState,
   NewSessionDraftStoreState,
@@ -32,6 +34,7 @@ export class NewSessionDraftService {
   private readonly providerState = inject(ProviderStateService);
   private readonly workspaceIpc = inject(WorkspaceIpcService);
   private readonly scratchDirectory = inject(ScratchDirectoryService);
+  private readonly toast = inject(ToastService);
   private readonly storageKey = 'new-session-drafts:v1';
   private readonly defaultDraftKey = '__default__';
   private persistHandle: number | null = null;
@@ -448,17 +451,15 @@ export class NewSessionDraftService {
     ));
   }
 
-  addPendingFiles(files: File[]): void {
-    if (files.length === 0) {
-      return;
+  addPendingFiles(files: File[]): number {
+    const key = this.state().activeKey;
+    const { added, skipped } = splitNewAttachments(this.pendingFilesByKey()[key] ?? [], files);
+    if (added.length > 0) {
+      this.pendingFilesByKey.update(current => ({ ...current, [key]: [...(current[key] ?? []), ...added] }));
+      this.bumpRevision();
     }
-
-    const activeKey = this.state().activeKey;
-    this.pendingFilesByKey.update((current) => ({
-      ...current,
-      [activeKey]: [...(current[activeKey] ?? []), ...files],
-    }));
-    this.bumpRevision();
+    notifySkippedAttachments(this.toast, skipped);
+    return skipped;
   }
 
   removePendingFile(file: File): void {

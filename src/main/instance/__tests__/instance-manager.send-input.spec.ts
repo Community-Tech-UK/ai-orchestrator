@@ -44,7 +44,10 @@ const {
   mockResolveModelForTier,
   mockLocalModelInventory,
   mockLocalModelRefresh,
+  mockGuidanceLogInfo,
 } = vi.hoisted(() => ({
+  // Records the `HarnessGuidance` logger's info calls (the delivery log).
+  mockGuidanceLogInfo: vi.fn(),
   mockCreateCliAdapter: vi.fn(),
   mockCommandExecuteCommandString: vi.fn().mockResolvedValue(null),
   mockIndexedBuildContext: vi.fn(),
@@ -218,8 +221,8 @@ vi.mock('../../indexing/indexed-codebase-context', () => ({
 // Logger mock
 // ---------------------------------------------------------------------------
 vi.mock('../../logging/logger', () => ({
-  getLogger: vi.fn(() => ({
-    info: vi.fn(),
+  getLogger: vi.fn((subsystem?: string) => ({
+    info: subsystem === 'HarnessGuidance' ? mockGuidanceLogInfo : vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
@@ -398,14 +401,11 @@ vi.mock('../../../shared/utils/permission-mapper', () => ({
 // ---------------------------------------------------------------------------
 vi.mock('../../orchestration/orchestration-protocol', () => ({
   generateChildPrompt: vi.fn().mockReturnValue('child prompt'),
-  generateOrchestrationPrompt: vi.fn().mockReturnValue('[ORCHESTRATION SYSTEM PROMPT]'),
   formatCommandResponse: vi.fn((action: string, success: boolean, data: unknown) =>
     `[Orchestrator Response]\nAction: ${action}\nStatus: ${success ? 'SUCCESS' : 'FAILED'}\n${JSON.stringify(data)}\n[/Orchestrator Response]`
   ),
   detectsConsensusIntent: vi.fn().mockReturnValue(false),
   detectsSchedulingIntent: vi.fn().mockReturnValue(false),
-  CONSENSUS_INTENT_REMINDER: '[CONSENSUS REMINDER]',
-  SCHEDULING_INTENT_REMINDER: '[SCHEDULING REMINDER]',
 }));
 
 // ---------------------------------------------------------------------------
@@ -868,6 +868,9 @@ vi.mock('../../codemem', () => {
 // ---------------------------------------------------------------------------
 
 import { InstanceManager } from '../instance-manager';
+import { getContextEngine } from '../../context/context-engine';
+import { getHarnessGuidance } from '../../orchestration/harness-guidance';
+import { SCHEDULING_RULES_REPEAT_LINE } from '../../orchestration/orchestration-protocol.prompts';
 import { getInstanceProviderLimitHandler } from '../instance-provider-limit-handler';
 import { getAccountFailoverCoordinator, type AccountFailoverDeps } from '../../providers/account-pool/account-failover-coordinator';
 import { buildReplayContinuityMessage } from '../../session/replay-continuity';
@@ -875,7 +878,6 @@ import { buildFallbackHistoryMessage } from '../../session/fallback-history';
 import { WorkerNodeRegistry } from '../../remote-node/worker-node-registry';
 import { SessionAdmissionStore } from '../../session/session-admission-store';
 import { _resetSessionAdmissionServiceForTesting } from '../../session/session-admission-service';
-import { getContextEngine } from '../../context/context-engine';
 import { ProviderLimitLedger, createProviderLimitLedgerSchema } from '../../core/system/provider-limit-ledger';
 
 // ---------------------------------------------------------------------------
@@ -1233,6 +1235,76 @@ describe('InstanceManager', () => {
   });
 
   describe('sendInput', () => {
+    it.each(['accepted','early-known-limit','parked','already-parked','switching-account','unhandled','observer-failure'])('real manager guidance receipt remains honest for %s',async mode=>{
+      const instance=await manager.createInstance({workingDirectory:TEST_WORKING_DIR});await instance.readyPromise;
+      instance.provider='codex';instance.currentModel='fixture';
+      const guidance=getHarnessGuidance();guidance._resetForTesting();
+      const limit=getInstanceProviderLimitHandler();
+      const known=vi.spyOn(limit,'maybeParkKnown').mockReturnValue(mode==='early-known-limit'?'already-parked':'skipped');
+      const park=vi.spyOn(limit,'maybePark').mockReturnValue(mode==='unhandled'?'skipped':mode==='already-parked'?'already-parked':mode==='switching-account'?'switching-account':'parked');
+      const observer=vi.fn(()=>{if(mode==='observer-failure')throw new Error('inert delivery observer failure');});
+      mockAdapterSendInput.mockClear();
+      if(['parked','already-parked','switching-account','unhandled'].includes(mode))mockAdapterSendInput.mockRejectedValueOnce(Object.assign(new Error('usage limit reached'),{quota:{exhausted:true}}));
+      const prompt='Set up a daily check of CI at 9am';
+      try{
+        const first=manager.sendInput(instance.id,prompt,undefined,{onProviderInputDelivered:observer});
+        if(mode==='unhandled')await expect(first).rejects.toThrow('usage limit reached');else await expect(first).resolves.toBeUndefined();
+        expect(mockAdapterSendInput).toHaveBeenCalledTimes(mode==='early-known-limit'?0:1);
+        const accepted=mode==='accepted'||mode==='observer-failure';expect(observer).toHaveBeenCalledTimes(accepted?1:0);
+        known.mockReturnValue('skipped');mockAdapterSendInput.mockClear();mockAdapterSendInput.mockResolvedValue(undefined);
+        await manager.sendInput(instance.id,prompt);
+        const actual=mockAdapterSendInput.mock.calls.at(-1)?.[0];expect(actual).toEqual(expect.any(String));
+        if(accepted)expect(actual).toContain(SCHEDULING_RULES_REPEAT_LINE);else expect(actual).toContain('## Harness scheduling rules');
+        const next=guidance.takeHarnessGuidance(instance,prompt,'later-turn');expect(next.text).toBe(SCHEDULING_RULES_REPEAT_LINE);
+      }finally{known.mockRestore();park.mockRestore();guidance._resetForTesting();}
+    });
+    // Plan 10 item 4 / review W7. The first-message guidance is committed ONLY by
+    // `guidance: initialPromptGuidance` in `instance-lifecycle.ts`' two
+    // `sendInitialPromptWithAttachmentFallback` calls: without it the rules still
+    // reach the first send (they ride in the context block), but the latch never
+    // commits, the delivery log never fires, and the next scheduling message gets
+    // the full rules again instead of the one-line repeat.
+    it.each([
+      { route: 'fresh spawn', warm: false },
+      { route: 'warm-start adapter', warm: true },
+    ])('real createInstance ($route) delivers scheduling rules on a typed first message once, then a later sendInput gets only the repeat line', async ({ warm }) => {
+      const guidance = getHarnessGuidance(); guidance._resetForTesting();
+      // The two `guidance: initialPromptGuidance` call sites are the fresh-spawn
+      // branch and the warm-adapter branch of `createInstance`.
+      if (warm) {
+        vi.spyOn((manager as unknown as { warmStart: { consume(): unknown } }).warmStart, 'consume')
+          .mockReturnValue(makeMockAdapter());
+      }
+      const prompt = 'Every weekday at 9am check CI';
+      const fullRules = '## Harness scheduling rules';
+      mockAdapterSendInput.mockClear(); mockGuidanceLogInfo.mockClear();
+      try {
+        const instance = await manager.createInstance({
+          workingDirectory: TEST_WORKING_DIR, provider: 'claude',
+          initialPrompt: prompt, initialUserMessageSource: 'current-submission',
+        });
+        await instance.readyPromise;
+
+        expect(mockAdapterSendInput).toHaveBeenCalledTimes(1);
+        const first = mockAdapterSendInput.mock.calls[0][0] as string;
+        expect(first.split(fullRules)).toHaveLength(2);
+        expect(first).not.toContain(SCHEDULING_RULES_REPEAT_LINE);
+        expect(first.endsWith(`\n\n${prompt}`)).toBe(true);
+        const added = mockGuidanceLogInfo.mock.calls.filter(([message]) => message === 'Harness guidance added');
+        expect(added).toHaveLength(1);
+        expect(added[0][1]).toMatchObject({ instanceId: instance.id, path: 'first-message', added: ['scheduling'], repeated: [] });
+
+        mockAdapterSendInput.mockClear(); mockGuidanceLogInfo.mockClear();
+        await manager.sendInput(instance.id, 'And also every Monday at 8am check the dependency audit');
+        expect(mockAdapterSendInput).toHaveBeenCalledTimes(1);
+        const later = mockAdapterSendInput.mock.calls[0][0] as string;
+        expect(later).toContain(SCHEDULING_RULES_REPEAT_LINE);
+        expect(later).not.toContain(fullRules);
+        const repeats = mockGuidanceLogInfo.mock.calls.filter(([message]) => message === 'Harness guidance added');
+        expect(repeats).toHaveLength(1);
+        expect(repeats[0][1]).toMatchObject({ path: 'later-turn', added: [], repeated: ['scheduling'] });
+      } finally { guidance._resetForTesting(); }
+    });
     it('forwards the repeatable native owner fence through the real manager preparation path', async () => {
       const instance = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
       await instance.readyPromise;
@@ -1463,6 +1535,28 @@ describe('InstanceManager', () => {
         mockChatService,
         manager,
       );
+    });
+
+    it('Step 7 item 5: a typed /compact is a manual compaction, so the helper limit does not refuse its summary', async () => {
+      const instance = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+      await instance.readyPromise;
+      const compact = vi.spyOn(getContextEngine(), 'compactInstance')
+        .mockResolvedValue({ success: true, method: 'restart-with-summary', blocking: true });
+      try {
+        mockCommandExecuteCommandString.mockResolvedValueOnce({
+          command: { id: 'builtin-compact', name: 'compact', template: '', builtIn: true, createdAt: 1, updatedAt: 1, source: 'builtin' },
+          args: [],
+          resolvedPrompt: '',
+          execution: { type: 'compact' },
+        });
+
+        await manager.sendInput(instance.id, '/compact');
+
+        expect(compact).toHaveBeenCalledTimes(1);
+        expect(compact).toHaveBeenCalledWith(instance.id, { trigger: 'manual' });
+      } finally {
+        compact.mockRestore();
+      }
     });
 
     it('does not create legacy active-goal metadata after raw /goal starts Loop Mode', async () => {

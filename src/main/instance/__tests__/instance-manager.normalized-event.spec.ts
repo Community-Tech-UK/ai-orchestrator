@@ -219,7 +219,6 @@ vi.mock('../../../shared/utils/permission-mapper', () => ({
 
 vi.mock('../../orchestration/orchestration-protocol', () => ({
   generateChildPrompt: vi.fn().mockReturnValue('child prompt'),
-  generateOrchestrationPrompt: vi.fn().mockReturnValue('[ORCHESTRATION SYSTEM PROMPT]'),
   formatCommandResponse: vi.fn(() => '[Orchestrator Response]'),
 }));
 
@@ -476,7 +475,8 @@ vi.mock('../../learning/strategy-learner', () => ({
   },
 }));
 
-vi.mock('../../../shared/types/command.types', () => ({
+vi.mock('../../../shared/types/command.types', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../shared/types/command.types')>()),
   parseCommandString: vi.fn().mockReturnValue(null),
   resolveTemplate: vi.fn((t: string) => t),
 }));

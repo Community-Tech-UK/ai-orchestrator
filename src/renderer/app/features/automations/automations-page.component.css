@@ -104,6 +104,9 @@
     .run-row { display: grid; grid-template-columns: 90px 80px 160px minmax(0, 1fr); gap: 8px; align-items: center; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); font-size: 12px; }
     .run-row--failed { border-color: color-mix(in srgb, var(--error-color) 45%, var(--border-color)); }
     .run-row--succeeded { border-color: color-mix(in srgb, var(--success-color) 45%, var(--border-color)); }
+    .run-detail { grid-column: 1 / -1; font-size: 11px; color: var(--text-muted); overflow-wrap: anywhere; }
+    .run-detail span { font-weight: 600; margin-right: 6px; }
+    .stats__check { grid-column: 1 / -1; }
     .run-error { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .run-retry { grid-column: 1 / -1; overflow-wrap: anywhere; }
     .attachments { display: flex; flex-wrap: wrap; gap: 6px; }

@@ -101,7 +101,7 @@ const ALLOWLIST: Record<string, number> = {
   // silently downgrades).
   // Re-tightened 837 -> 749: terminal-run bookkeeping extracted to
   // automation-runner-terminal.ts.
-  'src/main/automations/automation-runner.ts': 749,
+  'src/main/automations/automation-runner.ts': 823, // raised 749 -> 823 (2026-11-06): Phase 1 token levers merged on top of main's own growth
   // Main process — browser gateway
   // Raised 2284 -> 2400 for the execute_fill_plan + fill_credential service
   // methods (delegators to browser-form-fill-operations) + the credential
@@ -198,7 +198,7 @@ const ALLOWLIST: Record<string, number> = {
   // to claude-assistant-message.ts.
   // Raised 2064 -> 2071 to wire ClaudeBackgroundTaskTracker (system task
   // messages); the parsing itself lives in claude-cli-async-work.ts.
-  'src/main/cli/adapters/claude-cli-adapter.ts': 2071,
+  'src/main/cli/adapters/claude-cli-adapter.ts': 2128, // raised 2071 -> 2128 (2026-11-06): Phase 1 token levers merged on top of main's own growth
   // Re-tightened after extracting the exec helpers to codex/exec-helpers.ts.
   'src/main/cli/adapters/codex-cli-adapter.ts': 3344,
   // Was already at 699 (1 line under the old hard 700 cap) before LT-045's
@@ -309,7 +309,7 @@ const ALLOWLIST: Record<string, number> = {
   // context percentage into a new session. Two extractions already came out of
   // this file in the same change (`resolveRuntimeChangeModel`,
   // `resolveSwapContextUsage`); a third purely to reclaim 5 lines would be churn.
-  'src/main/instance/lifecycle/runtime-reconciler.ts': 790, // raised 705 -> 775 (2026-10-10): MiMo in-place account-switch branch (machinery in runtime-reconciler-account-handoff.ts); 775 -> 790 (2026-11-06): ending a provider-limit park after a move
+  'src/main/instance/lifecycle/runtime-reconciler.ts': 843, // raised 705 -> 775 (2026-10-10): MiMo in-place account-switch branch (machinery in runtime-reconciler-account-handoff.ts); 775 -> 790 (2026-11-06): ending a provider-limit park after a move; 790 -> 843 (2026-11-06): Phase 1 token levers merged on top
   // Main process — IPC handlers
   'src/main/ipc/handlers/app-handlers.ts': 660,
   // Raised 1208 -> 1251 (2026-07-17 thread-resilience + context-evidence handlers).
@@ -540,7 +540,7 @@ const ALLOWLIST: Record<string, number> = {
   // (accountProfileId / accountRoutingSource inputs plus a type import). Four
   // lines of plumbing on a 1.9k-line component; the input-panel split stays its
   // own piece of work.
-  'src/renderer/app/features/instance-detail/input-panel.component.ts': 1910,
+  'src/renderer/app/features/instance-detail/input-panel.component.ts': 1967, // raised 1910 -> 1967 (2026-11-06): Phase 1 token levers merged on top of main's own growth
   'src/renderer/app/features/instance-detail/instance-detail.component.ts': 1582,
   // Raised 1266 -> 1297 (2026-07-17 thread-resilience stream updates).
   // Re-tightened 1297 -> 1290: compaction-recovery labels, failed-image
@@ -568,7 +568,7 @@ const ALLOWLIST: Record<string, number> = {
   // automation-model-preview.ts.
   // Re-tightened 782 -> 737: form/label mappers extracted to
   // automation-form-mappers.ts.
-  'src/renderer/app/features/automations/automations-page.component.ts': 737,
+  'src/renderer/app/features/automations/automations-page.component.ts': 800, // raised 737 -> 800 (2026-11-06): Phase 1 token levers merged on top of main's own growth
   // Raised 1074 -> 1125 (2026-09-02): loop HUD diagnosis/issue-card wiring
   // already in the working tree; file sat 1 over 1074+50 slack and failed
   // check:ts-max-loc. Re-tighten after a HUD-strip extract.
@@ -580,7 +580,7 @@ const ALLOWLIST: Record<string, number> = {
   // Raised 957 -> 964: default favorites now mirror each provider tab's usage-ordered top row.
   // Raised 964 -> 1029: curated DEFAULT_FAVORITE_MODEL_KEYS default with per-provider fallback.
   // Raised 1029 -> 1038: outlined (unfilled) star for non-favourited rows, gold fill when favourited.
-  'src/renderer/app/features/models/model-selection-panel.component.ts': 1038,
+  'src/renderer/app/features/models/model-selection-panel.component.ts': 1093, // raised 1038 -> 1093 (2026-11-06): Phase 1 token levers merged on top of main's own growth
   'src/renderer/app/features/models/models-page.component.ts': 768,
   'src/renderer/app/features/observations/observations-page.component.ts': 808,
   'src/renderer/app/features/plan/plan-page.component.ts': 1036,

@@ -78,6 +78,21 @@ export function buildDeferPermissionHookCommand(
   return `node ${quoteHookArg(hookPath, platform)}`;
 }
 
+export function resolveBashHookCommand(options: {
+  yoloMode?: boolean;
+  permissionHookPath?: string;
+  rtk?: { enabled: boolean; yoloHookPath?: string };
+}, platform: NodeJS.Platform = process.platform): string | undefined {
+  if (options.yoloMode) {
+    return options.rtk?.enabled && options.rtk.yoloHookPath
+      ? buildDeferPermissionHookCommand(options.rtk.yoloHookPath, platform)
+      : undefined;
+  }
+  return options.permissionHookPath
+    ? buildDeferPermissionHookCommand(options.permissionHookPath, platform)
+    : undefined;
+}
+
 function ensureHookFile(hookPath: string, label: string): string {
   if (!existsSync(hookPath)) {
     logger.error(`${label} hook script not found`, undefined, { hookPath, isPackaged: app.isPackaged });

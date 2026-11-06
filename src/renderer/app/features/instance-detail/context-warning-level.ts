@@ -1,5 +1,6 @@
 import { RESTORED_CONTEXT_USAGE_SOURCE } from '../../../../shared/types/instance.types';
-import { isOccupancyPressureReading } from '../../../../shared/utils/context-occupancy';
+import { formatTokensK, isOccupancyPressureReading, selfCompactThreshold } from '../../../../shared/utils/context-occupancy';
+import { machineSessionReasonOf } from '../../../../shared/utils/machine-session';
 import type { ContextUsage } from '../../core/state/instance/instance.types';
 
 /**
@@ -57,4 +58,37 @@ export function resolveContextWarningLevel(
   if (pct >= 80) return 'critical';
   if (pct >= 75) return 'warning';
   return null;
+}
+
+export interface ClaudeContextCeilings {
+  machineContextCeilingTokens: number;
+  ownChatContextCeilingTokens: number;
+}
+
+export interface ClaudeContextNoteInstance {
+  provider: string;
+  parentId?: string | null;
+  metadata?: Record<string, unknown>;
+  contextUsage?: ContextUsage;
+  selfManagesAutoCompaction?: boolean;
+}
+
+/** A quiet note for real Claude occupancy readings, separate from warning severity. */
+export function resolveClaudeContextNote(
+  inst: ClaudeContextNoteInstance,
+  ceilings: ClaudeContextCeilings,
+): string | null {
+  if (inst.provider !== 'claude' || !inst.selfManagesAutoCompaction ||
+      !isOccupancyPressureReading(inst.contextUsage)) return null;
+  const ceiling = machineSessionReasonOf(inst) !== null
+    ? ceilings.machineContextCeilingTokens
+    : ceilings.ownChatContextCeilingTokens;
+  if (!Number.isFinite(ceiling) || ceiling <= 0) return null;
+  const gap = selfCompactThreshold(inst.contextUsage.total, ceiling) - inst.contextUsage.used;
+  // Past the trigger Claude is summarising now, so there is no countdown left to show ("about 0 tokens").
+  return gap > 0 && gap <= 100_000 ? buildClaudeContextNoteSentence(gap) : null;
+}
+
+export function buildClaudeContextNoteSentence(gapTokens: number): string {
+  return `Claude will summarise this conversation in about ${formatTokensK(Math.max(0, gapTokens))} tokens.`;
 }

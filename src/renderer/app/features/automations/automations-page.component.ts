@@ -1,4 +1,4 @@
-import { isQuietRun, monitorSuggestion, nextCheckExplanation } from './automation-run-presentation';
+import { monitorSuggestion, nextCheckExplanation } from './automation-run-presentation';
 import type { AutomationUpdatePayload } from '@contracts/schemas/automation';
 import { AUTOMATIONS_CHOOSE_FOLDER, AUTOMATIONS_ENTER_PROMPT, AUTOMATIONS_PAUSE_SCHEDULE, AUTOMATIONS_RESUME_SCHEDULE } from './tooltip-copy-automations';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
@@ -7,6 +7,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { FormsModule } from '@angular/forms';
 import type {
   Automation,
+  AutomationRun,
 } from '../../../../shared/types/automation.types';
 import type { FileAttachment } from '../../../../shared/types/instance.types';
 import type { AutomationPreflightReport, AutomationTemplate } from '../../../../shared/types/task-preflight.types';
@@ -40,11 +41,15 @@ import {
 } from './automation-authority';
 import {
   emptyForm,
+  checkCommandPatch,
   formToAction,
+  formToPreCheck,
   patchAutomationForm,
   formToTrigger,
+  showsCheckModelSuggestion,
   type AutomationFormModel,
 } from './automation-form-model';
+import { describeCheckStatsLine, describeDailyRunsLine, describeRun, runRowClass } from './automation-run-display';
 import { AutomationIpcService } from '../../core/services/ipc/automation-ipc.service';
 import type { WebhookRouteConfig } from '../../../../shared/types/webhook.types';
 import { describeSchedule } from './schedule-format';
@@ -108,7 +113,6 @@ export class AutomationsPageComponent {
   preflightAcknowledged = signal(false);
   form = signal<AutomationFormModel>(emptyForm());
   confirmingDeleteId = signal<string | null>(null);
-  readonly isQuietRun = isQuietRun;
   readonly nextCheckExplanation = nextCheckExplanation;
   readonly dismissedMonitorHints = signal<ReadonlySet<string>>(new Set());
   showMonitorSuggestion(automation: Automation): boolean {
@@ -436,7 +440,10 @@ export class AutomationsPageComponent {
   }
 
   patchForm(patch: Partial<AutomationFormModel>): void {
-    this.form.update((current) => patchAutomationForm(current, patch));
+    this.form.update((current) => patchAutomationForm(current, {
+      ...(patch.triggerKind === 'webhook' ? checkCommandPatch(current, '', current.modelExplicitlyChosen) : {}),
+      ...patch,
+    }));
     this.preflightAcknowledged.set(false);
     this.store.clearPreflight();
   }
@@ -604,9 +611,15 @@ export class AutomationsPageComponent {
     // WS5: a webhook trigger needs a route. A loop action does NOT need a typed
     // verify command — dispatch adopts the working directory's own verifier and
     // fails the run with the WS6 policy error only when there is none at all.
-    if (model.triggerKind === 'webhook' && !model.webhookRouteId.trim()) return false;
+    if ((model.triggerKind === 'webhook' && !model.webhookRouteId.trim()) || this.pinnedCheckBlocksSave()) return false;
     return Boolean(model.name.trim() && model.workingDirectory.trim() && model.prompt.trim() && !this.store.preflightLoading()
       && this.validRunMinutes() && this.validTokenLimit());
+  }
+
+  /** A check runs on this computer only, so a job pinned to another computer cannot keep one. */
+  pinnedCheckBlocksSave(): boolean {
+    const model = this.form();
+    return Boolean(model.forceNodeId && formToPreCheck(model));
   }
 
   validRunMinutes(): boolean {
@@ -679,6 +692,30 @@ export class AutomationsPageComponent {
 
   formatTime(timestamp: number | null): string {
     return timestamp ? new Date(timestamp).toLocaleString() : 'None';
+  }
+
+  readonly runDisplay = describeRun;
+  readonly runRowClasses = runRowClass;
+  readonly checkCommandTooltip = copyFor('automations.checkCommand');
+  readonly scheduleCadenceTooltip = copyFor('automations.scheduleCadence');
+  readonly checkErrorRuleTooltip = copyFor('automations.checkErrorRule');
+
+  checkStatsLine(): string | null {
+    const automation = this.selected();
+    if (!automation?.action.preCheck) return null;
+    return describeCheckStatsLine(this.store.runs().filter((run: AutomationRun) => run.automationId === automation.id));
+  }
+
+  /** The estimate walks a week of fire times, so edits that leave the schedule alone must not rerun it. */
+  private readonly formSchedule = computed(() => formToSchedule(this.form()), { equal: (a, b) => JSON.stringify(a) === JSON.stringify(b) });
+  readonly scheduleCadenceLine = computed(() => describeDailyRunsLine(this.formSchedule()));
+
+  onPreCheckCommandChange(value: string): void {
+    this.patchForm(checkCommandPatch(this.form(), value, this.form().modelExplicitlyChosen));
+  }
+
+  checkModelSuggestionVisible(): boolean {
+    return showsCheckModelSuggestion(this.form(), this.form().modelExplicitlyChosen);
   }
 
   /**

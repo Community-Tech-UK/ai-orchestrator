@@ -11,7 +11,7 @@ import type { BrowserGrantStore } from './browser-grant-store';
 import type { BrowserApprovalStore } from './browser-approval-store';
 import type { BrowserGatewayResultInput } from './browser-gateway-result';
 import type { BrowserGatewayNavigateRequest, BrowserGatewayScreenshotRequest,
-  BrowserGatewayTargetRequest } from './browser-gateway-service-types';
+  BrowserGatewaySnapshotRequest } from './browser-gateway-service-types';
 import type { BrowserSnapshot } from './puppeteer-browser-driver';
 import { isOriginAllowed } from './browser-origin-policy';
 import { isMutatingBrowserCommand } from './browser-mutation-safety';
@@ -28,7 +28,7 @@ import { allowedOriginFromUrl, extractTabPayload } from './browser-gateway-servi
 import { providerFromContext } from './browser-provider';
 import { findMatchingBrowserGrant } from './browser-grant-policy';
 import { existingTabGrantNodeId } from './browser-grant-scope';
-import { boundBrowserText } from './browser-redaction';
+import { browserSnapshotText } from './browser-snapshot-text';
 import { postTimeoutMutationProbe } from './browser-existing-tab-timeout-probe';
 import type { BrowserReliabilityEvents } from './browser-reliability-events';
 import { guardAppStateMutation } from './browser-app-write-guard';
@@ -405,7 +405,7 @@ export class BrowserExistingTabOperations {
   }
 
   async snapshot(
-    request: BrowserGatewayTargetRequest & { requireLive?: boolean },
+    request: BrowserGatewaySnapshotRequest,
     attachment: BrowserExistingTabAttachment,
   ): Promise<BrowserGatewayResult<(BrowserSnapshot & {
     text: string;
@@ -478,7 +478,7 @@ export class BrowserExistingTabOperations {
         data: {
           title: fresh.title ?? '',
           url: fresh.url,
-          text: boundBrowserText(fresh.text ?? ''),
+          text: await browserSnapshotText(fresh.text ?? '', request.extractionHint),
           ...(fresh.textUnavailableReason ? { textUnavailableReason: fresh.textUnavailableReason } : {}),
           // A Chrome HTTP auth prompt waiting on this tab (no credentials):
           // the caller answers it with browser.fill_http_auth.
@@ -526,7 +526,7 @@ export class BrowserExistingTabOperations {
       data: {
         title: attachment.title ?? '',
         url: attachment.url,
-        text: boundBrowserText(attachment.text ?? ''),
+        text: await browserSnapshotText(attachment.text ?? '', request.extractionHint),
         ...(attachment.textUnavailableReason ? { textUnavailableReason: attachment.textUnavailableReason } : {}),
       },
     });

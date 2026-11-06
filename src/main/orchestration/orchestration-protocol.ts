@@ -60,12 +60,14 @@ export type {
 };
 
 export {
-  generateOrchestrationPrompt,
+  HARNESS_GUIDE,
+  buildSchedulingRules,
+  CONSENSUS_RULES,
+  SCHEDULING_RULES_REPEAT_LINE,
+  CONSENSUS_RULES_REPEAT_LINE,
   generateChildPrompt,
   detectsConsensusIntent,
   detectsSchedulingIntent,
-  CONSENSUS_INTENT_REMINDER,
-  SCHEDULING_INTENT_REMINDER,
 } from './orchestration-protocol.prompts';
 
 // ─── Command parsing ──────────────────────────────────────────────────────────

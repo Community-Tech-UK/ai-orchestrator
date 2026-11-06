@@ -31,6 +31,7 @@ import { internalInputMetadata } from '../instance/internal-input-provenance';
 import type { WindowManager } from '../window-manager';
 import type { ContextUsage, Instance } from '../../shared/types/instance.types';
 import type { CompactionBoundaryOptions } from '../../shared/types/compaction-preview.types';
+import type { CompactionExecutionOptions } from '../context/compaction-execution-options';
 import { getConversationLedgerService } from '../conversation-ledger';
 import {
   ProviderContextActionExecutor,
@@ -54,9 +55,11 @@ export const CONTEXT_POLICY_STEER_NOTICE =
  */
 const pendingManualCheckpoints = new Map<string, string>();
 const pendingRestartStats = new Map<string, { continuityStats: ContinuityStats; restartArchiveId?: string; previousProviderSessionId?: string }>();
+const pendingNativeUsage = new Map<string, { previousUsage?: ContextUsage; newUsage?: ContextUsage }>();
 
 interface NativeCompactionAdapter {
-  compactContext?: () => Promise<boolean>;
+  compactContext?: (options?: { userInitiated?: boolean }) => Promise<boolean>;
+  getTurnCompaction?: () => { count: number; preTokens?: number; postTokens?: number };
   /**
    * True once this adapter has proven, within its own lifetime, that the
    * connected provider build accepts a compact RPC but never confirms it
@@ -90,6 +93,18 @@ function hasLiveProviderTurn(adapter: NativeCompactionAdapter | undefined): bool
 }
 
 type CompactionMarkerRecorder = (params: RecordCompactionMarkerParams) => string | null | undefined;
+
+/** Provider boundary samples replace stale occupancy; absent/invalid samples stay unknown. */
+function nativeBoundaryUsage(tokens: number | undefined, baseline: ContextUsage | undefined): ContextUsage | undefined {
+  if (typeof tokens !== 'number' || !Number.isFinite(tokens) || tokens < 0
+    || !baseline || !Number.isFinite(baseline.total) || baseline.total <= 0) return undefined;
+  return {
+    used: tokens, total: baseline.total, percentage: Math.min(100, tokens / baseline.total * 100),
+    occupancyReported: true, source: 'provider-compact-boundary', isEstimated: false,
+    ...(baseline.cumulativeTokens !== undefined ? { cumulativeTokens: baseline.cumulativeTokens } : {}),
+    ...(baseline.costEstimate !== undefined ? { costEstimate: baseline.costEstimate } : {}),
+  };
+}
 
 let compactionMarkerRecorder: CompactionMarkerRecorder = recordCompactionMarkerToRlm;
 
@@ -335,21 +350,16 @@ export function setupCompactionCoordinator(
         createdAt: event.createdAt,
       });
     },
-    nativeCompact: async (instanceId: string, _options?: CompactionBoundaryOptions) => {
+    nativeCompact: async (instanceId: string, options?: CompactionBoundaryOptions) => {
       // The adapter's own native compaction has no boundary hook — WS-B7's
       // "keep latest N exchanges" control only applies to the AIO-managed
       // restart-with-summary path below. `previewCompaction()` labels this
       // provider `adapter-self-managed` and says so honestly.
       const adapter = instanceManager.getAdapter(instanceId) as NativeCompactionAdapter | undefined;
+      pendingNativeUsage.delete(instanceId);
       if (!adapter || typeof adapter.compactContext !== 'function') {
-        // Honest false. The previous implementation fell through to
-        // `sendInput('/compact')` here, but Claude CLI in
-        // `--input-format stream-json` mode does not intercept slash
-        // commands — `/compact` was forwarded to the model as user text and
-        // the model replied with an explanation instead of compacting. With
-        // no real hook, returning false lets the coordinator fall through to
-        // the restart-with-summary strategy for manual triggers, which
-        // performs an actual compaction.
+        // Raw /compact belongs to the version-gated resident Claude adapter.
+        // Providers without a confirmed native hook use restart-with-summary.
         return false;
       }
 
@@ -366,7 +376,16 @@ export function setupCompactionCoordinator(
       }
 
       try {
-        const result = await adapter.compactContext();
+        const baseline = instanceManager.getInstance(instanceId)?.contextUsage;
+        // Only a person asking (Step 7 item 5) tells the adapter its summary helper is not capped.
+        const result = await (options?.trigger === 'manual'
+          ? adapter.compactContext({ userInitiated: true })
+          : adapter.compactContext());
+        const boundary = result ? adapter.getTurnCompaction?.() : undefined;
+        if (boundary && boundary.count > 0) pendingNativeUsage.set(instanceId, {
+          previousUsage: nativeBoundaryUsage(boundary.preTokens, baseline),
+          newUsage: nativeBoundaryUsage(boundary.postTokens, baseline),
+        });
         if (!result && adapter.nativeCompactionKnownUnsupported?.()) {
           coordinator.recordNativeCompactionProvenUnsupported(instanceId);
         }
@@ -387,30 +406,46 @@ export function setupCompactionCoordinator(
       const capabilities = instanceManager.getAdapterRuntimeCapabilities(instanceId);
       return capabilities?.selfManagedAutoCompaction === true;
     },
-    restartCompact: async (instanceId: string, options?: CompactionBoundaryOptions) => {
+    restartCompact: async (instanceId: string, options?: CompactionExecutionOptions) => {
       try {
         const instance = instanceManager.getInstance(instanceId);
         if (!instance) return false;
+        const owner = options?.recoveryOwner;
+        owner?.assertCurrent();
         const evidencePreviews = await loadAuthenticatedEvidencePreviews(instance);
-        let maxInputTokens = 96000;
-        try {
-          const slots = JSON.parse(getSettingsManager().get('auxiliaryLlmSlotsJson')) as { compression?: { maxInputTokens?: number } };
-          const configured = slots.compression?.maxInputTokens;
-          if (configured && Number.isFinite(configured) && configured > 0) maxInputTokens = configured;
-        } catch { /* The default compression budget applies to legacy settings. */ }
+        owner?.assertCurrent();
         const prepared = await prepareRestartCompaction(instance, {
-          ...options, maxInputTokens,
+          keepLatestExchanges: options?.trigger === 'overflow' ? 0 : options?.keepLatestExchanges,
+          resumeTurn: options?.resumeTurn,
           recoveryMessageCount: await getContextRecoveryMessageCount(instance),
-          evidence: evidencePreviews.map(preview => preview.preview).join('\n\n'),
+          evidence: evidencePreviews.length
+            ? evidencePreviews.map(preview => preview.preview).join('\n\n')
+            : '',
           decisions: buildCompactionDecisionLogLines(instanceId, activeMessagesOf(instance)).join('\n'),
+          // The helper's daily limit never refuses a summary the person asked for (Step 7 item 5).
+          userInitiated: options?.trigger === 'manual',
         });
         const previousProviderSessionId = instance.sessionId;
-        const restartArchiveId = await instanceManager.restartFreshInstance(instanceId);
-        await instanceManager.sendInput(instanceId, prepared.text, undefined,
-          { automatedInput: true, internalSource: 'compaction-continuity' });
+        owner?.assertBeforeRestart();
+        const restartArchiveId = owner
+          ? await instanceManager.restartFreshInstance(instanceId, owner.assertBeforeRestart)
+          : await instanceManager.restartFreshInstance(instanceId);
+        owner?.assertCurrent();
+        let providerInputDelivered = false;
+        await instanceManager.sendInput(instanceId, prepared.text, options?.resumeTurn?.attachments,
+          { automatedInput: true, internalSource: options?.trigger === 'overflow'
+            ? options.resumeTurn?.internalSource ?? 'compaction-continuity'
+            : 'compaction-continuity',
+          ...(owner ? {
+            // A signal also defers the package's requestCount/transcript commit until admission.
+            signal: owner.signal ?? new AbortController().signal,
+            beforeProviderDispatch: owner.assertProviderDispatchCurrent,
+            assertProviderDispatchCurrent: owner.assertProviderDispatchCurrent,
+          } : {}),
+          onProviderInputDelivered: () => { providerInputDelivered = true; } });
         pendingRestartStats.set(instanceId, { continuityStats: prepared.stats, restartArchiveId, previousProviderSessionId });
         logger.info('restart-with-summary compaction completed', { instanceId, ...prepared.stats });
-        return true;
+        return { success: true, resumeDelivered: Boolean(options?.resumeTurn) && providerInputDelivered };
       } catch (error) {
         pendingRestartStats.delete(instanceId);
         if (error instanceof CompactionInputBudgetError) {
@@ -442,10 +477,21 @@ export function setupCompactionCoordinator(
     pendingManualCheckpoints.delete(instanceId);
     const restartStats = pendingRestartStats.get(instanceId);
     pendingRestartStats.delete(instanceId);
+    const nativeUsage = pendingNativeUsage.get(instanceId);
+    pendingNativeUsage.delete(instanceId);
 
     if (result.success) {
       const instance = instanceManager.getInstance(instanceId);
       if (instance) {
+        if (result.method === 'native' && nativeUsage) {
+          if (nativeUsage.previousUsage) result.previousUsage = nativeUsage.previousUsage;
+          if (nativeUsage.newUsage) {
+            result.newUsage = nativeUsage.newUsage;
+            instance.contextUsage = nativeUsage.newUsage;
+            coordinator.onContextUpdate(instanceId, nativeUsage.newUsage);
+            instanceManager.updateInstanceStatus(instanceId, instance.status, { reason: 'context-compacted', method: result.method });
+          }
+        }
         if (!result.newUsage && result.previousUsage) {
           result.newUsage = buildPostCompactionUsage(result.previousUsage);
           instance.contextUsage = result.newUsage;
@@ -489,10 +535,18 @@ export function setupCompactionCoordinator(
       });
     }
 
+    // Recovery receipts and fallback diagnostics remain internal; this event
+    // must match the strict public compaction-status contract.
     windowManager.sendToRenderer('instance:compact-status', {
       instanceId,
-      ...result,
       status: 'completed',
+      success: result.success,
+      method: result.method,
+      blocking: result.blocking,
+      previousUsage: result.previousUsage,
+      newUsage: result.newUsage,
+      summary: result.summary,
+      error: result.error,
     });
   });
 
@@ -509,6 +563,7 @@ export function setupCompactionCoordinator(
   });
 
   coordinator.on('compaction-error', (payload) => {
+    pendingNativeUsage.delete(payload.instanceId);
     pendingRestartStats.delete(payload.instanceId);
     windowManager.sendToRenderer('instance:compact-status', {
       ...payload,
@@ -552,7 +607,8 @@ export async function applyCompaction(
   if (checkpointId) pendingManualCheckpoints.set(instanceId, checkpointId);
 
   try {
-    return await getContextEngine().compactInstance(instanceId, opts);
+    // Compact now and the boundary dialog's Confirm are explicit user actions: typed, never inferred.
+    return await getContextEngine().compactInstance(instanceId, { ...opts, trigger: 'manual' });
   } finally {
     // Defensive: the `compaction-completed` listener normally consumes this
     // entry synchronously before `compactInstance()` resolves, but an early

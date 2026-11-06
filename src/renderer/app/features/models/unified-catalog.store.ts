@@ -119,6 +119,9 @@ export class UnifiedCatalogStore {
         tier: entry.tier,
         ...(pinned ? { pinned: true } : {}),
         ...(entry.reasoning ? { reasoning: entry.reasoning } : {}),
+        ...(entry.contextWindow ? { contextWindow: entry.contextWindow } : {}),
+        ...(entry.pricing ? { pricing: entry.pricing } : {}),
+        ...(entry.pricingSource ? { pricingSource: entry.pricingSource } : {}),
         ...(known?.family ?? entry.family ? { family: known?.family ?? entry.family } : {}),
       };
     });

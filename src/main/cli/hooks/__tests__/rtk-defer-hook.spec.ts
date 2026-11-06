@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 import { spawnSync } from 'child_process';
@@ -304,4 +304,183 @@ describe('rtk-defer-hook', () => {
       expect(parsed.hookSpecificOutput.updatedInput).toEqual({ command: 'rtk git status' });
     },
   );
+});
+
+describe('rtk-defer-hook — rewrite-only mode (A13, Step 18b)', () => {
+  let tempDir: string | null = null;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(path.join(tmpdir(), 'rtk-rewrite-only-'));
+  });
+
+  afterEach(() => {
+    if (tempDir) {
+      rmSync(tempDir, { recursive: true, force: true });
+      tempDir = null;
+    }
+  });
+
+  function rewriteOnlyEnv(stubPath: string, extra: Record<string, string> = {}): NodeJS.ProcessEnv {
+    const env = envWithRtkDisabled();
+    env['ORCHESTRATOR_RTK_ENABLED'] = '1';
+    env['ORCHESTRATOR_RTK_REWRITE_ONLY'] = '1';
+    env['ORCHESTRATOR_RTK_PATH'] = stubPath;
+    delete env['ORCHESTRATOR_RTK_LOG_DIR'];
+    return { ...env, ...extra };
+  }
+
+  function runHook(input: unknown, env: NodeJS.ProcessEnv) {
+    return spawnSync(process.execPath, [hookPath], {
+      input: JSON.stringify(input),
+      encoding: 'utf8',
+      env,
+    });
+  }
+
+  it('exit 0 with a rewrite prints allow with updatedInput', () => {
+    const stubPath = makeStubRtk(tempDir!, { exit: 0, stdout: 'rtk git status' });
+    const result = runHook(
+      { tool_name: 'Bash', tool_use_id: 't1', tool_input: { command: 'git status' } },
+      rewriteOnlyEnv(stubPath),
+    );
+    expect(result.status).toBe(0);
+    const reply = JSON.parse(result.stdout);
+    expect(reply.hookSpecificOutput.permissionDecision).toBe('allow');
+    expect(reply.hookSpecificOutput.updatedInput.command).toBe('rtk git status');
+  });
+
+  it('exit 3 (no rule matched, rewritten) also allows — never defers', () => {
+    const stubPath = makeStubRtk(tempDir!, { exit: 3, stdout: 'rtk git log' });
+    const result = runHook(
+      { tool_name: 'Bash', tool_use_id: 't2', tool_input: { command: 'git log' } },
+      rewriteOnlyEnv(stubPath),
+    );
+    expect(result.status).toBe(0);
+    const reply = JSON.parse(result.stdout);
+    expect(reply.hookSpecificOutput.permissionDecision).toBe('allow');
+    expect(reply.hookSpecificOutput.updatedInput.command).toBe('rtk git log');
+    expect(result.stdout).not.toContain('defer');
+    expect(result.stdout).not.toContain('deny');
+  });
+
+  it('exit 1 and exit 2 print nothing and exit 0', () => {
+    for (const exit of [1, 2]) {
+      const stubPath = makeStubRtk(tempDir!, { exit });
+      const result = runHook(
+        { tool_name: 'Bash', tool_use_id: `t-${exit}`, tool_input: { command: 'git status' } },
+        rewriteOnlyEnv(stubPath),
+      );
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe('');
+    }
+  });
+
+  it('a missing binary and a timeout print nothing and exit 0', () => {
+    const missing = runHook(
+      { tool_name: 'Bash', tool_use_id: 'm1', tool_input: { command: 'git status' } },
+      rewriteOnlyEnv(path.join(tempDir!, 'does-not-exist')),
+    );
+    expect(missing.status).toBe(0);
+    expect(missing.stdout).toBe('');
+
+    const slowStub = path.join(tempDir!, 'rtk-slow');
+    writeFileSync(slowStub, '#!/usr/bin/env bash\nif [[ "$1" == "--version" ]]; then echo "rtk 0.51.0"; exit 0; fi\nsleep 5\n', 'utf-8');
+    chmodSync(slowStub, 0o755);
+    const timeout = runHook(
+      { tool_name: 'Bash', tool_use_id: 'm2', tool_input: { command: 'git status' } },
+      rewriteOnlyEnv(slowStub),
+    );
+    expect(timeout.status).toBe(0);
+    expect(timeout.stdout).toBe('');
+  });
+
+  it('invalid JSON input prints nothing and exits 0 (fail open)', () => {
+    const stubPath = makeStubRtk(tempDir!, { exit: 0, stdout: 'rtk x' });
+    const result = spawnSync(process.execPath, [hookPath], {
+      input: 'not json at all {',
+      encoding: 'utf8',
+      env: rewriteOnlyEnv(stubPath),
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe('');
+  });
+
+  it('never reads the decision directory: a deny file does not stop a rewrite', () => {
+    const stubPath = makeStubRtk(tempDir!, { exit: 0, stdout: 'rtk git status' });
+    const decisionDir = path.join(tempDir!, 'decisions');
+    mkdirSync(decisionDir, { recursive: true });
+    writeFileSync(
+      path.join(decisionDir, 't-dec.json'),
+      JSON.stringify({ permissionDecision: 'deny', reason: 'blocked by user' }),
+      'utf-8',
+    );
+    const result = runHook(
+      { tool_name: 'Bash', tool_use_id: 't-dec', tool_input: { command: 'git status' } },
+      rewriteOnlyEnv(stubPath, { ORCHESTRATOR_DECISION_DIR: decisionDir }),
+    );
+    expect(result.status).toBe(0);
+    const reply = JSON.parse(result.stdout);
+    expect(reply.hookSpecificOutput.permissionDecision).toBe('allow');
+  });
+
+  // The input carries a `command` string and the stub rtk WOULD rewrite it, so
+  // the only thing keeping the output empty is the `tool_name !== 'Bash'`
+  // guard. (A `Read` input with only `file_path` stays silent without it.)
+  it.each(['BashOutput', 'Read'])('leaves a non-Bash tool (%s) with a command field alone (no output at all)', (toolName) => {
+    const stubPath = makeStubRtk(tempDir!, { exit: 0, stdout: 'rtk git status' });
+    const result = runHook(
+      { tool_name: toolName, tool_use_id: 'r1', tool_input: { command: 'git status' } },
+      rewriteOnlyEnv(stubPath),
+    );
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe('');
+  });
+
+  it('writes one decision-log line per Bash call, per day, and sweeps files older than 60 days', () => {
+    const stubPath = makeStubRtk(tempDir!, { exit: 0, stdout: 'rtk git status' });
+    const logDir = path.join(tempDir!, 'hook-decisions');
+    mkdirSync(logDir, { recursive: true });
+    const stale = path.join(logDir, '2026-07-01.jsonl');
+    writeFileSync(stale, '{"old":true}\n', 'utf-8');
+    const old = new Date(Date.now() - 61 * 24 * 60 * 60 * 1000);
+    utimesSync(stale, old, old);
+
+    const result = runHook(
+      { session_id: 'sess-1', tool_name: 'Bash', tool_use_id: 't-log', tool_input: { command: 'git status' } },
+      rewriteOnlyEnv(stubPath, { ORCHESTRATOR_RTK_LOG_DIR: logDir }),
+    );
+    expect(result.status).toBe(0);
+
+    const today = new Date().toISOString().slice(0, 10);
+    const todayFile = path.join(logDir, `${today}.jsonl`);
+    expect(existsSync(todayFile)).toBe(true);
+    expect(existsSync(stale)).toBe(false);
+    const lines = readFileSync(todayFile, 'utf-8').trim().split('\n');
+    expect(lines).toHaveLength(1);
+    const entry = JSON.parse(lines[0]);
+    expect(entry.decision).toBe('rewritten');
+    expect(entry.session_id).toBe('sess-1');
+    expect(entry.tool_use_id).toBe('t-log');
+    expect(entry.rtkExit).toBe(0);
+    expect(typeof entry.elapsedMs).toBe('number');
+  });
+
+  it('logs a passthrough for a no-op rewrite and ignored-deny for exit 2', () => {
+    const logDir = path.join(tempDir!, 'hook-decisions-2');
+    const noOp = makeStubRtk(tempDir!, { exit: 0, stdout: 'git status' });
+    runHook(
+      { tool_name: 'Bash', tool_use_id: 'noop', tool_input: { command: 'git status' } },
+      rewriteOnlyEnv(noOp, { ORCHESTRATOR_RTK_LOG_DIR: logDir }),
+    );
+    const denyStub = makeStubRtk(tempDir!, { exit: 2 });
+    runHook(
+      { tool_name: 'Bash', tool_use_id: 'denied', tool_input: { command: 'git rm -rf .' } },
+      rewriteOnlyEnv(denyStub, { ORCHESTRATOR_RTK_LOG_DIR: logDir }),
+    );
+    const today = new Date().toISOString().slice(0, 10);
+    const lines = readFileSync(path.join(logDir, `${today}.jsonl`), 'utf-8').trim().split('\n');
+    const decisions = lines.map((l) => JSON.parse(l).decision);
+    expect(decisions).toContain('passthrough');
+    expect(decisions).toContain('ignored-deny');
+  });
 });

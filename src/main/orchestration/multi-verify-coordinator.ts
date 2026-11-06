@@ -1024,6 +1024,7 @@ Provide your synthesized response:`;
       workingDirectory: process.cwd(),
       systemPrompt: 'You are a synthesis agent that combines multiple perspectives into a single coherent response.',
       yoloMode: false,
+      readOnlyReview: true,
       timeout: 300000,
       maxBudgetUsd: cliType === 'claude' ? 1 : undefined,
     };

@@ -57,6 +57,7 @@ import type {
   RecoveryRespawnRequest,
 } from './runtime-reconciler.types';
 import type { ChromeDevtoolsMcpConfigOptions } from '../../browser-gateway/chrome-devtools-mcp-config';
+import { stampRtkArm, type RtkSpawnConfig } from '../../cli/rtk/rtk-rollout';
 import { withOperationDeadline, isDeadlineExceeded } from '../../runtime/operation-deadline';
 import { getOrCreateTurnSupervisor } from '../../session/session-turn-supervisor';
 import { getOrCreateCircuitBreaker } from './respawn-circuit-breaker';
@@ -130,6 +131,12 @@ export interface InterruptRespawnDeps {
     location?: ExecutionLocation,
   ) => ChromeDevtoolsMcpConfigOptions | null;
   getPermissionHookPath: (yoloMode: boolean) => string | undefined;
+  /**
+   * RTK spawn config for this session key (18b item 4), the same resolver the
+   * lifecycle spawn sites use. A recovery respawn must pass it or an on-arm
+   * auto-approve session loses its rewrite-only hook.
+   */
+  getRtkSpawnConfig: (key?: string) => RtkSpawnConfig | undefined;
   waitForResumeHealth: (instanceId: string, timeoutMs?: number) => Promise<boolean>;
   waitForAdapterWritable: (instanceId: string, timeoutMs: number) => Promise<boolean>;
   buildReplayContinuityMessage: (instance: Instance, reason: string) => string;
@@ -949,6 +956,7 @@ export class InterruptRespawnHandler {
           cliType,
         ) ?? undefined,
         permissionHookPath: this.deps.getPermissionHookPath(instance.yoloMode),
+        rtk: stampRtkArm(instance, this.deps.getRtkSpawnConfig(instance.id), cliType, instance.executionLocation.type === 'local'),
       };
       try {
         logger.debug('Spawning new process after interrupt', { instanceId });
@@ -1277,6 +1285,7 @@ export class InterruptRespawnHandler {
           cliType,
         ) ?? undefined,
         permissionHookPath: this.deps.getPermissionHookPath(instance.yoloMode),
+        rtk: stampRtkArm(instance, this.deps.getRtkSpawnConfig(instance.id), cliType, instance.executionLocation.type === 'local'),
       };
       try {
         // Spec item 3: same reconciler-owned spawn core as the interrupt path

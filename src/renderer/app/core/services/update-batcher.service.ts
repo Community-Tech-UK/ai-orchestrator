@@ -72,6 +72,12 @@ export interface StateUpdate {
    * context-warning banner since AIO does not auto-compact these instances.
    */
   selfManagesAutoCompaction?: boolean;
+  /**
+   * Resident Claude process, so a model/effort change is applied in place.
+   * Resolved after the created event, so it arrives on later updates.
+   * undefined preserves existing.
+   */
+  residentClaude?: boolean;
   /** Provider after a cross-provider swap; undefined preserves existing. */
   provider?: string;
   /**
@@ -151,6 +157,7 @@ export class UpdateBatcherService {
         ? update.computerUseMode
         : existing?.computerUseMode,
       automationRevealed: update.automationRevealed ?? existing?.automationRevealed,
+      residentClaude: update.residentClaude ?? existing?.residentClaude,
       parentId: update.parentId ?? existing?.parentId,
     });
   }

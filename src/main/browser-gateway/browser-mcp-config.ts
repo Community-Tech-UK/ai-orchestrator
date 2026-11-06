@@ -3,6 +3,7 @@ import type { AcpMcpServerConfig } from '../../shared/types/cli.types';
 import { BROWSER_TOOL_DEFERRAL_ENV } from './browser-mcp-deferral';
 import { BROWSER_TOOL_STABLE_ENV } from './browser-mcp-stable-tools';
 import { tomlArray, tomlBareKey, tomlString } from './mcp-config-toml-helpers';
+import type { ClaudeNativeToolSearchState } from '../cli/adapters/claude-native-tool-search';
 
 /**
  * MCP config writer for the browser-gateway stdio forwarder.
@@ -35,6 +36,7 @@ export interface BrowserGatewayMcpConfigOptions {
    * dynamic clients reveal tools on demand. Unsupported clients remain eager.
    */
   toolDeferral?: boolean;
+  nativeToolSearch?: ClaudeNativeToolSearchState;
   /**
    * Persistent directory for the forwarder's own file log sink (LT-543).
    * Passed through as `AI_ORCHESTRATOR_BROWSER_FORWARDER_LOG_DIR`; the
@@ -67,7 +69,8 @@ export type BrowserGatewayToolMode = 'eager' | 'deferred' | 'stable';
 /** Shared by config injection and schema telemetry; Codex 0.153.4 MCP discovery
  * and invocation verified without inference. Cursor has no invocation evidence.
  */
-export function resolveBrowserGatewayToolMode(provider?: string, toolDeferral = false): BrowserGatewayToolMode {
+export function resolveBrowserGatewayToolMode(provider?: string, toolDeferral = false, options: { nativeToolSearch?: ClaudeNativeToolSearchState } = {}): BrowserGatewayToolMode {
+  if (provider?.trim().toLowerCase() === 'claude' && options.nativeToolSearch === 'on') return 'eager';
   if (!toolDeferral) return 'eager';
   if (provider?.trim().toLowerCase() === 'codex') return 'stable';
   return supportsDeferredBrowserGatewayTools(provider) ? 'deferred' : 'eager';
@@ -83,7 +86,7 @@ export function resolveBrowserGatewayBridgeSpec(
 
   // Snapshotting clients require fixed callable wrappers. Never enable dynamic
   // list changes for them; Cursor retains eager mode until independently proven.
-  const toolMode = resolveBrowserGatewayToolMode(options.provider, options.toolDeferral);
+  const toolMode = resolveBrowserGatewayToolMode(options.provider, options.toolDeferral, options);
   const env = {
     AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: options.socketPath,
     AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: options.instanceId,

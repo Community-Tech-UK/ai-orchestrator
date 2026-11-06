@@ -196,6 +196,8 @@ export interface CreateAutomationCommand {
       workingDirectory?: string;
     };
   };
+  /** 8f: set only after James agreed in chat to a schedule above the agent cadence limit. */
+  confirmedByUser?: boolean;
 }
 
 export type OrchestratorCommand =

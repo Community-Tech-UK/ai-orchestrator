@@ -25,10 +25,16 @@ import {
 } from './base-cli-adapter';
 import { NdjsonParser } from '../ndjson-parser';
 import { applyClaudeHygieneEnv, resolveClaudeDebugLogging, resolveClaudeFallbackModel } from './claude-env-pack';
+import { buildClaudeRtkEnv } from '../rtk/rtk-rollout';
+import { claudePolicyExposure } from './claude-policy-exposure';
+import { recordSessionPolicy } from '../../core/system/session-policy-log';
+import { ClaudeControlChannel, type ClaudeControlReply } from './claude-control-channel';
+import { applyClaudeLiveRuntime } from './claude-live-runtime';
 import { ClaudeSessionCostLedger } from './claude-session-cost-ledger';
 import { resolveClaudeBashOutputMaxChars } from './claude-output-caps';
 import { computeTokenCost } from '../../../shared/data/model-pricing';
 import { ClaudeCompactionObserver } from './claude-compaction-observer';
+import { ClaudeNativeCompaction } from './claude-native-compaction';
 import { flushClaudeSubagentUsage } from './claude-subagent-usage';
 import { nativeTranscriptExists, readLastClaudeCostState } from './claude-transcript-registry';
 import { parseClaudeOutput } from './claude-output-parser';
@@ -132,7 +138,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
    *  cumulative result fallback, which overcounts across agentic turns. */
   private lastObservedContextUsage: { used: number; total: number } | null = null;
   /** Floor value from model config — CLI-reported values cannot go below this */
-  private readonly contextWindowFloor: number;
+  private contextWindowFloor: number;
   /** Whether we received per-call usage this turn (assistant/system messages). When true,
    *  the result handler should NOT overwrite context usage with cumulative modelUsage totals. */
   private hasPerCallUsageThisTurn = false;
@@ -167,6 +173,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
    * arrives on stdout or on error/timeout. Non-null only during an active resident interrupt.
    */
   private pendingInterruptResolve: ((result: TurnInterruptCompletion) => void) | null = null;
+  private readonly controlChannel = new ClaudeControlChannel();
   /**
    * `request_id` of the in-flight resident interrupt, echoed back by the CLI in
    * the `control_response`. Used to correlate the ack to this interrupt and
@@ -181,6 +188,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   private awaitingOneShotCompletion = false;
   /** LT-105: an `error` completed the current resident turn, so its trailing `result` must not. */
   private residentTurnActive = false;
+  private pendingResidentInputs = 0;
   private residentTurnCompletedByError = false;
   private readonly residentSettlement = new ClaudeResidentTurnSettlement(response => this.settleResponseUsage(response));
   private readonly residentRequest = new ClaudeResidentRequest(this);
@@ -188,6 +196,19 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   private readonly sessionCostLedger = new ClaudeSessionCostLedger();
   private costSanityWarned = false;
   private readonly compactionObserver = new ClaudeCompactionObserver();
+  private readonly nativeCompaction = new ClaudeNativeCompaction({
+    isResident: () => this.getAdapterCapabilities().residentSession,
+    isTurnActive: () => this.residentTurnActive || this.residentSettlement.pending || this.awaitingOneShotCompletion || this.pendingInterruptResolve !== null || this.pendingResidentInputs > 0,
+    cliVersion: () => resolveClaudeCliVersion(this.cachedCliStatus?.version),
+    onCompactionObserved: callback => this.compactionObserver.onCompactionObserved(callback),
+    writeRaw: async line => {
+      if (!this.formatter?.isWritable()) throw new Error('CLI not ready for compaction');
+      this.resetResidentTurn(true);
+      this.emit('status', 'busy' as InstanceStatus);
+      try { await this.formatter.sendRaw(line); }
+      catch (error) { this.residentTurnActive = false; this.emit('status', 'idle' as InstanceStatus); throw error; }
+    },
+  });
 
   constructor(options: ClaudeCliSpawnOptions = {}) {
     // Build env passthrough for the spawned CLI process. The PreToolUse hook
@@ -195,12 +216,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     // so they need to be present in the CLI's environment, not the orchestrator's.
     const env: Record<string, string> = { ...options.env };
     applyClaudeHygieneEnv(env, options.sessionId, options);
-    if (options.rtk?.enabled && options.rtk.binaryPath) {
-      env['ORCHESTRATOR_RTK_ENABLED'] = '1';
-      env['ORCHESTRATOR_RTK_PATH'] = options.rtk.binaryPath;
-      // Belt-and-braces: also propagate the telemetry opt-out at the CLI level
-      env['RTK_TELEMETRY_DISABLED'] = '1';
-    }
+    Object.assign(env, buildClaudeRtkEnv(options));
 
     const config: CliAdapterConfig = {
       command: 'claude',
@@ -308,6 +324,13 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
   willResumeSession(): boolean { return this.shouldUseNativeResume(); }
   getTurnCompaction() { return this.compactionObserver.getTurnCompaction(); }
+  override compactContext(): Promise<boolean> { return this.nativeCompaction.compact(); }
+  nativeCompactionKnownUnsupported(): boolean { return this.nativeCompaction.knownUnsupported(); }
+  override isProviderCompacting(): boolean { return this.nativeCompaction.isCompacting(); }
+  override getRuntimeSnapshot(): ReturnType<BaseCliAdapter['getRuntimeSnapshot']> {
+    return { ...super.getRuntimeSnapshot(), turnPhase: this.pendingInterruptResolve ? 'interrupting'
+      : this.residentTurnActive || this.residentSettlement.pending || this.awaitingOneShotCompletion || this.pendingResidentInputs > 0 ? 'running' : 'idle' };
+  }
 
   private beginResumeAttempt(): void {
     this.lastResumeAttemptResult = this.shouldUseNativeResume()
@@ -349,19 +372,15 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     return {
       supportsResume: true,
       supportsForkSession: true,
-      // Claude CLI is launched with `--print --input-format stream-json`, where
-      // slash commands are NOT intercepted by the CLI — they are forwarded to
-      // the model as plain user text. There is therefore no programmatic hook
-      // we can call to actively trigger a real compaction; this stays false.
-      supportsNativeCompaction: false,
+      // The probed resident stream-json protocol intercepts a raw /compact user line.
+      supportsNativeCompaction: this.nativeCompaction.supported(),
       supportsPermissionPrompts: true,
       supportsDeferPermission: this.shouldUsePermissionHook(),
       // Claude CLI auto-compacts internally at the model's own threshold and
       // surfaces that on the output stream. Tell the orchestrator to skip its
       // background/blocking auto-trigger for Claude — only manual user-driven
       // compaction (Compact button / IPC `instance:compact`) should run the
-      // strategy chain (which falls through to restart-with-summary because
-      // there is no native hook).
+      // strategy chain (native on a proven resident version, otherwise restart-with-summary).
       selfManagedAutoCompaction: true,
     };
   }
@@ -401,7 +420,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       occupancyReporting: resident ? 'current' : 'aggregate-only',
       cumulativeReporting: 'available',
       interruptProof: resident ? 'acknowledged-only' : 'none',
-      compactionProof: 'none',
+      compactionProof: resident ? 'observed' : 'none',
       sameThreadContinuation: resident,
     };
   }
@@ -465,6 +484,26 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       pid: this.getPid(),
     });
     return super.interrupt();
+  }
+
+  requestControl(subtype: string, fields: Record<string, unknown>, timeoutMs: number): Promise<ClaudeControlReply> {
+    if (!this.isRealPipe() || !this.formatter) {
+      return Promise.resolve({ ok: false, code: 'not-running', message: 'This session is not running right now.' });
+    }
+    return this.controlChannel.request(this.formatter, subtype, fields, { timeoutMs });
+  }
+
+  async applyLiveRuntime(change: { model?: string; effort?: string | null }): Promise<{ ok: boolean; reason?: string }> {
+    return applyClaudeLiveRuntime({
+      requestControl: (subtype, fields, timeoutMs) => this.requestControl(subtype, fields, timeoutMs),
+      commit: (model, effort) => {
+        if (model !== undefined) this.spawnOptions.model = model;
+        if (effort !== undefined) this.spawnOptions.reasoningEffort = effort as ClaudeCliSpawnOptions['reasoningEffort'];
+        const window = getProviderModelContextWindow('claude-cli', model ?? this.spawnOptions.model);
+        this.lastKnownContextWindow = window;
+        this.contextWindowFloor = window;
+      },
+    }, change);
   }
 
   /**
@@ -618,6 +657,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   }
 
   async sendMessage(message: CliMessage): Promise<CliResponse> {
+    if (this.isProviderCompacting()) throw markProviderDispatchNotStarted(new Error('Claude is compacting. The message was not sent; try again when it finishes.'));
     if (this.process) throw markProviderDispatchNotStarted(new Error('Claude process already spawned; use requestResponse'));
     const admission = this.oneShotLifecycle.prepare();
     const turn = new ClaudeOneShotTurn(this);
@@ -767,6 +807,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       const args = this.buildArgs(message);
       this.process = this.spawnWithInlineArgCleanup(args);
       turn.started = Boolean(this.process.pid);
+      if (turn.started && this.sessionId) recordSessionPolicy(claudePolicyExposure(this.sessionId, this.spawnOptions, this.config.env, args));
       this.process.once('error', error => turn.failInput(error, () => this.terminate(false)));
 
       if (this.process.stdin) {
@@ -892,43 +933,48 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   }
 
   async *sendMessageStream(message: CliMessage): AsyncIterable<string> {
+    if (this.isProviderCompacting()) throw markProviderDispatchNotStarted(new Error('Claude is compacting. The message was not sent; try again when it finishes.'));
     if (this.process) throw markProviderDispatchNotStarted(new Error('Claude process already spawned; use requestResponse'));
-    await this.primeCliVersion();
-    await this.prepareHardenedLogin();
-    const args = this.buildArgs(message);
-    this.process = this.spawnWithInlineArgCleanup(args);
+    this.pendingResidentInputs += 1;
+    try {
+      await this.primeCliVersion();
+      await this.prepareHardenedLogin();
+      const args = this.buildArgs(message);
+      this.process = this.spawnWithInlineArgCleanup(args);
+      if (this.process.pid && this.sessionId) recordSessionPolicy(claudePolicyExposure(this.sessionId, this.spawnOptions, this.config.env, args));
 
-    // Set up stdin formatter
-    if (this.process.stdin) {
-      this.formatter = new InputFormatter(this.process.stdin);
-    }
+      // Set up stdin formatter
+      if (this.process.stdin) {
+        this.formatter = new InputFormatter(this.process.stdin);
+      }
 
-    // Send the message
-    if (this.formatter && this.formatter.isWritable()) {
-      await this.formatter.sendMessage(message.content);
-      this.formatter.close();
-    }
+      // Send the message
+      if (this.formatter && this.formatter.isWritable()) {
+        await this.formatter.sendMessage(message.content);
+        this.formatter.close();
+      }
 
-    const stdout = this.process.stdout;
-    if (!stdout) return;
+      const stdout = this.process.stdout;
+      if (!stdout) return;
 
-    for await (const chunk of stdout) {
-      const raw = chunk.toString();
-      const messages = this.parser.parse(raw);
+      for await (const chunk of stdout) {
+        const raw = chunk.toString();
+        const messages = this.parser.parse(raw);
 
-      for (const msg of messages) {
-        const raw = toRawCliPayload(msg, msg.type);
-        if (raw.type === 'assistant' && raw.message?.content) {
-          const content = raw.message.content
-            .filter((block) => block.type === 'text' && block.text)
-            .map((block) => block.text)
-            .join('');
-          if (content) {
-            yield content;
+        for (const msg of messages) {
+          const raw = toRawCliPayload(msg, msg.type);
+          if (raw.type === 'assistant' && raw.message?.content) {
+            const content = raw.message.content
+              .filter((block) => block.type === 'text' && block.text)
+              .map((block) => block.text)
+              .join('');
+            if (content) {
+              yield content;
+            }
           }
         }
       }
-    }
+    } finally { this.pendingResidentInputs -= 1; }
   }
 
   parseOutput(raw: string): CliResponse {
@@ -1021,6 +1067,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     if (!this.process.pid) {
       throw new Error('Failed to spawn Claude CLI process');
     }
+    if (this.sessionId) recordSessionPolicy(claudePolicyExposure(this.sessionId, this.spawnOptions, this.config.env, args));
 
     // Set up stdin formatter
     if (this.process.stdin) {
@@ -1062,36 +1109,41 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   protected override async sendInputImpl(message: string, attachments?: FileAttachment[], _metadata?: CliMessage['metadata'], dispatch?: AdapterInputDispatch): Promise<void> {
     const admission = createAdapterInputDispatch(dispatch);
     assertAdapterInputCurrent(admission);
-    if (!this.formatter || !this.formatter.isWritable()) {
-      throw new Error('CLI not ready for input');
-    }
-
-    // Separate images (inline) from other files (need file path)
-    const imageAttachments =
-      attachments?.filter((a) => a.type?.startsWith('image/')) || [];
-    const otherAttachments =
-      attachments?.filter((a) => !a.type?.startsWith('image/')) || [];
-
-    let finalMessage = message;
-
-    // For non-image files, save to working directory and add file paths to message
-    if (otherAttachments.length > 0 && this.config.cwd) {
-      const processed = await processAttachments(
-        otherAttachments,
-        this.sessionId || generateId(),
-        this.config.cwd
-      );
+    this.pendingResidentInputs += 1;
+    try {
+      if (this.isProviderCompacting()) await this.nativeCompaction.waitForCompletion(admission?.signal);
       assertAdapterInputCurrent(admission);
-      finalMessage = buildMessageWithFiles(message, processed);
-    }
+      if (!this.formatter || !this.formatter.isWritable()) {
+        throw new Error('CLI not ready for input');
+      }
 
-    this.resetResidentTurn(true); // LT-047: new turn, drop stale prior output
-    await this.formatter.sendMessage(
-      finalMessage,
-      imageAttachments.length > 0 ? imageAttachments : undefined,
-      admission,
-    );
-    this.emit('status', 'busy' as InstanceStatus);
+      // Separate images (inline) from other files (need file path)
+      const imageAttachments =
+        attachments?.filter((a) => a.type?.startsWith('image/')) || [];
+      const otherAttachments =
+        attachments?.filter((a) => !a.type?.startsWith('image/')) || [];
+
+      let finalMessage = message;
+
+      // For non-image files, save to working directory and add file paths to message
+      if (otherAttachments.length > 0 && this.config.cwd) {
+        const processed = await processAttachments(
+          otherAttachments,
+          this.sessionId || generateId(),
+          this.config.cwd
+        );
+        assertAdapterInputCurrent(admission);
+        finalMessage = buildMessageWithFiles(message, processed);
+      }
+
+      this.resetResidentTurn(true); // LT-047: new turn, drop stale prior output
+      await this.formatter.sendMessage(
+        finalMessage,
+        imageAttachments.length > 0 ? imageAttachments : undefined,
+        admission,
+      );
+      this.emit('status', 'busy' as InstanceStatus);
+    } finally { this.pendingResidentInputs -= 1; }
   }
 
   /**
@@ -1142,23 +1194,28 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     }
 
     // For regular user input (not permission responses), send as JSON user message
-    const userMessage = {
-      type: 'user',
-      message: {
-        role: 'user',
-        content: text
-      }
-    };
-    const jsonMessage = ndjsonSafeStringify(userMessage);
-    logger.debug('Sending as user message', {
-      contentLength: text.length,
-      jsonMessageLength: jsonMessage.length,
-      ...textDiagnostic(text),
-    });
-    this.resetResidentTurn(true); // LT-047: see sendInputImpl
-    await this.formatter.sendRaw(jsonMessage);
+    this.pendingResidentInputs += 1;
+    try {
+      if (this.isProviderCompacting()) await this.nativeCompaction.waitForCompletion();
+      if (!this.formatter?.isWritable()) throw new Error('CLI not ready for input');
+      const userMessage = {
+        type: 'user',
+        message: {
+          role: 'user',
+          content: text
+        }
+      };
+      const jsonMessage = ndjsonSafeStringify(userMessage);
+      logger.debug('Sending as user message', {
+        contentLength: text.length,
+        jsonMessageLength: jsonMessage.length,
+        ...textDiagnostic(text),
+      });
+      this.resetResidentTurn(true); // LT-047: see sendInputImpl
+      await this.formatter.sendRaw(jsonMessage);
 
-    this.emit('status', 'busy' as InstanceStatus);
+      this.emit('status', 'busy' as InstanceStatus);
+    } finally { this.pendingResidentInputs -= 1; }
   }
 
   /**
@@ -1199,6 +1256,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
   // A partial watchdog result stops transport without changing its semantic outcome.
   private terminateProcess(graceful: boolean, cancelCurrent = true): Promise<void> {
+    this.nativeCompaction.cancel();
     return this.oneShotLifecycle.terminate(async () => {
       const turn = this.oneShotLifecycle.current;
       await this.residentSettlement.drain(); await turn?.drain();
@@ -1209,6 +1267,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   }
 
   private emitClassifiedError(error: Error): void {
+    this.nativeCompaction.cancel();
     if (!this.awaitingOneShotCompletion && this.residentTurnActive && !this.residentTurnCompletedByError) {
       this.completeResidentTurn({ turnErrored: true }); this.residentTurnCompletedByError = true;
     }
@@ -1272,12 +1331,14 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   }
 
   private handleExit(code: number | null, signal: string | null): void {
+    this.controlChannel.failAll('process-exited');
     // Flush any remaining parser buffer
     const remaining = this.parser.flush();
     for (const message of remaining) {
       if (!(message.type === 'result' && this.residentSettlement.pending)) this.residentTurnRawOutput += JSON.stringify(message) + '\n';
       this.processCliMessage(message);
     }
+    this.nativeCompaction.cancel();
     this.residentSettlement.settle();
     this.residentTurnActive = false;
 
@@ -1315,6 +1376,11 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
   private processCliMessage(message: CliStreamMessage): void {
     const raw = toRawCliPayload(message, message.type);
+    if (message.type === 'system' && message.subtype === 'init' && isVersionAtLeast(message.claude_code_version, '0.0.0')) {
+      this.cachedCliStatus = { ...this.cachedCliStatus, available: true, version: message.claude_code_version };
+    }
+    if (this.nativeCompaction.isCompactionEcho(raw)) return;
+    this.nativeCompaction.observeMessage(raw);
     switch (message.type) {
       case 'assistant': {
         const streamError = parseClaudeStreamError(raw);
@@ -1861,6 +1927,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       }
 
       case 'control_response': {
+        if (this.controlChannel.handleResponse(raw as unknown as Record<string, unknown>)) break;
         // Resident-interrupt acknowledgement from Claude CLI.
         // Resolves the completion promise returned by interrupt() so the
         // orchestrator can proceed without a respawn cycle.

@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto';
 import type { UnifiedSpawnOptions } from './adapter-factory.types';
 import { InstanceTelemetryParamsSchema, type RemoteInstanceTelemetry } from '../../remote-node/instance-telemetry-rpc';
 import { appendCodexEphemeralUsage, readCodexEphemeralUsage } from '../../core/system/codex-ephemeral-usage-store';
-import { codexTrialArm } from './codex/codex-thread-policy';
 import { getLogger } from '../../logging/logger';
 
 const logger = getLogger('RemoteCodexUsage');
@@ -12,7 +11,8 @@ const logger = getLogger('RemoteCodexUsage');
 export function observeRemoteCodexUsage(registry: EventEmitter, nodeId: string, instanceId: string,
   interactionId: string, options: UnifiedSpawnOptions): () => void {
   const trialKey = options.trialKey ? createHash('sha256').update(options.trialKey).digest('hex') : null;
-  const trialArm = options.trialArm ?? codexTrialArm(options.trialKey);
+  // A worker has no settings store, so without an explicit arm its thread policy records `unassigned`.
+  const trialArm = options.trialArm ?? 'unassigned';
   const { instanceId: owningInstanceId, jobId, sessionKind } = options;
   const receive = (event: RemoteInstanceTelemetry): void => {
     if (event.nodeId !== nodeId || event.instanceId !== instanceId || event.telemetry.event !== 'codex_ephemeral_usage') return;

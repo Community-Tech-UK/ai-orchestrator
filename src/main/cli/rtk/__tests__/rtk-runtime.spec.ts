@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -27,7 +27,9 @@ import {
   getRtkRuntime,
   parseVersion,
   RTK_BUNDLED_VERSION,
+  RTK_MIN_REWRITE_VERSION,
   RTK_MIN_VERSION,
+  supportsRewriteVersion,
 } from '../rtk-runtime';
 
 /**
@@ -151,6 +153,10 @@ describe('rtk-runtime', () => {
 
     it('declares MIN_VERSION earlier than BUNDLED_VERSION', () => {
       expect(compareVersions(RTK_MIN_VERSION, RTK_BUNDLED_VERSION)).toBeLessThan(0);
+    });
+
+    it('bundles rtk 0.52.0', () => {
+      expect(RTK_BUNDLED_VERSION).toBe('0.52.0');
     });
   });
 
@@ -313,6 +319,77 @@ describe('rtk-runtime', () => {
       } finally {
         rmSync(tempB, { recursive: true, force: true });
       }
+    });
+  });
+
+  describe('rewrite-capable version (Step 18a)', () => {
+    it('pins the rewrite floor at 0.49.0', () => {
+      expect(RTK_MIN_REWRITE_VERSION).toBe('0.49.0');
+    });
+
+    it('supportsRewriteVersion: false below 0.49.0 and for unknown, true from 0.49.0', () => {
+      for (const version of ['0.39.0', '0.42.4', '0.48.9']) {
+        expect(supportsRewriteVersion(version)).toBe(false);
+      }
+      for (const version of ['0.49.0', '0.51.0']) {
+        expect(supportsRewriteVersion(version)).toBe(true);
+      }
+      expect(supportsRewriteVersion(null)).toBe(false);
+      expect(supportsRewriteVersion(undefined)).toBe(false);
+    });
+
+    it.runIf(process.platform !== 'win32')('supportsRewrite() follows the resolved binary', () => {
+      const oldDir = mkdtempSync(path.join(tempRoot, 'old-'));
+      expect(getRtkRuntime({ binaryPathOverride: makeStubBinary(oldDir, { version: '0.42.4' }) }).supportsRewrite())
+        .toBe(false);
+      _resetForTesting();
+      const newDir = mkdtempSync(path.join(tempRoot, 'new-'));
+      expect(getRtkRuntime({ binaryPathOverride: makeStubBinary(newDir, { version: '0.49.0' }) }).supportsRewrite())
+        .toBe(true);
+    });
+  });
+
+  describe('bundled versus system binary (Step 18a)', () => {
+    let savedPath: string | undefined;
+
+    beforeEach(() => {
+      savedPath = process.env['PATH'];
+    });
+
+    afterEach(() => {
+      process.env['PATH'] = savedPath;
+    });
+
+    function installBundled(version: string): void {
+      const dir = path.join(tempRoot, 'resources', 'rtk', `${process.platform}-${process.arch}`);
+      mkdirSync(dir, { recursive: true });
+      makeStubBinary(dir, { version });
+    }
+
+    function installSystem(version: string): string {
+      const dir = path.join(tempRoot, 'system-bin');
+      mkdirSync(dir, { recursive: true });
+      const binary = makeStubBinary(dir, { version });
+      process.env['PATH'] = `${dir}${path.delimiter}${savedPath ?? ''}`;
+      return binary;
+    }
+
+    it.runIf(process.platform !== 'win32')('chooses bundled 0.51.0 over an older system 0.42.4', () => {
+      installBundled('0.51.0');
+      installSystem('0.42.4');
+      const runtime = getRtkRuntime({});
+      expect(runtime.binarySource()).toBe('bundled');
+      expect(runtime.version()).toBe('0.51.0');
+      expect(runtime.supportsRewrite()).toBe(true);
+    });
+
+    it.runIf(process.platform !== 'win32')('chooses a system copy at least as new as the bundled one', () => {
+      installBundled('0.51.0');
+      const systemBinary = installSystem('0.52.0');
+      const runtime = getRtkRuntime({});
+      expect(runtime.binarySource()).toBe('system');
+      expect(runtime.binaryPath()).toBe(systemBinary);
+      expect(runtime.version()).toBe('0.52.0');
     });
   });
 });

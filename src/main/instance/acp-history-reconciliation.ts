@@ -1,4 +1,5 @@
 import type { OutputMessage } from '../../shared/types/instance.types';
+import { startsWithHarnessContext } from '../orchestration/harness-guidance';
 
 function normalized(value: string): string { return value.replace(/\r\n/g, '\n').trim(); }
 
@@ -6,7 +7,11 @@ function normalized(value: string): string { return value.replace(/\r\n/g, '\n')
 // buildReplayContinuityMessage, indexed context and orchestration builders.
 // They are detection boundaries, never instructions to strip user text.
 function internalEnvelope(value: string): boolean {
-  return ['[SYSTEM INSTRUCTIONS]', '[RTK AWARENESS]', '<conversation_history>', '[Indexed Codebase Context]', '## You Are an Orchestrator', '## Child Instance', '[SYSTEM: Context Usage Warning]'].some((prefix) => value.trimStart().startsWith(prefix));
+  // Harness context blocks (memory, retrieved, active /goal) and scheduling/consensus
+  // guidance are detected by their exact builder shapes, in the order Harness adds
+  // them, so a user message that only mentions a heading is not an envelope.
+  // '## You Are an Orchestrator' is the retired guide, kept for old sessions.
+  return startsWithHarnessContext(value) || ['[SYSTEM INSTRUCTIONS]', '[RTK AWARENESS]', '<conversation_history>', '[Indexed Codebase Context]', '## You Are an Orchestrator', '## Child Instance', '[SYSTEM: Context Usage Warning]'].some((prefix) => value.trimStart().startsWith(prefix));
 }
 
 function unsafeHistory(): never {

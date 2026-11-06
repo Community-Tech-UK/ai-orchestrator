@@ -95,6 +95,7 @@ import {
   resolveModelForInvocation,
 } from './default-invokers';
 import { DEFAULT_ROUTING_CONFIG } from '../routing/model-router';
+import { subscribeCostAttribution, type CostAttributionRecord } from '../core/system/cost-attribution';
 
 describe('default orchestration invokers', () => {
   afterEach(() => WorkAdmission._resetForTesting());
@@ -215,6 +216,33 @@ describe('default orchestration invokers', () => {
     expect(callback).toHaveBeenCalledWith(null, 'verified', 42, 0);
     expect(hoisted.terminate).toHaveBeenCalledWith(false);
     vi.unstubAllGlobals();
+  });
+
+  it('attributes the native one-shot session and known effort without inventing a trial arm', async () => {
+    const rows: CostAttributionRecord[] = [];
+    const unsubscribe = subscribeCostAttribution((row) => rows.push(row));
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no local server')));
+    hoisted.instanceManager.getInstance.mockReturnValue({
+      id: 'instance-1', provider: 'claude-cli', workingDirectory: '/tmp/orchestrator-test', reasoningEffort: 'high',
+    });
+    hoisted.createCliAdapter.mockImplementation(() => ({
+      sendMessage: hoisted.sendMessage, terminate: hoisted.terminate, getSessionId: () => 'native-session',
+    }));
+    hoisted.sendMessage.mockResolvedValue({ content: 'verified', usage: { totalTokens: 42, cost: 0.02 } });
+    try {
+      registerDefaultMultiVerifyInvoker(hoisted.instanceManager as never);
+      multiVerifyCoordinator.emit('verification:invoke-agent', {
+        correlationId: 'verify-1:agent-1', requestId: 'verify-1', instanceId: 'instance-1',
+        agentId: 'agent-1', model: 'default', userPrompt: 'check this', callback: vi.fn(),
+      });
+      await vi.waitFor(() => expect(rows.some((row) => row.correlationId === 'verify-1:agent-1')).toBe(true));
+      const row = rows.find((entry) => entry.correlationId === 'verify-1:agent-1');
+      expect(row).toMatchObject({ source: 'one-shot', sessionId: 'native-session', reasoningEffort: 'high' });
+      expect(row?.rtkArm).toBeUndefined();
+    } finally {
+      unsubscribe();
+      vi.unstubAllGlobals();
+    }
   });
 
   it('routes verification scaffolding to local Ollama first when the server has models', async () => {

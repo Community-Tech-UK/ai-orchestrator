@@ -1,5 +1,5 @@
-import type { ModelCallPurpose } from './cost-attribution.types';
 export interface CostPurposeRow {
+  /** Stable raw grouping key. Convert it to a label only at the display boundary. */
   key: string;
   calls: number;
   inputTokens: number;
@@ -11,14 +11,16 @@ export interface CostPurposeRow {
   estimatedCost: number;
   estimatedShare: number;
   unknownCostCalls: number;
-  /** Legacy resident totals without enough identity to reconcile safely. */
+  /** Legacy resident Claude totals cannot safely be differenced. */
   historicalCostUnknownCalls?: number;
   freeCalls: number;
 }
+
 export interface CostPurposeSummary {
   enabled: boolean;
-  byPurpose: (CostPurposeRow & {key:ModelCallPurpose|'unknown'})[];
+  byPurpose: CostPurposeRow[];
   byProvider: CostPurposeRow[];
   totals: CostPurposeRow;
 }
+
 export interface CostPurposeRange { startTime?: number; endTime?: number }

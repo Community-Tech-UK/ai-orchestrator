@@ -360,6 +360,7 @@ export function createOrchestratorToolsStep(
             // itself calls run_on_node is seen at the next depth.
             metadata: {
               spawnDepth: spawnDecision.childDepth,
+              spendPurpose: 'remote-node',
               hideFromProjectRail: true,
               ...(meta?.callerInstanceId
                 ? { spawnParentInstanceId: meta.callerInstanceId }

@@ -16,6 +16,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'events';
 import type { CliAdapter } from '../../cli/adapters/adapter-factory';
+import type { RtkSpawnConfig } from '../../cli/rtk/rtk-rollout';
 import type { DesiredRuntime, Instance } from '../../../shared/types/instance.types';
 import type { RuntimeReconcilerDeps } from './runtime-reconciler.types';
 import { TestAcpCliAdapter, createInitializedAgentHarness } from '../../cli/adapters/acp-cli-adapter.test-helpers';
@@ -235,6 +236,142 @@ function localModelChange(): DesiredRuntime {
     },
   } as unknown as DesiredRuntime;
 }
+
+describe('RuntimeReconciler.applyRuntimeChange — RTK trial attribution', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSessionMutex.acquire.mockResolvedValue(() => {});
+    _resetAdapterLoansForTesting();
+  });
+  afterEach(() => _resetAdapterLoansForTesting());
+
+  const trialConfig = (arm: 'on' | 'off'): RtkSpawnConfig => ({
+    enabled: true,
+    binaryPath: '/example/rtk',
+    ...(arm === 'on' ? { yoloHookPath: '/example/rtk-hook' } : {}),
+    rtkArm: arm,
+    rtkTrialEligible: true,
+    rtkTrialKey: 'inst-1',
+  });
+
+  // The trial key is the instance id (plan 18b item 4), so the stub answers only
+  // for that key: a call that passes nothing or another id gets no RTK config.
+  function configureTrial(harness: Harness, arm: 'on' | 'off') {
+    const deps = (harness.reconciler as unknown as { deps: RuntimeReconcilerDeps }).deps;
+    const getRtkSpawnConfig = vi.fn((key?: string) => key === harness.instance.id ? trialConfig(arm) : undefined);
+    deps.spawnConfigBuilder.getRtkSpawnConfig = getRtkSpawnConfig;
+    return getRtkSpawnConfig;
+  }
+
+  it.each(['on', 'off'] as const)('keeps the %s arm on a local Claude auto-approve respawn', async arm => {
+    const harness = makeHarness(makeInstance({ yoloMode: true }), [makeAdapter(), makeAdapter()]);
+    const getRtkSpawnConfig = configureTrial(harness, arm);
+
+    await harness.reconciler.applyRuntimeChange('inst-1', { provider: 'claude', model: 'opus' });
+    expect(getRtkSpawnConfig).toHaveBeenCalledWith('inst-1');
+    expect(harness.createCalls[0].options['rtk']).toMatchObject({ rtkArm: arm, rtkTrialKey: 'inst-1' });
+    expect(harness.instance.metadata).toMatchObject({ rtkArm: arm, rtkTrialEligible: true, rtkTrialKey: 'inst-1' });
+
+    await harness.reconciler.applyRuntimeChange('inst-1', { provider: 'claude', model: 'sonnet' });
+    expect(harness.instance.metadata).toMatchObject({ rtkArm: arm, rtkTrialEligible: true, rtkTrialKey: 'inst-1' });
+  });
+
+  it('uses the resolved CLI type and clears stale eligibility when it is not Claude', async () => {
+    const harness = makeHarness(makeInstance({ yoloMode: true, metadata: { rtkArm: 'on', rtkTrialEligible: true, rtkTrialKey: 'inst-1' } }), [makeAdapter()]);
+    configureTrial(harness, 'on');
+    const deps = (harness.reconciler as unknown as { deps: RuntimeReconcilerDeps }).deps;
+    deps.resolveCliTypeForInstance = async () => 'codex';
+
+    await harness.reconciler.applyRuntimeChange('inst-1', { provider: 'claude', model: 'opus' });
+
+    expect(harness.instance.metadata?.['rtkArm']).toBeUndefined();
+    expect(harness.instance.metadata?.['rtkTrialEligible']).toBeUndefined();
+  });
+
+  it('clears the Claude trial stamp on a provider swap', async () => {
+    const available = vi.spyOn(providerSwap, 'assertSwapTargetCliAvailable').mockResolvedValue(undefined);
+    const harness = makeHarness(makeInstance({
+      yoloMode: true,
+      metadata: { rtkArm: 'on', rtkTrialEligible: true, rtkTrialKey: 'inst-1' },
+    }), [makeAdapter()]);
+    configureTrial(harness, 'on');
+    try {
+      await harness.reconciler.applyRuntimeChange('inst-1', { provider: 'codex' });
+      expect(harness.instance.provider).toBe('codex');
+      expect(harness.instance.metadata?.['rtkArm']).toBeUndefined();
+      expect(harness.instance.metadata?.['rtkTrialEligible']).toBeUndefined();
+    } finally {
+      available.mockRestore();
+    }
+  });
+
+  it('clears stale eligibility when permission mode changes or execution is remote', async () => {
+    for (const executionLocation of [{ type: 'local' }, { type: 'remote', nodeId: 'example-node' }] as const) {
+      const harness = makeHarness(makeInstance({
+        yoloMode: true,
+        executionLocation,
+        metadata: { rtkArm: 'on', rtkTrialEligible: true, rtkTrialKey: 'inst-1' },
+      }), [makeAdapter()]);
+      configureTrial(harness, 'on');
+
+      await harness.reconciler.applyRuntimeChange('inst-1', executionLocation.type === 'local'
+        ? yoloOnly(false) : { provider: 'claude', model: 'opus' });
+
+      expect(harness.instance.metadata?.['rtkArm']).toBeUndefined();
+      expect(harness.instance.metadata?.['rtkTrialEligible']).toBeUndefined();
+    }
+  });
+});
+
+describe('RuntimeReconciler.applyRuntimeChange — resident Claude live switch', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSessionMutex.acquire.mockResolvedValue(() => {});
+    _resetAdapterLoansForTesting();
+  });
+  afterEach(() => _resetAdapterLoansForTesting());
+
+  it.each([
+    [{ provider: 'claude', model: 'opus' }, { model: 'opus' }],
+    [{ provider: 'claude', reasoningEffort: 'low' }, { effort: 'low' }],
+  ] as const)('applies %o in place without respawning or sending a model turn', async (desired, change) => {
+    const live = Object.assign(makeAdapter(), {
+      applyLiveRuntime: vi.fn().mockResolvedValue({ ok: true }),
+      getAdapterCapabilities: () => ({ residentSession: true }),
+    });
+    const instance = makeInstance({ processId: 41, reasoningEffort: 'high' });
+    const harness = makeHarness(instance, [makeAdapter()], { getAdapter: () => live });
+
+    await harness.reconciler.applyRuntimeChange('inst-1', desired);
+
+    expect(live.applyLiveRuntime).toHaveBeenCalledWith(change);
+    expect(live.terminate).not.toHaveBeenCalled();
+    expect(live.sendInput).not.toHaveBeenCalled();
+    expect(harness.deleteAdapter).not.toHaveBeenCalled();
+    expect(harness.createCalls).toHaveLength(0);
+    expect(instance.sessionId).toBe(LIVE_SESSION_ID);
+    expect(instance.processId).toBe(41);
+    expect(instance.status).toBe('idle');
+    expect(harness.deps.emitSystemNotice).toHaveBeenCalledWith(instance, expect.stringContaining('in place'), expect.anything());
+  });
+
+  it('falls back to replay after the live control request refuses the model', async () => {
+    const live = Object.assign(makeAdapter(), {
+      applyLiveRuntime: vi.fn().mockResolvedValue({ ok: false, reason: 'mismatch' }),
+      getAdapterCapabilities: () => ({ residentSession: true }),
+    });
+    const harness = makeHarness(makeInstance(), [makeAdapter()], { getAdapter: () => live });
+
+    await harness.reconciler.applyRuntimeChange('inst-1', { provider: 'claude', model: 'opus' });
+
+    expect(live.applyLiveRuntime).toHaveBeenCalledWith({ model: 'opus' });
+    expect(live.terminate).toHaveBeenCalledWith(true);
+    expect(harness.createCalls).toHaveLength(1);
+    expect(harness.createCalls[0].options).toMatchObject({ model: 'opus', resume: false });
+    expect(harness.instance.sessionId).not.toBe(LIVE_SESSION_ID);
+    expect(harness.deps.emitSystemNotice.mock.calls.some(([, text]) => String(text).includes('restarted this session'))).toBe(true);
+  });
+});
 
 describe('RuntimeReconciler.applyRuntimeChange — fork resume source (LT-008)', () => {
   beforeEach(() => {

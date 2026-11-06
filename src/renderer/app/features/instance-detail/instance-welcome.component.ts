@@ -34,6 +34,7 @@ interface WelcomeProjectContext {
   imports: [DropZoneComponent, InputPanelComponent, RecentDirectoriesDropdownComponent, NodePickerComponent, AioTooltipDirective],
   template: `
     <app-drop-zone
+      [pasteOwner]="pasteOwner()"
       class="full-drop-zone"
       (filesDropped)="filesDropped.emit($event)"
       (imagesPasted)="imagesPasted.emit($event)"
@@ -435,6 +436,7 @@ interface WelcomeProjectContext {
   changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class InstanceWelcomeComponent {
+  pasteOwner = input<(() => string | null) | undefined>();
   workingDirectory = input<string | null>(null);
   pendingFiles = input<File[]>([]);
   pendingFolders = input<string[]>([]);

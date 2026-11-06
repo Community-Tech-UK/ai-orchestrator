@@ -13,6 +13,8 @@ import { dirname, join } from 'path';
 import type { CodexReasoningEffort } from './codex/app-server-types';
 import type { AcpMcpServerConfig } from '../../../shared/types/cli.types';
 import type { UnifiedSpawnOptions } from './adapter-factory.types';
+import type { ClaudeAccountSpawnEnv } from './account-pool/account-adapter-guards';
+import { configureClaudeNativeSearchMcp } from './claude-native-search-mcp';
 import { getSafeEnvStrict } from '../../security/env-filter';
 import { getLogger } from '../../logging/logger';
 import {
@@ -600,7 +602,7 @@ function normalizeClaudeInlineMcpConfig(entry: string): string {
   }
 }
 
-export function buildClaudeMcpConfig(options: UnifiedSpawnOptions): string[] | undefined {
+export function buildClaudeMcpConfig(options: UnifiedSpawnOptions, account?: ClaudeAccountSpawnEnv): string[] | undefined {
   const configs = (options.mcpConfig ?? []).map(normalizeClaudeInlineMcpConfig);
   const browserGatewayConfig = options.browserGatewayMcp
     ? buildBrowserGatewayMcpConfigJson(
@@ -634,5 +636,5 @@ export function buildClaudeMcpConfig(options: UnifiedSpawnOptions): string[] | u
   ) {
     configs.push(mobileMcpConfig);
   }
-  return configs.length > 0 ? configs : undefined;
+  return configs.length > 0 ? configureClaudeNativeSearchMcp(configs, options, account) : undefined;
 }

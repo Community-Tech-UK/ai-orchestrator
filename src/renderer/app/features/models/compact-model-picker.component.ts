@@ -10,8 +10,10 @@ import {
   input,
   signal,
   output,
+  viewChild,
 } from '@angular/core';
 import { OverlayModule, ConnectedPosition } from '@angular/cdk/overlay';
+import { createFocusTrap, type FocusTrapHandle } from '../../shared/utils/focus-trap';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { ModelPickerController } from './model-picker.controller';
 import {
@@ -111,7 +113,7 @@ const REASONING_LABELS: Record<ReasoningEffort, string> = {
       (backdropClick)="closeMenu()"
       (overlayKeydown)="onOverlayKeydown($event)"
     >
-      <app-model-selection-panel
+      <app-model-selection-panel #selectionPanel
         [providers]="providerList()"
         [selectedProvider]="selectedPickerProvider()"
         [selectedModelId]="controller.selectedModelId() || null"
@@ -120,6 +122,8 @@ const REASONING_LABELS: Record<ReasoningEffort, string> = {
         [modelsForProvider]="modelsForProviderFn"
         [reasoningOptionsForProvider]="reasoningOptionsForProviderFn"
         [disabledReasonForProvider]="providerDisabledReasonFor"
+        [note]="switchNote()"
+        [noteForProvider]="switchNoteForProvider()"
         (selection)="onUnifiedSelect($event)"
         (dismiss)="closeMenu()"
       />
@@ -213,7 +217,13 @@ export class CompactModelPickerComponent {
   readonly disabledReason = input<string | null | undefined>(null);
   /** Hosts with asynchronous operations own confirmation, rather than a form-state commit. */
   readonly showSelectionStatus = input(true);
+  /** Model-only hosts retain inherited effort rather than offering an unused override. */
+  readonly allowReasoningSelection = input(true);
+  /** Keep the portalled panel inside a host modal's nested focus lifecycle. */
+  readonly trapFocus = input(false);
   readonly statusText = input<string | null>(null);
+  readonly switchNote = input<string | null>(null);
+  readonly switchNoteForProvider = input<((provider: PickerProvider) => string | null) | null>(null);
   protected readonly displayStatus = computed(() =>
     this.statusText() ?? (this.showSelectionStatus() ? this.statusPill() : null),
   );
@@ -249,6 +259,9 @@ export class CompactModelPickerComponent {
 
   @ViewChild('pickerTrigger', { static: true, read: ElementRef })
   protected readonly pickerTriggerRef!: ElementRef<HTMLElement>;
+
+  private readonly selectionPanel = viewChild<ModelSelectionPanelComponent, ElementRef<HTMLElement>>('selectionPanel', { read: ElementRef });
+  private focusTrap: FocusTrapHandle | null = null;
 
   protected readonly menuOpen = signal(false);
   protected readonly statusPill = signal<string | null>(null);
@@ -287,6 +300,7 @@ export class CompactModelPickerComponent {
     provider: PickerProvider,
     model?: ModelDisplayInfo,
   ): UnifiedReasoningOption[] => {
+    if (!this.allowReasoningSelection()) return [];
     return this.controller
       .reasoningOptionsForProvider(provider, model)
       .map((opt) => ({ id: opt.id, label: opt.label, isDefault: opt.isDefault }));
@@ -294,6 +308,17 @@ export class CompactModelPickerComponent {
 
   constructor() {
     const destroyRef = inject(DestroyRef);
+
+    effect(() => {
+      const panel = this.selectionPanel()?.nativeElement;
+      if (!this.trapFocus() || !this.menuOpen() || !panel) {
+        this.closeFocusTrap();
+        return;
+      }
+      if (this.focusTrap) return;
+      this.focusTrap = createFocusTrap(panel, { initialFocus: panel.querySelector('input') });
+      this.focusTrap.activate();
+    });
 
     effect(() => {
       this.controller.setMode(this._mode());
@@ -351,6 +376,7 @@ export class CompactModelPickerComponent {
     }
 
     destroyRef.onDestroy(() => {
+      this.closeFocusTrap();
       if (this.statusTimer) {
         clearTimeout(this.statusTimer);
         this.statusTimer = null;
@@ -428,11 +454,23 @@ export class CompactModelPickerComponent {
 
   protected toggleMenu(): void {
     if (this._disabledReason()) return;
-    this.menuOpen.update((v) => !v);
+    if (this.menuOpen()) this.closeMenu();
+    else this.menuOpen.set(true);
   }
 
   protected closeMenu(): void {
+    this.closeFocusTrap();
     this.menuOpen.set(false);
+  }
+
+  private closeFocusTrap(): void {
+    const panel = this.selectionPanel()?.nativeElement;
+    const ownsFocus = document.activeElement === document.body
+      || !!panel?.contains(document.activeElement);
+    this.focusTrap?.deactivate();
+    // Parent teardown or navigation may already have placed focus elsewhere.
+    if (ownsFocus) this.focusTrap?.restore();
+    this.focusTrap = null;
   }
 
   /**
@@ -447,7 +485,7 @@ export class CompactModelPickerComponent {
   // --- Commit handlers ---
 
   protected async onUnifiedSelect(selection: UnifiedSelection): Promise<void> {
-    this.menuOpen.set(false);
+    this.closeMenu();
     if (selection.kind === 'provider') {
       // Provider row clicks reset the model to the new provider's primary
       // default and the provider's app-level reasoning default. Without the
@@ -461,7 +499,7 @@ export class CompactModelPickerComponent {
       const ok = await this.controller.commitSelection({
         provider: selection.provider,
         modelId: newDefaultModel,
-        reasoning: getModelDefaultReasoningEffort(selection.provider, this.modelsForProviderFn(selection.provider).find((m) => m.id === newDefaultModel)?.reasoning, newDefaultModel),
+        reasoning: this.allowReasoningSelection() ? getModelDefaultReasoningEffort(selection.provider, this.modelsForProviderFn(selection.provider).find((m) => m.id === newDefaultModel)?.reasoning, newDefaultModel) : undefined,
         ...(modelRuntimeTarget ? { modelRuntimeTarget } : {}),
       });
       if (ok) this.flashStatus(`Provider: ${PROVIDER_MENU_LABELS[selection.provider]}`);
@@ -473,7 +511,7 @@ export class CompactModelPickerComponent {
       const ok = await this.controller.commitSelection({
         provider: selection.provider,
         modelId: selection.modelId,
-        reasoning: getModelDefaultReasoningEffort(selection.provider, this.modelsForProviderFn(selection.provider).find((m) => m.id === selection.modelId)?.reasoning, selection.modelId),
+        reasoning: this.allowReasoningSelection() ? getModelDefaultReasoningEffort(selection.provider, this.modelsForProviderFn(selection.provider).find((m) => m.id === selection.modelId)?.reasoning, selection.modelId) : undefined,
         trackUsage: true,
         ...(modelRuntimeTarget ? { modelRuntimeTarget } : {}),
       });
@@ -488,6 +526,7 @@ export class CompactModelPickerComponent {
     }
 
     // selection.kind === 'reasoning' — commit provider+model+reasoning.
+    if (!this.allowReasoningSelection()) return;
     const modelRuntimeTarget = this.modelRuntimeTargetForSelection(selection.provider, selection.modelId);
     const ok = await this.controller.commitSelection({
       provider: selection.provider,

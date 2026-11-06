@@ -16,7 +16,8 @@ const filename = 'a-long-attachment-filename-that-is-shortened-in-the-preview.pn
 class PreviewHost {
   readonly copy = copyFor;
   readonly pendingFolders = () => [];
-  readonly pendingFilePreviews = () => [{ file: new File(['image'], filename), isImage: true, previewUrl: '', size: '5 B' }];
+  readonly file = new File(['image'], filename);
+  readonly pendingFilePreviews = () => [{ file: this.file, isImage: true, previewUrl: '', size: '5 B' }];
   readonly getFolderDisplayName = (folder: string) => folder;
   readonly openLightbox = vi.fn();
   readonly onRemoveFile = vi.fn();

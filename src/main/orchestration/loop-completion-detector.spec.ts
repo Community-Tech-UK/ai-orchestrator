@@ -835,11 +835,15 @@ describe('LT-350: LoopCompletionDetector.abortVerify', () => {
     fixtures.trackPidFile(pidFile);
     const pidLiteral = JSON.stringify(pidFile).replace(/"/g, '\\"');
     const execPrefix = process.platform === 'win32' ? '' : 'exec ';
-    cfg.completion.verifyCommand = `${execPrefix}"${node}" -e "require('node:fs').writeFileSync(${pidLiteral}, String(process.pid)); setTimeout(() => {}, 60000)"`;
+    // Hold the receipt open but empty to model cancellation between open and
+    // write in writeFileSync, without stressing the host to trigger the race.
+    cfg.completion.verifyCommand = `${execPrefix}"${node}" -e "const fs = require('node:fs'); fs.writeFileSync(${pidLiteral}, ''); setTimeout(() => fs.writeFileSync(${pidLiteral}, String(process.pid)), 500); setTimeout(() => {}, 60000)"`;
     cfg.completion.verifyTimeoutMs = 60_000;
     const verifyPromise = det.runVerify(cfg, 'loop-1');
-    // Give the child a moment to actually spawn before killing it.
-    await new Promise((r) => setTimeout(r, 100));
+    // A spawn or an existing file does not prove the PID receipt was written.
+    // Wait for its content before aborting so teardown never reads an empty file.
+    await waitFor(() => fs.existsSync(pidFile) && /^[1-9]\d*$/.test(fs.readFileSync(pidFile, 'utf8')), 5_000);
+    const fixturePid = Number(fs.readFileSync(pidFile, 'utf8'));
     expect(capturesBeforePid).toBe(roots.length);
     expect(roots.some(child => child.pid !== undefined && child.exitCode === null)).toBe(true);
     await det.abortVerify('loop-1');
@@ -847,6 +851,8 @@ describe('LT-350: LoopCompletionDetector.abortVerify', () => {
     expect(outcome.status).toBe('failed');
     if (outcome.status !== 'failed') throw new Error('expected failed verify outcome');
     expect(outcome.failureKind).toBe('cancelled');
+    expect(fixturePid).toBeGreaterThan(1);
+    await fixtures.waitForExit();
   }, 10_000);
 
   it('is a no-op when nothing is in flight for that loopRunId', async () => {

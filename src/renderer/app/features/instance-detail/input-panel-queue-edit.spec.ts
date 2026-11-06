@@ -14,6 +14,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProviderType } from '../../core/services/provider-state.service';
 import { ActionDispatchService } from '../../core/services/action-dispatch.service';
 import { InstanceStore } from '../../core/state/instance.store';
+import { InstanceMessagingStore } from '../../core/state/instance/instance-messaging.store';
 import { DraftService } from '../../core/services/draft.service';
 import { KeybindingService } from '../../core/services/keybinding.service';
 import { OrchestrationIpcService } from '../../core/services/ipc';
@@ -27,6 +28,9 @@ import { SettingsStore } from '../../core/state/settings.store';
 import { VoiceConversationStore } from '../../core/voice/voice-conversation.store';
 import { InputPanelComponent } from './input-panel.component';
 import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
+import { DEFAULT_SETTINGS } from '../../../../shared/types/settings.types';
+import { ColdCacheChipComponent } from './cold-cache-chip.component';
+import { QuickAskPanelComponent } from './quick-ask-panel.component';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
 const inputPanelTemplate = readFileSync(
@@ -206,6 +210,8 @@ describe('InputPanelComponent queued message editing', () => {
           ComposerQueueStubComponent,
           ComposerAutocompleteStubComponent,
           ImageLightboxStubComponent,
+          ColdCacheChipComponent,
+          QuickAskPanelComponent,
         ],
       },
     });
@@ -219,11 +225,12 @@ describe('InputPanelComponent queued message editing', () => {
         { provide: PerfInstrumentationService, useValue: { markComposerLatency: vi.fn(() => vi.fn()) } },
         { provide: ProviderStateService, useValue: createProviderStateMock() },
         { provide: NewSessionDraftService, useValue: createNewSessionDraftMock() },
-        { provide: SettingsStore, useValue: { defaultYoloMode: signal(false) } },
+        { provide: SettingsStore, useValue: { defaultYoloMode: signal(false), settings: signal(DEFAULT_SETTINGS) } },
         { provide: ActionDispatchService, useValue: { dispatch: vi.fn() } },
         { provide: InstanceStore,
           useValue: { getInstance: vi.fn(() => undefined), isQueueParked: () => false },
          },
+        { provide: InstanceMessagingStore, useValue: { getQueuedMessageCount: vi.fn(() => 0) } },
         {
           provide: KeybindingService,
           useValue: {

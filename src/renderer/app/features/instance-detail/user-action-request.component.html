@@ -271,6 +271,10 @@
             >
               {{ getRejectLabel(request) }}
             </button>
+            @if (request.requestType === 'switch_mode' && request.targetMode === 'build') {
+              <button class="btn-secondary" type="button" [disabled]="isResponding()"
+                (click)="openPlanHandoff(request)">Build in a new session</button>
+            }
             @if (request.requestType === 'input_required' && isPermissionRequest(request)) {
               @if (canResolveWithYolo(request)) {
                 <button
@@ -304,4 +308,8 @@
       </div>
     }
   </div>
+}
+@if (planHandoff(); as handoff) {
+  <app-plan-handoff-dialog [sourceId]="handoff.instanceId" [requestId]="handoff.id"
+    (started)="onPlanHandoffStarted(handoff.id)" (closed)="planHandoff.set(null)" />
 }

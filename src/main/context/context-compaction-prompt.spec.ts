@@ -27,6 +27,13 @@ describe('buildCompactionPrompt', () => {
     expect(prompt).toContain('</prior_summary>');
   });
 
+  it('asks for a complete replacement summary with room for prior decisions and open asks', () => {
+    const prompt = buildCompactionPrompt('new turn', 'old decision and unresolved request');
+
+    expect(prompt).toContain('Produce one replacement summary');
+    expect(prompt).toContain('Target: ~1500 tokens total');
+  });
+
   it('places bounded file operations after relevant files when provided', () => {
     const operations: FileOperation[] = [
       { kind: 'edit', path: 'src/main/context/context-compactor.ts', source: 'tool-output' },

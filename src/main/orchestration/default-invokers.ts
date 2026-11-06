@@ -1,12 +1,6 @@
 import { assertLoopExecutionAuthority, hasPinnedLoopExecution, loopExecutionSpawnOptions, loopAdapterHonorsAuthority, rememberLoopExecutionSettings } from './loop-execution-authority';
 import type { LoopConfig } from '../../shared/types/loop.types';
-/**
- * Default Orchestration Invokers
- *
- * Wires "extensibility points" (event-based invocation) to real CLI execution.
- * This replaces placeholder/stub behavior in MultiVerifyCoordinator by using our
- * in-repo CLI adapters directly (no dependency on sibling repos at runtime).
- */
+/** Wire orchestration invocation events to the repository's CLI adapters. */
 
 import type { InstanceManager } from '../instance/instance-manager';
 import { endAdapterLoan } from '../instance/lifecycle/adapter-loan-registry';
@@ -18,6 +12,7 @@ import { getReviewCoordinator } from '../agents/review-coordinator';
 import { getDebateCoordinator } from './debate-coordinator';
 import { getWorkflowManager } from '../workflows/workflow-manager';
 import { resolveCliType, type CliAdapter, type UnifiedSpawnOptions } from '../cli/adapters/adapter-factory';
+import { getAutomationRtk, rtkAdapterConfig } from '../cli/rtk/rtk-rollout';
 import {
   copilotOriginForRoutingIntent,
 } from '../instance/lifecycle/copilot-route-preflight';
@@ -29,6 +24,7 @@ import { getProviderRuntimeService } from '../providers/provider-runtime-service
 import { readCodexAuthMode } from '../providers/codex-auth-mode';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
 import { getSettingsManager } from '../core/config/settings-manager';
+import { oneShotTrialMetadata } from './rtk-trial-attribution';
 import { sendRecordedOrchestrationCall, waitForCompletionUsage } from './orchestration-call-recording';
 import { getProviderLimitLedgerPort } from '../core/system/provider-limit-ledger';
 import { getCircuitBreakerRegistry } from '../core/circuit-breaker';
@@ -86,7 +82,7 @@ import {
   type RoutingIntent,
 } from './invocation-model-resolver';
 import { snapshotLoopThreadCaps } from './loop-goal-reanchor';
-
+import { applyAutomationSpawnFields } from './automation-spawn-fields';
 function isBaseCliAdapterLike(adapter: CliAdapter): adapter is CliAdapter & { sendMessage: (m: CliMessage) => Promise<CliResponse> } {
   return typeof (adapter as { sendMessage?: unknown }).sendMessage === 'function';
 }
@@ -274,15 +270,15 @@ async function invokeCliTextResponse(params: {
       model = fastModel;
     }
   }
-
-  const spawnOptions: UnifiedSpawnOptions = {
+  const spawnOptions = applyAutomationSpawnFields(cliType, {
     workingDirectory,
     ...loopExecutionSpawnOptions({ ...params.executionConfig, model }, cliType),
     systemPrompt: params.systemPrompt,
     yoloMode: params.executionConfig ? (params.executionConfig.yoloMode ?? params.executionConfig.executionAuthority?.yoloMode ?? params.yoloMode ?? false) : params.yoloMode ?? false,
     permissionHookPath: params.permissionHookPath,
     env: params.env,
-    rtk: params.rtk,
+    rtk: params.reusedAdapter ? rtkAdapterConfig(params.reusedAdapter)
+      : params.rtk ?? (params.routingIntent === 'loop' && cliType === 'claude' ? getAutomationRtk(params.machineSessionTrialKey) : undefined),
     trialKey: params.machineSessionTrialKey,
     jobId: params.jobId,
     instanceId: params.ownerInstanceId ?? params.instanceId,
@@ -290,22 +286,13 @@ async function invokeCliTextResponse(params: {
     maxTurns: params.maxTurns,
     ...(params.routingIntent === 'loop' ? { concurrencyPriority: 'overflow' as const } : {}),
     ...(scaffoldingChoice?.endpoint ? { ollamaEndpoint: scaffoldingChoice.endpoint } : {}),
-  };
+  }, params.machineSessionTrialKey ? 'loop-run' : undefined);
   const breaker = getCircuitBreakerRegistry().getBreaker(params.breakerKey, {
     failureThreshold: 3,
     resetTimeoutMs: 60000,
-    // Every call through this path is an interactive CLI turn (loop iteration,
-    // verify, review, debate) that legitimately runs for minutes — deep
-    // thinking, many tool calls, file edits. The breaker's default slow-call
-    // tracking (10s threshold, open at 50% slow) would classify *every*
-    // healthy iteration as "slow" and could trip the breaker on success alone.
-    // Only real failures (throws: timeouts with no active output, adapter
-    // crashes, provider errors) should count toward opening it.
+    // Interactive turns run for minutes; count failures, never slow successes.
     trackSlowCalls: false,
   });
-  // Copilot account routing. This is the shared entry point for multi-verify,
-  // review, debate, workflow and loop invocations, so resolving here covers
-  // all five; a reused adapter already carries the route it spawned with.
   const routedSpawnOptions = params.reusedAdapter
     ? spawnOptions
     : await attachProviderRoutes(
@@ -377,7 +364,14 @@ async function invokeCliTextResponse(params: {
           metadata: sendMetadata,
       };
       const record = { taskType: params.breakerKey, correlationId: params.correlationId,
-        instanceId: params.instanceId, provider: cliType, model };
+        instanceId: params.instanceId, provider: cliType, model,
+        attribution: () => ({
+          sessionId: adapter.getSessionId?.() || undefined,
+          reasoningEffort: routedSpawnOptions.reasoningEffort ?? instance?.reasoningEffort ?? undefined,
+          ...oneShotTrialMetadata(cliType, adapter.getSessionId?.() || undefined,
+            routedSpawnOptions.rtk as ReturnType<typeof getAutomationRtk>, routedSpawnOptions.yoloMode === true),
+        }),
+      };
       if (!ownsAdapter) {
         const requestResponse = (adapter as {
           requestResponse?: (m: CliMessage) => Promise<CliResponse>;
@@ -833,6 +827,7 @@ export function buildLoopBranchSelectorDeps(instanceManager: InstanceManager): B
               taskPacket: input.taskPackets?.[i],
             }),
             breakerKey: `loop-branch:${provider}`,
+            machineSessionTrialKey: input.loopRunId,
             correlationId: `${input.loopRunId}::branch::${i}`,
             jobId: input.loopRunId,
             copilotOrigin: 'loop',
@@ -1569,7 +1564,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         loopContextTokens.set(p.loopRunId, cumulative);
         const iterationsSinceRecycle = (loopContextIterations.get(p.loopRunId) ?? 0) + 1;
         loopContextIterations.set(p.loopRunId, iterationsSinceRecycle);
-        const { decision, notifyUnavailable } = evaluateLoopContextDiscipline({
+        const { decision, notifyUnavailable, observation } = evaluateLoopContextDiscipline({
           adapter: persistentLoopAdapters.get(p.loopRunId),
           enabled: ctxCfg.enabled,
           resetAtUtilization: ctxCfg.resetAtUtilization,
@@ -1578,6 +1573,11 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
           alreadyNotifiedUnavailable: loopOccupancyUnavailableNotified.has(p.loopRunId),
           iterationsSinceRecycle,
         });
+        if (observation.status === 'known' && observation.windowTrusted !== false
+          && Number.isFinite(observation.used) && observation.used > 0
+          && Number.isFinite(observation.total) && observation.total > 0) {
+          childResult.contextOccupancy = { used: observation.used, total: observation.total };
+        }
         if (notifyUnavailable) {
           loopOccupancyUnavailableNotified.add(p.loopRunId);
           emitActivity({

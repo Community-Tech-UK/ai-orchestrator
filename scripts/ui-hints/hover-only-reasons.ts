@@ -1,5 +1,7 @@
 const prefix = 'src/renderer/app/features/';
 export const HOVER_ONLY_REASONS: Record<string, string> = {
+  [prefix + 'automations/automations-page.component.ts#div.hint']: 'visible text is the schedule line being explained',
+  [prefix + 'automations/automations-page.component.ts#span.']: 'visible text is the field label being explained',
   [prefix + 'loop/loop-toggle.component.ts#span.lt-label']: 'the focusable switch beside it carries the same complete explanation',
   [prefix + 'automations/automations-page.component.ts#label.hidden-label']: 'the label is associated with automation-hidden-control; the same complete explanation is on its focusable checkbox',
   [prefix + 'codebase/codebase-search.component.ts#label.toggle-label']: 'the label is associated with hyde-toggle; the same complete explanation is on its focusable checkbox',
@@ -14,4 +16,7 @@ export const HOVER_ONLY_REASONS: Record<string, string> = {
   [prefix + 'loop/loop-control.component.ts#span.ls-text']: 'visible text is the metric numbers being explained',
   [prefix + 'loop/loop-control.component.ts#span.lp-badge']: 'visible text is the chip/badge wording being explained',
   [prefix + 'loop/loop-control.component.ts#div.loop-gate']: 'visible text is the gate step labels',
+  [prefix + 'models/model-row-facts.component.ts#span.']: 'visible text is the price line the note explains',
+  [prefix + 'settings/rtk-savings-tab.component.ts#h4.section-subhead']: 'visible text is the section heading being defined',
+  [prefix + 'settings/rtk-savings-tab.component.ts#div.summary-label']: 'visible text is the card label being defined',
 };

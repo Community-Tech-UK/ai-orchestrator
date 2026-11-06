@@ -24,3 +24,13 @@ export function isOccupancyPressureReading(
 ): usage is ContextUsage {
   return usage?.occupancyReported === true && usage.occupancyIsAggregate !== true;
 }
+
+/** Claude's auto-compaction trigger, shared with the renderer's near-limit note. */
+export function selfCompactThreshold(modelWindow: number, ceiling?: number): number {
+  return Math.max(0, Math.min(modelWindow, ceiling ?? modelWindow) - 33_000);
+}
+
+/** Compact display of token counts in context notes and reason strings. */
+export function formatTokensK(value: number): string {
+  return value >= 1_000 ? `${Math.round(value / 1_000)}K` : `${Math.round(value)}`;
+}

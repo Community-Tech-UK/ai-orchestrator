@@ -6,6 +6,7 @@ import {
   getSettingsToolPolicy,
 } from '../../main/core/config/settings-control-policy';
 import { DEFAULT_SETTINGS } from './settings-defaults';
+import { INTEGRATION_SETTINGS_METADATA } from './settings-metadata-integrations';
 import { RUNTIME_SETTINGS_METADATA } from './settings-metadata-runtime';
 
 const GUARD_SETTING_KEYS = [
@@ -71,5 +72,13 @@ describe('Local AI Guard settings defaults and control policy', () => {
       .toThrow(/Invalid value/);
     expect(() => coerceRendererSettingValue('localAiGuardConfirmAboveInputTokens', 1.5))
       .toThrow(/Invalid value/);
+  });
+});
+
+describe('RTK auto-approve scope default', () => {
+  it("ships 'off' until Live check 1 has fully passed (plan 18b item 1)", () => {
+    expect(DEFAULT_SETTINGS.rtkAutoApproveScope).toBe('off');
+    const entry = INTEGRATION_SETTINGS_METADATA.find((e) => e.key === 'rtkAutoApproveScope');
+    expect(entry?.description).not.toMatch(/on by default|earlier hook check did not start/i);
   });
 });

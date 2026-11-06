@@ -33,6 +33,7 @@ import {
 import { ModelUsageMemoryService } from './model-usage-memory.service';
 import { ModelFavoritesService } from './model-favorites.service';
 import { DEFAULT_FAVORITE_MODEL_KEYS } from './default-favorites';
+import { ModelRowFactsComponent } from './model-row-facts.component';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { ModelHoverCardComponent } from './model-hover-card.component';
 import { copilotModelLabel } from '../../../../shared/utils/copilot-model-label';
@@ -53,6 +54,7 @@ interface ModelPickerRow {
   disabledReason?: string;
   shortcut?: string;
   searchText: string;
+  switchNote: string | null;
 }
 
 const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
@@ -66,7 +68,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
 @Component({
   selector: 'app-model-selection-panel',
   standalone: true,
-  imports: [AioTooltipDirective, AppIconButtonDirective, ModelHoverCardComponent],
+  imports: [ModelRowFactsComponent, AioTooltipDirective, AppIconButtonDirective, ModelHoverCardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
@@ -130,6 +132,8 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
           >
         </label>
 
+        @if (visibleNote(); as switchNote) { <p class="model-picker-note" role="note">{{ switchNote }}</p> }
+
         <div class="model-picker-list" role="list" aria-label="Models">
           @for (row of visibleRows(); track row.key) {
             <div
@@ -157,6 +161,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
                 type="button"
                 class="model-picker-row__select"
                 [attr.aria-current]="row.selected ? 'true' : null"
+                [attr.aria-describedby]="activeTab() === 'favorites' && row.switchNote ? 'switch-' + reasoningSelectId(row) : null"
                 [appTooltipTpl]="modelHoverCard"
                 [appTooltipDisabledReason]="row.disabledReason ?? null"
                 (click)="selectRow(row)"
@@ -175,6 +180,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
                         </svg>
                       </span>
                       <span class="model-picker-row__provider">{{ row.providerLabel }}</span>
+                      <app-model-row-facts [model]="row.model" [provider]="row.provider" />
                       @if (row.model.localModel) {
                         <span class="model-picker-row__badge" [class.model-picker-row__badge--warn]="!row.model.localModel.healthy">
                           {{ row.model.localModel.healthy ? 'Healthy' : 'Unavailable' }}
@@ -232,6 +238,9 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
                   <span class="model-picker-row__shortcut" aria-hidden="true">{{ row.shortcut }}</span>
                 }
               </div>
+              @if (activeTab() === 'favorites' && row.switchNote) {
+                <p class="model-picker-note model-picker-row__switch-note" role="note" [id]="'switch-' + reasoningSelectId(row)">{{ row.switchNote }}</p>
+              }
             </div>
           } @empty {
             <div class="model-picker-empty" role="status">{{ emptyStateLabel() }}</div>
@@ -341,11 +350,14 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
 
     .model-picker-main {
       min-width: 0;
-      display: grid;
-      grid-template-rows: auto minmax(0, 1fr);
+      display: flex;
+      flex-direction: column;
       padding: 10px;
       gap: 10px;
     }
+
+    .model-picker-note { margin: 0; color: var(--text-muted, #8f8f96); font-size: 12px; line-height: 1.4; }
+    .model-picker-row__switch-note { grid-column: 2 / -1; padding: 0 6px 4px 0; }
 
     .model-picker-search {
       position: relative;
@@ -385,6 +397,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
     }
 
     .model-picker-list {
+      flex: 1;
       min-height: 0;
       overflow-y: auto;
       /* Reserve the scrollbar gutter so the list width doesn't jump when a long
@@ -539,7 +552,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
       align-items: center;
       gap: 4px;
       flex: 0 0 auto;
-      flex-wrap: nowrap;
+      flex-wrap: wrap;
       color: var(--text-muted, #9ca3af);
       font-size: 11px;
       line-height: 1;
@@ -699,33 +712,30 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
   readonly disabledReasonForProvider = input<
     ((provider: PickerProvider) => string | undefined) | undefined | null
   >();
+  readonly note = input<string | null>(null);
+  readonly noteForProvider = input<((provider: PickerProvider) => string | null) | null>(null);
+  protected readonly visibleNote = computed(() => {
+    const tab = this.activeTab();
+    if (tab === 'favorites') return this.noteForProvider() ? null : this.note();
+    return this.noteForProvider()?.(tab) ?? this.note();
+  });
 
   private readonly _providers = computed(() => this.providers() ?? []);
   private readonly _selectedProvider = computed(() => this.selectedProvider());
   private readonly _selectedModelId = computed(() => this.selectedModelId());
   private readonly _selectedReasoning = computed(() => this.selectedReasoning());
-  private readonly _providerLabels = computed(() =>
-    this.providerLabels() ?? PROVIDER_MENU_LABELS,
-  );
-  private readonly _modelsForProvider = computed(() =>
-    this.modelsForProvider() ?? (() => []),
-  );
-  private readonly _reasoningOptionsForProvider = computed(() =>
-    this.reasoningOptionsForProvider() ?? (() => []),
-  );
+  private readonly _providerLabels = computed(() => this.providerLabels() ?? PROVIDER_MENU_LABELS);
+  private readonly _modelsForProvider = computed(() => this.modelsForProvider() ?? (() => []));
+  private readonly _reasoningOptionsForProvider = computed(() => this.reasoningOptionsForProvider() ?? (() => []));
   private readonly _disabledReasonForProvider = computed(() =>
     this.disabledReasonForProvider() ?? (() => undefined),
   );
-
   readonly selection = output<UnifiedSelection>();
   readonly dismiss = output<void>();
-
   @ViewChild('searchInput', { static: true })
   private readonly searchInput!: ElementRef<HTMLInputElement>;
-
   protected readonly providerList = this._providers;
   protected readonly providerLabelMap = this._providerLabels;
-
   /**
    * Default (non-customized) favorites: the curated `DEFAULT_FAVORITE_MODEL_KEYS`,
    * filtered to available models. When none are available, fall back to one
@@ -736,14 +746,12 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
   private readonly defaultFavoriteKeys = computed(() => {
     const modelsForProvider = this._modelsForProvider();
     const providers = this._providers();
-
     const availableKeys = new Set<string>();
     for (const provider of providers) {
       for (const model of modelsForProvider(provider)) {
         availableKeys.add(modelKey(provider, model.id));
       }
     }
-
     const curated = DEFAULT_FAVORITE_MODEL_KEYS.filter((key) => availableKeys.has(key));
     if (curated.length > 0) return curated;
 
@@ -765,6 +773,7 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
   private readonly favoriteKeySet = computed(() => new Set(this.effectiveFavoriteKeys()));
 
   private readonly allRows = computed<ModelPickerRow[]>(() => {
+    const forProvider = this.noteForProvider(), fixedNote = this.note();
     const labels = this._providerLabels();
     const modelsForProvider = this._modelsForProvider();
     const reasoningOptionsForProvider = this._reasoningOptionsForProvider();
@@ -773,7 +782,6 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
     const selectedProvider = this._selectedProvider();
     const selectedModelId = this._selectedModelId();
     const selectedReasoning = this._selectedReasoning();
-
     return this._providers().flatMap((provider) => {
       const providerLabel = labels[provider] ?? provider;
       const providerColor = this.providerColor(provider);
@@ -812,6 +820,7 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
           favorite: favoriteKeys.has(key),
           selected,
           disabledReason,
+          switchNote: forProvider ? forProvider(provider) ?? fixedNote : null,
           searchText: [
             model.name,
             model.id,
@@ -829,20 +838,17 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
       });
     });
   });
-
   protected readonly visibleRows = computed<ModelPickerRow[]>(() => {
     const active = this.activeTab();
     const term = this.searchTerm().trim().toLowerCase();
     const usageByKey = this.modelUsageMemory.usageByKey();
     const allRows = this.allRows();
-
     const scopedRows = active === 'favorites'
       ? orderFavoriteRowsByUsage(allRows, this.effectiveFavoriteKeys(), usageByKey)
       : orderProviderRowsByUsage(
         allRows.filter((row) => row.provider === active),
         usageByKey,
       );
-
     const filteredRows = term
       ? scopedRows.filter((row) => row.searchText.includes(term))
       : scopedRows;

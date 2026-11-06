@@ -1,4 +1,5 @@
 import type { AuxiliaryHelperPause, AuxiliaryLlmSlot } from '../../shared/types/auxiliary-llm.types';
+import type { HelperBackoffTransition } from '../rlm/auxiliary-slot-backoff';
 import type {
   LocalAiEndpointIdentity,
   LocalAiFallbackVerdict,
@@ -11,7 +12,8 @@ import type {
 } from './local-ai-routing-guard';
 
 export interface LocalAiAuxiliaryHooks {
-  helperBackoffChanged?: (pauses: AuxiliaryHelperPause[], transition?: import('../rlm/auxiliary-slot-backoff').HelperBackoffTransition) => void;
+  helperBudgetExceeded?: () => void;
+  helperBackoffChanged?: (pauses: AuxiliaryHelperPause[], transition?: HelperBackoffTransition) => void;
   findTarget(identity: LocalAiEndpointIdentity): LocalAiTarget | undefined;
   evaluateLocalTarget(input: {
     targetId: string;
@@ -22,6 +24,7 @@ export interface LocalAiAuxiliaryHooks {
   authorizeFallback(input: LocalAiFallbackAuthorizationInput): Promise<LocalAiFallbackVerdict>;
   markFallbackDispatched(eventId: string): void | Promise<void>;
   recordLocalCompletion(input: LocalAiLocalCompletionInput): void;
+  fallbackSpendTodayUsd?(): number;
 }
 
 const compatibilityHooks: LocalAiAuxiliaryHooks = {
@@ -40,6 +43,7 @@ const compatibilityHooks: LocalAiAuxiliaryHooks = {
   }),
   markFallbackDispatched: () => undefined,
   recordLocalCompletion: () => undefined,
+  fallbackSpendTodayUsd: () => 0,
 };
 
 let hooks = compatibilityHooks;
@@ -59,13 +63,15 @@ export function __resetLocalAiAuxiliaryHooksForTesting(): void {
 }
 
 export function installLocalAiAuxiliaryRuntimeHooks(runtime: {
+  recordHelperBudgetExceeded?: () => void;
   recordHelperPauses?: LocalAiAuxiliaryHooks['helperBackoffChanged'];
   targets: Pick<import('./local-ai-target-repository').LocalAiTargetRepository, 'findByEndpoint'>;
-  routing: Pick<import('./local-ai-routing-guard').LocalAiRoutingGuard, 'evaluateLocalTarget' | 'authorizeFallback' | 'markFallbackDispatched' | 'recordLocalCompletion'>;
+  routing: Pick<import('./local-ai-routing-guard').LocalAiRoutingGuard, 'evaluateLocalTarget' | 'authorizeFallback' | 'markFallbackDispatched' | 'recordLocalCompletion' | 'fallbackSpendTodayUsd'>;
   activity: Pick<import('./local-ai-activity-registry').LocalAiActivityRegistry, 'acquire'>;
   scheduler: Pick<import('./local-ai-health-scheduler').LocalAiHealthScheduler, 'targetChanged'>;
 }): () => void {
   const installed: LocalAiAuxiliaryHooks = {
+    helperBudgetExceeded: () => runtime.recordHelperBudgetExceeded?.(),
     helperBackoffChanged: (pauses, transition) => runtime.recordHelperPauses?.(pauses, transition),
     findTarget: (identity) => runtime.targets.findByEndpoint(identity),
     evaluateLocalTarget: (input) => runtime.routing.evaluateLocalTarget(input),
@@ -74,6 +80,7 @@ export function installLocalAiAuxiliaryRuntimeHooks(runtime: {
     authorizeFallback: (input) => runtime.routing.authorizeFallback(input),
     markFallbackDispatched: (eventId) => runtime.routing.markFallbackDispatched(eventId),
     recordLocalCompletion: (input) => runtime.routing.recordLocalCompletion(input),
+    fallbackSpendTodayUsd: () => runtime.routing.fallbackSpendTodayUsd(),
   };
   hooks = installed;
   return () => {

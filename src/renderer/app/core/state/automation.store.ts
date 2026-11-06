@@ -2,6 +2,7 @@ import { Injectable, OnDestroy, computed, inject, signal } from '@angular/core';
 import type {
   Automation,
   AutomationRun,
+  AutomationRunChangedEvent,
   CreateAutomationInput,
 } from '../../../../shared/types/automation.types';
 import type {
@@ -22,11 +23,6 @@ interface AutomationChangedEvent {
   automation: Automation | null;
   automationId: string;
   type: 'created' | 'updated' | 'deleted';
-}
-
-interface AutomationRunChangedEvent {
-  automationId: string;
-  run: AutomationRun;
 }
 
 /** Structured automation draft parsed from a natural-language request. */
@@ -384,17 +380,22 @@ export class AutomationStore implements OnDestroy {
 
   private applyRunEvent(event: AutomationRunChangedEvent): void {
     const previous = this._runs().find(run => run.id === event.run.id);
+    // A late receipt refreshes a loaded row but must not reorder bounded history.
+    if (event.updateKind === 'delivery-evidence' && !previous) return;
+    const run = previous?.seenAt && !event.run.seenAt
+      ? { ...event.run, seenAt: previous.seenAt } : event.run;
     this._runs.update((items) => {
       const index = items.findIndex((item) => item.id === event.run.id);
       if (index === -1) {
-        return [event.run, ...items].slice(0, 100);
+        return [run, ...items].slice(0, 100);
       }
       const next = [...items];
-      next[index] = event.run;
+      next[index] = run;
       return next;
     });
 
-    if (TERMINAL_AUTOMATION_RUN_STATUSES.has(event.run.status) && !event.run.seenAt
+    if (event.updateKind !== 'delivery-evidence'
+      && TERMINAL_AUTOMATION_RUN_STATUSES.has(run.status) && !run.seenAt
       && (!previous || !TERMINAL_AUTOMATION_RUN_STATUSES.has(previous.status))) {
       this._automations.update((items) =>
         items.map((item) => item.id === event.automationId

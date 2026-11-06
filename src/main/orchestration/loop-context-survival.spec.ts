@@ -7,6 +7,7 @@ import { defaultLoopConfig, type LoopIteration, type LoopState } from '../../sha
 import {
   applyLoopContextSurvivalDecision,
   CONTEXT_CACHE_TTL_MS,
+  LOOP_COLD_CACHE_IDLE_MS,
   defaultLoopContextSurvivalManager,
   evaluatePostCompactionCanary,
   _resetContextSurvivalIdleTrackingForTesting,
@@ -165,6 +166,51 @@ describe('defaultLoopContextSurvivalManager', () => {
   });
 
   describe('B4 (#14) idle cache-TTL trigger', () => {
+    it.each([
+      [LOOP_COLD_CACHE_IDLE_MS, 'none'], [CONTEXT_CACHE_TTL_MS, 'micro'],
+    ] as const)('keeps a large context warmed by the sealed iteration after a %i ms gap', async (gap, action) => {
+      const state = makeState('loop-cold-known');
+      await defaultLoopContextSurvivalManager.onIterationSealed({ state,
+        iteration: makeTimedIteration(400, 0, 1_000), childResult: makeChildResult(400) });
+      const decision = await defaultLoopContextSurvivalManager.onIterationSealed({
+        state, iteration: makeTimedIteration(400, gap + 2_000, gap + 3_000, 1),
+        childResult: { ...makeChildResult(400), contextOccupancy: { used: 200_000, total: 1_000_000 } },
+      });
+      expect(decision).toMatchObject({ action, forceContextReset: false });
+    });
+    it('does not restart a cold same-session loop holding only 100K', async () => {
+      const state = makeState('loop-cold-100k');
+      await defaultLoopContextSurvivalManager.onIterationSealed({ state,
+        iteration: makeTimedIteration(400, 0, 1_000), childResult: makeChildResult(400) });
+      const decision = await defaultLoopContextSurvivalManager.onIterationSealed({
+        state,
+        iteration: makeTimedIteration(400, LOOP_COLD_CACHE_IDLE_MS + 2_000, LOOP_COLD_CACHE_IDLE_MS + 3_000, 1),
+        childResult: { ...makeChildResult(400), contextOccupancy: { used: 100_000, total: 1_000_000 } },
+      });
+      expect(decision.forceContextReset).toBe(false);
+      expect(decision.action).not.toBe('fresh-window');
+    });
+    it('does not restart a cold self-managing borrowed adapter, even at a known 200K', async () => {
+      const coordinator = CompactionCoordinator.getInstance();
+      (coordinator as unknown as {
+        selfManagedAutoCompactionForInstance: (instanceId: string) => boolean;
+      }).selfManagedAutoCompactionForInstance = () => true;
+      const state = makeState('loop-cold-borrowed');
+      const borrowed = (used?: number): LoopChildResult => ({
+        ...makeChildResult(400),
+        transcriptBound: true,
+        ...(used === undefined ? {} : { contextOccupancy: { used, total: 1_000_000 } }),
+      });
+      await defaultLoopContextSurvivalManager.onIterationSealed({ state,
+        iteration: makeTimedIteration(400, 0, 1_000), childResult: borrowed() });
+      const decision = await defaultLoopContextSurvivalManager.onIterationSealed({
+        state,
+        iteration: makeTimedIteration(400, LOOP_COLD_CACHE_IDLE_MS + 2_000, LOOP_COLD_CACHE_IDLE_MS + 3_000, 1),
+        childResult: borrowed(200_000),
+      });
+      expect(decision.forceContextReset).toBe(false);
+      expect(decision.action).not.toBe('fresh-window');
+    });
     it('never treats a long-run token total including reviewer spend as live occupancy', async () => {
       const state = makeState('lifetime-is-not-occupancy');
       state.totalTokens = 10_000_000;

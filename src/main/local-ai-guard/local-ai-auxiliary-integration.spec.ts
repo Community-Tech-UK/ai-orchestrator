@@ -27,6 +27,8 @@ import { LocalAiHealthRepository } from './local-ai-health-repository';
 import { LocalAiRoutingGuard } from './local-ai-routing-guard';
 import { applyLocalAiRoutingCostAttribution } from './local-ai-runtime';
 import { LocalAiTargetRepository } from './local-ai-target-repository';
+import { ContextCompactor } from '../context/context-compactor';
+import { getLogger } from '../logging/logger';
 import {
   runAuthorizedFrontierFallback,
   runCorrelatedPaidFrontierCall,
@@ -129,10 +131,10 @@ function serviceSettings(slotAllowsFrontier = true) {
   };
 }
 
-function guardSettings(policy: LocalAiFallbackPolicy) {
+function guardSettings(policy: LocalAiFallbackPolicy, dailyBudgetUsd: number | null = null) {
   return {
     localAiGuardDefaultFallbackPolicy: policy,
-    localAiGuardDailyFallbackBudgetUsd: null,
+    localAiGuardDailyFallbackBudgetUsd: dailyBudgetUsd,
     localAiGuardConfirmAboveInputTokens: null,
   } satisfies Pick<
     AppSettings,
@@ -146,6 +148,7 @@ function harness(
   policy: LocalAiFallbackPolicy,
   createTarget = true,
   targetOverrides: Partial<LocalAiTargetConfig> = {},
+  dailyBudgetUsd: number | null = null,
 ) {
   const db = openDb();
   const targets = new LocalAiTargetRepository(db, undefined, () => 1_000);
@@ -182,7 +185,7 @@ function harness(
     },
     health,
     approvals,
-    settings: () => guardSettings(policy),
+    settings: () => guardSettings(policy, dailyBudgetUsd),
     now: () => 1_000,
     createId: (() => {
       let id = 0;
@@ -739,5 +742,96 @@ describe('Local AI Guard auxiliary integration', () => {
       }),
     }));
     expect(records.find((record) => record.auxRoutedTo === 'local')?.usage?.cost).toBeUndefined();
+  });
+
+  it('blocks paid compression at a $0.01 helper limit, keeps a basic summary, and warns once', async () => {
+    const setup = harness('notify-and-allow', false, {}, 0.01);
+    modelClient.probe.mockResolvedValue(false);
+    await configuredService(true);
+    const { LLMService, getLLMService } = await import('../rlm/llm-service');
+    LLMService._resetForTesting();
+    const llm = getLLMService();
+    const available = vi.spyOn(llm, 'isAvailable').mockResolvedValue(true);
+    const paidGenerate = vi.spyOn(llm, 'generate').mockRejectedValue(new Error('paid generation must be blocked'));
+    const warning = vi.spyOn(getLogger('AuxiliaryRouting'), 'warn');
+    try {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const compactor = ContextCompactor.createIsolated({ autoCompact: false, preserveRecent: 0 });
+        compactor.addTurn({ role: 'assistant', content: 'Keep the deployment checklist and test the rollback command.', tokenCount: 30 });
+        compactor.addTurn({ role: 'assistant', content: 'The release owner approved the checklist.', tokenCount: 20 });
+        const result = await compactor.compact({ force: true, preserveRecentOverride: 0 });
+        expect(result.summaryGenerated).toBe(true);
+        expect(compactor.getState().summaries.at(-1)?.content).toContain('## Objective');
+      }
+      expect(paidGenerate).not.toHaveBeenCalled();
+      expect(setup.health.getRoutingEvent('routing-1')).toMatchObject({
+        slot: 'compression', disposition: 'blocked', decisionReason: 'daily-budget', estimatedCostUsd: 0.05,
+      });
+      expect(setup.health.getRoutingEvent('routing-2')).toMatchObject({ disposition: 'blocked' });
+      expect(warning.mock.calls.filter(([message]) => message === 'Auxiliary slot fell back to no local model')).toHaveLength(1);
+    } finally {
+      warning.mockRestore();
+      paidGenerate.mockRestore();
+      available.mockRestore();
+      LLMService._resetForTesting();
+    }
+  });
+
+  it('Step 7 item 5: at the $0.01 limit a manual Compact now still gets the paid summary, an automatic compaction does not, and the spend is recorded', async () => {
+    const setup = harness('notify-and-allow', false, {}, 0.01);
+    modelClient.probe.mockResolvedValue(false);
+    await configuredService(true);
+    const { LLMService, getLLMService } = await import('../rlm/llm-service');
+    LLMService._resetForTesting();
+    const llm = getLLMService();
+    const available = vi.spyOn(llm, 'isAvailable').mockResolvedValue(true);
+    const paidGenerate = vi.spyOn(llm, 'generate').mockResolvedValue('## Objective\nPaid model summary of the deployment work.');
+    const compactWith = async (userInitiated: boolean) => {
+      const compactor = ContextCompactor.createIsolated({ autoCompact: false, preserveRecent: 0 });
+      compactor.addTurn({ role: 'assistant', content: 'Keep the deployment checklist and test the rollback command.', tokenCount: 30 });
+      compactor.addTurn({ role: 'assistant', content: 'The release owner approved the checklist.', tokenCount: 20 });
+      const result = await compactor.compact({ force: true, preserveRecentOverride: 0, ...(userInitiated ? { userInitiated } : {}) });
+      expect(result.summaryGenerated).toBe(true);
+      return compactor.getState().summaries.at(-1)?.content ?? '';
+    };
+    try {
+      expect(await compactWith(false)).not.toContain('Paid model summary');
+      expect(paidGenerate).not.toHaveBeenCalled();
+      expect(setup.health.getRoutingEvent('routing-1')).toMatchObject({ disposition: 'blocked', decisionReason: 'daily-budget' });
+
+      expect(await compactWith(true)).toContain('Paid model summary');
+      expect(paidGenerate).toHaveBeenCalledOnce();
+      // Not refused, but not free: the day's ledger carries the estimate.
+      expect(setup.health.getRoutingEvent('routing-2')).toMatchObject({
+        slot: 'compression', disposition: 'allowed', actualRoute: 'frontier', estimatedCostUsd: 0.05,
+      });
+      expect(setup.guard.fallbackSpendTodayUsd()).toBeGreaterThanOrEqual(0.05);
+
+      // The next automatic compaction is blocked again: the limit is now over-used.
+      paidGenerate.mockClear();
+      expect(await compactWith(false)).not.toContain('Paid model summary');
+      expect(paidGenerate).not.toHaveBeenCalled();
+    } finally {
+      paidGenerate.mockRestore();
+      available.mockRestore();
+      LLMService._resetForTesting();
+    }
+  });
+
+  it('sums known, estimated, and unknown five-cent fallback ledger rows', () => {
+    const setup = harness('allow-silently', false);
+    const base = {
+      slot: 'compression' as const, intendedRoute: 'local' as const,
+      actualRoute: 'frontier' as const, policy: 'allow-silently' as const,
+      disposition: 'allowed' as const, decisionReason: 'policy' as const,
+      inputTokens: 1, outputTokens: 1, createdAt: 1_000,
+    };
+    setup.health.appendRoutingEvent({ ...base, id: 'known', knownCostUsd: 0.2, estimatedCostUsd: 1, completedAt: 1_000 });
+    setup.health.appendRoutingEvent({ ...base, id: 'estimated', estimatedCostUsd: 0.03 });
+    setup.health.appendRoutingEvent({ ...base, id: 'unknown' });
+    expect(setup.health.getFallbackSpend({ since: 0, until: 1_000 })).toEqual({
+      knownCostUsd: 0.2, estimatedCostUsd: 0.03, unknownReservations: 1,
+    });
+    expect(setup.guard.fallbackSpendTodayUsd()).toBeCloseTo(0.28);
   });
 });

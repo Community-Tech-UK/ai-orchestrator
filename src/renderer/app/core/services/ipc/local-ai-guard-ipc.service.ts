@@ -1,4 +1,5 @@
 import { Injectable, inject } from '@angular/core';
+import type { AuxiliaryLlmSlot } from '../../../../../shared/types/auxiliary-llm.types';
 import type {
   LocalAiDiagnosticReport,
   LocalAiDiscoveredEndpoint,
@@ -27,8 +28,8 @@ export class LocalAiGuardIpcService {
     return this.base.getApi();
   }
 
-  retryHelperNow(slot: import('../../../../../shared/types/auxiliary-llm.types').AuxiliaryLlmSlot): Promise<IpcResponse<LocalAiGuardSnapshot>> {
-    return this.call(api => api.localAiGuardRetryHelperNow({ slot }));
+  retryHelperNow(slot: AuxiliaryLlmSlot): Promise<IpcResponse<LocalAiGuardSnapshot>> {
+    return this.call((api) => api.localAiGuardRetryHelperNow({ slot }));
   }
 
   getSnapshot(): Promise<IpcResponse<LocalAiGuardSnapshot>> {

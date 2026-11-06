@@ -10,6 +10,8 @@ export interface InstanceSendInputOptions {
   signal?: AbortSignal;
   /** Final synchronous eligibility check run at the provider-dispatch boundary. */
   beforeProviderDispatch?: () => void;
+  /** Observation only: successful provider send, including accepted recovery retries. */
+  onProviderInputDelivered?: () => void;
   /** Repeatable owner check across later native writes, after the admission callback has committed. */
   assertProviderDispatchCurrent?: (retryReason?: AdapterInputRetryReason) => void;
   /**

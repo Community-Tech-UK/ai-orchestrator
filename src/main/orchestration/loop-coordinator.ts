@@ -76,6 +76,7 @@ import {
   type LoopControlRuntime,
 } from './loop-control';
 import { invokeLoopChildIteration } from './loop-child-invoker';
+import { LoopColdCacheTracker } from './loop-cold-cache';
 import { computeWorkHash } from './loop-work-hash';
 import { detectConvergeUntilCleanIntent, resolveLoopGoalIntent } from './loop-intent';
 import {
@@ -300,6 +301,7 @@ export class LoopCoordinator extends EventEmitter {
   private lifecycle = new LoopLifecycleStateManager();
   /** Transient per-run convergence, reset, failover, and cap hints. */
   private completionContext = new LoopCompletionContextStore();
+  private readonly coldCacheTracker = new LoopColdCacheTracker();
   private loopFailover = new LoopFailoverRunner({
     completionContext: this.completionContext,
     emit: (eventName, payload) => this.emit(eventName, payload),
@@ -1990,6 +1992,11 @@ export class LoopCoordinator extends EventEmitter {
       }
       const drainNowInterventions = lease.leased;
       const runtimeCtx = this.runtimeContexts.get(state.id);
+      const coldReason = this.coldCacheTracker.consumeResetReason(state);
+      if (coldReason) {
+        this.completionContext.requestContextReset(state.id);
+        this.emit('loop:activity', { loopRunId: state.id, seq, stage, timestamp: Date.now(), kind: 'status', message: coldReason });
+      }
       const iterationPrompts = await prepareLoopIterationPrompt({
         reviewDriven,
         stageMachine,
@@ -2364,6 +2371,7 @@ export class LoopCoordinator extends EventEmitter {
       // Interventions queued DURING the turn carry no lease and survive.
       state.pendingInterventions = ackLeasedInterventions(state.pendingInterventions, seq);
       const iterEnd = Date.now();
+      this.coldCacheTracker.record(state, childResult, iterEnd);
       const tokens = childResult.tokens;
       const usage = childResult.usage;
       // See loop-iteration-cost.ts: prefers provider-reported dollars, then a

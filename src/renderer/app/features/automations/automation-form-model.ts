@@ -47,6 +47,13 @@ export interface AutomationFormModel {
   maxRunMinutes: number;
   maxProcessedTokens: number;
   slowWhenUnchanged: boolean;
+  preCheckCommand: string;
+  preCheckOnError: 'run-anyway' | 'stop';
+  /**
+   * Form-only (never saved): the automatic model choice that was in place when a
+   * new check job was switched to Sonnet, so clearing the check can put it back.
+   */
+  modelBeforeCheckSuggestion?: Pick<AutomationFormModel, 'provider' | 'model'>;
 }
 
 export function newAutomationFormModelSelection(
@@ -89,7 +96,44 @@ export function emptyForm(): AutomationFormModel {
     maxRunMinutes: 90,
     maxProcessedTokens: 30_000_000,
     slowWhenUnchanged: false,
+    preCheckCommand: '',
+    preCheckOnError: 'run-anyway',
   };
+}
+
+export function formToPreCheck(model: AutomationFormModel): AutomationAction['preCheck'] {
+  if (model.triggerKind !== 'schedule') return undefined;
+  const command = model.preCheckCommand.trim();
+  return command ? { command, onError: model.preCheckOnError } : undefined;
+}
+
+/**
+ * Suggest the smaller default only while creating an untouched check job, and
+ * put the automatic choice back if the check is cleared before the user picks
+ * a model themselves.
+ */
+export function checkCommandPatch(model: AutomationFormModel, value: string, modelChosenByUser = false): Partial<AutomationFormModel> {
+  const patch: Partial<AutomationFormModel> = { preCheckCommand: value };
+  if (model.id || modelChosenByUser || model.triggerKind !== 'schedule') {
+    return patch;
+  }
+  if (value.trim()) {
+    if (model.model === '' || (model.provider === 'claude' && model.model === CLAUDE_MODELS.OPUS)) {
+      patch.modelBeforeCheckSuggestion = { provider: model.provider, model: model.model };
+      patch.provider = 'claude';
+      patch.model = CLAUDE_MODELS.SONNET;
+    }
+  } else if (model.modelBeforeCheckSuggestion && model.provider === 'claude' && model.model === CLAUDE_MODELS.SONNET) {
+    patch.provider = model.modelBeforeCheckSuggestion.provider;
+    patch.model = model.modelBeforeCheckSuggestion.model;
+    patch.modelBeforeCheckSuggestion = undefined;
+  }
+  return patch;
+}
+
+export function showsCheckModelSuggestion(model: AutomationFormModel, modelChosenByUser = false): boolean {
+  return Boolean(model.triggerKind === 'schedule' && !model.id && !modelChosenByUser && model.preCheckCommand.trim() &&
+    model.provider === 'claude' && model.model === CLAUDE_MODELS.SONNET);
 }
 
 /** Build the persisted trigger from the form (WS5). */
@@ -160,6 +204,7 @@ export function formToAction(model: AutomationFormModel): AutomationAction & { m
     // WS-C7: absent means 'standard' (current behaviour) — never persist the
     // default explicitly so older/other-worktree readers see no field at all.
     executionProfile: model.executionProfile === 'standard' ? undefined : model.executionProfile,
+    preCheck: formToPreCheck(model),
   };
 }
 
@@ -167,7 +212,8 @@ export function patchAutomationForm(current: AutomationFormModel, patch: Partial
   const next = { ...current, ...patch,
     ...(patch.scheduleType && !current.id ? { maxProcessedTokens: patch.scheduleType === 'oneTime' ? 100_000_000 : 30_000_000 } : {}),
   };
-  if (!next.id && !next.modelExplicitlyChosen && (patch.name !== undefined || patch.prompt !== undefined)
+  // A saved-check job already has its model suggestion (`checkCommandPatch`); name and prompt wording must not undo it.
+  if (!next.id && !next.modelExplicitlyChosen && !next.preCheckCommand.trim() && (patch.name !== undefined || patch.prompt !== undefined)
     && (!next.provider || next.provider === 'auto' || next.provider === 'claude')) {
     const check = /\b(check|monitor|watch|poll)\b/i.test(`${next.name} ${next.prompt}`);
     return { ...next, provider: 'claude', model: check ? CLAUDE_MODELS.SONNET : CLAUDE_MODELS.OPUS, reasoningEffort: check ? 'low' : '' };

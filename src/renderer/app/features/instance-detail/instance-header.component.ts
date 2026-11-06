@@ -1,6 +1,4 @@
-/**
- * Instance Header Component - Header with status, badges, and actions
- */
+/** Session header with status, badges, and actions. */
 
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import {
@@ -23,6 +21,7 @@ import { ContextBarComponent } from './context-bar.component';
 import { CopilotPremiumUsageComponent } from './copilot-premium-usage.component';
 import { CrossModelReviewIndicatorComponent } from './cross-model-review-indicator.component';
 import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
+import { describeModelSwitchEffect } from '../models/model-switch-note';
 import { DEFAULT_INSTANCE_PROVIDERS, PROVIDER_MENU_LABELS } from '../models/provider-menu.constants';
 import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
 import { SkillStore } from '../../core/state/skill.store';
@@ -33,8 +32,7 @@ import { isRemoteNodeOnline } from '../../core/state/remote-node-connectivity';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
 import type { ContextUsage, Instance } from '../../core/state/instance.store';
-import { getModelShortName } from '../../../../shared/types/provider.types';
-import type { ModelDisplayInfo } from '../../../../shared/types/provider.types';
+import { getModelShortName, type ModelDisplayInfo } from '../../../../shared/types/provider.types';
 import { resolveEffectiveInstanceTitle } from '../../../../shared/types/history.types';
 import type { InstanceRuntimeSummary } from '../../../../shared/types/local-model-runtime.types';
 import { SessionComputerUseControlComponent } from './session-computer-use-control.component';
@@ -84,9 +82,11 @@ export class InstanceHeaderComponent implements OnInit {
   // Effective display title — delegates to the shared resolver so the header
   // stays in sync with the workspace rail list. See
   // `resolveEffectiveInstanceTitle` in shared/types/history.types.ts.
-  readonly displayTitle = computed(() =>
-    resolveEffectiveInstanceTitle(this.instance())
-  );
+  readonly displayTitle = computed(() => resolveEffectiveInstanceTitle(this.instance()));
+  readonly modelSwitchNoteForProvider = (target: PickerProvider) => describeModelSwitchEffect({
+    provider: this.isLocalModelRuntime() ? 'local-model' : this.instance().provider, targetProvider: target, hasConversation: this.instance().outputBuffer.some(m => m.type === 'user' || m.type === 'assistant'),
+    usedTokens: this.contextUsage()?.occupancyReported && !this.contextUsage()?.occupancyIsAggregate ? this.contextUsage()!.used : null,
+    residentClaude: this.instance().residentClaude, executionLocationType: this.instance().executionLocation?.type });
 
   readonly interruptTitle = computed(
     () => `Interrupt ${this.getProviderDisplayName(this.instance().provider)}`,

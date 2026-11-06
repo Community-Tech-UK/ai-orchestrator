@@ -32,12 +32,6 @@ vi.mock('../adapters/copilot/copilot-sdk-loader', () => ({
   loadCopilotSdk: () => null,
 }));
 
-vi.mock('../../context/output-persistence', () => ({
-  getOutputPersistenceManager: () => ({
-    maybeExternalize: (_name: string, content: string) => Promise.resolve(content),
-  }),
-}));
-
 import { ClaudeCliAdapter } from '../adapters/claude-cli-adapter';
 import { CopilotCliAdapter } from '../adapters/copilot-cli-adapter';
 import { GeminiCliAdapter } from '../adapters/gemini-cli-adapter';

@@ -4,7 +4,6 @@ import type { CodexEphemeralUsage, CodexUsageTokens } from '../../../../shared/t
 import { CodexEphemeralUsageSchema, CodexUsageIdSchema } from '../../../../shared/validation/codex-ephemeral-usage.schemas';
 import { appendCodexEphemeralUsage } from '../../../core/system/codex-ephemeral-usage-store';
 import { getLogger } from '../../../logging/logger';
-import { codexTrialArm } from './codex-thread-policy';
 import { CodexCompactionSignalTracker } from './compaction-signals';
 import type { AppServerNotification } from './app-server-types';
 import type { CodexUsageAccounting } from './usage-accounting';
@@ -83,7 +82,8 @@ export class CodexEphemeralUsageTracker {
       instanceId: safeId(this.config.instanceId ?? this.config.env?.['AI_ORCHESTRATOR_INSTANCE_ID'] ?? this.config.browserGatewayInstanceId),
       jobId: safeId(this.config.jobId),
       kind, trialKey: this.config.trialKey ? createHash('sha256').update(this.config.trialKey).digest('hex') : null,
-      trialArm: this.config.trialArm ?? codexTrialArm(this.config.trialKey), requests: null, requestsAvailable: false,
+      // The thread policy records the arm it applied on the config; a thread that never resolved one is unassigned.
+      trialArm: this.config.trialArm ?? 'unassigned', requests: null, requestsAvailable: false,
       tokens: this.tokensSinceBinding(binding.threadId), helpers: { count: binding.exec ? null : childIds.length, tokens: helpers },
       compactions: binding.exec ? null : this.compactionCount, startedAt: binding.startedAt, endedAt,
       durationMs: endedAt - binding.startedAt, finishReason: reason,
