@@ -10,10 +10,12 @@ export interface CodexSessionPolicyRecord {
   /** Absent in older persisted rows; only a recorded start proves lifetime coverage in a report window. */
   operation?:'start'|'resume';
   arm?:'cheaper'|'full'|'off'|'unassigned';armKey?:string;armSource?:string;
-  outputLimit:number|null;postTurnCompactPercent:number|null;applied:boolean;
+  outputLimit:number|null;postTurnCompactPercent:number|null;
+  /** The overrides were sent and Codex did not reject them. Codex accepts keys it does not know and never says which it honoured, so this is not proof the limits took effect. */
+  applied:boolean;
   /** Names of the per-thread overrides sent (empty when Codex rejected them), so each trial arm's exact settings are on record. Names only, never values. */
   configKeys?:string[];
-  /** Skills catalog the thread got, and the checker-catalog trial arm for plan-queue checkers (Oct-2 Phase D Steps 2.1 and 3). */
+  /** Skills catalog the overrides asked for ('native' when none were accepted), not one Codex confirmed. Also the checker-catalog trial arm for plan-queue checkers (Oct-2 Phase D Steps 2.1 and 3). */
   catalog?:'native'|'capped'|'omitted';checkerArm?:'control'|'candidate'|'unassigned';
 }
 export interface ClaudeSessionPolicyRecord {

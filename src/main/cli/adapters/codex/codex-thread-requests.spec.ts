@@ -13,11 +13,34 @@ describe('Codex thread request policy transport',()=>{
   it.each(['skills.max_context_tokens', 'skills.include_instructions', 'features.multi_agent_v2.multi_agent_mode_hint_text'])('retries an unsupported %s override on start and resume', async (key) => {
     for (const resume of [false, true]) {
       const request = vi.fn().mockRejectedValueOnce(new Error(`unsupported ${key}`)).mockResolvedValue({ threadId: 'thread' });
-      if (resume) await resumeCodexThread({ request }, { threadId: 'thread' }, policy);
-      else await startCodexThread({ request }, { cwd: '/repo' }, policy);
+      const sendingKey = { ...policy, config: { [key]: 1 } };
+      if (resume) await resumeCodexThread({ request }, { threadId: 'thread' }, sendingKey);
+      else await startCodexThread({ request }, { cwd: '/repo' }, sendingKey);
       expect(request).toHaveBeenCalledTimes(2);
       expect(request.mock.calls[1][1]).not.toHaveProperty('config');
     }
+  });
+  // serde names only the last part of a nested key, and may not say "config" at all.
+  it.each([
+    ['skills.max_context_tokens', 'unknown field `max_context_tokens`, expected one of `bundled`, `paths`'],
+    ['skills.include_instructions', 'unrecognized field `include_instructions`'],
+    ['agents.enabled', 'invalid type: string "abc", expected a boolean in `enabled`'],
+    ['tool_output_token_limit', 'unexpected key tool_output_token_limit'],
+    ['model_post_turn_compact_threshold_percent', 'Unknown field `model_post_turn_compact_threshold_percent`'],
+  ])('retries without overrides when Codex names %s without the word config', async (key, message) => {
+    const named = { level: 'full' as const, config: { [key]: 1 }, outputLimit: null, postTurnCompactPercent: null };
+    for (const resume of [false, true]) {
+      const request = vi.fn().mockRejectedValueOnce(new Error(message)).mockResolvedValue({ threadId: 'thread' });
+      if (resume) await resumeCodexThread({ request }, { threadId: 'thread' }, named);
+      else await startCodexThread({ request }, { cwd: '/repo' }, named);
+      expect(request).toHaveBeenCalledTimes(2);
+      expect(request.mock.calls[1][1]).not.toHaveProperty('config');
+    }
+  });
+  it('does not retry on an error that names none of the overrides sent', async () => {
+    const request = vi.fn().mockRejectedValue(new Error('unknown model gpt-9'));
+    await expect(startCodexThread({ request }, { cwd: '/repo' }, policy)).rejects.toThrow('unknown model gpt-9');
+    expect(request).toHaveBeenCalledTimes(1);
   });
   it('applies to starts/resumes and only drops config on an unsupported policy rejection',async()=>{
     const request=vi.fn().mockRejectedValueOnce(new Error('unknown field config')).mockResolvedValue({threadId:'thread'});
