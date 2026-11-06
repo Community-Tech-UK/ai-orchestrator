@@ -4,7 +4,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { promisify } from 'node:util';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import {
   TurnFileBaselineService,
   diffTrees,
@@ -437,7 +437,7 @@ describe('TurnFileBaselineService', () => {
 
   describe('a folder too slow to snapshot', () => {
     let calls: number;
-    let mock: ReturnType<typeof vi.spyOn>;
+    let mock: MockInstance<typeof snapshotGit.snapshotWorkingTree>;
     /** One send, as the dispatch path makes it: the input is published, then the baseline is awaited. */
     const send = async (id: string): Promise<number> => {
       const at = Date.now();
