@@ -6688,7 +6688,7 @@ A hardened create must spawn under Seatbelt and never consume an unconfined warm
 
 The preflight regression rejects warm reuse for hardened mode; a rebuilt-app create logs a Seatbelt spawn.
 
-The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-539) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+Found live on 2026-09-20 during check 4 of the [WS13 hardened-mode livetest](2026-07-13-fable-ws13_livetest.md). The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-539) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
 
 <a id="lt-540"></a>
 
@@ -6710,7 +6710,7 @@ Smoke runs must leave the installed app’s native-host registration intact.
 
 `smoke:packaged` leaves the manifest byte-identical while the normal installed app is running.
 
-The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-540) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
+Found live on 2026-09-20 during check 7 of the [WS13 hardened-mode livetest](2026-07-13-fable-ws13_livetest.md). The [remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-540) retains the incident trace. The [working checkpoint](2026-09-23-outstanding-plans-progress.md) records code and focused-test evidence. Code status does not imply the owning rebuilt-app or external live check has passed.
 
 <a id="lt-541"></a>
 
