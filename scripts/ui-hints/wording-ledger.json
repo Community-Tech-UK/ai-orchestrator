@@ -2503,5 +2503,161 @@
     "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
     "text": " allowance resets at ",
     "why": "consequence"
+  },
+  {
+    "id": "0b53ab7caa3154e8",
+    "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
+    "text": "it didn't stop, so ",
+    "why": "consequence"
+  },
+  {
+    "id": "0f0890894bced940",
+    "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
+    "text": " is forcing it to stop",
+    "why": "consequence"
+  },
+  {
+    "id": "27d3a91e26f7630a",
+    "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
+    "text": "finishing the stop",
+    "why": "consequence"
+  },
+  {
+    "id": "5d6188cc3ceffe5b",
+    "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
+    "text": "stopped before it finished",
+    "why": "consequence"
+  },
+  {
+    "id": "648b45fc96ee1a8c",
+    "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
+    "text": "closing it by force",
+    "why": "consequence"
+  },
+  {
+    "id": "6c54295c514a17a8",
+    "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
+    "text": "restarting with your recent messages carried over",
+    "why": "consequence"
+  },
+  {
+    "id": "7613c5fab583d55d",
+    "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
+    "text": "send a message to wake it",
+    "why": "consequence"
+  },
+  {
+    "id": "b778d7355a51f824",
+    "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
+    "text": "the agent is asking permission to do something",
+    "why": "long"
+  },
+  {
+    "id": "bb12977353e4a694",
+    "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
+    "text": "lost contact with its computer, ",
+    "why": "consequence"
+  },
+  {
+    "id": "c0dd3cba53a5e7e1",
+    "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
+    "text": "this session has closed",
+    "why": "consequence"
+  },
+  {
+    "id": "d4a3ff095a5103f5",
+    "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
+    "text": "replaced by an edited copy",
+    "why": "consequence"
+  },
+  {
+    "id": "e17176d86753f9df",
+    "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
+    "text": "stopping the current work",
+    "why": "consequence"
+  },
+  {
+    "id": "ec5febbb0f66e288",
+    "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
+    "text": "waiting for the current work to stop",
+    "why": "consequence"
+  },
+  {
+    "id": "0b90091030fd5a63",
+    "owner": "src/renderer/app/features/instance-list/status-indicator.component.ts",
+    "text": "stopping the current work",
+    "why": "consequence"
+  },
+  {
+    "id": "176a448756a8dd14",
+    "owner": "src/renderer/app/features/instance-list/status-indicator.component.ts",
+    "text": "stopped before it finished",
+    "why": "consequence"
+  },
+  {
+    "id": "21ae579ee513525a",
+    "owner": "src/renderer/app/features/instance-list/status-indicator.component.ts",
+    "text": " is forcing it to stop",
+    "why": "consequence"
+  },
+  {
+    "id": "46d864719ece08ad",
+    "owner": "src/renderer/app/features/instance-list/status-indicator.component.ts",
+    "text": "finishing the stop",
+    "why": "consequence"
+  },
+  {
+    "id": "525215c6e0e0e1d2",
+    "owner": "src/renderer/app/features/instance-list/status-indicator.component.ts",
+    "text": "send a message to wake it",
+    "why": "consequence"
+  },
+  {
+    "id": "7c0c0abeb322268f",
+    "owner": "src/renderer/app/features/instance-list/status-indicator.component.ts",
+    "text": "this session has closed",
+    "why": "consequence"
+  },
+  {
+    "id": "7c69dce7584c5126",
+    "owner": "src/renderer/app/features/instance-list/status-indicator.component.ts",
+    "text": "waiting for the current work to stop",
+    "why": "consequence"
+  },
+  {
+    "id": "8e19b6db0823f1dd",
+    "owner": "src/renderer/app/features/instance-list/status-indicator.component.ts",
+    "text": "closing it by force",
+    "why": "consequence"
+  },
+  {
+    "id": "b2e49eb88846bb6a",
+    "owner": "src/renderer/app/features/instance-list/status-indicator.component.ts",
+    "text": "restarting with your recent messages carried over",
+    "why": "consequence"
+  },
+  {
+    "id": "cad6ee65413cd92b",
+    "owner": "src/renderer/app/features/instance-list/status-indicator.component.ts",
+    "text": "replaced by an edited copy",
+    "why": "consequence"
+  },
+  {
+    "id": "eaeeb9c046e222de",
+    "owner": "src/renderer/app/features/instance-list/status-indicator.component.ts",
+    "text": "it didn't stop, so ",
+    "why": "consequence"
+  },
+  {
+    "id": "efcb5e4a91e762c4",
+    "owner": "src/renderer/app/features/instance-list/status-indicator.component.ts",
+    "text": "the agent is asking permission to do something",
+    "why": "long"
+  },
+  {
+    "id": "f0a70fb93d067467",
+    "owner": "src/renderer/app/features/instance-list/status-indicator.component.ts",
+    "text": "lost contact with its computer, ",
+    "why": "consequence"
   }
 ]

@@ -4,6 +4,7 @@ import ts from 'typescript';
 import { type HoverText, type TemplateSource } from './types';
 import { propertyName, unwrap } from './template-sources';
 import { importedHoverLiteral, staticHoverText } from './static-hover-text';
+import { sharedHelperText } from './shared-helper-text';
 
 export interface ExpressionText { fragments: string[]; dynamic: boolean; calls: string[]; reads: string[]; projections: { root: string; path: string[] }[]; pipe: boolean }
 export function expressionText(ast: AST): ExpressionText {
@@ -174,6 +175,8 @@ export function hoverText(channel: string, ast: AST | undefined, text: string | 
       const literal = importedHoverLiteral(imported.file, imported.exported, source, files, []);
       if (literal !== undefined) { fragments.push(literal); return true; }
     }
+    const shared = imported ? sharedHelperText(imported.file, imported.exported, source) : undefined;
+    if (shared) { fragments.push(...shared); return true; }
     if (!imported || depth > 0 || dirname(imported.file) !== dirname(source.sourceFile.fileName)) { unreadable = true; return false; }
     const file = files.find(file => file.fileName === imported.file);
     const declaration = file?.statements.find(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === imported.exported)

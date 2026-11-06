@@ -190,6 +190,8 @@ function build(row: StatusRow, needsYou: boolean): InstanceStatusPresentation {
 /**
  * The one place that turns a session status (plus why it is waiting, if it is)
  * into words and a colour.
+ *
+ * @hoverTextReadable every word it can return is a literal in this file, so the UI hints check reads them.
  */
 export function presentInstanceStatus(
   status: InstanceStatus,
@@ -217,7 +219,11 @@ export function presentInstanceStatus(
   return build(row, needsYou);
 }
 
-/** "Working — waiting on background work": the sentence for a tooltip or an accessible name. */
+/**
+ * "Working — waiting on background work": the sentence for a tooltip or an accessible name.
+ *
+ * @hoverTextReadable it only joins the label and detail the presenter above holds.
+ */
 export function describeInstanceStatus(presentation: Pick<InstanceStatusPresentation, 'label' | 'detail'>): string {
   return presentation.detail ? `${presentation.label} — ${presentation.detail}` : presentation.label;
 }

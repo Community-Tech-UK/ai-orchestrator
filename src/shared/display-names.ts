@@ -112,6 +112,8 @@ function lookup(id: string | null | undefined): { canonical: string; names: Prov
  * accepts the CLI and doctor spellings (`claude-cli`). A missing id reads
  * "AI provider". Pass `model` wherever the session's model is at hand so a
  * MiMo session reads "MiMo" (see the header).
+ *
+ * @hoverTextReadable every name it can return is a literal in this file, so the UI hints check reads them.
  */
 export function providerName(id: string | null | undefined, options: ProviderNameOptions = {}): string {
   const trimmed = id?.trim();
@@ -152,6 +154,8 @@ export function isLegacyProvider(id: string | null | undefined): boolean {
  * usage are always the MiMo Token Plan's, so `opencode` reads "MiMo" here even
  * though a session on it does not. This is what stops a raw backend id
  * reaching the screen.
+ *
+ * @hoverTextReadable every name it can return is a literal in this file, so the UI hints check reads them.
  */
 export function accountFamilyName(raw: string | null | undefined): string {
   const key = raw?.trim().toLowerCase();
