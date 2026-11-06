@@ -170,6 +170,27 @@ describe('paused runs never continue work or park it', () => {
     expect(item).toMatchObject({ state: 'awaiting-slot', workerInstanceId: null, heldAt: expect.any(Number) });
   });
 
+  it('does not count a checker startup failure after app shutdown begins', async () => {
+    run.status = 'running';
+    item = { ...item, verifierInstanceId: null };
+    let savedAtShutdown: PlanQueueItem | undefined;
+    vi.mocked(host.instances.createInstance).mockImplementationOnce(async () => {
+      savedAtShutdown = structuredClone(item);
+      vi.mocked(host.tracker.isShuttingDown).mockReturnValue(true);
+      throw new Error('Plan Queue is shutting down');
+    });
+    const snapshots = new Map<string, queueGit.TreeSnapshot>();
+    const erroredRound = vi.fn(async () => undefined);
+    await spawnQueueChecker({ host, snapshots, checkedBase: () => 'checkpoint', usageWaits: new PlanQueueUsageWaits(),
+      prompt: async () => 'Review', hold: vi.fn(), select: vi.fn(), stop: id => flow.stopInstance(id),
+      forgetCheck: vi.fn(), erroredRound, onVerifierOutcome: vi.fn() }, item, run, 'main', { provider: 'codex' });
+    expect(host.instances.createInstance).toHaveBeenCalledTimes(1);
+    expect(erroredRound).not.toHaveBeenCalled();
+    expect(item).toEqual(savedAtShutdown);
+    expect(snapshots.size).toBe(0);
+    expect(host.requestPump).not.toHaveBeenCalled();
+  });
+
   it('handles a failed checker startup whose outcome cannot stop the checker, then lets Pause retry', async () => {
     const warning = vi.spyOn(getLogger('PlanQueueCheckerSpawn'), 'warn');
     run.status = 'running';

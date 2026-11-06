@@ -60,6 +60,10 @@ export async function spawnQueueChecker(deps: CheckerSpawnDeps, waiting: PlanQue
           .catch((failure: unknown) => logger.warn('Plan queue: handling checker startup failure failed', { instanceId: instance.id, error: errorMessage(failure) }));
       });
     } catch (error) {
+      if (deps.host.tracker.isShuttingDown()) {
+        deps.snapshots.delete(item.id);
+        return;
+      }
       if (error instanceof PlanQueueSpawnRunPaused) {
         const current = deps.host.getItem(item.id);
         await deps.hold(error.instanceId ? deps.host.save({ ...current, verifierInstanceId: error.instanceId }) : current); return;

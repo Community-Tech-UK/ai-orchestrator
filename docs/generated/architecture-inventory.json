@@ -6917,7 +6917,7 @@
     },
     {
       "path": "src/main/workspace/git/worktree-manager.ts",
-      "lines": 1083
+      "lines": 1082
     },
     {
       "path": "docs/plans/2026-10-10-oct-phase4b-tooltips-migration_plan_completed.md",
@@ -7452,10 +7452,6 @@
       "lines": 817
     },
     {
-      "path": "src/main/instance/lifecycle/runtime-reconciler.ts",
-      "lines": 816
-    },
-    {
       "path": "src/main/remote-node/remote-node-file-transfer-mcp-service.ts",
       "lines": 816
     },
@@ -7466,6 +7462,10 @@
     {
       "path": "docs/superpowers/specs/2026-05-06-claude-code-feature-harvest-design_completed.md",
       "lines": 814
+    },
+    {
+      "path": "src/main/instance/lifecycle/runtime-reconciler.ts",
+      "lines": 813
     },
     {
       "path": "src/shared/types/loop.types.ts",

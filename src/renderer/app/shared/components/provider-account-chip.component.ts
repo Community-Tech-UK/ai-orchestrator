@@ -61,14 +61,13 @@ const OWNERSHIP_COPY: Record<PooledProvider, { subscription: string; vendor: str
           class="override"
           [attr.aria-label]="accountAriaLabel()"
           [appTooltip]="title()"
-          [value]="selectedValue()"
           (change)="onSelect($event)"
         >
           @if (mode() === 'draft') {
-            <option value="">Choose automatically</option>
+            <option value="" [selected]="selectedValue() === ''">Choose automatically</option>
           }
           @for (account of selectableAccounts(); track account.id) {
-            <option [value]="account.id">{{ account.label }}</option>
+            <option [value]="account.id" [selected]="selectedValue() === account.id">{{ account.label }}</option>
           }
         </select>
       </div>

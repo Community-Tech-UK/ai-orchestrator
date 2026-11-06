@@ -32,6 +32,9 @@ vi.mock('./model-change-provider-swap', async (original) => ({
 vi.mock('./create-validation-helpers', () => ({
   getKnownModelsForCli: async () => ['gpt-6-sol', 'gpt-6-astra', 'sonnet', 'xiaomi-token-plan-ams/mimo-v2.6-pro'],
 }));
+vi.mock('../../providers/account-pool/provider-account-store', () => ({
+  getProviderAccountStore: () => ({ getPoolPolicy: () => DEFAULT_ACCOUNT_POOL_POLICY, getProfile: () => null }),
+}));
 
 function profile(provider: PooledProvider, id: string, priority = 0): ProviderAccountProfile {
   return {
@@ -112,7 +115,8 @@ function harness(
     } as unknown as RuntimeReconcilerDeps['spawnConfigBuilder'],
     queueUpdate: vi.fn(),
   } satisfies RuntimeReconcilerDeps;
-  return { instance, reconciler: new RuntimeReconciler(deps), adapter, createRuntimeAdapter, routed, snapshot };
+  return { instance, reconciler: new RuntimeReconciler(deps), adapter, createRuntimeAdapter, routed, snapshot,
+    emitSystemNotice: deps.emitSystemNotice };
 }
 
 beforeEach(() => {
@@ -188,6 +192,45 @@ describe('provider swaps scope account profiles to the destination', () => {
     expect(h.routed[0]).toMatchObject({ resume: true, accountRoute: { profileId: 'example-codex-b', source: 'persisted' } });
     expect(h.instance.accountSwitches).toBe(2);
   });
+
+  it('persists an account-only respawn handoff before reporting success', async () => {
+    const h = harness({ provider: 'codex', status: 'idle', currentModel: 'gpt-6-sol', accountProfileId: 'example-codex' }, [
+      profile('codex', 'example-codex'), profile('codex', 'example-codex-b', 1),
+    ]);
+    await h.reconciler.applyRuntimeChange(h.instance.id, {
+      provider: 'codex', accountProfileId: 'example-codex-b', accountHandoffKind: 'explicit', accountHandoffConfirmed: true,
+    });
+    expect(h.routed[0]).toMatchObject({ resume: true, accountRoute: { profileId: 'example-codex-b' } });
+    expect(h.snapshot).toMatchObject({ provider: 'codex', accountProfileId: 'example-codex-b', accountRoutingSource: 'persisted', accountSwitches: 3 });
+    expect(continuity.writeThroughIdentityLocked).toHaveBeenLastCalledWith(h.instance.id, { sessionId: h.instance.sessionId });
+  });
+
+  it('does not persist a rejected account-only respawn handoff', async () => {
+    const h = harness({ provider: 'codex', status: 'idle', currentModel: 'gpt-6-sol', accountProfileId: 'example-codex' }, [
+      profile('codex', 'example-codex'), profile('codex', 'example-codex-b', 1),
+    ]);
+    h.createRuntimeAdapter.mockRejectedValueOnce(new Error('Example admission refusal'));
+    await expect(h.reconciler.applyRuntimeChange(h.instance.id, {
+      provider: 'codex', accountProfileId: 'example-codex-b', accountHandoffKind: 'explicit', accountHandoffConfirmed: true,
+    })).rejects.toThrow('Example admission refusal');
+    expect(h.instance.accountProfileId).toBe('example-codex');
+    expect(h.snapshot.accountProfileId).toBe('example-codex');
+    expect(continuity.updateState).not.toHaveBeenCalled();
+  });
+
+  it.each(['updateState', 'writeThroughIdentityLocked'] as const)(
+    'publishes the actual respawned account and warns when %s fails', async failure => {
+      const h = harness({ provider: 'codex', status: 'idle', currentModel: 'gpt-6-sol', accountProfileId: 'example-codex' }, [
+        profile('codex', 'example-codex'), profile('codex', 'example-codex-b', 1),
+      ]);
+      continuity[failure].mockRejectedValueOnce(new Error('Example session storage failure'));
+      await expect(h.reconciler.applyRuntimeChange(h.instance.id, {
+        provider: 'codex', accountProfileId: 'example-codex-b', accountHandoffKind: 'explicit', accountHandoffConfirmed: true,
+      })).resolves.toBe(h.instance);
+      expect(h.instance).toMatchObject({ accountProfileId: 'example-codex-b', status: 'idle' });
+      expect(h.emitSystemNotice).toHaveBeenCalledWith(h.instance, expect.stringContaining('could not save'));
+    },
+  );
 
   it('enforces the existing account fence after switching providers', async () => {
     const h = harness({ allowedAccountProfileIds: ['example-mimo'] });

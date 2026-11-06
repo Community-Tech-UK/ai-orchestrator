@@ -168,6 +168,32 @@ describe('ProviderAccountChipComponent', () => {
     expect(chosen).toEqual(['max-b-1a2b']);
   });
 
+  it.each(['draft', 'session', 'continuation'] as const)(
+    'selects the second account after delayed loading in %s mode', async (mode) => {
+      let release: (() => void) | undefined;
+      const pending = new Promise<void>((resolve) => { release = resolve; });
+      ipc.list.mockImplementationOnce(async () => { await pending; return { profiles, pools }; });
+      const fixture = TestBed.createComponent(ProviderAccountChipComponent);
+      fixture.componentRef.setInput('provider', 'claude');
+      fixture.componentRef.setInput('mode', mode);
+      fixture.componentRef.setInput(mode === 'draft' ? 'chosenProfileId' : 'accountProfileId', 'max-b-1a2b');
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('select')).toBeNull();
+      release?.();
+      await pending;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      fixture.detectChanges();
+      const select = fixture.nativeElement.querySelector('select') as HTMLSelectElement;
+      expect(select.value).toBe('max-b-1a2b');
+      expect(select.selectedOptions[0]?.textContent).toBe('Max B');
+
+      fixture.componentRef.setInput(mode === 'draft' ? 'chosenProfileId' : 'accountProfileId', mode === 'draft' ? null : 'legacy');
+      fixture.detectChanges();
+      expect(select.value).toBe(mode === 'draft' ? '' : 'legacy');
+      expect(select.selectedOptions[0]?.textContent).toBe(mode === 'draft' ? 'Choose automatically' : 'Max A');
+    },
+  );
+
   it('clears a draft choice that is not one of this provider\'s accounts', async () => {
     const fixture = TestBed.createComponent(ProviderAccountChipComponent);
     const emitted: (string | null)[] = [];

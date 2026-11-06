@@ -62,7 +62,7 @@ import { announceRuntimeChangeSet, runtimeChangeNoticesFor } from './runtime-cha
 import type { UnifiedSpawnOptions } from '../../cli/adapters/adapter-factory';
 import type { DesiredRuntime, Instance } from '../../../shared/types/instance.types';
 import { isLogicalMiMoModel } from '../../../shared/types/provider-account.types';
-import { accountChangeNotice, accountPreferencesAfterProviderSwap, applyAccountHandoff, isAccountOnlyChange, restoreAccount, snapshotAccount, tryAccountSwitchInPlace } from './runtime-reconciler-account-handoff';
+import { ACCOUNT_HANDOFF_SAVE_WARNING, accountChangeNotice, accountPreferencesAfterProviderSwap, applyAccountHandoff, isAccountOnlyChange, restoreAccount, snapshotAccount, tryAccountSwitchInPlace } from './runtime-reconciler-account-handoff';
 import type {
   RecoveryRespawnHooks,
   RecoveryRespawnOutcome,
@@ -499,15 +499,10 @@ export class RuntimeReconciler {
           continuity: actuallyResumed ? continuity : 'replay',
         });
 
-        if (isProviderSwap) {
-          // The old provider's session is gone for good: persist the fresh
-          // identity and null the resume cursor so no later restore attempts a
-          // native resume against the old provider. The config fingerprint
-          // guards this too; the explicit clear makes it durable. The tracked
-          // session state must also adopt the new provider/model —
-          // saveStateLocked persists the tracked snapshot, not the live
-          // instance, and a restore spawns whatever CLI that snapshot names.
-          instance.providerSessionId = instance.sessionId;
+        if (isProviderSwap || diff.accountProfileChanged) {
+          // Restore reads the tracked snapshot, not the live instance. Persist
+          // account-only respawns too; only a provider swap invalidates the cursor.
+          if (isProviderSwap) instance.providerSessionId = instance.sessionId;
           try {
             await getSessionContinuityManager().updateState(instanceId, {
               provider: instance.provider,
@@ -520,13 +515,15 @@ export class RuntimeReconciler {
             assertCurrent();
             await getSessionContinuityManager().writeThroughIdentityLocked(instanceId, {
               sessionId: instance.sessionId,
-              resumeCursor: null,
+              ...(isProviderSwap ? { resumeCursor: null } : {}),
             });
           } catch (err) {
-            logger.warn('writeThroughIdentity failed after provider swap', {
+            logger.warn('writeThroughIdentity failed after provider or account swap', {
               instanceId,
               error: err instanceof Error ? err.message : String(err),
             });
+            assertCurrent();
+            if (diff.accountProfileChanged) this.deps.emitSystemNotice(instance, ACCOUNT_HANDOFF_SAVE_WARNING);
           }
           assertCurrent();
         }

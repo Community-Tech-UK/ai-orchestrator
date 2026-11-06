@@ -169,13 +169,12 @@ export class WorktreeManager extends EventEmitter {
       await options?.onPrepared?.(session);
       await fs.mkdir(path.dirname(worktreePath), { recursive: true });
 
-      await getGitWriteQueue().enqueue('worktree-add', () =>
-        gitExec(['worktree', 'add', '-b', branchName, worktreePath, baseBranch], repoRoot, WORKTREE_CHECKOUT_TIMEOUT_MS)
-      );
-
-      // P6: suppress auto-gc so agent git reads can't trigger an unserialized gc
-      // on the shared .git. Best-effort; failure doesn't block worktree creation.
-      void gitExecSafe(['config', 'gc.auto', '0'], worktreePath);
+      await getGitWriteQueue().enqueue('worktree-add', async () => {
+        await gitExec(['worktree', 'add', '-b', branchName, worktreePath, baseBranch], repoRoot, WORKTREE_CHECKOUT_TIMEOUT_MS);
+        // Finish this shared config write before publishing the worktree or
+        // allowing cleanup to remove its repository. Failure remains non-fatal.
+        await gitExecSafe(['config', 'gc.auto', '0'], worktreePath);
+      });
 
       // P7: assign a per-session renderer port and write the mise local override
       // so this worktree's renderer/smoke tooling doesn't collide on 4567.

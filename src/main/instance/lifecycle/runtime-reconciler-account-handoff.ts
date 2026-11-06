@@ -23,9 +23,12 @@ import { mapAcpEffort } from '../../cli/adapters/acp-session-config-options';
 import { announceRuntimeChangeSet, runtimeChangeNoticesFor } from './runtime-change-notices';
 import type { RuntimeReconcilerDeps } from './runtime-reconciler.types';
 import { getLogger } from '../../logging/logger';
+import { errorDiagnostic } from '../../logging/source-diagnostics';
 import { accountPreferencesFor } from '../../plan-queue/plan-queue-account-rules';
+import { getSessionContinuityManagerIfInitialized } from '../../session/session-continuity';
 
 const logger = getLogger('RuntimeReconcilerAccountHandoff');
+export const ACCOUNT_HANDOFF_SAVE_WARNING = 'The account changed, but Harness could not save the change. Restarting may restore the previous account.';
 
 export interface AccountHandoffSnapshot {
   accountProfileId: Instance['accountProfileId'];
@@ -193,6 +196,21 @@ export async function tryAccountSwitchInPlace(params: {
   params.assertCurrent();
   applyAccountHandoff(instance, desired);
   instance.recoveryMethod = 'native';
+  // Hibernate saves the tracked state, not the live instance. Keep the native
+  // cursor: an in-place handoff still uses the same shared OpenCode session.
+  const continuity = getSessionContinuityManagerIfInitialized();
+  try {
+    await continuity?.updateState(instance.id, snapshotAccount(instance));
+    params.assertCurrent();
+    await continuity?.writeThroughIdentityLocked(instance.id, { sessionId: instance.sessionId });
+  } catch (error) {
+    params.assertCurrent();
+    // The native switch already succeeded. Publish that actual account,
+    // as the respawn path does, and make the failed durability explicit.
+    logger.warn('Account switched but session persistence failed', { instanceId: instance.id, ...errorDiagnostic(error) });
+    params.emitSystemNotice(instance, ACCOUNT_HANDOFF_SAVE_WARNING);
+  }
+  params.assertCurrent();
   await announceRuntimeChangeSet({
     instance,
     adapter: params.adapter,

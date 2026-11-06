@@ -23,6 +23,12 @@ const MIMO_429 = 'ACP session/prompt failed: Internal error: 429 Too Many Reques
 const MIMO_PLAN_EXHAUSTED = 'ACP session/prompt failed: Internal error: Token Plan quota exhausted for this account. Renew the plan to continue. (-32603)';
 const MIMO_QUOTA_400 = 'ACP session/prompt failed: Internal error: You have exceeded your token plan quota for mimo-v2.6-pro (-32603)';
 const MIMO_INSUFFICIENT = 'ACP session/prompt failed: Internal error: Insufficient Balance (-32603)';
+/**
+ * Real MiMo refusal, 2026-10-27: HTTP 429 with this credential-free response body:
+ * { "error": { "code": "429", "message": "quota exhausted", "type": "limitation" } }
+ * OpenCode logs AI_APICallError: quota exhausted; ACP exposes only the message/code below.
+ */
+const MIMO_LIVE_QUOTA_EXHAUSTED = 'ACP session/prompt failed: Internal error: quota exhausted (-32603)';
 /** Phase 0.1 negatives: auth, 5xx, connection and stream breaks are never limits. */
 const MIMO_SERVER_500 = 'ACP session/prompt failed: Internal error: Internal server error (-32603)';
 const MIMO_BAD_KEY = 'ACP session/prompt failed: Internal error: Invalid API Key provided (-32603)';
@@ -47,6 +53,7 @@ describe('acp provider limit tagging', () => {
     expect(isAcpProviderLimitMessage(MIMO_PLAN_EXHAUSTED)).toBe(true);
     expect(isAcpProviderLimitMessage(MIMO_QUOTA_400)).toBe(true);
     expect(isAcpProviderLimitMessage(MIMO_INSUFFICIENT)).toBe(true);
+    expect(isAcpProviderLimitMessage(MIMO_LIVE_QUOTA_EXHAUSTED)).toBe(true);
   });
 
   it('never counts MiMo auth errors, 500s, connection errors or stream breaks as limits', () => {
@@ -62,7 +69,7 @@ describe('acp provider limit tagging', () => {
   });
 
   it('feeds MiMo limit texts into detectErrorProviderLimit as parked quota', () => {
-    for (const message of [MIMO_RATE_TEXT, MIMO_429, MIMO_PLAN_EXHAUSTED, MIMO_QUOTA_400]) {
+    for (const message of [MIMO_RATE_TEXT, MIMO_429, MIMO_PLAN_EXHAUSTED, MIMO_QUOTA_400, MIMO_LIVE_QUOTA_EXHAUSTED]) {
       const tagged = tagAcpProviderLimit(new Error(message), NOW);
       expect((tagged as Error & { quota?: { exhausted?: boolean } }).quota?.exhausted, message).toBe(true);
       // No reset text in the MiMo shapes: the park uses the assumed window.

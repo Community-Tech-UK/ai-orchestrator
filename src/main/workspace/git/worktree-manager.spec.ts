@@ -305,6 +305,43 @@ describe('WorktreeManager.integrateWorktree — auto-integration (real git)', ()
     );
   });
 
+  it('finishes configuring the worktree before another queued Git write can run', async () => {
+    const mgr = WorktreeManager.getInstance();
+    let releaseConfig!: () => void;
+    const configGate = new Promise<void>(resolve => { releaseConfig = resolve; });
+    let configStarted!: () => void;
+    const started = new Promise<void>(resolve => { configStarted = resolve; });
+    const runGit = gitCommands.gitExecSafe;
+    let configFinished = false;
+    vi.spyOn(gitCommands, 'gitExecSafe').mockImplementation(async (args, cwd) => {
+      if (args[0] !== 'config') return runGit(args, cwd);
+      configStarted();
+      await configGate;
+      const result = await runGit(args, cwd);
+      configFinished = true;
+      return result;
+    });
+    const creating = mgr.createWorktree('config-order', 'config order', {
+      repoRoot: repo, baseBranch: 'main', skipInstall: true,
+    });
+    try {
+      await started;
+      let configuredBeforeNextWrite = false;
+      const nextWrite = GitWriteQueue.getInstance().enqueue('after-create', async () => {
+        configuredBeforeNextWrite = configFinished;
+      });
+      // Let any unblocked queue callback run while configuration is held open.
+      await new Promise<void>(resolve => setImmediate(resolve));
+      releaseConfig();
+      await Promise.all([creating, nextWrite]);
+      expect(configuredBeforeNextWrite).toBe(true);
+      expect(await git(['config', 'gc.auto'], repo)).toBe('0');
+    } finally {
+      releaseConfig();
+      await creating;
+    }
+  });
+
   it('propagates a checkout timeout and cleans up the failed session', async () => {
     const mgr = WorktreeManager.getInstance();
     const timeout = Object.assign(new Error('checkout timed out'), { killed: true, signal: 'SIGTERM' });
