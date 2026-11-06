@@ -283,7 +283,19 @@ describe('SourceControlDiffViewComponent (WS-C4 diff review comments)', () => {
       expect(confirm).toBeTruthy();
       expect(confirm.textContent).toContain('1 stale comment');
       // The primary button is disabled while the banner is up.
-      expect(sendBtn.disabled).toBe(true);
+      expect(sendBtn.disabled).toBe(false);
+      expect(sendBtn.getAttribute('aria-disabled')).toBe('true');
+      // Let the standard post-click tooltip suppression expire before tabbing back.
+      await new Promise(resolve => setTimeout(resolve, 550));
+      // jsdom needs the keyboard-focus selector supplied explicitly.
+      vi.spyOn(sendBtn, 'matches').mockImplementation(selector => selector === ':focus-visible');
+      sendBtn.focus();
+      fixture.detectChanges();
+      expect(document.activeElement).toBe(sendBtn);
+      expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('Your draft stays here.');
+      sendBtn.click();
+      expect(sendInput).not.toHaveBeenCalled();
+      expect(draftStore.annotationsFor('inst-1')).toHaveLength(2);
     });
 
     it('"Send anyway" sends the full draft, including the stale annotation with state="stale"', async () => {

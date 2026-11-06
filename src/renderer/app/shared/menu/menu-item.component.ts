@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../tooltip/aio-tooltip.directive';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -9,7 +10,7 @@ import {
   output
 } from '@angular/core';
 import type { MenuItem } from './menu.types';
-import { AioTooltipDirective } from '../tooltip/aio-tooltip.directive';
+import { AppIconButtonDirective } from '../tooltip/icon-button.directive';
 
 /**
  * One row in a `<app-nested-menu>`.
@@ -30,7 +31,7 @@ import { AioTooltipDirective } from '../tooltip/aio-tooltip.directive';
 @Component({
   selector: 'app-menu-item',
   standalone: true,
-  imports: [AioTooltipDirective],
+  imports: [AioTooltipDirective, AppIconButtonDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="menu-item-row" (mouseenter)="onMouseEnter()" (mouseleave)="onMouseLeave()">
@@ -60,9 +61,8 @@ import { AioTooltipDirective } from '../tooltip/aio-tooltip.directive';
           type="button"
           class="menu-item-row__chevron"
           tabindex="-1"
-          [attr.aria-label]="'Open ' + item().label + ' options'"
-          appTooltip="Open submenu"
-          [attr.aria-disabled]="item().disabledReason ? 'true' : null"
+          [appIconButton]="'Open ' + item().label + ' options'"
+          [appIconButtonDisabledReason]="item().disabledReason ?? null"
           (click)="onChevronClick($event)"
         >
           <span aria-hidden="true">›</span>

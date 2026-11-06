@@ -162,10 +162,24 @@ describe('WorkspaceRailComponent', () => {
     fixture.detectChanges();
 
     const item = renderedMenu()?.querySelector('button[role="menuitem"]') as HTMLButtonElement;
-    expect(item.disabled).toBe(true);
+    expect(item.disabled).toBe(false);
+    expect(item.getAttribute('aria-disabled')).toBe('true');
+    const matches = item.matches.bind(item);
+    const focusVisible = vi.spyOn(item, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
+    item.focus();
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(item);
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('There are no unread automation notices.');
+    focusVisible.mockRestore();
 
     item.click();
     expect(markAllSeen).not.toHaveBeenCalled();
+    unreadCount.set(1);
+    TestBed.tick();
+    const recovered = renderedMenu()?.querySelector('button[role="menuitem"]') as HTMLButtonElement;
+    expect(recovered.getAttribute('aria-disabled')).toBeNull();
+    recovered.click();
+    expect(markAllSeen).toHaveBeenCalledOnce();
   });
 
   function sideChatButton(): HTMLButtonElement {

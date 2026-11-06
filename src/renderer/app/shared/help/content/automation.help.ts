@@ -30,7 +30,7 @@ export const AUTOMATIONS_HELP: HelpEntry = {
       heading: 'Key options',
       items: [
         'Schedule: Cron (recurring) or One time (single execution).',
-        'Provider: Auto lets the orchestrator choose; or pin a specific CLI.',
+        'Provider: Auto lets Harness choose; or pin a specific CLI.',
         'Accounts: runs that start a new session follow the Never use and Use last account rules on the Plan Queue page. Loop runs do not, and a run that wakes one of your existing sessions keeps that session\'s account. Copilot runs follow Never use only.',
         'Missed runs: Skip, Notify, or Run once. Concurrency: Skip or Queue.',
         'YOLO mode skips safety checks; use only for trusted, sandboxed work.',
@@ -192,7 +192,7 @@ export const WORKFLOWS_HELP: HelpEntry = {
       kind: 'steps',
       heading: 'How to use it',
       items: [
-        'Select an Instance and a Template from the toolbars at the top.',
+        'Select a Session and a Template from the toolbars at the top.',
         'Click Start Workflow to begin execution.',
         'Monitor progress and respond to approval gates when they appear.',
         'Use Manual Actions to complete phases, skip phases, or cancel the workflow.',
@@ -202,7 +202,7 @@ export const WORKFLOWS_HELP: HelpEntry = {
       kind: 'list',
       heading: 'Side panels',
       items: [
-        'Launch Preflight: permissions and tool readiness for the selected instance.',
+        'Launch Preflight: permissions and tool readiness for the selected session.',
         'Manual Actions: complete/skip the current phase, refresh, cancel, or provide phase data as JSON.',
         'Prompt Addition: extra instructions added to the current phase prompt.',
       ],

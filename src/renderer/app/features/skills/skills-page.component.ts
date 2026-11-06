@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 /**
  * Skills Page
  * Container that wires the skills browser to backend discovery/loading APIs.
@@ -36,7 +37,7 @@ const DEFAULT_DISCOVERY_PATHS = '.claude/skills\n.codex/skills\nskills';
 @Component({
   selector: 'app-skills-page',
   standalone: true,
-  imports: [CommonModule, SkillBrowserComponent, SkillHealthPanelComponent],
+  imports: [CommonModule, SkillBrowserComponent, SkillHealthPanelComponent, AioTooltipDirective],
   template: `
     <div class="skills-page">
       <div class="page-header">
@@ -96,7 +97,7 @@ const DEFAULT_DISCOVERY_PATHS = '.claude/skills\n.codex/skills\nskills';
               (input)="onMatchTextInput($event)"
             ></textarea>
             <div class="button-row">
-              <button class="btn" type="button" [disabled]="working() || matchText().trim().length === 0" (click)="matchSkills()">
+              <button class="btn" type="button" [disabled]="working()" [appTooltipDisabledReason]="matchText().trim().length === 0 ? 'Enter text to match skills first' : null" (click)="matchSkills()">
                 Match Skills
               </button>
             </div>

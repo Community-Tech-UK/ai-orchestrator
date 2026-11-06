@@ -23,6 +23,7 @@ export const KEYBINDING_CONTEXTS: readonly KeybindingContext[] = [
   'overlay',
   'command-palette',
   'instance-list',
+  'source-control',
   'output',
   'input',
   'global',
@@ -32,8 +33,9 @@ export const KEYBINDING_CONTEXT_LABELS: Record<KeybindingContext, string> = {
   global: 'Global',
   input: 'Composer / input',
   output: 'Transcript / output',
-  'instance-list': 'Instance list',
+  'instance-list': 'Session list',
   'command-palette': 'Command palette',
+  'source-control': 'Source control commit box',
   overlay: 'Overlay (picker/search)',
 };
 

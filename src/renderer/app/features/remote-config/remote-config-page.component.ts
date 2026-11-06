@@ -170,7 +170,7 @@ let eventLogIdCounter = 0;
               <button
                 class="btn primary"
                 type="button"
-                [disabled]="working() || !sourceLocation().trim()"
+                [disabled]="working()"
                 (click)="saveSource()"
               >
                 Save Source

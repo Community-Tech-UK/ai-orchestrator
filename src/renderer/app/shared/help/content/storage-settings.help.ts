@@ -47,7 +47,7 @@ export const SNAPSHOTS_HELP: HelpEntry = {
       kind: 'steps',
       heading: 'How to use it',
       items: [
-        'Enter an instance ID and click Load Sessions.',
+        'Enter a session ID and click Load Sessions.',
         'Select a session in the left panel to see its file snapshots.',
         'Select a snapshot to view its diff on the right.',
         'Use Revert File for one file or Revert Session for all of them.',

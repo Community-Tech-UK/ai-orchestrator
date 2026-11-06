@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
 import { ChangeDetectionStrategy, Component, OnInit, computed, effect, inject, signal, untracked } from '@angular/core';
 import {
   DEFAULT_PLAN_QUEUE_ACCOUNT_RULES,
@@ -72,6 +73,7 @@ function normalise(rules: PlanQueueAccountRules): PlanQueueAccountRules {
 @Component({
   selector: 'app-plan-queue-account-rules-panel',
   standalone: true,
+  imports: [AioTooltipDirective],
   templateUrl: './plan-queue-account-rules-panel.component.html',
   styleUrl: './plan-queue-account-rules-panel.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

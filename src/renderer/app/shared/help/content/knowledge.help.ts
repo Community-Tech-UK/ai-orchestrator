@@ -12,7 +12,7 @@ export const CHAT_SEARCH_HELP: HelpEntry = {
       kind: 'callout',
       variant: 'info',
       heading: 'What this does',
-      body: 'Search all stored sessions and live instances by title, message content, or project path. Results show the most recent matches first with snippet previews and timestamps.',
+      body: 'Search all stored sessions and live sessions by title, message content, or project path. Results show the most recent matches first with snippet previews and timestamps.',
     },
     {
       kind: 'steps',
@@ -20,7 +20,7 @@ export const CHAT_SEARCH_HELP: HelpEntry = {
       items: [
         'Type a keyword: project name, conversation snippet, or directory path.',
         'Results update as you type.',
-        'Click a result to restore the session or switch to a live instance.',
+        'Click a result to restore the session or switch to a live session.',
         'Press Escape to clear the search.',
       ],
     },
@@ -29,7 +29,7 @@ export const CHAT_SEARCH_HELP: HelpEntry = {
       heading: 'What gets searched',
       items: [
         'Session display names and first/last user messages.',
-        'Live instance names and working directories.',
+        'Live session names and working directories.',
         'Project paths derived from the working directory.',
       ],
     },

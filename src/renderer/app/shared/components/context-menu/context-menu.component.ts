@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../tooltip/aio-tooltip.directive';
 import {
   Component,
   ChangeDetectionStrategy,
@@ -21,7 +22,10 @@ export interface ContextMenuItem {
   label: string;
   icon?: string;
   action: () => void | Promise<void>;
+  /** A short operation in progress; lasting restrictions use disabledReason. */
   disabled?: boolean;
+  /** Why a lasting blocked action cannot run. */
+  disabledReason?: string;
   danger?: boolean;
   divider?: boolean;
 }
@@ -29,7 +33,7 @@ export interface ContextMenuItem {
 @Component({
   selector: 'app-context-menu',
   standalone: true,
-  imports: [OverlayModule],
+  imports: [OverlayModule, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <ng-template
@@ -53,9 +57,10 @@ export interface ContextMenuItem {
           }
           <button
             class="context-menu-item"
-            [class.disabled]="item.disabled"
+            [class.disabled]="item.disabled || !!item.disabledReason"
             [class.danger]="item.danger"
             [disabled]="item.disabled"
+            [appTooltipDisabledReason]="item.disabledReason ?? null"
             role="menuitem"
             (click)="onItemClick(item)"
           >
@@ -233,7 +238,7 @@ export class ContextMenuComponent {
   };
 
   onItemClick(item: ContextMenuItem): void {
-    if (!item.disabled) {
+    if (!item.disabled && !item.disabledReason) {
       this.closed.emit();
       void item.action();
     }

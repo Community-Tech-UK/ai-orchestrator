@@ -236,7 +236,7 @@ describe('InstanceRowComponent — tooltip disclosure', () => {
 
     it('says neither on an ordinary idle instance', () => {
       const label = row().getAttribute('aria-label') ?? '';
-      expect(label).toContain('Select instance');
+      expect(label).toContain('Select session');
       expect(label).not.toContain('error');
       expect(label).not.toContain('auto-approve');
     });

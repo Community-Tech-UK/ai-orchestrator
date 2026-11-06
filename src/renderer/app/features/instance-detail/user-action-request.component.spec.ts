@@ -921,7 +921,12 @@ describe('UserActionRequestComponent', () => {
 
     // Submit is disabled until a selection is made
     const submitBtn = fixture.nativeElement.querySelector('.btn-approve') as HTMLButtonElement;
-    expect(submitBtn.disabled).toBe(true);
+    expect(submitBtn.disabled).toBe(false);
+    expect(submitBtn.getAttribute('aria-disabled')).toBe('true');
+    submitBtn.focus();
+    expect(document.activeElement).toBe(submitBtn);
+    submitBtn.click();
+    expect(fakeIpc.respondToInputRequired).not.toHaveBeenCalled();
 
     // Select both options (multiSelect)
     optionButtons[0].click();
@@ -930,6 +935,7 @@ describe('UserActionRequestComponent', () => {
     await settle(fixture);
 
     expect(submitBtn.disabled).toBe(false);
+    expect(submitBtn.getAttribute('aria-disabled')).toBeNull();
 
     submitBtn.click();
     fixture.detectChanges();
@@ -1074,12 +1080,18 @@ describe('UserActionRequestComponent', () => {
 
     expect(fixture.nativeElement.textContent).toContain('Secure storage unavailable');
     expect(input.value).toBe('');
-    expect(saveBtn.disabled).toBe(true);
+    expect(saveBtn.disabled).toBe(false);
+    expect(saveBtn.getAttribute('aria-disabled')).toBe('true');
+    saveBtn.focus();
+    expect(document.activeElement).toBe(saveBtn);
+    saveBtn.click();
+    expect(fakeIpc.submitSecretCard).toHaveBeenCalledTimes(1);
 
     input.value = 'fresh-placeholder-value';
     input.dispatchEvent(new Event('input'));
     fixture.detectChanges();
     expect(saveBtn.disabled).toBe(false);
+    expect(saveBtn.getAttribute('aria-disabled')).toBeNull();
     saveBtn.click();
     await settle(fixture);
     expect(fakeIpc.submitSecretCard).toHaveBeenCalledTimes(2);

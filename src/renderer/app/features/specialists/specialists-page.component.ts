@@ -44,9 +44,9 @@ interface InstanceOption {
 
       <div class="toolbar">
         <label class="field">
-          <span class="label">Orchestrator Instance</span>
+          <span class="label">Harness Session</span>
           <select class="select" [value]="selectedInstanceId()" (change)="onInstanceChange($event)">
-            <option value="">Select instance</option>
+            <option value="">Select session</option>
             @for (instance of instances(); track instance.id) {
               <option [value]="instance.id">
                 {{ instance.displayName }} ({{ instance.status }})
@@ -109,7 +109,7 @@ interface InstanceOption {
           </div>
 
           <div class="panel-card">
-            <div class="panel-title">Active Specialist Instances</div>
+            <div class="panel-title">Active Specialist Sessions</div>
             @if (activeInstances().length > 0) {
               <div class="active-list">
                 @for (instance of activeInstances(); track instance.id) {
@@ -154,7 +154,7 @@ interface InstanceOption {
                 }
               </div>
             } @else {
-              <div class="hint">No active specialist instances.</div>
+              <div class="hint">No active specialist sessions.</div>
             }
           </div>
         </div>

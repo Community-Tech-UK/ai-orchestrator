@@ -1,3 +1,5 @@
+import { AioTooltipDirective } from '../../tooltip/aio-tooltip.directive';
+import { copyFor } from '../../tooltip/tooltip-copy';
 /**
  * Context Evidence Panel — truthful renderer surface for the context-evidence
  * subsystem (see docs/superpowers/plans/2026-07-15-provider-agnostic-context-evidence-plan.md,
@@ -63,7 +65,7 @@ export function estimateProvenanceLabel(
   kind: WorkingSetAllocation['estimateKind'] | undefined,
 ): string | null {
   if (kind === 'provider-tokenizer') return 'provider-observed';
-  if (kind === 'conservative-fallback') return 'AIO-estimated';
+  if (kind === 'conservative-fallback') return 'Harness-estimated';
   return null;
 }
 
@@ -81,13 +83,13 @@ export function statusLabel(status: EvidenceStatus): string {
 export function statusDisclosure(status: EvidenceStatus): string | null {
   switch (status) {
     case 'staging':
-      return 'Still capturing — not yet available for inspection.';
+      return copyFor('evidence.staging');
     case 'failed':
-      return 'Capture failed — no readable content is available.';
+      return copyFor('evidence.failed');
     case 'corrupt':
-      return 'Evidence is corrupt — raw bytes cannot be trusted.';
+      return copyFor('evidence.corrupt');
     case 'deleted':
-      return 'Evidence has been deleted — content is no longer available.';
+      return copyFor('evidence.deleted');
     case 'complete':
       return null;
   }
@@ -132,12 +134,13 @@ export function formatBytes(bytes: number): string {
 @Component({
   selector: 'app-context-evidence-panel',
   standalone: true,
-  imports: [DecimalPipe],
+  imports: [DecimalPipe, AioTooltipDirective],
   templateUrl: './context-evidence-panel.component.html',
   styleUrl: './context-evidence-panel.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ContextEvidencePanelComponent {
+  protected readonly copyFor = copyFor;
   readonly scope = input<ContextEvidenceScope | null>(null);
 
   readonly store = inject(ContextEvidenceStore);
@@ -199,6 +202,7 @@ export class ContextEvidencePanelComponent {
   }
 
   async startInspection(record: EvidenceRecord): Promise<void> {
+    if (!this.canInspect(record)) return;
     this.inspectingIdState.set(record.id);
     this.nextRangeStartState.set(0);
     await this.readNextChunk(record);

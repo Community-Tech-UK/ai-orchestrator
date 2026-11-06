@@ -51,7 +51,7 @@ import { ChannelStore } from '../../../../core/state/channel.store';
               <div class="message-content">{{ msg.content }}</div>
               @if (msg.instanceId) {
                 <div class="instance-link">
-                  Instance: {{ msg.instanceId.slice(0, 8) }}
+                  Session: {{ msg.instanceId.slice(0, 8) }}
                 </div>
               }
             </div>

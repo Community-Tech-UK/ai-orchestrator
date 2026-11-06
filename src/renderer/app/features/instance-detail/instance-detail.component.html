@@ -179,6 +179,7 @@
           <app-input-panel
             [instanceId]="inst.id"
             [disabled]="contextWarningLevel() === 'emergency'"
+            [disabledReason]="contextWarningLevel() === 'emergency' ? 'Context is full. Summarize it before sending; your draft stays here.' : null"
             [placeholder]="inputPlaceholder()"
             [pendingFiles]="pendingFiles()"
             [pendingFolders]="pendingFolders()"

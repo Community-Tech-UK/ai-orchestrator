@@ -15,6 +15,7 @@
   <!-- Prompt input area -->
   <div class="input-section">
     <label for="council-prompt" class="visually-hidden">Prompt for the council</label>
+    <span [attr.tabindex]="isRunning() ? 0 : null" [appTooltipDisabledReason]="isRunning() ? 'Wait for the current council to finish before editing its prompt' : null">
     <textarea
       id="council-prompt"
       class="prompt-input"
@@ -24,6 +25,7 @@
       [disabled]="isRunning()"
       (input)="onPromptInput($event)"
     ></textarea>
+    </span>
 
     <!-- Provider selector -->
     <fieldset class="providers-row">
@@ -36,7 +38,7 @@
       } @else {
         <div class="providers-list">
           @for (p of availableProviders(); track p) {
-            <label class="provider-checkbox" [class.checked]="isSelected(p)">
+            <label class="provider-checkbox" [class.checked]="isSelected(p)" [attr.tabindex]="isRunning() ? 0 : null" [appTooltipDisabledReason]="isRunning() ? tooltipWaitForProviders : null">
               <input
                 type="checkbox"
                 [checked]="isSelected(p)"
@@ -52,7 +54,7 @@
       <button
         class="btn btn-select-all"
         type="button"
-        [disabled]="isRunning() || loadingProviders()"
+        [disabled]="loadingProviders()"
         [appTooltipDisabledReason]="allDisabledReason()"
         (click)="selectAll()"
       >
@@ -61,7 +63,6 @@
       <button
         class="btn btn-clear"
         type="button"
-        [disabled]="isRunning()"
         [appTooltipDisabledReason]="noneDisabledReason()"
         (click)="clearSelection()"
       >

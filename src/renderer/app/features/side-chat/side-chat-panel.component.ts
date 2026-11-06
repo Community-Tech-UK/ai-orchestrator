@@ -36,6 +36,7 @@ import { SideChatStore } from '../../core/state/side-chat.store';
 import { InstanceStore } from '../../core/state/instance.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { ViewLayoutService } from '../../core/services/view-layout.service';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { OutputStreamComponent } from '../instance-detail/output-stream.component';
 import { chatAsyncAnswerTarget } from '../instance-detail/async-question';
 import { ActivityStatusComponent } from '../instance-detail/activity-status.component';
@@ -46,7 +47,6 @@ import { ChatOutputMessageMapper } from '../chats/chat-output-message.mapper';
 import { UserActionRequestComponent } from '../instance-detail/user-action-request.component';
 import { BrowserApprovalRequestComponent } from '../instance-detail/browser-approval-request.component';
 import { describePermissionPolicy } from './side-chat-permissions';
-import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
 
 const BUSY_STATUSES = new Set<InstanceStatus>([
@@ -427,10 +427,13 @@ export class SideChatPanelComponent {
   async attachSelected(): Promise<void> {
     const parent = this.parent();
     const chatId = this.attachChoice();
-    if (parent && chatId) {
-      if (await this.sideChatStore.attach(parent, chatId)) {
-        this.attachChoice.set('');
-      }
+    if (!parent || !chatId) {
+      this.notice.set('Choose a chat to attach first.');
+      return;
+    }
+    if (await this.sideChatStore.attach(parent, chatId)) {
+      this.attachChoice.set('');
+      this.notice.set(null);
     }
   }
 

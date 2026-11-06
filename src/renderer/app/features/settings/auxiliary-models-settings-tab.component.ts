@@ -362,6 +362,10 @@ export class AuxiliaryModelsSettingsTabComponent implements OnInit {
   }
 
   async probeEndpoint(): Promise<void> {
+    if (!this.probeBaseUrl) {
+      this.probeError.set('Enter the base URL first.');
+      return;
+    }
     this.probing.set(true);
     this.probeResult.set(null);
     this.probeError.set(null);

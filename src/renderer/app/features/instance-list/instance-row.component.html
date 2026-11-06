@@ -145,10 +145,10 @@
             </button>
           }
           @if (hasPendingApproval()) {
-            <span class="approval-chip" appTooltip="This instance has a pending permission request">Awaiting approval</span>
+            <span class="approval-chip" appTooltip="This session has a pending permission request">Awaiting approval</span>
           }
           @if (hasChildren() && !isExpanded()) {
-            <span class="collapsed-badge" appTooltip="Child instances — use the arrow to expand" [attr.aria-label]="resolvedChildCount() + ' child instances'">+{{ resolvedChildCount() }}</span>
+            <span class="collapsed-badge" appTooltip="Child sessions — use the arrow to expand" [attr.aria-label]="resolvedChildCount() + ' child sessions'">+{{ resolvedChildCount() }}</span>
           }
         </div>
         @if (isRemote()) {

@@ -1,7 +1,7 @@
 <div class="workspace-connectors">
   <p class="hint">
     These connectors are bound to one working directory and one provider.
-    They never fall back to Orchestrator, Shared, or a provider-user config.
+    They never fall back to Harness, Shared, or a provider-user config.
     Put <code>secret://name</code> only in env. Values are resolved at local spawn and never returned over IPC.
   </p>
   <label class="field">
@@ -23,7 +23,7 @@
     </select>
   </label>
   <div class="actions">
-    <button type="button" (click)="refresh()" [disabled]="loading() || !workingDirectory().trim()" aria-label="Refresh workspace MCP connectors">
+    <button type="button" (click)="refresh()" [disabled]="loading()" [appTooltipDisabledReason]="!workingDirectory().trim() ? 'Enter the working directory to refresh its connectors.' : null" aria-label="Refresh workspace MCP connectors">
       Refresh
     </button>
   </div>

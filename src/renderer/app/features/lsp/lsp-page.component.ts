@@ -1,3 +1,5 @@
+import { LSP_ENTER_FILE_PATH } from './tooltip-copy-lsp';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 /**
  * LSP Page
  * Language Server Protocol integration — definitions, references, symbols, and diagnostics.
@@ -93,12 +95,14 @@ function symbolKindIcon(kind: string): string {
 @Component({
   selector: 'app-lsp-page',
   standalone: true,
-  imports: [CommonModule, EmptyStateComponent, SkeletonComponent],
+  imports: [CommonModule, EmptyStateComponent, SkeletonComponent, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './lsp-page.component.html',
   styleUrl: './lsp-page.component.scss',
 })
 export class LspPageComponent implements OnInit {
+  protected readonly tooltipEnterFilePath = LSP_ENTER_FILE_PATH;
+
   private readonly lspIpc = inject(LspIpcService);
 
   // ---- Server status ----

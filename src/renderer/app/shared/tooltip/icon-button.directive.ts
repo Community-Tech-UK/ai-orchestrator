@@ -6,7 +6,7 @@ import { resolveIconButtonAria } from './tooltip-policy';
 @Directive({
   selector: '[appIconButton]', standalone: true,
   hostDirectives: [{ directive: AioTooltipDirective, inputs: [
-    'appTooltipShortcut', 'appTooltipPosition', 'appTooltipVariant', 'appTooltipShowWhenExpanded',
+    'appTooltipShortcut', 'appTooltipPosition', 'appTooltipVariant', 'appTooltipShowWhenExpanded', 'appTooltipDisabled',
     'appTooltipDisabledReason: appIconButtonDisabledReason',
   ] }],
   host: { '[attr.aria-label]': 'ariaLabel()' },

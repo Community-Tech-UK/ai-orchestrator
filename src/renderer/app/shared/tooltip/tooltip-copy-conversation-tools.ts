@@ -20,6 +20,6 @@ export const CONVERSATION_TOOLS_COPY = {
   },
   'attribution.composedSources': {
     label: 'Owned sources only',
-    meaning: "AIO can only prove what it composed and sent — never what the provider's own process actually kept or used from it.",
+    meaning: "Harness can only prove what it composed and sent — never what the provider's own process actually kept or used from it.",
   },
 } as const satisfies Record<string, TooltipCopyEntry>;

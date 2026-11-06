@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject, signal, input } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -22,7 +23,7 @@ interface WebhookRouteForm {
 @Component({
   selector: 'app-automation-webhooks-panel',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './automation-webhooks-panel.component.html',
   styleUrl: './automation-webhooks-panel.component.css',

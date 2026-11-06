@@ -511,7 +511,7 @@
           type="button"
           class="lsum-prompt-btn"
           (click)="onCopyInitialPrompt(s.initialPrompt)"
-          [disabled]="!s.initialPrompt"
+          [appTooltipDisabledReason]="!s.initialPrompt ? 'No initial prompt was recorded for this run' : null"
           [appTooltip]="copiedSummaryPart() === 'initial' ? 'Copied!' : 'Copy the first-iteration prompt'"
         >{{ copiedSummaryPart() === 'initial' ? 'Copied ✓' : 'Copy prompt' }}</button>
         @if (summaryHasDistinctIterationPrompt(s)) {

@@ -8,18 +8,20 @@ import { outsideTemplate } from './outside-template';
 import { HOVER_ONLY_REASONS } from './hover-only-reasons';
 import { TEXT_GAP, type Analysis } from './types';
 import { glossaryReports } from './glossary-report';
-import { GLOSSARY_PATTERNS } from '../../src/renderer/app/shared/glossary/glossary';
+import { GLOSSARY_PATTERNS } from '../../src/shared/glossary/glossary';
 
 export function analyze(root: string, reasons?: Record<string, string>): Analysis {
   const hoverReasons = reasons ?? (existsSync(join(root, 'scripts/ui-hints/hover-only-reasons.ts')) ? HOVER_ONLY_REASONS : {});
   const collection = collectTemplates(root);
   const registry = readCopyRegistry(collection.sourceFiles);
-  const analysis: Analysis = { collection, facts: [], violations: [...collection.errors], outside: [], streams: {}, copyKeys: registry.keys, counts: {} };
+  const analysis: Analysis = { collection, facts: [], violations: [...collection.errors], outside: [], streams: {}, vocabularyStreams: {}, copyKeys: registry.keys, counts: {} };
   for (const source of collection.templates) {
     try {
       const parsed = parseFacts(source, collection.sourceFiles, registry.keys);
       analysis.facts.push(...parsed.facts);
-      analysis.streams[source.ownerFile] = [...(analysis.streams[source.ownerFile] ?? []), ...parsed.facts.flatMap(fact => fact.hover.flatMap(hover => hover.fragments.flatMap(fragment => [fragment, TEXT_GAP]))), ...parsed.visible];
+      const hover = parsed.facts.flatMap(fact => fact.hover.flatMap(hover => hover.fragments.flatMap(fragment => [fragment, TEXT_GAP])));
+      analysis.streams[source.ownerFile] = [...(analysis.streams[source.ownerFile] ?? []), ...hover, ...parsed.visible];
+      analysis.vocabularyStreams[source.ownerFile] = [...(analysis.vocabularyStreams[source.ownerFile] ?? []), ...hover, ...parsed.vocabulary];
       const stripped = source.text.replace(/<!--[\s\S]*?-->/g, '');
       const tags = stripped.match(/<[\w:-]+\b(?:"[^"]*"|'[^']*'|[^'">])*>/g) ?? [];
       const regexTitles = tags.filter(tag => /\s(?:title|\[title\]|\[attr.title\])\s*=/.test(tag)).length;

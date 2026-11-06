@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../../../shared/tooltip/aio-tooltip.directive';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -10,7 +11,7 @@ import { ChannelStore } from '../../../../core/state/channel.store';
 
 @Component({
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'app-channel-settings',
   template: `
@@ -47,7 +48,7 @@ import { ChannelStore } from '../../../../core/state/channel.store';
                 class="btn btn-primary btn-sm"
                 type="button"
                 (click)="pair(platform.id, platform.id === 'discord' ? discordPairCode() : whatsappPairCode())"
-                [disabled]="(platform.id === 'discord' ? discordPairCode() : whatsappPairCode()).length !== 6">
+                [appTooltipDisabledReason]="(platform.id === 'discord' ? discordPairCode() : whatsappPairCode()).length !== 6 ? 'Enter a 6-character pairing code first' : null">
                 Pair
               </button>
             </div>

@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { CommonModule } from '@angular/common';
 import {
   ChangeDetectionStrategy,
@@ -33,7 +34,7 @@ interface ReplayTimelineEntry {
 @Component({
   selector: 'app-session-replay-page',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page">
@@ -138,7 +139,7 @@ interface ReplayTimelineEntry {
               class="primary"
               type="button"
               (click)="replayBundle()"
-              [disabled]="loading() || !replayWorkingDirectory().trim()"
+              [disabled]="loading()" [appTooltipDisabledReason]="!replayWorkingDirectory().trim() ? 'Choose a working folder for replay first' : null"
             >
               Replay Bundle Locally
             </button>

@@ -42,6 +42,7 @@ import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive'
 import { ProviderAccountChipComponent } from '../../shared/components/provider-account-chip.component';
 import { HelpLinkComponent } from '../../shared/help/help-link.component';
 import { GlobalPauseStore } from '../../core/state/global-pause/global-pause.store';
+import { formatWaitReasonData } from './instance-header-wait-reason-data';
 
 interface EditorMenuItem {
   type: string;
@@ -87,8 +88,6 @@ export class InstanceHeaderComponent implements OnInit {
     resolveEffectiveInstanceTitle(this.instance())
   );
 
-  // Skills and hooks counts
-  /** Fast mode is only meaningful for Claude (Opus) and Codex (priority tier). */
   readonly interruptTitle = computed(
     () => `Interrupt ${this.getProviderDisplayName(this.instance().provider)}`,
   );
@@ -191,17 +190,17 @@ export class InstanceHeaderComponent implements OnInit {
       case 'interrupt-ack':
         return `Attempt ${wr.attempt}`;
       case 'backoff':
-        return `Attempt ${wr.attempt}, retry at ${new Date(wr.retryAt).toLocaleTimeString()}`;
+        return `Attempt ${wr.attempt}, retry at ${this.waitReasonData.time}`;
       case 'quota-park':
-        return `Provider: ${wr.provider}, resumes at ${new Date(wr.resumeAt).toLocaleTimeString()}`;
+        return `Provider: ${wr.provider}, resumes at ${this.waitReasonData.time}`;
       case 'auth-required':
-        return `Signed out of ${wr.provider} since ${new Date(wr.since).toLocaleTimeString()}`;
+        return `Signed out of ${wr.provider} since ${this.waitReasonData.time}`;
       case 'provider-slot':
         return `Provider: ${wr.provider}`;
       case 'resume-proof':
-        return wr.sessionId ? `Session: ${wr.sessionId.slice(0, 8)}…` : `Provider: ${wr.provider}`;
+        return wr.sessionId ? `Session: ${this.waitReasonData.sessionId}…` : `Provider: ${wr.provider}`;
       case 'remote-heartbeat':
-        return `Node: ${wr.nodeId}, stale for ${Math.round(wr.staleForMs / 1000)}s`;
+        return `Node: ${wr.nodeId}, stale for ${this.waitReasonData.staleSeconds}s`;
       case 'mutex':
         return wr.owner ? `Owner: ${wr.owner}` : wr.operation;
       case 'terminating':
@@ -210,6 +209,7 @@ export class InstanceHeaderComponent implements OnInit {
         return '';
     }
   });
+  private get waitReasonData() { return formatWaitReasonData(this.instance().waitReason); } // runtime values only; wording stays in waitReasonDetail
 
   readonly isRuntimeLocked = computed(() => {
     const status = this.instance().status;

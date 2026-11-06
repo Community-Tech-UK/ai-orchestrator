@@ -145,7 +145,13 @@ describe('LocalAiIncidentPanelComponent', () => {
   });
 
   it('keeps automatic repair opt-in and guards the dangerous restart action', async () => {
-    expect(button('Restart Ollama automatically').disabled).toBe(true);
+    const restart = button('Restart Ollama automatically');
+    expect(restart.disabled).toBe(false);
+    expect(restart.getAttribute('aria-disabled')).toBe('true');
+    restart.click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[role="alertdialog"]')).toBeNull();
+    expect(store.repairTarget).not.toHaveBeenCalled();
     expect(fixture.nativeElement.textContent).toContain(
       'Enable automatic repair in target settings before this action can run.',
     );

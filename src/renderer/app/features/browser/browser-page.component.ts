@@ -23,6 +23,7 @@ import { BrowserApprovalsStore } from '../../core/state/browser-approvals.store'
 import { BrowserGatewayIpcService } from '../../core/services/ipc/browser-gateway-ipc.service';
 import { AuxiliaryLlmIpcService } from '../../core/services/ipc/auxiliary-llm-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { BrowserUnattendedPanelComponent } from './browser-unattended-panel.component';
 import { BrowserGrantPaginator } from './browser-grant-paginator';
 import { browserGrantLabels } from './browser-grant-labels';
@@ -68,7 +69,7 @@ const recentAuditWindowMs = 15 * 60 * 1000;
 @Component({
   selector: 'app-browser-page',
   standalone: true,
-  imports: [CommonModule, BrowserUnattendedPanelComponent],
+  imports: [CommonModule, BrowserUnattendedPanelComponent, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './browser-page.component.html',
   styleUrl: './browser-page.component.scss',

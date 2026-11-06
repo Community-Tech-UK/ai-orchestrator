@@ -70,7 +70,7 @@ function matchesQuery(binding: KeyBinding, contextLabel: string, query: string):
           placeholder="Paste exported shortcuts JSON to import"
           rows="3"
         ></textarea>
-        <button type="button" [disabled]="!importText().trim()" (click)="onImport()">Import shortcuts</button>
+        <button type="button" (click)="onImport()">Import shortcuts</button>
         @if (ioMessage()) {
           <p class="keybinding-io-message">{{ ioMessage() }}</p>
         }
@@ -170,6 +170,10 @@ export class KeyboardSettingsTabComponent {
 
   /** Task 13 (reserved-key checks added in WS-C9): import shortcuts from the pasted JSON, surfacing violations. */
   protected onImport(): void {
+    if (!this.importText().trim()) {
+      this.ioMessage.set('Paste the exported shortcuts JSON first.');
+      return;
+    }
     try {
       const result = this.keybindingService.importKeybindings(this.importText());
       if (result.applied === 0 && (result.conflicts.length > 0 || result.reservedViolations.length > 0)) {

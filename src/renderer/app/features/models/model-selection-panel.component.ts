@@ -1,3 +1,5 @@
+import { MODEL_TOOLTIP_COPY } from './model-tooltip-copy';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
@@ -32,7 +34,6 @@ import { ModelUsageMemoryService } from './model-usage-memory.service';
 import { ModelFavoritesService } from './model-favorites.service';
 import { DEFAULT_FAVORITE_MODEL_KEYS } from './default-favorites';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
-import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 import { ModelHoverCardComponent } from './model-hover-card.component';
 import { copilotModelLabel } from '../../../../shared/utils/copilot-model-label';
 
@@ -198,7 +199,10 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
                 <app-model-hover-card [model]="row.model" [provider]="row.provider" [providerLabel]="row.providerLabel" />
               </ng-template>
 
-              <div class="model-picker-row__actions">
+              <div class="model-picker-row__actions"
+                [attr.tabindex]="row.reasoningOptions.length && (row.disabledReason || reasoningUnavailableReason(row)) ? 0 : null"
+                [appTooltipDisabledReason]="row.reasoningOptions.length ? row.disabledReason ?? null : null" [appTooltip]="reasoningUnavailableReason(row)"
+                [attr.aria-label]="row.reasoningOptions.length ? 'Reasoning for ' + row.model.name : null">
                 @if (row.reasoningOptions.length > 0) {
                   <label class="model-picker-row__reasoning-label" [attr.for]="reasoningSelectId(row)">
                     Reasoning for {{ row.model.name }}
@@ -207,7 +211,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
                     class="model-picker-row__reasoning"
                     [id]="reasoningSelectId(row)"
                     [value]="row.reasoningValue"
-                    [disabled]="row.disabledReason ? true : null"
+                    [disabled]="!!row.disabledReason"
                     [attr.aria-label]="'Reasoning for ' + row.model.name"
                     (click)="$event.stopPropagation()"
                     (change)="selectReasoning(row, $event)"
@@ -932,6 +936,11 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
     if (event.key !== 'Enter' && event.key !== ' ') return;
     event.preventDefault();
     this.toggleFavorite(row, event);
+  }
+
+  protected reasoningUnavailableReason(row: ModelPickerRow): string | null {
+    if (!row.reasoningOptions.find(option => this.reasoningOptionValue(option) === row.reasoningValue)?.disabled) return null;
+    return row.provider === 'codex' && !row.model.reasoning ? MODEL_TOOLTIP_COPY.reasoningNotReported : MODEL_TOOLTIP_COPY.reasoningNoLongerOffered;
   }
 
   protected onPanelKeydown(event: KeyboardEvent): void {

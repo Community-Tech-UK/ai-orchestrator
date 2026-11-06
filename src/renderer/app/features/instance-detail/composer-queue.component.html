@@ -46,7 +46,7 @@
         <button
           class="queued-edit-btn"
           (click)="editMessage.emit(i)"
-          appTooltip="Edit queued message"
+          [appTooltip]="copy('composer.editQueued')"
           aria-label="Edit queued message"
         >
           <svg class="queued-edit-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -58,7 +58,7 @@
           <button
             class="queued-steer-btn"
             (click)="steerMessage.emit(i)"
-            appTooltip="Steer this queued message now"
+            [appTooltip]="copy('composer.steerQueued')"
           >
             <svg class="queued-steer-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M4 7h11a5 5 0 0 1 0 10H9"></path>

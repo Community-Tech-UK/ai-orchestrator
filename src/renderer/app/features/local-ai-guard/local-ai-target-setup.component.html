@@ -401,7 +401,8 @@
           <button
             type="submit"
             class="button secondary"
-            [disabled]="!formValid() || isBusy()"
+            aria-describedby="local-ai-enrolment-help"
+            [disabled]="isBusy()" [appTooltipDisabledReason]="!formValid() ? copyFor('localAi.invalidSetup') : null"
           >{{ isEditing() ? 'Test changes' : 'Test endpoint' }}</button>
         </div>
 
@@ -440,7 +441,7 @@
           type="button"
           class="button primary"
           aria-describedby="local-ai-enrolment-help"
-          [disabled]="!canSave() || isBusy()"
+          [disabled]="isBusy()" [appTooltipDisabledReason]="!canSave() ? copyFor('localAi.checkRequired') : null"
           (click)="save()"
         >
           {{ isEditing() ? 'Save changes' : 'Enrol target' }}

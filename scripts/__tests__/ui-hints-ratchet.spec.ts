@@ -60,10 +60,11 @@ describe('UI hints ratchet', () => {
     expect(evaluateFacts(hosts, reason).filter(v => v.code === 'H4')).toHaveLength(1);
     expect(evaluateFacts(hosts.slice(1), reason).some(v => v.message.includes('stale'))).toBe(true);
   });
-  it('CLI init refuses overwrite; tighten cannot raise; marker additions require --exempt', () => {
+  it('CLI init refuses overwrite; tighten cannot raise; marker additions require --exempt with a written reason', () => {
     const tree = fixtureTree('<button aria-label="Close" appTooltip="Close">×</button>');
-    const baseline = join(tree.root, 'baseline.json'), ledger = join(tree.root, 'ledger.json');
+    const baseline = join(tree.root, 'baseline'), ledger = join(tree.root, 'ledger.json');
     const args = ['--root', tree.root, '--baseline', baseline, '--ledger', ledger];
+    const reason = 'The backdrop scrim closes the dialog when it is clicked.';
     try {
       expect(runCheck([...args, '--init']).exitCode).toBe(0);
       expect(runCheck([...args, '--init']).exitCode).toBe(1);
@@ -71,18 +72,35 @@ describe('UI hints ratchet', () => {
       tree.write('<button aria-label="Close" data-ui-hints-exempt="backdrop">×</button>');
       expect(runCheck(args).output).toContain('marker:backdrop new');
       expect(runCheck([...args, '--tighten']).exitCode).toBe(1);
-      expect(runCheck([...args, '--exempt', tree.owner, 'backdrop']).exitCode).toBe(0);
       expect(runCheck([...args, '--exempt', tree.owner, 'backdrop']).exitCode).toBe(1);
-      expect(runCheck([...args, '--exempt', tree.owner, 'unknown']).exitCode).toBe(1);
-      const saved = readFileSync(baseline, 'utf8');
+      expect(runCheck([...args, '--exempt', tree.owner, 'backdrop', '--reason', reason]).exitCode).toBe(0);
+      expect(runCheck([...args, '--exempt', tree.owner, 'backdrop', '--reason', reason]).exitCode).toBe(1);
+      expect(runCheck([...args, '--exempt', tree.owner, 'unknown', '--reason', reason]).exitCode).toBe(1);
+      const saved = readFileSync(join(baseline, 'app.json'), 'utf8');
       tree.write('<button aria-label="Close" data-ui-hints-exempt="backdrop">×</button><button></button>');
-      expect(runCheck([...args, '--exempt', tree.owner, 'backdrop']).exitCode).toBe(1);
-      expect(readFileSync(baseline, 'utf8')).toBe(saved);
+      expect(runCheck([...args, '--exempt', tree.owner, 'backdrop', '--reason', reason]).exitCode).toBe(1);
+      expect(readFileSync(join(baseline, 'app.json'), 'utf8')).toBe(saved);
+    } finally { tree.cleanup(); }
+  });
+  it('an improved count warns about the stale record instead of failing the gate', () => {
+    const tree = fixtureTree('<button title="Close">Close</button>');
+    const baseline = join(tree.root, 'baseline'), ledger = join(tree.root, 'ledger.json');
+    const args = ['--root', tree.root, '--baseline', baseline, '--ledger', ledger];
+    try {
+      expect(runCheck([...args, '--init']).exitCode).toBe(0);
+      expect(runCheck([...args, '--record-wording']).exitCode).toBe(0);
+      tree.write('<button appTooltip="Close">Close</button>');
+      const warned = runCheck(args);
+      expect(warned.exitCode).toBe(0);
+      expect(warned.output).toContain('H2a stale');
+      expect(warned.output).toContain('Run --tighten');
+      expect(runCheck([...args, '--tighten']).exitCode).toBe(0);
+      expect(runCheck(args).output).toContain('UI hints OK');
     } finally { tree.cleanup(); }
   });
   it('three CLI processes produce valid JSON, fixture findings and strict failure hits', () => {
     const tree = fixtureTree('<button></button>');
-    const baseline = join(tree.root, 'baseline.json'), ledger = join(tree.root, 'ledger.json');
+    const baseline = join(tree.root, 'baseline'), ledger = join(tree.root, 'ledger.json');
     try {
       const run = (script: string, extra: string[]) => spawnSync(process.execPath, ['--import', 'tsx', script, '--root', tree.root, ...extra], { cwd: process.cwd(), encoding: 'utf8' });
       const audit = run('scripts/audit-ui-hints.ts', ['--json']); expect(audit.status).toBe(0); expect(JSON.parse(audit.stdout).counts.controls).toBe(1);

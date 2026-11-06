@@ -2,7 +2,7 @@ import { Component } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GlossaryTermComponent } from './glossary-term.component';
-import { glossaryPlain, type GlossaryTermId } from './glossary';
+import { glossaryPlain, type GlossaryTermId } from '../../../../shared/glossary/glossary';
 import { HelpDrawerService } from '../help/help-drawer.service';
 
 @Component({ standalone: true, imports: [GlossaryTermComponent], template: `<div tabindex="0" (click)="parentClick()" (keydown.enter)="parentClick()"><app-term term="worktree">Worktrees</app-term><app-term term="tokens" /></div>` })

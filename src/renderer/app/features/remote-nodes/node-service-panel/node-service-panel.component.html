@@ -13,9 +13,9 @@
       @if (status()!.uptimeSeconds) { <dt>Uptime</dt><dd>{{ status()!.uptimeSeconds }}s</dd> }
     </dl>
     <div class="actions">
-      <button type="button" (click)="restart()" [disabled]="status()!.state === 'not-installed'" aria-label="Restart node service">Restart</button>
-      <button type="button" (click)="stop()"    [disabled]="status()!.state !== 'running'" aria-label="Stop node service">Stop</button>
-      <button type="button" class="danger" (click)="uninstall()" [disabled]="status()!.state === 'not-installed'" aria-label="Uninstall node service">Uninstall</button>
+      <button type="button" (click)="restart()" [appTooltipDisabledReason]="status()!.state === 'not-installed' ? 'The worker service is not installed on this node, so there is nothing to restart.' : null" aria-label="Restart node service">Restart</button>
+      <button type="button" (click)="stop()" [appTooltipDisabledReason]="status()!.state !== 'running' ? 'The worker service is not running' : null" aria-label="Stop node service">Stop</button>
+      <button type="button" class="danger" (click)="uninstall()" [appTooltipDisabledReason]="status()!.state === 'not-installed' ? 'The worker service is not installed on this node, so there is nothing to uninstall.' : null" aria-label="Uninstall node service">Uninstall</button>
     </div>
   }
 </div>

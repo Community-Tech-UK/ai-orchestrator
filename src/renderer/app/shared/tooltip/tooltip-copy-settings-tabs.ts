@@ -8,4 +8,5 @@ export const SETTINGS_TABS_COPY = {
   "settingsHints.protectedAccount": { label: "Protected account", meaning: "A failed match here blocks Copilot rather than falling back" },
   "settingsHints.pinTrust": { label: "Approve", meaning: "Pin this file at its current content hash; it re-flags if it changes again" },
   "settingsHints.resetConnection": { label: "Reset connection", meaning: "Close this computer's live connection without revoking it. It reconnects by itself." },
+  'settingsHints.routeNeedsAccount': { label: 'Route account', meaning: 'Choose the account to route this repository to.' },
 } as const satisfies Record<string, TooltipCopyEntry>;

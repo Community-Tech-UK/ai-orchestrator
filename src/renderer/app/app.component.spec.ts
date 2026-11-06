@@ -242,7 +242,7 @@ describe('AppComponent startup banner', () => {
     expect(chip.injector.get(AioTooltipDirective).appTooltip()).toBe('Codex CLI: Multiple codex installs detected.');
     const dismiss = fixture.debugElement.query(By.css('.startup-banner-dismiss'));
     expect(dismiss.nativeElement.getAttribute('aria-label')).toBe('Dismiss startup checks banner');
-    expect(dismiss.injector.get(AioTooltipDirective).appTooltip()).toBe('Dismiss');
+    expect(dismiss.injector.get(AioTooltipDirective).appTooltip()).toBe('Dismiss startup checks banner');
     const element = dismiss.nativeElement as HTMLElement;
     const matches = element.matches.bind(element);
     vi.spyOn(element, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
@@ -270,6 +270,9 @@ describe('AppComponent startup banner', () => {
 
     expect(dismiss).not.toBeNull();
     expect(dismiss?.getAttribute('aria-label')).toBe('Dismiss startup checks banner');
+    fixture.debugElement.query(By.css('.startup-banner-dismiss')).injector.get(AioTooltipDirective).show();
+    fixture.detectChanges();
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe('Dismiss startup checks banner');
   });
 
   it.each(['claude', 'codex'])('opens account sign-in settings from the %s startup warning', (provider) => {

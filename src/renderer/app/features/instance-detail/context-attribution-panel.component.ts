@@ -219,11 +219,11 @@ export function buildSparklinePoints(samples: readonly { ratio: number }[]): str
         <div class="section">
           <div class="section-title">
             Context manifest
-            <span class="estimated-note" tabindex="0" [appTooltip]="copy('attribution.composedSources')">AIO-owned sources only</span>
+            <span class="estimated-note" tabindex="0" [appTooltip]="copy('attribution.composedSources')">Harness-owned sources only</span>
           </div>
           <p class="manifest-honesty-note">
-            Records exactly which AIO-owned context sources (instructions, project brief, lessons, etc.)
-            this instance's system prompt actually received, per reassembly. Provider-side prompt
+            Records exactly which Harness-owned context sources (instructions, project brief, lessons, etc.)
+            this session's system prompt actually received, per reassembly. Provider-side prompt
             caching or session state cannot be verified from here.
           </p>
           @if (manifestEpochs().length === 0) {

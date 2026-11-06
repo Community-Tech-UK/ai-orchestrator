@@ -28,7 +28,7 @@
           class="tab-btn"
           type="button"
           [class.active]="store.selectedTab() === 'monitor'"
-          [disabled]="!store.isRunning()"
+          [appTooltipDisabledReason]="!store.isRunning() ? 'There is no verification running, so there is nothing to monitor yet.' : null"
           (click)="store.setSelectedTab('monitor')"
         >
           Monitor
@@ -40,7 +40,7 @@
           class="tab-btn"
           type="button"
           [class.active]="store.selectedTab() === 'results'"
-          [disabled]="!store.result()"
+          [appTooltipDisabledReason]="!store.result() ? 'There are no results yet, so run a verification first.' : null"
           (click)="store.setSelectedTab('results')"
         >
           Results
@@ -201,6 +201,9 @@ You can write detailed, multi-line prompts here. The textarea will expand as nee
                   </div>
                 </div>
 
+                @if (errorMessage()) {
+                  <div class="start-error" role="alert">{{ errorMessage() }}</div>
+                }
                 <div class="form-actions">
                   <button
                     class="action-btn text"
@@ -212,7 +215,7 @@ You can write detailed, multi-line prompts here. The textarea will expand as nee
                   <button
                     class="action-btn primary"
                     type="button"
-                    [disabled]="!canStartVerification()"
+                    [disabled]="store.isRunning() || preflightLoading()"
                     (click)="startVerification()"
                   >
                     Start Verification

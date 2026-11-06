@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -25,7 +26,7 @@ import {
 @Component({
   standalone: true,
   selector: 'app-remote-node-repair-panel',
-  imports: [CodePreviewBlockComponent],
+  imports: [CodePreviewBlockComponent, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (diagnostic(); as diagnostic) {
@@ -92,7 +93,7 @@ import {
               <button
                 class="repair-btn primary"
                 type="button"
-                [disabled]="busy() || (diagnostic.recommendedAction === 'choose_platform' && platformSelection() !== 'win32')"
+                [disabled]="busy()" [appTooltipDisabledReason]="diagnostic.recommendedAction === 'choose_platform' && platformSelection() !== 'win32' ? 'Choose Windows as the repair command platform first.' : null"
                 (click)="generateRepairCommand()"
               >
                 {{ busy() ? 'Generating...' : 'Generate repair command' }}

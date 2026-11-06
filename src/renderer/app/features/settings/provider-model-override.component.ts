@@ -21,6 +21,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, input } from '@an
 
 import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
 import { SettingsStore } from '../../core/state/settings.store';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
 import type { AppSettings } from '../../../../shared/types/settings.types';
 
@@ -32,7 +33,7 @@ export type ProviderModelOverrideKey =
 @Component({
   selector: 'app-provider-model-override',
   standalone: true,
-  imports: [CompactModelPickerComponent],
+  imports: [CompactModelPickerComponent, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <span class="provider-model-override__source">
@@ -47,7 +48,7 @@ export type ProviderModelOverrideKey =
     <button
       type="button"
       class="provider-model-override__reset"
-      [disabled]="!pinnedModel()"
+      [appTooltipDisabledReason]="!pinnedModel() ? 'Nothing is pinned for this provider yet, so there is nothing to reset.' : null"
       [attr.aria-label]="resetAriaLabel()"
       (click)="reset()"
     >{{ resetLabel() }}</button>

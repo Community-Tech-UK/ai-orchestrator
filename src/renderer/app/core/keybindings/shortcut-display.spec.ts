@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_KEYBINDINGS } from '../../../../shared/types/keybinding.types';
-import { ariaKeyShortcut, ariaKeyShortcuts, modKeyLabel } from './shortcut-display';
+import { ariaKeyShortcut, ariaKeyShortcuts } from './shortcut-display';
 
 describe('shortcut display', () => {
   it('uses platform modifiers and uppercase letters', () => {
@@ -15,9 +15,5 @@ describe('shortcut display', () => {
     const bindings = DEFAULT_KEYBINDINGS.filter(b => b.action === 'send-message');
     expect(ariaKeyShortcuts(bindings, false)).toBe('Enter Control+Enter');
     expect(ariaKeyShortcuts([{ ...bindings[0], keys: [{ key: 'a', modifiers: [] }] }], false)).toBe('');
-  });
-  it('labels the platform modifier', () => {
-    expect(modKeyLabel(true)).toBe('⌘');
-    expect(modKeyLabel(false)).toBe('Ctrl');
   });
 });

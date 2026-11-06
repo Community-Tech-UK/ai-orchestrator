@@ -7,7 +7,7 @@
  * compiler can enforce full coverage via `Record<Id, HelpEntry>` registries.
  */
 
-import type { GlossaryTermId } from '../glossary/glossary';
+import type { GlossaryTermId } from '../../../../shared/glossary/glossary';
 
 export type HelpCalloutVariant = 'info' | 'tip' | 'warning';
 

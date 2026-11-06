@@ -181,7 +181,10 @@ export class SecurityPageComponent implements OnInit {
 
   async scanForSecrets(): Promise<void> {
     const content = this.scanContent().trim();
-    if (!content) return;
+    if (!content) {
+      this.errorMessage.set('Enter the text to scan first.');
+      return;
+    }
 
     this.scanning.set(true);
     this.errorMessage.set('');
@@ -275,7 +278,10 @@ export class SecurityPageComponent implements OnInit {
   async checkEnvVar(): Promise<void> {
     const name = this.testVarName().trim();
     const value = this.testVarValue();
-    if (!name) return;
+    if (!name) {
+      this.errorMessage.set('Enter the environment variable name first.');
+      return;
+    }
 
     this.errorMessage.set('');
     this.testVarResult.set('');

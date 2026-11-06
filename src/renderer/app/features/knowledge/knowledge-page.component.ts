@@ -1,3 +1,5 @@
+import { KNOWLEDGE_CHOOSE_PROJECT_FOLDER } from './tooltip-copy-knowledge';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -31,7 +33,7 @@ interface FolderPickerApi {
 @Component({
   selector: 'app-knowledge-page',
   standalone: true,
-  imports: [CommonModule, FormsModule, WakeManagementComponent, ConversationImportComponent, AppIconButtonDirective],
+  imports: [CommonModule, FormsModule, WakeManagementComponent, ConversationImportComponent, AppIconButtonDirective, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page">
@@ -238,7 +240,7 @@ interface FolderPickerApi {
                       </label>
                       <div class="field" style="justify-content: flex-end;">
                         <button class="btn primary" type="button"
-                          [disabled]="!newSubject() || !newPredicate() || !newObject() || store.loading()"
+                          [disabled]="store.loading()" [appTooltipDisabledReason]="!newSubject() ? 'Enter a subject first' : !newPredicate() ? 'Enter a predicate first' : !newObject() ? 'Enter an object first' : null"
                           (click)="addFact()">
                           Add Fact
                         </button>
@@ -511,21 +513,21 @@ interface FolderPickerApi {
                   <button class="btn" type="button" [disabled]="store.loading()" (click)="browseMineDirectory()">
                     Browse
                   </button>
-                  <button class="btn" type="button" [disabled]="store.loading() || !mineDir() || currentMiningExcluded()" (click)="triggerMine()">
+                  <button class="btn" type="button" [disabled]="store.loading()" [appTooltipDisabledReason]="!mineDir() ? tooltipChooseProjectFolder : currentMiningExcluded() ? 'Include this project before mining it' : null" (click)="triggerMine()">
                     Mine
                   </button>
                   @if (!store.miningStatus()?.isPaused && !store.miningStatus()?.isExcluded) {
-                    <button class="btn" type="button" [disabled]="store.loading() || !mineDir()" (click)="pauseMine()">
+                    <button class="btn" type="button" [disabled]="store.loading()" [appTooltipDisabledReason]="!mineDir() ? tooltipChooseProjectFolder : null" (click)="pauseMine()">
                       Pause
                     </button>
                   }
                   @if (store.miningStatus()?.isPaused && !store.miningStatus()?.isExcluded) {
-                    <button class="btn" type="button" [disabled]="store.loading() || !mineDir()" (click)="resumeMine()">
+                    <button class="btn" type="button" [disabled]="store.loading()" [appTooltipDisabledReason]="!mineDir() ? tooltipChooseProjectFolder : null" (click)="resumeMine()">
                       Resume
                     </button>
                   }
                   @if (!store.miningStatus()?.isExcluded) {
-                    <button class="btn btn-danger" type="button" [disabled]="store.loading() || !mineDir()" (click)="excludeMine()">
+                    <button class="btn btn-danger" type="button" [disabled]="store.loading()" [appTooltipDisabledReason]="!mineDir() ? tooltipChooseProjectFolder : null" (click)="excludeMine()">
                       Exclude
                     </button>
                   }
@@ -1013,6 +1015,8 @@ interface FolderPickerApi {
   `],
 })
 export class KnowledgePageComponent implements OnInit {
+  protected readonly tooltipChooseProjectFolder = KNOWLEDGE_CHOOSE_PROJECT_FOLDER;
+
   protected store = inject(KnowledgeStore);
   private settingsStore = inject(SettingsStore);
 

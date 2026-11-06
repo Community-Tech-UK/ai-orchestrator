@@ -46,7 +46,7 @@ import {
             type="button"
             class="profile-btn"
             [class.is-active]="current() === profile.id"
-            [disabled]="busy() || current() === profile.id"
+            [disabled]="busy()" [appTooltipDisabledReason]="current() === profile.id ? 'This profile is already applied.' : null"
             [appTooltip]="profile.description"
             [attr.aria-label]="profile.label + ': ' + profile.description"
             (click)="apply(profile)"

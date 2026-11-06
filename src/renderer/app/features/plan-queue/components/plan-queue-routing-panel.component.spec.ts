@@ -100,6 +100,17 @@ describe('PlanQueueRoutingPanelComponent', () => {
     await flush();
   }
 
+  async function expectReasonDisabled(element: HTMLButtonElement | HTMLInputElement, observable: () => unknown): Promise<void> {
+    const before = observable();
+    const host = element instanceof HTMLInputElement ? element.parentElement! : element;
+    expect(element.disabled).toBe(element instanceof HTMLInputElement);
+    expect(host.getAttribute('aria-disabled')).toBe('true');
+    host.focus();
+    expect(document.activeElement).toBe(host);
+    await click(element);
+    expect(observable()).toEqual(before);
+  }
+
   async function choose(select: HTMLSelectElement, value: string): Promise<void> {
     select.value = value;
     select.dispatchEvent(new Event('change'));
@@ -158,8 +169,8 @@ describe('PlanQueueRoutingPanelComponent', () => {
     expect(radio('pqRoutingCheckerMode', 'auto').checked).toBe(true);
     expect(q('.pq-routing-workers select')).toBeNull();
     expect(checkerRows()).toHaveLength(0);
-    expect(saveButton().disabled).toBe(true);
-    expect(q<HTMLButtonElement>('.pq-routing-reset').disabled).toBe(true);
+    await expectReasonDisabled(saveButton(), () => setSetting.mock.calls.length);
+    await expectReasonDisabled(q<HTMLButtonElement>('.pq-routing-reset'), () => setSetting.mock.calls.length);
     // The page section around the saved editor carries its purpose line; a run's editor has its own.
     expect(q('.pq-routing-purpose')).toBeNull();
   });
@@ -181,7 +192,56 @@ describe('PlanQueueRoutingPanelComponent', () => {
     expect(checkerProviders()).toEqual(['codex', 'copilot']);
     expect(q<HTMLInputElement>('input[type="text"]', checkerRows()[0]).value).toBe('big');
     expect(qa<HTMLSelectElement>('select', checkerRows()[1])[1].value).toBe('cp-ok');
-    expect(saveButton().disabled).toBe(true);
+    await expectReasonDisabled(saveButton(), () => setSetting.mock.calls.length);
+  });
+
+  it.each([
+    ['workers', '.pq-routing-rank:first-child .pq-routing-move-up', 'moveChoice', 'already first'],
+    ['workers', '.pq-routing-rank:last-child .pq-routing-move-down', 'moveChoice', 'already last'],
+    ['workers', '.pq-routing-add', 'addChoice', 'The worker list is full'],
+    ['checkers', '.pq-routing-rank:first-child .pq-routing-move-up', 'moveChoice', 'already first'],
+    ['checkers', '.pq-routing-rank:last-child .pq-routing-move-down', 'moveChoice', 'already last'],
+    ['checkers', '.pq-routing-add', 'addChoice', 'The checker list is full'],
+  ] as const)('explains the %s boundary on %s and blocks activation', async (list, selector, action, reason) => {
+    await mount({
+      workers: Array.from({ length: 10 }, () => ({ provider: 'claude' })),
+      verifiers: Array.from({ length: 10 }, () => ({ provider: 'codex' })),
+    });
+    const button = q<HTMLButtonElement>(`.pq-routing-${list} ${selector}`);
+    const handler = vi.spyOn(fixture.componentInstance, action);
+    const matches = button.matches.bind(button);
+    vi.spyOn(button, 'matches').mockImplementation(value => value === ':focus-visible' || matches(value));
+    button.focus();
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(button);
+    expect(button.disabled).toBe(false);
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    expect(document.getElementById(button.getAttribute('aria-describedby')!)?.textContent).toContain(reason);
+    await click(button);
+    expect(handler).not.toHaveBeenCalled();
+    expect(workerRows()).toHaveLength(10);
+    expect(checkerRows()).toHaveLength(10);
+  });
+
+  it('explains an unchanged Reset on keyboard focus and blocks activation', async () => {
+    await mount();
+    const reset = q<HTMLButtonElement>('.pq-routing-reset');
+    const handler = vi.spyOn(fixture.componentInstance, 'resetToSaved');
+    // jsdom has no keyboard modality; stand in only for :focus-visible.
+    const matches = reset.matches.bind(reset);
+    vi.spyOn(reset, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
+    reset.focus();
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(reset);
+    expect(reset.disabled).toBe(false);
+    expect(reset.getAttribute('aria-disabled')).toBe('true');
+    const description = document.getElementById(reset.getAttribute('aria-describedby')!);
+    expect(description?.textContent).toContain('There are no unsaved changes');
+    await click(reset);
+    expect(handler).not.toHaveBeenCalled();
+    reset.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    fixture.detectChanges();
+    expect(reset.getAttribute('aria-describedby')).toBeNull();
   });
 
   it('shows a checker provider from the never-auto-pick list as disabled with the reason', async () => {
@@ -223,7 +283,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
     await click(radio('pqRoutingWorkerMode', 'list'));
 
     const claudeBoxes = qa<HTMLInputElement>('input[type="checkbox"]', q('.pq-routing-workers'));
-    expect(claudeBoxes[0].disabled).toBe(true);
+    await expectReasonDisabled(claudeBoxes[0], () => claudeBoxes[0].checked);
     expect(claudeBoxes[0].parentElement?.textContent).toContain('on your never-use list');
     expect(claudeBoxes[0].parentElement?.classList).toContain('pq-routing-account-off');
     expect(q('.pq-routing-workers .pq-routing-error')).toBeNull();
@@ -248,7 +308,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
     });
     const error = q('.pq-routing-workers .pq-routing-error');
     expect(error?.textContent).toContain('"Work Claude" is on your never-use list');
-    expect(saveButton().disabled).toBe(true);
+    await expectReasonDisabled(saveButton(), () => [setSetting.mock.calls.length, control.mock.calls.length]);
 
     await tick(qa<HTMLInputElement>('input[type="checkbox"]', q('.pq-routing-workers'))[0], false);
     expect(q('.pq-routing-workers .pq-routing-error')).toBeNull();
@@ -262,7 +322,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
     settings.update((current) => ({ ...current, planQueueAccountRules: { never: [{ provider: 'copilot', accountId: 'cp-ok' }], last: [] } }));
     await flush();
     expect(q('.pq-routing-checkers .pq-routing-error')?.textContent).toContain('"Personal Copilot" is on your never-use list');
-    expect(saveButton().disabled).toBe(true);
+    await expectReasonDisabled(saveButton(), () => [setSetting.mock.calls.length, control.mock.calls.length]);
   });
 
   it('shows one error for several vanished accounts and explains what inheriting a session means', async () => {
@@ -272,13 +332,13 @@ describe('PlanQueueRoutingPanelComponent', () => {
     await mount({ workers: [{ provider: 'claude', accountProfileIds: ['gone-1', 'gone-2'] }], verifiers: [] });
     const errors = qa('.pq-routing-workers .pq-routing-error').map((error) => error.textContent?.trim());
     expect(errors.filter((text) => text?.includes('no longer exists'))).toHaveLength(1);
-    expect(saveButton().disabled).toBe(true);
+    await expectReasonDisabled(saveButton(), () => setSetting.mock.calls.length);
   });
 
   it('refuses OpenCode accounts without a MiMo Token Plan model', async () => {
     await mount({ workers: [{ provider: 'opencode', accountProfileIds: ['mimo-a'] }], verifiers: [] });
     expect(q('.pq-routing-workers .pq-routing-error')?.textContent).toContain('MiMo Token Plan');
-    expect(saveButton().disabled).toBe(true);
+    await expectReasonDisabled(saveButton(), () => setSetting.mock.calls.length);
 
     await type(q<HTMLInputElement>('.pq-routing-workers input[type="text"]'), 'xiaomi-token-plan/mimo-v2.6-pro');
     expect(q('.pq-routing-workers .pq-routing-error')).toBeNull();
@@ -290,7 +350,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
     await type(q<HTMLInputElement>('.pq-routing-checker input[type="text"]'), 'x');
 
     expect(q('.pq-routing-checker .pq-routing-error')?.textContent).toContain('never-auto-pick');
-    expect(saveButton().disabled).toBe(true);
+    await expectReasonDisabled(saveButton(), () => setSetting.mock.calls.length);
   });
 
   it('does not let manual-only, never-for-automatic or turned-off accounts be picked', async () => {
@@ -301,11 +361,11 @@ describe('PlanQueueRoutingPanelComponent', () => {
     const box = (label: string): HTMLInputElement => q<HTMLInputElement>('input', byLabel(label));
 
     expect(box('Work Claude').disabled).toBe(false);
-    expect(box('Manual Claude').disabled).toBe(true);
+    await expectReasonDisabled(box('Manual Claude'), () => box('Manual Claude').checked);
     expect(byLabel('Manual Claude').textContent).toContain('manual only');
-    expect(box('Never Claude').disabled).toBe(true);
+    await expectReasonDisabled(box('Never Claude'), () => box('Never Claude').checked);
     expect(byLabel('Never Claude').textContent).toContain('never for automatic work');
-    expect(box('Off Claude').disabled).toBe(true);
+    await expectReasonDisabled(box('Off Claude'), () => box('Off Claude').checked);
     expect(byLabel('Off Claude').textContent).toContain('turned off');
     // Only this provider's accounts are offered.
     expect(rows.some((row) => row.textContent?.includes('Work Codex'))).toBe(false);
@@ -315,7 +375,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
     await mount({ workers: [{ provider: 'claude', accountProfileIds: ['acc-manual'] }], verifiers: [] });
 
     expect(q('.pq-routing-workers .pq-routing-error')?.textContent).toContain('manual only');
-    expect(saveButton().disabled).toBe(true);
+    await expectReasonDisabled(saveButton(), () => setSetting.mock.calls.length);
 
     const box = qa<HTMLInputElement>('.pq-routing-workers .pq-routing-account input').find((b) => b.checked) as HTMLInputElement;
     expect(box.disabled).toBe(false);
@@ -355,7 +415,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
       verifiers: [],
     });
     expect(q('.pq-routing-status-ok')?.textContent).toContain('Saved');
-    expect(saveButton().disabled).toBe(true);
+    await expectReasonDisabled(saveButton(), () => setSetting.mock.calls.length);
   });
 
   it('saves a bare provider with no model, accounts or Copilot account keys', async () => {
@@ -403,8 +463,8 @@ describe('PlanQueueRoutingPanelComponent', () => {
     await choose(providerSelect(checkerRows()[2]), 'grok');
     expect(checkerProviders()).toEqual(['claude', 'codex', 'grok']);
 
-    expect(q<HTMLButtonElement>('.pq-routing-move-up', checkerRows()[0]).disabled).toBe(true);
-    expect(q<HTMLButtonElement>('.pq-routing-move-down', checkerRows()[2]).disabled).toBe(true);
+    await expectReasonDisabled(q<HTMLButtonElement>('.pq-routing-move-up', checkerRows()[0]), () => checkerProviders().join(','));
+    await expectReasonDisabled(q<HTMLButtonElement>('.pq-routing-move-down', checkerRows()[2]), () => checkerProviders().join(','));
 
     await click(q('.pq-routing-move-up', checkerRows()[2]));
     expect(checkerProviders()).toEqual(['claude', 'grok', 'codex']);
@@ -434,6 +494,8 @@ describe('PlanQueueRoutingPanelComponent', () => {
     await type(q<HTMLInputElement>('input[type="text"]', workerRows()[1]), 'gpt-6.1-sol');
     await choose(providerSelect(workerRows()[2]), 'opencode');
     expect(workerProviders()).toEqual(['claude', 'codex', 'opencode']);
+    await expectReasonDisabled(q<HTMLButtonElement>('.pq-routing-move-up', workerRows()[0]), workerProviders);
+    await expectReasonDisabled(q<HTMLButtonElement>('.pq-routing-move-down', workerRows()[2]), workerProviders);
     expect(q('.pq-routing-rank-number', workerRows()[1])?.textContent?.trim()).toBe('Choice 2');
     expect(q('.pq-routing-move-up', workerRows()[1])?.getAttribute('aria-label')).toBe('Move worker choice 2 up');
 
@@ -453,20 +515,21 @@ describe('PlanQueueRoutingPanelComponent', () => {
     await click(q('.pq-routing-workers .pq-routing-remove'));
     expect(workerRows()).toHaveLength(0);
     expect(root().textContent).toContain('Add at least one worker choice, or choose "Same as the session that starts the run".');
-    expect(saveButton().disabled).toBe(true);
+    await expectReasonDisabled(saveButton(), () => [setSetting.mock.calls.length, control.mock.calls.length]);
 
     for (let i = 0; i < 12; i += 1) {
       const add = q<HTMLButtonElement>('.pq-routing-workers .pq-routing-add');
       if (!add.disabled) await click(add);
     }
     expect(workerRows()).toHaveLength(10);
+    await expectReasonDisabled(q<HTMLButtonElement>('.pq-routing-workers .pq-routing-add'), () => workerRows().length);
     expect(q('.pq-routing-workers')?.textContent).toContain('Up to 10 choices.');
   });
 
   it('needs a checker that can judge every worker choice, naming the one left without', async () => {
     await mount({ workers: [{ provider: 'codex' }, { provider: 'claude' }], verifiers: [{ provider: 'claude' }] });
     expect(q('.pq-routing-checkers .pq-routing-error')?.textContent).toContain('Every checker uses claude, like worker choice 2');
-    expect(saveButton().disabled).toBe(true);
+    await expectReasonDisabled(saveButton(), () => [setSetting.mock.calls.length, control.mock.calls.length]);
 
     await click(q('.pq-routing-checkers .pq-routing-add'));
     await choose(providerSelect(checkerRows()[1]), 'codex');
@@ -484,7 +547,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
     await mount({ worker: { provider: 'codex', model: 'gpt-6.1-sol' }, verifiers: [] } as unknown as PlanQueueRouting);
     expect(radio('pqRoutingWorkerMode', 'list').checked).toBe(true);
     expect(workerProviders()).toEqual(['codex']);
-    expect(saveButton().disabled).toBe(true);
+    await expectReasonDisabled(saveButton(), () => [setSetting.mock.calls.length, control.mock.calls.length]);
   });
 
   it('keeps the rows, and focus in them, when an update brings the same saved value', async () => {
@@ -511,7 +574,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
     }
 
     expect(checkerRows()).toHaveLength(10);
-    expect(q<HTMLButtonElement>('.pq-routing-add').disabled).toBe(true);
+    await expectReasonDisabled(q<HTMLButtonElement>('.pq-routing-add'), () => checkerRows().length);
   });
 
   it('will not save the manual checker list with no rows', async () => {
@@ -520,7 +583,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
 
     expect(checkerRows()).toHaveLength(0);
     expect(root().textContent).toContain('Add at least one checker');
-    expect(saveButton().disabled).toBe(true);
+    await expectReasonDisabled(saveButton(), () => setSetting.mock.calls.length);
   });
 
   it('saves automatic checkers as an empty list when the manual list is switched off', async () => {
@@ -542,7 +605,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
     expect(radio('pqRoutingWorkerMode', 'list').checked).toBe(true);
     expect(q<HTMLInputElement>('.pq-routing-workers input[type="text"]').value).toBe('big');
     expect(radio('pqRoutingCheckerMode', 'auto').checked).toBe(true);
-    expect(saveButton().disabled).toBe(true);
+    await expectReasonDisabled(saveButton(), () => setSetting.mock.calls.length);
     expect(setSetting).not.toHaveBeenCalled();
   });
 
@@ -579,7 +642,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
   it('refuses checkers that all share the workers\' provider without a different-maker model', async () => {
     await mount({ workers: [{ provider: 'claude' }], verifiers: [{ provider: 'claude' }] });
     expect(q('.pq-routing-checkers .pq-routing-error')?.textContent).toContain('Every checker uses claude');
-    expect(saveButton().disabled).toBe(true);
+    await expectReasonDisabled(saveButton(), () => setSetting.mock.calls.length);
 
     // Claude serves one maker's models, so even a named model cannot differ from the workers'.
     await type(q<HTMLInputElement>('.pq-routing-checker input[type="text"]'), 'claude-sonnet-5');
@@ -671,7 +734,8 @@ describe('PlanQueueRoutingPanelComponent', () => {
     const checkerSelect = q<HTMLSelectElement>('.pq-routing-checker select');
     expect(qa<HTMLOptionElement>('option', checkerSelect).find(option => option.value === 'grok')?.disabled).toBe(!relaxSettings);
     await choose(checkerSelect, 'grok');
-    expect(saveButton().disabled).toBe(!relaxSettings);
+    expect(saveButton().disabled).toBe(false);
+    expect(saveButton().getAttribute('aria-disabled')).toBe(relaxSettings ? null : 'true');
     await click(saveButton());
     if (relaxSettings) {
       expect(control).toHaveBeenCalledWith({
@@ -730,7 +794,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
     await flush();
     expect(radio('pqRoutingWorkerMode-run-edit', 'list').checked).toBe(true);
     expect(q<HTMLInputElement>('.pq-routing-workers input[type="text"]').value).toBe('parent-model');
-    expect(saveButton().disabled).toBe(true);
+    await expectReasonDisabled(saveButton(), () => [setSetting.mock.calls.length, control.mock.calls.length]);
   });
 
   it.each([['paused', ['queued']], ['running', []]] as const)(
@@ -758,7 +822,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
       expect(setSetting).toHaveBeenLastCalledWith('planQueueRouting', {
         workers: [{ provider: 'claude', model: 'haiku' }], verifiers: [], stepUp: { provider: 'claude', model: 'opus' },
       });
-      expect(saveButton().disabled).toBe(true);
+      await expectReasonDisabled(saveButton(), () => [setSetting.mock.calls.length, control.mock.calls.length]);
 
       await type(q<HTMLInputElement>('input[type="text"]', stepUpRow()), 'opus[1m]');
       await click(saveButton());
@@ -778,7 +842,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
       expect(saveButton().disabled).toBe(false);
       await click(q('.pq-routing-reset'));
       expect(radio('pqRoutingStepUpMode', 'handover').checked).toBe(true);
-      expect(saveButton().disabled).toBe(true);
+      await expectReasonDisabled(saveButton(), () => [setSetting.mock.calls.length, control.mock.calls.length]);
     });
 
     it('will not save a step-up that changes nothing, or one the chosen checkers could not judge', async () => {
@@ -787,7 +851,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
       await choose(providerSelect(stepUpRow()), 'claude');
       await type(q<HTMLInputElement>('input[type="text"]', stepUpRow()), 'haiku');
       expect(stepUpError()).toContain('This is the same as the worker, so handing over would change nothing.');
-      expect(saveButton().disabled).toBe(true);
+      await expectReasonDisabled(saveButton(), () => [setSetting.mock.calls.length, control.mock.calls.length]);
 
       await type(q<HTMLInputElement>('input[type="text"]', stepUpRow()), 'opus');
       expect(stepUpError()).toBe('');
@@ -796,7 +860,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
       // Codex checkers cannot judge a Codex step-up worker.
       await choose(providerSelect(stepUpRow()), 'codex');
       expect(stepUpError()).toContain('Every checker uses codex, like the stronger worker, without a model from a different maker');
-      expect(saveButton().disabled).toBe(true);
+      await expectReasonDisabled(saveButton(), () => [setSetting.mock.calls.length, control.mock.calls.length]);
     });
 
     it('sets the step-up choice for one run', async () => {

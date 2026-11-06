@@ -1,0 +1,50 @@
+{
+  "rules": {},
+  "markers": {
+    "backdrop": {
+      "src/renderer/app/features/chats/session-artifacts-strip.component.ts": { "count": 1, "reason": "the scrim button closes the file context menu when clicked" },
+      "src/renderer/app/features/instance-detail/instance-header.component.ts": { "count": 1, "reason": "the open-menu scrim closes the header context menu when clicked" },
+      "src/renderer/app/features/instance-detail/session-progress-panel.component.ts": { "count": 1, "reason": "the scrim button closes the output context menu when clicked" },
+      "src/renderer/app/features/orchestration/child-diagnostic-bundle.modal.component.ts": { "count": 1, "reason": "the modal scrim dismisses the diagnostic bundle dialog when clicked" },
+      "src/renderer/app/features/settings/settings.component.ts": { "count": 2, "reason": "the settings nav and help-drawer scrims close their panels when clicked" },
+      "src/renderer/app/features/source-control/source-control-diff-viewer.component.ts": { "count": 1, "reason": "the diff overlay scrim closes the full diff when clicked" }
+    },
+    "local-key": {
+      "src/renderer/app/features/dashboard/workspace-rail.component.ts": { "count": 1, "reason": "The right-click menu hint is a local mouse interaction, not a rebindable key." },
+      "src/renderer/app/features/source-control/source-control-diff-viewer.component.ts": { "count": 1, "reason": "the diff close button keeps its Esc shortcut text as a local-key hint" },
+      "src/renderer/app/features/source-control/source-control.component.ts": { "count": 2, "reason": "File rows describe local mouse combos (modifier-click multi-select, drag to attach); no keybinding represents them." }
+    }
+  },
+  "unreadable": {
+    "src/renderer/app/features/agents/agent-selector.component.ts": 1,
+    "src/renderer/app/features/chats/session-artifacts-strip.component.ts": 1,
+    "src/renderer/app/features/codebase/codebase-stats.component.ts": 1,
+    "src/renderer/app/features/cost/cost-page.component.ts": 1,
+    "src/renderer/app/features/dashboard/sidebar-footer.component.ts": 1,
+    "src/renderer/app/features/instance-detail/composer-banners.component.ts": 1,
+    "src/renderer/app/features/instance-detail/composer-toolbar.component.ts": 1,
+    "src/renderer/app/features/instance-detail/context-attribution-panel.component.ts": 1,
+    "src/renderer/app/features/instance-detail/context-bar.component.ts": 1,
+    "src/renderer/app/features/instance-detail/cross-model-review-indicator.component.ts": 1,
+    "src/renderer/app/features/instance-detail/input-panel.component.ts": 1,
+    "src/renderer/app/features/instance-detail/instance-header.component.ts": 5,
+    "src/renderer/app/features/instance-detail/output-stream.component.ts": 1,
+    "src/renderer/app/features/instance-detail/session-computer-use-control.component.ts": 1,
+    "src/renderer/app/features/instance-detail/session-progress-panel.component.ts": 1,
+    "src/renderer/app/features/instance-list/instance-list.component.ts": 3,
+    "src/renderer/app/features/instance-list/instance-row.component.ts": 3,
+    "src/renderer/app/features/local-ai-guard/local-ai-status-chip.component.ts": 1,
+    "src/renderer/app/features/loop/loop-control.component.ts": 2,
+    "src/renderer/app/features/loop/loop-outstanding-panel.component.ts": 1,
+    "src/renderer/app/features/loop/loop-past-runs-panel.component.ts": 1,
+    "src/renderer/app/features/memory/memory-stats.component.ts": 2,
+    "src/renderer/app/features/models/compact-model-picker.component.ts": 1,
+    "src/renderer/app/features/settings/routing-matrix.component.ts": 1,
+    "src/renderer/app/features/settings/setting-row.component.ts": 1,
+    "src/renderer/app/features/source-control/source-control-diff-viewer.component.ts": 1,
+    "src/renderer/app/features/source-control/source-control.component.ts": 3,
+    "src/renderer/app/features/terminal-drawer/terminal-drawer.component.ts": 1,
+    "src/renderer/app/features/title-bar/cli-update-pill.component.ts": 1,
+    "src/renderer/app/features/verification/results/consensus-heatmap.component.ts": 1
+  }
+}

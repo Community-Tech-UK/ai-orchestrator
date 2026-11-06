@@ -10,6 +10,7 @@ import { SettingRowComponent } from './setting-row.component';
 import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
 import { ProviderModelOverrideComponent } from './provider-model-override.component';
 import { SettingsTieredRowListComponent } from './settings-tiered-row-list.component';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { WorkloadSliderComponent } from '../../core/state/global-pause/workload-slider.component';
 
 await resolveComponentResources((url) => {
@@ -59,7 +60,7 @@ describe('OrchestrationSettingsTabComponent', () => {
         // S4.3 moved the picker inside ProviderModelOverrideComponent, so stubbing
     // only this tab's imports no longer reaches it.
     TestBed.overrideComponent(ProviderModelOverrideComponent, {
-      set: { imports: [CompactModelPickerStubComponent], styles: [''], styleUrl: undefined, styleUrls: [] },
+      set: { imports: [CompactModelPickerStubComponent, AioTooltipDirective], styles: [''], styleUrl: undefined, styleUrls: [] },
     });
     TestBed.overrideComponent(OrchestrationSettingsTabComponent, {
       set: {

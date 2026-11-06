@@ -68,7 +68,7 @@
                   class="sort-filter"
                   [value]="historySortMode()"
                   (change)="onSortModeChange($event)"
-                  appTooltip="Sort project threads"
+                  appTooltip="Sort project sessions"
                 >
                   <option value="last-interacted">Last interacted</option>
                   <option value="created">Created</option>
@@ -438,8 +438,8 @@
                         type="button"
                         class="history-entry-pin"
                         [class.active]="isPinnedHistory(item.entry.id)"
-                        [attr.aria-label]="isPinnedHistory(item.entry.id) ? 'Unpin thread' : 'Pin thread'"
-                        [appTooltip]="isPinnedHistory(item.entry.id) ? 'Unpin thread' : 'Pin thread'"
+                        [attr.aria-label]="isPinnedHistory(item.entry.id) ? 'Unpin session' : 'Pin session'"
+                        [appTooltip]="isPinnedHistory(item.entry.id) ? 'Unpin session' : 'Pin session'"
                         (click)="togglePinnedHistory(item.entry.id, $event)"
                       >
                         <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -583,7 +583,7 @@
                         <button
                           type="button"
                           class="history-entry-action"
-                          aria-label="Archive thread"
+                          aria-label="Archive session"
                           [appTooltip]="copy('shell.archiveHistory')"
                           (click)="onArchiveHistory(item.entry.id, $event)"
                         >
@@ -609,7 +609,7 @@
                 </ng-template>
 
                 @if (group.liveItems.length === 0 && group.historyItems.length === 0) {
-                  <div class="project-empty">No threads yet</div>
+                  <div class="project-empty">No sessions yet</div>
                 }
               </div>
             }

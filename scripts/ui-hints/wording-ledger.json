@@ -184,7 +184,8 @@
     "id": "de747a4bda3bd080",
     "owner": "src/renderer/app/features/instance-detail/context-attribution-panel.component.ts",
     "text": "AIO can only prove what it composed and sent — never what the provider's own process actually kept or used from it.",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "The attribution explanation now names Harness rather than AIO; it still limits claims to what the app composed and sent."
   },
   {
     "id": "04cb80c9cbfbf5e5",
@@ -328,7 +329,8 @@
     "id": "717397e3fff3de97",
     "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
     "text": "Cannot change mode while instance is running or recovering",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Mode restriction now calls the conversation a session rather than an instance; the running and recovery restriction is preserved."
   },
   {
     "id": "7f1900b487b47c76",
@@ -352,7 +354,8 @@
     "id": "ec7bfbfa059f5282",
     "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
     "text": "Cannot toggle fast mode while instance is running or recovering",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Fast-mode restriction now calls the conversation a session rather than an instance; the running and recovery restriction is preserved."
   },
   {
     "id": "f134df89a3a85ef9",
@@ -431,7 +434,8 @@
     "id": "9b4504b43bd461b9",
     "owner": "src/renderer/app/features/instance-list/instance-list.component.ts",
     "text": "Limit projects and threads by recent activity",
-    "why": "long"
+    "why": "long",
+    "retired": "The history filter now describes projects and sessions rather than projects and threads; the recent-activity meaning is unchanged."
   },
   {
     "id": "b2ea7f675e09a012",
@@ -467,19 +471,22 @@
     "id": "2b7e3c4b74455fc0",
     "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
     "text": "Close session — stops the agent and moves this thread to history",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Close-session wording now moves the session to history, using the shared conversation name instead of thread; stopping the agent stays explicit."
   },
   {
     "id": "5245d028aebdafa0",
     "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
     "text": "This instance has a pending permission request",
-    "why": "long"
+    "why": "long",
+    "retired": "History removal wording now names the session rather than the instance and retains its explicit removal consequence."
   },
   {
     "id": "628a2051b9406821",
     "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
     "text": "Child instances — use the arrow to expand",
-    "why": "long"
+    "why": "long",
+    "retired": "The branch-collapse explanation now calls the nested conversations sessions rather than instances and still explains the operation."
   },
   {
     "id": "640da151e81fce8b",
@@ -647,7 +654,8 @@
     "id": "22a11fc8a98fafa8",
     "owner": "src/renderer/app/features/loop/loop-outstanding-panel.component.ts",
     "text": "Resume needs a session — open this from an instance",
-    "why": "long"
+    "why": "long",
+    "retired": "Resume now asks for a session rather than an instance; it still requires opening the outstanding-work panel from a session."
   },
   {
     "id": "2ae9f2fb796b1de0",
@@ -1470,7 +1478,8 @@
     "id": "738b9948734880dd",
     "owner": "src/renderer/app/features/campaign/campaign-page.component.ts",
     "text": "Validate the graph and fix its errors before running.",
-    "why": "long"
+    "why": "long",
+    "retired": "Run campaign now performs validation when activated and shows the actual errors inline; the action remains available so the user can discover and correct them."
   },
   {
     "id": "348562d4a1f8418b",
@@ -1579,7 +1588,8 @@
     "id": "8a62c1ab8d4f02f1",
     "owner": "src/renderer/app/features/plan-queue/components/plan-queue-item-list.component.ts",
     "text": "Opens the confirmation to leave this document out of this run.",
-    "why": "long"
+    "why": "long",
+    "retired": "Skip now says it asks first and leaves an unstarted document out of this run, preserving confirmation and clarifying eligibility."
   },
   {
     "id": "ab554196500dc3bc",
@@ -1591,19 +1601,22 @@
     "id": "03f161bf992853a7",
     "owner": "src/renderer/app/features/plan-queue/components/plan-queue-run-controls.component.ts",
     "text": "Stops anything new from starting and pauses work already running. Paused work is saved and carries on when you resume.",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Pause now says sessions stop immediately and work is saved on document branches; Resume carries on there, matching run-control and hold behavior."
   },
   {
     "id": "574e2521aed334c8",
     "owner": "src/renderer/app/features/plan-queue/components/plan-queue-run-controls.component.ts",
     "text": "Lets new documents and checks start again.",
-    "why": "long"
+    "why": "long",
+    "retired": "Resume now names waiting for pausing to finish, saved branches and free slots instead of only saying new checks can start."
   },
   {
     "id": "ab740d9bbb2a62c6",
     "owner": "src/renderer/app/features/plan-queue/components/plan-queue-run-controls.component.ts",
     "text": "Opens the confirmation to end this run and park work in progress.",
-    "why": "long"
+    "why": "long",
+    "retired": "Cancel now describes confirmation, skipping unstarted documents and parking work in progress with branches kept, matching the actual cancellation path."
   },
   {
     "id": "539adfaeb255fd9a",
@@ -1615,7 +1628,8 @@
     "id": "a2c87d6190b32ae7",
     "owner": "src/renderer/app/features/instance-list/instance-list.component.ts",
     "text": "Hides this thread from the project list. The conversation is kept in Archive.",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Archive tooltip now says session instead of thread, following the shared vocabulary (merged 6 Nov 2026)"
   },
   {
     "id": "afd7924a554f2b10",
@@ -1627,7 +1641,8 @@
     "id": "ac75b889aeeb944f",
     "owner": "src/renderer/app/features/plan-queue/plan-queue-page.component.ts",
     "text": "Checks for leftover workspaces and branches again.",
-    "why": "long"
+    "why": "long",
+    "retired": "Refresh tooltip now says it rechecks the disk for leftover or missing working copies and branches (merged 6 Nov 2026)"
   },
   {
     "id": "6c1a191cc6d1633f",
@@ -1640,5 +1655,640 @@
     "owner": "src/renderer/app/features/plan-queue/components/plan-queue-run-owner.component.ts",
     "text": "Open another session to move this run to.",
     "why": "long"
+  },
+  {
+    "id": "8a81f2d79a675792",
+    "owner": "src/renderer/app/features/instance-detail/composer-queue.component.ts",
+    "text": "Removes this message from the queue and restores it to the message box.",
+    "why": "consequence"
+  },
+  {
+    "id": "d56b63b2913a8a55",
+    "owner": "src/renderer/app/features/instance-detail/composer-queue.component.ts",
+    "text": "Moves this message to the front of the queue and asks the current turn to stop so it can send next.",
+    "why": "consequence"
+  },
+  {
+    "id": "dc401b32113c220f",
+    "owner": "src/renderer/app/features/instance-detail/composer-queue.component.ts",
+    "text": "Returns this queued message to the message box so you can edit it before sending.",
+    "why": "consequence"
+  },
+  {
+    "id": "ce2d84fae37f5345",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Asks the current turn to stop and sends this message next. During provider compaction, it waits for compaction to finish.",
+    "why": "consequence"
+  },
+  {
+    "id": "ee2b2a3cda308b15",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-item-list.component.ts",
+    "text": "Asks first, then leaves this unstarted document out of this run.",
+    "why": "long"
+  },
+  {
+    "id": "55b36a8a80ff1df6",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-run-controls.component.ts",
+    "text": "Stops this run’s sessions now and saves work on each document’s branch. Resume carries on from there.",
+    "why": "consequence"
+  },
+  {
+    "id": "76f131d15a99c61d",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-run-controls.component.ts",
+    "text": "Asks first, then stops this run. Unstarted documents are skipped; work in progress is parked with its branch kept.",
+    "why": "consequence"
+  },
+  {
+    "id": "bbd0aface7f19a54",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-run-controls.component.ts",
+    "text": "Continues this run from its saved branches once pausing has finished. Documents and checks start as slots become free.",
+    "why": "long"
+  },
+  {
+    "id": "31279208f3c6dbad",
+    "owner": "src/renderer/app/features/plan-queue/plan-queue-page.component.ts",
+    "text": "Continues all paused plan and live-test queues from their saved branches as slots become free.",
+    "why": "long"
+  },
+  {
+    "id": "d9f07ac102748058",
+    "owner": "src/renderer/app/features/plan-queue/plan-queue-page.component.ts",
+    "text": "Stops sessions in all running plan and live-test queues now and saves their work. Resume all carries on from the saved branches.",
+    "why": "consequence"
+  },
+  {
+    "id": "8f02932bfe817ce5",
+    "owner": "src/renderer/app/features/browser/browser-page.component.ts",
+    "text": "Read a page that has text first, or wait for the extraction to finish.",
+    "why": "long",
+    "retired": "Extraction now separates the brief Extracting progress state from the lasting reason to read a page with text first."
+  },
+  {
+    "id": "87a555ff79f60f49",
+    "owner": "src/renderer/app/features/channels/components/channel-connections/channel-connections.component.ts",
+    "text": "Enter the 6-character pairing code first, or wait for the pairing to finish.",
+    "why": "long",
+    "retired": "Pairing now explains the actual six-character hexadecimal requirement; the separate busy state uses native disabling and visible progress instead of an instruction to wait."
+  },
+  {
+    "id": "8032098cc15ab363",
+    "owner": "src/renderer/app/features/instance-detail/context-attribution-panel.component.ts",
+    "text": "Harness can only prove what it composed and sent — never what the provider's own process actually kept or used from it.",
+    "why": "consequence"
+  },
+  {
+    "id": "4f1a358c3d11cc1b",
+    "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
+    "text": "Cannot toggle fast mode while the session is running or recovering",
+    "why": "consequence"
+  },
+  {
+    "id": "cb7354da201b4666",
+    "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
+    "text": "Cannot change mode while the session is running or recovering",
+    "why": "consequence"
+  },
+  {
+    "id": "e9aad0fade09f383",
+    "owner": "src/renderer/app/features/instance-list/instance-list.component.ts",
+    "text": "Limit projects and sessions by recent activity",
+    "why": "long"
+  },
+  {
+    "id": "d3d66f4d080a40e7",
+    "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
+    "text": "Close session — stops the agent and moves this session to history",
+    "why": "consequence"
+  },
+  {
+    "id": "d795f4b38fbbc202",
+    "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
+    "text": "Child sessions — use the arrow to expand",
+    "why": "long"
+  },
+  {
+    "id": "feb716db8f905408",
+    "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
+    "text": "This session has a pending permission request",
+    "why": "long"
+  },
+  {
+    "id": "d97a79b51676bceb",
+    "owner": "src/renderer/app/features/loop/loop-outstanding-panel.component.ts",
+    "text": "Resume needs a session — open this from a session",
+    "why": "long"
+  },
+  {
+    "id": "0893392dbb459cfd",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-routing-panel.component.ts",
+    "text": "This checker is already last, so there is no checker below it to swap with.",
+    "why": "long",
+    "retired": "The shared ranked-list editor now explains the last-choice boundary for both workers and checkers; the old checker-only sentence is replaced by the same explanation for a choice."
+  },
+  {
+    "id": "1fe66295385e8ef3",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-routing-panel.component.ts",
+    "text": "This checker is already first, so there is no checker above it to swap with.",
+    "why": "long",
+    "retired": "The shared ranked-list editor now explains the first-choice boundary for workers and checkers together; its choice wording replaces the previous checker-only first-position sentence."
+  },
+  {
+    "id": "5bc29cb01389639b",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-routing-panel.component.ts",
+    "text": "Fix the errors or make a change first, or wait for the current save to finish.",
+    "why": "long",
+    "retired": "Routing Save now distinguishes unchanged settings from visible routing errors; an active save uses native disabling and visible Saving progress rather than one combined generic instruction."
+  },
+  {
+    "id": "9ae5de990f301fe9",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-routing-panel.component.ts",
+    "text": "The checker list is full, so remove a checker before adding another.",
+    "why": "consequence"
+  },
+  {
+    "id": "c4179b262a692acc",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-routing-panel.component.ts",
+    "text": "Turn this account on or allow it for automatic work before ticking it.",
+    "why": "long"
+  },
+  {
+    "id": "4c8aa877a9c2448b",
+    "owner": "src/renderer/app/features/remote-nodes/node-service-panel/node-service-panel.component.ts",
+    "text": "The worker service is not installed on this node, so there is nothing to uninstall.",
+    "why": "long"
+  },
+  {
+    "id": "7d858dfcb3355b55",
+    "owner": "src/renderer/app/features/remote-nodes/node-service-panel/node-service-panel.component.ts",
+    "text": "The worker service is not installed on this node, so there is nothing to restart.",
+    "why": "consequence"
+  },
+  {
+    "id": "8806b40055b83aeb",
+    "owner": "src/renderer/app/features/rlm/context-browser/context-section-detail.component.ts",
+    "text": "This section is already in the query, so remove it there before adding it again.",
+    "why": "consequence"
+  },
+  {
+    "id": "f912ad8a79b03107",
+    "owner": "src/renderer/app/features/settings/provider-model-override.component.ts",
+    "text": "Nothing is pinned for this provider yet, so there is nothing to reset.",
+    "why": "consequence"
+  },
+  {
+    "id": "b5cdca1ae3de724a",
+    "owner": "src/renderer/app/features/settings/remote-nodes-settings-tab.component.ts",
+    "text": "There is no enrollment token yet, so generate or set one first.",
+    "why": "long"
+  },
+  {
+    "id": "e53c56e28fb56845",
+    "owner": "src/renderer/app/features/settings/ui/code-preview-block.component.ts",
+    "text": "There is no code to copy yet.",
+    "why": "long"
+  },
+  {
+    "id": "987bd599ba626ed6",
+    "owner": "src/renderer/app/features/tasks/tasks-page.component.ts",
+    "text": "This job has no session to share yet.",
+    "why": "long"
+  },
+  {
+    "id": "f0cbb6d73f87ee35",
+    "owner": "src/renderer/app/features/tasks/tasks-page.component.ts",
+    "text": "This job has no session to open in Observer yet.",
+    "why": "long"
+  },
+  {
+    "id": "43814f03f9ec9c08",
+    "owner": "src/renderer/app/features/verification/dashboard/verification-dashboard.component.ts",
+    "text": "There are no results yet, so run a verification first.",
+    "why": "long"
+  },
+  {
+    "id": "340da8cbbf0d8898",
+    "owner": "src/renderer/app/features/browser/browser-page.component.ts",
+    "text": "Read a page that has text first.",
+    "why": "long"
+  },
+  {
+    "id": "a7b87b0ec66d6cd3",
+    "owner": "src/renderer/app/features/browser/browser-page.component.ts",
+    "text": "Navigate in the shared browser tab itself.",
+    "why": "long"
+  },
+  {
+    "id": "2a4643a092a1121b",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-routing-panel.component.ts",
+    "text": "There are no unsaved changes to reset.",
+    "why": "consequence"
+  },
+  {
+    "id": "8889485eaeb89a4b",
+    "owner": "src/renderer/app/features/verification/dashboard/verification-dashboard.component.ts",
+    "text": "There is no verification running, so there is nothing to monitor yet.",
+    "why": "long"
+  },
+  {
+    "id": "2f81936f5ff80422",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-routing-panel.component.ts",
+    "text": "This choice is already last, so there is no choice below it to swap with.",
+    "why": "long"
+  },
+  {
+    "id": "d06d4eda7a892cae",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-routing-panel.component.ts",
+    "text": "The worker list is full, so remove a choice before adding another.",
+    "why": "consequence"
+  },
+  {
+    "id": "e52e51c8d722ec6f",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-routing-panel.component.ts",
+    "text": "This choice is already first, so there is no choice above it to swap with.",
+    "why": "long"
+  },
+  {
+    "id": "6d7fd1036136bc91",
+    "owner": "src/renderer/app/features/automations/automation-webhooks-panel.component.ts",
+    "text": "Use a signing secret with at least 16 characters",
+    "why": "long"
+  },
+  {
+    "id": "531f295855d34827",
+    "owner": "src/renderer/app/features/browser/browser-credential-authorization-panel.component.ts",
+    "text": "Keep at least one allowed origin. Add another before removing this one.",
+    "why": "consequence"
+  },
+  {
+    "id": "511c4feb199e7387",
+    "owner": "src/renderer/app/features/browser/browser-vault-control.component.ts",
+    "text": "Check the vault status before locking it.",
+    "why": "long"
+  },
+  {
+    "id": "151629f4c018e57d",
+    "owner": "src/renderer/app/features/channels/components/channel-connections/channel-connections.component.ts",
+    "text": "Enter a 6-character code using 0–9 and A–F",
+    "why": "long"
+  },
+  {
+    "id": "5e042f9304f42f53",
+    "owner": "src/renderer/app/features/channels/components/channel-settings/channel-settings.component.ts",
+    "text": "Enter a 6-character pairing code first",
+    "why": "long"
+  },
+  {
+    "id": "a42c42313a510680",
+    "owner": "src/renderer/app/features/codebase/codebase-search.component.ts",
+    "text": "Wait for indexing to finish before searching this codebase",
+    "why": "long"
+  },
+  {
+    "id": "6bf8c462886b6b1a",
+    "owner": "src/renderer/app/features/communication/communication-page.component.ts",
+    "text": "Enter the sending session ID first",
+    "why": "consequence"
+  },
+  {
+    "id": "b07aad8063f17715",
+    "owner": "src/renderer/app/features/compare/ask-council-page.component.ts",
+    "text": "Wait for the current council to finish before editing its prompt",
+    "why": "long"
+  },
+  {
+    "id": "b1f9cf3a1bf00169",
+    "owner": "src/renderer/app/features/compare/ask-council-page.component.ts",
+    "text": "Wait for the current council to finish before changing providers",
+    "why": "long"
+  },
+  {
+    "id": "81d993abfba33eea",
+    "owner": "src/renderer/app/features/debate/debate-page.component.ts",
+    "text": "Select a debate to cancel",
+    "why": "consequence"
+  },
+  {
+    "id": "24cc1eaadda823ea",
+    "owner": "src/renderer/app/features/instance-detail/async-question-answers.component.ts",
+    "text": "Answer queued. Codex gets it when its current turn ends.",
+    "why": "long"
+  },
+  {
+    "id": "daf53bce599f2ce9",
+    "owner": "src/renderer/app/features/instance-detail/async-question-answers.component.ts",
+    "text": "Answered. Your reply is in the conversation below.",
+    "why": "long"
+  },
+  {
+    "id": "f8be980e5e7f3f64",
+    "owner": "src/renderer/app/features/instance-detail/async-question-answers.component.ts",
+    "text": "Answer every question before sending.",
+    "why": "consequence"
+  },
+  {
+    "id": "425706ce3aa1552c",
+    "owner": "src/renderer/app/features/instance-detail/instance-review-panel.component.ts",
+    "text": "There are no changed files to review.",
+    "why": "long"
+  },
+  {
+    "id": "552ae78ca3f1640f",
+    "owner": "src/renderer/app/features/instance-detail/instance-review-panel.component.ts",
+    "text": "Select a finding to send for fixing.",
+    "why": "consequence"
+  },
+  {
+    "id": "346ae3a633178fd5",
+    "owner": "src/renderer/app/features/instance-detail/plan-update-card.component.ts",
+    "text": "The agent has not listed any plan steps yet.",
+    "why": "long"
+  },
+  {
+    "id": "0d9ccf3755063441",
+    "owner": "src/renderer/app/features/local-ai-guard/local-ai-incident-panel.component.ts",
+    "text": "Enable automatic repair for this target first",
+    "why": "long"
+  },
+  {
+    "id": "bcfd9df31e7c49d7",
+    "owner": "src/renderer/app/features/local-ai-guard/local-ai-target-setup.component.ts",
+    "text": "Check the endpoint details before testing. The message below names what to fix.",
+    "why": "long"
+  },
+  {
+    "id": "e6e983e0c9e22347",
+    "owner": "src/renderer/app/features/local-ai-guard/local-ai-target-setup.component.ts",
+    "text": "Run a successful endpoint test before saving or enrolling. The message above names what to fix.",
+    "why": "long"
+  },
+  {
+    "id": "77ac2abd75f966a7",
+    "owner": "src/renderer/app/features/loop/loop-control.component.ts",
+    "text": "No initial prompt was recorded for this run",
+    "why": "long"
+  },
+  {
+    "id": "6e77a30c3b200b4a",
+    "owner": "src/renderer/app/features/loop/loop-question-row.component.ts",
+    "text": "There is no suggested answer for this question",
+    "why": "long"
+  },
+  {
+    "id": "7aef64c7b7425454",
+    "owner": "src/renderer/app/features/loop/rlm-storage-maintenance.component.ts",
+    "text": "There are no stale stores or free pages to reclaim safely",
+    "why": "long"
+  },
+  {
+    "id": "1cb98d11147a5569",
+    "owner": "src/renderer/app/features/mcp/workspace-mcp-connectors-panel.component.ts",
+    "text": "Enter the working directory to refresh its connectors.",
+    "why": "long"
+  },
+  {
+    "id": "9ce15a819e56e1ff",
+    "owner": "src/renderer/app/features/memory-review/memory-review-page.component.ts",
+    "text": "Enter the replacement text first",
+    "why": "consequence"
+  },
+  {
+    "id": "78ccf4f351272582",
+    "owner": "src/renderer/app/features/models/model-selection-panel.component.ts",
+    "text": "The model has not reported its reasoning choices. Your saved effort stays until you choose Provider.",
+    "why": "long"
+  },
+  {
+    "id": "f605d8f40643a536",
+    "owner": "src/renderer/app/features/models/model-selection-panel.component.ts",
+    "text": "The model no longer offers this reasoning level. Your saved effort stays until you choose another.",
+    "why": "long"
+  },
+  {
+    "id": "2c8e70affedaf4f7",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-account-rules-panel.component.ts",
+    "text": "There are no account rule changes to reset.",
+    "why": "consequence"
+  },
+  {
+    "id": "2cbfd97a602ba6fe",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-account-rules-panel.component.ts",
+    "text": "Fix the account rule error before saving.",
+    "why": "long"
+  },
+  {
+    "id": "54ed15db2cbb6da2",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-account-rules-panel.component.ts",
+    "text": "There are no account rule changes to save.",
+    "why": "long"
+  },
+  {
+    "id": "36cc1d90740d66a8",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-routing-panel.component.ts",
+    "text": "There are no routing changes to save.",
+    "why": "long"
+  },
+  {
+    "id": "8374e22f9578fa77",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-routing-panel.component.ts",
+    "text": "Fix the routing errors shown above before saving.",
+    "why": "long"
+  },
+  {
+    "id": "2e02ac1a9e35d46a",
+    "owner": "src/renderer/app/features/plan/plan-page.component.ts",
+    "text": "This session is already outside plan mode",
+    "why": "long"
+  },
+  {
+    "id": "73ac6a82c20a56a8",
+    "owner": "src/renderer/app/features/plan/plan-page.component.ts",
+    "text": "Exit the current plan before starting another",
+    "why": "long"
+  },
+  {
+    "id": "96500880b2bb94d8",
+    "owner": "src/renderer/app/features/plan/plan-page.component.ts",
+    "text": "Enter plan mode before updating the plan",
+    "why": "long"
+  },
+  {
+    "id": "b966464eeb5df275",
+    "owner": "src/renderer/app/features/plan/plan-page.component.ts",
+    "text": "The plan must be waiting for approval first",
+    "why": "long"
+  },
+  {
+    "id": "11dacb1fcb5296c9",
+    "owner": "src/renderer/app/features/replay/session-replay-page.component.ts",
+    "text": "Choose a working folder for replay first",
+    "why": "long"
+  },
+  {
+    "id": "66c4cb6573f8be66",
+    "owner": "src/renderer/app/features/security/workspace-secrets-panel.component.ts",
+    "text": "There are no saved secrets to forget",
+    "why": "long"
+  },
+  {
+    "id": "526c2f652f00af06",
+    "owner": "src/renderer/app/features/settings/connections-settings-tab.component.ts",
+    "text": "Enter the pairing code from your Discord bot (at least four characters).",
+    "why": "long"
+  },
+  {
+    "id": "93fb55dad33b8c49",
+    "owner": "src/renderer/app/features/settings/connections-settings-tab.component.ts",
+    "text": "Enter your Discord bot token to connect.",
+    "why": "long"
+  },
+  {
+    "id": "01b82983f1eb9238",
+    "owner": "src/renderer/app/features/settings/copilot-accounts-tab.component.ts",
+    "text": "This account can only serve repositories mapped to it.",
+    "why": "long"
+  },
+  {
+    "id": "2710fe1bc95621d0",
+    "owner": "src/renderer/app/features/settings/copilot-accounts-tab.component.ts",
+    "text": "Choose the account to protect this folder.",
+    "why": "long"
+  },
+  {
+    "id": "387d266856ad1660",
+    "owner": "src/renderer/app/features/settings/copilot-accounts-tab.component.ts",
+    "text": "Choose the account to route this repository to.",
+    "why": "long"
+  },
+  {
+    "id": "4a6676349ab20372",
+    "owner": "src/renderer/app/features/settings/copilot-accounts-tab.component.ts",
+    "text": "Choose or enter a workspace folder to check.",
+    "why": "long"
+  },
+  {
+    "id": "4a66e1082de8066f",
+    "owner": "src/renderer/app/features/settings/copilot-accounts-tab.component.ts",
+    "text": "Enter a name for the account first.",
+    "why": "long"
+  },
+  {
+    "id": "58baaf130d1a57f7",
+    "owner": "src/renderer/app/features/settings/copilot-accounts-tab.component.ts",
+    "text": "Choose or enter the folder to protect.",
+    "why": "long"
+  },
+  {
+    "id": "b5cd7c0d2ff04855",
+    "owner": "src/renderer/app/features/settings/copilot-accounts-tab.component.ts",
+    "text": "Check sign-in to identify the account before adopting it.",
+    "why": "long"
+  },
+  {
+    "id": "6255bac96092ff1a",
+    "owner": "src/renderer/app/features/settings/instruction-inspector.component.ts",
+    "text": "Choose a working directory to read its instructions.",
+    "why": "long"
+  },
+  {
+    "id": "85a67d075f2f9a78",
+    "owner": "src/renderer/app/features/settings/leftover-worktrees-card.component.ts",
+    "text": "Confirm that you agree to discard the saved work first. Until then, the folder and saved work stay.",
+    "why": "consequence"
+  },
+  {
+    "id": "2db98f622ecdd028",
+    "owner": "src/renderer/app/features/settings/remote-node-repair-panel.component.ts",
+    "text": "Choose Windows as the repair command platform first.",
+    "why": "long"
+  },
+  {
+    "id": "33b539d62f1345a1",
+    "owner": "src/renderer/app/features/settings/remote-nodes-settings-tab.component.ts",
+    "text": "Enter a manual token with at least 16 characters.",
+    "why": "long"
+  },
+  {
+    "id": "848f8538009250d0",
+    "owner": "src/renderer/app/features/settings/remote-nodes-settings-tab.component.ts",
+    "text": "Start the remote computer server before creating a pairing command.",
+    "why": "long"
+  },
+  {
+    "id": "47d9bbe17c287cf2",
+    "owner": "src/renderer/app/features/settings/storage-usage-card.component.ts",
+    "text": "There are no old files to clear here. Your files stay as they are.",
+    "why": "consequence"
+  },
+  {
+    "id": "8d4cac3ae378dd26",
+    "owner": "src/renderer/app/features/source-control/source-control-diff-view.component.ts",
+    "text": "Choose how to handle the stale comments below. Your draft stays here.",
+    "why": "long"
+  },
+  {
+    "id": "c5712e41948d9545",
+    "owner": "src/renderer/app/features/tasks/tasks-page.component.ts",
+    "text": "Only queued or running jobs can be cancelled",
+    "why": "consequence"
+  },
+  {
+    "id": "7b7431aa2aa14889",
+    "owner": "src/renderer/app/features/terminal-drawer/terminal-drawer.component.ts",
+    "text": "Stop the terminal before changing its working folder",
+    "why": "consequence"
+  },
+  {
+    "id": "f933fd276606f09f",
+    "owner": "src/renderer/app/features/verification/execution/verification-monitor.component.ts",
+    "text": "There is no verification running to cancel",
+    "why": "consequence"
+  },
+  {
+    "id": "902005992a6ae7e4",
+    "owner": "src/renderer/app/features/worktree/worktree-page.component.ts",
+    "text": "At least two worktrees are needed to check conflicts",
+    "why": "long"
+  },
+  {
+    "id": "09194d17591656c0",
+    "owner": "src/renderer/app/shared/components/context-evidence-panel/context-evidence-panel.component.ts",
+    "text": "Capture failed — no readable content is available.",
+    "why": "long"
+  },
+  {
+    "id": "50d6abef8ec5b375",
+    "owner": "src/renderer/app/shared/components/context-evidence-panel/context-evidence-panel.component.ts",
+    "text": "Evidence is corrupt — raw bytes cannot be trusted.",
+    "why": "consequence"
+  },
+  {
+    "id": "ba0fb337cf2b8153",
+    "owner": "src/renderer/app/shared/components/context-evidence-panel/context-evidence-panel.component.ts",
+    "text": "Still capturing — not yet available for inspection.",
+    "why": "long"
+  },
+  {
+    "id": "ed65194266eacba8",
+    "owner": "src/renderer/app/shared/components/context-evidence-panel/context-evidence-panel.component.ts",
+    "text": "Evidence has been deleted — content is no longer available.",
+    "why": "consequence"
+  },
+  {
+    "id": "d596965047ccafd2",
+    "owner": "src/renderer/app/features/instance-detail/composer-queue.component.ts",
+    "text": "Cancel and restore to input. Removes this message from the queue and restores it to the message box.",
+    "why": "consequence"
+  },
+  {
+    "id": "e9149485c2ebad6d",
+    "owner": "src/renderer/app/features/plan-queue/plan-queue-page.component.ts",
+    "text": "Checks the disk again for leftover or missing working copies and branches.",
+    "why": "long"
+  },
+  {
+    "id": "06bea4562ba33073",
+    "owner": "src/renderer/app/features/instance-list/instance-list.component.ts",
+    "text": "Hides this session from the project list. The conversation is kept in Archive.",
+    "why": "consequence"
   }
 ]

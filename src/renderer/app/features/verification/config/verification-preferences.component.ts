@@ -291,6 +291,7 @@ interface PersonalityPreset {
               </select>
               <button
                 class="btn-icon-small"
+                appIconButton="Remove personality"
                 (click)="removePersonality(i)"
                 [appIconButton]="'Remove personality for Agent ' + (i + 1)"
                 [appIconButtonDisabledReason]="defaultPersonalities().length <= 1 ? copy('verificationHints.lastPersonality') : null"

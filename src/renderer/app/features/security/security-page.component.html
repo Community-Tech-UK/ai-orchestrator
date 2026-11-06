@@ -91,7 +91,7 @@
                     <tr>
                       <th>Timestamp</th>
                       <th>Action</th>
-                      <th>Agent / Instance</th>
+                      <th>Agent / Session</th>
                       <th>Target</th>
                       <th>Severity</th>
                     </tr>
@@ -151,7 +151,7 @@
                 <button
                   class="btn primary"
                   type="button"
-                  [disabled]="scanning() || scanContent().trim().length === 0"
+                  [disabled]="scanning()"
                   (click)="scanForSecrets()"
                 >
                   {{ scanning() ? 'Scanning...' : 'Scan' }}
@@ -280,7 +280,6 @@
                   <button
                     class="btn primary"
                     type="button"
-                    [disabled]="testVarName().trim().length === 0"
                     (click)="checkEnvVar()"
                   >
                     Check

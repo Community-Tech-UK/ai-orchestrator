@@ -147,4 +147,35 @@ describe('NodePickerComponent', () => {
     expect(component.isNodeSelectable(node)).toBe(true);
     expect(component.nodeDisabledReason(node)).toBe('');
   });
+  it('explains an offline node on focus, blocks its selection, and recovers when connected', () => {
+    const offline = makeNode('disconnected', false);
+    const store = TestBed.inject(RemoteNodeStore);
+    (store.nodes as ReturnType<typeof signal<RemoteNodeRosterEntry[]>>).set([offline]);
+    vi.mocked(store.nodeById).mockReturnValue(offline);
+    const fixture = TestBed.createComponent(NodePickerComponent);
+    fixture.componentInstance.isOpen.set(true);
+    fixture.detectChanges();
+    const button = fixture.nativeElement.querySelector('.node-option:last-child') as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    // jsdom needs the keyboard-focus selector supplied explicitly.
+    vi.spyOn(button, 'matches').mockImplementation(selector => selector === ':focus-visible');
+    button.focus();
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(button);
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('Node is disconnected');
+    const selected = vi.fn();
+    fixture.componentInstance.nodeSelected.subscribe(selected);
+    button.click();
+    expect(selected).not.toHaveBeenCalled();
+    const online = makeNode('connected', true);
+    (store.nodes as ReturnType<typeof signal<RemoteNodeRosterEntry[]>>).set([online]);
+    vi.mocked(store.nodeById).mockReturnValue(online);
+    fixture.detectChanges();
+    expect(button.hasAttribute('aria-disabled')).toBe(false);
+    button.click();
+    expect(selected).toHaveBeenCalledWith('node-1');
+    fixture.destroy();
+  });
+
 });

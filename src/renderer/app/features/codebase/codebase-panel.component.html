@@ -22,7 +22,7 @@
         <button
           class="action-btn primary"
           (click)="startIndexing()"
-          [disabled]="!rootPath()"
+          [appTooltipDisabledReason]="!rootPath() ? 'Choose a project folder first' : null"
         >
           Index Codebase
         </button>

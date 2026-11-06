@@ -204,7 +204,8 @@
             type="button"
             class="btn btn-secondary"
             (click)="addAccount(provider.id)"
-            [disabled]="busy() || !(newLabels()[provider.id] ?? '').trim()"
+            [disabled]="busy()"
+            [appTooltipDisabledReason]="!(newLabels()[provider.id] ?? '').trim() ? 'Enter an account name first.' : null"
           >
             Add account
           </button>

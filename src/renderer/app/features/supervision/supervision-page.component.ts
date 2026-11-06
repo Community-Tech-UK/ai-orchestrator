@@ -351,7 +351,7 @@ export class SupervisionPageComponent implements OnInit, OnDestroy {
   async onNodeAction(payload: { nodeId: string; action: 'restart' | 'stop' | 'escalate' }): Promise<void> {
     if (payload.action !== 'escalate') {
       this.errorMessage.set(
-        'Restart/stop controls are not exposed by IPC. Use the instance panel for direct lifecycle control.'
+        'Restart/stop controls are not exposed by IPC. Use the session panel for direct lifecycle control.'
       );
       return;
     }

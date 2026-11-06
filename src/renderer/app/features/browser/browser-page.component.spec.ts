@@ -250,7 +250,7 @@ describe('BrowserPageComponent', () => {
           codex: {
             available: true,
             status: 'available_via_mcp',
-            message: 'Codex can use Browser Gateway through injected MCP config in local AIO sessions.',
+            message: 'Codex can use Browser Gateway through injected MCP config in local Harness sessions.',
           },
           gemini: {
             available: false,
@@ -311,6 +311,25 @@ describe('BrowserPageComponent', () => {
   it('renders Browser Gateway profiles', () => {
     expect(fixture.nativeElement.textContent).toContain('Local App');
     expect(fixture.nativeElement.textContent).toContain('Login checked');
+  });
+
+  it.each([
+    ['.profile-binding button', 'updateProfileExecutionNode', 'The execution node is unchanged.'],
+    ['[data-testid="navigate-button"]', 'navigate', 'Enter a page address first.'],
+  ] as const)('explains a lasting disabled browser action %s on focus', (selector, action, reason) => {
+    fixture.componentInstance.navigateUrl.set('');
+    fixture.detectChanges();
+    const button = fixture.nativeElement.querySelector(selector) as HTMLButtonElement;
+    const handler = vi.spyOn(fixture.componentInstance, action);
+    const matches = button.matches.bind(button);
+    vi.spyOn(button, 'matches').mockImplementation(value => value === ':focus-visible' || matches(value));
+    button.focus();
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(button);
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    expect(document.getElementById(button.getAttribute('aria-describedby')!)?.textContent).toContain(reason);
+    button.click();
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it('opens on the browser workspace and switches control modes accessibly', () => {
@@ -1099,7 +1118,7 @@ describe('BrowserPageComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Select a browser target');
   });
 
-  it('keeps navigation disabled for read-only extension targets', () => {
+  it('explains blocked navigation for extension targets and allows it again for managed targets', async () => {
     fixture.componentInstance.targets.set([
       {
         id: 'existing-tab:7:42:target',
@@ -1118,7 +1137,27 @@ describe('BrowserPageComponent', () => {
     fixture.detectChanges();
 
     const button = fixture.nativeElement.querySelector('[data-testid="navigate-button"]') as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
+    const matches = button.matches.bind(button);
+    vi.spyOn(button, 'matches').mockImplementation(value => value === ':focus-visible' || matches(value));
+    button.focus();
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(button);
+    expect(button.disabled).toBe(false);
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    expect(document.getElementById(button.getAttribute('aria-describedby')!)?.textContent)
+      .toContain('Navigate in the shared browser tab itself.');
+    button.click();
+    expect(service.navigate).not.toHaveBeenCalled();
+
+    fixture.componentInstance.targets.update(targets => targets.map(target => ({ ...target, driver: 'cdp' })));
+    fixture.detectChanges();
+    expect(button.hasAttribute('aria-disabled')).toBe(false);
+    button.click();
+    await vi.advanceTimersByTimeAsync(100);
+    await fixture.whenStable();
+    expect(service.navigate).toHaveBeenCalledExactlyOnceWith({
+      profileId: 'existing-tab:7:42', targetId: 'existing-tab:7:42:target', url: 'https://play.google.com/console',
+    });
   });
 
   it('requests a user login handoff for the selected browser target', async () => {
@@ -1159,7 +1198,7 @@ describe('BrowserPageComponent', () => {
     const text = fixture.nativeElement.textContent;
 
     expect(text).toContain('Claude can use Browser Gateway MCP tools.');
-    expect(text).toContain('Codex can use Browser Gateway through injected MCP config in local AIO sessions.');
+    expect(text).toContain('Codex can use Browser Gateway through injected MCP config in local Harness sessions.');
     expect(text).toContain('Gemini Browser Gateway is unavailable until adapter MCP injection is implemented.');
   });
 

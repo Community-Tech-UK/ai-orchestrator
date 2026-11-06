@@ -1,4 +1,5 @@
 import { AppIconButtonDirective } from '../../tooltip/icon-button.directive';
+import { AioTooltipDirective } from '../../tooltip/aio-tooltip.directive';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -21,7 +22,7 @@ import type { FsEntry, FsProjectMatch } from '../../../../../shared/types/remote
   standalone: true,
 
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, NodePathPipe, AppIconButtonDirective],
+  imports: [CommonModule, FormsModule, NodePathPipe, AppIconButtonDirective, AioTooltipDirective],
   template: `
     @if (isOpen()) {
       <div class="modal-overlay" (click)="close()" (keydown.escape)="close()" tabindex="-1" role="dialog" aria-modal="true">
@@ -143,7 +144,7 @@ import type { FsEntry, FsProjectMatch } from '../../../../../shared/types/remote
               <button
                 type="button"
                 class="btn btn-primary"
-                [disabled]="!selectedPath()"
+                [appTooltipDisabledReason]="!selectedPath() ? 'Select a folder first.' : null"
                 (click)="confirm()"
               >
                 Select

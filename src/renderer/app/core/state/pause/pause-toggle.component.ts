@@ -13,8 +13,8 @@ import { PauseStore } from './pause.store';
       class="pause-toggle"
       [class.active]="store.manualPaused()"
       [attr.aria-pressed]="store.manualPaused()"
-      [attr.aria-label]="store.manualPaused() ? 'Resume orchestrator' : 'Pause orchestrator'"
-      [appTooltip]="store.manualPaused() ? 'Resume orchestrator' : 'Pause orchestrator'"
+      [attr.aria-label]="store.manualPaused() ? 'Resume Harness' : 'Pause Harness'"
+      [appTooltip]="store.manualPaused() ? 'Resume Harness' : 'Pause Harness'"
       (click)="toggleManualPause()"
     >
       @if (store.manualPaused()) {

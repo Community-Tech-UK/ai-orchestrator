@@ -69,7 +69,7 @@
                         class="row-action"
                         [disabled]="isToggling(automation)"
                         [attr.aria-label]="(isActive(automation) ? 'Pause ' : 'Resume ') + automation.name"
-                        [appTooltip]="isToggling(automation) ? 'Updating…' : (isActive(automation) ? 'Pause schedule' : 'Resume schedule')"
+                        [appTooltip]="isToggling(automation) ? 'Updating…' : (isActive(automation) ? tooltipPauseSchedule : tooltipResumeSchedule)"
                         (click)="togglePaused(automation)"
                       >
                         @if (isToggling(automation)) {
@@ -195,7 +195,7 @@
                     <button class="btn btn--primary" type="button" (click)="useDraft()">Review &amp; save</button>
                     <button class="btn" type="button" [disabled]="chatBusy()" (click)="generateDraft()">Regenerate</button>
                   } @else {
-                    <button class="btn btn--primary" type="button" [disabled]="!canGenerate()" (click)="generateDraft()">
+                    <button class="btn btn--primary" type="button" [disabled]="chatBusy()" [appTooltipDisabledReason]="!chatText().trim() ? 'Describe the automation first' : null" (click)="generateDraft()">
                       {{ chatBusy() ? 'Thinking…' : 'Generate' }}
                     </button>
                     <button class="btn" type="button" (click)="closeOverlay()">Cancel</button>
@@ -238,8 +238,8 @@
                     </select>
                   </label>
                   <div class="template-actions">
-                    <button class="btn" type="button" [disabled]="!selectedTemplateId()" (click)="applySelectedTemplate()">Apply</button>
-                    <button class="btn" type="button" [disabled]="!canRunPreflight()" (click)="runPreflight()">
+                    <button class="btn" type="button" [appTooltipDisabledReason]="!selectedTemplateId() ? 'Select a template first' : null" (click)="applySelectedTemplate()">Apply</button>
+                    <button class="btn" type="button" [disabled]="store.preflightLoading()" [appTooltipDisabledReason]="!form().workingDirectory.trim() ? tooltipChooseFolder : !form().prompt.trim() ? tooltipEnterPrompt : null" (click)="runPreflight()">
                       {{ store.preflightLoading() ? 'Running…' : 'Preflight' }}
                     </button>
                   </div>
@@ -540,7 +540,7 @@
                 }
 
                 <div class="actions">
-                  <button class="btn btn--primary" type="submit" [disabled]="!canSave()">Save</button>
+                  <button class="btn btn--primary" type="submit" [disabled]="store.preflightLoading()" [appTooltipDisabledReason]="!form().name.trim() ? 'Enter an automation name first' : !form().workingDirectory.trim() ? tooltipChooseFolder : !form().prompt.trim() ? tooltipEnterPrompt : form().triggerKind === 'webhook' && !form().webhookRouteId.trim() ? 'Select a webhook route first' : null">Save</button>
                   <button class="btn" type="button" (click)="closeOverlay()">Cancel</button>
                 </div>
               </form>
@@ -563,7 +563,7 @@
                     class="btn"
                     type="button"
                     [disabled]="isToggling(automation)"
-                    [appTooltip]="isActive(automation) ? 'Pause schedule' : 'Resume schedule'"
+                    [appTooltip]="isActive(automation) ? tooltipPauseSchedule : tooltipResumeSchedule"
                     (click)="togglePaused(automation)"
                   >
                     {{ isToggling(automation) ? 'Updating…' : (isActive(automation) ? 'Pause' : 'Resume') }}

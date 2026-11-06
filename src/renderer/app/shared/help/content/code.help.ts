@@ -18,7 +18,7 @@ export const WORKTREES_HELP: HelpEntry = {
       kind: 'steps',
       heading: 'How to use it',
       items: [
-        'Select an instance and enter a task description.',
+        'Select a session and enter a task description.',
         'Choose a merge strategy (auto, squash, rebase, manual).',
         'Click Create to spawn a worktree for the task.',
         'Monitor status in the main panel; click View to inspect conflicts.',
@@ -126,7 +126,7 @@ export const TASKS_HELP: HelpEntry = {
       kind: 'callout',
       variant: 'info',
       heading: 'What this does',
-      body: 'Launches and monitors local background jobs: PR reviews, issue implementation runs, and repo health audits. Each job runs on this machine with its own instance and worktree.',
+      body: 'Launches and monitors local background jobs: PR reviews, issue implementation runs, and repo health audits. Each job runs on this machine with its own session and worktree.',
     },
     {
       kind: 'steps',
@@ -168,13 +168,13 @@ export const PLAN_HELP: HelpEntry = {
       kind: 'callout',
       variant: 'info',
       heading: 'What this does',
-      body: 'Controls plan mode for agent instances: an agent drafts and refines a plan before touching code. States are idle, planning, awaiting approval, and implementing.',
+      body: 'Controls plan mode for agent sessions: an agent drafts and refines a plan before touching code. States are idle, planning, awaiting approval, and implementing.',
     },
     {
       kind: 'steps',
       heading: 'How to use it',
       items: [
-        'Enter an instance ID and click Load State.',
+        'Enter a session ID and click Load State.',
         'Enter Plan Mode so the agent drafts a plan.',
         'Edit or approve the plan when it reaches awaiting approval.',
         'Exit Plan Mode once implementation is complete.',

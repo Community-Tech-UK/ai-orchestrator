@@ -16,6 +16,8 @@ import { InstanceStore } from '../../core/state/instance/instance.store';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import type { PluginPackageSource } from '@contracts/schemas/plugin';
 import { RuntimeProviderSessionComponent } from './runtime-provider-session.component';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 
 // ─── Local interfaces ─────────────────────────────────────────────────────────
 
@@ -66,7 +68,7 @@ const TRUST_PRESENTATION: Record<ProjectPluginTrust, { label: string; explanatio
 @Component({
   selector: 'app-plugins-page',
   standalone: true,
-  imports: [RuntimeProviderSessionComponent],
+  imports: [RuntimeProviderSessionComponent, AioTooltipDirective],
   template: `
     <div class="page">
 
@@ -160,13 +162,15 @@ const TRUST_PRESENTATION: Record<ProjectPluginTrust, { label: string; explanatio
           <button
             class="btn"
             type="button"
-            [disabled]="runtimeWorking() || runtimeSourceInput().trim().length === 0"
+            [disabled]="runtimeWorking()"
+            [appTooltipDisabledReason]="!runtimeSourceInput().trim() ? copyFor('plugins.missingPackageSource') : null"
             (click)="validateRuntimeSource()"
           >Check</button>
           <button
             class="btn primary"
             type="button"
-            [disabled]="runtimeWorking() || runtimeSourceInput().trim().length === 0"
+            [disabled]="runtimeWorking()"
+            [appTooltipDisabledReason]="!runtimeSourceInput().trim() ? copyFor('plugins.missingPackageSource') : null"
             (click)="installRuntimeSource()"
           >{{ runtimeWorking() ? 'Working…' : 'Install' }}</button>
         </div>
@@ -255,6 +259,7 @@ const TRUST_PRESENTATION: Record<ProjectPluginTrust, { label: string; explanatio
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PluginsPageComponent implements OnInit {
+  protected readonly copyFor = copyFor;
   private readonly pluginIpc = inject(PluginIpcService);
   private readonly instanceStore = inject(InstanceStore);
 

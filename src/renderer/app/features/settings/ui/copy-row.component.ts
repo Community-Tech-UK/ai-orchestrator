@@ -1,8 +1,10 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
 
 @Component({
   selector: 'app-copy-row',
   standalone: true,
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="copy-row">
@@ -18,7 +20,7 @@ import { ChangeDetectionStrategy, Component, input, output } from '@angular/core
         <button
           type="button"
           class="copy-button"
-          [disabled]="!value()"
+          [appTooltipDisabledReason]="!value() ? 'There is nothing to copy yet.' : null"
           (click)="copyRequested.emit(value())"
         >
           Copy

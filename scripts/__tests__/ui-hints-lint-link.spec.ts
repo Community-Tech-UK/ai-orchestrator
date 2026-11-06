@@ -11,7 +11,7 @@ const disabledConfig = [{ rules: {
   'ui-hints/icon-control-needs-name-and-tooltip': 'off',
 } }];
 describe('lint severity follows ratchet totals', () => {
-  it('has every rule registered and accepts the actual recorded state', () => { expect(checkLink(config, readBaseline('scripts/ui-hints/baseline.json'))).toEqual([]); });
+  it('has every rule registered and accepts the actual recorded state', () => { expect(checkLink(config, readBaseline('scripts/ui-hints/baseline'))).toEqual([]); });
   it('rejects missing blocks, zero debt with off, and error before zero', () => {
     expect(checkLink([], fixture()).join(' ')).toContain('Missing');
     const zero = fixture(); delete zero.rules['H5']; expect(checkLink(disabledConfig, zero).join(' ')).toContain('switch it on');

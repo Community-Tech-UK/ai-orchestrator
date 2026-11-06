@@ -123,7 +123,7 @@ export const NAV_ITEMS: SettingsNavItem[] = [
     label: 'Orchestration',
     summary: 'Control how many agents can run and how they spawn child work.',
     group: 'Agent behavior',
-    keywords: 'children instances nesting limits idle loop model terra sonnet recycle same-session iteration',
+    keywords: 'children sessions nesting limits idle loop model terra sonnet recycle same-session iteration',
   },
   {
     id: 'cross-session-messaging',

@@ -234,7 +234,7 @@
                   <button
                     type="button"
                     class="inline-edit-btn primary"
-                    [disabled]="!inlineEdit.editingDraft().trim()"
+                    [appTooltipDisabledReason]="!inlineEdit.editingDraft().trim() ? 'Type the revised message before resending.' : null"
                     (click)="inlineEdit.resendEditedMessage()"
                   >
                     Resend

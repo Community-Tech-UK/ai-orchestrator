@@ -1,3 +1,4 @@
+import { SETTINGS_TOOLTIP_COPY } from './settings-tooltip-copy';
 import { ChangeDetectionStrategy, Component, ElementRef, OnDestroy, effect, inject, input, signal, untracked, viewChild } from '@angular/core';
 import type { LeftoverRemovalAction, LeftoverWorktreeRow } from '@contracts/schemas/workspace-tools';
 import { LeftoverWorktreesStore } from '../../core/state/leftover-worktrees.store';
@@ -12,6 +13,7 @@ import { createFocusTrap, type FocusTrapHandle } from '../../shared/utils/focus-
   styleUrl: './leftover-worktrees-card.component.scss',
 })
 export class LeftoverWorktreesCardComponent implements OnDestroy {
+  protected readonly tooltipCopy = SETTINGS_TOOLTIP_COPY;
   readonly workingDirectory = input<string | undefined>();
   readonly store = inject(LeftoverWorktreesStore);
   readonly discardConfirmed = signal(false);

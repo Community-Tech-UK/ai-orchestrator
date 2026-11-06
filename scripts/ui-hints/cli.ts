@@ -1,22 +1,25 @@
 import { existsSync } from 'node:fs';
 import { resolve, relative } from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync } from 'child_process';
 import { analyze } from './analyze';
-import { compare, compareBaselines, markerChanges, initBaseline, measure, readBaseline, tighten, transfer, writeBaseline, type Baseline } from './baseline.js';
+import { compare, compareBaselines, emptyBaseline, markerReview, initBaseline, measure, mergeBaselines, parseRecordText, readBaseline, sortBaseline, tighten, transfer, writeBaseline, type Baseline } from './baseline.js';
 import { checkLedger, compareLedgers, qualifying, readLedger, recordNew, retire, writeLedger, type Ledger } from './wording-ledger.js';
+import { avoidWordReports } from './glossary-report';
+import { AVOID_WORD_PATTERNS } from '../../src/shared/glossary/glossary';
 import { EXEMPT_REASONS, normalizePath } from './types';
 import { RULE_CATALOGUE } from './rules';
 
 export interface CliResult { exitCode: number; output: string }
 export function parseArgs(args: string[]): Record<string, string[]> {
   const arities: Record<string, number> = { '--warn': 0, '--tighten': 0, '--init': 0, '--force': 0, '--transfer': 2, '--rule': 1, '--count': 1, '--exempt': 2, '--record-wording': 0, '--retire': 1, '--reason': 1, '--against': 1, '--root': 1, '--baseline': 1, '--ledger': 1, '--json': 0, '--list': 1 };
+  const repeatable = new Set(['--exempt', '--reason', '--retire']);
   const result: Record<string, string[]> = {};
   for (let index = 0; index < args.length; index++) {
     const flag = args[index]!; const arity = arities[flag];
-    if (arity === undefined || result[flag]) throw new Error('Unknown or repeated option: ' + flag);
+    if (arity === undefined || (result[flag] && !repeatable.has(flag))) throw new Error('Unknown or repeated option: ' + flag);
     const values = args.slice(index + 1, index + 1 + arity);
     if (values.length !== arity || values.some(value => value.startsWith('--'))) throw new Error('Missing value: ' + flag);
-    result[flag] = values; index += arity;
+    result[flag] = [...(result[flag] ?? []), ...values]; index += arity;
   }
   return result;
 }
@@ -51,9 +54,9 @@ export function runCheck(args: string[]): CliResult {
     const mutations = [...baselineMutations, ...ledgerMutations];
     const exemptTighten = baselineMutations.length === 2 && flags['--exempt'] && flags['--tighten'];
     if (baselineMutations.length > 1 && !exemptTighten || ledgerMutations.length > 1) throw new Error('Use one baseline operation (or --exempt with --tighten) and one ledger operation together');
-    if (flags['--force'] && !flags['--init'] || flags['--reason'] && !flags['--retire'] || (flags['--rule'] || flags['--count']) && !flags['--transfer']) throw new Error('Dependent option missing its mutation');
+    if (flags['--force'] && !flags['--init'] || flags['--reason'] && !flags['--retire'] && !flags['--exempt'] || (flags['--rule'] || flags['--count']) && !flags['--transfer']) throw new Error('Dependent option missing its mutation');
     const root = resolve(flags['--root']?.[0] ?? process.cwd());
-    const baselinePath = resolve(flags['--baseline']?.[0] ?? root + '/scripts/ui-hints/baseline.json');
+    const baselinePath = resolve(flags['--baseline']?.[0] ?? root + '/scripts/ui-hints/baseline');
     const ledgerPath = resolve(flags['--ledger']?.[0] ?? root + '/scripts/ui-hints/wording-ledger.json');
     const analysis = analyze(root);
     const integrity = analysis.violations.filter(violation => violation.code === 'H12');
@@ -63,46 +66,89 @@ export function runCheck(args: string[]): CliResult {
     let baseline: Baseline; let ledger: Ledger = existsSync(ledgerPath) ? readLedger(ledgerPath) : [];
     if (flags['--init']) {
       if (existsSync(baselinePath) && !flags['--force']) throw new Error('--init refuses existing record; use --force deliberately');
-      baseline = initBaseline(measured);
+      baseline = initBaseline(measured, existsSync(baselinePath) ? readBaseline(baselinePath) : emptyBaseline());
     } else {
       if (!existsSync(baselinePath)) throw new Error('Missing baseline; run --init');
       baseline = readBaseline(baselinePath);
       if (flags['--transfer']) baseline = transfer(baseline, flags['--transfer'][0]!, flags['--transfer'][1]!, { rule: flags['--rule']?.[0], count: flags['--count'] ? Number(flags['--count'][0]) : undefined });
       if (flags['--exempt']) {
-        const [ownerRaw, reason] = flags['--exempt']; const owner = normalizePath(ownerRaw!);
-        if (!(EXEMPT_REASONS as readonly string[]).includes(reason!)) throw new Error('Unknown exemption reason');
-        const old = baseline.markers[reason!]?.[owner] ?? 0; const current = measured.markers[reason!]?.[owner] ?? 0;
-        if (current <= old) throw new Error('No new marker for this owner and reason');
-        const increases = compare(measured, baseline).filter(finding => finding.kind === 'new' && !(finding.code === 'marker:' + reason && finding.owner === owner));
+        // One run records every raised marker in the change; each entry needs
+        // its own written reason, paired in order with --reason.
+        const pairs = flags['--exempt']!;
+        const reasons = flags['--reason'] ?? [];
+        if (pairs.length % 2 !== 0 || reasons.length !== pairs.length / 2) throw new Error('Use --exempt <owner> <kind> with one --reason per entry');
+        for (let index = 0; index < pairs.length; index += 2) {
+          const owner = normalizePath(pairs[index]!); const kind = pairs[index + 1]!;
+          const reason = reasons[index / 2]!.trim();
+          if (!(EXEMPT_REASONS as readonly string[]).includes(kind)) throw new Error('Unknown exemption reason');
+          if (reason.length < 20) throw new Error('A raised marker needs a written reason of at least 20 characters; pass --reason');
+          const old = baseline.markers[kind]?.[owner]?.count ?? 0; const current = measured.markers[kind]?.[owner]?.count ?? 0;
+          if (current <= old) throw new Error('No new marker for this owner and reason');
+          (baseline.markers[kind] ??= {})[owner] = { count: current, reason };
+        }
+        baseline = sortBaseline(baseline);
+        const increases = compare(measured, baseline).filter(finding => finding.kind === 'new');
         if (increases.length) throw new Error('Cannot exempt while another count went up: ' + JSON.stringify(increases));
-        (baseline.markers[reason!] ??= {})[owner] = current;
-        baseline = initBaseline(baseline);
       }
       if (flags['--tighten']) baseline = tighten(measured, baseline);
     }
     if (flags['--record-wording']) ledger = recordNew(analysis, ledger);
-    if (flags['--retire']) ledger = retire(ledger, flags['--retire'][0]!, flags['--reason']?.[0] ?? '');
-    const errors = compare(measured, baseline).map(finding => {
+    if (flags['--retire']) {
+      const ids = flags['--retire']!;
+      const reasons = flags['--reason'] ?? [];
+      if (flags['--exempt']) throw new Error('Record exemptions and wording retirements in separate runs');
+      if (reasons.length !== ids.length) throw new Error('Use one --reason per --retire');
+      for (let index = 0; index < ids.length; index++) ledger = retire(ledger, ids[index]!, reasons[index] ?? '');
+    }
+    const findings = compare(measured, baseline);
+    const message = (finding: { kind: string; code: string; owner: string; measured: number; recorded: number }): string => {
       const hits = analysis.violations.filter(violation => violation.code === finding.code && violation.ownerFile === finding.owner).slice(0, 20).map(violation => `  ${violation.file}:${violation.line} ${violation.message}`).join('\n');
       const rule = RULE_CATALOGUE[finding.code as keyof typeof RULE_CATALOGUE];
       return `${finding.code} ${finding.kind}: ${finding.owner} measured ${finding.measured}, recorded ${finding.recorded}. ${finding.kind === 'stale' ? 'Run --tighten (combine it with --exempt or --retire when that change needs both records).' : rule?.fix ?? 'Fix measurement/exemption integrity.'}${hits ? '\n' + hits : ''}`;
-    });
+    };
+    // A stale record (measured below recorded) is a warning: an improvement without
+    // a tightened record must not fail the gate or block unrelated record writes.
+    const warnings = findings.filter(finding => finding.kind === 'stale').map(message);
+    const errors = findings.filter(finding => finding.kind !== 'stale').map(message);
     errors.push(...checkLedger(analysis, ledger));
+    errors.push(...avoidWordReports(analysis.vocabularyStreams, AVOID_WORD_PATTERNS));
     const retirements: string[] = [];
     const reviewNotices: string[] = [];
     if (flags['--against']) {
-      const readAtRef = (file: string): string | undefined => {
-        const repoPath = normalizePath(relative(root, file));
+      execFileSync('git', ['rev-parse', '--verify', flags['--against']![0] + '^{commit}'], { cwd: root, stdio: 'ignore' });
+      const readAtRef = (repoPath: string): string | undefined => {
         try { return execFileSync('git', ['show', `${flags['--against']![0]}:${repoPath}`], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }); }
-        catch { // First introduction of a record is allowed; an invalid ref is not.
-          execFileSync('git', ['rev-parse', '--verify', flags['--against']![0] + '^{commit}'], { cwd: root, stdio: 'ignore' }); return undefined;
-        }
+        catch { return undefined; } // First introduction of a record is allowed.
       };
-      const beforeBaseline = readAtRef(baselinePath); const beforeLedger = readAtRef(ledgerPath);
-      if (beforeBaseline) {
-        const previous = JSON.parse(beforeBaseline) as Baseline;
+      const repoDir = normalizePath(relative(root, baselinePath));
+      let listed: string[] = [];
+      try { listed = execFileSync('git', ['ls-tree', '--name-only', flags['--against']![0]!, repoDir + '/'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).split('\n').filter(Boolean); }
+      catch { listed = []; }
+      const previous = emptyBaseline();
+      let found = false;
+      for (const repoPath of listed) {
+        const text = readAtRef(repoPath);
+        if (text !== undefined) { mergeBaselines(previous, parseRecordText(text, repoPath.split('/').pop()!.slice(0, -'.json'.length))); found = true; }
+      }
+      if (!found) {
+        // Records before the folder split kept one combined file beside the
+        // directory, with marker counts instead of {count, reason} entries.
+        const legacy = readAtRef(repoDir + '.json');
+        if (legacy !== undefined) {
+          const value = JSON.parse(legacy) as Baseline & { markers: Record<string, Record<string, number | { count: number; reason: string }>> };
+          for (const table of Object.values(value.markers)) {
+            for (const [owner, entry] of Object.entries(table)) if (typeof entry === 'number') table[owner] = { count: entry, reason: '' };
+          }
+          mergeBaselines(previous, parseRecordText(JSON.stringify(value)));
+          found = true;
+        }
+      }
+      const beforeLedger = readAtRef(normalizePath(relative(root, ledgerPath)));
+      if (found) {
         errors.push(...compareBaselines(previous, baseline).map(finding => `against: ${finding.code} ${finding.kind} ${finding.owner} ${finding.recorded} -> ${finding.measured}`));
-        reviewNotices.push(...markerChanges(previous, baseline));
+        const review = markerReview(previous, baseline);
+        errors.push(...review.errors);
+        reviewNotices.push(...review.notices);
       }
       if (beforeLedger) { const comparison = compareLedgers(JSON.parse(beforeLedger) as Ledger, ledger); errors.push(...comparison.errors); retirements.push(...comparison.retirements); }
     }
@@ -114,7 +160,8 @@ export function runCheck(args: string[]): CliResult {
     const reports = analysis.violations.filter(violation => ['H1c', 'H7', 'H8'].includes(violation.code)).map(violation => `${violation.code} advisory ${violation.file}:${violation.line} ${violation.message}`);
     const notices = [...reviewNotices, ...qualifying(analysis).filter(entry => !ledger.some(old => old.id === entry.id)).map(entry => `New qualifying wording ${entry.owner}: ${entry.text}; run --record-wording.`)];
     const totals = Object.fromEntries(Object.entries(measured.rules).map(([code, owners]) => [code, Object.values(owners).reduce((sum, count) => sum + count, 0)]));
-    const report = { errors, notices, retirements, reports, totals, markers: analysis.counts['markers'], ledger: ledger.length, retired: ledger.filter(entry => entry.retired).length };
-    return { exitCode: errors.length && !warn ? 1 : 0, output: flags['--json'] ? JSON.stringify(report, null, 2) + '\n' : errors.length ? [...errors, ...notices, ...retirements].join('\n') + '\n' : `UI hints OK ${JSON.stringify(totals)}; ${report.markers} markers; ${report.ledger} wording entries (${report.retired} retired); ${reports.length} advisory reports\n${[...notices, ...retirements].join('\n')}${notices.length || retirements.length ? '\n' : ''}` };
+    const report = { errors, warnings, notices, retirements, reports, totals, markers: analysis.counts['markers'], ledger: ledger.length, retired: ledger.filter(entry => entry.retired).length };
+    const body = [...errors, ...warnings, ...notices, ...retirements].join('\n');
+    return { exitCode: errors.length && !warn ? 1 : 0, output: flags['--json'] ? JSON.stringify(report, null, 2) + '\n' : errors.length ? body + '\n' : `UI hints OK ${JSON.stringify(totals)}; ${report.markers} markers; ${report.ledger} wording entries (${report.retired} retired); ${reports.length} advisory reports\n${[...warnings, ...notices, ...retirements].join('\n')}${warnings.length || notices.length || retirements.length ? '\n' : ''}` };
   } catch (error) { return { exitCode: warn ? 0 : 1, output: String(error) + '\n' }; }
 }

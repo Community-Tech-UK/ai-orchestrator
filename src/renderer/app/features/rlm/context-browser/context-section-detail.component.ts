@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
 /**
  * Context Section Detail Component - Selected section detail view
  */
@@ -15,7 +16,7 @@ import { AppIconButtonDirective } from '../../../shared/tooltip/icon-button.dire
 @Component({
   selector: 'app-context-section-detail',
   standalone: true,
-  imports: [SlicePipe, AppIconButtonDirective],
+  imports: [SlicePipe, AppIconButtonDirective, AioTooltipDirective],
   template: `
     <div class="section-detail">
       <div class="detail-header">
@@ -87,7 +88,7 @@ import { AppIconButtonDirective } from '../../../shared/tooltip/icon-button.dire
           <button
             class="action-btn"
             (click)="addToQuery.emit(section().id)"
-            [disabled]="isSectionInQuery()"
+            [appTooltipDisabledReason]="isSectionInQuery() ? 'This section is already in the query, so remove it there before adding it again.' : null"
           >
             {{ isSectionInQuery() ? 'Added' : 'Add to Query' }}
           </button>

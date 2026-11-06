@@ -191,6 +191,8 @@ export class InputPanelComponent implements OnDestroy {
 
   instanceId = input.required<string>();
   disabled = input<boolean>(false);
+  /** The host explains why this composer is paused. */
+  disabledReason = input<string | null>(null);
   placeholder = input<string>('Send a message...');
   pendingFiles = input<File[]>([]);
   pendingFolders = input<string[]>([]);

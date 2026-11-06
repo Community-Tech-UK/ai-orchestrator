@@ -28,7 +28,7 @@ const INITIAL_DISPLAY_LIMIT = 10;
           </button>
         } @else {
           <p>No conversation history yet</p>
-          <span class="empty-hint">Conversations will appear here after you close an instance</span>
+          <span class="empty-hint">Conversations will appear here after you close a session</span>
         }
       </div>
     } @else {

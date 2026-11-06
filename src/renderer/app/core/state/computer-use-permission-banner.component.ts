@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 /**
  * Computer Use Permission Banner
  *
@@ -14,7 +15,6 @@ import {
   PERMISSION_LABELS,
 } from './computer-use-permission.store';
 import type { DesktopSystemPermission } from '../../../../shared/types/desktop-gateway.types';
-import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 @Component({
   selector: 'app-computer-use-permission-banner',
@@ -39,7 +39,7 @@ import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive'
             }
             @if (store.repairReady()) {
               <span class="repair-note">
-                Registrations reset. Enable both permissions, then restart AIO.
+                Registrations reset. Enable both permissions, then restart Harness.
               </span>
             }
           </div>
@@ -63,10 +63,10 @@ import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive'
             <button
               type="button"
               class="banner-btn primary"
-              aria-label="Restart AIO"
+              aria-label="Restart Harness"
               (click)="restart()"
             >
-              Restart AIO
+              Restart Harness
             </button>
           } @else {
             <button

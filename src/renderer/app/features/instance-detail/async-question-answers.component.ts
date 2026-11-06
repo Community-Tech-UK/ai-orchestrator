@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import type { OutputMessage } from '../../core/state/instance/instance.types';
 import { InstanceStore } from '../../core/state/instance/instance.store';
 import { isReadyForInputStatus, isTerminalStatus } from '../../core/state/instance/instance-messaging-queue-utils';
@@ -23,13 +24,15 @@ const OTHER = '__aio_async_other__';
 @Component({
   selector: 'app-async-question-answers',
   standalone: true,
+  imports: [AioTooltipDirective],
   template: `
     @if (questions().length > 0 && live() && replaced()) {
       <p class="aq aq__status" role="status">This session was replaced by an edit. Answer in the new session.</p>
     } @else if (questions().length > 0 && live()) {
       <form class="aq" (submit)="$event.preventDefault(); send()">
         @for (question of questions(); track $index; let q = $index) {
-          <fieldset class="aq__question" [disabled]="locked()">
+          <fieldset class="aq__question" [disabled]="locked()"
+            [attr.tabindex]="locked() ? 0 : null" [appTooltip]="locked() ? statusLabel() : null">
             @if (questions().length > 1) {
               <legend class="aq__legend">{{ question.title }}</legend>
             } @else {
@@ -74,7 +77,7 @@ const OTHER = '__aio_async_other__';
           @if (locked()) {
             <span class="aq__status" role="status">{{ statusLabel() }}</span>
           } @else {
-            <button class="aq__send" type="submit" [disabled]="!canSend()">
+            <button class="aq__send" type="submit" [appTooltipDisabledReason]="!canSend() ? 'Answer every question before sending.' : null">
               {{ questions().length > 1 ? 'Send answers' : 'Send answer' }}
             </button>
             @if (notDelivered()) {

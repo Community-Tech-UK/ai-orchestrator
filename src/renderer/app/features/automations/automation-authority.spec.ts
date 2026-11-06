@@ -204,7 +204,7 @@ describe('deriveAutomationAuthority', () => {
 
     it('thread destination', () => {
       const statement = cardsByKind({ ...BASE_INPUT, destinationKind: 'thread' })['reportDestination'].statements[0];
-      expect(statement.statement).toMatch(/existing conversation thread/);
+      expect(statement.statement).toMatch(/existing conversation session/);
     });
   });
 });

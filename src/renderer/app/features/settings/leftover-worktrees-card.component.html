@@ -16,7 +16,7 @@
       <p>{{ row.sentence }}</p>
       @if (row.reason) { <p class="reason">{{ row.reason }}</p> }
       @if (row.createdBy === 'harness') {
-        <button type="button" [appTooltip]="reviewHint" [disabled]="(!row.removableByHarness && !row.archivableByHarness) || store.busy()" (click)="review(row)">Review</button>
+        <button type="button" [appTooltip]="reviewHint" [disabled]="store.busy()" [appTooltipDisabledReason]="!row.removableByHarness && !row.archivableByHarness ? row.reason : null" (click)="review(row)">Review</button>
       } @else {
         <p>These commands are for you to review and run yourself. The second removes the branch only if Git considers it merged.</p>
         <pre>{{ commands(row) }}</pre>
@@ -57,7 +57,7 @@
       }
       <div class="dialog-actions">
         <button #cancelButton data-cancel type="button" [disabled]="store.busy()" (click)="store.cancel()">Cancel</button>
-        <button data-remove type="button" class="danger" [disabled]="store.busy() || (preview.action === 'discard-saved-work' && !discardConfirmed())"
+        <button data-remove type="button" class="danger" [disabled]="store.busy()" [appTooltipDisabledReason]="preview.action === 'discard-saved-work' && !discardConfirmed() ? tooltipCopy.discardNeedsConfirmation : null"
           (click)="store.run(discardConfirmed(), workingDirectory())">{{ store.busy() ? 'Working…' : preview.action === 'restore-folder' ? 'Restore' : preview.action === 'archive-and-remove' ? 'Archive and remove' : 'Remove' }}</button>
       </div>
     </div>

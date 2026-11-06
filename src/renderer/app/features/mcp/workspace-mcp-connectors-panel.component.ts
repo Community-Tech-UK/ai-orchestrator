@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { McpIpcService } from '../../core/services/ipc/mcp-ipc.service';
 import type { SupportedProvider } from '../../../../shared/types/mcp-scopes.types';
@@ -7,7 +8,7 @@ import type { WorkspaceMcpConnectorDto } from '../../../../shared/types/workspac
 @Component({
   selector: 'app-workspace-mcp-connectors-panel',
   standalone: true,
-  imports: [],
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './workspace-mcp-connectors-panel.component.html',
   styleUrl: './workspace-mcp-connectors-panel.component.scss',

@@ -365,7 +365,7 @@ function verificationCard(input: AutomationAuthorityInput): AutomationAuthorityC
 function reportDestinationCard(input: AutomationAuthorityInput): AutomationAuthorityCard {
   const statement: AutomationAuthorityStatement = input.destinationKind === 'thread'
     ? {
-        statement: 'Reports back into the same existing conversation thread each time it runs, instead of starting a new one.',
+        statement: 'Reports back into the same existing conversation session each time it runs, instead of starting a new one.',
         enforcement: 'technical',
         source: 'destination',
       }

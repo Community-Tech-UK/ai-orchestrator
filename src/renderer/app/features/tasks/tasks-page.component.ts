@@ -18,6 +18,7 @@ import { SessionShareIpcService } from '../../core/services/ipc/session-share-ip
 import type { RepoJobRecord, RepoJobStatus, RepoJobType } from '../../../../shared/types/repo-job.types';
 import type { TaskPreflightReport } from '../../../../shared/types/task-preflight.types';
 import { TaskPreflightCardComponent } from '../../shared/components/task-preflight-card.component';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 interface RepoInfo {
   isRepo: boolean;
@@ -28,7 +29,7 @@ interface RepoInfo {
 @Component({
   selector: 'app-tasks-page',
   standalone: true,
-  imports: [CommonModule, TaskPreflightCardComponent],
+  imports: [CommonModule, TaskPreflightCardComponent, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="tasks-page">
@@ -37,7 +38,7 @@ interface RepoInfo {
           <p class="eyebrow">Local Background Jobs</p>
           <h1>Repo Jobs</h1>
           <p class="subtitle">
-            Launch PR reviews, issue implementation runs, and repository health audits locally in this orchestrator.
+            Launch PR reviews, issue implementation runs, and repository health audits locally in Harness.
           </p>
         </div>
         <button class="ghost" type="button" (click)="refresh()" [disabled]="loading()">
@@ -68,7 +69,7 @@ interface RepoInfo {
         <div class="panel-header">
           <div>
             <h2>Launch Job</h2>
-            <p>These jobs run on your machine and keep their instances and worktrees local.</p>
+            <p>These jobs run on your machine and keep their sessions and worktrees local.</p>
           </div>
           @if (repoInfo()) {
             <span class="repo-pill" [class.ready]="repoInfo()!.isRepo">
@@ -191,7 +192,7 @@ interface RepoInfo {
         </div>
 
         <div class="button-row">
-          <button class="primary" type="button" (click)="submit()" [disabled]="!canSubmit()">
+          <button class="primary" type="button" (click)="submit()" [disabled]="submitting() || preflightLoading()">
             Launch {{ submitLabel() }}
           </button>
         </div>
@@ -282,7 +283,7 @@ interface RepoInfo {
                     <strong>{{ job.repoContext.gitRoot || 'n/a' }}</strong>
                   </div>
                   <div>
-                    <span class="detail-label">Instance</span>
+                    <span class="detail-label">Session</span>
                     <strong>{{ job.instanceId || 'pending' }}</strong>
                   </div>
                 </div>
@@ -296,10 +297,10 @@ interface RepoInfo {
                 }
 
                 <div class="button-row">
-                  <button class="ghost" type="button" (click)="openReplay(job)" [disabled]="!job.instanceId">
+                  <button class="ghost" type="button" (click)="openReplay(job)" [appTooltipDisabledReason]="!job.instanceId ? 'This job has no session to open in Observer yet.' : null">
                     Observer
                   </button>
-                  <button class="ghost" type="button" (click)="saveShareBundle(job)" [disabled]="!job.instanceId">
+                  <button class="ghost" type="button" (click)="saveShareBundle(job)" [appTooltipDisabledReason]="!job.instanceId ? 'This job has no session to share yet.' : null">
                     Share
                   </button>
                   <button class="ghost" type="button" (click)="rerun(job.id)" [disabled]="submitting()">
@@ -309,7 +310,7 @@ interface RepoInfo {
                     class="ghost danger"
                     type="button"
                     (click)="cancel(job.id)"
-                    [disabled]="job.status !== 'queued' && job.status !== 'running'"
+                    [appTooltipDisabledReason]="job.status !== 'queued' && job.status !== 'running' ? 'Only queued or running jobs can be cancelled' : null"
                   >
                     Cancel
                   </button>
@@ -675,12 +676,6 @@ export class TasksPageComponent {
     return statusMatches && typeMatches;
   }));
   readonly hasPreflightBlockers = computed(() => (this.preflight()?.blockers.length || 0) > 0);
-  readonly canSubmit = computed(() =>
-    this.workingDirectory().trim().length > 0 &&
-    !this.submitting() &&
-    !this.preflightLoading() &&
-    !this.hasPreflightBlockers()
-  );
   readonly submitLabel = computed(() => {
     switch (this.plannedJobType()) {
       case 'pr-review':

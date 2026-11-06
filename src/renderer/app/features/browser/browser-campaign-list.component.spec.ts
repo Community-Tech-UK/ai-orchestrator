@@ -190,4 +190,21 @@ describe('BrowserCampaignListComponent', () => {
     await component.approveDeclaration('campaign-1');
     expect(store.approveDeclaration).toHaveBeenCalledWith('campaign-1', hash);
   });
+  it('allows approval to explain invalid input, then accepts the corrected declaration', async () => {
+    await fixture.componentInstance.toggleExpand('campaign-1');
+    fixture.detectChanges();
+    const button = fixture.nativeElement.querySelector('[aria-label="Approve campaign declaration"]') as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    button.click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Declaration hash must be 64 hex characters.');
+    expect(store.approveDeclaration).not.toHaveBeenCalled();
+    fixture.componentInstance.declarationHashDrafts.set({ 'campaign-1': 'c'.repeat(64) });
+    fixture.detectChanges();
+    button.click();
+    await fixture.whenStable();
+    expect(store.approveDeclaration).toHaveBeenCalledExactlyOnceWith('campaign-1', 'c'.repeat(64));
+  });
+
 });

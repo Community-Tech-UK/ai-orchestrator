@@ -105,6 +105,26 @@ describe('PluginsPageComponent', () => {
     });
   });
 
+  it.each([
+    [0, 'validateRuntimeSource'],
+    [1, 'installRuntimeSource'],
+  ] as const)('explains missing package input for button %s on focus', async (index, action) => {
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const button = fixture.nativeElement.querySelectorAll('.install-row button')[index] as HTMLButtonElement;
+    const handler = vi.spyOn(component, action);
+    const matches = button.matches.bind(button);
+    vi.spyOn(button, 'matches').mockImplementation(value => value === ':focus-visible' || matches(value));
+    button.focus();
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(button);
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    expect(document.getElementById(button.getAttribute('aria-describedby')!)?.textContent).toContain('Enter a package source first.');
+    button.click();
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   it('lists each reason a package cannot be installed separately', async () => {
     pluginIpc.runtimePluginsValidate.mockResolvedValueOnce({
       success: true,

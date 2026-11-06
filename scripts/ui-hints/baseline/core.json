@@ -1,0 +1,12 @@
+{
+  "rules": {
+    "H11": {
+      "src/renderer/app/core/services/codex-followup-markdown.ts": 1,
+      "src/renderer/app/core/services/markdown.service.ts": 6
+    }
+  },
+  "markers": {},
+  "unreadable": {
+    "src/renderer/app/core/state/computer-use-permission-chip.component.ts": 1
+  }
+}

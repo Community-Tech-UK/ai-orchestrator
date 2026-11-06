@@ -221,7 +221,7 @@ export class ComputerUsePermissionStore {
     }
     const response = await this.desktop.relaunchApplication();
     if (!response.success) {
-      this._error.set(response.error?.message ?? 'Could not restart AIO.');
+      this._error.set(response.error?.message ?? 'Could not restart Harness.');
     }
   }
 

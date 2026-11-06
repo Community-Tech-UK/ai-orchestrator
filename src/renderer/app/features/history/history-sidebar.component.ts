@@ -475,7 +475,7 @@ export class HistorySidebarComponent implements OnInit, OnDestroy {
   async onSelect(entry: ConversationHistoryEntry): Promise<void> {
     this.showConfirm(
       'Restore Conversation',
-      `This will create a new instance with the conversation history from "${entry.displayName}".`,
+      `This will create a new session with the conversation history from "${entry.displayName}".`,
       'Restore',
       false,
       async () => {

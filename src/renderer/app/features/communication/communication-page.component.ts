@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 /**
  * Communication Page
  * UI for cross-instance message passing and bridge management.
@@ -34,14 +35,14 @@ interface CommBridge {
 @Component({
   selector: 'app-communication-page',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, AioTooltipDirective],
   template: `
     <div class="page">
       <!-- Page Header -->
       <div class="page-header">
         <div class="header-title">
           <span class="title">Communication</span>
-          <span class="subtitle">Cross-instance message passing and bridges</span>
+          <span class="subtitle">Cross-session message passing and bridges</span>
         </div>
         <div class="header-actions">
           <button class="btn" type="button" [disabled]="working()" (click)="refresh()">Refresh</button>
@@ -59,7 +60,7 @@ interface CommBridge {
           <div class="metric-value">{{ activeBridgeCount() }}</div>
         </div>
         <div class="metric-card">
-          <div class="metric-label">Connected Instances</div>
+          <div class="metric-label">Connected Sessions</div>
           <div class="metric-value">{{ connectedInstanceCount() }}</div>
         </div>
       </div>
@@ -97,7 +98,7 @@ interface CommBridge {
             <div class="panel-title">Send Message</div>
 
             <label class="field">
-              <span class="label">From Instance ID</span>
+              <span class="label">From Session ID</span>
               <input
                 class="input"
                 type="text"
@@ -108,7 +109,7 @@ interface CommBridge {
             </label>
 
             <label class="field">
-              <span class="label">To Instance ID</span>
+              <span class="label">To Session ID</span>
               <input
                 class="input"
                 type="text"
@@ -149,7 +150,7 @@ interface CommBridge {
               <button
                 class="btn primary"
                 type="button"
-                [disabled]="working() || !canSend()"
+                [disabled]="working()" [appTooltipDisabledReason]="!sendFrom().trim() ? 'Enter the sending session ID first' : !sendTo().trim() ? 'Enter the receiving session ID first' : !sendContent().trim() ? 'Enter a message first' : null"
                 (click)="sendMessage()"
               >
                 {{ working() ? 'Sending...' : 'Send' }}
@@ -182,7 +183,7 @@ interface CommBridge {
             <div class="panel-title" style="margin-top: 8px;">Create Bridge</div>
 
             <label class="field">
-              <span class="label">Instance 1 ID</span>
+              <span class="label">Session 1 ID</span>
               <input
                 class="input"
                 type="text"
@@ -193,7 +194,7 @@ interface CommBridge {
             </label>
 
             <label class="field">
-              <span class="label">Instance 2 ID</span>
+              <span class="label">Session 2 ID</span>
               <input
                 class="input"
                 type="text"
@@ -215,7 +216,7 @@ interface CommBridge {
               <button
                 class="btn primary"
                 type="button"
-                [disabled]="working() || !canCreateBridge()"
+                [disabled]="working()" [appTooltipDisabledReason]="!bridgeId1().trim() ? 'Enter the first session ID' : !bridgeId2().trim() ? 'Enter the second session ID' : null"
                 (click)="createBridge()"
               >
                 {{ working() ? 'Creating...' : 'Create' }}

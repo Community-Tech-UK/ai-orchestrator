@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { IpcFacadeService } from '../../core/services/ipc';
@@ -23,7 +24,7 @@ interface WorkspaceSecretAuditRow {
 @Component({
   selector: 'app-workspace-secrets-panel',
   standalone: true,
-  imports: [DatePipe],
+  imports: [DatePipe, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './workspace-secrets-panel.component.html',
   styleUrl: './workspace-secrets-panel.component.scss',

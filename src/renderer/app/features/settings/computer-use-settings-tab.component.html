@@ -16,7 +16,7 @@
           class="cu-btn"
           aria-label="Repair macOS permissions"
           (click)="repairPermissions()"
-          [disabled]="!permissionsEnabled() || permissions.repairing() || permissions.requesting() !== null"
+          [disabled]="permissions.repairing() || permissions.requesting() !== null"
         >
           {{ permissions.repairing() ? 'Repairing…' : 'Repair macOS permissions' }}
         </button>
@@ -34,14 +34,14 @@
     }
     @if (permissions.repairReady()) {
       <div class="cu-repair-status" role="status">
-        <span>Registrations reset. Enable both permissions, then restart AIO.</span>
+        <span>Registrations reset. Enable both permissions, then restart Harness.</span>
         <button
           type="button"
           class="cu-btn"
-          aria-label="Restart AIO"
+          aria-label="Restart Harness"
           (click)="restartApplication()"
         >
-          Restart AIO
+          Restart Harness
         </button>
       </div>
     }
@@ -63,7 +63,7 @@
               <button
                 type="button"
                 class="cu-btn cu-btn--small"
-                [disabled]="!permissionsEnabled() || permissions.requesting() !== null"
+                [disabled]="permissions.requesting() !== null"
                 [attr.aria-label]="'Open ' + cap.label + ' settings'"
                 (click)="openPermission(cap.permission)"
               >

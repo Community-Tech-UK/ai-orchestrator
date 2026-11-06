@@ -433,17 +433,27 @@ describe('ModelSelectionPanelComponent', () => {
     expect(emitted[1]).toEqual({ kind: 'reasoning', provider: 'codex', modelId: 'gpt-6-astra', level: null });
   });
 
-  it('shows a saved effort as current while Codex capabilities are unknown', () => {
+  it('shows a saved effort as current while Codex capabilities are unknown', async () => {
     setInputs({
       providers: ['codex'], selectedProvider: 'codex', selectedModelId: 'gpt-5.5',
       selectedReasoning: 'medium',
       reasoningOptionsForProvider: () => [{ id: 'default', label: 'Provider' }],
     });
+    await fixture.whenStable();
     const select = fixture.nativeElement.querySelector('.model-picker-row__reasoning') as HTMLSelectElement;
     expect(select.value).toBe('medium');
     expect(select.selectedOptions[0].label.trim()).toBe('Medium (current)');
     expect(select.selectedOptions[0].disabled).toBe(true);
     expect(fixture.componentInstance.selectedReasoning()).toBe('medium');
+    const host = select.parentElement!;
+    expect(host.tabIndex).toBe(0);
+    const matches = host.matches.bind(host);
+    vi.spyOn(host, 'matches').mockImplementation(value => value === ':focus-visible' || matches(value));
+    host.focus();
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(host);
+    expect(document.getElementById(host.getAttribute('aria-describedby')!)?.textContent)
+      .toContain('The model has not reported its reasoning choices.');
   });
 
   // Mirrors the controller's Claude reasoning list (high is the default).
@@ -592,6 +602,30 @@ describe('ModelSelectionPanelComponent', () => {
     expect(selected).not.toHaveBeenCalled();
   });
 
+  it('makes a blocked model reason reachable and allows selection once the cause clears', async () => {
+    setInputs({ providers: ['codex'], disabledReasonForProvider: () => 'Choose this provider before sending the first message.' });
+    await fixture.whenStable();
+    const emitted: UnifiedSelection[] = [];
+    fixture.componentInstance.selection.subscribe(selection => emitted.push(selection));
+    const button = fixture.nativeElement.querySelector('.model-picker-row__select') as HTMLButtonElement;
+    const matches = button.matches.bind(button);
+    vi.spyOn(button, 'matches').mockImplementation(value => value === ':focus-visible' || matches(value));
+    button.focus();
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(button);
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    expect(document.getElementById(button.getAttribute('aria-describedby')!)?.textContent)
+      .toContain('Choose this provider before sending the first message.');
+    button.click();
+    expect(emitted).toEqual([]);
+
+    fixture.componentRef.setInput('disabledReasonForProvider', () => undefined);
+    fixture.detectChanges();
+    expect(button.hasAttribute('aria-disabled')).toBe(false);
+    button.click();
+    expect(emitted).toEqual([{ kind: 'model', provider: 'codex', modelId: 'gpt-5.5' }]);
+  });
+
   it('keeps unhealthy local-model rows visible but disabled', () => {
     setInputs({
       providers: ['local-model'],
@@ -650,4 +684,34 @@ describe('ModelSelectionPanelComponent', () => {
       'Add a Remote Node or configure Auxiliary Models in Settings',
     );
   });
+  it('protects the reasoning select while its focusable host explains the model restriction', async () => {
+    setInputs({ providers: ['codex'], reasoningOptionsForProvider: () => REASONING_OPTIONS,
+      disabledReasonForProvider: () => 'Choose this provider before sending the first message.' });
+    const emitted: UnifiedSelection[] = [];
+    fixture.componentInstance.selection.subscribe(value => emitted.push(value));
+    await fixture.whenStable();
+    const select = fixture.nativeElement.querySelector('.model-picker-row__reasoning') as HTMLSelectElement;
+    const host = select.parentElement!;
+    expect(select.disabled).toBe(true);
+    expect(select.hasAttribute('aria-disabled')).toBe(false);
+    expect(host.tabIndex).toBe(0);
+    const matches = host.matches.bind(host);
+    vi.spyOn(host, 'matches').mockImplementation(value => value === ':focus-visible' || matches(value));
+    host.focus();
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(host);
+    expect(document.getElementById(host.getAttribute('aria-describedby')!)?.textContent)
+      .toContain('Choose this provider before sending the first message.');
+    select.value = 'high';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(emitted).toEqual([]);
+    fixture.componentRef.setInput('disabledReasonForProvider', () => undefined);
+    fixture.detectChanges();
+    expect(select.disabled).toBe(false);
+    expect(host.getAttribute('aria-disabled')).toBeNull();
+    select.value = 'high';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(emitted).toEqual([{ kind: 'reasoning', provider: 'codex', modelId: 'gpt-5.5', level: 'high' }]);
+  });
+
 });

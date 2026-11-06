@@ -34,7 +34,7 @@
         @if (!store.activeRoot()) {
           <div class="empty-state">
             <p>No folder selected</p>
-            <p class="hint">Select an instance with a working directory</p>
+            <p class="hint">Select a session with a working directory</p>
           </div>
         } @else if (store.initialLoad() && store.isRefreshing()) {
           <div class="loading">Scanning for repositories…</div>

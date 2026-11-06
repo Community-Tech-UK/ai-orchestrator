@@ -10,6 +10,7 @@ import {
 } from '@angular/core';
 import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 
+
 @Component({
   selector: 'app-transcript-find-bar',
   standalone: true,

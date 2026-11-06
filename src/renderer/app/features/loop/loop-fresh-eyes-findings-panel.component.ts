@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 /**
  * N4 — one row per blocking finding, with the citation that justifies it.
  *
@@ -21,6 +22,7 @@ import {
 @Component({
   selector: 'app-loop-fresh-eyes-findings-panel',
   standalone: true,
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (detail(); as d) {
@@ -62,7 +64,7 @@ import {
         <button
           type="button"
           class="fe-findings__fix"
-          [disabled]="selectedCount() === 0"
+          [appTooltipDisabledReason]="selectedCount() === 0 ? 'Select at least one finding first' : null"
           (click)="fixSelected()"
         >Fix {{ selectedCount() }} selected</button>
 

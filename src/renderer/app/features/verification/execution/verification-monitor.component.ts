@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
 /**
  * Verification Monitor Component
  *
@@ -22,6 +23,7 @@ import { formatMoneyPlain } from '../../../shared/utils/format-money';
 @Component({
   selector: 'app-verification-monitor',
   standalone: true,
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="monitor-container">
@@ -47,7 +49,7 @@ import { formatMoneyPlain } from '../../../shared/utils/format-money';
         <button
           class="action-btn danger"
           (click)="cancelVerification()"
-          [disabled]="!store.isRunning()"
+          [appTooltipDisabledReason]="!store.isRunning() ? 'There is no verification running to cancel' : null"
         >
           Cancel Verification
         </button>

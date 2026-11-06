@@ -209,7 +209,7 @@
           class="btn btn-primary"
           type="button"
           (click)="createPairingCredential()"
-          [disabled]="pairingBusy() || !serverStatus().running"
+          [disabled]="pairingBusy()" [appTooltipDisabledReason]="!serverStatus().running ? 'Start the remote computer server before creating a pairing command.' : null"
         >
           {{ pairingBusy() ? 'Issuing...' : 'Create Pairing Command' }}
         </button>
@@ -556,8 +556,7 @@
             class="btn btn-icon"
             type="button"
             (click)="tokenRevealed.set(!tokenRevealed())"
-            [attr.aria-label]="tokenRevealed() ? 'Hide token' : 'Show token'"
-            [appTooltip]="tokenRevealed() ? 'Hide' : 'Show'"
+            [appIconButton]="tokenRevealed() ? 'Hide token' : 'Show token'"
           >
             @if (tokenRevealed()) {
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
@@ -596,7 +595,7 @@
             class="btn btn-secondary"
             type="button"
             (click)="copyLegacyConnectionConfig()"
-            [disabled]="!store.remoteNodesEnrollmentToken()"
+            [appTooltipDisabledReason]="!store.remoteNodesEnrollmentToken() ? 'There is no enrollment token yet, so generate or set one first.' : null"
           >
             Copy Manual Config
           </button>
@@ -616,7 +615,7 @@
             class="btn btn-primary"
             type="button"
             (click)="saveCustomToken()"
-            [disabled]="customTokenValue().trim().length < 16 || savingToken()"
+            [disabled]="savingToken()" [appTooltipDisabledReason]="customTokenValue().trim().length < 16 ? 'Enter a manual token with at least 16 characters.' : null"
           >
             {{ savingToken() ? 'Saving...' : 'Save Token' }}
           </button>

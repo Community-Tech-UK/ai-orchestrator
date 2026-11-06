@@ -84,6 +84,50 @@ describe('LocalAiTargetSetupComponent', () => {
     fixture.detectChanges();
   });
 
+  it('explains and blocks enrolment on a focusable button, then permits validated recovery', async () => {
+    click('Configure Studio worker');
+    const enrol = button('Enrol target');
+    expect(enrol.disabled).toBe(false);
+    expect(enrol.getAttribute('aria-disabled')).toBe('true');
+    const matches = enrol.matches.bind(enrol);
+    vi.spyOn(enrol, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
+    enrol.focus();
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(enrol);
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('Run a successful endpoint test before saving or enrolling.');
+    expect(enrol.getAttribute('aria-describedby')?.split(' ')).toContain('local-ai-enrolment-help');
+    expect(fixture.nativeElement.querySelector('#local-ai-enrolment-help')?.textContent).toContain('Test the endpoint to unlock enrolment.');
+    enrol.click();
+    expect(store.createTarget).not.toHaveBeenCalled();
+    click('Test endpoint');
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(enrol.getAttribute('aria-disabled')).toBeNull();
+    enrol.click();
+    await fixture.whenStable();
+    expect(store.createTarget).toHaveBeenCalledOnce();
+  });
+
+  it('names the invalid timeout and its real bounds without allowing validation', () => {
+    click('Configure Studio worker');
+    setNumber('Canary timeout (seconds)', 0);
+    const test = button('Test endpoint');
+    expect(test.disabled).toBe(false);
+    expect(test.getAttribute('aria-disabled')).toBe('true');
+    const matches = test.matches.bind(test);
+    vi.spyOn(test, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
+    test.focus(); fixture.detectChanges();
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('Check the endpoint details before testing.');
+    expect(test.getAttribute('aria-describedby')?.split(' ')).toContain('local-ai-enrolment-help');
+    expect(fixture.nativeElement.querySelector('#local-ai-enrolment-help')?.textContent).toContain(
+      `Set canary timeout in seconds to a whole number between ${LOCAL_AI_TARGET_NUMERIC_LIMITS.canaryTimeoutMs.min / 1_000} and ${LOCAL_AI_TARGET_NUMERIC_LIMITS.canaryTimeoutMs.max / 1_000}.`,
+    );
+    test.click();
+    expect(store.validateTarget).not.toHaveBeenCalled();
+    setNumber('Canary timeout (seconds)', 120);
+    expect(test.getAttribute('aria-disabled')).toBeNull();
+  });
+
   it('starts a new target with a ready-to-test recommended setup and explains the locked action', () => {
     click('Configure Studio worker');
 
@@ -113,7 +157,8 @@ describe('LocalAiTargetSetupComponent', () => {
     expect((fixture.nativeElement.querySelector('details.advanced-settings') as HTMLDetailsElement).open)
       .toBe(false);
     expect(button('Test endpoint').disabled).toBe(false);
-    expect(button('Enrol target').disabled).toBe(true);
+    expect(button('Enrol target').disabled).toBe(false);
+    expect(button('Enrol target').getAttribute('aria-disabled')).toBe('true');
     expect(fixture.nativeElement.textContent).toContain(
       'Test the endpoint to unlock enrolment.',
     );
@@ -163,7 +208,8 @@ describe('LocalAiTargetSetupComponent', () => {
     setCheckbox('Expected model qwen3:14b', true);
     selectValue('Canary model', 'qwen3:14b');
     fixture.detectChanges();
-    expect(button('Enrol target').disabled).toBe(true);
+    expect(button('Enrol target').disabled).toBe(false);
+    expect(button('Enrol target').getAttribute('aria-disabled')).toBe('true');
     click('Test endpoint');
     await fixture.whenStable();
     expect(store.validateTarget).toHaveBeenCalledTimes(2);
@@ -185,7 +231,8 @@ describe('LocalAiTargetSetupComponent', () => {
     expect(fixture.nativeElement.textContent).toContain(
       'Automatic repair may restart only a named, supported local service.',
     );
-    expect(button('Test endpoint').disabled).toBe(true);
+    expect(button('Test endpoint').disabled).toBe(false);
+    expect(button('Test endpoint').getAttribute('aria-disabled')).toBe('true');
     expect(numberInput('Endpoint check interval (seconds)')).toMatchObject({
       min: '30',
       max: '900',
@@ -213,8 +260,10 @@ describe('LocalAiTargetSetupComponent', () => {
     expect(fixture.nativeElement.textContent).toContain(
       'Minimum context length must be a whole number between 1 and 100000000.',
     );
-    expect(button('Test endpoint').disabled).toBe(true);
-    expect(button('Enrol target').disabled).toBe(true);
+    expect(button('Test endpoint').disabled).toBe(false);
+    expect(button('Test endpoint').getAttribute('aria-disabled')).toBe('true');
+    expect(button('Enrol target').disabled).toBe(false);
+    expect(button('Enrol target').getAttribute('aria-disabled')).toBe('true');
     form.dispatchEvent(new Event('submit'));
     await fixture.whenStable();
     expect(store.validateTarget).not.toHaveBeenCalled();
@@ -228,12 +277,14 @@ describe('LocalAiTargetSetupComponent', () => {
     for (const value of [0, 1.5]) {
       setNumber('qwen3:8b minimum context length', value);
       expect(context.getAttribute('aria-invalid')).toBe('true');
-      expect(button('Test endpoint').disabled).toBe(true);
+      expect(button('Test endpoint').disabled).toBe(false);
+      expect(button('Test endpoint').getAttribute('aria-disabled')).toBe('true');
     }
 
     updateModelContextWithRawValue('qwen3:8b', 'NaN');
     expect(context.getAttribute('aria-invalid')).toBe('true');
-    expect(button('Test endpoint').disabled).toBe(true);
+    expect(button('Test endpoint').disabled).toBe(false);
+    expect(button('Test endpoint').getAttribute('aria-disabled')).toBe('true');
   });
 
   it('blocks enrolment when validation reports insufficient required model context', async () => {
@@ -264,7 +315,8 @@ describe('LocalAiTargetSetupComponent', () => {
       .toContain('Needs attention');
     expect(fixture.nativeElement.querySelector('.enrolment-steps li:nth-child(2)')
       ?.getAttribute('data-state')).toBe('failed');
-    expect(button('Enrol target').disabled).toBe(true);
+    expect(button('Enrol target').disabled).toBe(false);
+    expect(button('Enrol target').getAttribute('aria-disabled')).toBe('true');
     expect(store.createTarget).not.toHaveBeenCalled();
   });
 
@@ -423,8 +475,10 @@ describe('LocalAiTargetSetupComponent', () => {
     expect(fixture.nativeElement.textContent).toContain(
       'Minimum context length must be a whole number between 1 and 100000000.',
     );
-    expect(button('Test changes').disabled).toBe(true);
-    expect(button('Save changes').disabled).toBe(true);
+    expect(button('Test changes').disabled).toBe(false);
+    expect(button('Test changes').getAttribute('aria-disabled')).toBe('true');
+    expect(button('Save changes').disabled).toBe(false);
+    expect(button('Save changes').getAttribute('aria-disabled')).toBe('true');
     expect(store.validateTarget).not.toHaveBeenCalled();
     expect(store.updateTarget).not.toHaveBeenCalled();
   });

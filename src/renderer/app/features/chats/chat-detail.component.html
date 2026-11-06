@@ -22,7 +22,7 @@
           <button
             type="button"
             class="compact-button"
-            [disabled]="!draftName().trim() || draftName().trim() === detail.chat.name"
+            [appTooltipDisabledReason]="!draftName().trim() ? 'Enter a name first' : draftName().trim() === detail.chat.name ? 'Change the name before saving' : null"
             (click)="saveName()"
           >
             Save
@@ -70,7 +70,7 @@
             placeholder="Working directory"
           />
           <button type="button" class="icon-button" appTooltip="Choose folder" aria-label="Choose folder" (click)="browseCwd()">...</button>
-          <button type="button" class="compact-button" [disabled]="!draftCwd().trim()" (click)="applyCwd()">
+          <button type="button" class="compact-button" [appTooltipDisabledReason]="!draftCwd().trim() ? 'Choose a working folder first' : null" (click)="applyCwd()">
             Set
           </button>
         </div>
@@ -174,6 +174,7 @@
     <app-input-panel
       [instanceId]="streamInstanceId()"
       [disabled]="!setupComplete() || chatStore.sending()"
+      [disabledReason]="!chat()?.provider ? 'Choose a provider before sending a message' : !chat()?.currentCwd ? 'Choose a working folder before sending a message' : chatStore.sending() ? 'Sending the previous message…' : null"
       [placeholder]="setupComplete() ? 'Send a message...' : 'Choose provider and project first'"
       [pendingFiles]="pendingFiles()"
       [pendingFolders]="pendingFolders()"

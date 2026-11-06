@@ -30,9 +30,8 @@
         type="button"
         (click)="toggleControlNav()"
         aria-controls="control-center-navigation"
-        [attr.aria-label]="controlNavCollapsed() ? 'Expand Control Center navigation' : 'Collapse Control Center navigation'"
         [attr.aria-expanded]="!controlNavCollapsed()"
-        [appTooltip]="controlNavCollapsed() ? 'Expand navigation' : 'Collapse navigation'"
+        [appIconButton]="controlNavCollapsed() ? 'Expand navigation' : 'Collapse navigation'"
         [appTooltipShowWhenExpanded]="true"
       >
         <svg viewBox="0 0 24 24" aria-hidden="true">

@@ -1,3 +1,5 @@
+import { SOURCE_CONTROL_TOOLTIP_COPY } from './source-control-tooltip-copy';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 /**
  * SourceControlDiffViewComponent — pure presentational render of a
  * `DiffLoader`'s state, plus WS-C4 inline diff review comments.
@@ -44,7 +46,6 @@ import type { RenderedDiffLine } from './source-control.types';
 import { InstanceStore } from '../../core/state/instance.store';
 import { DiffReviewDraftStore } from './diff-review-draft.store';
 import { buildReviewPacket } from './diff-review-packet';
-import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import type {
   DiffAnnotation,
   DiffAnnotationLineRange,
@@ -105,7 +106,8 @@ function rowKey(hunkIndex: number, lineIndex: number): string {
             <button
               type="button"
               class="diff-review-send"
-              [disabled]="draftCount() === 0 || sendBusy() || pendingSendConfirm()"
+              [disabled]="sendBusy()"
+              [appTooltipDisabledReason]="pendingSendConfirm() ? tooltipCopy.staleReview : draftCount() === 0 ? 'Add a review comment first.' : null"
               (click)="sendReview()"
             >
               {{ sendBusy() ? 'Sending…' : 'Send review (' + draftCount() + ')' }}
@@ -201,12 +203,14 @@ function rowKey(hunkIndex: number, lineIndex: number): string {
               (input)="onEditorInput($event)"
               (keydown.escape)="cancelAnnotation()"
             ></textarea>
+            @if (commentError()) {
+              <div class="diff-review-error" role="alert">{{ commentError() }}</div>
+            }
             <div class="diff-anno-editor-actions">
               <button type="button" class="diff-anno-editor-cancel" (click)="cancelAnnotation()">Cancel</button>
               <button
                 type="button"
                 class="diff-anno-editor-save"
-                [disabled]="!editor.commentDraft.trim()"
                 (click)="saveAnnotation()"
               >Add comment</button>
             </div>
@@ -221,6 +225,7 @@ function rowKey(hunkIndex: number, lineIndex: number): string {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SourceControlDiffViewComponent {
+  protected readonly tooltipCopy = SOURCE_CONTROL_TOOLTIP_COPY;
   private readonly instanceStore = inject(InstanceStore);
   private readonly draftStore = inject(DiffReviewDraftStore);
 
@@ -250,6 +255,7 @@ export class SourceControlDiffViewComponent {
   protected readonly expandedAnnotationId = signal<string | null>(null);
   protected readonly sendBusy = signal(false);
   protected readonly sendError = signal<string | null>(null);
+  protected readonly commentError = signal<string | null>(null);
   /** WS-C4 fresh-eyes fix: true once the user has clicked "Send review" while
    * the draft contains at least one stale annotation — gates the inline
    * confirm banner instead of sending immediately. */
@@ -451,6 +457,7 @@ export class SourceControlDiffViewComponent {
     if (rows.length === 0) return;
 
     const lineNumbers = rows.map((r) => r.lineNumber).sort((a, b) => a - b);
+    this.commentError.set(null);
     this.pendingEditor.set({
       path,
       side: anchor.side,
@@ -464,6 +471,7 @@ export class SourceControlDiffViewComponent {
     const value = (event.target as HTMLTextAreaElement).value;
     const editor = this.pendingEditor();
     if (!editor) return;
+    this.commentError.set(null);
     this.pendingEditor.set({ ...editor, commentDraft: value });
   }
 
@@ -471,7 +479,14 @@ export class SourceControlDiffViewComponent {
     const editor = this.pendingEditor();
     const instanceId = this.instanceStore.selectedInstanceId();
     const comment = editor?.commentDraft.trim();
-    if (!editor || !instanceId || !comment) return;
+    if (!editor || !comment) {
+      this.commentError.set('Enter the comment first.');
+      return;
+    }
+    if (!instanceId) {
+      this.commentError.set('Select a session before adding a comment.');
+      return;
+    }
 
     this.draftStore.add(instanceId, {
       path: editor.path,

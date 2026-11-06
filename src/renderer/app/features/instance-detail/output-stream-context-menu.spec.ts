@@ -158,7 +158,7 @@ describe('buildFileMenuItems', () => {
     });
 
     expect(items.map((i) => i.label)).toEqual(['Copy path', 'Copy file', 'Open in Finder']);
-    expect(items.every((i) => !i.disabled)).toBe(true);
+    expect(items.every((i) => !i.disabled && !i.disabledReason)).toBe(true);
   });
 
   it('disables the file-touching entries when local file actions are unavailable', () => {
@@ -169,9 +169,9 @@ describe('buildFileMenuItems', () => {
     );
 
     // Copying the path text still works for a remote instance's files.
-    expect(items[0].disabled).toBeUndefined();
-    expect(items[1].disabled).toBe(true);
-    expect(items[2].disabled).toBe(true);
+    expect(items[0].disabledReason).toBeUndefined();
+    expect(items[1].disabledReason).toBe('This path is unavailable on this computer.');
+    expect(items[2].disabledReason).toBe('This path is unavailable on this computer.');
   });
 
   it('wires each entry to its own action', () => {

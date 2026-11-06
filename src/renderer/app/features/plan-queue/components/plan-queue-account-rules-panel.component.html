@@ -42,12 +42,12 @@
   }
 
   @if (problem(); as reason) {
-    <p class="pq-account-rules-error" role="alert">{{ reason }}</p>
+    <p class="pq-account-rules-error" id="pq-account-rules-error" role="alert">{{ reason }}</p>
   }
 
   <div class="pq-account-rules-actions">
-    <button type="button" class="pq-account-rules-save" [disabled]="!canSave()" (click)="save()">Save</button>
-    <button type="button" class="pq-account-rules-reset" [disabled]="!dirty() || saving()" (click)="resetToSaved()">Reset to saved</button>
+    <button type="button" class="pq-account-rules-save" [disabled]="saving()" [attr.aria-describedby]="problem() ? 'pq-account-rules-error' : null" [appTooltipDisabledReason]="problem() ? 'Fix the account rule error before saving.' : !dirty() ? 'There are no account rule changes to save.' : null" (click)="save()">{{ saving() ? 'Saving…' : 'Save' }}</button>
+    <button type="button" class="pq-account-rules-reset" [disabled]="saving()" [appTooltipDisabledReason]="!dirty() ? 'There are no account rule changes to reset.' : null" (click)="resetToSaved()">Reset to saved</button>
     @if (status(); as line) {
       @if (line.kind === 'success') {
         <span class="pq-account-rules-status pq-account-rules-status-ok" role="status">{{ line.text }}</span>

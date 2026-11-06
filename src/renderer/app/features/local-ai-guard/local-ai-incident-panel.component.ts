@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -28,6 +29,7 @@ const ACTION_LABELS: Record<LocalAiRepairAction, string> = {
 @Component({
   selector: 'app-local-ai-incident-panel',
   standalone: true,
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <article class="incident" [attr.data-severity]="incident().severity">
@@ -69,7 +71,7 @@ const ACTION_LABELS: Record<LocalAiRepairAction, string> = {
                   <button
                     type="button"
                     class="danger"
-                    [disabled]="isBusy() || !automaticRepairEnabled()"
+                    [disabled]="isBusy()" [appTooltipDisabledReason]="!automaticRepairEnabled() ? 'Enable automatic repair for this target first' : null"
                     (click)="requestAutomaticRestart()"
                   >Restart Ollama automatically</button>
                 }

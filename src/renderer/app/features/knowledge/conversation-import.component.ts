@@ -1,3 +1,5 @@
+import { KNOWLEDGE_ENTER_NAMESPACE } from './tooltip-copy-knowledge';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -20,7 +22,7 @@ interface ImportResult {
 @Component({
   selector: 'app-conversation-import',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="import-panel">
@@ -85,7 +87,7 @@ Answer 2"
           <button
             class="btn primary"
             type="button"
-            [disabled]="!textContent().trim() || !wing().trim() || !sourceName().trim() || store.loading()"
+            [disabled]="store.loading()" [appTooltipDisabledReason]="!textContent().trim() ? 'Paste conversation text first' : !wing().trim() ? tooltipEnterNamespace : !sourceName().trim() ? 'Enter a source name first' : null"
             (click)="importText()"
           >
             Import Text
@@ -99,7 +101,7 @@ Answer 2"
           <button
             class="btn primary"
             type="button"
-            [disabled]="!filePath().trim() || !wing().trim() || store.loading()"
+            [disabled]="store.loading()" [appTooltipDisabledReason]="!filePath().trim() ? 'Enter a file path first' : !wing().trim() ? tooltipEnterNamespace : null"
             (click)="importFile()"
           >
             Import File
@@ -329,6 +331,8 @@ Answer 2"
   `],
 })
 export class ConversationImportComponent implements OnDestroy {
+  protected readonly tooltipEnterNamespace = KNOWLEDGE_ENTER_NAMESPACE;
+
   protected store = inject(KnowledgeStore);
 
   protected mode = signal<'text' | 'file'>('text');

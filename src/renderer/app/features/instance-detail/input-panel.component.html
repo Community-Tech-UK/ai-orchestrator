@@ -229,8 +229,8 @@
           <span class="cmd-main">
             <span class="cmd-name">/{{ cmd.name }}</span>
             <span class="cmd-desc">{{ cmd.description }}</span>
-            @if (commandStore.commandEligibility(cmd).reason) {
-              <span class="cmd-disabled">{{ commandStore.commandEligibility(cmd).reason }}</span>
+            @if (eligibility.reason) {
+              <span class="cmd-disabled">{{ eligibility.reason }}</span>
             }
           </span>
           @if (cmd.usage || cmd.aliases?.length) {
@@ -306,7 +306,9 @@
 
   <!-- Input area -->
   <div class="input-row">
-    <div class="textarea-wrapper" [class.has-ghost]="showGhostText()">
+    <div class="textarea-wrapper" [class.has-ghost]="showGhostText()"
+      [attr.tabindex]="disabled() ? 0 : null"
+      [appTooltip]="disabled() ? disabledReason() : null">
       @if (showGhostText()) {
         <div class="ghost-text" aria-hidden="true">
           <span class="ghost-invisible">{{ message() }}</span><span class="ghost-visible">{{ ghostRemainder() }}</span>
@@ -362,7 +364,7 @@
               class="btn-wakeup"
               [class.active]="showWakeupMenu() || hasThreadWakeups()"
               (click)="onToggleWakeupMenu()"
-              appIconButton="Schedule thread wakeup"
+              appIconButton="Schedule session wakeup"
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                 <circle cx="12" cy="12" r="9"></circle>
@@ -476,7 +478,7 @@
             [disabled]="loopStarting() || submission.submitting()"
             [appTooltipDisabledReason]="sendDisabledReason() || (isInitializing() ? 'Wait for the session to start' : null)"
             (click)="onSteer()"
-            appTooltip="Steer current turn now"
+            [appTooltip]="copy('composer.steer')"
             [attr.aria-label]="loopStarting() ? 'Starting loop…' : submission.submitting() ? 'Sending…' : 'Steer current turn now'"
           >
             <svg class="steer-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -550,7 +552,7 @@
           [value]="temporaryVoiceKey()"
           (input)="temporaryVoiceKey.set($any($event.target).value)"
         >
-        <button type="submit" class="voice-key-btn" [disabled]="!temporaryVoiceKey().trim()">
+        <button type="submit" class="voice-key-btn" [appTooltipDisabledReason]="!temporaryVoiceKey().trim() ? 'Enter an API key first.' : null">
           Save
         </button>
         <button type="button" class="voice-key-btn secondary" (click)="onCancelVoiceKey()">

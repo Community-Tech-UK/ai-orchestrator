@@ -1,0 +1,19 @@
+{
+  "rules": {
+    "H11": {
+      "src/renderer/app/shared/tooltip/title-tooltip-bridge.ts": 1
+    }
+  },
+  "markers": {
+    "backdrop": {
+      "src/renderer/app/shared/components/node-picker/node-picker.component.ts": { "count": 1, "reason": "the picker scrim closes the node picker when clicked" },
+      "src/renderer/app/shared/components/recent-directories-dropdown/recent-directories-dropdown.component.ts": { "count": 1, "reason": "the dropdown scrim closes the directory dropdown when clicked" }
+    }
+  },
+  "unreadable": {
+    "src/renderer/app/shared/components/cost-estimator/cost-estimator.component.ts": 2,
+    "src/renderer/app/shared/components/node-picker/node-picker.component.ts": 1,
+    "src/renderer/app/shared/components/provider-quota-chip/provider-quota-chip.component.ts": 1,
+    "src/renderer/app/shared/glossary/glossary-term.component.ts": 1
+  }
+}

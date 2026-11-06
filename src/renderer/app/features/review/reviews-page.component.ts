@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 /**
  * Reviews Page
  * Container that wires review sessions to the review results UI.
@@ -39,7 +40,7 @@ const SEVERITY_ORDER: SeverityLevel[] = ['critical', 'high', 'medium', 'low', 'i
 @Component({
   selector: 'app-reviews-page',
   standalone: true,
-  imports: [CommonModule, ReviewResultsComponent],
+  imports: [CommonModule, ReviewResultsComponent, AioTooltipDirective],
   template: `
     <div class="page">
       <div class="page-header">
@@ -51,9 +52,9 @@ const SEVERITY_ORDER: SeverityLevel[] = ['critical', 'high', 'medium', 'low', 'i
 
       <div class="toolbar">
         <label class="field">
-          <span class="label">Instance</span>
+          <span class="label">Session</span>
           <select class="select" [value]="selectedInstanceId()" (change)="onInstanceChange($event)">
-            <option value="">Select instance</option>
+            <option value="">Select session</option>
             @for (instance of instances(); track instance.id) {
               <option [value]="instance.id">{{ instance.displayName }} ({{ instance.status }})</option>
             }
@@ -76,10 +77,10 @@ const SEVERITY_ORDER: SeverityLevel[] = ['critical', 'high', 'medium', 'low', 'i
         </label>
 
         <div class="actions">
-          <button class="btn primary" type="button" [disabled]="working() || !canStart()" (click)="startSession()">
+          <button class="btn primary" type="button" [disabled]="working()" [appTooltipDisabledReason]="!selectedInstanceId() ? 'Select a session first' : selectedAgentIds().size === 0 ? 'Select at least one review agent' : null" (click)="startSession()">
             Start Session
           </button>
-          <button class="btn" type="button" [disabled]="working() || !sessionId()" (click)="refreshSession()">
+          <button class="btn" type="button" [disabled]="working()" [appTooltipDisabledReason]="!sessionId() ? 'Start a review session first' : null" (click)="refreshSession()">
             Refresh
           </button>
         </div>
@@ -596,7 +597,7 @@ export class ReviewsPageComponent implements OnInit, OnDestroy {
   private async loadInstances(): Promise<void> {
     const response = await this.instanceIpc.listInstances();
     if (!response.success) {
-      this.errorMessage.set(response.error?.message || 'Failed to load instances.');
+      this.errorMessage.set(response.error?.message || 'Failed to load sessions.');
       return;
     }
 

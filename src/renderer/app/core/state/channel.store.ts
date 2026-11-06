@@ -115,7 +115,7 @@ export class ChannelStore implements OnDestroy {
         platform: response.platform,
         chatId: response.chatId,
         senderId: 'bot',
-        senderName: 'Orchestrator',
+        senderName: 'Harness',
         content: response.content,
         direction: 'outbound',
         instanceId: response.instanceId,

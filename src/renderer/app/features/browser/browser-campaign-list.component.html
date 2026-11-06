@@ -125,7 +125,7 @@
             <button
               class="btn small"
               type="button"
-              [disabled]="!isDeclarationHashValid(item.campaign.id)"
+              [disabled]="busy()"
               (click)="approveDeclaration(item.campaign.id)"
               aria-label="Approve campaign declaration"
             >

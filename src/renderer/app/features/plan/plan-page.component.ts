@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 /**
  * Plan Page
  * Container for plan mode control and review for agent instances.
@@ -35,14 +36,14 @@ interface PlanState {
 @Component({
   selector: 'app-plan-page',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, AioTooltipDirective],
   template: `
     <div class="page">
       <!-- Page header -->
       <div class="page-header">
         <div class="header-title">
           <span class="title">Plan Mode</span>
-          <span class="subtitle">Plan mode control and review for agent instances</span>
+          <span class="subtitle">Plan mode control and review for agent sessions</span>
         </div>
         <div class="header-actions">
           <button class="btn" type="button" [disabled]="busy()" (click)="refreshState()">
@@ -54,17 +55,17 @@ interface PlanState {
       <!-- Instance selector bar -->
       <div class="selector-bar">
         <label class="selector-field">
-          <span class="label">Instance ID</span>
+          <span class="label">Session ID</span>
           <input
             class="input"
             type="text"
             [value]="instanceIdInput()"
-            placeholder="Enter instance ID"
+            placeholder="Enter session ID"
             (input)="onInstanceIdInput($event)"
             (keydown.enter)="loadState()"
           />
         </label>
-        <button class="btn primary" type="button" [disabled]="busy() || !instanceIdInput().trim()" (click)="loadState()">
+        <button class="btn primary" type="button" [disabled]="busy()" [appTooltipDisabledReason]="!instanceIdInput().trim() ? 'Enter a session ID first' : null" (click)="loadState()">
           Load State
         </button>
       </div>
@@ -136,7 +137,7 @@ interface PlanState {
               @if (planState()!.mode === 'idle') {
                 <div class="plan-idle-area">
                   <div class="idle-description">
-                    <p>This instance is not currently in plan mode.</p>
+                    <p>This session is not currently in plan mode.</p>
                     <p>Enter plan mode to allow the agent to explore and draft a plan before implementing changes.</p>
                   </div>
                   <div class="panel-actions">
@@ -180,7 +181,7 @@ interface PlanState {
                 <button
                   class="btn full-width"
                   type="button"
-                  [disabled]="busy() || planState()!.mode !== 'idle'"
+                  [disabled]="busy()" [appTooltipDisabledReason]="planState()!.mode !== 'idle' ? 'Exit the current plan before starting another' : null"
                   (click)="enterPlanMode()"
                 >
                   Enter Plan Mode
@@ -188,7 +189,7 @@ interface PlanState {
                 <button
                   class="btn full-width"
                   type="button"
-                  [disabled]="busy() || planState()!.mode !== 'planning'"
+                  [disabled]="busy()" [appTooltipDisabledReason]="planState()!.mode !== 'planning' ? 'Enter plan mode before updating the plan' : null"
                   (click)="updatePlan()"
                 >
                   Update Plan
@@ -196,7 +197,7 @@ interface PlanState {
                 <button
                   class="btn success full-width"
                   type="button"
-                  [disabled]="busy() || planState()!.mode !== 'awaiting_approval'"
+                  [disabled]="busy()" [appTooltipDisabledReason]="planState()!.mode !== 'awaiting_approval' ? 'The plan must be waiting for approval first' : null"
                   (click)="approvePlan()"
                 >
                   Approve Plan
@@ -204,7 +205,7 @@ interface PlanState {
                 <button
                   class="btn danger full-width"
                   type="button"
-                  [disabled]="busy() || planState()!.mode === 'idle'"
+                  [disabled]="busy()" [appTooltipDisabledReason]="planState()!.mode === 'idle' ? 'This session is already outside plan mode' : null"
                   (click)="exitPlanMode()"
                 >
                   Exit Plan Mode
@@ -226,7 +227,7 @@ interface PlanState {
               <div class="panel-title">Metadata</div>
               <div class="meta-list">
                 <div class="meta-row">
-                  <span class="meta-key">Instance</span>
+                  <span class="meta-key">Session</span>
                   <span class="meta-value">{{ planState()!.instanceId }}</span>
                 </div>
                 @if (planState()!.enteredAt) {
@@ -270,8 +271,8 @@ interface PlanState {
 
       @if (!planState()) {
         <div class="empty-state">
-          <div class="empty-title">No instance loaded</div>
-          <div class="empty-desc">Enter an instance ID above and click "Load State" to begin.</div>
+          <div class="empty-title">No session loaded</div>
+          <div class="empty-desc">Enter a session ID above and click "Load State" to begin.</div>
         </div>
       }
 

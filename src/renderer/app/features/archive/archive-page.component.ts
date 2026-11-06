@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 /**
  * Archive Page
  * Container for viewing, searching, restoring, and deleting session archives.
@@ -29,7 +30,7 @@ interface ArchiveEntry {
 @Component({
   selector: 'app-archive-page',
   standalone: true,
-  imports: [CommonModule, AppIconButtonDirective],
+  imports: [CommonModule, AppIconButtonDirective, AioTooltipDirective],
   template: `
     <div class="page">
 
@@ -249,7 +250,7 @@ interface ArchiveEntry {
                   <button
                     class="btn btn-sm"
                     type="button"
-                    [disabled]="!newTagInput().trim()"
+                    [appTooltipDisabledReason]="!newTagInput().trim() ? 'Enter a tag first' : null"
                     (click)="addTag()"
                   >
                     Add

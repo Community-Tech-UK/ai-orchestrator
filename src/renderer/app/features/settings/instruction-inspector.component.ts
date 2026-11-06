@@ -1,3 +1,5 @@
+import { SETTINGS_TOOLTIP_COPY } from './settings-tooltip-copy';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -17,6 +19,7 @@ import type {
 @Component({
   selector: 'app-instruction-inspector',
   standalone: true,
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="instruction-panel">
@@ -26,10 +29,10 @@ import type {
           <div class="instruction-title">Resolved Instruction Stack</div>
         </div>
         <div class="instruction-actions">
-          <button class="btn" (click)="reloadInstructions()" [disabled]="instructionLoading() || !workingDirectory()">
+          <button class="btn" (click)="reloadInstructions()" [disabled]="instructionLoading()" [appTooltipDisabledReason]="!workingDirectory() ? tooltipCopy.instructionsNeedFolder : null">
             Refresh
           </button>
-          <button class="btn primary" (click)="generateInstructionDraft()" [disabled]="instructionLoading() || !workingDirectory()">
+          <button class="btn primary" (click)="generateInstructionDraft()" [disabled]="instructionLoading()" [appTooltipDisabledReason]="!workingDirectory() ? tooltipCopy.instructionsNeedFolder : null">
             Generate Draft
           </button>
           @if (instructionDraftPath()) {
@@ -365,6 +368,7 @@ import type {
   ]
 })
 export class InstructionInspectorComponent {
+  protected readonly tooltipCopy = SETTINGS_TOOLTIP_COPY;
   private ipc = inject(IpcFacadeService);
   private instructionIpc = inject(InstructionIpcService);
 

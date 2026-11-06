@@ -418,28 +418,40 @@ describe('VerificationDashboardComponent', () => {
       expect(activeTab?.textContent).toContain('Dashboard');
     });
 
-    it('should disable monitor tab when not running', () => {
-      const monitorTab = fixture.nativeElement.querySelectorAll('.tab-btn')[1];
-      expect(monitorTab?.disabled).toBe(true);
+    it('should keep monitor tab out of reach when not running', () => {
+      const monitorTab = fixture.nativeElement.querySelectorAll('.tab-btn')[1] as HTMLButtonElement;
+      expect(monitorTab.getAttribute('aria-disabled')).toBe('true');
+      monitorTab.click();
+      fixture.detectChanges();
+      expect(mockSelectedTab()).toBe('dashboard');
     });
 
-    it('should enable monitor tab when running', () => {
+    it('should enter monitor tab when running', () => {
       mockIsRunning.set(true);
       fixture.detectChanges();
-      const monitorTab = fixture.nativeElement.querySelectorAll('.tab-btn')[1];
-      expect(monitorTab?.disabled).toBe(false);
+      const monitorTab = fixture.nativeElement.querySelectorAll('.tab-btn')[1] as HTMLButtonElement;
+      expect(monitorTab.getAttribute('aria-disabled')).not.toBe('true');
+      monitorTab.click();
+      fixture.detectChanges();
+      expect(mockSelectedTab()).toBe('monitor');
     });
 
-    it('should disable results tab when no result', () => {
-      const resultsTab = fixture.nativeElement.querySelectorAll('.tab-btn')[2];
-      expect(resultsTab?.disabled).toBe(true);
+    it('should keep results tab out of reach when no result', () => {
+      const resultsTab = fixture.nativeElement.querySelectorAll('.tab-btn')[2] as HTMLButtonElement;
+      expect(resultsTab.getAttribute('aria-disabled')).toBe('true');
+      resultsTab.click();
+      fixture.detectChanges();
+      expect(mockSelectedTab()).toBe('dashboard');
     });
 
-    it('should enable results tab when result exists', () => {
+    it('should enter results tab when a result exists', () => {
       mockResult.set({ id: 'test' } as VerificationResult);
       fixture.detectChanges();
-      const resultsTab = fixture.nativeElement.querySelectorAll('.tab-btn')[2];
-      expect(resultsTab?.disabled).toBe(false);
+      const resultsTab = fixture.nativeElement.querySelectorAll('.tab-btn')[2] as HTMLButtonElement;
+      expect(resultsTab.getAttribute('aria-disabled')).not.toBe('true');
+      resultsTab.click();
+      fixture.detectChanges();
+      expect(mockSelectedTab()).toBe('results');
     });
 
     it('should show running indicator on monitor tab when running', () => {

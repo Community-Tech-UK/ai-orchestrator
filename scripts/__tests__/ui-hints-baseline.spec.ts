@@ -8,7 +8,7 @@ describe('committed UI hints records', () => {
   it('exactly match source counts and carry every active recorded sentence', () => {
     expect(analysis.counts['controls']).toBeGreaterThan(1000);
     expect(analysis.violations.filter(v => v.code === 'H12')).toEqual([]);
-    expect(compare(measure(analysis), readBaseline('scripts/ui-hints/baseline.json'))).toEqual([]);
+    expect(compare(measure(analysis), readBaseline('scripts/ui-hints/baseline'))).toEqual([]);
     expect(checkLedger(analysis, ledger)).toEqual([]); expect(ledger.length).toBeGreaterThan(50);
   });
   it('pins both real Close session consequences to their owner', () => {

@@ -9,8 +9,8 @@
     }
     <div class="actions">
       @if (need() === 'answer') {
-        <button type="button" [disabled]="busy() || !item().recommendedAnswer" (click)="act('use-suggestion')" [appTooltip]="copy('loop.question.useSuggestion')">Use suggestion</button>
-        <button type="button" [disabled]="busy() || !answerText().trim()" (click)="act('answer')" [appTooltip]="copy('loop.question.sendAnswer')">Send answer</button>
+        <button type="button" [disabled]="busy()" [appTooltipDisabledReason]="!item().recommendedAnswer ? 'There is no suggested answer for this question' : null" (click)="act('use-suggestion')" [appTooltip]="copy('loop.question.useSuggestion')">Use suggestion</button>
+        <button type="button" [disabled]="busy()" [appTooltipDisabledReason]="!answerText().trim() ? 'Type an answer first' : null" (click)="act('answer')" [appTooltip]="copy('loop.question.sendAnswer')">Send answer</button>
         <button type="button" [disabled]="busy()" (click)="act('dismiss')" [appTooltip]="copy('loop.question.notNeeded')">Not needed</button>
       } @else if (need() === 'applied') {
         <button type="button" [disabled]="busy()" (click)="act('keep')" [appTooltip]="copy('loop.question.looksRight')">Looks right</button>

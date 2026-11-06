@@ -69,6 +69,26 @@ describe('ModelsPageComponent', () => {
     expect(verifyAllButton?.textContent).toContain('Verify all');
   });
 
+  it.each([
+    ['.verify-all-btn', 'verifyAllVisibleModels', 'There are no models to verify.'],
+    ['.override-actions button', 'setOverride', 'Enter a model ID first.'],
+  ] as const)('explains the lasting disabled state of %s on focus', async (selector, action, reason) => {
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const button = fixture.nativeElement.querySelector(selector) as HTMLButtonElement;
+    const handler = vi.spyOn(component, action);
+    const matches = button.matches.bind(button);
+    vi.spyOn(button, 'matches').mockImplementation(value => value === ':focus-visible' || matches(value));
+    button.focus();
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(button);
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    expect(document.getElementById(button.getAttribute('aria-describedby')!)?.textContent).toContain(reason);
+    button.click();
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   it('verifies visible models and lists the ones that do not pass', async () => {
     component.activeProvider.set('claude');
     component.models.set([

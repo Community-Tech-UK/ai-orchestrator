@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { Component } from '@angular/core';
+import { Component, signal } from '@angular/core';
 import { By } from '@angular/platform-browser';
 import { CdkConnectedOverlay } from '@angular/cdk/overlay';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
@@ -10,7 +10,7 @@ import { ContextMenuComponent, type ContextMenuItem } from './context-menu.compo
   imports: [ContextMenuComponent],
   template: `
     <app-context-menu
-      [items]="items"
+      [items]="items()"
       [x]="x"
       [y]="y"
       [visible]="visible"
@@ -19,7 +19,7 @@ import { ContextMenuComponent, type ContextMenuItem } from './context-menu.compo
   `,
 })
 class ContextMenuHostComponent {
-  items: ContextMenuItem[] = [];
+  items = signal<ContextMenuItem[]>([]);
   x = 12;
   y = 16;
   visible = true;
@@ -42,7 +42,7 @@ describe('ContextMenuComponent', () => {
   });
 
   function render(items: ContextMenuItem[], options: { x?: number; y?: number; visible?: boolean } = {}): void {
-    fixture.componentInstance.items = items;
+    fixture.componentInstance.items.set(items);
     fixture.componentInstance.x = options.x ?? 12;
     fixture.componentInstance.y = options.y ?? 16;
     fixture.componentInstance.visible = options.visible ?? true;
@@ -110,4 +110,28 @@ describe('ContextMenuComponent', () => {
     expect(overlay.flexibleDimensions).toBe(false);
     expect(overlay.push).toBe(true);
   });
+  it('keeps a lasting blocked item focusable with its actual reason and recovers', () => {
+    const action = vi.fn();
+    render([{ id: 'copy', label: 'Copy file', disabledReason: 'This file is on a remote computer.', action }]);
+    const button = renderedMenu()!.querySelector('button')!;
+    expect(button.disabled).toBe(false);
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    // jsdom needs the keyboard-focus selector supplied explicitly.
+    vi.spyOn(button, 'matches').mockImplementation(selector => selector === ':focus-visible');
+    button.focus();
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(button);
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('This file is on a remote computer.');
+    button.click();
+    expect(action).not.toHaveBeenCalled();
+    expect(fixture.componentInstance.closed).not.toHaveBeenCalled();
+    render([{ id: 'copy', label: 'Copy file', action }]);
+    // The CDK portal is attached to the application, outside the fixture view.
+    TestBed.tick();
+    const recovered = renderedMenu()!.querySelector('button')!;
+    expect(recovered.hasAttribute('aria-disabled')).toBe(false);
+    recovered.click();
+    expect(action).toHaveBeenCalledOnce();
+  });
+
 });

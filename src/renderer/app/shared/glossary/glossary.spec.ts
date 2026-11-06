@@ -2,15 +2,24 @@ import { describe, expect, it } from 'vitest';
 import { UI_TERMS } from '../../../../shared/copy/ui-vocabulary';
 import { CONTROL_SURFACES } from '../control-surface/control-surface.registry';
 import { CONTROL_SURFACE_HELP } from '../help/control-surface-help';
-import { GLOSSARY, GLOSSARY_PATTERNS, type GlossaryEntry } from './glossary';
+import { GLOSSARY, GLOSSARY_PATTERNS, type GlossaryEntry } from '../../../../shared/glossary/glossary';
 
 describe('Glossary', () => {
-  it('has useful, unambiguous entries using the canonical vocabulary', () => {
-    expect(Object.keys(GLOSSARY)).toHaveLength(31);
+  it('supplies every vocabulary mapping from the authored glossary entry', () => {
+    for (const term of UI_TERMS) {
+      const entry = (GLOSSARY as Record<string, GlossaryEntry>)[term.id];
+      expect(entry, term.id).toBeDefined();
+      expect(term.use).toBe(entry.label);
+      expect(term.meaning).toBe(entry.plain);
+    }
+  });
+  it('has useful, unambiguous entries including every canonical vocabulary term', () => {
+    expect(Object.keys(GLOSSARY)).toHaveLength(47);
     const names = new Set<string>();
     for (const entry of Object.values(GLOSSARY) as GlossaryEntry[]) {
       expect(entry.plain.trim().length).toBeGreaterThan(0);
       expect(entry.plain.split(/\s+/).length).toBeLessThanOrEqual(30);
+      expect(entry.group.trim().length).toBeGreaterThan(0);
       if (entry.term) expect(UI_TERMS.some(term => term.id === entry.term)).toBe(true);
       for (const term of UI_TERMS) {
         for (const pattern of term.never) {
@@ -22,10 +31,10 @@ describe('Glossary', () => {
         expect(names.has(name.toLowerCase()), name).toBe(false);
         names.add(name.toLowerCase());
       }
-      if (entry.learnMore && 'surface' in entry.learnMore) {
-        const target = entry.learnMore;
-        expect(CONTROL_SURFACES.some(surface => surface.id === target.surface)).toBe(true);
-        expect(CONTROL_SURFACE_HELP[target.surface]).toBeDefined();
+      if (entry.learnMore && entry.learnMore.surface) {
+        const surface = entry.learnMore.surface as keyof typeof CONTROL_SURFACE_HELP;
+        expect(CONTROL_SURFACES.some(candidate => candidate.id === surface)).toBe(true);
+        expect(CONTROL_SURFACE_HELP[surface]).toBeDefined();
       }
     }
   });

@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 /**
  * Editor Page
  * External editor integration — configure preferred editor, open files, and
@@ -61,7 +62,7 @@ function editorIcon(id: string): string {
 @Component({
   selector: 'app-editor-page',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page">
@@ -180,7 +181,7 @@ function editorIcon(id: string): string {
               <button
                 class="btn"
                 type="button"
-                [disabled]="working() || !openFilePath()"
+                [disabled]="working()" [appTooltipDisabledReason]="!openFilePath() ? 'Enter a file path first' : null"
                 (click)="openFile()"
               >
                 Open

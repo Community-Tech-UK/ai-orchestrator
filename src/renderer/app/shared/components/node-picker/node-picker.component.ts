@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../tooltip/aio-tooltip.directive';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -13,7 +14,6 @@ import { isRemoteNodeOnline } from '../../../core/state/remote-node-connectivity
 import type { ModelRuntimeTarget } from '../../../../../shared/types/local-model-runtime.types';
 import type { RemoteNodeRosterEntry } from '../../../../../shared/types/worker-node.types';
 import { formatRemoteNodePlatformLabel } from '../../remote-node-display';
-import { AioTooltipDirective } from '../../tooltip/aio-tooltip.directive';
 
 @Component({
   standalone: true,
@@ -238,6 +238,10 @@ export class NodePickerComponent {
   }
 
   selectNode(nodeId: string | null): void {
+    if (nodeId) {
+      const node = this.nodeStore.nodeById(nodeId);
+      if (!node || !this.isNodeSelectable(node)) return;
+    }
     this.nodeSelected.emit(nodeId);
     this.isOpen.set(false);
   }

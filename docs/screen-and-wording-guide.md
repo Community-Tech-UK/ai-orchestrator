@@ -15,7 +15,7 @@ Tokens and layout live in `docs/shell-component-standards.md`; this page owns wo
 - Remove introductory copy when the title, control or nearby status already explains the task. Keep text that
   changes a decision, explains a failure or gives a required next step.
 - Settings names describe what the user wants done. A word that needs explaining gets an entry in GLOSSARY
-  (`src/renderer/app/shared/glossary/glossary.ts`) and an `<app-term>` on its first use.
+  (`src/shared/glossary/glossary.ts`) and an `<app-term>` on its first use.
   Inside another control, use `termTooltip()` instead of nesting a button.
 
 ## 2. Status

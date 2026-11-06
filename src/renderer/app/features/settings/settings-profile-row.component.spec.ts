@@ -69,9 +69,14 @@ describe('SettingsProfileRowComponent (S4.1)', () => {
   });
 
   it('disables the profile that is already active', () => {
-    const { fixture } = mount();
+    const { fixture, update } = mount();
     const [, interactive] = buttons(fixture);
-    expect(interactive!.disabled).toBe(true);
+    expect(interactive!.disabled).toBe(false);
+    expect(interactive!.getAttribute('aria-disabled')).toBe('true');
+    interactive!.focus();
+    expect(document.activeElement).toBe(interactive);
+    interactive!.click();
+    expect(update).not.toHaveBeenCalled();
   });
 
   it('reports a hand-tuned mix as custom rather than naming a profile', () => {

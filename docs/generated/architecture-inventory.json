@@ -6399,7 +6399,7 @@
     },
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
-      "lines": 1959
+      "lines": 1961
     },
     {
       "path": "src/worker-agent/__tests__/worker-agent.spec.ts",
@@ -6442,12 +6442,12 @@
       "lines": 1803
     },
     {
-      "path": "src/main/session/session-continuity.ts",
-      "lines": 1764
+      "path": "src/renderer/app/features/browser/browser-page.component.spec.ts",
+      "lines": 1796
     },
     {
-      "path": "src/renderer/app/features/browser/browser-page.component.spec.ts",
-      "lines": 1757
+      "path": "src/main/session/session-continuity.ts",
+      "lines": 1764
     },
     {
       "path": "src/main/history/history-manager.ts",
@@ -6526,11 +6526,11 @@
       "lines": 1475
     },
     {
-      "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
-      "lines": 1466
+      "path": "src/main/browser-gateway/browser-extension-origin-bound-secret.spec.ts",
+      "lines": 1465
     },
     {
-      "path": "src/main/browser-gateway/browser-extension-origin-bound-secret.spec.ts",
+      "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
       "lines": 1465
     },
     {
@@ -6646,11 +6646,11 @@
       "lines": 1319
     },
     {
-      "path": "src/main/instance/auto-title-service.spec.ts",
-      "lines": 1315
+      "path": "src/renderer/app/features/knowledge/knowledge-page.component.ts",
+      "lines": 1319
     },
     {
-      "path": "src/renderer/app/features/knowledge/knowledge-page.component.ts",
+      "path": "src/main/instance/auto-title-service.spec.ts",
       "lines": 1315
     },
     {
@@ -6798,6 +6798,10 @@
       "lines": 1197
     },
     {
+      "path": "src/renderer/app/features/instance-detail/user-action-request.component.spec.ts",
+      "lines": 1193
+    },
+    {
       "path": "src/main/local-ai-guard/local-ai-health-engine.spec.ts",
       "lines": 1191
     },
@@ -6815,10 +6819,6 @@
     },
     {
       "path": "docs/superpowers/plans/2026-07-26-local-ai-guard_plan_completed.md",
-      "lines": 1181
-    },
-    {
-      "path": "src/renderer/app/features/instance-detail/user-action-request.component.spec.ts",
       "lines": 1181
     },
     {
@@ -6938,6 +6938,10 @@
       "lines": 1104
     },
     {
+      "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
+      "lines": 1088
+    },
+    {
       "path": "src/main/browser-gateway/puppeteer-browser-driver.spec.ts",
       "lines": 1087
     },
@@ -6952,10 +6956,6 @@
     {
       "path": "src/main/context/__tests__/context-compactor.spec.ts",
       "lines": 1080
-    },
-    {
-      "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
-      "lines": 1079
     },
     {
       "path": "claude_oct-todo.md",
@@ -6983,7 +6983,7 @@
     },
     {
       "path": "src/renderer/app/features/archive/archive-page.component.ts",
-      "lines": 1042
+      "lines": 1043
     },
     {
       "path": "src/main/cli/adapters/base-cli-adapter.ts",
@@ -7019,11 +7019,11 @@
     },
     {
       "path": "src/renderer/app/features/plan/plan-page.component.ts",
-      "lines": 1015
+      "lines": 1016
     },
     {
       "path": "src/renderer/app/features/logs/logs-page.component.ts",
-      "lines": 1004
+      "lines": 1005
     },
     {
       "path": "src/renderer/app/features/file-explorer/file-explorer.component.ts",
@@ -7146,16 +7146,16 @@
       "lines": 953
     },
     {
-      "path": "src/renderer/app/features/tasks/tasks-page.component.ts",
-      "lines": 952
-    },
-    {
       "path": "src/main/chats/chat-service.ts",
       "lines": 951
     },
     {
       "path": "src/main/instance/instance-announce-then-halt-continuation.spec.ts",
       "lines": 950
+    },
+    {
+      "path": "src/renderer/app/features/tasks/tasks-page.component.ts",
+      "lines": 947
     },
     {
       "path": "src/worker-agent/provider-runtime-diagnostics.spec.ts",
@@ -7171,7 +7171,7 @@
     },
     {
       "path": "src/renderer/app/features/editor/editor-page.component.ts",
-      "lines": 937
+      "lines": 938
     },
     {
       "path": "docs/WORKER_AGENT_SETUP.md",
@@ -7214,6 +7214,10 @@
       "lines": 913
     },
     {
+      "path": "src/renderer/app/features/verification/dashboard/verification-dashboard.component.spec.ts",
+      "lines": 913
+    },
+    {
       "path": "src/main/browser-gateway/browser-gateway-reload-no-effect.spec.ts",
       "lines": 911
     },
@@ -7224,10 +7228,6 @@
     {
       "path": "src/preload/domains/orchestration.preload.ts",
       "lines": 911
-    },
-    {
-      "path": "src/renderer/app/features/verification/dashboard/verification-dashboard.component.spec.ts",
-      "lines": 901
     },
     {
       "path": "docs/superpowers/plans/2026-04-09-remote-session-latency_completed.md",
@@ -7243,6 +7243,10 @@
     },
     {
       "path": "src/renderer/app/features/replay/session-replay-page.component.ts",
+      "lines": 900
+    },
+    {
+      "path": "src/renderer/app/features/plan-queue/components/plan-queue-routing-panel.component.spec.ts",
       "lines": 899
     },
     {
@@ -7258,15 +7262,15 @@
       "lines": 892
     },
     {
+      "path": "src/renderer/app/features/verification/config/verification-preferences.component.ts",
+      "lines": 889
+    },
+    {
       "path": "benchmarks/external-benchmarks/swe-bench/runner.ts",
       "lines": 888
     },
     {
       "path": "docs/superpowers/specs/2026-05-04-global-operator-control-plane-design_superseded.md",
-      "lines": 888
-    },
-    {
-      "path": "src/renderer/app/features/verification/config/verification-preferences.component.ts",
       "lines": 888
     },
     {
@@ -7295,6 +7299,10 @@
     },
     {
       "path": "docs/plans/2026-10-10-oct-phase4c-tooltips-finish_plan_completed.md",
+      "lines": 874
+    },
+    {
+      "path": "src/renderer/app/features/rlm/context-browser/context-query-panel.component.ts",
       "lines": 874
     },
     {
@@ -7359,7 +7367,7 @@
     },
     {
       "path": "src/renderer/app/features/semantic-search/semantic-search-page.component.ts",
-      "lines": 854
+      "lines": 855
     },
     {
       "path": "src/renderer/app/features/stats/stats-page.component.ts",
@@ -7422,19 +7430,11 @@
       "lines": 837
     },
     {
-      "path": "src/renderer/app/features/rlm/context-browser/context-query-panel.component.ts",
-      "lines": 837
-    },
-    {
       "path": "src/shared/types/history.types.spec.ts",
       "lines": 837
     },
     {
       "path": "src/renderer/app/features/instance-detail/composer-toolbar.component.spec.ts",
-      "lines": 835
-    },
-    {
-      "path": "src/renderer/app/features/plan-queue/components/plan-queue-routing-panel.component.spec.ts",
       "lines": 835
     },
     {

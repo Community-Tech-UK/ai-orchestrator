@@ -108,6 +108,7 @@ function newCampaignId(): string {
   styleUrl: './campaign-page.component.scss',
 })
 export class CampaignPageComponent implements OnInit {
+
   protected readonly NODE_W = NODE_W;
   protected readonly NODE_H = NODE_H;
   protected readonly terminalStatuses = TERMINAL_STATUSES;
@@ -153,7 +154,6 @@ export class CampaignPageComponent implements OnInit {
   private drag = signal<DragState | null>(null);
 
   selectedNode = computed(() => this.nodeFor(this.selectedNodeId()) ?? this.nodes()[0]);
-  canRun = computed(() => this.localValidationErrors().length === 0);
 
 
   ngOnInit(): void {

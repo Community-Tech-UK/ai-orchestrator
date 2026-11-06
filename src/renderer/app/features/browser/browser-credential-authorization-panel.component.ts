@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -25,7 +26,7 @@ function blankOriginRow(): CredentialAuthorizationOrigin {
 @Component({
   selector: 'app-browser-credential-authorization-panel',
   standalone: true,
-  imports: [],
+  imports: [AioTooltipDirective],
   templateUrl: './browser-credential-authorization-panel.component.html',
   styleUrl: './browser-credential-authorization-panel.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

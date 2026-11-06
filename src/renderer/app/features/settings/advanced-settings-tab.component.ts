@@ -323,7 +323,7 @@ interface AdvancedSectionView {
                 (click)="doResetAll()"
                 [disabled]="exportImportWorking()"
               >
-                Reset all
+                Reset all settings
               </button>
             </div>
           </div>

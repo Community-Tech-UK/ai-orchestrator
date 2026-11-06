@@ -12,6 +12,7 @@ import type { AppSettings } from '../../../../shared/types/settings.types';
 import { SourceControlStore } from '../../core/state/source-control.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { VcsIpcService } from '../../core/services/ipc/vcs-ipc.service';
+import { KeybindingService } from '../../core/services/keybinding.service';
 import { SourceControlRepoActionsComponent } from './source-control-repo-actions.component';
 import type { RepoState } from './source-control.types';
 
@@ -62,6 +63,8 @@ describe('SourceControlRepoActionsComponent — LT-138 PR-creation opt-in', () =
 
   beforeEach(() => {
     vi.clearAllMocks();
+    sourceControlStore.getCommitMessage.mockReturnValue('');
+    sourceControlStore.isWriting.mockReturnValue(false);
     settingsStore.settings.mockReturnValue({ allowPrCreation: {} });
     TestBed.configureTestingModule({
       imports: [SourceControlRepoActionsComponent],
@@ -69,6 +72,7 @@ describe('SourceControlRepoActionsComponent — LT-138 PR-creation opt-in', () =
         { provide: SourceControlStore, useValue: sourceControlStore },
         { provide: VcsIpcService, useValue: vcs },
         { provide: SettingsStore, useValue: settingsStore },
+        { provide: KeybindingService, useValue: { onAction: vi.fn(() => vi.fn()), formatBindingByAction: vi.fn(() => 'Enter'), ariaShortcutsByAction: vi.fn(() => 'Enter') } },
       ],
     });
     fixture = TestBed.createComponent(SourceControlRepoActionsComponent);
@@ -88,18 +92,18 @@ describe('SourceControlRepoActionsComponent — LT-138 PR-creation opt-in', () =
     return box as HTMLInputElement;
   }
 
-  it('keeps up-to-date Pull and Push focusable with reasons and blocks activation', () => {
+  it('keeps Pull and Push available when cached counts show no commits', () => {
     const buttons = fixture.debugElement.queryAll(By.css('.sync-row > .action-btn'));
     const pull = buttons[1];
     const push = buttons[2];
     expect((pull.nativeElement as HTMLButtonElement).disabled).toBe(false);
-    expect(pull.nativeElement.getAttribute('aria-disabled')).toBe('true');
-    expect(pull.injector.get(AioTooltipDirective, null)?.appTooltipDisabledReason()).toBe('Nothing to pull (up to date)');
-    expect(push.injector.get(AioTooltipDirective, null)?.appTooltipDisabledReason()).toBe('Nothing to push');
+    expect(pull.nativeElement.getAttribute('aria-disabled')).toBeNull();
+    expect(pull.injector.get(AioTooltipDirective).appTooltip()).toBe('Pull from upstream (fast-forward only)');
+    expect(push.injector.get(AioTooltipDirective).appTooltip()).toBe('Push to upstream');
     pull.nativeElement.click();
     push.nativeElement.click();
-    expect(sourceControlStore.pull).not.toHaveBeenCalled();
-    expect(sourceControlStore.push).not.toHaveBeenCalled();
+    expect(sourceControlStore.pull).toHaveBeenCalledExactlyOnceWith(REPO_A);
+    expect(sourceControlStore.push).toHaveBeenCalledExactlyOnceWith(REPO_A);
   });
 
   it('shows upstream synchronization consequences beside the buttons', () => {
@@ -177,4 +181,48 @@ describe('SourceControlRepoActionsComponent — LT-138 PR-creation opt-in', () =
     expect(settingsStore.set).toHaveBeenCalledTimes(1);
     expect(prCheckbox().checked).toBe(true);
   });
+  it.each([
+    ['Commit', 'Enter a commit message first.', 'commit'],
+  ] as const)('keeps blocked %s focusable, explains the cause, blocks activation and recovers', (label, reason, action) => {
+    const button = (Array.from(fixture.nativeElement.querySelectorAll('button')) as HTMLButtonElement[])
+      .find(item => item.textContent?.trim().startsWith(label))!;
+    expect(button.disabled).toBe(false);
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    // jsdom needs the keyboard-focus selector supplied explicitly.
+    vi.spyOn(button, 'matches').mockImplementation(selector => selector === ':focus-visible');
+    button.focus();
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(button);
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain(reason);
+    button.click();
+    expect(sourceControlStore[action]).not.toHaveBeenCalled();
+    sourceControlStore.getCommitMessage.mockReturnValue('Save changes');
+    const repo = repoState(REPO_A);
+    repo.status = { ...repo.status!, ahead: 1, behind: 1 };
+    fixture.componentRef.setInput('repo', repo);
+    fixture.detectChanges();
+    expect(button.hasAttribute('aria-disabled')).toBe(false);
+    button.click();
+    expect(sourceControlStore[action]).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a short repository write natively disabled', () => {
+    sourceControlStore.isWriting.mockReturnValue(true);
+    fixture.componentRef.setInput('repo', repoState(REPO_A));
+    fixture.detectChanges();
+    const buttons = Array.from(fixture.nativeElement.querySelectorAll('.action-btn')) as HTMLButtonElement[];
+    expect(buttons.every(button => button.disabled)).toBe(true);
+  });
+
+  it('lets Pull and Push use the existing operation and error path even when the last reported counts are zero', () => {
+    for (const label of ['Pull', 'Push'] as const) {
+      const button = (Array.from(fixture.nativeElement.querySelectorAll('button')) as HTMLButtonElement[])
+        .find(item => item.textContent?.trim() === label)!;
+      expect(button.disabled).toBe(false);
+      expect(button.hasAttribute('aria-disabled')).toBe(false);
+      button.click();
+      expect(sourceControlStore[label === 'Pull' ? 'pull' : 'push']).toHaveBeenCalledWith(REPO_A);
+    }
+  });
+
 });

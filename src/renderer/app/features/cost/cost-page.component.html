@@ -133,7 +133,7 @@
                 <td>{{ formatUsage(row.helpers.tokens.total) }} @if (row.helpers.tokens.estimated) { <span>Includes estimates</span> }</td>
                 <td>{{ formatUsage(row.compactions) }}</td><td>{{ (row.durationMs / 1000).toFixed(1) }} s</td>
                 <td><details><summary>Details</summary>
-                  <dl><dt>Thread</dt><dd>{{ row.threadId }}</dd><dt>Session</dt><dd>{{ row.instanceId ?? 'Unavailable' }}</dd>
+                  <dl><dt>Conversation ID</dt><dd>{{ row.threadId }}</dd><dt>Session</dt><dd>{{ row.instanceId ?? 'Unavailable' }}</dd>
                     <dt>Job</dt><dd>{{ row.jobId ?? 'Unavailable' }}</dd><dt>Kind</dt><dd>{{ row.kind }}</dd>
                     <dt>Trial group (hashed)</dt><dd>{{ row.trialKey ?? 'Unavailable' }}</dd><dt>Trial arm</dt><dd>{{ row.trialArm }}</dd>
                     <dt>Session tokens (excluding helpers)</dt><dd>{{ formatUsage(row.tokens.total) }}</dd>
@@ -290,8 +290,8 @@
             <tr>
               <th>Timestamp</th>
               <th>Model</th>
-              <th class="truncate-col">Instance ID</th>
               <th class="truncate-col">Session ID</th>
+              <th class="truncate-col">Provider session ID</th>
               <th class="num-col">Input Tokens</th>
               <th class="num-col">Output Tokens</th>
               <th class="num-col">Cost</th>

@@ -35,7 +35,7 @@ import { formatRemoteNodePlatformLabel } from '../../shared/remote-node-display'
           </div>
         }
         <div class="metric">
-          <span class="metric-label">Instances</span>
+          <span class="metric-label">Sessions</span>
           <span class="metric-value">{{ node().activeInstances }} / {{ node().capabilities.maxConcurrentInstances }}</span>
         </div>
         @if (node().latencyMs !== undefined) {

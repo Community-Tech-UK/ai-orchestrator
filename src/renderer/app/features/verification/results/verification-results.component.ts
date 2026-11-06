@@ -34,6 +34,7 @@ type ResultTab = 'summary' | 'comparison' | 'debate' | 'raw' | 'export';
   styleUrl: './verification-results.component.scss',
 })
 export class VerificationResultsComponent {
+
   store = inject(VerificationStore);
   private clipboard = inject(CLIPBOARD_SERVICE);
 

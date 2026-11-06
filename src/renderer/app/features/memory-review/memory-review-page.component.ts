@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -19,6 +20,7 @@ const DEFAULT_ACTOR = 'james';
 @Component({
   selector: 'app-memory-review-page',
   standalone: true,
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page">
@@ -142,7 +144,7 @@ const DEFAULT_ACTOR = 'james';
                   <button
                     type="button"
                     class="btn primary"
-                    [disabled]="store.busy() || editText().trim().length === 0"
+                    [disabled]="store.busy()" [appTooltipDisabledReason]="editText().trim().length === 0 ? 'Enter the replacement text first' : null"
                     (click)="confirmEditApprove(proposal)"
                   >
                     Save &amp; approve
@@ -301,6 +303,7 @@ const DEFAULT_ACTOR = 'james';
   `],
 })
 export class MemoryReviewPageComponent implements OnInit {
+
   readonly store = inject(MemoryReviewStore);
 
   readonly editingId = signal<string | null>(null);

@@ -165,8 +165,8 @@ import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directi
           class="rail-btn"
           appTooltipPosition="after"
           (click)="historyClicked.emit()"
-          appTooltip="Session history" appTooltipShortcut="toggle-history"
-          aria-label="History"
+          appIconButton="History"
+          appTooltipShortcut="toggle-history"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M3 3v5h5" /><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" /><path d="M12 7.5v5l4 2" />
@@ -178,8 +178,8 @@ import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directi
           class="rail-btn"
           appTooltipPosition="after"
           (click)="settingsClicked.emit()"
-          appTooltip="Settings" appTooltipShortcut="toggle-settings"
-          aria-label="Settings"
+          appIconButton="Settings"
+          appTooltipShortcut="toggle-settings"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="3" />
@@ -248,7 +248,7 @@ export class WorkspaceRailComponent {
     {
       id: 'clear-notifications',
       label: 'Clear notifications',
-      disabled: this.unreadAutomations() === 0,
+      disabledReason: this.unreadAutomations() === 0 ? 'There are no unread automation notices.' : undefined,
       action: () => void this.automationStore.markAllSeen(),
     },
   ]);
@@ -276,7 +276,7 @@ export class WorkspaceRailComponent {
     });
     return items.length > 0
       ? items
-      : [{ id: 'no-side-chat-activity', label: 'No sidechat activity', disabled: true, action: () => undefined }];
+      : [{ id: 'no-side-chat-activity', label: 'No sidechat activity', disabledReason: 'No sidechat needs attention right now.', action: () => undefined }];
   });
 
   protected onAutomationsContextMenu(event: MouseEvent): void {

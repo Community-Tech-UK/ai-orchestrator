@@ -1,5 +1,5 @@
 import type { ControlSurfaceId } from '../control-surface/control-surface.types';
-import type { GlossaryTermId } from '../glossary/glossary';
+import type { GlossaryTermId } from '../../../../shared/glossary/glossary';
 import { CONTROL_SURFACE_HELP } from './control-surface-help';
 import { getControlSurface } from '../control-surface/control-surface-nav';
 import { HELP_TOPICS, type HelpTopicId } from './help-topics';

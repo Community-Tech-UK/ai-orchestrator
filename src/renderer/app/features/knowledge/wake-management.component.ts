@@ -45,7 +45,7 @@ import { copyFor } from '../../shared/tooltip/tooltip-copy';
               <span class="muted">{{ identityDraft().length }}/500</span>
               <button class="btn primary" type="button"
                 [appTooltip]="copyFor('memory.saveIdentity')"
-                [disabled]="!identityDraft().trim() || store.loading()"
+                [disabled]="store.loading()" [appTooltipDisabledReason]="!identityDraft().trim() ? 'Enter the identity text first' : null"
                 (click)="saveIdentity()">
                 Save description
               </button>
@@ -126,7 +126,7 @@ import { copyFor } from '../../shared/tooltip/tooltip-copy';
               <div class="field" style="justify-content: flex-end;">
                 <button class="btn primary" type="button"
                   [appTooltip]="copyFor('memory.addNote')"
-                  [disabled]="!newHintContent().trim() || store.loading()"
+                  [disabled]="store.loading()" [appTooltipDisabledReason]="!newHintContent().trim() ? 'Enter the note text first' : null"
                   (click)="addHint()">
                   Add
                 </button>

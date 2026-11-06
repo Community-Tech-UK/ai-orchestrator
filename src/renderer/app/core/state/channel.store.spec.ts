@@ -142,7 +142,7 @@ describe('ChannelStore', () => {
         platform: 'discord',
         chatId: 'chat-1',
         senderId: 'bot',
-        senderName: 'Orchestrator',
+        senderName: 'Harness',
         content: 'Done.',
         direction: 'outbound',
         instanceId: 'instance-1',

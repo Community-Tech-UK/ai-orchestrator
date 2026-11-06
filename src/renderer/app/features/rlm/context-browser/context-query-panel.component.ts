@@ -37,7 +37,7 @@ export interface SavedQueryTemplate {
               class="query-type-btn"
               [class.active]="selectedQueryType() === type"
               (click)="selectQueryType(type)"
-              [disabled]="!hasSession()"
+              [appTooltipDisabledReason]="!hasSession() ? 'Start a context session first.' : null"
             >
               {{ type }}
             </button>
@@ -56,7 +56,7 @@ export interface SavedQueryTemplate {
                 placeholder="Search pattern..."
                 [value]="pattern()"
                 (input)="updateQueryParam('pattern', $event)"
-                [disabled]="!hasSession()"
+                [appTooltipDisabledReason]="!hasSession() ? 'Start a context session first.' : null"
               />
               <span class="form-label">Max Results</span>
               <input
@@ -64,7 +64,7 @@ export interface SavedQueryTemplate {
                 class="query-input small"
                 [value]="maxResults()"
                 (input)="updateQueryParam('maxResults', $event)"
-                [disabled]="!hasSession()"
+                [appTooltipDisabledReason]="!hasSession() ? 'Start a context session first.' : null"
               />
             </div>
           }
@@ -76,7 +76,7 @@ export interface SavedQueryTemplate {
                 class="query-input"
                 [value]="start()"
                 (input)="updateQueryParam('start', $event)"
-                [disabled]="!hasSession()"
+                [appTooltipDisabledReason]="!hasSession() ? 'Start a context session first.' : null"
               />
               <span class="form-label">End Offset</span>
               <input
@@ -84,7 +84,7 @@ export interface SavedQueryTemplate {
                 class="query-input"
                 [value]="end()"
                 (input)="updateQueryParam('end', $event)"
-                [disabled]="!hasSession()"
+                [appTooltipDisabledReason]="!hasSession() ? 'Start a context session first.' : null"
               />
             </div>
           }
@@ -96,7 +96,7 @@ export interface SavedQueryTemplate {
                 placeholder="Enter your sub-query prompt..."
                 [value]="prompt()"
                 (input)="updateQueryParam('prompt', $event)"
-                [disabled]="!hasSession()"
+                [appTooltipDisabledReason]="!hasSession() ? 'Start a context session first.' : null"
               ></textarea>
               <span class="form-label">Context Hints (comma-separated)</span>
               <input
@@ -105,7 +105,7 @@ export interface SavedQueryTemplate {
                 placeholder="keyword1, keyword2..."
                 [value]="contextHintsStr()"
                 (input)="updateContextHints($event)"
-                [disabled]="!hasSession()"
+                [appTooltipDisabledReason]="!hasSession() ? 'Start a context session first.' : null"
               />
             </div>
           }
@@ -136,7 +136,7 @@ export interface SavedQueryTemplate {
                 placeholder="sec-..."
                 [value]="sectionId()"
                 (input)="updateQueryParam('sectionId', $event)"
-                [disabled]="!hasSession()"
+                [appTooltipDisabledReason]="!hasSession() ? 'Start a context session first.' : null"
               />
             </div>
           }
@@ -149,7 +149,7 @@ export interface SavedQueryTemplate {
                 placeholder="Natural language search..."
                 [value]="queryText()"
                 (input)="updateQueryParam('query', $event)"
-                [disabled]="!hasSession()"
+                [appTooltipDisabledReason]="!hasSession() ? 'Start a context session first.' : null"
               />
               <span class="form-label">Top K Results</span>
               <input
@@ -157,7 +157,7 @@ export interface SavedQueryTemplate {
                 class="query-input small"
                 [value]="topK()"
                 (input)="updateQueryParam('topK', $event)"
-                [disabled]="!hasSession()"
+                [appTooltipDisabledReason]="!hasSession() ? 'Start a context session first.' : null"
               />
             </div>
           }
@@ -166,7 +166,7 @@ export interface SavedQueryTemplate {
         <div class="query-actions">
           <button
             class="execute-btn"
-            [disabled]="!hasSession() || !canExecuteQuery() || isQuerying()"
+            [disabled]="isQuerying()"
             (click)="executeQuery()"
           >
             @if (isQuerying()) {
@@ -254,7 +254,6 @@ export interface SavedQueryTemplate {
             </button>
             <button
               class="action-btn primary"
-              [disabled]="!newTemplateName().trim()"
               (click)="saveTemplate()"
             >
               Save
@@ -264,10 +263,10 @@ export interface SavedQueryTemplate {
       }
 
       <!-- Error Banner -->
-      @if (queryError()) {
-        <div class="error-banner">
-          <span class="error-text">{{ queryError() }}</span>
-          <button class="close-error-btn" appIconButton="Dismiss error" (click)="clearError.emit()">✕</button>
+      @if (errorMessage() ?? queryError(); as error) {
+        <div class="error-banner" role="alert">
+          <span class="error-text">{{ error }}</span>
+          <button class="close-error-btn" appIconButton="Dismiss error" (click)="dismissError()">✕</button>
         </div>
       }
     </div>
@@ -711,6 +710,7 @@ export class ContextQueryPanelComponent {
   templatesExpanded = signal(true);
   showSaveTemplateDialog = signal(false);
   newTemplateName = signal('');
+  errorMessage = signal<string | null>(null);
 
   // Computed param accessors
   sectionIds = computed(() => (this.queryParams()['sectionIds'] as string[]) || []);
@@ -790,7 +790,16 @@ export class ContextQueryPanelComponent {
   }
 
   executeQuery(): void {
-    if (!this.canExecuteQuery() || this.isQuerying()) return;
+    if (this.isQuerying()) return;
+    if (!this.hasSession()) {
+      this.errorMessage.set('Start a context session first.');
+      return;
+    }
+    if (!this.canExecuteQuery()) {
+      this.errorMessage.set(this.missingQueryParamsMessage());
+      return;
+    }
+    this.errorMessage.set(null);
 
     const query: ContextQuery = {
       type: this.selectedQueryType(),
@@ -798,6 +807,30 @@ export class ContextQueryPanelComponent {
     };
 
     this.executeQueryRequest.emit(query);
+  }
+
+  private missingQueryParamsMessage(): string {
+    switch (this.selectedQueryType()) {
+      case 'grep':
+        return 'Enter a search pattern first.';
+      case 'slice':
+        return 'Enter the start and end offsets first.';
+      case 'sub_query':
+        return 'Enter the prompt first.';
+      case 'summarize':
+        return 'Select at least one section to summarize first.';
+      case 'get_section':
+        return 'Enter a section ID first.';
+      case 'semantic_search':
+        return 'Enter a search query first.';
+      default:
+        return 'Fill in the query details first.';
+    }
+  }
+
+  dismissError(): void {
+    this.errorMessage.set(null);
+    this.clearError.emit();
   }
 
   openSaveTemplateDialog(): void {
@@ -817,7 +850,11 @@ export class ContextQueryPanelComponent {
 
   saveTemplate(): void {
     const name = this.newTemplateName().trim();
-    if (!name) return;
+    if (!name) {
+      this.errorMessage.set('Enter the template name first.');
+      return;
+    }
+    this.errorMessage.set(null);
 
     this.saveTemplateRequest.emit({
       name,

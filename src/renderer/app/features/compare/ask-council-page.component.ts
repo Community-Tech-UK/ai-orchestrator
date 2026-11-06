@@ -1,3 +1,5 @@
+import { COMPARE_WAIT_FOR_PROVIDERS } from './tooltip-copy-compare';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 /**
  * Ask Council Page — E4 Multi-Provider Compare UI (backlog #11) + WS-B6
  * progressive Council run with synthesis.
@@ -19,7 +21,6 @@ import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } 
 import { AskCouncilStore } from './ask-council.store';
 import { CouncilPrefillService } from './council-prefill.service';
 import type { CouncilMember, CouncilSynthesisMethod } from '../../core/services/ipc/compare-ipc.service';
-import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 type SynthesisChoice = 'consensus' | 'debate' | 'provider';
 
@@ -32,6 +33,8 @@ type SynthesisChoice = 'consensus' | 'debate' | 'provider';
   styleUrl: './ask-council-page.component.scss',
 })
 export class AskCouncilPageComponent implements OnInit {
+  protected readonly tooltipWaitForProviders = COMPARE_WAIT_FOR_PROVIDERS;
+
   private readonly store = inject(AskCouncilStore);
   private readonly prefill = inject(CouncilPrefillService);
 
@@ -82,13 +85,13 @@ export class AskCouncilPageComponent implements OnInit {
   );
 
   readonly allDisabledReason = computed(() =>
-    !this.isRunning() && !this.loadingProviders() && this.availableProviders().length === 0
+    this.isRunning() ? this.tooltipWaitForProviders : !this.loadingProviders() && this.availableProviders().length === 0
       ? 'No providers detected.'
       : null,
   );
 
   readonly noneDisabledReason = computed(() =>
-    !this.isRunning() && this.selectedProviders().length === 0 ? 'No providers are selected.' : null,
+    this.isRunning() ? this.tooltipWaitForProviders : this.selectedProviders().length === 0 ? 'No providers are selected.' : null,
   );
 
   readonly synthesizeDisabledReason = computed(() =>

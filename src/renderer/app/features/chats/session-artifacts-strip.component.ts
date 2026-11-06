@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 /**
  * SessionArtifactsStrip — shows files the agent created or modified in the
  * current session, filtered to user-facing artifacts (markdown, PDFs, images,
@@ -28,7 +29,6 @@ import {
   type Signal,
 } from '@angular/core';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
-import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import type { Instance } from '../../core/state/instance/instance.types';
 import {
   applyStatusFilter,
@@ -615,7 +615,8 @@ export class SessionArtifactsStripComponent {
   }
 
   chipTooltip(entry: ArtifactEntry): string {
-    return formatChipTooltip(entry);
+    const tooltip = formatChipTooltip(entry);
+    return entry.outsideCwd ? `${tooltip} · Outside working directory` : tooltip;
   }
 
   // -------------------------------------------------------------------------

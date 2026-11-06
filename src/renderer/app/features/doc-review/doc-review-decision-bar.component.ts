@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import { OVERALL_OPTIONS } from './doc-review.types';
 import type { DocReviewItemState, DocReviewOverall } from './doc-review.types';
@@ -10,6 +11,7 @@ import type { DocReviewItemState, DocReviewOverall } from './doc-review.types';
 @Component({
   selector: 'app-doc-review-decision-bar',
   standalone: true,
+  imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="bar">
@@ -59,7 +61,7 @@ import type { DocReviewItemState, DocReviewOverall } from './doc-review.types';
         <button
           type="button"
           class="submit"
-          [disabled]="!canSubmit() || busy()"
+          [disabled]="busy()" [appTooltipDisabledReason]="!canSubmit() ? 'Choose an overall verdict first' : null"
           (click)="submitted.emit()"
         >{{ busy() ? 'Sending…' : 'Submit decision' }}</button>
       </div>

@@ -14,6 +14,7 @@ import { CliUpdatePillStore } from '../../core/state/cli-update-pill.store';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { ProviderQuotaStore } from '../../core/state/provider-quota.store';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 
 const template = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), './settings.component.html'), 'utf8');
 await resolveComponentResources(() => Promise.resolve(''));
@@ -22,7 +23,7 @@ describe('Settings navigation tooltip DOM', () => {
   beforeEach(() => {
     localStorage.clear();
     TestBed.overrideComponent(SettingsComponent, { set: {
-      imports: [AioTooltipDirective], template, templateUrl: undefined,
+      imports: [AioTooltipDirective, AppIconButtonDirective], template, templateUrl: undefined,
       styles: [], styleUrl: undefined, styleUrls: [], schemas: [CUSTOM_ELEMENTS_SCHEMA],
     } });
     TestBed.configureTestingModule({ providers: [

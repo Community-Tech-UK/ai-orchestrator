@@ -79,7 +79,7 @@
       <span>Unsigned dev</span>
     </label>
     <div class="form-actions">
-      <button class="btn btn--primary" type="submit" [disabled]="!canCreate()" aria-label="Create webhook route">
+      <button class="btn btn--primary" type="submit" [disabled]="saving()" [appTooltipDisabledReason]="!form().path.trim() ? 'Enter a route path first' : form().secret.trim().length < 16 ? 'Use a signing secret with at least 16 characters' : null" aria-label="Create webhook route">
         {{ saving() ? 'Creating...' : 'Create Route' }}
       </button>
     </div>

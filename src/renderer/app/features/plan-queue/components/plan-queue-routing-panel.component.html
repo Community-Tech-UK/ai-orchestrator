@@ -59,7 +59,7 @@
         <fieldset class="pq-routing-accounts">
           <legend>Accounts (none ticked means automatic)</legend>
           @for (row of view.accountRows; track row.id) {
-            <label class="pq-routing-account" [class.pq-routing-account-off]="row.off">
+            <label class="pq-routing-account" [class.pq-routing-account-off]="row.off" [attr.tabindex]="row.disabled ? 0 : null" [appTooltipDisabledReason]="row.disabled ? row.label + ' is ' + row.note + '. Turn this account on or allow it for automatic work before ticking it.' : null">
               <input
                 type="checkbox"
                 [checked]="row.checked"
@@ -91,7 +91,7 @@
               <button
                 type="button"
                 class="pq-routing-move-up"
-                [disabled]="!view.canMoveUp"
+                [appTooltipDisabledReason]="!view.canMoveUp ? 'This choice is already first, so there is no choice above it to swap with.' : null"
                 [attr.aria-label]="'Move ' + name + ' ' + (i + 1) + ' up'"
                 (click)="moveChoice(list, i, -1)"
               >
@@ -100,7 +100,7 @@
               <button
                 type="button"
                 class="pq-routing-move-down"
-                [disabled]="!view.canMoveDown"
+                [appTooltipDisabledReason]="!view.canMoveDown ? 'This choice is already last, so there is no choice below it to swap with.' : null"
                 [attr.aria-label]="'Move ' + name + ' ' + (i + 1) + ' down'"
                 (click)="moveChoice(list, i, 1)"
               >
@@ -165,7 +165,7 @@
         <p class="pq-routing-error" role="alert">{{ error }}</p>
       }
       <div>
-        <button type="button" class="pq-routing-add" [disabled]="!canAddWorker()" (click)="addChoice('workers')">
+        <button type="button" class="pq-routing-add" [appTooltipDisabledReason]="!canAddWorker() ? 'The worker list is full, so remove a choice before adding another.' : null" (click)="addChoice('workers')">
           Add a choice
         </button>
         @if (!canAddWorker()) {
@@ -211,7 +211,7 @@
         <p class="pq-routing-error" role="alert">{{ error }}</p>
       }
       <div>
-        <button type="button" class="pq-routing-add" [disabled]="!canAddChecker()" (click)="addChoice('checkers')">
+        <button type="button" class="pq-routing-add" [appTooltipDisabledReason]="!canAddChecker() ? 'The checker list is full, so remove a checker before adding another.' : null" (click)="addChoice('checkers')">
           Add a checker
         </button>
         @if (!canAddChecker()) {
@@ -266,9 +266,9 @@
   }
 
   <div class="pq-routing-actions">
-    <button type="button" class="pq-routing-save" [disabled]="!canSave()" (click)="save()">Save</button>
-    <button type="button" class="pq-routing-reset" [disabled]="!dirty() || saving()" (click)="resetToSaved()">
-      {{ mode() === 'run' ? 'Reset to current choice' : 'Reset to saved' }}
+    <button type="button" class="pq-routing-save" [disabled]="saving()" [appTooltipDisabledReason]="!valid() ? 'Fix the routing errors shown above before saving.' : !dirty() ? 'There are no routing changes to save.' : null" (click)="save()">{{ saving() ? 'Saving…' : 'Save' }}</button>
+    <button type="button" class="pq-routing-reset" [disabled]="saving()" [appTooltipDisabledReason]="!dirty() ? 'There are no unsaved changes to reset.' : null" (click)="resetToSaved()">
+      {{ saving() ? 'Saving…' : mode() === 'run' ? 'Reset to current choice' : 'Reset to saved' }}
     </button>
     @if (status(); as line) {
       @if (line.kind === 'success') {

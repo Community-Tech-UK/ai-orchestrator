@@ -27,10 +27,10 @@
     <h2 id="pq-runs-heading">Runs</h2>
     <app-plan-queue-skip-pending [items]="activeItems()" (skipItem)="onSkipItem($event)" />
     @if (runningCount() > 0) {
-      <button type="button" class="pq-pause-all" (click)="onPauseAll()">Pause all ({{ runningCount() }} running)</button>
+      <button type="button" class="pq-pause-all" [appTooltip]="copy('planQueue.pauseAll')" (click)="onPauseAll()">Pause all ({{ runningCount() }} running)</button>
     }
     @if (pausedCount() > 0) {
-      <button type="button" class="pq-resume-all" (click)="onResumeAll()">Resume all ({{ pausedCount() }} paused)</button>
+      <button type="button" class="pq-resume-all" [appTooltip]="copy('planQueue.resumeAll')" (click)="onResumeAll()">Resume all ({{ pausedCount() }} paused)</button>
     }
     <p class="pq-purpose">
       Each run works through a set of documents. Pause stops the run's sessions now; work so far is saved on each document's branch and Resume carries on from there. Cancel ends the run: documents that

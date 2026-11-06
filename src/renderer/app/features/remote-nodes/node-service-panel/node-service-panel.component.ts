@@ -2,12 +2,13 @@ import { ConfirmService } from '../../../shared/confirm/confirm.service';
 import { ChangeDetectionStrategy, Component, computed, inject, input, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RemoteNodesStore } from '../remote-nodes.store';
+import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
 import type { ServiceStatus } from '../../../../../shared/types/service.types';
 
 @Component({
   selector: 'app-node-service-panel',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './node-service-panel.component.html',
   styleUrls: ['./node-service-panel.component.scss'],

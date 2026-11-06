@@ -30,14 +30,9 @@
       type="button"
       (click)="toggleNav()"
       aria-controls="settings-section-navigation"
-      [attr.aria-label]="
-        compactViewport()
-          ? (compactNavOpen() ? 'Close settings navigation' : 'Open settings navigation')
-          : (navCollapsed() ? 'Expand settings navigation' : 'Collapse settings navigation')
-      "
       [attr.aria-expanded]="compactViewport() ? compactNavOpen() : !navCollapsed()"
       [appTooltipShowWhenExpanded]="true"
-      [appTooltip]="
+      [appIconButton]="
         compactViewport()
           ? (compactNavOpen() ? 'Close settings navigation' : 'Open settings navigation')
           : (navCollapsed() ? 'Expand settings navigation' : 'Collapse settings navigation')
@@ -64,7 +59,7 @@
           class="search-clear"
           type="button"
           (click)="clearSearch()"
-          aria-label="Clear search" appTooltip="Clear search"
+          appIconButton="Clear search"
         >
           ×
         </button>

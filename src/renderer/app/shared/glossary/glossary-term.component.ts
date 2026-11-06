@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 import { AioTooltipDirective } from '../tooltip/aio-tooltip.directive';
 import { HelpDrawerService } from '../help/help-drawer.service';
-import { glossaryLabel, glossaryPlain, type GlossaryTermId } from './glossary';
+import { glossaryLabel, glossaryPlain, type GlossaryTermId } from '../../../../shared/glossary/glossary';
 
 /** Use on text, never inside another interactive control. */
 @Component({

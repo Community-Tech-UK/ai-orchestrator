@@ -1,3 +1,5 @@
+import { REMOTE_ACCESS_CHECK_STATUS, REMOTE_ACCESS_START_FIRST } from './tooltip-copy-remote-access';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { CommonModule } from '@angular/common';
 import {
   ChangeDetectionStrategy,
@@ -11,7 +13,7 @@ import type { RemoteObserverStatus } from '../../../../shared/types/remote-obser
 @Component({
   selector: 'app-remote-access-page',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page">
@@ -20,7 +22,7 @@ import type { RemoteObserverStatus } from '../../../../shared/types/remote-obser
           <p class="eyebrow">Read-only Access</p>
           <h1>Remote Access</h1>
           <p class="subtitle">
-            Start a tokenized observer URL so another device can watch running instances, repo jobs, and prompts in read-only mode.
+            Start a tokenized observer URL so another device can watch running sessions, repo jobs, and prompts in read-only mode.
           </p>
         </div>
 
@@ -49,13 +51,13 @@ import type { RemoteObserverStatus } from '../../../../shared/types/remote-obser
         </label>
 
         <div class="button-row">
-          <button class="primary" type="button" (click)="start()" [disabled]="loading() || status()?.running">
+          <button class="primary" type="button" (click)="start()" [disabled]="loading()" [appTooltipDisabledReason]="status()?.running ? 'Remote access is already running' : null">
             Start Observer
           </button>
-          <button class="ghost" type="button" (click)="stop()" [disabled]="loading() || !status()?.running">
+          <button class="ghost" type="button" (click)="stop()" [disabled]="loading()" [appTooltipDisabledReason]="!status() ? tooltipCheckStatus : !status()!.running ? tooltipStartFirst : null">
             Stop
           </button>
-          <button class="ghost" type="button" (click)="rotateToken()" [disabled]="loading() || !status()?.running">
+          <button class="ghost" type="button" (click)="rotateToken()" [disabled]="loading()" [appTooltipDisabledReason]="!status() ? tooltipCheckStatus : !status()!.running ? tooltipStartFirst : null">
             Rotate Token
           </button>
         </div>
@@ -71,7 +73,7 @@ import type { RemoteObserverStatus } from '../../../../shared/types/remote-obser
           <strong>{{ status()?.mode || 'read-only' }}</strong>
         </article>
         <article class="stat-card">
-          <span class="stat-label">Instances</span>
+          <span class="stat-label">Sessions</span>
           <strong>{{ status()?.instanceCount ?? 0 }}</strong>
         </article>
         <article class="stat-card">
@@ -291,6 +293,9 @@ import type { RemoteObserverStatus } from '../../../../shared/types/remote-obser
   `],
 })
 export class RemoteAccessPageComponent {
+  protected readonly tooltipCheckStatus = REMOTE_ACCESS_CHECK_STATUS;
+  protected readonly tooltipStartFirst = REMOTE_ACCESS_START_FIRST;
+
   private readonly observerIpc = inject(RemoteObserverIpcService);
 
   readonly host = signal('127.0.0.1');

@@ -199,7 +199,7 @@
                   <option [value]="candidate.id">{{ candidate.name }}</option>
                 }
               </select>
-              <button type="button" class="link-button" [disabled]="!attachChoice()" (click)="attachSelected()">
+              <button type="button" class="link-button" (click)="attachSelected()">
                 Attach to this session
               </button>
             </div>
@@ -227,7 +227,7 @@
         rows="3"
         [placeholder]="parent() ? 'Ask about this session… (Enter to send)' : 'Select a session first'"
         [value]="draft()"
-        [disabled]="!parent()"
+        [appTooltipDisabledReason]="!parent() ? 'Select a session first.' : null"
         (input)="onDraftInput($event)"
         (keydown)="onComposerKeydown($event)"
         aria-label="Sidechat message"

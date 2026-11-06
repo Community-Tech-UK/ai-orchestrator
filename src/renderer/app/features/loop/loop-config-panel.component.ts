@@ -22,6 +22,7 @@ import type { LoopPresetId } from './loop-presets';
 import { createLoopPresetController } from './loop-config-panel-presets';
 import { InlineHintComponent } from '../../shared/hint/inline-hint.component';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import { HelpLinkComponent } from '../../shared/help/help-link.component';
 import { CliUpdatePillStore } from '../../core/state/cli-update-pill.store';
@@ -45,7 +46,7 @@ import {
 @Component({
   selector: 'app-loop-config-panel',
   standalone: true,
-  imports: [InlineHintComponent, FormsModule, LoopPresetPickerComponent, AioTooltipDirective, HelpLinkComponent],
+  imports: [InlineHintComponent, FormsModule, LoopPresetPickerComponent, AioTooltipDirective, HelpLinkComponent, AppIconButtonDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './loop-config-panel.component.html',
   styleUrl: './loop-config-panel.component.scss',

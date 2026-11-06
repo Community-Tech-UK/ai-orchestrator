@@ -16,7 +16,7 @@ export interface PromptRecallScopeOption {
 }
 
 const PROMPT_RECALL_SCOPE_OPTIONS: PromptRecallScopeOption[] = [
-  { id: 'thread', label: 'Thread' },
+  { id: 'thread', label: 'Session' },
   { id: 'project', label: 'Project' },
   { id: 'all', label: 'All' },
 ];
@@ -133,7 +133,7 @@ export class PromptHistorySearchController implements OverlayController<PromptHi
   private groupLabel(): string {
     switch (this.scope()) {
       case 'thread':
-        return 'Thread Prompts';
+        return 'Session Prompts';
       case 'all':
         return 'All Project Prompts';
       case 'project':

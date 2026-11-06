@@ -134,7 +134,7 @@ describe('InstanceHeaderComponent interrupt tooltip', () => {
     vi.spyOn(mode, 'matches').mockImplementation(selector => selector === ':focus-visible' || original(selector));
     mode.dispatchEvent(new FocusEvent('focus'));
     fixture.detectChanges();
-    expect(document.getElementById(mode.getAttribute('aria-describedby')!)?.textContent).toContain('Cannot change mode while instance is running or recovering');
+    expect(document.getElementById(mode.getAttribute('aria-describedby')!)?.textContent).toContain('Cannot change mode while the session is running or recovering');
     expect(fixture.nativeElement.querySelectorAll('[title]')).toHaveLength(0);
   });
 
@@ -145,6 +145,105 @@ describe('InstanceHeaderComponent interrupt tooltip', () => {
     expect(button.getAttribute('aria-label')).toBe('Help: working in a session');
     button.click();
     expect(TestBed.inject(HelpDrawerService).target()).toEqual({ topic: 'session' });
+  });
+
+  it('updates formatted waiting details while their hint is open and removes it when waiting ends', () => {
+    const retryAt = Date.UTC(2026, 10, 3, 10, 15, 30);
+    fixture.componentRef.setInput('instance', {
+      ...instance('codex'), waitReason: { kind: 'backoff', attempt: 2, retryAt },
+    });
+    fixture.detectChanges();
+    const waiting = fixture.debugElement.query(By.css('.wait-reason-label'));
+    const tooltip = waiting.injector.get(AioTooltipDirective);
+    expect(waiting.nativeElement.tabIndex).toBe(0);
+    tooltip.show();
+    fixture.detectChanges();
+    const linkedHint = (): HTMLElement | null => document.getElementById(
+      waiting.nativeElement.getAttribute('aria-describedby'),
+    );
+    expect(linkedHint()?.textContent).toBe(`Attempt 2, retry at ${new Date(retryAt).toLocaleTimeString()}`);
+
+    fixture.componentRef.setInput('instance', {
+      ...instance('codex'),
+      waitReason: { kind: 'resume-proof', provider: 'codex', sessionId: 'session-12345', startedAt: retryAt },
+    });
+    fixture.detectChanges();
+    expect(linkedHint()?.textContent).toBe('Session: session-…');
+
+    fixture.componentRef.setInput('instance', {
+      ...instance('codex'), waitReason: { kind: 'remote-heartbeat', nodeId: 'worker', staleForMs: 2_600 },
+    });
+    fixture.detectChanges();
+    expect(linkedHint()?.textContent).toBe('Node: worker, stale for 3s');
+
+    fixture.componentRef.setInput('instance', instance('codex'));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.wait-reason-label')).toBeNull();
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+  });
+
+  it('keeps quota and sign-in timing in their composer banners rather than showing a header hint', () => {
+    const timestamp = Date.UTC(2026, 10, 3, 10, 15, 30);
+    const time = new Date(timestamp).toLocaleTimeString();
+    fixture.componentRef.setInput('instance', {
+      ...instance('codex'), waitReason: { kind: 'quota-park', provider: 'codex', resumeAt: timestamp },
+    });
+    fixture.detectChanges();
+    expect(fixture.componentInstance.waitReasonDetail()).toBe(`Provider: codex, resumes at ${time}`);
+    expect(fixture.nativeElement.querySelector('.wait-reason-label')).toBeNull();
+
+    fixture.componentRef.setInput('instance', {
+      ...instance('codex'), waitReason: { kind: 'auth-required', provider: 'codex', since: timestamp },
+    });
+    fixture.detectChanges();
+    expect(fixture.componentInstance.waitReasonDetail()).toBe(`Signed out of codex since ${time}`);
+    expect(fixture.nativeElement.querySelector('.wait-reason-label')).toBeNull();
+  });
+
+  it('keeps a locked mode reachable, explains it, and permits a change after the turn finishes', () => {
+    fixture.componentRef.setInput('instance', instance('claude'));
+    fixture.detectChanges();
+    const changed = vi.fn();
+    fixture.componentInstance.cycleAgentMode.subscribe(changed);
+    const debug = fixture.debugElement.query(By.css('.mode-badge'));
+    const button = debug.nativeElement as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    button.focus();
+    expect(document.activeElement).toBe(button);
+    const tooltip = debug.injector.get(AioTooltipDirective);
+    tooltip.show();
+    fixture.detectChanges();
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('running or recovering');
+    tooltip.hide();
+    button.click();
+    expect(changed).not.toHaveBeenCalled();
+
+    fixture.componentRef.setInput('instance', { ...instance('claude'), status: 'idle' });
+    fixture.detectChanges();
+    expect(button.getAttribute('aria-disabled')).toBeNull();
+    button.click();
+    expect(changed).toHaveBeenCalledOnce();
+  });
+
+  it('explains a missing folder on both workspace controls without opening anything', () => {
+    fixture.componentRef.setInput('instance', { ...instance('codex'), workingDirectory: '' });
+    fixture.detectChanges();
+    for (const selector of ['.btn-open', '.btn-terminal']) {
+      const debug = fixture.debugElement.query(By.css(selector));
+      const button = debug.nativeElement as HTMLButtonElement;
+      expect(button.disabled).toBe(false);
+      expect(button.getAttribute('aria-disabled')).toBe('true');
+      button.focus();
+      expect(document.activeElement).toBe(button);
+      expect(debug.injector.get(AioTooltipDirective).appTooltipDisabledReason()).toBe('Choose a working folder first');
+      button.click();
+    }
+    expect(fixture.componentInstance.showOpenMenu()).toBe(false);
+    fixture.componentRef.setInput('instance', instance('codex'));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.btn-open').getAttribute('aria-disabled')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.btn-terminal').getAttribute('aria-disabled')).toBeNull();
   });
   it.each([true, false])('allows the cost setting to control the header cost (%s)', (enabled) => {
     showCost = enabled;

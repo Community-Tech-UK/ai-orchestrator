@@ -102,7 +102,7 @@ export class ResumePickerController implements OverlayController<ResumePickerIte
       title: 'Resume latest',
       subtitle: latestRecovery
         ? `Autosave recovery · ${recoveryTitle(latestRecovery)} · ${formatAge(latestRecovery.lastActivityAt)}`
-        : selected?.workingDirectory ? selected.workingDirectory : 'Most recent archived thread',
+        : selected?.workingDirectory ? selected.workingDirectory : 'Most recent archived session',
       projectPath: latestRecovery?.workingDirectory ?? selected?.workingDirectory,
       lastActivity: Date.now(),
       availableActions: ['resumeLatest'],

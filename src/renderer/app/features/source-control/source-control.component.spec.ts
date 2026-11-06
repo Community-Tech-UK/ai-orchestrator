@@ -22,6 +22,9 @@ import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive'
 import { SourceControlComponent } from './source-control.component';
 import { SourceControlStore } from '../../core/state/source-control.store';
 import { VcsIpcService } from '../../core/services/ipc/vcs-ipc.service';
+import { ActionDispatchService } from '../../core/services/action-dispatch.service';
+import { KeybindingService } from '../../core/services/keybinding.service';
+import { DEFAULT_KEYBINDING_ELIGIBILITY_STATE } from '../../../../shared/types/keybinding.types';
 import type { GitStatusResponse, RepoState } from './source-control.types';
 
 // Vitest does not run Angular CLI's resource inliner, so resolve the
@@ -95,7 +98,13 @@ describe('SourceControlComponent (VS Code SCM restyle)', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [SourceControlComponent],
-      providers: [{ provide: VcsIpcService, useValue: {} as VcsIpcService }],
+      providers: [
+        { provide: VcsIpcService, useValue: {} as VcsIpcService },
+        { provide: ActionDispatchService, useValue: {
+          getState: () => DEFAULT_KEYBINDING_ELIGIBILITY_STATE,
+          dispatch: vi.fn(async () => false),
+        } },
+      ],
     });
     store = TestBed.inject(SourceControlStore);
     seed();
@@ -111,11 +120,44 @@ describe('SourceControlComponent (VS Code SCM restyle)', () => {
       expect(hints[0]).toBe(`src/alpha.ts — click to open diff · ${clickKeys}-click to multi-select · drag to attach`);
       expect(hints[3]).toBe(`src/newfile.ts — ${clickKeys}-click to multi-select · drag to attach`);
       const commit = fixture.debugElement.query(By.css('.commit-row .action-btn'));
-      expect(commit.injector.get(AioTooltipDirective, null)?.appTooltip()).toBe(`Commit staged changes (${commitKey}+Enter)`);
-      expect(fixture.nativeElement.querySelector('.commit-message').placeholder).toBe(`Commit message — ${commitKey}+Enter to commit`);
+      const liveKeys = platform === 'MacIntel' ? `${commitKey}Enter` : `${commitKey}+Enter`;
+      expect(commit.injector.get(AioTooltipDirective).appTooltip()).toBe('Commit staged changes');
+      expect(commit.injector.get(AioTooltipDirective).appTooltipShortcut()).toBe('source-control.commit');
+      expect(commit.nativeElement.getAttribute('aria-keyshortcuts')).toBe(platform === 'MacIntel' ? 'Meta+Enter' : 'Control+Enter');
+      expect(fixture.nativeElement.querySelector('.commit-message').placeholder).toBe(`Commit message — ${liveKeys} to commit`);
       expect(fixture.nativeElement.querySelectorAll('[title]')).toHaveLength(0);
     },
   );
+
+  it('updates the commit hint after rebinding and dispatches once only inside its commit box', async () => {
+    const fixture = await render();
+    const keybindings = TestBed.inject(KeybindingService);
+    const commit = vi.spyOn(store, 'commit').mockResolvedValue({ success: true });
+    store.setCommitMessage(REPO, 'Save the reviewed changes');
+    keybindings.customizeBinding('source-control-commit', { key: 'q', modifiers: ['alt'] });
+    fixture.detectChanges();
+    const input = fixture.nativeElement.querySelector('.commit-message') as HTMLTextAreaElement;
+    input.focus();
+    fixture.detectChanges();
+    expect(input.placeholder).toBe('Commit message — Alt+Q to commit');
+    const button = fixture.debugElement.query(By.css('.commit-row .action-btn'));
+    expect(button.nativeElement.getAttribute('aria-keyshortcuts')).toBe('Alt+Q');
+    const tooltip = button.injector.get(AioTooltipDirective);
+    tooltip.show(); fixture.detectChanges();
+    expect(document.querySelector('[role="tooltip"] kbd')?.textContent).toBe('Alt+Q');
+    tooltip.hide();
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }));
+    expect(commit).not.toHaveBeenCalled();
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'q', altKey: true, bubbles: true }));
+    expect(commit).toHaveBeenCalledExactlyOnceWith(REPO, { message: 'Save the reviewed changes', signoff: false });
+    input.blur();
+    const chat = document.createElement('textarea'); document.body.append(chat);
+    try {
+      keybindings.setContext('input');
+      chat.dispatchEvent(new KeyboardEvent('keydown', { key: 'q', altKey: true, bubbles: true }));
+      expect(commit).toHaveBeenCalledOnce();
+    } finally { chat.remove(); }
+  });
 
   it('gives both diff chevrons keyboard-opened explanations even when expanded', async () => {
     const fixture = await render();

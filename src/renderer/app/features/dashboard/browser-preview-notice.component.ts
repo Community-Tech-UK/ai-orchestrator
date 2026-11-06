@@ -10,7 +10,7 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
         <p class="preview-eyebrow">Renderer preview</p>
         <h1 class="preview-title">This page is the Angular dev server, not the Electron app.</h1>
         <p class="preview-copy">
-          The full orchestrator needs the Electron preload bridge for CLI detection, instance creation,
+          The full Harness needs the Electron preload bridge for CLI detection, session creation,
           and file/system access. If this tab opens during development, use the Electron window that
           launches alongside it.
         </p>

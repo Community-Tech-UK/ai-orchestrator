@@ -682,7 +682,7 @@ describe('InputPanelComponent composer autocomplete integration', () => {
     fixture.detectChanges();
     expect(getTextarea().getAttribute('aria-label')).toBe('Message');
     const wakeup = fixture.nativeElement.querySelector('.btn-wakeup') as HTMLButtonElement;
-    expect(wakeup.getAttribute('aria-label')).toBe('Schedule thread wakeup');
+    expect(wakeup.getAttribute('aria-label')).toBe('Schedule session wakeup');
     expect(hintFor('.btn-wakeup')).toBeDefined();
     const voice = fixture.nativeElement.querySelector('.btn-voice') as HTMLButtonElement;
     expect(voice.getAttribute('aria-label')).toBe('Start voice conversation');

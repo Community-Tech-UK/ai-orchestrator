@@ -15,6 +15,7 @@ import {
   output,
   signal
 } from '@angular/core';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { IpcFacadeService } from '../../core/services/ipc';
 import { VcsIpcService } from '../../core/services/ipc/vcs-ipc.service';
 import { InstanceStore } from '../../core/state/instance.store';
@@ -64,7 +65,7 @@ interface ReviewSessionData {
 @Component({
   selector: 'app-instance-review-panel',
   standalone: true,
-  imports: [ReviewResultsComponent],
+  imports: [ReviewResultsComponent, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="panel">
@@ -83,7 +84,8 @@ interface ReviewSessionData {
                 <span>Diff only</span>
               </label>
               <button class="btn" (click)="refreshChangedFiles()" [disabled]="busy()">Refresh files</button>
-              <button class="btn primary" (click)="runReview()" [disabled]="busy() || selectedAgentIds().length === 0 || files().length === 0">
+              <button class="btn primary" (click)="runReview()" [disabled]="busy()"
+                [appTooltipDisabledReason]="selectedAgentIds().length === 0 ? 'Select a review agent first.' : files().length === 0 ? 'There are no changed files to review.' : null">
                 Run review
               </button>
             </div>
@@ -145,7 +147,8 @@ interface ReviewSessionData {
                   <button
                     type="button"
                     class="btn primary"
-                    [disabled]="selectedFindingKeys().size === 0 || dispatchBusy()"
+                    [disabled]="dispatchBusy()"
+                    [appTooltipDisabledReason]="selectedFindingKeys().size === 0 ? 'Select a finding to send for fixing.' : null"
                     (click)="fixSelected()"
                   >
                     {{ dispatchBusy() ? 'Sending…' : 'Fix selected (' + selectedFindingKeys().size + ')' }}

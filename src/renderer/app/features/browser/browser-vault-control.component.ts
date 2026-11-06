@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject } from '@angular/core';
 import { BrowserUnattendedStore } from './browser-unattended.store';
 import type { BrowserVaultUnlockReason } from './browser-unattended.types';
@@ -19,7 +20,7 @@ export function vaultUnlockReasonLabel(reason: BrowserVaultUnlockReason | null):
 @Component({
   selector: 'app-browser-vault-control',
   standalone: true,
-  imports: [],
+  imports: [AioTooltipDirective],
   templateUrl: './browser-vault-control.component.html',
   styleUrl: './browser-vault-control.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

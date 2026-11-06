@@ -136,10 +136,18 @@ export class ComputerUseSettingsTabComponent implements OnInit {
   }
 
   async openPermission(permission: DesktopSystemPermission): Promise<void> {
+    if (!this.permissionsEnabled()) {
+      this.error.set('Turn on Computer Use before opening permission settings.');
+      return;
+    }
     await this.permissions.requestPermission(permission);
   }
 
   async repairPermissions(): Promise<void> {
+    if (!this.permissionsEnabled()) {
+      this.error.set('Turn on Computer Use before repairing permissions.');
+      return;
+    }
     await this.permissions.repairPermissions();
   }
 

@@ -151,7 +151,7 @@ interface RuleGroup {
                   type="button"
                   class="btn btn-secondary"
                   (click)="adoptObserved(account)"
-                  [disabled]="busy() || !account.binding?.observedLogin"
+                  [disabled]="busy()" [appTooltipDisabledReason]="!account.binding?.observedLogin ? 'Check sign-in to identify the account before adopting it.' : null"
                 >
                   Use {{ account.binding?.observedLogin }} instead
                 </button>
@@ -189,7 +189,7 @@ interface RuleGroup {
                 type="button"
                 class="btn btn-secondary"
                 (click)="setDefault(account)"
-                [disabled]="busy() || account.isDefault || account.scopePolicy !== 'default-eligible'"
+                [disabled]="busy()" [appTooltipDisabledReason]="account.isDefault ? 'This account is already the default.' : account.scopePolicy !== 'default-eligible' ? 'This account can only serve repositories mapped to it.' : null"
               >
                 Make default
               </button>
@@ -279,7 +279,7 @@ interface RuleGroup {
             placeholder="github.com"
             [disabled]="busy()"
           />
-          <button type="button" class="btn" (click)="addAccount()" [disabled]="busy() || !newLabel.trim()">
+          <button type="button" class="btn" (click)="addAccount()" [disabled]="busy()" [appTooltipDisabledReason]="!newLabel.trim() ? 'Enter a name for the account first.' : null">
             Add
           </button>
         </div>
@@ -320,7 +320,7 @@ interface RuleGroup {
             type="button"
             class="btn btn-secondary"
             (click)="inspectWorkspace()"
-            [disabled]="busy() || !workspacePath.trim()"
+            [disabled]="busy()" [appTooltipDisabledReason]="!workspacePath.trim() ? 'Choose or enter a workspace folder to check.' : null"
           >
             Check
           </button>
@@ -354,7 +354,7 @@ interface RuleGroup {
               type="button"
               class="btn btn-link"
               (click)="addRepositoryRule(remote)"
-              [disabled]="busy() || !suggestionTargets[remote.displayPath]"
+              [disabled]="busy()" [appTooltipDisabledReason]="!suggestionTargets[remote.displayPath] ? copy('settingsHints.routeNeedsAccount') : null"
             >
               Route this repository
             </button>
@@ -362,7 +362,7 @@ interface RuleGroup {
               type="button"
               class="btn btn-link"
               (click)="addOwnerRule(remote)"
-              [disabled]="busy() || !suggestionTargets[remote.displayPath]"
+              [disabled]="busy()" [appTooltipDisabledReason]="!suggestionTargets[remote.displayPath] ? copy('settingsHints.routeNeedsAccount') : null"
             >
               Route everything under {{ remote.owner }}
             </button>
@@ -380,7 +380,7 @@ interface RuleGroup {
             type="button"
             class="btn btn-link"
             (click)="addPathRule()"
-            [disabled]="busy() || !pathRuleProfileId || !workspacePath.trim()"
+            [disabled]="busy()" [appTooltipDisabledReason]="!pathRuleProfileId ? 'Choose the account to protect this folder.' : !workspacePath.trim() ? 'Choose or enter the folder to protect.' : null"
           >
             Protect this folder and everything under it
           </button>

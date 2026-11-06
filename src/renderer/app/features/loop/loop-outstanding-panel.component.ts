@@ -301,6 +301,7 @@ export function buildOutstandingQuery(
   `],
 })
 export class LoopOutstandingPanelComponent {
+
   protected readonly copy = copyFor;
   /** Session/chat to show outstanding items for. Null falls back to workspace scope. */
   chatId = input<string | null>(null);
@@ -517,7 +518,7 @@ export class LoopOutstandingPanelComponent {
 
   protected resumeDisabledReason(): string | null {
     if (!this.workspaceCwd()) return 'No workspace selected';
-    if (!this.chatId()) return 'Resume needs a session — open this from an instance';
+    if (!this.chatId()) return 'Resume needs a session — open this from a session';
     if (this.answeredCount() === 0) return 'Type an answer on an item first';
     return null;
   }

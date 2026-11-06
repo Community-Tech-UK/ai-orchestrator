@@ -13,7 +13,7 @@ export const GENERAL_TAB_HELP: HelpEntry = {
       kind: 'callout',
       variant: 'info',
       heading: 'What this does',
-      body: 'Sets your default AI CLI, model, working folder, and whether new agents skip approval prompts. These become the baseline for every fresh instance you spawn.',
+      body: 'Sets your default AI CLI, model, working folder, and whether new agents skip approval prompts. These become the baseline for every fresh session you spawn.',
     },
     {
       kind: 'callout',
@@ -87,7 +87,7 @@ export const DISPLAY_TAB_HELP: HelpEntry = {
         {
           label: 'Show cost estimates',
           value: 'On',
-          why: 'Keeps running spend visible per instance so surprises surface early.',
+          why: 'Keeps running spend visible per session so surprises surface early.',
         },
       ],
     },

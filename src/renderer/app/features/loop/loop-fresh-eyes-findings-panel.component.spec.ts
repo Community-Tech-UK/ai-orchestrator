@@ -5,7 +5,7 @@
  */
 import { ChangeDetectionStrategy, Component, signal, ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LoopFreshEyesFindingsPanelComponent } from './loop-fresh-eyes-findings-panel.component';
 import {
@@ -72,6 +72,27 @@ describe('LoopFreshEyesFindingsPanelComponent (N4)', () => {
     return fixture.nativeElement.querySelector('.fe-findings__fix');
   }
 
+  it('keeps the missing-selection reason focusable and blocks activation until recovery', () => {
+    seed();
+    const button = fixButton();
+    expect(button.disabled).toBe(false);
+    expect(button.tabIndex).toBe(0);
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    const matches = button.matches.bind(button);
+    vi.spyOn(button, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
+    button.focus();
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(button);
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('Select at least one finding first');
+    button.click();
+    expect(fixture.componentInstance.sent).toEqual([]);
+    checkboxes()[0]!.click();
+    fixture.detectChanges();
+    expect(button.getAttribute('aria-disabled')).toBeNull();
+    button.click();
+    expect(fixture.componentInstance.sent).toEqual([buildFixSelectedMessage([DETAIL.blockingFindings[0]!])]);
+  });
+
   it('renders nothing without findings', () => {
     expect(fixture.nativeElement.querySelector('.fe-findings')).toBeNull();
   });
@@ -102,10 +123,12 @@ describe('LoopFreshEyesFindingsPanelComponent (N4)', () => {
 
   it('disables the fix button until something is selected', () => {
     seed();
-    expect(fixButton().disabled).toBe(true);
+    expect(fixButton().disabled).toBe(false);
+    expect(fixButton().getAttribute('aria-disabled')).toBe('true');
     checkboxes()[0]!.click();
     fixture.detectChanges();
     expect(fixButton().disabled).toBe(false);
+    expect(fixButton().getAttribute('aria-disabled')).toBeNull();
   });
 
   it('counts the selection on the button', () => {
@@ -121,7 +144,8 @@ describe('LoopFreshEyesFindingsPanelComponent (N4)', () => {
     checkboxes()[0]!.click();
     checkboxes()[0]!.click();
     fixture.detectChanges();
-    expect(fixButton().disabled).toBe(true);
+    expect(fixButton().disabled).toBe(false);
+    expect(fixButton().getAttribute('aria-disabled')).toBe('true');
   });
 
   it('emits only the selected findings, in the builder’s own wording', () => {
@@ -140,7 +164,8 @@ describe('LoopFreshEyesFindingsPanelComponent (N4)', () => {
     fixture.detectChanges();
     fixButton().click();
     fixture.detectChanges();
-    expect(fixButton().disabled).toBe(true);
+    expect(fixButton().disabled).toBe(false);
+    expect(fixButton().getAttribute('aria-disabled')).toBe('true');
   });
 
   it('lists demoted findings with their reason rather than hiding them', () => {

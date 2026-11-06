@@ -202,13 +202,19 @@ describe('AsyncQuestionAnswersComponent', () => {
   it('requires text for Other and for free-text-only questions', async () => {
     const root = await render(question([{ title: 'Why?', options: null }]));
     expect(root.querySelectorAll('input[type="radio"]').length).toBe(0);
-    expect(sendButton(root)!.disabled).toBe(true);
+    expect(sendButton(root)!.disabled).toBe(false);
+    expect(sendButton(root)!.getAttribute('aria-disabled')).toBe('true');
+    sendButton(root)!.focus();
+    expect(document.activeElement).toBe(sendButton(root));
+    sendButton(root)!.click();
+    expect(sendInput).not.toHaveBeenCalled();
 
     const text = root.querySelector<HTMLInputElement>('input.aq__text')!;
     text.value = 'Because of LT-029';
     text.dispatchEvent(new Event('input'));
     fixture.detectChanges();
     expect(sendButton(root)!.disabled).toBe(false);
+    expect(sendButton(root)!.getAttribute('aria-disabled')).toBeNull();
 
     sendButton(root)!.click();
     await settle();

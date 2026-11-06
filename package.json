@@ -99,7 +99,8 @@
     "audit:production": "node scripts/audit-production-dependencies.js",
     "audit:build": "node scripts/audit-build-dependencies.js && node scripts/verify-release-toolchain.js",
     "audit:ui-hints": "tsx scripts/audit-ui-hints.ts",
-    "check:ui-hints": "tsx scripts/check-ui-hints.ts"
+    "check:ui-hints": "tsx scripts/check-ui-hints.ts",
+    "glossary:agents": "tsx scripts/generate-agent-glossary.ts"
   },
   "keywords": [
     "ai",

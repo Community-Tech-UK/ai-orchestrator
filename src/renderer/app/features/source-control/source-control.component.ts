@@ -25,13 +25,12 @@ import {
 import { ViewLayoutService } from '../../core/services/view-layout.service';
 import { SourceControlStore } from '../../core/state/source-control.store';
 import { FileIconComponent } from '../../shared/file-icons/file-icon.component';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { SourceControlDiffViewerComponent } from './source-control-diff-viewer.component';
 import { SourceControlInlineDiffComponent } from './source-control-inline-diff.component';
 import { SourceControlRepoActionsComponent } from './source-control-repo-actions.component';
 import { buildChangesRows, statusLetter } from './source-control-rows';
-import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
-import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
-import { modKeyLabel } from '../../core/keybindings/shortcut-display';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import type {
   FileChange,
@@ -57,7 +56,7 @@ import type {
 })
 export class SourceControlComponent {
   private readonly confirmService = inject(ConfirmService);
-  private readonly modifier = modKeyLabel(/Mac|iPhone|iPad|iPod/.test(navigator.platform));
+  private readonly isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
   protected store = inject(SourceControlStore);
   private viewLayoutService = inject(ViewLayoutService);
 
@@ -139,13 +138,13 @@ export class SourceControlComponent {
   }
 
   trackedFileHint(path: string): string {
-    return this.modifier === '⌘'
+    return this.isMac
       ? path + ' — ' + copyFor('sourceControl.trackedMac')
       : path + ' — ' + copyFor('sourceControl.trackedOther');
   }
 
   untrackedFileHint(path: string): string {
-    return this.modifier === '⌘'
+    return this.isMac
       ? path + ' — ' + copyFor('sourceControl.untrackedMac')
       : path + ' — ' + copyFor('sourceControl.untrackedOther');
   }

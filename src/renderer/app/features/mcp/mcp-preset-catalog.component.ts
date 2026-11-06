@@ -45,7 +45,7 @@ export interface McpPreset {
         <div>
           <span class="panel-heading">Preset Servers</span>
           <div class="panel-subtitle">
-            Built-in server definitions — select Add to register one as an Orchestrator server.
+            Built-in server definitions — select Add to register one as a Harness server.
           </div>
         </div>
       </div>

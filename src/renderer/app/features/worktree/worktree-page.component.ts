@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 /**
  * Worktree Page
  * Container that wires worktree panel UI to worktree IPC APIs.
@@ -43,7 +44,7 @@ interface InstanceOption {
 @Component({
   selector: 'app-worktree-page',
   standalone: true,
-  imports: [CommonModule, WorktreePanelComponent, TaskPreflightCardComponent],
+  imports: [CommonModule, WorktreePanelComponent, TaskPreflightCardComponent, AioTooltipDirective],
   template: `
     <div class="page">
       <div class="page-header">
@@ -55,9 +56,9 @@ interface InstanceOption {
 
       <div class="toolbar">
         <label class="field">
-          <span class="label">Instance</span>
+          <span class="label">Session</span>
           <select class="select" [value]="selectedInstanceId()" (change)="onInstanceChange($event)">
-            <option value="">Select instance</option>
+            <option value="">Select session</option>
             @for (instance of instances(); track instance.id) {
               <option [value]="instance.id">
                 {{ instance.displayName }} ({{ instance.status }})
@@ -99,16 +100,16 @@ interface InstanceOption {
         </label>
 
         <div class="actions">
-          <button class="btn primary" type="button" [disabled]="working() || !canCreate()" (click)="createWorktree()">
+          <button class="btn primary" type="button" [disabled]="working() || preflightLoading()" [appTooltipDisabledReason]="!selectedInstanceId().trim() ? 'Select a session first' : !taskDescription().trim() ? 'Enter a task description first' : preflight()?.blockers?.length ? 'Resolve the launch blockers first' : null" (click)="createWorktree()">
             Create
           </button>
-          <button class="btn" type="button" [disabled]="!selectedInstance()" (click)="openRepoJobLaunch()">
+          <button class="btn" type="button" (click)="openRepoJobLaunch()">
             Implement as Background Job
           </button>
           <button class="btn" type="button" [disabled]="working()" (click)="refreshAll()">
             Refresh
           </button>
-          <button class="btn" type="button" [disabled]="working() || sessions().length < 2" (click)="detectConflicts()">
+          <button class="btn" type="button" [disabled]="working()" [appTooltipDisabledReason]="sessions().length < 2 ? 'At least two worktrees are needed to check conflicts' : null" (click)="detectConflicts()">
             Detect Conflicts
           </button>
         </div>
@@ -135,7 +136,7 @@ interface InstanceOption {
               [loading]="preflightLoading()"
               heading="Worktree Preflight"
               subtitle="Filesystem permissions, instructions, and tool readiness for worktree creation."
-              emptyMessage="Select an instance to inspect worktree readiness."
+              emptyMessage="Select a session to inspect worktree readiness."
             />
           </div>
 
@@ -457,9 +458,13 @@ export class WorktreePageComponent implements OnInit, OnDestroy {
 
   openRepoJobLaunch(): void {
     const selectedInstance = this.selectedInstance();
-    const workingDirectory = selectedInstance?.workingDirectory?.trim();
+    if (!selectedInstance) {
+      this.errorMessage.set('Select a session first.');
+      return;
+    }
+    const workingDirectory = selectedInstance.workingDirectory?.trim();
     if (!workingDirectory) {
-      this.errorMessage.set('The selected instance does not expose a working directory for repo jobs.');
+      this.errorMessage.set('The selected session does not expose a working directory for repo jobs.');
       return;
     }
 

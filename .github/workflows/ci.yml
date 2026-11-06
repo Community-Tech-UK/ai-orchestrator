@@ -74,6 +74,18 @@ jobs:
           git fetch --depth=1 origin "$UI_HINTS_BASE_SHA"
           npm run check:ui-hints -- --against "$UI_HINTS_BASE_SHA"
 
+      - name: Check UI hints records against the pushed base
+        if: github.event_name == 'push'
+        env:
+          UI_HINTS_BASE_SHA: ${{ github.event.before }}
+        run: |
+          if [ "$UI_HINTS_BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            echo "New branch push; no base record to compare."
+          else
+            git fetch --depth=1 origin "$UI_HINTS_BASE_SHA"
+            npm run check:ui-hints -- --against "$UI_HINTS_BASE_SHA"
+          fi
+
       - name: Check TypeScript file size ratchet
         run: npm run check:ts-max-loc
 

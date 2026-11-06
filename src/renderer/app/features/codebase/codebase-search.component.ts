@@ -26,6 +26,9 @@ import type { HybridSearchOptions } from '../../../../shared/types/codebase.type
   imports: [FormsModule, AioTooltipDirective],
   template: `
     <div class="search-container">
+      @if (disabled()) {
+        <p tabindex="0" appTooltipDisabledReason="Wait for indexing to finish before searching this codebase">Search is paused while indexing.</p>
+      }
       <!-- Search Input -->
       <div class="search-input-wrapper">
         <label for="codebase-search-input" class="visually-hidden">Search</label>

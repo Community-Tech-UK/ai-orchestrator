@@ -60,7 +60,18 @@ describe('leftover folder card', () => {
     const element: HTMLElement = fixture.nativeElement;
     expect(element.textContent).toContain('185 files');
     expect(element.querySelector<HTMLInputElement>('input[type=checkbox]')!.checked).toBe(false);
-    expect(element.querySelector<HTMLButtonElement>('[data-remove]')!.disabled).toBe(true);
+    const remove = element.querySelector<HTMLButtonElement>('[data-remove]')!;
+    expect(remove.disabled).toBe(false);
+    expect(remove.getAttribute('aria-disabled')).toBe('true');
+    remove.focus();
+    expect(document.activeElement).toBe(remove);
+    remove.click();
+    expect(run).not.toHaveBeenCalled();
+    const checkbox = element.querySelector<HTMLInputElement>('input[type=checkbox]')!;
+    checkbox.click(); fixture.detectChanges();
+    expect(remove.hasAttribute('aria-disabled')).toBe(false);
+    remove.click();
+    expect(run).toHaveBeenCalledExactlyOnceWith(true, undefined);
     expect(element.querySelector('[title]')).toBeNull();
   });
   it('shows the reason beside a disabled Review', () => {
@@ -68,6 +79,16 @@ describe('leftover folder card', () => {
     const fixture = TestBed.createComponent(LeftoverWorktreesCardComponent); fixture.detectChanges();
     const element: HTMLElement = fixture.nativeElement;
     expect(element.textContent).toContain('In use by a loop that is still open');
-    expect(Array.from(element.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Review')!.disabled).toBe(true);
+    const button = Array.from(element.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Review')!;
+    expect(button.disabled).toBe(false);
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    button.focus();
+    expect(document.activeElement).toBe(button);
+    button.click();
+    expect(review).not.toHaveBeenCalled();
+    rows.set([row()]); fixture.detectChanges();
+    expect(button.hasAttribute('aria-disabled')).toBe(false);
+    button.click();
+    expect(review).toHaveBeenCalled();
   });
 });

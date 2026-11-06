@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 /**
  * Semantic Search Page
  * Natural language search using vector embeddings and Exa integration.
@@ -34,7 +35,7 @@ interface IndexStats {
 @Component({
   selector: 'app-semantic-search-page',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page">
@@ -96,7 +97,7 @@ interface IndexStats {
         <button
           class="btn primary"
           type="button"
-          [disabled]="busy() || !canSearch()"
+          [disabled]="busy()" [appTooltipDisabledReason]="!canSearch() ? 'Enter a search query first' : null"
           (click)="search()"
         >
           {{ busy() ? 'Searching...' : 'Search' }}
@@ -209,7 +210,7 @@ interface IndexStats {
             <button
               class="btn primary"
               type="button"
-              [disabled]="busy() || !canBuildIndex()"
+              [disabled]="busy()" [appTooltipDisabledReason]="!canBuildIndex() ? 'Enter the folder to index first' : null"
               (click)="buildIndex()"
             >
               {{ buildingIndex() ? 'Building...' : 'Build Index' }}

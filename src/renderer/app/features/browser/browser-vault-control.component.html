@@ -31,7 +31,7 @@
       type="button"
       data-testid="vault-unlock-button"
       aria-label="Unlock credential vault"
-      [disabled]="busy() || status()?.locked === false"
+      [disabled]="busy()" [appTooltipDisabledReason]="status()?.locked === false ? 'The credential vault is already unlocked.' : null"
       (click)="unlock()"
     >
       {{ busy() ? 'Unlocking...' : 'Unlock' }}
@@ -41,7 +41,7 @@
       type="button"
       data-testid="vault-lock-button"
       aria-label="Lock credential vault"
-      [disabled]="busy() || status()?.locked !== false"
+      [disabled]="busy()" [appTooltipDisabledReason]="!status() ? 'Check the vault status before locking it.' : status()?.locked ? 'The credential vault is already locked.' : null"
       (click)="lock()"
     >
       Lock

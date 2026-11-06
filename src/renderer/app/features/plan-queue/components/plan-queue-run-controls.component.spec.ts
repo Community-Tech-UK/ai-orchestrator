@@ -1,11 +1,13 @@
 import { ComponentRef, ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlanQueueRunDto } from '@contracts/schemas/plan-queue';
 import { PlanQueueRunControlsComponent } from './plan-queue-run-controls.component';
+import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
 await resolveComponentResources((url) => {
@@ -46,5 +48,37 @@ describe('PlanQueueRunControlsComponent', () => {
     ref.setInput('run', run());
     created.detectChanges();
     expect(resume()).toBeNull();
+  });
+
+  it('explains that Pause saves work on each branch, on keyboard focus', () => {
+    const created = fixture();
+    ref.setInput('run', run());
+    created.detectChanges();
+    const button = host.querySelector('button') as HTMLButtonElement;
+    const matches = button.matches.bind(button);
+    vi.spyOn(button, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
+    button.focus();
+    created.detectChanges();
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('Stops this run’s sessions now and saves work on each document’s branch. Resume carries on from there.');
+    button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+  });
+
+  it.each([
+    ['running', 'button', 'sessions now'],
+    ['paused', '.pq-resume', 'once pausing has finished'],
+    ['running', '.pq-cancel', 'Asks first, then stops'],
+  ] as const)('opens the %s control explanation at %s', (status, selector, timing) => {
+    const created = fixture();
+    ref.setInput('run', run({ status }));
+    created.detectChanges();
+    const trigger = created.debugElement.query(By.css(selector));
+    const tooltip = trigger.injector.get(AioTooltipDirective);
+    tooltip.show();
+    created.detectChanges();
+    const panel = document.querySelector('[role="tooltip"]');
+    expect(panel?.textContent).toContain(timing);
+    expect(trigger.nativeElement.getAttribute('aria-describedby')).toBe(panel?.id);
+    tooltip.hide();
   });
 });

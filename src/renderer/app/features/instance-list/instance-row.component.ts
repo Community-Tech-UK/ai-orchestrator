@@ -316,12 +316,12 @@ export class InstanceRowComponent {
     if (this.instance().status === 'error') states.push('error');
     if (this.instance().yoloMode) states.push('auto-approve mode');
     const suffix = states.length > 0 ? ` — ${states.join(', ')}` : '';
-    return `Select instance ${this.resolvedDisplayTitle()}${suffix}`;
+    return `Select session ${this.resolvedDisplayTitle()}${suffix}`;
   });
 
   /** UX3: the tooltip and the accessible name are one string. */
   readonly expandTooltip = computed(() =>
-    `${this.isExpanded() ? 'Collapse' : 'Expand'} child instances`);
+    `${this.isExpanded() ? 'Collapse' : 'Expand'} child sessions`);
 
   /**
    * Only a root session is archived on close (`archiveRootConversation()` bails
@@ -330,7 +330,7 @@ export class InstanceRowComponent {
    */
   readonly closeTooltip = computed(() => this.instance().parentId
     ? 'Close session — stops this child agent and removes it from the tree'
-    : 'Close session — stops the agent and moves this thread to history');
+    : 'Close session — stops the agent and moves this session to history');
 
   readonly restartTooltip = computed(() => this.supportsResume()
     ? 'Restart and resume the conversation'

@@ -74,6 +74,7 @@ import { SIDE_CHAT_COPY } from './tooltip-copy-side-chat';
 import { SOURCE_CONTROL_COPY } from './tooltip-copy-source-control';
 import { SETTINGS_TABS_COPY } from './tooltip-copy-settings-tabs';
 
+
 export interface TooltipCopyEntry {
   /** The control's own name, for reference in reviews. */
   label: string;
@@ -112,6 +113,46 @@ export const TOOLTIP_COPY = {
   ...SIDE_CHAT_COPY,
   ...SOURCE_CONTROL_COPY,
   ...SETTINGS_TABS_COPY,
+  'evidence.staging': {
+    label: 'Evidence still capturing',
+    meaning: 'Still capturing — not yet available for inspection.',
+  },
+  'evidence.failed': {
+    label: 'Evidence capture failed',
+    meaning: 'Capture failed — no readable content is available.',
+  },
+  'evidence.corrupt': {
+    label: 'Evidence corrupt',
+    meaning: 'Evidence is corrupt — raw bytes cannot be trusted.',
+  },
+  'evidence.deleted': {
+    label: 'Evidence deleted',
+    meaning: 'Evidence has been deleted — content is no longer available.',
+  },
+  'localAi.invalidSetup': {
+    label: 'Endpoint setup incomplete',
+    meaning: 'Check the endpoint details before testing. The message below names what to fix.',
+  },
+  'localAi.checkRequired': {
+    label: 'Endpoint test required',
+    meaning: 'Run a successful endpoint test before saving or enrolling. The message above names what to fix.',
+  },
+  'plugins.missingPackageSource': {
+    label: 'Package source',
+    meaning: 'Enter a package source first.',
+  },
+  'composer.steer': {
+    label: 'Steer',
+    meaning: 'Asks the current turn to stop and sends this message next. During provider compaction, it waits for compaction to finish.',
+  },
+  'composer.steerQueued': {
+    label: 'Steer',
+    meaning: 'Moves this message to the front of the queue and asks the current turn to stop so it can send next.',
+  },
+  'composer.editQueued': {
+    label: 'Edit queued message',
+    meaning: 'Returns this queued message to the message box so you can edit it before sending.',
+  },
   'accounts.signIn': {
     label: 'Sign in',
     meaning: 'Opens a terminal already running the sign-in command',

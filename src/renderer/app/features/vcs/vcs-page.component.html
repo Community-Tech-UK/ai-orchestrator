@@ -28,8 +28,8 @@
       (input)="onDirInput($event)"
       (keydown.enter)="loadRepo()"
     />
-    <button class="btn primary" type="button" [disabled]="loading() || !workingDir().trim()" (click)="loadRepo()">
-      Load
+    <button class="btn primary" type="button" [disabled]="loading()" [appTooltipDisabledReason]="!workingDir().trim() ? 'Enter a working directory first.' : null" (click)="loadRepo()">
+      {{ loading() ? 'Loading…' : 'Load' }}
     </button>
   </div>
 
@@ -302,10 +302,11 @@
             <button
               class="btn"
               type="button"
-              [disabled]="historyLoading() || !historyFilePath().trim()"
+              [disabled]="historyLoading()"
+              [appTooltipDisabledReason]="!historyFilePath().trim() ? 'Enter a file path first.' : null"
               (click)="loadFileHistory()"
             >
-              Load
+              {{ historyLoading() ? 'Loading…' : 'Load' }}
             </button>
           </div>
 

@@ -19,7 +19,7 @@
         @if (row.diskReclaimableBytes) { <p>{{ bytes(row.diskReclaimableBytes) }} can then be handed back to the disk.</p> }
       </div>
       @if (row.target) {
-        <div class="row-actions"><button type="button" [appTooltip]="reviewHint" [disabled]="store.busy() || row.reclaimableBytes === 0" (click)="store.review(row.target)">{{ row.target === 'event-record' ? 'Review and clear' : 'Review and clean up' }}</button>
+        <div class="row-actions"><button type="button" [appTooltip]="reviewHint" [disabled]="store.busy()" [appTooltipDisabledReason]="row.reclaimableBytes === 0 ? tooltipCopy.noOldFiles : null" (click)="store.review(row.target)">{{ row.target === 'event-record' ? 'Review and clear' : 'Review and clean up' }}</button>
           @if (row.shrinkAvailable) { <button type="button" [disabled]="store.busy()" (click)="store.review('event-record-shrink')">Shrink now (frees about {{ bytes(row.diskReclaimableBytes ?? 0) }})</button> }
         </div>
       }

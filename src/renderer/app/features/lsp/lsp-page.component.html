@@ -57,7 +57,7 @@
         <button
           class="btn"
           type="button"
-          [disabled]="working() || !symbolFilePath()"
+          [disabled]="working()" [appTooltipDisabledReason]="!symbolFilePath() ? tooltipEnterFilePath : null"
           (click)="loadDocumentSymbols()"
         >
           Load
@@ -198,7 +198,7 @@
         <button
           class="btn"
           type="button"
-          [disabled]="working() || !workspaceQuery() || !workspaceRootPath()"
+          [disabled]="working()" [appTooltipDisabledReason]="!workspaceQuery() ? 'Enter a symbol name first' : !workspaceRootPath() ? 'Enter a workspace folder first' : null"
           (click)="searchWorkspaceSymbols()"
         >
           Search
@@ -250,7 +250,7 @@
         <button
           class="btn"
           type="button"
-          [disabled]="working() || !diagnosticsFilePath()"
+          [disabled]="working()" [appTooltipDisabledReason]="!diagnosticsFilePath() ? tooltipEnterFilePath : null"
           (click)="loadDiagnostics()"
         >
           Load

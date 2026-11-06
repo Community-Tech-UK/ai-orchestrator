@@ -68,13 +68,22 @@ describe('PlanQueueQuestionCardComponent', () => {
   });
 
   it('disables the submit button until an option is selected', () => {
+    const emitted: string[] = [];
+    fixture.componentInstance.submitAnswer.subscribe(value => emitted.push(value));
+    expect(submitButton().disabled).toBe(false);
     expect(submitButton().getAttribute('aria-disabled')).toBe('true');
+    submitButton().focus();
+    expect(document.activeElement).toBe(submitButton());
+    submitButton().click();
+    expect(emitted).toEqual([]);
 
     radios()[0].dispatchEvent(new Event('change'));
     fixture.detectChanges();
 
     expect(submitButton().disabled).toBe(false);
-    expect(submitButton().getAttribute('aria-disabled')).toBeNull();
+    expect(submitButton().hasAttribute('aria-disabled')).toBe(false);
+    submitButton().click();
+    expect(emitted).toEqual(['a']);
   });
 
   it('never lets James type an option id — only radio inputs are rendered', () => {

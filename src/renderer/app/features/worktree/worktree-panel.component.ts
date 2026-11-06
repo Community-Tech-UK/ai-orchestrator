@@ -64,7 +64,7 @@ interface WorktreeAction {
             [appTooltipDisabledReason]="canMergeAll() ? null : mergeAllDisabledReason"
             (click)="onMergeAll()"
           >
-            Merge All
+            Merge All ({{ mergeableCount() }})
           </button>
         }
       </div>
@@ -678,6 +678,11 @@ export class WorktreePanelComponent {
 
   /** Shown on Merge All while no worktree has finished. */
   readonly mergeAllDisabledReason = 'No worktree has finished yet. Mark one complete to merge it.';
+
+  /** Completed worktrees the batch merge would take. */
+  mergeableCount = computed(() =>
+    this.sessions().filter((s) => s.status === 'completed').length
+  );
 
   getStatusIcon(status: WorktreeStatus): string {
     switch (status) {

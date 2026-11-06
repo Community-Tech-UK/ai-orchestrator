@@ -1,11 +1,11 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
 import ts from 'typescript';
-import { unwrap } from './template-sources';
+import { propertyName, unwrap } from './template-sources';
 import type { TemplateSource } from './types';
 
 /** Read source, never import/execute it. Only exported immutable string literals cross folder boundaries. */
-export function importedHoverLiteral(file: string, name: string, source: TemplateSource, files: ts.SourceFile[]): string | undefined {
+export function importedHoverLiteral(file: string, name: string, source: TemplateSource, files: ts.SourceFile[], projectionPath: readonly string[]): string | undefined {
   const root = resolve(dirname(source.sourceFile.fileName), ...source.ownerFile.split('/').slice(1).map(() => '..'), 'src');
   const path = relative(root, file);
   if (path.startsWith('..') || !file.endsWith('.ts') || !existsSync(file)) return undefined;
@@ -15,7 +15,17 @@ export function importedHoverLiteral(file: string, name: string, source: Templat
     if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)
       || !statement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) continue;
     const declaration = statement.declarationList.declarations.find(declaration => ts.isIdentifier(declaration.name) && declaration.name.text === name);
-    const value = declaration?.initializer && unwrap(declaration.initializer);
+    if (!declaration) continue;
+    let value = declaration?.initializer && unwrap(declaration.initializer);
+    if (projectionPath.length && (!declaration?.initializer || !ts.isAsExpression(declaration.initializer)
+      || declaration.initializer.type.getText(module) !== 'const')) return undefined;
+    for (const key of projectionPath) {
+      if (!value || !ts.isObjectLiteralExpression(value)) return undefined;
+      const keys = value.properties.map(property => ts.isPropertyAssignment(property) ? propertyName(property.name) : undefined);
+      if (keys.some(key => key === undefined || key === '__proto__') || new Set(keys).size !== keys.length) return undefined;
+      const property = value.properties.find(property => ts.isPropertyAssignment(property) && propertyName(property.name) === key);
+      value = property && ts.isPropertyAssignment(property) ? unwrap(property.initializer) : undefined;
+    }
     if (value && (ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value))) return value.text;
   }
   return undefined;

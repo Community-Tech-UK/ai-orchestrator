@@ -46,6 +46,7 @@ export type KeybindingContext =
   | 'output'           // When output area is focused
   | 'instance-list'    // When instance list is focused
   | 'command-palette'  // When command palette is open
+  | 'source-control'   // When a source-control commit box is focused
   | 'overlay';         // When any OverlayShellComponent-based overlay has focus (command
                         // palette, command help, session/model/resume pickers, prompt-history
                         // search). See core/keybindings/keybinding-registry.ts (WS-C9).
@@ -375,6 +376,16 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
     action: 'send-message',
     context: 'input',
     category: 'Session',
+    customizable: true,
+  },
+  {
+    id: 'source-control-commit',
+    name: 'Commit Staged Changes',
+    description: 'Commit staged changes from a source-control commit box',
+    keys: { key: 'Enter', modifiers: ['meta'] },
+    action: 'source-control.commit',
+    context: 'source-control',
+    category: 'Source Control',
     customizable: true,
   },
   {

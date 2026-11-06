@@ -1,3 +1,5 @@
+import { AioTooltipDirective } from '../tooltip/aio-tooltip.directive';
+import { AppIconButtonDirective } from '../tooltip/icon-button.directive';
 import { ChangeDetectionStrategy, Component, DestroyRef, type ElementRef, computed, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
@@ -22,7 +24,6 @@ import { searchControlNav } from './control-surface-search';
 import { HelpPaneComponent } from '../help/help-pane.component';
 import { CONTROL_SURFACE_HELP } from '../help/control-surface-help';
 import { SettingsStore } from '../../core/state/settings.store';
-import { AioTooltipDirective } from '../tooltip/aio-tooltip.directive';
 import type { HelpEntry } from '../help/help-content.types';
 
 /** localStorage key remembering whether the Control Center help pane is collapsed. */
@@ -32,7 +33,7 @@ const NAV_COLLAPSED_KEY = 'aiorch.control.navCollapsed';
 @Component({
   selector: 'app-control-surface-shell',
   standalone: true,
-  imports: [RouterLink, RouterLinkActive, RouterOutlet, HelpPaneComponent, AioTooltipDirective, ControlSurfaceIconPipe],
+  imports: [RouterLink, RouterLinkActive, RouterOutlet, HelpPaneComponent, AioTooltipDirective, AppIconButtonDirective, ControlSurfaceIconPipe],
   templateUrl: './control-surface-shell.component.html',
   styleUrl: './control-surface-shell.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

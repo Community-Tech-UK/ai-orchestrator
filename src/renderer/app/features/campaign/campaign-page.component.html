@@ -12,7 +12,7 @@
       <button type="button" [class.active]="mode() === 'connect'" (click)="mode.set('connect')" appTooltip="Click two nodes to draw an edge">Connect</button>
       <button type="button" (click)="resetEditor()" appTooltip="Reset editor">Reset</button>
       <button type="button" (click)="onValidateSpec()" appTooltip="Validate graph">Validate</button>
-      <button type="button" class="primary" [appTooltipDisabledReason]="canRun() ? null : 'Validate the graph and fix its errors before running.'" (click)="onRunCampaign()" [appTooltip]="copy.run">Run</button>
+      <button type="button" class="primary" (click)="onRunCampaign()" [appTooltip]="copy.run">Run</button>
     </div>
   </header>
 

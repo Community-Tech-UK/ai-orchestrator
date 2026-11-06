@@ -64,6 +64,34 @@ describe('CampaignPageComponent editor', () => {
     await fixture.whenStable();
   });
 
+  it('lets Run show its real validation error and succeeds after the folder is corrected', async () => {
+    const run = fixture.nativeElement.querySelector('.cp-header-actions .primary') as HTMLButtonElement;
+    expect(run.disabled).toBe(false);
+    run.click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.cp-error')?.textContent).toContain('node-1 workspace is required');
+    expect(store.start).not.toHaveBeenCalled();
+    expect(store.validate).not.toHaveBeenCalled();
+    fixture.componentInstance.updateNode('node-1', { workspaceCwd: '/tmp/project' });
+    fixture.detectChanges();
+    run.click();
+    await fixture.whenStable();
+    expect(store.start).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the last-node safety guard focusable and blocks removal until another node exists', () => {
+    const remove = fixture.nativeElement.querySelector('.inspector-head button') as HTMLButtonElement;
+    expect(remove.disabled).toBe(false);
+    expect(remove.getAttribute('aria-disabled')).toBe('true');
+    remove.click();
+    expect(fixture.componentInstance.nodes()).toHaveLength(1);
+    fixture.componentInstance.addNodeAt(360, 150);
+    fixture.detectChanges();
+    expect(remove.getAttribute('aria-disabled')).toBeNull();
+    remove.click();
+    expect(fixture.componentInstance.nodes()).toHaveLength(1);
+  });
+
   it('builds and runs a two-node campaign from the editor', async () => {
     const component = fixture.componentInstance as unknown as {
       addNodeAt: (x: number, y: number) => void;

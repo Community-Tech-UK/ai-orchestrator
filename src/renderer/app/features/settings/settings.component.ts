@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 /**
  * Settings Component - Full-page settings workspace.
  *
@@ -62,6 +63,7 @@ import { RemoteConfigPageComponent } from '../remote-config/remote-config-page.c
 import { ModelsPageComponent } from '../models/models-page.component';
 import { SettingsNavIconComponent } from './ui/settings-nav-icon.component';
 import { HelpPaneComponent } from '../../shared/help/help-pane.component';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 import type { HelpEntry, HelpLiveStatus } from '../../shared/help/help-content.types';
 import { SETTINGS_TAB_HELP } from './help/settings-help';
 import { scrollToSettingRow } from './settings-row-landing';
@@ -82,7 +84,6 @@ import {
 } from './settings-navigation';
 import { bindSettingsViewportMediaQueries } from './settings-viewport-media';
 import { SettingsHelpDrawerFocus } from './settings-help-drawer-focus';
-import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { navItemLabel } from './settings-nav-label';
 import { SettingsCompactNavFocus } from './settings-compact-nav-focus';
 @Component({
@@ -122,6 +123,7 @@ import { SettingsCompactNavFocus } from './settings-compact-nav-focus';
     ModelsPageComponent,
     SettingsNavIconComponent,
     HelpPaneComponent, AioTooltipDirective,
+      AppIconButtonDirective,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './settings.component.html',

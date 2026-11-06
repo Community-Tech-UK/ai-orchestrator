@@ -73,6 +73,7 @@ export class VerificationDashboardComponent implements OnDestroy, AfterViewInit 
   workingDirectory = signal<string | null>(null);
   preflight = signal<TaskPreflightReport | null>(null);
   preflightLoading = signal(false);
+  errorMessage = signal<string | null>(null);
   pendingFiles = signal<File[]>([]);
   private filePreviewUrls = new Map<File, string>();
 
@@ -291,7 +292,20 @@ export class VerificationDashboardComponent implements OnDestroy, AfterViewInit 
   }
 
   async startVerification(): Promise<void> {
-    if (!this.canStartVerification()) return;
+    if (this.store.isRunning() || this.preflightLoading()) return;
+    if (this.promptInput.trim().length === 0) {
+      this.errorMessage.set('Enter the prompt first.');
+      return;
+    }
+    if (this.validSelectedAgents().length < 2) {
+      this.errorMessage.set('Select at least two agents first.');
+      return;
+    }
+    if (this.workingDirectory() && (this.preflight()?.blockers.length || 0) > 0) {
+      this.errorMessage.set('Resolve the launch blockers first.');
+      return;
+    }
+    this.errorMessage.set(null);
 
     // Update config with selected strategy
     this.store.setDefaultConfig({

@@ -1,5 +1,7 @@
 import { isQuietRun, monitorSuggestion, nextCheckExplanation } from './automation-run-presentation';
 import type { AutomationUpdatePayload } from '@contracts/schemas/automation';
+import { AUTOMATIONS_CHOOSE_FOLDER, AUTOMATIONS_ENTER_PROMPT, AUTOMATIONS_PAUSE_SCHEDULE, AUTOMATIONS_RESUME_SCHEDULE } from './tooltip-copy-automations';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -22,13 +24,12 @@ import {
   type AutomationModelPreview,
 } from './automation-model-preview';
 import { PageHeaderComponent } from '../../shared/components/page-header/page-header.component';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
 import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
 import { AutomationWebhooksPanelComponent } from './automation-webhooks-panel.component';
 import { AutomationAuthorityPanelComponent } from './automation-authority-panel.component';
 import { AutomationExecutionProfileSelectorComponent } from './automation-execution-profile-selector.component';
-import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
-import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import {
   AUTOMATION_AUTHORITY_TEMPLATES,
@@ -86,6 +87,11 @@ interface AutomationGroup {
   styleUrl: './automations-page.component.css',
 })
 export class AutomationsPageComponent {
+  protected readonly tooltipChooseFolder = AUTOMATIONS_CHOOSE_FOLDER;
+  protected readonly tooltipEnterPrompt = AUTOMATIONS_ENTER_PROMPT;
+  protected readonly tooltipPauseSchedule = AUTOMATIONS_PAUSE_SCHEDULE;
+  protected readonly tooltipResumeSchedule = AUTOMATIONS_RESUME_SCHEDULE;
+
   private readonly instances = inject(InstanceStore);
   private readonly automationIpc = inject(AutomationIpcService);
   private readonly settingsStore = inject(SettingsStore);

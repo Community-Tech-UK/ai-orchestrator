@@ -480,7 +480,7 @@
               <button
                 type="button"
                 class="btn btn-primary"
-                [disabled]="probing() || !probeBaseUrl"
+                [disabled]="probing()"
                 (click)="probeEndpoint()"
               >
                 {{ probing() ? 'Probing…' : 'Probe' }}

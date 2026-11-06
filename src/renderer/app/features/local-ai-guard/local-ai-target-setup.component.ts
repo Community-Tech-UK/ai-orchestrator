@@ -1,3 +1,5 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -36,11 +38,13 @@ interface ValidationLayer {
 @Component({
   selector: 'app-local-ai-target-setup',
   standalone: true,
+  imports: [AioTooltipDirective],
   templateUrl: './local-ai-target-setup.component.html',
   styleUrl: './local-ai-target-setup.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class LocalAiTargetSetupComponent {
+  protected readonly copyFor = copyFor;
   protected readonly store = inject(LocalAiGuardStore);
 
   readonly editingTargetId = input<string | null>(null);
@@ -153,7 +157,7 @@ export class LocalAiTargetSetupComponent {
     const issue = this.currentFormIssue();
     if (issue) return issue;
     const results = this.validationResults();
-    if (!results || this.lastValidationFingerprint !== this.configFingerprint()) {
+    if (!results || results.length === 0 || this.lastValidationFingerprint !== this.configFingerprint()) {
       return `Test the endpoint to unlock ${this.isEditing() ? 'saving' : 'enrolment'}.`;
     }
     const failed = results.find((result) => result.required && !result.ok);
@@ -558,6 +562,7 @@ export class LocalAiTargetSetupComponent {
 
   private currentFormIssue(): string | null {
     const value = this.form();
+    if (!this.selectedEndpoint()) return 'Choose a local AI endpoint first.';
     if (value.expectedModels.length === 0) return 'Choose at least one model in Advanced settings.';
     if (!value.canaryModel || !value.expectedModels.includes(value.canaryModel)) {
       return 'Choose a test model in Advanced settings.';
@@ -569,7 +574,42 @@ export class LocalAiTargetSetupComponent {
       .map((modelId) => this.modelContextError(modelId))
       .find((error) => error !== null);
     if (contextError) return contextError;
-    return this.formValid() ? null : 'Review the highlighted values in Advanced settings.';
+    if (value.expectedModelRules.length !== value.expectedModels.length
+      || value.expectedModelRules.some(rule => !value.expectedModels.includes(rule.modelId))) {
+      return 'Set requirements for each selected model in Advanced settings.';
+    }
+    const invalidRole = value.expectedModelRules.find(rule =>
+      rule.routingRoles?.some(role => !value.routingRoles.includes(role)));
+    if (invalidRole) return `Choose only enabled local AI jobs for ${invalidRole.modelId}.`;
+    const integerFields = [
+      { label: 'canary timeout in seconds', value: value.canaryTimeoutSeconds,
+        min: this.limits.canaryTimeoutMs.min / 1_000, max: this.limits.canaryTimeoutMs.max / 1_000 },
+      { label: 'freshness limit in seconds', value: value.freshnessSeconds,
+        min: this.limits.freshnessLimitMs.min / 1_000, max: this.limits.freshnessLimitMs.max / 1_000 },
+      { label: 'latency warning in milliseconds', value: value.warningLatencyMs,
+        min: this.limits.warningLatencyMs.min, max: this.limits.warningLatencyMs.max },
+      { label: 'automatic repair attempts', value: value.maxAttempts,
+        min: this.limits.recoveryMaxAttempts.min, max: this.limits.recoveryMaxAttempts.max },
+      { label: 'repair cooldown in minutes', value: value.cooldownMinutes,
+        min: this.limits.recoveryCooldownMs.min / 60_000, max: this.limits.recoveryCooldownMs.max / 60_000 },
+      ...(value.confirmAboveInputTokens === undefined ? [] : [{ label: 'paid fallback confirmation threshold',
+        value: value.confirmAboveInputTokens, min: this.limits.confirmAboveInputTokens.min,
+        max: this.limits.confirmAboveInputTokens.max }]),
+    ];
+    for (const field of integerFields) {
+      if (!this.integerInRange(field.value, field.min, field.max)) {
+        return `Set ${field.label} to a whole number between ${field.min} and ${field.max}.`;
+      }
+    }
+    for (const [label, budget] of [
+      ['daily paid fallback budget', value.dailyFallbackBudgetUsd],
+      ['incident paid fallback budget', value.incidentFallbackBudgetUsd],
+    ] as const) {
+      if (budget !== undefined && !this.numberInRange(budget, this.limits.fallbackBudgetUsd.min, this.limits.fallbackBudgetUsd.max)) {
+        return `Set the ${label} between $${this.limits.fallbackBudgetUsd.min} and $${this.limits.fallbackBudgetUsd.max}.`;
+      }
+    }
+    return null;
   }
 
   private validationLayerLabel(layer: LocalAiHealthLayer): string {

@@ -49,11 +49,11 @@
   <!-- Instance ID Input -->
   <div class="instance-bar">
     <label class="field">
-      <span class="field-label">Instance ID</span>
+      <span class="field-label">Session ID</span>
       <input
         class="input"
         type="text"
-        placeholder="Enter instance ID to browse snapshots"
+        placeholder="Enter session ID to browse snapshots"
         [value]="selectedInstanceId()"
         (input)="onInstanceIdInput($event)"
         (keydown.enter)="loadSessions(selectedInstanceId())"
@@ -62,7 +62,7 @@
     <button
       class="btn primary"
       type="button"
-      [disabled]="!selectedInstanceId().trim() || loading()"
+      [disabled]="loading()" [appTooltipDisabledReason]="!selectedInstanceId().trim() ? 'Enter a session ID first' : null"
       (click)="loadSessions(selectedInstanceId())"
     >
       Load Sessions
@@ -70,7 +70,6 @@
     <button
       class="btn"
       type="button"
-      [disabled]="!selectedInstanceId().trim()"
       (click)="openReplay()"
     >
       Open Replay & Share
@@ -85,10 +84,10 @@
       <div class="panel-header">Sessions</div>
       @if (sessions().length === 0) {
         <app-empty-state
-          [heading]="selectedInstanceId().trim() ? 'No sessions found' : 'No instance selected'"
+          [heading]="selectedInstanceId().trim() ? 'No sessions found' : 'No session selected'"
           [message]="selectedInstanceId().trim()
-            ? 'No snapshot sessions were recorded for this instance.'
-            : 'Enter an instance ID above to load its sessions.'"
+            ? 'No snapshot sessions were recorded for this session.'
+            : 'Enter a session ID above to load its sessions.'"
         />
       } @else {
         <ul class="item-list">
@@ -208,9 +207,9 @@
       @if (loadingEvidence()) {
         <app-skeleton [lines]="4" />
       } @else if (!selectedInstanceId().trim()) {
-        <div class="empty-hint">Enter an instance ID to inspect replay artifacts for that run.</div>
+        <div class="empty-hint">Enter a session ID to inspect replay artifacts for that run.</div>
       } @else if (!evidenceBundle()?.artifacts?.length) {
-        <div class="empty-hint">No structured review artifacts were recorded for this instance.</div>
+        <div class="empty-hint">No structured review artifacts were recorded for this session.</div>
       } @else {
         <ul class="item-list">
           @for (artifact of evidenceBundle()!.artifacts; track artifact.id) {
@@ -279,7 +278,7 @@
       </div>
 
       @if (!evidenceBundle()) {
-        <div class="empty-hint">Load an instance to inspect its replay summary and redaction warnings.</div>
+        <div class="empty-hint">Load a session to inspect its replay summary and redaction warnings.</div>
       } @else {
         <div class="evidence-summary">
           <div class="summary-card">
@@ -346,7 +345,7 @@
     <button
       class="btn primary"
       type="button"
-      [disabled]="!canRevertFile() || loading()"
+      [disabled]="loading()" [appTooltipDisabledReason]="!canRevertFile() ? 'Select a file snapshot first' : null"
       (click)="confirmRevert.set('file')"
     >
       Revert File
@@ -354,7 +353,7 @@
     <button
       class="btn"
       type="button"
-      [disabled]="!canRevertSession() || loading()"
+      [disabled]="loading()" [appTooltipDisabledReason]="!canRevertSession() ? 'Select a saved session first' : null"
       (click)="confirmRevert.set('session')"
     >
       Revert Session
@@ -362,7 +361,7 @@
     <button
       class="btn danger"
       type="button"
-      [disabled]="!selectedSnapshotId() || loading()"
+      [disabled]="loading()" [appTooltipDisabledReason]="!selectedSnapshotId() ? 'Select a snapshot first' : null"
       (click)="deleteSnapshot()"
     >
       Delete Snapshot

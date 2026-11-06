@@ -60,3 +60,34 @@ export function glossaryReports(collection: Collection, patterns: readonly Gloss
   }
   return reports;
 }
+
+/**
+ * Visible text (hover wording included) must not use an entry's `avoid` words:
+ * a glossary entry declares what its concept is called, and what it is never
+ * called. Failures are gate errors, not advisories.
+ */
+export function avoidWordReports(streams: Record<string, string[]>, patterns: readonly { word: string; pattern: RegExp }[]): string[] {
+  const errors: string[] = [];
+  for (const [owner, texts] of Object.entries(streams)) {
+    for (const text of texts) {
+      for (const { word, pattern } of patterns) {
+        pattern.lastIndex = 0;
+        if (pattern.test(text)) errors.push(`avoid word "${word}" in visible text: ${owner} :: ${text.slice(0, 120)}`);
+      }
+    }
+  }
+  return errors.sort();
+}
+
+/** The short generated word list agents read. Regenerate with `npm run glossary:agents`. */
+export function renderAgentGlossary(entries: readonly { label: string; plain: string; group: string; avoid?: readonly string[]; flag?: string }[]): string {
+  const groups = [...new Set(entries.map(entry => entry.group))];
+  const lines = ['# Agent vocabulary', '', 'Generated from `src/shared/glossary/glossary.ts` by `npm run glossary:agents`. Do not edit by hand.', '', 'Say what words mean, use these names, and never the avoid words.'];
+  for (const group of groups) {
+    lines.push('', `## ${group}`, '');
+    for (const entry of entries.filter(entry => entry.group === group)) {
+      lines.push(`- **${entry.label}** — ${entry.plain}${entry.avoid?.length ? ` Never: ${entry.avoid.map(word => `"${word}"`).join(', ')}.` : ''}${entry.flag ? ` Flag: ${entry.flag}` : ''}`);
+    }
+  }
+  return lines.join('\n') + '\n';
+}

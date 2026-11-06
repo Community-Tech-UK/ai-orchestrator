@@ -145,13 +145,19 @@ describe('ComputerUseSettingsTabComponent', () => {
       .toHaveBeenCalledExactlyOnceWith('screen-recording');
   });
 
-  it('disables permission actions while Computer Use is off', () => {
+  it('surfaces an error instead of requesting permission while Computer Use is off', () => {
     configure({ enabled: false });
     const fixture = render();
 
     const button = (fixture.nativeElement as HTMLElement)
       .querySelector<HTMLButtonElement>('[aria-label="Open Screen Recording settings"]');
-    expect(button?.disabled).toBe(true);
+    expect(button?.disabled).toBe(false);
+    button?.click();
+    fixture.detectChanges();
+
+    expect(permissionStore.requestPermission).not.toHaveBeenCalled();
+    expect(fixture.nativeElement.textContent)
+      .toContain('Turn on Computer Use before opening permission settings.');
   });
 
   it('disables permission actions and shows progress while a request is in flight', () => {
@@ -192,7 +198,7 @@ describe('ComputerUseSettingsTabComponent', () => {
       .querySelector<HTMLButtonElement>('[aria-label="Repair macOS permissions"]')
       ?.click();
     (fixture.nativeElement as HTMLElement)
-      .querySelector<HTMLButtonElement>('[aria-label="Restart AIO"]')
+      .querySelector<HTMLButtonElement>('[aria-label="Restart Harness"]')
       ?.click();
 
     expect(permissionStore.repairPermissions).toHaveBeenCalledOnce();

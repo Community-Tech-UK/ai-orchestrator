@@ -144,6 +144,7 @@ export class SnapshotPageComponent implements OnInit, OnDestroy {
   openReplay(): void {
     const instanceId = this.selectedInstanceId().trim();
     if (!instanceId) {
+      this.errorMessage.set('Enter the session ID first.');
       return;
     }
 

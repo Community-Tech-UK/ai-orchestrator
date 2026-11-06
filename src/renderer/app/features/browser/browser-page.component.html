@@ -173,11 +173,11 @@
               <select data-testid="profile-node-select" [value]="profileExecutionNodeDraft() ?? ''" [disabled]="working()" (change)="onProfileExecutionNodeChange($event)">
                 <option value="">Local coordinator</option>
                 @for (node of browserNodeOptions(); track node.id) {
-                  <option [value]="node.id" [disabled]="!isProfileNodeSelectable(node)">{{ node.name }} · {{ nodeReadinessLabel(node) }}</option>
+                  <option [value]="node.id" [disabled]="!isProfileNodeSelectable(node)">{{ node.name }} · {{ nodeReadinessLabel(node) }}{{ !node.capabilities.hasBrowserMcp ? ' · browser automation is not ready' : '' }}</option>
                 }
               </select>
             </label>
-            <button class="btn small" type="button" [disabled]="working() || !canSaveProfileExecutionNode()" (click)="updateProfileExecutionNode()">Save node</button>
+            <button class="btn small" type="button" [disabled]="working()" [appTooltipDisabledReason]="!canSaveProfileExecutionNode() ? 'The execution node is unchanged.' : null" (click)="updateProfileExecutionNode()">Save node</button>
           </section>
         }
       </aside>
@@ -185,7 +185,7 @@
       <section class="panel work-panel">
         <div class="section-heading target-heading">
           <div><h2>Browser targets</h2><p>{{ filteredTargets().length }} of {{ openTargets().length }} open tabs and pages</p></div>
-          <button class="btn small" type="button" [disabled]="!selectedProfileId()" (click)="refreshTargets(selectedProfileId() ?? undefined)">Refresh targets</button>
+          <button class="btn small" type="button" [appTooltipDisabledReason]="!selectedProfileId() ? 'Select a browser profile first.' : null" (click)="refreshTargets(selectedProfileId() ?? undefined)">Refresh targets</button>
         </div>
 
         <label class="search-field">
@@ -219,13 +219,13 @@
               <span>Address</span>
               <div class="navigate-bar">
                 <input type="url" [value]="navigateUrl()" (input)="onNavigateUrlInput($event)" />
-                <button class="btn primary" data-testid="navigate-button" type="button" [disabled]="!canNavigate() || working()" (click)="navigate()">Navigate</button>
+                <button class="btn primary" data-testid="navigate-button" type="button" [disabled]="working()" [appTooltipDisabledReason]="!canNavigate() ? (target.driver === 'extension' ? 'Navigate in the shared browser tab itself.' : 'Enter a page address first.') : null" (click)="navigate()">Navigate</button>
               </div>
             </label>
             <div class="toolbar" aria-label="Target inspection actions">
-              <button class="btn" type="button" [disabled]="!selectedTargetId() || working()" (click)="loadSnapshot()">Read page</button>
-              <button class="btn" type="button" [disabled]="!selectedTargetId() || working()" (click)="captureScreenshot()">Capture screenshot</button>
-              <button class="btn" data-testid="request-login-button" type="button" [disabled]="!selectedProfileId() || working()" (click)="requestUserLogin()">Check login</button>
+              <button class="btn" type="button" [disabled]="working()" (click)="loadSnapshot()">Read page</button>
+              <button class="btn" type="button" [disabled]="working()" (click)="captureScreenshot()">Capture screenshot</button>
+              <button class="btn" data-testid="request-login-button" type="button" [disabled]="working()" (click)="requestUserLogin()">Check login</button>
             </div>
           </section>
 
@@ -244,7 +244,7 @@
                 @if (snapshot(); as snap) {
                   <div class="snapshot-title">{{ snap.title }}</div>
                   <div class="snapshot-url">{{ snap.url }}</div>
-                  <button class="btn" type="button" [disabled]="extracting() || !snap.text" (click)="extractMainContent()">{{ extracting() ? 'Extracting…' : 'Extract main content' }}</button>
+                  <button class="btn" type="button" [disabled]="extracting()" [appTooltipDisabledReason]="!snap.text ? 'Read a page that has text first.' : null" (click)="extractMainContent()">{{ extracting() ? 'Extracting…' : 'Extract main content' }}</button>
                   @if (extractedText(); as extracted) {
                     <div class="snapshot-extracted"><div class="snapshot-extracted-label">Main content</div><pre>{{ extracted }}</pre></div>
                   }

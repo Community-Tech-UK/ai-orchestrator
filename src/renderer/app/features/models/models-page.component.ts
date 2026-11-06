@@ -14,6 +14,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { ModelIpcService } from '../../core/services/ipc/model-ipc.service';
 import { CustomModelsPanelComponent } from './custom-models-panel.component';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 // ─── Local interfaces ────────────────────────────────────────────────────────
 
@@ -38,7 +39,7 @@ interface VerificationFailure {
 @Component({
   selector: 'app-models-page',
   standalone: true,
-  imports: [CommonModule, CustomModelsPanelComponent],
+  imports: [CommonModule, CustomModelsPanelComponent, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="models-page">
@@ -54,7 +55,8 @@ interface VerificationFailure {
             class="header-btn verify-all-btn"
             type="button"
             (click)="verifyAllVisibleModels()"
-            [disabled]="loading() || verifyingAll() || filteredModels().length === 0"
+            [disabled]="loading() || verifyingAll()"
+            [appTooltipDisabledReason]="filteredModels().length === 0 ? 'There are no models to verify.' : null"
           >
             {{ verifyingAll() ? 'Verifying...' : 'Verify all' }}
           </button>
@@ -208,7 +210,8 @@ interface VerificationFailure {
           <button
             class="btn primary"
             type="button"
-            [disabled]="loading() || !overrideModelId().trim()"
+            [disabled]="loading()"
+            [appTooltipDisabledReason]="!overrideModelId().trim() ? 'Enter a model ID first.' : null"
             (click)="setOverride()"
           >
             Set Override

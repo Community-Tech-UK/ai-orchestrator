@@ -189,6 +189,7 @@ describe('CompactModelPickerComponent', () => {
     fixture.componentRef.setInput('disabledReason', null);
     fixture.detectChanges();
     expect(chip.disabled).toBe(false);
+    expect(chip.hasAttribute('aria-disabled')).toBe(false);
     chip.click();
     fixture.detectChanges();
     expect(chip.getAttribute('aria-expanded')).toBe('true');
@@ -209,6 +210,23 @@ describe('CompactModelPickerComponent', () => {
     chip.click();
     fixture.detectChanges();
     expect(chip.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('exposes the blocked picker reason to keyboard focus without opening the menu', () => {
+    fixture.componentRef.setInput('disabledReason', 'Wait for the session to finish recovering.');
+    fixture.detectChanges();
+    const chip = fixture.nativeElement.querySelector('.compact-picker__chip') as HTMLButtonElement;
+    const matches = chip.matches.bind(chip);
+    vi.spyOn(chip, 'matches').mockImplementation(value => value === ':focus-visible' || matches(value));
+    chip.focus();
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(chip);
+    expect(chip.getAttribute('aria-disabled')).toBe('true');
+    expect(document.getElementById(chip.getAttribute('aria-describedby')!)?.textContent)
+      .toContain('Wait for the session to finish recovering.');
+    chip.click();
+    fixture.detectChanges();
+    expect(chip.getAttribute('aria-expanded')).toBe('false');
   });
 
   it('emits selectionChange in pending-create mode when a model is committed', async () => {

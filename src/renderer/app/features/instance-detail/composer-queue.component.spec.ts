@@ -8,7 +8,7 @@ import { TestBed } from '@angular/core/testing';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ComposerQueueComponent } from './composer-queue.component';
-import { glossaryPlain } from '../../shared/glossary/glossary';
+import { glossaryPlain } from '../../../../shared/glossary/glossary';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
 const template = readFileSync(resolve(specDirectory, './composer-queue.component.html'), 'utf8');
@@ -95,6 +95,27 @@ describe('ComposerQueueComponent', () => {
     expect(edits).toEqual([1]);
     expect(cancels).toEqual([0]);
     expect(steers).toEqual([0]);
+  });
+
+  it('opens the queued-steer explanation and links it to its trigger', async () => {
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({ imports: [ComposerQueueComponent] }).compileComponents();
+    const fixture = TestBed.createComponent(ComposerQueueComponent);
+    fixture.componentRef.setInput('messages', [{ message: 'change direction' }]);
+    fixture.componentRef.setInput('canSteer', true);
+    fixture.detectChanges();
+
+    const trigger = fixture.debugElement.query(By.css('.queued-steer-btn'));
+    const tooltip = trigger.injector.get(AioTooltipDirective);
+    expect(trigger.nativeElement.hasAttribute('title')).toBe(false);
+    tooltip.show();
+    fixture.detectChanges();
+    const panel = document.querySelector('[role="tooltip"]');
+    expect(panel?.textContent).toContain('front of the queue');
+    expect(panel?.textContent).toContain('asks the current turn to stop');
+    expect(trigger.nativeElement.getAttribute('aria-describedby')).toBe(panel?.id);
+    tooltip.hide();
+    fixture.destroy();
   });
 });
 

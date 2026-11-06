@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 /**
  * Debate Page
  * Container that wires debate visualization to backend debate APIs.
@@ -28,7 +29,7 @@ const DEFAULT_DEBATE_MAX_ROUNDS = 2;
 @Component({
   selector: 'app-debate-page',
   standalone: true,
-  imports: [CommonModule, DebateVisualizationComponent],
+  imports: [CommonModule, DebateVisualizationComponent, AioTooltipDirective],
   template: `
     <div class="debate-page">
       <div class="page-header">
@@ -75,11 +76,11 @@ const DEFAULT_DEBATE_MAX_ROUNDS = 2;
         </label>
 
         <div class="actions">
-          <button class="btn primary" type="button" [disabled]="busy() || !canStart()" (click)="startDebate()">
+          <button class="btn primary" type="button" [disabled]="busy()" [appTooltipDisabledReason]="!canStart() ? 'Enter a question first' : null" (click)="startDebate()">
             {{ busy() ? 'Starting...' : 'Start Debate' }}
           </button>
           <button class="btn" type="button" [disabled]="busy()" (click)="refreshState()">Refresh</button>
-          <button class="btn danger" type="button" [disabled]="busy() || !currentDebateId()" (click)="cancelDebate()">
+          <button class="btn danger" type="button" [disabled]="busy()" [appTooltipDisabledReason]="!currentDebateId() ? 'Select a debate to cancel' : null" (click)="cancelDebate()">
             Cancel
           </button>
         </div>

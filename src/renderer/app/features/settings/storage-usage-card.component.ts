@@ -1,3 +1,4 @@
+import { SETTINGS_TOOLTIP_COPY } from './settings-tooltip-copy';
 import { ChangeDetectionStrategy, Component, ElementRef, OnDestroy, OnInit, effect, inject, viewChild } from '@angular/core';
 import { StorageUsageStore } from '../../core/state/storage-usage.store';
 import { formatStorageBytes } from '../../../../shared/utils/storage-format';
@@ -13,6 +14,7 @@ import { LeftoverWorktreesCardComponent } from './leftover-worktrees-card.compon
   templateUrl: './storage-usage-card.component.html', styleUrl: './storage-usage-card.component.scss',
 })
 export class StorageUsageCardComponent implements OnInit, OnDestroy {
+  protected readonly tooltipCopy = SETTINGS_TOOLTIP_COPY;
   readonly store = inject(StorageUsageStore);
   readonly bytes = formatStorageBytes;
   readonly reviewHint = copyFor('diskSpace.review');

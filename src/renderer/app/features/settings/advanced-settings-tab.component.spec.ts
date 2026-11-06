@@ -357,7 +357,7 @@ describe('AdvancedSettingsTabComponent', () => {
     const panel = fixture.nativeElement.querySelector('#advanced-panel-data') as HTMLElement;
     const resetButton = panel.querySelector('.danger-zone .btn-danger') as HTMLButtonElement;
     expect(resetButton).not.toBeNull();
-    expect(resetButton.textContent?.trim()).toBe('Reset all');
+    expect(resetButton.textContent?.trim()).toBe('Reset all settings');
 
     resetButton.click();
     await fixture.whenStable();

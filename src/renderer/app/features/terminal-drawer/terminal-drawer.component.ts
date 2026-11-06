@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -17,7 +18,6 @@ import type { FitAddon as XFitAddon } from '@xterm/addon-fit';
 import { NodePickerComponent } from '../../shared/components/node-picker/node-picker.component';
 import { TERMINAL_SESSION } from '../../core/services/terminal-session.service';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
-import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 
 type DrawerStatus = 'idle' | 'connecting' | 'running' | 'exited' | 'error';
@@ -40,6 +40,11 @@ type DrawerStatus = 'idle' | 'connecting' | 'running' | 'exited' | 'error';
             [allowLocal]="false"
             (nodeSelected)="onNodeSelected($event)"
           ></app-node-picker>
+          <span class="terminal-drawer__cwd-host" [attr.tabindex]="isLive() ? 0 : null"
+            [appTooltipDisabledReason]="isLive() ? 'Stop the terminal before changing its working folder' : null"
+            [appTooltip]="selectedNodeRoots().length
+              ? 'Allowed roots: ' + selectedNodeRoots().join(', ')
+              : 'Pick a worker node first'">
           <input
             class="terminal-drawer__cwd"
             type="text"
@@ -49,10 +54,8 @@ type DrawerStatus = 'idle' | 'connecting' | 'running' | 'exited' | 'error';
             [disabled]="isLive()"
             list="terminal-drawer-roots"
             aria-label="Working directory on the worker (must be inside an allowed root)"
-            [appTooltip]="selectedNodeRoots().length
-              ? 'Allowed roots: ' + selectedNodeRoots().join(', ')
-              : 'Pick a worker node first'"
           />
+          </span>
           <datalist id="terminal-drawer-roots">
             @for (root of selectedNodeRoots(); track root) {
               <option [value]="root"></option>
@@ -119,6 +122,13 @@ type DrawerStatus = 'idle' | 'connecting' | 'running' | 'exited' | 'error';
     .terminal-drawer__title { margin: 0; color: var(--text-primary); font-size: 13px; font-weight: 600; }
 
     .terminal-drawer__controls { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+
+    .terminal-drawer__cwd-host {
+      display: flex;
+      flex: 1;
+      min-width: 120px;
+      max-width: 360px;
+    }
 
     .terminal-drawer__cwd {
       flex: 1;

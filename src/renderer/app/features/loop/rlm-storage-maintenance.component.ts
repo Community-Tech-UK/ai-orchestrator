@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -9,7 +10,6 @@ import {
   OnInit,
   ViewChild,
 } from '@angular/core';
-import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { formatStorageBytes } from '../../../../shared/utils/storage-format';
 import { RlmStorageMaintenanceStore } from '../../core/state/rlm-storage-maintenance.store';
 
@@ -142,7 +142,7 @@ import { RlmStorageMaintenanceStore } from '../../core/state/rlm-storage-mainten
                 type="button"
                 class="primary"
                 (click)="run()"
-                [disabled]="store.busy() || !store.preview()?.canRun"
+                [disabled]="store.busy()" [appTooltipDisabledReason]="!store.preview() ? 'Review the cleanup preview first' : !store.preview()!.canRun ? 'There are no stale stores or free pages to reclaim safely' : null"
               >{{ store.busy() ? 'Maintenance running…' : 'Back up, prune & compact' }}</button>
             }
             @if (!store.busy()) {

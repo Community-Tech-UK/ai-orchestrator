@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 /**
  * Logs & Debug Page
  * Application logs, debug commands, and diagnostics for the AI orchestrator.
@@ -35,7 +36,7 @@ interface DebugCommand {
 @Component({
   selector: 'app-logs-page',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="logs-page">
@@ -202,7 +203,7 @@ interface DebugCommand {
                 <button
                   class="btn primary execute-btn"
                   type="button"
-                  [disabled]="!selectedCommand() || executing()"
+                  [disabled]="executing()" [appTooltipDisabledReason]="!selectedCommand() ? 'Choose a command first' : null"
                   (click)="executeCommand()"
                 >
                   {{ executing() ? 'Running...' : 'Execute' }}

@@ -67,7 +67,16 @@ describe('KnowledgePageComponent', () => {
     fixture.detectChanges();
     setMineDirectory('/fake/project');
 
-    expect(mineAction('Mine')?.disabled).toBe(true);
+    const mine = mineAction('Mine')!;
+    expect(mine.disabled).toBe(false);
+    expect(mine.getAttribute('aria-disabled')).toBe('true');
+    const matches = mine.matches.bind(mine);
+    vi.spyOn(mine, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
+    mine.focus(); fixture.detectChanges();
+    expect(document.activeElement).toBe(mine);
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('Include this project before mining it');
+    mine.click();
+    expect(knowledgeStore.triggerMining).not.toHaveBeenCalled();
     expect(mineAction('Pause')).toBeNull();
     expect(mineAction('Resume')).toBeNull();
     expect(mineAction('Exclude')).toBeNull();

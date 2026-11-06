@@ -31,4 +31,4 @@ export interface ElementFact {
   visible: string[]; dataText: boolean; opaque: boolean; iconOnly: boolean; focusable: boolean;
   hidden: boolean; marker?: string; firstClass: string; nested: boolean; click?: string; disabled?: string;
 }
-export interface Analysis { collection: Collection; facts: ElementFact[]; violations: Violation[]; outside: Violation[]; streams: Record<string, string[]>; copyKeys: Record<string, string>; counts: Record<string, number> }
+export interface Analysis { collection: Collection; facts: ElementFact[]; violations: Violation[]; outside: Violation[]; streams: Record<string, string[]>; vocabularyStreams: Record<string, string[]>; copyKeys: Record<string, string>; counts: Record<string, number> }

@@ -167,6 +167,10 @@ function baseRecord(overrides: Partial<EvidenceRecord> = {}): EvidenceRecord {
   };
 }
 
+function disclosureText(button: HTMLElement): string {
+  return button.closest('.record-row')!.querySelector('.degraded-disclosure')!.textContent!.trim();
+}
+
 function scope(): ContextEvidenceScope {
   return { conversationId: 'conversation-1', owner: { kind: 'chat', chatId: 'chat-1' } };
 }
@@ -276,14 +280,14 @@ describe('ContextEvidencePanelComponent', () => {
     expect(el?.textContent).toContain('not reported');
   });
 
-  it('labels the conservative-fallback estimate as AIO-estimated', () => {
+  it('labels the conservative-fallback estimate as Harness-estimated', () => {
     const metrics = baseMetrics();
     metrics.workingSet = { ...metrics.workingSet, estimateKind: 'conservative-fallback' };
     store.setMetrics(metrics);
     fixture.detectChanges();
 
-    const badge = fixture.nativeElement.querySelector('[data-testid="estimate-AIO-estimated"]');
-    expect(badge?.textContent).toContain('AIO-estimated');
+    const badge = fixture.nativeElement.querySelector('[data-testid="estimate-Harness-estimated"]');
+    expect(badge?.textContent).toContain('Harness-estimated');
   });
 
   it('shows a paused badge only when lastAction is pause', () => {
@@ -319,7 +323,16 @@ describe('ContextEvidencePanelComponent', () => {
       const inspectButton = fixture.nativeElement.querySelector(
         '[aria-label="Inspect evidence ev-corrupt"]',
       ) as HTMLButtonElement;
-      expect(inspectButton.disabled).toBe(true);
+      expect(inspectButton.disabled).toBe(false);
+      expect(inspectButton.getAttribute('aria-disabled')).toBe('true');
+      // jsdom needs the keyboard-focus selector supplied explicitly.
+      vi.spyOn(inspectButton, 'matches').mockImplementation(selector => selector === ':focus-visible');
+      inspectButton.focus();
+      fixture.detectChanges();
+      expect(document.activeElement).toBe(inspectButton);
+      expect(document.querySelector('[role="tooltip"]')?.textContent).toContain(disclosureText(inspectButton));
+      inspectButton.click();
+      expect(store.read).not.toHaveBeenCalled();
     });
 
     it('visibly labels a failed record and disables inspection', () => {
@@ -331,7 +344,16 @@ describe('ContextEvidencePanelComponent', () => {
       const inspectButton = fixture.nativeElement.querySelector(
         '[aria-label="Inspect evidence ev-failed"]',
       ) as HTMLButtonElement;
-      expect(inspectButton.disabled).toBe(true);
+      expect(inspectButton.disabled).toBe(false);
+      expect(inspectButton.getAttribute('aria-disabled')).toBe('true');
+      // jsdom needs the keyboard-focus selector supplied explicitly.
+      vi.spyOn(inspectButton, 'matches').mockImplementation(selector => selector === ':focus-visible');
+      inspectButton.focus();
+      fixture.detectChanges();
+      expect(document.activeElement).toBe(inspectButton);
+      expect(document.querySelector('[role="tooltip"]')?.textContent).toContain(disclosureText(inspectButton));
+      inspectButton.click();
+      expect(store.read).not.toHaveBeenCalled();
     });
 
     it('visibly labels a deleted record and discloses it is no longer available', () => {

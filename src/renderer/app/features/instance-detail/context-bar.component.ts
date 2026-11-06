@@ -97,7 +97,7 @@ import { copyFor } from '../../shared/tooltip/tooltip-copy';
         <app-context-evidence-panel [scope]="scope" />
       } @else {
         <p class="evidence-unavailable" role="status">
-          No context evidence conversation is linked to this instance yet.
+          No context evidence conversation is linked to this session yet.
         </p>
       }
     }

@@ -92,7 +92,8 @@
               <button
                 class="btn-approve"
                 (click)="onSubmitAskUserQuestion(request)"
-                [disabled]="isResponding() || !canSubmitAskUserQuestion(request)"
+                [disabled]="isResponding()"
+                [appTooltipDisabledReason]="!canSubmitAskUserQuestion(request) ? 'Answer every question before submitting.' : null"
               >
                 Submit
               </button>
@@ -138,7 +139,8 @@
                 class="btn-approve"
                 type="button"
                 (click)="onSubmitSecretCard(request)"
-                [disabled]="isResponding() || !hasSecretValue(request.id)"
+                [disabled]="isResponding()"
+                [appTooltipDisabledReason]="!hasSecretValue(request.id) ? 'Enter the requested value before saving.' : null"
               >
                 Save securely
               </button>
@@ -172,7 +174,8 @@
               <button
                 class="btn-approve"
                 (click)="onSubmitInputRequired(request)"
-                [disabled]="isResponding() || !hasInputRequiredText(request.id)"
+                [disabled]="isResponding()"
+                [appTooltipDisabledReason]="!hasInputRequiredText(request.id) ? 'Type a response before submitting.' : null"
               >
                 Submit
               </button>

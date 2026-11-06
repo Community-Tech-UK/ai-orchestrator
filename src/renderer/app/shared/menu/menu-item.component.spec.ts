@@ -1,6 +1,4 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { By } from '@angular/platform-browser';
-import { AioTooltipDirective } from '../tooltip/aio-tooltip.directive';
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { MenuItemComponent } from './menu-item.component';
 import type { MenuItem } from './menu.types';
@@ -56,14 +54,28 @@ describe('MenuItemComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('✓');
   });
 
-  it('marks disabled items aria-disabled and surfaces the same reason through a Harness hint', () => {
+  it('keeps disabled items focusable and explains the reason on keyboard focus', () => {
     setItem(leaf('locked', { disabledReason: 'Pick a provider first' }));
 
     const row = rowButton(fixture);
     expect(row.getAttribute('aria-disabled')).toBe('true');
-    const hint = fixture.debugElement.query(By.css('.menu-item-row__body')).injector.get(AioTooltipDirective);
-    expect(hint.appTooltipDisabledReason()).toBe('Pick a provider first');
+    expect(row.disabled).toBe(false);
     expect(row.hasAttribute('title')).toBe(false);
+    fixture.componentRef.setInput('focused', true);
+    fixture.detectChanges();
+    vi.spyOn(row, 'matches').mockImplementation(selector => selector === ':focus-visible');
+    row.focus();
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(row);
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('Pick a provider first');
+    const selected = vi.fn();
+    fixture.componentInstance.itemSelect.subscribe(selected);
+    row.click();
+    expect(selected).not.toHaveBeenCalled();
+    setItem(leaf('locked'));
+    expect(row.hasAttribute('aria-disabled')).toBe(false);
+    row.click();
+    expect(selected).toHaveBeenCalledOnce();
   });
 
   it('disabled row click does not emit', () => {

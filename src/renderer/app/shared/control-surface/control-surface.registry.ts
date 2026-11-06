@@ -106,7 +106,7 @@ export const CONTROL_SURFACES: readonly ControlSurfaceItem[] = [
   surface({ id: 'plugins', path: '/plugins', label: 'Plugins', subtitle: 'Manage runtime plugin integrations.', group: 'integrations', kind: 'integration', dashboard: true }),
   surface({ id: 'models', path: '/models', label: 'Models', subtitle: 'Choose provider models and overrides.', group: 'settings', kind: 'setting', dashboard: true, settings: true }),
   surface({ id: 'remote-config', path: '/remote-config', label: 'Remote Config', subtitle: 'Sync settings from remote configuration sources.', group: 'integrations', kind: 'integration', dashboard: true, settings: true }),
-  surface({ id: 'communication', hidden: true, path: '/communication', label: 'Instance Messaging', subtitle: 'Configure cross-instance communication.', group: 'integrations', kind: 'integration', dashboard: true }),
+  surface({ id: 'communication', hidden: true, path: '/communication', label: 'Session Messaging', subtitle: 'Configure cross-session communication.', group: 'integrations', kind: 'integration', dashboard: true }),
   surface({ id: 'multi-edit', path: '/multi-edit', label: 'Multi-File Edit', subtitle: 'Review and apply coordinated edits.', group: 'code', kind: 'tool', layout: 'wide', dashboard: true }),
   surface({ id: 'editor', path: '/editor', label: 'Editor', subtitle: 'Edit workspace files directly.', group: 'code', kind: 'tool', layout: 'fullBleed', dashboard: true }),
   surface({ id: 'archive', path: '/archive', label: 'Archive', subtitle: 'Browse and restore archived sessions.', group: 'storage', kind: 'view', dashboard: true, settings: true }),
@@ -115,7 +115,7 @@ export const CONTROL_SURFACES: readonly ControlSurfaceItem[] = [
   surface({ id: 'remote-nodes', path: '/remote-nodes', label: 'Remote Nodes', subtitle: 'Pair and monitor remote worker nodes.', group: 'integrations', kind: 'integration', dashboard: true }),
   surface({ id: 'worker-mode', path: '/worker-mode', label: 'Worker Mode', subtitle: 'Let another Harness use this computer for work, while you keep using it here.', group: 'integrations', kind: 'integration', dashboard: true }),
   surface({ id: 'ask-council', path: '/ask-council', label: 'Ask Council', subtitle: 'Compare answers across multiple providers.', group: 'agents', kind: 'workflow', layout: 'wide' }),
-  surface({ id: 'workboard', path: '/work', label: 'Workboard', subtitle: 'See what needs you across instances, loops, automations, and jobs.', group: 'automation', kind: 'view', layout: 'fullBleed', dashboard: true }),
+  surface({ id: 'workboard', path: '/work', label: 'Workboard', subtitle: 'See what needs you across sessions, loops, automations, and jobs.', group: 'automation', kind: 'view', layout: 'fullBleed', dashboard: true }),
   surface({ id: 'compare-split', path: '/compare/split', label: 'Split Compare', subtitle: 'Compare two sessions side by side.', group: 'monitoring', kind: 'tool', layout: 'fullBleed' }),
 ];
 

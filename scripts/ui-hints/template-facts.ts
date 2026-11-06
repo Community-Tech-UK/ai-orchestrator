@@ -4,7 +4,7 @@ import { renderedTextStream } from './rendered-text-stream';
 import { CONTROL_TAGS, FIELD_TAGS, HOVER_BINDINGS, INTERACTIVE_ROLES, TOOLTIP_PROVIDERS, WORD, type AttributeFact, type ElementFact, type TemplateSource } from './types';
 import type ts from 'typescript';
 
-export function parseFacts(source: TemplateSource, files: ts.SourceFile[] = [source.sourceFile], copy: Record<string, string> = {}): { facts: ElementFact[]; visible: string[] } {
+export function parseFacts(source: TemplateSource, files: ts.SourceFile[] = [source.sourceFile], copy: Record<string, string> = {}): { facts: ElementFact[]; visible: string[]; vocabulary: string[] } {
   const parsed = parseTemplate(source.text, source.file, { enableBlockSyntax: true, enableLetSyntax: true });
   if (parsed.errors?.length) throw new Error(parsed.errors.map(error => `${source.file}:${source.firstLine + error.span.start.line}: ${error.msg}`).join('\n'));
   class TextCollector extends TmplAstRecursiveVisitor {
@@ -89,5 +89,5 @@ export function parseFacts(source: TemplateSource, files: ts.SourceFile[] = [sou
     }
   }
   tmplAstVisitAll(new Labels(), parsed.nodes);
-  return { facts, visible: renderedTextStream(parsed.nodes) };
+  return { facts, visible: renderedTextStream(parsed.nodes, 'visible'), vocabulary: renderedTextStream(parsed.nodes, 'vocabulary') };
 }

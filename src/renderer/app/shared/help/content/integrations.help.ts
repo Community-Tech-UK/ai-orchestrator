@@ -128,7 +128,7 @@ export const REMOTE_ACCESS_HELP: HelpEntry = {
       kind: 'callout',
       variant: 'info',
       heading: 'What this does',
-      body: 'Generates a tokenised URL so another device can watch your running instances, repo jobs, and pending prompts in read-only mode.',
+      body: 'Generates a tokenised URL so another device can watch your running sessions, repo jobs, and pending prompts in read-only mode.',
     },
     {
       kind: 'steps',
@@ -234,13 +234,13 @@ export const COMMUNICATION_HELP: HelpEntry = {
       kind: 'callout',
       variant: 'info',
       heading: 'What this does',
-      body: 'Sends messages between running instances and manages communication bridges. Instances can exchange text, commands, or data.',
+      body: 'Sends messages between running sessions and manages communication bridges. Sessions can exchange text, commands, or data.',
     },
     {
       kind: 'steps',
       heading: 'Sending a message',
       items: [
-        'Enter the From and To instance IDs.',
+        'Enter the From and To session IDs.',
         'Choose a message type: text, command, or data.',
         'Type the content and click Send.',
         'Delivered messages appear in the Message Feed.',
@@ -250,7 +250,7 @@ export const COMMUNICATION_HELP: HelpEntry = {
       kind: 'callout',
       variant: 'tip',
       heading: 'Bridges avoid repeat routing',
-      body: 'A bridge connects two instances bidirectionally so they can keep talking without a route per message.',
+      body: 'A bridge connects two sessions bidirectionally so they can keep talking without a route per message.',
     },
     {
       kind: 'callout',
@@ -267,7 +267,7 @@ export const CHANNELS_HELP: HelpEntry = {
       kind: 'callout',
       variant: 'info',
       heading: 'What this does',
-      body: 'Connects Discord and WhatsApp so you can control and monitor the orchestrator from your phone or a Discord server, with message history and pairing management.',
+      body: 'Connects Discord and WhatsApp so you can control and monitor Harness from your phone or a Discord server, with message history and pairing management.',
     },
     {
       kind: 'steps',
@@ -291,7 +291,7 @@ export const CHANNELS_HELP: HelpEntry = {
       kind: 'list',
       heading: 'Sub-pages',
       items: [
-        'Messages: history of everything received and sent, with a platform filter and inbound/outbound badges linking back to instances.',
+        'Messages: history of everything received and sent, with a platform filter and inbound/outbound badges linking back to sessions.',
         'Settings: manage paired accounts and access policies; enter a 6-character pairing code to link a new user or device without re-entering tokens.',
       ],
     },
@@ -310,7 +310,7 @@ export const REMOTE_NODES_SURFACE_HELP: HelpEntry = {
       kind: 'callout',
       variant: 'info',
       heading: 'What this does',
-      body: 'Manages worker nodes: remote machines running the worker agent that execute tasks, run browsers, or take on compute jobs for this orchestrator.',
+      body: 'Manages worker nodes: remote machines running the worker agent that execute tasks, run browsers, or take on compute jobs for Harness.',
     },
     {
       kind: 'steps',
@@ -332,7 +332,7 @@ export const REMOTE_NODES_SURFACE_HELP: HelpEntry = {
       kind: 'callout',
       variant: 'warning',
       heading: 'Trust the network',
-      body: 'Workers and the orchestrator must reach each other over the network. Restrict access to machines you control.',
+      body: 'Workers and Harness must reach each other over the network. Restrict access to machines you control.',
     },
   ],
 };

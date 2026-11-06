@@ -125,7 +125,12 @@ describe('InstanceReviewPanelComponent (WS-C4 findings dispatch)', () => {
   it('toggling a checkbox updates the selected count and disables/enables Fix selected', async () => {
     const fixture = await render();
     const fixBtn = fixture.nativeElement.querySelector('.findings-dispatch-header button') as HTMLButtonElement;
-    expect(fixBtn.disabled).toBe(true);
+    expect(fixBtn.disabled).toBe(false);
+    expect(fixBtn.getAttribute('aria-disabled')).toBe('true');
+    fixBtn.focus();
+    expect(document.activeElement).toBe(fixBtn);
+    fixBtn.click();
+    expect(sendInput).not.toHaveBeenCalled();
 
     const firstCheckbox = fixture.nativeElement.querySelector('.finding-row input[type="checkbox"]') as HTMLInputElement;
     firstCheckbox.dispatchEvent(new Event('change'));
@@ -134,6 +139,7 @@ describe('InstanceReviewPanelComponent (WS-C4 findings dispatch)', () => {
     expect(fixture.componentInstance.selectedFindingKeys().size).toBe(1);
     expect(fixture.nativeElement.querySelector('.findings-dispatch-count')?.textContent).toContain('1 selected');
     expect((fixture.nativeElement.querySelector('.findings-dispatch-header button') as HTMLButtonElement).disabled).toBe(false);
+    expect(fixBtn.getAttribute('aria-disabled')).toBeNull();
   });
 
   it('a new review run clears any prior selection', async () => {

@@ -12,7 +12,7 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
 
 import { InlineHelpComponent } from './inline-help.component';
 import type { HelpEntry, HelpLiveStatus, HelpSection } from './help-content.types';
-import { GLOSSARY, type GlossaryEntry, type GlossaryTermId } from '../glossary/glossary';
+import { GLOSSARY, type GlossaryEntry, type GlossaryTermId } from '../../../../shared/glossary/glossary';
 import { AioTooltipDirective } from '../tooltip/aio-tooltip.directive';
 
 const EMPTY_ENTRY: HelpEntry = { sections: [] };

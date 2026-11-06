@@ -37,7 +37,6 @@ import {
 } from '@angular/core';
 import type { DisplayItem } from './display-item.types';
 import { runRestoreFrame } from './restore-frame';
-import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 import { shouldOpenOnFocus } from '../../shared/tooltip/tooltip-policy';
 import type { UserPromptRef } from '../../../../shared/types/prompt-index.types';
@@ -77,7 +76,7 @@ let nextPreviewId = 0;
 @Component({
   selector: 'app-transcript-jump-rail',
   standalone: true,
-  imports: [AioTooltipDirective, AppIconButtonDirective],
+  imports: [AppIconButtonDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { '[class.rail-visible]': 'visible()' },
   template: `
@@ -102,11 +101,10 @@ let nextPreviewId = 0;
             (pointerdown)="onTickPointerDown()"
             (keydown.escape)="dismissPreview()"
             (click)="jumpTo(i)"
-            [attr.aria-label]="'Jump to: ' + marker.tick.promptExcerpt"
-            [appTooltip]="'Jump to: ' + marker.tick.promptExcerpt"
+            [appIconButton]="'Jump to: ' + marker.tick.promptExcerpt"
             [appTooltipDisabled]="previewCovers(marker.tick.messageId)"
             [attr.aria-describedby]="previewCovers(marker.tick.messageId) ? previewId : null"
-          ></button>
+          ><span aria-hidden="true"></span></button>
         }
         @if (hoverPreview(); as preview) {
           <div class="preview" [style.top.px]="preview.cardTop" role="tooltip" [id]="previewId">

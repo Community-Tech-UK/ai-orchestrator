@@ -5,7 +5,7 @@
       <span class="subtitle">Iterate toward the goal — caps apply.</span>
     </div>
     <app-help-link topic="loop" label="Help: Loop Mode" />
-    <button type="button" class="close" appTooltip="Close" (click)="dismissed.emit()" aria-label="Close">×</button>
+    <button type="button" class="close" (click)="dismissed.emit()" appIconButton="Close">×</button>
   </header>
 
   <!-- UX5: this hint was declared in the registry and mounted nowhere — a copy
@@ -344,14 +344,14 @@
             [checked]="managedIsolation()"
             (change)="managedIsolation.set(toggleEvent($event))"
           />
-          AIO-managed isolated workspace
+          Harness-managed isolated workspace
           <span class="hint">
             (recommended; harvests, integrates, promotes. Verify may run without node_modules until deps are provisioned.)
           </span>
         </label>
         @if (!managedIsolation()) {
           <div class="cfg-inline-warn">
-            Compatibility mode runs in the shared checkout. AIO cannot guarantee
+            Compatibility mode runs in the shared checkout. Harness cannot guarantee
             isolated changes or automatic promotion for this run.
           </div>
         }

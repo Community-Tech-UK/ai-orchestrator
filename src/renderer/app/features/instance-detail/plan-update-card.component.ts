@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { DatePipe } from '@angular/common';
 import { ExpansionStateService } from './expansion-state.service';
-import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import type { CopilotPlanUpdate } from './copilot-plan-update';
 import { summarizeCopilotPlanUpdate } from './copilot-plan-update';
 
@@ -14,7 +14,7 @@ import { summarizeCopilotPlanUpdate } from './copilot-plan-update';
       <button
         class="plan-card__header"
         type="button"
-        [attr.aria-disabled]="!hasEntries() ? 'true' : null"
+        [appTooltipDisabledReason]="!hasEntries() ? 'The agent has not listed any plan steps yet.' : null"
         [appTooltip]="plan().preview"
         [attr.aria-expanded]="hasEntries() ? isExpanded() : null"
         (click)="toggle()">

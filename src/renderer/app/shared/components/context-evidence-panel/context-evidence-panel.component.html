@@ -121,7 +121,10 @@
               </button>
               <button
                 type="button"
-                [disabled]="!canInspect(record)"
+                [appTooltipDisabledReason]="record.status === 'staging' ? copyFor('evidence.staging')
+                  : record.status === 'failed' ? copyFor('evidence.failed')
+                  : record.status === 'corrupt' ? copyFor('evidence.corrupt')
+                  : record.status === 'deleted' ? copyFor('evidence.deleted') : null"
                 [attr.aria-label]="'Inspect evidence ' + record.id"
                 (click)="startInspection(record)"
               >

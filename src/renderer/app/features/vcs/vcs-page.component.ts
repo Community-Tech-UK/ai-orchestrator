@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 /**
  * VCS Page - Git Operations
  * Repository status, branches, commits, diffs, and file history.
@@ -63,7 +64,7 @@ type LeftTab = 'changes' | 'branches';
 @Component({
   selector: 'app-vcs-page',
   standalone: true,
-  imports: [CommonModule, DiffViewerComponent, EmptyStateComponent, SkeletonComponent],
+  imports: [CommonModule, DiffViewerComponent, EmptyStateComponent, SkeletonComponent, AioTooltipDirective],
   templateUrl: './vcs-page.component.html',
   styleUrl: './vcs-page.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

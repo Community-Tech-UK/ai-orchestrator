@@ -17,7 +17,3 @@ export function ariaKeyShortcuts(bindings: readonly KeyBinding[], isMac: boolean
     Array.isArray(binding.keys) ? [] : [ariaKeyShortcut(binding.keys, isMac)],
   ))].join(' ');
 }
-
-export function modKeyLabel(isMac: boolean): '⌘' | 'Ctrl' {
-  return isMac ? '⌘' : 'Ctrl';
-}

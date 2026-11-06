@@ -95,13 +95,13 @@ export function buildFileMenuItems(
     {
       id: 'copy-file',
       label: 'Copy file',
-      disabled: !target.canUseLocalFileActions,
+      disabledReason: !target.canUseLocalFileActions ? 'This path is unavailable on this computer.' : undefined,
       action: actions.copyFile,
     },
     {
       id: 'open-file-manager',
       label: `Open in ${fileManagerLabel}`,
-      disabled: !target.canUseLocalFileActions,
+      disabledReason: !target.canUseLocalFileActions ? 'This path is unavailable on this computer.' : undefined,
       action: actions.openInFileManager,
     },
   ];

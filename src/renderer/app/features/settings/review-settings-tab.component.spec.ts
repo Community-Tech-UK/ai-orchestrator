@@ -16,6 +16,8 @@ import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service
 import { SettingRowComponent } from './setting-row.component';
 import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
 import { ProviderModelOverrideComponent } from './provider-model-override.component';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { SettingsTieredRowListComponent } from './settings-tiered-row-list.component';
 
 await resolveComponentResources((url) => {
@@ -249,7 +251,7 @@ describe('ReviewSettingsTabComponent', () => {
         // S4.3 moved the picker inside ProviderModelOverrideComponent, so stubbing
     // only this tab's imports no longer reaches it.
     TestBed.overrideComponent(ProviderModelOverrideComponent, {
-      set: { imports: [CompactModelPickerStubComponent], styles: [''], styleUrl: undefined, styleUrls: [] },
+      set: { imports: [CompactModelPickerStubComponent, AioTooltipDirective], styles: [''], styleUrl: undefined, styleUrls: [] },
     });
     TestBed.overrideComponent(ReviewSettingsTabComponent, {
       set: {
@@ -258,6 +260,7 @@ describe('ReviewSettingsTabComponent', () => {
           CompactModelPickerStubComponent,
           SettingsTieredRowListComponent,
           ProviderModelOverrideComponent,
+          AppIconButtonDirective,
         ],
         styles: [''],
         styleUrl: undefined,

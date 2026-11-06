@@ -106,10 +106,10 @@ describe('ComputerUsePermissionBannerComponent', () => {
     store.repairReady.set(true);
     const fixture = render();
     const restart = (fixture.nativeElement as HTMLElement)
-      .querySelector<HTMLButtonElement>('[aria-label="Restart AIO"]');
+      .querySelector<HTMLButtonElement>('[aria-label="Restart Harness"]');
 
     expect(fixture.nativeElement.textContent).toContain(
-      'Registrations reset. Enable both permissions, then restart AIO.',
+      'Registrations reset. Enable both permissions, then restart Harness.',
     );
     restart?.click();
     expect(store.relaunchApplication).toHaveBeenCalledOnce();

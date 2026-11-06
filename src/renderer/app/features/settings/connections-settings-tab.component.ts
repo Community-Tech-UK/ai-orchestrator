@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 /**
  * Connections Settings Tab
  * Configure Discord and WhatsApp integrations from within Settings.
@@ -14,6 +15,7 @@ import { ChannelIpcService } from '../../core/services/ipc/channel-ipc.service';
 
 @Component({
   standalone: true,
+  imports: [AioTooltipDirective],
   selector: 'app-connections-settings-tab',
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -62,7 +64,7 @@ import { ChannelIpcService } from '../../core/services/ipc/channel-ipc.service';
                 class="btn btn-primary"
                 type="button"
                 (click)="pairDiscord()"
-                [disabled]="pairingWorking() || discordPairCode().length < 4"
+                [disabled]="pairingWorking()" [appTooltipDisabledReason]="discordPairCode().length < 4 ? 'Enter the pairing code from your Discord bot (at least four characters).' : null"
               >
                 {{ pairingWorking() ? 'Pairing...' : 'Pair' }}
               </button>
@@ -105,7 +107,7 @@ import { ChannelIpcService } from '../../core/services/ipc/channel-ipc.service';
             class="btn btn-primary"
             type="button"
             (click)="connectDiscord()"
-            [disabled]="store.loading() || !discordToken()"
+            [disabled]="store.loading()" [appTooltipDisabledReason]="!discordToken() ? 'Enter your Discord bot token to connect.' : null"
           >
             {{ store.discord().status === 'connecting' ? 'Connecting...' : 'Connect' }}
           </button>

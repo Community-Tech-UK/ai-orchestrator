@@ -498,7 +498,7 @@ export class InstanceListComponent implements OnDestroy {
       {
         id: 'select-session',
         label: 'Select session',
-        disabled: this.selectedId() === instance.id,
+        disabledReason: this.selectedId() === instance.id ? 'This session is already selected.' : undefined,
         action: () => this.store.setSelectedInstance(instance.id),
       },
       {
@@ -509,12 +509,13 @@ export class InstanceListComponent implements OnDestroy {
       {
         id: 'message-session',
         label: 'Message this session…',
-        disabled: !this.selectedId() || this.selectedId() === instance.id,
+        disabledReason: !this.selectedId() ? 'Select the sending session first.'
+          : this.selectedId() === instance.id ? 'Choose a different session to message.' : undefined,
         action: () => this.openCrossSessionMessageModal(instance, displayTitle),
       },
       {
         id: 'restart-session',
-        label: supportsResume ? 'Restart and resume' : 'Restart session',
+        label: instance.status === 'initializing' ? 'Starting session…' : supportsResume ? 'Restart and resume' : 'Restart session',
         disabled: instance.status === 'initializing',
         action: () => void this.store.restartInstance(instance.id),
       },
@@ -525,7 +526,7 @@ export class InstanceListComponent implements OnDestroy {
       // a plain restart is already a fresh restart.
       items.push({
         id: 'restart-session-fresh',
-        label: 'Restart (fresh context)',
+        label: instance.status === 'initializing' ? 'Starting session before fresh restart…' : 'Restart (fresh context)',
         disabled: instance.status === 'initializing',
         action: () => void this.store.restartFreshInstance(instance.id),
       });
@@ -628,7 +629,7 @@ export class InstanceListComponent implements OnDestroy {
     const items: ContextMenuItem[] = [
       {
         id: 'restore-thread',
-        label: 'Restore thread',
+        label: isRestoring ? 'Restoring session…' : 'Restore session',
         disabled: isRestoring,
         action: () => void this.onRestoreHistory(entry.id),
       },
@@ -720,10 +721,8 @@ export class InstanceListComponent implements OnDestroy {
     this.renameTargetId = null;
   }
 
-  // ── Cross-session message modal ──
-  // Source is the currently selected/active session; target is whichever
-  // session the user right-clicked "Message this session…" on. Delivery goes
-  // straight through IPC — no agent/MCP call in the loop — per plan Task 6.
+  // Send from the selected session to the one James right-clicked.
+  // Delivery goes straight through IPC without an agent call.
   protected crossSessionMessageModalOpen = signal(false);
   protected crossSessionMessageTargetLabel = signal('');
   private crossSessionMessageTargetId: string | null = null;

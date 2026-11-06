@@ -12,6 +12,7 @@ import { CopilotAccountIpcService, type CopilotAccountView } from '../../../core
 import { ProviderAccountIpcService, type ProviderAccountView } from '../../../core/services/ipc/provider-account-ipc.service';
 import { PlanQueueStore } from '../../../core/state/plan-queue.store';
 import { SettingsStore } from '../../../core/state/settings.store';
+import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
 import { UnifiedCatalogStore } from '../../models/unified-catalog.store';
 
 /** Most worker or checker rows the main process accepts. */
@@ -140,7 +141,7 @@ function eventChecked(event: Event): boolean {
 @Component({
   selector: 'app-plan-queue-routing-panel',
   standalone: true,
-  imports: [NgTemplateOutlet],
+  imports: [NgTemplateOutlet, AioTooltipDirective],
   templateUrl: './plan-queue-routing-panel.component.html',
   styleUrl: './plan-queue-routing-panel.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

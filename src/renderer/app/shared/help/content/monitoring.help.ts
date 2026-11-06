@@ -185,7 +185,7 @@ export const REPLAY_HELP: HelpEntry = {
       kind: 'callout',
       variant: 'info',
       heading: 'What this does',
-      body: 'Inspect, replay, and share past sessions. Load from a live instance, an archived history entry, or a saved JSON bundle, then review messages, artefacts, and snapshots before replaying locally.',
+      body: 'Inspect, replay, and share past sessions. Load from a live session, an archived history entry, or a saved JSON bundle, then review messages, artefacts, and snapshots before replaying locally.',
     },
     {
       kind: 'steps',
@@ -292,7 +292,7 @@ export const WORKBOARD_HELP: HelpEntry = {
       kind: 'callout',
       variant: 'info',
       heading: 'What this does',
-      body: 'One board that projects instances, loop runs, automation runs, and repository jobs into four attention lanes: Needs You, Working, Waiting, and Done / Idle. Related records collapse into a single card.',
+      body: 'One board that projects sessions, loop runs, automation runs, and repository jobs into four attention lanes: Needs You, Working, Waiting, and Done / Idle. Related records collapse into a single card.',
     },
     {
       kind: 'list',
@@ -301,7 +301,7 @@ export const WORKBOARD_HELP: HelpEntry = {
         'Needs You: human input, permission, review, arbitration, or a failure needs attention.',
         'Working: execution is actively progressing.',
         'Waiting: queued, paused, hibernated, or rate-limited but resumable.',
-        'Done / Idle: clean terminal work (last 24h) and available idle instances.',
+        'Done / Idle: clean terminal work (last 24h) and available idle sessions.',
       ],
     },
     {
@@ -310,7 +310,7 @@ export const WORKBOARD_HELP: HelpEntry = {
       items: [
         'Check the Needs You lane first for anything urgent.',
         'Filter by workspace to focus on one project across every lane.',
-        'Click a card to open its detail pane; instance-backed work reuses the full transcript and controls.',
+        'Click a card to open its detail pane; session-backed work reuses the full transcript and controls.',
       ],
     },
     {
@@ -328,13 +328,13 @@ export const COMPARE_SPLIT_HELP: HelpEntry = {
       kind: 'callout',
       variant: 'info',
       heading: 'What this does',
-      body: 'Compares two agents side by side in a fixed 50/50 split. Pick a different instance for each pane and review their output streams in parallel.',
+      body: 'Compares two agents side by side in a fixed 50/50 split. Pick a different session for each pane and review their output streams in parallel.',
     },
     {
       kind: 'steps',
       heading: 'How to use it',
       items: [
-        'Choose an instance in the left dropdown.',
+        'Choose a session in the left dropdown.',
         'Choose another in the right dropdown.',
         'Scroll each pane independently to compare responses.',
       ],

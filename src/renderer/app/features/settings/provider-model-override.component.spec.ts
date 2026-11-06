@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ProviderModelOverrideComponent } from './provider-model-override.component';
 import { SettingsStore } from '../../core/state/settings.store';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 await resolveComponentResources(() => Promise.resolve(''));
 
@@ -63,7 +64,7 @@ describe('ProviderModelOverrideComponent (S4.3)', () => {
       ],
     });
     TestBed.overrideComponent(ProviderModelOverrideComponent, {
-      set: { imports: [PickerStub], styles: [''], styleUrl: undefined, styleUrls: [] },
+      set: { imports: [PickerStub, AioTooltipDirective], styles: [''], styleUrl: undefined, styleUrls: [] },
     });
     await TestBed.compileComponents();
     fixture = TestBed.createComponent(HostComponent);
@@ -85,8 +86,10 @@ describe('ProviderModelOverrideComponent (S4.3)', () => {
     expect(sourceLabel()).toBe('Session default');
   });
 
-  it('disables reset when there is nothing to reset', () => {
-    expect(resetButton().disabled).toBe(true);
+  it('marks reset disabled with a reason when there is nothing to reset', () => {
+    expect(resetButton().getAttribute('aria-disabled')).toBe('true');
+    resetButton().click();
+    expect(set).not.toHaveBeenCalled();
   });
 
   it('uses the caller’s reset wording and accessible name', () => {

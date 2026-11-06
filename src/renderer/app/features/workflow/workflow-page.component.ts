@@ -1,3 +1,4 @@
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 /**
  * Workflow Page
  * Container that wires workflow UI to orchestration IPC APIs.
@@ -43,7 +44,7 @@ interface GateAction {
 @Component({
   selector: 'app-workflow-page',
   standalone: true,
-  imports: [CommonModule, WorkflowProgressComponent, TaskPreflightCardComponent],
+  imports: [CommonModule, WorkflowProgressComponent, TaskPreflightCardComponent, AioTooltipDirective],
   template: `
     <div class="workflow-page">
       <div class="page-header">
@@ -55,13 +56,13 @@ interface GateAction {
 
       <div class="toolbar">
         <label class="field">
-          <span class="label">Instance</span>
+          <span class="label">Session</span>
           <select
             class="select"
             [value]="selectedInstanceId()"
             (change)="onInstanceChange($event)"
           >
-            <option value="">Select an instance</option>
+            <option value="">Select a session</option>
             @for (instance of instances(); track instance.id) {
               <option [value]="instance.id">
                 {{ instance.displayName }} ({{ instance.status }})
@@ -88,7 +89,7 @@ interface GateAction {
           <button
             class="btn primary"
             type="button"
-            [disabled]="!canStartWorkflow() || working()"
+            [disabled]="working() || preflightLoading()" [appTooltipDisabledReason]="!selectedTemplateId() ? 'Select a workflow template first' : !selectedInstanceId() ? 'Select a session first' : preflight()?.blockers?.length ? 'Resolve the launch blockers first' : null"
             (click)="startWorkflow()"
           >
             {{ working() ? 'Starting...' : 'Start Workflow' }}
@@ -125,8 +126,8 @@ interface GateAction {
               [report]="preflight()"
               [loading]="preflightLoading()"
               heading="Workflow Preflight"
-              subtitle="Instructions, permissions, and network/tool readiness for the selected instance."
-              emptyMessage="Select an instance to inspect workflow readiness."
+              subtitle="Instructions, permissions, and network/tool readiness for the selected session."
+              emptyMessage="Select a session to inspect workflow readiness."
             />
           </div>
 
@@ -680,7 +681,7 @@ export class WorkflowPageComponent implements OnInit, OnDestroy {
   private async loadInstances(): Promise<void> {
     const response = await this.instanceIpc.listInstances();
     if (!response.success) {
-      this.setErrorFromResponse(response, 'Failed to load instances.');
+      this.setErrorFromResponse(response, 'Failed to load sessions.');
       return;
     }
 

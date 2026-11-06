@@ -1,3 +1,4 @@
+import { CHANNELS_ENTER_PAIRING_CODE } from '../../tooltip-copy-channels';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -9,17 +10,18 @@ import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { ChannelStore } from '../../../../core/state/channel.store';
 import { ChannelIpcService } from '../../../../core/services/ipc/channel-ipc.service';
+import { AioTooltipDirective } from '../../../../shared/tooltip/aio-tooltip.directive';
 
 @Component({
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'app-channel-connections',
   template: `
     <div class="channels-page">
       <div class="page-header">
         <h2>Channels</h2>
-        <p class="subtitle">Connect Discord and WhatsApp to control the Orchestrator from your phone</p>
+        <p class="subtitle">Connect Discord and WhatsApp to control Harness from your phone</p>
         <div class="nav-links">
           <button class="nav-btn active" type="button">Connections</button>
           <button class="nav-btn" type="button" (click)="router.navigate(['/channels/messages'])">Messages</button>
@@ -56,7 +58,8 @@ import { ChannelIpcService } from '../../../../core/services/ipc/channel-ipc.ser
                   class="btn btn-primary"
                   type="button"
                   (click)="pairDiscord()"
-                  [disabled]="!canPairDiscord()">
+                  [disabled]="pairingWorking()"
+                  [appTooltipDisabledReason]="!pairingWorking() && !canPairDiscord() ? tooltipEnterPairingCode : null">
                   {{ pairingWorking() ? 'Pairing...' : 'Pair' }}
                 </button>
               </div>
@@ -89,7 +92,8 @@ import { ChannelIpcService } from '../../../../core/services/ipc/channel-ipc.ser
                   class="btn btn-primary"
                   type="button"
                   (click)="pairDiscord()"
-                  [disabled]="!canPairDiscord()">
+                  [disabled]="pairingWorking()"
+                  [appTooltipDisabledReason]="!pairingWorking() && !canPairDiscord() ? tooltipEnterPairingCode : null">
                   {{ pairingWorking() ? 'Pairing...' : 'Pair' }}
                 </button>
               </div>
@@ -122,7 +126,7 @@ import { ChannelIpcService } from '../../../../core/services/ipc/channel-ipc.ser
                 class="btn btn-primary"
                 type="button"
                 (click)="connectDiscord()"
-                [disabled]="store.loading() || !discordToken()">
+                [disabled]="store.loading()" [appTooltipDisabledReason]="!discordToken() ? 'Enter the Discord bot token first' : null">
                 {{ store.discord().status === 'connecting' ? 'Connecting...' : 'Connect' }}
               </button>
             </div>
@@ -263,6 +267,8 @@ import { ChannelIpcService } from '../../../../core/services/ipc/channel-ipc.ser
   `],
 })
 export class ChannelConnectionsComponent {
+  protected readonly tooltipEnterPairingCode = CHANNELS_ENTER_PAIRING_CODE;
+
   protected store = inject(ChannelStore);
   protected router = inject(Router);
   private ipcService = inject(ChannelIpcService);

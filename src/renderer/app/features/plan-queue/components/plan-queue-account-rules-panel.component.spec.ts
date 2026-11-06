@@ -106,7 +106,12 @@ describe('PlanQueueAccountRulesPanelComponent', () => {
     );
     expect(radio('claude:cl-a', 'normal').checked).toBe(true);
     expect(qa('input[type="radio"]:checked')).toHaveLength(5);
-    expect(saveButton().disabled).toBe(true);
+    saveButton().focus();
+    expect(document.activeElement).toBe(saveButton());
+    saveButton().click();
+    expect(setSetting).not.toHaveBeenCalled();
+    expect(saveButton().disabled).toBe(false);
+    expect(saveButton().getAttribute('aria-disabled')).toBe('true');
   });
 
   it('does not offer a turned-off account', async () => {
@@ -120,7 +125,8 @@ describe('PlanQueueAccountRulesPanelComponent', () => {
     expect(radio('codex:cx-a', 'last').checked).toBe(true);
     expect(radio('claude:cl-off', 'never').checked).toBe(true);
     expect(root().textContent).toContain('turned off');
-    expect(saveButton().disabled).toBe(true);
+    expect(saveButton().disabled).toBe(false);
+    expect(saveButton().getAttribute('aria-disabled')).toBe('true');
   });
 
   it('saves never-use and use-last accounts as two lists', async () => {
@@ -129,6 +135,7 @@ describe('PlanQueueAccountRulesPanelComponent', () => {
     await pick('copilot:cp-a', 'last');
     await pick('opencode:mimo-a', 'last');
     expect(saveButton().disabled).toBe(false);
+    expect(saveButton().hasAttribute('aria-disabled')).toBe(false);
 
     saveButton().click();
     await flush();
@@ -138,7 +145,8 @@ describe('PlanQueueAccountRulesPanelComponent', () => {
       last: [{ provider: 'copilot', accountId: 'cp-a' }, { provider: 'opencode', accountId: 'mimo-a' }],
     });
     expect(statusText()).toContain('Saved');
-    expect(saveButton().disabled).toBe(true);
+    expect(saveButton().disabled).toBe(false);
+    expect(saveButton().getAttribute('aria-disabled')).toBe('true');
   });
 
   it('says the rules are not saved until Save is pressed', async () => {
@@ -172,13 +180,15 @@ describe('PlanQueueAccountRulesPanelComponent', () => {
     expect(radio('claude:gone', 'never')).toBeNull();
     // Dropping it is a change, so Save is offered even though nothing was ticked.
     expect(saveButton().disabled).toBe(false);
+    expect(saveButton().hasAttribute('aria-disabled')).toBe(false);
 
     saveButton().click();
     await flush();
 
     expect(setSetting).toHaveBeenCalledWith('planQueueAccountRules', { never: [], last: [{ provider: 'codex', accountId: 'cx-a' }] });
     expect(root().textContent).not.toContain('account no longer exists');
-    expect(saveButton().disabled).toBe(true);
+    expect(saveButton().disabled).toBe(false);
+    expect(saveButton().getAttribute('aria-disabled')).toBe('true');
   });
 
   it('shows the real error and keeps the edits when the save fails', async () => {
@@ -203,7 +213,8 @@ describe('PlanQueueAccountRulesPanelComponent', () => {
     await flush();
 
     expect(radio('claude:cl-b', 'last').checked).toBe(true);
-    expect(saveButton().disabled).toBe(true);
+    expect(saveButton().disabled).toBe(false);
+    expect(saveButton().getAttribute('aria-disabled')).toBe('true');
   });
 
   it('follows a change to the saved rules made elsewhere while there are no unsaved edits', async () => {
@@ -226,6 +237,7 @@ describe('PlanQueueAccountRulesPanelComponent', () => {
     listCopilot.mockRejectedValue(new Error('no copilot'));
     await mount({ never: [{ provider: 'copilot', accountId: 'cp-a' }], last: [] });
     expect(root().textContent).not.toContain('account no longer exists');
-    expect(saveButton().disabled).toBe(true);
+    expect(saveButton().disabled).toBe(false);
+    expect(saveButton().getAttribute('aria-disabled')).toBe('true');
   });
 });
