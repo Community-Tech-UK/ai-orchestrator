@@ -119,7 +119,8 @@ describe('audit SQLite reads preserve database and rollback journal bytes', () =
   it('the paired SQLite engine read-only control refuses hot-journal recovery', () => {
     const { database } = fixture('hot'); const before = snapshot(database);
     const result = spawnSync('sqlite3', ['-readonly', '-json', database, 'SELECT value FROM example LIMIT 1'], { encoding: 'utf8' });
-    expect(result.status).toBe(1); expect(result.signal).toBeNull();
+    // The refusal's exit number varies by sqlite3 build (1 on macOS, 8 on Linux).
+    expect(result.status).toBeGreaterThan(0); expect(result.signal).toBeNull();
     expect(result.stderr).toContain('readonly'); expect(snapshot(database)).toEqual(before);
   });
 });
