@@ -5,6 +5,7 @@ vi.mock('../logging/logger', () => ({
 }));
 
 import { buildLoopInvocationErrorPayload } from './loop-invocation-error-payload';
+import { HarnessStopError } from '../../shared/utils/harness-stop';
 
 function build(error: unknown, overrides: { model?: string } = {}) {
   return buildLoopInvocationErrorPayload({
@@ -94,5 +95,13 @@ describe('buildLoopInvocationErrorPayload quota signal', () => {
     const payload = build(Object.assign(new Error('turn failed'), { quota: { exhausted: true, message: 'raw adapter detail' } }));
     expect(payload.quota).toEqual({ exhausted: true });
     expect(build(Object.assign(new Error('turn failed'), { quota: { exhausted: false } })).quota).toBeUndefined();
+  });
+});
+
+describe('buildLoopInvocationErrorPayload Harness stop', () => {
+  it('keeps the stop marker, because the error object does not cross the boundary', () => {
+    const details = { reason: 'turn-token-ceiling' as const, tokens: 300_000_123, thresholdTokens: 300_000_000 };
+    expect(build(new HarnessStopError(details)).harnessStop).toEqual(details);
+    expect(build(new Error('turn failed')).harnessStop).toBeUndefined();
   });
 });

@@ -76,6 +76,7 @@ import {
   type LoopControlRuntime,
 } from './loop-control';
 import { invokeLoopChildIteration } from './loop-child-invoker';
+import { harnessStopLoopEndReason, isHarnessStopError } from '../../shared/utils/harness-stop';
 import { LoopColdCacheTracker } from './loop-cold-cache';
 import { computeWorkHash } from './loop-work-hash';
 import { detectConvergeUntilCleanIntent, resolveLoopGoalIntent } from './loop-intent';
@@ -2150,6 +2151,14 @@ export class LoopCoordinator extends EventEmitter {
             emit: (eventName, payload) => this.emit(eventName, payload),
             terminate: (target, status, reason) => this.terminate(target, status, reason),
           });
+          return;
+        }
+
+        // Harness stopped this round at its own token limit. A retry, or the next
+        // round, would run into the same limit and spend the same tokens again, so
+        // the loop ends here and says why.
+        if (!childResult && isHarnessStopError(invocationFailure)) {
+          this.terminate(state, 'error', harnessStopLoopEndReason(invocationFailure.details));
           return;
         }
 

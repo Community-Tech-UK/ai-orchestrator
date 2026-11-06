@@ -4,6 +4,7 @@ import { getLogger } from '../logging/logger';
 import type { LoopControlEnv } from './loop-control';
 import { inferLoopPhase, type LoopInferredPhase } from './loop-phase-inference';
 import { deriveAttemptEvidenceFromResult } from './loop-invocation-attempt';
+import { HarnessStopError } from '../../shared/utils/harness-stop';
 import {
   DEFAULT_ITERATION_TIMEOUT_MS,
   type LoopChildInvocationCallbackResult,
@@ -260,7 +261,8 @@ export function invokeLoopChildIteration(input: InvokeLoopChildIterationInput): 
 }
 
 function toInvocationError(result: LoopChildInvocationError): Error {
-  const error = new Error(result.error) as Error & Omit<LoopChildInvocationError, 'error'>;
+  // A Harness stop stays recognisable, because the loop must end on it rather than retry.
+  const error = (result.harnessStop ? new HarnessStopError(result.harnessStop) : new Error(result.error)) as Error & Omit<LoopChildInvocationError, 'error' | 'harnessStop'>;
   if (result.status !== undefined) error.status = result.status;
   if (result.statusCode !== undefined) error.statusCode = result.statusCode;
   if (result.code !== undefined) error.code = result.code;

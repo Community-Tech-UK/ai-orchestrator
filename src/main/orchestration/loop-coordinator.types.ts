@@ -13,6 +13,7 @@ import type {
 import type { QuotaThrottleDecision } from './loop-quota-throttle';
 import type { DegradedReason } from '../cli/adapters/degraded-output-classifier';
 import type { LoopInvocationAttemptEvidence } from './loop-invocation-attempt';
+import type { HarnessStopDetails } from '../../shared/utils/harness-stop';
 
 /**
  * @deprecated Flat $15 per 1M tokens. This was applied to a token total that
@@ -131,6 +132,8 @@ export interface LoopChildInvocationError {
   attemptEvidence?: LoopInvocationAttemptEvidence;
   /** Structured plan-limit signal from the adapter (account pools), independent of message wording. */
   quota?: { exhausted: true };
+  /** Set when Harness itself stopped the round at a token limit. The loop ends instead of retrying. */
+  harnessStop?: HarnessStopDetails;
 }
 
 export type LoopChildInvocationCallbackResult = LoopChildResult | LoopChildInvocationError;

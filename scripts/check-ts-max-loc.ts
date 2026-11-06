@@ -420,7 +420,7 @@ const ALLOWLIST: Record<string, number> = {
   // Raised 3948 -> 3954 for LT-350 (cancelLoop now force-kills an in-flight
   // preflight/quick-verify subprocess via completionDetector.abortVerify,
   // since it has no CLI adapter for the existing cleanup hook to reach).
-  'src/main/orchestration/loop-coordinator.ts': 3954,
+  'src/main/orchestration/loop-coordinator.ts': 3962, // raised 3954 -> 3962: a Harness token-limit stop ends the loop instead of retrying
   // Re-tightened after extracting loop-completed-plan-helpers.ts.
   'src/main/orchestration/loop-completion-detector.ts': 806,
   'src/main/orchestration/loop-store.ts': 790,

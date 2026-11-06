@@ -1,6 +1,7 @@
 import { coerceToFailoverError } from '../core/failover-error';
 import { getLogger } from '../logging/logger';
 import { redactLogOutput } from '../security/secret-redaction';
+import { isHarnessStopError } from '../../shared/utils/harness-stop';
 import type { LoopChildInvocationError } from './loop-coordinator.types';
 
 const logger = getLogger('DefaultInvokers');
@@ -50,6 +51,8 @@ export function buildLoopInvocationErrorPayload(params: InvocationFailureParams)
   return {
     error: message,
     ...metadata,
+    // The error object does not survive this boundary, so the stop marker rides on the payload.
+    ...(isHarnessStopError(params.error) ? { harnessStop: { ...params.error.details } } : {}),
     ...(params.provider ? { provider: params.provider } : {}),
     ...(model ? { model } : {}),
     ...(params.instanceId ? { instanceId: params.instanceId } : {}),

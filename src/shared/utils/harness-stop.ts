@@ -28,6 +28,19 @@ export function harnessStopNotice(details: HarnessStopDetails): string {
   return `Stopped by Harness: this turn passed ${formatStopTokens(details.thresholdTokens)} tokens.`;
 }
 
+/**
+ * Why a loop ended when Harness stopped one of its rounds. A loop never retries
+ * or moves on after such a stop: the next round would run into the same limit
+ * and spend the same tokens again. Starts with `LOOP_HARNESS_STOP_PREFIX` so
+ * the loop's end screen can recognise it.
+ */
+export const LOOP_HARNESS_STOP_PREFIX = 'Harness stopped this loop:';
+
+export function harnessStopLoopEndReason(details: HarnessStopDetails): string {
+  return `${LOOP_HARNESS_STOP_PREFIX} a Codex round passed ${formatStopTokens(details.thresholdTokens)} tokens, and running it again would likely spend the same, so it was not retried. `
+    + 'To allow bigger rounds, raise "Stop point for Harness work" in Settings, Advanced, under Codex round limits.';
+}
+
 export class HarnessStopError extends Error {
   readonly stoppedByHarness = true as const;
   /** The adapter already put the notice in the transcript; callers must not repeat it. */

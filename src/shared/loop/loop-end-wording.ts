@@ -1,3 +1,5 @@
+import { LOOP_HARNESS_STOP_PREFIX } from '../utils/harness-stop';
+
 export interface LoopEndDescriptionInput {
   status: string; endReason?: string | null; roundsFinished: number; endedAt: number | null;
   mergeHeld?: boolean; branch?: string;
@@ -22,6 +24,8 @@ export function describeLoopEnd(input: LoopEndDescriptionInput): { headline: str
       : cap === 'tokens' ? 'token' : cap === 'wall-time' ? 'time' : 'configured';
     headline = `Stopped at the ${label} limit before finishing`;
   }
+  // Ended by the error path, but on purpose: Harness stopped a round at its own token limit.
+  if (reason.startsWith(LOOP_HARNESS_STOP_PREFIX)) headline = 'Stopped by Harness at the Codex round limit';
   let sentence = reason;
   if (input.mergeHeld) sentence = 'Nothing was merged because a check was skipped. Merge it when you have looked.'
     + (input.branch ? ` The work is on branch ${input.branch}.` : '');
