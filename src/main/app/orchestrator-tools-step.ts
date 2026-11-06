@@ -350,6 +350,7 @@ export function createOrchestratorToolsStep(
             displayName: `run_on_node:${node.name}`,
             workingDirectory,
             initialPrompt: args.prompt,
+            initialPromptAgentAuthored: true,
             yoloMode: true,
             forceNodeId: node.id,
             provider: effectiveProvider,

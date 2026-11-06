@@ -117,6 +117,7 @@ export function outputMessageToContinuityEntry(
     timestamp: message.timestamp,
     ...(internalInput ? { internalInput: { ...internalInput } } : {}),
     ...(crossSessionMessage ? { crossSessionMessage: { ...crossSessionMessage } } : {}),
+    ...(message.metadata?.agentAuthored ? { agentAuthored: true } : {}),
     ...(sessionBoundary ? { sessionBoundary } : {}),
     ...(tokens === undefined ? {} : { tokens }),
     ...(tokenUsage ? { tokenUsage } : {}),
@@ -234,6 +235,7 @@ export function continuityEntryToOutputMessage(entry: ConversationEntry): Output
     || entry.sessionBoundary
     || entry.internalInput
     || entry.crossSessionMessage
+    || entry.agentAuthored
     ? {
         ...(entry.toolUse
           ? {
@@ -263,6 +265,7 @@ export function continuityEntryToOutputMessage(entry: ConversationEntry): Output
           : {}),
         ...(entry.internalInput ? { internalInput: { ...entry.internalInput } } : {}),
         ...(entry.crossSessionMessage ? { crossSessionMessage: { ...entry.crossSessionMessage } } : {}),
+        ...(entry.agentAuthored ? { agentAuthored: true } : {}),
       }
     : undefined;
 

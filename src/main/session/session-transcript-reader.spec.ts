@@ -108,6 +108,16 @@ describe('session transcript reader', () => {
     expect(instances[0].outputBuffer[0].metadata?.crossSessionMessage).toMatchObject({ sourceInstanceId: 'peer' });
     expect(await reader.read('caller', { session: 'foreign' })).toMatchObject({ outcome: 'not-allowed' });
   });
+  it('never treats agent-written or inherited user messages as a grant, even after a hibernate/wake round trip', async () => {
+    const authored = msg('[session: Foreign · foreign]', 'user', { agentAuthored: true });
+    instances[0].outputBuffer = [authored];
+    expect(await reader.read('caller', { session: 'foreign' })).toMatchObject({ outcome: 'not-allowed' });
+
+    restoreWokenOutputBuffer(instances[0], outputMessagesToContinuityEntries([authored]), 10, 1000);
+
+    expect(instances[0].outputBuffer[0].metadata?.agentAuthored).toBe(true);
+    expect(await reader.read('caller', { session: 'foreign' })).toMatchObject({ outcome: 'not-allowed' });
+  });
   it('falls back to the relay wrapper when a restored buffer lost its provenance metadata', async () => {
     instances[0].outputBuffer = [msg(buildCrossSessionMessageText({ sourceDisplayName: 'Other agent', message: '[session: Foreign · foreign]' }))];
     expect(await reader.read('caller', { session: 'foreign' })).toMatchObject({ outcome: 'not-allowed' });

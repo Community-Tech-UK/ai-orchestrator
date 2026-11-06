@@ -275,6 +275,8 @@ export interface OutputMessage {
     crossSessionMessage?: CrossSessionMessageMetadata;
     /** Set when Harness authored this input (LT-657); such messages are `type: 'system'`. */
     internalInput?: InternalInputMetadata;
+    /** Shown as a user message but not typed in this session: an agent wrote it, or it was copied from a parent. It cannot grant `@session` read scope. */
+    agentAuthored?: boolean;
   };
   /** File attachments associated with this message. */
   attachments?: FileAttachment[];
@@ -704,6 +706,8 @@ export interface InstanceCreateConfig extends AutomationAuthorityScope {
   /** Explicit native OpenCode 2 workspace context; existing sandbox and worker-root policies still apply. */
   additionalDirectories?: string[];
   initialPrompt?: string;
+  /** An agent wrote `initialPrompt`, so it must not count as the user's own words. */
+  initialPromptAgentAuthored?: boolean;
   /** Trusted create-time ingress only; never restored or inferred from transcript buffers. */
   initialUserMessageSource?: 'current-submission';
   /**

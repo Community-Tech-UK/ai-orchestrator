@@ -35,6 +35,7 @@ export function createInitialUserMessage(config: InstanceCreateConfig): OutputMe
     timestamp: Date.now(),
     type: 'user',
     content: config.initialPrompt ?? '',
+    ...(config.initialPromptAgentAuthored ? { metadata: { agentAuthored: true } } : {}),
     attachments: config.attachments?.map((attachment) => ({
       name: attachment.name,
       type: attachment.type,

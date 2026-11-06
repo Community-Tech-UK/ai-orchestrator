@@ -6268,12 +6268,12 @@
       "lines": 2537
     },
     {
-      "path": "docs/superpowers/plans/2026-04-07-remote-folder-browsing_completed.md",
-      "lines": 2522
+      "path": "src/main/instance/instance-manager.ts",
+      "lines": 2523
     },
     {
-      "path": "src/main/instance/instance-manager.ts",
-      "lines": 2521
+      "path": "docs/superpowers/plans/2026-04-07-remote-folder-browsing_completed.md",
+      "lines": 2522
     },
     {
       "path": "src/main/app/orchestrator-tools-step.spec.ts",
@@ -7173,7 +7173,7 @@
     },
     {
       "path": "src/shared/types/instance.types.ts",
-      "lines": 920
+      "lines": 924
     },
     {
       "path": "src/main/automations/automation-store.ts",
@@ -7525,10 +7525,6 @@
     },
     {
       "path": "src/main/automations/automation-runner.ts",
-      "lines": 800
-    },
-    {
-      "path": "src/main/cli/adapters/adapter-factory.ts",
       "lines": 800
     }
   ]

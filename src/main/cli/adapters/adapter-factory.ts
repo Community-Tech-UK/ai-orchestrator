@@ -221,7 +221,6 @@ export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdap
   if (options.launchMode === 'interactive') {
     throw new Error(INTERACTIVE_RUNTIME_UNAVAILABLE);
   }
-
   const accountEnv = resolveClaudeAccountSpawnEnv(options);
   const env = { ...options.env, ...accountEnv.env };
   applyClaudeTaskToolsEnv(env, options.instanceId);

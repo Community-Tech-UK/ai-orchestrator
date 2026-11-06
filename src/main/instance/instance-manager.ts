@@ -1999,7 +1999,7 @@ export class InstanceManager extends EventEmitter {
     // we copied in for context — producing an echo-back result.
     const seededOutputBuffer = parent.outputBuffer.filter((m) => m.type !== 'tool_outcome').slice(-50).map((msg) => ({
       ...msg,
-      metadata: { ...msg.metadata, seededFromParent: true },
+      metadata: { ...msg.metadata, seededFromParent: true, agentAuthored: true },
     }));
 
     const child = await this.createInstance({
@@ -2007,6 +2007,7 @@ export class InstanceManager extends EventEmitter {
       displayName: spawnCommand.name || `Child of ${parent.displayName}`,
       parentId,
       initialPrompt: childPrompt,
+      initialPromptAgentAuthored: true,
       yoloMode: false,
       agentId: childAgentId,
       modelOverride: routingDecision.model,
@@ -2334,7 +2335,7 @@ export class InstanceManager extends EventEmitter {
       .map((msg) => ({
         ...msg,
         content: stripOrchestrationMarkers(msg.content),
-        metadata: { ...msg.metadata, seededFromParent: true },
+        metadata: { ...msg.metadata, seededFromParent: true, agentAuthored: true },
       }))
       .filter((msg) => msg.content.length > 0);
 
@@ -2343,6 +2344,7 @@ export class InstanceManager extends EventEmitter {
       displayName: command.name || `Child of ${parent.displayName}`,
       parentId: parentId,
       initialPrompt: childPrompt,
+      initialPromptAgentAuthored: true,
       yoloMode: command.yoloMode === true,
       agentId: childAgentId,
       modelOverride: routingDecision.model,

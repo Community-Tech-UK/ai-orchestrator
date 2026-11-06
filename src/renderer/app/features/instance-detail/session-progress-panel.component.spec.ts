@@ -95,6 +95,7 @@ describe('SessionProgressPanelComponent', () => {
     expect(more?.textContent).toContain('2 earlier'); more.click(); fixture.detectChanges();
     expect(fixture.nativeElement.querySelectorAll('.task-row')).toHaveLength(7);
     const fewer = fixture.nativeElement.querySelector('button.more-row') as HTMLButtonElement;
+    expect(fewer).toBe(more);
     expect(fewer.textContent).toContain('Show fewer'); fewer.click(); fixture.detectChanges();
     expect(fixture.nativeElement.querySelectorAll('.task-row')).toHaveLength(5);
   });

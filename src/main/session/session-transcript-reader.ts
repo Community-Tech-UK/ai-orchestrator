@@ -97,8 +97,10 @@ export class SessionTranscriptReader {
         // Only the user's own words can point at a session. Relayed
         // cross-session text and Harness input are excluded by metadata, with
         // the relay wrapper as a fallback for buffers whose provenance was
-        // lost before it was carried through continuity.
+        // lost before it was carried through continuity. Agent-written spawn
+        // prompts and messages copied from a parent are not this user's words.
         if (message.type !== 'user' || message.metadata?.crossSessionMessage || message.metadata?.internalInput
+          || message.metadata?.agentAuthored
           || isCrossSessionMessageText(message.content)) continue;
         for (const match of message.content.matchAll(/\[session: [^\]\r\n]* · ([^\]\s]+)\]/g)) grants.add(match[1]);
       }

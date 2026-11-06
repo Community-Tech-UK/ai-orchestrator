@@ -100,10 +100,8 @@ export const PANEL_COLLAPSED_FIELD: StorageField<boolean> = {
                   <span class="task-text">{{ taskLabel(todo) }}</span>
                 </div>
               }
-              @if (todoWindow().earlier > 0 || todoWindow().later > 0) {
-                <button type="button" class="more-row" (click)="showAllTodos.set(true)">{{ todoWindow().earlier || todoWindow().later }} {{ todoWindow().earlier ? 'earlier' : 'more' }}</button>
-              } @else if (showAllTodos() && todoStore.todos().length > 5) {
-                <button type="button" class="more-row" (click)="showAllTodos.set(false)">Show fewer</button>
+              @if (todoToggleLabel(); as label) {
+                <button type="button" class="more-row" [attr.aria-expanded]="showAllTodos()" (click)="showAllTodos.set(!showAllTodos())">{{ label }}</button>
               }
             </div>
           }
@@ -639,6 +637,12 @@ export class SessionProgressPanelComponent {
   readonly showAllTodos = signal(false);
   readonly todoWindow = computed(() => windowTodos(this.hasTodos() ? this.todoStore.todos() : [], MAX_VISIBLE_TASKS, this.showAllTodos()));
   readonly visibleTodos = computed<readonly TodoItem[]>(() => this.todoWindow().rows);
+  /** One button for both directions, so keyboard focus stays on it when the list changes. */
+  readonly todoToggleLabel = computed(() => {
+    const { earlier, later } = this.todoWindow();
+    if (earlier || later) return `${earlier || later} ${earlier ? 'earlier' : 'more'}`;
+    return this.showAllTodos() && this.todoStore.todos().length > 5 ? 'Show fewer' : null;
+  });
 
   readonly visibleOutputs = computed<readonly ArtifactEntry[]>(() =>
     this.outputs().slice(0, MAX_VISIBLE_OUTPUTS)

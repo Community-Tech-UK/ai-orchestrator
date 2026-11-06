@@ -220,6 +220,8 @@ export interface ConversationEntry {
    * retention as a user prompt.
    */
   crossSessionMessage?: CrossSessionMessageMetadata;
+  /** An agent wrote this user-looking entry, or it came from a parent; it must not grant `@session` read scope. */
+  agentAuthored?: boolean;
 }
 
 export interface PendingTask {
