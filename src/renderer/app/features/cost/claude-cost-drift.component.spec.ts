@@ -127,6 +127,22 @@ describe('ClaudeCostDriftComponent', () => {
     expect(text()).toContain('Harness\'s Claude costs agree');
   });
 
+  it('does not let a slower background refresh overwrite a Check now result that finished first', async () => {
+    await mount({ success: true, data: snapshot(null) });
+    let releaseGet!: (value: unknown) => void;
+    ipc.get.mockReturnValue(new Promise(resolve => { releaseGet = resolve; }));
+    const refresh = polls[0].run() as Promise<void>;
+    ipc.run.mockResolvedValue({ success: true, data: snapshot(report('ok')) });
+    (fixture.nativeElement as HTMLElement).querySelector('button')!.click();
+    await settle();
+    expect(text()).toContain("Harness's Claude costs agree");
+    releaseGet({ success: true, data: snapshot(null) });
+    await refresh;
+    await settle();
+    expect(text()).toContain("Harness's Claude costs agree");
+    expect(text()).not.toContain('Not checked yet');
+  });
+
   it('reports a failed load or a failed last check without hiding the older result', async () => {
     await mount({ success: false, error: { message: 'Not in Electron' } });
     expect(text()).toContain('Not in Electron');

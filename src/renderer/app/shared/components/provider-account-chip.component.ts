@@ -237,10 +237,17 @@ export class ProviderAccountChipComponent {
     const context = this.actionContext();
     const stillBound = (): boolean =>
       this.actionGeneration === generation && this.actionContext() === context;
+    // A dropped move leaves the dropdown showing what was picked. Put it back on the account the session
+    // is really on, unless a newer pick has taken over the dropdown.
+    const dropped = (): boolean => {
+      if (stillBound()) return false;
+      if (this.actionContext() !== context) target.value = this.selectedValue();
+      return true;
+    };
     const chosen = this.accountsSignal().find((account) => account.id === value);
     if (chosen && !chosen.enabled) {
       const turnedOn = await this.turnOnForSelection(chosen, stillBound);
-      if (!stillBound()) return;
+      if (dropped()) return;
       if (!turnedOn) {
         target.value = this.selectedValue();
         return;
@@ -253,15 +260,15 @@ export class ProviderAccountChipComponent {
     if (!boundInstance || value === this.currentProfileId()) return;
     // Say what the move will cost before asking (T17); nothing is added when it costs nothing.
     const cost = await this.runtimePreview.preview(boundInstance, { accountProfileId: value });
-    if (!stillBound()) return;
+    if (dropped()) return;
     const confirmed = await this.confirmService.confirm({ message: `Move this conversation to "${this.labelFor(value)}"? The current session ends and the conversation continues on that account.${cost ? ` ${cost.text}` : ''}`, confirmLabel: 'Move conversation', danger: true });
-    if (!stillBound()) return;
+    if (dropped()) return;
     if (!confirmed) {
       target.value = this.currentProfileId();
       return;
     }
     const response = await this.ipc.switchSession(boundInstance, value);
-    if (!stillBound()) return;
+    if (dropped()) return;
     this.errorSignal.set(response.success ? null : response.error?.message ?? 'The account could not be switched.');
     if (!response.success) target.value = this.currentProfileId();
   }

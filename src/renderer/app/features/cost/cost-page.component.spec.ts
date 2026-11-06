@@ -546,6 +546,19 @@ describe('CostPageComponent — computed signals', () => {
     expect(text).toContain('Codex reports 9 credits used by 1 session');
   });
 
+  it('does not claim no turns were recorded when the summary carries none, and leaves the card out when the cost log is off', () => {
+    const row = { key: 'all', calls: 0, inputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+      outputTokens: 0, reasoningTokens: 0, cost: 0, estimatedCost: 0, estimatedShare: 0, unknownCostCalls: 0, freeCalls: 0 };
+    const text = () => (fixture.nativeElement as HTMLElement).textContent!.replace(/\s+/g, ' ');
+    component.purposeSummary.set({ enabled: true, totals: row, byPurpose: [], byProvider: [] });
+    fixture.detectChanges();
+    expect(text()).toContain('Biggest turns are not available right now.');
+    expect(text()).not.toContain('No turns recorded');
+    component.purposeSummary.set({ enabled: false, totals: row, byPurpose: [], byProvider: [] });
+    fixture.detectChanges();
+    expect(text()).not.toContain('Biggest turns this week');
+  });
+
 });
 
 

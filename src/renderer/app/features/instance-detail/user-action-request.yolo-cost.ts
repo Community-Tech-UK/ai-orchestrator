@@ -10,6 +10,8 @@ export class UserActionYoloCost {
   private readonly ipc = inject(RuntimeChangePreviewIpcService);
   private readonly destroyed = inject(DestroyRef);
   private generation = 0;
+  /** The request a click is checking, or a question is held for, and the runtime it was asked about. */
+  private asked: { request: UserActionRequest; key: string } | null = null;
   private readonly runtimeKey;
   readonly note = signal<string | null>(null);
   readonly checking = signal(false);
@@ -32,8 +34,10 @@ export class UserActionYoloCost {
       const request = this.requests().find(item => untracked(() => this.current(item, key)));
       let active = true;
       this.note.set(null);
-      this.cancel();
-      onCleanup(() => { active = false; this.cancel(); });
+      // Another request arriving must not withdraw a question that is still about this session and request.
+      const asked = this.asked;
+      if (!asked || asked.key !== key || !untracked(() => this.current(asked.request, key))) this.cancel();
+      onCleanup(() => { active = false; });
       if (request) {
         const change = untracked(() => yoloChangeRequestOf(this.instance(request.instanceId) ?? {}, true));
         void this.ipc.preview(request.instanceId, change)
@@ -55,14 +59,15 @@ export class UserActionYoloCost {
     const key = this.runtimeKey();
     if (this.checking() || this.confirmation() || !this.current(request, key)) return;
     const generation = ++this.generation;
+    this.asked = { request, key };
     this.checking.set(true);
     const note = await this.ipc.preview(request.instanceId, yoloChangeRequestOf(this.instance(request.instanceId) ?? {}, true));
     if (generation !== this.generation) return;
     this.checking.set(false);
-    if (!this.current(request, key)) return;
+    if (!this.current(request, key)) { this.asked = null; return; }
     const guardedApply = async (): Promise<void> => { if (this.current(request, key)) await apply(); };
     if (note?.large) this.confirmation.set({ request, text: note.text, apply: guardedApply });
-    else await guardedApply();
+    else { this.asked = null; await guardedApply(); }
   }
 
   confirm(): void {
@@ -73,6 +78,7 @@ export class UserActionYoloCost {
 
   cancel(): void {
     this.generation++;
+    this.asked = null;
     this.checking.set(false);
     this.confirmation.set(null);
   }

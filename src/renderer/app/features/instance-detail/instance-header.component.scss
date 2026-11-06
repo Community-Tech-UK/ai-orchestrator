@@ -244,6 +244,15 @@
         }
       }
 
+      // What flipping auto-approve would cost, in words beside the button (the tooltip repeats it).
+      .header-action-detail {
+        max-width: 320px;
+        font-size: 11px;
+        line-height: 1.35;
+        color: var(--text-secondary);
+        overflow-wrap: anywhere;
+      }
+
       .skills-badge,
       .hooks-badge {
         border: 1px solid rgba(255, 255, 255, 0.06);

@@ -121,6 +121,8 @@ export class ClaudeCostDriftComponent implements OnInit, OnDestroy {
   private readonly ipc = inject(ClaudeCostReconcileIpcService);
   private readonly pollScheduler = inject(RendererPollSchedulerService);
   private stopPolling: (() => void) | null = null;
+  /** Moves when a Check now starts and again when it ends, so a refresh that began earlier knows it is out of date. */
+  private checkEpoch = 0;
 
   readonly snapshot = signal<ClaudeCostReconcileSnapshot | null>(null);
   readonly checking = signal(false);
@@ -144,15 +146,18 @@ export class ClaudeCostDriftComponent implements OnInit, OnDestroy {
   }
 
   async load(): Promise<void> {
-    await this.apply(() => this.ipc.get());
+    const epoch = this.checkEpoch;
+    await this.apply(() => this.ipc.get(), () => epoch === this.checkEpoch);
   }
 
   async checkNow(): Promise<void> {
     if (this.checking()) return;
     this.checking.set(true);
+    this.checkEpoch += 1;
     try {
-      await this.apply(() => this.ipc.run());
+      await this.apply(() => this.ipc.run(), () => true);
     } finally {
+      this.checkEpoch += 1;
       this.checking.set(false);
     }
   }
@@ -179,9 +184,11 @@ export class ClaudeCostDriftComponent implements OnInit, OnDestroy {
     return gap.sessionId.slice(0, 8);
   }
 
-  private async apply(call: () => Promise<{ success: boolean; data?: ClaudeCostReconcileSnapshot; error?: unknown }>): Promise<void> {
+  /** `isCurrent` is false for a background refresh that a Check now has overtaken: its answer is older, so it is dropped. */
+  private async apply(call: () => Promise<{ success: boolean; data?: ClaudeCostReconcileSnapshot; error?: unknown }>, isCurrent: () => boolean): Promise<void> {
     try {
       const response = await call();
+      if (!isCurrent()) return;
       if (response.success && response.data) {
         this.snapshot.set(response.data);
         this.errorMessage.set(response.data.lastError ? 'The last check failed, so these figures may be out of date.' : '');
@@ -191,7 +198,7 @@ export class ClaudeCostDriftComponent implements OnInit, OnDestroy {
         this.errorDetail.set(presentError(response.error).rawDetail);
       }
     } catch {
-      this.errorMessage.set('Could not load the Claude cost check.');
+      if (isCurrent()) this.errorMessage.set('Could not load the Claude cost check.');
     }
   }
 }

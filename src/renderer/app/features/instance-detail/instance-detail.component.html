@@ -45,7 +45,8 @@
 
           <!-- A change that would leave a large conversation behind, or re-read it at full price, waits here for a yes (T17). -->
           @if (runtimeChange.pendingConfirmation(); as held) {
-            <app-runtime-change-confirm [text]="held.text" (confirmed)="runtimeChange.confirm(inst.id)" (cancelled)="runtimeChange.cancel()" />
+            <app-runtime-change-confirm [text]="held.text" [confirmLabel]="held.confirmLabel" [cancelLabel]="held.cancelLabel"
+              (confirmed)="runtimeChange.confirm(inst.id)" (cancelled)="runtimeChange.cancel()" />
           }
 
           <app-provider-diagnostics-panel

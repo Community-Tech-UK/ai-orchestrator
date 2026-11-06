@@ -97,10 +97,15 @@ function previewRequestOf(selection: PendingSelection): RuntimeChangePreviewRequ
 export interface PendingConfirmation {
   /** The sentence that explains why the change is being held for a yes. */
   text: string;
+  /** What the yes and the no buttons say; they name the change being held. */
+  confirmLabel: string;
+  cancelLabel: string;
   /** The session the sentence was computed for; a yes only applies while it is still the bound one. */
   instanceId: string;
   apply: () => void | Promise<void>;
 }
+
+const SWITCH_LABELS: { confirm: string; cancel: string } = { confirm: 'Switch anyway', cancel: 'Keep current' };
 
 /**
  * Says what a restarting change will cost before it is made: a line while someone points at an
@@ -182,13 +187,18 @@ export class RuntimeChangePreviewController {
    * anything back. A preview that lands after the session changed (or the owner went away) is
    * dropped instead of held or applied.
    */
-  async gate(instanceId: string, request: RuntimeChangePreviewRequest, apply: () => void | Promise<void>): Promise<void> {
+  async gate(
+    instanceId: string,
+    request: RuntimeChangePreviewRequest,
+    apply: () => void | Promise<void>,
+    labels: { confirm: string; cancel: string } = SWITCH_LABELS,
+  ): Promise<void> {
     this.invalidate(); // A newer choice withdraws both a held question and any older preview.
     const generation = this.generation;
     const note: RuntimeChangeCostNote | null = await this.ipc.preview(instanceId, request);
     if (generation !== this.generation) return;
     if (note?.large) {
-      this.pendingConfirmation.set({ text: note.text, instanceId, apply });
+      this.pendingConfirmation.set({ text: note.text, confirmLabel: labels.confirm, cancelLabel: labels.cancel, instanceId, apply });
       return;
     }
     await apply();

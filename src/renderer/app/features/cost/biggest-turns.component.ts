@@ -59,7 +59,9 @@ export interface BiggestTurnRow {
         <p class="detail">The ten largest single turns by tokens processed, including text re-read from the cache and helper work.</p>
       </header>
 
-      @if (rows().length === 0) {
+      @if (!turns()) {
+        <p class="detail" data-testid="biggest-turns-unavailable">Biggest turns are not available right now.</p>
+      } @else if (rows().length === 0) {
         <p class="detail" data-testid="biggest-turns-empty">No turns recorded in the last seven days.</p>
       } @else {
         <table class="grid" data-testid="biggest-turns-table">
@@ -110,17 +112,18 @@ export interface BiggestTurnRow {
   `],
 })
 export class BiggestTurnsComponent {
-  readonly turns = input<readonly CostBiggestTurn[]>([]);
+  /** Null or missing means the list did not arrive, which is not the same as no turns recorded. */
+  readonly turns = input<readonly CostBiggestTurn[] | null | undefined>(null);
   readonly credits = input<CostCodexCreditsSummary | null>(null);
 
   private readonly instances = inject(InstanceStateService, { optional: true });
 
-  readonly rows = computed((): BiggestTurnRow[] => this.turns().map((turn, index) => {
+  readonly rows = computed((): BiggestTurnRow[] => (this.turns() ?? []).map((turn, index) => {
     const name = turn.instanceId ? this.instances?.getInstance(turn.instanceId)?.displayName : undefined;
     return {
       key: `${turn.instanceId ?? 'unknown'}:${turn.at}:${index}`,
       when: new Date(turn.at).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }),
-      session: name ?? (turn.instanceId ? turn.instanceId.slice(0, 8) : 'Unknown'),
+      session: name ?? (turn.instanceId ? 'Closed session' : 'Unknown'),
       sessionTitle: [turn.provider, turn.model, turn.instanceId].filter(Boolean).join(' · '),
       kind: biggestTurnKindLabel(turn.kind),
       tokens: formatTurnTokens(turn.processedTokens),

@@ -100,6 +100,19 @@ for (const type of ['deferred_permission', 'codex_mcp_approval']) {
       click('.runtime-confirm__yes'); await settle(); appliedOnce();
     });
 
+    it('keeps a held question when another request arrives for the same session', async () => {
+      click('.btn-yolo'); await settle();
+      expect(fixture.nativeElement.querySelector('.runtime-confirm__yes')).not.toBeNull();
+      fixture.componentInstance.pendingRequests.update(requests => [...requests, {
+        id: 'permission-b', instanceId: 'inst-a', requestType: 'input_required', title: 'Permission', message: 'Allow another operation?',
+        createdAt: 2, permissionMetadata: { type, tool_use_id: 'tool-other' },
+      }]);
+      fixture.detectChanges(); await settle();
+      noAction();
+      expect(fixture.nativeElement.querySelector('.runtime-confirm__yes')).not.toBeNull();
+      click('.runtime-confirm__yes'); await settle(); appliedOnce();
+    });
+
     it('applies a small change without the large confirmation', async () => {
       preview.mockResolvedValue({ ...note, large: false });
       click('.btn-yolo'); await settle(); appliedOnce();

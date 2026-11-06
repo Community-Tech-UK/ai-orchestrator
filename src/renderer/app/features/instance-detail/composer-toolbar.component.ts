@@ -144,7 +144,7 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
 
       <!-- A change that would re-read a large conversation at full price waits here for a yes (T17). -->
       @if (preview.pendingConfirmation(); as held) {
-        <app-runtime-change-confirm [text]="held.text" (confirmed)="preview.confirm(instanceId())" (cancelled)="preview.cancel()" />
+        <app-runtime-change-confirm [text]="held.text" [confirmLabel]="held.confirmLabel" [cancelLabel]="held.cancelLabel" (confirmed)="preview.confirm(instanceId())" (cancelled)="preview.cancel()" />
       }
 
       <!-- (d) Queued change badge — a swap requested while busy applies on the

@@ -28,7 +28,7 @@ describe('token and kind wording', () => {
 describe('BiggestTurnsComponent', () => {
   let fixture: ComponentFixture<BiggestTurnsComponent>;
   const text = (): string => (fixture.nativeElement as HTMLElement).textContent!.replace(/\s+/g, ' ');
-  const mount = async (turns: CostBiggestTurn[], summary: CostCodexCreditsSummary | null = null, names: Record<string, string> = {}) => {
+  const mount = async (turns: CostBiggestTurn[] | null, summary: CostCodexCreditsSummary | null = null, names: Record<string, string> = {}) => {
     TestBed.configureTestingModule({
       providers: [provideZonelessChangeDetection(), { provide: InstanceStateService, useValue: { getInstance: (id: string) => names[id] ? { displayName: names[id] } : undefined } }],
     });
@@ -52,7 +52,8 @@ describe('BiggestTurnsComponent', () => {
     expect(rows[0]).toContain('310M');
     expect(rows[0]).toContain('110M (35%)');
     expect(rows[0]).toContain('Stopped by Harness');
-    expect(rows[1]).toContain('zzzzzzzz');
+    expect(rows[1]).toContain('Closed session');
+    expect(rows[1]).not.toContain('zzzzzzzz');
     expect(rows[1]).toContain('Helper');
     expect(rows[1]).toContain('46.5M');
     expect(rows[1]).not.toContain('Stopped by Harness');
@@ -62,6 +63,19 @@ describe('BiggestTurnsComponent', () => {
     await mount([]);
     expect(text()).toContain('No turns recorded in the last seven days.');
     expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="codex-credits"]')).toBeNull();
+  });
+
+  it('does not say nothing was recorded when the turns did not arrive', async () => {
+    await mount(null);
+    expect(text()).toContain('Biggest turns are not available right now.');
+    expect(text()).not.toContain('No turns recorded');
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="biggest-turns-table"]')).toBeNull();
+  });
+
+  it('shows no raw session id when the session is no longer listed', async () => {
+    await mount([turn({ instanceId: 'zzzzzzzz9999' })]);
+    expect(text()).not.toContain('zzzzzzzz');
+    expect(text()).toContain('Closed session');
   });
 
   it('reports the Codex credits for the week, with the dollar figure only when Codex gave one', async () => {

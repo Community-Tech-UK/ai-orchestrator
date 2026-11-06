@@ -198,7 +198,7 @@ describe('RuntimeChangePreviewController', () => {
       const apply = vi.fn();
       const replay = note({
         kind: 'provider', resendTokens: null, carriedTokens: 8_600, droppedTokens: 221_400, large: true,
-        text: 'Switching provider starts a new session with a short summary of this one (about 8.6K of the 230K tokens here, 3% of Codex\'s 258K window); the rest does not carry over.',
+        text: 'Switching provider starts a new session with a short summary of this one (up to 8.6K of the 230K tokens here, 3% of Codex\'s 258K window); the rest does not carry over.',
       });
       preview.mockResolvedValue(replay);
 
@@ -219,6 +219,19 @@ describe('RuntimeChangePreviewController', () => {
       expect(preview).toHaveBeenCalledWith('i1', { model: 'gemini-3-pro', yoloMode: false });
       expect(apply).not.toHaveBeenCalled();
       expect(controller.pendingConfirmation()?.text).toBe('Changing auto-approve starts a new session.');
+    });
+
+    it('asks a model or provider switch with Switch anyway and Keep current', async () => {
+      preview.mockResolvedValue(note({ large: true }));
+      await controller.gateSelection('i1', sel, vi.fn());
+      expect(controller.pendingConfirmation()).toMatchObject({ confirmLabel: 'Switch anyway', cancelLabel: 'Keep current' });
+    });
+
+    it('lets the caller name the two answers, so turning auto-approve off is not asked as a switch', async () => {
+      preview.mockResolvedValue(note({ kind: 'auto-approve', large: true, text: 'Changing auto-approve starts a new session.' }));
+      await controller.gate('i1', yoloChangeRequestOf({ currentModel: 'gemini-3-pro' }, false), vi.fn(),
+        { confirm: 'Turn auto-approve off anyway', cancel: 'Keep auto-approve on' });
+      expect(controller.pendingConfirmation()).toMatchObject({ confirmLabel: 'Turn auto-approve off anyway', cancelLabel: 'Keep auto-approve on' });
     });
 
     it('lets a newer large change replace the one being held, so a yes can only apply what is on screen', async () => {

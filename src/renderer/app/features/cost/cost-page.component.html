@@ -170,7 +170,9 @@
   </section>
 
   @if (purposeSummary(); as purposes) {
-    <app-biggest-turns [turns]="purposes.biggestTurns ?? []" [credits]="purposes.codexCredits ?? null" />
+    @if (purposes.enabled) {
+      <app-biggest-turns [turns]="purposes.biggestTurns" [credits]="purposes.codexCredits ?? null" />
+    }
   }
 
   <!-- Budget status row -->

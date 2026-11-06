@@ -123,6 +123,28 @@ describe('ProviderAccountChipComponent: the cost is said before the account move
     expect(switchSession).not.toHaveBeenCalled();
   });
 
+  it('puts the dropdown back on the account the session is on when the conversation is replaced mid-move', async () => {
+    const move = await holdMoveToMaxB();
+    const select = move.fixture.nativeElement.querySelector('select') as HTMLSelectElement;
+    expect(select.value).toBe('max-b-1a2b');
+    move.fixture.componentRef.setInput('instanceId', 'inst-2');
+    move.fixture.detectChanges();
+    move.release('Switching account restarts this session.');
+    await move.pending;
+    expect(select.value).toBe('legacy');
+  });
+
+  it('leaves the dropdown on a newer pick when an older move is dropped', async () => {
+    const move = await holdMoveToMaxB();
+    preview.mockResolvedValueOnce(null);
+    const select = move.fixture.nativeElement.querySelector('select') as HTMLSelectElement;
+    select.value = 'account-c';
+    await move.fixture.componentInstance.onSelect({ target: select } as unknown as Event);
+    move.release('Old cost');
+    await move.pending;
+    expect(select.value).toBe('account-c');
+  });
+
   it('drops a pending move when the chip goes away while its cost is being worked out', async () => {
     const move = await holdMoveToMaxB();
     move.fixture.destroy();
