@@ -2387,5 +2387,17 @@
     "owner": "src/renderer/app/features/plan/plan-page.component.ts",
     "text": "Enter plan mode and write a plan first",
     "why": "long"
+  },
+  {
+    "id": "e01cbd52031d11ce",
+    "owner": "src/renderer/app/features/automations/automations-page.component.ts",
+    "text": "Remove the check to save: checks run outside the sandbox, so a contained job cannot have one",
+    "why": "consequence"
+  },
+  {
+    "id": "f3ab010777243b8e",
+    "owner": "src/renderer/app/features/automations/automations-page.component.ts",
+    "text": "Remove the check to save: a one-time job has no earlier run to compare with",
+    "why": "consequence"
   }
 ]

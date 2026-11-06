@@ -624,6 +624,20 @@ describe('AutomationsPageComponent row actions', () => {
     expect(store.update).toHaveBeenCalledWith('automation-1', expect.objectContaining({ action: expect.objectContaining({ maxRunMinutes: 120, maxProcessedTokens: 50_000_000, slowWhenUnchanged: true }) }));
   });
 
+  it.each([
+    ['one-time schedule', { scheduleType: 'oneTime' }],
+    ['contained job', { executionProfile: 'contained' }],
+  ] as const)('refuses to save a check on a %s, as the contract would', async (_name, patch) => {
+    const component = fixture.componentInstance;
+    component.select(automations()[0]); component.editSelected();
+    component.patchForm({ triggerKind: 'schedule', preCheckCommand: 'ls -t | head -1', ...patch });
+    expect(component.canSave()).toBe(false);
+    await component.save();
+    expect(store.update).not.toHaveBeenCalled();
+    component.patchForm({ preCheckCommand: '' });
+    expect(component.canSave()).toBe(true);
+  });
+
   it('refuses to save run limits outside the allowed range', async () => {
     const component = fixture.componentInstance;
     component.select(automations()[0]); component.editSelected();

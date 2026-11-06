@@ -611,7 +611,8 @@ export class AutomationsPageComponent {
     // WS5: a webhook trigger needs a route. A loop action does NOT need a typed
     // verify command — dispatch adopts the working directory's own verifier and
     // fails the run with the WS6 policy error only when there is none at all.
-    if ((model.triggerKind === 'webhook' && !model.webhookRouteId.trim()) || this.pinnedCheckBlocksSave()) return false;
+    if ((model.triggerKind === 'webhook' && !model.webhookRouteId.trim()) || this.pinnedCheckBlocksSave()
+      || this.oneTimeCheckBlocksSave() || this.containedCheckBlocksSave()) return false;
     return Boolean(model.name.trim() && model.workingDirectory.trim() && model.prompt.trim() && !this.store.preflightLoading()
       && this.validRunMinutes() && this.validTokenLimit());
   }
@@ -620,6 +621,18 @@ export class AutomationsPageComponent {
   pinnedCheckBlocksSave(): boolean {
     const model = this.form();
     return Boolean(model.forceNodeId && formToPreCheck(model));
+  }
+
+  /** A check compares with the previous successful run, which a one-time job never has. */
+  oneTimeCheckBlocksSave(): boolean {
+    const model = this.form();
+    return Boolean(model.scheduleType === 'oneTime' && formToPreCheck(model));
+  }
+
+  /** A check runs outside the sandbox, so a contained job cannot have one. */
+  containedCheckBlocksSave(): boolean {
+    const model = this.form();
+    return Boolean(model.executionProfile === 'contained' && formToPreCheck(model));
   }
 
   validRunMinutes(): boolean {

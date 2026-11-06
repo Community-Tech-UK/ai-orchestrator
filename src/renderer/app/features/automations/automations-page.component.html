@@ -351,9 +351,15 @@
                     <input name="preCheckCommand" [ngModel]="form().preCheckCommand"
                       [attr.aria-describedby]="form().forceNodeId && form().preCheckCommand.trim() ? 'automation-check-target-error' : null"
                       (ngModelChange)="onPreCheckCommandChange($event)" placeholder="e.g. ls -t ~/Maildir/new | head -1 (prints the newest message)" />
-                    <span class="hint">The same output as last time means the AI is not started. It runs up to 30 seconds in the job's folder; Run now ignores the check.</span>
+                    <span class="hint">The same output as last time means the AI is not started. This shell command runs on every scheduled run with no approval and outside the sandbox, for up to 30 seconds in the job's folder; Run now ignores the check.</span>
                     @if (form().forceNodeId && form().preCheckCommand.trim()) {
                       <span id="automation-check-target-error" class="error" role="alert">Checks run on this computer only. Remove the check to keep this job on its selected computer.</span>
+                    }
+                    @if (oneTimeCheckBlocksSave()) {
+                      <span class="error" role="alert">A check compares with the previous run, so a one-time job cannot have one. Remove the check or use a recurring schedule.</span>
+                    }
+                    @if (containedCheckBlocksSave()) {
+                      <span class="error" role="alert">A check runs outside the sandbox, so a contained job cannot have one. Remove the check or change the execution profile.</span>
                     }
                   </label>
                   @if (form().preCheckCommand.trim()) {
@@ -572,7 +578,7 @@
                 }
 
                 <div class="actions">
-                  <button class="btn btn--primary" type="submit" [disabled]="store.preflightLoading()" [appTooltipDisabledReason]="!form().name.trim() ? 'Enter an automation name first' : !form().workingDirectory.trim() ? tooltipChooseFolder : !form().prompt.trim() ? tooltipEnterPrompt : form().triggerKind === 'webhook' && !form().webhookRouteId.trim() ? 'Select a webhook route first' : !validRunMinutes() ? 'Enter whole minutes, 1 or more' : !validTokenLimit() ? 'Enter a whole token limit from 1 to 1,000,000,000' : pinnedCheckBlocksSave() ? 'Remove the check to save: checks run on this computer only' : null">Save</button>
+                  <button class="btn btn--primary" type="submit" [disabled]="store.preflightLoading()" [appTooltipDisabledReason]="!form().name.trim() ? 'Enter an automation name first' : !form().workingDirectory.trim() ? tooltipChooseFolder : !form().prompt.trim() ? tooltipEnterPrompt : form().triggerKind === 'webhook' && !form().webhookRouteId.trim() ? 'Select a webhook route first' : !validRunMinutes() ? 'Enter whole minutes, 1 or more' : !validTokenLimit() ? 'Enter a whole token limit from 1 to 1,000,000,000' : pinnedCheckBlocksSave() ? 'Remove the check to save: checks run on this computer only' : oneTimeCheckBlocksSave() ? 'Remove the check to save: a one-time job has no earlier run to compare with' : containedCheckBlocksSave() ? 'Remove the check to save: checks run outside the sandbox, so a contained job cannot have one' : null">Save</button>
                   <button class="btn" type="button" (click)="closeOverlay()">Cancel</button>
                 </div>
               </form>
