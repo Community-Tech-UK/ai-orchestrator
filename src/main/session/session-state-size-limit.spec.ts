@@ -40,7 +40,7 @@ describe('session state byte cap', () => {
   });
 
   it('keeps provenance when an oversized last entry is truncated', () => {
-    const entry = { id: '0', role: 'user', timestamp: 0, content: 'x'.repeat(200_000), agentAuthored: true };
+    const entry = { id: '0', role: 'user' as const, timestamp: 0, content: 'x'.repeat(200_000), agentAuthored: true };
     const bounded = boundSessionStateForPersistence({ ...state(['x']), conversationHistory: [entry] }, 4_000);
     expect(bounded.conversationHistory.at(-1)).toMatchObject({ id: '0', agentAuthored: true });
   });
