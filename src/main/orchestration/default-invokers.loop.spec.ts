@@ -11,6 +11,7 @@
  *   cannot surface permission prompts
  */
 
+import { isHarnessStopError } from '../../shared/utils/harness-stop';
 import { EventEmitter } from 'events';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'fs';
@@ -277,6 +278,7 @@ describe('Loop Mode invoker plumbing', () => {
     compacted = true;
     const next = await emitIteration({ seq: 1, model: 'test-model', config: { contextStrategy: 'same-session' } });
     expect(next).toMatchObject({ threadCaps: { providerCompacted: true } });
+    expect(hoisted.getBreaker).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ ignoreError: isHarnessStopError }));
   });
 
   it('wires the durable provider-limit ledger into the loop coordinator', () => {

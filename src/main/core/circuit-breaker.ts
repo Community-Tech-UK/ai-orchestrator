@@ -43,6 +43,8 @@ export interface CircuitBreakerConfig {
   slowCallRateThreshold: number;
   /** Minimum number of calls before evaluating thresholds */
   minimumCalls: number;
+  /** Errors that say nothing about the provider's health, such as a deliberate stop. */
+  ignoreError?: (error: unknown) => boolean;
 }
 
 /**
@@ -177,7 +179,7 @@ export class CircuitBreaker extends EventEmitter {
       return result;
     } catch (error) {
       const duration = Date.now() - startTime;
-      if (!signal?.aborted) this.recordFailure(error as Error, duration);
+      if (!signal?.aborted && !this.config.ignoreError?.(error)) this.recordFailure(error as Error, duration);
       throw error;
     }
   }

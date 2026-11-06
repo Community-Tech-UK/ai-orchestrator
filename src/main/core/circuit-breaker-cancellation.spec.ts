@@ -14,4 +14,17 @@ describe('cancelled circuit calls', () => {
     expect(breaker.getStats()).toMatchObject({ totalCalls: 0, failureCount: 0, successCount: 0, state: CircuitState.HALF_OPEN });
     breaker.destroy();
   });
+
+  it('does not count an error the caller marks as not a failure', async () => {
+    const breaker = new CircuitBreaker('deliberate-stops', {
+      failureThreshold: 1, minimumCalls: 1, ignoreError: (error) => error instanceof RangeError,
+    });
+
+    await expect(breaker.execute(async () => { throw new RangeError('stopped on purpose'); })).rejects.toThrow('stopped on purpose');
+    expect(breaker.getState()).toBe(CircuitState.CLOSED);
+
+    await expect(breaker.execute(async () => { throw new Error('real failure'); })).rejects.toThrow('real failure');
+    expect(breaker.getState()).toBe(CircuitState.OPEN);
+    breaker.destroy();
+  });
 });

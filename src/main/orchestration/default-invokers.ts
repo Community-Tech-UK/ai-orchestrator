@@ -28,6 +28,7 @@ import { oneShotTrialMetadata } from './rtk-trial-attribution';
 import { sendRecordedOrchestrationCall, waitForCompletionUsage } from './orchestration-call-recording';
 import { getProviderLimitLedgerPort } from '../core/system/provider-limit-ledger';
 import { getCircuitBreakerRegistry } from '../core/circuit-breaker';
+import { isHarnessStopError } from '../../shared/utils/harness-stop';
 import type { ProviderId, ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
 import { getModelRouter, resolveRoutedModel } from '../routing';
 import {
@@ -295,6 +296,8 @@ async function invokeCliTextResponse(params: {
     resetTimeoutMs: 60000,
     // Interactive turns run for minutes; count failures, never slow successes.
     trackSlowCalls: false,
+    // A round Harness stopped at its token limit says nothing about the provider.
+    ignoreError: isHarnessStopError,
   });
   const routedSpawnOptions = params.reusedAdapter
     ? spawnOptions

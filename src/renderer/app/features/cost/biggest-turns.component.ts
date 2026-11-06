@@ -124,7 +124,7 @@ export class BiggestTurnsComponent {
       key: `${turn.instanceId ?? 'unknown'}:${turn.at}:${index}`,
       when: new Date(turn.at).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }),
       session: name ?? (turn.instanceId ? 'Closed session' : 'Unknown'),
-      sessionTitle: [turn.provider, turn.model, turn.instanceId].filter(Boolean).join(' · '),
+      sessionTitle: [turn.provider, turn.model].filter(Boolean).join(' · '),
       kind: biggestTurnKindLabel(turn.kind),
       tokens: formatTurnTokens(turn.processedTokens),
       helpers: turn.helperTokens !== undefined && turn.helperTokens > 0

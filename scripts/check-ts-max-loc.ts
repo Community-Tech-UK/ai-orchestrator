@@ -394,7 +394,7 @@ const ALLOWLIST: Record<string, number> = {
   // Raised 1597 -> 1656: interrupt the live loop child when the iteration
   // timeout fires, so ACP session/prompt does not keep running after the loop
   // has already ended.
-  'src/main/orchestration/default-invokers.ts': 1670, // +14: loop sleep-context wiring and measured cache lifetime (Oct-2 Phase D Step 9)
+  'src/main/orchestration/default-invokers.ts': 1673, // +14: loop sleep-context wiring and measured cache lifetime (Oct-2 Phase D Step 9); +3: Harness stops kept off the breaker
   'src/main/orchestration/embedding-service.ts': 845,
   // Raised 3170 -> 3277 for typed intervention queueing and audit-gate
   // integration points. Audit mechanics live in loop-audit-runtime.ts.
