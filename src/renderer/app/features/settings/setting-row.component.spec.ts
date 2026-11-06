@@ -248,23 +248,33 @@ describe('SettingRowComponent — reset to default (S1.3)', () => {
 
 /**
  * The three limits on how many helper agents a session may start. Every helper
- * uses its own allowance, so hovering any of these controls says so.
+ * uses its own allowance, so the row says so in text anyone can see: a tooltip on
+ * a plain box never reaches a keyboard user.
  */
 describe('SettingRowComponent — helper limit controls', () => {
   const metadata = (key: SettingMetadata['key'], type: SettingMetadata['type']): SettingMetadata => ({
     key, label: key, description: 'A setting.', type, category: 'orchestration',
   });
 
-  function controlTooltip(fixture: ReturnType<typeof render>): string | null | undefined {
-    return fixture.debugElement.query(By.css('.setting-control')).injector.get(AioTooltipDirective).appTooltip();
-  }
+  const costNote = (fixture: ReturnType<typeof render>): HTMLElement | null =>
+    fixture.nativeElement.querySelector('.setting-cost-note');
+  const control = (fixture: ReturnType<typeof render>, key: string): HTMLElement =>
+    fixture.nativeElement.querySelector(`[id="${key}"]`);
 
   it.each([
     ['maxChildrenPerParent', 'number', 10],
     ['allowNestedOrchestration', 'boolean', false],
     ['maxSpawnDepth', 'number', 3],
-  ] as const)('says what extra helpers cost on the %s control', (key, type, value) => {
-    expect(controlTooltip(render(metadata(key, type), value))).toBe(USAGE_CAUSE_TOOLTIPS.helperControls);
+  ] as const)('says what extra helpers cost as visible text, and ties it to the %s control', (key, type, value) => {
+    const fixture = render(metadata(key, type), value);
+    const note = costNote(fixture);
+    expect(note?.textContent?.trim()).toBe(USAGE_CAUSE_TOOLTIPS.helperControls);
+    expect(control(fixture, key).getAttribute('aria-describedby')?.split(' ')).toContain(note!.id);
+  });
+
+  it('keeps the cost sentence out of a tooltip on the control box', () => {
+    const fixture = render(metadata('maxChildrenPerParent', 'number'), 10);
+    expect(fixture.debugElement.query(By.css('.setting-control')).injector.get(AioTooltipDirective, null)).toBeNull();
   });
 
   it.each([
@@ -272,7 +282,9 @@ describe('SettingRowComponent — helper limit controls', () => {
     // The Codex helper choices say what each choice costs in their own description.
     ['a Codex helper choice', metadata('codexHelperAgentsChats', 'select'), 'trial'],
   ] as const)('adds nothing to %s', (_label, setting, value) => {
-    expect(controlTooltip(render(setting, value))).toBeNull();
+    const fixture = render(setting, value);
+    expect(costNote(fixture)).toBeNull();
+    expect(control(fixture, setting.key).getAttribute('aria-describedby')).toBe(`setting-description-${setting.key}`);
   });
 });
 

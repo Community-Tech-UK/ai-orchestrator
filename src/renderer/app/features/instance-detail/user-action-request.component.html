@@ -35,7 +35,8 @@
               <button
                 class="btn-approve"
                 (click)="onSubmitAnswers(request)"
-                [disabled]="isResponding() || !asks.canSubmit(request)"
+                [disabled]="isResponding()"
+                [appTooltipDisabledReason]="!asks.canSubmit(request) ? 'Answer every question before submitting.' : null"
               >
                 Submit Answers
               </button>

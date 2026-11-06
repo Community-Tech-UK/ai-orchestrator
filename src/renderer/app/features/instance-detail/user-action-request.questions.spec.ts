@@ -4,6 +4,7 @@ import {
   type WritableSignal,
 } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { IpcFacadeService, IpcEventBusService, InstanceIpcService } from '../../core/services/ipc';
 import { InstanceStore } from '../../core/state/instance.store';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { UserActionRequestComponent, type UserActionRequest } from './user-action-request.component';
 import type { OutputMessage } from '../../../../shared/types/instance.types';
 import { UserInputRequestRegistry } from './user-input-request.registry';
@@ -256,7 +258,16 @@ describe('answering a waiting question from the message box', () => {
       expect(await registry().offer('inst-a', 'Ada')).toBe('partial');
       await fixture.componentInstance.onSubmitAnswers(fixture.componentInstance.pendingRequests()[0]);
       expect(ipc.respondToUserAction).not.toHaveBeenCalled();
-      expect((fixture.nativeElement.querySelector('.btn-approve') as HTMLButtonElement).disabled).toBe(true);
+      // Not natively disabled: a hard-disabled button leaves keyboard users no way to learn why.
+      // It stays focusable, says it is unavailable, and gives the reason, like Submit on the choice card.
+      const submit = fixture.debugElement.query(By.css('.btn-approve'));
+      const button = submit.nativeElement as HTMLButtonElement;
+      expect(button.disabled).toBe(false);
+      expect(button.getAttribute('aria-disabled')).toBe('true');
+      expect(submit.injector.get(AioTooltipDirective).appTooltipDisabledReason()).toBe('Answer every question before submitting.');
+      button.click();
+      await settle();
+      expect(ipc.respondToUserAction).not.toHaveBeenCalled();
     });
 
     it('answers the plain orchestrator questions the same way', async () => {

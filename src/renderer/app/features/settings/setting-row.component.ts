@@ -11,7 +11,7 @@ import { USAGE_CAUSE_TOOLTIPS } from '../../../../shared/usage-insight/usage-cau
 
 /**
  * The limits on how many helper agents a session may start. Each helper uses its
- * own allowance, so these controls say so on hover, in the words the usage card
+ * own allowance, so these rows say so in visible text, in the words the usage card
  * uses. The Codex helper choices are left out on purpose: their descriptions
  * already say what each choice costs for Codex.
  */
@@ -46,6 +46,9 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
         <p class="setting-description" [id]="descriptionId()">
           {{ setting().description }}
         </p>
+        @if (costNote(); as note) {
+          <p class="setting-cost-note" [id]="costNoteId()">{{ note }}</p>
+        }
         @if (rowBadge(); as badge) {
           <span class="risk-pill">{{ badge }}</span>
         }
@@ -70,14 +73,14 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
           >Reset</button>
         }
       </div>
-      <div class="setting-control" [appTooltip]="controlTooltip()">
+      <div class="setting-control">
         @switch (setting().type) {
           @case ('boolean') {
             <label class="toggle">
               <input
                 type="checkbox"
                 [id]="setting().key"
-                [attr.aria-describedby]="descriptionId()"
+                [attr.aria-describedby]="describedBy()"
                 [checked]="value()"
                 (change)="onBooleanChange($event)"
               />
@@ -87,7 +90,7 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
           @case ('select') {
             <select
               [id]="setting().key"
-              [attr.aria-describedby]="descriptionId()"
+              [attr.aria-describedby]="describedBy()"
               (change)="onSelectChange($event)"
             >
               @for (option of selectOptions(); track option.value) {
@@ -101,7 +104,7 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
             <input
               type="number"
               [id]="setting().key"
-              [attr.aria-describedby]="descriptionId()"
+              [attr.aria-describedby]="describedBy()"
               [value]="value()"
               [min]="setting().min"
               [max]="setting().max"
@@ -112,7 +115,7 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
             <input
               type="text"
               [id]="setting().key"
-              [attr.aria-describedby]="descriptionId()"
+              [attr.aria-describedby]="describedBy()"
               [value]="value()"
               [placeholder]="setting().placeholder || ''"
               (change)="onStringChange($event)"
@@ -123,12 +126,12 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
               <input
                 type="text"
                 [id]="setting().key"
-                [attr.aria-describedby]="descriptionId()"
+                [attr.aria-describedby]="describedBy()"
                 [value]="value()"
                 [placeholder]="setting().placeholder || 'Select folder...'"
                 readonly
               />
-              <button class="btn-browse" (click)="browseFolder()" [attr.aria-describedby]="descriptionId()">
+              <button class="btn-browse" (click)="browseFolder()" [attr.aria-describedby]="describedBy()">
                 Browse
               </button>
             </div>
@@ -137,7 +140,7 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
             <div class="json-editor">
               <textarea
                 [id]="setting().key"
-                [attr.aria-describedby]="descriptionId()"
+                [attr.aria-describedby]="describedBy()"
                 rows="6"
                 spellcheck="false"
                 [value]="jsonText()"
@@ -156,7 +159,7 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
                   <input
                     type="checkbox"
                     [checked]="isOptionSelected(option.value)"
-                    [attr.aria-describedby]="descriptionId()"
+                    [attr.aria-describedby]="describedBy()"
                     (change)="toggleMultiSelectOption(option.value)"
                   />
                   {{ option.label }}
@@ -191,9 +194,16 @@ export class SettingRowComponent {
     return JSON.stringify(current ?? null) !== JSON.stringify(fallback ?? null);
   });
 
-  /** Hover text for the control itself; only the helper limits have any. */
-  protected readonly controlTooltip = computed<string | null>(() =>
+  /** What extra helpers cost; only the helper limits carry it. */
+  protected readonly costNote = computed<string | null>(() =>
     HELPER_LIMIT_KEYS.has(this.setting().key) ? USAGE_CAUSE_TOOLTIPS.helperControls : null,
+  );
+
+  protected readonly costNoteId = computed(() => `setting-cost-note-${this.setting().key}`);
+
+  /** The control is described by the description, and by the cost note where there is one. */
+  protected readonly describedBy = computed(() =>
+    this.costNote() ? `${this.descriptionId()} ${this.costNoteId()}` : this.descriptionId(),
   );
 
   protected readonly resetTooltip = computed(() => {

@@ -40,7 +40,7 @@
     "src/renderer/app/features/memory/memory-stats.component.ts": 2,
     "src/renderer/app/features/models/compact-model-picker.component.ts": 1,
     "src/renderer/app/features/settings/routing-matrix.component.ts": 1,
-    "src/renderer/app/features/settings/setting-row.component.ts": 2,
+    "src/renderer/app/features/settings/setting-row.component.ts": 1,
     "src/renderer/app/features/source-control/source-control-diff-viewer.component.ts": 1,
     "src/renderer/app/features/source-control/source-control.component.ts": 3,
     "src/renderer/app/features/terminal-drawer/terminal-drawer.component.ts": 1,

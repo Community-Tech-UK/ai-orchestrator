@@ -70,19 +70,15 @@ const EXTEND_MS = 2 * 60_000;
                 <span class="approval-meta">
                   {{ item.instanceLabel || item.instanceId }}
                   @if (item.instanceProvider) { &middot; {{ item.instanceProvider }} }
+                  @if (item.toolName) { &middot; {{ item.toolName }} }
                 </span>
                 @if (scope(item); as howLong) {
                   <span class="approval-lasts">{{ howLong.lasts }}</span>
                 }
-                @if (item.toolName || details(item)) {
+                @if (details(item); as d) {
                   <details class="approval-more">
                     <summary>Details</summary>
-                    @if (item.toolName) {
-                      <span class="approval-raw">Tool: {{ item.toolName }}</span>
-                    }
-                    @if (details(item); as d) {
-                      <span class="approval-raw">{{ d }}</span>
-                    }
+                    <span class="approval-raw">{{ d }}</span>
                   </details>
                 }
               </div>

@@ -72,21 +72,34 @@ describe('PendingApprovalsBannerComponent', () => {
     expect(banner?.textContent).toContain('appId: com.apple.calculator');
   });
 
-  it('keeps the raw tool name and key-value details under Details, not in the visible copy', async () => {
+  it('shows the tool name beside Approve, and keeps only the key-value details under Details', async () => {
     const fixture = setup([makeItem()]);
     await fixture.whenStable();
     fixture.detectChanges();
 
     const element: HTMLElement = fixture.nativeElement;
+    // Someone who approves must be able to see which tool they are approving, without opening anything.
+    const row = element.querySelector('.approval-row')!;
     const details = element.querySelector('details.approval-more');
+    expect(element.querySelector('.approval-meta')?.textContent).toContain('computer.request_app_grant');
+    expect(row.querySelector('.approval-actions .primary')).not.toBeNull();
+    expect(details?.textContent).not.toContain('computer.request_app_grant');
     expect(details).not.toBeNull();
     expect(details?.hasAttribute('open')).toBe(false);
     expect(details?.querySelector('summary')?.textContent?.trim()).toBe('Details');
-    expect(details?.textContent).toContain('computer.request_app_grant');
     expect(details?.textContent).toContain('appId: com.apple.calculator');
-    expect(element.querySelector('.approval-meta')?.textContent).not.toContain('computer.request_app_grant');
     expect(element.querySelector('.approval-copy-top')?.textContent).not.toContain('appId');
     expect(element.querySelector('[title]')).toBeNull();
+  });
+
+  it('shows the tool name even when there are no key-value details to fold away', async () => {
+    const fixture = setup([makeItem({ details: undefined })]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const element: HTMLElement = fixture.nativeElement;
+    expect(element.querySelector('.approval-meta')?.textContent).toContain('computer.request_app_grant');
+    expect(element.querySelector('details.approval-more')).toBeNull();
   });
 
   it.each([

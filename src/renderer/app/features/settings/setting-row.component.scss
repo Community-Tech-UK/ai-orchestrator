@@ -57,6 +57,13 @@
   line-height: var(--leading-snug);
 }
 
+.setting-cost-note {
+  margin: var(--spacing-xs) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  line-height: var(--leading-snug);
+}
+
 .risk-pill {
   display: inline-flex;
   width: fit-content;
