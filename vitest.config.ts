@@ -72,8 +72,8 @@ export default defineConfig({
     // each project. Preserve the host-aware cap and heap budget after removing
     // the old poolOptions API. See vitest.heap.ts and vitest.pool.ts.
     maxWorkers: resolveTestMaxForks(),
-    // Multi-project: renderer gets Angular TestBed; everything else skips it
-    // but still uses jsdom + zone.js (Worker/MessagePort + microtask fidelity).
+    // Multi-project: renderer gets Angular TestBed and jsdom; everything else
+    // runs in plain Node, keeping zone.js for its microtask scheduling.
     // Neither project is singleFork — files run in parallel, isolated forks, so
     // no worker accumulates a whole project's retained state. CI still shards
     // across jobs on top of this.
@@ -103,10 +103,10 @@ export default defineConfig({
         test: {
           name: 'main',
           globals: true,
-          // jsdom (not node): plugin Worker hosts and several EventEmitter
-          // recovery paths depend on jsdom/zone scheduling. Skipping Angular
-          // TestBed is the main per-file setup win for this project.
-          environment: 'jsdom',
+          // Most of these files test code with no web page, and building a
+          // simulated browser for each one was about a quarter of a full run.
+          // A spec that needs one opts in with `// @vitest-environment jsdom`.
+          environment: 'node',
           include: [
             'src/main/**/*.spec.ts',
             'src/main/**/*.test.ts',

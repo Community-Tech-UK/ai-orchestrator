@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { readFileSync } from 'node:fs';
 // The repository intentionally has no @types/jsdom; a sibling spec provides
 // the ambient module declaration used by the test build.
