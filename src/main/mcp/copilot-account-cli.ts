@@ -130,7 +130,7 @@ async function call<T>(
     deps.client
     ?? deps.createClient?.(RPC_TIMEOUT_MS)
     ?? new OrchestratorToolsRpcClient({ timeoutMs: RPC_TIMEOUT_MS });
-  const result = await client.call(method, { payload });
+  const result = await client.call(method, payload);
   try {
     return schema.parse(result);
   } catch (error) {

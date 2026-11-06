@@ -249,11 +249,22 @@ function normalizeScanResult(
   raw: unknown,
   checkedAt: number,
 ): BrowserTargetPersistenceScan {
-  // The extension's evaluate returns the expression value, possibly wrapped
-  // in a { result } envelope depending on the driver path.
-  const value = raw && typeof raw === 'object' && 'result' in (raw as Record<string, unknown>)
+  // Driver paths can wrap the result; extension evaluate serializes objects
+  // as { type: 'object', json, truncated? } rather than returning them directly.
+  let value = raw && typeof raw === 'object' && 'result' in (raw as Record<string, unknown>)
     ? (raw as Record<string, unknown>)['result']
     : raw;
+  if (value && typeof value === 'object' && 'type' in value) {
+    const envelope = value as Record<string, unknown>;
+    if (envelope['type'] !== 'object' || envelope['truncated'] === true || typeof envelope['json'] !== 'string') {
+      return { state: 'unknown', checkedAt };
+    }
+    try {
+      value = JSON.parse(envelope['json']) as unknown;
+    } catch {
+      return { state: 'unknown', checkedAt };
+    }
+  }
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return { state: 'unknown', checkedAt };
   }

@@ -115,6 +115,9 @@ function formatHelp(): string {
 // so argv[2] is consistently the subcommand.
 if (require.main === module) {
   void runAioMcpDispatcher(process.argv).then((code) => {
-    process.exit(code);
+    // Let pending stdout/stderr writes drain, including pipes under backpressure,
+    // then exit so a handle a subcommand left open cannot hang the CLI.
+    process.exitCode = code;
+    process.stdout.write('', () => process.stderr.write('', () => process.exit(code)));
   });
 }

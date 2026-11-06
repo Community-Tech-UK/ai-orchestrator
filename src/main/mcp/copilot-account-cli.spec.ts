@@ -41,7 +41,7 @@ describe('aio-mcp copilot-account', () => {
     const h = cli({ ok: true, profileId: 'enterprise', profileLabel: 'Enterprise', source: 'owner', detail: null, origin: 'interactive' });
     await runCopilotAccountCli(['route', '/Users/me/work/ebrd'], { client: h.client, stdout: h.stdout });
     expect(h.out.join('')).toContain('Enterprise (owner, as interactive)');
-    expect(h.calls[0].payload).toEqual({ payload: { workingDirectory: '/Users/me/work/ebrd' } });
+    expect(h.calls[0].payload).toEqual({ workingDirectory: '/Users/me/work/ebrd' });
   });
 
   it('reports a blocked workspace rather than implying it will run', async () => {
