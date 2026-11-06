@@ -214,8 +214,14 @@ export function omitNativeOwnedInstructionStack<T extends NativeInstructionSourc
   homeDir?: string,
   options: { remote?: boolean } = {},
 ): OmitNativeOwnedResolution<T> {
-  const google = ['gemini', 'antigravity'].includes(normalizeProvider(provider));
-  const digestSources = new Set(resolution.sources.filter(source => google && source.loaded && source.applied
+  // The digest stands in for the global rules only when this provider's own global file is
+  // really there to load them. Antigravity's print mode is not known to read GEMINI.md, and a
+  // session on another computer was not checked, so both keep the full text.
+  const nativeGeminiText = normalizeProvider(provider) === 'gemini' && !options.remote && homeDir
+    ? readFile(path.join(homeDir, '.gemini', 'GEMINI.md'))
+    : null;
+  const geminiLoadsOwnFile = Boolean(nativeGeminiText?.trim());
+  const digestSources = new Set(resolution.sources.filter(source => geminiLoadsOwnFile && source.loaded && source.applied
     && source.scope === 'user' && source.kind === 'claude').map(source => source.path));
   const owned = nativeOwnedInstructionPaths({
     provider,
@@ -244,7 +250,7 @@ export function omitNativeOwnedInstructionStack<T extends NativeInstructionSourc
     if (part !== undefined) {
       if (digestSources.has(source.path)) {
         keptParts.push('Product safety: Follow current user and project instructions. Preserve unrelated work. Never expose secrets. Obtain required approval before destructive or external actions. Verify results before claiming success.');
-        paragraphReasons.set(source.path, 'Replaced global Claude instructions with a safety digest; this provider loads its own GEMINI.md.');
+        paragraphReasons.set(source.path, 'Replaced global Claude instructions with a safety digest; Gemini loads its own GEMINI.md.');
         continue;
       }
       const deduplicated = nativeCodexText === null ? part : removeParagraphsLoadedNatively(part, nativeCodexText);
