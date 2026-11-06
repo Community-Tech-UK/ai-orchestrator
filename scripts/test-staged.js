@@ -77,6 +77,30 @@ function runStagedTests(options = {}) {
     }
   }
 
+  // Related tests can launch compiled workers through indirect dependencies.
+  // Rebuild every source selection rather than duplicating Vitest's graph here;
+  // documentation/generated-only commits return above without paying this cost.
+  log('test-staged: rebuilding main workers before related tests');
+  const build = run('npm', ['run', 'build:main'], {
+    stdio: 'inherit',
+    shell: process.platform === 'win32',
+  });
+
+  if (build.error) {
+    console.error(`test-staged failed to build main workers: ${build.error.message}`);
+    return 1;
+  }
+
+  if (build.signal) {
+    console.error(`test-staged stopped: main build received ${build.signal}`);
+    return 1;
+  }
+
+  const buildStatus = build.status ?? 1;
+  if (buildStatus !== 0) {
+    return buildStatus;
+  }
+
   log(`test-staged: running tests related to ${files.length} staged file(s)`);
 
   // Source batches have overlapping dependency graphs and rerun the same tests.

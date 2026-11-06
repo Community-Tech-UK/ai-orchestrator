@@ -63,6 +63,54 @@ describe('test-staged: getStagedTestRelatedFiles', () => {
 });
 
 describe('test-staged: runStagedTests', () => {
+  it.each([
+    ['documentation', 'README.md\ndocs/notes.md\n'],
+    ['generated artifacts', GENERATED_ARTIFACTS.join('\n')],
+  ])('skips compilation and tests for staged %s', (_label, staged) => {
+    const spawnSync = vi.fn();
+    expect(runStagedTests({
+      execFileSync: () => staged,
+      existsSync: () => true,
+      generatedArtifacts: GENERATED_ARTIFACTS,
+      spawnSync,
+      log: () => {},
+    })).toBe(0);
+    expect(spawnSync).not.toHaveBeenCalled();
+  });
+
+  it('rebuilds main workers before related tests even for indirect renderer dependencies', () => {
+    const spawnSync = vi.fn(() => ({ status: 0 }));
+    expect(runStagedTests({
+      files: ['src/renderer/tooltip.ts'], spawnSync, log: () => {},
+    })).toBe(0);
+    expect(spawnSync.mock.calls).toEqual([
+      ['npm', ['run', 'build:main'], {
+        stdio: 'inherit', shell: process.platform === 'win32',
+      }],
+      [process.execPath, [path.resolve('scripts/run-related-tests.mjs')], {
+        input: JSON.stringify(['src/renderer/tooltip.ts']),
+        stdio: ['pipe', 'inherit', 'inherit'], shell: false,
+      }],
+    ]);
+  });
+
+  it.each([
+    ['nonzero build exit', { status: 7 }, 7],
+    ['build spawn error', { error: new Error('cannot start npm') }, 1],
+    ['build signal', { status: null, signal: 'SIGTERM' as const }, 1],
+    ['missing build exit', { status: null }, 1],
+  ])('stops before tests on %s', (_label, result, expected) => {
+    const spawnSync = vi.fn(() => result);
+    expect(runStagedTests({
+      files: ['src/main/foo.ts'], spawnSync, log: () => {},
+    })).toBe(expected);
+    expect(spawnSync.mock.calls).toEqual([
+      ['npm', ['run', 'build:main'], {
+        stdio: 'inherit', shell: process.platform === 'win32',
+      }],
+    ]);
+  });
+
   it('sends a large staged set in one run so overlapping related tests cannot run in separate batches', () => {
     const files = Array.from({ length: 400 }, (_, i) => `src/renderer/app/features/long/path/component-${i}.ts`);
     const calls: Array<{ command: string; args: string[]; opts: unknown }> = [];
@@ -76,10 +124,10 @@ describe('test-staged: runStagedTests', () => {
     });
 
     expect(status).toBe(0);
-    expect(calls).toHaveLength(1);
-    expect(calls[0].command).toBe(process.execPath);
-    expect(calls[0].opts).toMatchObject({ input: JSON.stringify(files), shell: false });
-    expect(calls[0].args.join(' ').length).toBeLessThan(6000);
+    expect(calls).toHaveLength(2);
+    expect(calls[1].command).toBe(process.execPath);
+    expect(calls[1].opts).toMatchObject({ input: JSON.stringify(files), shell: false });
+    expect(calls[1].args.join(' ').length).toBeLessThan(6000);
   });
 
   it('validates a generated Codex snapshot through its contract suites without expanding every importer', () => {
@@ -87,8 +135,8 @@ describe('test-staged: runStagedTests', () => {
     expect(runStagedTests({
       files: ['src/main/cli/adapters/codex/generated/app-server-protocol.gen.ts', 'src/renderer/tooltip.ts'],
       log: () => {},
-      spawnSync: (_command, _args, opts) => {
-        inputs.push(JSON.parse((opts as { input: string }).input));
+      spawnSync: (command, _args, opts) => {
+        if (command === process.execPath) inputs.push(JSON.parse((opts as { input: string }).input));
         return { status: 0 };
       },
     })).toBe(0);
@@ -107,8 +155,8 @@ describe('test-staged: runStagedTests', () => {
     runStagedTests({
       files: ['src/main/cli/adapters/codex/generated/app-server-protocol.gen.ts', 'src/main/cli/adapters/codex/app-server-client.ts'],
       log: () => {},
-      spawnSync: (_command, _args, opts) => {
-        inputs.push(JSON.parse((opts as { input: string }).input));
+      spawnSync: (command, _args, opts) => {
+        if (command === process.execPath) inputs.push(JSON.parse((opts as { input: string }).input));
         return { status: 0 };
       },
     });
@@ -149,6 +197,10 @@ describe('test-staged: runStagedTests', () => {
     expect(status).toBe(0);
     expect(calls).toEqual([
       {
+        command: 'npm',
+        args: ['run', 'build:main'],
+      },
+      {
         command: process.execPath,
         args: [path.resolve('scripts/run-related-tests.mjs')],
       },
@@ -165,8 +217,8 @@ describe('test-staged: runStagedTests', () => {
     const status = runStagedTests({
       files,
       log: () => undefined,
-      spawnSync: (_command, _args, opts) => {
-        payloads.push(JSON.parse((opts as { input: string }).input));
+      spawnSync: (command, _args, opts) => {
+        if (command === process.execPath) payloads.push(JSON.parse((opts as { input: string }).input));
         return { status: 0 };
       },
     });
@@ -184,7 +236,8 @@ describe('test-staged: runStagedTests', () => {
     const status = runStagedTests({
       files,
       log: () => undefined,
-      spawnSync: () => {
+      spawnSync: (command) => {
+        if (command === 'npm') return { status: 0 };
         invocations += 1;
         return { status: 2 };
       },
@@ -199,7 +252,7 @@ describe('test-staged: runStagedTests', () => {
     const status = runStagedTests({
       files: ['src/main/foo.ts'],
       log: () => {},
-      spawnSync: () => ({ status: 1 }),
+      spawnSync: (command) => ({ status: command === 'npm' ? 0 : 1 }),
     });
 
     expect(status).toBe(1);
@@ -209,7 +262,7 @@ describe('test-staged: runStagedTests', () => {
     const status = runStagedTests({
       files: ['src/main/foo.ts'],
       log: () => {},
-      spawnSync: () => ({ error: new Error('spawn failed') }),
+      spawnSync: (command) => command === 'npm' ? { status: 0 } : { error: new Error('spawn failed') },
     });
 
     expect(status).toBe(1);
@@ -220,7 +273,7 @@ describe('test-staged: runStagedTests', () => {
       expect(runStagedTests({
         files: ['src/main/foo.ts'],
         log: () => {},
-        spawnSync: () => result,
+        spawnSync: (command) => command === 'npm' ? { status: 0 } : result,
       })).toBe(1);
     }
   });
