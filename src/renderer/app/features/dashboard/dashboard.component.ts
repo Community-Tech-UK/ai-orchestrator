@@ -59,6 +59,7 @@ import {
   type DashboardProjectContext,
 } from './dashboard-project-context';
 import { runCancelOperationCascade } from './dashboard-cancel-operation';
+import { resolveArchivedSideChatContext } from './dashboard-archived-side-chat';
 import { TerminateConfirmStore } from '../../shared/terminate-confirm/terminate-confirm.store';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { SessionRecoveryBannerComponent } from '../../shared/components/session-recovery-banner/session-recovery-banner.component';
@@ -194,27 +195,34 @@ export class DashboardComponent implements OnInit, OnDestroy {
     });
   });
 
-  /**
-   * Working directory for lazily-created side chats. Prefers the active
-   * workspace (instance or draft), then the selected chat's project, then the
-   * scratch directory so the side chat works even with nothing selected.
-   */
-  sideChatWorkingDirectory = computed(() =>
-    this.activeWorkspaceWorkingDir()
-    ?? this.chatStore.selectedChat()?.currentCwd
-    ?? this.scratchDirectory.dir()
-    ?? null
-  );
+  /** An archived badge may target a parent outside the main workspace. */
+  private readonly archivedSideChatContext = signal<ReturnType<typeof resolveArchivedSideChatContext> | null>(null);
+
+  /** Archived parent workspace, or the current workspace for live sidechats. */
+  sideChatWorkingDirectory = computed(() => {
+    const archived = this.archivedSideChatContext();
+    return archived ? archived.workingDirectory
+      : this.activeWorkspaceWorkingDir()
+        ?? this.chatStore.selectedChat()?.currentCwd
+        ?? this.scratchDirectory.dir()
+        ?? null;
+  });
 
   /** Parent session identity for session-linked sidechats. */
   sideChatParent = computed(() =>
-    sideChatParentFor(this.chatStore.selectedChat(), this.store.selectedInstance() ?? null));
+    this.archivedSideChatContext()?.parent
+    ?? sideChatParentFor(this.chatStore.selectedChat(), this.store.selectedInstance() ?? null));
 
   sideChatParentTitle = computed(() =>
-    this.chatStore.selectedChat()?.name ?? this.store.selectedInstance()?.displayName ?? '');
+    this.archivedSideChatContext()?.title
+    ?? this.chatStore.selectedChat()?.name ?? this.store.selectedInstance()?.displayName ?? '');
 
-  sideChatParentSelection = computed(() =>
-    sideChatParentSelectionFor(this.chatStore.selectedChat(), this.store.selectedInstance() ?? null));
+  sideChatParentSelection = computed(() => {
+    const archived = this.archivedSideChatContext();
+    return archived
+      ? archived.selection
+      : sideChatParentSelectionFor(this.chatStore.selectedChat(), this.store.selectedInstance() ?? null);
+  });
 
   /** Conversation a badge or attention list asked the panel to open. */
   sideChatPreferredChatId = signal<string | null>(null);
@@ -249,6 +257,18 @@ export class DashboardComponent implements OnInit, OnDestroy {
       const request = this.sideChatStore.openRequest();
       if (request) {
         untracked(() => this.openSideChatFor(request.parent, request.chatId));
+      }
+    });
+
+    // An archived request clears the main selection. Any subsequent selection
+    // or panel closure ends its override, including reselecting the old session.
+    effect(() => {
+      const archived = this.archivedSideChatContext();
+      if (archived && (!this.showSideChat()
+        || this.store.selectedInstance()
+        || this.chatStore.selectedChatId()
+        || this.historyStore.previewConversation())) {
+        this.clearSideChatContext();
       }
     });
 
@@ -623,18 +643,19 @@ export class DashboardComponent implements OnInit, OnDestroy {
     this.showControlPlane.set(preset.panels.controlPlane);
     this.showFileExplorer.set(preset.panels.fileExplorer && this.canShowFileExplorer());
     this.showSourceControl.set(preset.panels.sourceControl && this.canShowSourceControl());
+    if (!preset.panels.sideChat) this.clearSideChatContext();
     this.showSideChat.set(preset.panels.sideChat ?? false);
   }
 
   /** Close the panel and return keyboard focus to the rail button that opens it. */
   closeSideChat(): void {
-    this.sideChatPreferredChatId.set(null);
+    this.clearSideChatContext();
     this.showSideChat.set(false);
     queueMicrotask(() => document.querySelector<HTMLElement>('app-workspace-rail button[data-testid="sidechat-toggle"]')?.focus());
   }
 
   toggleSideChat(): void {
-    this.sideChatPreferredChatId.set(null);
+    this.clearSideChatContext();
     this.showSideChat.update((open) => !open);
     if (this.showSideChat()) this.featureUsage.record('toggle-side-chat');
     this.viewLayoutService.setActivePreset(null);
@@ -646,6 +667,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
    * the same chat isn't rendered twice.
    */
   openSideChatInMain(chatId: string): void {
+    this.clearSideChatContext();
     this.historyStore.clearSelection();
     this.store.setSelectedInstance(null);
     this.showFileExplorer.set(false);
@@ -654,27 +676,27 @@ export class DashboardComponent implements OnInit, OnDestroy {
     void this.chatStore.select(chatId);
   }
 
-  /**
-   * Show a parent's sidechats from a badge or the rail's attention list:
-   * select that parent session, then open the panel on the exact
-   * conversation. A parent that is no longer live opens the sidechat itself.
-   */
+  /** Open the exact sidechat in its parent's panel without starting the parent. */
   private openSideChatFor(parent: SideChatParentRef, chatId: string | null): void {
-    if (parent.kind === 'chat') {
-      this.historyStore.clearSelection();
-      this.store.setSelectedInstance(null);
-      void this.chatStore.select(parent.chatId);
-    } else {
-      const live = this.store.instances().find((instance) =>
-        instance.historyThreadId === parent.historyThreadId && instance.status !== 'terminated');
-      if (!live) {
-        if (chatId) this.openSideChatInMain(chatId);
-        return;
-      }
-      this.store.setSelectedInstance(live.id);
-    }
+    const live = parent.kind === 'session' ? this.store.instances().find((instance) =>
+      instance.historyThreadId === parent.historyThreadId && instance.status !== 'terminated') : null;
+    const archived = parent.kind === 'session' && !live ? resolveArchivedSideChatContext(
+      parent, this.historyStore.previewConversation()?.entry ?? null, this.historyStore.entries(),
+      this.sideChatStore.attentionFor(parent)?.parentTitle ?? null,
+    ) : null;
+    this.clearSideChatContext();
+    this.historyStore.clearSelection();
+    this.chatStore.deselect();
+    this.store.setSelectedInstance(live?.id ?? null);
+    if (parent.kind === 'chat') void this.chatStore.select(parent.chatId);
+    this.archivedSideChatContext.set(archived);
     this.sideChatPreferredChatId.set(chatId);
     this.showSideChat.set(true);
+  }
+
+  private clearSideChatContext(): void {
+    this.archivedSideChatContext.set(null);
+    this.sideChatPreferredChatId.set(null);
   }
 
   toggleFileExplorer(): void {

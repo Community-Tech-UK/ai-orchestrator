@@ -354,7 +354,7 @@
                     class="project-history-items"
                     [class.with-divider]="group.liveItems.length > 0"
                   >
-                    @for (item of getVisibleHistoryItems(group); track item.entry.id) {
+                    @for (item of historyRail.getVisibleHistoryItems(group); track item.entry.id) {
                       <ng-container
                         *ngTemplateOutlet="historyRailRow; context: { $implicit: item, depth: 0 }"
                       ></ng-container>
@@ -549,6 +549,7 @@
                       </button>
                     </div>
                     <div class="history-entry-meta">
+                      <app-history-side-chat-badge [entry]="item.entry" />
                       @if (item.entry.isAutomation) {
                         <span
                           class="history-entry-automation-clock"

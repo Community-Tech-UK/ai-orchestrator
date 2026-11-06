@@ -24,6 +24,7 @@ import { RecentDirectoriesIpcService } from '../../core/services/ipc/recent-dire
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import { HistoryIpcService } from '../../core/services/ipc/history-ipc.service';
 import { InstanceRowComponent } from './instance-row.component';
+import { HistorySideChatBadgeComponent } from '../history/history-side-chat-badge.component';
 import { InstanceListLoadFailureComponent } from './instance-list-load-failure.component';
 import { PlanQueueStageRowsComponent } from './plan-queue-stage-rows.component';
 import { CopilotProjectRoutingMenuComponent } from './copilot-project-routing-menu.component';
@@ -84,7 +85,7 @@ import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive'
 @Component({
   selector: 'app-instance-list',
   standalone: true,
-  imports: [NgTemplateOutlet, ScrollingModule, InstanceRowComponent, InstanceListLoadFailureComponent, PlanQueueStageRowsComponent, DragDropModule, ContextMenuComponent, PromptModalComponent, CopilotProjectRoutingMenuComponent, AioTooltipDirective],
+  imports: [NgTemplateOutlet, ScrollingModule, InstanceRowComponent, HistorySideChatBadgeComponent, InstanceListLoadFailureComponent, PlanQueueStageRowsComponent, DragDropModule, ContextMenuComponent, PromptModalComponent, CopilotProjectRoutingMenuComponent, AioTooltipDirective],
   templateUrl: './instance-list.component.html',
   styleUrl: './instance-list.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

@@ -2,8 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import { InstanceEventsService } from '../instance-events.service';
-import { IpcEventBusService, type InstanceOutputEvent } from './ipc-event-bus.service';
+import { IpcEventBusService, type InstanceOutputEvent, type InputRequiredEvent, type InputRequiredResolvedEvent } from './ipc-event-bus.service';
 import { InstanceIpcService } from './instance-ipc.service';
+import type { StateUpdate } from '../update-batcher.service';
 
 function makeProviderEnvelope(
   partial: Partial<ProviderRuntimeEventEnvelope> = {},
@@ -30,6 +31,12 @@ describe('IpcEventBusService', () => {
     | ((event: ProviderRuntimeEventEnvelope) => void)
     | undefined;
 
+  let receiveInput: (request: InputRequiredEvent) => void;
+  let resolveInput: (event: InputRequiredResolvedEvent) => void;
+  let removeInstance: (instanceId: string) => void;
+  let updateInstance: (update: StateUpdate) => void;
+  let updateBatch: (batch: { updates: StateUpdate[] }) => void;
+
   const hadElectronAPI = 'electronAPI' in (window as unknown as Record<string, unknown>);
   const originalElectronAPI = (window as unknown as { electronAPI?: unknown }).electronAPI;
 
@@ -54,12 +61,13 @@ describe('IpcEventBusService', () => {
           provide: InstanceIpcService,
           useValue: {
             onInstanceCreated: () => () => undefined,
-            onInstanceRemoved: () => () => undefined,
-            onInstanceStateUpdate: () => () => undefined,
-            onBatchUpdate: () => () => undefined,
+            onInstanceRemoved: (callback: typeof removeInstance) => { removeInstance = callback; return () => undefined; },
+            onInstanceStateUpdate: (callback: typeof updateInstance) => { updateInstance = callback; return () => undefined; },
+            onBatchUpdate: (callback: typeof updateBatch) => { updateBatch = callback; return () => undefined; },
             onOrchestrationActivity: () => () => undefined,
             onCompactStatus: () => () => undefined,
-            onInputRequired: () => () => undefined,
+            onInputRequired: (callback: typeof receiveInput) => { receiveInput = callback; return () => undefined; },
+            onInputRequiredResolved: (callback: typeof resolveInput) => { resolveInput = callback; return () => undefined; },
           },
         },
       ],
@@ -125,4 +133,80 @@ describe('IpcEventBusService', () => {
 
     expect(received).toHaveLength(0);
   });
+
+  const request = (instanceId = 'child', requestId = 'approval'): InputRequiredEvent => ({
+    instanceId, requestId, prompt: 'Allow this exact operation?', timestamp: 42,
+    metadata: { type: 'deferred_permission', tool_use_id: 'runtime-tool', tool_input: { command: 'echo approval' } },
+  });
+
+  it('retains complete payloads without a panel and deduplicates downstream deliveries', () => {
+    const service = TestBed.inject(IpcEventBusService);
+    const delivered: InputRequiredEvent[] = [];
+    service.inputRequired$.subscribe((event) => delivered.push(event));
+    const payload = request();
+    receiveInput(payload);
+    receiveInput(payload);
+    receiveInput(request('parent'));
+    expect(service.pendingInputRequired()).toEqual([payload, request('parent')]);
+    // InstanceStore derives its approval count from this shared stream.
+    expect(delivered).toEqual([payload, request('parent')]);
+  });
+
+  it.each(['timeout', 'auto_approved', 'decided', 'cancelled', 'exited'] as const)(
+    'removes only the matching runtime request when resolved: %s', (reason) => {
+      const service = TestBed.inject(IpcEventBusService);
+      receiveInput(request());
+      receiveInput(request('parent'));
+      resolveInput({ instanceId: 'child', requestId: 'approval', reason });
+      expect(service.pendingInputRequired()).toEqual([request('parent')]);
+    },
+  );
+
+  it('clears removed instances without clearing their parent or siblings', () => {
+    const service = TestBed.inject(IpcEventBusService);
+    receiveInput(request());
+    receiveInput(request('parent'));
+    receiveInput(request('sibling'));
+    removeInstance('child');
+    expect(service.pendingInputRequired()).toEqual([request('parent'), request('sibling')]);
+  });
+
+  it.each(['cancelled', 'interrupting', 'respawning', 'error', 'terminated', 'hibernated', 'initializing'])(
+    'clears requests while unmounted when the runtime becomes %s', (status) => {
+      const service = TestBed.inject(IpcEventBusService);
+      receiveInput(request());
+      receiveInput(request('parent'));
+      updateInstance({ instanceId: 'child', status });
+      expect(service.pendingInputRequired()).toEqual([request('parent')]);
+    },
+  );
+
+  it.each(['adapterGeneration', 'restartEpoch'] as const)('clears on %s replacement through batch updates', (key) => {
+    const service = TestBed.inject(IpcEventBusService);
+    updateInstance({ instanceId: 'child', [key]: 1 });
+    receiveInput(request());
+    receiveInput(request('parent'));
+    updateBatch({ updates: [{ instanceId: 'child', [key]: 1, status: 'waiting' }] });
+    expect(service.pendingInputRequired()).toHaveLength(2);
+    updateBatch({ updates: [{ instanceId: 'child', [key]: 2 }] });
+    expect(service.pendingInputRequired()).toEqual([request('parent')]);
+    receiveInput(request('child', 'new-runtime-request'));
+    expect(service.pendingInputRequired()).toEqual([request('parent'), request('child', 'new-runtime-request')]);
+  });
+
+  it('clears on replacement observed through the actual normalized provider event channel', () => {
+    const service = TestBed.inject(IpcEventBusService);
+    capturedProviderRuntimeEvent?.(makeProviderEnvelope({ instanceId: 'child', adapterGeneration: 1 }));
+    receiveInput(request());
+    capturedProviderRuntimeEvent?.(makeProviderEnvelope({ instanceId: 'child', seq: 1, adapterGeneration: 2 }));
+    expect(service.pendingInputRequired()).toEqual([]);
+  });
+
+  it('clears on provider exit without requiring a mounted panel', () => {
+    const service = TestBed.inject(IpcEventBusService);
+    receiveInput(request());
+    capturedProviderRuntimeEvent?.(makeProviderEnvelope({ instanceId: 'child', event: { kind: 'exit', code: 0, signal: null } }));
+    expect(service.pendingInputRequired()).toEqual([]);
+  });
+
 });

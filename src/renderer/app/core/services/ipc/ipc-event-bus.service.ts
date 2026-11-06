@@ -1,4 +1,5 @@
-import { Injectable, inject } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Observable, filter, map, share } from 'rxjs';
 
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
@@ -7,6 +8,7 @@ import type { OrchestrationActivityPayload } from '../../../../../shared/types/i
 import type { StateUpdate } from '../../services/update-batcher.service';
 import { InstanceEventsService } from '../instance-events.service';
 import { InstanceIpcService } from './instance-ipc.service';
+import { shouldClearInputRequiredForStatus } from './input-required-lifecycle';
 
 function toOutputMessageType(
   messageType: string | undefined,
@@ -99,6 +101,9 @@ export interface InputRequiredResolvedEvent {
 export interface InputRequiredEvent {
   instanceId: string;
   requestId: string;
+  prompt: string;
+  timestamp: number;
+  metadata?: Record<string, unknown>;
 }
 
 export interface FastToggledEvent {
@@ -161,12 +166,77 @@ export class IpcEventBusService {
   );
 
   readonly inputRequired$ = this.createStream<InputRequiredEvent>((next) =>
-    this.instanceIpc.onInputRequired((data) => next(data as InputRequiredEvent)),
+    this.instanceIpc.onInputRequired((data) => {
+      // Deduplicate before the shared stream, so downstream approval counts
+      // and the retained request list observe exactly the same deliveries.
+      if (!this._pendingInputRequired().some((request) =>
+        request.instanceId === data.instanceId && request.requestId === data.requestId,
+      )) {
+        next(data);
+      }
+    }),
   );
 
   readonly inputRequiredResolved$ = this.createStream<InputRequiredResolvedEvent>((next) =>
     this.instanceIpc.onInputRequiredResolved((data) => next(data)),
   );
+
+  private readonly _pendingInputRequired = signal<readonly InputRequiredEvent[]>([]);
+  readonly pendingInputRequired = this._pendingInputRequired.asReadonly();
+  private readonly approvalRuntimes = new Map<string, Pick<StateUpdate, 'adapterGeneration' | 'restartEpoch'>>();
+
+  constructor() {
+    // InstanceStore creates this bus at startup, before any approval panel.
+    // Keep full runtime payloads, rather than reconstructing them from history.
+    this.inputRequired$.pipe(takeUntilDestroyed()).subscribe((request) => {
+      this._pendingInputRequired.update((pending) => [...pending, request]);
+    });
+    this.inputRequiredResolved$.pipe(takeUntilDestroyed()).subscribe(({ instanceId, requestId }) => {
+      this.dismissInputRequired(instanceId, requestId);
+    });
+    this.instanceRemoved$.pipe(takeUntilDestroyed()).subscribe((instanceId) => {
+      this.clearInputRequired(instanceId);
+      this.approvalRuntimes.delete(instanceId);
+    });
+    this.instanceStateUpdate$.pipe(takeUntilDestroyed()).subscribe((update) => this.updateApprovalRuntime(update));
+    this.batchUpdate$.pipe(takeUntilDestroyed()).subscribe(({ updates }) => {
+      updates?.forEach((update) => this.updateApprovalRuntime(update));
+    });
+    this.instanceEvents.events$.pipe(takeUntilDestroyed()).subscribe((envelope) => {
+      if (envelope.adapterGeneration !== undefined
+        && this.approvalRuntimes.get(envelope.instanceId)?.adapterGeneration !== envelope.adapterGeneration) {
+        this.updateApprovalRuntime({ instanceId: envelope.instanceId, adapterGeneration: envelope.adapterGeneration });
+      }
+      if (envelope.event.kind === 'exit') {
+        this.clearInputRequired(envelope.instanceId);
+      }
+    });
+  }
+
+  dismissInputRequired(instanceId: string, requestId: string): void {
+    this.clearInputRequired(instanceId, (request) => request.requestId === requestId);
+  }
+
+  clearInputRequired(instanceId: string, shouldClear: (request: InputRequiredEvent) => boolean = () => true): void {
+    this._pendingInputRequired.update((pending) => {
+      const next = pending.filter((request) => request.instanceId !== instanceId || !shouldClear(request));
+      return next.length === pending.length ? pending : next;
+    });
+  }
+
+  private updateApprovalRuntime(update: StateUpdate): void {
+    const previous = this.approvalRuntimes.get(update.instanceId);
+    const replaced = (['adapterGeneration', 'restartEpoch'] as const).some((key) =>
+      previous?.[key] !== undefined && update[key] !== undefined && previous[key] !== update[key],
+    );
+    this.approvalRuntimes.set(update.instanceId, {
+      adapterGeneration: update.adapterGeneration ?? previous?.adapterGeneration,
+      restartEpoch: update.restartEpoch ?? previous?.restartEpoch,
+    });
+    if (replaced || shouldClearInputRequiredForStatus(update.status)) {
+      this.clearInputRequired(update.instanceId);
+    }
+  }
 
   private createStream<T>(
     subscribe: (next: (event: T) => void) => () => void,

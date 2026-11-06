@@ -35,7 +35,7 @@ export class FakeRuntimeManager extends EventEmitter {
     instance.toolPermissionsOverride = config.toolPermissionsOverride;
     instance.hardened = config.hardened;
     instance.containedExecution = config.containedExecution;
-    instance.workerNodeId = config.forceNodeId;
+    instance.executionLocation = config.forceNodeId ? { type: 'remote', nodeId: config.forceNodeId } : { type: 'local' };
     this.instances.set(instance.id, instance);
     return instance;
   }
@@ -47,7 +47,7 @@ export class FakeRuntimeManager extends EventEmitter {
     displayName: string;
     agentId?: string;
     yoloMode?: boolean;
-    workerNodeId?: string;
+    executionLocation?: Instance['executionLocation'];
     transcript?: Array<{ type: 'user' | 'assistant'; content: string }>;
   }): Instance {
     const instance = createInstance({
@@ -58,7 +58,7 @@ export class FakeRuntimeManager extends EventEmitter {
       yoloMode: input.yoloMode ?? true,
     });
     instance.status = 'busy';
-    instance.workerNodeId = input.workerNodeId;
+    instance.executionLocation = input.executionLocation ?? { type: 'local' };
     instance.outputBuffer = (input.transcript ?? []).map((turn, index): OutputMessage => ({
       id: `${input.historyThreadId}-${index}`,
       type: turn.type,

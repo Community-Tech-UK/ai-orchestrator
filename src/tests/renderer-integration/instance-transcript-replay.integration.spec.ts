@@ -1,7 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { TestBed } from '@angular/core/testing';
 import { NgZone } from '@angular/core';
-import { Subject } from 'rxjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { IpcRenderer } from 'electron';
 import { createInstanceDomain } from '../../preload/domains/instance.preload';
@@ -43,7 +42,7 @@ describe('authoritative replay IPC integration', () => {
       data: { instances: [{ ...instance, outputBuffer: messages }] } });
     TestBed.configureTestingModule({ providers: [
       { provide: IpcFacadeService, useValue: { stateResync: resync } },
-      { provide: InstanceEventsService, useValue: { outputEvents$: new Subject() } },
+      InstanceEventsService,
       { provide: NgZone, useValue: { run: (callback: () => void) => callback() } },
       { provide: StatsIpcService, useValue: {} }, { provide: ToastService, useValue: { show: vi.fn() } },
       { provide: ProviderStateService, useValue: {} }, { provide: AutomationStore, useValue: {} },
@@ -76,7 +75,7 @@ describe('authoritative replay IPC integration', () => {
     const stats = { statsRecordToolUsage: vi.fn(), statsRecordSessionEnd: vi.fn() };
     const image = { processMessage: vi.fn() };
     TestBed.configureTestingModule({ providers: [InstanceIpcService, IpcEventBusService, InstanceOutputStore,
-      { provide: InstanceEventsService, useValue: { outputEvents$: new Subject() } },
+      InstanceEventsService,
       { provide: NgZone, useValue: { run: (callback: () => void) => callback() } },
       { provide: StatsIpcService, useValue: stats }, { provide: ToastService, useValue: {} },
       { provide: ProviderStateService, useValue: {} }, { provide: AutomationStore, useValue: {} },

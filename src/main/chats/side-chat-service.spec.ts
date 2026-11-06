@@ -469,10 +469,11 @@ describe('SideChatService', () => {
   describe('workspace routing', () => {
     it('runs a remote parent\'s sidechat on the parent\'s worker with the worker path', async () => {
       const h = harness();
-      h.runtimes.addSession({
-        historyThreadId: 'thread-remote', workingDirectory: 'C:\\work\\aio', displayName: 'On Windows', workerNodeId: 'windows-pc',
+      const parent = h.runtimes.addSession({
+        historyThreadId: 'thread-remote', workingDirectory: 'C:\\work\\aio', displayName: 'On Windows', executionLocation: { type: 'remote', nodeId: 'windows-pc' },
       });
-      const ref: SideChatParentRef = { kind: 'session', historyThreadId: 'thread-remote', originNodeId: 'windows-pc' };
+      parent.workerNodeId = 'supervision-only';
+      const ref: SideChatParentRef = { kind: 'session', historyThreadId: 'thread-remote', originNodeId: null };
       const side = await h.service.sideChats.create({ parent: ref, selection: CLAUDE, currentCwd: '/Users/me/work/aio' });
 
       await h.service.sideChats.send({ chatId: side.chat.id, text: 'Status?' });
@@ -483,8 +484,9 @@ describe('SideChatService', () => {
 
     it('never routes a local parent\'s sidechat to a worker, even with a look-alike path', async () => {
       const h = harness();
-      h.runtimes.addSession({ historyThreadId: 'thread-local', workingDirectory: 'C:\\work\\aio', displayName: 'Local' });
-      const ref: SideChatParentRef = { kind: 'session', historyThreadId: 'thread-local', originNodeId: null };
+      const parent = h.runtimes.addSession({ historyThreadId: 'thread-local', workingDirectory: 'C:\\work\\aio', displayName: 'Local' });
+      parent.workerNodeId = 'supervision-only';
+      const ref: SideChatParentRef = { kind: 'session', historyThreadId: 'thread-local', originNodeId: 'stale-node' };
       const side = await h.service.sideChats.create({ parent: ref, selection: CLAUDE, currentCwd: 'C:\\work\\aio' });
 
       await h.service.sideChats.send({ chatId: side.chat.id, text: 'Status?' });
@@ -492,10 +494,42 @@ describe('SideChatService', () => {
       expect(h.runtimes.creates.at(-1)?.forceNodeId).toBeUndefined();
     });
 
+    it('keeps the remote route in persisted policy after the parent is archived', async () => {
+      const h = harness();
+      const parent = h.runtimes.addSession({
+        historyThreadId: 'remote-archive', workingDirectory: 'C:\\work', displayName: 'Remote',
+        executionLocation: { type: 'remote', nodeId: 'windows-pc' },
+      });
+      const ref: SideChatParentRef = { kind: 'session', historyThreadId: 'remote-archive', originNodeId: null };
+      const side = await h.service.sideChats.create({ parent: ref, selection: CLAUDE, currentCwd: '/ignored' });
+      await h.runtimes.terminateInstance(parent.id);
+      h.archive.entries.set('remote-archive', {
+        title: 'Remote', workspacePath: 'C:\\work',
+        messages: [{ id: 'task', type: 'user', content: 'Remote task', timestamp: 1 }],
+      });
+
+      expect(await h.service.sideChats.send({ chatId: side.chat.id, text: 'Status?' })).toMatchObject({ ok: true });
+      expect(h.runtimes.creates.at(-1)).toMatchObject({ forceNodeId: 'windows-pc', workingDirectory: 'C:\\work' });
+    });
+
+    it('inherits the execution node of a chat-backed parent runtime', async () => {
+      const h = harness();
+      const parent = await codexParent(h);
+      const runtime = h.runtimes.getAllInstances()[0]!;
+      runtime.executionLocation = { type: 'remote', nodeId: 'windows-pc' };
+      runtime.workerNodeId = 'supervision-only';
+      const side = await h.service.sideChats.create({
+        parent: { kind: 'chat', chatId: parent.chat.id }, selection: CLAUDE, currentCwd: '/ignored',
+      });
+
+      expect(await h.service.sideChats.send({ chatId: side.chat.id, text: 'Status?' })).toMatchObject({ ok: true });
+      expect(h.runtimes.creates.at(-1)?.forceNodeId).toBe('windows-pc');
+    });
+
     it('rejects a local model that lives on a different machine from the parent workspace', async () => {
       const h = harness();
       h.runtimes.addSession({
-        historyThreadId: 'thread-remote', workingDirectory: 'C:\\work', displayName: 'Remote', workerNodeId: 'windows-pc',
+        historyThreadId: 'thread-remote', workingDirectory: 'C:\\work', displayName: 'Remote', executionLocation: { type: 'remote', nodeId: 'windows-pc' },
       });
       const ref: SideChatParentRef = { kind: 'session', historyThreadId: 'thread-remote', originNodeId: 'windows-pc' };
 

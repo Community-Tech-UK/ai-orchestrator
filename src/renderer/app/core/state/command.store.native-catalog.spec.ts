@@ -1,6 +1,5 @@
 import { provideZonelessChangeDetection, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { Subject } from 'rxjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { IpcRenderer } from 'electron';
 import { IPC_CHANNELS } from '@contracts/channels';
@@ -41,7 +40,7 @@ function setup() {
   window.electronAPI = { ...createInstanceDomain(renderer, IPC_CHANNELS), ...createOrchestrationDomain(renderer, IPC_CHANNELS) } as unknown as typeof window.electronAPI;
   const selected = signal({ id: 'one', provider: 'opencode', status: 'idle', workingDirectory: '/workspace', restartEpoch: 0, adapterGeneration: 1, providerSessionId: 'session-one' });
   TestBed.configureTestingModule({ providers: [provideZonelessChangeDetection(), CommandStore,
-    { provide: InstanceEventsService, useValue: { outputEvents$: new Subject() } },
+    InstanceEventsService,
     { provide: SkillStore, useValue: { skillCommands: () => [], discoverSkills: async () => undefined } },
     { provide: InstanceStore, useValue: { selectedInstance: selected } },
   ] });

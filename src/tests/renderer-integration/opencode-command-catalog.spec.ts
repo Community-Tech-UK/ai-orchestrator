@@ -1,7 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { provideZonelessChangeDetection, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { Subject } from 'rxjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { IpcRenderer } from 'electron';
 import { IPC_CHANNELS } from '@contracts/channels';
@@ -78,7 +77,7 @@ describe('native catalog end-to-end source wiring', () => {
       isStatelessExecProvider: () => false, getNodeLatencyForInstance: () => undefined });
     const selected = signal({ ...instance });
     TestBed.configureTestingModule({ providers: [provideZonelessChangeDetection(), CommandStore,
-      { provide: InstanceEventsService, useValue: { outputEvents$: new Subject() } },
+      InstanceEventsService,
       { provide: InstanceStore, useValue: { selectedInstance: selected } },
       { provide: SkillStore, useValue: { skillCommands: () => [], discoverSkills: async () => undefined } },
     ] });

@@ -108,7 +108,7 @@ export interface Instance {
   isRenamed?: boolean;
   createdAt: number;
   historyThreadId: string;
-  /** Worker node ID in supervision tree (workspace provenance). */
+  /** Worker identifier in the supervision tree; executionLocation identifies the machine. */
   workerNodeId?: string;
   /**
    * Canonical AIO conversation ownership for context evidence, when enabled.

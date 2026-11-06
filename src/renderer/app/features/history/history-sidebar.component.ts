@@ -87,6 +87,7 @@ import type { OutputMessage } from '../../core/state/instance/instance.types';
           (selectEntry)="onSelect($event)"
           (deleteEntry)="onDelete($event)"
           (clearSearch)="store.clearSearch()"
+          (sideChatOpened)="closeHistory.emit()"
         />
       </div>
 

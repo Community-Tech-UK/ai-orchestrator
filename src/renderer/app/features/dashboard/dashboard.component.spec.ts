@@ -7,7 +7,12 @@ import { NgTemplateOutlet } from '@angular/common';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ChatDetail, ChatRecord } from '../../../../shared/types/chat.types';
+import type { ConversationData, ConversationHistoryEntry } from '../../../../shared/types/history.types';
+import type { SideChatParentRef, SideChatSummary } from '../../../../shared/types/side-chat.types';
+import { ChatIpcService } from '../../core/services/ipc/chat-ipc.service';
+import { SideChatPanelComponent } from '../side-chat/side-chat-panel.component';
 import type { UiActionRegistration } from '../../core/services/action-dispatch.service';
 import { ActionDispatchService } from '../../core/services/action-dispatch.service';
 import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
@@ -42,12 +47,14 @@ await resolveComponentResources((url) => {
   return Promise.reject(new Error(`Unexpected resource: ${url}`));
 });
 
-describe('DashboardComponent resume picker routing', () => {
+describe('DashboardComponent', () => {
   const selectedInstance = signal<unknown | null>(null);
   const instances = signal<unknown[]>([]);
   const previewConversation = signal<unknown | null>(null);
   const selectedChatId = signal<string | null>(null);
-  const selectedChat = signal<{ currentCwd?: string | null } | null>(null);
+  const selectedChat = signal<Partial<ChatRecord> | null>(null);
+  const historyEntries = signal<ConversationHistoryEntry[]>([]);
+  const chatDetails = signal(new Map<string, ChatDetail>());
   const effectiveSidebarStyle = signal('comfortable');
   const defaultSettings = signal({ defaultWorkingDirectory: null as string | null });
   const draftWorkingDirectory = signal<string | null>(null);
@@ -74,6 +81,8 @@ describe('DashboardComponent resume picker routing', () => {
     previewConversation.set(null);
     selectedChatId.set(null);
     selectedChat.set(null);
+    historyEntries.set([]);
+    chatDetails.set(new Map());
     draftWorkingDirectory.set(null);
     draftNodeId.set(null);
     registeredActions.length = 0;
@@ -99,7 +108,11 @@ describe('DashboardComponent resume picker routing', () => {
           useValue: {
             selectedInstance: selectedInstance.asReadonly(),
             instances: instances.asReadonly(),
-            setSelectedInstance: vi.fn(),
+            setSelectedInstance: vi.fn((id: string | null) => selectedInstance.set(instances().find((item) => (item as { id: string }).id === id) ?? null)),
+            getInstance: vi.fn(() => null),
+            instanceActivities: signal(new Map()),
+            createInstance: vi.fn(),
+            sendInput: vi.fn(),
             terminateInstance: vi.fn(),
             terminateAllInstances: vi.fn(),
             restartInstance: vi.fn(),
@@ -109,8 +122,10 @@ describe('DashboardComponent resume picker routing', () => {
         {
           provide: HistoryStore,
           useValue: {
+            entries: historyEntries.asReadonly(),
             previewConversation: previewConversation.asReadonly(),
-            clearSelection: vi.fn(),
+            clearSelection: vi.fn(() => previewConversation.set(null)),
+            restoreEntry: vi.fn(),
             loadHistory: vi.fn(async () => undefined),
           },
         },
@@ -129,6 +144,9 @@ describe('DashboardComponent resume picker routing', () => {
             initialize: vi.fn().mockResolvedValue(undefined),
             effectiveSidebarStyle: effectiveSidebarStyle.asReadonly(),
             settings: defaultSettings.asReadonly(),
+            showThinking: signal(false),
+            thinkingDefaultExpanded: signal(false),
+            showToolMessages: signal(false),
           },
         },
         {
@@ -136,8 +154,13 @@ describe('DashboardComponent resume picker routing', () => {
           useValue: {
             selectedChatId: selectedChatId.asReadonly(),
             selectedChat: selectedChat.asReadonly(),
-            deselect: vi.fn(),
+            deselect: vi.fn(() => { selectedChatId.set(null); selectedChat.set(null); }),
+            details: chatDetails.asReadonly(),
+            chats: signal<ChatRecord[]>([]),
+            ensureDetailLoaded: vi.fn().mockResolvedValue(undefined),
+            sendMessageTo: vi.fn(),
             selectFirstChat: vi.fn(),
+            select: vi.fn().mockResolvedValue(undefined),
           },
         },
         { provide: RemoteNodeStore, useValue: { initialize: vi.fn() } },
@@ -157,6 +180,7 @@ describe('DashboardComponent resume picker routing', () => {
           provide: ViewLayoutService,
           useValue: {
             sidebarWidth: 320,
+            sideChatWidth: 360,
             presets: [] satisfies WorkspacePreset[],
             activePreset: activePreset.asReadonly(),
             controlPlanePinned: controlPlanePinned.asReadonly(),
@@ -312,4 +336,231 @@ describe('DashboardComponent resume picker routing', () => {
     component.toggleSideChat(); expect(usage.count('toggle-side-chat')).toBe(1);
     component.ngOnDestroy();
   });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  const archivedParent: SideChatParentRef = {
+    kind: 'session', historyThreadId: 'archived-thread', originNodeId: 'archive-node',
+  };
+  const archivedEntry: ConversationHistoryEntry = {
+    id: 'archive-entry', historyThreadId: 'archived-thread', displayName: 'Archived investigation',
+    workingDirectory: '/tmp/archived-project', provider: 'codex', currentModel: 'model-a',
+    createdAt: 1, endedAt: 2, messageCount: 2, firstUserMessage: 'Investigate', lastUserMessage: 'Investigate',
+    status: 'terminated', originalInstanceId: 'old-runtime', parentId: null, sessionId: 'native-session',
+    executionLocation: { type: 'remote', nodeId: 'archive-node' },
+  };
+
+  function archivedPanel(attentionTitle: string | null = null) {
+    historyEntries.set([{ ...archivedEntry, id: 'decoy', historyThreadId: 'native-session', displayName: 'Wrong same-project session' }, archivedEntry]);
+    const chat: ChatRecord = {
+      id: 'exact-archived-sidechat', name: 'Archived answer', provider: 'codex', model: null,
+      reasoningEffort: null, currentCwd: '/tmp/archived-project', projectId: null, yolo: false,
+      ledgerThreadId: 'side-thread', currentInstanceId: null, createdAt: 1, lastActiveAt: 2, archivedAt: null,
+    };
+    const summary: SideChatSummary = {
+      chat, link: { chatId: chat.id, parent: archivedParent, authority: 'inherit-parent', lastReadAssistantSequence: 0 },
+      status: null, latestAssistantSequence: 4, state: 'unread',
+    };
+    chatDetails.set(new Map([[chat.id, {
+      chat, currentInstance: null, conversation: {
+        thread: { id: 'side-thread' } as ChatDetail['conversation']['thread'],
+        messages: [{
+          id: 'answer', threadId: 'side-thread', sequence: 4, role: 'assistant', content: 'Saved answer',
+          nativeMessageId: null, nativeTurnId: null, phase: null, createdAt: 2,
+          tokenInput: null, tokenOutput: null, rawRef: null, rawJson: null, sourceChecksum: null,
+        }],
+      },
+    }]]));
+    const ipc = {
+      onChatEvent: vi.fn(() => () => undefined),
+      sideChatAttentionAll: vi.fn().mockResolvedValue({ success: true, data: attentionTitle ? [{
+        parent: archivedParent, parentTitle: attentionTitle, total: 1,
+        unread: 1, needsAttention: 0, running: 0, targetChatId: 'exact-archived-sidechat',
+      }] : [] }),
+      sideChatList: vi.fn(async ({ parent }: { parent: SideChatParentRef }) => ({
+        success: true, data: { active: parent.kind === 'session' && parent.historyThreadId === 'archived-thread' ? [summary] : [], archived: [] },
+      })),
+      sideChatPermissions: vi.fn().mockResolvedValue({ success: false }),
+      sideChatCreate: vi.fn(), sideChatSend: vi.fn(),
+      sideChatMarkRead: vi.fn(async ({ throughSequence }: { throughSequence: number }) => ({
+        success: true, data: { ...summary.link, lastReadAssistantSequence: throughSequence },
+      })),
+    };
+    TestBed.overrideProvider(SideChatStore, { useFactory: () => new SideChatStore() });
+    TestBed.configureTestingModule({ providers: [{ provide: ChatIpcService, useValue: ipc }] });
+    TestBed.overrideComponent(DashboardComponent, {
+      set: { imports: [NgTemplateOutlet, SessionRecoveryBannerComponent, SideChatPanelComponent] },
+    });
+    // Keep the real panel effects/read acknowledgement; replace only its heavy
+    // children with a transcript viewport whose scroll position we control.
+    TestBed.overrideComponent(SideChatPanelComponent, {
+      set: { imports: [], templateUrl: undefined, styleUrl: undefined, styles: [], styleUrls: [],
+        template: '<h2>{{ parentTitle() }}</h2><div class="panel-body"><div class="output-stream"></div></div>' },
+    });
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0));
+    vi.spyOn(document, 'hasFocus').mockReturnValue(false);
+    const fixture = TestBed.createComponent(DashboardComponent);
+    const store = TestBed.inject(SideChatStore);
+    async function settle() {
+      for (let i = 0; i < 4; i += 1) {
+        fixture.detectChanges();
+        await new Promise((resolveTick) => setTimeout(resolveTick, 0));
+        await fixture.whenStable();
+      }
+      fixture.detectChanges();
+    }
+    function panel(): SideChatPanelComponent {
+      const host = fixture.debugElement.query(By.directive(SideChatPanelComponent));
+      expect(host, 'archived requests must render the read-aware sidechat panel').toBeTruthy();
+      return host.componentInstance as SideChatPanelComponent;
+    }
+    return { fixture, store, ipc, settle, panel };
+  }
+
+  it('opens the exact archived sidechat in its parent panel and acknowledges only a focused, scrolled answer', async () => {
+    instances.set([
+      { id: 'other-runtime', historyThreadId: 'other-thread', workingDirectory: '/tmp/archived-project', status: 'idle' },
+      { id: 'old-runtime', historyThreadId: 'archived-thread', status: 'terminated' },
+    ]);
+    selectedInstance.set(instances()[0]);
+    const { fixture, store, ipc, settle, panel } = archivedPanel();
+    store.requestOpen(archivedParent, 'exact-archived-sidechat');
+    await settle();
+
+    expect(panel().parent()).toEqual(archivedParent);
+    expect(panel().parentTitle()).toBe('Archived investigation');
+    expect(panel().workingDirectory()).toBe('/tmp/archived-project');
+    expect(panel().parentSelection()).toMatchObject({ provider: 'codex', model: 'model-a' });
+    expect(panel().sideChatId()).toBe('exact-archived-sidechat');
+    expect(ipc.sideChatList).toHaveBeenCalledWith({ parent: archivedParent });
+    expect(TestBed.inject(ChatStore).select).not.toHaveBeenCalled();
+    expect(TestBed.inject(HistoryStore).restoreEntry).not.toHaveBeenCalled();
+    expect(TestBed.inject(InstanceStore).setSelectedInstance).toHaveBeenCalledExactlyOnceWith(null);
+    expect(TestBed.inject(InstanceStore).createInstance).not.toHaveBeenCalled();
+    expect(TestBed.inject(InstanceStore).restartInstance).not.toHaveBeenCalled();
+    expect(TestBed.inject(InstanceStore).sendInput).not.toHaveBeenCalled();
+    expect(TestBed.inject(ChatStore).sendMessageTo).not.toHaveBeenCalled();
+    expect(ipc.sideChatCreate).not.toHaveBeenCalled();
+    expect(ipc.sideChatSend).not.toHaveBeenCalled();
+    expect(ipc.sideChatMarkRead).not.toHaveBeenCalled();
+
+    vi.mocked(document.hasFocus).mockReturnValue(true);
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    const viewport = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>('.output-stream')!;
+    Object.defineProperty(viewport, 'scrollHeight', { configurable: true, value: 1000 });
+    Object.defineProperty(viewport, 'clientHeight', { configurable: true, value: 200 });
+    viewport.scrollTop = 100;
+    window.dispatchEvent(new Event('focus'));
+    await settle();
+    expect(ipc.sideChatMarkRead).not.toHaveBeenCalled();
+
+    viewport.scrollTop = 800;
+    viewport.dispatchEvent(new Event('scroll'));
+    await settle();
+    expect(ipc.sideChatMarkRead).toHaveBeenCalledExactlyOnceWith({ chatId: 'exact-archived-sidechat', throughSequence: 4 });
+    expect(store.summariesFor(archivedParent)[0].state).toBe('idle');
+    store.disposeForTesting();
+    fixture.destroy();
+  });
+
+  it('lets an archived parent selector resolve an existing conversation without starting a runtime', async () => {
+    const { fixture, store, ipc, settle, panel } = archivedPanel();
+    store.requestOpen(archivedParent, null);
+    await settle();
+    expect(panel().sideChatId()).toBe('exact-archived-sidechat');
+    expect(ipc.sideChatCreate).not.toHaveBeenCalled();
+    expect(ipc.sideChatSend).not.toHaveBeenCalled();
+    expect(TestBed.inject(HistoryStore).restoreEntry).not.toHaveBeenCalled();
+    store.disposeForTesting();
+    fixture.destroy();
+  });
+
+  it('uses matching history preview metadata before clearing the preview selection', async () => {
+    const { fixture, store, settle, panel } = archivedPanel();
+    previewConversation.set({
+      entry: { ...archivedEntry, displayName: 'Preview title', workingDirectory: '/tmp/preview-project' }, messages: [],
+    } satisfies ConversationData);
+    store.requestOpen(archivedParent, 'exact-archived-sidechat');
+    await settle();
+    expect(panel().parent()).toEqual(archivedParent);
+    expect(panel().parentTitle()).toBe('Preview title');
+    expect(panel().workingDirectory()).toBe('/tmp/preview-project');
+    expect(previewConversation()).toBeNull();
+    store.disposeForTesting();
+    fixture.destroy();
+  });
+
+  it('uses the existing attention title when an archived parent is outside loaded history', async () => {
+    const { fixture, store, settle, panel } = archivedPanel('Older archived session');
+    historyEntries.set([]);
+    await settle();
+    store.requestOpen(archivedParent, 'exact-archived-sidechat');
+    await settle();
+    expect(panel().parentTitle()).toBe('Older archived session');
+    expect(panel().parent()).toEqual(archivedParent);
+    expect(panel().workingDirectory()).toBeNull();
+    store.disposeForTesting();
+    fixture.destroy();
+  });
+
+  it.each(['session', 'chat', 'history', 'close', 'toggle', 'preset', 'main', 'live-request', 'chat-request'] as const)(
+    'drops archived panel context after selecting %s', async (selection) => {
+      const previousLive = { id: 'live-runtime', historyThreadId: 'live-thread', displayName: 'Live session', provider: 'claude', status: 'idle' };
+      instances.set([previousLive]);
+      selectedInstance.set(previousLive);
+      const { fixture, store, settle, panel } = archivedPanel();
+      store.requestOpen(archivedParent, 'exact-archived-sidechat');
+      await settle();
+      expect(panel().parent()).toEqual(archivedParent);
+
+      if (selection === 'session') {
+        // Reselecting the session shown before the archived badge must work too.
+        TestBed.inject(InstanceStore).setSelectedInstance('live-runtime');
+      } else if (selection === 'chat') {
+        selectedChat.set({ id: 'main-chat', name: 'Main chat', provider: 'claude' });
+        selectedChatId.set('main-chat');
+      } else if (selection === 'history') {
+        previewConversation.set({ entry: { id: 'other-entry', historyThreadId: 'other-archive' } });
+      } else if (selection === 'live-request') {
+        store.requestOpen({ kind: 'session', historyThreadId: 'live-thread', originNodeId: null }, 'live-sidechat');
+      } else if (selection === 'chat-request') {
+        vi.mocked(TestBed.inject(ChatStore).select).mockImplementation(async () => {
+          selectedChat.set({ id: 'main-chat', name: 'Main chat', provider: 'claude' });
+          selectedChatId.set('main-chat');
+        });
+        store.requestOpen({ kind: 'chat', chatId: 'main-chat' }, 'chat-sidechat');
+      } else if (selection === 'preset') {
+        vi.mocked(TestBed.inject(ViewLayoutService).getPreset).mockReturnValue({
+          id: 'research', label: 'Research', description: '',
+          panels: { sidebar: true, controlPlane: false, fileExplorer: false, sourceControl: false, sideChat: false },
+        });
+        fixture.componentInstance.applyWorkspacePreset('research');
+      } else if (selection === 'main') {
+        fixture.componentInstance.openSideChatInMain('exact-archived-sidechat');
+      } else if (selection === 'close') {
+        fixture.debugElement.query(By.directive(SideChatPanelComponent)).triggerEventHandler('closeRequested');
+      } else {
+        fixture.componentInstance.toggleSideChat();
+      }
+      await settle();
+      if (!fixture.componentInstance.showSideChat()) {
+        fixture.componentInstance.toggleSideChat();
+        await settle();
+      }
+      const liveSession = selection === 'session' || selection === 'live-request';
+      const mainChat = selection === 'chat' || selection === 'chat-request';
+      expect(panel().parent()).toEqual(liveSession
+        ? { kind: 'session', historyThreadId: 'live-thread', originNodeId: null }
+        : mainChat ? { kind: 'chat', chatId: 'main-chat' } : null);
+      expect(panel().parentTitle()).toBe(liveSession ? 'Live session' : mainChat ? 'Main chat' : '');
+      expect(panel().preferredChatId()).toBe(selection === 'live-request' ? 'live-sidechat' : selection === 'chat-request' ? 'chat-sidechat' : null);
+      expect(panel().sideChatId()).toBeNull();
+      expect(panel().workingDirectory()).not.toBe('/tmp/archived-project');
+      store.disposeForTesting();
+      fixture.destroy();
+    },
+  );
 });

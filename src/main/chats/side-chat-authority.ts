@@ -106,7 +106,7 @@ export class SideChatAuthorityResolver {
           containedExecution: instance.containedExecution ?? false,
           browserToolsMode: instance.browserToolsMode ?? null,
           computerUseMode: instance.computerUseMode ?? null,
-          workspaceNode: instance.workerNodeId ?? null,
+          workspaceNode: instance.executionLocation.type === 'remote' ? instance.executionLocation.nodeId : null,
         }),
       };
     }

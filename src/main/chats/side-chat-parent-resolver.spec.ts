@@ -164,6 +164,8 @@ describe('SideChatParentResolver', () => {
       provider: 'codex',
       historyThreadId: 'thread-live',
     });
+    instance.executionLocation = { type: 'remote', nodeId: 'node-3' };
+    instance.workerNodeId = 'supervision-only';
     instance.outputBuffer.push({
       id: 'm1',
       timestamp: Date.now(),
@@ -180,7 +182,7 @@ describe('SideChatParentResolver', () => {
     const source = await resolver.resolve({
       kind: 'session',
       historyThreadId: 'thread-live',
-      originNodeId: 'node-3',
+      originNodeId: 'stale-node',
     });
     expect(source.sourceKind).toBe('session-runtime');
     expect(source.status).toBeTruthy();
@@ -189,7 +191,35 @@ describe('SideChatParentResolver', () => {
       'Working on task 2',
     ]);
     expect(source.originNodeId).toBe('node-3');
+    expect(await resolver.resolveIdentity({ kind: 'session', historyThreadId: 'thread-live', originNodeId: null }))
+      .toMatchObject({ originNodeId: 'node-3' });
   });
+
+  for (const sourceKind of ['chat-ledger', 'session-ledger', 'session-runtime'] as const) {
+    for (const nodeId of ['execution-node', null]) {
+      it(`uses ${nodeId ?? 'local'} execution provenance for ${sourceKind}, ignoring supervision and stale caller metadata`, async () => {
+        const { ledger, chatStore, instanceManager, resolver } = await harness();
+        const thread = sourceKind === 'chat-ledger'
+          ? await createChatThread(ledger, chatStore, 'parent', 'Parent')
+          : sourceKind === 'session-ledger'
+            ? await ledger.startConversation({ provider: 'orchestrator', workspacePath: '/work', title: 'Parent' })
+            : null;
+        const historyThreadId = thread?.id ?? 'runtime-only';
+        const instance = instanceManager.create({ workingDirectory: '/work', historyThreadId });
+        instance.workerNodeId = 'supervision-only';
+        instance.executionLocation = nodeId ? { type: 'remote', nodeId } : { type: 'local' };
+        if (sourceKind === 'chat-ledger') chatStore.update('parent', { currentInstanceId: instance.id });
+        const parent = { kind: 'session' as const, historyThreadId, originNodeId: 'stale-node' };
+
+        expect(await resolver.resolve(parent)).toMatchObject({ sourceKind, originNodeId: nodeId });
+        expect(await resolver.resolveIdentity(parent)).toMatchObject({ originNodeId: nodeId });
+        if (sourceKind === 'chat-ledger') {
+          expect(await resolver.resolve({ kind: 'chat', chatId: 'parent' })).toMatchObject({ originNodeId: nodeId });
+          expect(await resolver.resolveIdentity({ kind: 'chat', chatId: 'parent' })).toMatchObject({ originNodeId: nodeId });
+        }
+      });
+    }
+  }
 
   it('resolves a session parent from a history archive entry', async () => {
     const { archiveMessages, resolver } = await harness();

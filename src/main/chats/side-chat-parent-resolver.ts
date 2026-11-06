@@ -106,19 +106,28 @@ export class SideChatParentResolver {
       return {
         title: chat.name,
         workspacePath: chat.currentCwd,
-        originNodeId: instance?.workerNodeId ?? null,
+        originNodeId: instance?.executionLocation.type === 'remote' ? instance.executionLocation.nodeId : null,
       };
     }
     const owningChat = this.deps.chatStore.getByLedgerThreadId(parent.historyThreadId);
     if (owningChat) {
-      return { title: owningChat.name, workspacePath: owningChat.currentCwd, originNodeId: parent.originNodeId };
+      const instance = owningChat.currentInstanceId
+        ? this.deps.instanceManager.getInstance(owningChat.currentInstanceId)
+        : undefined;
+      return {
+        title: owningChat.name,
+        workspacePath: owningChat.currentCwd,
+        originNodeId: instance
+          ? instance.executionLocation.type === 'remote' ? instance.executionLocation.nodeId : null
+          : parent.originNodeId,
+      };
     }
     const live = this.findLiveInstance(parent.historyThreadId);
     if (live) {
       return {
         title: live.displayName,
         workspacePath: live.workingDirectory,
-        originNodeId: live.workerNodeId ?? parent.originNodeId,
+        originNodeId: live.executionLocation.type === 'remote' ? live.executionLocation.nodeId : null,
       };
     }
     const thread = await this.deps.ledger.getThread(parent.historyThreadId);
@@ -162,7 +171,7 @@ export class SideChatParentResolver {
       parent: { kind: 'chat', chatId },
       title: chat.name,
       workspacePath: chat.currentCwd,
-      originNodeId: instance?.workerNodeId ?? null,
+      originNodeId: instance?.executionLocation.type === 'remote' ? instance.executionLocation.nodeId : null,
       status: instance?.status ?? null,
       sourceKind: 'chat-ledger',
       checkpoint,
@@ -181,7 +190,7 @@ export class SideChatParentResolver {
     const owningChat = this.deps.chatStore.getByLedgerThreadId(historyThreadId);
     if (owningChat) {
       const source = await this.resolveChatParent(owningChat.id);
-      return { ...source, parent, originNodeId: parent.originNodeId ?? source.originNodeId };
+      return { ...source, parent, originNodeId: source.status !== null ? source.originNodeId : parent.originNodeId };
     }
 
     // 2. Direct ledger thread (imported or provider-native conversation).
@@ -197,7 +206,9 @@ export class SideChatParentResolver {
         parent,
         title: thread.title ?? liveForLedger?.displayName ?? 'Session',
         workspacePath: thread.workspacePath ?? liveForLedger?.workingDirectory ?? null,
-        originNodeId: liveForLedger?.workerNodeId ?? parent.originNodeId,
+        originNodeId: liveForLedger
+          ? liveForLedger.executionLocation.type === 'remote' ? liveForLedger.executionLocation.nodeId : null
+          : parent.originNodeId,
         status: liveForLedger?.status ?? null,
         sourceKind: 'session-ledger',
         checkpoint,
@@ -217,7 +228,7 @@ export class SideChatParentResolver {
         parent,
         title: live.displayName,
         workspacePath: live.workingDirectory,
-        originNodeId: live.workerNodeId ?? parent.originNodeId,
+        originNodeId: live.executionLocation.type === 'remote' ? live.executionLocation.nodeId : null,
         status: live.status,
         sourceKind: 'session-runtime',
         checkpoint: null,

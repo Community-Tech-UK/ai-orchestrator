@@ -176,7 +176,7 @@ describe('provider matrix: create → persist → reload → send → switch →
     const h = createSideChatHarness();
     harnesses.push(h);
     h.runtimes.addSession({
-      historyThreadId: 'thread-remote', workingDirectory: 'C:\\work', displayName: 'Remote', workerNodeId: 'node-7',
+      historyThreadId: 'thread-remote', workingDirectory: 'C:\\work', displayName: 'Remote', executionLocation: { type: 'remote', nodeId: 'node-7' },
     });
     const target: ModelRuntimeTarget = { ...LOCAL_TARGET, source: 'worker-node', nodeId: 'node-7', nodeName: 'windows-pc' };
 

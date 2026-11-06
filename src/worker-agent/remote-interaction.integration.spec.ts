@@ -192,16 +192,25 @@ describe('remote ACP question and native-command wire integration', () => {
     const respondToInputRequired = vi.fn(async (_instanceId: string, _requestId: string, response: string, key: string) => {
       await remote.sendRaw(response, key); return { success: true };
     });
-    const component = UserActionRequestComponent.prototype as unknown as { respond: (this: unknown, request: unknown, approved: boolean, selectedOption: string) => Promise<void> };
+    const component = UserActionRequestComponent.prototype as unknown as {
+      respond: (this: unknown, request: unknown, approved: boolean, selectedOption: string) => Promise<void>;
+      draftKey: (instanceId: string | null, requestId: string) => string;
+    };
     const view = { isResponding: signal(false), responseErrors: signal(new Map<string, string>()),
       respond: component.respond,
+      draftKey: component.draftKey,
       isPermissionRequest: UserActionRequestComponent.prototype.isPermissionRequest,
-      ipc: { respondToInputRequired }, inputRequiredTexts: new Map(), pendingInputRequiredById: new Map(),
-      pendingRequests: signal([]), instanceStore: { decrementPendingApproval: vi.fn() } };
+      ipc: { respondToInputRequired }, inputRequiredTexts: new Map(),
+      eventBus: { dismissInputRequired: vi.fn() },
+      pendingRequests: signal([request]), instanceStore: { decrementPendingApproval: vi.fn() } };
     expect(UserActionRequestComponent.prototype.isPermissionRequest.call(view as never, request as never)).toBe(false);
     await UserActionRequestComponent.prototype.onSelectOption.call(view as never, request as never, 'allow-once');
     expect(respondToInputRequired).toHaveBeenCalledWith('ui-instance', payload.id, 'allow-once', payload.id);
     expect(payload.metadata).toMatchObject({ type: 'acp_permission_request', action: 'acp_permission', path: '88', transport: 'acp' });
     expect(responses).toHaveBeenCalledWith(88, { outcome: { outcome: 'selected', optionId: 'allow-once' } });
+    expect(view.eventBus.dismissInputRequired).toHaveBeenCalledWith('ui-instance', payload.id);
+    expect(view.pendingRequests()).toEqual([]);
+    expect(view.responseErrors().size).toBe(0);
+    expect(view.isResponding()).toBe(false);
   });
 });

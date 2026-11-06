@@ -2,8 +2,11 @@
  * Host-CLI tool policy — tool names that Harness must always deny on spawned Claude
  * Code instances, independent of agent permissions or spawn path.
  *
- * The host CLI (Claude Code) ships a cloud "routines"/`schedule` skill backed by
- * these tools. They create/launch cloud remote agents in an isolated sandbox with
+ * AskUserQuestion, EnterPlanMode and ExitPlanMode require an interactive terminal
+ * and auto-deny in --print mode. Exclude them from warm and cold launches alike.
+ *
+ * The host CLI (Claude Code) also ships a cloud "routines"/`schedule` skill backed
+ * by CronCreate and RemoteTrigger. They create/launch cloud remote agents with
  * NO browser and no access to the user's logged-in sessions — and the user cannot
  * see or manage them inside Harness. Scheduling must go through Harness's native
  * `create_automation` instead (local execution, inherits the chat's tools incl. the
@@ -19,4 +22,6 @@
  * read-only `CronList`/`CronDelete` are intentionally NOT blocked so an agent can
  * still inspect or clean up any pre-existing cloud routines.
  */
-export const HOST_CLI_CLOUD_SCHEDULER_TOOLS = ['CronCreate', 'RemoteTrigger'] as const;
+export const DEFAULT_DISALLOWED_TOOLS: readonly string[] = [
+  'AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode', 'CronCreate', 'RemoteTrigger',
+];

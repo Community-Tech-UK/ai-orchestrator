@@ -2,7 +2,7 @@ import type { UnifiedSpawnOptions } from '../adapters/adapter-factory';
 import type { CliMessage } from '../adapters/base-cli-adapter';
 import { resolveClaudeDebugLogging } from '../adapters/claude-env-pack';
 import { claudeOutputCapSettings, resolveClaudeBashOutputMaxChars } from '../adapters/claude-output-caps';
-import { HOST_CLI_CLOUD_SCHEDULER_TOOLS } from '../adapters/host-cli-tool-policy';
+import { DEFAULT_DISALLOWED_TOOLS } from '../adapters/host-cli-tool-policy';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
 
 function quoteHookArg(hookPath: string, platform: NodeJS.Platform = process.platform): string {
@@ -57,7 +57,7 @@ function buildClaudeArgs(options: UnifiedSpawnOptions, sessionId: string | null)
   if (options.yoloMode && options.allowedTools?.length) {
     args.push('--allowedTools', options.allowedTools.join(','));
   }
-  const disallowedTools = Array.from(new Set([...HOST_CLI_CLOUD_SCHEDULER_TOOLS, ...(options.disallowedTools ?? [])]));
+  const disallowedTools = Array.from(new Set([...DEFAULT_DISALLOWED_TOOLS, ...(options.disallowedTools ?? [])]));
   if (disallowedTools.length > 0) args.push('--disallowedTools', disallowedTools.join(','));
   // Append by default — `--system-prompt` would REPLACE Claude Code's entire
   // default system prompt; our prompts are overlays (see claude-cli-adapter.ts).

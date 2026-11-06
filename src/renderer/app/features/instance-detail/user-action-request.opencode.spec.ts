@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { IpcFacadeService } from '../../core/services/ipc';
+import { IpcFacadeService, InstanceIpcService } from '../../core/services/ipc';
 import { InstanceStore } from '../../core/state/instance.store';
 import { UserActionRequestComponent } from './user-action-request.component';
 
@@ -17,12 +17,13 @@ describe('OpenCode question forms', () => {
 
   async function question() {
     let receive: (event: unknown) => void = () => undefined;
-    const ipc = { listUserActionRequestsForInstance: vi.fn(async () => ({ success: true, data: [] })),
+    const ipc = { onInstanceRemoved: () => () => undefined, onInstanceStateUpdate: () => () => undefined, onBatchUpdate: () => () => undefined,
+      listUserActionRequestsForInstance: vi.fn(async () => ({ success: true, data: [] })),
       onUserActionRequest: () => () => undefined, onInputRequired: (handler: typeof receive) => { receive = handler; return () => undefined; },
       onInputRequiredResolved: () => () => undefined, respondToInputRequired: vi.fn(async () => ({ success: true })) };
     const store = { getInstance: () => ({ yoloMode: true, status: 'busy' }), clearPendingApprovals: vi.fn(), decrementPendingApproval: vi.fn() };
     await TestBed.configureTestingModule({ imports: [UserActionRequestComponent], providers: [
-      { provide: IpcFacadeService, useValue: ipc }, { provide: InstanceStore, useValue: store },
+      { provide: IpcFacadeService, useValue: ipc }, { provide: InstanceIpcService, useValue: ipc }, { provide: InstanceStore, useValue: store },
     ] }).compileComponents();
     const fixture = TestBed.createComponent(UserActionRequestComponent);
     Object.defineProperty(fixture.componentInstance, 'instanceId', { value: signal('session') });

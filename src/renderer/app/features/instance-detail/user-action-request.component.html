@@ -1,6 +1,6 @@
 @if (pendingRequests().length > 0) {
   <div class="user-action-requests">
-    @for (request of pendingRequests(); track request.id) {
+    @for (request of pendingRequests(); track draftKey(request.instanceId, request.id)) {
       <div class="request-card" [class]="'request-' + request.requestType">
         <div class="request-header">
           <span class="request-title">{{ request.title }}</span>
@@ -18,6 +18,7 @@
                   rows="2"
                   [placeholder]="'Type your answer...'"
                   [disabled]="isResponding()"
+                  [value]="questionAnswerValue(request.id, $index)"
                   (input)="onQuestionAnswerChange(request.id, $index, $event)"
                 ></textarea>
               </label>
@@ -74,6 +75,7 @@
                     rows="2"
                     [placeholder]="'Type your answer...'"
                     [disabled]="isResponding()"
+                    [value]="askTextValue(request.id, qIndex)"
                     (input)="onAskTextChange(request.id, qIndex, $event)"
                   ></textarea>
                 }
@@ -155,6 +157,7 @@
                 rows="3"
                 [placeholder]="'Type your response...'"
                 [disabled]="isResponding()"
+                [value]="getInputRequiredText(request.id)"
                 (input)="onInputRequiredTextChange(request.id, $event)"
               ></textarea>
             </label>

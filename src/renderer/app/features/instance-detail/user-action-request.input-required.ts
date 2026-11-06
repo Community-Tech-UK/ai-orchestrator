@@ -6,6 +6,8 @@
 
 import type { AskUserQuestionEntry } from '../../../../shared/types/ask-user-question.types';
 import type { UserActionRequest } from './user-action-request.types';
+import type { InputRequiredEvent } from '../../core/services/ipc/ipc-event-bus.service';
+import { coerceSecretRequest } from './user-action-request.secret-card';
 
 /**
  * ACP cards answer over `session/request_permission` / `elicitation/create`,
@@ -63,4 +65,26 @@ export function coerceAskQuestions(value: unknown): AskUserQuestionEntry[] | und
     });
   }
   return entries.length > 0 ? entries : undefined;
+}
+
+/** Build the same actionable card for a live event and for a late-mounted panel. */
+export function toInputRequiredRequest(payload: InputRequiredEvent): UserActionRequest {
+  const metadata = payload.metadata as UserActionRequest['permissionMetadata'];
+  const isPermissionPrompt = ['permission_denial', 'deferred_permission', 'codex_mcp_approval'].includes(metadata?.type ?? '');
+  const askQuestions = metadata?.type === 'ask_user_question' || metadata?.type === 'acp_elicitation'
+    ? coerceAskQuestions(payload.metadata?.['questions']) : undefined;
+  const secretRequest = metadata?.type === 'secret_required' ? coerceSecretRequest(payload.metadata) : undefined;
+  return {
+    id: payload.requestId,
+    instanceId: payload.instanceId,
+    requestType: secretRequest ? 'secret_required' : 'input_required',
+    title: secretRequest ? (secretRequest.label || 'Secure secret required')
+      : askQuestions?.length ? 'Agent has a question'
+        : isPermissionPrompt ? 'Permission Required' : 'Input Required',
+    message: payload.prompt,
+    createdAt: payload.timestamp,
+    permissionMetadata: metadata,
+    askQuestions,
+    secretRequest,
+  };
 }

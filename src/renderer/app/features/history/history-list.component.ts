@@ -38,6 +38,7 @@ const INITIAL_DISPLAY_LIMIT = 10;
             [entry]="entry"
             (selectEntry)="selectEntry.emit($event)"
             (deleteEntry)="deleteEntry.emit($event)"
+            (sideChatOpened)="sideChatOpened.emit()"
           />
         }
         @if (hasMore()) {
@@ -158,5 +159,6 @@ export class HistoryListComponent {
 
   selectEntry = output<ConversationHistoryEntry>();
   deleteEntry = output<ConversationHistoryEntry>();
+  sideChatOpened = output<void>();
   clearSearch = output<void>();
 }

@@ -6501,7 +6501,7 @@
     },
     {
       "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
-      "lines": 1465
+      "lines": 1466
     },
     {
       "path": "src/main/browser-gateway/browser-extension-origin-bound-secret.spec.ts",
@@ -6788,6 +6788,10 @@
       "lines": 1181
     },
     {
+      "path": "src/renderer/app/features/instance-detail/user-action-request.component.spec.ts",
+      "lines": 1181
+    },
+    {
       "path": "src/main/remote-node/__tests__/rpc-event-router.spec.ts",
       "lines": 1179
     },
@@ -6984,10 +6988,6 @@
       "lines": 1023
     },
     {
-      "path": "src/renderer/app/features/instance-detail/user-action-request.component.ts",
-      "lines": 1022
-    },
-    {
       "path": "src/renderer/app/features/plan/plan-page.component.ts",
       "lines": 1015
     },
@@ -7082,6 +7082,10 @@
     {
       "path": "docs/plans/livetest-backlog.md",
       "lines": 975
+    },
+    {
+      "path": "src/renderer/app/features/instance-detail/user-action-request.component.ts",
+      "lines": 974
     },
     {
       "path": "docs/superpowers/specs/2026-04-21-mcp-multi-provider-management-design_completed.md",
@@ -7190,10 +7194,6 @@
     {
       "path": "src/preload/domains/orchestration.preload.ts",
       "lines": 911
-    },
-    {
-      "path": "src/renderer/app/features/instance-detail/user-action-request.component.spec.ts",
-      "lines": 904
     },
     {
       "path": "src/renderer/app/features/verification/dashboard/verification-dashboard.component.spec.ts",

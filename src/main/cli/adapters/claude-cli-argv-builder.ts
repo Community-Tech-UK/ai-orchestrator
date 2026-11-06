@@ -17,7 +17,7 @@ import { CLAUDE_READ_ONLY_REVIEW_TOOLS, MACHINE_SESSION_DISABLED_PLUGINS } from 
 import { claudeOutputCapSettings, resolveClaudeBashOutputMaxChars } from './claude-output-caps';
 import { nativeSessionIdInUse } from './claude-transcript-registry';
 import { buildDeferPermissionHookCommand } from '../hooks/hook-path-resolver';
-import { HOST_CLI_CLOUD_SCHEDULER_TOOLS } from './host-cli-tool-policy';
+import { DEFAULT_DISALLOWED_TOOLS } from './host-cli-tool-policy';
 import { EXCLUDE_DYNAMIC_SECTIONS_FLAG, EXCLUDE_DYNAMIC_MIN_VERSION, RECORDED_PROMPT_MIN_VERSION, isVersionAtLeast, isKnownOlderThan, resolveClaudeCliVersion } from './claude-cli-feature-probes';
 import { getLogger } from '../../logging/logger';
 import type {
@@ -290,14 +290,14 @@ export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
     args.push('--allowedTools', spawnOptions.allowedTools.join(','));
   }
 
-  // Always deny the host CLI's cloud-scheduler tools, merged with any caller-supplied
+  // Always apply the default print-mode denials, merged with any caller-supplied
   // denylist and deduped. Enforced here — the single chokepoint every process launch
   // (cold, warm-start, resume, replay, continuity-recovery) passes through — so the
   // guarantee holds even for spawn paths that don't wire `disallowedTools` (e.g. a
   // consumed warm-start adapter whose spawnOptions only carry the working directory).
   const disallowedTools = Array.from(
     new Set<string>([
-      ...HOST_CLI_CLOUD_SCHEDULER_TOOLS,
+      ...DEFAULT_DISALLOWED_TOOLS,
       ...(spawnOptions.disallowedTools ?? []),
       // D2 (#6): transient per-send override (loop cap wrap-up tools-disable).
       ...(input.disallowedToolsOverride ?? []),

@@ -7,13 +7,17 @@ import {
   HostListener,
   inject,
   signal,
+  computed,
   OnInit,
   OnDestroy,
   ChangeDetectionStrategy,
   input,
-  effect
+  effect,
+  untracked
 } from '@angular/core';
-import { IpcFacadeService } from '../../core/services/ipc';
+import { IpcFacadeService, IpcEventBusService } from '../../core/services/ipc';
+import { shouldClearInputRequiredForStatus } from '../../core/services/ipc/input-required-lifecycle';
+import type { InputRequiredEvent } from '../../core/services/ipc/ipc-event-bus.service';
 import { InstanceStore } from '../../core/state/instance.store';
 import {
   approveLabelFor,
@@ -30,7 +34,7 @@ import {
 } from './user-action-request.rules';
 import type { UserActionRequest } from './user-action-request.types';
 import {
-  coerceAskQuestions,
+  toInputRequiredRequest,
   isAcpInputRequired,
   isInputRequiredNotPending,
 } from './user-action-request.input-required';
@@ -38,11 +42,9 @@ import {
   clearResponseError,
   errorMessage,
   responseErrorMessage,
-  setResponseError,
-  shouldClearInputRequiredForStatus
+  setResponseError
 } from './user-action-request.response-utils';
 import {
-  coerceSecretRequest,
   declineSecretCardDraft,
   isSecretRequest,
   SecretCardDrafts,
@@ -65,8 +67,13 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
   protected readonly copy = copyFor;
   private ipc = inject(IpcFacadeService);
   private instanceStore = inject(InstanceStore);
+  private eventBus = inject(IpcEventBusService);
 
   instanceId = input<string | null>(null);
+  private readonly yoloModeEnabled = computed(() => {
+    const id = this.instanceId();
+    return id ? this.instanceStore.getInstance(id)?.yoloMode === true : false;
+  });
 
   pendingRequests = signal<UserActionRequest[]>([]);
   isResponding = signal(false);
@@ -75,35 +82,39 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
   private inputRequiredScopes = new Map<string, InputRequiredScope>();
   private inputRequiredTexts = new Map<string, string>();
   private readonly secretCardDrafts = new SecretCardDrafts();
-  private pendingInputRequiredById = new Map<string, UserActionRequest>();
 
   private modifyPanelOpen = new Map<string, boolean>();
   private modifyInputTexts = new Map<string, string>();
   modifyInputErrors = signal<Map<string, string>>(new Map());
 
-  /** Tracks user answers for ask_questions requests: requestId → Map<questionIndex, answer> */
+  /** Answers keyed by instance/request identity, then question index. */
   private questionAnswers = new Map<string, Map<number, string>>();
 
   /**
    * Tracks selected option labels for AskUserQuestion prompts:
-   * requestId → questionIndex → set of selected option labels.
+   * Instance/request identity → questionIndex → selected option labels.
    */
   private askSelections = new Map<string, Map<number, Set<string>>>();
   /**
    * Tracks free-text answers for AskUserQuestion entries that have no options:
-   * requestId → questionIndex → text.
+   * Instance/request identity → questionIndex → text.
    */
   private askTextAnswers = new Map<string, Map<number, string>>();
 
+  private visibleInputRequired: readonly InputRequiredEvent[] = [];
+  private retainedInputRequired: readonly InputRequiredEvent[] = [];
   private unsubscribeUserAction: (() => void) | null = null;
-  private unsubscribeInputRequired: (() => void) | null = null;
-  private unsubscribeInputRequiredResolved: (() => void) | null = null;
 
   constructor() {
     // Reload pending requests when instanceId changes and keep the card scoped
     // to the selected session.
     effect(() => {
       const id = this.instanceId();
+      untracked(() => {
+        for (const request of this.pendingRequests()) {
+          if (request.instanceId !== id) this.secretCardDrafts.clear(request.id);
+        }
+      });
       if (id) {
         this.pendingRequests.update((requests) =>
           requests.filter((r) => this.isRequestForInstance(r, id))
@@ -124,6 +135,48 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         );
         this.instanceStore.clearPendingApprovals(id);
       }
+    });
+
+    // Mirror the runtime-owned requests, including events received while this
+    // component did not exist. Only the selected runtime can contribute cards.
+    effect(() => {
+      const id = this.instanceId();
+      const pending = this.eventBus.pendingInputRequired();
+      const yoloMode = this.yoloModeEnabled();
+      const visible = pending.filter((request) => request.instanceId === id);
+      const currentPayloads = new Set(pending);
+      // secret_required also arrives through the orchestrator list/events.
+      // Replace only cards owned by this runtime stream, preserving those.
+      const runtimeRequestIds = new Set([...this.visibleInputRequired, ...visible]
+        .filter((request) => request.instanceId === id).map((request) => request.requestId));
+      untracked(() => {
+        for (const previous of this.retainedInputRequired) {
+          if (!currentPayloads.has(previous)) {
+            const key = this.draftKey(previous.instanceId, previous.requestId);
+            for (const drafts of [this.inputRequiredTexts, this.inputRequiredScopes, this.modifyPanelOpen,
+              this.modifyInputTexts, this.questionAnswers, this.askSelections, this.askTextAnswers]) {
+              drafts.delete(key);
+            }
+            clearResponseError(this.responseErrors, key);
+            this.modifyInputErrors.update((errors) => {
+              const next = new Map(errors);
+              next.delete(key);
+              return next;
+            });
+          }
+        }
+        for (const previous of this.visibleInputRequired) {
+          if (!visible.includes(previous)) this.secretCardDrafts.clear(previous.requestId);
+        }
+      });
+      this.retainedInputRequired = pending;
+      this.visibleInputRequired = visible;
+      const cards = visible.map(toInputRequiredRequest)
+        .filter((request) => !yoloMode || !shouldClearInputRequiredForYolo(request));
+      this.pendingRequests.update((requests) => [
+        ...requests.filter((request) => request.instanceId === id && !runtimeRequestIds.has(request.id)),
+        ...cards,
+      ]);
     });
 
     // Clear permission dialogs when YOLO mode is toggled ON
@@ -161,119 +214,18 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         return [...requests, req];
       });
     });
-
-    // Subscribe to input required events (CLI permission prompts)
-    console.log('[APPROVAL_TRACE][renderer:user-action] onInputRequired subscription setup');
-    this.unsubscribeInputRequired = this.ipc.onInputRequired((payload) => {
-      const metadata = payload.metadata as UserActionRequest['permissionMetadata'] | undefined;
-      const approvalTraceId = metadata?.approvalTraceId || `approval-renderer-component-${payload.requestId}`;
-      console.log('[APPROVAL_TRACE][renderer:user-action] received', {
-        approvalTraceId,
-        instanceId: payload.instanceId,
-        requestId: payload.requestId,
-        metadataType: metadata?.type
-      });
-
-      const currentInstanceId = this.instanceId();
-
-      if (metadata?.type !== 'permission_denial' && metadata?.type !== 'secret_required') {
-        const instance = this.instanceStore.getInstance(payload.instanceId);
-        if (instance?.yoloMode && shouldClearInputRequiredForYolo({ instanceId: payload.instanceId, requestType: 'input_required', permissionMetadata: metadata })) {
-          console.log('[APPROVAL_TRACE][renderer:user-action] skipped_yolo_enabled', {
-            approvalTraceId,
-            currentInstanceId,
-            payloadInstanceId: payload.instanceId,
-            requestId: payload.requestId
-          });
-          return;
-        }
-      }
-
-      const isPermissionPrompt =
-        metadata?.type === 'permission_denial'
-        || metadata?.type === 'deferred_permission'
-        || metadata?.type === 'codex_mcp_approval';
-      const askQuestions =
-        metadata?.type === 'ask_user_question' || metadata?.type === 'acp_elicitation'
-          ? coerceAskQuestions((payload.metadata as Record<string, unknown> | undefined)?.['questions'])
-          : undefined;
-      const secretRequest = metadata?.type === 'secret_required'
-        ? coerceSecretRequest(payload.metadata as Record<string, unknown> | undefined)
-        : undefined;
-      const req: UserActionRequest = {
-        id: payload.requestId,
-        instanceId: payload.instanceId,
-        requestType: secretRequest ? 'secret_required' : 'input_required',
-        title: secretRequest
-          ? (secretRequest.label || 'Secure secret required')
-          : askQuestions?.length
-            ? 'Agent has a question'
-            : isPermissionPrompt
-              ? 'Permission Required'
-              : 'Input Required',
-        message: payload.prompt,
-        createdAt: payload.timestamp,
-        permissionMetadata: metadata, // Store permission details for retry message
-        askQuestions,
-        secretRequest,
-      };
-      clearResponseError(this.responseErrors, req.id);
-      this.pendingInputRequiredById.set(req.id, req);
-      if (!this.inputRequiredScopes.has(req.id)) {
-        this.inputRequiredScopes.set(req.id, defaultInputRequiredScope(metadata));
-      }
-
-      // Only show for this instance
-      if (!currentInstanceId || payload.instanceId === currentInstanceId) {
-        this.pendingRequests.update((requests) => {
-          if (requests.some((r) => r.id === req.id)) {
-            console.log('[APPROVAL_TRACE][renderer:user-action] duplicate_request_skipped', {
-              approvalTraceId,
-              requestId: req.id,
-              pendingCount: requests.length
-            });
-            return requests;
-          }
-          const updated = [...requests, req];
-          console.log('[APPROVAL_TRACE][renderer:user-action] request_added', {
-            approvalTraceId,
-            requestId: req.id,
-            pendingCount: updated.length
-          });
-          return updated;
-        });
-      } else {
-        console.log('[APPROVAL_TRACE][renderer:user-action] skipped_instance_mismatch', {
-          approvalTraceId,
-          currentInstanceId,
-          payloadInstanceId: payload.instanceId,
-          requestId: payload.requestId
-        });
-      }
-    });
-    console.log('[APPROVAL_TRACE][renderer:user-action] onInputRequired subscription ready');
-
-    // Requests settled without the user (timeout, auto-approve, cancelled turn,
-    // CLI exit) would otherwise leave a card that answers nothing.
-    this.unsubscribeInputRequiredResolved = this.ipc.onInputRequiredResolved((payload) => {
-      this.dropInputRequiredCard(payload.requestId);
-    });
   }
 
-  private dropInputRequiredCard(requestId: string): void {
-    this.inputRequiredTexts.delete(requestId);
-    this.pendingInputRequiredById.delete(requestId);
-    clearResponseError(this.responseErrors, requestId);
-    this.pendingRequests.update((requests) => requests.filter((r) => r.id !== requestId));
+  private dropInputRequiredCard(instanceId: string, requestId: string): void {
+    this.inputRequiredTexts.delete(this.draftKey(instanceId, requestId));
+    this.eventBus.dismissInputRequired(instanceId, requestId);
+    clearResponseError(this.responseErrors, this.draftKey(instanceId, requestId));
+    this.pendingRequests.update((requests) => requests.filter((r) => r.instanceId !== instanceId || r.id !== requestId));
   }
 
   ngOnDestroy(): void {
-    this.unsubscribeInputRequiredResolved?.();
     if (this.unsubscribeUserAction) {
       this.unsubscribeUserAction();
-    }
-    if (this.unsubscribeInputRequired) {
-      this.unsubscribeInputRequired();
     }
   }
 
@@ -305,7 +257,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
               this.isRequestForInstance(r, currentInstanceId)
           );
           const filteredServer = serverRequests.filter(
-            (r) => this.isRequestForInstance(r, currentInstanceId)
+            (r) => this.isRequestForInstance(r, currentInstanceId) && !cachedIds.has(r.id)
           );
           return [...filteredServer, ...localOnly, ...cachedInputRequired];
         });
@@ -320,20 +272,17 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
   }
 
   private getCachedInputRequiredForInstance(instanceId: string): UserActionRequest[] {
-    return Array.from(this.pendingInputRequiredById.values()).filter(
-      (request) => this.isRequestForInstance(request, instanceId)
-    );
+    return this.eventBus.pendingInputRequired()
+      .filter((request) => request.instanceId === instanceId)
+      .map(toInputRequiredRequest)
+      .filter((request) => !this.instanceStore.getInstance(instanceId)?.yoloMode || !shouldClearInputRequiredForYolo(request));
   }
 
   private clearCachedInputRequiredForInstance(
     instanceId: string,
     shouldClear: (request: UserActionRequest) => boolean = () => true,
   ): void {
-    for (const [requestId, request] of this.pendingInputRequiredById.entries()) {
-      if (this.isRequestForInstance(request, instanceId) && shouldClear(request)) {
-        this.pendingInputRequiredById.delete(requestId);
-      }
-    }
+    this.eventBus.clearInputRequired(instanceId, (request) => shouldClear(toInputRequiredRequest(request)));
   }
 
   @HostListener('document:keydown', ['$event'])
@@ -367,18 +316,19 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
   getInputRequiredScope(request: UserActionRequest | string): InputRequiredScope {
     const requestId = typeof request === 'string' ? request : request.id;
     const metadata = typeof request === 'string' ? undefined : request.permissionMetadata;
-    return this.inputRequiredScopes.get(requestId) || defaultInputRequiredScope(metadata);
+    const instanceId = typeof request === 'string' ? this.instanceId() : request.instanceId;
+    return this.inputRequiredScopes.get(this.draftKey(instanceId, requestId)) || defaultInputRequiredScope(metadata);
   }
 
   onInputRequiredScopeChange(requestId: string, event: Event): void {
     const target = event.target as HTMLSelectElement;
     const val = (target.value as InputRequiredScope) || 'once';
-    this.inputRequiredScopes.set(requestId, val);
-    clearResponseError(this.responseErrors, requestId);
+    this.inputRequiredScopes.set(this.draftKey(this.instanceId(), requestId), val);
+    clearResponseError(this.responseErrors, this.draftKey(this.instanceId(), requestId));
   }
 
   getResponseError(requestId: string): string {
-    return this.responseErrors().get(requestId) ?? '';
+    return this.responseErrors().get(this.draftKey(this.instanceId(), requestId)) ?? '';
   }
 
   isPermissionRequest(request: UserActionRequest): boolean {
@@ -418,12 +368,19 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
 
   onInputRequiredTextChange(requestId: string, event: Event): void {
     const target = event.target as HTMLTextAreaElement;
-    this.inputRequiredTexts.set(requestId, target.value);
+    this.inputRequiredTexts.set(this.draftKey(this.instanceId(), requestId), target.value);
+  }
+
+  protected draftKey(instanceId: string | null, requestId: string): string {
+    return JSON.stringify([instanceId, requestId]);
+  }
+
+  getInputRequiredText(requestId: string): string {
+    return this.inputRequiredTexts.get(this.draftKey(this.instanceId(), requestId)) ?? '';
   }
 
   hasInputRequiredText(requestId: string): boolean {
-    const text = this.inputRequiredTexts.get(requestId) || '';
-    return text.trim().length > 0;
+    return this.getInputRequiredText(requestId).trim().length > 0;
   }
 
   // ── Modify-approval helpers ──────────────────────────────────────────────
@@ -441,37 +398,37 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
   }
 
   isModifyPanelOpen(requestId: string): boolean {
-    return this.modifyPanelOpen.get(requestId) ?? false;
+    return this.modifyPanelOpen.get(this.draftKey(this.instanceId(), requestId)) ?? false;
   }
 
   toggleModifyPanel(request: UserActionRequest): void {
     const open = !this.isModifyPanelOpen(request.id);
-    this.modifyPanelOpen.set(request.id, open);
+    this.modifyPanelOpen.set(this.draftKey(request.instanceId, request.id), open);
     // Pre-fill from tool_input the first time the panel is opened
-    if (open && !this.modifyInputTexts.has(request.id)) {
+    if (open && !this.modifyInputTexts.has(this.draftKey(request.instanceId, request.id))) {
       const toolInput = request.permissionMetadata?.tool_input;
       this.modifyInputTexts.set(
-        request.id,
+        this.draftKey(request.instanceId, request.id),
         toolInput ? JSON.stringify(toolInput, null, 2) : ''
       );
     }
   }
 
   getModifyInputText(requestId: string): string {
-    return this.modifyInputTexts.get(requestId) ?? '';
+    return this.modifyInputTexts.get(this.draftKey(this.instanceId(), requestId)) ?? '';
   }
 
   onModifyInputTextChange(requestId: string, event: Event): void {
     const target = event.target as HTMLTextAreaElement;
-    this.modifyInputTexts.set(requestId, target.value);
+    this.modifyInputTexts.set(this.draftKey(this.instanceId(), requestId), target.value);
     // Clear any stale error as user edits
     const errors = new Map(this.modifyInputErrors());
-    errors.delete(requestId);
+    errors.delete(this.draftKey(this.instanceId(), requestId));
     this.modifyInputErrors.set(errors);
   }
 
   getModifyInputError(requestId: string): string {
-    return this.modifyInputErrors().get(requestId) ?? '';
+    return this.modifyInputErrors().get(this.draftKey(this.instanceId(), requestId)) ?? '';
   }
 
   /**
@@ -479,19 +436,20 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
    */
   onQuestionAnswerChange(requestId: string, questionIndex: number, event: Event): void {
     const target = event.target as HTMLTextAreaElement;
-    let answers = this.questionAnswers.get(requestId);
+    let answers = this.questionAnswers.get(this.draftKey(this.instanceId(), requestId));
     if (!answers) {
       answers = new Map();
-      this.questionAnswers.set(requestId, answers);
+      this.questionAnswers.set(this.draftKey(this.instanceId(), requestId), answers);
     }
     answers.set(questionIndex, target.value);
   }
 
-  /**
-   * Submit answers for an ask_questions request
-   */
+  questionAnswerValue(requestId: string, questionIndex: number): string {
+    return this.questionAnswers.get(this.draftKey(this.instanceId(), requestId))?.get(questionIndex) ?? '';
+  }
+
   async onSubmitAnswers(request: UserActionRequest): Promise<void> {
-    const answers = this.questionAnswers.get(request.id);
+    const answers = this.questionAnswers.get(this.draftKey(request.instanceId, request.id));
     const questions = request.questions || [];
 
     // Build answers object: { "Question text": "Answer text" }
@@ -503,12 +461,10 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
     const answersJson = JSON.stringify(answersObj);
     await this.respond(request, true, answersJson);
 
-    // Clean up answer tracking
-    this.questionAnswers.delete(request.id);
   }
 
   isAskOptionSelected(requestId: string, questionIndex: number, label: string): boolean {
-    return this.askSelections.get(requestId)?.get(questionIndex)?.has(label) ?? false;
+    return this.askSelections.get(this.draftKey(this.instanceId(), requestId))?.get(questionIndex)?.has(label) ?? false;
   }
 
   /**
@@ -521,10 +477,10 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
     label: string,
     multiSelect: boolean
   ): void {
-    let byQuestion = this.askSelections.get(requestId);
+    let byQuestion = this.askSelections.get(this.draftKey(this.instanceId(), requestId));
     if (!byQuestion) {
       byQuestion = new Map();
-      this.askSelections.set(requestId, byQuestion);
+      this.askSelections.set(this.draftKey(this.instanceId(), requestId), byQuestion);
     }
     const current = byQuestion.get(questionIndex) ?? new Set<string>();
     if (multiSelect) {
@@ -545,16 +501,16 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
 
   onAskTextChange(requestId: string, questionIndex: number, event: Event): void {
     const target = event.target as HTMLTextAreaElement;
-    let byQuestion = this.askTextAnswers.get(requestId);
+    let byQuestion = this.askTextAnswers.get(this.draftKey(this.instanceId(), requestId));
     if (!byQuestion) {
       byQuestion = new Map();
-      this.askTextAnswers.set(requestId, byQuestion);
+      this.askTextAnswers.set(this.draftKey(this.instanceId(), requestId), byQuestion);
     }
     byQuestion.set(questionIndex, target.value);
   }
 
   askTextValue(requestId: string, questionIndex: number): string {
-    return this.askTextAnswers.get(requestId)?.get(questionIndex) ?? '';
+    return this.askTextAnswers.get(this.draftKey(this.instanceId(), requestId))?.get(questionIndex) ?? '';
   }
 
   /** Enabled only once every question has a selection or non-empty text. */
@@ -565,7 +521,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
     }
     return questions.every((entry, index) => {
       if (entry.options.length > 0) {
-        return (this.askSelections.get(request.id)?.get(index)?.size ?? 0) > 0;
+        return (this.askSelections.get(this.draftKey(request.instanceId, request.id))?.get(index)?.size ?? 0) > 0;
       }
       return this.askTextValue(request.id, index).trim().length > 0;
     });
@@ -585,7 +541,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
       const heading = entry.header || entry.question;
       let answer: string;
       if (entry.options.length > 0) {
-        const selected = [...(this.askSelections.get(request.id)?.get(index) ?? new Set<string>())];
+        const selected = [...(this.askSelections.get(this.draftKey(request.instanceId, request.id))?.get(index) ?? new Set<string>())];
         answer = selected.join(', ');
       } else {
         answer = this.askTextValue(request.id, index).trim();
@@ -594,14 +550,12 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
     });
 
     const responseText = isAcpInputRequired(request) ? JSON.stringify(Object.fromEntries(questions.map((entry, index) => [entry.header || entry.question,
-      entry.options.length ? (entry.multiSelect ? [...(this.askSelections.get(request.id)?.get(index) ?? [])] : [...(this.askSelections.get(request.id)?.get(index) ?? [])][0]) : this.askTextValue(request.id, index).trim()]))) : lines.join('\n').trim();
+      entry.options.length ? (entry.multiSelect ? [...(this.askSelections.get(this.draftKey(request.instanceId, request.id))?.get(index) ?? [])] : [...(this.askSelections.get(this.draftKey(request.instanceId, request.id))?.get(index) ?? [])][0]) : this.askTextValue(request.id, index).trim()]))) : lines.join('\n').trim();
     if (!responseText) {
       return;
     }
 
     await this.respond(request, true, responseText);
-    this.askSelections.delete(request.id);
-    this.askTextAnswers.delete(request.id);
   }
 
   /**
@@ -614,8 +568,6 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
       true,
       isAcpInputRequired(request) ? 'cancel' : 'No preference — please proceed with your own recommendation.'
     );
-    this.askSelections.delete(request.id);
-    this.askTextAnswers.delete(request.id);
   }
 
   async onApprove(request: UserActionRequest): Promise<void> {
@@ -632,7 +584,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
    * decisionAction='modify' and the parsed object as updatedInput.
    */
   async onApproveWithChanges(request: UserActionRequest): Promise<void> {
-    const rawText = (this.modifyInputTexts.get(request.id) ?? '').trim();
+    const rawText = (this.modifyInputTexts.get(this.draftKey(request.instanceId, request.id)) ?? '').trim();
 
     // Parse JSON
     let parsed: unknown;
@@ -640,7 +592,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
       parsed = JSON.parse(rawText);
     } catch {
       const errors = new Map(this.modifyInputErrors());
-      errors.set(request.id, 'Invalid JSON — please fix the syntax before approving.');
+      errors.set(this.draftKey(request.instanceId, request.id), 'Invalid JSON — please fix the syntax before approving.');
       this.modifyInputErrors.set(errors);
       return;
     }
@@ -653,7 +605,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
       Object.keys(parsed as object).length === 0
     ) {
       const errors = new Map(this.modifyInputErrors());
-      errors.set(request.id, 'Input must be a non-empty JSON object ({ … }).');
+      errors.set(this.draftKey(request.instanceId, request.id), 'Input must be a non-empty JSON object ({ … }).');
       this.modifyInputErrors.set(errors);
       return;
     }
@@ -682,11 +634,11 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         );
         this.instanceStore.clearPendingApprovals(request.instanceId);
       } else {
-        setResponseError(this.responseErrors, request.id, responseErrorMessage(result, 'Failed to enable YOLO mode.'));
+        setResponseError(this.responseErrors, this.draftKey(request.instanceId, request.id), responseErrorMessage(result, 'Failed to enable YOLO mode.'));
       }
     } catch (error) {
       console.error('Failed to enable YOLO mode:', error);
-      setResponseError(this.responseErrors, request.id, errorMessage(error, 'Failed to enable YOLO mode.'));
+      setResponseError(this.responseErrors, this.draftKey(request.instanceId, request.id), errorMessage(error, 'Failed to enable YOLO mode.'));
     } finally {
       this.isResponding.set(false);
     }
@@ -700,11 +652,10 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
   }
 
   async onSubmitInputRequired(request: UserActionRequest): Promise<void> {
-    const responseText = (this.inputRequiredTexts.get(request.id) || '').trim();
+    const responseText = (this.inputRequiredTexts.get(this.draftKey(request.instanceId, request.id)) || '').trim();
     if (!responseText) return;
 
     await this.respond(request, true, responseText);
-    this.inputRequiredTexts.delete(request.id);
   }
 
   readonly isSecretRequest = isSecretRequest;
@@ -742,17 +693,17 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
     fallback: string,
   ): Promise<void> {
     this.isResponding.set(true);
-    clearResponseError(this.responseErrors, request.id);
+    clearResponseError(this.responseErrors, this.draftKey(request.instanceId, request.id));
     try {
       const result = await submit();
       if (result.success) {
-        this.pendingInputRequiredById.delete(request.id);
-        this.pendingRequests.update((requests) => requests.filter((r) => r.id !== request.id));
+        this.eventBus.dismissInputRequired(request.instanceId, request.id);
+        this.pendingRequests.update((requests) => requests.filter((r) => r.instanceId !== request.instanceId || r.id !== request.id));
       } else {
-        setResponseError(this.responseErrors, request.id, responseErrorMessage(result, fallback));
+        setResponseError(this.responseErrors, this.draftKey(request.instanceId, request.id), responseErrorMessage(result, fallback));
       }
     } catch (error) {
-      setResponseError(this.responseErrors, request.id, errorMessage(error, fallback));
+      setResponseError(this.responseErrors, this.draftKey(request.instanceId, request.id), errorMessage(error, fallback));
     } finally {
       this.isResponding.set(false);
     }
@@ -805,15 +756,15 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
           instanceId: request.instanceId,
         });
         // Clean up local state
-        this.modifyInputTexts.delete(request.id);
-        this.modifyPanelOpen.delete(request.id);
+        this.modifyInputTexts.delete(this.draftKey(request.instanceId, request.id));
+        this.modifyPanelOpen.delete(this.draftKey(request.instanceId, request.id));
         const errors = new Map(this.modifyInputErrors());
-        errors.delete(request.id);
+        errors.delete(this.draftKey(request.instanceId, request.id));
         this.modifyInputErrors.set(errors);
-        this.inputRequiredScopes.delete(request.id);
-        this.pendingInputRequiredById.delete(request.id);
+        this.inputRequiredScopes.delete(this.draftKey(request.instanceId, request.id));
+        this.eventBus.dismissInputRequired(request.instanceId, request.id);
         this.pendingRequests.update((requests) =>
-          requests.filter((r) => r.id !== request.id)
+          requests.filter((r) => r.instanceId !== request.instanceId || r.id !== request.id)
         );
         this.instanceStore.decrementPendingApproval(request.instanceId);
       }
@@ -831,7 +782,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
     metadataExtras?: Record<string, unknown>,
   ): Promise<void> {
     this.isResponding.set(true);
-    clearResponseError(this.responseErrors, request.id);
+    clearResponseError(this.responseErrors, this.draftKey(request.instanceId, request.id));
 
     try {
       // Handle input_required differently - send retry message or denial to CLI
@@ -863,7 +814,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
           if (!result.success && isInputRequiredNotPending(result)) {
             // Already settled elsewhere (timeout, auto-approve); the resolved
             // event handles the pending count.
-            this.dropInputRequiredCard(request.id);
+            this.dropInputRequiredCard(request.instanceId, request.id);
             return;
           }
           if (result.success) {
@@ -872,14 +823,14 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
               requestId: request.id,
               instanceId: request.instanceId
             });
-            this.inputRequiredTexts.delete(request.id);
-            this.pendingInputRequiredById.delete(request.id);
+            this.inputRequiredTexts.delete(this.draftKey(request.instanceId, request.id));
+            this.eventBus.dismissInputRequired(request.instanceId, request.id);
             this.pendingRequests.update((requests) =>
-              requests.filter((r) => r.id !== request.id)
+              requests.filter((r) => r.instanceId !== request.instanceId || r.id !== request.id)
             );
             this.instanceStore.decrementPendingApproval(request.instanceId);
           } else {
-            setResponseError(this.responseErrors, request.id, responseErrorMessage(result, 'Failed to submit your response.'));
+            setResponseError(this.responseErrors, this.draftKey(request.instanceId, request.id), responseErrorMessage(result, 'Failed to submit your response.'));
           }
           return;
         }
@@ -962,7 +913,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
             decisionScope,
             isDeferred: this.isDeferredPermission(request),
           });
-          this.inputRequiredScopes.delete(request.id);
+          this.inputRequiredScopes.delete(this.draftKey(request.instanceId, request.id));
           if (resultData?.yoloMode === true) {
             this.instanceStore.setLocalYoloMode(request.instanceId, true);
             this.clearCachedInputRequiredForInstance(
@@ -974,14 +925,14 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
             );
             this.instanceStore.clearPendingApprovals(request.instanceId);
           } else {
-            this.pendingInputRequiredById.delete(request.id);
+            this.eventBus.dismissInputRequired(request.instanceId, request.id);
             this.pendingRequests.update((requests) =>
-              requests.filter((r) => r.id !== request.id)
+              requests.filter((r) => r.instanceId !== request.instanceId || r.id !== request.id)
             );
             this.instanceStore.decrementPendingApproval(request.instanceId);
           }
         } else {
-          setResponseError(this.responseErrors, request.id, responseErrorMessage(result, 'Failed to submit your decision.'));
+          setResponseError(this.responseErrors, this.draftKey(request.instanceId, request.id), responseErrorMessage(result, 'Failed to submit your decision.'));
         }
         return;
       }
@@ -994,6 +945,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
       );
 
       if (response.success) {
+        this.questionAnswers.delete(this.draftKey(request.instanceId, request.id));
         if (
           approved &&
           request.requestType === 'switch_mode' &&
@@ -1006,14 +958,14 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         }
         // Remove the request from the list
         this.pendingRequests.update((requests) =>
-          requests.filter((r) => r.id !== request.id)
+          requests.filter((r) => r.instanceId !== request.instanceId || r.id !== request.id)
         );
       } else {
-        setResponseError(this.responseErrors, request.id, responseErrorMessage(response, 'Failed to submit your decision.'));
+        setResponseError(this.responseErrors, this.draftKey(request.instanceId, request.id), responseErrorMessage(response, 'Failed to submit your decision.'));
       }
     } catch (error) {
       console.error('Failed to respond to user action request:', error);
-      setResponseError(this.responseErrors, request.id, errorMessage(error, 'Failed to submit your decision.'));
+      setResponseError(this.responseErrors, this.draftKey(request.instanceId, request.id), errorMessage(error, 'Failed to submit your decision.'));
     } finally {
       this.isResponding.set(false);
     }

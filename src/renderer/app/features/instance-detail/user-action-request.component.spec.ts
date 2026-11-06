@@ -9,7 +9,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { IpcFacadeService } from '../../core/services/ipc';
+import { IpcFacadeService, IpcEventBusService, InstanceIpcService } from '../../core/services/ipc';
 import { InstanceStore } from '../../core/state/instance.store';
 import {
   UserActionRequestComponent,
@@ -58,6 +58,9 @@ describe('UserActionRequestComponent', () => {
     onUserActionRequest: vi.fn(),
     onInputRequired: vi.fn(),
     onInputRequiredResolved: vi.fn(),
+    onInstanceRemoved: () => () => undefined,
+    onInstanceStateUpdate: () => () => undefined,
+    onBatchUpdate: () => () => undefined,
     respondToUserAction: vi.fn(),
     respondToInputRequired: vi.fn(),
     submitSecretCard: vi.fn(),
@@ -84,14 +87,17 @@ describe('UserActionRequestComponent', () => {
       onUserActionRequest = callback;
       return vi.fn();
     });
+    const inputListeners = new Set<typeof onInputRequired>();
+    onInputRequired = (payload) => inputListeners.forEach((listener) => listener(payload));
     fakeIpc.onInputRequired.mockImplementation((callback: typeof onInputRequired) => {
-      onInputRequired = callback;
-      return vi.fn();
+      inputListeners.add(callback);
+      return () => inputListeners.delete(callback);
     });
-    onInputRequiredResolved = () => undefined;
+    const resolvedListeners = new Set<typeof onInputRequiredResolved>();
+    onInputRequiredResolved = (payload) => resolvedListeners.forEach((listener) => listener(payload));
     fakeIpc.onInputRequiredResolved.mockImplementation((callback: typeof onInputRequiredResolved) => {
-      onInputRequiredResolved = callback;
-      return vi.fn();
+      resolvedListeners.add(callback);
+      return () => resolvedListeners.delete(callback);
     });
     fakeIpc.respondToUserAction.mockResolvedValue({ success: true, data: {} });
     fakeIpc.respondToInputRequired.mockResolvedValue({ success: true, data: {} });
@@ -110,9 +116,12 @@ describe('UserActionRequestComponent', () => {
       providers: [
         { provide: IpcFacadeService, useValue: fakeIpc },
         { provide: InstanceStore, useValue: fakeInstanceStore },
+        { provide: InstanceIpcService, useValue: fakeIpc },
       ],
     }).compileComponents();
 
+    // InstanceStore subscribes at startup, before a sidechat panel mounts.
+    TestBed.inject(IpcEventBusService).inputRequired$.subscribe();
     fixture = TestBed.createComponent(UserActionRequestComponent);
     overrideInputs(fixture.componentInstance, currentInstanceId);
   });
@@ -212,6 +221,266 @@ describe('UserActionRequestComponent', () => {
     await settle(fixture);
 
     expect(fixture.nativeElement.textContent).toContain('Allow Bash command?');
+  });
+
+  it('recovers the exact child approval arriving before the first panel mounts', async () => {
+    const payload = {
+      instanceId: 'child-1', requestId: 'deferred-runtime-request', prompt: 'Allow the exact command?', timestamp: 73,
+      metadata: { type: 'deferred_permission', tool_name: 'Bash', tool_use_id: 'runtime-tool', tool_input: { command: 'echo requested' } },
+    };
+    onInputRequired(payload);
+    currentInstanceId.set('parent');
+    fixture.detectChanges();
+    await settle(fixture);
+    expect(fixture.componentInstance.pendingRequests()).toEqual([]);
+
+    currentInstanceId.set('child-1');
+    fixture.detectChanges();
+    await settle(fixture);
+    expect(fixture.componentInstance.pendingRequests()).toEqual([expect.objectContaining({
+      id: payload.requestId, instanceId: payload.instanceId, message: payload.prompt,
+      createdAt: payload.timestamp, permissionMetadata: payload.metadata,
+    })]);
+    await fixture.componentInstance.onApprove(fixture.componentInstance.pendingRequests()[0]);
+    expect(fakeIpc.respondToInputRequired).toHaveBeenCalledWith(
+      'child-1', payload.requestId, expect.stringContaining('Permission granted'), undefined,
+      'allow', 'once', { type: 'deferred_permission', tool_use_id: 'runtime-tool' },
+    );
+  });
+
+  it('retains pending approvals across panel destruction and receives new ones while closed', async () => {
+    currentInstanceId.set('child-1');
+    fixture.detectChanges();
+    await settle(fixture);
+    const payload = { instanceId: 'child-1', requestId: 'first', prompt: 'First approval', timestamp: 1 };
+    onInputRequired(payload);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.pendingRequests().map(request => request.id)).toEqual(['first']);
+    fixture.destroy();
+    onInputRequired({ ...payload, requestId: 'second', prompt: 'Second approval' });
+    onInputRequired(payload);
+    fixture = TestBed.createComponent(UserActionRequestComponent);
+    overrideInputs(fixture.componentInstance, currentInstanceId);
+    fixture.detectChanges();
+    await settle(fixture);
+    expect(fixture.componentInstance.pendingRequests().map(request => request.id)).toEqual(['first', 'second']);
+  });
+
+  it('does not resurrect an approval resolved while the panel was closed', async () => {
+    fixture.destroy();
+    onInputRequired({ instanceId: 'child-1', requestId: 'expired', prompt: 'Expired approval', timestamp: 1 });
+    onInputRequiredResolved({ instanceId: 'child-1', requestId: 'expired', reason: 'cancelled' });
+    currentInstanceId.set('child-1');
+    fixture = TestBed.createComponent(UserActionRequestComponent);
+    overrideInputs(fixture.componentInstance, currentInstanceId);
+    fixture.detectChanges();
+    await settle(fixture);
+    expect(fixture.componentInstance.pendingRequests()).toEqual([]);
+  });
+
+  it('recovers CLI approvals even if the orchestrator request list fails', async () => {
+    fakeIpc.listUserActionRequestsForInstance.mockResolvedValue({ success: false, error: { message: 'Unavailable' } });
+    onInputRequired({ instanceId: 'child-1', requestId: 'pending', prompt: 'Still waiting', timestamp: 1 });
+    currentInstanceId.set('child-1');
+    fixture.detectChanges();
+    await settle(fixture);
+    expect(fixture.nativeElement.textContent).toContain('Still waiting');
+  });
+
+  it('keeps a parent approval with the same request id when a child request resolves', async () => {
+    currentInstanceId.set('parent');
+    fixture.detectChanges();
+    await settle(fixture);
+    onInputRequired({ instanceId: 'parent', requestId: 'same-id', prompt: 'Parent approval', timestamp: 1 });
+    onInputRequired({ instanceId: 'child', requestId: 'same-id', prompt: 'Child approval', timestamp: 2 });
+    fixture.detectChanges();
+    onInputRequiredResolved({ instanceId: 'child', requestId: 'same-id', reason: 'decided' });
+    fixture.detectChanges();
+    expect(fixture.componentInstance.pendingRequests().map(request => request.message)).toEqual(['Parent approval']);
+  });
+
+  it('does not replay a successfully answered approval after reopening', async () => {
+    currentInstanceId.set('child-1');
+    fixture.detectChanges();
+    await settle(fixture);
+    onInputRequired({ instanceId: 'child-1', requestId: 'answered', prompt: 'Allow once?', timestamp: 1,
+      metadata: { type: 'deferred_permission', tool_use_id: 'exact-tool' } });
+    fixture.detectChanges();
+    await fixture.componentInstance.onApprove(fixture.componentInstance.pendingRequests()[0]);
+    fixture.destroy();
+    fixture = TestBed.createComponent(UserActionRequestComponent);
+    overrideInputs(fixture.componentInstance, currentInstanceId);
+    fixture.detectChanges();
+    await settle(fixture);
+    expect(fixture.componentInstance.pendingRequests()).toEqual([]);
+  });
+
+  it('does not reuse another session input draft when request ids coincide', async () => {
+    currentInstanceId.set('parent');
+    fixture.detectChanges();
+    await settle(fixture);
+    onInputRequired({ instanceId: 'parent', requestId: 'same-id', prompt: 'Parent input', timestamp: 1 });
+    onInputRequired({ instanceId: 'child', requestId: 'same-id', prompt: 'Child input', timestamp: 2 });
+    fixture.detectChanges();
+    fixture.componentInstance.onInputRequiredTextChange('same-id', { target: { value: 'Parent answer' } } as unknown as Event);
+    currentInstanceId.set('child');
+    fixture.detectChanges();
+    await settle(fixture);
+    expect(fixture.componentInstance.hasInputRequiredText('same-id')).toBe(false);
+    expect(fixture.componentInstance.pendingRequests().map(request => request.message)).toEqual(['Child input']);
+    expect((fixture.nativeElement.querySelector('.question-input') as HTMLTextAreaElement).value).toBe('');
+    fixture.componentInstance.onInputRequiredTextChange('same-id', { target: { value: 'Child answer' } } as unknown as Event);
+    currentInstanceId.set('parent');
+    fixture.detectChanges();
+    await settle(fixture);
+    expect((fixture.nativeElement.querySelector('.question-input') as HTMLTextAreaElement).value).toBe('Parent answer');
+    fakeIpc.respondToInputRequired.mockResolvedValueOnce({ success: false, error: { message: 'Try again' } });
+    await fixture.componentInstance.onSubmitInputRequired(fixture.componentInstance.pendingRequests()[0]);
+    fixture.detectChanges();
+    expect((fixture.nativeElement.querySelector('.question-input') as HTMLTextAreaElement).value).toBe('Parent answer');
+    await fixture.componentInstance.onSubmitInputRequired(fixture.componentInstance.pendingRequests()[0]);
+    expect(fakeIpc.respondToInputRequired).toHaveBeenCalledWith('parent', 'same-id', 'Parent answer', undefined);
+    currentInstanceId.set('child');
+    fixture.detectChanges();
+    await settle(fixture);
+    expect((fixture.nativeElement.querySelector('.question-input') as HTMLTextAreaElement).value).toBe('Child answer');
+  });
+
+  it('retains scope, edited input and question drafts only for their owning pending request', async () => {
+    currentInstanceId.set('parent');
+    fixture.detectChanges();
+    await settle(fixture);
+    for (const instanceId of ['parent', 'child']) {
+      onInputRequired({ instanceId, requestId: 'permission', prompt: 'Allow command?', timestamp: 1,
+        metadata: { type: 'deferred_permission', tool_input: { command: 'echo original' } } });
+      onInputRequired({ instanceId, requestId: 'question', prompt: 'Choose and explain', timestamp: 2,
+        metadata: { type: 'ask_user_question', questions: [
+          { header: 'Choice', question: 'Choose', options: [{ label: 'First' }, { label: 'Second' }] },
+          { header: 'Reason', question: 'Explain', options: [] },
+        ] } });
+    }
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+    const permission = () => component.pendingRequests().find(request => request.id === 'permission')!;
+    component.onInputRequiredScopeChange('permission', { target: { value: 'session' } } as unknown as Event);
+    component.toggleModifyPanel(permission());
+    component.onModifyInputTextChange('permission', { target: { value: '{"command":"echo parent"}' } } as unknown as Event);
+    component.toggleAskOption('question', 0, 'First', false);
+    component.onAskTextChange('question', 1, { target: { value: 'Parent explanation' } } as unknown as Event);
+    currentInstanceId.set('child');
+    fixture.detectChanges();
+    await settle(fixture);
+    expect(component.getInputRequiredScope(permission())).toBe('once');
+    expect(component.isModifyPanelOpen('permission')).toBe(false);
+    expect(component.isAskOptionSelected('question', 0, 'First')).toBe(false);
+    expect(component.askTextValue('question', 1)).toBe('');
+    component.toggleAskOption('question', 0, 'Second', false);
+    component.onAskTextChange('question', 1, { target: { value: 'Child explanation' } } as unknown as Event);
+    currentInstanceId.set('parent');
+    fixture.detectChanges();
+    await settle(fixture);
+    expect(component.getInputRequiredScope(permission())).toBe('session');
+    expect(component.isModifyPanelOpen('permission')).toBe(true);
+    expect((fixture.nativeElement.querySelector('.modify-textarea') as HTMLTextAreaElement).value).toBe('{"command":"echo parent"}');
+    expect(component.isAskOptionSelected('question', 0, 'First')).toBe(true);
+    expect(component.isAskOptionSelected('question', 0, 'Second')).toBe(false);
+    expect(component.askTextValue('question', 1)).toBe('Parent explanation');
+    expect(Array.from(fixture.nativeElement.querySelectorAll('textarea') as NodeListOf<HTMLTextAreaElement>).some(textarea => textarea.value === 'Parent explanation')).toBe(true);
+    fakeIpc.respondToInputRequired.mockResolvedValueOnce({ success: false, error: { message: 'Try again' } });
+    await component.onSubmitAskUserQuestion(component.pendingRequests().find(request => request.id === 'question')!);
+    expect(component.isAskOptionSelected('question', 0, 'First')).toBe(true);
+    expect(component.askTextValue('question', 1)).toBe('Parent explanation');
+    currentInstanceId.set('child');
+    fixture.detectChanges();
+    await settle(fixture);
+    onInputRequiredResolved({ instanceId: 'parent', requestId: 'question', reason: 'decided' });
+    fixture.detectChanges();
+    expect(component.askTextValue('question', 1)).toBe('Child explanation');
+    onInputRequired({ instanceId: 'parent', requestId: 'question', prompt: 'Fresh question', timestamp: 3 });
+    currentInstanceId.set('parent');
+    fixture.detectChanges();
+    await settle(fixture);
+    expect(component.askTextValue('question', 1)).toBe('');
+    expect(component.isAskOptionSelected('question', 0, 'First')).toBe(false);
+  });
+
+  it('clears typed secret values when changing sessions even when request ids coincide', async () => {
+    currentInstanceId.set('parent');
+    fixture.detectChanges();
+    await settle(fixture);
+    for (const instanceId of ['parent', 'child']) {
+      onInputRequired({ instanceId, requestId: 'secret', prompt: 'Supply a workspace value', timestamp: 1,
+        metadata: { type: 'secret_required', name: 'example-value', label: 'Workspace value', purpose: 'Connect workspace' } });
+    }
+    fixture.detectChanges();
+    const input = fixture.nativeElement.querySelector('.secret-input') as HTMLInputElement;
+    input.value = 'example-placeholder-value';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    expect(fixture.componentInstance.hasSecretValue('secret')).toBe(true);
+    for (const instanceId of ['child', 'parent']) {
+      currentInstanceId.set(instanceId);
+      fixture.detectChanges();
+      await settle(fixture);
+      expect((fixture.nativeElement.querySelector('.secret-input') as HTMLInputElement).value).toBe('');
+      expect(fixture.componentInstance.hasSecretValue('secret')).toBe(false);
+    }
+  });
+
+  it('keeps existing cards stable when unrelated instance state changes', async () => {
+    const instance = signal({ yoloMode: false, status: 'busy', outputRevision: 0 });
+    fakeInstanceStore.getInstance.mockImplementation(() => instance());
+    currentInstanceId.set('child');
+    fixture.detectChanges();
+    await settle(fixture);
+    onInputRequired({ instanceId: 'child', requestId: 'approval', prompt: 'Pending approval', timestamp: 1 });
+    fixture.detectChanges();
+    const cards = fixture.componentInstance.pendingRequests();
+    instance.update(value => ({ ...value, outputRevision: 1 }));
+    fixture.detectChanges();
+    expect(fixture.componentInstance.pendingRequests()).toBe(cards);
+  });
+
+  it('preserves a parent orchestrator secret card when child CLI requests arrive and resolve', async () => {
+    currentInstanceId.set('parent');
+    fixture.detectChanges();
+    await settle(fixture);
+    const secret = makeSecretRequest('parent');
+    onUserActionRequest(secret);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.secret-input')).not.toBeNull();
+    onInputRequired({ instanceId: 'child', requestId: 'child-approval', prompt: 'Child approval', timestamp: 1 });
+    fixture.detectChanges();
+    expect(fixture.componentInstance.pendingRequests()).toEqual([secret]);
+    onInputRequiredResolved({ instanceId: 'child', requestId: 'child-approval', reason: 'decided' });
+    fixture.detectChanges();
+    expect(fixture.componentInstance.pendingRequests()).toEqual([secret]);
+    expect(fixture.nativeElement.querySelector('.secret-input')).not.toBeNull();
+  });
+
+  it('preserves a server-listed parent secret card when a child CLI prompt arrives', async () => {
+    const secret = makeSecretRequest('parent');
+    fakeIpc.listUserActionRequestsForInstance.mockResolvedValue({ success: true, data: [secret] });
+    currentInstanceId.set('parent');
+    fixture.detectChanges();
+    await settle(fixture);
+    expect(fixture.componentInstance.pendingRequests()).toEqual([secret]);
+    onInputRequired({ instanceId: 'child', requestId: 'child-approval', prompt: 'Child approval', timestamp: 1 });
+    fixture.detectChanges();
+    expect(fixture.componentInstance.pendingRequests()).toEqual([secret]);
+  });
+
+  it('keeps a newly received orchestrator secret when an older server list finishes loading', async () => {
+    let finishList!: (result: { success: boolean; data: UserActionRequest[] }) => void;
+    fakeIpc.listUserActionRequestsForInstance.mockReturnValue(new Promise(resolve => { finishList = resolve; }));
+    currentInstanceId.set('parent');
+    fixture.detectChanges();
+    const secret = makeSecretRequest('parent');
+    onUserActionRequest(secret);
+    fixture.detectChanges();
+    finishList({ success: true, data: [] });
+    await settle(fixture);
+    expect(fixture.componentInstance.pendingRequests()).toEqual([secret]);
   });
 
   // ── Generic ACP permission cards (timeout / Cancel / stale replies) ─────
@@ -899,5 +1168,13 @@ function makeQuestionRequest(
     message: 'Please decide.',
     questions: ['Question?'],
     createdAt: 1_900_000_000_000,
+  };
+}
+
+function makeSecretRequest(instanceId: string): UserActionRequest {
+  return {
+    id: 'orchestrator-secret', instanceId, requestType: 'secret_required',
+    title: 'Workspace value required', message: 'Supply a workspace value.', createdAt: 1,
+    secretRequest: { name: 'example-value', label: 'Workspace value', purpose: 'Connect the workspace' },
   };
 }

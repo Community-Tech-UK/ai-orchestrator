@@ -11,11 +11,12 @@ import type { ConversationHistoryEntry } from '../../../../shared/types/history.
 import type { OutputMessage } from '../../core/state/instance/instance.types';
 import type { SessionShareBundle } from '../../../../shared/types/session-share.types';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { HistorySideChatBadgeComponent } from './history-side-chat-badge.component';
 
 @Component({
   selector: 'app-history-item',
   standalone: true,
-  imports: [DatePipe, CommonModule, AioTooltipDirective],
+  imports: [DatePipe, CommonModule, AioTooltipDirective, HistorySideChatBadgeComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
@@ -38,6 +39,7 @@ import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive'
           <div class="header-content">
             <div class="header-top">
               <span class="display-name">{{ entry().displayName }}</span>
+              <app-history-side-chat-badge [entry]="entry()" (opened)="sideChatOpened.emit()" />
               <div class="header-actions">
               <button
                 class="btn-share"
@@ -511,6 +513,7 @@ export class HistoryItemComponent {
 
   selectEntry = output<ConversationHistoryEntry>();
   deleteEntry = output<ConversationHistoryEntry>();
+  sideChatOpened = output<void>();
 
   private historyStore = inject(HistoryStore);
   private router = inject(Router);

@@ -18,6 +18,7 @@ import { isAccountPoolActive } from '../../providers/account-pool/provider-accou
 import { attachUsageOverageStopGuard } from '../instance-usage-overage-wiring';
 import { isInstanceTaskTools } from './task-tools-scoping';
 import { isSignalFenceSettingEnabled } from '../../sandbox/signal-fence-setting';
+import { DEFAULT_DISALLOWED_TOOLS } from '../../cli/adapters/host-cli-tool-policy';
 
 export interface InstanceSpawnPreflightDeps {
   consumeWarmAdapter: (provider: CliType, workingDirectory: string) => CliAdapter | null;
@@ -80,6 +81,10 @@ export class InstanceSpawnPreflightChain {
     // Warm Claude processes have no per-instance permission hook. The hook is
     // configured at launch, so adoption would silently lose deferred approvals.
     const permissionHookRequired = provider === 'claude' && Boolean(spawnOptions.permissionHookPath);
+    // Tool authority is fixed at launch too. The ordinary denylist is present
+    // on every create; only additional restrictions require a fresh process.
+    const toolAuthorityRequired = spawnOptions.allowedTools !== undefined
+      || (spawnOptions.disallowedTools?.some((tool) => !DEFAULT_DISALLOWED_TOOLS.includes(tool)) ?? false);
     // Warm adapters are also spawned without the per-instance Seatbelt wrapper.
     // Its restrictions cannot be added to an already-running CLI process.
     // Equally, a warm adapter carries the default signal fence, which cannot
@@ -92,6 +97,9 @@ export class InstanceSpawnPreflightChain {
       || spawnOptions.additionalDirectories?.length
       || machineSessionReasonOf(config) !== null
       || config.hardened
+      || config.containedExecution
+      || spawnOptions.filterEnv
+      || spawnOptions.readOnlyReview
       || config.signalFence === false
       || !isSignalFenceSettingEnabled()
       || config.forceNodeId
@@ -102,6 +110,7 @@ export class InstanceSpawnPreflightChain {
       || warmEffortMismatch
       || warmYoloMismatch
       || permissionHookRequired
+      || toolAuthorityRequired
       || copilotRouteRequired
       || accountRouteRequired
       || isInstanceTaskTools(spawnOptions.instanceId)

@@ -1,4 +1,5 @@
 import type { ChatRecord } from '../../../../shared/types/chat.types';
+import type { Instance } from '../../core/state/instance/instance.types';
 import type { ModelRuntimeTarget } from '../../../../shared/types/local-model-runtime.types';
 import type {
   SideChatParentRef,
@@ -14,7 +15,7 @@ import { SIDE_CHAT_PROVIDERS } from '../../../../shared/types/side-chat.types';
  */
 export function sideChatParentFor(
   chat: ChatRecord | null,
-  instance: { historyThreadId?: string; workerNodeId?: string } | null,
+  instance: Pick<Instance, 'historyThreadId' | 'executionLocation'> | null,
 ): SideChatParentRef | null {
   if (chat) {
     return { kind: 'chat', chatId: chat.id };
@@ -23,7 +24,7 @@ export function sideChatParentFor(
     return {
       kind: 'session',
       historyThreadId: instance.historyThreadId,
-      originNodeId: instance.workerNodeId ?? null,
+      originNodeId: instance.executionLocation?.type === 'remote' ? instance.executionLocation.nodeId : null,
     };
   }
   return null;

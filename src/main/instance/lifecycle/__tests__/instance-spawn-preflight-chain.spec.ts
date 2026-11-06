@@ -50,6 +50,37 @@ describe('InstanceSpawnPreflightChain', () => {
     }
   });
 
+  it.each([
+    { allowedTools: ['Read'] },
+    { disallowedTools: ['Write', 'Edit'] },
+    { permissionHookPath: '/tmp/permission-hook.mjs' },
+    { readOnlyReview: true },
+    { filterEnv: true },
+  ])('keeps launch-bound authority when a warm adapter is available: %j', async (authority) => {
+    const deps = makeDeps();
+    deps.consumeWarmAdapter.mockReturnValue({ getName: () => 'claude' } as CliAdapter);
+    const spawnOptions = makeSpawnOptions({ browserGatewayMcp: undefined, ...authority });
+    const result = await new InstanceSpawnPreflightChain(deps).prepare({
+      config: { workingDirectory: '/tmp/project', provider: 'claude' },
+      instance: { workingDirectory: '/tmp/project', bareMode: false },
+      provider: 'claude', spawnOptions,
+    });
+    expect(result).toEqual({ kind: 'fresh', executionLocation: { type: 'local' }, spawnOptions });
+    expect(deps.consumeWarmAdapter).not.toHaveBeenCalled();
+  });
+
+  it('does not adopt an unfiltered warm process for contained execution', async () => {
+    const deps = makeDeps();
+    deps.consumeWarmAdapter.mockReturnValue({ getName: () => 'claude' } as CliAdapter);
+    const result = await new InstanceSpawnPreflightChain(deps).prepare({
+      config: { workingDirectory: '/tmp/project', provider: 'claude', containedExecution: true },
+      instance: { workingDirectory: '/tmp/project' }, provider: 'claude',
+      spawnOptions: makeSpawnOptions({ browserGatewayMcp: undefined }),
+    });
+    expect(result.kind).toBe('fresh');
+    expect(deps.consumeWarmAdapter).not.toHaveBeenCalled();
+  });
+
   it('refuses an OpenCode warm adapter without the tracked session checkpoint hook', async () => {
     const deps = makeDeps();
     deps.consumeWarmAdapter.mockReturnValue({ getName: () => 'opencode' } as CliAdapter);

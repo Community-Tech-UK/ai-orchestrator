@@ -17,13 +17,7 @@ import { ToolLoopAlertStore } from '../../core/state/tool-loop-alert.store';
 import { isRemoteNodeOnline } from '../../core/state/remote-node-connectivity';
 import { SideChatStore } from '../../core/state/side-chat.store';
 import type { SideChatParentRef } from '../../../../shared/types/side-chat.types';
-
-/** Badge treatment of a session's sidechats while their panel is closed. */
-interface SideChatRowBadge {
-  kind: 'needs-attention' | 'unread' | 'running' | 'quiet';
-  count: number;
-  label: string;
-}
+import { sideChatRowBadge } from '../side-chat/side-chat-badge';
 
 @Component({
   selector: 'app-instance-row',
@@ -103,20 +97,8 @@ export class InstanceRowComponent {
    * This session's sidechat activity, so answers stay discoverable with the
    * panel closed. Needing action outranks unread, which outranks running.
    */
-  readonly sideChatBadge = computed<SideChatRowBadge | null>(() => {
-    const attention = this.sideChatStore.attentionFor(this.sideChatParent());
-    if (!attention || attention.total === 0) return null;
-    if (attention.needsAttention > 0) {
-      return { kind: 'needs-attention', count: attention.needsAttention, label: `${attention.needsAttention} sidechat needs action` };
-    }
-    if (attention.unread > 0) {
-      return { kind: 'unread', count: attention.unread, label: `${attention.unread} unread sidechat answer` };
-    }
-    if (attention.running > 0) {
-      return { kind: 'running', count: attention.running, label: `${attention.running} sidechat running` };
-    }
-    return { kind: 'quiet', count: attention.total, label: `${attention.total} sidechat` };
-  });
+  readonly sideChatBadge = computed(() =>
+    sideChatRowBadge(this.sideChatStore.attentionFor(this.sideChatParent())));
 
   openSideChats(event: Event): void {
     event.stopPropagation();

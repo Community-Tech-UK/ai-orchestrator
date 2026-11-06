@@ -12,8 +12,10 @@ const CHAT: ChatRecord = {
 describe('sideChatParentFor', () => {
   it('keys a chat by id and a session by its stable history thread, never by runtime', () => {
     expect(sideChatParentFor(CHAT, null)).toEqual({ kind: 'chat', chatId: 'chat-1' });
-    expect(sideChatParentFor(null, { historyThreadId: 'thread-9', workerNodeId: 'windows-pc' }))
+    expect(sideChatParentFor(null, { historyThreadId: 'thread-9', executionLocation: { type: 'remote', nodeId: 'windows-pc' } }))
       .toEqual({ kind: 'session', historyThreadId: 'thread-9', originNodeId: 'windows-pc' });
+    expect(sideChatParentFor(null, { historyThreadId: 'local-thread', executionLocation: { type: 'local' } }))
+      .toEqual({ kind: 'session', historyThreadId: 'local-thread', originNodeId: null });
     expect(sideChatParentFor(null, null)).toBeNull();
   });
 });
