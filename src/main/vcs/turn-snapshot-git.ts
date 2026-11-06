@@ -12,6 +12,16 @@ const deflateAsync = promisify(deflate);
 const MAX_FILES = 10_000;
 const MAX_BYTES = 128 * 1024 * 1024;
 const MAX_FILE_BYTES = 32 * 1024 * 1024;
+/**
+ * File and folder times come from the filesystem, not the JS clock. Linux stamps them from a coarse kernel clock
+ * (a 10 ms tick on the WSL2 test machine, which measured 7 to 18 ms behind the JS clock; macOS showed
+ * none), and some drives are coarser still. An edit made just after a turn ends can therefore carry a
+ * time before the boundary, and cannot be told from the agent's last edit. Anything stamped this close
+ * to the boundary is treated as uncertain, never as the agent's.
+ */
+export const BOUNDARY_UNCERTAINTY_MS = 50;
+/** A time too close to tell is treated as a change, so the old wording (which specs match on) still leads. */
+const TOO_CLOSE_MESSAGE = 'folder changed after settlement, or too close to it to tell';
 export interface WorkingTreeSnapshot {
   tree: string;
   repoRoot: string;
@@ -21,6 +31,8 @@ export interface WorkingTreeSnapshot {
   paths: readonly string[];
 }
 export class NotAGitFolderError extends Error {}
+/** The folder is too big, or too slow, to snapshot inside its limits. Asking again soon would only cost the same time. */
+export class SnapshotBudgetError extends Error {}
 
 function gitEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   const env = { ...process.env };
@@ -57,7 +69,9 @@ async function preparePrivateRepo(objectDir: string): Promise<void> {
 export async function snapshotWorkingTree(workingDirectory: string, objectDir: string,
   signal?: AbortSignal, settledAt?: number, baselinePaths: readonly string[] = []): Promise<WorkingTreeSnapshot> {
   const deadline = Date.now() + 2_000;
-  const check = () => { signal?.throwIfAborted(); if (Date.now() > deadline) throw new Error('snapshot deadline'); };
+  const check = () => { signal?.throwIfAborted(); if (Date.now() > deadline) throw new SnapshotBudgetError('snapshot deadline'); };
+  const tooCloseToSettlement = (stat: { mtimeMs: number; ctimeMs: number }): boolean =>
+    settledAt !== undefined && (stat.mtimeMs > settledAt - BOUNDARY_UNCERTAINTY_MS || stat.ctimeMs > settledAt - BOUNDARY_UNCERTAINTY_MS);
   let repoRoot: string;
   let indexPath: string;
   try {
@@ -76,7 +90,7 @@ export async function snapshotWorkingTree(workingDirectory: string, objectDir: s
     check();
     const stat = await fs.stat(source);
     copiedBytes += stat.size;
-    if (copiedBytes > MAX_FILE_BYTES) throw new Error('index byte budget');
+    if (copiedBytes > MAX_FILE_BYTES) throw new SnapshotBudgetError('index byte budget');
     await fs.copyFile(source, destination);
   };
   let tracked = '';
@@ -87,7 +101,7 @@ export async function snapshotWorkingTree(workingDirectory: string, objectDir: s
   if (hasIndex) {
     await copyIndex(indexPath, enumerationIndex);
     const shared = (await fs.readdir(path.dirname(indexPath))).filter(name => /^sharedindex\.[0-9a-f]+$/.test(name));
-    if (shared.length > 32) throw new Error('shared-index budget');
+    if (shared.length > 32) throw new SnapshotBudgetError('shared-index budget');
     for (const name of shared) await copyIndex(path.join(path.dirname(indexPath), name), path.join(objectDir, '.repo', name));
     tracked = await git(repoRoot, ['ls-files', '--cached', '-z'], { ...privateEnv(objectDir), GIT_INDEX_FILE: enumerationIndex }, signal);
   }
@@ -96,7 +110,7 @@ export async function snapshotWorkingTree(workingDirectory: string, objectDir: s
   const others = await git(repoRoot, ['ls-files', '--others', '--exclude-standard', '-z'],
     gitEnv({ GIT_INDEX_FILE: path.join(objectDir, '.empty-index') }), signal);
   const files = [...new Set([...tracked.split('\0'), ...others.split('\0'), ...baselinePaths].filter(Boolean))];
-  if (files.length > MAX_FILES) throw new Error('snapshot file budget');
+  if (files.length > MAX_FILES) throw new SnapshotBudgetError('snapshot file budget');
   const env = privateEnv(objectDir);
   await fs.rm(path.join(objectDir, '.index'), { force: true });
   const records: string[] = [];
@@ -117,7 +131,7 @@ export async function snapshotWorkingTree(workingDirectory: string, objectDir: s
     // A tracked descendant may remain in the index after its parent becomes a
     // file or a symlink. It is absent from this tree; never follow that parent.
     if (!stat?.isDirectory()) return false;
-    if (settledAt !== undefined && (stat.mtimeMs > settledAt || stat.ctimeMs > settledAt)) throw new Error('folder changed after settlement');
+    if (tooCloseToSettlement(stat)) throw new Error(TOO_CLOSE_MESSAGE);
     directories.set(directory, stat);
     return true;
   };
@@ -145,13 +159,11 @@ export async function snapshotWorkingTree(workingDirectory: string, objectDir: s
       if (code === 'ENOENT' || code === 'ENOTDIR') continue;
       throw error;
     }
-    // If somebody changed a file after settlement, do not attribute those bytes to the turn.
+    // If somebody changed a file after settlement, or may have, do not attribute those bytes to the turn.
     // A changed folder/file makes the boundary uncertain, so no count is reported.
-    if (settledAt !== undefined && (stat.mtimeMs > settledAt || stat.ctimeMs > settledAt)) {
-      throw new Error('folder changed after settlement');
-    }
+    if (tooCloseToSettlement(stat)) throw new Error(TOO_CLOSE_MESSAGE);
     if (!stat.isFile() && !stat.isSymbolicLink()) throw new Error('unsupported snapshot entry');
-    if (stat.size > MAX_FILE_BYTES || (bytes += stat.size) > MAX_BYTES) throw new Error('snapshot byte budget');
+    if (stat.size > MAX_FILE_BYTES || (bytes += stat.size) > MAX_BYTES) throw new SnapshotBudgetError('snapshot byte budget');
     const body = stat.isSymbolicLink() ? Buffer.from(await fs.readlink(full)) : await fs.readFile(full, { signal });
     const after = await fs.lstat(full);
     if (after.mtimeMs !== stat.mtimeMs || after.ctimeMs !== stat.ctimeMs || after.size !== stat.size) throw new Error('file changed during snapshot');

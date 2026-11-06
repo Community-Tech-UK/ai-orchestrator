@@ -26,7 +26,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { OutputMessage } from '../../shared/types/instance.types';
-import { snapshotWorkingTree, diffTrees, NotAGitFolderError, type WorkingTreeSnapshot } from './turn-snapshot-git';
+import { snapshotWorkingTree, diffTrees, NotAGitFolderError, SnapshotBudgetError, type WorkingTreeSnapshot } from './turn-snapshot-git';
 export { snapshotWorkingTree, diffTrees } from './turn-snapshot-git';
 import { turnStartKind } from '../../shared/turn-start';
 import type {
@@ -39,8 +39,17 @@ import { toOutputMessageFromProviderEnvelope } from '../providers/provider-outpu
 
 const logger = getLogger('TurnFileBaseline');
 
-/** Provider writes wait at most this long, including queued work. */
-const DISPATCH_WAIT_MS = 2_500;
+/**
+ * Provider writes wait at most this long, including queued work. A snapshot that cannot finish in
+ * time leaves that turn without a count; it never holds up the message. Measured on a loaded Mac:
+ * about 0.4 ms per file plus 120 ms for the git calls, so about 450 files fit in this time.
+ */
+const DISPATCH_WAIT_MS = 300;
+/**
+ * A folder whose snapshot ran out of time or went over its limits is not tried again for this long,
+ * so every later message to it goes out at once instead of paying the wait again.
+ */
+const SLOW_FOLDER_MEMORY_MS = 5 * 60_000;
 const MAX_FILES_RETURNED = 200;
 const MAX_SEGMENTS_PER_INSTANCE = 32;
 const MAX_CONCURRENT_GIT_JOBS = 2;
@@ -117,6 +126,8 @@ export class TurnFileBaselineService {
   }
 
   private readonly instances = new Map<string, InstanceState>();
+  /** Working folders whose snapshot was too slow or too big, and when that was seen. */
+  private readonly slowFolders = new Map<string, number>();
   private getInstanceInfo: (instanceId: string) => TurnBaselineInstanceInfo | undefined = () => undefined;
   private running = 0;
   private readonly waiting: (() => void)[] = [];
@@ -333,8 +344,12 @@ export class TurnFileBaselineService {
   }
 
   private capture(instanceId: string, state: InstanceState, info = this.getInstanceInfo(instanceId), settledAt?: number, baseline?: Promise<SnapshotOutcome>): Promise<SnapshotOutcome> {
+    const folder = info?.workingDirectory;
+    if (folder && this.provedSlow(folder)) return Promise.resolve('git-error');
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
+    // Waiting in the queue behind other sessions' git work says nothing about this folder.
+    let snapshotting = false;
     const work = this.enqueue(state, async (): Promise<SnapshotOutcome> => {
       let objectDir: string | undefined;
       try {
@@ -344,18 +359,32 @@ export class TurnFileBaselineService {
         objectDir = await fs.mkdtemp(path.join(os.tmpdir(), OBJECT_DIR_PREFIX));
         state.objectDirs.add(objectDir);
         const start = await baseline;
+        snapshotting = true;
         const snapshot = await snapshotWorkingTree(info.workingDirectory, objectDir, controller.signal, settledAt, start && typeof start !== 'string' ? start.paths : []);
         controller.signal.throwIfAborted();
         return snapshot;
       } catch (error) {
         if (objectDir) await this.releaseSnapshot(state, { objectDir });
+        if (folder && error instanceof SnapshotBudgetError) this.slowFolders.set(folder, Date.now());
         return error instanceof NotAGitFolderError ? 'not-git' : 'git-error';
       }
     });
     const timeout = new Promise<SnapshotOutcome>(resolve => {
-      timer = setTimeout(() => { controller.abort(); resolve('git-error'); }, DISPATCH_WAIT_MS);
+      timer = setTimeout(() => {
+        controller.abort();
+        if (folder && snapshotting) this.slowFolders.set(folder, Date.now());
+        resolve('git-error');
+      }, DISPATCH_WAIT_MS);
     });
     return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
+  }
+
+  private provedSlow(folder: string): boolean {
+    const since = this.slowFolders.get(folder);
+    if (since === undefined) return false;
+    if (Date.now() - since < SLOW_FOLDER_MEMORY_MS) return true;
+    this.slowFolders.delete(folder);
+    return false;
   }
 
   private async releaseSnapshot(state: InstanceState, snapshot: SnapshotOutcome | { objectDir: string }): Promise<void> {

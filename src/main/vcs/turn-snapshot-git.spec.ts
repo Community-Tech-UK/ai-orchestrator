@@ -5,7 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { diffTrees, snapshotWorkingTree } from './turn-snapshot-git';
+import { BOUNDARY_UNCERTAINTY_MS, diffTrees, snapshotWorkingTree } from './turn-snapshot-git';
 
 const run = promisify(execFile);
 async function setConfig(repo: string, key: string, value: string): Promise<void> {
@@ -44,11 +44,17 @@ async function looseObjectCount(repo: string): Promise<number> {
   return count;
 }
 
-/** Fixture writes are settled before this boundary, including their recorded filesystem times. */
+/**
+ * Fixture writes are settled before this boundary, including their recorded filesystem times
+ * and the margin inside which a file time cannot be told apart from an edit made after it.
+ */
 async function fixtureSettlement(...files: string[]): Promise<number> {
   const stats = await Promise.all(files.map(file => fs.lstat(file)));
-  return Math.max(performance.timeOrigin + performance.now(), ...stats.flatMap(stat => [stat.mtimeMs, stat.ctimeMs]));
+  return Math.max(performance.timeOrigin + performance.now(), ...stats.flatMap(stat => [stat.mtimeMs, stat.ctimeMs]))
+    + BOUNDARY_UNCERTAINTY_MS;
 }
+
+const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 
 describe('snapshotWorkingTree and diffTrees', () => {
   let repo: string;
@@ -196,6 +202,28 @@ describe('snapshotWorkingTree and diffTrees', () => {
       });
       expect(stdout).toMatch(/^120000 blob /);
     }
+  });
+
+  // Linux stamps files from a coarse kernel clock that runs behind the JS clock (7 to 18 ms on the
+  // WSL2 test machine, none on macOS), so an edit made just after the boundary can carry a time
+  // before it. Such an edit cannot be told from the agent's last one, so nothing close to the
+  // boundary is attributed to the agent.
+  it('refuses to count a file stamped within the boundary margin as the agent\'s', async () => {
+    await sleep(BOUNDARY_UNCERTAINTY_MS + 20);
+    await fs.writeFile(path.join(repo, 'a.txt'), 'edited\n');
+    const tooClose = Date.now() + 10;
+    await expect(snapshotWorkingTree(repo, objects, undefined, tooClose)).rejects.toThrow('folder changed after settlement');
+    const clear = Date.now() + BOUNDARY_UNCERTAINTY_MS + 10;
+    await expect(snapshotWorkingTree(repo, objects, undefined, clear)).resolves.toMatchObject({ repoRoot: repo });
+  });
+
+  it('refuses to count a folder stamped within the boundary margin as unchanged', async () => {
+    await sleep(BOUNDARY_UNCERTAINTY_MS + 20);
+    await fs.rm(path.join(repo, 'b.txt'));
+    const tooClose = Date.now() + 10;
+    await expect(snapshotWorkingTree(repo, objects, undefined, tooClose)).rejects.toThrow('folder changed after settlement');
+    const clear = Date.now() + BOUNDARY_UNCERTAINTY_MS + 10;
+    await expect(snapshotWorkingTree(repo, objects, undefined, clear)).resolves.toMatchObject({ repoRoot: repo });
   });
 
   it('does not change the repository: no new objects, no index changes, no status changes', async () => {

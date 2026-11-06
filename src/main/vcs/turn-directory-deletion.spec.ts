@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { TurnFileBaselineService } from './turn-file-baseline';
+import { letFileTimesClearBoundary } from './turn-boundary.test-helpers';
 
 const run = promisify(execFile);
 
@@ -35,6 +36,7 @@ describe('turn file counts when a whole directory is deleted', () => {
   it('counts tracked and baseline-only deletions alongside the rest of the turn', async () => {
     await fs.rm(join(repo, 'parent', 'removed'), { recursive: true });
     await fs.writeFile(join(repo, 'kept.txt'), 'after\n');
+    await letFileTimesClearBoundary();
     service.settleTurn('session');
     expect(await service.getResult('session', 'turn')).toMatchObject({
       state: 'ready', total: 3, truncated: false,
@@ -50,6 +52,7 @@ describe('turn file counts when a whole directory is deleted', () => {
     await fs.rm(join(repo, 'parent', 'removed'), { recursive: true });
     await fs.writeFile(join(repo, 'parent', 'removed'), 'replacement\n');
     await fs.writeFile(join(repo, 'kept.txt'), 'after\n');
+    await letFileTimesClearBoundary();
     service.settleTurn('session');
     expect(await service.getResult('session', 'turn')).toMatchObject({
       state: 'ready', total: 4, truncated: false,

@@ -12,6 +12,7 @@ import { BaseCliAdapter, type AdapterInputDispatch } from '../cli/adapters/base-
 import { ClaudeCliAdapter } from '../cli/adapters/claude-cli-adapter';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import { TurnFileBaselineService } from '../vcs/turn-file-baseline';
+import { letFileTimesClearBoundary } from '../vcs/turn-boundary.test-helpers';
 import { toProviderOutputEvent, toOutputMessageFromProviderEnvelope } from '../providers/provider-output-event';
 import { continuityEntryToOutputMessage, outputMessagesToContinuityEntries } from '../session/continuity-message-projection';
 import { HistoryRestoreCoordinator } from '../history/history-restore-coordinator';
@@ -66,6 +67,7 @@ describe('real dispatch and Claude outcome paths for turn summaries', () => {
   const seed = (message: OutputMessage) => { communication.addToOutputBuffer(instance, message); publish(message); };
   const finish = () => events.emit('provider:normalized-event', { instanceId: instance.id, event: { kind: 'complete' } });
   const changes = async (key: string) => {
+    await letFileTimesClearBoundary(); // the agent's last write comes well before its turn ends
     finish();
     const result = await baseline.getResult(instance.id, key);
     expect(result.state).toBe('ready');
@@ -129,6 +131,7 @@ describe('real dispatch and Claude outcome paths for turn summaries', () => {
     wire(new FastAdapter(() => fs.writeFile(path.join(repo, 'tracked.txt'), 'agent edit\n')));
     seed(input('ending'));
     await communication.sendInput(instance.id, 'change it');
+    await letFileTimesClearBoundary(); // the agent's last write comes well before its turn ends
     adapter.emit('complete', { id: 'complete', role: 'assistant', content: 'Done' });
     try {
       const first = await baseline.getResult(instance.id, 'ending');

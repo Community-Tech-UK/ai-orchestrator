@@ -13,6 +13,7 @@ import {
 } from './turn-file-baseline';
 
 import * as snapshotGit from './turn-snapshot-git';
+import { letFileTimesClearBoundary } from './turn-boundary.test-helpers';
 
 const run = promisify(execFile);
 
@@ -164,8 +165,13 @@ describe('TurnFileBaselineService', () => {
       timestamp: Date.now(),
       event: { kind: 'output', content: 'do the thing', messageType, messageId: id, timestamp: Date.now(), metadata },
     });
-  const complete = () =>
+  const emitComplete = () =>
     events.emit('provider:normalized-event', { instanceId: 'inst-1', timestamp: Date.now(), event: { kind: 'complete' } });
+  /** The agent's last write comes well before the turn ends, as it does in real use. */
+  const complete = async () => {
+    await letFileTimesClearBoundary();
+    emitComplete();
+  };
   const status = (value: string) =>
     events.emit('instance:batch-update', { updates: [{ instanceId: 'inst-1', status: value }] });
   const ready = (result: TurnBaselineResult) => {
@@ -194,7 +200,7 @@ describe('TurnFileBaselineService', () => {
     await fs.writeFile(path.join(repo, 'a.txt'), 'one\ntwo\nthree\nfour\n');
     await fs.writeFile(path.join(repo, 'generated.txt'), 'made by a shell command\n');
     await service.getResult('inst-1', 'u1');
-    complete();
+    await complete();
 
     const result = ready(await service.getResult('inst-1', 'u1'));
     expect(result.files.map(file => file.path).sort()).toEqual(['a.txt', 'generated.txt']);
@@ -208,7 +214,7 @@ describe('TurnFileBaselineService', () => {
     await service.getResult('inst-1', 'u1');
     await fs.writeFile(path.join(repo, 'a.txt'), 'one\ntwo\nthree\nfour\n');
     await fs.writeFile(path.join(repo, 'generated.txt'), 'made by a shell command\n');
-    complete();
+    await complete();
 
     const result = ready(await service.getResult('inst-1', 'u1'));
     expect(result.files.map((file) => file.path).sort()).toEqual(['a.txt', 'generated.txt']);
@@ -217,7 +223,7 @@ describe('TurnFileBaselineService', () => {
 
   it('gives a zero count, not a guess, when the turn changed nothing', async () => {
     userInput('u1');
-    complete();
+    await complete();
     expect(ready(await service.getResult('inst-1', 'u1'))).toMatchObject({ total: 0, files: [] });
   });
 
@@ -226,6 +232,7 @@ describe('TurnFileBaselineService', () => {
     await service.getResult('inst-1', 'u1');
     status('busy');
     await fs.writeFile(path.join(repo, 'b.txt'), 'bee changed\n');
+    await letFileTimesClearBoundary();
     status('idle');
     expect(ready(await service.getResult('inst-1', 'u1')).files.map((file) => file.path)).toEqual(['b.txt']);
   });
@@ -239,12 +246,12 @@ describe('TurnFileBaselineService', () => {
     userInput('u1');
     await service.getResult('inst-1', 'u1');
     await fs.writeFile(path.join(repo, 'a.txt'), 'first\n');
-    complete();
+    await complete();
     const first = ready(await service.getResult('inst-1', 'u1'));
     expect(first.files.map((file) => file.path)).toEqual(['a.txt']);
 
     await fs.writeFile(path.join(repo, 'b.txt'), 'second\n');
-    complete();
+    await complete();
     const second = ready(await service.getResult('inst-1', 'u1'));
     expect(second).toEqual(first);
   });
@@ -257,7 +264,7 @@ describe('TurnFileBaselineService', () => {
     userInput('steer');
     await service.getResult('inst-1', 'steer');
     await fs.writeFile(path.join(repo, 'b.txt'), 'after the steer\n');
-    complete();
+    await complete();
 
     expect(ready(await service.getResult('inst-1', 'u1')).files.map((file) => file.path)).toEqual(['a.txt']);
     expect(ready(await service.getResult('inst-1', 'steer')).files.map((file) => file.path)).toEqual(['b.txt']);
@@ -269,6 +276,7 @@ describe('TurnFileBaselineService', () => {
     await service.getResult('inst-1', 'u1');
     await fs.writeFile(path.join(repo, 'a.txt'), 'edited by the agent\n');
     status('interrupting');
+    await letFileTimesClearBoundary();
     status('idle');
     expect(ready(await service.getResult('inst-1', 'u1')).files.map((file) => file.path)).toEqual(['a.txt']);
 
@@ -283,6 +291,7 @@ describe('TurnFileBaselineService', () => {
     status('busy');
     await service.getResult('inst-1', 'u1');
     await fs.writeFile(path.join(repo, 'a.txt'), 'edited before the crash\n');
+    await letFileTimesClearBoundary();
     status('error');
     expect(ready(await service.getResult('inst-1', 'u1')).files.map((file) => file.path)).toEqual(['a.txt']);
   });
@@ -302,14 +311,14 @@ describe('TurnFileBaselineService', () => {
     userInput('u1');
     await service.getResult('inst-1', 'u1');
     await fs.writeFile(path.join(repo, 'a.txt'), 'turn one\n');
-    complete();
+    await complete();
     await service.getResult('inst-1', 'u1');
 
     await fs.writeFile(path.join(repo, 'b.txt'), 'edited by hand between turns\n');
     userInput('u2');
     await service.getResult('inst-1', 'u2');
     await fs.writeFile(path.join(repo, 'c.txt'), 'turn two\n');
-    complete();
+    await complete();
 
     expect(ready(await service.getResult('inst-1', 'u1')).files.map((file) => file.path)).toEqual(['a.txt']);
     expect(ready(await service.getResult('inst-1', 'u2')).files.map((file) => file.path)).toEqual(['c.txt']);
@@ -325,7 +334,7 @@ describe('TurnFileBaselineService', () => {
   it('says why a count is not available', async () => {
     location = { type: 'remote' };
     userInput('remote-turn');
-    complete();
+    await complete();
     expect(await service.getResult('inst-1', 'remote-turn')).toEqual({ state: 'unavailable', reason: 'remote' });
 
     location = { type: 'local' };
@@ -333,7 +342,7 @@ describe('TurnFileBaselineService', () => {
     workingDirectory = plain;
     try {
       userInput('plain-turn');
-      complete();
+      await complete();
       expect(await service.getResult('inst-1', 'plain-turn')).toEqual({ state: 'unavailable', reason: 'not-git' });
     } finally {
       await fs.rm(plain, { recursive: true, force: true });
@@ -346,7 +355,7 @@ describe('TurnFileBaselineService', () => {
     userInput('u1');
     await service.getResult('inst-1', 'u1');
     await Promise.all(Array.from({ length: 205 }, (_, index) => fs.writeFile(path.join(repo, `gen-${index}.txt`), `${index}\n`)));
-    complete();
+    await complete();
 
     const result = ready(await service.getResult('inst-1', 'u1'));
     expect(result.total).toBe(205);
@@ -370,9 +379,10 @@ describe('TurnFileBaselineService', () => {
     userInput('u1');
     await service.getResult('inst-1', 'u1');
     await fs.writeFile(path.join(repo, 'a.txt'), 'agent change\n');
-    complete();
+    await letFileTimesClearBoundary();
+    emitComplete();
     await fs.writeFile(path.join(repo, 'manual.txt'), 'manual change after completion\n');
-    complete();
+    emitComplete();
     const result = await service.getResult('inst-1', 'u1');
     if (result.state === 'ready') expect(result.files.map(file => file.path)).toEqual(['a.txt']);
     else expect(result).toEqual({ state: 'unavailable', reason: 'git-error' });
@@ -382,7 +392,7 @@ describe('TurnFileBaselineService', () => {
     for (let i = 0; i < 35; i++) {
       userInput(`u${i}`);
       await service.getResult('inst-1', `u${i}`);
-      complete();
+      await complete();
       await service.getResult('inst-1', `u${i}`);
     }
     const state = (service as unknown as { instances: Map<string, { objectDirs: Set<string>; segments: unknown[] }> }).instances.get('inst-1')!;
@@ -425,13 +435,74 @@ describe('TurnFileBaselineService', () => {
     } finally { mock.mockRestore(); }
   });
 
+  describe('a folder too slow to snapshot', () => {
+    let calls: number;
+    let mock: ReturnType<typeof vi.spyOn>;
+    /** One send, as the dispatch path makes it: the input is published, then the baseline is awaited. */
+    const send = async (id: string): Promise<number> => {
+      const at = Date.now();
+      userInput(id);
+      await service.beforeDispatch('inst-1', { workingDirectory: repo, outputBuffer: [{ id, type: 'user', content: 'go', timestamp: Date.now() }] });
+      return Date.now() - at;
+    };
+    const stallUntilAborted = () => mock.mockImplementation(async (_cwd, _dir, signal) => {
+      calls += 1;
+      await new Promise<void>((_resolve, reject) => signal!.addEventListener('abort', () => reject(new Error('aborted')), { once: true }));
+      throw new Error('unreachable');
+    });
+
+    beforeEach(() => {
+      calls = 0;
+      mock = vi.spyOn(snapshotGit, 'snapshotWorkingTree');
+    });
+    afterEach(() => {
+      mock.mockRestore();
+      vi.useRealTimers();
+    });
+
+    it('holds the first send for well under a second, then lets later sends go out at once', async () => {
+      stallUntilAborted();
+      expect(await send('first')).toBeLessThan(1_000);
+      expect(await send('second')).toBeLessThan(150);
+      expect(calls).toBe(1);
+      expect(await service.getResult('inst-1', 'second')).toEqual({ state: 'unavailable', reason: 'git-error' });
+    });
+
+    it('stops trying after a snapshot fails for being over its limits', async () => {
+      mock.mockImplementation(async () => { calls += 1; throw new snapshotGit.SnapshotBudgetError('snapshot file budget'); });
+      await send('first');
+      await send('second');
+      expect(calls).toBe(1);
+      expect(await service.getResult('inst-1', 'second')).toEqual({ state: 'unavailable', reason: 'git-error' });
+    });
+
+    it('keeps trying after a failure that says nothing about the folder\'s size', async () => {
+      mock.mockImplementation(async () => { calls += 1; throw new Error('folder changed during snapshot'); });
+      await send('first');
+      await send('second');
+      expect(calls).toBe(2);
+    });
+
+    it('tries the folder again once the wait has passed', async () => {
+      mock.mockImplementation(async () => { calls += 1; throw new snapshotGit.SnapshotBudgetError('snapshot byte budget'); });
+      await send('first');
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(Date.now() + 4 * 60_000);
+      await send('soon');
+      expect(calls).toBe(1);
+      vi.setSystemTime(Date.now() + 2 * 60_000);
+      await send('later');
+      expect(calls).toBe(2);
+    });
+  });
+
   it('does not reuse a deferred baseline when admission never published its input', async () => {
     const reservation = await service.beforeDispatch('inst-1', { workingDirectory: repo, outputBuffer: [] }, true);
     await reservation!.release();
     await fs.writeFile(path.join(repo, 'a.txt'), 'manual edit before admitted turn\n');
     userInput('next');
     await service.getResult('inst-1', 'next');
-    complete();
+    await complete();
     expect(ready(await service.getResult('inst-1', 'next')).total).toBe(0);
   });
 
@@ -439,7 +510,8 @@ describe('TurnFileBaselineService', () => {
     await fs.writeFile(path.join(repo, 'untracked.txt'), 'manual draft\n');
     userInput('u1');
     await service.getResult('inst-1', 'u1');
-    complete();
+    await letFileTimesClearBoundary();
+    emitComplete();
     await fs.rm(path.join(repo, 'untracked.txt'));
     const result = await service.getResult('inst-1', 'u1');
     if (result.state === 'ready') expect(result.total).toBe(0);
