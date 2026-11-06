@@ -41,6 +41,11 @@
  *   npm run test:quiet -- src/main/foo.spec.ts
  *   AIO_TEST_NO_CACHE=1 npm run test:quiet               # force fresh Vitest cache
  *   npm run test:quiet -- --shard=1/4                    # CI shard (1 of 4)
+ *   AIO_REMOTE_CHECKS=off npm run test:quiet             # full run on this Mac
+ *
+ * Remote checks: with ~/.ai-orchestrator/remote-checks/config.json in place, a plain full
+ * run goes to the machine it names, and everything else stays here. If that machine can't
+ * produce a valid result, the run happens here and says why. See scripts/remote-checks/.
  *
  * Cache: Vitest's result cache is ON by default for faster warm re-runs.
  * Pass --no-cache or set AIO_TEST_NO_CACHE=1 after large delete/rename batches.
@@ -55,6 +60,10 @@ const { stripVTControlCharacters } = require('util');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { MAC_ONLY_SPECS, mergeMacOnlyReport } = require('./remote-checks/mac-only');
+const { takeMacTurn } = require('./remote-checks/mac-turn');
+const { appendRunLog, decideRoute, isLoopRun, readConfig, remoteChecksDir } = require('./remote-checks/route');
+const { runOnRemote } = require('./remote-checks/run-remote');
 
 const ROOT = path.resolve(__dirname, '..');
 const SCRATCH_DIR = path.join(ROOT, '_scratch');
@@ -70,6 +79,7 @@ const OUT_SUFFIX = (process.env.AIO_TEST_OUT_SUFFIX || `pid-${process.pid}`)
 const suffixed = (base, ext) => `${base}${OUT_SUFFIX ? `.${OUT_SUFFIX}` : ''}${ext}`;
 const LOG_PATH = path.join(SCRATCH_DIR, suffixed('test-run', '.log'));
 const JSON_PATH = path.join(SCRATCH_DIR, suffixed('test-results', '.json'));
+const MAC_ONLY_JSON_PATH = path.join(SCRATCH_DIR, suffixed('test-results-mac-only', '.json'));
 
 // How much detail to surface without re-flooding context.
 const MAX_FAILURES_SHOWN = 20;
@@ -90,15 +100,19 @@ function log(line = '') {
   process.stdout.write(`${line}\n`);
 }
 
-function ensureScratch() {
-  fs.mkdirSync(SCRATCH_DIR, { recursive: true });
-  for (const p of [LOG_PATH, JSON_PATH]) {
+function clearRunOutput() {
+  for (const p of [LOG_PATH, JSON_PATH, MAC_ONLY_JSON_PATH]) {
     try {
       fs.rmSync(p, { force: true });
     } catch {
       /* ignore */
     }
   }
+}
+
+function ensureScratch() {
+  fs.mkdirSync(SCRATCH_DIR, { recursive: true });
+  clearRunOutput();
 }
 
 /** Run the cheap preflight checks quietly; print their output only on failure. */
@@ -134,12 +148,32 @@ function describeProgress(logText) {
   return `${done} test file(s) done${workers ? `, ${workers} test worker(s)` : ''}`;
 }
 
+/**
+ * Periodic progress so a slow run is distinguishable from a hung one. A full suite on a
+ * busy host can take 30-60+ minutes; without a heartbeat the console is silent for the
+ * whole run and callers reasonably conclude the process is stuck. One line a minute also
+ * leaves a killed run a useful tail, so the Plan Queue can show how far it got and on how
+ * many workers. Returns the function that stops it.
+ */
+function watchProgress() {
+  const progressTimer = setInterval(() => {
+    try {
+      const line = describeProgress(fs.readFileSync(LOG_PATH, 'utf8'));
+      process.stderr.write(`  … ${line} (full log: ${path.relative(ROOT, LOG_PATH)})\n`);
+    } catch {
+      /* log not written yet — skip this tick */
+    }
+  }, 60_000);
+  progressTimer.unref();
+  return () => clearInterval(progressTimer);
+}
+
 /** Spawn vitest, tee combined output to the log file, resolve with the exit code. */
-function runVitest() {
+function runVitest({ testArgs = passthroughArgs, jsonPath = JSON_PATH } = {}) {
   return new Promise((resolve) => {
     const args = [
       'run',
-      ...passthroughArgs,
+      ...testArgs,
       // Cache is on by default (warm re-runs). Force cold with AIO_TEST_NO_CACHE=1
       // or an explicit --no-cache; --cache is a no-op when already default-on.
       ...(forceNoCache && !hasExplicitCacheFlag ? ['--no-cache'] : []),
@@ -148,7 +182,7 @@ function runVitest() {
       // but IS preserved in the log for genuine drill-down. --silent would drop it.
       '--reporter=default', // rich human detail -> captured to the log
       '--reporter=json',
-      `--outputFile.json=${JSON_PATH}`,
+      `--outputFile.json=${jsonPath}`,
     ];
     // Launch vitest's JS entry directly with the current Node binary instead of
     // going through `npx`. On Windows `npx` is `npx.cmd`, and modern Node
@@ -171,23 +205,10 @@ function runVitest() {
     child.stdout.pipe(logStream);
     child.stderr.pipe(logStream);
 
-    // Periodic progress so a slow run is distinguishable from a hung one.
-    // A full suite on a busy host can take 30-60+ minutes; without a heartbeat
-    // the console is silent for the whole run and callers reasonably conclude
-    // the process is stuck. One line a minute also leaves a killed run a useful
-    // tail, so the Plan Queue can show how far it got and on how many workers.
-    const progressTimer = setInterval(() => {
-      try {
-        const line = describeProgress(fs.readFileSync(LOG_PATH, 'utf8'));
-        process.stderr.write(`  … ${line} (full log: ${path.relative(ROOT, LOG_PATH)})\n`);
-      } catch {
-        /* log not written yet — skip this tick */
-      }
-    }, 60_000);
-    progressTimer.unref();
+    const stopProgress = watchProgress();
 
     child.on('error', (err) => {
-      clearInterval(progressTimer);
+      stopProgress();
       try {
         logStream.end();
       } catch {
@@ -197,7 +218,7 @@ function runVitest() {
       resolve(1);
     });
     child.on('close', (code) => {
-      clearInterval(progressTimer);
+      stopProgress();
       try {
         logStream.end();
       } catch {
@@ -206,6 +227,103 @@ function runVitest() {
       resolve(typeof code === 'number' ? code : 1);
     });
   });
+}
+
+function formatDuration(ms) {
+  const seconds = Math.round(ms / 1000);
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+
+/** After a run elsewhere: the specs that only prove anything on macOS, merged into its report. */
+async function runMacOnlySpecs(remoteExitCode) {
+  if (process.platform !== 'darwin') return remoteExitCode;
+  const macExitCode = await runVitest({ testArgs: MAC_ONLY_SPECS, jsonPath: MAC_ONLY_JSON_PATH });
+  mergeMacOnlyReport({ mainPath: JSON_PATH, macPath: MAC_ONLY_JSON_PATH, root: ROOT, macExitCode });
+  return remoteExitCode !== 0 ? remoteExitCode : macExitCode;
+}
+
+/** A full run that belongs on the Mac: taking its turn with the others unless it already has one. */
+async function runFullSuiteOnMac(route, reason) {
+  log(`Running on the Mac because ${reason}.`);
+  const waitStarted = Date.now();
+  const turn = route.turn
+    ? await takeMacTurn({
+      dir: remoteChecksDir(),
+      isLoop: isLoopRun(),
+      log: (line) => process.stderr.write(`${line}\n`),
+    })
+    : { release: () => {}, note: null };
+  const waitedMs = Date.now() - waitStarted;
+  // The count is chosen once, so a run started at a busy moment could otherwise sit on one worker for an hour.
+  process.env.AIO_TEST_MAX_FORKS ||= '8';
+  const started = Date.now();
+  const exitCode = await runVitest();
+  turn.release();
+  const note = turn.note ? ` Note: ${turn.note}.` : '';
+  return {
+    exitCode,
+    where: `Ran on the Mac in ${formatDuration(Date.now() - started)}, because ${reason}.${note}`,
+    ranOn: 'mac',
+    waitedMs,
+  };
+}
+
+/**
+ * Runs the suite wherever it belongs, resolving with the exit code. `where` is the line
+ * saying where it ran. It is null only for runs remote checks has nothing to do with.
+ */
+async function runSuite() {
+  let config;
+  try {
+    config = readConfig();
+  } catch (err) {
+    log(`Remote checks are switched off for this run: ${err.message}`);
+    config = null;
+  }
+  const route = decideRoute({ args: passthroughArgs, root: ROOT, config });
+  if (route.kind === 'local') return { exitCode: await runVitest(), where: null };
+
+  const started = Date.now();
+  let outcome;
+  let reason = route.reason;
+  if (route.kind === 'remote') {
+    const stopProgress = watchProgress();
+    const remote = await runOnRemote({
+      config,
+      root: ROOT,
+      logPath: LOG_PATH,
+      jsonPath: JSON_PATH,
+      noCache: forceNoCache || passthroughArgs.includes('--no-cache'),
+      ci: process.env.CI,
+    });
+    stopProgress();
+    if (remote.ok) {
+      outcome = {
+        exitCode: await runMacOnlySpecs(remote.exitCode),
+        where: `Ran on ${config.label} in ${formatDuration(Date.now() - started)}.`,
+        ranOn: config.host,
+        waitedMs: remote.waitedMs,
+        fingerprint: remote.fingerprint,
+      };
+    } else {
+      reason = remote.reason;
+      clearRunOutput();
+    }
+  }
+  outcome ||= await runFullSuiteOnMac(route, reason);
+
+  appendRunLog({
+    at: new Date(started).toISOString(),
+    project: path.basename(ROOT),
+    loop: isLoopRun(),
+    fingerprint: outcome.fingerprint ?? null,
+    ranOn: outcome.ranOn,
+    waitedMs: outcome.waitedMs,
+    tookMs: Date.now() - started,
+    exitCode: outcome.exitCode,
+    fellBackBecause: outcome.ranOn === 'mac' ? reason : null,
+  });
+  return outcome;
 }
 
 // Vitest builds its timeout error by overwriting the error's stack with a
@@ -591,7 +709,7 @@ async function main() {
   if (!isTargetedRun) runPreflight();
 
   const started = Date.now();
-  const exitCode = await runVitest();
+  const { exitCode, where } = await runSuite();
   const elapsed = ((Date.now() - started) / 1000).toFixed(1);
   const report = readReport();
   let logText = '';
@@ -613,6 +731,7 @@ async function main() {
         '  note: Vitest worker RPC timed out after every test passed (onTaskUpdate ACK); treating as pass.',
       );
     }
+    if (where) log(`  ${where}`);
     log(`  full log: ${path.relative(ROOT, LOG_PATH)}`);
     process.exit(0);
   }
@@ -652,6 +771,11 @@ async function main() {
       log(`Model TL;DR (${summary.model} @ ${summary.host} · ${note}):`);
       for (const ml of summary.text.split('\n')) log(`  ${ml}`);
     }
+  }
+
+  if (where) {
+    log('');
+    log(where);
   }
 
   // Verdict last, so a truncated read cannot mistake this for a pass.

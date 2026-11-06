@@ -14,19 +14,34 @@ export interface PlanQueueGateReceipt {
   exitCode: number;
   durationMs: number;
   timedOut: boolean;
+  /** Where a full test run happened, as the test runner reported it. Absent when it didn't say. */
+  ranOn?: string;
   tail: string;
   classification: GateEvidence;
   baseline: 'new' | 'also-failing-on-base';
   failureKeyCounts: Record<string, number>;
 }
 interface GateExecution { exitCode: number; output: string; timedOut?: boolean }
-type ExecuteGate = (command: string, cwd: string, signal?: AbortSignal) => Promise<GateExecution>;
+type ExecuteGate = (command: string, cwd: string, signal?: AbortSignal, extraEnv?: Record<string, string>) => Promise<GateExecution>;
 export interface GateInput {
   cwd: string; head: string; commands: readonly string[]; signal?: AbortSignal;
   scope?: string;
   onExecution?: () => void;
   baseSha?: string;
   withBaseline?: <T>(action: (cwd: string) => Promise<T>) => Promise<T>;
+  extraEnv?: Record<string, string>;
+}
+
+/** As `scripts/run-tests-quiet.js` prints it: `Ran on the Mac in ...`. */
+const MAC = 'the Mac';
+const MAX_TAIL_CHARS = 2048;
+const MAX_MACHINE_CHARS = 200;
+const STAY_ON_THE_MAC = { AIO_REMOTE_CHECKS: 'off' };
+const MACHINE_MISMATCH_NOTE = '\nThe comparison with main ran on a different machine, so this check did not finish.';
+
+/** `scripts/run-tests-quiet.js` prints this line for every run it routes. */
+function ranOn(output: string): string | undefined {
+  return [...stripVTControlCharacters(output).matchAll(/^\s*Ran on (.+?) in \d/gm)].at(-1)?.[1]?.slice(0, MAX_MACHINE_CHARS);
 }
 
 export function classifyGateEvidence(command: string, exitCode: number, output: string): GateEvidence {
@@ -49,8 +64,8 @@ export function classifyGateEvidence(command: string, exitCode: number, output: 
  */
 export const GATE_TIMEOUT_MS = 45 * 60_000;
 
-const executeGate: ExecuteGate = (command, cwd, signal) => runInProcessGroup(command, [], {
-  cwd, shell: true, env: { ...buildCliEnv(), ...QUEUE_TEST_ENV, AIO_TEST_SUMMARY: '0' }, timeoutMs: GATE_TIMEOUT_MS,
+const executeGate: ExecuteGate = (command, cwd, signal, extraEnv) => runInProcessGroup(command, [], {
+  cwd, shell: true, env: { ...buildCliEnv(), ...QUEUE_TEST_ENV, AIO_TEST_SUMMARY: '0', ...extraEnv }, timeoutMs: GATE_TIMEOUT_MS,
   // Retain enough for a diagnostic comparison; the persisted receipt has only a 2 KB tail.
   outputTail: 256_000, label: 'verification check', signal,
 });
@@ -109,10 +124,12 @@ export class PlanQueueGateRunner {
       input.signal?.throwIfAborted();
       if (!receipts.length) input.onExecution?.();
       const started = Date.now();
-      const result = await this.execute(command, input.cwd, input.signal);
+      const result = await this.execute(command, input.cwd, input.signal, input.extraEnv);
       input.signal?.throwIfAborted();
       const timedOut = result.timedOut === true;
+      const machine = ranOn(result.output);
       receipts.push({ command, head: input.head, testedTree, exitCode: timedOut ? 1 : result.exitCode, timedOut,
+        ...(machine ? { ranOn: machine } : {}),
         durationMs: Date.now() - started, tail: Buffer.from(result.output).subarray(-2048).toString('utf8').replace(/^\uFFFD+/, ''),
         classification: timedOut ? 'failed' : classifyGateEvidence(command, result.exitCode, result.output), baseline: 'new',
         failureKeyCounts: Object.fromEntries(extractVerifyFailureKeys(result.output.replaceAll(input.cwd, ''), {
@@ -129,9 +146,19 @@ export class PlanQueueGateRunner {
     const receipts = structuredClone([...raw]);
     // A timeout can't be compared with the base, so only a real failure is worth a second run.
     if (input.withBaseline && input.baseSha && receipts.some(receipt => receipt.classification === 'failed' && !receipt.timedOut)) {
-      const base = await this.baseline(input);
+      // Failures are matched by their message, which can differ between machines, so the run on main
+      // has to happen where this one did. If this one fell back to the Mac, main must not go elsewhere.
+      const onlyOnMac = receipts.some(receipt => receipt.classification === 'failed' && receipt.ranOn === MAC);
+      const base = await this.baseline(onlyOnMac ? { ...input, extraEnv: { ...input.extraEnv, ...STAY_ON_THE_MAC } } : input);
       for (const receipt of receipts) {
         const original = base.find(candidate => candidate.command === receipt.command);
+        // Only when both sides say: a run that failed before the test runner chose a machine names none.
+        if (receipt.classification === 'failed' && !receipt.timedOut && original?.ranOn && receipt.ranOn && original.ranOn !== receipt.ranOn) {
+          // Marking this "new" would block the job on a difference between machines, not on its code.
+          receipt.timedOut = true;
+          receipt.tail = `${receipt.tail}${MACHINE_MISMATCH_NOTE}`.slice(-MAX_TAIL_CHARS);
+          continue;
+        }
         if (receipt.classification === 'failed' && !receipt.timedOut && original?.classification === 'failed' && !original.timedOut
           && Object.keys(receipt.failureKeyCounts).length > 0
           && Object.entries(receipt.failureKeyCounts).every(([failure, count]) => count <= (original.failureKeyCounts[failure] ?? 0))) {
@@ -146,7 +173,7 @@ export class PlanQueueGateRunner {
 
   private async baseline(input: GateInput): Promise<PlanQueueGateReceipt[]> {
     input.signal?.throwIfAborted();
-    const key = JSON.stringify([input.scope ?? input.cwd, input.baseSha, input.commands]);
+    const key = JSON.stringify([input.scope ?? input.cwd, input.baseSha, input.commands, input.extraEnv]);
     const cached = this.baseCache.get(key);
     if (cached) return cached;
     const pending = this.pendingBases.get(key);
@@ -160,14 +187,17 @@ export class PlanQueueGateRunner {
       }
     }
     const result = input.withBaseline!(cwd => this.executeCommands({
-      cwd, head: input.baseSha!, commands: input.commands, signal: input.signal,
+      cwd, head: input.baseSha!, commands: input.commands, signal: input.signal, extraEnv: input.extraEnv,
     }));
     this.pendingBases.set(key, { result, signal: input.signal });
     try {
       const base = await result;
       input.signal?.throwIfAborted();
       if (this.baseCache.size >= 20) this.baseCache.delete(this.baseCache.keys().next().value!);
-      if (!base.some(receipt => receipt.timedOut)) this.baseCache.set(key, base);
+      // A run on main free to go anywhere that fell back to the Mac is that moment's outage, not a
+      // lasting answer: kept, it would mismatch every later job that ran on the PC.
+      const fellBack = !input.extraEnv && base.some(receipt => receipt.ranOn === MAC);
+      if (!fellBack && !base.some(receipt => receipt.timedOut)) this.baseCache.set(key, base);
       return base;
     } finally { this.pendingBases.delete(key); }
   }

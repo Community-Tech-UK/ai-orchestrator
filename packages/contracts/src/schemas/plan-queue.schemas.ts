@@ -84,6 +84,7 @@ export const PlanQueueGateRunSchema = z.object({
   }).optional(),
   durationMs: z.number().nonnegative().optional(),
   timedOut: z.boolean().optional(),
+  ranOn: z.string().max(200).optional(),
   tail: z.string().max(2048).optional(),
   classification: z.enum(['passed', 'failed', 'no-tests-found', 'not-recognised']).optional(),
   baseline: z.enum(['new', 'also-failing-on-base']).optional(),

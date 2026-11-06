@@ -373,4 +373,114 @@ describe('Harness queue gate receipts', () => {
       expect(baseRuns).toBe(2);
     } finally { controller.abort(); await Promise.allSettled([first, other]); }
   });
+
+  describe('where a check ran', () => {
+    const failing = (machine: string | null) => ({
+      exitCode: 1,
+      output: `FAIL src/a.spec.ts > a test\n${machine ? `Ran on ${machine} in 5m 52s.\n` : ''}`,
+    });
+    const compare = (execute: ConstructorParameters<typeof PlanQueueGateRunner>[0]) => fakeRunner(execute).run({
+      cwd: '/item', head: 'h', commands: ['npm run test:quiet'], baseSha: 'base',
+      withBaseline: <T>(action: (cwd: string) => Promise<T>) => action('/base'),
+    });
+
+    it('records the machine the test runner names, with colour codes and on a fallback', async () => {
+      const run = (output: string) => fakeRunner(async () => ({ exitCode: 0, output })).run({ cwd: '/item', head: 'h', commands: ['check'] });
+      expect((await run('  \u001b[32mRan on the Windows PC in 5m 52s.\u001b[39m\n'))[0].ranOn).toBe('the Windows PC');
+      expect((await run('Ran on the Mac in 12m 3s, because the Windows PC could not be reached.\n'))[0].ranOn).toBe('the Mac');
+    });
+
+    it('records nothing for a check that does not say', async () => {
+      const [receipt] = await fakeRunner(async () => ({ exitCode: 0, output: 'done' })).run({ cwd: '/item', head: 'h', commands: ['check'] });
+      expect(receipt).not.toHaveProperty('ranOn');
+    });
+
+    it('keeps the run on main on the Mac when the job\'s check fell back there', async () => {
+      const execute = vi.fn(async (_command: string, _cwd: string, _signal?: AbortSignal, _env?: Record<string, string>) => failing('the Mac'));
+      const [receipt] = await compare(execute);
+      expect(execute.mock.calls[0][3]).toBeUndefined();
+      expect(execute.mock.calls[1][1]).toBe('/base');
+      expect(execute.mock.calls[1][3]).toEqual({ AIO_REMOTE_CHECKS: 'off' });
+      expect(receipt).toMatchObject({ baseline: 'also-failing-on-base', timedOut: false });
+    });
+
+    it('leaves the run on main free to go to the PC when the job\'s check ran there', async () => {
+      const execute = vi.fn(async (_command: string, _cwd: string, _signal?: AbortSignal, _env?: Record<string, string>) => failing('the Windows PC'));
+      const [receipt] = await compare(execute);
+      expect(execute.mock.calls[1][3]).toBeUndefined();
+      expect(receipt).toMatchObject({ baseline: 'also-failing-on-base', timedOut: false });
+    });
+
+    it('calls it "did not finish" when the two ran on different machines, rather than blocking the job', async () => {
+      const execute = vi.fn(async (_command: string, cwd: string) => failing(cwd === '/base' ? 'the Mac' : 'the Windows PC'));
+      const receipts = await compare(execute);
+      expect(receipts[0]).toMatchObject({ timedOut: true, baseline: 'new' });
+      expect(receipts[0].tail).toContain('different machine');
+      expect(onlyTimedOut(receipts)).toBe(true);
+    });
+
+    it('keeps the tail inside the stored limit when it adds its note', async () => {
+      const long = 'x'.repeat(4000);
+      const execute = vi.fn(async (_command: string, cwd: string) => {
+        const { exitCode, output } = failing(cwd === '/base' ? 'the Mac' : 'the Windows PC');
+        return { exitCode, output: `${output}${long}` };
+      });
+      const [receipt] = await compare(execute);
+      expect(receipt.tail.length).toBeLessThanOrEqual(2048);
+      expect(receipt.tail).toContain('different machine');
+    });
+
+    it('keeps a real failure when only the run on main names a machine, as after a failed preflight', async () => {
+      const execute = vi.fn(async (_command: string, cwd: string) => failing(cwd === '/base' ? 'the Windows PC' : null));
+      const [receipt] = await compare(execute);
+      expect(receipt).toMatchObject({ timedOut: false, classification: 'failed' });
+      expect(receipt.tail).not.toContain('different machine');
+    });
+
+    it('does not keep a run on main that fell back to the Mac, so the next job can still compare on the PC', async () => {
+      let baseMachine = 'the Mac';
+      const execute = vi.fn(async (_command: string, cwd: string) => failing(cwd === '/base' ? baseMachine : 'the Windows PC'));
+      const runner = fakeRunner(execute);
+      const input = { head: 'h', commands: ['npm run test:quiet'], baseSha: 'base', scope: 'run',
+        withBaseline: <T>(action: (cwd: string) => Promise<T>) => action('/base') };
+      expect((await runner.run({ ...input, cwd: '/one' }))[0].timedOut).toBe(true);
+      baseMachine = 'the Windows PC';
+      expect(await runner.run({ ...input, cwd: '/two', head: 'h2' })).toMatchObject([{ timedOut: false, baseline: 'also-failing-on-base' }]);
+    });
+
+    it('still keeps a run on main that was asked to stay on the Mac', async () => {
+      const execute = vi.fn(async () => failing('the Mac'));
+      const runner = fakeRunner(execute);
+      const input = { head: 'h', commands: ['npm run test:quiet'], baseSha: 'base', scope: 'run',
+        withBaseline: <T>(action: (cwd: string) => Promise<T>) => action('/base') };
+      await runner.run({ ...input, cwd: '/one' });
+      await runner.run({ ...input, cwd: '/two', head: 'h2' });
+      expect(execute.mock.calls.filter(call => (call as unknown[])[1] === '/base')).toHaveLength(1);
+    });
+
+    it('keeps other settings alongside the instruction to stay on the Mac', async () => {
+      const execute = vi.fn(async (_command: string, _cwd: string, _signal?: AbortSignal, _env?: Record<string, string>) => failing('the Mac'));
+      await fakeRunner(execute).run({ cwd: '/item', head: 'h', commands: ['npm run test:quiet'], baseSha: 'base', extraEnv: { KEPT: '1' },
+        withBaseline: <T>(action: (cwd: string) => Promise<T>) => action('/base') });
+      expect(execute.mock.calls[1][3]).toEqual({ KEPT: '1', AIO_REMOTE_CHECKS: 'off' });
+    });
+
+    it('does not answer a job that needs main on the Mac from a run on main that went to the PC', async () => {
+      let jobMachine = 'the Windows PC';
+      const execute = vi.fn(async (_command: string, cwd: string, _signal?: AbortSignal, _env?: Record<string, string>) =>
+        failing(cwd !== '/base' ? jobMachine : _env ? 'the Mac' : 'the Windows PC'));
+      const runner = fakeRunner(execute);
+      const input = { head: 'h', commands: ['npm run test:quiet'], baseSha: 'base', scope: 'run',
+        withBaseline: <T>(action: (cwd: string) => Promise<T>) => action('/base') };
+      await runner.run({ ...input, cwd: '/one' });
+      jobMachine = 'the Mac';
+      expect(await runner.run({ ...input, cwd: '/two', head: 'h2' })).toMatchObject([{ timedOut: false, baseline: 'also-failing-on-base' }]);
+      expect(execute.mock.calls.filter(call => call[1] === '/base')).toHaveLength(2);
+    });
+
+    it('still compares normally when neither side says where it ran', async () => {
+      const [receipt] = await compare(vi.fn(async () => failing(null)));
+      expect(receipt).toMatchObject({ baseline: 'also-failing-on-base', timedOut: false });
+    });
+  });
 });

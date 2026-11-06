@@ -96,6 +96,20 @@ need the counts programmatically, read `_scratch/test-results[.suffix].json`
 - **Inside a `.worktrees/*` checkout, `scripts/__tests__/dependency-compatibility.spec.ts` validates the root checkout's install.** Those worktrees get a `node_modules` of per-entry symlinks into the root checkout's install, so `npm ls --omit=dev --all` run in the worktree resolves every package outside the project and reports the whole tree as `extraneous` (measured 2026-09-20 and again 2026-10-06 on clean queue worktrees). The spec follows the `node_modules/.package-lock.json` symlink to the checkout that owns the install and runs `npm ls` there, but only when that checkout's `package.json` and `package-lock.json` are byte-identical to the worktree's. If they differ the spec fails and names the owning checkout: the linked tree was not installed from this branch's manifests, so run a real install in the worktree.
 - On failure, the quiet runner may add a summary from a local Ollama/LM Studio endpoint. Configure `AIO_AUX_LLM_URL` or disable summaries with `AIO_TEST_SUMMARY=0`.
 
+## Remote Checks
+
+A plain full run (`npm run test:quiet`, with no arguments or just `--no-cache`) goes to the machine named in `~/.ai-orchestrator/remote-checks/config.json`, if that file exists. Agents and loops type the same command. Output streams into the usual `_scratch/test-run.*.log`, the JSON report comes back with local paths, and the exit code and verdict line are the usual ones. The result says where the run happened, for example `Ran on the Windows PC in 5m 52s.`
+
+- **What goes:** the exact files on disk, including uncommitted ones, as a git pack over SSH. It follows `.gitignore` and leaves out names such as `.env`, `*.pem` and `*.key`. Only `CI` and the no-cache setting travel with it. The real repository is never written to.
+- **What stays on the Mac:** targeted runs, `-u`, `--coverage`, `--project`, `--shard`, `test:slow`, `test:coverage` and a direct `npx vitest`. After a run elsewhere, the macOS-only specs listed in `scripts/remote-checks/mac-only.js` run on the Mac and count towards the result.
+- **Queue checks** stay on the Mac until `"queueChecks": true` is added to the config.
+- **Forcing the Mac:** `AIO_REMOTE_CHECKS=off npm run test:quiet`.
+- **Fallback:** if the far machine can't produce a valid result, the run happens on the Mac and prints why. A result only counts if the snapshot's fingerprint, Node version and lockfile hash come back matching, and a report with tests in it arrives. Failing tests are a result, not a fault, and aren't rerun.
+- **Taking turns:** session and loop full runs on the Mac share one lock in `~/.ai-orchestrator/remote-checks/`, and use 8 workers. They print a line each minute while waiting and go ahead after 20 minutes, or 5 for loops, saying so.
+- **Log:** one JSON line per run in `~/.ai-orchestrator/remote-checks/runs.jsonl`.
+- **The far machine:** `scripts/remote-checks/setup-linux.sh` prepares a clean Ubuntu 24.04. `remote-run.sh` is sent with every run, so nothing needs deploying. Runs use a systemd scope rather than a service, because a service's manager adopts orphans and `leftover-process-sweeper.real.spec.ts` expects process 1 to.
+- **This Mac reaches the Windows PC over Tailscale's IPv6 address.** Its Tailscale tunnel has no IPv4 route, and macOS blocks LAN addresses for Harness's child processes.
+
 ## Worker Heap
 
 Both projects were `singleFork` until 2026-08-20, so one Node process ran a project's whole spec list and its heap grew across the run. A run that day died after 771 files with `FATAL ERROR: Ineffective mark-compacts near heap limit` (its reporter had collected 848 — it was not the unsharded full suite), followed by `ERR_IPC_CHANNEL_CLOSED` in the parent as it tried to talk to the dead worker — a worker OOM at V8's default ~4 GB ceiling, not a test failure. Parallel forks removed the accumulation; the raised ceiling stays for the still-serial slow tier and for any single heavy spec file.

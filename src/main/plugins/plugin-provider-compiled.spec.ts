@@ -16,7 +16,7 @@ describe('compiled installed provider session', () => {
     });
   }, 65000);
 
-  it.skipIf(process.platform !== 'darwin')('loads the SDK and helper inside an Electron application archive', async () => {
+  it.skipIf(process.platform === 'win32')('loads the SDK and helper inside an Electron application archive', async () => {
     const electron = createRequire(import.meta.url)('electron') as string;
     const { stdout } = await promisify(execFile)(electron, [
       path.resolve('src/tests/fixtures/plugin-provider-compiled.cjs'), 'cjs', 'asar',
