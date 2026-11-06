@@ -7,6 +7,8 @@ import type { ModelUsageEntry } from '../../../../shared/types/settings.types';
 import type { PickerProvider } from './compact-model-picker.types';
 import type { UnifiedReasoningOption, UnifiedSelection } from './model-selection.types';
 import { ModelUsageMemoryService } from './model-usage-memory.service';
+import { UnifiedCatalogStore } from './unified-catalog.store';
+import type { UnifiedModelEntry } from '../../../../shared/types/unified-model-catalog.types';
 
 const PROVIDER_LABELS: Record<string, string> = {
   claude: 'Claude',
@@ -41,13 +43,16 @@ const REASONING_OPTIONS: UnifiedReasoningOption[] = [
 describe('ModelSelectionPanelComponent', () => {
   let fixture: ComponentFixture<ModelSelectionPanelComponent>;
   const usageByKey = signal<Record<string, ModelUsageEntry>>({});
+  const catalogModels = signal<UnifiedModelEntry[]>([]);
 
   beforeEach(() => {
     window.localStorage.clear();
     usageByKey.set({});
+    catalogModels.set([]);
     TestBed.configureTestingModule({
       imports: [ModelSelectionPanelComponent],
       providers: [
+        { provide: UnifiedCatalogStore, useValue: { models: catalogModels.asReadonly() } },
         {
           provide: ModelUsageMemoryService,
           useValue: {
@@ -63,6 +68,7 @@ describe('ModelSelectionPanelComponent', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -95,6 +101,88 @@ describe('ModelSelectionPanelComponent', () => {
     return Array.from(fixture.nativeElement.querySelectorAll('.model-picker-row__name'))
       .map((el) => (el as HTMLElement).textContent?.trim() ?? '');
   }
+
+  function focusModelRow(): HTMLElement {
+    const select = fixture.nativeElement.querySelector('.model-picker-row__select') as HTMLButtonElement;
+    const matches = select.matches.bind(select);
+    vi.spyOn(select, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
+    select.dispatchEvent(new FocusEvent('focus'));
+    fixture.detectChanges();
+    return select;
+  }
+
+  it('opens a model hover card with catalog context, list price and its source', () => {
+    vi.useFakeTimers();
+    catalogModels.set([{
+      id: 'claude-opus-4-7', provider: 'claude', tier: 'powerful', source: 'static', discoveredAt: 0,
+      contextWindow: 200_000, pricing: { inputPerMillion: 3, outputPerMillion: 15 }, pricingSource: 'models-dev',
+    }]);
+    setInputs();
+    const select = fixture.nativeElement.querySelector('.model-picker-row__select') as HTMLButtonElement;
+    select.dispatchEvent(new MouseEvent('mouseenter'));
+    vi.advanceTimersByTime(200);
+    fixture.detectChanges();
+    const card = document.querySelector('[role="tooltip"] .model-hover-card') as HTMLElement;
+    expect(card).not.toBeNull();
+    expect(card.textContent).toContain('Claude Opus 4.7');
+    expect(card.textContent).toContain('Powerful');
+    expect(card.textContent).toContain('200,000 tokens');
+    expect(card.textContent).toContain('$3 in / $15 out per 1M tokens');
+    expect(card.textContent).toContain('models.dev');
+    expect(card.textContent).toContain('Your plan may be billed differently');
+    expect(select.getAttribute('aria-describedby')).toMatch(/aio-tooltip-/);
+    select.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    fixture.detectChanges();
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    expect(select.hasAttribute('aria-describedby')).toBe(false);
+  });
+
+  it('shows explicit unknowns on keyboard focus and updates when the catalog refreshes', () => {
+    setInputs();
+    focusModelRow();
+    const card = (): HTMLElement => document.querySelector('[role="tooltip"] .model-hover-card') as HTMLElement;
+    expect(card()).not.toBeNull();
+    expect(card().textContent).toContain('Context size unknown');
+    expect(card().textContent).toContain('Price unknown');
+    expect(card().textContent).not.toContain('$0');
+    catalogModels.set([{
+      id: 'claude-opus-4-7', provider: 'claude', tier: 'powerful', source: 'static', discoveredAt: 0,
+      contextWindow: 1_000_000, pricing: { inputPerMillion: 0, outputPerMillion: 0 }, pricingSource: 'static',
+    }]);
+    fixture.detectChanges();
+    expect(card().textContent).toContain('1,000,000 tokens');
+    expect(card().textContent).toContain('$0 in / $0 out per 1M tokens');
+    expect(card().textContent).toContain('built-in catalogue');
+  });
+
+  it('matches catalog entries by provider as well as model id', () => {
+    catalogModels.set([{
+      id: 'claude-opus-4-7', provider: 'codex', tier: 'powerful', source: 'static', discoveredAt: 0,
+      contextWindow: 12_345, pricing: { inputPerMillion: 99, outputPerMillion: 99 },
+    }]);
+    setInputs();
+    focusModelRow();
+    const card = document.querySelector('[role="tooltip"] .model-hover-card') as HTMLElement;
+    expect(card).not.toBeNull();
+    expect(card.textContent).toContain('Context size unknown');
+    expect(card.textContent).toContain('Price unknown');
+    expect(card.textContent).not.toContain('12,345');
+  });
+
+  it.each(['copilot', 'cursor', 'local-model'] as const)('does not show dollar prices for %s', provider => {
+    catalogModels.set([{
+      id: 'plan-model', provider, tier: 'balanced', source: 'static', discoveredAt: 0,
+      pricing: { inputPerMillion: 99, outputPerMillion: 99 },
+    }]);
+    setInputs({ providers: [provider], selectedProvider: provider,
+      modelsForProvider: () => [{ id: 'plan-model', name: 'Plan model', tier: 'balanced' }],
+    });
+    focusModelRow();
+    const card = document.querySelector('[role="tooltip"] .model-hover-card') as HTMLElement;
+    expect(card).not.toBeNull();
+    expect(card.textContent).not.toContain('$');
+    expect(card.textContent).toContain(provider === 'local-model' ? 'Runs on your computers' : 'Billed through your plan');
+  });
 
   it('opens on favorites seeded from each visible provider primary model', () => {
     // The test catalog uses placeholder IDs that don't match

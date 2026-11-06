@@ -70,6 +70,8 @@ export interface CostAttributionRecord {
   reviewerId?: string;
   /** Canonical values are {@link ModelCallPurpose}; open tags (e.g. `plan-queue`) pass through. */
   purpose?: ModelCallPurpose | (string & {});
+  /** User or machine session origin; future open tags pass through unchanged. */
+  origin?: string;
   costSource?: ModelCallCostSource;
   /** Resolved dollar cost from {@link resolveModelCallCost} when a caller books one. */
   costUsd?: number | null;
@@ -240,6 +242,7 @@ export function subscribeCostAttribution(
 export function recordInstanceTurnAttribution(args: {
   planQueue?: PlanQueueCostContext;
   purpose?: string;
+  origin?: string;
   instanceId: string;
   parentId?: string | null;
   agentId?: string;
@@ -256,6 +259,7 @@ export function recordInstanceTurnAttribution(args: {
     source: 'instance-turn',
     ...(args.planQueue ? { planQueue: args.planQueue } : {}),
     purpose: args.purpose ?? role,
+    ...(args.origin !== undefined ? { origin: args.origin } : {}),
     taskType: `${role}:${args.agentId ?? 'unknown'}`,
     costSource: args.costSource ?? (args.costKnown ? 'provider' : 'unknown'),
     instanceId: args.instanceId,

@@ -88,9 +88,10 @@ describe('normalized completion waits for authoritative usage', () => {
     root.adapter.emit('complete', response('root-turn'));
     await flush();
     expect(f.events).toEqual([]);
+    expect(f.order).toEqual(['usage:root']);
     result.usage = { inputTokens: 10, outputTokens: 5, cacheReadTokens: 1000, cacheWriteTokens: 2000 };
     settle(); await flush();
-    expect(f.order).toEqual(['usage:child', 'complete:child', 'complete:root']);
+    expect(f.order).toEqual(['usage:root', 'usage:child', 'complete:child', 'complete:root']);
   });
 
   it('still books the captured session if the adapter is replaced during settlement', async () => {
@@ -145,9 +146,10 @@ describe('normalized completion waits for authoritative usage', () => {
     f.instances.delete('child'); f.adapters.delete('child');
     root.adapter.emit('complete', response('root')); await flush();
     expect(f.events).toEqual([]);
+    expect(f.order).toEqual(['usage:root']);
     result.usage = { cacheReadTokens: 1000, cacheWriteTokens: 1000 };
     settle(); await flush();
-    expect(f.order).toEqual(['usage:child', 'complete:root']);
+    expect(f.order).toEqual(['usage:root', 'usage:child', 'complete:root']);
   });
 
   it('retains error metadata, output and immediate completion when usage is already final', async () => {

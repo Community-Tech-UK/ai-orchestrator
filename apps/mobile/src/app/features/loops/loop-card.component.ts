@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 import { Router } from '@angular/router';
+import { loopStatusLabel } from '../../core/status';
 import { LoopStore } from './loop.store';
 
 /** Shown at the top of a conversation while that session owns a loop run. */
@@ -10,7 +11,7 @@ import { LoopStore } from './loop.store';
   template: `
     @if (visible() && run(); as current) {
       <button type="button" class="loop-card" (click)="open()">
-        <span>Loop · {{ current.status }} · {{ current.iteration }}@if (current.maxIterations) { of {{ current.maxIterations }} }</span>
+        <span>Loop · {{ loopStatusLabel(current.status) }} · {{ current.iteration }}@if (current.maxIterations) { of {{ current.maxIterations }} }</span>
         @if (current.lastIteration) { <span>{{ current.lastIteration.summary }}</span> }
       </button>
     }
@@ -22,6 +23,7 @@ import { LoopStore } from './loop.store';
 export class LoopCardComponent {
   readonly chatId = input.required<string>();
   readonly visible = input(false);
+  protected readonly loopStatusLabel = loopStatusLabel;
   private readonly loops = inject(LoopStore);
   private readonly router = inject(Router);
   protected readonly run = computed(() => {

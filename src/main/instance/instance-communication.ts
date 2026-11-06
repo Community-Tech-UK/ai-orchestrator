@@ -1834,12 +1834,13 @@ export class InstanceCommunicationManager extends EventEmitter {
         if (completedInstance) {
           this.recordEstimationTelemetry(completedInstance, response);
           // Spec item 5 / LT-046: maintain the rolling handoff document as turns
-          // complete (cheap, no LLM; only when the feature is enabled). Must not
-          // live inside recordCompletionCost — that method early-returns on any
-          // turn without billable `response.usage` (a real, observed case: a
-          // resident-Claude-CLI session with 14 completed turns and correctly
-          // growing `contextUsage`/`totalTokensUsed` still recorded zero cost
-          // entries), which silently starved the handoff state of every turn.
+          // complete (cheap, no LLM; only when the feature is enabled). Keep this
+          // independent of cost/usage settlement. Before A#158, recordCompletionCost
+          // returned early on turns without billable `response.usage`: a resident
+          // Claude CLI session with 14 completed turns and correctly growing
+          // `contextUsage`/`totalTokensUsed` still recorded zero cost entries,
+          // which silently starved handoff state when maintenance lived there.
+          // A#158 now books zero-cost turns; handoff maintenance remains separate.
           if (getSettingsManager().getAll().sessionHandoffStateEnabled) {
             getHandoffStateService().noteTurnCompleted(completedInstance);
           }

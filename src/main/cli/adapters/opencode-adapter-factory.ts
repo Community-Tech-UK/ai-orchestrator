@@ -19,6 +19,8 @@ import { openCodeProcessGate, withOpenCodeProcessGate } from './opencode-process
 import { createOpenCodeChildProgressSource } from './opencode-child-progress-source';
 import { sanitizeOpenCodeContentFilterSource } from './opencode-content-filter-recovery';
 import { applyOpenCodeGenerationBudget, assertOpenCodeGenerationBudget } from './opencode-generation-budget';
+import { applyOpenCodeContextCeiling, contextCeilingApplies, resolveContextCeilingTokens } from './context-ceiling';
+import { readOpenCodeNativeModelLimits } from './opencode-native-model-limits';
 import { selectOpenCodeLaunch } from './opencode-cli-launch';
 import { readOpenCodeEffectiveBudgetConfig } from './opencode-effective-budget-config';
 import { serializeOpenCodeConfigForV2 } from './opencode-v2-config';
@@ -146,7 +148,16 @@ export function createOpenCodeAdapter(options: UnifiedSpawnOptions): AcpCliAdapt
   const originalConfigContent = env[OPENCODE_CONFIG_CONTENT_ENV]!;
   const budgetConfig = JSON.parse(env[OPENCODE_CONFIG_CONTENT_ENV]!) as Record<string, unknown>;
   const generationBudget = applyOpenCodeGenerationBudget(budgetConfig, model);
-  if (generationBudget) env[OPENCODE_CONFIG_CONTENT_ENV] = JSON.stringify(budgetConfig);
+  // Same ceiling policy Claude honours via CLAUDE_CODE_AUTO_COMPACT_WINDOW,
+  // expressed through OpenCode's own `limit.context` lever (A#61). Disabled
+  // (0/unset settings) leaves every model's window exactly as it was. This
+  // early pass is best-effort over the overlay alone — it can only emit a
+  // complete `limit` (both keys) — and `prepareSpawn` re-applies the ceiling
+  // against the probe and the native model catalog below.
+  const contextCeilingTokens = options.contextCeilingTokens ?? resolveContextCeilingTokens(Boolean(options.machineSession));
+  const ceilingWillApply = contextCeilingApplies(model, contextCeilingTokens);
+  const ceilingApplied = applyOpenCodeContextCeiling(budgetConfig, model, contextCeilingTokens);
+  if (generationBudget || ceilingApplied === 'applied') env[OPENCODE_CONFIG_CONTENT_ENV] = JSON.stringify(budgetConfig);
   const promptTimeoutMs = resolveOpenCodePromptTimeoutMs(model);
   const effort = mapAcpEffort(options.reasoningEffort);
   const args = ['acp', '--cwd', workingDirectory];
@@ -179,7 +190,10 @@ export function createOpenCodeAdapter(options: UnifiedSpawnOptions): AcpCliAdapt
       const probe = (content: string) => readOpenCodeEffectiveBudgetConfig({ workingDirectory,
         command: launch.command,
         cliMajor: launch.major,
-        ...(generationBudget && model ? { model } : {}),
+        // The projection only resolves model limits when the model is named —
+        // needed for the MiMo generation budget and for the context ceiling,
+        // which must clamp against the native window rather than raise it.
+        ...(model && (generationBudget || ceilingWillApply) ? { model } : {}),
         env: { ...env, [OPENCODE_CONFIG_CONTENT_ENV]: content }, writableRoots,
       });
       const probeConfig = JSON.parse(originalConfigContent) as Record<string, unknown>;
@@ -212,6 +226,29 @@ export function createOpenCodeAdapter(options: UnifiedSpawnOptions): AcpCliAdapt
       applyOpenCodeAccountProviderBlocks(currentConfig, accountBlocks);
       applyOpenCodePermissionPolicy(currentConfig, yoloMode, effectiveConfig);
       if (generationBudget && model) Object.assign(generationBudget, applyOpenCodeGenerationBudget(currentConfig, model, effectiveConfig));
+      // Every native read must receive the selected major's configuration,
+      // including freshly resolved account providers, not the early overlay.
+      if (launch.major >= 2) serializeOpenCodeConfigForV2(currentConfig);
+      // The probe returns configuration overrides only, so a built-in model
+      // with no explicit limit override projects no window even though the
+      // native model catalog knows one. Resolve the catalog's real limits so
+      // the clamp uses the true context window and the override still carries
+      // the `limit.output` key OpenCode's schema requires (A#61).
+      const nativeLimits = model && ceilingWillApply
+        ? await readOpenCodeNativeModelLimits({
+            command: launch.command, cliMajor: launch.major, workingDirectory,
+            env: { ...env, [OPENCODE_CONFIG_CONTENT_ENV]: JSON.stringify(currentConfig) }, writableRoots, model,
+          })
+        : undefined;
+      // The native catalog and the effective config are the merged truth for
+      // the model's window: clamping against it (never up) keeps the ceiling
+      // from raising a native limit the overlay does not record (A#61).
+      const ceilingOutcome = applyOpenCodeContextCeiling(currentConfig, model, contextCeilingTokens, effectiveConfig, nativeLimits);
+      if (ceilingOutcome === 'skipped') {
+        logger.warn('OpenCode context ceiling left unapplied: the model output limit could not be resolved', { model });
+      }
+      // A built-in model without an overlay can make the ceiling create its
+      // first provider entry. Convert that entry before verification and spawn.
       if (launch.major >= 2) serializeOpenCodeConfigForV2(currentConfig);
       const preparedContent = JSON.stringify(currentConfig);
       const verified = await probe(preparedContent);

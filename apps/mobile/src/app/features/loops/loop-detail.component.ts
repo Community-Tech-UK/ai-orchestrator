@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, effect, inject, input } from '@angular/core';
 import { Router } from '@angular/router';
+import { loopQuestionKindLabel, loopQuestionStatusLabel, loopStatusLabel } from '../../core/status';
 import { MobileHeaderComponent } from '../../shared/mobile-header.component';
 import { MobileIconComponent } from '../../shared/mobile-icon.component';
 import { LoopStore } from './loop.store';
@@ -11,7 +12,7 @@ import { LoopStore } from './loop.store';
   imports: [MobileHeaderComponent, MobileIconComponent],
   template: `
     <section class="screen">
-      <app-mobile-header [title]="'Loop'" [subtitle]="loops.detail()?.run.status || ''">
+      <app-mobile-header [title]="'Loop'" [subtitle]="runStatusLabel()">
         <button mobileHeaderLeading class="mobile-icon-button" type="button" (click)="back()" aria-label="Back to loops">
           <app-mobile-icon name="chevron-left" />
         </button>
@@ -28,7 +29,7 @@ import { LoopStore } from './loop.store';
         @if (detail.run.lastIteration; as last) { <p>{{ last.summary }}</p> }
         <ul>
           @for (item of detail.outstanding; track item.id) {
-            <li>{{ questionLabel(item.kind) }} · {{ item.status }} · {{ item.text }}</li>
+            <li>{{ questionKindLabel(item.kind) }} · {{ questionStatusLabel(item.status) }} · {{ item.text }}</li>
           }
         </ul>
       } @else {
@@ -49,14 +50,17 @@ import { LoopStore } from './loop.store';
 export class LoopDetailComponent {
   readonly id = input.required<string>();
   protected readonly loops = inject(LoopStore);
+  protected readonly questionKindLabel = loopQuestionKindLabel;
+  protected readonly questionStatusLabel = loopQuestionStatusLabel;
   private readonly router = inject(Router);
 
   constructor() {
     effect(() => { void this.loops.open(this.id()); });
   }
 
-  protected questionLabel(kind: string): string {
-    return kind === 'needs-human' ? 'Waiting for you' : kind === 'decision-applied' ? 'Decision applied, tell me if wrong' : 'For information';
+  protected runStatusLabel(): string {
+    const detail = this.loops.detail();
+    return detail ? loopStatusLabel(detail.run.status) : '';
   }
 
   protected busy(): boolean { return this.loops.pendingId() === this.id(); }

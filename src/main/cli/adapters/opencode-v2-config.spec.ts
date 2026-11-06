@@ -131,6 +131,16 @@ describe('OpenCode 2 native settings', () => {
     } } } }, agents: { build: { request: { body: { max_completion_tokens: 128 } }, permissions: [{ action: 'doom_loop', resource: '*', effect: 'ask' }] } } });
     for (const key of ['permission', 'provider', 'agent']) expect(config).not.toHaveProperty(key);
   });
+  it('merges partial overlay limits field-wise so native limit fields survive (A#61)', () => {
+    const config: Record<string, unknown> = {
+      providers: { p: { models: { m: { limit: { context: 120_000, output: 4096 }, name: 'Keep' } } } },
+      provider: { p: { models: { m: { limit: { context: 100_000 } } } } },
+    };
+    serializeOpenCodeConfigForV2(config);
+    const model = ((config['providers'] as Record<string, { models: { m: { limit: Record<string, unknown>; name?: string } } }>)['p']!).models.m;
+    expect(model.name).toBe('Keep');
+    expect(model.limit).toEqual({ context: 100_000, output: 4096 });
+  });
 });
 
 

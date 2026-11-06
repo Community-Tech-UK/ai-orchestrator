@@ -54,3 +54,23 @@ describe('refused wakeup outcome', () => {
     expect(tracker.hasPending('session')).toBe(true);
   });
 });
+
+describe('lasting wake-up counts (A#185)', () => {
+  beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-10T12:00:00Z')); });
+  afterEach(() => vi.useRealTimers());
+  it('reloads earlier counts and saves the whole tally without duplicating delivered requests', () => {
+    let saved: Record<string, number> = { '2026-10-10': 2 };
+    const store = { load: () => ({ ...saved }), save: (tally: Record<string, number>) => { saved = { ...tally }; } };
+    const now = Date.parse('2026-10-10T12:00:00Z');
+    const first = new SelfWakeupTracker(store);
+    try {
+      expect(first.tally('2026-10-10')).toBe(2);
+      first.observe('session', request(now));
+      first.observe('session', request(now));
+      expect(saved).toEqual({ '2026-10-10': 3 });
+    } finally { first.dispose(); }
+    const second = new SelfWakeupTracker(store);
+    try { expect(second.tally('2026-10-10')).toBe(3); }
+    finally { second.dispose(); }
+  });
+});

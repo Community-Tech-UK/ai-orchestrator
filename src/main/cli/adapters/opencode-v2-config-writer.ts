@@ -79,7 +79,13 @@ export function serializeOpenCodeConfigForV2(config: Record<string, unknown>): v
     for (const [modelId, model] of Object.entries(openCodeRecord(provider['models']))) {
       const native = openCodeRecord(models[modelId]);
       const incoming = openCodeRecord(model);
-      models[modelId] = nativeModel({ ...native, ...incoming, body: { ...openCodeRecord(native['body']), ...openCodeRecord(incoming['body']) } }, native['variants']);
+      const merged: Record<string, unknown> = { ...native, ...incoming, body: { ...openCodeRecord(native['body']), ...openCodeRecord(incoming['body']) } };
+      // Field-wise limit merge (the same shape `mergeProvider` uses): a partial
+      // overlay limit must never delete native limit fields such as `output`.
+      if (native['limit'] !== undefined || incoming['limit'] !== undefined) {
+        merged['limit'] = { ...openCodeRecord(native['limit']), ...openCodeRecord(incoming['limit']) };
+      }
+      models[modelId] = nativeModel(merged, native['variants']);
     }
     providers[id] = { ...previous, ...provider,
       ...(typeof npm === 'string' ? { package: `aisdk:${npm}` } : {}),

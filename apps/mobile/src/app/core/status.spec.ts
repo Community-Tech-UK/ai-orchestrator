@@ -7,6 +7,9 @@ import {
   isLiveActivityCandidate,
   isWorkingOrLooping,
   liveActivityStatusLabel,
+  loopQuestionKindLabel,
+  loopQuestionStatusLabel,
+  loopStatusLabel,
 } from './status';
 
 describe('desktop-aligned active session status', () => {
@@ -88,5 +91,42 @@ describe('interrupt recovery', () => {
     for (const status of ['busy', 'processing', 'thinking_deeply', 'idle', '']) {
       expect(isInterruptRecovery(status)).toBe(false);
     }
+  });
+});
+
+describe('loop status wording (mirrors desktop loopStatusLabel)', () => {
+  it('uses the desktop wording for every loop status', () => {
+    expect(loopStatusLabel('completed')).toBe('completed');
+    expect(loopStatusLabel('completed-needs-review')).toBe('ended, see notes');
+    expect(loopStatusLabel('attempt-failed')).toBe('stopped: a step failed');
+    expect(loopStatusLabel('cancelled')).toBe('cancelled');
+    expect(loopStatusLabel('failed')).toBe('failed');
+    expect(loopStatusLabel('cap-reached')).toBe('cap');
+    expect(loopStatusLabel('error')).toBe('error');
+    expect(loopStatusLabel('no-progress')).toBe('no-progress');
+    expect(loopStatusLabel('provider-limit')).toBe('provider limit');
+    expect(loopStatusLabel('cost-exceeded')).toBe('cost exceeded');
+    expect(loopStatusLabel('needs-human-arbitration')).toBe('needs arbitration');
+    expect(loopStatusLabel('reviewer-unreliable')).toBe('reviewer unreliable');
+    expect(loopStatusLabel('reviewer-unavailable')).toBe('reviewer unavailable');
+    expect(loopStatusLabel('builder-unreliable')).toBe('builder unreliable');
+    expect(loopStatusLabel('paused')).toBe('paused');
+    expect(loopStatusLabel('running')).toBe('running');
+  });
+
+  it('passes an unknown status through unchanged', () => {
+    expect(loopStatusLabel('brand-new-state')).toBe('brand-new-state');
+  });
+});
+
+describe('loop question wording', () => {
+  it('names every outstanding kind and status', () => {
+    expect(loopQuestionKindLabel('needs-human')).toBe('Waiting for you');
+    expect(loopQuestionKindLabel('decision-applied')).toBe('Decision applied, tell me if wrong');
+    expect(loopQuestionKindLabel('open-question')).toBe('Open question');
+    expect(loopQuestionKindLabel('for-information')).toBe('For information');
+    expect(loopQuestionStatusLabel('open')).toBe('Open');
+    expect(loopQuestionStatusLabel('resolved')).toBe('Resolved');
+    expect(loopQuestionStatusLabel('dismissed')).toBe('Dismissed');
   });
 });

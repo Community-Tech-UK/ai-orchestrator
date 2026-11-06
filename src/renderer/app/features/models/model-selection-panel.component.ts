@@ -33,6 +33,7 @@ import { ModelFavoritesService } from './model-favorites.service';
 import { DEFAULT_FAVORITE_MODEL_KEYS } from './default-favorites';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
+import { ModelHoverCardComponent } from './model-hover-card.component';
 import { copilotModelLabel } from '../../../../shared/utils/copilot-model-label';
 
 type ActiveModelTab = 'favorites' | PickerProvider;
@@ -64,7 +65,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
 @Component({
   selector: 'app-model-selection-panel',
   standalone: true,
-  imports: [AioTooltipDirective, AppIconButtonDirective],
+  imports: [AioTooltipDirective, AppIconButtonDirective, ModelHoverCardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
@@ -155,7 +156,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
                 type="button"
                 class="model-picker-row__select"
                 [attr.aria-current]="row.selected ? 'true' : null"
-                [appTooltip]="selectRowHint(row)"
+                [appTooltipTpl]="modelHoverCard"
                 [appTooltipDisabledReason]="row.disabledReason ?? null"
                 (click)="selectRow(row)"
               >
@@ -192,6 +193,10 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
                   </span>
                 </span>
               </button>
+
+              <ng-template #modelHoverCard>
+                <app-model-hover-card [model]="row.model" [provider]="row.provider" [providerLabel]="row.providerLabel" />
+              </ng-template>
 
               <div class="model-picker-row__actions">
                 @if (row.reasoningOptions.length > 0) {
@@ -927,14 +932,6 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
     if (event.key !== 'Enter' && event.key !== ' ') return;
     event.preventDefault();
     this.toggleFavorite(row, event);
-  }
-
-  /** One hover host per row: the model id, plus the loaded context for a loaded local model. */
-  protected selectRowHint(row: ModelPickerRow): string {
-    const contextLength = row.model.localModel?.loaded ? row.model.localModel.loadedContextLength : undefined;
-    return contextLength
-      ? `${row.model.id} · Loaded context: ${contextLength.toLocaleString()} tokens`
-      : row.model.id;
   }
 
   protected onPanelKeydown(event: KeyboardEvent): void {

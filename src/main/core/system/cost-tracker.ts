@@ -38,6 +38,8 @@ export interface CostEntry {
    * into a total that reads as measured. Absent/false means measured.
    */
   isEstimated?: boolean;
+  /** User or machine session origin; future open tags pass through unchanged. */
+  origin?: string;
 }
 
 /** Persisted row shape for the `cost_entries` table (snake_case columns). */
@@ -54,6 +56,7 @@ interface CostEntryRow {
   reasoning_tokens: number;
   cost: number;
   is_estimated: number;
+  origin: string | null;
 }
 
 function rowToEntry(row: CostEntryRow): CostEntry {
@@ -70,6 +73,7 @@ function rowToEntry(row: CostEntryRow): CostEntry {
     reasoningTokens: row.reasoning_tokens,
     cost: row.cost,
     isEstimated: row.is_estimated === 1,
+    ...(row.origin !== null ? { origin: row.origin } : {}),
   };
 }
 
@@ -168,8 +172,8 @@ export class CostTracker extends EventEmitter {
       this.insertStmt = db.prepare(`
         INSERT OR REPLACE INTO cost_entries
           (id, timestamp, instance_id, session_id, model,
-           input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, cost, is_estimated)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, cost, is_estimated, origin)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       this.db = db;
       // Flush any entries recorded before persistence was attached (INSERT OR
@@ -194,7 +198,7 @@ export class CostTracker extends EventEmitter {
       .prepare(
         `SELECT id, timestamp, instance_id, session_id, model,
                 input_tokens, output_tokens, cache_read_tokens,
-                cache_write_tokens, reasoning_tokens, cost, is_estimated
+                cache_write_tokens, reasoning_tokens, cost, is_estimated, origin
          FROM cost_entries ORDER BY timestamp DESC LIMIT ?`,
       )
       .all<CostEntryRow>(this.maxEntries);
@@ -235,6 +239,7 @@ export class CostTracker extends EventEmitter {
           entry.reasoningTokens ?? 0,
           entry.cost,
           entry.isEstimated ? 1 : 0,
+          entry.origin ?? null,
         );
         if (this.db && entry.byModel) {
           const statement = this.db.prepare(`INSERT OR REPLACE INTO cost_entry_model_usage
@@ -298,7 +303,7 @@ export class CostTracker extends EventEmitter {
     providerCostUsd?: number,
     reasoningTokens = 0,
     isEstimated = false,
-    options?: { provider?: string; byModel?: ModelUsageDelta[] },
+    options?: { provider?: string; byModel?: ModelUsageDelta[]; origin?: string },
   ): CostEntry {
     const cost =
       typeof providerCostUsd === 'number' &&
@@ -327,6 +332,7 @@ export class CostTracker extends EventEmitter {
       reasoningTokens,
       cost,
       isEstimated,
+      ...(options?.origin !== undefined ? { origin: options.origin } : {}),
       ...(options?.byModel ? { byModel: structuredClone(options.byModel) } : {}),
     };
 

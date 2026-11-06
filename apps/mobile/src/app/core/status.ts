@@ -130,3 +130,50 @@ export function liveActivityStatusLabel(session: SessionStatusView): string {
   if (session.isLooping === true) return 'looping';
   return 'working';
 }
+
+/**
+ * Loop run status → plain words, mirroring the desktop `loopStatusLabel`
+ * (`src/renderer/app/features/loop/loop-formatters.util.ts`) so the phone
+ * and desktop name the same state the same way.
+ */
+export function loopStatusLabel(status: string): string {
+  switch (status) {
+    case 'completed': return 'completed';
+    case 'completed-needs-review': return 'ended, see notes';
+    case 'attempt-failed': return 'stopped: a step failed';
+    case 'cancelled': return 'cancelled';
+    case 'failed': return 'failed';
+    case 'cap-reached': return 'cap';
+    case 'error': return 'error';
+    case 'no-progress': return 'no-progress';
+    case 'provider-limit': return 'provider limit';
+    case 'cost-exceeded': return 'cost exceeded';
+    case 'needs-human-arbitration': return 'needs arbitration';
+    case 'reviewer-unreliable': return 'reviewer unreliable';
+    case 'reviewer-unavailable': return 'reviewer unavailable';
+    case 'builder-unreliable': return 'builder unreliable';
+    case 'paused': return 'paused';
+    case 'running': return 'running';
+    default: return status;
+  }
+}
+
+/** Loop question kind → the words the question list shows. */
+export function loopQuestionKindLabel(kind: string): string {
+  switch (kind) {
+    case 'needs-human': return 'Waiting for you';
+    case 'decision-applied': return 'Decision applied, tell me if wrong';
+    case 'open-question': return 'Open question';
+    default: return 'For information';
+  }
+}
+
+/** Loop question status → words for the question list. */
+export function loopQuestionStatusLabel(status: string): string {
+  switch (status) {
+    case 'open': return 'Open';
+    case 'resolved': return 'Resolved';
+    case 'dismissed': return 'Dismissed';
+    default: return status;
+  }
+}

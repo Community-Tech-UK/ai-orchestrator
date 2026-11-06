@@ -28,7 +28,14 @@ export function repairCostEntriesA0(db: SqliteDriver, providers: ReadonlyMap<str
     db.transaction(() => {
       const claudeTotals = new Map<string, number>();
       const copilotTotals = new Map<string, RepairRow>();
-      const backup = db.prepare('INSERT INTO cost_entries_a0_backup SELECT * FROM cost_entries WHERE id=?');
+      // Migration 077's backup has a fixed shape; later live columns (origin,
+      // for example) must not change the historical backup copy.
+      const backup = db.prepare(`INSERT INTO cost_entries_a0_backup
+        (id, timestamp, instance_id, session_id, model, input_tokens, output_tokens,
+         cache_read_tokens, cache_write_tokens, reasoning_tokens, cost, is_estimated)
+        SELECT id, timestamp, instance_id, session_id, model, input_tokens, output_tokens,
+         cache_read_tokens, cache_write_tokens, reasoning_tokens, cost, is_estimated
+        FROM cost_entries WHERE id=?`);
       const update = db.prepare('UPDATE cost_entries SET cost=?, input_tokens=?, output_tokens=?, cache_read_tokens=?, cache_write_tokens=? WHERE id=?');
       for (const row of rows) {
         const provider = CLAUDE_ALIASES.has(row.model) ? 'claude' : providers.get(costProviderKey(row.instance_id, row.model));

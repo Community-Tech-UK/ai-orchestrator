@@ -55,7 +55,6 @@
     "src/renderer/app/features/loop/loop-past-runs-panel.component.ts": 1,
     "src/renderer/app/features/memory/memory-stats.component.ts": 2,
     "src/renderer/app/features/models/compact-model-picker.component.ts": 2,
-    "src/renderer/app/features/models/model-selection-panel.component.ts": 1,
     "src/renderer/app/features/settings/routing-matrix.component.ts": 1,
     "src/renderer/app/features/settings/setting-row.component.ts": 1,
     "src/renderer/app/features/side-chat/side-chat-panel.component.ts": 1,

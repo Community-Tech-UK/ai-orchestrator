@@ -52,4 +52,10 @@ export const RLM_MIGRATIONS_081_085: Migration[] = [
     // another buyer's account. Repeated down/up retains all modern data.
     down: `SELECT 1;`,
   },
+  {
+    // A#185: existing rows have no recorded origin; do not invent one.
+    name: '082_cost_entry_origin',
+    up: `ALTER TABLE cost_entries ADD COLUMN origin TEXT;`,
+    down: `ALTER TABLE cost_entries DROP COLUMN origin;`,
+  },
 ];

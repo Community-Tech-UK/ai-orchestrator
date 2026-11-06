@@ -3,6 +3,7 @@ import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../../db/sqlite-driver';
 import { computeMigrationChecksum, createMigrationsTable, createTables, getAppliedMigrations, MIGRATIONS, runMigrations } from './rlm-schema';
 import { RLM_MIGRATIONS_081_085 } from './rlm-migrations-081-085';
+import { CostTracker } from '../../core/system/cost-tracker';
 
 describe('081_browser_audit_command_id', () => {
   let db: SqliteDriver;
@@ -46,6 +47,60 @@ describe('081_browser_audit_command_id', () => {
     db.exec(migration.up);
     expect(db.prepare("PRAGMA table_info('browser_audit_entries')").all<{ name: string }>().map((row) => row.name))
       .toContain('command_id');
+  });
+});
+
+describe('082_cost_entry_origin', () => {
+  let db: SqliteDriver;
+  beforeEach(() => {
+    db = defaultDriverFactory(':memory:');
+    createTables(db); createMigrationsTable(db); runMigrations(db);
+  });
+  afterEach(() => db.close());
+
+  it('registers origin after the existing browser migration', () => {
+    expect(RLM_MIGRATIONS_081_085.map(migration => migration.name)).toEqual([
+      '081_browser_audit_command_id', '081_browser_login_portal_accounts', '082_cost_entry_origin',
+    ]);
+  });
+
+  it('upgrades historical rows without inventing an origin and is inert on the next startup', () => {
+    const migration = RLM_MIGRATIONS_081_085.find(migration => migration.name === '082_cost_entry_origin')!;
+    expect(migration).toBeDefined();
+    db.exec(migration.down);
+    db.prepare('DELETE FROM _migrations WHERE name = ?').run(migration.name);
+    db.exec(`INSERT INTO cost_entries
+      (id, timestamp, instance_id, session_id, model, input_tokens, output_tokens, cost)
+      VALUES ('historical', 1, 'instance', 'session', 'model', 0, 0, 0)`);
+    const applied: string[] = [];
+    runMigrations(db, name => applied.push(name));
+    runMigrations(db, name => applied.push(name));
+    expect(applied).toEqual(['082_cost_entry_origin']);
+    expect(db.prepare('SELECT origin FROM cost_entries').get()).toEqual({ origin: null });
+    const restored = new CostTracker(); restored.setDatabase(db);
+    expect(restored.getEntries()[0]).not.toHaveProperty('origin');
+  });
+
+  it('persists and reloads user, machine and future open origin tags, including entries recorded before attach', () => {
+    const tracker = new CostTracker();
+    for (const origin of ['user', 'machine', 'self-wakeup']) {
+      tracker.recordUsage(origin, 'session', 'model', 0, 0, 0, 0, 0, 0, false, { origin });
+    }
+    tracker.setDatabase(db);
+    const restored = new CostTracker(); restored.setDatabase(db);
+    expect(restored.getEntries().map(entry => entry.origin).sort()).toEqual(['machine', 'self-wakeup', 'user']);
+    expect(db.prepare('SELECT origin FROM cost_entries ORDER BY origin').all()).toEqual([
+      { origin: 'machine' }, { origin: 'self-wakeup' }, { origin: 'user' },
+    ]);
+  });
+
+  it('rolls back only origin and preserves existing pause, connector and browser columns', () => {
+    const migration = RLM_MIGRATIONS_081_085.find(migration => migration.name === '082_cost_entry_origin')!;
+    expect(migration).toBeDefined();
+    db.exec(migration.down);
+    expect(db.prepare('PRAGMA table_info(cost_entries)').all<{ name: string }>().map(row => row.name)).not.toContain('origin');
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('global_pause_batches', 'connector_auth')").all()).toHaveLength(2);
+    expect(db.prepare('PRAGMA table_info(browser_audit_entries)').all<{ name: string }>().map(row => row.name)).toContain('command_id');
   });
 });
 

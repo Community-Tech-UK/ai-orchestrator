@@ -54,20 +54,36 @@ export function recordCompletionCost(
     const providerCost = typeof rawProviderCost === 'number' && Number.isFinite(rawProviderCost) && rawProviderCost >= 0 ? rawProviderCost : undefined;
     const positiveProviderCost = providerCost !== undefined && providerCost > 0;
     const usage = normalizeUsage(response.usage as UsageLike | undefined) ?? (positiveProviderCost ? {} : undefined);
-    if (!usage) {
-      return;
-    }
-    const input = usage.input ?? 0;
-    const output = usage.output ?? 0;
-    const cacheRead = usage.cacheRead ?? 0;
-    const cacheWrite = usage.cacheWrite ?? 0;
-    const reasoning = usage.reasoning ?? 0;
-    if (!positiveProviderCost && input === 0 && output === 0 && cacheRead === 0 && cacheWrite === 0 && reasoning === 0) {
-      return;
-    }
+    const input = usage?.input ?? 0;
+    const output = usage?.output ?? 0;
+    const cacheRead = usage?.cacheRead ?? 0;
+    const cacheWrite = usage?.cacheWrite ?? 0;
+    const reasoning = usage?.reasoning ?? 0;
     const model = billingInstance.currentModel || billingInstance.provider;
     const isEstimated = response.usage?.isEstimated === true;
     const observedTokens = { inputTokens: input, outputTokens: output, cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite, reasoningTokens: reasoning };
+    const machineReason = machineSessionReasonOf(billingInstance);
+    const origin = machineReason ? 'machine' : 'user';
+    const purpose = machineReason === 'plan-queue' ? 'plan-queue' : typeof billingInstance.metadata?.['spendPurpose'] === 'string' ? billingInstance.metadata['spendPurpose'] : undefined;
+    if (!positiveProviderCost && input === 0 && output === 0 && cacheRead === 0 && cacheWrite === 0 && reasoning === 0) {
+      // Every completed turn counts, even without usage (A#158). An absent
+      // cost stays unknown; preserve a supplied $0 on usage so the real
+      // purpose summary can distinguish it. There is no cache measurement.
+      getCostTracker().recordUsage(instanceId, billingInstance.sessionId, model, 0, 0, 0, 0, providerCost, 0, isEstimated, {
+        provider: billingInstance.provider, byModel: response.usage?.byModel, origin,
+      });
+      recordInstanceTurnAttribution({
+        planQueue: queueCostContext(billingInstance.metadata),
+        purpose, origin, instanceId, parentId: billingInstance.parentId, agentId: billingInstance.agentId,
+        provider: billingInstance.provider, model,
+        usage: { ...observedTokens, ...(providerCost === undefined ? {} : { cost: providerCost }) },
+        costKnown: providerCost !== undefined,
+        costSource: providerCost !== undefined ? 'provider' : 'unknown', isEstimated,
+        ...(billingInstance.metadata?.['spendPurpose'] === 'automation' || billingInstance.metadata?.['spendPurpose'] === 'channel'
+          ? { spendPurpose: billingInstance.metadata['spendPurpose'] } : {}),
+      });
+      return;
+    }
     const freeProvider = ['copilot', 'cursor', 'ollama', 'lmstudio'].includes(billingInstance.provider.toLowerCase());
     const pricedCost = !isEstimated && !freeProvider
       ? computeProviderTokenCost(billingInstance.provider, model, observedTokens) : undefined;
@@ -83,12 +99,13 @@ export function recordCompletionCost(
       attributionCost,
       reasoning,
       isEstimated,
-      { provider: billingInstance.provider, byModel: response.usage?.byModel },
+      { provider: billingInstance.provider, byModel: response.usage?.byModel, origin },
     );
     instance.contextUsage.costEstimate = (instance.contextUsage.costEstimate ?? 0) + entry.cost;
     recordInstanceTurnAttribution({
       planQueue: queueCostContext(billingInstance.metadata),
-      purpose: machineSessionReasonOf(billingInstance) === 'plan-queue' ? 'plan-queue' : typeof billingInstance.metadata?.['spendPurpose'] === 'string' ? billingInstance.metadata['spendPurpose'] : undefined,
+      purpose,
+      origin,
       instanceId,
       parentId: billingInstance.parentId,
       agentId: billingInstance.agentId,

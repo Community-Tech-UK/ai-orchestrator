@@ -7,9 +7,16 @@ import { projectOpenCodeConfig } from './opencode-config-shapes';
 const mocks = vi.hoisted(() => ({
   probe: vi.fn(),
   prepare: vi.fn(),
+  nativeLimits: vi.fn(),
+  readSetting: vi.fn(),
   launch: { command: 'opencode', major: 1 },
 }));
 vi.mock('./opencode-effective-budget-config', () => ({ readOpenCodeEffectiveBudgetConfig: mocks.probe }));
+vi.mock('./opencode-native-model-limits', () => ({ readOpenCodeNativeModelLimits: mocks.nativeLimits }));
+vi.mock('./context-ceiling', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./context-ceiling')>();
+  return { ...actual, resolveContextCeilingTokens: (machine: boolean) => actual.resolveContextCeilingTokens(machine, mocks.readSetting) };
+});
 vi.mock('./opencode-cli-launch', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./opencode-cli-launch')>();
   return { ...actual, selectOpenCodeLaunch: async () => mocks.launch };
@@ -27,6 +34,8 @@ describe('OpenCode budget actual spawn preparation', () => {
     mocks.launch.command = 'opencode';
     mocks.launch.major = 1;
     mocks.prepare.mockResolvedValue(() => undefined);
+    mocks.nativeLimits.mockResolvedValue(undefined);
+    mocks.readSetting.mockReturnValue(0);
   });
   afterEach(() => vi.restoreAllMocks());
   it('refuses extra folders on OpenCode 1 before any private config probe or ACP spawn', async () => {
@@ -169,5 +178,82 @@ describe('OpenCode budget actual spawn preparation', () => {
     const adapter = createOpenCodeAdapter({ workingDirectory: '/tmp', model: 'xiaomi-token-plan/mimo-v2.6-pro' });
     await expect((adapter as unknown as { acpConfig: SpawnConfig }).acpConfig.prepareSpawn()).rejects.toThrow('Native config unavailable');
     expect(mocks.prepare).not.toHaveBeenCalled();
+  });
+  it.each([
+    { ceiling: 250_000, expected: 120_000, why: 'never raises the native window to the ceiling' },
+    { ceiling: 100_000, expected: 100_000, why: 'clamps a higher native window down to the ceiling' },
+  ])('$why (A#61)', async ({ ceiling, expected }) => {
+    let probes = 0;
+    mocks.probe.mockImplementation(async (params) => (++probes % 2
+      ? { provider: { openai: { models: { 'gpt-5.4': { limit: { context: 120_000, output: 4096 } } } } } }
+      : projectOpenCodeConfig(JSON.parse(params.env.OPENCODE_CONFIG_CONTENT), params.model)));
+    const adapter = createOpenCodeAdapter({ workingDirectory: '/tmp', model: 'openai/gpt-5.4', contextCeilingTokens: ceiling });
+    const config = (adapter as unknown as { acpConfig: SpawnConfig }).acpConfig;
+    await config.prepareSpawn();
+    // The probe must name the model or the native window cannot be resolved.
+    expect(mocks.probe).toHaveBeenCalledTimes(2);
+    expect(mocks.probe.mock.calls.every(([params]) => params.model === 'openai/gpt-5.4')).toBe(true);
+    expect(JSON.parse(config.env['OPENCODE_CONFIG_CONTENT']!)).toMatchObject({ provider: { openai: { models: { 'gpt-5.4': {
+      limit: { context: expected, output: 4096 },
+    } } } } });
+    expect(mocks.prepare).toHaveBeenCalledOnce();
+  });
+  it.each([
+    { ceiling: 250_000, expected: 128_000, why: 'never raises a built-in model window to the ceiling' },
+    { ceiling: 100_000, expected: 100_000, why: 'clamps a built-in model window down to the ceiling' },
+  ])('$why and always emits the output cap the schema requires (A#61 verifier round 3)', async ({ ceiling, expected }) => {
+    // The normal built-in-model path: the probe returns configuration
+    // overrides only, so the model projects no limit at all, while the native
+    // catalog reports context 128000 and output 16384 for openai/gpt-4o.
+    mocks.nativeLimits.mockResolvedValue({ context: 128_000, output: 16_384 });
+    mocks.probe.mockImplementation(async (params) => projectOpenCodeConfig(JSON.parse(params.env.OPENCODE_CONFIG_CONTENT), params.model));
+    const adapter = createOpenCodeAdapter({ workingDirectory: '/tmp', model: 'openai/gpt-4o', contextCeilingTokens: ceiling });
+    const config = (adapter as unknown as { acpConfig: SpawnConfig }).acpConfig;
+    await config.prepareSpawn();
+    expect(mocks.nativeLimits).toHaveBeenCalledWith(expect.objectContaining({
+      command: 'opencode', cliMajor: 1, model: 'openai/gpt-4o',
+    }));
+    expect(JSON.parse(config.env['OPENCODE_CONFIG_CONTENT']!)).toMatchObject({ provider: { openai: { models: { 'gpt-4o': {
+      limit: { context: expected, output: 16_384 },
+    } } } } });
+    expect(mocks.prepare).toHaveBeenCalledOnce();
+  });
+  it('never emits a partial limit for a built-in model whose output cap cannot be resolved (A#61 verifier round 3)', async () => {
+    // Without catalog limits there is no valid override to write: a
+    // `limit.context` without `limit.output` is rejected by OpenCode's own
+    // config validation and would refuse the session entirely, so the ceiling
+    // stays unapplied and the spawn proceeds on the native defaults.
+    mocks.nativeLimits.mockResolvedValue(undefined);
+    mocks.probe.mockImplementation(async (params) => projectOpenCodeConfig(JSON.parse(params.env.OPENCODE_CONFIG_CONTENT), params.model));
+    const adapter = createOpenCodeAdapter({ workingDirectory: '/tmp', model: 'openai/gpt-4o', contextCeilingTokens: 100_000 });
+    const config = (adapter as unknown as { acpConfig: SpawnConfig }).acpConfig;
+    await config.prepareSpawn();
+    expect(mocks.nativeLimits).toHaveBeenCalledOnce();
+    const emitted = JSON.parse(config.env['OPENCODE_CONFIG_CONTENT']!) as { provider?: { openai?: { models?: Record<string, { limit?: unknown }> } } };
+    expect(emitted.provider?.openai?.models?.['gpt-4o']?.limit).toBeUndefined();
+    expect(mocks.prepare).toHaveBeenCalledOnce();
+  });
+  it.each([
+    { machineSession: undefined, expected: 200_000 },
+    { machineSession: 'loop' as const, expected: 120_000 },
+  ])('applies the existing chat or machine setting when no session override is supplied: %j', async ({ machineSession, expected }) => {
+    mocks.readSetting.mockImplementation((key) => key === 'machineContextCeilingTokens' ? 120_000 : 200_000);
+    mocks.nativeLimits.mockResolvedValue({ context: 1_000_000, output: 4096 });
+    mocks.probe.mockImplementation(async (params) => projectOpenCodeConfig(JSON.parse(params.env.OPENCODE_CONFIG_CONTENT), params.model));
+    const adapter = createOpenCodeAdapter({ workingDirectory: '/tmp', model: 'openai/gpt-5.4', machineSession });
+    const config = (adapter as unknown as { acpConfig: SpawnConfig }).acpConfig;
+    await config.prepareSpawn();
+    expect(JSON.parse(config.env['OPENCODE_CONFIG_CONTENT']!).provider.openai.models['gpt-5.4'].limit)
+      .toEqual({ context: expected, output: 4096 });
+  });
+  it('honors an explicit zero even when the saved setting enables a ceiling', async () => {
+    mocks.readSetting.mockReturnValue(120_000);
+    mocks.probe.mockImplementation(async (params) => projectOpenCodeConfig(JSON.parse(params.env.OPENCODE_CONFIG_CONTENT), params.model));
+    const adapter = createOpenCodeAdapter({ workingDirectory: '/tmp', model: 'openai/gpt-5.4', machineSession: 'loop', contextCeilingTokens: 0 });
+    const config = (adapter as unknown as { acpConfig: SpawnConfig }).acpConfig;
+    await config.prepareSpawn();
+    expect(JSON.parse(config.env['OPENCODE_CONFIG_CONTENT']!)).not.toHaveProperty('provider');
+    expect(mocks.nativeLimits).not.toHaveBeenCalled();
+    expect(mocks.readSetting).not.toHaveBeenCalled();
   });
 });

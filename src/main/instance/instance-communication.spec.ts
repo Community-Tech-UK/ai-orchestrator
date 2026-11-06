@@ -1131,14 +1131,18 @@ describe('InstanceCommunicationManager', () => {
       expect(entries[0].model).toBe('claude');
     });
 
-    it('does not record when the turn carried no token usage', () => {
+    it('books one zero-cost record when the turn carried no token usage (A#158)', () => {
       emitComplete('claude-cli', { duration: 1234 });
-      expect(getCostTracker().getEntries()).toHaveLength(0);
+      const entries = getCostTracker().getEntries();
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({ cost: 0, inputTokens: 0, outputTokens: 0, origin: 'user' });
     });
 
-    it('does not record when usage is absent entirely', () => {
+    it('books one zero-cost record when usage is absent entirely (A#158)', () => {
       emitComplete('claude-cli', undefined);
-      expect(getCostTracker().getEntries()).toHaveLength(0);
+      const entries = getCostTracker().getEntries();
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({ cost: 0, inputTokens: 0, outputTokens: 0, origin: 'user' });
     });
 
     it('fires the cost-recorded event so downstream consumers (circuit breaker) see spend', () => {
@@ -1213,13 +1217,14 @@ describe('InstanceCommunicationManager', () => {
   });
 
   // LT-046: `noteTurnCompleted` used to live inside `recordCompletionCost`,
-  // which early-returns on any turn without billable `response.usage`. A real
+  // which then returned early on turns without billable `response.usage`. A real
   // resident-Claude-CLI session with 14 completed turns and correctly growing
   // `contextUsage`/`totalTokensUsed` still recorded zero cost-tracker entries,
   // so the handoff state was silently never populated despite the setting
   // being ON — confirmed live via `RestartPolicyHelpers`'s new rung-choice
   // debug log, not by asking a model. `noteTurnCompleted` must fire on every
-  // completed turn regardless of whether usage/cost was billable.
+  // completed turn, independently of cost/usage settlement. A#158 now books
+  // a zero-cost entry even when no billable usage is present.
   describe('LT-046: rolling handoff state is maintained even when the turn carried no billable usage', () => {
     function emitComplete(usage: CliResponse['usage']): void {
       const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
@@ -1233,7 +1238,7 @@ describe('InstanceCommunicationManager', () => {
       HandoffStateService._resetForTesting();
       // The cost tracker is a singleton shared across the whole spec file —
       // an earlier describe (e.g. "cost recording on turn completion") can
-      // leave entries behind, which would make the zero-length assertion
+      // leave entries behind, which would make the per-turn booking assertion
       // below flaky depending on run order/file-scope. Match that describe's
       // own beforeEach.
       getCostTracker().clearEntries();
@@ -1253,7 +1258,8 @@ describe('InstanceCommunicationManager', () => {
 
       emitComplete({ duration: 1234 }); // no billable usage — the exact shape that starved LT-046
 
-      expect(getCostTracker().getEntries()).toHaveLength(0); // cost tracking correctly still skips it
+      expect(getCostTracker().getEntries()).toHaveLength(1);
+      expect(getCostTracker().getEntries()[0]).toMatchObject({ cost: 0, inputTokens: 0, outputTokens: 0, origin: 'user' });
       expect(getHandoffStateService().buildHandoffDocument(instance, 'test')).not.toBeNull();
     });
 

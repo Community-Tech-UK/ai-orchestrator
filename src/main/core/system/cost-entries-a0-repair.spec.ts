@@ -28,6 +28,15 @@ describe('A0 stored cost repair', () => {
     row('j', 'other', 'other-session', 'gemini-unlisted', 100, 0.1);
   });
   afterEach(() => db.close());
+  it('keeps the fixed backup shape when the live table gains columns', () => {
+    db.exec('ALTER TABLE cost_entries ADD COLUMN future_cost_tag TEXT');
+    const before = db.prepare("SELECT * FROM cost_entries WHERE id='b'").get<Record<string, unknown>>()!;
+    delete before['future_cost_tag'];
+    delete before['origin'];
+    expect(repairCostEntriesA0(db, providers).status).toBe('repaired');
+    expect(db.prepare("SELECT * FROM cost_entries_a0_backup WHERE id='b'").get()).toEqual(before);
+    expect(costs().find(r => r.id === 'b')?.cost).toBe(0.75);
+  });
   it('backs up originals and differences Claude by session across instances and models, including counter drops', () => {
     repairCostEntriesA0(db, providers);
     expect(costs().slice(0,3)).toEqual([{id:'a',cost:0.5},{id:'b',cost:0.75},{id:'c',cost:0.2}]);

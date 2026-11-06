@@ -3,6 +3,7 @@ import type { Instance, OutputMessage } from '../../shared/types/instance.types'
 import { generateId } from '../../shared/utils/id-generator';
 import { getLogger } from '../logging/logger';
 import { registerCleanup } from '../util/cleanup-registry';
+import { createSelfWakeupTallyStore, type SelfWakeupTallyStore } from './self-wakeup-tally-store';
 
 const logger = getLogger('SelfWakeupTracker');
 const EXPIRY_GRACE_MS = 10 * 60_000;
@@ -15,7 +16,10 @@ export class SelfWakeupTracker {
   private seen = new Map<string, Set<string>>();
   private timer = setInterval(() => this.expire(Date.now()), 60_000);
 
-  constructor() { this.timer.unref?.(); }
+  constructor(private readonly store: SelfWakeupTallyStore = createSelfWakeupTallyStore()) {
+    this.timer.unref?.();
+    for (const [day, count] of Object.entries(store.load())) this.daily.set(day, count);
+  }
 
   static getInstance(): SelfWakeupTracker {
     if (!this.instance) {
@@ -47,6 +51,7 @@ export class SelfWakeupTracker {
         delaySeconds: event.delaySeconds, dueAt: event.dueAt, reason: event.reason.slice(0, 120) });
       const day = new Date(event.requestedAt).toISOString().slice(0, 10);
       this.daily.set(day, (this.daily.get(day) ?? 0) + 1);
+      this.store.save(Object.fromEntries(this.daily));
     }
     logger.info('Claude self wake-up request', { sessionId, kind: event.kind,
       ...(event.kind === 'requested' ? { dueAt: event.dueAt, delaySeconds: event.delaySeconds } : {}) });

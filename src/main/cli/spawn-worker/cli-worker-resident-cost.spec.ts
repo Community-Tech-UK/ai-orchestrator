@@ -294,8 +294,15 @@ describe("resident worker → communication → real CostTracker", () => {
       metadata: { turnErrored: true },
       usage: { outputTokens: 0 },
     });
-    expect(getCostTracker().getEntries()).toHaveLength(0);
-    expect(rows).toHaveLength(0);
+    // A#158 counts the turn while retaining the absence of paid usage.
+    const entries = getCostTracker().getEntries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ cost: 0, inputTokens: 0, outputTokens: 0, origin: "user" });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      costKnown: false, costSource: "unknown", origin: "user",
+      usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0 },
+    });
   });
 
   it.each([

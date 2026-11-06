@@ -175,7 +175,7 @@ export class DocReviewService extends EventEmitter {
         'Artifact is not a doc-review artifact (missing <meta name="aio-doc-review" content="v1">)',
       );
     }
-    void ensureDocReviewIgnored(input.workspacePath);
+    await ensureDocReviewIgnored(input.workspacePath);
 
     const session: DocReviewSession = {
       id: `dr_${randomUUID()}`,

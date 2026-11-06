@@ -34,7 +34,7 @@ describe('partial adapter usage persistence', () => {
     const usage = { inputTokens: 20, cacheReadTokens: 80, outputTokens: 16, reasoningTokens: 4, totalTokens: 120, cost: 0.00208 };
     recordUsage.mockReturnValue({ cost: usage.cost });
     adapter.emit('usage', usage);
-    expect(recordUsage).toHaveBeenCalledExactlyOnceWith('partial-instance', 'partial-session', 'gpt-6-astra', 20, 16, 80, 0, 0.00208, 4, false, { provider: 'codex', byModel: undefined });
+    expect(recordUsage).toHaveBeenCalledExactlyOnceWith('partial-instance', 'partial-session', 'gpt-6-astra', 20, 16, 80, 0, 0.00208, 4, false, { provider: 'codex', byModel: undefined, origin: 'user' });
     expect(recordTurn).toHaveBeenCalledWith('partial-instance', { input: 20, cacheRead: 80, cacheWrite: 0 });
     expect(instance.status).toBe('busy');
     expect(queueUpdate).toHaveBeenCalledWith(instance.id, 'busy', expect.objectContaining({ costEstimate: usage.cost }));

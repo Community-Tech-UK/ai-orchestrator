@@ -1,6 +1,7 @@
 import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { Router } from '@angular/router';
+import { loopStatusLabel } from '../../core/status';
 import { MobileHeaderComponent } from '../../shared/mobile-header.component';
 import { MobileIconComponent } from '../../shared/mobile-icon.component';
 import { LoopStore } from './loop.store';
@@ -26,7 +27,7 @@ import { LoopStore } from './loop.store';
         @for (run of loops.runs(); track run.id) {
           <li>
             <button type="button" (click)="open(run.id)">
-              <span>{{ run.status }} · {{ run.iteration }}@if (run.maxIterations) { of {{ run.maxIterations }} }</span>
+              <span>{{ loopStatusLabel(run.status) }} · {{ run.iteration }}@if (run.maxIterations) { of {{ run.maxIterations }} }</span>
               <span>{{ run.workspaceCwd }}</span>
               <span>{{ run.startedAt | date:'short' }}</span>
               @if (run.lastIteration) { <span>{{ run.lastIteration.summary }}</span> }
@@ -47,6 +48,7 @@ import { LoopStore } from './loop.store';
 })
 export class LoopsComponent {
   protected readonly loops = inject(LoopStore);
+  protected readonly loopStatusLabel = loopStatusLabel;
   private readonly router = inject(Router);
   protected back(): void { void this.router.navigate(['/projects']); }
   protected open(id: string): void { void this.router.navigate(['/loops', id]); }
