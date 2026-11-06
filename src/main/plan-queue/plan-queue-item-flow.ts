@@ -39,7 +39,8 @@ import {
 } from './plan-queue-git';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { relaxedSettingsFor } from './plan-queue-relaxation';
-import { unreportedVerifierReason, type PlanQueueTurnOutcome } from './plan-queue-instance-tracker';
+import { isStoppedByHarnessError, unreportedVerifierReason, type PlanQueueTurnOutcome } from './plan-queue-instance-tracker';
+import { isNeverAutoRetried } from './plan-queue-park-policy';
 import { hasPendingLandingCleanup, PlanQueueItemLanding, isAncestor } from './plan-queue-item-landing';
 import { PlanQueueLandingWaits } from './plan-queue-landing-wait';
 import { isLandingWait } from './plan-queue-state';
@@ -361,6 +362,7 @@ export class PlanQueueItemFlow {
         this.host.save({ ...this.host.getItem(item.id), pendingInstruction: null });
         return;
       } catch (error) {
+        if (isStoppedByHarnessError(error)) return;
         logger.warn('Plan queue: worker send failed; starting a fresh worker', { itemId: item.id, error: errorMessage(error) });
       }
     }
@@ -426,6 +428,9 @@ export class PlanQueueItemFlow {
           await this.holdUnlocked(item, usageWaitNote(waiting.message));
           return;
         }
+        case 'stopped-by-harness':
+          await this.parkUnlocked(item, 'stopped-by-harness', outcome.notice);
+          return;
         case 'failed':
           if (this.host.consumeUserClose?.(instanceId)) await this.parkUnlocked(item, 'cancelled', 'Stopped: you closed its session. Resume carries on from the same branch.');
           else { await this.parkUnlocked(item, 'worker-error', outcome.reason); this.breaker.note(item.runId, item.id, outcome.reason); }
@@ -549,6 +554,7 @@ export class PlanQueueItemFlow {
       this.usageWaits.start(item.id, waiting, 'check', waitMs);
       return;
     }
+    if (outcome.kind === 'stopped-by-harness') { await this.parkUnlocked(item, 'stopped-by-harness', outcome.notice); return; }
     if (outcome.kind !== 'turn-complete' || !verdict || treeChanged) {
       const reason = treeChanged
         ? 'the verifier changed the worktree, so its verdict was discarded and its changes reverted'
@@ -653,6 +659,8 @@ export class PlanQueueItemFlow {
   private async parkUnlocked(item: PlanQueueItem, reason: PlanQueueParkReason, detail: string, requireCheckpoint = false): Promise<void> {
     if (hasPendingLandingCleanup(item)) return this.landing.finishCleanup(item);
     if (item.state === 'landed' || item.state === 'parked' || item.state === 'skipped') return;
+    // A stop Harness chose is recorded first, so a restart during the slower steps below parks the job instead of restarting its work.
+    if (isNeverAutoRetried(reason)) item = this.host.save({ ...item, parkReason: reason, detail });
     const run = this.host.getRun(item.runId);
     const notes = [detail];
     await Promise.all([item.workerInstanceId, item.verifierInstanceId]

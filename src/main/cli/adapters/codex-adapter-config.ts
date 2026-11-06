@@ -19,6 +19,10 @@ export interface CodexCliConfig {
   trialKey?: string;
   trialKeySource?: TrialKeySource;
   trialArm?: CodexTrialArm;
+  /** Plan-queue role (`planQueueRole`), so the policy can tell a checker from a worker. */
+  queueRole?: string;
+  /** Set once a thread starts or resumes with the skills catalog switched off. */
+  skillCatalogOmitted?: boolean;
   additionalWritableDirs?: string[];
   approvalMode?: CodexApprovalMode;
   /**

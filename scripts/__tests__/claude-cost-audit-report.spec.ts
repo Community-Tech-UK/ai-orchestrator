@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -93,6 +94,43 @@ describe('historical attribution totals through the real audit CLI', () => {
 });
 
 describe.skipIf(!hasSqlite3())('claude-cost-audit-report', () => {
+  it('refuses hot-journal recovery without changing the database or rollback journal', () => {
+    const userData = createUserDataFixture();
+    const database = join(userData, 'rlm', 'rlm.db');
+    const journal = `${database}-journal`;
+    execFileSync('sqlite3', [database, `
+      ALTER TABLE cost_entries ADD COLUMN padding BLOB;
+      WITH RECURSIVE rows(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM rows WHERE n<200)
+      INSERT INTO cost_entries (id,timestamp,instance_id,session_id,model,cost,padding)
+        SELECT 'pending-'||n,9999999999999,'fixture-instance','fixture-session','opus',0.25,zeroblob(2048) FROM rows;
+    `]);
+    // Crash only this owned writer after cache spills; normal close would roll back cleanly.
+    const writer = spawnSync(process.execPath, ['-e', `
+      const { DatabaseSync } = require('node:sqlite');
+      const db = new DatabaseSync(process.argv[1]);
+      db.exec('PRAGMA journal_mode=DELETE; PRAGMA cache_size=1; PRAGMA synchronous=FULL; BEGIN IMMEDIATE; UPDATE cost_entries SET cost=cost+1;');
+      process.kill(process.pid, 'SIGKILL');
+    `, database], { encoding: 'utf8', timeout: 10_000 });
+    expect(writer.signal, writer.stderr).toBe('SIGKILL');
+    expect(existsSync(journal)).toBe(true);
+    const fingerprints = () => [database, journal].map(file => createHash('sha256').update(readFileSync(file)).digest('hex'));
+    const before = fingerprints();
+    const readonly = spawnSync('sqlite3', ['-readonly', database, 'SELECT COUNT(*) FROM cost_entries'], { encoding: 'utf8', timeout: 10_000 });
+    expect(readonly.status).not.toBe(0);
+    expect(readonly.stderr).toContain('readonly database');
+    expect(fingerprints()).toEqual(before);
+
+    const result = spawnSync(process.execPath, [scriptPath, '--userdata', userData], {
+      encoding: 'utf8', timeout: 10_000,
+      env: { ...process.env, AIO_COST_ATTRIBUTION_DIR: join(userData, 'cost-attribution'), AIO_COST_AUDIT_SQLITE_DRIVER: 'cli' },
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(existsSync(journal)).toBe(true);
+    expect(fingerprints()).toEqual(before);
+    expect(result.stderr).toContain('readonly database');
+    expect(result.stdout).not.toContain('Cross-check: cost_entries');
+    expect(result.stdout).toContain('| loop-1 | 1 | 1,234 | $7.8900 |');
+  });
   it('reports subagent percentiles without increasing the spend call count', () => {
     const userData=createUserDataFixture();
     writeFileSync(join(userData,'cost-attribution','subagents.jsonl'), [100,200].map((size,index)=>JSON.stringify({
@@ -106,6 +144,25 @@ describe.skipIf(!hasSqlite3())('claude-cost-audit-report', () => {
     expect(result.stdout).toContain('across 1 calls.');
     expect(result.stdout).toContain('Subagents — last context size, not a cost');
     expect(result.stdout).toContain('[parent] | 2 | 100 / 200 | 1 / 2 | 1000 / 2000 |');
+  });
+  it('splits finished helpers by model, mode, fork and depth', () => {
+    const userData=createUserDataFixture();
+    const row=(size:number,extra:Record<string,unknown>)=>JSON.stringify({ts:9999999999999,subagentUsage:true,purpose:'subagent',
+      sessionId:'parent',finalContextTokens:size,toolUses:2,durationMs:10,costSource:'unknown',costKnown:false,...extra});
+    writeFileSync(join(userData,'cost-attribution','helpers.jsonl'),[
+      row(100,{model:'claude-sonnet-5-5',helperModelSource:'stream',helperMode:'background',helperFork:false,helperDepth:1}),
+      row(300,{model:'claude-sonnet-5-5',helperModelSource:'stream',helperMode:'background',helperFork:false,helperDepth:1}),
+      row(500,{model:'claude-opus-5-5',helperModelSource:'transcript',helperMode:'foreground',helperFork:true,helperDepth:2}),
+      row(700,{}),
+    ].join('\n'));
+    const result=spawnSync(process.execPath,[scriptPath,'--userdata',userData],{
+      encoding:'utf8',env:{...process.env,AIO_COST_ATTRIBUTION_DIR:join(userData,'cost-attribution'),AIO_COST_AUDIT_SQLITE_DRIVER:'cli'},
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Subagents by model, mode, fork and depth — last context size, not a cost');
+    expect(result.stdout).toContain('| claude-sonnet-5-5 (stream) | background | no | 1 | 2 | 100 / 300 |');
+    expect(result.stdout).toContain('| claude-opus-5-5 (transcript) | foreground | yes | 2 | 1 | 500 / 500 |');
+    expect(result.stdout).toContain('| unknown | ? | ? | ? | 1 | 700 / 700 |');
   });
   it('runs a day comparison through the standalone CLI with profile transcripts and price overrides', () => {
     const userData=createUserDataFixture();

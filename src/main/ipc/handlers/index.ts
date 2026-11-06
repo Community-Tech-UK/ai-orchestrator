@@ -74,6 +74,8 @@ export { registerChatHandlers } from './chat-handlers';
 export { registerRuntimePluginHandlers } from './runtime-plugin-handlers';
 export { registerProjectPluginTrustHandlers } from './project-plugin-trust-handlers';
 export { registerRtkHandlers } from './rtk-handlers';
+export { registerClaudeCostReconcileHandlers } from './claude-cost-reconcile-handlers';
+export { registerRuntimeChangePreviewHandlers } from './runtime-change-preview-handlers';
 export { registerLoopHandlers } from './loop-handlers';
 export { registerTerminalHandlers } from './terminal-handlers';
 export { registerAuxiliaryLlmHandlers } from './auxiliary-llm-handlers';

@@ -9,6 +9,8 @@ import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { InstanceHeaderComponent } from './instance-header.component';
+import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
+import type { PendingSelection } from '../models/compact-model-picker.types';
 import { SkillStore } from '../../core/state/skill.store';
 import { HookStore } from '../../core/state/hook.store';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
@@ -20,7 +22,6 @@ import { InstanceListStore } from '../../core/state/instance/instance-list.store
 import { InstanceStateService } from '../../core/state/instance/instance-state.service';
 import { IpcFacadeService } from '../../core/services/ipc';
 import { ProviderStateService } from '../../core/services/provider-state.service';
-import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
 import { HelpDrawerService } from '../../shared/help/help-drawer.service';
 import { InstanceStore } from '../../core/state/instance.store';
 import { SettingsStore } from '../../core/state/settings.store';
@@ -70,7 +71,7 @@ describe('InstanceHeaderComponent interrupt tooltip', () => {
       providers: [
         { provide: KeybindingService, useValue: { formatBindingByAction: () => 'Escape', ariaShortcutsByAction: () => 'Escape' } },
         { provide: SettingsStore, useValue: { showCost: () => showCost, settings: () => ({}), update: vi.fn() } },
-        { provide: InstanceStore, useValue: { getInstance: () => undefined } },
+        { provide: InstanceStore, useValue: { getInstance: () => undefined, instances: () => [] } },
         {
           provide: SkillStore,
           useValue: {
@@ -348,5 +349,42 @@ describe('InstanceHeaderComponent interrupt tooltip', () => {
     fixture.componentRef.setInput('contextUsage', { used: 10, total: 100, percentage: 10, occupancyReported: true, costEstimate: 12.34 });
     fixture.detectChanges();
     expect(Boolean(fixture.nativeElement.querySelector('.cost'))).toBe(enabled);
+  });
+
+  describe('what a model change would cost, before the click (T17)', () => {
+    const pointedAt = { provider: 'codex', model: 'gpt-6.1-sol', reasoning: null } as PendingSelection;
+    const picker = () => fixture.debugElement.query(By.directive(CompactModelPickerComponent));
+
+    it('shows the auto-approve cost beside the control only when a consequence exists', () => {
+      fixture.componentRef.setInput('instance', instance('codex'));
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.header-action-detail')).toBeNull();
+      fixture.componentRef.setInput('yoloCostNote', 'The next message will re-read about 230K tokens at full price.');
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.header-action-detail')?.textContent).toContain('230K tokens at full price');
+    });
+
+    it('hands the sentence for the option under the pointer to the header\'s own model picker', () => {
+      fixture.componentRef.setInput('instance', instance('claude'));
+      fixture.detectChanges();
+      expect(picker().componentInstance.optionNote()).toBeNull();
+
+      fixture.componentRef.setInput('optionNote', 'Switching model restarts this session.');
+      fixture.detectChanges();
+
+      expect(picker().componentInstance.optionNote()).toBe('Switching model restarts this session.');
+    });
+
+    it('passes the option under the pointer up, and the pointer leaving it', () => {
+      fixture.componentRef.setInput('instance', instance('claude'));
+      fixture.detectChanges();
+      const previews: (PendingSelection | null)[] = [];
+      fixture.componentInstance.optionPreview.subscribe((value) => previews.push(value));
+
+      picker().componentInstance.optionPreview.emit(pointedAt);
+      picker().componentInstance.optionPreview.emit(null);
+
+      expect(previews).toEqual([pointedAt, null]);
+    });
   });
 });

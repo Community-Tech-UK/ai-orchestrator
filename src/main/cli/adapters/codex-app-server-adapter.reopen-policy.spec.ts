@@ -63,6 +63,7 @@ describe('reopenAppServerThread sends the thread policy', () => {
       config: {
         tool_output_token_limit: 4000,
         model_post_turn_compact_threshold_percent: 60,
+        'skills.max_context_tokens': 1500, // Harness-started work caps Codex's skills list (Oct-2 T5)
       },
     }));
   });

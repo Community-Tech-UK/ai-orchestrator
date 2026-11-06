@@ -3,9 +3,11 @@
 import type { McpServerToolDefinition } from './mcp-server-tools';
 import { rankToolDocuments } from './tool-search-ranker';
 import {
-  ORCHESTRATOR_CORE_TOOL_NAMES,
   ORCHESTRATOR_TOOL_DESCRIBE_NAME,
   ORCHESTRATOR_TOOL_SEARCH_NAME,
+  orchestratorCoreToolNames,
+  remoteWorkerSearchHint,
+  type RemoteWorkerListing,
 } from './orchestrator-mcp-deferral';
 
 export const ORCHESTRATOR_TOOL_STABLE_ENV = 'AI_ORCHESTRATOR_ORCHESTRATOR_TOOL_STABLE';
@@ -17,9 +19,10 @@ function objectArgs(value: unknown): value is Record<string, unknown> {
 
 export function createStableOrchestratorTools(
   all: readonly McpServerToolDefinition[],
+  listing: RemoteWorkerListing = {},
 ): McpServerToolDefinition[] {
   const byName = new Map(all.map((tool) => [tool.name, tool]));
-  const core = new Set(ORCHESTRATOR_CORE_TOOL_NAMES);
+  const core = orchestratorCoreToolNames(listing);
   const documents = all.map((tool) => ({
     id: tool.name,
     text: `${tool.name} ${tool.description} ${JSON.stringify(tool.inputSchema)}`,
@@ -37,9 +40,9 @@ export function createStableOrchestratorTools(
     name: ORCHESTRATOR_TOOL_SEARCH_NAME,
     description:
       'Search Harness orchestrator capabilities including file transfer, automations, '
-      + 'calendar, release, evidence and settings writes. Returns matching schemas and '
-      + 'invocation instructions. Non-core tools run via orchestrator.tool_execute; '
-      + 'the callable tool list stays fixed.',
+      + 'calendar, release, evidence and settings writes. Returns names and short descriptions. '
+      + 'Use tool_describe for argument schemas and invocation instructions. Non-core tools run via orchestrator.tool_execute; '
+      + `the callable tool list stays fixed.${remoteWorkerSearchHint(listing)}`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -59,7 +62,7 @@ export function createStableOrchestratorTools(
         throw new Error('Invalid orchestrator tool search limit');
       }
       const matches = rankToolDocuments(args['query'], documents, limit)
-        .map((match) => describe(byName.get(match.id)!));
+        .map((match) => { const tool = byName.get(match.id)!; return { name: tool.name, description: tool.description.replace(/\s+/g, ' ').trim().slice(0, 500) }; });
       return {
         matches,
         ...(matches.length === 0 ? { availableTools: [...byName.keys()] } : {}),

@@ -129,7 +129,8 @@ export interface InterruptRespawnDeps {
     provider?: CliType,
   ) => BrowserGatewayMcpConfigOptions | null;
   getChromeDevtoolsMcpOptions?: (
-    location?: ExecutionLocation,
+    location: ExecutionLocation | undefined,
+    instanceId: string | undefined,
   ) => ChromeDevtoolsMcpConfigOptions | null;
   getPermissionHookPath: (yoloMode: boolean) => string | undefined;
   /**
@@ -951,7 +952,7 @@ export class InterruptRespawnHandler {
         forkSession: shouldForkSession,
         ...(instance.modelRuntimeTarget ? { modelRuntimeTarget: instance.modelRuntimeTarget } : {}),
         mcpConfig: this.deps.getMcpConfig(instance.executionLocation, instance.id, cliType),
-        chromeDevtoolsMcp: this.deps.getChromeDevtoolsMcpOptions?.(instance.executionLocation) ?? undefined,
+        chromeDevtoolsMcp: this.deps.getChromeDevtoolsMcpOptions?.(instance.executionLocation, instance.id) ?? undefined,
         browserGatewayMcp: this.deps.getBrowserGatewayMcpOptions?.(
           instance.executionLocation,
           instance.id,
@@ -1287,7 +1288,7 @@ export class InterruptRespawnHandler {
         forkSession: shouldForkSession,
         ...(instance.modelRuntimeTarget ? { modelRuntimeTarget: instance.modelRuntimeTarget } : {}),
         mcpConfig: this.deps.getMcpConfig(instance.executionLocation, instance.id, cliType),
-        chromeDevtoolsMcp: this.deps.getChromeDevtoolsMcpOptions?.(instance.executionLocation) ?? undefined,
+        chromeDevtoolsMcp: this.deps.getChromeDevtoolsMcpOptions?.(instance.executionLocation, instance.id) ?? undefined,
         browserGatewayMcp: this.deps.getBrowserGatewayMcpOptions?.(
           instance.executionLocation,
           instance.id,

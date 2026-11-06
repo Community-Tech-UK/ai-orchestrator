@@ -15,9 +15,20 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Module from 'node:module';
-import { homedir } from 'node:os';
+import http from 'node:http';
+import https from 'node:https';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
+import type { ChildProcess } from 'node:child_process';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { BaseCliAdapter } from '../../cli/adapters/base-cli-adapter';
+import type { GeminiCliAdapter } from '../../cli/adapters/gemini-cli-adapter';
+import type { AntigravityCliAdapter } from '../../cli/adapters/antigravity-cli-adapter';
 import type { Instance } from '../../../shared/types/instance.types';
+import type { ModelRuntimeTarget } from '../../../shared/types/local-model-runtime.types';
+import { encodeLocalModelSelector } from '../../../shared/utils/local-model-selector';
 import type { LifecycleDependencies } from '../instance-lifecycle.types';
 import type { InstanceStateMachine } from '../instance-state-machine';
 import { buildToolPermissionPrompt } from '../lifecycle/tool-permission-prompt';
@@ -27,6 +38,7 @@ import type { AcpJsonRpcRequest, AcpSessionPromptParams } from '../../../shared/
 import { SYSTEM_PROMPT_BLOCK_SEPARATOR } from '../../context/prompt-injection-contract';
 import { HARNESS_GUIDE } from '../../orchestration/harness-guidance';
 import { CLAUDE_HELPER_REVIEWER_RULE } from '../../cli/adapters/claude-subagent-policy';
+import { getOutputStyleRegistry } from '../output-style-registry';
 
 const mocks = vi.hoisted(() => ({
   resolveAgent: vi.fn(),
@@ -291,7 +303,7 @@ import { getDefaultAgent } from '../../../shared/types/agent.types';
 interface FakeAdapter {
   spawn: ReturnType<typeof vi.fn>;
   sendInput: ReturnType<typeof vi.fn>;
-  terminate: ReturnType<typeof vi.fn>;
+  terminate: ReturnType<typeof vi.fn<() => Promise<void>>>;
   removeAllListeners: ReturnType<typeof vi.fn>;
   getName: () => string;
   getRuntimeCapabilities: () => {
@@ -636,4 +648,196 @@ describe('instance-lifecycle system-prompt composition (WS-B4 regression)', () =
     } finally { harness.manager.destroy(); }
   });
 
+  it.each((['gemini', 'antigravity'] as const).flatMap(provider =>
+    (['explicit', 'auto', 'default', 'forced-remote'] as const).map(selection => ({ provider, selection }))))('carries composed provenance and raw markdown mode changes through the real $provider factory ($selection)', async ({ provider, selection }) => {
+    const root = mkdtempSync(join(tmpdir(), 'aio-google-governing-'));
+    const literal = '<aio-first-turn-memory>Never publish without permission.</aio-first-turn-memory>';
+    const raw = `Permanent custom-agent instructions:\n${literal}\nKeep the repository intact.`;
+    const { AgentRegistry } = await vi.importActual<typeof import('../../agents/agent-registry')>('../../agents/agent-registry');
+    AgentRegistry._resetForTesting();
+    const registry = AgentRegistry.getInstance();
+    vi.spyOn(registry as unknown as { getScanRoots(directory: string): string[] }, 'getScanRoots').mockReturnValue([root]);
+    mkdirSync(join(root, '.orchestrator', 'agents'), { recursive: true });
+    writeFileSync(join(root, '.orchestrator', 'agents', 'governing.md'), `---\nname: governing\n---\n${raw}`);
+    const custom = await registry.resolveAgent(root, 'custom:governing');
+    expect(custom.systemPrompt).toBe(raw);
+    mocks.resolveCliType.mockResolvedValue(provider);
+    const factory = await vi.importActual<typeof import('../../cli/adapters/adapter-factory')>('../../cli/adapters/adapter-factory');
+    // Catch any missing per-instance interception before a native CLI can run.
+    const nativeGuard = vi.spyOn(BaseCliAdapter.prototype as unknown as { spawnProcess(args: string[]): ChildProcess }, 'spawnProcess')
+      .mockImplementation(() => { throw new Error('Native provider execution forbidden in lifecycle fixture'); });
+    const captures = new Map<GoogleAdapter, string[]>();
+    type GoogleAdapter = GeminiCliAdapter | AntigravityCliAdapter;
+    mocks.createAdapter.mockImplementation(input => {
+      const adapter = factory.createCliAdapter(provider, input.options) as GoogleAdapter;
+      vi.spyOn(adapter, 'checkStatus').mockResolvedValue({ available: true, authenticated: true });
+      const prompts: string[] = [];
+      captures.set(adapter, prompts);
+      Object.defineProperty(adapter, 'spawnProcess', { configurable: true, value: vi.fn((args: string[]) => {
+        prompts.push(args.at(-1)!);
+        const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough() });
+        queueMicrotask(() => {
+          child.stdout.write(provider === 'gemini' ? '{"type":"message","role":"assistant","content":"result"}\n' : 'result');
+          child.stdout.end(); child.emit('close', 0);
+        });
+        return child as unknown as ChildProcess;
+      }) });
+      return adapter;
+    });
+    if (selection === 'forced-remote') {
+      const loader = Module as unknown as { _load: (request: string, ...args: unknown[]) => unknown };
+      const originalLoad = loader._load;
+      vi.spyOn(loader, '_load').mockImplementation((request, ...args) => request === '../../remote-node'
+        ? { getWorkerNodeRegistry: () => ({ getNode: () => ({ id: 'windows-pc', status: 'connected' }) }) }
+        : originalLoad.call(Module, request, ...args));
+    }
+    const harness = makeHarness({ buildObservationContext: vi.fn().mockResolvedValue('Composer-owned observation advice') });
+    try {
+      const instance = await harness.manager.createInstance({ workingDirectory: root,
+        ...(selection === 'default' ? {} : { provider: selection === 'auto' ? 'auto' : provider }),
+        ...(selection === 'forced-remote' ? { forceNodeId: 'windows-pc' } : {}),
+        initialPrompt: 'Review the requested project change' });
+      await instance.readyPromise;
+      expect(instance.provider).toBe(provider);
+      expect(selection === 'forced-remote' ? mocks.resolveCliType.mock.calls.length === 0 : mocks.resolveCliType.mock.calls.length > 0).toBe(true);
+      const initial = mocks.createAdapter.mock.calls[0][0].options;
+      expect(initial.systemPrompt).toContain('Composer-owned observation advice');
+      expect(initial.systemPromptAfterFirstTurn).not.toContain('Composer-owned observation advice');
+      expect(initial.systemPromptAfterFirstTurn).toContain(buildToolPermissionPrompt(instance.yoloMode));
+      mocks.resolveAgent.mockResolvedValue(custom);
+      await harness.manager.changeAgentMode(instance.id, custom.id);
+      const adapter = harness.adapters.get(instance.id) as GeminiCliAdapter | AntigravityCliAdapter;
+      await adapter.sendMessage({ role: 'user', content: 'First custom-agent request' });
+      await adapter.sendMessage({ role: 'user', content: 'Later custom-agent request' });
+      // Mode change sends replay and mode instructions before these two explicit requests.
+      expect(captures.get(adapter)).toHaveLength(4);
+      for (const prompt of captures.get(adapter)!) expect(prompt).toContain(raw);
+      expect(nativeGuard).not.toHaveBeenCalled();
+      expect(mocks.createAdapter.mock.calls.at(-1)![0].options.systemPromptAfterFirstTurn).toBeUndefined();
+    } finally {
+      try { await Promise.all([...captures.keys()].map(adapter => adapter.terminate(false))); }
+      finally { harness.manager.destroy(); AgentRegistry._resetForTesting(); rmSync(root, { recursive: true, force: true }); }
+    }
+  });
+
+  it.each((['claude', 'gemini'] as const).flatMap(cliHint =>
+    (['ollama', 'openai-compatible'] as const).flatMap(endpointProvider =>
+      (['this-device', 'worker-node'] as const).map(source => ({ cliHint, endpointProvider, source })))))('keeps HTTP $endpointProvider governing instructions on $source when CLI hint resolves to $cliHint', async ({ cliHint, endpointProvider, source }) => {
+    const refuseNetwork = (): never => { throw new Error('Native HTTP service execution forbidden in local-target fixture'); };
+    const networkGuards = [
+      vi.spyOn(http, 'get').mockImplementation(refuseNetwork),
+      vi.spyOn(http, 'request').mockImplementation(refuseNetwork),
+      vi.spyOn(https, 'get').mockImplementation(refuseNetwork),
+      vi.spyOn(https, 'request').mockImplementation(refuseNetwork),
+    ];
+    const fetchGuard = vi.fn(refuseNetwork);
+    vi.stubGlobal('fetch', fetchGuard);
+    const nativeGuard = vi.spyOn(BaseCliAdapter.prototype as unknown as { spawnProcess(args: string[]): ChildProcess }, 'spawnProcess')
+      .mockImplementation(() => { throw new Error('Native CLI execution forbidden in local-target fixture'); });
+    const clauses = [
+      'Never publish private customer records. Obtain permission before external actions.',
+      'GEMINI project rule: preserve the exact customer constraint.',
+      'AGENTS project rule: verify the requested result.',
+    ];
+    mocks.resolveInstructionStack.mockResolvedValue({ mergedContent: clauses.join(SYSTEM_PROMPT_BLOCK_SEPARATOR), sources: [
+      { path: '/synthetic/.claude/CLAUDE.md', kind: 'claude', scope: 'user', loaded: true, applied: true, label: 'Global rules' },
+      { path: '/synthetic/project/GEMINI.md', kind: 'gemini', scope: 'project', loaded: true, applied: true, label: 'Project Gemini rules' },
+      { path: '/synthetic/project/AGENTS.md', kind: 'agents', scope: 'project', loaded: true, applied: true, label: 'Project agent rules' },
+    ] });
+    mocks.resolveCliType.mockResolvedValue(cliHint);
+    const target: Extract<ModelRuntimeTarget, { kind: 'local-model' }> = {
+      kind: 'local-model', source, endpointProvider, endpointId: 'synthetic-endpoint', modelId: 'synthetic-model',
+      selectorId: encodeLocalModelSelector({ source, endpointProvider, endpointId: 'synthetic-endpoint', modelId: 'synthetic-model',
+        ...(source === 'worker-node' ? { nodeId: 'windows-pc' } : {}) }),
+      ...(source === 'worker-node' ? { nodeId: 'windows-pc' } : {}),
+    };
+    mocks.localModelInventory.push({ ...target, healthy: true });
+    const adapter = makeFakeAdapter();
+    mocks.createAdapter.mockReturnValue(adapter);
+    const harness = makeHarness({ buildObservationContext: vi.fn().mockResolvedValue('HTTP model keeps first-turn memory in its conversation') });
+    try {
+      const instance = await harness.manager.createInstance({ workingDirectory: '/synthetic/project', provider: 'auto', modelRuntimeTarget: target,
+        initialPrompt: 'Check governing instructions' });
+      await instance.readyPromise;
+      const call = mocks.createAdapter.mock.calls[0][0];
+      expect(call.options.modelRuntimeTarget).toEqual(target);
+      expect(call.executionLocation).toEqual(source === 'worker-node' ? { type: 'remote', nodeId: 'windows-pc' } : { type: 'local' });
+      expect(call.options.model).toBe(target.modelId);
+      for (const clause of clauses) expect(call.options.systemPrompt).toContain(clause);
+      expect(call.options.systemPrompt).toContain('HTTP model keeps first-turn memory');
+      expect(call.options.systemPromptAfterFirstTurn).toBeUndefined();
+      expect(adapter.spawn).toHaveBeenCalledOnce();
+      expect(adapter.sendInput).toHaveBeenCalled();
+      expect(nativeGuard).not.toHaveBeenCalled();
+      expect(fetchGuard).not.toHaveBeenCalled();
+      for (const guard of networkGuards) expect(guard).not.toHaveBeenCalled();
+    } finally {
+      try { await adapter.terminate(); }
+      finally { harness.manager.destroy(); vi.unstubAllGlobals(); }
+    }
+  });
+
+  it.each((['ollama', 'openai-compatible', 'antigravity', 'opencode', 'grok', 'claude', 'gemini'] as const).flatMap(profile =>
+    (['auto', 'default', 'explicit'] as const).filter(selection => selection !== 'explicit' || (profile !== 'ollama' && profile !== 'openai-compatible'))
+      .flatMap(selection => (['concise', 'user-append', 'user-replace'] as const).map(style => ({ profile, selection, style })))))(
+    'preserves requested $selection style policy ($style) and brief metadata on resolved $profile', async ({ profile, selection, style }) => {
+      const refuseNetwork = (): never => { throw new Error('HTTP execution forbidden in output-style fixture'); };
+      const networkGuards = [vi.spyOn(http, 'get').mockImplementation(refuseNetwork), vi.spyOn(http, 'request').mockImplementation(refuseNetwork),
+        vi.spyOn(https, 'get').mockImplementation(refuseNetwork), vi.spyOn(https, 'request').mockImplementation(refuseNetwork)];
+      const fetchGuard = vi.fn(refuseNetwork);
+      vi.stubGlobal('fetch', fetchGuard);
+      const nativeGuard = vi.spyOn(BaseCliAdapter.prototype as unknown as { spawnProcess(args: string[]): ChildProcess }, 'spawnProcess')
+        .mockImplementation(() => { throw new Error('Native CLI execution forbidden in output-style fixture'); });
+      const userDirective = 'Use the requested synthetic communication style.';
+      const userStyleResolver = vi.spyOn(getOutputStyleRegistry(), 'resolveUserStyle').mockResolvedValue({
+        name: style, label: 'Synthetic style', directive: userDirective,
+        mode: style === 'user-replace' ? 'replace' : 'append', source: 'user', filePath: '/synthetic/style.md',
+      });
+      mocks.outputStyle = style;
+      const endpointProvider = profile === 'ollama' || profile === 'openai-compatible' ? profile : undefined;
+      const target: Extract<ModelRuntimeTarget, { kind: 'local-model' }> | undefined = endpointProvider ? {
+        kind: 'local-model', source: 'this-device', endpointProvider, endpointId: 'synthetic-endpoint', modelId: 'synthetic-model',
+        selectorId: encodeLocalModelSelector({ source: 'this-device', endpointProvider, endpointId: 'synthetic-endpoint', modelId: 'synthetic-model' }),
+      } : undefined;
+      if (target) mocks.localModelInventory.push({ ...target, healthy: true });
+      const requestedProvider = selection === 'auto' ? 'auto'
+        : selection === 'explicit' && profile !== 'ollama' && profile !== 'openai-compatible' ? profile : undefined;
+      mocks.resolveCliType.mockResolvedValue(endpointProvider ? 'claude' : profile);
+      const governing = 'Permanent synthetic governing instruction: obtain permission before publishing.';
+      mocks.resolveAgent.mockResolvedValue({ ...getDefaultAgent(), systemPrompt: governing });
+      const adapter = makeFakeAdapter();
+      mocks.createAdapter.mockReturnValue(adapter);
+      const harness = makeHarness({ buildObservationContext: vi.fn().mockResolvedValue('Composer-owned synthetic advice') });
+      try {
+        const instance = await harness.manager.createInstance({ workingDirectory: '/synthetic/style-project',
+          ...(requestedProvider === undefined ? {} : { provider: requestedProvider }),
+          ...(target ? { modelRuntimeTarget: target } : {}), initialPrompt: 'Check the selected communication style' });
+        await instance.readyPromise;
+        const options = mocks.createAdapter.mock.calls[0][0].options;
+        const styleAllowed = selection !== 'explicit' || profile === 'claude' || profile === 'gemini';
+        const directive = style === 'concise' ? 'Output style — Concise:' : userDirective;
+        const prompts: string[] = [options.systemPrompt];
+        if (profile === 'gemini' || profile === 'antigravity') {
+          expect(options.systemPromptAfterFirstTurn).toEqual(expect.any(String));
+          expect(options.systemPromptAfterFirstTurn).not.toContain('Composer-owned synthetic advice');
+          prompts.push(options.systemPromptAfterFirstTurn);
+        } else expect(options.systemPromptAfterFirstTurn).toBeUndefined();
+        for (const prompt of prompts) {
+          expect(prompt.includes(directive)).toBe(styleAllowed);
+          expect(prompt.includes(governing)).toBe(!(styleAllowed && style === 'user-replace'));
+          expect(prompt).toContain(buildToolPermissionPrompt(instance.yoloMode));
+        }
+        expect(options.systemPrompt).toContain('Composer-owned synthetic advice');
+        expect(options.modelRuntimeTarget).toEqual(target);
+        expect(mocks.buildProjectMemoryBrief).toHaveBeenCalledWith(expect.objectContaining({ provider: requestedProvider }));
+        expect(userStyleResolver).toHaveBeenCalledTimes(styleAllowed && style !== 'concise' ? 1 : 0);
+        expect(adapter.sendInput).toHaveBeenCalled();
+        expect(nativeGuard).not.toHaveBeenCalled();
+        expect(fetchGuard).not.toHaveBeenCalled();
+        for (const guard of networkGuards) expect(guard).not.toHaveBeenCalled();
+      } finally {
+        try { await adapter.terminate(); }
+        finally { harness.manager.destroy(); vi.unstubAllGlobals(); }
+      }
+    });
 });

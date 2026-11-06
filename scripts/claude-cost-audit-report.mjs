@@ -164,6 +164,17 @@ function reportSubagents(records) {
   console.log('| day [parent session] | count | final size median / p90 | tool uses median / p90 | duration ms median / p90 |');
   console.log('|---|---:|---:|---:|---:|');
   for (const [key, group] of groups) console.log(`| ${key} | ${group.length} | ${percentile(group, 'finalContextTokens', 0.5)} / ${percentile(group, 'finalContextTokens', 0.9)} | ${percentile(group, 'toolUses', 0.5)} / ${percentile(group, 'toolUses', 0.9)} | ${percentile(group, 'durationMs', 0.5)} / ${percentile(group, 'durationMs', 0.9)} |`);
+  // T6 step 3 / K3.8: which model ran each helper, and how it was started (fork, depth, foreground or background).
+  const shapes=new Map();
+  for (const record of [...groups.values()].flat()) {
+    const key=[record.model ? `${record.model} (${record.helperModelSource ?? '?'})` : 'unknown',record.helperMode ?? '?',
+      record.helperFork===undefined ? '?' : record.helperFork ? 'yes' : 'no',record.helperDepth ?? '?'].join(' | ');
+    const group=shapes.get(key) ?? [];group.push(record);shapes.set(key,group);
+  }
+  console.log('\n## Subagents by model, mode, fork and depth — last context size, not a cost\n');
+  console.log('| model (source) | mode | fork | depth | count | final size median / p90 | tool uses median / p90 |');
+  console.log('|---|---|---|---:|---:|---:|---:|');
+  for (const [key,group] of [...shapes].sort((a,b)=>b[1].length-a[1].length)) console.log(`| ${key} | ${group.length} | ${percentile(group,'finalContextTokens',0.5)} / ${percentile(group,'finalContextTokens',0.9)} | ${percentile(group,'toolUses',0.5)} / ${percentile(group,'toolUses',0.9)} |`);
 }
 
 // ── 2/3. SQLite cross-checks ────────────────────────────────────────────────

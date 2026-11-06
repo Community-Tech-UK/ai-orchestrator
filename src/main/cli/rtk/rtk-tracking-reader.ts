@@ -107,7 +107,7 @@ export interface RtkCommandStat {
 export interface RtkComplianceSummary {
   /** Commands routed through a filter, including unchanged or expanded output. */
   filtered: number;
-  /** Commands routed through `rtk proxy` — tracked, but deliberately unfiltered. */
+  /** Commands routed through `rtk proxy` or `rtk bypass`: tracked, unfiltered. */
   proxied: number;
   /** `proxied / (filtered + proxied)`, 0–100. Null when there is nothing to divide. */
   proxyRatePct: number | null;

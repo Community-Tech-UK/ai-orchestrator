@@ -44,6 +44,13 @@ describe('machine session spawn policy',()=>{
     expect(applyInstanceSpawnPolicy('codex',queue,{})).toMatchObject({sessionKind:'plan-queue',machineSession:'plan-queue',trialKey:'item'});
     expect(applyInstanceSpawnPolicy('codex',{...queue,id:'replacement'},{}).trialKey).toBe('item');
   });
+  it('carries the plan-queue role so a checker can be told from a worker, and keeps a caller role',()=>{
+    const verifier={depth:1,parentId:'parent',metadata:{planQueueRunId:'run',planQueueItemId:'item',planQueueRole:'verifier'},id:'verifier'};
+    expect(applyInstanceSpawnPolicy('codex',verifier,{})).toMatchObject({sessionKind:'plan-queue',trialKey:'item',queueRole:'verifier'});
+    expect(applyInstanceSpawnPolicy('codex',{...verifier,metadata:{...verifier.metadata,planQueueRole:7}},{}).queueRole).toBeUndefined();
+    expect(applyInstanceSpawnPolicy('codex',verifier,{queueRole:'caller'}).queueRole).toBe('caller');
+    expect(applyInstanceSpawnPolicy('codex',{depth:0,parentId:null,metadata:{},id:'chat'},{}).queueRole).toBeUndefined();
+  });
   it('preserves explicit tags and durability for root Codex chats',()=>{
     expect(applyInstanceSpawnPolicy('codex',{depth:0,parentId:null,metadata:{},id:'chat'},{})).toMatchObject({ephemeral:false,sessionKind:'chat'});
     expect(applyInstanceSpawnPolicy('codex',undefined,{machineSession:'review',sessionKind:'review',trialKey:'caller'})).toMatchObject({machineSession:'review',sessionKind:'review',trialKey:'caller'});

@@ -5,17 +5,18 @@ import { claudeOutputCapSettings, resolveClaudeBashOutputMaxChars } from '../ada
 import { DEFAULT_DISALLOWED_TOOLS } from '../adapters/host-cli-tool-policy';
 import { resolveBashHookCommand } from '../hooks/hook-path-resolver';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
+import { wrapSystemInstructions } from '../adapters/system-instruction-wrapper';
 
 export function buildWorkerArgs(
   cliType: 'claude' | 'gemini',
   options: UnifiedSpawnOptions,
   sessionId: string | null,
   message: CliMessage,
-  state: { includeGeminiRtkAwareness?: boolean } = {},
+  state: { geminiAdvisoryDelivered?: boolean } = {},
 ): string[] {
   return cliType === 'claude'
     ? buildClaudeArgs(options, sessionId)
-    : buildGeminiArgs(options, message, state.includeGeminiRtkAwareness === true);
+    : buildGeminiArgs(options, message, state.geminiAdvisoryDelivered === true);
 }
 
 function buildClaudeArgs(options: UnifiedSpawnOptions, sessionId: string | null): string[] {
@@ -119,7 +120,7 @@ function mapClaudeReasoningEffort(
 function buildGeminiArgs(
   options: UnifiedSpawnOptions,
   message: CliMessage,
-  includeRtkAwareness: boolean,
+  advisoryDelivered: boolean,
 ): string[] {
   const args: string[] = [];
   if (options.model) args.push('--model', options.model);
@@ -127,11 +128,11 @@ function buildGeminiArgs(
   if (options.yoloMode ?? true) args.push('--yolo');
   if (message.content) {
     const promptParts: string[] = [];
-    const systemPrompt = options.systemPrompt?.trim();
+    const systemPrompt = advisoryDelivered ? options.systemPromptAfterFirstTurn ?? options.systemPrompt : options.systemPrompt;
     if (systemPrompt) {
-      promptParts.push(`[SYSTEM INSTRUCTIONS]\n${systemPrompt}\n[/SYSTEM INSTRUCTIONS]`);
+      promptParts.push(wrapSystemInstructions(systemPrompt));
     }
-    if (includeRtkAwareness && options.rtk?.enabled && options.rtk.binaryPath) {
+    if (options.rtk?.enabled && options.rtk.binaryPath) {
       promptParts.push(wrapRtkAwareness());
     }
     promptParts.push(message.content);

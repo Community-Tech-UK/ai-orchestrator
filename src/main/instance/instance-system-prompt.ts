@@ -98,6 +98,7 @@ export interface AssembleInstanceSystemPromptParams {
 
 export interface AssembleInstanceSystemPromptResult {
   systemPrompt: string;
+  systemPromptAfterFirstTurn?: string;
   systemPromptManifest: SystemPromptBlockManifestEntry[];
   /** Hidden runtime-only context to prepend to the initial prompt sent to the provider. */
   initialRuntimeContextBlock: string | undefined;
@@ -168,10 +169,10 @@ async function buildInitialRuntimeContextBlock(
 export async function assembleInstanceSystemPrompt(
   params: AssembleInstanceSystemPromptParams,
 ): Promise<AssembleInstanceSystemPromptResult> {
-  const { instance, config, resolvedAgent, instructionPrompts, initialUserMessageContent, deps } = params;
+  const { instance, config, resolvedProvider, resolvedAgent, instructionPrompts, initialUserMessageContent, deps } = params;
   const settings = getSettingsManager();
 
-  const systemPromptComposer = createBudgetedSystemPromptComposer(config.provider);
+  const systemPromptComposer = createBudgetedSystemPromptComposer(resolvedProvider ?? config.provider, instance.id);
   // WS-C6: kinds where a real fetch/build failure or deadline timeout was
   // observed (as opposed to "genuinely no content this time") — see
   // context-manifest-store.ts's 'unavailable' status.
@@ -496,7 +497,7 @@ export async function assembleInstanceSystemPrompt(
   );
   systemPromptComposer.add('harness-guide', shouldReceiveHarnessGuide(instance, config) ? HARNESS_GUIDE : '');
 
-  const { text: systemPrompt, manifest: systemPromptManifest } = systemPromptComposer.compose();
+  const { text: systemPrompt, manifest: systemPromptManifest, textAfterFirstTurn: systemPromptAfterFirstTurn } = systemPromptComposer.compose();
   logger.debug('Composed system prompt manifest', {
     instanceId: instance.id,
     blocks: systemPromptManifest,
@@ -521,5 +522,5 @@ export async function assembleInstanceSystemPrompt(
     { note: systemPromptComposer.budgetNote() },
   );
 
-  return { systemPrompt, systemPromptManifest, ...initialRuntimeContext };
+  return { systemPrompt, systemPromptAfterFirstTurn, systemPromptManifest, ...initialRuntimeContext };
 }

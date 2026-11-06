@@ -60,6 +60,8 @@ import {
 } from './user-action-request.secret-card';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
+import { RuntimeChangeConfirmComponent } from './runtime-change-confirm.component';
+import { UserActionYoloCost } from './user-action-request.yolo-cost';
 
 export type { UserActionRequest } from './user-action-request.types';
 
@@ -70,7 +72,7 @@ const requestGeneration = (request: UserActionRequest): string => JSON.stringify
 @Component({
   selector: 'app-user-action-request',
   standalone: true,
-  imports: [AioTooltipDirective, RequestReceiptsComponent, PlanHandoffDialogComponent],
+  imports: [AioTooltipDirective, RequestReceiptsComponent, PlanHandoffDialogComponent, RuntimeChangeConfirmComponent],
   templateUrl: './user-action-request.component.html',
   styleUrl: './user-action-request.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -95,6 +97,9 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
   onPlanHandoffStarted(requestId: string): void { this.pendingRequests.update(requests => requests.filter(request => request.id !== requestId)); }
   isResponding = signal(false);
   responseErrors = signal<Map<string, string>>(new Map());
+  readonly yoloCost = new UserActionYoloCost(
+    () => this.instanceId(), () => this.pendingRequests(), id => this.instanceStore.getInstance(id),
+  );
 
   private inputRequiredScopes = new Map<string, InputRequiredScope>();
   private inputRequiredTexts = new Map<string, string>();
@@ -633,6 +638,11 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
   }
 
   async onEnableYolo(request: UserActionRequest): Promise<void> {
+    if (this.isResponding()) return;
+    await this.yoloCost.gate(request, () => this.enableYolo(request));
+  }
+
+  private async enableYolo(request: UserActionRequest): Promise<void> {
     if (this.isDeferredPermission(request)) {
       await this.respond(request, true, undefined, { enableYolo: true });
       return;

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { harnessStopEventDetails } from '../../shared/utils/harness-stop';
 import type { EventEmitter } from 'events';
 import type { CliResponse, CliToolCall } from '../cli/adapters/base-cli-adapter';
 import { isToolResultFailed } from '../../shared/tool-outcome';
@@ -246,7 +247,8 @@ export function mapAdapterRuntimeEvent(
     case 'turn_error':
     case 'error': {
       const rawPayload = args[0] as Error | string;
-      return { event: { kind: 'error', message: rawPayload instanceof Error ? rawPayload.message : String(rawPayload), recoverable: false, ...extractProviderApiDiagnostics(rawPayload), turnEnding: classifyTurnEnding({ kind: 'error', error: rawPayload, metadata: rawPayload }) }, rawPayload };
+      const stopDetails = harnessStopEventDetails(rawPayload);
+      return { event: { kind: 'error', message: rawPayload instanceof Error ? rawPayload.message : String(rawPayload), recoverable: false, ...extractProviderApiDiagnostics(rawPayload), ...(stopDetails ? { details: stopDetails } : {}), turnEnding: classifyTurnEnding({ kind: 'error', error: rawPayload, metadata: rawPayload }) }, rawPayload };
     }
     case 'complete': {
       const rawPayload = args[0] as CliResponse;

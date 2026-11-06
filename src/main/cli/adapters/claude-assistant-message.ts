@@ -13,6 +13,7 @@ import { extractThinkingContent } from '../../../shared/utils/thinking-extractor
 import { parseClaudeStreamError } from './claude-stream-error';
 import { parseClaudeAsyncWorkToolUse, type CliAsyncWorkEvent } from './claude-cli-async-work';
 import { sanitizeClaudeToolInput } from './claude-cli-self-wakeup';
+import { observeClaudeAssistantTelemetry } from './claude-assistant-telemetry';
 import type { RawCliPayload } from './claude-cli-adapter.types';
 
 export interface ClaudeAssistantMessageHost {
@@ -43,6 +44,10 @@ export function processClaudeAssistantMessage(
     host.emit('error', streamError.error);
     return;
   }
+  // A frame tagged with a tool call belongs to a helper agent: remember the
+  // model it ran, and keep its request size out of the main-thread occupancy.
+  observeClaudeAssistantTelemetry(host, assistantMsg);
+  const fromHelper = Boolean(assistantMsg.parent_tool_use_id);
 
   let precedingText = '';
   let pendingThinking: ThinkingContent[] = [];
@@ -124,7 +129,7 @@ export function processClaudeAssistantMessage(
     });
   }
 
-  if (assistantMsg.message?.usage) {
+  if (assistantMsg.message?.usage && !fromHelper) {
     const usage = assistantMsg.message.usage;
     const totalUsedTokens =
       (usage.input_tokens || 0) +

@@ -8,8 +8,8 @@
  *
  * Rates in `MODEL_PRICING` are USD per 1M tokens. Cache reads normally bill at
  * 10% of the input rate; Opus/Sonnet 5.5 read at 5%, Fable 5.1 at 2.5%. Cache writes bill at the
- * input rate (Anthropic-style prompt caching) except on GPT-5.6 and later,
- * where OpenAI charges 1.25x — see {@link getCacheWriteMultiplier}.
+ * 1.25x input for Claude's 5-minute cache and 2x for its 1-hour cache.
+ * Unknown Claude cache lifetimes use a 1.6x estimate; GPT-5.6+ writes use 1.25x.
  * Reasoning/thinking tokens bill at the output rate, so callers should fold
  * them into `outputTokens`.
  *
@@ -25,6 +25,10 @@ export interface TokenCostInput {
   outputTokens?: number;
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
+  cacheWrite5mTokens?: number;
+  cacheWrite1hTokens?: number;
+  /** Actual input size of ONE request, including cache reads. Omit for aggregates. */
+  requestInputTokens?: number;
   reasoningTokens?: number;
 }
 
@@ -179,11 +183,12 @@ export function getModelRate(model: string | undefined | null): ModelRate {
  * later ("For GPT-5.6 and later models, cache writes are billed at 1.25x the
  * model's uncached input rate, while cache reads continue to receive the 90%
  * cached-input discount" — openai.com/index/gpt-5-6). Everything older, and
- * Anthropic-style caching, writes at 1.0x.
+ * Claude-style caching instead uses the lifetime-specific rates below.
  */
 const OPENAI_CACHE_WRITE_MULTIPLIER = 1.25;
 const DEFAULT_CACHE_READ_MULTIPLIER = 0.1;
 const CACHE_READ_MULTIPLIERS: Readonly<Record<string, number>> = {
+  'gpt-6.1-sol': 0.05,
   'claude-fable-5-1': 0.025,
   'claude-opus-5-5': 0.05,
   'claude-sonnet-5-5': 0.05,
@@ -207,6 +212,7 @@ export function getCacheReadMultiplier(model: string | undefined | null): number
  */
 export function getCacheWriteMultiplier(model: string | undefined | null): number {
   if (!model) return 1;
+  if (isClaudeModel(model)) return 1.6;
   const match = /^gpt-(\d+)(?:\.(\d+))?/.exec(model.trim().toLowerCase());
   if (!match) return 1;
 
@@ -217,6 +223,16 @@ export function getCacheWriteMultiplier(model: string | undefined | null): numbe
   const isGpt56OrLater = major > 5 || (major === 5 && minor >= 6);
   return isGpt56OrLater ? OPENAI_CACHE_WRITE_MULTIPLIER : 1;
 }
+
+function isClaudeModel(model: string | undefined | null): boolean {
+  return /^(?:claude-|opus(?:\[|$)|sonnet(?:\[|$)|haiku(?:\[|$))/.test(model?.trim().toLowerCase() ?? '');
+}
+
+// Rechecked 2 November 2026 against the two official model pricing pages:
+// https://developers.openai.com/api/docs/models/gpt-6.1-sol
+// https://developers.openai.com/api/docs/models/gpt-6-astra
+// Above 272K input: 2x input/cache and 1.5x output for the WHOLE request.
+export const CODEX_LONG_PROMPT_THRESHOLD = 272_000;
 
 /**
  * Compute the USD cost for a single usage record using per-model
@@ -231,18 +247,25 @@ function computeCost(
   model: string | undefined | null,
   usage: TokenCostInput,
 ): number {
-  const input = Math.max(0, usage.inputTokens ?? 0);
-  const output = Math.max(0, usage.outputTokens ?? 0);
-  const cacheRead = Math.max(0, usage.cacheReadTokens ?? 0);
-  const cacheWrite = Math.max(0, usage.cacheWriteTokens ?? 0);
-  const reasoning = Math.max(0, usage.reasoningTokens ?? 0);
+  const count = (value: number | undefined): number => typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : 0;
+  const input = count(usage.inputTokens);
+  const output = count(usage.outputTokens);
+  const cacheRead = count(usage.cacheReadTokens);
+  const write5m = isClaudeModel(model) ? count(usage.cacheWrite5mTokens) : 0;
+  const write1h = isClaudeModel(model) ? count(usage.cacheWrite1hTokens) : 0;
+  const cacheWrite = Math.max(0, count(usage.cacheWriteTokens) - write5m - write1h);
+  const reasoning = count(usage.reasoningTokens);
+  const longPrompt = (model === 'gpt-6.1-sol' || model === 'gpt-6-astra')
+    && count(usage.requestInputTokens) > CODEX_LONG_PROMPT_THRESHOLD;
+  const inputMultiplier = longPrompt ? 2 : 1;
+  const outputMultiplier = longPrompt ? 1.5 : 1;
 
   const cost =
-    input * rate.input +
-    output * rate.output +
-    reasoning * rate.output +
-    cacheRead * rate.input * getCacheReadMultiplier(model) +
-    cacheWrite * rate.input * getCacheWriteMultiplier(model);
+    input * rate.input * inputMultiplier +
+    (output + reasoning) * rate.output * outputMultiplier +
+    cacheRead * rate.input * getCacheReadMultiplier(model) * inputMultiplier +
+    cacheWrite * rate.input * getCacheWriteMultiplier(model) * inputMultiplier +
+    write5m * rate.input * 1.25 + write1h * rate.input * 2;
 
   return cost / 1_000_000;
 }

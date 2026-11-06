@@ -44,6 +44,8 @@ import { PERMISSION_REGISTRY_CHANNELS } from './permission-registry.channels';
 import { SECRET_CHANNELS } from './secret.channels';
 import { COPILOT_ACCOUNT_CHANNELS } from './copilot-account.channels';
 import { PROVIDER_ACCOUNT_CHANNELS } from './provider-account.channels';
+import { CLAUDE_COST_RECONCILE_CHANNELS } from './claude-cost-reconcile.channels';
+import { RUNTIME_CHANGE_PREVIEW_CHANNELS } from './runtime-change-preview.channels';
 
 export {
   INSTANCE_CHANNELS,
@@ -84,6 +86,8 @@ export {
   SECRET_CHANNELS,
   COPILOT_ACCOUNT_CHANNELS,
   PROVIDER_ACCOUNT_CHANNELS,
+  CLAUDE_COST_RECONCILE_CHANNELS,
+  RUNTIME_CHANGE_PREVIEW_CHANNELS,
 };
 
 /**
@@ -129,6 +133,8 @@ export const IPC_CHANNELS = {
   ...SECRET_CHANNELS,
   ...COPILOT_ACCOUNT_CHANNELS,
   ...PROVIDER_ACCOUNT_CHANNELS,
+  ...CLAUDE_COST_RECONCILE_CHANNELS,
+  ...RUNTIME_CHANGE_PREVIEW_CHANNELS,
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

@@ -30,6 +30,7 @@ import {
   type PlanQueueStartArgs,
 } from '@contracts/schemas/plan-queue';
 import type { McpServerToolDefinition } from './mcp-server-tools';
+import { versionedToolStatus } from './status-version';
 
 export interface PlanQueueToolOperations {
   start(callerInstanceId: string, args: PlanQueueStartArgs): Promise<unknown>;
@@ -139,6 +140,7 @@ export const PLAN_QUEUE_TOOL_SPECS = {
       properties: {
         run_id: { type: 'string', description: 'Run id returned by plan_queue_start.' },
         evidence: { type: 'boolean', description: 'Add the page wording, receipts and timeline for this run. Needs run_id.' },
+        sinceVersion: { type: 'string', maxLength: 100, description: 'Previous status version; returns unchanged:true when no displayed state changed.' },
       },
       additionalProperties: false,
     },
@@ -290,9 +292,9 @@ type Handler = (callerInstanceId: string, ops: PlanQueueToolOperations, args: un
 
 const HANDLERS: Record<PlanQueueToolName, Handler> = {
   plan_queue_start: (caller, ops, args) => ops.start(caller, PlanQueueStartArgsSchema.parse(args)),
-  plan_queue_status: (caller, ops, args) => {
+  plan_queue_status: async (caller, ops, args) => {
     const parsed = PlanQueueStatusArgsSchema.parse(args ?? {});
-    return ops.status(caller, parsed.run_id, parsed.evidence);
+    return versionedToolStatus(await ops.status(caller, parsed.run_id, parsed.evidence), parsed.sinceVersion);
   },
   plan_queue_answer: (caller, ops, args) => {
     const parsed = PlanQueueAnswerArgsSchema.parse(args);

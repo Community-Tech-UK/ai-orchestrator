@@ -29,6 +29,7 @@ export function applyInstanceSpawnPolicy(cliType:string,instance:Pick<Instance,'
   const nodePlacement = cliType === 'opencode' && typeof m?.['openCodeForkSessionId'] === 'string' && m['openCodeForkSessionId'].trim()
     ? requireOpenCodeNativeForkPlacement(durable.nodePlacement) : durable.nodePlacement;
   return {...durable,nodePlacement,instanceId:durable.instanceId ?? instance?.id,jobId:durable.jobId ?? jobId,...(cliType === 'opencode' && instance?.id ? { beforeProviderPrompt: createProviderPromptCheckpoint(instance.id) } : {}),additionalDirectories:normalizeOpenCodeAdditionalDirectories(instance?.additionalDirectories ?? options.additionalDirectories,options.modelRuntimeTarget?.kind === 'local-model' ? 'local-model' : cliType),trialKey:durable.trialKey ?? trialKey,trialKeySource,machineSession:durable.machineSession ?? reason ?? undefined,sessionKind:kind,
+    queueRole:durable.queueRole ?? (typeof m?.['planQueueRole'] === 'string' ? m['planQueueRole'] : undefined),
     ...(cliType === 'claude' ? {
       contextCeilingTokens: durable.contextCeilingTokens ?? resolveContextCeilingTokens(Boolean(reason)),
       bashOutputMaxChars: durable.bashOutputMaxChars ?? resolveClaudeBashOutputMaxChars(),

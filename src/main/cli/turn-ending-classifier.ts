@@ -63,6 +63,9 @@ export function classifyTurnEnding(input: TurnEndingInput): TurnEndingClassifica
   const result = (reason: ProviderTurnEndingReason, evidence: string, extras: Partial<TurnEndingClassification> = {}): TurnEndingClassification =>
     ({ reason, evidence, ...extras, ...suppression });
   if (cancelled) return result('completed', 'client_cancelled', { autoContinueSuppressed: true });
+  // Harness ended this turn on purpose (a round past its token ceiling) and already said so in the transcript:
+  // not a provider failure, and nothing may continue it by itself.
+  if (meta['stoppedByHarness'] === true) return result('completed', 'harness_stop', { autoContinueSuppressed: true });
 
   const errorRecord = record(input.error);
   const errorText = input.error instanceof Error ? input.error.message : typeof input.error === 'string' ? input.error : typeof errorRecord['message'] === 'string' ? errorRecord['message'] : '';

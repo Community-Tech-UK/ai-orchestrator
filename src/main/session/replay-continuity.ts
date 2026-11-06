@@ -1,14 +1,19 @@
 import type { OutputMessage } from '../../shared/types/instance.types';
+import {
+  REPLAY_MAX_CHARS_FOR_LAST_TURN,
+  REPLAY_MAX_CHARS_PER_MESSAGE,
+  REPLAY_MAX_TURNS,
+  REPLAY_MAX_UNRESOLVED_ITEMS,
+} from '../../shared/utils/replay-carryover';
 
-const DEFAULT_MAX_TURNS = 24;
-const DEFAULT_MAX_CHARS_PER_MESSAGE = 800;
-/**
- * The final turn is the one the user's next message replies to (a pending
- * question, a numbered list of options), so it gets a much larger budget than
- * the scrollback around it.
- */
-const DEFAULT_MAX_CHARS_FOR_LAST_TURN = 4_000;
-const DEFAULT_MAX_UNRESOLVED = 5;
+// The limits live in shared/utils/replay-carryover so the pre-click preview of a runtime change
+// (what carries over to the new session) cannot drift from this builder.
+// The final turn is the one the user's next message replies to (a pending question, a numbered
+// list of options), so it gets a much larger budget than the scrollback around it.
+const DEFAULT_MAX_TURNS = REPLAY_MAX_TURNS;
+const DEFAULT_MAX_CHARS_PER_MESSAGE = REPLAY_MAX_CHARS_PER_MESSAGE;
+const DEFAULT_MAX_CHARS_FOR_LAST_TURN = REPLAY_MAX_CHARS_FOR_LAST_TURN;
+const DEFAULT_MAX_UNRESOLVED = REPLAY_MAX_UNRESOLVED_ITEMS;
 
 /** Share of a truncated message's budget spent on its opening. */
 const TRUNCATION_HEAD_RATIO = 0.6;

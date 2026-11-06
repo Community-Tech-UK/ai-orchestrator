@@ -76,6 +76,7 @@ import { initializeCodememRpcServer } from '../codemem/codemem-rpc-server';
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
 import { setupCompactionCoordinator } from './compaction-runtime';
+import { setupPreSleepContext } from './pre-sleep-context-runtime';
 import { LongRunResourceGovernor } from '../runtime/long-run-resource-governor';
 import { RLM_STORAGE_HARD_LIMIT_BYTES } from '../../shared/types/rlm-maintenance.types';
 import { getContextWorkerClient } from '../instance/context-worker-client';
@@ -334,6 +335,11 @@ export function createLateRuntimeInitializationSteps(
     {
       name: 'Compaction coordinator',
       fn: () => setupCompactionCoordinator(instanceManager, windowManager),
+    },
+    {
+      // Large Claude sessions with a known wake-up hours away shrink first, while their cache is warm (T13.1).
+      name: 'Pre-sleep compaction',
+      fn: () => { setupPreSleepContext(instanceManager); },
     },
     { name: 'Truncation cleanup', fn: () => { initTruncationCleanup(); } },
     { name: 'Codex command-output archive cleanup', fn: () => { initCodexCommandOutputArchiveCleanup(); } },

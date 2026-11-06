@@ -227,7 +227,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/core/config/claude-md-loader.ts': 804,
   // Raised 776 -> 840 for the interSessionMessaging readOnly() MCP settings
   // policy entry (cross-session messaging, 2026-09-16).
-  'src/main/core/config/settings-control-policy.ts': 840,
+  'src/main/core/config/settings-control-policy.ts': 845, // +5: one entry per Oct-2 Phase D setting (checker catalog, four Codex round limits)
   'src/main/core/error-recovery.ts': 990,
   // Main process — history
   // Raised from 1582 for the fix to the intermittent "written as 0 bytes" CI
@@ -394,7 +394,7 @@ const ALLOWLIST: Record<string, number> = {
   // Raised 1597 -> 1656: interrupt the live loop child when the iteration
   // timeout fires, so ACP session/prompt does not keep running after the loop
   // has already ended.
-  'src/main/orchestration/default-invokers.ts': 1656,
+  'src/main/orchestration/default-invokers.ts': 1670, // +14: loop sleep-context wiring and measured cache lifetime (Oct-2 Phase D Step 9)
   'src/main/orchestration/embedding-service.ts': 845,
   // Raised 3170 -> 3277 for typed intervention queueing and audit-gate
   // integration points. Audit mechanics live in loop-audit-runtime.ts.
@@ -649,7 +649,7 @@ const ALLOWLIST: Record<string, number> = {
   // lock (+6 lines). The file was exactly 700 at HEAD; most of the growth to 706 is
   // other uncommitted Plan Queue work in the same working tree (retirements, active-work
   // checks, landing chain). Re-tighten once that work is committed and the file is split.
-  'src/main/plan-queue/plan-queue-item-flow.ts': 768, // 706 -> 768: landing-wait wiring (step 4.2)
+  'src/main/plan-queue/plan-queue-item-flow.ts': 776, // 706 -> 768: landing-wait wiring (step 4.2); +8: park a Harness stop without retrying it (Oct-2 Phase D Step 1)
 };
 
 function countLines(filePath: string): number {

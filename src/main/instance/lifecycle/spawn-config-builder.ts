@@ -8,7 +8,7 @@
  *
  * Pure code paths only — every method is a function of (executionLocation,
  * instanceId, provider, yolo) plus singletons (settings, RPC sockets, etc.).
- * No instance state is read; no instance state is mutated.
+ * The only instance state read is its Plan Queue role (mcp-role-policy.ts); none is mutated.
  */
 
 import { app } from 'electron';
@@ -66,6 +66,7 @@ import {
   getInstanceBrowserToolsMode,
   resolveBrowserToolsMode,
 } from './browser-tool-scoping';
+import { mcpServersSkippedForRole, staticMcpConfigEntries, type McpRoleSubject, type RoleSkippableMcpServer } from './mcp-role-policy';
 
 const logger = getLogger('SpawnConfigBuilder');
 
@@ -79,6 +80,8 @@ export const MCP_CONFIG_PATH = app.isPackaged
 
 export interface SpawnConfigBuilderDeps {
   settings: SettingsManager;
+  /** Reads an instance's Plan Queue role; absent means every session gets every server. */
+  getInstance?: (instanceId: string) => McpRoleSubject | undefined;
 }
 
 /**
@@ -94,9 +97,16 @@ export interface SpawnConfigBuilderDeps {
 export class SpawnConfigBuilder {
   private readonly schemaTelemetry = new ToolSchemaTelemetry();
   private readonly settings: SettingsManager;
+  private readonly getInstance: SpawnConfigBuilderDeps['getInstance'];
 
   constructor(deps: SpawnConfigBuilderDeps) {
     this.settings = deps.settings;
+    this.getInstance = deps.getInstance;
+  }
+
+  /** Servers this instance's Plan Queue role leaves out; none for unknown or role-less instances. */
+  private skippedMcpServers(instanceId?: string): ReadonlySet<RoleSkippableMcpServer> {
+    return mcpServersSkippedForRole(instanceId ? this.getInstance?.(instanceId) : undefined);
   }
 
   /**
@@ -117,10 +127,12 @@ export class SpawnConfigBuilder {
       return [];
     }
     const configs: string[] = [];
+    const skipped = this.skippedMcpServers(instanceId);
+    if (skipped.size > 0) logger.info('Plan Queue role skips MCP servers', { instanceId, skipped: [...skipped] });
     try {
       if (existsSync(MCP_CONFIG_PATH)) {
         logger.info('MCP config found', { path: MCP_CONFIG_PATH });
-        configs.push(MCP_CONFIG_PATH);
+        configs.push(...staticMcpConfigEntries(MCP_CONFIG_PATH, skipped));
       }
     } catch (err) {
       logger.error('Failed to check MCP config', err instanceof Error ? err : new Error(String(err)), {
@@ -128,7 +140,7 @@ export class SpawnConfigBuilder {
       });
     }
 
-    if (this.settings.getAll().codememEnabled) {
+    if (this.settings.getAll().codememEnabled && !skipped.has('codemem')) {
       const codememOptions = this.getCodememMcpOptions(instanceId);
       if (codememOptions) {
         const codememConfig = buildCodememMcpConfig(codememOptions);
@@ -184,7 +196,7 @@ export class SpawnConfigBuilder {
 
     // chrome-devtools attach (Claude consumes inline JSON via --mcp-config;
     // other providers receive it through UnifiedSpawnOptions.chromeDevtoolsMcp).
-    const chromeDevtoolsOptions = this.getChromeDevtoolsMcpOptions(executionLocation);
+    const chromeDevtoolsOptions = this.getChromeDevtoolsMcpOptions(executionLocation, instanceId);
     if (chromeDevtoolsOptions) {
       const chromeDevtoolsConfig = buildChromeDevtoolsMcpConfigJson(chromeDevtoolsOptions);
       if (chromeDevtoolsConfig) {
@@ -371,7 +383,7 @@ export class SpawnConfigBuilder {
     instanceId?: string,
     provider?: string,
   ): BrowserGatewayMcpConfigOptions | null {
-    if (executionLocation?.type === 'remote' || !instanceId) {
+    if (executionLocation?.type === 'remote' || !instanceId || this.skippedMcpServers(instanceId).has('browser')) {
       return null;
     }
     const socketPath = getBrowserGatewayRpcSocketPath();
@@ -434,7 +446,7 @@ export class SpawnConfigBuilder {
     instanceId?: string,
     provider?: string,
   ): ComputerUseMcpConfigOptions | null {
-    if (executionLocation?.type === 'remote' || !instanceId) {
+    if (executionLocation?.type === 'remote' || !instanceId || this.skippedMcpServers(instanceId).has('desktop')) {
       return null;
     }
     if (!this.settings.getAll().computerUseEnabled) {
@@ -467,14 +479,15 @@ export class SpawnConfigBuilder {
   }
 
   /**
-   * Resolve chrome-devtools attach options from settings, or null when attach is
-   * disabled, no profile is designated, or the instance runs on a remote node
-   * (the managed Chrome and its CDP port are local to this machine).
+   * Resolve chrome-devtools attach options from settings, or null when attach is disabled, no profile
+   * is designated, the instance is remote (the managed Chrome is local) or its Plan Queue role skips
+   * browsers. `instanceId` is required (may be undefined) so no caller can forget the role rule.
    */
   getChromeDevtoolsMcpOptions(
-    executionLocation?: ExecutionLocation,
+    executionLocation: ExecutionLocation | undefined,
+    instanceId: string | undefined,
   ): ChromeDevtoolsMcpConfigOptions | null {
-    if (executionLocation?.type === 'remote') {
+    if (executionLocation?.type === 'remote' || this.skippedMcpServers(instanceId).has('browser')) {
       return null;
     }
     const settings = this.settings.getAll();

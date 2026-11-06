@@ -7,6 +7,8 @@ import { WORKER_NATIVE_MODULES } from './src/worker-agent/worker-self-update-dep
 
 const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8')) as { version?: string };
 const workerAgentVersion = packageJson.version ?? '0.1.0';
+// Keep the MJS as the sole source of role guidance, including in the bundle fed to SEA.
+const preCompactRoleHookBase64 = fs.readFileSync('src/main/cli/hooks/precompact-role-hook.mjs').toString('base64');
 // The extension a worker node's Chrome loads lives in this same checkout. The
 // relay tells the extension this version so it can reload onto matching code.
 const extensionManifest = JSON.parse(
@@ -34,6 +36,7 @@ async function build(): Promise<void> {
       external: ['electron', ...WORKER_NATIVE_MODULES],
       tsconfig: 'tsconfig.worker.json',
       define: {
+        __AIO_WORKER_PRECOMPACT_HOOK_BASE64__: JSON.stringify(preCompactRoleHookBase64),
         'process.env.AIO_WORKER_AGENT_VERSION': JSON.stringify(workerAgentVersion),
         'process.env.AIO_WORKER_BUILD_ID': JSON.stringify(workerBuildId),
         ...(extensionManifest.version

@@ -1,5 +1,6 @@
 import safeRegex from 'safe-regex2';
 import { isIP } from 'net';
+import { CODEX_TURN_CEILING_MAX_TOKENS, type CodexTurnCeilingSettings } from '../../../shared/types/codex-turn-ceiling-settings.types';
 import type { AppSettings } from '../../../shared/types/settings.types';
 
 export type ValidationResult<V> =
@@ -9,6 +10,13 @@ export type ValidationResult<V> =
 export type Validator<K extends keyof AppSettings> = (
   value: unknown
 ) => ValidationResult<AppSettings[K]>;
+
+function oneOf<K extends keyof AppSettings>(...allowed: readonly string[]): Validator<K> {
+  return (value) =>
+    typeof value === 'string' && allowed.includes(value)
+      ? { ok: true, value: value as AppSettings[K] }
+      : { ok: false, error: `Expected one of ${allowed.join(', ')}` };
+}
 
 function asBoolean<K extends keyof AppSettings>(): Validator<K> {
   return (value) =>
@@ -130,11 +138,21 @@ function contextCeiling<K extends 'ownChatContextCeilingTokens' | 'machineContex
     ? { ok:true, value:value as AppSettings[K] } : { ok:false,error:'Expected 0 or an integer from 100,000 to 1,000,000' };
 }
 
+function tokenThreshold<K extends keyof CodexTurnCeilingSettings>(): Validator<K> {
+  return value => typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= CODEX_TURN_CEILING_MAX_TOKENS
+    ? { ok:true, value:value as AppSettings[K] } : { ok:false,error:`Expected 0 or an integer up to ${CODEX_TURN_CEILING_MAX_TOKENS}` };
+}
+
 export const PAUSE_SETTING_VALIDATORS: Partial<{
   [K in keyof AppSettings]: Validator<K>;
 }> = {
   ownChatContextCeilingTokens: contextCeiling<'ownChatContextCeilingTokens'>(),
   machineContextCeilingTokens: contextCeiling<'machineContextCeilingTokens'>(),
+  codexTurnCeilingHarnessWorkWrapUpTokens: tokenThreshold<'codexTurnCeilingHarnessWorkWrapUpTokens'>(),
+  codexTurnCeilingHarnessWorkStopTokens: tokenThreshold<'codexTurnCeilingHarnessWorkStopTokens'>(),
+  codexTurnCeilingChatsWrapUpTokens: tokenThreshold<'codexTurnCeilingChatsWrapUpTokens'>(),
+  codexTurnCeilingChatsStopTokens: tokenThreshold<'codexTurnCeilingChatsStopTokens'>(),
+  codexCheckerSkillCatalog: oneOf<'codexCheckerSkillCatalog'>('trial', 'full', 'omit'),
   pauseFeatureEnabled: asBoolean<'pauseFeatureEnabled'>(),
   pauseOnVpnEnabled: asBoolean<'pauseOnVpnEnabled'>(),
   pauseTreatExistingVpnAsActive: asBoolean<'pauseTreatExistingVpnAsActive'>(),

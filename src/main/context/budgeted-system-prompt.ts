@@ -1,8 +1,10 @@
 import { omittedSectionHeadings, formatOmittedSectionNames } from './system-prompt-sections';
+import { getLogger } from '../logging/logger';
 import {
   createSystemPromptComposer,
   type SystemPromptBlockKind,
   type SystemPromptComposer,
+  type SystemPromptComposeResult,
 } from './prompt-injection-contract';
 
 // Independent reservations prevent a large observation or repo map from
@@ -16,27 +18,41 @@ const ADVISORY_CHAR_BUDGETS: Partial<Record<SystemPromptBlockKind, number>> = {
   'mcp-tool-context': 1_600,
 };
 
-/** Bound advisory data without cutting governing instructions or permissions. */
-export function createBudgetedSystemPromptComposer(provider?: string): SystemPromptComposer & {
+export interface BudgetedSystemPromptComposer extends SystemPromptComposer {
+  compose(): SystemPromptComposeResult & { textAfterFirstTurn?: string };
   budgetNote(): string | undefined;
-} {
+}
+
+/** Bound advisory data without cutting governing instructions or permissions. */
+export function createBudgetedSystemPromptComposer(provider?: string, session?: string): BudgetedSystemPromptComposer {
   const composer = createSystemPromptComposer();
+  const subsequentComposer = createSystemPromptComposer();
   const reductions: string[] = [];
   // Transcript-backed providers retain advisory context in the conversation.
   const multiplier = ['codex', 'opencode', 'copilot', 'cursor', 'grok'].includes(provider ?? '') ? 1 : 1.5;
+  const hasFirstTurnOnlyAdvisory = provider === 'gemini' || provider === 'antigravity';
   return {
     add(kind, content) {
       const budget = ADVISORY_CHAR_BUDGETS[kind];
+      const firstTurnOnly = hasFirstTurnOnlyAdvisory
+        && ['observation-memory', 'project-brief', 'lessons', 'repo-map', 'wake-context'].includes(kind);
       const maxChars = budget === undefined ? undefined : Math.floor(budget * multiplier);
-      let delivered = content;
-      if (content && maxChars !== undefined && content.length > maxChars) {
-        const excerpt = excerptAdvisoryBlock(kind, content, maxChars);
+      // Ownership comes from the block kind, never from marker-looking source text.
+      const source = content;
+      let delivered = source;
+      if (source && maxChars !== undefined && source.length > maxChars) {
+        const excerpt = excerptAdvisoryBlock(kind, source, maxChars);
         delivered = excerpt.text;
-        reductions.push(`${kind}: ${content.length} to ${delivered.length} characters; omitted sections: ${excerpt.headings.join('; ') || '(unheaded content)'}`);
+        reductions.push(`${kind}: ${source.length} to ${delivered.length} characters; omitted sections: ${excerpt.headings.join('; ') || '(unheaded content)'}`);
       }
       composer.add(kind, delivered);
+      subsequentComposer.add(kind, firstTurnOnly ? undefined : delivered);
+      if (delivered) getLogger('PromptInjection').debug('Prompt injected', { surface: kind, characters: delivered.length, session });
     },
-    compose: () => composer.compose(),
+    compose: () => ({
+      ...composer.compose(),
+      ...(hasFirstTurnOnlyAdvisory ? { textAfterFirstTurn: subsequentComposer.compose().text } : {}),
+    }),
     budgetNote: () => reductions.length > 0
       ? `Advisory excerpts supplied to adapter (${reductions.join('; ')}). Hashes and lengths describe the excerpts. Governing instructions and tool permissions are preserved. Provider retention is not confirmed.`
       : undefined,

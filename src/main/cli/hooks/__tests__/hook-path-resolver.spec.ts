@@ -30,6 +30,7 @@ vi.mock('../../../logging/logger', () => ({
 
 import {
   buildDeferPermissionHookCommand,
+  buildPreCompactRoleHookCommand,
   ensureHookScript,
   getDeferPermissionHookPath,
 } from '../hook-path-resolver';
@@ -96,5 +97,19 @@ describe('hook-path-resolver', () => {
     expect(
       buildDeferPermissionHookCommand('C:\\Program Files\\AI Orchestrator\\defer-permission-hook.mjs', 'win32'),
     ).toBe('node "C:\\Program Files\\AI Orchestrator\\defer-permission-hook.mjs"');
+  });
+
+  it.each([false, true])('keeps the Electron file command (packaged=%s)', (packaged) => {
+    electronMock.isPackaged = packaged;
+    Object.defineProperty(process, 'resourcesPath', { value: tempRoot, configurable: true });
+    const hookPath = path.join(tempRoot, ...(packaged ? ['hooks'] : ['src', 'main', 'cli', 'hooks']), 'precompact-role-hook.mjs');
+    mkdirSync(path.dirname(hookPath), { recursive: true });
+    writeFileSync(hookPath, '// hook asset\n');
+    expect(buildPreCompactRoleHookCommand('loop', 'darwin')).toBe(`node '${hookPath}' loop`);
+    expect(buildPreCompactRoleHookCommand('automation', 'win32')).toBe(`node "${hookPath}" automation`);
+  });
+
+  it('keeps missing Electron assets fail-soft without a worker build constant', () => {
+    expect(buildPreCompactRoleHookCommand('queue-worker')).toBeUndefined();
   });
 });

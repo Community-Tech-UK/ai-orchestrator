@@ -150,6 +150,19 @@ export const ADVANCED_SECTION_DEFINITIONS: readonly AdvancedSectionDefinition[] 
     keys: ['codexHelperAgentsChats', 'codexHelperAgentsHarnessWork', 'codexContextTuning'],
   },
   {
+    id: 'codex-limits-heading',
+    title: 'Codex round limits & checker skills',
+    description: 'When one Codex round has used this many tokens, Harness asks it to wrap up and, for work Harness started, stops it. Also whether Plan Queue checkers see Codex\'s automatic skills list. Applies when a Codex session or check starts.',
+    group: 'runtime',
+    keys: [
+      'codexTurnCeilingHarnessWorkWrapUpTokens',
+      'codexTurnCeilingHarnessWorkStopTokens',
+      'codexTurnCeilingChatsWrapUpTokens',
+      'codexTurnCeilingChatsStopTokens',
+      'codexCheckerSkillCatalog',
+    ],
+  },
+  {
     id: 'claude-helper-agents-heading',
     title: 'Claude helper agents',
     description: 'What model Claude\'s built-in general-purpose helper agents run on. Helper agents that name their own model keep it.',

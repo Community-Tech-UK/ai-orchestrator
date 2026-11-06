@@ -27,6 +27,8 @@ import { InstanceStore } from '../../core/state/instance';
 import { ProviderQuotaStore } from '../../core/state/provider-quota.store';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { UsageWhereWentCardComponent } from '../usage-insight/usage-where-went-card.component';
+import { BiggestTurnsComponent } from './biggest-turns.component';
+import { ClaudeCostDriftComponent } from './claude-cost-drift.component';
 import type { EChartsOption } from 'echarts';
 import type { UsageInsightResponse } from '../../../../shared/usage-insight/usage-insight.types';
 
@@ -162,7 +164,7 @@ describe('CostPageComponent — computed signals', () => {
     TestBed.resetTestingModule();
     mockIpc = buildMockIpc();
     TestBed.overrideComponent(CostPageComponent, {
-      set: { imports: [CommonModule, CostChartStubComponent, AioTooltipDirective, UsageWhereWentCardComponent],
+      set: { imports: [CommonModule, CostChartStubComponent, AioTooltipDirective, UsageWhereWentCardComponent, BiggestTurnsComponent, ClaudeCostDriftComponent],
         template: readFileSync(resolve(specDirectory, 'cost-page.component.html'), 'utf8'),
         templateUrl: undefined, styles: [], styleUrl: undefined, styleUrls: [] },
     });
@@ -529,6 +531,21 @@ describe('CostPageComponent — computed signals', () => {
     expect(fixture.nativeElement.querySelector('[data-testid="historical-cost-footnote"]')).toBeNull();
   });
 
+  it('shows the biggest turns and Codex credits from the purpose summary on the page', () => {
+    const row = { key: 'all', calls: 1, inputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+      outputTokens: 0, reasoningTokens: 0, cost: 0, estimatedCost: 0, estimatedShare: 0, unknownCostCalls: 0, freeCalls: 0 };
+    component.purposeSummary.set({ enabled: true, totals: row, byPurpose: [], byProvider: [],
+      biggestTurns: [{ at: Date.UTC(2026, 9, 20, 9, 30), instanceId: 'abcdef1234567890', kind: 'plan-queue', provider: 'codex',
+        processedTokens: 310_000_000, helperTokens: 110_000_000, helperShare: 0.35, stopRequested: true, source: 'codex-round' }],
+      codexCredits: { threads: 1, credits: 9, estimatedUsd: null, byKind: [{ kind: 'plan-queue', threads: 1, credits: 9 }] } });
+    fixture.detectChanges();
+    const text = (fixture.nativeElement as HTMLElement).textContent!.replace(/\s+/g, ' ');
+    expect(text).toContain('Biggest turns this week');
+    expect(text).toContain('310M');
+    expect(text).toContain('Stopped by Harness');
+    expect(text).toContain('Codex reports 9 credits used by 1 session');
+  });
+
 });
 
 
@@ -537,7 +554,7 @@ describe('Cost estimate focus hints', () => {
     TestBed.resetTestingModule();
     TestBed.overrideComponent(CostPageComponent, {
       set: {
-        imports: [CommonModule, CostChartStubComponent, AioTooltipDirective, CostHistoryRestoreComponent, UsageWhereWentCardComponent],
+        imports: [CommonModule, CostChartStubComponent, AioTooltipDirective, CostHistoryRestoreComponent, UsageWhereWentCardComponent, BiggestTurnsComponent, ClaudeCostDriftComponent],
         template: readFileSync(resolve(specDirectory, 'cost-page.component.html'), 'utf8'),
         templateUrl: undefined,
         styles: [],

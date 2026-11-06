@@ -509,6 +509,8 @@ export interface AppServerMethodMap {
   'account/read': { params: { refreshToken?: boolean }; result: unknown };
   /** Current rate-limit windows. Parsed with `parseCodexAccountRateLimitsRead`. */
   'account/rateLimits/read': { params: Record<string, never> | undefined; result: unknown };
+  /** Codex 0.163.0+: `threadUsage` carries Codex's own credit estimate for one thread (null without a billing route). */
+  'account/usage/read': { params: { threadId?: string | null } | null | undefined; result: unknown };
 }
 
 export type AppServerMethod = keyof AppServerMethodMap;

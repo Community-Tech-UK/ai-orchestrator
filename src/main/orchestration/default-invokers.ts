@@ -83,6 +83,9 @@ import {
 } from './invocation-model-resolver';
 import { snapshotLoopThreadCaps } from './loop-goal-reanchor';
 import { applyAutomationSpawnFields } from './automation-spawn-fields';
+import { loopCacheLifetimeFields } from './loop-cache-lifetime';
+import { registerLoopSleepContext, type LoopSleepCoordinator } from './loop-sleep-context';
+
 function isBaseCliAdapterLike(adapter: CliAdapter): adapter is CliAdapter & { sendMessage: (m: CliMessage) => Promise<CliResponse> } {
   return typeof (adapter as { sendMessage?: unknown }).sendMessage === 'function';
 }
@@ -927,6 +930,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
   // WS4: loops already told (once) that occupancy is unavailable, so the
   // unknown-observation diagnostic stays bounded instead of firing per iteration.
   const loopOccupancyUnavailableNotified = new Set<string>();
+  const loopBorrowedChat = new Set<string>(); // loops that ran inside the person's chat session (T13.1)
 
   const terminateTrackedAdapter = async (adapter: unknown, graceful: boolean): Promise<void> => {
     if (adapter && typeof adapter === 'object') {
@@ -1012,6 +1016,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     loopContextTokens.delete(loopRunId); // LF-1: drop cumulative-token tracking.
     loopContextIterations.delete(loopRunId);
     loopOccupancyUnavailableNotified.delete(loopRunId); // WS4: reset the bounded diagnostic.
+    loopBorrowedChat.delete(loopRunId);
     getLoopAccountFailover().clear(loopRunId);
     if (adapters.size === 0) return Promise.resolve();
     const promise = Promise.allSettled(
@@ -1093,6 +1098,13 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       // Not resuming (terminated) — clear the waitReason.
       instanceManager.queueInstanceUpdate(chatId, { waitReason: null });
     }
+  });
+
+  // T13.1: a loop that will sleep past its cache lifetime starts its next iteration in a fresh session.
+  registerLoopSleepContext({
+    coordinator: coordinator as unknown as LoopSleepCoordinator,
+    getPersistentAdapter: (loopRunId) => persistentLoopAdapters.get(loopRunId),
+    isBorrowedChat: (loopRunId) => loopBorrowedChat.has(loopRunId),
   });
 
   // LF-5: wire the real branch-and-select runtime fan-out (worktree-isolated
@@ -1301,6 +1313,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       contextStrategy,
     });
     const { borrowedFromInstance, adapterLoan, liveInstance } = borrow;
+    if (borrowedFromInstance) loopBorrowedChat.add(p.loopRunId);
     // Reassigned below by the persistent-adapter and context-reset paths.
     let reusedAdapter = borrow.reusedAdapter;
     // Everything from here to the invocation's `finally` is covered by the loan.
@@ -1550,6 +1563,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
           reason: result.degradedReason ?? attemptObserver.failureNote(),
         }),
         ...(threadCaps ? { threadCaps } : {}),
+        ...loopCacheLifetimeFields(activeAdapterRef ?? reusedAdapter),
       };
 
       // LF-1: context discipline for the loop's OWN persistent same-session

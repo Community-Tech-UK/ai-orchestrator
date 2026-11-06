@@ -167,6 +167,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   codexHelperAgentsHarnessWork: 'trial',
   codexContextTuning: 'harness',
   claudeHelperAgentModel: 'trial',
+  // Checker skills-catalog trial (Oct-2 Phase D Step 3). A literal: this module is in the context worker's import closure.
+  codexCheckerSkillCatalog: 'trial',
   cumulativeTokenCompactionTrigger: 0, // disabled by default (opt-in cost cap)
   compactionDecisionLogEnabled: false, // opt-in decision log on restart-with-summary compaction
   coldCacheCompactFirst: true, // Phase 0 real summaries are available; the offer remains optional at send.
@@ -387,6 +389,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ]),
   graphAgentWritableAccountsJson: JSON.stringify(['james@communitytech.co.uk']),
   ...DEFAULT_DESKTOP_COMPUTER_USE_SETTINGS,
+  // Codex per-round token ceiling (Oct-2 Phase D, Decision 16a). Kept literal: this module is in the context
+  // worker's import closure, so it must not gain a runtime import. codex-turn-token-ceiling.spec.ts pins these.
+  codexTurnCeilingHarnessWorkWrapUpTokens: 150_000_000,
+  codexTurnCeilingHarnessWorkStopTokens: 300_000_000,
+  codexTurnCeilingChatsWrapUpTokens: 150_000_000,
+  codexTurnCeilingChatsStopTokens: 0, // your own chats are nudged, never stopped
   // RTK
   rtkEnabled: true,
   rtkBundledOnly: false,

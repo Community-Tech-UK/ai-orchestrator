@@ -118,3 +118,25 @@ export function planContinuity(params: {
   if (!canNativeResume) return 'replay';
   return params.capabilities.supportsForkSession ? 'native-resume-fork' : 'native-resume';
 }
+
+/** An account handoff is never a pure permission change, even when its model stays the same. */
+export function isPermissionOnlyChange(diff: RuntimeDiff): boolean {
+  return diff.yoloModeChanged
+    && !diff.providerChanged
+    && !diff.modelChanged
+    && !diff.reasoningChanged
+    && !diff.runtimeTargetChanged
+    && !diff.accountProfileChanged
+    && !diff.copilotAccountChanged;
+}
+
+/**
+ * Permission-only changes keep the conversation even on Claude; model changes still replay.
+ * Shared by execution and the pre-click preview so they use the same account/permission rules.
+ */
+export function planRuntimeContinuity(params: Parameters<typeof planContinuity>[0]): ContinuityPlan {
+  const { capabilities } = params;
+  if (!isPermissionOnlyChange(params.diff)) return planContinuity(params);
+  if (!params.hasConversation || !capabilities.supportsResume) return 'replay';
+  return capabilities.supportsForkSession ? 'native-resume-fork' : 'native-resume';
+}

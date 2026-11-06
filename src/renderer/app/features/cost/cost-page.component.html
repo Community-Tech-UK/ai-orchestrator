@@ -30,6 +30,9 @@
   <!-- Where your usage went: percentages of the last 7 days first, dollars below -->
   <app-usage-where-went-card />
 
+  <!-- Daily check of Harness's Claude costs against Claude's own totals -->
+  <app-claude-cost-drift />
+
   <!-- Metric cards row 1: cost & session aggregates -->
   <div class="metrics-row">
     <div class="metric-card">
@@ -165,6 +168,10 @@
       </div>
     } @else { <p class="empty-hint">Temporary Codex usage is unavailable.</p> }
   </section>
+
+  @if (purposeSummary(); as purposes) {
+    <app-biggest-turns [turns]="purposes.biggestTurns ?? []" [credits]="purposes.codexCredits ?? null" />
+  }
 
   <!-- Budget status row -->
   <div class="metrics-row">

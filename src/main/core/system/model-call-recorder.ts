@@ -1,5 +1,5 @@
 import { computeProviderTokenCost } from '../../../shared/data/model-pricing';
-import { normalizeUsage, type UsageLike } from '../../../shared/util/usage-normalization';
+import { normalizeUsage, readCacheCreationUsage, type UsageLike } from '../../../shared/util/usage-normalization';
 import type { ModelCallPurpose, ModelCallOutcome } from '../../../shared/types/cost-attribution.types';
 import { recordCostAttribution, type CostAttributionRecord, type CostAttributionUsage } from './cost-attribution';
 
@@ -12,11 +12,14 @@ export function resolveModelCallCost(provider: string | undefined, model: string
   if (typeof usage?.cost === 'number' && Number.isFinite(usage.cost) && usage.cost >= 0) return { costUsd: usage.cost, costSource: 'provider' };
   if (FREE_PROVIDERS.has(provider?.toLowerCase() ?? '')) return { costUsd: 0, costSource: 'free' };
   const normalized = normalizeUsage(usage as UsageLike | undefined);
-  if (!normalized || [normalized.input, normalized.output, normalized.cacheRead, normalized.cacheWrite, normalized.reasoning].every(value => value === undefined)) {
+  const cacheCreation = readCacheCreationUsage(usage);
+  if (!Object.keys(cacheCreation).length
+    && (!normalized || [normalized.input, normalized.output, normalized.cacheRead, normalized.cacheWrite, normalized.reasoning].every(value => value === undefined))) {
     return { costUsd: null, costSource: 'unknown' };
   }
-  const priced = computeProviderTokenCost(provider, model, { inputTokens: normalized.input, outputTokens: normalized.output,
-    cacheReadTokens: normalized.cacheRead, cacheWriteTokens: normalized.cacheWrite, reasoningTokens: normalized.reasoning });
+  const priced = computeProviderTokenCost(provider, model, { inputTokens: normalized?.input, outputTokens: normalized?.output,
+    cacheReadTokens: normalized?.cacheRead, cacheWriteTokens: normalized?.cacheWrite, reasoningTokens: normalized?.reasoning,
+    ...cacheCreation });
   return typeof priced === 'number' && Number.isFinite(priced) && priced >= 0
     ? { costUsd: priced, costSource: 'priced' } : { costUsd: null, costSource: 'unknown' };
 }
@@ -70,7 +73,7 @@ export function recordModelCall(input: ModelCallRecordInput): CostAttributionRec
     const model = reported === undefined ? input.model : reported.length === 1 ? reported[0] : undefined;
     const rawUsage = input.usage as (UsageLike & { cost?: unknown; isEstimated?: unknown }) | undefined;
     const normalized = normalizeUsage(rawUsage);
-    const usage: CostAttributionUsage = {};
+    const usage: CostAttributionUsage = { ...readCacheCreationUsage(rawUsage) };
     if (normalized?.input !== undefined) usage.inputTokens = normalized.input;
     if (normalized?.output !== undefined) usage.outputTokens = normalized.output;
     if (normalized?.cacheRead !== undefined) usage.cacheReadTokens = normalized.cacheRead;

@@ -7,6 +7,7 @@ import { completedAutomationTurnError, reconcileAutomationInstance } from './aut
 import { RESTART_INTERRUPTION } from './automation-restart-retry';
 import { AutomationRunLimits } from './automation-run-limits';
 import type { AutomationResult } from '@contracts/schemas/automation';
+import { harnessStopDetailsOf } from '../../shared/utils/harness-stop';
 import { getLogger } from '../logging/logger';
 import { getWorkAdmission } from '../work-admission/work-admission';
 import type { InstanceManager } from '../instance/instance-manager';
@@ -502,7 +503,8 @@ export class AutomationRunner {
         break;
       case 'error':
         if (!envelope.event.recoverable) {
-          this.failTrackedInstance(envelope.instanceId, envelope.event.message);
+          // A stop Harness chose on purpose (a round past its token ceiling) is not transient: a retry would spend the same tokens again.
+          this.failTrackedInstance(envelope.instanceId, envelope.event.message, harnessStopDetailsOf(envelope.event.details) ? { retryable: false } : undefined);
         }
         break;
       case 'exit':

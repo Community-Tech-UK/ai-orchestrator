@@ -31,7 +31,7 @@ function escapeClosingTag(text: string, tagName: string): string {
  */
 export const HARNESS_GUIDE = `## Harness commands
 You are working inside Harness, a desktop app that runs AI coding sessions for its user. To ask Harness to act, write one JSON object on its own line between \`:::ORCHESTRATOR_COMMAND:::\` and \`:::END_COMMAND:::\`, without a code fence, writing any newline inside a string as \\n. Harness posts the result back here.
-- \`spawn_child\` (task, name, provider, model, node): parallel work, another provider's view, or a run on a worker machine. Give the child an objective, an output format, where to look and its limits. For review or summary work, prefer a non-Claude provider unless the user asks for Claude.
+- \`spawn_child\` (task, name, provider, model, node): parallel work, another provider's view, or a run on a worker machine. Give the child an objective, an output format, where to look and its limits. For review or summary work, prefer a non-Claude provider unless the user asks for Claude. For read-only research add \`"role":"scout"\` (balanced model, high effort).
 - \`create_automation\` (automation): recurring or later work. It runs on this machine with this session's tools, including the signed-in browser.
 - \`consensus_query\` (question, context): other models' views before a high-impact, uncertain decision.
 - \`request_user_action\` (requestType, title, message): approvals, questions and credential requests.

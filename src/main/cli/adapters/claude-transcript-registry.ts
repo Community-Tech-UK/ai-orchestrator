@@ -41,6 +41,15 @@ function candidateProjectDirs(cwd: string): string[] {
   return [...paths].map((p) => join(projectsRoot(), p.replace(/[^a-zA-Z0-9]/g, '-')));
 }
 
+/**
+ * Project dirs for a cwd: under the default config dir, or under an explicit
+ * `CLAUDE_CONFIG_DIR` (account-pool profiles keep their own `projects/` tree).
+ */
+export function claudeProjectDirs(cwd: string, configDir?: string): string[] {
+  return candidateProjectDirs(cwd).map((defaultDir) =>
+    configDir ? join(configDir, 'projects', defaultDir.split(/[\\/]/).at(-1)!) : defaultDir);
+}
+
 /** Whether `--resume <sessionId>` can find a transcript from this cwd. */
 export function nativeTranscriptExists(cwd: string | undefined, sessionId: string): boolean {
   if (!cwd) return true;
@@ -73,8 +82,7 @@ export interface ClaudeCostState {
 export function readLastClaudeCostState(cwd: string | undefined, sessionId: string,
   configDir?: string): ClaudeCostState | undefined {
   if (!cwd || !sessionId || !/^[a-zA-Z0-9_-]+$/.test(sessionId)) return undefined;
-  for (const defaultDir of candidateProjectDirs(cwd)) {
-    const dir = configDir ? join(configDir, 'projects', defaultDir.split(/[\\/]/).at(-1)!) : defaultDir;
+  for (const dir of claudeProjectDirs(cwd, configDir)) {
     let fd: number | undefined;
     try {
       fd = openSync(join(dir, `${sessionId}.jsonl`), 'r');

@@ -272,7 +272,7 @@ export class ModelPickerController {
         ...(model?.reasoning?.supportedEfforts ?? []).map((id) => ({
           id,
           label: id === 'none' ? 'Off' : id === 'xhigh' ? 'XHigh' : id[0].toUpperCase() + id.slice(1),
-          description: '',
+          description: id === 'ultra' ? 'Lets Codex start helper agents by itself; uses much more of your allowance.' : '',
         })),
       ]);
     }

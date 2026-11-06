@@ -362,11 +362,12 @@ describe('security-guidance plugin switch-off in the --settings overlay (Step 4 
 
   it('machineSession adds enabledPlugins security-guidance false to --settings', () => {
     const overlay = JSON.parse(buildClaudeSettingsOverlay({ machineSession: 'loop' }, false)!);
-    expect(overlay).toEqual({ enabledPlugins: { [SECURITY_PLUGIN_ID]: false } });
+    // Harness-started Claude sessions also stop the CLI summarising in the background (Oct-2 T13 step 6; claude-precompact-overlay.spec.ts).
+    expect(overlay).toEqual({ enabledPlugins: { [SECURITY_PLUGIN_ID]: false }, precomputeCompactionEnabled: false });
 
     const args = buildClaudeCliArgs(baseInput({ spawnOptions: { machineSession: 'plan-queue', yoloMode: true } }));
     expect(args.filter(arg => arg === '--settings')).toHaveLength(1);
-    expect(overlayOf(args)).toEqual({ enabledPlugins: { [SECURITY_PLUGIN_ID]: false } });
+    expect(overlayOf(args)).toEqual({ enabledPlugins: { [SECURITY_PLUGIN_ID]: false }, precomputeCompactionEnabled: false });
   });
 
   it.each(['loop', 'review', 'plan-queue', 'automation', 'ping-pong-review'] as const)(

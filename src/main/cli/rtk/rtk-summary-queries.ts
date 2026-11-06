@@ -16,7 +16,8 @@
 export const HOST_OUTPUT_CAP_TOKENS = 7_500;
 
 /** Rows RTK ran through unfiltered: nothing was shortened. */
-export const RAN_IN_FULL_CLAUSE = "(rtk_cmd LIKE 'rtk proxy%' OR rtk_cmd LIKE 'rtk fallback%')";
+export const RAN_IN_FULL_CLAUSE =
+  "(rtk_cmd IN ('rtk proxy', 'rtk bypass') OR rtk_cmd LIKE 'rtk proxy %' OR rtk_cmd LIKE 'rtk bypass %' OR rtk_cmd LIKE 'rtk fallback%')";
 
 // Positive recorded savings distinguish actual shortening from filter routing.
 export const SHORTENED_CLAUSE = `NOT ${RAN_IN_FULL_CLAUSE} AND COALESCE(saved_tokens, 0) > 0`;

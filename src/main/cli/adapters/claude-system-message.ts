@@ -1,6 +1,7 @@
 /** Claude system-message handling; adapter retains ownership of all state. */
 import type { ClaudeCompactionObserver } from './claude-compaction-observer';
 import { observeClaudeSubagentUsage } from './claude-subagent-usage';
+import { claudeTranscriptLocation } from './claude-subagent-meta';
 import type { CliSystemMessage } from '../../../shared/types/cli.types';
 import { MODEL_PRICING, CLAUDE_MODELS } from '../../../shared/types/provider.types';
 import { generateId } from '../../../shared/utils/id-generator';
@@ -18,11 +19,15 @@ export interface ClaudeSystemMessageHost {
   hasPerCallUsageThisTurn: boolean;
   lastObservedContextUsage: { used: number; total: number } | null;
   sessionId: string | null;
+  /** Adapter config; only `env.CLAUDE_CONFIG_DIR` is read, to find the helper files of an account-pool profile. */
+  config?: { env?: Record<string, string | undefined> };
   lastResumeAttemptResult: ResumeAttemptResult | null;
 }
 
 export function processClaudeSystemMessage(host: ClaudeSystemMessageHost, message: CliSystemMessage, raw: RawCliPayload): void {
-  observeClaudeSubagentUsage(host, raw);
+  // The location is read only when a helper finishes, so a changed session id is honoured.
+  observeClaudeSubagentUsage(host, raw, () => claudeTranscriptLocation(
+    host.spawnOptions.workingDirectory, host.sessionId, host.config?.env?.['CLAUDE_CONFIG_DIR']));
   host.compactionObserver.observe(message);
   if (message.subtype === 'compact_boundary') {
     // A boundary invalidates cumulative-result occupancy even without a post_tokens sample.

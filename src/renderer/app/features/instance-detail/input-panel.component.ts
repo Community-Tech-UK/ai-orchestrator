@@ -22,6 +22,7 @@ import {
 } from '@angular/core';
 import { DOCUMENT } from '@angular/common';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { runtimePreviewIdentityOf } from './runtime-change-preview.controller';
 import { hardenedProviderName, isHardenedModeSupported } from '../../../../shared/hardened-mode-support';
 import { CopilotAccountChipComponent } from '../../shared/components/copilot-account-chip.component';
 import { ProviderAccountChipComponent } from '../../shared/components/provider-account-chip.component';
@@ -560,6 +561,7 @@ export class InputPanelComponent implements OnDestroy {
   ));
 
   readonly queueParked = computed(() => this.instanceStoreRef.isQueueParked(this.instanceId()));
+  readonly composerRuntimeIdentity = computed(() => runtimePreviewIdentityOf(this.instanceStoreRef.getInstance(this.instanceId())));
 
   /** B7 — the Resume button on the parked-queue banner. */
   onResumeQueue(): void {

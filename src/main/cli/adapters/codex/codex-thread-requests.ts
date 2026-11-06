@@ -9,7 +9,7 @@ const logger=getLogger('CodexThreadPolicy');
 function unsupportedConfig(error:unknown):boolean {
   const message=error instanceof Error ? error.message : String(error);
   return /(?:unknown|unrecognized|unsupported|invalid|unexpected)/i.test(message)
-    && /config|agents\.|tool_output_token_limit|model_post_turn_compact_threshold_percent/i.test(message);
+    && /config|agents\.|skills\.(?:max_context_tokens|include_instructions|config)|features\.multi_agent_v2\.multi_agent_mode_hint_text|tool_output_token_limit|model_post_turn_compact_threshold_percent/i.test(message);
 }
 export function buildCodexThreadStartParams(config:CodexCliConfig, input:{cwd:string;sandbox:NonNullable<AppServerRequestParams<'thread/start'>['sandbox']>;approvalPolicy:AppServerRequestParams<'thread/start'>['approvalPolicy']}):AppServerRequestParams<'thread/start'> {
   return {...input,model:config.model||null,serviceName:'ai-orchestrator',ephemeral:config.ephemeral??false,serviceTier:config.fastMode?'priority':null};
@@ -19,19 +19,25 @@ export async function startCodexThread(client:ThreadStartClient,params:AppServer
   let result;
   try {result=await startThreadWithRetry(client,{...params,config:policy.config});}
   catch(error){if(!unsupportedConfig(error))throw error;applied=false;logger.warn('Codex rejected thread policy; retrying without overrides',{level:policy.level});result=await startThreadWithRetry(client,params);}
-  logPolicy(result.threadId || result.thread?.id,policy,config,applied);return result;
+  logPolicy(result.threadId || result.thread?.id,policy,config,applied,'start');return result;
 }
 export async function resumeCodexThread(client:ThreadResumeClient,params:AppServerRequestParams<'thread/resume'>,policy:CodexThreadPolicy, config?:CodexCliConfig):ReturnType<typeof resumeThreadWithRetry> {
   let applied=true;
   let result;
   try{result=await resumeThreadWithRetry(client,{...params,config:policy.config});}
   catch(error){if(!unsupportedConfig(error))throw error;applied=false;logger.warn('Codex rejected thread policy; retrying without overrides',{level:policy.level});result=await resumeThreadWithRetry(client,params);}
-  logPolicy(result.threadId || result.thread?.id,policy,config,applied);return result;
+  logPolicy(result.threadId || result.thread?.id,policy,config,applied,'resume');return result;
 }
 
-function logPolicy(threadId:string|undefined,policy:CodexThreadPolicy,config:CodexCliConfig|undefined,applied:boolean):void {
+function logPolicy(threadId:string|undefined,policy:CodexThreadPolicy,config:CodexCliConfig|undefined,applied:boolean,operation:'start'|'resume'):void {
+  // The turn adapter names required skills only while the catalog is really off, so this follows the thread that actually started.
+  if(config)config.skillCatalogOmitted=applied&&policy.config['skills.include_instructions']===false;
   if(!threadId)return;
-  recordSessionPolicy({provider:'codex',threadId,sessionKind:config?.sessionKind??'chat',level:policy.level,
+  recordSessionPolicy({provider:'codex',threadId,sessionKind:config?.sessionKind??'chat',level:policy.level,operation,
     arm:policy.arm,armKey:policy.armKey??config?.trialKey,armSource:policy.armSource??config?.trialKeySource,
-    instanceId:config?.harnessInstanceId,outputLimit:policy.outputLimit,postTurnCompactPercent:policy.postTurnCompactPercent,applied});
+    instanceId:config?.harnessInstanceId,outputLimit:policy.outputLimit,postTurnCompactPercent:policy.postTurnCompactPercent,applied,
+    configKeys:applied?Object.keys(policy.config).sort():[],
+    // A rejected override set drops every key, the 1,500-token cap included, so the thread runs on Codex's own catalog.
+    ...(policy.catalog?{catalog:applied?policy.catalog:'native'}:{}),
+    ...(policy.checkerArm?{checkerArm:policy.checkerArm}:{})});
 }

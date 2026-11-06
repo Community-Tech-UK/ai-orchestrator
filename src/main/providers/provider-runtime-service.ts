@@ -16,7 +16,7 @@ import type {
 import { getSettingsManager } from '../core/config/settings-manager';
 import { CliAdapterWorkerProxy } from '../cli/spawn-worker/cli-adapter-worker-proxy';
 import type { AcpSystemPromptDelivery } from '../cli/adapters/acp-system-prompt-delivery';
-import { getAdapterGuidanceBlocks } from '../cli/adapters/adapter-spawn-helpers';
+import { getAdapterGuidanceBlocks, withBrowserGatewaySystemPrompt } from '../cli/adapters/adapter-spawn-helpers';
 import { appendContextManifestNote, recordAdapterGuidanceBlocks } from '../context/context-manifest-store';
 import { rememberAdapterAccountRoute } from './account-pool/adapter-account-routes';
 import { attachAccountTelemetryBridge } from './account-pool/account-telemetry-bridge';
@@ -204,7 +204,7 @@ export class ProviderRuntimeService implements ProviderRuntimeContract {
     return new CliAdapterWorkerProxy({
       cliType: input.cliType,
       instanceId: input.options.instanceId ?? `${input.cliType}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      options: input.options,
+      options: withBrowserGatewaySystemPrompt(input.options),
       gateway: this.spawnWorkerGateway ?? getCliSpawnWorkerGateway(),
     }) as CliAdapter;
   }

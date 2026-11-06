@@ -19,6 +19,7 @@ import { StatusIndicatorComponent } from '../instance-list/status-indicator.comp
 import { RecentDirectoriesDropdownComponent } from '../../shared/components/recent-directories-dropdown/recent-directories-dropdown.component';
 import { ContextBarComponent } from './context-bar.component';
 import { CopilotPremiumUsageComponent } from './copilot-premium-usage.component';
+import { FanoutCostComponent } from './fanout-cost.component';
 import { CrossModelReviewIndicatorComponent } from './cross-model-review-indicator.component';
 import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
 import { describeModelSwitchEffect } from '../models/model-switch-note';
@@ -51,7 +52,7 @@ interface EditorMenuItem {
 @Component({
   selector: 'app-instance-header',
   standalone: true,
-  imports: [StatusIndicatorComponent, RecentDirectoriesDropdownComponent, ContextBarComponent, CopilotPremiumUsageComponent, CrossModelReviewIndicatorComponent, CompactModelPickerComponent, SessionSkillsBadgeComponent, SessionComputerUseControlComponent, AioTooltipDirective, ProviderAccountChipComponent, HelpLinkComponent],
+  imports: [StatusIndicatorComponent, RecentDirectoriesDropdownComponent, ContextBarComponent, CopilotPremiumUsageComponent, FanoutCostComponent, CrossModelReviewIndicatorComponent, CompactModelPickerComponent, SessionSkillsBadgeComponent, SessionComputerUseControlComponent, AioTooltipDirective, ProviderAccountChipComponent, HelpLinkComponent],
   templateUrl: './instance-header.component.html',
   styleUrl: './instance-header.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush
@@ -326,11 +327,16 @@ export class InstanceHeaderComponent implements OnInit {
   saveName = output<string>();
   cycleAgentMode = output<void>();
   toggleYolo = output<void>();
+  /** What flipping auto-approve would cost (the session restarts), when that is worth saying. */
+  yoloCostNote = input<string | null>(null);
   toggleFastMode = output<void>();
   selectFolder = output<string>();
   interrupt = output<void>();
   /** Provider/model/effort pick committed in the header's compact picker. */
   modelSelectionChange = output<PendingSelection>();
+  /** The option under the pointer (null once left) goes up; the host answers through `optionNote` with what choosing it would cost (T17). */
+  optionPreview = output<PendingSelection | null>();
+  optionNote = input<string | null>(null);
   /** Cancel a model change that was queued while the instance was busy. */
   cancelDesiredRuntime = output<void>();
   toggleFileExplorer = output<void>();

@@ -57,6 +57,8 @@ export interface SpawnChildCommand {
   yoloMode?: boolean;
   /** Connected worker node (id or name, e.g. "windows-pc") to run this child on. Omit to run locally / inherit the parent's machine. */
   node?: string;
+  /** `"scout"`: read-only research for the lead to combine. Runs on the balanced model at high effort unless `model` is set. */
+  role?: 'scout';
 }
 
 export interface MessageChildCommand {

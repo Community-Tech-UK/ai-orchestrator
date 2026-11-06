@@ -18,6 +18,10 @@ import { WelcomeCoordinatorService } from './welcome-coordinator.service';
 import { FileAttachmentService } from './file-attachment.service';
 import { HistoryPreviewSessionService } from './history-preview-session.service';
 import { InstanceIpcService } from '../../core/services/ipc/instance-ipc.service';
+import { RuntimeChangePreviewIpcService } from '../../core/services/ipc/runtime-change-preview-ipc.service';
+import type { RuntimeChangeCostNote } from '../../../../shared/utils/runtime-change-cost';
+import type { InstanceRuntimeSummary } from '../../../../shared/types/local-model-runtime.types';
+import type { RuntimeChangePreviewController } from './runtime-change-preview.controller';
 import { DraftService } from '../../core/services/draft.service';
 import { InstanceDetailComponent } from './instance-detail.component';
 import { OutputStreamComponent } from './output-stream.component';
@@ -68,12 +72,14 @@ describe('InstanceDetailComponent history preview restore send', () => {
   };
   let loopStore: {
     start: ReturnType<typeof vi.fn>;
+    outstanding: ReturnType<typeof signal<[]>>;
   };
   let loopPromptHistory: {
     remember: ReturnType<typeof vi.fn>;
   };
   let forkSession: ReturnType<typeof vi.fn>;
   const changeModel = vi.fn();
+  const previewRuntimeChange = vi.fn();
   const pendingActions = new Set<Promise<unknown>>();
   const failPendingIpc: (() => void)[] = [];
 
@@ -85,6 +91,7 @@ describe('InstanceDetailComponent history preview restore send', () => {
 
   beforeEach(async () => {
     changeModel.mockReset();
+    previewRuntimeChange.mockReset().mockResolvedValue(null);
     pendingActions.clear();
     failPendingIpc.length = 0;
     historyStore = {
@@ -110,6 +117,7 @@ describe('InstanceDetailComponent history preview restore send', () => {
     };
     loopStore = {
       start: vi.fn(),
+      outstanding: signal([]),
     };
     loopPromptHistory = {
       remember: vi.fn(),
@@ -134,6 +142,7 @@ describe('InstanceDetailComponent history preview restore send', () => {
         { provide: InstanceStore, useValue: instanceStore },
         { provide: InstanceMessagingStore, useValue: { getQueuedMessageCount: vi.fn(() => 0) } },
         { provide: InstanceIpcService, useValue: { changeModel } },
+        { provide: RuntimeChangePreviewIpcService, useValue: { preview: previewRuntimeChange } },
         { provide: HistoryStore, useValue: historyStore },
         { provide: SettingsStore, useValue: createSettingsStoreMock() },
         { provide: IpcFacadeService, useValue: { forkSession } },
@@ -171,6 +180,55 @@ describe('InstanceDetailComponent history preview restore send', () => {
       fixture.destroy();
     }
   });
+
+  it.each(['queued model', 'session replacement', 'destroy'] as const)(
+    'ignores a delayed auto-approve cost answer after %s', async change => {
+      const makeNote = (text: string): RuntimeChangeCostNote => ({
+        kind: 'auto-approve', text, resendTokens: 230_000, carriedTokens: null, droppedTokens: null, large: true,
+      });
+      let release!: (note: RuntimeChangeCostNote) => void;
+      previewRuntimeChange.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }))
+        .mockResolvedValueOnce(makeNote('Current cost'));
+      instanceStore.selectedInstance.set({ ...createInstance(), provider: 'codex', currentModel: 'old-model' });
+      fixture.detectChanges();
+      expect(previewRuntimeChange).toHaveBeenCalledOnce();
+
+      if (change === 'destroy') fixture.destroy();
+      else {
+        instanceStore.selectedInstance.update(instance => ({ ...instance!, ...(change === 'queued model'
+          ? { desiredRuntime: { provider: 'codex' as const, model: 'new-model' } }
+          : { sessionId: 'replacement-session', providerSessionId: 'replacement-native', restartEpoch: 1 }) }));
+        fixture.detectChanges();
+        await Promise.resolve();
+      }
+      release(makeNote('Stale cost'));
+      await Promise.resolve();
+      expect(fixture.componentInstance.yoloCostNote()).toBe(change === 'destroy' ? null : 'Current cost');
+    },
+  );
+
+  it.each(['currentModel', 'reasoningEffort', 'accountProfileId', 'providerSessionId', 'restartEpoch', 'adapterGeneration', 'runtimeSummary'] as const)(
+    'drops a header confirmation when the same visible session changes %s', async field => {
+      instanceStore.selectedInstance.set({ ...createInstance(), currentModel: 'old-model' });
+      fixture.detectChanges();
+      const controller = (fixture.componentInstance as unknown as { runtimeChange: RuntimeChangePreviewController }).runtimeChange;
+      previewRuntimeChange.mockResolvedValue({ kind: 'model', text: 'Large change', large: true });
+      const apply = vi.fn();
+      await controller.gate('restored-1', { model: 'requested-model' }, apply);
+      expect(controller.pendingConfirmation()).not.toBeNull();
+      instanceStore.selectedInstance.update(instance => ({ ...instance!, ...{
+        currentModel: { currentModel: 'replacement-model' }, reasoningEffort: { reasoningEffort: 'max' as const },
+        accountProfileId: { accountProfileId: 'replacement-account' }, providerSessionId: { providerSessionId: 'replacement-native' },
+        restartEpoch: { restartEpoch: 1 }, adapterGeneration: { adapterGeneration: 1 },
+        runtimeSummary: { runtimeSummary: { kind: 'local-model', label: 'Local model', source: 'this-device',
+          endpointProvider: 'ollama', endpointId: 'local-endpoint', modelId: 'local-model', selectorId: 'local-selector' } satisfies InstanceRuntimeSummary },
+      }[field] }));
+      fixture.detectChanges();
+      expect(controller.pendingConfirmation()).toBeNull();
+      controller.confirm('restored-1');
+      expect(apply).not.toHaveBeenCalled();
+    },
+  );
 
   it('shows the queued user message and restore notice while waiting for restore to finish', async () => {
     let resolveRestore: (value: {

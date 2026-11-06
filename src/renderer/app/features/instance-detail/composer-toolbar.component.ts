@@ -57,6 +57,8 @@ import { getModelsForProvider } from '../../../../shared/types/provider.types';
 import { describeModelSwitchEffect } from '../models/model-switch-note';
 import { HistoryPreviewSessionService, historyEntryIdFromPreview } from './history-preview-session.service';
 import { contextSizeAdvice } from './context-size-advice';
+import { RuntimeChangeConfirmComponent } from './runtime-change-confirm.component';
+import { RuntimeChangePreviewController, changeRequestOf } from './runtime-change-preview.controller';
 
 /** Circumference of the SVG ring (r=8, so C ≈ 50.27). */
 const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
@@ -65,7 +67,8 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
   selector: 'app-composer-toolbar',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CompactModelPickerComponent, ProviderAccountChipComponent, DecimalPipe, AioTooltipDirective],
+  imports: [CompactModelPickerComponent, ProviderAccountChipComponent, RuntimeChangeConfirmComponent, DecimalPipe, AioTooltipDirective],
+  providers: [RuntimeChangePreviewController],
   template: `
     <div class="composer-toolbar-row">
       <!-- (a) Context ring -->
@@ -117,6 +120,8 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
           [showSelectionStatus]="false"
           [statusText]="selectionStatus()"
           [switchNoteForProvider]="modelSwitchNoteForProvider"
+          [optionNote]="preview.optionNote()"
+          (optionPreview)="preview.pointAt(instanceId(), $event)"
           (selectionChange)="onPickerSelectionChange($event)"
         />
       }
@@ -135,6 +140,11 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
 
       @if (provider() === 'claude' && (instanceStatus() === 'idle' || instanceStatus() === 'busy' || instanceStatus() === 'waiting_for_input')) {
         <button type="button" class="quick-ask-trigger" [appTooltip]="copy('quickAsk.button')" (click)="quickAskRequested.emit()">Quick ask</button>
+      }
+
+      <!-- A change that would re-read a large conversation at full price waits here for a yes (T17). -->
+      @if (preview.pendingConfirmation(); as held) {
+        <app-runtime-change-confirm [text]="held.text" (confirmed)="preview.confirm(instanceId())" (cancelled)="preview.cancel()" />
       }
 
       <!-- (d) Queued change badge — a swap requested while busy applies on the
@@ -251,6 +261,7 @@ export class ComposerToolbarComponent {
   protected readonly copy = copyFor;
   private readonly ipc = inject(InstanceIpcService);
   private readonly toast = inject(ToastService);
+  protected readonly preview = inject(RuntimeChangePreviewController);
   private readonly historySessions = inject(HistoryPreviewSessionService);
   private readonly catalog = inject(UnifiedCatalogStore);
   private readonly liveStatus = signal<{ instanceId: string; text: string } | null>(null);
@@ -281,6 +292,8 @@ export class ComposerToolbarComponent {
       const provider = this.provider();
       const currentModel = this.currentModel();
       const currentReasoning = this.currentReasoningEffort() ?? null;
+      this.preview.bind(JSON.stringify([instanceId, this.runtimeIdentity(), provider,
+        currentModel, currentReasoning, this.accountProfileId(), this.runtimeSummary(), this.desiredRuntime()]));
       const derived = deriveComposerPickerSelection(
         provider,
         currentModel,
@@ -323,6 +336,7 @@ export class ComposerToolbarComponent {
 
   /** Instance ID — used to call changeModel IPC. */
   instanceId = input.required<string>();
+  readonly runtimeIdentity = input<string | undefined>(); // undefined for an archived preview with no live runtime
 
   /** Context usage from the running instance. When absent, ring shows 0%. */
   contextUsage = input<ContextUsage | undefined>(undefined);
@@ -514,23 +528,23 @@ export class ComposerToolbarComponent {
     }
     if (this.modelSwitchDisabledReason()) return;
     if (sel.provider === 'local-model' && !sel.modelRuntimeTarget) return;
+    // A change that re-reads a large conversation at full price waits for a yes (T17), bound to this chat: the node is reused across sessions.
     const instanceId = this.instanceId();
+    await this.preview.gateSelection(instanceId, sel, () => this.applySelection(instanceId, sel));
+  }
+
+  private async applySelection(instanceId: string, sel: PendingSelection): Promise<void> {
+    if (this.instanceId() !== instanceId) return;
     this.historySessions.clearConfirmedSelection(instanceId);
     const request = ++this.selectionRequest;
     this.pendingSelection.set(sel);
     clearTimeout(this.statusTimer);
     this.liveStatus.set({ instanceId, text: 'Applying model change…' });
     try {
-      const target = sel.modelRuntimeTarget;
-      const response = target
-        ? await this.ipc.changeModel(
-          instanceId, target.kind === 'local-model' ? target.modelId : sel.model ?? undefined,
-          sel.reasoning ?? undefined, target,
-        )
-        : await this.ipc.changeModel(
-          instanceId, sel.model ?? undefined, sel.reasoning ?? undefined, undefined,
-          sel.provider === 'local-model' ? undefined : sel.provider,
-        );
+      const change = changeRequestOf(sel);
+      const response = change.modelRuntimeTarget
+        ? await this.ipc.changeModel(instanceId, change.model, change.reasoningEffort, change.modelRuntimeTarget)
+        : await this.ipc.changeModel(instanceId, change.model, change.reasoningEffort, undefined, change.provider);
       this.settleSelection(instanceId, request, response);
     } catch (error) {
       this.settleSelection(instanceId, request, {

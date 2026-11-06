@@ -1,3 +1,4 @@
+import type { TokenCostInput } from '../data/model-pricing';
 /**
  * usage-normalization.ts
  *
@@ -240,4 +241,23 @@ export function derivePromptTokens(usage: NormalizedUsage): number {
  */
 export function deriveSessionTotalTokens(usage: NormalizedUsage): number {
   return derivePromptTokens(usage) + (usage.output ?? 0) + (usage.reasoning ?? 0);
+}
+
+
+/** Accept native Claude usage and already-normalized attribution records. */
+export function readCacheCreationUsage(value: unknown): Pick<TokenCostInput, 'cacheWrite5mTokens' | 'cacheWrite1hTokens'> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const usage = value as Record<string, unknown>;
+  const nested = usage['cache_creation'];
+  const creation = nested && typeof nested === 'object' && !Array.isArray(nested)
+    ? nested as Record<string, unknown> : {};
+  const result: Pick<TokenCostInput, 'cacheWrite5mTokens' | 'cacheWrite1hTokens'> = {};
+  for (const [canonical, native] of [
+    ['cacheWrite5mTokens', 'ephemeral_5m_input_tokens'],
+    ['cacheWrite1hTokens', 'ephemeral_1h_input_tokens'],
+  ] as const) {
+    const count = usage[canonical] ?? creation[native];
+    if (typeof count === 'number' && Number.isFinite(count) && count >= 0) result[canonical] = count;
+  }
+  return result;
 }

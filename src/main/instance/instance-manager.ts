@@ -23,6 +23,7 @@ import { getActionCircuitBreaker } from '../security/action-circuit-breaker';
 import { forgetLspFeedbackInstance } from '../codemem/lsp-feedback-registration';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getTaskManager } from '../orchestration/task-manager';
+import { isScoutSpawn, scoutReasoningEffort } from '../orchestration/scout-defaults';
 import { removeInstanceBrowserToolsMode } from './lifecycle/browser-tool-scoping';
 import { removeInstanceComputerUseMode } from './lifecycle/computer-use-scoping';
 import { removeInstanceHardened } from './lifecycle/hardened-mode-scoping';
@@ -2340,11 +2341,13 @@ export class InstanceManager extends EventEmitter {
       agentId: childAgentId,
       modelOverride: routingDecision.model,
       provider: resolvedProvider,
+      ...(scoutReasoningEffort(command) ? { reasoningEffort: scoutReasoningEffort(command) } : {}),
       initialOutputBuffer: initialOutputForChild,
       forceNodeId,
       metadata: {
         orchestration: {
           role: 'worker',
+          ...(isScoutSpawn(command) ? { scout: true } : {}),
           parentId,
           task: command.task,
           spawnPromptHash: createHash('sha256').update(command.task).digest('hex'),

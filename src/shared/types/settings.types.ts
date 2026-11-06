@@ -3,6 +3,8 @@
 import type { PlanQueueAccountRules, PlanQueueFolderChecklist, PlanQueueRouting } from '@contracts/schemas/plan-queue';
 import type { AuxiliaryLlmRoutingMode } from './auxiliary-llm.types';
 import type { CopilotAccountProfile, CopilotAccountRoutingRule } from './copilot-account.types';
+import type { CodexTurnCeilingSettings } from './codex-turn-ceiling-settings.types';
+import type { TokenTrialSettings } from './token-trial-settings.types';
 import type { DesktopComputerUseSettings } from './desktop-gateway-settings.types';
 import type { DisplaySettings } from './display-settings.types';
 import type { ProviderAccountPools, ProviderAccountProfile } from './provider-account.types';
@@ -44,7 +46,8 @@ export type * from './settings-primitives.types';
 
 /** Application settings that are persisted to disk. */
 export interface AppSettings
-  extends DesktopComputerUseSettings, DisplaySettings, ObservationSettings, TokenLeverSettings, WorkloadSettings {
+  extends DesktopComputerUseSettings, DisplaySettings, ObservationSettings, TokenLeverSettings, TokenTrialSettings,
+    CodexTurnCeilingSettings, WorkloadSettings {
   // General
   /** Keep the system awake; the display may still sleep. */
   keepAwakeMode: 'off' | 'while-working' | 'always';

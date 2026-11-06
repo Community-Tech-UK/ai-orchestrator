@@ -25,12 +25,20 @@ import {
 } from './runtime-change-notices';
 
 describe('notice wording', () => {
+  it('does not promise full context preservation when a runtime may replay only a bounded history', () => {
+    const params = { oldProvider: 'claude', newProvider: 'codex', oldModel: 'sonnet', newModel: 'gpt-6-astra', oldReasoningEffort: 'high' as const, newReasoningEffort: 'high' as const };
+    for (const text of [modelChangeNoticeText(params), providerChangeNoticeText(params)]) {
+      expect(text).not.toContain('Conversation context has been preserved');
+      expect(text).not.toContain('Conversation context has been carried over');
+      expect(text).toContain('earlier detail');
+    }
+  });
   it('names the permission posture in both directions', () => {
     expect(yoloNoticeText(true)).toContain('YOLO mode enabled');
     expect(yoloNoticeText(false)).toContain('YOLO mode disabled');
   });
 
-  it('states both providers, both models and that context carried over', () => {
+  it('states both providers, both models and the limits of replayed context', () => {
     const text = providerChangeNoticeText({
       oldProvider: 'claude',
       oldModel: 'sonnet',
@@ -41,7 +49,8 @@ describe('notice wording', () => {
     });
     expect(text).toContain('Provider changed from claude (model sonnet) to codex (model gpt-5.6-sol)');
     expect(text).toContain('Thinking changed from high to medium');
-    expect(text).toContain('carried over from the previous provider');
+    expect(text).toContain('available summary and recent messages');
+    expect(text).toContain('earlier detail may be missing');
   });
 
   it('falls back to "provider default" for an absent model or effort', () => {
@@ -57,7 +66,7 @@ describe('notice wording', () => {
     expect(text).toContain('Thinking changed from provider default to provider default');
   });
 
-  it('says context is preserved for a same-provider model change', () => {
+  it('does not promise full preservation for a same-provider model change', () => {
     const text = modelChangeNoticeText({
       oldModel: 'sonnet',
       newModel: 'opus',
@@ -65,7 +74,7 @@ describe('notice wording', () => {
       newReasoningEffort: 'high',
     });
     expect(text).toContain('Model changed from sonnet to opus');
-    expect(text).toContain('Conversation context has been preserved');
+    expect(text).toContain('may summarise or omit earlier detail');
   });
 });
 

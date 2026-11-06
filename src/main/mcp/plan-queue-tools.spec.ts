@@ -76,6 +76,26 @@ describe('plan queue MCP tools', () => {
     expect(ops.start).toHaveBeenCalledTimes(1);
   });
 
+  it('returns a small unchanged status only while the current scoped result matches', async () => {
+    const ops = fakeOps();
+    let state = 'working';
+    ops.status = (_caller, runId) => ({ runId: runId ?? 'all', state });
+    const s = server(ops);
+    const first = await call(s, PARENT, 'plan_queue_status', { run_id: 'r1' }) as { version: string };
+    expect(first).toMatchObject({ version: expect.any(String), state: 'working' });
+    expect(await call(s, PARENT, 'plan_queue_status', { run_id: 'r1', sinceVersion: first.version }))
+      .toEqual({ unchanged: true, version: first.version });
+    expect(await call(s, PARENT, 'plan_queue_status', { run_id: 'r2', sinceVersion: first.version }))
+      .toMatchObject({ runId: 'r2', state: 'working' });
+    state = 'verifying';
+    const changed = await call(s, PARENT, 'plan_queue_status', { run_id: 'r1', sinceVersion: first.version }) as { version: string };
+    expect(changed).toMatchObject({ state: 'verifying' });
+    expect(changed.version).not.toBe(first.version);
+    await expect(call(s, PARENT, 'plan_queue_status', { sinceVersion: 12 })).rejects.toThrow();
+    const schema = createPlanQueueToolDefinitions({ instanceId: PARENT, planQueueTools: ops })
+      .find(tool => tool.name === 'plan_queue_status')!.inputSchema;
+    expect(JSON.stringify(schema)).toContain('sinceVersion');
+  });
   it('advertises and accepts authenticated adoption of a stranded run', async () => {
     const ops = fakeOps();
     const tool = createPlanQueueToolDefinitions({ instanceId: PARENT, planQueueTools: ops }).find((tool) => tool.name === 'plan_queue_control')!;

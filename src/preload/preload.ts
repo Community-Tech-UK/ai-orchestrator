@@ -41,6 +41,8 @@ import { createOperatorDomain } from './domains/operator.preload';
 import { createChatDomain } from './domains/chat.preload';
 import { createRuntimePluginDomain } from './domains/runtime-plugin.preload';
 import { createRtkDomain } from './domains/rtk.preload';
+import { createClaudeCostReconcileDomain } from './domains/claude-cost-reconcile.preload';
+import { createRuntimeChangePreviewDomain } from './domains/runtime-change-preview.preload';
 import { createLoopDomain } from './domains/loop.preload';
 import { createPlanQueueDomain } from './domains/plan-queue.preload';
 import { createMobileGatewayDomain } from './domains/mobile-gateway.preload';
@@ -100,6 +102,8 @@ const electronAPI = {
   ...createChatDomain(ipcRenderer, IPC_CHANNELS),
   ...createRuntimePluginDomain(ipcRenderer, IPC_CHANNELS),
   ...createRtkDomain(ipcRenderer, IPC_CHANNELS),
+  ...createClaudeCostReconcileDomain(ipcRenderer, IPC_CHANNELS),
+  ...createRuntimeChangePreviewDomain(ipcRenderer, IPC_CHANNELS),
   ...createLoopDomain(ipcRenderer, IPC_CHANNELS),
   ...createMobileGatewayDomain(ipcRenderer, IPC_CHANNELS),
   ...createTerminalDomain(ipcRenderer, IPC_CHANNELS),

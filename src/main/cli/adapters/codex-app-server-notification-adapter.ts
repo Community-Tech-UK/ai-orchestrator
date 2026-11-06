@@ -1,4 +1,6 @@
 import { CodexAppServerAdapter } from './codex-app-server-adapter';
+import type { AdapterInputDispatch, CliMessage } from './base-cli-adapter';
+import type { FileAttachment } from '../../../shared/types/instance.types';
 import { extractThinkingContent } from '../../../shared/utils/thinking-extractor';
 import { generateId } from '../../../shared/utils/id-generator';
 import { getLogger } from '../../logging/logger';
@@ -18,6 +20,10 @@ import {
 } from './codex/app-server-errors';
 import { createCodexTerminalError } from './codex/turn-failure';
 import { tokenCount } from './codex/token-usage-breakdown';
+import { CodexTurnUsageOwner } from './codex/codex-turn-usage-owner';
+import { CodexTurnCeilingController, codexCeilingTrial, interruptHelperTurns, readAppSettings } from './codex/codex-turn-ceiling-controller';
+import { CodexThreadCreditsLedger, recordCodexThreadCredits } from './codex/codex-credit-reader';
+import { publishSessionThreadCredits, publishSessionTurnShare } from './codex/codex-session-telemetry';
 import {
   handleItemCompleted,
   handleItemStarted,
@@ -32,6 +38,98 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
   private readonly reportedStreamedCharacters = new WeakMap<TurnCaptureState, number>();
   /** Distinct helper threads seen under each root thread, across all of its turns. */
   private readonly helperThreadsByRoot = new Map<string, Set<string>>();
+
+  /** Per-round processed-token ceiling (Oct-2 Phase D Step 1): root and helper threads together. */
+  protected readonly turnCeiling = new CodexTurnCeilingController({
+    sessionKind: () => this.cliConfig.sessionKind,
+    trial: () => codexCeilingTrial(this.cliConfig),
+    threadId: () => this.getAppServerThreadId(),
+    instanceId: () => this.cliConfig.harnessInstanceId,
+    cumulativeTokens: () => this.usageAccounting.cumulativeTokens,
+    readSettings: () => readAppSettings(),
+    publishShare: (record) => publishSessionTurnShare(this, record),
+    deliverWrapUp: (text) => this.appServerRuntime.steerActiveTurn(text),
+    requestStop: () => {
+      void this.stopProviderAutoContinuation().catch(() => false); // a paused goal cannot restart an interrupted turn
+      this.interruptHelperTurns();
+      this.interrupt();
+    },
+    emitSystem: (content, metadata) => { this.emit('output', { id: generateId(), timestamp: Date.now(), type: 'system', content, metadata }); },
+  });
+
+  abstract stopProviderAutoContinuation(): Promise<boolean>;
+  private readonly usageOwner = new CodexTurnUsageOwner(this.turnCeiling, () => this.getAppServerThreadId(), () => this.usageAccounting.cumulativeTokens);
+
+  private runningCapture: TurnCaptureState | null = null;
+
+  private interruptHelperTurns(): void { interruptHelperTurns(this.runningCapture, this.getAppServerClient()); }
+
+  private readonly threadCredits = new CodexThreadCreditsLedger();
+
+  protected override handleIdleAppServerNotification(notification: AppServerNotification): void {
+    // The active capture can filter an earlier helper's items out; ownership must still see its spawns.
+    if (notification.method === 'item/started' || notification.method === 'item/completed') {
+      this.usageOwner.trackItemChildren(this.runningCapture, notification.params, this.usageAccounting);
+    }
+    super.handleIdleAppServerNotification(notification);
+  }
+
+  override async terminate(graceful = true): Promise<void> {
+    this.turnCeiling.flush();
+    if (graceful) await this.recordThreadCredits();
+    await super.terminate(graceful);
+  }
+
+  protected override async reopenAppServerThread(): Promise<void> {
+    await this.recordThreadCredits();
+    await super.reopenAppServerThread();
+  }
+
+  protected override async sendInputImpl(message: string, attachments?: FileAttachment[], metadata?: CliMessage['metadata'], dispatch?: AdapterInputDispatch): Promise<void> {
+    if (!this.useAppServer) this.turnCeiling.noteCommandMode(this.isHardenedModeConfigured());
+    return super.sendInputImpl(message, attachments, metadata, dispatch);
+  }
+
+  protected override handleIdleUsage(notification: AppServerNotification, flush = true): void {
+    const threadId = notification.params['threadId'];
+    if (typeof threadId !== 'string') return;
+    const turn = notification.params['turn'] as { id?: string } | undefined;
+    this.usageOwner.measure(threadId, () => super.handleIdleUsage(notification, flush), 'late', turn?.id ?? (typeof notification.params['turnId'] === 'string' ? notification.params['turnId'] : undefined));
+  }
+
+  /** The root thread's own end-of-round usage, booked to the round it belongs to. */
+  protected settleRootTurnUsage(rootThreadId: string, turnId: string | null, usage: unknown): void {
+    this.turnCeiling.measure(false, () => this.usageAccounting.fallback(rootThreadId, usage as Record<string, unknown> | undefined), 'late', turnId ?? undefined);
+  }
+
+  /** Step 11.1: Codex's own credit estimate for the root thread that is ending (rules: recordCodexThreadCredits). */
+  private recordThreadCredits(): Promise<void> {
+    const { arm, key } = codexCeilingTrial(this.cliConfig);
+    const instanceId = this.cliConfig.harnessInstanceId;
+    return recordCodexThreadCredits(this.threadCredits, {
+      client: this.getAppServerClient(), threadId: this.getAppServerThreadId(),
+      live: this.useAppServer && this.appServerRuntime.isRunning(),
+      record: { provider: 'codex', sessionKind: this.cliConfig.sessionKind ?? 'chat', ...(instanceId ? { instanceId } : {}),
+        ...(arm ? { arm } : {}), ...(key ? { armKey: key } : {}) },
+      publish: (record) => publishSessionThreadCredits(this, record),
+    });
+  }
+
+  /** A round Harness stopped on purpose ends its send with a typed, non-retryable error. */
+  protected throwIfStoppedByHarness(state: TurnCaptureState, beforeThrow: () => void): void {
+    if (state.finalTurn?.status !== 'interrupted') return;
+    const stop = this.turnCeiling.consumeStop();
+    if (!stop) return;
+    this.clearPendingContextCost();
+    beforeThrow();
+    throw stop;
+  }
+
+  /** The same stop for a round Codex started by itself, which has no send to fail. */
+  protected reportProviderHarnessStop(state: TurnCaptureState): void {
+    const stop = state.finalTurn?.status === 'interrupted' ? this.turnCeiling.consumeStop() : null;
+    if (stop) this.emit('turn_error', Object.assign(stop, { willRetry: false, providerStarted: true }));
+  }
 
   protected unreportedStreamedCharacters(state: TurnCaptureState): number {
     const streamed = Array.from(state.streamingAgentMessages.values())
@@ -51,6 +149,7 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
   }
 
   protected handleTurnNotification(state: TurnCaptureState, notification: AppServerNotification): void {
+    this.runningCapture = state;
     // Drop notifications that arrive after the turn has already completed.
     // This prevents orphaned output events from violating the event ordering
     // contract (all output must arrive before 'complete').
@@ -89,6 +188,9 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
         if (tId) {
           this.usageAccounting.trackThread(tId);
           state.threadIds.add(tId);
+          const parentId = threadObj?.['parentThreadId'];
+          if (typeof parentId === 'string') this.usageOwner.discoverHelper(tId, parentId);
+          else this.usageOwner.trackHelper(tId);
           // Extract label from multiple sources (matches codex-plugin-cc)
           const label = (threadObj?.['name'] as string)
             || (params['name'] as string)
@@ -117,9 +219,14 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
         const tId = params['threadId'] as string | undefined;
         if (turnId && tId) {
           this.usageAccounting.beginNativeTurn(tId, turnId);
+          if (tId === state.threadId) {
+            this.usageOwner.beginRoot(turnId);
+            this.threadCredits.noteTurn(tId);
+          }
           state.threadTurnIds.set(tId, turnId);
           // Track subagent turns
           if (tId !== state.threadId) {
+            this.usageOwner.beginHelperTurn(tId, turnId);
             state.activeSubagentTurns.add(turnId);
           }
         }
@@ -128,12 +235,14 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
 
       case 'item/started': {
         this.trackItemChildThreads(state, params);
+        this.usageOwner.trackItemChildren(state, params, this.usageAccounting);
         handleItemStarted(this.itemNotificationHost(), state, params);
         break;
       }
 
       case 'item/completed': {
         this.trackItemChildThreads(state, params);
+        this.usageOwner.trackItemChildren(state, params, this.usageAccounting);
         handleItemCompleted(this.itemNotificationHost(), state, params);
         if (params['threadId'] === state.threadId && (params['item'] as ThreadItem | undefined)?.type === 'contextCompaction') {
           this.scheduleInferredCompletion(state);
@@ -144,7 +253,9 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
       case 'turn/completed': {
         const turn = params['turn'] as TurnCaptureState['finalTurn'] | undefined;
         const tId = params['threadId'] as string | undefined;
-        this.usageAccounting.fallback(tId ?? state.threadId, turn?.usage as Record<string, unknown> | undefined, !!tId && tId !== state.threadId, turn?.id);
+        const helperTurn = !!tId && tId !== state.threadId;
+        // A helper receipt stays with its launch turn; root completion ends the round.
+        this.usageOwner.measure(tId ?? state.threadId, () => this.usageAccounting.fallback(tId ?? state.threadId, turn?.usage as Record<string, unknown> | undefined, helperTurn, turn?.id), helperTurn ? 'live' : 'late', turn?.id);
 
         // If this is a subagent turn completing, just remove from tracking
         if (tId && tId !== state.threadId) {
@@ -177,7 +288,7 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
         const threadId = typeof params['threadId'] === 'string' ? params['threadId'] : state.threadId;
         const isChild = threadId !== state.threadId;
         const previousCumulative = this.usageAccounting.cumulativeTokens;
-        this.usageAccounting.observe(threadId, total, last, isChild);
+        this.usageOwner.measure(threadId, () => this.usageAccounting.observe(threadId, total, last, isChild, tokenCount(tokenUsage['modelContextWindow'] ?? tokenUsage['model_context_window'])), 'live', typeof params['turnId'] === 'string' ? params['turnId'] : undefined);
         if (!isChild && this.usageAccounting.cumulativeTokens > previousCumulative) {
           const streamed = Array.from(state.streamingAgentMessages.values())
             .reduce((sum, stream) => sum + stream.content.length, 0);
@@ -568,6 +679,9 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
    */
   protected completeTurn(state: TurnCaptureState, turn: TurnCaptureState['finalTurn']): void {
     if (state.completed) return;
+    const turnId = turn?.id ?? state.turnId;
+    if (turnId) this.turnCeiling.endTurn(turnId);
+    if (this.runningCapture === state) this.runningCapture = null;
     const completionStatus = turn?.status === 'completed' || turn?.status === 'interrupted' || turn?.status === 'failed' ? turn.status : 'unknown';
     this.contextDiagnostics?.completeTurn(completionStatus);
     this.reconcileCompletedTurnAgentMessages(state, turn);

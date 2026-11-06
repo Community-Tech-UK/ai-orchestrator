@@ -430,6 +430,56 @@ describe('ModelSelectionPanelComponent', () => {
     ]);
   });
 
+  it('exposes effort cost descriptions before a selection, including to assistive technology', () => {
+    const warning = 'Lets Codex start helper agents by itself; uses much more of your allowance.';
+    const costNote = 'Changing thinking effort starts a new session with a short summary of this one; the rest does not carry over.';
+    setInputs({
+      providers: ['codex'], selectedProvider: 'codex', selectedModelId: 'gpt-5.5',
+      reasoningOptionsForProvider: () => [
+        { id: 'default', label: 'Provider' },
+        { id: 'ultra', label: 'Ultra', description: warning },
+      ],
+    });
+    const select = fixture.nativeElement.querySelector('select') as HTMLSelectElement;
+    expect(select.value).toBe('default');
+    // The description is the control's accessible description, never a native
+    // `title` (screen-and-wording guide: no native `title` on controls).
+    expect(select.getAttribute('aria-description')).toBe(`Ultra: ${warning}`);
+    expect(select.options[1].textContent).toContain(warning);
+    expect(select.hasAttribute('title')).toBe(false);
+    expect(select.options[1].hasAttribute('title')).toBe(false);
+    // The consequence is visible before any choice: pointing at the effort list
+    // asks the host for the cost sentence, and the note area shows it.
+    const previews: (UnifiedSelection | null)[] = [];
+    fixture.componentInstance.rowPreview.subscribe((value) => previews.push(value));
+    select.dispatchEvent(new Event('focus'));
+    expect(previews).toEqual([{ kind: 'reasoning', provider: 'codex', modelId: 'gpt-5.5', level: 'ultra' }]);
+    fixture.componentRef.setInput('optionNote', costNote);
+    fixture.detectChanges();
+    const note = fixture.nativeElement.querySelector('[data-testid="model-picker-cost-note"]') as HTMLElement;
+    expect(note.getAttribute('role')).toBe('status');
+    expect(note.textContent?.trim()).toBe(costNote);
+  });
+
+  it('keeps the effort preview when the reasoning select receives real keyboard focus', async () => {
+    setInputs({
+      providers: ['codex'], selectedProvider: 'codex', selectedModelId: 'gpt-5.5',
+      reasoningOptionsForProvider: () => [
+        { id: 'default', label: 'Provider' },
+        { id: 'ultra', label: 'Ultra' },
+      ],
+    });
+    await fixture.whenStable();
+    const previews: (UnifiedSelection | null)[] = [];
+    fixture.componentInstance.rowPreview.subscribe(value => previews.push(value));
+    const select = fixture.nativeElement.querySelector('select') as HTMLSelectElement;
+    select.focus();
+    expect(document.activeElement).toBe(select);
+    expect(previews.at(-1)).toEqual({ kind: 'reasoning', provider: 'codex', modelId: 'gpt-5.5', level: 'ultra' });
+    (fixture.nativeElement.querySelector('.model-picker-row__select') as HTMLButtonElement).focus();
+    expect(previews.at(-1)).toEqual({ kind: 'model', provider: 'codex', modelId: 'gpt-5.5' });
+  });
+
   it('renders model-specific levels, preserves Provider, and emits ultra unchanged', () => {
     const codexModels = signal<ModelDisplayInfo[]>([
       { id: 'gpt-6-astra', name: 'Astra', tier: 'powerful', reasoning: {

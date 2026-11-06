@@ -26,10 +26,16 @@ import {
   AUTOMATION_WAIT_STATUSES,
 } from '../../shared/types/instance-status-policy';
 import { classifyFinalOutputProviderLimit } from '../cli/final-output-provider-limit';
+import { harnessStopDetailsOf, isHarnessStopError } from '../../shared/utils/harness-stop';
+
+/** True for the typed error a Harness stop raises, so a caller never retries it as an ordinary failure. */
+export const isStoppedByHarnessError = isHarnessStopError;
 
 export type PlanQueueTurnOutcome =
   | { kind: 'turn-complete'; lastAssistantOutput: string | null }
   | { kind: 'provider-limit'; notice: string }
+  /** Harness itself ended the turn on purpose (Decision 16a); never retried automatically. */
+  | { kind: 'stopped-by-harness'; notice: string }
   | { kind: 'needs-input'; status: InstanceStatus; lastAssistantOutput: string | null }
   | { kind: 'failed'; reason: string };
 
@@ -145,7 +151,9 @@ export class PlanQueueInstanceTracker {
       // waiting for its verifier is hibernated by killing its CLI, and that
       // exit is not a failure; a status-level failure below still is.
       case 'error':
-        if (!event.recoverable && !tracking.settled) this.fail(envelope.instanceId, event.message);
+        if (harnessStopDetailsOf(event.details)) {
+          if (!tracking.settled) this.settle(envelope.instanceId, tracking, { kind: 'stopped-by-harness', notice: event.message });
+        } else if (!event.recoverable && !tracking.settled) this.fail(envelope.instanceId, event.message);
         break;
       case 'exit':
         if (event.code !== 0 && !tracking.settled) {
@@ -235,6 +243,7 @@ export function unreportedVerifierReason(outcome: PlanQueueTurnOutcome): string 
   switch (outcome.kind) {
     case 'failed': return `the verifier failed: ${outcome.reason}`;
     case 'provider-limit': return 'the verifier stopped at a usage limit before reporting a verdict';
+    case 'stopped-by-harness': return outcome.notice;
     case 'needs-input': return 'the verifier asked a question instead of reporting a verdict';
     case 'turn-complete': return 'the verifier ended its turn without reporting a verdict';
   }

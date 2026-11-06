@@ -32,6 +32,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { getLogger } from '../../logging/logger';
 import type { ModelCallPurpose, ModelCallCostSource, ModelCallOutcome } from '../../../shared/types/cost-attribution.types';
+import type { SessionKind } from '../../../shared/types/session-kind.types';
 import { getLocalAiCostCorrelationId } from '../../local-ai-guard/local-ai-cost-correlation';
 import { computeTokenCost, hasModelRate } from '../../../shared/data/model-pricing';
 
@@ -42,6 +43,8 @@ export interface CostAttributionUsage {
   outputTokens?: number;
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
+  cacheWrite5mTokens?: number;
+  cacheWrite1hTokens?: number;
   reasoningTokens?: number;
   totalTokens?: number;
   /** Provider-reported cost in USD (e.g. claude --print `total_cost_usd`). */
@@ -65,11 +68,21 @@ export interface CostAttributionRecord {
    * workflow usage apart; turns recorded before this field existed have none.
    */
   reasoningEffort?: string;
+  /** `instance-turn` rows: chat, helper, loop, plan queue, scheduled job or review (drives "Biggest turns"). */
+  sessionKind?: SessionKind;
+  /** Native Codex identity when reported by that response. Absent in legacy/command-mode rows; never inferred from session or time. */
+  codexTurn?: { threadId: string; turnId: string };
   subagentUsage?: true;
   finalContextTokens?: number;
   toolUses?: number;
   durationMs?: number;
   toolUseId?: string;
+  /** `subagentUsage` rows: where the helper's model came from, and how it was started. */
+  helperModelSource?: 'stream' | 'transcript' | 'requested';
+  helperAgentType?: string;
+  helperFork?: boolean;
+  helperDepth?: number;
+  helperMode?: 'foreground' | 'background';
   reviewLifecycle?: boolean;
   reviewVerdict?: string;
   reviewAction?: string;
@@ -274,11 +287,15 @@ export function recordInstanceTurnAttribution(args: {
   reasoningEffort?: string;
   isEstimated?: boolean;
   spendPurpose?: 'automation' | 'channel';
+  sessionKind?: SessionKind;
+  codexTurn?: CostAttributionRecord['codexTurn'];
 }): void {
   const role = args.spendPurpose ?? (args.parentId ? 'child' : 'chat');
   recordCostAttribution({
     source: 'instance-turn',
     ...(args.planQueue ? { planQueue: args.planQueue } : {}),
+    ...(args.sessionKind ? { sessionKind: args.sessionKind } : {}),
+    ...(args.codexTurn ? { codexTurn: args.codexTurn } : {}),
     purpose: args.purpose ?? role,
     ...(args.origin !== undefined ? { origin: args.origin } : {}),
     purposeDetail: args.purposeDetail,

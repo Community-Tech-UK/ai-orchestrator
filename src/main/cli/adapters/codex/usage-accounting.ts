@@ -1,6 +1,6 @@
 import type { CodexUsageTokens } from '../../../../shared/types/codex-ephemeral-usage.types';
 import type { CliUsage } from '../base-cli-adapter';
-import { computeTokenCost } from '../../../../shared/data/model-pricing';
+import { computeTokenCost, CODEX_LONG_PROMPT_THRESHOLD } from '../../../../shared/data/model-pricing';
 import { disjointCodexUsage, resolveCodexTurnUsageBreakdown, tokenCount, type CodexTurnUsageBreakdown } from './token-usage-breakdown';
 
 const empty = (): CodexTurnUsageBreakdown => ({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, reasoningTokens: 0 });
@@ -38,6 +38,7 @@ export class CodexUsageAccounting {
   private readonly outputEstimateThreads = new Set<string>();
   private readonly estimatedThreads = new Set<string>();
   private turn = empty();
+  private longPromptTurn = empty();
   private estimated = false;
   private pending = false;
   cumulativeTokens = 0;
@@ -73,7 +74,7 @@ export class CodexUsageAccounting {
     });
   }
 
-  observe(threadId: string, total?: Record<string, unknown>, last?: Record<string, unknown>, child = false): void {
+  observe(threadId: string, total?: Record<string, unknown>, last?: Record<string, unknown>, child = false, requestContextWindow?: number): void {
     this.ownedThreads.add(threadId);
     const current = snapshot(total);
     const call = snapshot(last);
@@ -144,7 +145,7 @@ export class CodexUsageAccounting {
       }
     }
     this.noteEvidence(threadId, current?.detailed ? total : call ? last : current ? total : undefined);
-    this.add(threadId, delta, gross, child);
+    this.add(threadId, delta, gross, child, call?.detailed ? call.raw : undefined, requestContextWindow);
   }
 
   fallback(threadId: string, usage?: Record<string, unknown>, child = false, turnId?: string): void {
@@ -202,7 +203,11 @@ export class CodexUsageAccounting {
   peek(model: string | undefined): CliUsage | undefined {
     if (!this.pending) return undefined;
     const usage = disjointCodexUsage(this.turn);
-    return { ...usage, totalTokens: this.turn.inputTokens + this.turn.outputTokens, cost: computeTokenCost(model, usage), ...(this.estimated ? { isEstimated: true } : {}) };
+    const long = disjointCodexUsage(this.longPromptTurn);
+    // A large turn aggregate proves no request size. Only native last samples
+    // enter this bucket; base pricing remains valid across mixed-size requests.
+    const premium = computeTokenCost(model, { ...long, requestInputTokens: CODEX_LONG_PROMPT_THRESHOLD + 1 }) - computeTokenCost(model, long);
+    return { ...usage, totalTokens: this.turn.inputTokens + this.turn.outputTokens, cost: computeTokenCost(model, usage) + premium, ...(this.estimated ? { isEstimated: true } : {}) };
   }
 
   ownsThread(threadId: string): boolean { return this.ownedThreads.has(threadId); }
@@ -245,10 +250,27 @@ export class CodexUsageAccounting {
     this.pending = false;
     this.estimated = false;
     this.turn = empty();
+    this.longPromptTurn = empty();
     return usage;
   }
 
-  private add(threadId: string, delta: CodexTurnUsageBreakdown, gross: number, child: boolean): void {
+  private add(threadId: string, delta: CodexTurnUsageBreakdown, gross: number, child: boolean, call?: CodexTurnUsageBreakdown, requestContextWindow?: number): void {
+    // Some CLI versions put a multicall aggregate in `last`. A request must
+    // fit the window reported by that thread; an absent window proves no size.
+    const requestSized = valid(requestContextWindow) && requestContextWindow > 0 && call
+      && call.inputTokens + call.outputTokens <= requestContextWindow;
+    if (call && call.inputTokens > CODEX_LONG_PROMPT_THRESHOLD && gross > 0 && !requestSized) this.estimated = true;
+    if (call && call.inputTokens > CODEX_LONG_PROMPT_THRESHOLD && gross > 0 && requestSized) {
+      // Coalesced notifications cannot price older requests exactly. Retain
+      // only the identifiable last request and mark the remainder estimated.
+      const input = Math.min(delta.inputTokens, call.inputTokens);
+      const output = Math.min(delta.outputTokens, call.outputTokens);
+      this.longPromptTurn.inputTokens += input;
+      this.longPromptTurn.outputTokens += output;
+      this.longPromptTurn.cacheReadTokens += Math.min(input, delta.cacheReadTokens, call.cacheReadTokens);
+      this.longPromptTurn.reasoningTokens += Math.min(output, delta.reasoningTokens, call.reasoningTokens);
+    }
+    if (gross > 0 && (!call || keys.some(key => delta[key] !== call[key]))) this.estimated = true;
     const thread = this.accountedByThread.get(threadId) ?? empty();
     for (const key of keys) { this.turn[key] += delta[key]; thread[key] += delta[key]; }
     this.accountedByThread.set(threadId, thread);

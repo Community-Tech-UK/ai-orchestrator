@@ -64,11 +64,11 @@ export function providerChangeNoticeText(params: {
     + `to ${params.newProvider} (model ${modelLabel(params.newModel)}). `
     + `Thinking changed from ${effortLabel(params.oldReasoningEffort)} `
     + `to ${effortLabel(params.newReasoningEffort)}. `
-    + 'Conversation context has been carried over from the previous provider.]'
+    + 'AIO carries over the available summary and recent messages when replaying the conversation; earlier detail may be missing.]'
   );
 }
 
-/** Same-provider model or thinking change: the conversation is preserved. */
+/** Model/thinking changes may replay a bounded history; never promise a full copy. */
 export function modelChangeNoticeText(params: {
   oldModel: string | undefined;
   newModel: string | undefined;
@@ -80,7 +80,7 @@ export function modelChangeNoticeText(params: {
     + `to ${modelLabel(params.newModel)}. `
     + `Thinking changed from ${effortLabel(params.oldReasoningEffort)} `
     + `to ${effortLabel(params.newReasoningEffort)}. `
-    + 'Conversation context has been preserved.]'
+    + 'Replaying the conversation may summarise or omit earlier detail.]'
   );
 }
 

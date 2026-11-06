@@ -126,6 +126,8 @@ const REASONING_LABELS: Record<ReasoningEffort, string> = {
         [disabledReasonForProvider]="providerDisabledReasonFor"
         [note]="switchNote()"
         [noteForProvider]="switchNoteForProvider()"
+        [optionNote]="optionNote()"
+        (rowPreview)="onRowPreview($event)"
         (selection)="onUnifiedSelect($event)"
         (dismiss)="closeMenu()"
       />
@@ -258,6 +260,10 @@ export class CompactModelPickerComponent {
    * change that would be silently rejected.
    */
   readonly selectionChange = output<PendingSelection>();
+  /** What choosing the option under the pointer would cost, shown in the open menu before the click. */
+  readonly optionNote = input<string | null>(null);
+  /** The option under the pointer as a would-be selection, or null when none is (T17). */
+  readonly optionPreview = output<PendingSelection | null>();
 
   @ViewChild('pickerTrigger', { static: true, read: ElementRef })
   protected readonly pickerTriggerRef!: ElementRef<HTMLElement>;
@@ -305,7 +311,7 @@ export class CompactModelPickerComponent {
     if (!this.allowReasoningSelection()) return [];
     return this.controller
       .reasoningOptionsForProvider(provider, model)
-      .map((opt) => ({ id: opt.id, label: opt.label, isDefault: opt.isDefault }));
+      .map((opt) => ({ id: opt.id, label: opt.label, isDefault: opt.isDefault, description: opt.description }));
   };
 
   constructor() {
@@ -477,6 +483,24 @@ export class CompactModelPickerComponent {
   protected closeMenu(): void {
     this.closeFocusTrap();
     this.menuOpen.set(false);
+    this.optionPreview.emit(null);
+  }
+
+  /** Turn the option under the pointer into the selection choosing it would make, with the same defaults as a click. */
+  protected onRowPreview(selection: UnifiedSelection | null): void {
+    if (!selection) {
+      this.optionPreview.emit(null);
+      return;
+    }
+    const provider = selection.provider;
+    const modelId = selection.kind === 'provider'
+      ? this.modelsForProviderFn(provider)[0]?.id ?? getPrimaryModelForProvider(provider) ?? null
+      : selection.modelId;
+    const reasoning = selection.kind === 'reasoning'
+      ? selection.level
+      : getModelDefaultReasoningEffort(provider, this.modelsForProviderFn(provider).find((m) => m.id === modelId)?.reasoning, modelId);
+    const modelRuntimeTarget = this.modelRuntimeTargetForSelection(provider, modelId);
+    this.optionPreview.emit({ provider, model: modelId, reasoning, ...(modelRuntimeTarget ? { modelRuntimeTarget } : {}) });
   }
 
   private closeFocusTrap(): void {
@@ -502,6 +526,7 @@ export class CompactModelPickerComponent {
 
   protected async onUnifiedSelect(selection: UnifiedSelection): Promise<void> {
     this.closeMenu();
+    this.optionPreview.emit(null);
     if (selection.kind === 'provider') {
       // Provider row clicks reset the model to the new provider's primary
       // default and the provider's app-level reasoning default. Without the

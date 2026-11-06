@@ -3,6 +3,9 @@ import { join } from 'node:path';
 import type { CostPurposeRange, CostPurposeRow, CostPurposeSummary } from '../../../shared/types/cost-purpose.types';
 import { getCostAttributionDirectory, getCostAttributionFilePath, purposeOf, subscribeCostAttribution,
   type CostAttributionRecord } from './cost-attribution';
+import { BIGGEST_TURNS_WINDOW_MS, collectBiggestTurns, summariseCodexCredits } from './cost-biggest-turns';
+import { latestThreadCredits, latestTurnShares, readSessionPolicyEvents,
+  type SessionThreadCreditsRecord, type SessionTurnShareRecord } from './session-policy-log';
 interface DatedRecord extends CostAttributionRecord { ts:number }
 interface CachedDay { size:number; mtime:number; rows:DatedRecord[] }
 const number = (value:unknown):number => typeof value==='number' && Number.isFinite(value) && value>=0 ? value : 0;
@@ -56,6 +59,9 @@ export class CostPurposeSummaryService {
     const purposeRows=new Map<string,CostPurposeRow>();
     const providerRows=new Map<string,CostPurposeRow>();
     const start=range.startTime ?? 0, end=range.endTime ?? Date.now();
+    // "Biggest turns this week" is always the last seven days of the range.
+    const weekStart=Math.max(start,end-BIGGEST_TURNS_WINDOW_MS);
+    const turnRows:DatedRecord[]=[];
     try {
       for (const name of readdirSync(directory).filter(name=>/^cost-attribution-\d{4}-\d{2}-\d{2}\.jsonl$/.test(name))) {
         const day=Date.parse(name.slice(17,27)+'T00:00:00Z');
@@ -73,6 +79,7 @@ export class CostPurposeSummaryService {
         }
         for (const record of cached.rows) {
           if (record.ts<start || record.ts>end || !isCall(record)) continue;
+          if (record.source==='instance-turn' && record.ts>=weekStart) turnRows.push(record);
           const purpose=purposeOf(record), provider=record.provider ?? 'unknown';
           if (!purposeRows.has(purpose)) purposeRows.set(purpose,empty(purpose));
           if (!providerRows.has(provider)) providerRows.set(provider,empty(provider));
@@ -80,6 +87,10 @@ export class CostPurposeSummaryService {
         }
       }
     } catch { /* A transient log I/O failure leaves the readable rows available. */ }
+    const policyRows={shares:readSessionPolicyEvents<SessionTurnShareRecord>('turn-share',weekStart).filter(row=>row.at<=end),
+      credits:readSessionPolicyEvents<SessionThreadCreditsRecord>('thread-credits',weekStart).filter(row=>row.at<=end)};
+    result.biggestTurns=collectBiggestTurns({costRows:turnRows,shareRows:latestTurnShares(policyRows.shares)});
+    result.codexCredits=summariseCodexCredits(latestThreadCredits(policyRows.credits));
     result.byPurpose=[...purposeRows.values()] as CostPurposeSummary['byPurpose'];
     result.byProvider=[...providerRows.values()];
     result.byPurpose.sort((a,b)=>b.cost-a.cost || b.calls-a.calls);

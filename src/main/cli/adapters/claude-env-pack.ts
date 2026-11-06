@@ -90,6 +90,21 @@ export function applyClaudeHygieneEnv(
     env['CLAUDE_CODE_AUTO_COMPACT_WINDOW'] = String(options.contextCeilingTokens);
   }
   if (options?.machineSession && !('SECURITY_GUIDANCE_DISABLE' in env)) env['SECURITY_GUIDANCE_DISABLE'] = '1';
+  // Installed 2.1.304 changelog: depth (2.1.219), concurrency (2.1.217),
+  // session spawn cap (2.1.212) and noninteractive forks (2.1.121).
+  // Ordinary child helpers and reviewers intentionally keep native limits.
+  const reason = options?.machineSession;
+  if (reason === 'plan-queue' || reason === 'loop' || reason === 'automation') {
+    const limits: Record<string, string> = {
+      CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH: reason === 'plan-queue' ? '1' : '2',
+      CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION: '60',
+      CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS: '6',
+      ...(reason !== 'automation' ? { CLAUDE_CODE_FORK_SUBAGENT: '0' } : {}),
+    };
+    for (const [key, value] of Object.entries(limits)) {
+      if (!(key in env) && process.env[key] === undefined) env[key] = value;
+    }
+  }
   if (!('DISABLE_UPDATES' in env)) {
     env['DISABLE_UPDATES'] = '1';
   }

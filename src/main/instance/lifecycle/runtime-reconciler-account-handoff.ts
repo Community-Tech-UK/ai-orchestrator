@@ -18,6 +18,7 @@ import {
 import { getProviderAccountStore } from '../../providers/account-pool/provider-account-store';
 import { getProviderAccountRoutingService } from '../../providers/account-pool/provider-account-routing-service';
 import { AccountRoutingError } from './account-route-preflight';
+import { readAccountContinuation } from './account-continuation-policy';
 import { resolveOpenCodeSessionModel } from '../../cli/adapters/opencode-account-provider-config';
 import { mapAcpEffort } from '../../cli/adapters/acp-session-config-options';
 import { announceRuntimeChangeSet, runtimeChangeNoticesFor } from './runtime-change-notices';
@@ -255,15 +256,6 @@ export async function tryAccountSwitchInPlace(params: {
   });
   params.assertCurrent();
   return true;
-}
-
-function readAccountContinuation(provider: string): AccountContinuationMode {
-  if (!isPooledProvider(provider)) return 'replay';
-  try {
-    return getProviderAccountStore().getPoolPolicy(provider).continuation;
-  } catch {
-    return 'replay';
-  }
 }
 
 function accountLabel(provider: string, profileId: string | undefined): string | undefined {

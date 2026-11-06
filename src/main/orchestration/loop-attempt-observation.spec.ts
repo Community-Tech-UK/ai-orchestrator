@@ -32,7 +32,10 @@ function initRepo(root: string): void {
   execFileSync('git', ['commit', '-q', '-m', 'seed'], { cwd: root });
 }
 
-describe('createAttemptDeltaObserver', () => {
+// These cases build real nested Git repositories (a dozen `git` child processes
+// per case), which comfortably beats the 5-second default when the full suite is
+// saturating the machine. The budget only widens the ceiling; nothing waits on it.
+describe('createAttemptDeltaObserver', { timeout: 30_000 }, () => {
   it('merges two nested Git repositories with uncovered root files', () => {
     workspace = mkdtempSync(join(tmpdir(), 'loop-observation-'));
     const first = join(workspace, 'packages', 'first');

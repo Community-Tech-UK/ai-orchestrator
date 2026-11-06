@@ -214,6 +214,9 @@ export function omitNativeOwnedInstructionStack<T extends NativeInstructionSourc
   homeDir?: string,
   options: { remote?: boolean } = {},
 ): OmitNativeOwnedResolution<T> {
+  const google = ['gemini', 'antigravity'].includes(normalizeProvider(provider));
+  const digestSources = new Set(resolution.sources.filter(source => google && source.loaded && source.applied
+    && source.scope === 'user' && source.kind === 'claude').map(source => source.path));
   const owned = nativeOwnedInstructionPaths({
     provider,
     sources: resolution.sources,
@@ -223,7 +226,7 @@ export function omitNativeOwnedInstructionStack<T extends NativeInstructionSourc
   const nativeCodexText = normalizeProvider(provider) === 'codex' && !options.remote && homeDir
     ? readFile(path.join(homeDir, '.codex', 'AGENTS.override.md')) ?? readFile(path.join(homeDir, '.codex', 'AGENTS.md'))
     : null;
-  if (owned.size === 0 && nativeCodexText === null) return resolution;
+  if (owned.size === 0 && nativeCodexText === null && digestSources.size === 0) return resolution;
 
   const applied = resolution.sources.filter((source) => source.loaded && source.applied);
   const parts = resolution.mergedContent ? resolution.mergedContent.split('\n\n---\n\n') : [];
@@ -239,6 +242,11 @@ export function omitNativeOwnedInstructionStack<T extends NativeInstructionSourc
     }
     const part = parts[index];
     if (part !== undefined) {
+      if (digestSources.has(source.path)) {
+        keptParts.push('Product safety: Follow current user and project instructions. Preserve unrelated work. Never expose secrets. Obtain required approval before destructive or external actions. Verify results before claiming success.');
+        paragraphReasons.set(source.path, 'Replaced global Claude instructions with a safety digest; this provider loads its own GEMINI.md.');
+        continue;
+      }
       const deduplicated = nativeCodexText === null ? part : removeParagraphsLoadedNatively(part, nativeCodexText);
       if (deduplicated !== part) {
         keptParts.push(`(Paragraphs that Codex already loads from its own AGENTS.md are left out here.)\n\n${deduplicated}`);

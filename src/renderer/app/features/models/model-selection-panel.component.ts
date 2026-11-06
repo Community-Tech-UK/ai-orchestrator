@@ -22,6 +22,7 @@ import type {
   UnifiedReasoningOption,
   UnifiedSelection,
 } from './model-selection.types';
+import { reasoningPreviewOf, rowPreviewOf } from './model-picker-row-preview';
 import {
   PROVIDER_MENU_COLORS,
   PROVIDER_MENU_LABELS,
@@ -142,6 +143,8 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
               [class.selected]="row.selected"
               [class.disabled]="row.disabledReason"
               [attr.aria-disabled]="row.disabledReason ? 'true' : null"
+              (mouseenter)="pointAtRow(row)" (mouseleave)="pointAtRow(null)"
+              (focusin)="pointAtRow(row)" (focusout)="pointAtRow(null)"
             >
               <button
                 type="button"
@@ -219,7 +222,8 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
                     [value]="row.reasoningValue"
                     [disabled]="!!row.disabledReason"
                     [attr.aria-label]="'Reasoning for ' + row.model.name"
-                    (click)="$event.stopPropagation()"
+                    [attr.aria-description]="reasoningDescription(row)"
+                    (click)="$event.stopPropagation()" (focus)="pointAtReasoning(row)" (focusin)="$event.stopPropagation()"
                     (change)="selectReasoning(row, $event)"
                   >
                     @for (option of row.reasoningOptions; track option.id) {
@@ -228,7 +232,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
                         [selected]="row.reasoningValue === reasoningOptionValue(option)"
                         [disabled]="option.disabled ?? false"
                       >
-                        {{ option.label }}{{ option.isDefault ? ' (default)' : '' }}
+                        {{ option.label }}{{ option.isDefault ? ' (default)' : '' }}{{ option.description ? ': ' + option.description : '' }}
                       </option>
                     }
                   </select>
@@ -246,6 +250,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
             <div class="model-picker-empty" role="status">{{ emptyStateLabel() }}</div>
           }
         </div>
+        @if (optionNote(); as note) { <div class="model-picker-note" role="status" data-testid="model-picker-cost-note">{{ note }}</div> }
       </section>
     </div>
   `,
@@ -657,6 +662,8 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
       letter-spacing: 0.01em;
     }
 
+    .model-picker-note { padding: 6px 12px; border-top: 1px solid var(--border-subtle, rgba(255,255,255,0.08)); font-size: 12px; color: var(--text-secondary, #c4c4c9); }
+
     .model-picker-empty {
       display: flex;
       align-items: center;
@@ -732,6 +739,9 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
   );
   readonly selection = output<UnifiedSelection>();
   readonly dismiss = output<void>();
+  readonly optionNote = input<string | null>(null); // what choosing the option under the pointer would cost (T17)
+  readonly rowPreview = output<UnifiedSelection | null>(); // the option under the pointer; the host answers through `optionNote`
+
   @ViewChild('searchInput', { static: true })
   private readonly searchInput!: ElementRef<HTMLInputElement>;
   protected readonly providerList = this._providers;
@@ -892,6 +902,8 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
     this.searchTerm.set((event.target as HTMLInputElement).value);
   }
 
+  protected pointAtRow(row: ModelPickerRow | null): void { this.rowPreview.emit(rowPreviewOf(row)); }
+  protected pointAtReasoning(row: ModelPickerRow): void { this.rowPreview.emit(reasoningPreviewOf(row, (option) => this.reasoningOptionValue(option))); }
   protected selectRow(row: ModelPickerRow): void {
     if (row.disabledReason) return;
     this.selection.emit({
@@ -977,6 +989,11 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
 
   protected reasoningOptionValue(option: UnifiedReasoningOption): string {
     return option.id === 'default' ? 'default' : option.id;
+  }
+
+  protected reasoningDescription(row: ModelPickerRow): string | null {
+    return row.reasoningOptions.filter(option => option.description)
+      .map(option => `${option.label}: ${option.description}`).join(' ') || null;
   }
 
   protected providerIconPath(provider: PickerProvider): string {

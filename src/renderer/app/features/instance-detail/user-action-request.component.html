@@ -301,7 +301,7 @@
                 <button
                   class="btn-yolo"
                   (click)="onEnableYolo(request)"
-                  [disabled]="isResponding()"
+                  [disabled]="isResponding() || yoloCost.checking() || !!yoloCost.confirmation()"
                   [appTooltip]="copy('permissions.enableYolo')"
                 >
                   YOLO
@@ -319,6 +319,17 @@
               </button>
             }
           </div>
+          @if (isPermissionRequest(request) && canResolveWithYolo(request)) {
+            @if (yoloCost.note(); as costNote) {
+              <p class="yolo-cost-note" role="status">{{ costNote }}</p>
+            }
+            @if (yoloCost.confirmation(); as held) {
+              @if (held.request === request) {
+                <app-runtime-change-confirm [text]="held.text" confirmLabel="Enable YOLO anyway"
+                  cancelLabel="Keep permissions" (confirmed)="yoloCost.confirm()" (cancelled)="yoloCost.cancel()" />
+              }
+            }
+          }
           @if (getPermissionHint(request); as hint) {
             <p class="scope-write-hint">{{ hint }}</p>
           }

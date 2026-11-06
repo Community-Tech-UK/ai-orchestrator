@@ -59,6 +59,15 @@ describe('adapter factory - codex', () => {
     });
   });
 
+  it('passes the session kind, trial key and queue role to the Codex thread policy (checker skills-catalog trial)', () => {
+    const adapter = createCodexAdapter({ workingDirectory: '/tmp', sessionKind: 'plan-queue', trialKey: 'item-1', queueRole: 'verifier' });
+
+    expect((adapter as unknown as { cliConfig: Record<string, unknown> }).cliConfig).toMatchObject({
+      sessionKind: 'plan-queue', trialKey: 'item-1', queueRole: 'verifier',
+    });
+    expect((createCodexAdapter({ workingDirectory: '/tmp' }) as unknown as { cliConfig: Record<string, unknown> }).cliConfig['queueRole']).toBeUndefined();
+  });
+
   describe('WS-C7 contained execution profile shape', () => {
     const ORIGINAL_ENV = { ...process.env };
 

@@ -119,6 +119,7 @@ describe('assembleInstanceSystemPrompt context manifest capture (WS-C6)', () => 
 
   it.each(['codex', 'claude', 'auto', undefined] as const)('leaves resolved-provider background instructions to runtime binding (%s)', async (provider) => {
     const result = await assembleInstanceSystemPrompt({
+      resolvedProvider: provider === 'claude' ? 'claude' : 'codex',
       instance: makeInstance(), config: { workingDirectory: '/tmp/project', provider },
       resolvedAgent: baseAgent, instructionPrompts: [], initialUserMessageContent: undefined, deps: makeDeps(),
     });
@@ -128,6 +129,7 @@ describe('assembleInstanceSystemPrompt context manifest capture (WS-C6)', () => 
 
   it('bounds initial indexed store lookup by the create-enricher deadline', async () => {
     await assembleInstanceSystemPrompt({
+      resolvedProvider: 'claude',
       instance: makeInstance(),
       config: { workingDirectory: '/tmp/project', provider: 'claude' },
       resolvedAgent: baseAgent,
@@ -146,6 +148,7 @@ describe('assembleInstanceSystemPrompt context manifest capture (WS-C6)', () => 
   it('records a spawn-trigger epoch with one entry per contract block kind for a fresh session', async () => {
     const instance = makeInstance();
     await assembleInstanceSystemPrompt({
+      resolvedProvider: 'claude',
       instance,
       config: { workingDirectory: '/tmp/project', provider: 'claude' },
       resolvedAgent: baseAgent,
@@ -173,6 +176,7 @@ describe('assembleInstanceSystemPrompt context manifest capture (WS-C6)', () => 
       isRestoredSession: true,
     };
     await assembleInstanceSystemPrompt({
+      resolvedProvider: 'claude',
       instance,
       config,
       resolvedAgent: baseAgent,
@@ -193,6 +197,7 @@ describe('assembleInstanceSystemPrompt context manifest capture (WS-C6)', () => 
       resume: true,
     };
     await assembleInstanceSystemPrompt({
+      resolvedProvider: 'claude',
       instance,
       config,
       resolvedAgent: baseAgent,
@@ -208,10 +213,12 @@ describe('assembleInstanceSystemPrompt context manifest capture (WS-C6)', () => 
     const instance = makeInstance();
     const config: InstanceCreateConfig = { workingDirectory: '/tmp/project', provider: 'claude' };
     await assembleInstanceSystemPrompt({
+      resolvedProvider: 'claude',
       instance, config, resolvedAgent: baseAgent, instructionPrompts: [],
       initialUserMessageContent: undefined, deps: makeDeps(),
     });
     await assembleInstanceSystemPrompt({
+      resolvedProvider: 'claude',
       instance, config, resolvedAgent: baseAgent, instructionPrompts: [],
       initialUserMessageContent: undefined, deps: makeDeps(),
     });
@@ -228,6 +235,7 @@ describe('assembleInstanceSystemPrompt context manifest capture (WS-C6)', () => 
     deps.buildWakeContextText = vi.fn(() => new Promise(() => { /* Simulate an enricher that never finishes. */ }));
 
     await assembleInstanceSystemPrompt({
+      resolvedProvider: 'claude',
       instance, config, resolvedAgent: baseAgent, instructionPrompts: [],
       initialUserMessageContent: undefined, deps,
     });
@@ -242,6 +250,7 @@ describe('assembleInstanceSystemPrompt context manifest capture (WS-C6)', () => 
     const agent: AgentProfile = { systemPrompt: 'Secret system prompt text /Users/secret-person/private-project' } as AgentProfile;
 
     await assembleInstanceSystemPrompt({
+      resolvedProvider: 'claude',
       instance, config, resolvedAgent: agent, instructionPrompts: [],
       initialUserMessageContent: undefined, deps: makeDeps(),
     });
@@ -256,6 +265,7 @@ describe('assembleInstanceSystemPrompt context manifest capture (WS-C6)', () => 
     deps.buildObservationContext.mockResolvedValue('Relevant prior finding.\n'.repeat(500));
     deps.buildWakeContextText.mockResolvedValue('Outstanding request: finish the known fix before repeating research.');
     const result = await assembleInstanceSystemPrompt({
+      resolvedProvider: 'codex',
       instance: makeInstance(),
       config: { workingDirectory: '/tmp/project', provider: 'codex', initialPrompt: 'Fix memory injection' },
       resolvedAgent: baseAgent,
@@ -285,6 +295,7 @@ describe('assembleInstanceSystemPrompt observation retrieval (MEM-4)', () => {
 
   async function assemble(initialPrompt?: string, deps = makeDeps()) {
     return assembleInstanceSystemPrompt({
+      resolvedProvider: 'claude',
       instance: makeInstance(),
       config: { workingDirectory: '/tmp/project', provider: 'claude', initialPrompt },
       resolvedAgent: baseAgent,

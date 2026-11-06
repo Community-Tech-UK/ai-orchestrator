@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { CliAdapterWorkerProxy } from './cli-adapter-worker-proxy';
 import type { CliSpawnGatewayPort, SpawnInstanceRequest } from './cli-spawn-worker-gateway';
+import { createBudgetedSystemPromptComposer } from '../../context/budgeted-system-prompt';
 import { isProviderAuthenticationError } from '../adapters/provider-authentication-error';
 
 class FakeGateway implements CliSpawnGatewayPort {
@@ -245,7 +246,7 @@ describe('CliAdapterWorkerProxy', () => {
     expect(complete).toHaveBeenCalledWith(expect.objectContaining({ content: 'hi' }));
   });
 
-  it('delivers Gemini worker system context, protects leading-dash prompts, and sends RTK guidance once', async () => {
+  it('delivers Gemini worker system context, protects leading-dash prompts, and sends RTK guidance every turn', async () => {
     const gateway = new FakeGateway();
     const proxy = new CliAdapterWorkerProxy({
       cliType: 'gemini',
@@ -275,7 +276,7 @@ describe('CliAdapterWorkerProxy', () => {
     expect(secondArgs.at(-2)).toBe('--');
     expect(secondArgs.at(-1)).toContain('[SYSTEM INSTRUCTIONS]');
     expect(secondArgs.at(-1)).toContain('Keep the Android device lease for this worker.');
-    expect(secondArgs.at(-1)).not.toContain('RTK');
+    expect(secondArgs.at(-1)).toContain('RTK');
     gateway.handler?.exited?.(0, null);
     await second;
   });
@@ -415,4 +416,31 @@ describe('CliAdapterWorkerProxy', () => {
     expect(activeProxy.getRuntimeCapabilities().supportsDeferPermission).toBe(true);
     expect(yoloProxy.getRuntimeCapabilities().supportsDeferPermission).toBe(false);
   });
+  it('uses composer-owned Gemini variants only after a successful worker exit and keeps raw delimiters and RTK', async () => {
+    const gateway = new FakeGateway();
+    const literal = '<aio-first-turn-memory>Never publish without permission.</aio-first-turn-memory>';
+    const composer = createBudgetedSystemPromptComposer('gemini');
+    composer.add('instructions', literal);
+    composer.add('project-brief', 'First-turn project advice');
+    const result = composer.compose();
+    const proxy = new CliAdapterWorkerProxy({ cliType: 'gemini', instanceId: 'provenance-worker', gateway,
+      options: { systemPrompt: result.text, systemPromptAfterFirstTurn: result.textAfterFirstTurn,
+        rtk: { enabled: true, binaryPath: '/placeholder/rtk' }, yoloMode: false } });
+    for (const [code, expectedAdvice] of [[1, true], [0, true], [0, false]] as const) {
+      const work = proxy.sendMessage({ role: 'user', content: 'Request' });
+      const prompt = gateway.spawnRequests.at(-1)!.args.at(-1)!;
+      expect(prompt).toContain(literal);
+      expect(prompt.includes('First-turn project advice')).toBe(expectedAdvice);
+      expect(prompt).toContain('[RTK AWARENESS]');
+      expect(gateway.spawnRequests.at(-1)!.args).not.toContain('--yolo');
+      if (code === 0) gateway.handler?.stdout?.('{"type":"message","role":"assistant","content":"result"}\n');
+      const asserted = code === 1 ? expect(work).rejects.toThrow() : expect(work).resolves.toMatchObject({ content: 'result' });
+      gateway.handler?.exited?.(code, null);
+      await asserted;
+    }
+    const raw = new CliAdapterWorkerProxy({ cliType: 'gemini', instanceId: 'raw-worker', gateway, options: { systemPrompt: literal } });
+    gateway.autoExitOnSpawn = { code: 0, signal: null };
+    for (let index = 0; index < 2; index++) { await raw.sendMessage({ role: 'user', content: 'Request' }); expect(gateway.spawnRequests.at(-1)!.args.at(-1)).toContain(literal); }
+  });
+
 });

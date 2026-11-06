@@ -69,7 +69,8 @@ export interface DeferredPermissionLifecycleOps {
     provider?: string,
   ) => BrowserGatewayMcpConfigOptions | null;
   getChromeDevtoolsMcpOptions?: (
-    executionLocation?: ExecutionLocation,
+    executionLocation: ExecutionLocation | undefined,
+    instanceId: string | undefined,
   ) => ChromeDevtoolsMcpConfigOptions | null;
   getPermissionHookPath: (yoloMode: boolean) => string | undefined;
   waitForResumeHealth: (instanceId: string) => Promise<boolean>;
@@ -280,7 +281,7 @@ export class DeferredPermissionHandler {
         bare: instance.bareMode === true,
         resume: true,
         mcpConfig: this.ops.getMcpConfig(instance.executionLocation, instance.id, cliType),
-        chromeDevtoolsMcp: this.ops.getChromeDevtoolsMcpOptions?.(instance.executionLocation) ?? undefined,
+        chromeDevtoolsMcp: this.ops.getChromeDevtoolsMcpOptions?.(instance.executionLocation, instance.id) ?? undefined,
         browserGatewayMcp: this.ops.getBrowserGatewayMcpOptions?.(
           instance.executionLocation,
           instance.id,

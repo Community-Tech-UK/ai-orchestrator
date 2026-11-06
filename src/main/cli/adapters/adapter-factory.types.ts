@@ -44,6 +44,8 @@ export interface UnifiedSpawnOptions {
   trialKey?: string;
   trialKeySource?: TrialKeySource;
   trialArm?: CodexTrialArm;
+  /** Plan-queue role of the session (`worker`, `verifier`, `triage`), when it has one. */
+  queueRole?: string;
   machineSession?: MachineSessionReason;
   contextCeilingTokens?: number;
   readOnlyReview?: boolean;
@@ -54,6 +56,9 @@ export interface UnifiedSpawnOptions {
   sessionId?: string;
   workingDirectory?: string;
   systemPrompt?: string;
+  /** Explicit composer-owned variant for stateless Google turns after first success.
+   * Absence repeats the raw prompt; an empty string removes advisory-only content. */
+  systemPromptAfterFirstTurn?: string;
   /** How `systemPrompt` combines with the CLI's own default system prompt.
    *  'append' (default) keeps the CLI's tool/safety guidance and adds ours on
    *  top — matches the documented "prepend/overlay" contract of agent profiles

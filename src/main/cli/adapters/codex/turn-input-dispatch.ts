@@ -12,7 +12,10 @@ export function buildCodexTurnInputDispatch(
 ): Pick<CaptureCodexTurnOptions, 'turnParams' | 'beforeInputDispatch' | 'assertInputCurrent' | 'autoContinuation'> {
   const turnParams: Record<string, unknown> = {};
   if (config.outputSchema) turnParams['outputSchema'] = config.outputSchema;
-  if (config.reasoningEffort) turnParams['effort'] = config.reasoningEffort;
+  if (config.reasoningEffort) {
+    const harnessWork = config.sessionKind !== undefined && !['chat', 'child'].includes(config.sessionKind);
+    turnParams['effort'] = harnessWork && config.reasoningEffort === 'ultra' ? 'max' : config.reasoningEffort;
+  }
   if (config.fastMode) turnParams['serviceTier'] = 'priority';
   return {
     turnParams,

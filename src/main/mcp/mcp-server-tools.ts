@@ -3,6 +3,12 @@ export interface McpServerToolDefinition {
   description: string;
   inputSchema: Record<string, unknown>;
   handler: (args: Record<string, unknown>) => Promise<unknown>;
+  annotations?: {
+    readOnlyHint?: boolean;
+    destructiveHint?: boolean;
+    idempotentHint?: boolean;
+    openWorldHint?: boolean;
+  };
   /**
    * When true, the server inspects the handler result for base64 image bytes
    * (a `data` field) and emits an MCP `image` content block so MCP clients can

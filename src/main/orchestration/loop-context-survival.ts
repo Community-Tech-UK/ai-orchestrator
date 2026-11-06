@@ -1,5 +1,6 @@
 import path from 'path';
 import { BudgetAction } from '../context/token-budget-tracker';
+import { CACHE_LIFETIME_FALLBACK_MS, resolveCacheLifetimeMs } from '../../shared/utils/claude-cache-economics';
 import { getCompactionCoordinator } from '../context/compaction-coordinator';
 import { getLogger } from '../logging/logger';
 import { resolveLoopArtifactPaths } from './loop-artifact-paths';
@@ -24,9 +25,10 @@ const logger = getLogger('LoopContextSurvival');
 // (and equivalents on other providers) expires after ~1h idle; once it does,
 // the NEXT call re-pays the full prefix cost regardless of token count, so a
 // cheap context action is worth recommending even when utilization alone
-// wouldn't trigger one yet. Named constant so the threshold is one edit, not
-// a buried magic number.
-export const CONTEXT_CACHE_TTL_MS = 60 * 60 * 1000;
+// wouldn't trigger one yet. This is only the ASSUMED lifetime: each Claude
+// reply reports whether it wrote the 5-minute or the 1-hour cache, and the
+// invoker passes that reading in as `childResult.cacheLifetimeMs` (T13.3).
+export const CONTEXT_CACHE_TTL_MS = CACHE_LIFETIME_FALLBACK_MS;
 /** Loops restart earlier than the screen warning because they re-anchor from disk. */
 export const LOOP_COLD_CACHE_IDLE_MS = 55 * 60_000;
 export const LOOP_COLD_CACHE_MIN_TOKENS = 150_000;
@@ -262,7 +264,8 @@ class DefaultLoopContextSurvivalManager implements LoopContextSurvivalManager {
     // outcome. `gap === null` on the loop's first sealed iteration this
     // process has seen — never treated as stale (conservative default).
     const gap = idleGapMs(state, iteration);
-    const cacheStale = gap !== null && gap > CONTEXT_CACHE_TTL_MS;
+    const cacheLifetimeMs = resolveCacheLifetimeMs(childResult.cacheLifetimeMs);
+    const cacheStale = gap !== null && gap > cacheLifetimeMs;
     // The sealed iteration already re-warmed its prefix after this gap.
     // Cold resets belong to LoopColdCacheTracker before dispatch, never here.
     recordIterationEnd(state, iteration);
@@ -320,7 +323,8 @@ class DefaultLoopContextSurvivalManager implements LoopContextSurvivalManager {
       return withRehydrate({
         action: 'micro',
         forceContextReset: false,
-        reason: `idle ${gapMinutes}m exceeds cache TTL (~60min); the cached prefix is rewritten on the next call ` +
+        reason: `idle ${gapMinutes}m exceeds cache TTL (~${Math.round(cacheLifetimeMs / 60_000)}min, ` +
+          `${childResult.cacheLifetimeMs === undefined ? 'assumed' : 'measured'}); the cached prefix is rewritten on the next call ` +
           'regardless; recording a cheap context note; context resets stay with the occupancy check; '
           + 'live occupancy is owned by the adapter, and lifetime spend cannot force a recycle.',
       });

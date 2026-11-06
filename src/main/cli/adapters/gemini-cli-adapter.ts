@@ -35,6 +35,7 @@ import { NdjsonLineBuffer, splitCompleteNdjsonLines } from '../json-parse';
 import { computeTokenCost } from '../../../shared/data/model-pricing';
 import { extractThinkingContent, ThinkingBlock } from '../../../shared/utils/thinking-extractor';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
+import { wrapSystemInstructions } from './system-instruction-wrapper';
 import {
   geminiApiErrorMessage,
   geminiAssistantText,
@@ -74,6 +75,8 @@ export interface GeminiCliConfig {
   outputFormat?: 'text' | 'json' | 'stream-json';
   /** System prompt */
   systemPrompt?: string;
+  /** Composer-owned later-turn prompt. Absent means repeat the raw prompt verbatim; empty is intentional. */
+  systemPromptAfterFirstTurn?: string;
   /** Extra environment variables for Gemini CLI subprocesses. */
   env?: Record<string, string>;
   /** Temporary Browser Gateway settings path created by the adapter factory. */
@@ -107,6 +110,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
   private readonly browserGatewaySettingsPath?: string;
   /** Running total of tokens used across all turns */
   private cumulativeTokensUsed = 0;
+  private advisoryMemoryDelivered = false;
   /**
    * Running USD cost across all turns. Gemini's CLI reports no dollar cost, so
    * we price the real per-turn input/output split with the shared pricing table
@@ -201,6 +205,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
 
     const startTime = Date.now();
     this.outputBuffer = '';
+    let turnFailed = false;
 
     return new Promise((resolve, reject) => {
       const args = this.buildArgs(message);
@@ -211,6 +216,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
 
       // Handle spawn errors (e.g., ENOENT when binary doesn't exist)
       this.process.on('error', (err) => {
+        turnFailed = true;
         this.process = null;
         reject(new Error(`Failed to spawn gemini CLI: ${err.message}`));
       });
@@ -359,6 +365,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
             duration
           };
           this.completeResponse(response);
+          if (code === 0 && !turnFailed) this.advisoryMemoryDelivered = true;
           resolve(response);
         } else {
           reject(new Error(`Gemini exited with code ${code}`));
@@ -369,6 +376,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
       // Timeout handling
       const timeout = setTimeout(() => {
         if (this.process) {
+          turnFailed = true;
           killProcessGroup(this.process.pid, 'SIGTERM');
           reject(new Error('Gemini CLI timeout'));
         }
@@ -376,6 +384,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
 
       const nativeProcess = this.process;
       const onAbort = (): void => {
+        turnFailed = true;
         try { assertAdapterInputCurrent({ signal: dispatch?.signal }); } catch (error) { reject(error); }
         clearTimeout(timeout);
         killProcessGroup(nativeProcess.pid, 'SIGTERM');
@@ -393,6 +402,10 @@ export class GeminiCliAdapter extends BaseCliAdapter {
   async *sendMessageStream(message: CliMessage): AsyncIterable<string> {
     const args = this.buildArgs(message);
     this.process = this.spawnProcess(args);
+    let streamOutput = '';
+    // A successful exit alone is insufficient: consume and inspect the final
+    // result before deciding that first-turn advice was successfully delivered.
+    const exit = new Promise<number | null>(resolve => this.process!.once('close', resolve));
 
     // Handle spawn errors (e.g., ENOENT when binary doesn't exist)
     let spawnError: Error | null = null;
@@ -415,6 +428,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
     for await (const chunk of stdout) {
       if (spawnError) return;
       const chunkStr = chunk.toString();
+      streamOutput += chunkStr;
       for (const line of ndjson.push(chunkStr)) {
         const event = parseGeminiNdjsonEvent(line);
         if (!event) {
@@ -444,6 +458,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
         yield text;
       }
     }
+    if (await exit === 0 && !spawnError && !this.extractApiError(streamOutput)) this.advisoryMemoryDelivered = true;
   }
 
   parseOutput(raw: string): CliResponse & { thinking?: ThinkingBlock[] } {
@@ -530,9 +545,11 @@ export class GeminiCliAdapter extends BaseCliAdapter {
       // delivery surface is the positional prompt — without this the child/
       // worker instructions (e.g. Android device-lease rules) never reach the
       // model at all. Same [SYSTEM INSTRUCTIONS] envelope as the Codex adapter.
-      const systemPrompt = this.cliConfig.systemPrompt?.trim();
+      const systemPrompt = (this.advisoryMemoryDelivered
+        ? this.cliConfig.systemPromptAfterFirstTurn ?? this.cliConfig.systemPrompt
+        : this.cliConfig.systemPrompt) ?? '';
       if (systemPrompt) {
-        promptText = `[SYSTEM INSTRUCTIONS]\n${systemPrompt}\n[/SYSTEM INSTRUCTIONS]\n\n${promptText}`;
+        promptText = `${wrapSystemInstructions(systemPrompt)}\n\n${promptText}`;
       }
       args.push(promptText);
     }

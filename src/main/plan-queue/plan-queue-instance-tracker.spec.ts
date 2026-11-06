@@ -4,6 +4,7 @@ import type { InstanceEventEnvelope, InstanceStatus } from '@contracts/types/ins
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import {
   PlanQueueInstanceTracker,
+  unreportedVerifierReason,
   type PlanQueueInstanceEventSource,
   type PlanQueueTurnOutcome,
   type TrackedInstanceSnapshot,
@@ -17,7 +18,7 @@ import {
 type Recorded =
   | { channel: 'provider'; kind: 'output'; content: string; messageType?: string }
   | { channel: 'provider'; kind: 'complete' }
-  | { channel: 'provider'; kind: 'error'; message: string; recoverable?: boolean }
+  | { channel: 'provider'; kind: 'error'; message: string; recoverable?: boolean; details?: Record<string, unknown> }
   | { channel: 'provider'; kind: 'exit'; code: number | null; signal: string | null }
   | { channel: 'status'; status: InstanceStatus; previousStatus?: InstanceStatus }
   | { channel: 'removed' };
@@ -95,6 +96,40 @@ describe('PlanQueueInstanceTracker', () => {
     expect(outcomes).toEqual([
       { instanceId: 'w1', outcome: { kind: 'turn-complete', lastAssistantOutput: 'Implemented the plan.' } },
     ]);
+  });
+
+  describe('a turn Harness stopped on purpose', () => {
+    const stop = {
+      channel: 'provider', kind: 'error', recoverable: false, message: 'Stopped by Harness: this turn passed 300M tokens.',
+      details: { stoppedByHarness: { reason: 'turn-token-ceiling', tokens: 301_000_000, thresholdTokens: 300_000_000 } },
+    } as const;
+
+    it('is one stopped-by-harness outcome, not a failure and not a completed turn', () => {
+      tracker.track('w1');
+      source.replay('w1', [{ channel: 'status', status: 'busy' }, assistant('Working through the plan.'), stop, { channel: 'status', status: 'idle' }]);
+      expect(outcomes).toEqual([
+        { instanceId: 'w1', outcome: { kind: 'stopped-by-harness', notice: 'Stopped by Harness: this turn passed 300M tokens.' } },
+      ]);
+      expect(unreportedVerifierReason(outcomes[0].outcome)).toBe(stop.message);
+    });
+
+    it('is reported even when the stop arrives before any assistant output', () => {
+      tracker.track('w1');
+      source.replay('w1', [{ channel: 'status', status: 'busy' }, stop, { channel: 'status', status: 'idle' }]);
+      expect(outcomes.map((entry) => entry.outcome.kind)).toEqual(['stopped-by-harness']);
+    });
+
+    it('ignores a repeat stop and anything that follows once the turn is settled', () => {
+      tracker.track('w1');
+      source.replay('w1', [stop, stop, { channel: 'provider', kind: 'error', message: 'later failure' }, { channel: 'provider', kind: 'exit', code: 1, signal: null }]);
+      expect(outcomes.map((entry) => entry.outcome.kind)).toEqual(['stopped-by-harness']);
+    });
+
+    it('treats an ordinary unrecoverable error as a failure, as before', () => {
+      tracker.track('w1');
+      source.replay('w1', [{ channel: 'provider', kind: 'error', message: 'boom', details: { somethingElse: true } }]);
+      expect(outcomes.map((entry) => entry.outcome)).toEqual([{ kind: 'failed', reason: 'boom' }]);
+    });
   });
 
   it('stays quiet after a turn until beginTurn re-arms it, then needs fresh output', () => {

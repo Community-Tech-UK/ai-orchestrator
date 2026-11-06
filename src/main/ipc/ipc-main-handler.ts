@@ -116,6 +116,8 @@ import {
   registerRuntimePluginHandlers,
   registerProjectPluginTrustHandlers,
   registerRtkHandlers,
+  registerClaudeCostReconcileHandlers,
+  registerRuntimeChangePreviewHandlers,
   registerLoopHandlers,
   registerTerminalHandlers,
   registerAuxiliaryLlmHandlers,
@@ -435,6 +437,10 @@ export class IpcMainHandler {
 
     // Cost tracking handlers
     registerCostHandlers({ windowManager: this.windowManager });
+    // Daily check of booked Claude spend against Claude's own totals (needs the cost database wired above).
+    registerClaudeCostReconcileHandlers();
+    // The cost sentence shown before a model, effort or auto-approve change restarts a session (T17).
+    registerRuntimeChangePreviewHandlers(this.instanceManager);
 
     // LT-707 cost history restoration — explicit maintenance channels, never
     // invoked from startup; see cost-entries-a0-restore.ts.

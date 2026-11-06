@@ -26,6 +26,7 @@ import {
   normalizeCopilotHost,
 } from '../../../shared/types/copilot-account.types';
 import { migrateProviderAccountLegacyProfiles, migrateOpenCodeLegacyProfile } from './settings-migrations-provider-accounts';
+import { migrateOwnChatContextCeiling } from './settings-migrations-own-chat-ceiling';
 import { isLegacyPlanQueueRouting, upgradePlanQueueRouting } from '../../../shared/utils/plan-queue-routing-upgrade';
 // Static, not `require`: the legacy profile must resolve to the SAME directory
 // the adapter uses, and a second copy of that derivation here would drift.
@@ -625,6 +626,9 @@ export function runSettingsMigrations(store: SettingsMigrationStore): void {
     logMigrated: (provider, modelId) =>
       logger.info('Migrating customModelOverride into customModelsByProvider', { provider, modelId }),
   });
+  // Sets the own-chat context ceiling only where a passing recall check is compiled into the app. None is today,
+  // so this is a strict no-op: it reads one marker and writes nothing (rule and reasons in the module).
+  migrateOwnChatContextCeiling(store);
 }
 
 /**

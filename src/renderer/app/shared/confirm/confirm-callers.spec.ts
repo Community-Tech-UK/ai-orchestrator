@@ -154,8 +154,8 @@ describe('migrated confirmation actions', () => {
       accountsSignal: accounts,
       poolsSignal: signal(null),
     });
-    const pending = (chip as unknown as { turnOnForSelection(account: { id: string; label: string; enabled: boolean }): Promise<boolean> })
-      .turnOnForSelection({ id: 'account-a', label: 'Work', enabled: false });
+    const pending = (chip as unknown as { turnOnForSelection(account: { id: string; label: string; enabled: boolean }, stillBound: () => boolean): Promise<boolean> })
+      .turnOnForSelection({ id: 'account-a', label: 'Work', enabled: false }, () => true);
     expect(acknowledgeOwnership).not.toHaveBeenCalled();
     expect(confirmService.pending()?.danger).toBe(true);
     confirmService.resolve(answer);

@@ -293,7 +293,7 @@ export function createCodexAdapter(options: UnifiedSpawnOptions): CodexCliAdapte
     instanceId: options.instanceId, jobId: options.jobId,
     onEphemeralUsage: options.onCodexEphemeralUsage,
     sessionKind: options.sessionKind, trialKey: options.trialKey,
-    trialKeySource: options.trialKeySource, trialArm: options.trialArm,
+    trialKeySource: options.trialKeySource, trialArm: options.trialArm, queueRole: options.queueRole,
     // Harness owns its own session/history surface. Codex threads
     // created here should not leak into the standalone Codex desktop app
     // unless a caller explicitly opts out.
@@ -332,6 +332,8 @@ export function createGeminiAdapter(options: UnifiedSpawnOptions): GeminiCliAdap
   extendEnvWithRtk(env, options.rtk);
   const geminiConfig: GeminiCliConfig = {
     workingDir: options.workingDirectory,
+    systemPrompt: options.systemPrompt,
+    systemPromptAfterFirstTurn: options.systemPromptAfterFirstTurn,
     model: options.model,
     // Default yolo on: Gemini runs one-shot non-interactively here, so without
     // --yolo it strips tools needing approval (run_shell_command, write_file, etc.)
@@ -356,6 +358,7 @@ export function createAntigravityAdapter(options: UnifiedSpawnOptions): Antigrav
   extendEnvWithRtk(env, options.rtk);
   const antigravityConfig: AntigravityCliConfig = {
     workingDir: options.workingDirectory,
+    systemPromptAfterFirstTurn: options.systemPromptAfterFirstTurn,
     model: options.model,
     // Default auto-approve on: agy runs one-shot non-interactively here, so
     // without --dangerously-skip-permissions it would block on tool-permission

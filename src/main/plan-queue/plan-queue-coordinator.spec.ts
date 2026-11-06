@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { HarnessStopError } from '../../shared/utils/harness-stop';
 import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -1387,6 +1388,230 @@ describe('PlanQueueCoordinator — boot recovery', { timeout: 30_000 }, () => {
       } else expect(port).toBe(recorded);
       expect(next.created.find((i) => i.role === 'worker')!.config.initialPrompt).toContain(`--remote-debugging-port=${port}`);
     }
+  });
+
+  describe('a turn Harness stopped on purpose (Decision 16a)', () => {
+    /** The provider error a Codex round raises when it passes its token ceiling. */
+    const stoppedByHarness: Script = (instance, _message, instances) => {
+      instances.emit('provider:normalized-event', {
+        eventId: 'e', seq: 0, timestamp: 0, provider: 'codex', instanceId: instance.id,
+        event: {
+          kind: 'error', recoverable: false, message: 'Stopped by Harness: this turn passed 300M tokens.',
+          details: { stoppedByHarness: { reason: 'turn-token-ceiling', tokens: 301_000_000, thresholdTokens: 300_000_000 } },
+        },
+      });
+    };
+
+    it('parks the worker as stopped-by-harness without starting a replacement or a checker', async () => {
+      planDoc('2026-01-01-alpha');
+      const parent = fake.addParent();
+      fake.scripts.worker = stoppedByHarness;
+
+      const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+      await waitForRun(run.id);
+
+      expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({
+        state: 'parked', parkReason: 'stopped-by-harness', detail: expect.stringContaining('Stopped by Harness: this turn passed 300M tokens.'),
+      });
+      expect(fake.created.filter((i) => i.role === 'worker')).toHaveLength(1);
+      expect(fake.created.filter((i) => i.role === 'verifier')).toHaveLength(0);
+    });
+
+    it('does not start a replacement worker when a fix-round send fails with the stop', async () => {
+      planDoc('2026-01-01-alpha');
+      const parent = fake.addParent();
+      let verifications = 0;
+      fake.scripts.verifier = (instance) => {
+        verifications += 1;
+        coordinator.reportVerdict(instance.id, {
+          item_id: itemIdOf(instance), verdict: 'FAIL',
+          findings: [{ severity: 'medium', confidence: 70, summary: 'Needs another round.' }], gates_run: [], document_complete: true, need_james: [], not_checked: [],
+        });
+      };
+      let workerTurns = 0;
+      fake.scripts.worker = (instance, message, instances) => {
+        workerTurns += 1;
+        return workerTurns === 1 ? implement(instance, message, instances) : stoppedByHarness(instance, message, instances);
+      };
+      const send = fake.sendInput.bind(fake);
+      // The real adapter ends the failed send with the typed stop error.
+      fake.sendInput = async (id, message, attachments, options) => {
+        await send(id, message, attachments, options);
+        if (fake.getInstance(id)?.role === 'worker') {
+          throw new HarnessStopError({ reason: 'turn-token-ceiling', tokens: 301_000_000, thresholdTokens: 300_000_000 });
+        }
+      };
+
+      const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans', config: { maxRounds: 3 } });
+      await waitForRun(run.id);
+
+      expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'parked', parkReason: 'stopped-by-harness' });
+      expect(fake.created.filter((i) => i.role === 'worker')).toHaveLength(1);
+      expect(verifications).toBe(1);
+    });
+
+    it('parks a stopped checker instead of counting an errored round and trying again', async () => {
+      planDoc('2026-01-01-alpha');
+      const parent = fake.addParent();
+      fake.scripts.verifier = stoppedByHarness;
+
+      const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+      await waitForRun(run.id);
+
+      expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'parked', parkReason: 'stopped-by-harness', erroredRounds: 0 });
+      expect(fake.created.filter((i) => i.role === 'verifier')).toHaveLength(1);
+    });
+
+    it('parks a stopped readiness check on the first stop rather than retrying it', async () => {
+      planDoc('2026-01-01-alpha');
+      const parent = fake.addParent();
+      fake.scripts.triage = stoppedByHarness;
+
+      const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+      await waitForRun(run.id);
+
+      expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'parked', parkReason: 'stopped-by-harness' });
+      expect(fake.created.filter((i) => i.role === 'triage')).toHaveLength(1);
+    });
+  });
+
+  it('refuses a verdict from anyone but the assigned verifier', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    const attempts: string[] = [];
+    fake.scripts.verifier = (instance) => {
+      // While the item is verifying, its worker and the parent both try to report.
+      const worker = fake.created.find((i) => i.role === 'worker')!;
+      for (const caller of [worker.id, parent.id]) {
+        try {
+          coordinator.reportVerdict(caller, {
+            item_id: itemIdOf(instance), verdict: 'PASS', findings: [], gates_run: [], document_complete: true, need_james: [], not_checked: [],
+          });
+          attempts.push('accepted');
+        } catch (error) {
+          attempts.push(String(error));
+        }
+      }
+      coordinator.reportVerdict(instance.id, {
+        item_id: itemIdOf(instance), verdict: 'FAIL', findings: [], gates_run: [], document_complete: true, need_james: [], not_checked: [],
+      });
+    };
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans', config: { maxRounds: 1 } });
+    await waitForRun(run.id);
+    expect(attempts).toHaveLength(2);
+    expect(attempts.every((a) => a.includes('Only the verifier currently assigned'))).toBe(true);
+    // Only the real verifier's FAIL counted.
+    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'parked', parkReason: 'round-limit' });
+    expect(() => coordinator.reportTriage(parent.id, { run_id: run.id, records: [{ documentPath: 'x', disposition: 'ready' }] }))
+      .toThrow(/Only the triage agent/);
+  });
+
+  it('discards a verdict from a verifier that changed the tree, reverts it, and verifies again', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    let verifications = 0;
+    fake.scripts.verifier = (instance) => {
+      verifications += 1;
+      if (verifications === 1) writeFileSync(join(instance.workingDirectory!, 'a.txt'), 'verifier edit\n');
+      pass(instance, '', fake);
+    };
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForRun(run.id);
+
+    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'landed', erroredRounds: 1 });
+    expect(git(['show', 'main:a.txt'])).toBe('base');
+  });
+
+  it('asks James about a genuine authority boundary and starts it after his answer', async () => {
+    writeDoc('docs/plans/2026-01-01-orphan_plan.md', '# Plan\n\n**Spec:** [spec](./2026-01-01-orphan_spec_planned.md)\n');
+    fake.scripts.triage = (instance) => {
+      const runId = instance.config.metadata!['planQueueRunId'] as string;
+      coordinator.reportTriage(instance.id, { run_id: runId, records: [{
+        documentPath: coordinator.getRunDto(runId)!.items[0].documentPath,
+        disposition: 'needs-answer', question: {
+          question: 'May this work expand the approved scope?',
+          options: [{ id: 'proceed', label: 'Approve the scope' }, { id: 'skip', label: 'Leave it' }],
+          decision: { kind: 'human-authority', reason: 'This changes the approved scope.' },
+        },
+      }] });
+    };
+    const parent = fake.addParent();
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForState(0, run.id, 'needs-answer');
+    const item = coordinator.getRunDto(run.id)!.items[0];
+    expect(item.state).toBe('needs-answer');
+    expect(fake.inputs.find((m) => m.instanceId === parent.id)?.message).toContain(`item_id "${item.id}"`);
+
+    await expect(coordinator.answer(item.id, 'proceed', 'someone-else')).rejects.toThrow(/Only the session that started/);
+    await coordinator.answer(item.id, 'proceed', parent.id);
+    await waitForRun(run.id);
+    expect(coordinator.getRunDto(run.id)!.items[0].state).toBe('landed');
+  });
+
+  it('parks in-flight work and skips the rest when James cancels', async () => {
+    planDoc('2026-01-01-alpha');
+    planDoc('2026-01-02-beta');
+    const parent = fake.addParent();
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    fake.scripts.worker = async (instance, message, f) => {
+      await implement(instance, message, f);
+      await blocked;
+    };
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans', config: { workerSlots: 1 } });
+    await vi.waitFor(() => {
+      if (!coordinator.getRunDto(run.id)!.items.some((i) => i.state === 'working')) throw new Error('not working yet');
+    });
+    await coordinator.control({ action: 'cancel', runId: run.id });
+    release();
+
+    const items = coordinator.getRunDto(run.id)!.items;
+    expect(coordinator.getRunDto(run.id)!.status).toBe('cancelled');
+    expect(items.map((i) => [i.state, i.parkReason])).toEqual([['parked', 'cancelled'], ['skipped', null]]);
+    // The parked item's work was checkpointed onto its branch before teardown.
+    expect(git(['show', `${items[0].branchName}:2026-01-01-alpha_plan.feature.txt`])).toBe('built 2026-01-01-alpha_plan');
+    expect(queueWorktrees().flatMap((d) => readdirSync(join(repo, '.worktrees', 'queue', d)))).toEqual([]);
+  });
+});
+
+describe('PlanQueueCoordinator — boot recovery', { timeout: 30_000 }, () => {
+  it('respawns a worker for a working item whose session died, keeping its pre-restart work', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.worker = async (instance, message, f) => {
+      await implement(instance, message, f);
+      await never(instance, message, f);
+    };
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForState(0, run.id, 'working');
+
+    const next = await restart();
+    await waitForRun(run.id);
+
+    const newWorker = next.created.find((i) => i.role === 'worker')!;
+    expect(newWorker.config.initialPrompt).toContain('the app restarted');
+    expect(coordinator.getRunDto(run.id)!.items[0].state).toBe('landed');
+    expect(git(['show', 'main:2026-01-01-alpha_plan.feature.txt'])).toBe('built 2026-01-01-alpha_plan');
+  });
+
+  it('finishes parking a job Harness stopped when the app ended mid-park, without respawning its worker', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.worker = never;
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForState(0, run.id, 'working');
+    // The first step of parking a Harness stop is to record it; the app then ended before the rest happened.
+    store.upsertItem({ ...store.getItem(run.items[0].id)!, parkReason: 'stopped-by-harness', detail: 'Stopped by Harness: this turn passed 300M tokens.' });
+
+    const next = await restart();
+    await vi.waitFor(() => expect(coordinator.getRunDto(run.id)!.items[0].state).toBe('parked'));
+
+    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ parkReason: 'stopped-by-harness', detail: expect.stringContaining('300M tokens') });
+    expect(next.created.filter((i) => i.role === 'worker')).toHaveLength(0);
   });
 
   it('follows a parent restored under a new id: adopts the respawned worker and nests and reports to it', async () => {

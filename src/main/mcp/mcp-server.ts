@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import { getLogger } from '../logging/logger';
 import { DEFAULT_MAX_RESULT_CHARS, type McpServerToolDefinition } from './mcp-server-tools';
 import { truncateToolOutput } from '../util/tool-output-truncation';
+import { defaultToolAnnotations } from './tool-annotations';
 
 const logger = getLogger('McpServer');
 
@@ -64,7 +65,8 @@ export class McpServer extends EventEmitter {
 
   registerTools(tools: McpServerToolDefinition[]): void {
     for (const tool of tools) {
-      this.tools.set(tool.name, tool);
+      const annotations = { ...defaultToolAnnotations(tool.name), ...tool.annotations };
+      this.tools.set(tool.name, { ...tool, annotations });
     }
     logger.info(`Registered ${tools.length} MCP server tools`);
   }
@@ -112,6 +114,7 @@ export class McpServer extends EventEmitter {
               name: t.name,
               description: t.description,
               inputSchema: t.inputSchema,
+              annotations: t.annotations,
             })),
         };
 

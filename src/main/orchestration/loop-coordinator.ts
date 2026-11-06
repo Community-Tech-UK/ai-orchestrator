@@ -1346,9 +1346,11 @@ export class LoopCoordinator extends EventEmitter {
     return state;
   }
 
-  /** Pause the loop. Iteration in-flight finishes; next pre-flight blocks. */
+  /** The loop's next iteration starts in a fresh session (used before a long sleep, T13.1). */
+  requestContextReset(loopRunId: string): void { this.completionContext.requestContextReset(loopRunId); }
   async pauseForGlobalPause(id: string): Promise<void> { await pauseLoopForGlobalPause(this, id); }
 
+  /** Pause the loop. Iteration in-flight finishes; next pre-flight blocks. */
   pauseLoop(loopRunId: string): boolean {
     const state = this.lifecycle.getState(loopRunId);
     if (!state) return false;

@@ -2659,5 +2659,11 @@
     "owner": "src/renderer/app/features/instance-list/status-indicator.component.ts",
     "text": "lost contact with its computer, ",
     "why": "consequence"
+  },
+  {
+    "id": "f6721a2d5bbe8e61",
+    "owner": "src/renderer/app/features/instance-detail/fanout-cost.component.ts",
+    "text": "Running cost of the helper sessions this session started, scouts included. A helper that has not reported a cost yet is not in the total.",
+    "why": "consequence"
   }
 ]

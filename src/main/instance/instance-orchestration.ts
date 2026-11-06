@@ -13,6 +13,7 @@ import { getModelRouter, applyProviderResolution, type RoutingDecision, type Mod
 import { getHabitTracker } from '../learning/habit-tracker';
 import { getPreferenceStore } from '../learning/preference-store';
 import { getAgentById, getDefaultAgent } from '../../shared/types/agent.types';
+import { routeSpawnCommand } from '../orchestration/scout-defaults';
 import {
   CLAUDE_MODELS,
   isModelTier,
@@ -350,12 +351,8 @@ export class InstanceOrchestrationManager {
           const childAgentId = this.resolveChildAgentId(command);
 
           // Use intelligent model routing if no explicit model specified
-          const routingDecision = this.routeChildModel(
-            command.task,
-            command.model,
-            childAgentId,
-            command.provider
-          );
+          const routingDecision = routeSpawnCommand(command, childAgentId ? getAgentById(childAgentId)?.modelOverride : undefined,
+            (model) => this.routeChildModel(command.task, model, childAgentId, command.provider));
 
           logger.info('Child task routed', { model: routingDecision.model, complexity: routingDecision.complexity, confidence: routingDecision.confidence, reason: routingDecision.reason });
           if (

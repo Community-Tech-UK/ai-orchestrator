@@ -137,6 +137,13 @@ describe('turn-ending corpus', () => {
       .toMatchObject({ reason: 'completed', evidence: 'client_cancelled' });
   });
 
+  it('treats a turn Harness stopped on purpose as a deliberate end that nothing may continue', () => {
+    const stop = Object.assign(new Error('Stopped by Harness: this turn passed 300M tokens.'), { stoppedByHarness: true, surfacedToUser: true });
+    expect(classifyTurnEnding({ kind: 'error', error: stop, metadata: stop }))
+      .toMatchObject({ reason: 'completed', evidence: 'harness_stop', autoContinueSuppressed: true });
+    expect(classifyTurnEnding({ kind: 'error', error: new Error('Stopped by Harness: look-alike text') }).reason).toBe('unknown_error');
+  });
+
   it('reads saturation usage and open tool calls from adapter metadata when inputs omit them', () => {
     const generationBudget = { model: 'xiaomi-token-plan-ams/mimo-v2.6-pro', combinedOutputTokens: 32_000, reasoningBudgetSupported: false };
     const metadata = { stopReason: 'end_turn', outputTokens: 0, reasoningTokens: 32_000, generationBudget };

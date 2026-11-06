@@ -51,7 +51,7 @@ const SEARCH_RESULT_LIMIT_MAX = 10;
  * what a client actually receives from `tools/list` for these definitions.
  */
 export function measureToolSchemaBytes(
-  tools: readonly Pick<McpServerToolDefinition, 'name' | 'description' | 'inputSchema'>[],
+  tools: readonly Pick<McpServerToolDefinition, 'name' | 'description' | 'inputSchema' | 'annotations'>[],
 ): number {
   return tools.reduce(
     (total, tool) =>
@@ -61,6 +61,7 @@ export function measureToolSchemaBytes(
           name: tool.name,
           description: tool.description,
           inputSchema: tool.inputSchema,
+          ...(tool.annotations ? { annotations: tool.annotations } : {}),
         }),
         'utf-8',
       ),

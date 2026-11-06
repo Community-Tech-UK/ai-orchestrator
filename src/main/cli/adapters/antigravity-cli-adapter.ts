@@ -81,6 +81,8 @@ export interface AntigravityCliConfig {
   yolo?: boolean;
   /** System prompt (prepended to the message content; agy has no system flag). */
   systemPrompt?: string;
+  /** Composer-owned later-turn prompt. Absent means repeat the raw prompt verbatim; empty is intentional. */
+  systemPromptAfterFirstTurn?: string;
   /** Extra environment variables for the agy subprocess. */
   env?: Record<string, string>;
   /** Alias for yolo (used by the adapter factory). */
@@ -104,6 +106,7 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
   /** Running USD cost across all turns (priced locally; agy reports none). */
   private cumulativeCostUsd = 0;
   private isSpawned = false;
+  private advisoryMemoryDelivered = false;
 
   constructor(config: AntigravityCliConfig = {}) {
     const adapterConfig: CliAdapterConfig = {
@@ -182,6 +185,7 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
 
     const startTime = Date.now();
     this.outputBuffer = '';
+    let turnFailed = false;
 
     return new Promise((resolve, reject) => {
       const args = this.buildArgs(message);
@@ -191,6 +195,7 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
       this.process = this.spawnProcess(args);
 
       this.process.on('error', (err) => {
+        turnFailed = true;
         this.process = null;
         reject(new Error(`Failed to spawn agy CLI: ${err.message}`));
       });
@@ -248,6 +253,7 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
           const response = this.parseOutput(this.outputBuffer);
           response.usage = { ...response.usage, duration };
           this.completeResponse(response);
+          if (code === 0 && !turnFailed) this.advisoryMemoryDelivered = true;
           resolve(response);
         } else {
           reject(new Error(`agy exited with code ${code}`));
@@ -257,6 +263,7 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
 
       const timeout = setTimeout(() => {
         if (this.process) {
+          turnFailed = true;
           killProcessGroup(this.process.pid, 'SIGTERM');
           reject(new Error('Antigravity CLI timeout'));
         }
@@ -264,6 +271,7 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
 
       const nativeProcess = this.process;
       const onAbort = (): void => {
+        turnFailed = true;
         try { assertAdapterInputCurrent({ signal: dispatch?.signal }); } catch (error) { reject(error); }
         clearTimeout(timeout);
         killProcessGroup(nativeProcess.pid, 'SIGTERM');
@@ -281,8 +289,8 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
   async *sendMessageStream(message: CliMessage): AsyncIterable<string> {
     const args = this.buildArgs(message);
     this.process = this.spawnProcess(args);
-
     let spawnError: Error | null = null;
+    this.process.once('close', (code) => { if (code === 0 && !spawnError) this.advisoryMemoryDelivered = true; });
     this.process.on('error', (err) => {
       spawnError = new Error(`Failed to spawn agy CLI: ${err.message}`);
       this.emitErrorIfObserved(spawnError);
@@ -366,8 +374,11 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
 
     // `--print <prompt>` must come last: the prompt is consumed as its value.
     // T48: agy print mode has no resume, so RTK awareness is wrapped every turn.
-    const baseContent = this.cliConfig.systemPrompt
-      ? `${this.cliConfig.systemPrompt}\n\n${message.content}`
+    const systemPrompt = (this.advisoryMemoryDelivered
+      ? this.cliConfig.systemPromptAfterFirstTurn ?? this.cliConfig.systemPrompt
+      : this.cliConfig.systemPrompt) ?? '';
+    const baseContent = systemPrompt
+      ? `${systemPrompt}\n\n${message.content}`
       : message.content;
     const promptText = this.cliConfig.rtkEnabled
       ? `${wrapRtkAwareness()}\n\n${baseContent}`

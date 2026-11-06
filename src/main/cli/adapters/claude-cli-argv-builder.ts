@@ -19,6 +19,7 @@ import { nativeSessionIdInUse } from './claude-transcript-registry';
 import { resolveBashHookCommand } from '../hooks/hook-path-resolver';
 import { CLAUDE_SUBAGENT_WAITING_RULE_ROLLOUT, materializeSubagentWaitingRuleFile, resolveClaudeSubagentPromptArgs } from './claude-subagent-policy';
 import { DEFAULT_DISALLOWED_TOOLS } from './host-cli-tool-policy';
+import { buildPreCompactOverlay } from './claude-precompact-overlay';
 import { EXCLUDE_DYNAMIC_SECTIONS_FLAG, EXCLUDE_DYNAMIC_MIN_VERSION, RECORDED_PROMPT_MIN_VERSION, isVersionAtLeast, isKnownOlderThan, resolveClaudeCliVersion } from './claude-cli-feature-probes';
 import { getLogger } from '../../logging/logger';
 import type {
@@ -75,8 +76,10 @@ export function buildClaudeSettingsOverlay(
     enabledPlugins?: Record<string, boolean>;
     ultracode?: true;
     fastMode?: true;
+    precomputeCompactionEnabled?: false;
     hooks?: {
-      PreToolUse: {
+      PreCompact?: { hooks: { type: 'command'; command: string; timeout: number }[] }[];
+      PreToolUse?: {
         matcher: string;
         hooks: {
           type: 'command';
@@ -87,6 +90,7 @@ export function buildClaudeSettingsOverlay(
   } = {};
 
   if (spawnOptions.machineSession) settings.enabledPlugins = Object.fromEntries(MACHINE_SESSION_DISABLED_PLUGINS.map(id => [id, false]));
+  Object.assign(settings, buildPreCompactOverlay(spawnOptions.machineSession));
 
   if (spawnOptions.reasoningEffort === 'workflow') {
     settings.ultracode = true;
@@ -111,6 +115,7 @@ export function buildClaudeSettingsOverlay(
   });
   if (bashHookCommand) {
     settings.hooks = {
+      ...settings.hooks,
       PreToolUse: [{
         matcher: 'Bash',
         hooks: [{

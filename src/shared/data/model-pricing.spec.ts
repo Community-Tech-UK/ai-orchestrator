@@ -35,11 +35,11 @@ describe('getCacheWriteMultiplier', () => {
     expect(getCacheWriteMultiplier('gpt-6')).toBe(1.25);
   });
 
-  it('bills pre-5.6 OpenAI and non-OpenAI cache writes at the plain input rate', () => {
+  it('keeps older OpenAI writes at the input rate and estimates unclassified Claude writes', () => {
     expect(getCacheWriteMultiplier(OPENAI_MODELS.GPT55)).toBe(1);
     expect(getCacheWriteMultiplier(OPENAI_MODELS.GPT53_CODEX)).toBe(1);
     expect(getCacheWriteMultiplier('gpt-5.4-mini')).toBe(1);
-    expect(getCacheWriteMultiplier(CLAUDE_MODELS.OPUS)).toBe(1);
+    expect(getCacheWriteMultiplier(CLAUDE_MODELS.OPUS)).toBe(1.6);
     expect(getCacheWriteMultiplier(undefined)).toBe(1);
     expect(getCacheWriteMultiplier('')).toBe(1);
   });
@@ -73,7 +73,7 @@ describe('computeTokenCost', () => {
     expect(cost).toBeCloseTo(rate.input + rate.output, 6);
   });
 
-  it('prices current Opus cache reads at 5% of input and cache writes at the input rate', () => {
+  it('prices current Opus cache reads at 5% of input and unclassified cache writes at 1.6x', () => {
     const rate = MODEL_PRICING[CLAUDE_MODELS.OPUS];
     const cost = computeTokenCost(CLAUDE_MODELS.OPUS, {
       inputTokens: 0,
@@ -81,7 +81,7 @@ describe('computeTokenCost', () => {
       cacheReadTokens: 1_000_000,
       cacheWriteTokens: 1_000_000,
     });
-    expect(cost).toBeCloseTo(rate.input * 0.05 + rate.input, 6);
+    expect(cost).toBeCloseTo(rate.input * 0.05 + rate.input * 1.6, 6);
   });
 
   it('prices reasoning tokens at the output-token rate', () => {

@@ -13,6 +13,9 @@ const logger = getLogger('HookPathResolver');
 
 const HOOK_FILENAME = 'defer-permission-hook.mjs';
 const RTK_HOOK_FILENAME = 'rtk-defer-hook.mjs';
+const PRECOMPACT_HOOK_FILENAME = 'precompact-role-hook.mjs';
+// Defined only by the worker JS build; never read from the runtime environment.
+declare const __AIO_WORKER_PRECOMPACT_HOOK_BASE64__: string | undefined;
 
 function quoteHookArg(hookPath: string, platform: NodeJS.Platform): string {
   if (platform === 'win32') {
@@ -91,6 +94,40 @@ export function resolveBashHookCommand(options: {
   return options.permissionHookPath
     ? buildDeferPermissionHookCommand(options.permissionHookPath, platform)
     : undefined;
+}
+
+/** The roles the PreCompact hook knows; a closed set, because the role ends up in a shell command. */
+export type PreCompactRole = 'queue-worker' | 'loop' | 'automation';
+
+/**
+ * Prefer Electron's existing file route. Workers also carry the canonical MJS
+ * in their bundle, so they need neither Electron metadata nor loose hook assets.
+ * Missing assets in other builds still fail soft: this hook only adds guidance.
+ */
+export function buildPreCompactRoleHookCommand(
+  role: PreCompactRole,
+  platform: NodeJS.Platform = process.platform,
+): string | undefined {
+  if (role !== 'queue-worker' && role !== 'loop' && role !== 'automation') return undefined;
+  try {
+    const hookPath = resolveHookPath(PRECOMPACT_HOOK_FILENAME);
+    if (existsSync(hookPath)) return `node ${quoteHookArg(hookPath, platform)} ${role}`;
+  } catch {
+    // A normal Node worker has no Electron app metadata; use its embedded source below.
+  }
+  if (typeof __AIO_WORKER_PRECOMPACT_HOOK_BASE64__ !== 'string') return undefined;
+
+  let node = 'node';
+  try {
+    // Lazy and worker-only: Electron need not provide node:sea. A SEA executable
+    // cannot run `-e`, so it keeps the existing external-Node-on-PATH requirement.
+    if (!process.versions.electron && !require('node:sea').isSea()
+      && !(platform === 'win32' && /[%!"]/.test(process.execPath))) node = process.execPath;
+  } catch { /* Without proof this is plain Node, keep the external Node command. */ }
+  const bootstrap = `process.argv[2]='${role}';import('data:text/javascript;base64,${__AIO_WORKER_PRECOMPACT_HOOK_BASE64__}').catch(()=>process.exit(0))`;
+  const encoded = Buffer.from(bootstrap).toString('base64');
+  const evaluate = `eval(Buffer.from('${encoded}','base64').toString())`;
+  return `${quoteHookArg(node, platform)} -e ${quoteHookArg(evaluate, platform)}`;
 }
 
 function ensureHookFile(hookPath: string, label: string): string {

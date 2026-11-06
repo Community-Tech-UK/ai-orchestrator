@@ -2,7 +2,8 @@ import type { ClaudeSelfWakeupEvent } from '../cli/adapters/claude-cli-self-wake
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type { CliToolCall } from '../cli/adapters/base-cli-adapter';
 import type { CliAsyncWorkEvent } from '../cli/adapters/claude-cli-async-work';
-import type { ClaudeSubagentUsage } from '../cli/adapters/claude-subagent-usage';
+import { subagentAttributionDetails, type ClaudeSubagentUsage } from '../cli/adapters/claude-subagent-usage';
+import { recordClaudeCacheLifetime, type ClaudeCacheLifetime } from '../cli/adapters/claude-cache-lifetime';
 import type { Instance } from '../../shared/types/instance.types';
 import { recordCostAttribution } from '../core/system/cost-attribution';
 import { mapAdapterRuntimeEvent } from '../providers/adapter-runtime-event-bridge';
@@ -42,6 +43,11 @@ export function bindRawAdapterProviderEvents(input: BindRawAdapterProviderEvents
     input.observeAvailableCommands?.();
   });
 
+  // A remote worker measured this lifetime; keep it where local adapters keep theirs.
+  input.adapter.on('cache_lifetime', (value: ClaudeCacheLifetime) => {
+    if (!input.isStale('cache_lifetime')) recordClaudeCacheLifetime(input.adapter, value);
+  });
+
   const recordedSubagents = new Set<string>();
   input.adapter.on('subagent_usage', (sample: ClaudeSubagentUsage) => {
     if (input.isStale('subagent_usage') || !sample.final || recordedSubagents.has(sample.toolUseId)) return;
@@ -51,7 +57,7 @@ export function bindRawAdapterProviderEvents(input: BindRawAdapterProviderEvents
     recordCostAttribution({source:'instance-turn',purpose:'subagent',taskType:'claude-subagent-final',
       provider:'claude',instanceId:instance.id,sessionId:instance.sessionId,costSource:'unknown',costKnown:false,
       subagentUsage:true,finalContextTokens:sample.finalContextTokens,toolUses:sample.toolUses,
-      durationMs:sample.durationMs,toolUseId:sample.toolUseId});
+      durationMs:sample.durationMs,toolUseId:sample.toolUseId,...subagentAttributionDetails(sample)});
   });
   // Terminal provider turn failure is distinct from a broken adapter. The
   // send rejection still owns overflow/limit/auth recovery; this records the

@@ -217,7 +217,7 @@ export class CodexAppServerThreadRuntime {
    * Harness and scopes itself to the turn that was running, so it cannot be
    * read as a user request (LT-657).
    */
-  async steerActiveTurn(): Promise<boolean> {
+  async steerActiveTurn(text: string = CONTEXT_POLICY_STEER_TEXT): Promise<boolean> {
     const client = this.client;
     const threadId = this.binding?.threadId;
     const active = this.activeTurn;
@@ -226,7 +226,7 @@ export class CodexAppServerThreadRuntime {
       return false;
     }
     try {
-      await client.request('thread/inject_items', { threadId, items: [developerMessageItem(CONTEXT_POLICY_STEER_TEXT)] });
+      await client.request('thread/inject_items', { threadId, items: [developerMessageItem(text)] });
     } catch (error) {
       if (this.activeTurn !== active || active.turnId !== turnId || active.state.completed) return false;
       throw error;

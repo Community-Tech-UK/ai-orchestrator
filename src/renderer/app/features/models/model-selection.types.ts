@@ -4,6 +4,7 @@ import type { PickerProvider } from './compact-model-picker.types';
 export interface UnifiedReasoningOption {
   id: 'default' | ReasoningEffort;
   label: string;
+  description?: string;
   /** Marks the provider's default effort for badging. */
   isDefault?: boolean;
   /** Displays a persisted selection outside the current advertised choices. */

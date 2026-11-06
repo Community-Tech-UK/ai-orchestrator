@@ -13,21 +13,54 @@ export const ORCHESTRATOR_TOOL_DEFERRAL_ENV = 'AI_ORCHESTRATOR_ORCHESTRATOR_TOOL
 export const ORCHESTRATOR_TOOL_SEARCH_NAME = 'orchestrator.tool_search';
 export const ORCHESTRATOR_TOOL_DESCRIBE_NAME = 'orchestrator.tool_describe';
 
-export const ORCHESTRATOR_CORE_TOOL_NAMES: readonly string[] = [
-  'automation_result',
+/**
+ * The core tools that drive remote worker nodes. They leave the always-visible
+ * core while no worker is connected (see {@link RemoteWorkerListing}); search,
+ * describe and execute still reach them.
+ */
+export const REMOTE_WORKER_CORE_TOOL_NAMES: readonly string[] = [
   'list_remote_nodes',
   'run_on_node',
   'read_node_output',
   'terminate_node_instance',
+];
+
+export const ORCHESTRATOR_CORE_TOOL_NAMES: readonly string[] = [
+  'automation_result',
+  ...REMOTE_WORKER_CORE_TOOL_NAMES,
   'list_settings',
   'get_setting',
 ];
+
+/**
+ * What the forwarder learned about connected workers before listing tools.
+ * Only `false` hides anything: `true`, or `undefined` (roster not read, so
+ * unknown), keeps every core tool listed. Hiding changes what is listed, never
+ * what a session may call.
+ */
+export interface RemoteWorkerListing {
+  remoteWorkersConnected?: boolean;
+}
+
+/** Names of the core tools to list directly. */
+export function orchestratorCoreToolNames(listing: RemoteWorkerListing = {}): ReadonlySet<string> {
+  return new Set(listing.remoteWorkersConnected === false
+    ? ORCHESTRATOR_CORE_TOOL_NAMES.filter((name) => !REMOTE_WORKER_CORE_TOOL_NAMES.includes(name))
+    : ORCHESTRATOR_CORE_TOOL_NAMES);
+}
+
+/** Tells the model where the unlisted remote-worker tools went; empty when they are listed. */
+export function remoteWorkerSearchHint(listing: RemoteWorkerListing = {}): string {
+  return listing.remoteWorkersConnected === false
+    ? ` No worker node is connected now, so ${REMOTE_WORKER_CORE_TOOL_NAMES.join(', ')} are not listed; search "remote worker" to find them.`
+    : '';
+}
 
 const SEARCH_RESULT_LIMIT_DEFAULT = 5;
 const SEARCH_RESULT_LIMIT_MAX = 10;
 
 export function measureOrchestratorToolSchemaBytes(
-  tools: readonly Pick<McpServerToolDefinition, 'name' | 'description' | 'inputSchema'>[],
+  tools: readonly Pick<McpServerToolDefinition, 'name' | 'description' | 'inputSchema' | 'annotations'>[],
 ): number {
   return tools.reduce(
     (total, tool) =>
@@ -37,6 +70,7 @@ export function measureOrchestratorToolSchemaBytes(
           name: tool.name,
           description: tool.description,
           inputSchema: tool.inputSchema,
+          ...(tool.annotations ? { annotations: tool.annotations } : {}),
         }),
         'utf-8',
       ),
@@ -59,7 +93,7 @@ function describeMatch(tool: McpServerToolDefinition): Record<string, unknown> {
   };
 }
 
-export interface DeferredOrchestratorToolsOptions {
+export interface DeferredOrchestratorToolsOptions extends RemoteWorkerListing {
   onReveal: (names: string[]) => void;
 }
 
@@ -67,7 +101,7 @@ export function createDeferredOrchestratorTools(
   allTools: readonly McpServerToolDefinition[],
   options: DeferredOrchestratorToolsOptions,
 ): McpServerToolDefinition[] {
-  const coreNames = new Set(ORCHESTRATOR_CORE_TOOL_NAMES);
+  const coreNames = orchestratorCoreToolNames(options);
   const byName = new Map<string, McpServerToolDefinition>();
   const tools = allTools.map((tool) => {
     const wrapped = coreNames.has(tool.name) ? tool : { ...tool, hidden: true };
@@ -82,8 +116,8 @@ export function createDeferredOrchestratorTools(
     description:
       `Search the ${deferredCount} deferred Harness tools (file transfer, settings writes, `
       + 'automations, calendar, app-store release, evidence, node config, git_batch_pull, '
-      + 'exec_on_node, doc review, host process CPU/memory listing and leftover-process cleanup) and load their schemas. Matched tools become callable '
-      + 'immediately and are added to the visible tool list.',
+      + 'exec_on_node, doc review, host process CPU/memory listing and leftover-process cleanup). Returns names and short descriptions; use tool_describe for schemas. Matched tools become callable '
+      + `immediately and are added to the visible tool list.${remoteWorkerSearchHint(options)}`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -110,7 +144,7 @@ export function createDeferredOrchestratorTools(
         options.onReveal(matches.map((tool) => tool.name));
       }
       return {
-        matches: matches.map(describeMatch),
+        matches: matches.map(tool => ({ name: tool.name, description: tool.description.replace(/\s+/g, ' ').trim().slice(0, 500) })),
         note: matches.length > 0
           ? 'These tools are registered and callable now.'
           : 'No tools matched. Available tool names are listed in availableTools.',

@@ -184,14 +184,19 @@ export class PlanQueueTriage {
       return;
     }
     // A failed session or a usage limit says nothing about the documents. They try another provider, but it never counts against them.
+    const stoppedByHarness = outcome.kind === 'stopped-by-harness';
     const cause = outcome.kind === 'failed' ? `its session failed: ${outcome.reason.slice(0, 1500)}`
-      : outcome.kind === 'provider-limit' ? "the provider's usage limit was reached" : null;
+      : outcome.kind === 'provider-limit' ? "the provider's usage limit was reached"
+        : outcome.kind === 'stopped-by-harness' ? outcome.notice.replace(/\.$/, '') : null;
     const answered = session.itemIds.some(id => this.host.getItem(id).state !== 'discovered');
-    // The first retry goes straight away, because it goes to a different provider.
-    if (cause) this.backOff(runId, cause, 1);
-    else if (answered) { this.spawnFailures.delete(runId); this.host.breaker().succeeded(runId, null); }
-    // A whole batch with no answer looks like the provider, not the documents, so it counts towards a hold too.
-    else this.backOff(runId, 'it ended without answering', 1);
+    // A deliberate Harness stop is not the provider's fault, so it neither backs off nor counts towards a hold. It is parked below.
+    if (!stoppedByHarness) {
+      // The first retry goes straight away, because it goes to a different provider.
+      if (cause) this.backOff(runId, cause, 1);
+      else if (answered) { this.spawnFailures.delete(runId); this.host.breaker().succeeded(runId, null); }
+      // A whole batch with no answer looks like the provider, not the documents, so it counts towards a hold too.
+      else this.backOff(runId, 'it ended without answering', 1);
+    }
     for (const id of session.itemIds) {
       if (this.host.getItem(id).state !== 'discovered') { this.attempts.delete(id); continue; }
       const attempt = this.attempts.get(id) ?? { runId, attempts: 0, unanswered: 0, provider: session.provider, model: session.model, causes: [] };
@@ -200,7 +205,9 @@ export class PlanQueueTriage {
       attempt.causes.push(`${cause ?? 'it ended without answering'} (${providerLabel(session.provider)})`);
       this.attempts.set(id, attempt);
       const held = Boolean(this.host.getRun(runId).holdReason);
-      if (!held && (attempt.unanswered > MAX_ATTEMPTS || (attempt.unanswered === MAX_ATTEMPTS && session.itemIds.length === 1))) this.park(id, attempt.causes.join(', then '));
+      // A deliberate Harness stop is never retried: another attempt would spend the same tokens again.
+      if (stoppedByHarness) this.park(id, attempt.causes.join(', then '), true);
+      else if (!held && (attempt.unanswered > MAX_ATTEMPTS || (attempt.unanswered === MAX_ATTEMPTS && session.itemIds.length === 1))) this.park(id, attempt.causes.join(', then '));
     }
     this.retire(runId, instanceId);
     this.host.requestPump();
@@ -275,12 +282,13 @@ export class PlanQueueTriage {
     this.host.breaker().note(runId, null, message);
   }
 
-  private park(id: string, cause: string): void {
+  private park(id: string, cause: string, stoppedByHarness = false): void {
     const item = this.host.getItem(id);
     if (item.state !== 'discovered' || !['running', 'paused'].includes(this.host.getRun(item.runId).status)) return;
     const reason = cause.replace(/\.$/, '');
-    this.host.transition(item, 'parked', { parkReason: 'triage-failed', question: null,
-      detail: `Harness couldn't check whether this document is ready to work on: ${reason}. Resume starts work on it without the check.` });
+    this.host.transition(item, 'parked', { parkReason: stoppedByHarness ? 'stopped-by-harness' : 'triage-failed', question: null,
+      detail: stoppedByHarness ? `${reason}. Resume starts work on it without the check.`
+        : `Harness couldn't check whether this document is ready to work on: ${reason}. Resume starts work on it without the check.` });
     this.attempts.delete(id);
   }
 }

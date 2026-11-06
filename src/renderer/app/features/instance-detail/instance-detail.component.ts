@@ -18,10 +18,22 @@ import {
   viewChild,
   ChangeDetectionStrategy,
   HostListener,
-  effect
+  effect,
+  untracked
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { ContextWarningComponent } from './context-warning.component';
+import { IdleCacheHintComponent } from './idle-cache-hint.component';
+import { RuntimeChangePreviewIpcService } from '../../core/services/ipc/runtime-change-preview-ipc.service';
+import type { RuntimeChangeCostNote } from '../../../../shared/utils/runtime-change-cost';
+import { RuntimeChangeConfirmComponent } from './runtime-change-confirm.component';
+import {
+  RuntimeChangePreviewController,
+  changeRequestOf,
+  yoloChangeRequestOf,
+  yoloCostKeyOf,
+  runtimePreviewIdentityOf,
+} from './runtime-change-preview.controller';
 import { CompactionPreviewDialogComponent } from './compaction-preview-dialog.component';
 import { InstanceStore, type InstanceProvider, type OutputMessage } from '../../core/state/instance.store';
 import { HistoryStore } from '../../core/state/history.store';
@@ -112,6 +124,7 @@ interface ResendEditedEvent {
   selector: 'app-instance-detail',
   standalone: true,
   imports: [
+    IdleCacheHintComponent,
     OutputStreamComponent,
     ContextWarningComponent,
     CompactionPreviewDialogComponent,
@@ -124,6 +137,7 @@ interface ResendEditedEvent {
     UserActionRequestComponent,
     BrowserApprovalRequestComponent,
     InstanceHeaderComponent,
+    RuntimeChangeConfirmComponent,
     InstanceWelcomeComponent,
     CrossModelReviewPanelComponent,
     ProviderDiagnosticsPanelComponent,
@@ -137,12 +151,15 @@ interface ResendEditedEvent {
   ],
   templateUrl: './instance-detail.component.html',
   styleUrl: './instance-detail.component.scss',
+  providers: [RuntimeChangePreviewController],
   changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class InstanceDetailComponent {
   private readonly featureUsage = inject(FeatureUsageService);
   private readonly confirmService = inject(ConfirmService);
   private router = inject(Router);
+  /** Says what a model or auto-approve change will cost before it is made, and holds a large one for a yes (T17). */
+  protected readonly runtimeChange = inject(RuntimeChangePreviewController);
   private store = inject(InstanceStore);
   private historyStore = inject(HistoryStore);
   private historySessions = inject(HistoryPreviewSessionService);
@@ -322,6 +339,29 @@ export class InstanceDetailComponent {
     const inst = this.instance();
     if (!inst) return null;
     return resolveContextWarningLevel(inst.contextUsage, inst.selfManagesAutoCompaction);
+  });
+
+  private readonly runtimePreview = inject(RuntimeChangePreviewIpcService);
+  private readonly runtimeChangeKey = computed(() => {
+    const inst = this.instance();
+    return JSON.stringify([inst?.id, runtimePreviewIdentityOf(inst), inst?.provider, inst?.currentModel,
+      inst?.reasoningEffort, inst?.accountProfileId, inst?.copilotAccountProfileId, inst?.runtimeSummary, inst?.desiredRuntime, inst?.yoloMode]);
+  });
+  private runtimeChangeBinding = effect(() => this.runtimeChange.bind(this.runtimeChangeKey()));
+  /** What flipping auto-approve would cost, from the main process; empty for almost every session (T17). */
+  private readonly yoloCost = signal<RuntimeChangeCostNote | null>(null);
+  readonly yoloCostNote = computed(() => this.yoloCost()?.text ?? null);
+  private readonly yoloCostKey = computed(() => yoloCostKeyOf(this.instance()));
+  private yoloCostEffect = effect(onCleanup => {
+    let active = true;
+    onCleanup(() => { active = false; });
+    this.yoloCost.set(null);
+    if (!this.yoloCostKey()) return;
+    const inst = untracked(() => this.instance());
+    if (!inst) return;
+    void this.runtimePreview
+      .preview(inst.id, yoloChangeRequestOf(inst, !(inst.pendingYoloMode ?? inst.yoloMode)))
+      .then((note) => { if (active) this.yoloCost.set(note); });
   });
 
   readonly claudeContextNote = computed(() => {
@@ -601,25 +641,24 @@ export class InstanceDetailComponent {
   async onModelSelectionChange(sel: PendingSelection): Promise<void> {
     const inst = this.instance();
     if (!inst) return;
-    if (sel.modelRuntimeTarget) {
-      const model = sel.modelRuntimeTarget.kind === 'local-model'
-        ? sel.modelRuntimeTarget.modelId
-        : sel.model ?? undefined;
-      await this.store.changeModel(inst.id, model, sel.reasoning ?? undefined, sel.modelRuntimeTarget);
+    if (!sel.modelRuntimeTarget) {
+      if (sel.provider === 'local-model') {
+        // Incomplete local-model pick (no decoded runtime target) — ignore.
+        return;
+      }
+      if (!sel.model && !sel.provider) return;
+    }
+    // A change that would leave a large conversation behind, or re-read it at full price, waits for a yes (T17).
+    await this.runtimeChange.gateSelection(inst.id, sel, () => this.applyModelSelection(inst.id, sel));
+  }
+
+  private async applyModelSelection(instanceId: string, sel: PendingSelection): Promise<void> {
+    const change = changeRequestOf(sel);
+    if (change.modelRuntimeTarget) {
+      await this.store.changeModel(instanceId, change.model, change.reasoningEffort, change.modelRuntimeTarget);
       return;
     }
-    if (sel.provider === 'local-model') {
-      // Incomplete local-model pick (no decoded runtime target) — ignore.
-      return;
-    }
-    if (!sel.model && !sel.provider) return;
-    await this.store.changeModel(
-      inst.id,
-      sel.model ?? undefined,
-      sel.reasoning ?? undefined,
-      undefined,
-      sel.provider,
-    );
+    await this.store.changeModel(instanceId, change.model, change.reasoningEffort, undefined, change.provider);
   }
 
   /**
@@ -1105,6 +1144,7 @@ export class InstanceDetailComponent {
     const willEnable = !effectiveTarget;
     if (willEnable) {
       const confirmed = await this.confirmService.confirm({ message: 'Enable YOLO mode? This will auto-approve all tool calls for this session.' +
+          (this.yoloCostNote() ? `\n\n${this.yoloCostNote()}` : '') +
           (inst.status === 'busy'
             ? '\n\nThe session is busy — YOLO will turn on automatically once the current turn finishes.'
             : ''), confirmLabel: 'Enable YOLO', danger: true });
@@ -1113,9 +1153,20 @@ export class InstanceDetailComponent {
 
     if (this.isTogglingYolo()) return;
 
+    if (willEnable) {
+      await this.flipYolo(inst.id);
+      return;
+    }
+    // Turning it off asks too when the restart would leave a large conversation behind; turning it on was
+    // just confirmed above, with the same sentence in the question.
+    await this.runtimeChange.gate(inst.id, yoloChangeRequestOf(inst, false), () => this.flipYolo(inst.id));
+  }
+
+  private async flipYolo(instanceId: string): Promise<void> {
+    if (this.isTogglingYolo()) return;
     this.isTogglingYolo.set(true);
     try {
-      await this.store.toggleYoloMode(inst.id);
+      await this.store.toggleYoloMode(instanceId);
     } finally {
       this.isTogglingYolo.set(false);
     }

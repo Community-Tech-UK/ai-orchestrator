@@ -336,7 +336,7 @@ export class InstanceLifecycleManager extends EventEmitter {
   constructor(deps: LifecycleDependencies) {
     super();
     this.deps = deps;
-    this.spawnConfigBuilder = new SpawnConfigBuilder({ settings: this.settings });
+    this.spawnConfigBuilder = new SpawnConfigBuilder({ settings: this.settings, getInstance: (id) => this.deps.getInstance(id) });
     this.spawnPreflight = new InstanceSpawnPreflightChain({
       consumeWarmAdapter: (provider, workingDirectory) =>
         (deps.warmStartManager?.consume(provider, workingDirectory) as CliAdapter | null) ?? null,
@@ -418,7 +418,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         getMcpConfig: (loc, instanceId, provider) => this.spawnConfigBuilder.getMcpConfig(loc, instanceId, provider, instanceId ? this.deps.getInstance(instanceId)?.workingDirectory : undefined),
         getBrowserGatewayMcpOptions: (loc, instanceId, provider) =>
           this.spawnConfigBuilder.getBrowserGatewayMcpOptions(loc, instanceId, provider),
-        getChromeDevtoolsMcpOptions: (loc) => this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(loc),
+        getChromeDevtoolsMcpOptions: (loc, instanceId) => this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(loc, instanceId),
         getPermissionHookPath: (yolo) => this.spawnConfigBuilder.getPermissionHookPath(yolo),
         waitForResumeHealth: (id) => this.waitForResumeHealth(id),
         createCliAdapter: (cliType, options, loc) => this.createRuntimeAdapter(cliType as CliType, options, loc),
@@ -488,7 +488,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       getHarnessCliEnv: (loc, instanceId, baseEnv) => this.spawnConfigBuilder.getHarnessCliEnv(loc, instanceId, baseEnv),
       getBrowserGatewayMcpOptions: (loc, instanceId, provider) =>
         this.spawnConfigBuilder.getBrowserGatewayMcpOptions(loc, instanceId, provider),
-      getChromeDevtoolsMcpOptions: (loc) => this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(loc),
+      getChromeDevtoolsMcpOptions: (loc, instanceId) => this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(loc, instanceId),
       getPermissionHookPath: (yolo) => this.spawnConfigBuilder.getPermissionHookPath(yolo),
       getRtkSpawnConfig: (key) => this.spawnConfigBuilder.getRtkSpawnConfig(key),
       waitForResumeHealth: (id, timeoutMs) => this.waitForResumeHealth(id, timeoutMs),
@@ -1490,9 +1490,10 @@ export class InstanceLifecycleManager extends EventEmitter {
 
         if (signal.aborted) return;
 
+        const promptProvider = localModelTarget?.endpointProvider ?? resolvedCliType;
         // Load instruction hierarchy (skip for child instances to reduce token overhead)
         const instructionPrompts = instance.depth === 0
-          ? await this.loadPromptHierarchy(instance.workingDirectory, resolvedCliType, { remote: executionLocation.type === 'remote' })
+          ? await this.loadPromptHierarchy(instance.workingDirectory, promptProvider, { remote: executionLocation.type === 'remote' })
           : [];
 
         if (signal.aborted) return;
@@ -1501,10 +1502,10 @@ export class InstanceLifecycleManager extends EventEmitter {
         // and the initial-turn runtime context block. Extracted to
         // instance-system-prompt.ts; see that module's header for the full
         // rationale and the byte-identical-behaviour contract it must uphold.
-        const { systemPrompt, initialRuntimeContextBlock, initialPromptGuidance } = await assembleInstanceSystemPrompt({
+        const { systemPrompt, systemPromptAfterFirstTurn, initialRuntimeContextBlock, initialPromptGuidance } = await assembleInstanceSystemPrompt({
           instance,
           config,
-          resolvedProvider: resolvedCliType,
+          resolvedProvider: promptProvider,
           resolvedAgent,
           instructionPrompts,
           initialUserMessageContent: initialUserMessage?.content,
@@ -1622,7 +1623,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           instanceId: instance.id,
           sessionId: forkSessionId ?? instance.sessionId,
           workingDirectory: instance.workingDirectory,
-          systemPrompt: systemPrompt,
+          systemPrompt, systemPromptAfterFirstTurn,
           model: modelOverride,
           yoloMode: instance.yoloMode,
           launchMode: instance.launchMode,
@@ -1635,7 +1636,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           resume: Boolean(forkSessionId) || config.resume,
           transcriptKnown: isCrashRecoveryCreation && config.metadata?.['transcriptKnown'] === true,
           mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, resolvedCliType, instance.workingDirectory),
-          chromeDevtoolsMcp: this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(instance.executionLocation) ?? undefined,
+          chromeDevtoolsMcp: this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(instance.executionLocation, instance.id) ?? undefined,
           browserGatewayMcp: this.spawnConfigBuilder.getBrowserGatewayMcpOptions(
             instance.executionLocation,
             instance.id,
@@ -2179,7 +2180,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           residentClaude: this.residentClaudeForSpawn(instance),
           resume: canAttemptNativeResume,
           mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType, instance.workingDirectory),
-          chromeDevtoolsMcp: this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(instance.executionLocation) ?? undefined,
+          chromeDevtoolsMcp: this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(instance.executionLocation, instance.id) ?? undefined,
           browserGatewayMcp: this.spawnConfigBuilder.getBrowserGatewayMcpOptions(
             instance.executionLocation,
             instance.id,
@@ -2463,7 +2464,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         resume: true,
         forkSession: false,
         mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType, instance.workingDirectory),
-        chromeDevtoolsMcp: this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(instance.executionLocation) ?? undefined,
+        chromeDevtoolsMcp: this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(instance.executionLocation, instance.id) ?? undefined,
         browserGatewayMcp: this.spawnConfigBuilder.getBrowserGatewayMcpOptions(
           instance.executionLocation,
           instance.id,
@@ -2541,7 +2542,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         resume: false,
         forkSession: false,
         mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType, instance.workingDirectory),
-        chromeDevtoolsMcp: this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(instance.executionLocation) ?? undefined,
+        chromeDevtoolsMcp: this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(instance.executionLocation, instance.id) ?? undefined,
         browserGatewayMcp: this.spawnConfigBuilder.getBrowserGatewayMcpOptions(
           instance.executionLocation,
           instance.id,
@@ -2843,7 +2844,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           resume: false,
           forkSession: false,
           mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType, instance.workingDirectory),
-          chromeDevtoolsMcp: this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(instance.executionLocation) ?? undefined,
+          chromeDevtoolsMcp: this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(instance.executionLocation, instance.id) ?? undefined,
           browserGatewayMcp: this.spawnConfigBuilder.getBrowserGatewayMcpOptions(
             instance.executionLocation,
             instance.id,
@@ -3028,7 +3029,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         resume: shouldResume,
         forkSession: shouldForkSession,
         mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType, instance.workingDirectory),
-        chromeDevtoolsMcp: this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(instance.executionLocation) ?? undefined,
+        chromeDevtoolsMcp: this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(instance.executionLocation, instance.id) ?? undefined,
         browserGatewayMcp: this.spawnConfigBuilder.getBrowserGatewayMcpOptions(
           instance.executionLocation,
           instance.id,

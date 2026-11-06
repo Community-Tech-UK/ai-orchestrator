@@ -102,6 +102,7 @@
   @if (!isDraftComposer()) {
     <app-composer-toolbar
       [instanceId]="instanceId()"
+      [runtimeIdentity]="composerRuntimeIdentity()"
       [contextUsage]="contextUsage()"
       [hasConversation]="hasConversation()"
       [residentClaude]="residentClaude()"

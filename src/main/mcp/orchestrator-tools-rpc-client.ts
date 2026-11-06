@@ -25,6 +25,7 @@ export interface OrchestratorToolsRpcClientOptions {
 }
 
 export interface OrchestratorToolsRpcCallOptions {
+  timeoutMs?: number;
   signal?: AbortSignal;
 }
 
@@ -73,6 +74,7 @@ export class OrchestratorToolsRpcClient implements OrchestratorToolsRpcClientLik
         method,
         params: { instanceId, capability, payload },
       },
+      options.timeoutMs ?? this.timeoutMs,
       options.signal,
     );
   }
@@ -80,6 +82,7 @@ export class OrchestratorToolsRpcClient implements OrchestratorToolsRpcClientLik
   private send(
     socketPath: string,
     request: Record<string, unknown>,
+    timeoutMs: number,
     signal?: AbortSignal,
   ): Promise<unknown> {
     return new Promise<unknown>((resolve, reject) => {
@@ -106,7 +109,7 @@ export class OrchestratorToolsRpcClient implements OrchestratorToolsRpcClientLik
       const abort = () => finish(new Error('orchestrator-tools RPC request cancelled'));
       const timeout = setTimeout(
         () => finish(new Error('orchestrator-tools RPC request timed out')),
-        this.timeoutMs,
+        timeoutMs,
       );
       signal?.addEventListener('abort', abort, { once: true });
       socket.once('connect', () => socket.write(`${JSON.stringify(request)}\n`));

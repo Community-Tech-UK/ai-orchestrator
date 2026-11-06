@@ -18,7 +18,7 @@ const logMock = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn()
 vi.mock('../../../logging/logger', () => ({ getLogger: () => logMock }));
 
 import {
-  resolveCodexThreadPolicy, resolveTrialArm, codexThreadPolicyForConfig, _resetCodexThreadPolicyForTesting,
+  resolveCodexThreadPolicy, resolveTrialArm, codexCheckerArm, codexThreadPolicyForConfig, _resetCodexThreadPolicyForTesting,
 } from './codex-thread-policy';
 
 /** Pretend to be the Electron main process (versions.electron + type 'browser') for one test. */
@@ -30,13 +30,76 @@ function asElectronMain(): void {
 }
 
 describe('Codex machine thread policy',()=>{
+  it('keeps the clean-helper hint in the economy chat arm only', () => {
+    const candidate = resolveCodexThreadPolicy({ kind: 'chat', chatsSetting: 'trial', arm: 'cheaper' });
+    expect(candidate.config['features.multi_agent_v2.multi_agent_mode_hint_text']).toContain('fork_turns="none"');
+    expect(resolveCodexThreadPolicy({ kind: 'chat', chatsSetting: 'trial', arm: 'full' }).config).not.toHaveProperty('features.multi_agent_v2.multi_agent_mode_hint_text');
+    expect(resolveCodexThreadPolicy({ kind: 'plan-queue', harnessWorkSetting: 'full' }).config).not.toHaveProperty('features.multi_agent_v2.multi_agent_mode_hint_text');
+  });
+  it.each(['child', 'loop', 'plan-queue', 'automation', 'review'] as const)('caps the skills catalog for %s even when helper agents are off', (kind) => {
+    expect(resolveCodexThreadPolicy({ kind, harnessWorkSetting: 'off' }).config['skills.max_context_tokens']).toBe(1500);
+    expect(resolveCodexThreadPolicy({ kind: 'chat' }).config).not.toHaveProperty('skills.max_context_tokens');
+  });
   it('keeps related queue instances on one deterministic arm and unknown keys unassigned',()=>{
     expect(resolveTrialArm('queue-item', 'trial', false)).toBe(resolveTrialArm('queue-item', 'trial', false));
     expect(resolveTrialArm(undefined, 'trial', false)).toBe('unassigned');
     const off=resolveCodexThreadPolicy({kind:'plan-queue',chatsSetting:'full',harnessWorkSetting:'off',tuningSetting:'harness'});
-    expect(off.config).toEqual({'agents.enabled':false,tool_output_token_limit:4000,model_post_turn_compact_threshold_percent:60});
-    expect(resolveCodexThreadPolicy({kind:'chat',chatsSetting:'economy',harnessWorkSetting:'off',tuningSetting:'codex'}).config).toEqual({'agents.default_subagent_reasoning_effort':'medium','agents.max_concurrent_threads_per_session':2});
+    expect(off.config).toEqual({'agents.enabled':false,'skills.max_context_tokens':1500,tool_output_token_limit:4000,model_post_turn_compact_threshold_percent:60});
+    expect(resolveCodexThreadPolicy({kind:'chat',chatsSetting:'economy',harnessWorkSetting:'off',tuningSetting:'codex'}).config).toEqual({'agents.default_subagent_reasoning_effort':'medium','agents.max_concurrent_threads_per_session':2,'features.multi_agent_v2.multi_agent_mode_hint_text':expect.stringContaining('fork_turns="none"')});
     expect(resolveCodexThreadPolicy({kind:'plan-queue',chatsSetting:'economy',harnessWorkSetting:'trial',tuningSetting:'codex',arm:'unassigned'}).level).toBe('full');
+  });
+});
+
+describe('Codex checker skills catalog trial', () => {
+  const checker = (extra: Partial<Parameters<typeof resolveCodexThreadPolicy>[0]> = {}) =>
+    resolveCodexThreadPolicy({ kind: 'plan-queue', harnessWorkSetting: 'full', queueRole: 'verifier', checkerArm: 'candidate', ...extra });
+
+  it('omits the catalog for a checker in the candidate arm only, and keeps the cap key', () => {
+    const candidate = checker();
+    expect(candidate.config['skills.include_instructions']).toBe(false);
+    expect(candidate.config['skills.max_context_tokens']).toBe(1500);
+    expect(candidate.catalog).toBe('omitted');
+    expect(candidate.checkerArm).toBe('candidate');
+    const control = checker({ checkerArm: 'control' });
+    expect(control.config).not.toHaveProperty('skills.include_instructions');
+    expect(control.catalog).toBe('capped');
+    expect(checker({ checkerArm: 'unassigned' }).config).not.toHaveProperty('skills.include_instructions');
+  });
+
+  it('honours the explicit setting over the arm, and never touches workers, triage or chats', () => {
+    expect(checker({ checkerCatalogSetting: 'full' }).config).not.toHaveProperty('skills.include_instructions');
+    expect(checker({ checkerCatalogSetting: 'omit', checkerArm: 'control' }).config['skills.include_instructions']).toBe(false);
+    for (const queueRole of ['worker', 'triage', undefined]) {
+      const other = checker({ queueRole });
+      expect(other.config).not.toHaveProperty('skills.include_instructions');
+      expect(other.checkerArm).toBeUndefined();
+    }
+    const chat = resolveCodexThreadPolicy({ kind: 'chat', queueRole: 'verifier', checkerArm: 'candidate' });
+    expect(chat.config).not.toHaveProperty('skills.include_instructions');
+    expect(chat.catalog).toBe('native');
+  });
+
+  it('splits on its own salt, so related sessions share an arm and it is independent of the helper-agent trial', () => {
+    expect(codexCheckerArm('queue-item')).toBe(codexCheckerArm('queue-item'));
+    const keys = Array.from({ length: 400 }, (_, index) => `item-${index}`);
+    const checkerArms = keys.map((key) => codexCheckerArm(key));
+    const helperArms = keys.map((key) => resolveTrialArm(key, 'trial', false));
+    expect(checkerArms.filter((arm) => arm === 'candidate').length).toBeGreaterThan(150);
+    expect(checkerArms.filter((arm) => arm === 'candidate').length).toBeLessThan(250);
+    expect(checkerArms.some((arm, index) => (arm === 'candidate') !== (helperArms[index] === 'cheaper'))).toBe(true);
+    expect(codexCheckerArm(undefined)).toBe('unassigned');
+  });
+
+  it('reads the queue role, trial key and setting from the spawn config', () => {
+    settingsMock.value = { codexHelperAgentsHarnessWork: 'full', codexCheckerSkillCatalog: 'omit' };
+    const omitted = codexThreadPolicyForConfig({ sessionKind: 'plan-queue', queueRole: 'verifier', trialKey: 'item-1' });
+    expect(omitted.config['skills.include_instructions']).toBe(false);
+    settingsMock.value = { codexHelperAgentsHarnessWork: 'full', codexCheckerSkillCatalog: 'nonsense' };
+    const arm = codexCheckerArm('item-1');
+    const trial = codexThreadPolicyForConfig({ sessionKind: 'plan-queue', queueRole: 'verifier', trialKey: 'item-1' });
+    expect(trial.checkerArm).toBe(arm);
+    expect('skills.include_instructions' in trial.config).toBe(arm === 'candidate');
+    expect(codexThreadPolicyForConfig({ sessionKind: 'plan-queue', trialKey: 'item-1' }).config).not.toHaveProperty('skills.include_instructions');
   });
 });
 
@@ -56,6 +119,7 @@ describe('codexThreadPolicyForConfig settings resolution', () => {
     expect(policy.config).toEqual({
       'agents.default_subagent_reasoning_effort': 'medium',
       'agents.max_concurrent_threads_per_session': 2,
+      'features.multi_agent_v2.multi_agent_mode_hint_text': expect.stringContaining('fork_turns="none"'),
     });
     expect(policy.outputLimit).toBeNull();
     expect(policy.postTurnCompactPercent).toBeNull();
@@ -67,6 +131,7 @@ describe('codexThreadPolicyForConfig settings resolution', () => {
     expect(policy.level).toBe('off');
     expect(policy.config).toEqual({
       'agents.enabled': false,
+      'skills.max_context_tokens': 1500,
       tool_output_token_limit: 4000,
       model_post_turn_compact_threshold_percent: 60,
     });

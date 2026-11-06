@@ -15,8 +15,9 @@ import { holdFromReclaim } from '../process/reclaim-holds';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import type { PlanQueueItemFlow } from './plan-queue-item-flow';
 import type { PlanQueueStore } from './plan-queue-store';
+import { isNeverAutoRetried } from './plan-queue-park-policy';
 import { restoreCheckpointAfterVerification } from './plan-queue-run-hold';
-import { isLandingWait } from './plan-queue-state';
+import { isLandingWait, isTerminalItemState } from './plan-queue-state';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import { recordQueueRestart } from './plan-queue-restart-progress';
 export { recoverInterruptedDocumentMerges } from './plan-queue-doc-merge';
@@ -68,6 +69,12 @@ export async function recoverPlanQueue(host: PlanQueueRecoveryHost, flow: PlanQu
 }
 
 async function recoverItem(host: PlanQueueRecoveryHost, flow: PlanQueueItemFlow, item: PlanQueueItem): Promise<void> {
+  // Harness stopped this job on purpose and the app ended before the park finished: finish parking it.
+  // Respawning its worker or re-judging it would spend the same tokens again (Decision 16a).
+  if (isNeverAutoRetried(item.parkReason) && !isTerminalItemState(item.state)) {
+    await flow.park(item.id, item.parkReason!, item.detail ?? 'Stopped by Harness.');
+    return;
+  }
   if (host.getRun(item.runId).status === 'paused' && item.state !== 'landing') {
     await flow.hold(item.id);
     return;

@@ -142,7 +142,7 @@ describe('OrchestratorToolsRpcClient', () => {
     );
   });
 
-  it('times out if the parent never replies', async () => {
+  it.each(['client', 'call'] as const)('uses the %s timeout if the parent never replies', async (deadline) => {
     if (process.platform === 'win32') return;
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ot-client-to-'));
     const socketPath = path.join(tmpDir, 'ot.sock');
@@ -170,10 +170,11 @@ describe('OrchestratorToolsRpcClient', () => {
         AI_ORCHESTRATOR_INSTANCE_ID: 'inst-slow',
         AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_CAPABILITY: 'cap-slow',
       },
-      timeoutMs: 50,
+      timeoutMs: deadline === 'client' ? 50 : 10_000,
     });
 
-    await expect(client.call('orchestrator_tools.git_batch_pull', { root: '/r' })).rejects.toThrow(
+    const options = deadline === 'call' ? { timeoutMs: 50, signal: new AbortController().signal } : undefined;
+    await expect(client.call('orchestrator_tools.git_batch_pull', { root: '/r' }, options)).rejects.toThrow(
       /timed out/,
     );
   });

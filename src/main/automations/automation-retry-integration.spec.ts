@@ -300,6 +300,36 @@ describe('AutomationRunner wait-failures are non-retryable', () => {
     expect(after?.lastFailureReason).toBe(reason);
   });
 
+  async function driveProviderError(details?: Record<string, unknown>): Promise<{ store: AutomationStore; id: string }> {
+    const id = await createTestAutomation(store);
+    const runner = makeRunner(3);
+    const automation = await store.get(id);
+    const d = store.decideAndInsertRun(automation, 'scheduled', 1_000, 1_000, { maxAttempts: 3, attempt: 1 });
+    if (d.kind !== 'started') throw new Error('run not started');
+    const internals = runner as unknown as {
+      trackingByInstance: Map<string, { runId: string; automationId: string; seenAssistantOutput: boolean; outputChunks: unknown[] }>;
+      instanceByRun: Map<string, string>;
+      handleProviderEvent: (envelope: unknown) => void;
+    };
+    internals.trackingByInstance.set('inst-error', { runId: d.run.id, automationId: id, seenAssistantOutput: false, outputChunks: [] });
+    internals.instanceByRun.set(d.run.id, 'inst-error');
+    internals.handleProviderEvent({ instanceId: 'inst-error', event: { kind: 'error', recoverable: false, message: 'Provider failed.', ...(details ? { details } : {}) } });
+    return { store, id };
+  }
+
+  it('retries an ordinary provider failure, as before', async () => {
+    await driveProviderError();
+    expect(capturedRetries).toHaveLength(1);
+  });
+
+  it('fails a job Harness stopped on purpose once, without scheduling a retry that would spend the same tokens again', async () => {
+    const { store: s, id } = await driveProviderError({ stoppedByHarness: { reason: 'turn-token-ceiling', tokens: 301_000_000, thresholdTokens: 300_000_000 } });
+    expect(capturedRetries).toHaveLength(0);
+    const after = await s.get(id);
+    expect(after?.consecutiveFailures).toBe(1);
+    expect(after?.lastFailureReason).toBe('Provider failed.');
+  });
+
   it('a run parked at waiting_for_permission fails once without scheduling retries', async () => {
     const id = await createTestAutomation(store);
     const runner = makeRunner(3);

@@ -174,6 +174,23 @@ describe('Codex cumulative usage accounting', () => {
     expect(h.partials).toHaveLength(0);
   });
 
+  it.each(['active', 'idle', 'child'] as const)('uses that native thread\'s request window for %s long-prompt pricing', async path => {
+    const h = harness();
+    await h.send([
+      update(sample(100, 0, 0)),
+      ...(path === 'child' ? [{ method: 'thread/started', params: { thread: { id: 'child' } } } satisfies AppServerNotification] : []),
+    ]);
+    const isChild = path === 'child';
+    const event = update(sample(isChild ? 300_000 : 300_100, 0, 1000), sample(300_000, 0, 1000), isChild ? 'child' : 'root');
+    (event.params['tokenUsage'] as Record<string, unknown>)['modelContextWindow'] = 1_000_000;
+    if (path === 'idle') h.notify(event);
+    else await h.send([event]);
+    const usage = path === 'idle' ? h.partials.at(-1) : h.completions.at(-1)?.usage;
+    expect(usage?.cost).toBeCloseTo(6.075, 6);
+    expect(usage?.totalTokens).toBe(301_000);
+    if (isChild) expect(h.contexts.at(-1)).toMatchObject({ used: 100, total: 258400 });
+  });
+
   it('subtracts cache/reasoning once, differences subsequent turns, and ignores completion duplicate usage', async () => {
     const h = harness();
     await h.send([update(sample(100, 80, 20, 4))], 'completed', { input_tokens: 100, output_tokens: 20 });

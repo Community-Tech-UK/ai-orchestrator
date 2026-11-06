@@ -355,12 +355,18 @@ export function getAdapterGuidanceBlocks(options: UnifiedSpawnOptions): AdapterG
 }
 
 export function withBrowserGatewaySystemPrompt(options: UnifiedSpawnOptions): UnifiedSpawnOptions {
-  const blocks = getAdapterGuidanceBlocks(options);
-  if (blocks.length === 0) return options;
-  const sections = [options.systemPrompt?.trim() ?? '', ...blocks.map((block) => block.content)];
+  if (getAdapterGuidanceBlocks(options).length === 0) return options;
+  // The later-turn prompt (Google providers) carries the same guidance, judged against its own text.
+  const append = (prompt: string | undefined): string => [
+    prompt?.trim() ?? '',
+    ...getAdapterGuidanceBlocks({ ...options, systemPrompt: prompt }).map(block => block.content),
+  ].filter(Boolean).join('\n\n---\n\n');
   return {
     ...options,
-    systemPrompt: sections.filter(Boolean).join('\n\n---\n\n'),
+    systemPrompt: append(options.systemPrompt),
+    ...(options.systemPromptAfterFirstTurn !== undefined
+      ? { systemPromptAfterFirstTurn: append(options.systemPromptAfterFirstTurn) }
+      : {}),
   };
 }
 

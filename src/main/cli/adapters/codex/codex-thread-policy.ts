@@ -12,6 +12,12 @@ export type CodexTrialArm = 'cheaper' | 'full' | 'off' | 'unassigned';
 export type CodexChatsSetting = 'economy' | 'full' | 'off' | 'trial';
 export type CodexHarnessWorkSetting = 'off' | 'full' | 'trial';
 export type CodexTuningSetting = 'harness' | 'codex';
+/** Which skills catalog a thread gets: Codex's own (chats), the 1,500-token cap, or none (checker trial). */
+export type CodexSkillCatalog = 'native' | 'capped' | 'omitted';
+export type CodexCheckerCatalogSetting = 'trial' | 'full' | 'omit';
+export type CodexCheckerArm = 'control' | 'candidate' | 'unassigned';
+/** The checker catalog trial has its own salt, so its half-and-half split is independent of the helper-agent trial. */
+export const CHECKER_CATALOG_TRIAL = 'checker-catalog';
 
 export const CODEX_HARNESS_WORK_KINDS: readonly SessionKind[] = [
   'loop', 'plan-queue', 'child', 'automation', 'review',
@@ -26,6 +32,17 @@ export interface CodexThreadPolicy {
   arm?: CodexTrialArm;
   armKey?: string | null;
   armSource?: TrialKeySource | null;
+  catalog?: CodexSkillCatalog;
+  checkerArm?: CodexCheckerArm;
+}
+
+/** The checker catalog trial's half: a salted hash of the same durable trial key. */
+export function codexCheckerArm(key: string | null | undefined): CodexCheckerArm {
+  return key ? createHash('sha256').update(`${CHECKER_CATALOG_TRIAL}:${key}`).digest()[0] % 2 === 0 ? 'control' : 'candidate' : 'unassigned';
+}
+
+export function codexCheckerCatalogSetting(value: unknown): CodexCheckerCatalogSetting {
+  return value === 'full' || value === 'omit' ? value : 'trial';
 }
 
 /** The same raw key always picks the same half of its trial. */
@@ -45,6 +62,9 @@ export function resolveCodexThreadPolicy(input: {
   harnessWorkSetting?: CodexHarnessWorkSetting;
   tuningSetting?: CodexTuningSetting;
   arm?: CodexTrialArm;
+  queueRole?: string;
+  checkerCatalogSetting?: CodexCheckerCatalogSetting;
+  checkerArm?: CodexCheckerArm;
 }): CodexThreadPolicy {
   const harnessWork = CODEX_HARNESS_WORK_KINDS.includes(input.kind);
   const selected = harnessWork ? input.harnessWorkSetting ?? 'trial' : input.chatsSetting ?? 'trial';
@@ -58,11 +78,28 @@ export function resolveCodexThreadPolicy(input: {
     : level === 'economy'
       ? { 'agents.default_subagent_reasoning_effort': 'medium', 'agents.max_concurrent_threads_per_session': 2 }
       : {};
+  const chat = input.kind === 'chat';
+  // Verified in the installed 0.163.0 config schema (20 October 2026, by the branch worker; not re-run here).
+  // Ordinary helper children are included; personal chats retain Codex's budget.
+  if (!chat) config['skills.max_context_tokens'] = 1500;
+  // Plan-queue checkers only. In 0.163.0 the flag removes just the automatic catalog block; skills named
+  // in a turn are still injected (see codex-required-skills.ts).
+  const checker = !chat && input.queueRole === 'verifier';
+  const checkerSetting = input.checkerCatalogSetting ?? 'trial';
+  const omitCatalog = checker && (checkerSetting === 'omit' || (checkerSetting === 'trial' && input.checkerArm === 'candidate'));
+  if (omitCatalog) config['skills.include_instructions'] = false;
+  if (chat && level === 'economy') {
+    config['features.multi_agent_v2.multi_agent_mode_hint_text'] = 'Start helpers only when asked or when the work is independent and long. Pass fork_turns="none" and put everything the helper needs in the message.';
+  }
   const outputLimit = input.tuningSetting === 'codex' ? null : input.kind === 'chat' ? 6000 : 4000;
   const postTurnCompactPercent = input.tuningSetting === 'codex' ? null : input.kind === 'chat' ? 70 : 60;
   if (outputLimit !== null) config['tool_output_token_limit'] = outputLimit;
   if (postTurnCompactPercent !== null) config['model_post_turn_compact_threshold_percent'] = postTurnCompactPercent;
-  return { level, config, outputLimit, postTurnCompactPercent, arm };
+  return {
+    level, config, outputLimit, postTurnCompactPercent, arm,
+    catalog: chat ? 'native' : omitCatalog ? 'omitted' : 'capped',
+    ...(checker ? { checkerArm: input.checkerArm ?? 'unassigned' } : {}),
+  };
 }
 
 /** True only in the Electron main process, the one place the settings store exists. */
@@ -113,7 +150,9 @@ export function codexThreadPolicyForConfig(config: CodexCliConfig): CodexThreadP
   return {
     ...resolveCodexThreadPolicy({ kind, chatsSetting: settings.codexHelperAgentsChats,
       harnessWorkSetting: settings.codexHelperAgentsHarnessWork,
-      tuningSetting: settings.codexContextTuning, arm }),
+      tuningSetting: settings.codexContextTuning, arm, queueRole: config.queueRole,
+      checkerCatalogSetting: codexCheckerCatalogSetting(settings.codexCheckerSkillCatalog),
+      checkerArm: codexCheckerArm(config.trialKey) }),
     arm,
     armKey: config.trialKey ?? null,
     armSource: config.trialKeySource ?? null,

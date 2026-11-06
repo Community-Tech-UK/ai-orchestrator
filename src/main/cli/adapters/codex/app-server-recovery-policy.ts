@@ -1,5 +1,6 @@
 import { isContextOverflowError } from '../../../context/ptl-retry';
 import { isCodexInputTooLargeError } from './exec-error-classifier';
+import { isHarnessStopError } from '../../../../shared/utils/harness-stop';
 import {
   classifyCodexAppServerFailure,
   type CodexAppServerFailureKind,
@@ -60,6 +61,9 @@ export function planCodexAppServerRecovery(error: unknown): CodexAppServerRecove
  * the instance in `error`, which cannot go back to busy.
  */
 export function isRecoverableCodexTurnError(error: unknown): boolean {
+  // A deliberate Harness stop (e.g. turn-token-ceiling) is a clean end, not a
+  // failure: the session stays usable and must not settle into 'error'.
+  if (isHarnessStopError(error)) return true;
   const message = error instanceof Error ? error.message : String(error);
   if (isCodexInputTooLargeError(message) || /per-turn size limit/i.test(message) || isContextOverflowError(message)) {
     return true;

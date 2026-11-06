@@ -1,4 +1,5 @@
-import { observeClaudeSubagentUsage, flushClaudeSubagentUsage } from '../adapters/claude-subagent-usage';
+import { observeClaudeSubagentUsage, flushClaudeSubagentUsage, claudeTranscriptLocation } from '../adapters/claude-subagent-usage';
+import { observeClaudeAssistantTelemetry } from '../adapters/claude-assistant-telemetry';
 import { ClaudeSessionCostLedger } from '../adapters/claude-session-cost-ledger';
 import { ClaudeResidentTurnSettlement } from '../adapters/claude-resident-turn-settlement';
 import { readLastClaudeCostState } from '../adapters/claude-transcript-registry';
@@ -62,7 +63,8 @@ export class CliAdapterWorkerProxy extends EventEmitter {
   private stdoutLineBuffer = '';
   private lastKnownContextWindow: number;
   private deferredToolUse: DeferredToolUse | null = null;
-  private geminiRtkAwarenessSent = false;
+  private geminiAdvisoryDelivered = false;
+  private geminiTurnFailed = false;
   private readonly childEnv: Record<string, string>;
   private readonly childEnvRemove: string[];
 
@@ -115,7 +117,6 @@ export class CliAdapterWorkerProxy extends EventEmitter {
   }
 
   getName(): string { return this.cliType === 'claude' ? 'claude-cli' : 'gemini-cli'; }
-
   getCapabilities(): CliCapabilities {
     if (this.cliType === 'claude') {
       return {
@@ -214,7 +215,6 @@ export class CliAdapterWorkerProxy extends EventEmitter {
       }
       this.outputBuffer = '';
       await this.runTurn(this.buildArgs({ role: 'user', content: message }), undefined, { closeStdin: true });
-      this.geminiRtkAwarenessSent = true;
       return;
     }
     const input = await this.formatClaudeInput(message, attachments);
@@ -225,12 +225,10 @@ export class CliAdapterWorkerProxy extends EventEmitter {
     const stdin = this.cliType === 'claude'
       ? await this.formatClaudeInput(message.content, message.attachments as FileAttachment[] | undefined)
       : undefined;
-    const response = await this.runTurn(this.buildArgs(message), stdin, {
+    return this.runTurn(this.buildArgs(message), stdin, {
       closeStdin: this.cliType === 'gemini',
       closeStdinAfterWrite: this.cliType === 'claude',
     });
-    if (this.cliType === 'gemini') this.geminiRtkAwarenessSent = true;
-    return response;
   }
   private async runTurn(
     args: string[],
@@ -238,6 +236,7 @@ export class CliAdapterWorkerProxy extends EventEmitter {
     opts: { closeStdin?: boolean; closeStdinAfterWrite?: boolean } = {},
   ): Promise<CliResponse> {
     let inputStarted = this.cliType === 'gemini';
+    this.geminiTurnFailed = false;
     this.outputBuffer = '';
     this.stdoutLineBuffer = '';
     return waitForWorkerTurn(this, this.getName(),
@@ -298,7 +297,6 @@ export class CliAdapterWorkerProxy extends EventEmitter {
   }
 
   getSessionId(): string | null { return this.sessionId; }
-
   setSessionId(id: string): void { this.sessionId = id; }
 
   getDeferredToolUse(): DeferredToolUse | null { return this.deferredToolUse; }
@@ -353,7 +351,7 @@ export class CliAdapterWorkerProxy extends EventEmitter {
   private command(): string { return this.cliType === 'claude' ? 'claude' : 'gemini'; }
   private buildArgs(message: CliMessage): string[] {
     const args = buildWorkerArgs(this.cliType, this.options, this.sessionId, message, {
-      includeGeminiRtkAwareness: !this.geminiRtkAwarenessSent,
+      geminiAdvisoryDelivered: this.geminiAdvisoryDelivered,
     });
     if (this.cliType === 'claude') {
       const mode = args.includes('--fork-session') ? 'fork' : args.includes('--resume') ? 'resume' : 'fresh';
@@ -465,6 +463,7 @@ export class CliAdapterWorkerProxy extends EventEmitter {
   }
 
   private emitClaudeAssistant(event: Record<string, unknown>): void {
+    observeClaudeAssistantTelemetry(this, event);
     const message = event['message'] as { content?: Record<string, unknown>[]; usage?: Record<string, number> } | undefined;
     for (const block of message?.content ?? []) {
       if (block['type'] === 'text' && typeof block['text'] === 'string') {
@@ -484,13 +483,13 @@ export class CliAdapterWorkerProxy extends EventEmitter {
         } as OutputMessage);
       }
     }
-    if (message?.usage) {
+    if (message?.usage && !event['parent_tool_use_id']) {
       this.emitClaudeContextFromUsage(message.usage);
     }
   }
 
   private emitClaudeSystem(event: Record<string, unknown>): void {
-    observeClaudeSubagentUsage(this,event);
+    observeClaudeSubagentUsage(this, event, () => claudeTranscriptLocation(this.options.workingDirectory, this.sessionId, this.childEnv['CLAUDE_CONFIG_DIR']));
     this.updateSessionId(event);
     const usage = event['usage'];
     if (event['subtype'] === 'context_usage' && this.isRecord(usage)) {
@@ -579,6 +578,7 @@ export class CliAdapterWorkerProxy extends EventEmitter {
   }
 
   private emitGeminiOutput(event: Record<string, unknown>, raw: string): void {
+    if (event['type'] === 'error' || event['type'] === 'result' && event['status'] === 'error') this.geminiTurnFailed = true;
     let content = '';
     if (event['type'] === 'message' && event['role'] === 'assistant' && typeof event['content'] === 'string') {
       content = event['content'];
@@ -608,6 +608,7 @@ export class CliAdapterWorkerProxy extends EventEmitter {
     } as OutputMessage);
     const looksLikeError = /error|fatal|failed|ENOENT|EACCES|ECONNREFUSED|ETIMEDOUT|Exception/i.test(trimmed);
     if (this.cliType === 'gemini' && looksLikeError) {
+      this.geminiTurnFailed = true;
       this.emit('error', new Error(trimmed));
     }
   }
@@ -620,6 +621,7 @@ export class CliAdapterWorkerProxy extends EventEmitter {
       this.emitOutputFromLine(this.stdoutLineBuffer);
       this.stdoutLineBuffer = '';
     }
+    if (this.cliType === 'gemini' && wasRunning && !this.workerFailed && !this.geminiTurnFailed && code === 0) this.geminiAdvisoryDelivered = true;
     const ownedTurn = this.residentTurnActive; this.residentTurnActive = false;
     if (this.residentSettlement.pending) {
       this.residentSettlement.settle();

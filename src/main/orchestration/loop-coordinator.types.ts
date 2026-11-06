@@ -86,6 +86,8 @@ export interface LoopChildResult {
   promptBytes?: number;
   unresolvedToolCalls?: boolean;
   exitedCleanly: boolean;
+  /** How long Claude's prompt cache lasts for this loop's session, when a reply has reported it (T13). */
+  cacheLifetimeMs?: number;
   contextCompacted?: { previousUtilization: number; newUtilization: number; reason: string };
   /** Known provider occupancy at seal time, used for cold-cache restart. */
   contextOccupancy?: { used: number; total: number };

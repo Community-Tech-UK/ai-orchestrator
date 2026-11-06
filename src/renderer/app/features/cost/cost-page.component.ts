@@ -32,6 +32,8 @@ import { CostIpcService } from '../../core/services/ipc/cost-ipc.service';
 import { CostHistoryRestoreComponent } from './cost-history-restore.component';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import { EchartsThemedComponent } from '../../shared/components/echarts-themed/echarts-themed.component';
+import { BiggestTurnsComponent } from './biggest-turns.component';
+import { ClaudeCostDriftComponent } from './claude-cost-drift.component';
 import type { EChartsOption } from 'echarts';
 import { RendererPollSchedulerService } from '../../core/services/renderer-poll-scheduler.service';
 import type { CostPurposeSummary } from '../../../../shared/types/cost-purpose.types';
@@ -146,7 +148,7 @@ const EMPTY_BUDGET_STATUS: BudgetStatusData = {
 @Component({
   selector: 'app-cost-page',
   standalone: true,
-  imports: [CommonModule, EchartsThemedComponent, AioTooltipDirective, CostHistoryRestoreComponent, UsageWhereWentCardComponent],
+  imports: [CommonModule, EchartsThemedComponent, ClaudeCostDriftComponent, BiggestTurnsComponent, AioTooltipDirective, CostHistoryRestoreComponent, UsageWhereWentCardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './cost-page.component.html',
   styleUrl: './cost-page.component.scss',

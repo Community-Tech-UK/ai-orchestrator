@@ -1,6 +1,11 @@
 import { AUTOMATION_PROVIDER_DEFINITIONS } from './automation-provider.types';
 import type { SettingMetadata } from './settings-metadata.types';
 
+// Bounds typos only; pinned to CODEX_TURN_CEILING_MAX_TOKENS by codex-turn-token-ceiling.spec.ts.
+const CODEX_TURN_CEILING_MAX_TOKENS = 10_000_000_000;
+// The real limit of the round ceiling, stated beside every one of its settings (command mode only learns token use at the end of a turn).
+const CODEX_CEILING_APP_SERVER_ONLY = ' This only works for Codex sessions that use the Codex app server. A session in command mode (hardened sessions, or when the app server is unavailable) learns its token use only when a turn ends, so these limits cannot act during its turns. Codex sessions on a remote worker computer are not limited.';
+
 export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'workloadLevel', label: 'Workload',
@@ -69,6 +74,41 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
       { value: 'sonnet', label: 'Sonnet' },
       { value: 'trial', label: 'Trial: compare same-as-session and Sonnet' },
     ],
+  },
+  {
+    key: 'codexCheckerSkillCatalog',
+    label: 'Skills list for Codex checkers',
+    description: 'Plan Queue checkers on Codex. Trial runs half of the checks, grouped by plan item, without Codex\'s automatic skills list, which makes every request lighter; a skill a check needs is still loaded by name. A checker keeps its group for its whole life. Applies to checks started after you change it.',
+    type: 'select', category: 'advanced',
+    options: [
+      { value: 'trial', label: 'Trial (half of the checks)' },
+      { value: 'full', label: 'Always show the list' },
+      { value: 'omit', label: 'Never show the list' },
+    ],
+  },
+  {
+    key: 'codexTurnCeilingHarnessWorkWrapUpTokens',
+    label: 'Wrap-up request for Harness work',
+    description: 'When one Codex round in the plan queue, a loop, a scheduled job or a review has processed this many tokens (helpers included), Codex is asked once to wrap up. 0 turns it off.' + CODEX_CEILING_APP_SERVER_ONLY,
+    type: 'number', category: 'advanced', min: 0, max: CODEX_TURN_CEILING_MAX_TOKENS,
+  },
+  {
+    key: 'codexTurnCeilingHarnessWorkStopTokens',
+    label: 'Stop point for Harness work',
+    description: 'A Codex round in Harness-started work is stopped at this many processed tokens, helpers included. Plan queue jobs are set aside and are not retried automatically. 0 turns it off.' + CODEX_CEILING_APP_SERVER_ONLY,
+    type: 'number', category: 'advanced', min: 0, max: CODEX_TURN_CEILING_MAX_TOKENS,
+  },
+  {
+    key: 'codexTurnCeilingChatsWrapUpTokens',
+    label: 'Wrap-up request for your chats',
+    description: 'When one Codex round in your own chat has processed this many tokens (helpers included), Codex is asked once to wrap up. 0 turns it off.' + CODEX_CEILING_APP_SERVER_ONLY,
+    type: 'number', category: 'advanced', min: 0, max: CODEX_TURN_CEILING_MAX_TOKENS,
+  },
+  {
+    key: 'codexTurnCeilingChatsStopTokens',
+    label: 'Stop point for your chats',
+    description: 'Your own chats are never stopped while this is 0. Enter a token count only if you want a Codex round in a chat stopped there (you can send a message to carry on).' + CODEX_CEILING_APP_SERVER_ONLY,
+    type: 'number', category: 'advanced', min: 0, max: CODEX_TURN_CEILING_MAX_TOKENS,
   },
   {
     key: 'outputBufferSize',

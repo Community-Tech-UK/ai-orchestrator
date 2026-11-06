@@ -10,6 +10,15 @@ const policy={level:'off' as const,config:{'agents.enabled':false},outputLimit:4
 describe('Codex thread request policy transport',()=>{
   beforeEach(() => vi.mocked(recordSessionPolicy).mockClear());
 
+  it.each(['skills.max_context_tokens', 'skills.include_instructions', 'features.multi_agent_v2.multi_agent_mode_hint_text'])('retries an unsupported %s override on start and resume', async (key) => {
+    for (const resume of [false, true]) {
+      const request = vi.fn().mockRejectedValueOnce(new Error(`unsupported ${key}`)).mockResolvedValue({ threadId: 'thread' });
+      if (resume) await resumeCodexThread({ request }, { threadId: 'thread' }, policy);
+      else await startCodexThread({ request }, { cwd: '/repo' }, policy);
+      expect(request).toHaveBeenCalledTimes(2);
+      expect(request.mock.calls[1][1]).not.toHaveProperty('config');
+    }
+  });
   it('applies to starts/resumes and only drops config on an unsupported policy rejection',async()=>{
     const request=vi.fn().mockRejectedValueOnce(new Error('unknown field config')).mockResolvedValue({threadId:'thread'});
     await startCodexThread({request}, {cwd:'/repo'}, policy);
@@ -59,5 +68,48 @@ describe('Codex thread request policy transport',()=>{
       expect(record.instanceId).toBeUndefined();
       expect(JSON.stringify(record)).not.toContain('instanceId');
     }
+  });
+});
+
+describe('Codex trial logging in the session-policy log', () => {
+  const recorded = (): Record<string, unknown>[] => vi.mocked(recordSessionPolicy).mock.calls.map(([record]) => record as unknown as Record<string, unknown>);
+  beforeEach(() => vi.mocked(recordSessionPolicy).mockClear());
+  const checkerPolicy = {
+    level: 'full' as const,
+    config: { 'skills.max_context_tokens': 1500, 'skills.include_instructions': false, tool_output_token_limit: 4000 },
+    outputLimit: 4000, postTurnCompactPercent: null, catalog: 'omitted' as const, checkerArm: 'candidate' as const,
+  };
+
+  it('records the arm, the override key names and the catalog of a started thread', async () => {
+    const request = vi.fn().mockResolvedValue({ threadId: 'thread-1' });
+    const config: CodexCliConfig = { sessionKind: 'plan-queue', trialKey: 'item-1', queueRole: 'verifier' };
+    await startCodexThread({ request }, { cwd: '/repo' }, checkerPolicy, config);
+    expect(recorded()[0]).toMatchObject({
+      threadId: 'thread-1', sessionKind: 'plan-queue', operation: 'start', applied: true, catalog: 'omitted', checkerArm: 'candidate',
+      configKeys: ['skills.include_instructions', 'skills.max_context_tokens', 'tool_output_token_limit'],
+    });
+    expect(config.skillCatalogOmitted).toBe(true);
+  });
+
+  it('records a rejected override set as no keys on Codex\'s own catalog, and leaves the catalog on', async () => {
+    const request = vi.fn().mockRejectedValueOnce(new Error('unsupported skills.include_instructions')).mockResolvedValue({ threadId: 'thread-2' });
+    const config: CodexCliConfig = { sessionKind: 'plan-queue', trialKey: 'item-1', queueRole: 'verifier' };
+    await resumeCodexThread({ request }, { threadId: 'thread-2' }, checkerPolicy, config);
+    expect(recorded()[0]).toMatchObject({ threadId: 'thread-2', operation: 'resume', applied: false, catalog: 'native', configKeys: [], checkerArm: 'candidate' });
+    expect(config.skillCatalogOmitted).toBe(false);
+  });
+
+  it('names the clean-helper hint key for a chat arm without logging its text', async () => {
+    const request = vi.fn().mockResolvedValue({ threadId: 'thread-3' });
+    const chatPolicy = {
+      level: 'economy' as const,
+      config: { 'agents.default_subagent_reasoning_effort': 'medium', 'features.multi_agent_v2.multi_agent_mode_hint_text': 'Pass fork_turns="none" and put everything the helper needs in the message.' },
+      outputLimit: 6000, postTurnCompactPercent: 70, catalog: 'native' as const, arm: 'cheaper' as const,
+    };
+    await startCodexThread({ request }, { cwd: '/repo' }, chatPolicy, { trialKey: 'chat-1', trialArm: 'cheaper' });
+    const [record] = recorded();
+    expect(record).toMatchObject({ arm: 'cheaper', level: 'economy', catalog: 'native', configKeys: ['agents.default_subagent_reasoning_effort', 'features.multi_agent_v2.multi_agent_mode_hint_text'] });
+    expect(record).not.toHaveProperty('checkerArm');
+    expect(JSON.stringify(record)).not.toContain('fork_turns');
   });
 });

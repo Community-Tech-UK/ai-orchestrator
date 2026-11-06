@@ -20,6 +20,7 @@ import { ConfirmService } from '../confirm/confirm.service';
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   computed,
   effect,
   inject,
@@ -32,6 +33,8 @@ import {
   type ProviderAccountRoutePreview,
   type ProviderAccountView,
 } from '../../core/services/ipc/provider-account-ipc.service';
+import { RuntimeChangePreviewIpcService } from '../../core/services/ipc/runtime-change-preview-ipc.service';
+import { InstanceStateService } from '../../core/state/instance/instance-state.service';
 import type {
   AccountRouteSource,
   PooledProvider,
@@ -96,6 +99,8 @@ const OWNERSHIP_COPY: Record<PooledProvider, { subscription: string; vendor: str
 export class ProviderAccountChipComponent {
   private readonly confirmService = inject(ConfirmService);
   private readonly ipc = inject(ProviderAccountIpcService);
+  private readonly runtimePreview = inject(RuntimeChangePreviewIpcService);
+  private readonly instances = inject(InstanceStateService);
 
   readonly provider = input<string | null>(null);
   readonly mode = input<'draft' | 'session' | 'continuation'>('draft');
@@ -118,6 +123,16 @@ export class ProviderAccountChipComponent {
   private readonly errorSignal = signal<string | null>(null);
   /** Bumped per load so a slower, older response never overwrites a newer one. */
   private loadGeneration = 0;
+  /** Every selection and runtime replacement withdraws an older pending move. */
+  private actionGeneration = 0;
+  private readonly actionContext = computed(() => {
+    const id = this.instanceId();
+    const runtime = id ? this.instances.getInstance(id) : undefined;
+    return JSON.stringify([id, this.provider(), this.mode(), this.currentProfileId(), this.chosenProfileId(),
+      this.model(), this.executionNodeId(), runtime?.sessionId, runtime?.providerSessionId, runtime?.restartEpoch,
+      runtime?.adapterGeneration, runtime?.provider, runtime?.currentModel, runtime?.reasoningEffort,
+      runtime?.accountProfileId, runtime?.runtimeSummary, runtime?.desiredRuntime]);
+  });
 
   readonly pooled = computed<PooledProvider | null>(() => {
     const provider = this.provider();
@@ -191,6 +206,8 @@ export class ProviderAccountChipComponent {
   });
 
   constructor() {
+    inject(DestroyRef).onDestroy(() => { this.actionGeneration += 1; });
+    effect(() => { this.actionContext(); this.actionGeneration += 1; });
     effect(() => {
       const provider = this.pooled();
       const override = this.mode() === 'session' ? '' : this.chosenProfileId() ?? '';
@@ -211,9 +228,19 @@ export class ProviderAccountChipComponent {
   async onSelect(event: Event): Promise<void> {
     const target = event.target as HTMLSelectElement;
     const value = target.value;
+    // The move belongs to the session on screen when it was started. Anything
+    // that replaces that session (or takes the chip away) while its cost is
+    // still being worked out drops the move instead of asking about, or moving,
+    // a conversation the user is no longer looking at.
+    const boundInstance = this.instanceId();
+    const generation = ++this.actionGeneration;
+    const context = this.actionContext();
+    const stillBound = (): boolean =>
+      this.actionGeneration === generation && this.actionContext() === context;
     const chosen = this.accountsSignal().find((account) => account.id === value);
     if (chosen && !chosen.enabled) {
-      const turnedOn = await this.turnOnForSelection(chosen);
+      const turnedOn = await this.turnOnForSelection(chosen, stillBound);
+      if (!stillBound()) return;
       if (!turnedOn) {
         target.value = this.selectedValue();
         return;
@@ -223,14 +250,18 @@ export class ProviderAccountChipComponent {
       this.accountChosen.emit(value || null);
       return;
     }
-    const instanceId = this.instanceId();
-    if (!instanceId || value === this.currentProfileId()) return;
-    const confirmed = await this.confirmService.confirm({ message: `Move this conversation to "${this.labelFor(value)}"? The current session ends and the conversation continues on that account.`, confirmLabel: 'Move conversation', danger: true });
+    if (!boundInstance || value === this.currentProfileId()) return;
+    // Say what the move will cost before asking (T17); nothing is added when it costs nothing.
+    const cost = await this.runtimePreview.preview(boundInstance, { accountProfileId: value });
+    if (!stillBound()) return;
+    const confirmed = await this.confirmService.confirm({ message: `Move this conversation to "${this.labelFor(value)}"? The current session ends and the conversation continues on that account.${cost ? ` ${cost.text}` : ''}`, confirmLabel: 'Move conversation', danger: true });
+    if (!stillBound()) return;
     if (!confirmed) {
       target.value = this.currentProfileId();
       return;
     }
-    const response = await this.ipc.switchSession(instanceId, value);
+    const response = await this.ipc.switchSession(boundInstance, value);
+    if (!stillBound()) return;
     this.errorSignal.set(response.success ? null : response.error?.message ?? 'The account could not be switched.');
     if (!response.success) target.value = this.currentProfileId();
   }
@@ -240,7 +271,7 @@ export class ProviderAccountChipComponent {
    * records that confirmation, then turns the account on, before the session
    * uses it. Cancelling leaves the account off.
    */
-  private async turnOnForSelection(account: ProviderAccountView): Promise<boolean> {
+  private async turnOnForSelection(account: ProviderAccountView, stillBound: () => boolean): Promise<boolean> {
     const provider = this.pooled();
     if (!provider || !this.ownershipOpen()) return false;
     const copy = OWNERSHIP_COPY[provider];
@@ -251,11 +282,13 @@ export class ProviderAccountChipComponent {
     });
     if (!confirmed) return false;
     const acknowledged = await this.ipc.acknowledgeOwnership(provider);
+    if (!stillBound()) return false;
     if (!acknowledged.success) {
       this.errorSignal.set(acknowledged.error?.message ?? 'The accounts could not be confirmed.');
       return false;
     }
     const enabled = await this.ipc.update({ provider, profileId: account.id, enabled: true });
+    if (!stillBound()) return false;
     if (!enabled.success) {
       this.errorSignal.set(enabled.error?.message ?? 'The account could not be turned on.');
       return false;

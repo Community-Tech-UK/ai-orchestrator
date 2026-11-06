@@ -1,3 +1,4 @@
+    @let yoloNote = yoloCostNote();
     <div class="detail-header">
       @if (globalPause.holdsAutomaticInput(instance().id)) {
         <p role="status">Paused for restart. Typing here takes it out of the pause.</p>
@@ -196,6 +197,8 @@
               [selection]="pickerSelection()"
               [disabledReason]="pickerDisabledReason()"
               [switchNoteForProvider]="modelSwitchNoteForProvider"
+              [optionNote]="optionNote()"
+              (optionPreview)="optionPreview.emit($event)"
               (selectionChange)="modelSelectionChange.emit($event)"
             />
             @if (desiredRuntimeLabel(); as pendingLabel) {
@@ -242,14 +245,17 @@
                       ? copy('header.yoloPendingOn')
                       : copy('header.yoloPendingOff'))
                   : instance().yoloMode
-                    ? copy('header.yoloOn')
-                    : copy('header.yoloOff')
+                    ? copy('header.yoloOn') + (yoloNote ? '. ' + yoloNote : '')
+                    : copy('header.yoloOff') + (yoloNote ? '. ' + yoloNote : '')
             "
             (click)="!isStartingOrRecovering() && !isTogglingYolo() && toggleYolo.emit()"
           >
             {{ isTogglingYolo() ? 'Changing…' : 'YOLO' }} {{ instance().yoloMode ? 'ON' : 'OFF'
             }}{{ yoloPending() ? (instance().pendingYoloMode ? ' → ON' : ' → OFF') : '' }}
           </button>
+          @if (yoloNote) {
+            <span class="header-action-detail">{{ yoloNote }}</span>
+          }
           <app-session-computer-use-control [instance]="instance()" />
           @if (supportsFastMode()) {
             <button
@@ -296,6 +302,7 @@
               [showDetails]="true"
               [instanceId]="instance().id"
             />
+            <app-fanout-cost [instanceId]="instance().id" />
           </div>
         }
       </div>

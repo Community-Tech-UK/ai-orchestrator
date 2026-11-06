@@ -93,6 +93,7 @@ describe('ModelPickerController', () => {
       ['xhigh', 'XHigh'], ['max', 'Max'], ['ultra', 'Ultra'],
     ]);
     expect(options.filter(o => o.isDefault).map(o => o.id)).toEqual(['medium']);
+    expect(options.find(o => o.id === 'ultra')?.description).toBe('Lets Codex start helper agents by itself; uses much more of your allowance.');
     expect(controller.reasoningOptionsForProvider('codex', {
       ...model, reasoning: { supportedEfforts: ['low', 'medium'], defaultEffort: 'medium' },
     }).filter(o => o.isDefault).map(o => o.id)).toEqual(['medium']);

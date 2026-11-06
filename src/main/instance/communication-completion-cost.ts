@@ -2,6 +2,7 @@ import type { ProviderRuntimeEvent } from '@contracts/types/provider-runtime-eve
 import { extractProviderErrorDiagnostics } from './instance-communication.diagnostics';
 import { machineSessionReasonOf } from '../../shared/utils/machine-session';
 import { resolveSpendPurpose } from '../core/system/spend-purpose';
+import { sessionKindOf } from '../../shared/types/session-kind.types';
 /**
  * Per-turn cost recording and estimate-vs-actual telemetry.
  *
@@ -11,7 +12,7 @@ import { resolveSpendPurpose } from '../core/system/spend-purpose';
 
 import { getLogger } from '../logging/logger';
 import { getCostTracker } from '../core/system/cost-tracker';
-import { recordInstanceTurnAttribution, type PlanQueueCostContext } from '../core/system/cost-attribution';
+import { recordInstanceTurnAttribution, type CostAttributionRecord, type PlanQueueCostContext } from '../core/system/cost-attribution';
 import { getCacheAnalyticsService } from '../context/cache-analytics-service';
 import { normalizeUsage, type UsageLike } from '../../shared/util/usage-normalization';
 import { getTokenCounter } from '../rlm/token-counter';
@@ -28,6 +29,14 @@ export function captureCompletionCostIdentity(instance: Instance): CompletionCos
   return { sessionId: instance.sessionId, provider: instance.provider, currentModel: instance.currentModel,
     parentId: instance.parentId, agentId: instance.agentId, metadata: { ...instance.metadata },
     reasoningEffort: instance.reasoningEffort };
+}
+
+function codexTurnOf(response: CliResponse): CostAttributionRecord['codexTurn'] {
+  const identity = response.metadata?.['codexTurn'];
+  if (!identity || typeof identity !== 'object' || !('threadId' in identity) || !('turnId' in identity)) return undefined;
+  const { threadId, turnId } = identity;
+  return typeof threadId === 'string' && threadId.length > 0 && typeof turnId === 'string' && turnId.length > 0
+    ? { threadId, turnId } : undefined;
 }
 
 function queueCostContext(metadata: Instance['metadata']): PlanQueueCostContext | undefined {
@@ -137,6 +146,8 @@ export function recordCompletionCost(
       costKnown: attributionCost !== undefined,
       costSource: providerCost !== undefined ? 'provider' : pricedCost !== undefined ? 'priced' : freeProvider ? 'free' : 'unknown',
       isEstimated,
+      sessionKind: sessionKindOf(machineSessionReasonOf(billingInstance)),
+      codexTurn: billingInstance.provider === 'codex' ? codexTurnOf(response) : undefined,
       ...(billingInstance.metadata?.['spendPurpose'] === 'automation' || billingInstance.metadata?.['spendPurpose'] === 'channel'
         ? { spendPurpose: billingInstance.metadata['spendPurpose'] } : {}),
     });

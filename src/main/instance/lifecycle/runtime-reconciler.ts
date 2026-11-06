@@ -54,7 +54,7 @@ import {
   type SwapModelSource,
   type SwapTargetProvider,
 } from './model-change-provider-swap';
-import { computeRuntimeDiff, planContinuity } from './runtime-reconciler-plan';
+import { computeRuntimeDiff, isPermissionOnlyChange, planContinuity, planRuntimeContinuity } from './runtime-reconciler-plan';
 import { resolveReconcilerResumeHealth } from './runtime-reconciler-resume-health';
 import { prepareRemoteModelChange } from './remote-runtime-model-change';
 import { assertRuntimeChangeOwner, createOwnedRuntimeAdapter, evaluateOwnedResumeHealth, publishRuntimeChange } from './runtime-reconciler-ownership';
@@ -183,12 +183,7 @@ export class RuntimeReconciler {
       // replay for every Claude change to guarantee a *model* change actually
       // takes effect. That reasoning doesn't apply when the model isn't
       // changing — Claude native-resume is safe for a pure yolo toggle.
-      const isYoloOnlyChange =
-        diff.yoloModeChanged
-        && !diff.providerChanged
-        && !diff.modelChanged
-        && !diff.reasoningChanged
-        && !diff.runtimeTargetChanged;
+      const isYoloOnlyChange = isPermissionOnlyChange(diff);
       if (diff.yoloModeChanged && nextYoloMode) {
         logger.warn('YOLO mode enabled for instance', {
           instanceId: instance.id,
@@ -332,18 +327,14 @@ export class RuntimeReconciler {
         const accountContinuation = diff.accountProfileChanged ? applyAccountHandoff(instance, desired) : undefined;
         const cliType = await this.deps.resolveCliTypeForInstance(instance);
         assertCurrent();
-        const continuity = isYoloOnlyChange
-          ? (providerHasConversation && oldAdapterCapabilities.supportsResume
-              ? (oldAdapterCapabilities.supportsForkSession ? 'native-resume-fork' : 'native-resume')
-              : 'replay')
-          : planContinuity({
-              diff,
-              capabilities: oldAdapterCapabilities,
-              hasConversation: providerHasConversation,
-              cliType,
-              isLocalModelTarget: !!localModelTarget,
-              accountContinuation,
-            });
+        const continuity = planRuntimeContinuity({
+          diff,
+          capabilities: oldAdapterCapabilities,
+          hasConversation: providerHasConversation,
+          cliType,
+          isLocalModelTarget: !!localModelTarget,
+          accountContinuation,
+        });
         const shouldResume = continuity !== 'replay';
         let actuallyResumed = shouldResume;
         const shouldForkSession = continuity === 'native-resume-fork';
@@ -441,7 +432,7 @@ export class RuntimeReconciler {
             cliType,
             instance.workingDirectory,
           ),
-          chromeDevtoolsMcp: spawnConfigBuilder.getChromeDevtoolsMcpOptions(instance.executionLocation) ?? undefined,
+          chromeDevtoolsMcp: spawnConfigBuilder.getChromeDevtoolsMcpOptions(instance.executionLocation, instance.id) ?? undefined,
           browserGatewayMcp: spawnConfigBuilder.getBrowserGatewayMcpOptions(
             instance.executionLocation,
             instance.id,

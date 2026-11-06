@@ -133,6 +133,43 @@ describe('DeferredPermissionHandler', () => {
     expect(deps.queueUpdate).toHaveBeenCalledWith(instance.id, 'idle', instance.contextUsage);
   });
 
+  it('names the instance to every MCP getter so a Plan Queue role still applies after a permission resume', async () => {
+    const instance = makeInstance({ metadata: { planQueueRole: 'verifier' } });
+    const newAdapter = { config: {}, spawn: vi.fn().mockResolvedValue(4321) } as const;
+    const ops = {
+      transitionState: vi.fn((target: Instance, status: Instance['status']) => { target.status = status; }),
+      resolveCliTypeForInstance: vi.fn().mockResolvedValue('claude-cli'),
+      getMcpConfig: vi.fn().mockReturnValue([]),
+      getBrowserGatewayMcpOptions: vi.fn().mockReturnValue(null),
+      getChromeDevtoolsMcpOptions: vi.fn().mockReturnValue(null),
+      getPermissionHookPath: vi.fn().mockReturnValue('/hook.js'),
+      waitForResumeHealth: vi.fn().mockResolvedValue(true),
+      createCliAdapter: vi.fn().mockReturnValue(newAdapter),
+      acquireSessionMutex: vi.fn().mockResolvedValue(() => undefined),
+    };
+    const handler = new DeferredPermissionHandler(
+      {
+        getInstance: vi.fn().mockReturnValue(instance),
+        getAdapter: vi.fn().mockReturnValue({
+          getName: vi.fn().mockReturnValue('claude-cli'),
+          getRuntimeCapabilities: vi.fn().mockReturnValue({ supportsResume: true, supportsDeferPermission: true }),
+          terminate: vi.fn().mockResolvedValue(undefined),
+          getDeferredToolUse: vi.fn().mockReturnValue({ toolName: 'bash', toolInput: {}, toolUseId: 'tool-1', sessionId: 'session-resume-1', deferredAt: 10 }),
+        }),
+        setAdapter: vi.fn(), deleteAdapter: vi.fn().mockReturnValue(true), deleteDiffTracker: vi.fn(), setDiffTracker: vi.fn(),
+        setupAdapterEvents: vi.fn(), queueUpdate: vi.fn(),
+      },
+      ops,
+      { writeDecision: vi.fn(), getDecisionDir: vi.fn().mockReturnValue('/tmp/decisions'), createDiffTracker: vi.fn().mockReturnValue({}) },
+    );
+
+    await handler.resumeAfterDeferredPermission(instance.id, true);
+
+    expect(ops.getMcpConfig).toHaveBeenCalledWith(instance.executionLocation, instance.id, 'claude-cli');
+    expect(ops.getBrowserGatewayMcpOptions).toHaveBeenCalledWith(instance.executionLocation, instance.id, 'claude-cli');
+    expect(ops.getChromeDevtoolsMcpOptions).toHaveBeenCalledWith(instance.executionLocation, instance.id);
+  });
+
   it('fails fast when no deferred tool use is pending', async () => {
     const instance = makeInstance();
     const handler = new DeferredPermissionHandler(

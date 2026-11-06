@@ -29,9 +29,9 @@ export function handleCodexIdleUsage(notification: AppServerNotification, host: 
     const usage = (params['tokenUsage'] ?? params['token_usage']) as Record<string, unknown> | undefined;
     const total = (usage?.['total'] ?? usage?.['total_token_usage']) as Record<string, unknown> | undefined;
     const last = (usage?.['last'] ?? usage?.['last_token_usage']) as Record<string, unknown> | undefined;
-    host.accounting.observe(threadId, total, last, child);
-    if (!child) host.rootSample(tokenCount(last?.['totalTokens'] ?? last?.['total_tokens']),
-      tokenCount(usage?.['modelContextWindow'] ?? usage?.['model_context_window']));
+    const window = tokenCount(usage?.['modelContextWindow'] ?? usage?.['model_context_window']);
+    host.accounting.observe(threadId, total, last, child, window);
+    if (!child) host.rootSample(tokenCount(last?.['totalTokens'] ?? last?.['total_tokens']), window);
   }
   host.flush();
 }
