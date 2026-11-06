@@ -381,6 +381,8 @@ export const SETTINGS_TOOL_POLICY = {
   showToolMessages: open(z.boolean()),
   showThinking: open(z.boolean()),
   thinkingDefaultExpanded: open(z.boolean()),
+  showWorkingTips: open(z.boolean()),
+  claudeShowTaskList: open(z.boolean()),
   showCost: open(z.boolean()),
   maxRecentDirectories: open(numberSettingSchema('maxRecentDirectories')),
   keybindingCustomizations: open(keybindingCustomizationsSchema),

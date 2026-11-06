@@ -1,8 +1,10 @@
-import { Component } from '@angular/core';
+import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HybridSearchOptions, HybridSearchResult } from '../../../../shared/types/codebase.types';
 import { CodebaseIpcService } from '../../core/services/ipc/codebase-ipc.service';
+import { InstanceStore } from '../../core/state/instance.store';
+import { HistoryStore } from '../../core/state/history.store';
 import {
   ComposerAutocompleteComponent,
   applyComposerCompletion,
@@ -11,6 +13,15 @@ import {
 } from './composer-autocomplete';
 
 describe('detectComposerCompletion', () => {
+  it('detects the one-token session prefix and inserts a permission chip', () => {
+    const text = 'Ask @session:fix';
+    const query = detectComposerCompletion(text, text.length)!;
+    expect(query.kind).toBe('session');
+    expect(query.query).toBe('fix');
+    expect(applyComposerCompletion(text, query, { kind: 'session', label: 'Fix', insertText: '[session: Fix · target]' }).text).toBe('Ask [session: Fix · target] ');
+    expect(detectComposerCompletion('@session fix', 8)?.kind).toBe('file');
+    expect(detectComposerCompletion('@session:', 9)?.kind).toBe('session');
+  });
   it('detects a leading slash-command query', () => {
     expect(detectComposerCompletion('/review', '/review'.length)).toEqual({
       kind: 'slash-command',
@@ -101,6 +112,8 @@ describe('ComposerAutocompleteComponent', () => {
       imports: [ComposerAutocompleteHostComponent],
       providers: [
         { provide: CodebaseIpcService, useValue: fakeCodebase },
+        { provide: InstanceStore, useValue: { instances: signal([{ id: 'same', displayName: 'Fix same project', workingDirectory: '/repo' }]) } },
+        { provide: HistoryStore, useValue: { entries: signal([{ id: 'other', displayName: 'Fix other project', originalInstanceId: 'past-other', workingDirectory: '/elsewhere' }]), loading: signal(false) } },
       ],
     }).compileComponents();
 
@@ -126,6 +139,19 @@ describe('ComposerAutocompleteComponent', () => {
     expect(items.map(item => item.textContent)).toEqual([
       expect.stringContaining('src/main/input-panel.component.ts'),
     ]);
+  });
+
+  it('offers live and history session chips with the current project first', async () => {
+    const textarea = getTextarea(fixture);
+    await typeInTextarea(fixture, textarea, 'Ask @session:fix');
+    const buttons = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('.composer-completion-item'));
+    expect(buttons).toHaveLength(2);
+    expect(buttons[0].textContent).toContain('Fix same project');
+    expect(buttons[1].textContent).toContain('Read on request only');
+    buttons[1].click();
+    fixture.detectChanges();
+    expect(textarea.value).toBe('Ask [session: Fix other project · other] ');
+    expect(fakeCodebase.search).not.toHaveBeenCalled();
   });
 
   it('accepts the selected completion from the keyboard while preserving textarea focus', async () => {

@@ -51,6 +51,7 @@ const mockLoadConversation = vi.fn();
 const mockMarkNativeResumeFailed = vi.fn();
 const mockDeleteEntry = vi.fn();
 const mockArchiveEntry = vi.fn();
+const mockUnarchiveEntry = vi.fn();
 const mockGetEntries = vi.fn().mockReturnValue([]);
 const mockBackfillMissingAiTitles = vi.fn();
 const mockGenerateLocalTitle = vi.fn();
@@ -80,6 +81,7 @@ vi.mock('../../../history', () => ({
     markNativeResumeFailed: mockMarkNativeResumeFailed,
     deleteEntry: mockDeleteEntry,
     archiveEntry: mockArchiveEntry,
+    unarchiveEntry: mockUnarchiveEntry,
     clearAll: vi.fn(),
     backfillMissingAiTitles: mockBackfillMissingAiTitles,
   }),
@@ -241,6 +243,7 @@ describe('session-handlers', () => {
     mockMarkNativeResumeFailed.mockReset();
     mockDeleteEntry.mockReset();
     mockArchiveEntry.mockReset();
+    mockUnarchiveEntry.mockReset();
     mockGetEntries.mockReset();
     mockGetEntries.mockReturnValue([]);
     mockListArchivedSessions.mockReset();
@@ -328,6 +331,25 @@ describe('session-handlers', () => {
 
       expect(mockArchiveEntry).toHaveBeenCalledWith('entry-1');
       expect(mockDeleteEntry).toHaveBeenCalledWith('entry-1');
+    });
+  });
+
+  describe('history unarchive', () => {
+    it('registers unarchive and returns the real restore outcome', async () => {
+      mockUnarchiveEntry.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+      expect(await invoke(IPC_CHANNELS.HISTORY_UNARCHIVE, { entryId: 'entry-1' })).toMatchObject({ success: true });
+      expect(await invoke(IPC_CHANNELS.HISTORY_UNARCHIVE, { entryId: 'gone' })).toMatchObject({ success: false, error: { code: 'HISTORY_NOT_FOUND' } });
+      expect(mockUnarchiveEntry.mock.calls).toEqual([['entry-1'], ['gone']]);
+    });
+    it('validates the payload before calling history', async () => {
+      expect(await invoke(IPC_CHANNELS.HISTORY_UNARCHIVE, {})).toMatchObject({ success: false, error: { code: 'VALIDATION_FAILED' } });
+      expect(mockUnarchiveEntry).not.toHaveBeenCalled();
+    });
+    it('rejects untrusted unarchive calls before reading history', async () => {
+      const refusal: IpcResponse = { success: false, error: { code: 'IPC_TRUST_FAILED', message: 'Untrusted', timestamp: 1 } };
+      registerSessionHandlers({ instanceManager: mockInstanceManager, serializeInstance: vi.fn(), ensureTrustedSender: () => refusal });
+      expect(await invoke(IPC_CHANNELS.HISTORY_UNARCHIVE, { entryId: 'entry-1' })).toEqual(refusal);
+      expect(mockUnarchiveEntry).not.toHaveBeenCalled();
     });
   });
 

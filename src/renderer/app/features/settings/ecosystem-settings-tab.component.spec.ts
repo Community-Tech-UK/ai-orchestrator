@@ -1,3 +1,4 @@
+import { ConfirmService } from '../../shared/confirm/confirm.service';
 import { ɵresolveComponentResources as resolveComponentResources, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { readFileSync } from 'node:fs';
@@ -79,7 +80,7 @@ describe('EcosystemSettingsTabComponent', () => {
     writeTextFile: ReturnType<typeof vi.fn>;
     openPath: ReturnType<typeof vi.fn>;
   };
-  let confirmSpy: MockInstance<Window['confirm']>;
+  let confirmSpy: MockInstance<ConfirmService['confirm']>;
 
   function render(): ComponentFixture<EcosystemSettingsTabComponent> {
     const f = TestBed.createComponent(EcosystemSettingsTabComponent);
@@ -128,7 +129,6 @@ describe('EcosystemSettingsTabComponent', () => {
       writeTextFile: vi.fn(async () => ({ success: true, data: { ok: true } })),
       openPath: vi.fn(async () => ({ success: true })),
     };
-    confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
 
     await TestBed.configureTestingModule({
       imports: [EcosystemSettingsTabComponent],
@@ -153,6 +153,7 @@ describe('EcosystemSettingsTabComponent', () => {
         },
       ],
     }).compileComponents();
+    confirmSpy = vi.spyOn(TestBed.inject(ConfirmService), 'confirm').mockResolvedValue(true);
   });
 
   afterEach(() => {
@@ -328,7 +329,7 @@ describe('EcosystemSettingsTabComponent', () => {
       await settle(fixture);
       await dirtyTheOpenCommand(fixture);
 
-      confirmSpy.mockReturnValue(false);
+      confirmSpy.mockResolvedValue(false);
       categoryTab(fixture, 'Agents')!.click();
       await settle(fixture);
 
@@ -344,7 +345,7 @@ describe('EcosystemSettingsTabComponent', () => {
       await settle(fixture);
       await dirtyTheOpenCommand(fixture);
 
-      confirmSpy.mockReturnValue(true);
+      confirmSpy.mockResolvedValue(true);
       categoryTab(fixture, 'Agents')!.click();
       await settle(fixture);
 
@@ -358,7 +359,7 @@ describe('EcosystemSettingsTabComponent', () => {
       await dirtyTheOpenCommand(fixture);
       api.ecosystemList.mockClear();
 
-      confirmSpy.mockReturnValue(false);
+      confirmSpy.mockResolvedValue(false);
       const select = fixture.nativeElement.querySelector('#ecosystem-wd-select') as HTMLSelectElement;
       select.value = '/other';
       select.dispatchEvent(new Event('change'));
@@ -375,7 +376,7 @@ describe('EcosystemSettingsTabComponent', () => {
       await dirtyTheOpenCommand(fixture);
       api.ecosystemList.mockClear();
 
-      confirmSpy.mockReturnValue(false);
+      confirmSpy.mockResolvedValue(false);
       const reloadButton = Array.from(fixture.nativeElement.querySelectorAll('.toolbar .btn'))
         .find((b) => (b as HTMLButtonElement).textContent?.trim() === 'Reload') as HTMLButtonElement;
       reloadButton.click();
@@ -402,5 +403,87 @@ describe('EcosystemSettingsTabComponent', () => {
       expect(confirmSpy).not.toHaveBeenCalled();
       expect(itemButtons(fixture)).toHaveLength(2);
     });
+
+    it('a watcher reload and other navigation while discard is pending do not queue another box or borrow the answer', async () => {
+      fixture = render();
+      await settle(fixture);
+      await dirtyTheOpenCommand(fixture);
+      api.ecosystemList.mockClear();
+      let answer!: (yes: boolean) => void;
+      confirmSpy.mockImplementationOnce(() => new Promise<boolean>((resolve) => { answer = resolve; }));
+      const switchCategory = fixture.componentInstance.selectCategory('agent');
+      const watcher = api.onEcosystemChanged.mock.calls[0][0] as (payload: unknown) => void;
+      vi.useFakeTimers();
+      try {
+        watcher({ workingDirectory: WD });
+        await vi.advanceTimersByTimeAsync(300);
+        await fixture.componentInstance.select('tool', 'lookup', `${WD}/lookup.js`);
+        expect(confirmSpy).toHaveBeenCalledTimes(1);
+        expect(api.ecosystemList).not.toHaveBeenCalled();
+        expect(fixture.componentInstance.fileContent()).toBe('unsaved edit');
+        answer(true);
+        await switchCategory;
+        expect(fixture.componentInstance.activeCategory()).toBe('agent');
+        expect(fixture.componentInstance.selectedKind()).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('does not discard edits made after the box opened or navigate after destruction', async () => {
+      fixture = render();
+      await settle(fixture);
+      await dirtyTheOpenCommand(fixture);
+      let answer!: (yes: boolean) => void;
+      confirmSpy.mockImplementation(() => new Promise<boolean>((resolve) => { answer = resolve; }));
+      const switchCategory = fixture.componentInstance.selectCategory('agent');
+      fixture.componentInstance.fileContent.set('newer edit');
+      answer(true);
+      await switchCategory;
+      expect(fixture.componentInstance.activeCategory()).toBe('command');
+      expect(fixture.componentInstance.fileContent()).toBe('newer edit');
+      const later = fixture.componentInstance.selectCategory('tool');
+      fixture.destroy();
+      answer(true);
+      await later;
+      expect(fixture.componentInstance.activeCategory()).toBe('command');
+    });
+
+    it.each(['category', 'working-directory', 'folder-picker', 'catalog-reload', 'item', 'style', 'candidate', 'file-reload'])(
+      'awaits the discard decision for %s before changing state', async (action) => {
+        fixture = render();
+        await settle(fixture);
+        await dirtyTheOpenCommand(fixture);
+        api.readTextFile.mockClear();
+        api.ecosystemList.mockClear();
+        let answer!: (yes: boolean) => void;
+        confirmSpy.mockImplementationOnce(() => new Promise<boolean>((resolve) => { answer = resolve; }));
+        const component = fixture.componentInstance;
+        const select = fixture.nativeElement.querySelector('#ecosystem-wd-select') as HTMLSelectElement;
+        select.value = '/other';
+        const actions: Record<string, () => unknown> = {
+          category: () => component.selectCategory('agent'),
+          'working-directory': () => component.onSelectWorkingDirectory({ target: select } as unknown as Event),
+          'folder-picker': () => component.pickWorkingDirectory(),
+          'catalog-reload': () => component.reload(),
+          item: () => component.select('tool', 'lookup', '/other.js'),
+          style: () => component.selectOutputStyle('concise'),
+          candidate: () => component.selectCandidateFile('/other.md'),
+          'file-reload': () => component.reloadSelectedFile(),
+        };
+        const pending = actions[action]();
+        expect(confirmSpy).toHaveBeenCalledTimes(1);
+        expect(component.fileContent()).toBe('unsaved edit');
+        expect(api.readTextFile).not.toHaveBeenCalled();
+        expect(api.ecosystemList).not.toHaveBeenCalled();
+        answer(false);
+        await pending;
+        expect(component.fileContent()).toBe('unsaved edit');
+        expect(component.activeCategory()).toBe('command');
+        expect(component.workingDirectory()).toBe(WD);
+        expect(component.selectedKind()).toBe('command');
+        if (action === 'working-directory') expect(select.value).toBe(WD);
+      },
+    );
   });
 });

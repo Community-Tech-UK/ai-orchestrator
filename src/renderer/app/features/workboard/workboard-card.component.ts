@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal } from '@angular/core';
+import { UndoService } from '../../core/services/undo.service';
 import { LoopStore } from '../../core/state/loop.store';
 import { InstanceIpcService } from '../../core/services/ipc/instance-ipc.service';
 import { basename, relativeTime } from './workboard-projection';
@@ -125,6 +126,7 @@ const CARD_ACTIONABLE_REQUEST_TYPES = new Set(['approve_action', 'confirm']);
 })
 export class WorkboardCardComponent {
   private readonly workboardStore = inject(WorkboardStore);
+  private readonly undo = inject(UndoService);
   private readonly loopStore = inject(LoopStore);
   private readonly instanceIpc = inject(InstanceIpcService);
 
@@ -270,6 +272,9 @@ export class WorkboardCardComponent {
       this.workboardStore.unsnoozeItem(id);
     } else {
       this.workboardStore.snoozeItem(id);
+      const store = this.workboardStore;
+      if (store.isSnoozed(id)) this.undo.register({ kind: 'snooze-card', message: `Snoozed "${this.item().title}". It comes back if it needs you again.`,
+        undo: () => { if (!store.isSnoozed(id)) return false; store.unsnoozeItem(id); return true; } });
     }
   }
 }

@@ -28,6 +28,21 @@ describe('ActivityStatusComponent', () => {
     return elapsed?.textContent?.trim() ?? '';
   }
 
+  it('shows quiet work only after ten seconds without activity', () => {
+    fixture.componentRef.setInput('lastEventAt', NOW - 5000);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.displayText()).toBe('Processing...');
+    fixture.componentRef.setInput('lastEventAt', NOW - 12000);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.displayText()).toBe('Working quietly');
+    fixture.componentRef.setInput('activity', 'Reading files');
+    fixture.detectChanges();
+    expect(fixture.componentInstance.displayText()).toBe('Reading files');
+    fixture.componentRef.setInput('status', 'idle');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.activity-status')).toBeNull();
+  });
+
   it('keeps seconds below one minute and minutes plus seconds below one hour', () => {
     expect(renderElapsed(59_999)).toBe('59s');
     expect(renderElapsed(59 * 60_000 + 59_999)).toBe('59m 59s');

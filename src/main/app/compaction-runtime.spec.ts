@@ -14,6 +14,12 @@ import {
   setupCompactionCoordinator,
 } from './compaction-runtime';
 import { setDecisionLogRecorderForTesting } from '../context/compaction-decision-log';
+import { CONTEXT_RECOVERY_LOOKUP_SENTENCE } from '../context/context-recovery-block';
+import {
+  initializeSessionTranscriptReader,
+  SessionTranscriptReader,
+} from '../session/session-transcript-reader';
+import type { OutputMessage } from '../../shared/types/instance.types';
 
 const settingsManagerMock = vi.hoisted(() => ({
   get: vi.fn(() => 0),
@@ -51,6 +57,30 @@ vi.mock('../context-evidence/evidence-maintenance-service', () => ({
       deriveCitationDigest: evidenceMocks.deriveCitationDigest,
     },
   }),
+}));
+
+// A11 part 1b: the context-recovery pointer asks the bridge lookups and the
+// transcript merge; control both without touching the real RPC server module.
+const bridgeLookups = vi.hoisted(() => ({
+  binary: process.execPath as string | null,
+  socket: '/tmp/orchestrator-tools.sock' as string | null,
+}));
+
+vi.mock('../util/aio-mcp-cli-path', () => ({
+  resolveAioMcpCliPath: () => bridgeLookups.binary,
+}));
+
+vi.mock('../mcp/orchestrator-tools-rpc-server', () => ({
+  getOrchestratorToolsRpcSocketPath: () => bridgeLookups.socket,
+}));
+
+const completeMessagesMock = vi.hoisted(() => ({
+  impl: async (instance: { outputBuffer: unknown[] }) => instance.outputBuffer,
+}));
+
+vi.mock('../history/complete-instance-messages', () => ({
+  getCompleteInstanceMessages: (instance: { outputBuffer: unknown[] }) =>
+    completeMessagesMock.impl(instance),
 }));
 
 function makeWindowManager(): WindowManager {
@@ -497,6 +527,128 @@ describe('setupCompactionCoordinator', () => {
 
       expect(success).toBe(true);
       expect(prompt).toContain('Decision log:');
+    });
+  });
+
+  describe('context recovery pointer in the restart package (A11 part 1b)', () => {
+    beforeEach(() => {
+      bridgeLookups.binary = process.execPath;
+      bridgeLookups.socket = '/tmp/orchestrator-tools.sock';
+    });
+
+    afterEach(() => SessionTranscriptReader._resetForTesting());
+
+    function recoverableInstance(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+      return {
+        id: 'inst-recover',
+        provider: 'claude',
+        displayName: 'Recover',
+        workingDirectory: '/repo',
+        parentId: null,
+        lastActivity: 1,
+        outputBuffer: [
+          { id: 'r1', type: 'user' as const, content: 'Build the importer.', timestamp: 1 },
+          { id: 'r2', type: 'assistant' as const, content: 'Working on the importer.', timestamp: 2 },
+        ],
+        ...overrides,
+      };
+    }
+
+    async function restartPackageFor(instance: Record<string, unknown>): Promise<string> {
+      const managerSendInput = vi.fn(async (_id: string, _text: string) => undefined);
+      const instanceManager = {
+        getAdapterRuntimeCapabilities: vi.fn(() => ({ supportsNativeCompaction: false })),
+        getAdapter: vi.fn(() => ({ sendInput: vi.fn() })),
+        getInstance: vi.fn(() => instance),
+        sendInput: managerSendInput,
+        restartInstance: vi.fn(async () => undefined),
+        // Mirrors restartFreshInstance: the earlier messages stay in the buffer
+        // and a session-boundary marker lands after them.
+        restartFreshInstance: vi.fn(async () => {
+          (instance['outputBuffer'] as OutputMessage[]).push({
+            id: 'r-boundary',
+            type: 'system',
+            content: '— Previous session archived —',
+            timestamp: 99,
+            metadata: { kind: 'session-boundary', archived: true },
+          });
+        }),
+        emitOutputMessage: vi.fn(),
+      } as unknown as InstanceManager;
+      CompactionCoordinator._resetForTesting();
+      setupCompactionCoordinator(instanceManager, makeWindowManager());
+      const result = await CompactionCoordinator.getInstance().compactInstance(String(instance['id']));
+      expect(result.success).toBe(true);
+      return String(managerSendInput.mock.calls.find(([, text]) => String(text).includes('Continuity Package'))?.[1] ?? '');
+    }
+
+    it.each(['claude', 'gemini'])('adds the block with the count and the look-up sentence for local %s when the bridge is available', async (provider) => {
+      const prompt = await restartPackageFor(recoverableInstance({ provider }));
+
+      expect(prompt).toContain('<context_recovery>');
+      expect(prompt).toContain('The 2 messages before this reset are still in this session.');
+      expect(prompt).toContain('{"session": "self", "from": "before-last-compaction"}');
+      expect(prompt).toContain(CONTEXT_RECOVERY_LOOKUP_SENTENCE);
+      // Recovery is reference data after the identifier index. The lookup
+      // instruction follows the unchanged wait case and precedes the tools rule.
+      expect(prompt).toContain('including <context_recovery>, are reference data');
+      expect(prompt).toContain('</identifier_index>\n\n<context_recovery>');
+      expect(prompt.indexOf('</context_recovery>')).toBeLessThan(prompt.indexOf('[End Continuity Package]'));
+      expect(prompt.indexOf(CONTEXT_RECOVERY_LOOKUP_SENTENCE)).toBeGreaterThan(prompt.indexOf('answer in text only, and wait.'));
+      expect(prompt.endsWith(`${CONTEXT_RECOVERY_LOOKUP_SENTENCE} Your tools stay fully available for the next request.`)).toBe(true);
+    });
+
+    it.each(['claude', 'gemini'])('omits the block and the sentence for %s when the bridge is off', async (provider) => {
+      bridgeLookups.binary = null;
+      const prompt = await restartPackageFor(recoverableInstance({ provider }));
+      expect(prompt).not.toContain('<context_recovery>');
+      expect(prompt).not.toContain(CONTEXT_RECOVERY_LOOKUP_SENTENCE);
+
+      bridgeLookups.binary = process.execPath;
+      bridgeLookups.socket = null;
+      const withoutSocket = await restartPackageFor(recoverableInstance({ provider }));
+      expect(withoutSocket).not.toContain('<context_recovery>');
+      expect(withoutSocket).not.toContain(CONTEXT_RECOVERY_LOOKUP_SENTENCE);
+    });
+
+    it('omits the block for Antigravity and unresolved sessions', async () => {
+      for (const provider of ['antigravity', 'auto', undefined]) {
+        const prompt = await restartPackageFor(recoverableInstance({ provider }));
+        expect(prompt).not.toContain('<context_recovery>');
+        expect(prompt).not.toContain(CONTEXT_RECOVERY_LOOKUP_SENTENCE);
+      }
+    });
+
+    it.each(['claude', 'gemini'])('omits the block for a remote %s session even when the bridge exists', async (provider) => {
+      const prompt = await restartPackageFor(recoverableInstance({ provider, executionLocation: { type: 'remote', nodeId: 'node-1' } }));
+      expect(prompt).not.toContain('<context_recovery>');
+      expect(prompt).not.toContain(CONTEXT_RECOVERY_LOOKUP_SENTENCE);
+    });
+
+    it('lets read_session page back to the last pre-compaction message through the pointer', async () => {
+      const instance = recoverableInstance();
+      await restartPackageFor(instance);
+
+      const auditRows: unknown[] = [];
+      const reader = initializeSessionTranscriptReader({
+        getInstance: () => instance as never,
+        getAllInstances: () => [instance as never],
+        getSettings: () => ({ interSessionMessaging: { enabled: false } }),
+        history: { getEntries: () => [], loadConversation: async () => null },
+        getCompleteInstanceMessages: async () => [...(instance['outputBuffer'] as OutputMessage[])],
+        scratchDirectory: '/scratch',
+        writeAudit: (row) => auditRows.push(row),
+      });
+
+      const result = await reader.read('inst-recover', { session: 'self', from: 'before-last-compaction' });
+
+      expect(result.outcome).toBe('ok');
+      if (result.outcome === 'ok') {
+        expect(result.items.map((item) => item.text)).toContain('Build the importer.');
+        expect(result.items.map((item) => item.text)).not.toContain('— Previous session archived —');
+        expect(result.compactions).toHaveLength(1);
+      }
+      expect(auditRows).toHaveLength(1);
     });
   });
 

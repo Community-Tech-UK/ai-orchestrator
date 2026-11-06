@@ -6,33 +6,25 @@
  * header is focused purely on the session list it sits above.
  */
 
+import { ContextMenuComponent, type ContextMenuItem } from '../../shared/components/context-menu/context-menu.component';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
-import { ChangeDetectionStrategy, Component, output } from '@angular/core';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
+import { ChangeDetectionStrategy, Component, output, signal } from '@angular/core';
 
 @Component({
   selector: 'app-sidebar-header',
   standalone: true,
-  imports: [AioTooltipDirective],
+  imports: [ContextMenuComponent, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="sidebar-header">
       <span class="sidebar-title">Sessions</span>
       <div class="sidebar-header-actions">
         <button
-          class="btn-header-icon"
-          (click)="newChatClicked.emit()"
-          appTooltip="New chat"
-          aria-label="Start a new chat"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
-          </svg>
-        </button>
-        <button
-          class="btn-header-icon btn-header-icon--primary"
+          type="button" class="btn-header-icon btn-header-icon--primary"
           (click)="createClicked.emit()"
-          appTooltip="New session" appTooltipShortcut="new-instance"
+          [appTooltip]="newSessionTooltip"
+          appTooltipShortcut="new-instance"
           aria-label="Create a new session"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
@@ -41,12 +33,28 @@ import { ChangeDetectionStrategy, Component, output } from '@angular/core';
             <line x1="5" y1="12" x2="19" y2="12"></line>
           </svg>
         </button>
+        <button #menuTrigger type="button" class="btn-header-icon" aria-label="New session options" aria-haspopup="menu"
+          [attr.aria-expanded]="menuOpen()" [appTooltip]="optionsTooltip" (click)="openMenu($event)">▾</button>
       </div>
     </div>
+    <app-context-menu [items]="menuItems" [x]="menuX()" [y]="menuY()" [visible]="menuOpen()" [focusOnOpen]="true" [triggerElement]="menuTrigger" (closed)="closeMenu()" />
   `,
   styleUrl: './sidebar-header.component.scss'
 })
 export class SidebarHeaderComponent {
+  readonly menuOpen = signal(false);
+  readonly menuX = signal(0);
+  readonly menuY = signal(0);
+  readonly newSessionTooltip = copyFor('newSession');
+  readonly optionsTooltip = copyFor('newSessionOptions');
+  private opener: HTMLElement | null = null;
+  readonly menuItems: ContextMenuItem[] = [{ label: 'Quick chat (no folder)', action: () => this.newChatClicked.emit() }];
+  openMenu(event: MouseEvent): void {
+    this.opener = event.currentTarget as HTMLElement;
+    const rect = this.opener.getBoundingClientRect();
+    this.menuX.set(rect.left); this.menuY.set(rect.bottom); this.menuOpen.set(!this.menuOpen());
+  }
+  closeMenu(): void { this.menuOpen.set(false); this.opener?.focus(); }
   createClicked = output<void>();
   newChatClicked = output<void>();
 }

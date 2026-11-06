@@ -19,9 +19,9 @@ import { AppIconButtonDirective } from '../../tooltip/icon-button.directive';
 /**
  * Generic single-field text-prompt modal.
  *
- * Exists because `window.prompt()` / `window.confirm()` are NO-OPS in a
+ * Exists because `window.prompt()` is unsupported in a
  * sandboxed Electron renderer (`contextIsolation: true, sandbox: true`) —
- * they silently return null, so any UI built on them appears dead. This
+ * it returns null, so UI built on it appears dead. This
  * component is the in-app replacement: an overlay with a text field plus
  * Cancel / Confirm, emitting `submitted` with the trimmed value or
  * `cancelled` on dismiss.

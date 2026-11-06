@@ -187,6 +187,11 @@ dd {
   white-space: nowrap;
 }
 
+.cost-details { margin-top: var(--spacing-sm); }
+.endpoint-details { grid-column: 1 / -1; overflow-wrap: anywhere; }
+summary { cursor: pointer; color: var(--text-secondary); font-size: var(--text-xs); }
+summary:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+
 .breakdown-track {
   height: 7px;
 }

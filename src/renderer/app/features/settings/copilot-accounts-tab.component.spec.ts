@@ -1,3 +1,4 @@
+import { ConfirmService } from '../../shared/confirm/confirm.service';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -201,7 +202,7 @@ describe('CopilotAccountsTabComponent', () => {
       error: { message: 'That Copilot account is in use by a running session.' },
     });
     const fixture = await render();
-    vi.spyOn(globalThis, 'confirm').mockReturnValue(true);
+    vi.spyOn(TestBed.inject(ConfirmService), 'confirm').mockResolvedValue(true);
     await fixture.componentInstance.remove(fixture.componentInstance.accounts()[0]);
     await settle(fixture);
     expect(fixture.componentInstance.error()).toContain('in use by a running session');

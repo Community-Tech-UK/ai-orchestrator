@@ -1,3 +1,4 @@
+import { ConfirmService } from '../../../shared/confirm/confirm.service';
 import { ChangeDetectionStrategy, Component, computed, inject, input, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RemoteNodesStore } from '../remote-nodes.store';
@@ -12,6 +13,7 @@ import type { ServiceStatus } from '../../../../../shared/types/service.types';
   styleUrls: ['./node-service-panel.component.scss'],
 })
 export class NodeServicePanelComponent implements OnInit {
+  private readonly confirmService = inject(ConfirmService);
   readonly nodeId = input.required<string>();
   private readonly store = inject(RemoteNodesStore);
 
@@ -25,9 +27,10 @@ export class NodeServicePanelComponent implements OnInit {
 
   restart(): void { void this.store.restartService(this.nodeId()); }
   stop(): void { void this.store.stopService(this.nodeId()); }
-  uninstall(): void {
-    if (confirm('Uninstall the worker service on this node? The node will disconnect.')) {
-      void this.store.uninstallService(this.nodeId());
+  async uninstall(): Promise<void> {
+    const nodeId = this.nodeId();
+    if (await this.confirmService.confirm({ message: 'Uninstall the worker service on this node? The node will disconnect.', confirmLabel: 'Uninstall worker', danger: true })) {
+      void this.store.uninstallService(nodeId);
     }
   }
   refresh(): void { void this.store.refreshServiceStatus(this.nodeId()); }

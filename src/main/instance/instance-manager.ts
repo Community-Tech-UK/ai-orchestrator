@@ -28,6 +28,7 @@ import { removeInstanceComputerUseMode } from './lifecycle/computer-use-scoping'
 import { removeInstanceHardened } from './lifecycle/hardened-mode-scoping';
 import { removeInstanceSignalFence } from './lifecycle/signal-fence-scoping';
 import { removeInstanceContainedExecution } from './lifecycle/contained-execution-scoping';
+import { removeInstanceTaskTools } from './lifecycle/task-tools-scoping';
 import { getHandoffStateService } from '../session/handoff-state-service';
 import { getSessionQueueService } from '../session/session-queue-service';
 import { getNotificationService } from '../notifications/notification-service';
@@ -793,6 +794,7 @@ export class InstanceManager extends EventEmitter {
       removeInstanceHardened(instanceId);
       removeInstanceSignalFence(instanceId);
       removeInstanceContainedExecution(instanceId);
+      removeInstanceTaskTools(instanceId);
       getHandoffStateService().removeInstance(instanceId);
       this.emitObserversSafely('instance:event', this.lifecycleEvents.recordRemoved(instanceId, instance?.status));
       this.emitObserversSafely('instance:removed', instanceId);

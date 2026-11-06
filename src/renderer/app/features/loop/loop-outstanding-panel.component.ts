@@ -85,6 +85,11 @@ export function buildOutstandingQuery(
  * for export. Items can be marked resolved / dismissed (which persists to the
  * DB), and the open set can be exported to a consolidated `OUTSTANDING.md` on
  * demand.
+ *
+ * This panel is a question surface: its rows carry live answer decisions, so
+ * it mounts beside the approvals (outside the C13.12 status strip) and renders
+ * nothing while it has no items — decisions appear when needed and can never be
+ * hidden by collapsing a chip.
  */
 @Component({
   selector: 'app-loop-outstanding-panel',
@@ -92,6 +97,7 @@ export function buildOutstandingQuery(
   imports: [AioTooltipDirective, LoopQuestionRowComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    @if (items().length > 0) {
     <div class="outstanding">
       <div class="o-head">
         <span class="o-title">Outstanding</span>
@@ -133,12 +139,7 @@ export function buildOutstandingQuery(
         <div class="o-resume-error">{{ resumeError() }}</div>
       }
 
-      @if (store.outstandingIsLoading() && items().length === 0) {
-        <div class="o-empty">Loading…</div>
-      } @else if (items().length === 0) {
-        <div class="o-empty">No outstanding items.</div>
-      } @else {
-        @for (group of currentQuestionGroups(); track group.label) {
+      @for (group of currentQuestionGroups(); track group.label) {
           @if (group.items.length) {
             <div class="o-section-label">{{ group.label }}</div>
             <div class="o-list" role="list">
@@ -190,9 +191,8 @@ export function buildOutstandingQuery(
             }
           </div>
         }
-
-      }
     </div>
+    }
   `,
   styles: [`
     .outstanding {
@@ -231,7 +231,6 @@ export function buildOutstandingQuery(
     .o-resume-error { margin: 2px 0 6px; color: #f08a8a; font-size: 11px; }
     .o-filter:disabled, .o-export:disabled, .o-resolve-all:disabled, .o-resume:disabled { opacity: 0.4; cursor: not-allowed; }
     .o-head button[aria-disabled="true"], .o-act[aria-disabled="true"] { opacity: 0.4; cursor: not-allowed; }
-    .o-empty { padding: 10px 4px; opacity: 0.6; font-style: italic; }
     .o-section-label {
       margin: 8px 0 4px; font-size: 10px; font-weight: 600;
       opacity: 0.55;

@@ -47,7 +47,7 @@ const RESULT_CAP = 50;
             #searchInput
             type="text"
             class="search-input"
-            placeholder="Search projects, sessions, and messages…"
+            placeholder="Search session names, prompts and folders…"
             [value]="query()"
             (input)="onQueryChange($event)"
             aria-label="Search query"

@@ -96,6 +96,7 @@ import { createOpenCodeAdapter } from './opencode-adapter-factory';
 import { resolveContextCeilingTokens } from './context-ceiling';
 import { resolveClaudeBashOutputMaxChars } from './claude-output-caps';
 import { createPrivateCliJsonConfig } from './private-cli-json-config';
+import { applyClaudeTaskToolsEnv } from './claude-env-pack';
 
 const logger = getLogger('AdapterFactory');
 const INTERACTIVE_RUNTIME_UNAVAILABLE =
@@ -222,6 +223,8 @@ export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdap
   }
 
   const accountEnv = resolveClaudeAccountSpawnEnv(options);
+  const env = { ...options.env, ...accountEnv.env };
+  applyClaudeTaskToolsEnv(env, options.instanceId);
   const claudeOptions: ClaudeCliSpawnOptions = {
     sessionKind: options.sessionKind,
     bashOutputMaxChars: options.bashOutputMaxChars ?? resolveClaudeBashOutputMaxChars(),
@@ -254,7 +257,7 @@ export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdap
     excludeDynamicSystemPromptSections: options.excludeDynamicSystemPromptSections ?? true,
     chrome: options.chrome,
     permissionHookPath: options.permissionHookPath,
-    env: Object.keys(accountEnv.env).length > 0 ? { ...options.env, ...accountEnv.env } : options.env,
+    env,
     ...(accountEnv.envRemove.length > 0 ? { envRemove: accountEnv.envRemove } : {}),
     rtk: options.rtk,
   };

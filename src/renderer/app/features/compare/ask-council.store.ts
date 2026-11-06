@@ -10,9 +10,11 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { CompareIpcService } from '../../core/services/ipc/compare-ipc.service';
 import type { CouncilMember, CouncilRun, CouncilSynthesisMethod } from '../../core/services/ipc/compare-ipc.service';
+import { FeatureUsageService } from '../../shared/tips/feature-usage.service';
 
 @Injectable({ providedIn: 'root' })
 export class AskCouncilStore {
+  private readonly featureUsage = inject(FeatureUsageService);
   private readonly ipc = inject(CompareIpcService);
 
   private readonly _run = signal<CouncilRun | null>(null);
@@ -107,6 +109,7 @@ export class AskCouncilStore {
       // it is strictly fresher than the response (which always reflects the
       // initial all-queued snapshot), so prefer it when present.
       this._run.set(this.pendingRunUpdates.get(response.data.id) ?? response.data);
+      this.featureUsage.record('ask-council');
     } finally {
       this.pendingRunUpdates.clear();
       this._starting.set(false);

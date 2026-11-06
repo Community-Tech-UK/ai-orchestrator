@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CompareIpcService } from '../../core/services/ipc/compare-ipc.service';
 import type { CouncilRun } from '../../core/services/ipc/compare-ipc.service';
 import { AskCouncilStore } from './ask-council.store';
+import { FeatureUsageService } from '../../shared/tips/feature-usage.service';
 
 function makeRun(overrides: Partial<CouncilRun> = {}): CouncilRun {
   return {
@@ -42,6 +43,7 @@ function setupStore(ipc: ReturnType<typeof makeIpc>): AskCouncilStore {
 describe('AskCouncilStore', () => {
   beforeEach(() => {
     TestBed.resetTestingModule();
+    localStorage.removeItem('working-tips:v1');
   });
 
   describe('initialize()', () => {
@@ -137,6 +139,7 @@ describe('AskCouncilStore', () => {
 
       expect(ipc.compareStart).toHaveBeenCalledWith({ prompt: 'hi', providers: ['claude', 'gemini'], workingDirectory: '/tmp/wd' });
       expect(store.run()).toEqual(run);
+      expect(TestBed.inject(FeatureUsageService).count('ask-council')).toBe(1);
     });
 
     it('sets errorMessage on failure and leaves run untouched', async () => {
@@ -150,6 +153,7 @@ describe('AskCouncilStore', () => {
 
       expect(store.errorMessage()).toBe('no providers');
       expect(store.run()).toBeNull();
+      expect(TestBed.inject(FeatureUsageService).count('ask-council')).toBe(0);
     });
   });
 

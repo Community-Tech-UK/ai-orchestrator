@@ -89,5 +89,26 @@ describe('SecretDetector', () => {
       const result = redactForEgress(`leak: ${stored}`, { kind: 'prompt' });
       expect(result.content).toContain(stored);
     });
+    it.each([false, true])('redacts the union of overlapping exact values (reverse registration: %s)', (reverse) => {
+      const full = 'OBVIOUS_TEST_SECRET_PLACEHOLDER_FOR_AUDIT_ONLY';
+      const registrations = [[full, 'full_placeholder'], ['TEST_SECRET', 'inner_placeholder']];
+      for (const [value, name] of reverse ? registrations.reverse() : registrations) registerExactSecretValue(value, name);
+      expect(redactSecrets(`before ${full} after ${full}`)).toBe('before [REDACTED:full_placeholder] after [REDACTED:full_placeholder]');
+    });
+    it('unions partial overlaps without changing surrounding text', () => {
+      const left = 'OBVIOUS_LEFT_PLACEHOLDER';
+      const right = 'PLACEHOLDER_RIGHT_OBVIOUS';
+      registerExactSecretValue(left, 'left_placeholder');
+      registerExactSecretValue(right, 'right_placeholder');
+      expect(redactSecrets('before OBVIOUS_LEFT_PLACEHOLDER_RIGHT_OBVIOUS after')).toBe('before [REDACTED:left_placeholder] after');
+    });
+    it('redacts every occurrence of a repeated placeholder connection string', () => {
+      const placeholder = 'postgres://OBVIOUS_USER_PLACEHOLDER:OBVIOUS_PASSWORD_PLACEHOLDER@example.invalid/db';
+      expect(redactSecrets(`before ${placeholder} between ${placeholder} after`)).toBe('before [REDACTED:connection_string] between [REDACTED:connection_string] after');
+    });
+    it('redacts overlapping occurrences of the same registered placeholder', () => {
+      registerExactSecretValue('OBVIOUS_PLACEHOLDER_OBVIOUS_PLACEHOLDER', 'overlap_placeholder');
+      expect(redactSecrets('before OBVIOUS_PLACEHOLDER_OBVIOUS_PLACEHOLDER_OBVIOUS_PLACEHOLDER after')).toBe('before [REDACTED:overlap_placeholder] after');
+    });
   });
 });

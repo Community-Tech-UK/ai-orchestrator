@@ -8,6 +8,8 @@
         (folderDropped)="onFolderDropped($event)"
       >
         <div class="instance-detail">
+          <app-session-progress-panel [sessionId]="inst.sessionId" [diffStats]="inst.diffStats" [workingDirectory]="inst.workingDirectory" />
+          @if (inst.parentId) { <app-child-session-nav [instanceId]="inst.id" /> }
           <!-- Header -->
           <app-instance-header
             [instance]="inst"
@@ -126,18 +128,23 @@
               [messages]="inst.outputBuffer"
               [instanceId]="inst.id"
               [provider]="inst.provider"
+              [sessionStatus]="inst.status"
               [showThinking]="showThinking()"
               [thinkingDefaultExpanded]="thinkingDefaultExpanded()"
               [showToolMessages]="showToolMessages()"
               [isChild]="!!inst.parentId"
+              [tablePicksToComposer]="true"
               (resendEdited)="onResendEdited($event)"
+              (appendToComposer)="appendTextToComposer($event)"
             />
             @if (inst.status === 'busy' || inst.status === 'processing' || inst.status === 'thinking_deeply' || inst.status === 'initializing') {
               <app-activity-status
                 [status]="inst.status"
                 [activity]="currentActivity()"
                 [busySince]="busySince()"
+                [lastEventAt]="inst.lastActivity"
               />
+              <app-working-tip [context]="workingTipContext()" />
             }
           </div>
 
@@ -149,166 +156,22 @@
             />
           }
 
-          <!-- Inspector toggles — only rendered when at least one has content -->
-          @if (anyInspectorVisible()) {
-            <div class="inspector-toggles-shell">
-              <div class="inspector-toggles"
-                   role="toolbar"
-                   aria-label="Session inspectors">
-              @if (todoStore.hasTodos()) {
-                <button
-                  class="inspector-toggle"
-                  [class.active]="showTodoInspector()"
-                  [class.entering]="enteringInspectorToggle() === 'todo'"
-                  (animationend)="onInspectorToggleAnimationEnd('todo')"
-                  (click)="showTodoInspector.set(!showTodoInspector())"
-                  [attr.aria-expanded]="showTodoInspector()"
-                  appTooltip="Toggle task list"
-                  [appTooltipShowWhenExpanded]="true"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3"/>
-                  </svg>
-                  Tasks
-                  @if (!showTodoInspector()) {
-                    <span class="inspector-badge">{{ todoStore.stats().completed }}/{{ todoStore.stats().total }}</span>
-                  }
-                </button>
-              }
-              @if (reviewHasContent()) {
-                <button
-                  class="inspector-toggle"
-                  [class.active]="showReviewInspector()"
-                  [class.entering]="enteringInspectorToggle() === 'review'"
-                  (animationend)="onInspectorToggleAnimationEnd('review')"
-                  (click)="showReviewInspector.set(!showReviewInspector())"
-                  [attr.aria-expanded]="showReviewInspector()"
-                  appTooltip="Toggle review panel"
-                  [appTooltipShowWhenExpanded]="true"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                    <path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/>
-                  </svg>
-                  Review
-                  @if (!showReviewInspector()) {
-                    @if (reviewBadgeInfo(); as badge) {
-                      <span class="inspector-badge" [class.severity-error]="badge.hasErrors">
-                        {{ badge.issueCount }} {{ badge.issueCount === 1 ? 'issue' : 'issues' }}
-                      </span>
-                    } @else {
-                      <span class="inspector-badge running">running</span>
-                    }
-                  }
-                </button>
-              }
-              @if (hasChildren()) {
-                <button
-                  class="inspector-toggle"
-                  [class.active]="showChildrenInspector()"
-                  [class.entering]="enteringInspectorToggle() === 'children'"
-                  (animationend)="onInspectorToggleAnimationEnd('children')"
-                  (click)="showChildrenInspector.set(!showChildrenInspector())"
-                  [attr.aria-expanded]="showChildrenInspector()"
-                  appTooltip="Toggle child agents"
-                  [appTooltipShowWhenExpanded]="true"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
-                    <circle cx="9" cy="7" r="4"/>
-                    <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
-                    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-                  </svg>
-                  Agents ({{ inst.childrenIds.length }})
-                </button>
-              }
-              @if (hasCheckpoints()) {
-                <button
-                  class="inspector-toggle"
-                  [class.active]="showCheckpointInspector()"
-                  [class.entering]="enteringInspectorToggle() === 'checkpoint'"
-                  (animationend)="onInspectorToggleAnimationEnd('checkpoint')"
-                  (click)="showCheckpointInspector.set(!showCheckpointInspector())"
-                  [attr.aria-expanded]="showCheckpointInspector()"
-                  appTooltip="Toggle checkpoints"
-                  [appTooltipShowWhenExpanded]="true"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
-                  </svg>
-                  Checkpoints
-                  @if (!showCheckpointInspector()) {
-                    <span class="inspector-badge">{{ checkpointCount() }}</span>
-                  }
-                </button>
-              }
-              @if (hasOutstanding()) {
-                <button
-                  class="inspector-toggle"
-                  [class.active]="showOutstandingInspector()"
-                  [class.entering]="enteringInspectorToggle() === 'outstanding'"
-                  (animationend)="onInspectorToggleAnimationEnd('outstanding')"
-                  (click)="showOutstandingInspector.set(!showOutstandingInspector())"
-                  [attr.aria-expanded]="showOutstandingInspector()"
-                  appTooltip="Toggle outstanding items needing a human"
-                  [appTooltipShowWhenExpanded]="true"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-                    <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-                  </svg>
-                  Outstanding
-                  @if (!showOutstandingInspector()) {
-                    <span class="inspector-badge">{{ outstandingOpenCount() }}</span>
-                  }
-                </button>
-              }
-              <!-- Screen reader announcement for dynamically appearing toggles -->
-              <span class="sr-only" aria-live="polite">
-                @if (todoStore.hasTodos()) { Task list available. }
-                @if (reviewHasContent()) { Review results available. }
-                @if (hasOutstanding()) { Outstanding items available. }
-              </span>
-              </div>
-            </div>
-          }
-
-          <!-- User action requests + on-demand inspector panels -->
+          <!-- Approvals and questions stay outside the status dock, so
+               collapsing the strip can never hide a decision. The loop
+               Outstanding panel is a question surface (B5 loop questions and
+               needs-human items), so it sits here too, never behind a chip. -->
           <app-user-action-request [instanceId]="inst.id" />
           <app-browser-approval-request [instanceId]="inst.id" />
-          @if (hasActiveInspector()) {
-            <div class="inspector-panels">
-              @if (showTodoInspector()) {
-                <app-todo-list [sessionId]="inst.sessionId" />
-              }
-              @if (showReviewInspector()) {
-                <app-instance-review-panel
-                  [instanceId]="inst.id"
-                  [workingDirectory]="inst.workingDirectory"
-                  (reviewStarted)="onReviewStarted()"
-                  (reviewCompleted)="onReviewCompleted($event)"
-                />
-              }
-              @if (showChildrenInspector()) {
-                <app-child-instances-panel
-                  [childrenIds]="inst.childrenIds"
-                  (selectChild)="onSelectChild($event)"
-                  (quickAction)="onQuickAction($event)"
-                />
-              }
-              @if (showCheckpointInspector()) {
-                <app-checkpoint-timeline [instanceId]="inst.id" />
-              }
-              @if (showOutstandingInspector()) {
-                <app-loop-outstanding-panel [chatId]="inst.id" [workspaceCwd]="inst.workingDirectory" />
-              }
-            </div>
-          }
+          <app-loop-outstanding-panel [chatId]="inst.id" [workspaceCwd]="inst.workingDirectory" />
+
+          <!-- One strip for optional chips above the message box (C13.12) -->
+          <app-session-status-dock
+            [instanceId]="inst.id"
+            [workingDirectory]="inst.workingDirectory"
+            [childrenIds]="inst.childrenIds"
+            (selectChild)="onSelectChild($event)"
+            (quickAction)="onQuickAction($event)"
+          />
 
           <app-loop-control [chatId]="inst.id" />
 
@@ -401,13 +264,16 @@
               [messages]="preview.messages"
               [instanceId]="preview.id"
               [provider]="preview.provider"
+              sessionStatus="idle"
               [showThinking]="showThinking()"
               [thinkingDefaultExpanded]="thinkingDefaultExpanded()"
               [showToolMessages]="showToolMessages()"
               [olderMessagesProbe]="historyPreviewOlderMessagesProbe"
               [livePromptIndexEnabled]="false"
               [isChild]="false"
+              [tablePicksToComposer]="true"
               (resendEdited)="onResendEdited($event)"
+              (appendToComposer)="appendTextToComposer($event)"
             />
           </div>
 

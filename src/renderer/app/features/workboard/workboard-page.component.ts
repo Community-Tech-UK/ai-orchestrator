@@ -74,6 +74,9 @@ const REFRESH_INTERVAL_MS = 4000;
               }
             </select>
           </label>
+          @if (store.snoozedCount() > 0) {
+            <span class="wb-snoozed">{{ store.snoozedCount() }} snoozed - <button type="button" class="wb-refresh" (click)="store.clearSnoozes()">Show</button></span>
+          }
           <button type="button" class="wb-refresh" (click)="onRefresh()" [attr.aria-busy]="store.refreshing()">
             Refresh
           </button>

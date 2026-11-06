@@ -5,8 +5,7 @@ import type { OutputMessage } from '../../core/state/instance/instance.types';
 /**
  * Unit tests for edit mode signal logic in InputPanelComponent.
  *
- * These test the signal logic in isolation rather than the full Angular component,
- * following the same pattern as instance-detail-inspectors.spec.ts.
+ * These test the signal logic in isolation rather than the full Angular component.
  */
 
 describe('lastUserMessage computed', () => {

@@ -281,6 +281,30 @@ describe('InputPanelComponent composer autocomplete integration', () => {
     vi.unstubAllGlobals();
   });
 
+  it('restores cancelled queue text before the existing text and keeps an edit stash', () => {
+    component.message.set('Existing draft'); component.restoreTextToComposer('Cancelled'); fixture.detectChanges();
+    expect(component.message()).toBe('Cancelled\n\nExisting draft');
+    expect(draftService.getDraft('inst-1')).toBe('Cancelled\n\nExisting draft');
+    const internal = component as unknown as { stashedDraft: ReturnType<typeof signal<string | null>>; editMessageIndex: ReturnType<typeof signal<number | null>> };
+    internal.stashedDraft.set('Stashed'); internal.editMessageIndex.set(3); component.editMode.set(true); component.message.set('Edited text');
+    component.restoreTextToComposer('Another cancelled'); fixture.detectChanges();
+    expect(component.message()).toBe('Another cancelled\n\nEdited text\n\nStashed'); expect(internal.stashedDraft()).toBe('Stashed');
+    expect(component.editMode()).toBe(false); expect(internal.editMessageIndex()).toBeNull();
+  });
+  it('preserves the hidden draft while restoring during prompt-history recall', () => {
+    const internals = component as unknown as { recallIndex: ReturnType<typeof signal<number | null>>; stashKey: () => string };
+    const stash = internals.stashKey();
+    draftService.drafts.set(stash, 'Unsent original'); internals.recallIndex.set(0); component.message.set('Recalled question');
+    component.restoreTextToComposer('Table rows', 'append'); fixture.detectChanges();
+    expect(component.message()).toBe('Recalled question\n\nUnsent original\n\nTable rows');
+    expect(draftService.drafts.get(stash)).toBe('Unsent original'); expect(internals.recallIndex()).toBeNull();
+  });
+  it.each(['idle', 'busy', 'initializing', 'respawning'] as const)('renders a single hint for %s', (status) => {
+    fixture.componentRef.setInput('instanceStatus', status); fixture.componentRef.setInput('isBusy', status === 'busy');
+    fixture.componentRef.setInput('isRespawning', status === 'respawning'); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.input-hints .hint')).toHaveLength(1);
+  });
+
   it('recalculates textarea height when restoring drafts across sessions', () => {
     flushAnimationFrames();
     const textarea = getTextarea();
@@ -642,7 +666,8 @@ describe('InputPanelComponent composer autocomplete integration', () => {
     fixture.detectChanges();
 
     const hints = fixture.nativeElement.querySelector('.input-hints')?.textContent ?? '';
-    expect(hints).toContain('Codex is compacting');
+    expect(hints).toContain('Compacting the conversation');
+    expect(hints).not.toContain('Codex');
     expect(hints).toContain('your message will send afterwards');
     expect(hints).not.toContain('Esc interrupts');
   });

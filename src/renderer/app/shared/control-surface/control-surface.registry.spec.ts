@@ -91,6 +91,13 @@ const VALID_KINDS: readonly ControlSurfaceKind[] = [
 const VALID_LAYOUTS: readonly ControlSurfaceLayout[] = ['standard', 'wide', 'fullBleed'];
 
 describe('control surface registry', () => {
+  it('hides unfinished pages while preserving their route metadata', () => {
+    for (const id of ['training', 'communication', 'chat-search']) {
+      expect(CONTROL_SURFACES.find((item) => item.id === id)?.path).toBe(`/${id}`);
+      expect(listControlNavGroups().flatMap((group) => group.items).some((item) => item.id === id)).toBe(false);
+      expect(listDashboardNavGroups().flatMap((group) => group.items).some((item) => item.id === id)).toBe(false);
+    }
+  });
   it('has unique ids and paths', () => {
     const surfaces = CONTROL_SURFACES;
 

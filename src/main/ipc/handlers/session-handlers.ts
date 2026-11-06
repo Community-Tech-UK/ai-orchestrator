@@ -482,6 +482,26 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
     'HISTORY_ARCHIVE_FAILED',
   );
 
+  // Unarchive history entry
+  register(
+    IPC_CHANNELS.HISTORY_UNARCHIVE,
+    HistoryDeletePayloadSchema,
+    async (validated) => {
+      const archived = await history.unarchiveEntry(validated.entryId);
+      return {
+        success: archived,
+        error: archived
+          ? undefined
+          : {
+              code: 'HISTORY_NOT_FOUND',
+              message: `History entry ${validated.entryId} not found`,
+              timestamp: Date.now(),
+            },
+      };
+    },
+    'HISTORY_UNARCHIVE_FAILED',
+  );
+
   // Restore conversation as a live instance.
   // Each heavy restore path runs behind the same single-slot mutex as before;
   // the implementation now lives in SessionRevivalService/HistoryRestoreCoordinator.

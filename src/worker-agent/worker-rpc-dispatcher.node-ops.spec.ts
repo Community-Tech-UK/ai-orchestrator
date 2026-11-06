@@ -700,16 +700,58 @@ describe('WorkerRpcDispatcher node.exec', () => {
   }, 10_000);
 
   it('preserves truncation evidence when forced timeout capture overflows both streams', async () => {
-    const { dispatcher, sendResult, sendError } = makeDispatcher();
+    const realSetTimeout = globalThis.setTimeout.bind(globalThis);
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
+    const killProcess = vi.fn((pid: number, signal?: string | number) => process.kill(pid, signal));
+    const executor = new WorkerNodeExecutor([process.cwd()], undefined, Date.now, {
+      platform: process.platform,
+      spawnProcess: ((...args: Parameters<typeof spawn>) => {
+        const child = fixtures.spawn(...args);
+        child.stdout?.on('data', (chunk: Buffer) => {
+          stdoutBytes += chunk.length;
+        });
+        child.stderr?.on('data', (chunk: Buffer) => {
+          stderrBytes += chunk.length;
+        });
+        return child;
+      }) as typeof spawn,
+      execFileProcess: execFile,
+      killProcess,
+    }, prepareUncheckedForLifecycleTest);
+    const { dispatcher, sendResult, sendError } = makeDispatcher(
+      undefined, [process.cwd()], (params) => executor.execute(params),
+    );
 
-    await dispatcher.handleRpcRequest(request('node.exec', {
+    // OS startup is not part of this capture assertion. Keep the real child,
+    // streams and signals, but freeze its deadline until both streams overflow.
+    // Delayed output deliberately exceeds the old 150 ms startup assumption.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    let completed = false;
+    const pending = dispatcher.handleRpcRequest(request('node.exec', {
       executable: process.execPath,
       args: [
         '-e',
-        'process.stdout.write("o".repeat(150000));process.stderr.write("e".repeat(150000));process.on("SIGTERM",()=>{});setInterval(()=>{},1000)',
+        'process.on("SIGTERM",()=>{});setTimeout(()=>{process.stdout.write("o".repeat(150000));process.stderr.write("e".repeat(150000))},300);setInterval(()=>{},1000)',
       ],
       timeoutMs: 150,
-    }, 'service'));
+    }, 'service')).finally(() => { completed = true; });
+    const deadline = Date.now() + 5_000;
+    try {
+      while ((stdoutBytes < 150_000 || stderrBytes < 150_000) && Date.now() < deadline) {
+        await new Promise<void>((resolve) => realSetTimeout(resolve, 10));
+      }
+      expect(stdoutBytes).toBeGreaterThanOrEqual(150_000);
+      expect(stderrBytes).toBeGreaterThanOrEqual(150_000);
+      while (!completed && Date.now() < deadline) {
+        await vi.advanceTimersByTimeAsync(50);
+        await new Promise<void>((resolve) => realSetTimeout(resolve, 10));
+      }
+      expect(completed, 'timeout and forced cleanup must settle').toBe(true);
+      await pending;
+    } finally {
+      vi.useRealTimers();
+    }
 
     await fixtures.waitForExit();
     expect(sendError).not.toHaveBeenCalled();
@@ -725,7 +767,10 @@ describe('WorkerRpcDispatcher node.exec', () => {
     expect(Buffer.byteLength(result.stderr, 'utf8')).toBe(96 * 1024);
     expect(result.stdoutTruncated).toBe(true);
     expect(result.stderrTruncated).toBe(true);
-  });
+    if (process.platform !== 'win32') {
+      expect(killProcess.mock.calls.some(([, signal]) => signal === 'SIGKILL')).toBe(true);
+    }
+  }, 10_000);
 
   it('rejects node.exec outside service scope before spawning', async () => {
     const { dispatcher, sendResult, sendError } = makeDispatcher();

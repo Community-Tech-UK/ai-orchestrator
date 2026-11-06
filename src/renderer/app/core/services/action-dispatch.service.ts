@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { CommandStore } from '../state/command.store';
 import { InstanceStore } from '../state/instance.store';
+import { FeatureUsageService } from '../../shared/tips/feature-usage.service';
 import {
   DEFAULT_KEYBINDING_ELIGIBILITY_STATE,
   KeybindingEligibilityState,
@@ -16,6 +17,7 @@ export interface UiActionRegistration {
 
 @Injectable({ providedIn: 'root' })
 export class ActionDispatchService {
+  private readonly featureUsage = inject(FeatureUsageService);
   private readonly commandStore = inject(CommandStore);
   private readonly instanceStore = inject(InstanceStore);
   private readonly actions = new Map<string, UiActionRegistration>();
@@ -63,6 +65,7 @@ export class ActionDispatchService {
     }
 
     await action.run();
+    this.featureUsage.record(actionId);
     return true;
   }
 

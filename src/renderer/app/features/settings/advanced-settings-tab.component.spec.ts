@@ -1,3 +1,4 @@
+import { ConfirmService } from '../../shared/confirm/confirm.service';
 import {
   Component,
   EventEmitter,
@@ -348,7 +349,7 @@ describe('AdvancedSettingsTabComponent', () => {
   });
 
   it('gates reset behind confirm(), stays inside the danger zone, and skips store.reset on cancel', async () => {
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const confirmSpy = vi.spyOn(TestBed.inject(ConfirmService), 'confirm').mockResolvedValue(false);
     const tabs = fixture.nativeElement.querySelectorAll('[role="tab"]');
     (tabs[2] as HTMLElement).click();
     fixture.detectChanges();
@@ -367,7 +368,7 @@ describe('AdvancedSettingsTabComponent', () => {
   });
 
   it('resets settings after an explicit confirmation, from the bottom-of-panel danger zone', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.spyOn(TestBed.inject(ConfirmService), 'confirm').mockResolvedValue(true);
     const tabs = fixture.nativeElement.querySelectorAll('[role="tab"]');
     (tabs[2] as HTMLElement).click();
     fixture.detectChanges();

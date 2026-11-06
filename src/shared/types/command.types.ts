@@ -141,6 +141,14 @@ export interface ParsedCommand {
  */
 export const BUILT_IN_COMMANDS: Omit<CommandTemplate, 'id' | 'createdAt' | 'updatedAt'>[] = [
   {
+    name: 'undo-last-action',
+    description: 'Undo last action',
+    template: '',
+    category: 'workflow',
+    execution: { type: 'ui', actionId: 'undo-last-action' },
+    builtIn: true,
+  },
+  {
     name: 'help',
     description: 'Show all available commands',
     template: '',

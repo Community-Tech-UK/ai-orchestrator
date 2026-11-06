@@ -1,3 +1,4 @@
+import { ConfirmService } from '../../shared/confirm/confirm.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ɵresolveComponentResources as resolveComponentResources, type WritableSignal } from '@angular/core';
@@ -441,18 +442,20 @@ describe('RemoteNodesSettingsTabComponent', () => {
       ).onDetailAction(action);
     }
 
-    it('routes a revoke action to the existing confirm + revokeNode + refresh flow', () => {
-      vi.spyOn(window, 'confirm').mockReturnValue(true);
+    it('routes a revoke action to the existing confirm + revokeNode + refresh flow', async () => {
+      vi.spyOn(TestBed.inject(ConfirmService), 'confirm').mockResolvedValue(true);
 
       onDetailAction({ type: 'revoke', nodeId: 'node-a' });
+      await Promise.resolve();
 
       expect(ipc.revokeNode).toHaveBeenCalledWith('node-a');
     });
 
-    it('does not revoke when the confirmation dialog is declined', () => {
-      vi.spyOn(window, 'confirm').mockReturnValue(false);
+    it('does not revoke when the confirmation dialog is declined', async () => {
+      vi.spyOn(TestBed.inject(ConfirmService), 'confirm').mockResolvedValue(false);
 
       onDetailAction({ type: 'revoke', nodeId: 'node-a' });
+      await Promise.resolve();
 
       expect(ipc.revokeNode).not.toHaveBeenCalled();
     });
@@ -472,7 +475,7 @@ describe('RemoteNodesSettingsTabComponent', () => {
     });
 
     it('routes a configure-browser action to the existing enable-confirmation + updateBrowserAutomation flow', async () => {
-      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      vi.spyOn(TestBed.inject(ConfirmService), 'confirm').mockResolvedValue(true);
       ipc.updateBrowserAutomation.mockResolvedValue(null);
 
       onDetailAction({
@@ -483,7 +486,7 @@ describe('RemoteNodesSettingsTabComponent', () => {
       });
       await Promise.resolve();
 
-      expect(window.confirm).toHaveBeenCalled();
+      expect(TestBed.inject(ConfirmService).confirm).toHaveBeenCalled();
       expect(ipc.updateBrowserAutomation).toHaveBeenCalledWith(
         'node-a',
         { enabled: true, headless: false, profileDir: '/tmp/profile' },
@@ -517,7 +520,7 @@ describe('RemoteNodesSettingsTabComponent', () => {
     });
 
     it('routes a run-login action to the existing confirm + runBrowserLogin flow', async () => {
-      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      vi.spyOn(TestBed.inject(ConfirmService), 'confirm').mockResolvedValue(true);
 
       onDetailAction({ type: 'run-login', nodeId: 'node-a', url: 'https://example.com' });
       await Promise.resolve();

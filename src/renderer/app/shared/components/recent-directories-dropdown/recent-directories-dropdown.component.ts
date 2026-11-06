@@ -9,6 +9,7 @@
  * - Keyboard navigation
  */
 
+import { ConfirmService } from '../../confirm/confirm.service';
 import {
   Component,
   input,
@@ -438,6 +439,7 @@ import type { RecentDirectoryEntry } from '../../../../../shared/types/recent-di
   `],
 })
 export class RecentDirectoriesDropdownComponent implements OnInit {
+  private readonly confirmService = inject(ConfirmService);
   // Inputs
   currentPath = input<string>('');
   placeholder = input<string>('No folder selected');
@@ -623,9 +625,7 @@ export class RecentDirectoriesDropdownComponent implements OnInit {
   }
 
   async clearRecent(): Promise<void> {
-    const confirmed = confirm(
-      'Clear all recent directories? Pinned items will be kept.'
-    );
+    const confirmed = await this.confirmService.confirm({ message: 'Clear all recent directories? Pinned items will be kept.', confirmLabel: 'Clear recent', danger: false });
     if (confirmed) {
       await this.recentDirsService.clearAll(true);
       this.loadDirectories();

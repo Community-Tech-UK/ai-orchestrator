@@ -1,8 +1,11 @@
+import { ConfirmDialogComponent } from './shared/confirm/confirm-dialog.component';
 /**
  * Root Application Component
  */
 
 import { ChangeDetectionStrategy, Component, computed, effect, inject, OnDestroy, OnInit, signal } from '@angular/core';
+import { UndoService } from './core/services/undo.service';
+import { ActionDispatchService } from './core/services/action-dispatch.service';
 import { ToastService } from './core/services/toast.service';
 import { Router, RouterOutlet } from '@angular/router';
 import { IpcFacadeService } from './core/services/ipc';
@@ -111,6 +114,7 @@ const WINDOW_CONTROLS_FALLBACK_INSET = 150;
     AioTooltipDirective,
     AwayRecapBannerComponent,
     TerminateConfirmDialogComponent,
+    ConfirmDialogComponent,
     ApprovalDigestBannerComponent,
     GettingStartedBarComponent,
     RouterOutlet,
@@ -160,6 +164,8 @@ export class AppComponent implements OnInit, OnDestroy {
   private readonly globalPauseQueues = inject(GlobalPauseQueueController);
   private workControlsDestroyed = false;
   protected readonly toastService = inject(ToastService);
+  private readonly undo = inject(UndoService);
+  private readonly undoCleanup = inject(ActionDispatchService).register({ id: 'undo-last-action', run: () => this.undo.undoLast() });
   private readonly firstRunService = inject(FirstRunService);
   private readonly scratchDirectory = inject(ScratchDirectoryService);
   private readonly remoteNodeStore = inject(RemoteNodeStore);
@@ -351,7 +357,12 @@ export class AppComponent implements OnInit, OnDestroy {
     this.titleBarControlsInset.set(inset);
   }
 
+  protected onToastFocusOut(id: string, event: FocusEvent): void {
+    if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node | null)) this.toastService.resume(id, 'focus');
+  }
+
   ngOnDestroy(): void {
+    this.undoCleanup();
     this.workControlsDestroyed = true;
     this.queuePersistence.unsubscribeFromInitialPrompts();
     if (this.resumeToastTimer) clearTimeout(this.resumeToastTimer);

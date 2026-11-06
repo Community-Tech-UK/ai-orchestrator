@@ -197,6 +197,7 @@ export class KeybindingService implements OnDestroy {
 
     // Find matching binding
     for (const binding of bindings) {
+      if (isInputElement && binding.skipInTextFields) continue;
       // If we're in an input and the binding is global without requiring modifiers,
       // skip to avoid interfering with typing
       if (isInputElement && binding.context === 'global') {

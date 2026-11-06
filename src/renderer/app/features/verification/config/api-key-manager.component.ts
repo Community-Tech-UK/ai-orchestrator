@@ -8,6 +8,7 @@
  * - Last used tracking
  */
 
+import { ConfirmService } from '../../../shared/confirm/confirm.service';
 import {
   Component,
   signal,
@@ -613,6 +614,7 @@ interface ProviderInfo {
   `],
 })
 export class ApiKeyManagerComponent {
+  private readonly confirmService = inject(ConfirmService);
   private clipboard = inject(CLIPBOARD_SERVICE);
   protected readonly copy = copyFor;
 
@@ -848,7 +850,7 @@ export class ApiKeyManagerComponent {
   }
 
   async deleteKey(keyId: string): Promise<void> {
-    if (!confirm('Are you sure you want to delete this API key?')) return;
+    if (!await this.confirmService.confirm({ message: 'Are you sure you want to delete this API key?', confirmLabel: 'Delete API key', danger: true })) return;
 
     try {
       await (window as unknown as { electronAPI?: { invoke: (channel: string, arg: unknown) => Promise<unknown> } }).electronAPI?.invoke('api-key:delete', { id: keyId });

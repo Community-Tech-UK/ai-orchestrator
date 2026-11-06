@@ -7,6 +7,7 @@ import {
   input,
   signal,
 } from '@angular/core';
+import { windowTodos } from './todo-window';
 import type { TodoItem } from '../../../../shared/types/todo.types';
 import { TodoStore } from '../../core/state/todo.store';
 import type { Instance } from '../../core/state/instance/instance.types';
@@ -99,8 +100,10 @@ export const PANEL_COLLAPSED_FIELD: StorageField<boolean> = {
                   <span class="task-text">{{ taskLabel(todo) }}</span>
                 </div>
               }
-              @if (hiddenTodoCount() > 0) {
-                <div class="more-row">{{ hiddenTodoCount() }} more</div>
+              @if (todoWindow().earlier > 0 || todoWindow().later > 0) {
+                <button type="button" class="more-row" (click)="showAllTodos.set(true)">{{ todoWindow().earlier || todoWindow().later }} {{ todoWindow().earlier ? 'earlier' : 'more' }}</button>
+              } @else if (showAllTodos() && todoStore.todos().length > 5) {
+                <button type="button" class="more-row" (click)="showAllTodos.set(false)">Show fewer</button>
               }
             </div>
           }
@@ -353,6 +356,7 @@ export const PANEL_COLLAPSED_FIELD: StorageField<boolean> = {
     }
 
     .task-list {
+      min-height: 0; max-height: 35vh; flex-shrink: 1;
       padding: 0 14px 10px;
     }
 
@@ -509,6 +513,9 @@ export const PANEL_COLLAPSED_FIELD: StorageField<boolean> = {
       line-height: 1.25;
     }
 
+    button.more-row { background: transparent; border: 0; cursor: pointer; text-align: left; }
+    button.more-row:focus-visible { outline: 2px solid var(--primary-color); }
+
     .more-row {
       padding: 4px 8px 0 26px;
       color: var(--text-muted);
@@ -629,13 +636,9 @@ export class SessionProgressPanelComponent {
 
   readonly stats = computed(() => this.todoStore.stats());
 
-  readonly visibleTodos = computed<readonly TodoItem[]>(() =>
-    this.hasTodos() ? this.todoStore.todos().slice(0, MAX_VISIBLE_TASKS) : []
-  );
-
-  readonly hiddenTodoCount = computed(() =>
-    this.hasTodos() ? Math.max(0, this.todoStore.todos().length - MAX_VISIBLE_TASKS) : 0
-  );
+  readonly showAllTodos = signal(false);
+  readonly todoWindow = computed(() => windowTodos(this.hasTodos() ? this.todoStore.todos() : [], MAX_VISIBLE_TASKS, this.showAllTodos()));
+  readonly visibleTodos = computed<readonly TodoItem[]>(() => this.todoWindow().rows);
 
   readonly visibleOutputs = computed<readonly ArtifactEntry[]>(() =>
     this.outputs().slice(0, MAX_VISIBLE_OUTPUTS)
@@ -666,6 +669,7 @@ export class SessionProgressPanelComponent {
     // collapsed panel stays collapsed until the user reopens it.
     effect(() => {
       void this.todoStore.setSession(this.sessionId());
+      this.showAllTodos.set(false);
     });
   }
 

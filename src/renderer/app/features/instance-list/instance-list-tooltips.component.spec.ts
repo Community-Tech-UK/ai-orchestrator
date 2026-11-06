@@ -22,6 +22,7 @@ import { HistoryIpcService } from '../../core/services/ipc/history-ipc.service';
 import { ProjectRailBuilderService } from './project-rail-builder.service';
 import { ProjectRailPathService } from './project-rail-path.service';
 import { HistoryRailService } from './history-rail.service';
+import { ToastService } from '../../core/services/toast.service';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import type { ProjectGroup } from './instance-list.types';
 import type { ConversationHistoryEntry } from '../../../../shared/types/history.types';
@@ -48,7 +49,7 @@ describe('Session list tooltip DOM', () => {
       { provide: TerminateConfirmStore, useValue: {} },
       { provide: InstanceStore, useValue: { selectedInstanceId: signal(null), selectedInstance: signal(null),
         instances: signal([]), rootInstances: signal([]) } },
-      { provide: HistoryStore, useValue: { entries: signal([]), previewEntryId: signal(null), loadHistory: vi.fn(), archiveEntry } },
+      { provide: HistoryStore, useValue: { entries: signal([entry]), previewEntryId: signal(null), loadHistory: vi.fn(), archiveEntry } },
       { provide: LoopStore, useValue: { runningChatIds: signal(new Set()), ensureWired: vi.fn() } },
       { provide: RemoteNodeStore, useValue: { hasNodes: signal(false) } },
       { provide: NewSessionDraftService, useValue: { revision: signal(0) } },
@@ -56,8 +57,12 @@ describe('Session list tooltip DOM', () => {
       { provide: RecentDirectoriesIpcService, useValue: { getDirectories: async () => [] } },
       { provide: FileIpcService, useValue: {} }, { provide: HistoryIpcService, useValue: {} },
       { provide: ProjectRailBuilderService, useValue: { buildProjectGroups: () => [group] } },
-      { provide: ProjectRailPathService, useValue: {} },
+      { provide: ProjectRailPathService, useValue: {
+        getSessionProjectPath: ProjectRailPathService.prototype.getSessionProjectPath,
+        getProjectKey: (path: string) => path.toLowerCase(),
+      } },
       { provide: HistoryRailService, useValue: { historyDisplayLimit: 5, getVisibleHistoryItems: () => group.historyItems,
+        getHistoryThreadId: HistoryRailService.prototype.getHistoryThreadId, markHistoryEntriesSeen: vi.fn(),
         isPinnedHistory: () => false, isRestoringHistory: restoring, isThreadUnread: () => true,
         getHistoryProviderVisual: () => ({ label: 'Claude', icon: 'anthropic', color: '#fff' }),
         getHistoryTitle: () => 'The complete history thread name before truncation', getHistoryPreviewTitle: () => 'The complete history thread…',
@@ -103,7 +108,7 @@ describe('Session list tooltip DOM', () => {
     expect(document.querySelector('[role="tooltip"]')).toBeNull();
     fixture.componentInstance.filterInput.set(''); fixture.detectChanges(); element.click(); expect(activation).toHaveBeenCalledOnce();
   });
-  it('keeps row markers compact with hover explanations, and shows the archive consequence before confirmation', () => {
+  it('keeps row markers compact with hover explanations and archives immediately with Undo', async () => {
     const fixture = TestBed.createComponent(InstanceListComponent); fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
     const hintOf = (selector: string) => fixture.debugElement.query(By.css(selector)).injector.get(AioTooltipDirective).appTooltip();
@@ -118,14 +123,12 @@ describe('Session list tooltip DOM', () => {
     expect(host.querySelector('.history-entry-automation-clock')?.textContent?.trim()).toBe('');
     expect(hintOf('.history-entry-automation-clock')).toBe('Started by a scheduled automation');
     expect(host.querySelector('.history-entry-automation-clock')?.getAttribute('role')).toBe('img');
+    expect(hintOf('.history-entry-action')).toBe('Hides this thread from the project list. The conversation is kept in Archive.');
     host.querySelector<HTMLButtonElement>('.history-entry-action')!.click(); fixture.detectChanges();
-    expect(archiveEntry).not.toHaveBeenCalled();
-    expect(host.querySelector('.archive-warning')?.textContent).toBe('Hides this thread from the project list. The conversation is kept in Archive.');
-    // Its own grid line under the row, not inside the narrow meta column beside the title.
-    expect(host.querySelector('.history-entry > .archive-warning')).toBeTruthy();
-    expect(host.querySelector('.history-entry-meta .archive-warning')).toBeNull();
-    host.querySelector<HTMLButtonElement>('.history-entry-confirm-btn')!.click();
-    expect(archiveEntry).toHaveBeenCalledWith('history-1');
+    expect(archiveEntry).toHaveBeenCalledExactlyOnceWith('history-1');
+    await fixture.whenStable();
+    expect(TestBed.inject(ToastService).toasts()[0]).toMatchObject({ type: 'success', action: { label: 'Undo' } });
+
   });
   it('shows only the time in the row and names which time it is on hover', () => {
     const rail = TestBed.inject(HistoryRailService) as unknown as { getHistoryChangeSummary: () => null };

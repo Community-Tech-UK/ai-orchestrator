@@ -86,6 +86,15 @@
         </div>
       </dl>
 
+      <details class="cost-details">
+        <summary>Details</summary>
+        <dl>
+          <div><dt>Measured cloud cost</dt><dd>{{ formatExactUsd(summary.knownCostUsd) }} <button type="button" aria-label="Copy measured cloud cost" (click)="clipboard.copyText(formatExactUsd(summary.knownCostUsd), { label: 'measured cloud cost' })">Copy</button></dd></div>
+          <div><dt>Estimated cloud cost</dt><dd>{{ formatExactUsd(summary.estimatedCostUsd) }} <button type="button" aria-label="Copy estimated cloud cost" (click)="clipboard.copyText(formatExactUsd(summary.estimatedCostUsd), { label: 'estimated cloud cost' })">Copy</button></dd></div>
+          <div><dt>Estimated avoided cost</dt><dd>{{ formatExactUsd(summary.avoidedEstimatedCostUsd) }} <button type="button" aria-label="Copy estimated avoided cost" (click)="clipboard.copyText(formatExactUsd(summary.avoidedEstimatedCostUsd), { label: 'estimated avoided cost' })">Copy</button></dd></div>
+        </dl>
+      </details>
+
       <div class="breakdown-heading">
         <h3>{{ breakdownHeading() }}</h3>
         <div class="breakdown-filter" aria-label="Effectiveness breakdown">
@@ -102,7 +111,6 @@
         <ul class="breakdown-list">
           @for (entry of breakdownEntries(); track entry.key) {
             <li
-              role="img"
               data-effectiveness-visual
               [attr.aria-label]="breakdownVisualLabel(entry)"
             >
@@ -111,6 +119,13 @@
                 <span [style.width.%]="entry.percent"></span>
               </span>
               <strong>{{ entry.count }}</strong>
+              @if (entry.unknownEndpoint) {
+                <details class="endpoint-details">
+                  <summary>Details</summary>
+                  <span>Endpoint id: {{ entry.key }}</span>
+                  <button type="button" aria-label="Copy endpoint id" (click)="clipboard.copyText(entry.key, { label: 'endpoint id' })">Copy</button>
+                </details>
+              }
             </li>
           }
         </ul>

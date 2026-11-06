@@ -56,6 +56,7 @@ export interface SessionPickerItem {
   id: string;
   title: string;
   subtitle?: string;
+  searchText?: string;
   projectPath?: string;
   provider?: string;
   kind: 'live' | 'history' | 'archived';

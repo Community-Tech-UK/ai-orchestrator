@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildOrchestratorToolsMcpConfig,
+  isOrchestratorToolsBridgeAvailable,
   resolveOrchestratorToolMode,
   resolveOrchestratorToolsBridgeSpec,
 } from '../orchestrator-tools-mcp-config';
@@ -164,5 +165,38 @@ describe('orchestrator tools MCP config helpers', () => {
       exists: () => true,
     });
     expect(disabled?.env[INTER_SESSION_MESSAGING_ENABLED_ENV]).toBeUndefined();
+  });
+});
+
+describe('isOrchestratorToolsBridgeAvailable', () => {
+  const lookups = {
+    resolveAioMcpCliPath: () => AIO_MCP,
+    getSocketPath: () => SOCKET,
+    exists: () => true,
+  };
+
+  it('is true when the provider, binary and socket are all present', () => {
+    expect(isOrchestratorToolsBridgeAvailable('claude', lookups)).toBe(true);
+    expect(isOrchestratorToolsBridgeAvailable('codex', lookups)).toBe(true);
+    expect(isOrchestratorToolsBridgeAvailable('gemini', lookups)).toBe(true);
+    expect(isOrchestratorToolsBridgeAvailable('opencode', lookups)).toBe(true);
+  });
+
+  it('is false for Antigravity and unresolved providers, which do not get the bridge', () => {
+    expect(isOrchestratorToolsBridgeAvailable('antigravity', lookups)).toBe(false);
+    expect(isOrchestratorToolsBridgeAvailable(undefined, lookups)).toBe(false);
+    expect(isOrchestratorToolsBridgeAvailable('auto', lookups)).toBe(false);
+  });
+
+  it.each(['claude', 'gemini'])('is false for %s when the aio-mcp binary or the RPC socket is missing', (provider) => {
+    expect(isOrchestratorToolsBridgeAvailable(provider, {
+      ...lookups, resolveAioMcpCliPath: () => null,
+    })).toBe(false);
+    expect(isOrchestratorToolsBridgeAvailable(provider, {
+      ...lookups, exists: () => false,
+    })).toBe(false);
+    expect(isOrchestratorToolsBridgeAvailable(provider, {
+      ...lookups, getSocketPath: () => null,
+    })).toBe(false);
   });
 });

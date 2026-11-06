@@ -1,3 +1,4 @@
+import { McpServerCostComponent } from './mcp-server-cost.component';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 /**
@@ -129,7 +130,7 @@ type ManagementProviderField = 'injectInto';
 @Component({
   selector: 'app-mcp-page',
   standalone: true,
-  imports: [CommonModule, McpPresetCatalogComponent, WorkspaceMcpConnectorsPanelComponent, GlossaryTermComponent, AioTooltipDirective, AppIconButtonDirective],
+  imports: [CommonModule, McpPresetCatalogComponent, WorkspaceMcpConnectorsPanelComponent, McpServerCostComponent, GlossaryTermComponent, AioTooltipDirective, AppIconButtonDirective],
   templateUrl: './mcp-page.component.html',
   styleUrl: './mcp-page.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -143,6 +144,7 @@ export class McpPageComponent implements OnInit, OnDestroy {
 
   readonly servers = signal<McpServer[]>([]);
   readonly tools = signal<McpTool[]>([]);
+  readonly toolsLoaded = signal(false);
   readonly resources = signal<McpResource[]>([]);
   readonly prompts = signal<McpPrompt[]>([]);
   readonly browserHealth = signal<BrowserAutomationHealthReport | null>(null);
@@ -1011,9 +1013,11 @@ export class McpPageComponent implements OnInit, OnDestroy {
   }
 
   private async loadTools(): Promise<void> {
+    this.toolsLoaded.set(false);
     const response = await this.mcpIpc.mcpGetTools();
     if (!response.success) return;
     this.tools.set(this.extractArray<McpTool>(response));
+    this.toolsLoaded.set(true);
   }
 
   private async loadResources(): Promise<void> {

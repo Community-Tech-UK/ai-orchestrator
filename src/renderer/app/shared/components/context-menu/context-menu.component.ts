@@ -40,6 +40,7 @@ export interface ContextMenuItem {
       [cdkConnectedOverlayViewportMargin]="8"
       [cdkConnectedOverlayFlexibleDimensions]="false"
       [cdkConnectedOverlayPush]="true"
+      (attach)="onOverlayAttach()"
     >
       <div
         class="context-menu"
@@ -174,6 +175,8 @@ export class ContextMenuComponent {
   private overlay?: CdkConnectedOverlay;
 
   readonly items = input<ContextMenuItem[] | null | undefined>();
+  readonly focusOnOpen = input(false);
+  readonly triggerElement = input<HTMLElement>();
   readonly x = input<number | string | null | undefined>();
   readonly y = input<number | string | null | undefined>();
   readonly visible = input<boolean | string | null | undefined>();
@@ -200,10 +203,34 @@ export class ContextMenuComponent {
 
   constructor() {
     this.document.addEventListener('pointerdown', this.onDocumentPointerDown, true);
+    this.document.addEventListener('keydown', this.onMenuKeyDown, true);
     this.destroyRef.onDestroy(() => {
       this.document.removeEventListener('pointerdown', this.onDocumentPointerDown, true);
+      this.document.removeEventListener('keydown', this.onMenuKeyDown, true);
     });
   }
+
+  onOverlayAttach(): void {
+    if (this.focusOnOpen()) this.menuButtons()[0]?.focus();
+  }
+
+  private menuButtons(): HTMLButtonElement[] {
+    return Array.from(this.overlay?.overlayRef.overlayElement.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)') ?? []);
+  }
+
+  private readonly onMenuKeyDown = (event: KeyboardEvent): void => {
+    if (!this.focusOnOpen() || !this.menuVisible()) return;
+    if (event.key === 'Escape') {
+      event.preventDefault(); event.stopImmediatePropagation(); this.closed.emit(); return;
+    }
+    if (event.key === 'Tab') { this.closed.emit(); return; }
+    const buttons = this.menuButtons();
+    const index = buttons.findIndex((button) => button === this.document.activeElement);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
+      : event.key === 'ArrowDown' ? (index + 1) % buttons.length
+      : event.key === 'ArrowUp' ? (index - 1 + buttons.length) % buttons.length : -1;
+    if (next >= 0 && buttons[next]) { event.preventDefault(); event.stopImmediatePropagation(); buttons[next].focus(); }
+  };
 
   onItemClick(item: ContextMenuItem): void {
     if (!item.disabled) {
@@ -215,7 +242,8 @@ export class ContextMenuComponent {
   private readonly onDocumentPointerDown = (event: PointerEvent): void => {
     if (this.menuVisible()) {
       const overlayElement = this.overlay?.overlayRef.overlayElement;
-      if (overlayElement && !overlayElement.contains(event.target as Node)) {
+      if (overlayElement && !overlayElement.contains(event.target as Node)
+        && !this.triggerElement()?.contains(event.target as Node)) {
         this.closed.emit();
       }
     }

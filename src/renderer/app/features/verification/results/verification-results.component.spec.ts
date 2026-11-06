@@ -805,9 +805,11 @@ describe('VerificationResultsComponent', () => {
       fixture.detectChanges();
       expect(fixture.nativeElement.querySelector('.results-meta')?.textContent).toContain('Total Cost: Unknown');
       const cards = fixture.nativeElement.querySelectorAll('.card-meta');
-      expect(cards[0].textContent).toContain('$0.0700');
+      expect(cards[0].textContent).toContain('$0.07');
+      expect(cards[0].textContent).not.toContain('$0.0700');
       expect(cards[1].textContent).toContain('Unknown');
-      expect(cards[2].textContent).toContain('$0.0000');
+      expect(cards[2].textContent).toContain('$0.00');
+      expect(cards[2].textContent).not.toContain('$0.0000');
     });
   });
 });

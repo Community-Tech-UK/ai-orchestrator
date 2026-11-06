@@ -131,7 +131,7 @@ describe('LocalAiFallbackBannerComponent', () => {
     expect(banner.textContent).toContain('Paid fallback needs a decision');
     expect(banner.textContent).toContain('Memory distillation');
     expect(banner.textContent).toContain('1,250 input tokens');
-    expect(banner.textContent).toContain('$0.0375 estimated');
+    expect(banner.textContent).toContain('$0.04 estimated');
     expect(banner.getAttribute('data-request-id')).toBe('same-time-a');
     expect(fixture.nativeElement.querySelectorAll('.local-ai-fallback-banner')).toHaveLength(1);
   });
@@ -211,7 +211,7 @@ describe('LocalAiFallbackBannerComponent', () => {
     expect(live.getAttribute('aria-live')).toBe('polite');
     expect(firstText).toBe(
       'New paid fallback request 1 for Memory distillation. '
-      + '1,250 input tokens. $0.0375 estimated.',
+      + '1,250 input tokens. $0.04 estimated.',
     );
 
     pendingFallbacks.set([{ ...oldest }]);
@@ -224,7 +224,7 @@ describe('LocalAiFallbackBannerComponent', () => {
     fixture.detectChanges();
     expect(live.textContent).toBe(
       'New paid fallback request 2 for Memory distillation. '
-      + '1,250 input tokens. $0.0375 estimated.',
+      + '1,250 input tokens. $0.04 estimated.',
     );
 
     pendingFallbacks.set([]);
@@ -286,10 +286,11 @@ describe('LocalAiFallbackBannerComponent', () => {
     expect(row).not.toBeNull();
     expect(row.textContent).toContain('Paid fallback happened automatically');
     expect(row.textContent).toContain('Compression');
-    expect(row.textContent).toContain('$0.0125 estimated');
-    // Informational only — no accept/reject controls, only a dismiss.
-    expect(row.querySelectorAll('button')).toHaveLength(1);
-    expect(row.querySelector('button')?.textContent?.trim()).toBe('Dismiss');
+    expect(row.textContent).toContain('$0.01 estimated');
+    // Informational only: no accept/reject controls. Copy stays in Details.
+    expect(row.querySelectorAll('.notification-dismiss')).toHaveLength(1);
+    expect(row.querySelector('.notification-dismiss')?.textContent?.trim()).toBe('Dismiss');
+    expect(row.querySelector('details')?.textContent).toContain('$0.0125 estimated');
   });
 
   it('LT-189: shows "Cost unknown" for an unpriced notify-and-allow event rather than a confident $0', () => {
@@ -318,8 +319,8 @@ describe('LocalAiFallbackBannerComponent', () => {
     expect(row.getAttribute('data-event-ids')).toBe('event-3,event-2,event-1');
     expect(row.textContent).toContain('3 paid fallbacks happened automatically');
     expect(row.textContent).toContain('Title generation');
-    expect(row.textContent).toContain('$0.0060 estimated');
-    expect(row.querySelector('button')?.getAttribute('aria-label')).toBe(
+    expect(row.textContent).toContain('$0.01 estimated');
+    expect(row.querySelector('.notification-dismiss')?.getAttribute('aria-label')).toBe(
       'Dismiss 3 paid fallback notifications',
     );
   });
@@ -333,7 +334,7 @@ describe('LocalAiFallbackBannerComponent', () => {
     fixture.detectChanges();
 
     const dismiss = fixture.nativeElement.querySelector(
-      '.fallback-notification[data-event-ids="event-3,event-2,event-1"] button',
+      '.fallback-notification[data-event-ids="event-3,event-2,event-1"] .notification-dismiss',
     ) as HTMLButtonElement;
     dismiss.click();
     fixture.detectChanges();
@@ -362,7 +363,7 @@ describe('LocalAiFallbackBannerComponent', () => {
     expect(rows[1].textContent).toContain('Compression');
 
     const titleDismiss = fixture.nativeElement
-      .querySelector('.fallback-notification[data-event-id="event-3"] button') as HTMLButtonElement;
+      .querySelector('.fallback-notification[data-event-id="event-3"] .notification-dismiss') as HTMLButtonElement;
     titleDismiss.click();
     fixture.detectChanges();
 

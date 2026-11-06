@@ -17,6 +17,8 @@ import {
 } from '@angular/core';
 import { ProcessingSpinnerComponent } from './processing-spinner.component';
 import { InstanceStatus } from '../../core/state/instance.store';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 
 function formatElapsed(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
@@ -41,12 +43,12 @@ function formatElapsed(ms: number): string {
 @Component({
   selector: 'app-activity-status',
   standalone: true,
-  imports: [ProcessingSpinnerComponent],
+  imports: [ProcessingSpinnerComponent, AioTooltipDirective],
   template: `
     @if (isActive()) {
       <div class="activity-status">
         <app-processing-spinner />
-        <span class="activity-text">{{ displayText() }}</span>
+        <span class="activity-text" tabindex="0" [appTooltip]="displayText() === 'Working quietly' ? quietTooltip : ''">{{ displayText() }}</span>
         @if (elapsedText()) {
           <span class="elapsed-time">{{ elapsedText() }}</span>
         }
@@ -92,6 +94,8 @@ export class ActivityStatusComponent implements OnDestroy {
 
   /** Timestamp when the instance became busy (for elapsed time) */
   busySince = input<number | undefined>(undefined);
+  lastEventAt = input<number | undefined>(undefined);
+  readonly quietTooltip = copyFor('workingQuietly');
 
   /** Whether to show the activity status */
   isActive = computed(() => {
@@ -114,10 +118,15 @@ export class ActivityStatusComponent implements OnDestroy {
 
     // Fallback based on status
     const s = this.status();
+    const lastEventAt = this.lastEventAt();
+    if ((s === 'busy' || s === 'processing') && lastEventAt !== undefined && this._tick() - lastEventAt >= 10_000) {
+      return 'Working quietly';
+    }
     switch (s) {
       case 'initializing':
         return 'Initializing...';
       case 'busy':
+      case 'processing':
         return 'Processing...';
       case 'interrupting':
         return 'Interrupting...';

@@ -1,3 +1,4 @@
+import { createSessionReadForwarderTools } from './orchestrator-session-read-tools';
 /**
  * Orchestrator-Tools MCP Forwarder (stdio side, runs inside the `aio-mcp` SEA).
  *
@@ -172,6 +173,7 @@ export function createOrchestratorToolsForwarderTools(
     createNodeConnectionForwarderTool(client),
     ...createHostProcessForwarderTools(client),
     ...createSessionMessagingForwarderTools(client, sessionMessagingEnabled),
+    ...createSessionReadForwarderTools(client),
     {
       name: 'read_node_output',
       description:

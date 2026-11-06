@@ -3,6 +3,7 @@
  * Container for viewing, searching, restoring, and deleting session archives.
  */
 
+import { ConfirmService } from '../../shared/confirm/confirm.service';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -765,6 +766,7 @@ interface ArchiveEntry {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ArchivePageComponent implements OnInit {
+  private readonly confirmService = inject(ConfirmService);
   private readonly archiveIpc = inject(ArchiveIpcService);
 
   readonly archives = signal<ArchiveEntry[]>([]);
@@ -878,7 +880,7 @@ export class ArchivePageComponent implements OnInit {
 
   async deleteEntry(event: Event, entry: ArchiveEntry): Promise<void> {
     event.stopPropagation();
-    if (!confirm(`Delete archive for session "${entry.sessionId}"? This cannot be undone.`)) {
+    if (!await this.confirmService.confirm({ message: `Delete archive for session "${entry.sessionId}"? This cannot be undone.`, confirmLabel: 'Delete archive', danger: true })) {
       return;
     }
 

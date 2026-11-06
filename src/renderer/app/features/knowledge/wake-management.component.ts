@@ -11,19 +11,22 @@ import { FormsModule } from '@angular/forms';
 import type { WakeHint } from '../../../../shared/types/wake-context.types';
 import { summarizeWakeHints } from '../../../../shared/types/wake-hint-summary';
 import { KnowledgeStore } from '../../core/state/knowledge.store';
+import { UndoService } from '../../core/services/undo.service';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 
 @Component({
   selector: 'app-wake-management',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="wake-mgmt">
       <!-- Identity Editor -->
       <div class="panel-card">
         <div class="panel-title" style="display: flex; justify-content: space-between; align-items: center;">
-          <span>L0 Identity</span>
-          <button class="btn btn-sm" type="button" (click)="editingIdentity.set(!editingIdentity())">
+          <span tabindex="0" [appTooltip]="copyFor('memory.identity')">About this project</span>
+          <button class="btn btn-sm" type="button" [appTooltip]="copyFor(editingIdentity() ? 'memory.cancel' : 'memory.editIdentity')" (click)="editingIdentity.set(!editingIdentity())">
             {{ editingIdentity() ? 'Cancel' : 'Edit' }}
           </button>
         </div>
@@ -33,16 +36,18 @@ import { KnowledgeStore } from '../../core/state/knowledge.store';
             <textarea
               class="input textarea"
               [(ngModel)]="identityDraft"
-              placeholder="Describe the project/persona identity (max 500 chars)"
+              [appTooltip]="copyFor('memory.identity')" aria-label="About this project"
+              placeholder="Describe this project (max 500 chars)"
               maxlength="500"
               rows="3"
             ></textarea>
             <div class="form-footer">
               <span class="muted">{{ identityDraft().length }}/500</span>
               <button class="btn primary" type="button"
+                [appTooltip]="copyFor('memory.saveIdentity')"
                 [disabled]="!identityDraft().trim() || store.loading()"
                 (click)="saveIdentity()">
-                Save Identity
+                Save description
               </button>
             </div>
           </div>
@@ -50,38 +55,40 @@ import { KnowledgeStore } from '../../core/state/knowledge.store';
           @if (store.wakeIdentity(); as identity) {
             <pre class="wake-text">{{ identity }}</pre>
           } @else {
-            <div class="hint">No identity set. Click "Edit" to define one.</div>
+            <div class="hint">No project description yet. Click "Edit" to add one.</div>
           }
         }
       </div>
 
       <!-- Wing-Filtered Regeneration -->
       <div class="panel-card">
-        <div class="panel-title">Regenerate Wake Context</div>
+        <div class="panel-title">Rebuild starting notes</div>
         <div class="regen-row">
           <label class="field field-wide">
-            <span class="label">Wing (optional)</span>
-            <input class="input" type="text" [(ngModel)]="wakeWing" placeholder="e.g. my_project" />
+            <span class="label">Project (optional)</span>
+            <input class="input" type="text" [(ngModel)]="wakeWing" placeholder="e.g. my_project" aria-label="Project override"
+              [appTooltip]="copyFor('memory.project')" />
           </label>
           <button class="btn primary" type="button"
-            [disabled]="store.loading()"
+            [appTooltip]="copyFor('memory.rebuild')" [disabled]="store.loading() || !rebuildProject()"
             (click)="regenerate()">
-            Regenerate
+            Rebuild starting notes
           </button>
         </div>
+        @if (!rebuildProject()) { <div class="hint" role="status">Pick a project first.</div> }
 
         @if (store.wakeContext(); as ctx) {
           <div class="stat-row"><span>Tokens</span><span class="num">~{{ ctx.totalTokens }}</span></div>
           @if (ctx.wing) {
-            <div class="stat-row"><span>Wing</span><span>{{ ctx.wing }}</span></div>
+            <div class="stat-row"><span>Project</span><span>{{ ctx.wing }}</span></div>
           }
           <details class="wake-details">
-            <summary>L0 Identity</summary>
+            <summary [appTooltip]="copyFor('memory.identity')">About this project</summary>
             <pre class="wake-text">{{ ctx.identity.content }}</pre>
           </details>
           <details class="wake-details">
-            <summary>L1 Essential Story</summary>
-            <pre class="wake-text">{{ ctx.essentialStory.content }}</pre>
+            <summary [appTooltip]="copyFor('memory.background')">Key background</summary>
+            <pre class="wake-text">{{ backgroundPreview(ctx.essentialStory.content) }}</pre>
           </details>
         }
       </div>
@@ -89,32 +96,36 @@ import { KnowledgeStore } from '../../core/state/knowledge.store';
       <!-- Hints Management -->
       <div class="panel-card">
         <div class="panel-title" style="display: flex; justify-content: space-between; align-items: center;">
-          <span>Wake Hints ({{ store.hintCount() }})</span>
-          <button class="btn btn-sm" type="button" (click)="showAddHint.set(!showAddHint())">
-            {{ showAddHint() ? 'Cancel' : '+ Add Hint' }}
+          <span tabindex="0" [appTooltip]="copyFor('memory.projectNotes')">Project notes ({{ store.hintCount() }})</span>
+          <button class="btn btn-sm" type="button" [appTooltip]="copyFor(showAddHint() ? 'memory.cancel' : 'memory.addNote')" (click)="showAddHint.set(!showAddHint())">
+            {{ showAddHint() ? 'Cancel' : '+ Add note' }}
           </button>
         </div>
+        <p class="hint">Removing a note deletes it. Undo is available for five seconds.</p>
 
         @if (showAddHint()) {
           <div class="inline-form">
             <label class="field">
               <span class="label">Content</span>
-              <textarea class="input textarea" [(ngModel)]="newHintContent" rows="2"
+              <textarea class="input textarea" [(ngModel)]="newHintContent" rows="2" [appTooltip]="copyFor('memory.content')" aria-label="Note content"
                 placeholder="Describe a fact, pattern, or guideline..."></textarea>
             </label>
             <div class="form-row">
               <label class="field">
-                <span class="label">Importance (0-10)</span>
+                <span class="label">Priority (0-10)</span>
                 <input class="input" type="number" [(ngModel)]="newHintImportance"
+                  [appTooltip]="copyFor('memory.priority')" aria-label="Priority"
                   min="0" max="10" step="1" placeholder="5" />
               </label>
               <label class="field">
-                <span class="label">Room</span>
+                <span class="label">Topic</span>
                 <input class="input" type="text" [(ngModel)]="newHintRoom"
+                  [appTooltip]="copyFor('memory.topic')" aria-label="Topic"
                   placeholder="e.g. architecture, security" />
               </label>
               <div class="field" style="justify-content: flex-end;">
                 <button class="btn primary" type="button"
+                  [appTooltip]="copyFor('memory.addNote')"
                   [disabled]="!newHintContent().trim() || store.loading()"
                   (click)="addHint()">
                   Add
@@ -128,9 +139,9 @@ import { KnowledgeStore } from '../../core/state/knowledge.store';
           {{ hintSummary().shownThisWeek }} shown this week</p>
         <div class="hint-meta" role="group" aria-label="Wake note visibility">
           <button class="btn btn-sm" type="button" [attr.aria-pressed]="!showHidden()"
-            (click)="showHidden.set(false)">Notes ({{ hintSummary().visible.length }})</button>
+            [appTooltip]="copyFor('memory.notes')" (click)="showHidden.set(false)">Notes ({{ hintSummary().visible.length }})</button>
           <button class="btn btn-sm" type="button" [attr.aria-pressed]="showHidden()"
-            (click)="showHidden.set(true)">Hidden ({{ hintSummary().hidden.length }})</button>
+            [appTooltip]="copyFor('memory.hidden')" (click)="showHidden.set(true)">Hidden ({{ hintSummary().hidden.length }})</button>
         </div>
         @if (showHidden()) {
           <p class="muted">Legacy notes last shown before 4 May 2026, and duplicate copies.</p>
@@ -155,19 +166,26 @@ import { KnowledgeStore } from '../../core/state/knowledge.store';
                   <span class="hint-content">{{ hint.content }}</span>
                   <div class="hint-meta">
                     <span class="badge">{{ hint.room }}</span>
-                    <span class="muted">imp: {{ hint.importance }}</span>
-                    <span class="muted">shown: {{ hint.usageCount }}x</span>
+                    <span class="muted" tabindex="0" [appTooltip]="copyFor('memory.priority')">priority {{ hint.importance }}</span>
+                    <span class="muted" tabindex="0" [appTooltip]="copyFor('memory.shown')">Shown {{ hint.usageCount }} {{ hint.usageCount === 1 ? 'time' : 'times' }}</span>
                   </div>
+                  <div class="hint-meta muted">Added {{ hint.createdAt | date:'mediumDate' }} ·
+                    <span tabindex="0" [appTooltip]="hint.sourceReflectionId ? copyFor('memory.reflection') : null">
+                      {{ hint.sourceReflectionId ? 'from a lesson' : hint.sourceSessionId ? 'from a past session' : 'added by you' }}
+                    </span>
+                  </div>
+                  @if (hint.lastUsed) { <div class="muted">Last shown {{ hint.lastUsed | date:'mediumDate' }}</div> }
                 </div>
                 <button class="btn btn-sm btn-danger" type="button"
+                  [appTooltip]="copyFor('memory.removeNote')"
                   (click)="pendingRemoval.set(hint)">
-                  Remove
+                  Remove note
                 </button>
               </li>
             }
           </ul>
         } @else {
-          <div class="hint">No hints yet. Add hints to shape the wake context.</div>
+          <div class="hint">No notes yet. Add a short fact to include in starting notes.</div>
         }
       </div>
     </div>
@@ -375,6 +393,7 @@ import { KnowledgeStore } from '../../core/state/knowledge.store';
 
     .hint-meta {
       display: flex;
+      flex-wrap: wrap;
       gap: var(--spacing-sm);
       margin-top: 2px;
     }
@@ -390,10 +409,13 @@ import { KnowledgeStore } from '../../core/state/knowledge.store';
 })
 export class WakeManagementComponent implements OnInit {
   protected store = inject(KnowledgeStore);
+  private readonly undo = inject(UndoService);
+  protected readonly copyFor = copyFor;
 
   protected editingIdentity = signal(false);
   protected identityDraft = signal('');
   protected wakeWing = signal('');
+  protected readonly rebuildProject = computed(() => this.wakeWing().trim() || this.store.selectedProjectKey().trim());
 
   protected pendingRemoval = signal<WakeHint | null>(null);
   protected showHidden = signal(false);
@@ -422,8 +444,14 @@ export class WakeManagementComponent implements OnInit {
     }
   }
 
+  protected backgroundPreview(content: string): string {
+    // Translate only the builder's own leading heading, retaining note text.
+    return content.replace(/^## L1 — ESSENTIAL STORY(?=\r?\n|$)/, 'Key background');
+  }
+
   async regenerate(): Promise<void> {
-    const wing = this.wakeWing().trim() || undefined;
+    const wing = this.rebuildProject();
+    if (!wing || this.store.loading()) return;
     await this.store.loadWakeContext(wing);
   }
 
@@ -442,6 +470,12 @@ export class WakeManagementComponent implements OnInit {
   }
 
   async removeHint(id: string): Promise<void> {
-    if (await this.store.removeHint(id)) this.pendingRemoval.set(null);
+    const note = this.store.wakeHints().find((hint) => hint.id === id);
+    if (!note || !await this.store.removeHint(id)) return;
+    this.pendingRemoval.set(null);
+    this.undo.register({
+      kind: `project-note:${id}`, message: `Removed note ‘${note.content.slice(0, 40)}’`,
+      undo: () => this.store.addHint(note.content, note.importance, note.room),
+    });
   }
 }

@@ -1,3 +1,8 @@
+import { initializeSessionTranscriptReader } from '../session/session-transcript-reader';
+import { writeSessionReadAuditRow } from '../session/session-read-audit';
+import { getCompleteInstanceMessages } from '../history/complete-instance-messages';
+import { getHistoryManager } from '../history/history-manager';
+import { getScratchDirectory } from '../util/scratch-directory';
 import { app } from 'electron';
 import { getHookManager } from '../hooks/hook-manager';
 import {
@@ -299,6 +304,16 @@ export function createInitializationSteps(
           });
         }
       },
+    },
+    {
+      name: 'Session reader',
+      fn: () => { initializeSessionTranscriptReader({
+        getAllInstances: () => instanceManager.getAllInstances(),
+        getInstance: (id) => instanceManager.getInstance(id),
+        getSettings: () => getSettingsManager().getAll(),
+        history: getHistoryManager(), getCompleteInstanceMessages,
+        scratchDirectory: getScratchDirectory(), writeAudit: writeSessionReadAuditRow,
+      }); },
     },
     {
       // Initialise the unified model catalog and kick off a background models.dev

@@ -163,12 +163,29 @@ export class MarkdownService {
 
     // Custom table rendering
     renderer.table = ({ header, rows }: Tokens.Table): string => {
-      const headerHtml = header
-        .map((cell) => `<th>${renderer.parser.parseInline(cell.tokens)}</th>`)
-        .join('');
+      const headers = header.map((cell) => renderer.parser.parseInline(cell.tokens));
+      const labels = headers.map((html) => this.inlinePlainText(html));
+      const pickable = ['#', 'no', 'no.', 'id'].includes(labels[0]?.trim().toLowerCase() ?? '');
+      const headerHtml = (pickable ? '<th class="md-pick-col"></th>' : '')
+        + headers.map((html) => `<th>${html}</th>`).join('');
       const bodyHtml = rows
-        .map((row) => `<tr>${row.map((cell) => `<td>${renderer.parser.parseInline(cell.tokens)}</td>`).join('')}</tr>`)
+        .map((row, index) => {
+          const cells = row.map((cell) => renderer.parser.parseInline(cell.tokens));
+          let pick = '';
+          if (pickable) {
+            const values = cells.map((html) => this.inlinePlainText(html));
+            const rowNumber = this.escapeHtml(values[0]?.trim() || String(index + 1));
+            const summaryText = labels.map((label, column) => `${label}: ${values[column] ?? ''}`).join('; ');
+            // SAFE_FOR_XML drops attributes containing closing script tags; JSON escapes preserve the data safely.
+            const summary = this.escapeHtml(JSON.stringify(summaryText).replace(/</g, '\\u003c').replace(/>/g, '\\u003e'));
+            pick = `<td class="md-pick-col"><button type="button" class="md-row-pick" aria-pressed="false" aria-label="Select row ${rowNumber}" data-pick-row="${rowNumber}" data-pick-text="${summary}"><span aria-hidden="true">✓</span></button></td>`;
+          }
+          return `<tr>${pick}${cells.map((html) => `<td>${html}</td>`).join('')}</tr>`;
+        })
         .join('');
+      const pickBar = pickable
+        ? '<div class="md-pick-bar" data-pick-bar data-pick-count="0"><span data-pick-count-label aria-live="polite">0 selected</span><button type="button" data-pick-add>Add to reply</button></div>'
+        : '';
 
       return `
         <div class="table-wrapper">
@@ -176,6 +193,7 @@ export class MarkdownService {
             <thead><tr>${headerHtml}</tr></thead>
             <tbody>${bodyHtml}</tbody>
           </table>
+          ${pickBar}
         </div>
       `;
     };
@@ -241,6 +259,13 @@ export class MarkdownService {
       "'": '&#39;',
     };
     return text.replace(/[&<>"']/g, (char) => htmlEscapes[char]);
+  }
+
+  /** Detached template content is inert; only plain text is copied into escaped data attributes. */
+  private inlinePlainText(html: string): string {
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    return template.content.textContent ?? '';
   }
 
   private isFilePathHref(href: string): boolean {

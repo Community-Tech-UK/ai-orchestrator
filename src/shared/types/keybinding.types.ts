@@ -34,6 +34,7 @@ export interface KeyBinding {
   customizable?: boolean;
   // Category for grouping in UI
   category?: string;
+  skipInTextFields?: boolean;
 }
 
 /**
@@ -65,6 +66,7 @@ export type KeybindingAction =
   | 'restart-instance'
   // UI
   | 'toggle-command-palette'
+  | 'undo-last-action'
   | 'toggle-sidebar'
   | 'toggle-history'
   | 'toggle-side-chat'
@@ -250,6 +252,17 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
   },
 
   // UI
+  {
+    id: 'undo-last-action',
+    name: 'Undo Last Action',
+    description: 'Restore the most recent reversible action',
+    keys: { key: 'z', modifiers: ['meta'] },
+    action: 'undo-last-action',
+    context: 'global',
+    category: 'UI',
+    customizable: true,
+    skipInTextFields: true,
+  },
   {
     id: 'toggle-command-palette',
     name: 'Command Palette',

@@ -228,6 +228,12 @@ describe('WorkboardStore', () => {
       expect(store.workspaceOptions().map((o) => o.id)).toContain(toWorkspaceId('/repo/project'));
     });
 
+    it('reports snoozed counts and shows all snoozed cards again', () => {
+      instanceStore.instances.set([instance({ id: 'a' }), instance({ id: 'b' })]);
+      store.snoozeItem('instance:a'); store.snoozeItem('instance:b');
+      expect(store.snoozedCount()).toBe(2); expect(store.visibleCount()).toBe(0);
+      store.clearSnoozes(); expect(store.snoozedCount()).toBe(0); expect(store.visibleCount()).toBe(2);
+    });
     it('an explicit unsnooze re-shows the item immediately', () => {
       instanceStore.instances.set([instance({ id: 'inst-1', status: 'busy' })]);
       store.snoozeItem('instance:inst-1');

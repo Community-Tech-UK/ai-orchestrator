@@ -1,3 +1,4 @@
+import { SESSION_READ_RPC_SPECS } from './orchestrator-session-read-tools';
 /**
  * Parent-side RPC server for the orchestrator-tools MCP surface. Thin stdio
  * forwarders in `aio-mcp` call this socket so native DB modules stay in the
@@ -367,7 +368,7 @@ export class OrchestratorToolsRpcServer {
     if (fileTransferSpec) {
       return this.dispatchValidatedTool(fileTransferSpec.toolName, fileTransferSpec.schema, params, abortSignal);
     }
-    const evidenceSpec = EVIDENCE_RPC_SPECS.find((spec) => spec.method === request.method);
+    const evidenceSpec = [...EVIDENCE_RPC_SPECS, ...SESSION_READ_RPC_SPECS].find((spec) => spec.method === request.method);
     if (evidenceSpec) {
       return this.dispatchValidatedTool(evidenceSpec.toolName, evidenceSpec.schema, params, abortSignal);
     }

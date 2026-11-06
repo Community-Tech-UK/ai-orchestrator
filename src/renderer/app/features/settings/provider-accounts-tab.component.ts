@@ -8,6 +8,7 @@
  * console session; credentials never cross into this renderer.
  */
 
+import { ConfirmService } from '../../shared/confirm/confirm.service';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -143,6 +144,7 @@ const SIGN_IN_POLL_LIMIT = 60;
   `],
 })
 export class ProviderAccountsTabComponent implements OnInit {
+  private readonly confirmService = inject(ConfirmService);
   private readonly ipc = inject(ProviderAccountIpcService);
   private readonly providerIpc = inject(ProviderIpcService);
   private readonly destroyRef = inject(DestroyRef);
@@ -400,10 +402,7 @@ export class ProviderAccountsTabComponent implements OnInit {
   }
 
   async remove(account: ProviderAccountView): Promise<void> {
-    const confirmed = globalThis.confirm?.(
-      `Remove "${account.label}"? Conversations that last ran on it will continue on another account. `
-      + 'This does not sign the account out or cancel the subscription.',
-    );
+    const confirmed = await this.confirmService.confirm({ message: `Remove "${account.label}"? Conversations that last ran on it will continue on another account. ` + 'This does not sign the account out or cancel the subscription.', confirmLabel: 'Remove account', danger: true });
     if (!confirmed) return;
     await this.mutate(() => this.ipc.remove(account.provider, account.id), account);
   }

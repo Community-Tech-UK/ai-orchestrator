@@ -16,6 +16,7 @@ import type {
 } from '@contracts/types/provider-runtime-events';
 import type { ContextUsage } from '../../core/state/instance.store';
 import { InstanceEventsService } from '../../core/services/instance-events.service';
+import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 interface ProviderDiagnosticsSnapshot {
@@ -54,7 +55,7 @@ interface ProviderDiagnosticItem {
   imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (items().length > 0) {
+    @if (items().length > 0 || detailItems().length > 0) {
       <section class="provider-diagnostics" aria-label="Provider diagnostics">
         @for (item of items(); track item.id) {
           <span
@@ -67,6 +68,19 @@ interface ProviderDiagnosticItem {
             <span class="diagnostic-label">{{ item.label }}</span>
             <span class="diagnostic-value" tabindex="0" [appTooltip]="item.value">{{ item.value }}</span>
           </span>
+        }
+        @if (detailItems().length > 0) {
+          <details class="provider-diagnostics__details">
+            <summary>Details</summary>
+            <dl>
+              @for (item of detailItems(); track item.id) {
+                <div>
+                  <dt>{{ item.label }}</dt>
+                  <dd>{{ item.value }} <button type="button" [attr.aria-label]="'Copy ' + item.label" (click)="clipboard.copyText(item.value, { label: item.label })">Copy</button></dd>
+                </div>
+              }
+            </dl>
+          </details>
         }
       </section>
     }
@@ -116,6 +130,13 @@ interface ProviderDiagnosticItem {
       white-space: nowrap;
     }
 
+    .provider-diagnostics__details { font-size: var(--text-xs); }
+    .provider-diagnostics__details summary { cursor: pointer; padding: 4px; }
+    .provider-diagnostics__details dl { margin: 6px 0; }
+    .provider-diagnostics__details dl > div { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .provider-diagnostics__details dd { margin: 0; overflow-wrap: anywhere; }
+    .provider-diagnostics__details button { color: var(--text-primary); background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: var(--radius-sm); cursor: pointer; }
+    .provider-diagnostics__details :is(summary, button):focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
     .diagnostic-value:focus-visible {
       outline: 1px solid currentColor;
       outline-offset: 2px;
@@ -124,20 +145,26 @@ interface ProviderDiagnosticItem {
 })
 export class ProviderDiagnosticsPanelComponent {
   private readonly instanceEvents = inject(InstanceEventsService);
+  protected readonly clipboard = inject(CLIPBOARD_SERVICE);
   private readonly snapshot = signal<ProviderDiagnosticsSnapshot>({});
   readonly instanceId = input('');
   readonly contextUsage = input<ContextUsage | null>(null);
   private previousInstanceId = '';
 
+  readonly detailItems = computed<ProviderDiagnosticItem[]>(() => {
+    const snapshot = this.snapshot();
+    const items: ProviderDiagnosticItem[] = [];
+    if (snapshot.requestId) items.push({ id: 'request', label: 'Request id', value: snapshot.requestId });
+    if (snapshot.stopReason) items.push({ id: 'stop', label: 'Stop reason', value: snapshot.stopReason });
+    return items;
+  });
+
   readonly items = computed<ProviderDiagnosticItem[]>(() => {
     const snapshot = this.withInputContext(this.snapshot());
     const items: ProviderDiagnosticItem[] = [];
 
-    if (snapshot.requestId) {
-      items.push({ id: 'request', label: 'Request', value: snapshot.requestId });
-    }
-    if (snapshot.stopReason) {
-      items.push({ id: 'stop', label: 'Stop', value: snapshot.stopReason });
+    if (snapshot.stopReason && !['end_turn', 'stop_sequence', 'tool_use'].includes(snapshot.stopReason)) {
+      items.push({ id: 'stop-warning', label: 'Stopped early:', value: this.plainStopReason(snapshot.stopReason), tone: 'warning' });
     }
     if (snapshot.rateLimit) {
       items.push({
@@ -267,6 +294,17 @@ export class ProviderDiagnosticsPanelComponent {
       return `resets ${this.formatTime(rateLimit.resetAt)}`;
     }
     return 'reported';
+  }
+
+  private plainStopReason(reason: string): string {
+    switch (reason) {
+      case 'max_tokens': case 'max_output_tokens': case 'length': return 'Output limit reached';
+      case 'content_filter': case 'refusal': return 'Content filtered';
+      case 'cancelled': case 'canceled': case 'interrupted': return 'Interrupted';
+      case 'context_overflow': return 'Context limit reached';
+      case 'error': return 'Provider error';
+      default: return reason.replace(/[_-]+/g, ' ').replace(/^./, (letter) => letter.toUpperCase());
+    }
   }
 
   private formatQuota(quota: ProviderQuotaDiagnostics): string {

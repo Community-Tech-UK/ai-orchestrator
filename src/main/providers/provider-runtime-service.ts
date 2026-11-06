@@ -31,6 +31,7 @@ import {
   type ProviderRuntimeRegistry,
 } from './provider-runtime-registry';
 import { isInstanceHardened } from '../instance/lifecycle/hardened-mode-scoping';
+import { isInstanceTaskTools } from '../instance/lifecycle/task-tools-scoping';
 import { isInstanceSignalFenceDisabled } from '../instance/lifecycle/signal-fence-scoping';
 import { automationInvocations } from '../automations/automation-invocation-context';
 
@@ -157,6 +158,7 @@ export class ProviderRuntimeService implements ProviderRuntimeContract {
     if (isInstanceHardened(input.options.instanceId)) {
       return false;
     }
+    if (isInstanceTaskTools(input.options.instanceId)) return false;
     // The worker always applies the default signal fence; a fence-off session
     // must take the adapter path, which honours both fence switches.
     if (isInstanceSignalFenceDisabled(input.options.instanceId) || this.isSignalFenceSwitchedOff()) {

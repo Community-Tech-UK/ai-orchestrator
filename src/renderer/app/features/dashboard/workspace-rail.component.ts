@@ -11,6 +11,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, input, output, si
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { AutomationStore } from '../../core/state/automation.store';
 import { SideChatStore } from '../../core/state/side-chat.store';
+import { ActionDispatchService } from '../../core/services/action-dispatch.service';
 import { TerminalDrawerStore } from '../../core/state/terminal-drawer.store';
 import { ContextMenuComponent, type ContextMenuItem } from '../../shared/components/context-menu/context-menu.component';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
@@ -25,18 +26,18 @@ import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directi
   template: `
     <nav class="workspace-rail" aria-label="Workspace navigation">
       <div class="rail-section">
-        <a
+        <button
+          type="button"
           class="rail-btn"
           appTooltipPosition="after"
-          routerLink="/chat-search"
-          routerLinkActive="active"
-          appTooltip="Search projects, sessions, and messages"
+          (click)="findSession()"
+          [appTooltip]="findSessionTooltip"
           aria-label="Search"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="11" cy="11" r="7" /><path d="m20 20-3.8-3.8" />
           </svg>
-        </a>
+        </button>
 
         <a
           class="rail-btn"
@@ -205,6 +206,9 @@ import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directi
   styleUrl: './workspace-rail.component.scss',
 })
 export class WorkspaceRailComponent {
+  private readonly actions = inject(ActionDispatchService);
+  readonly findSessionTooltip = copyFor('findSession');
+  findSession(): void { void this.actions.dispatch('open-session-picker'); }
   protected readonly copy = copyFor;
   private readonly automationStore = inject(AutomationStore);
   private readonly sideChatStore = inject(SideChatStore);

@@ -1,3 +1,5 @@
+import { createSessionReadToolDefinitions } from './orchestrator-session-read-tools';
+import { getSessionTranscriptReader, type SessionTranscriptReader } from '../session/session-transcript-reader';
 import { z } from 'zod';
 import { ConversationLedgerService } from '../conversation-ledger';
 import type { OperatorRunStatus } from '../../shared/types/operator.types';
@@ -402,6 +404,7 @@ export interface OrchestratorToolRuntimeContext
   /** Authoritative current owner, rechecked after asynchronous boundaries. */
   resolveEvidenceConversation?: () => string | null;
   sessionMessagingService?: SessionMessagingToolService | null;
+  sessionTranscriptReader?: Pick<SessionTranscriptReader, 'read'>;
 }
 
 export function createOrchestratorToolDefinitions(
@@ -756,6 +759,7 @@ export function createOrchestratorToolDefinitions(
       enabled: context.settingsManager?.get('interSessionMessaging').enabled === true,
       sessionMessagingService: context.sessionMessagingService,
     }),
+    ...createSessionReadToolDefinitions({ instanceId: context.instanceId, getReader: () => context.sessionTranscriptReader ?? getSessionTranscriptReader() }),
     ...createFileTransferToolDefinitions(context),
     ...createSettingsToolDefinitions(context),
     ...createAutomationToolDefinitions(context),

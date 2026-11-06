@@ -1,5 +1,6 @@
 import type { AuxiliaryLlmSlot } from '../../../../shared/types/auxiliary-llm.types';
 import type { LocalAiRoutingEvent } from '../../../../shared/types/local-ai-guard.types';
+import { formatMoneyPlain } from '../../shared/utils/format-money';
 
 export interface LocalAiFallbackNotificationGroup {
   key: string;
@@ -52,6 +53,7 @@ export function groupLocalAiFallbackNotifications(
 
 export function fallbackNotificationGroupCostLabel(
   events: readonly LocalAiRoutingEvent[],
+  formatCost: (usd: number) => string = formatMoneyPlain,
 ): string {
   let pricedCostUsd = 0;
   let unknownCount = 0;
@@ -71,7 +73,7 @@ export function fallbackNotificationGroupCostLabel(
   if (unknownCount === events.length) return 'Cost unknown';
 
   const confidence = hasEstimatedCost ? 'estimated' : 'measured';
-  const pricedLabel = `$${pricedCostUsd.toFixed(4)} ${confidence}`;
+  const pricedLabel = `${formatCost(pricedCostUsd)} ${confidence}`;
   if (unknownCount === 0) return pricedLabel;
 
   return `${pricedLabel} + ${unknownCount} cost${unknownCount === 1 ? '' : 's'} unknown`;

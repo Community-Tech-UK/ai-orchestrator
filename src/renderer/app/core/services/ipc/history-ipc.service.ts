@@ -45,6 +45,11 @@ export class HistoryIpcService {
     return this.api.archiveHistoryEntry(entryId);
   }
 
+  async unarchiveHistoryEntry(entryId: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.unarchiveHistoryEntry(entryId);
+  }
+
   /**
    * Delete a history entry
    */

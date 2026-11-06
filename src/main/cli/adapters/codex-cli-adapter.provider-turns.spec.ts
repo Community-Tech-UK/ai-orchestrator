@@ -118,6 +118,19 @@ function turnCompleted(turnId: string, status = 'completed'): [string, Record<st
 const compactionItem = { type: 'contextCompaction', id: 'compaction-item' };
 
 describe('CodexCliAdapter turns Codex starts by itself', () => {
+  it('logs a current-thread goal update with status and no objective', async () => {
+    const h = createHarness(() => ({}));
+    const info = vi.spyOn(getLogger('CodexCliAdapter'), 'info');
+    try {
+      h.emit('thread/goal/updated', { threadId: 'thread-1', goal: { status: 'active', objective: 'Private goal text' } });
+      const logs = info.mock.calls.filter(([message]) => message === 'Codex thread goal changed');
+      expect(logs).toEqual([['Codex thread goal changed', { status: 'active' }]]);
+      h.emit('thread/goal/updated', { threadId: 'other', goal: { status: 'active' } });
+      expect(info.mock.calls.filter(([message]) => message === 'Codex thread goal changed')).toHaveLength(1);
+      h.emit('thread/goal/updated', { threadId: 'thread-1', goal: { status: { objective: 'Private goal text' } } });
+      expect(info.mock.calls.filter(([message]) => message === 'Codex thread goal changed').at(-1)).toEqual(['Codex thread goal changed', { status: 'unknown' }]);
+    } finally { info.mockRestore(); await h.adapter.terminate(false); }
+  });
   it.each([
     ['ContentFilterError', undefined, 'content_filter'],
     ['Quota exceeded', 429, 'quota'],

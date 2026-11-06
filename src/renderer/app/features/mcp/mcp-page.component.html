@@ -325,6 +325,7 @@
               </div>
             </div>
             <div class="server-meta">{{ serverMeta(srv) }}</div>
+            <app-mcp-server-cost [serverId]="srv.id" [connected]="srv.status === 'connected'" [loaded]="toolsLoaded()" [tools]="tools()" />
             @if (srv.scope) {
               <div class="server-scope">{{ srv.scope }}</div>
             }

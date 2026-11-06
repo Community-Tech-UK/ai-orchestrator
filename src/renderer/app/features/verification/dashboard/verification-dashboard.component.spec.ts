@@ -35,6 +35,7 @@ import { FormsModule } from '@angular/forms';
 import { By } from '@angular/platform-browser';
 import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
 import { AppIconButtonDirective } from '../../../shared/tooltip/icon-button.directive';
+import { ConfirmService } from '../../../shared/confirm/confirm.service';
 import { VerificationDashboardComponent } from './verification-dashboard.component';
 import { VerificationStore } from '../../../core/state/verification.store';
 import { CliStore } from '../../../core/state/cli.store';
@@ -682,21 +683,28 @@ describe('VerificationDashboardComponent', () => {
       expect(sessions.length).toBe(2);
     });
 
-    it('leaves the session and its results alone when deletion is cancelled', () => {
-      const confirmDelete = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    it('leaves the session and its results alone when deletion is cancelled', async () => {
+      const confirmDelete = TestBed.inject(ConfirmService);
       const button: HTMLButtonElement = fixture.nativeElement.querySelector('.session-delete');
       button.click();
-      expect(confirmDelete).toHaveBeenCalledWith(
-        'Are you sure you want to delete this verification session? This removes the session and its results.',
-      );
+      expect(confirmDelete.pending()).toMatchObject({
+        message: 'Are you sure you want to delete this verification session? This removes the session and its results.',
+        confirmLabel: 'Delete session', danger: true,
+      });
+      expect(mockVerificationStore.deleteSession).not.toHaveBeenCalled();
+      confirmDelete.resolve(false);
+      await fixture.whenStable();
       expect(mockVerificationStore.deleteSession).not.toHaveBeenCalled();
       expect(fixture.nativeElement.querySelectorAll('.session-item')).toHaveLength(2);
     });
 
-    it('deletes only the chosen session after confirmation', () => {
-      vi.spyOn(window, 'confirm').mockReturnValue(true);
+    it('deletes only the chosen session after confirmation', async () => {
+      const confirmDelete = TestBed.inject(ConfirmService);
       const button: HTMLButtonElement = fixture.nativeElement.querySelector('.session-delete');
       button.click();
+      expect(mockVerificationStore.deleteSession).not.toHaveBeenCalled();
+      confirmDelete.resolve(true);
+      await fixture.whenStable();
       expect(mockVerificationStore.deleteSession).toHaveBeenCalledExactlyOnceWith('session-1');
     });
 

@@ -33,6 +33,7 @@ interface HistoryState {
 @Injectable({ providedIn: 'root' })
 export class HistoryStore {
   private ipc = inject(HistoryIpcService);
+  private historyLoad: Promise<void> | null = null;
 
   // Private mutable state
   private state = signal<HistoryState>({
@@ -125,6 +126,17 @@ export class HistoryStore {
    * Load history entries from main process
    */
   async loadHistory(): Promise<void> {
+    if (this.historyLoad) return this.historyLoad;
+    const load = this.loadHistoryEntries();
+    this.historyLoad = load;
+    try {
+      await load;
+    } finally {
+      if (this.historyLoad === load) this.historyLoad = null;
+    }
+  }
+
+  private async loadHistoryEntries(): Promise<void> {
     this.state.update(s => ({ ...s, loading: true, error: null }));
 
     try {
@@ -253,6 +265,21 @@ export class HistoryStore {
         ...s,
         error: 'Failed to archive entry',
       }));
+      return false;
+    }
+  }
+
+  async unarchiveEntry(entryId: string): Promise<boolean> {
+    try {
+      const response = await this.ipc.unarchiveHistoryEntry(entryId);
+      if (!response.success) {
+        this.state.update((state) => ({ ...state, error: response.error?.message || 'Failed to unarchive entry' }));
+        return false;
+      }
+      this.state.update((state) => ({ ...state, entries: state.entries.map((entry) => entry.id === entryId ? { ...entry, archivedAt: undefined } : entry) }));
+      return true;
+    } catch {
+      this.state.update((state) => ({ ...state, error: 'Failed to unarchive entry' }));
       return false;
     }
   }

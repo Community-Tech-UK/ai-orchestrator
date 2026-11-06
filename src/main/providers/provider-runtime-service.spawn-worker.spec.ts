@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProviderRuntimeService, type ProviderRuntimeAdapterCreator } from './provider-runtime-service';
+import { ClaudeCliAdapter } from '../cli/adapters/claude-cli-adapter';
 import type { CliAdapter, UnifiedSpawnOptions } from '../cli/adapters/adapter-factory';
 import { CliAdapterWorkerProxy } from '../cli/spawn-worker/cli-adapter-worker-proxy';
 import type { CliCapabilities, CliStatus } from '../cli/adapters/base-cli-adapter';
@@ -9,6 +10,7 @@ import {
   _resetHardenedModeScopingForTesting,
   setInstanceHardened,
 } from '../instance/lifecycle/hardened-mode-scoping';
+import { removeInstanceTaskTools, setInstanceTaskTools } from '../instance/lifecycle/task-tools-scoping';
 import {
   _resetSignalFenceScopingForTesting,
   setInstanceSignalFence,
@@ -51,6 +53,24 @@ function makeAdapter(name: string): CliAdapter {
 }
 
 describe('ProviderRuntimeService spawn worker offload gate', () => {
+  it('keeps task-enabled Claude on the adapter factory path where its process-local registry is available', () => {
+    setInstanceTaskTools('task-chat', true);
+    try {
+      const service = new ProviderRuntimeService({
+        registry: { recordAvailable: vi.fn(), recordUnavailable: vi.fn() } as never,
+        settings: {
+          get: <K extends keyof AppSettings>(key: K): AppSettings[K] =>
+            ({ ...DEFAULT_SETTINGS, enableSpawnWorkerOffload: true })[key],
+        },
+      });
+      const adapter = service.createAdapter({ cliType: 'claude', options: { instanceId: 'task-chat', workingDirectory: '/tmp' } });
+      if (!(adapter instanceof ClaudeCliAdapter)) throw new Error('Expected the local Claude factory path');
+      expect(adapter.getConfig().env?.['CLAUDE_CODE_ENABLE_TODO_TOOLS']).toBe('1');
+    } finally {
+      removeInstanceTaskTools('task-chat');
+    }
+  });
+
   beforeEach(() => _resetHardenedModeScopingForTesting());
   afterEach(() => _resetHardenedModeScopingForTesting());
 

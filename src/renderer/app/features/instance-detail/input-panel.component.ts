@@ -126,6 +126,8 @@ import {
   startsWithLikelyPath,
   toLoopPickerProvider,
 } from './input-panel-formatters';
+import { createComposerHint } from './composer-hint';
+import { mergeComposerRestoreText } from './composer-restore-text';
 import { fuzzyRank } from '../../shared/utils/fuzzy';
 import { InlineHintComponent } from '../../shared/hint/inline-hint.component';
 import { shouldHintQueuedWhileLooping } from '../../../../shared/types/hint-policy';
@@ -749,6 +751,8 @@ export class InputPanelComponent implements OnDestroy {
     // Show if empty, or if current text is a case-insensitive prefix of suggestion
     return !msg || suggestion.toLowerCase().startsWith(msg.toLowerCase());
   });
+
+  readonly composerHint = createComposerHint(this);
 
   // Computed: the remaining ghost text after what the user has typed
   ghostRemainder = computed(() => {
@@ -1863,12 +1867,12 @@ export class InputPanelComponent implements OnDestroy {
     this.syncTextareaValue(entry.text);
   }
 
-  private resetPromptRecall(options: { restoreStash: boolean }): void {
+  private resetPromptRecall(options: { restoreStash: boolean; preserveStash?: boolean }): void {
     const stashKey = this.stashKey();
     const stashed = this.draftService.getDraft(stashKey);
     this.recallIndex.set(null);
     this.recalledEntryId.set(null);
-    this.draftService.clearDraft(stashKey);
+    if (!options.preserveStash) this.draftService.clearDraft(stashKey);
 
     if (options.restoreStash) {
       this.message.set(stashed);
@@ -1903,16 +1907,18 @@ export class InputPanelComponent implements OnDestroy {
     });
   }
 
-  restoreTextToComposer(value: string): void {
+  restoreTextToComposer(value: string, placement: 'prepend' | 'append' = 'prepend'): void {
+    const stash = this.editMode() ? this.stashedDraft() : this.recallIndex() !== null ? this.draftService.getDraft(this.stashKey()) : null;
+    const existing = stash && stash !== this.message() ? mergeComposerRestoreText(stash, this.message(), 'append') : this.message();
+    const merged = mergeComposerRestoreText(value, existing, placement);
     this.editMode.set(false);
-    this.stashedDraft.set(null);
     this.editMessageIndex.set(null);
-    this.message.set(value);
+    this.message.set(merged);
     this.showCommandSuggestions.set(false);
     this.slashResolution.set(null);
-    this.persistComposerText(value);
-    this.resetPromptRecall({ restoreStash: false });
-    this.syncTextareaValue(value);
+    this.persistComposerText(merged);
+    this.resetPromptRecall({ restoreStash: false, preserveStash: true });
+    this.syncTextareaValue(merged);
   }
 
   private buildVoiceContext(): VoiceConversationSessionContext {

@@ -3,6 +3,7 @@
  * Enable the mobile gateway, pair a phone (QR), and manage paired devices.
  */
 
+import { ConfirmService } from '../../shared/confirm/confirm.service';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -261,6 +262,7 @@ import type {
   ],
 })
 export class MobileSettingsTabComponent implements OnInit {
+  private readonly confirmService = inject(ConfirmService);
   private readonly ipc = inject(MobileGatewayIpcService);
   private readonly settings = inject(SettingsIpcService);
 
@@ -411,7 +413,7 @@ export class MobileSettingsTabComponent implements OnInit {
   }
 
   protected async revoke(device: MobileDeviceSummary): Promise<void> {
-    if (!confirm(`Revoke "${device.label}"? It will need to pair again to reconnect.`)) {
+    if (!await this.confirmService.confirm({ message: `Revoke "${device.label}"? It will need to pair again to reconnect.`, confirmLabel: 'Revoke device', danger: true })) {
       return;
     }
     this.error.set(null);

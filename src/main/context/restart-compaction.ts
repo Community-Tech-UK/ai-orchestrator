@@ -9,7 +9,7 @@ import { extractFileOperationsFromTurns } from './file-operation-extractor';
 
 export async function prepareRestartCompaction(
   instance: Instance,
-  options: { keepLatestExchanges?: number; maxInputTokens?: number; evidence?: string; decisions?: string } = {},
+  options: { keepLatestExchanges?: number; maxInputTokens?: number; evidence?: string; decisions?: string; recoveryMessageCount?: number } = {},
 ) {
   const messages = activeMessagesOf(instance);
   const turns = messages.filter(message => message.type === 'user' || message.type === 'assistant');
@@ -42,6 +42,7 @@ export async function prepareRestartCompaction(
     summary = compactor.getState().summaries.at(-1)?.content ?? '';
   }
   return buildContinuityPackage({ summary, recent, messages, contextWindow, evidence: options.evidence, decisions: options.decisions,
+    recoveryMessageCount: options.recoveryMessageCount,
     stats: { summaryGenerated, summarySampledMessages: fitted.sampledCount, summaryTotalMessages: head.length, skippedRanges: fitted.skippedRanges },
   });
 }

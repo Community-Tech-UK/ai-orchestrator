@@ -1,10 +1,22 @@
-import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { signal, ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import { describe, expect, it, vi } from 'vitest';
+import type { LoopOutstandingItemPayload } from '@contracts/schemas/loop';
+import { LoopStore } from '../../core/state/loop.store';
+import { LoopIpcService } from '../../core/services/ipc/loop-ipc.service';
 import {
+  LoopOutstandingPanelComponent,
   buildOutstandingQuery,
   outstandingHasAnswer,
   outstandingItemInScope,
   outstandingUnsavedAnswer,
 } from './loop-outstanding-panel.component';
+
+await resolveComponentResources(url => Promise.resolve(url.endsWith('.html')
+  ? readFileSync(join(__dirname, url.split('/').pop()!), 'utf8')
+  : ''));
 
 /**
  * Tests for the pure answer-detection helpers behind the "Resume with answers (N)"
@@ -13,10 +25,8 @@ import {
  * (it is flushed to the DB on resume), but NOT a pre-filled recommendation the
  * user hasn't touched.
  *
- * Not a TestBed/component test: the project's vitest config has no Angular
- * compiler plugin, so signal-based `input()` metadata isn't generated. Logic is
- * exposed as pure functions and tested directly (same pattern as
- * `deriveReattemptSeed`).
+ * The pure helpers are tested directly (same pattern as `deriveReattemptSeed`);
+ * the render gate below covers the component's visibility rule.
  */
 describe('outstandingUnsavedAnswer', () => {
   it('returns undefined when there is no draft (just a persisted value or recommendation)', () => {
@@ -104,5 +114,51 @@ describe('buildOutstandingQuery', () => {
       status: 'open',
     });
     expect(buildOutstandingQuery(null, null, 'open')).toBeNull();
+  });
+});
+
+describe('loop-outstanding-panel decision-surface gate', () => {
+  const questionItem = {
+    id: 'q-1', loopRunId: 'loop-1', chatId: 'chat-1', workspaceCwd: '/repo',
+    kind: 'needs-human', text: 'Ship the rename?', userResponse: null, recommendedAnswer: 'Ship it',
+    status: 'open', loopStatus: 'completed', createdAt: 1, updatedAt: 1, resolvedAt: null,
+    riskClass: null, firstSeenRound: 2, outcome: null, answerSentAt: null,
+  } as unknown as LoopOutstandingItemPayload;
+
+  function mountPanel(items: LoopOutstandingItemPayload[]) {
+    const outstanding = signal(items);
+    TestBed.configureTestingModule({
+      imports: [LoopOutstandingPanelComponent],
+      providers: [
+        {
+          provide: LoopStore,
+          useValue: {
+            ensureWired: vi.fn(), loadOutstanding: vi.fn(() => Promise.resolve()),
+            outstanding: outstanding.asReadonly(), outstandingIsLoading: signal(false),
+            setOutstandingStatus: vi.fn(() => Promise.resolve(true)),
+          },
+        },
+        { provide: LoopIpcService, useValue: { answerOutstanding: vi.fn() } },
+      ],
+    });
+    const fixture = TestBed.createComponent(LoopOutstandingPanelComponent);
+    fixture.componentRef.setInput('chatId', 'chat-1');
+    fixture.componentRef.setInput('workspaceCwd', '/repo');
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  it('renders nothing while it has no items (never a standing empty decision box)', () => {
+    const fixture = mountPanel([]);
+    expect(fixture.nativeElement.querySelector('.outstanding')).toBeNull();
+    expect(fixture.nativeElement.textContent.trim()).toBe('');
+  });
+
+  it('renders the live question surface when an open question exists', async () => {
+    const fixture = mountPanel([questionItem]);
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 0));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('app-loop-question-row')).toBeTruthy();
+    expect(fixture.nativeElement.textContent).toContain('Waiting for you');
   });
 });

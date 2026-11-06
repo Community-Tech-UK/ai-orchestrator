@@ -14,6 +14,7 @@ import { BrowserPageComponent } from './browser-page.component';
 import { BrowserGatewayIpcService } from '../../core/services/ipc/browser-gateway-ipc.service';
 import { AuxiliaryLlmIpcService } from '../../core/services/ipc/auxiliary-llm-ipc.service';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
+import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 
 const now = 1_700_000_000_000;
 const specDirectory = dirname(fileURLToPath(import.meta.url));
@@ -1322,7 +1323,69 @@ describe('BrowserPageComponent', () => {
     expect(text).toContain('button.publish');
     expect(text).toContain('Expires');
     expect(text).toContain('Active grants');
-    expect(text).toContain('autonomous');
+    expect(text).toContain('unattended');
+  });
+
+  it('heads a grant with its site and keeps its identifier only inside collapsed Details', () => {
+    openView('permissions');
+    const row = (fixture.nativeElement as HTMLElement).querySelector('.grant-row')!;
+    expect(row.querySelector('.permission-heading .audit-action')?.textContent).toBe('localhost:4567');
+    expect(row.querySelector('.status-badge')?.textContent).toBe('unattended');
+    const details = row.querySelector('details')!;
+    expect(details.open).toBe(false);
+    expect(details.textContent).toContain('grant-1');
+    const everyday = row.cloneNode(true) as HTMLElement;
+    everyday.querySelectorAll('details').forEach((fold) => fold.remove());
+    expect(everyday.textContent).not.toContain('grant-1');
+    expect(everyday.textContent).not.toContain('autonomous');
+  });
+
+  it('uses an everyday label when a target has no title or URL instead of exposing its id', () => {
+    fixture.componentInstance.targets.update((targets) => [{ ...targets[0], title: undefined, url: undefined }]);
+    fixture.detectChanges();
+    const element: HTMLElement = fixture.nativeElement;
+    expect(element.querySelector('.target-row-heading strong')?.textContent).toBe('Untitled page');
+    expect(element.querySelector('.target-console h3')?.textContent).toBe('Untitled page');
+  });
+
+  it('uses All sites and user approved for an unrestricted user grant', () => {
+    fixture.componentInstance.activeGrants.update((grants) => [{ ...grants[0]!, allowedOrigins: [], autonomous: false }]);
+    openView('permissions');
+    const heading = (fixture.nativeElement as HTMLElement).querySelector('.grant-row .permission-heading');
+    expect(heading?.textContent).toContain('All sites');
+    expect(heading?.textContent).toContain('user approved');
+  });
+
+  it('uses a plain request action and folds the tool, identifier and selector into Details', () => {
+    openView('permissions');
+    const row = (fixture.nativeElement as HTMLElement).querySelector('.approval-row')!;
+    expect(row.querySelector('.permission-heading .audit-action')?.textContent).toBe('Click on a page');
+    const details = row.querySelector('.approval-details') as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    expect(details.textContent).toContain('browser.click');
+    expect(details.textContent).toContain('request-1');
+    expect(details.textContent).toContain('button.publish');
+    const everyday = row.cloneNode(true) as HTMLElement;
+    everyday.querySelectorAll('details').forEach((fold) => fold.remove());
+    expect(everyday.textContent).not.toMatch(/browser\.click|request-1|button\.publish/);
+    expect(everyday.textContent).toContain('Publish release');
+  });
+
+  it('copies grant and request identifiers, tool names, and selectors from Details', async () => {
+    openView('permissions');
+    const copy = vi.spyOn(TestBed.inject(CLIPBOARD_SERVICE), 'copyText').mockResolvedValue({ ok: true });
+    const element: HTMLElement = fixture.nativeElement;
+    for (const label of ['Copy browser grant id', 'Copy browser request id', 'Copy browser tool name', 'Copy browser selector']) {
+      element.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!.click();
+    }
+    await vi.advanceTimersByTimeAsync(100);
+    await fixture.whenStable();
+    expect(copy.mock.calls).toEqual([
+      ['grant-1', { label: 'browser grant id' }],
+      ['request-1', { label: 'browser request id' }],
+      ['browser.click', { label: 'browser tool name' }],
+      ['button.publish', { label: 'browser selector' }],
+    ]);
   });
 
   it('renders upload approval file context and proposed upload roots', () => {

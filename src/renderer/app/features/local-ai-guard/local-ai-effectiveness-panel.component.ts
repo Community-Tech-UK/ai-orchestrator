@@ -10,6 +10,8 @@ import type {
   LocalAiEffectivenessSummary,
 } from '../../../../shared/types/local-ai-guard.types';
 import { LocalAiGuardStore } from '../../core/state/local-ai-guard.store';
+import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
+import { formatMoneyExact, formatMoneyPlain } from '../../shared/utils/format-money';
 
 type EffectivenessBreakdown = 'target' | 'model' | 'slot' | 'incident';
 
@@ -18,25 +20,11 @@ interface EffectivenessBreakdownEntry {
   label: string;
   count: number;
   percent: number;
+  unknownEndpoint: boolean;
 }
 
-const USD_FORMATTER = new Intl.NumberFormat('en-US', {
-  style: 'currency',
-  currency: 'USD',
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 20,
-});
-const COST_SIGNIFICANT_DIGITS = 15;
-
 function formatLocalAiUsd(value: number): string {
-  const normalized = value === 0
-    ? 0
-    : Number(value.toPrecision(COST_SIGNIFICANT_DIGITS));
-  const formatted = USD_FORMATTER.format(normalized);
-  if (normalized !== 0 && formatted === '$0.00') {
-    return `$${normalized.toExponential()}`;
-  }
-  return formatted;
+  return formatMoneyPlain(value);
 }
 
 @Component({
@@ -48,6 +36,8 @@ function formatLocalAiUsd(value: number): string {
 })
 export class LocalAiEffectivenessPanelComponent implements OnInit {
   protected readonly store = inject(LocalAiGuardStore);
+  protected readonly clipboard = inject(CLIPBOARD_SERVICE);
+  protected readonly formatExactUsd = formatMoneyExact;
   protected readonly breakdown = signal<EffectivenessBreakdown>('target');
 
   protected readonly eligibleTasks = computed(() => {
@@ -74,6 +64,7 @@ export class LocalAiEffectivenessPanelComponent implements OnInit {
         label: this.breakdownLabel(this.breakdown(), key),
         count,
         percent: largest === 0 ? 0 : Math.round((count / largest) * 100),
+        unknownEndpoint: this.breakdown() === 'target' && !this.store.knownTarget(key),
       }))
       .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
   });
@@ -134,7 +125,7 @@ export class LocalAiEffectivenessPanelComponent implements OnInit {
     breakdown: EffectivenessBreakdown,
     key: string,
   ): string {
-    if (breakdown === 'target') return this.store.knownTarget(key)?.label ?? key;
+    if (breakdown === 'target') return this.store.knownTarget(key)?.label ?? 'Unknown endpoint';
     if (breakdown !== 'slot') return key;
     return key
       .replace(/([a-z])([A-Z])/g, '$1 $2')

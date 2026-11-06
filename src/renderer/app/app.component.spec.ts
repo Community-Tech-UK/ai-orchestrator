@@ -14,6 +14,8 @@ import { fileURLToPath } from 'node:url';
 import { Subject } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StartupCapabilityReport } from '../../shared/types/startup-capability.types';
+import { DEFAULT_SETTINGS, type AppSettings } from '../../shared/types/settings.types';
+import { ActionDispatchService } from './core/services/action-dispatch.service';
 import { AppComponent } from './app.component';
 import { PauseRendererController } from './core/state/pause/pause-renderer-controller.service';
 import { PauseStore } from './core/state/pause/pause.store';
@@ -124,6 +126,7 @@ async function setupAppComponent(
         useValue: { favorites: signal<string[]>([]).asReadonly(), writeFavorites: vi.fn() },
       },
       { provide: AppUpdateStore, useValue: { init: vi.fn(), dispose: vi.fn() } },
+      { provide: ActionDispatchService, useValue: { register: vi.fn(() => () => undefined) } },
       {
         provide: LocalAiGuardStore,
         useValue: { initialize: vi.fn(async () => void 0), destroy: vi.fn() },
@@ -134,6 +137,7 @@ async function setupAppComponent(
           initialize: vi.fn(async () => void 0),
           isInitialized: signal(false).asReadonly(),
           get: vi.fn(() => false),
+          settings: signal<AppSettings>({ ...DEFAULT_SETTINGS }),
         },
       },
       { provide: PauseStore, useValue: { resumeEvents: signal([]).asReadonly() } },
@@ -203,6 +207,7 @@ describe('AppComponent startup banner', () => {
           useValue: { favorites: signal<string[]>([]).asReadonly(), writeFavorites: vi.fn() },
         },
         { provide: AppUpdateStore, useValue: { init: vi.fn(), dispose: vi.fn() } },
+        { provide: ActionDispatchService, useValue: { register: vi.fn(() => () => undefined) } },
         {
           provide: LocalAiGuardStore,
           useValue: { initialize: vi.fn(async () => void 0), destroy: vi.fn() },
@@ -213,6 +218,7 @@ describe('AppComponent startup banner', () => {
             initialize: vi.fn(async () => void 0),
             isInitialized: signal(false).asReadonly(),
             get: vi.fn(() => false),
+            settings: signal<AppSettings>({ ...DEFAULT_SETTINGS }),
           },
         },
         { provide: PauseStore, useValue: { resumeEvents: signal([]).asReadonly() } },
@@ -431,6 +437,7 @@ describe('AppComponent title bar layout', () => {
           useValue: { favorites: signal<string[]>([]).asReadonly(), writeFavorites: vi.fn() },
         },
         { provide: AppUpdateStore, useValue: { init: vi.fn(), dispose: vi.fn() } },
+        { provide: ActionDispatchService, useValue: { register: vi.fn(() => () => undefined) } },
         {
           provide: LocalAiGuardStore,
           useValue: {
@@ -447,6 +454,7 @@ describe('AppComponent title bar layout', () => {
             initialize: vi.fn(async () => void 0),
             isInitialized: signal(false).asReadonly(),
             get: vi.fn(() => false),
+            settings: signal<AppSettings>({ ...DEFAULT_SETTINGS }),
           },
         },
         { provide: PauseStore, useValue: { resumeEvents: signal([]).asReadonly() } },

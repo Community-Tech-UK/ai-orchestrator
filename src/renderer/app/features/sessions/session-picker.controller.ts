@@ -28,9 +28,9 @@ export class SessionPickerController implements OverlayController<SessionPickerI
   private readonly historyStore = inject(HistoryStore);
   private readonly usageStore = inject(UsageStore);
 
-  readonly title = 'Session picker';
-  readonly placeholder = 'Search sessions...';
-  readonly emptyLabel = 'No sessions found';
+  readonly title = 'Find session';
+  readonly placeholder = 'Find a session by name, prompt or folder…';
+  readonly emptyLabel = 'No sessions match';
   readonly query = signal('');
 
   private readonly items = computed<SessionPickerItem[]>(() => {
@@ -65,6 +65,7 @@ export class SessionPickerController implements OverlayController<SessionPickerI
       projectPath: entry.workingDirectory,
       provider: entry.provider,
       kind: entry.archivedAt ? 'archived' : 'history',
+      searchText: [entry.firstUserMessage?.slice(0, 500), entry.lastUserMessage?.slice(0, 500)].filter(Boolean).join('\n'),
       lastActivity: entry.endedAt || entry.createdAt,
       frecencyScore: this.usageStore.frecency('session', entry.id),
     }));
@@ -125,13 +126,16 @@ export class SessionPickerController implements OverlayController<SessionPickerI
   }
 
   private toOverlayItem(item: SessionPickerItem): OverlayItem<SessionPickerItem> {
+    const query = this.query().trim().toLowerCase();
+    const promptOnly = query && !this.matches({ ...item, searchText: undefined }, query);
+    const matchAt = item.searchText?.toLowerCase().indexOf(query) ?? 0;
     return {
       id: `${item.kind}:${item.id}`,
       label: item.title,
       description: item.subtitle,
-      detail: item.projectPath,
+      detail: promptOnly ? item.searchText?.slice(Math.max(0, matchAt - 20), Math.max(0, matchAt - 20) + 80).replace(/\s+/g, ' ') : item.projectPath,
       badge: item.kind === 'live' ? 'Live' : item.kind === 'history' ? 'History' : 'Archived',
-      keywords: [item.title, item.subtitle ?? '', item.projectPath ?? '', item.provider ?? ''],
+      keywords: [item.title, item.subtitle ?? '', item.projectPath ?? '', item.provider ?? '', item.searchText ?? ''],
       value: item,
     };
   }
@@ -144,6 +148,7 @@ export class SessionPickerController implements OverlayController<SessionPickerI
       item.projectPath ?? '',
       item.provider ?? '',
       item.kind,
+      item.searchText ?? '',
     ].some((value) => value.toLowerCase().includes(query));
   }
 

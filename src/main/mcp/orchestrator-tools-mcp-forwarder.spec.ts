@@ -17,6 +17,7 @@ describe('createOrchestratorToolsForwarderTools', () => {
       'reset_node_connection',
       'list_host_processes',
       'stop_leftover_processes',
+      'read_session',
       'read_node_output',
       'terminate_node_instance',
       'list_node_files',

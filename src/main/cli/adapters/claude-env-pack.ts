@@ -23,6 +23,14 @@ import type { ClaudeCliSpawnOptions } from './claude-cli-adapter.types';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { isInstanceTaskTools } from '../../instance/lifecycle/task-tools-scoping';
+
+/** Add chat-only task tools to a fresh env overlay; explicit caller values win. */
+export function applyClaudeTaskToolsEnv(env: Record<string, string>, instanceId?: string): void {
+  if (isInstanceTaskTools(instanceId) && !('CLAUDE_CODE_ENABLE_TODO_TOOLS' in env)) {
+    env['CLAUDE_CODE_ENABLE_TODO_TOOLS'] = '1';
+  }
+}
 
 /** Fail-soft settings read, worker-safe (mirrors base-cli-adapter-degraded-output). */
 function defaultReadSetting(key: string): unknown {

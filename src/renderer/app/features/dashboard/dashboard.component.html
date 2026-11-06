@@ -52,7 +52,7 @@
       <aside class="sidebar" [style.width.px]="effectiveSidebarWidth()">
         <app-sidebar-header
           (createClicked)="createInstance()"
-          (newChatClicked)="createGeneralChat()"
+          (newChatClicked)="createGeneralChat(true)"
         />
 
         <app-instance-list />
@@ -121,15 +121,6 @@
         <ng-container [ngTemplateOutlet]="controlPlaneTpl"></ng-container>
       }
 
-      <!-- Floating session-progress HUD — docked against the workspace
-           scrollbar, clear of the centred chat column. -->
-      @if (progressPanelInstance(); as inst) {
-        <app-session-progress-panel
-          [sessionId]="inst.sessionId"
-          [diffStats]="inst.diffStats"
-          [workingDirectory]="inst.workingDirectory"
-        />
-      }
     </main>
 
     <!-- Control plane — docked layout track when pinned (copilot_todo.md

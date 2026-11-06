@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { CliAdapter, UnifiedSpawnOptions } from '../../../cli/adapters/adapter-factory';
 import { InstanceSpawnPreflightChain } from '../instance-spawn-preflight-chain';
+import { removeInstanceTaskTools, setInstanceTaskTools } from '../task-tools-scoping';
 import { _setSignalFenceSettingForTesting } from '../../../sandbox/signal-fence-setting';
 
 function makeSpawnOptions(overrides: Partial<UnifiedSpawnOptions> = {}): UnifiedSpawnOptions {
@@ -31,6 +32,24 @@ function makeDeps() {
 }
 
 describe('InstanceSpawnPreflightChain', () => {
+  it('spawns a task-enabled chat fresh because a warm process cannot acquire its environment flag', async () => {
+    setInstanceTaskTools('task-chat', true);
+    const deps = makeDeps();
+    deps.consumeWarmAdapter.mockReturnValue({ getName: () => 'claude' } as CliAdapter);
+    try {
+      const result = await new InstanceSpawnPreflightChain(deps).prepare({
+        config: { workingDirectory: '/tmp/project', provider: 'claude' },
+        instance: { workingDirectory: '/tmp/project', bareMode: false },
+        provider: 'claude',
+        spawnOptions: makeSpawnOptions({ instanceId: 'task-chat', browserGatewayMcp: undefined }),
+      });
+      expect(result.kind).toBe('fresh');
+      expect(deps.consumeWarmAdapter).not.toHaveBeenCalled();
+    } finally {
+      removeInstanceTaskTools('task-chat');
+    }
+  });
+
   it('refuses an OpenCode warm adapter without the tracked session checkpoint hook', async () => {
     const deps = makeDeps();
     deps.consumeWarmAdapter.mockReturnValue({ getName: () => 'opencode' } as CliAdapter);

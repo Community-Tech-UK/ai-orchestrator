@@ -29,7 +29,7 @@ describe('SessionPickerController', () => {
       workingDirectory: '/repo',
       endedAt: 5,
       createdAt: 1,
-      archivedAt: null,
+      archivedAt: null as number | null,
     },
   ]);
   const instanceStore = {
@@ -76,6 +76,32 @@ describe('SessionPickerController', () => {
 
     expect(instanceStore.setSelectedInstance).toHaveBeenCalledWith('inst-1');
     expect(historyStore.restoreEntry).not.toHaveBeenCalled();
+  });
+
+  it('finds archived sessions by prompt and restores them from the Archived group', async () => {
+    const original = historyEntries();
+    historyEntries.set([{ ...original[0], archivedAt: 12 }]);
+    try {
+      const controller = TestBed.inject(SessionPickerController);
+      controller.setQuery('first');
+      const history = controller.groups().find((group) => group.id === 'history')!;
+      const archived = controller.groups().find((group) => group.id === 'archived')!;
+      expect(history.items).toEqual([]);
+      expect(archived.items).toHaveLength(1);
+      expect(archived.items[0]).toMatchObject({ label: 'History session', badge: 'Archived', detail: 'first' });
+      expect(await controller.run(archived.items[0])).toBe(true);
+      expect(historyStore.restoreEntry).toHaveBeenCalledExactlyOnceWith('hist-1', '/repo');
+      expect(instanceStore.setSelectedInstance).toHaveBeenCalledWith('restored-1');
+    } finally { historyEntries.set(original); }
+  });
+
+  it('finds capped prompts and shows their excerpt without changing the title', () => {
+    const controller = TestBed.inject(SessionPickerController);
+    controller.setQuery('first');
+    expect(controller.title).toBe('Find session');
+    expect(controller.groups()[2].items[0]).toMatchObject({ label: 'History session', detail: 'first' });
+    controller.setQuery('/repo');
+    expect(controller.groups()[2].items).toHaveLength(1);
   });
 
   describe('WS-C2 Needs You grouping (shared attention scale)', () => {

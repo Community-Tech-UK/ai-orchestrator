@@ -40,6 +40,7 @@ interface SurfaceDefinition {
   readonly kind: ControlSurfaceKind;
   readonly layout?: ControlSurfaceLayout;
   readonly dashboard?: boolean;
+  readonly hidden?: boolean;
   readonly settings?: boolean;
   readonly backRoute?: string;
 }
@@ -55,8 +56,8 @@ function surface(definition: SurfaceDefinition): ControlSurfaceItem {
     group: definition.group,
     kind: definition.kind,
     layout: definition.layout ?? 'standard',
-    showInDashboardNav: definition.dashboard ?? false,
-    showInControlNav: true,
+    showInDashboardNav: !definition.hidden && (definition.dashboard ?? false),
+    showInControlNav: !definition.hidden,
     showInSettingsNav: definition.settings ?? false,
     backRoute: definition.backRoute,
   };
@@ -64,7 +65,7 @@ function surface(definition: SurfaceDefinition): ControlSurfaceItem {
 
 export const CONTROL_SURFACES: readonly ControlSurfaceItem[] = [
   surface({ id: 'settings', path: '/settings', label: 'Settings', subtitle: 'Configure app behavior, providers, and diagnostics.', group: 'settings', kind: 'setting' }),
-  surface({ id: 'chat-search', path: '/chat-search', label: 'Chat Search', subtitle: 'Find prior conversations and reusable context.', group: 'knowledge', kind: 'tool' }),
+  surface({ id: 'chat-search', hidden: true, path: '/chat-search', label: 'Chat Search', subtitle: 'Find prior conversations and reusable context.', group: 'knowledge', kind: 'tool' }),
   surface({ id: 'automations', path: '/automations', label: 'Automations', subtitle: 'Schedule and monitor recurring agent work.', group: 'automation', kind: 'workflow', dashboard: true }),
   surface({ id: 'campaigns', path: '/campaigns', label: 'Campaigns', subtitle: 'Coordinate multi-loop campaign runs.', group: 'automation', kind: 'workflow', layout: 'wide', dashboard: true }),
   surface({ id: 'plan-queue', path: '/plan-queue', label: 'Plan Queue', subtitle: 'Work through plan and livetest documents with verified workers.', group: 'automation', kind: 'workflow', layout: 'wide', dashboard: true }),
@@ -77,7 +78,7 @@ export const CONTROL_SURFACES: readonly ControlSurfaceItem[] = [
   surface({ id: 'worktrees', path: '/worktrees', label: 'Worktrees', subtitle: 'Manage git worktrees for parallel agent work.', group: 'code', kind: 'tool', dashboard: true, settings: true }),
   surface({ id: 'supervision', path: '/supervision', label: 'Supervisor', subtitle: 'Observe active agent trees and state.', group: 'monitoring', kind: 'diagnostic', layout: 'wide', dashboard: true }),
   surface({ id: 'rlm', path: '/rlm', label: 'Learning Database', subtitle: 'Inspect reinforcement learning memory context.', group: 'knowledge', kind: 'view', dashboard: true }),
-  surface({ id: 'training', path: '/training', label: 'Training Data', subtitle: 'Review training datasets and learning signals.', group: 'knowledge', kind: 'tool', dashboard: true }),
+  surface({ id: 'training', hidden: true, path: '/training', label: 'Training Data', subtitle: 'Review training datasets and learning signals.', group: 'knowledge', kind: 'tool', dashboard: true }),
   surface({ id: 'memory', path: '/memory', label: 'Memory Browser', subtitle: 'Browse remembered project and session context.', group: 'knowledge', kind: 'view', dashboard: true }),
   surface({ id: 'memory-stats', path: '/memory/stats', label: 'Memory Stats', subtitle: 'Inspect memory usage and storage health.', group: 'knowledge', kind: 'diagnostic' }),
   surface({ id: 'debate', path: '/debate', label: 'Debate Arena', subtitle: 'Run and inspect multi-agent debates.', group: 'agents', kind: 'workflow', dashboard: true }),
@@ -105,7 +106,7 @@ export const CONTROL_SURFACES: readonly ControlSurfaceItem[] = [
   surface({ id: 'plugins', path: '/plugins', label: 'Plugins', subtitle: 'Manage runtime plugin integrations.', group: 'integrations', kind: 'integration', dashboard: true }),
   surface({ id: 'models', path: '/models', label: 'Models', subtitle: 'Choose provider models and overrides.', group: 'settings', kind: 'setting', dashboard: true, settings: true }),
   surface({ id: 'remote-config', path: '/remote-config', label: 'Remote Config', subtitle: 'Sync settings from remote configuration sources.', group: 'integrations', kind: 'integration', dashboard: true, settings: true }),
-  surface({ id: 'communication', path: '/communication', label: 'Instance Messaging', subtitle: 'Configure cross-instance communication.', group: 'integrations', kind: 'integration', dashboard: true }),
+  surface({ id: 'communication', hidden: true, path: '/communication', label: 'Instance Messaging', subtitle: 'Configure cross-instance communication.', group: 'integrations', kind: 'integration', dashboard: true }),
   surface({ id: 'multi-edit', path: '/multi-edit', label: 'Multi-File Edit', subtitle: 'Review and apply coordinated edits.', group: 'code', kind: 'tool', layout: 'wide', dashboard: true }),
   surface({ id: 'editor', path: '/editor', label: 'Editor', subtitle: 'Edit workspace files directly.', group: 'code', kind: 'tool', layout: 'fullBleed', dashboard: true }),
   surface({ id: 'archive', path: '/archive', label: 'Archive', subtitle: 'Browse and restore archived sessions.', group: 'storage', kind: 'view', dashboard: true, settings: true }),

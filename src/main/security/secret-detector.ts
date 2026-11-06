@@ -367,56 +367,50 @@ export function detectSecretsInContent(content: string): DetectedSecret[] {
         endIndex: index + value.length,
         confidence: 'high',
       });
-      from = index + value.length;
+      from = index + 1;
     }
   }
 
   // Check for private keys
-  const privateKeyMatch = content.match(/-----BEGIN (RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----[\s\S]*?-----END \1?PRIVATE KEY-----/g);
-  if (privateKeyMatch) {
-    for (const match of privateKeyMatch) {
-      const index = content.indexOf(match);
-      secrets.push({
-        type: 'private_key',
-        name: 'embedded_private_key',
-        redactedValue: '*'.repeat(match.length),
-        startIndex: index,
-        endIndex: index + match.length,
-        confidence: 'high',
-      });
-    }
+  const privateKeyMatch = content.matchAll(/-----BEGIN (RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----[\s\S]*?-----END \1?PRIVATE KEY-----/g);
+  for (const match of privateKeyMatch) {
+    const index = match.index;
+    secrets.push({
+      type: 'private_key',
+      name: 'embedded_private_key',
+      redactedValue: '*'.repeat(match[0].length),
+      startIndex: index,
+      endIndex: index + match[0].length,
+      confidence: 'high',
+    });
   }
 
   // Check for connection strings with credentials
-  const connStringMatch = content.match(/(postgres|mysql|mongodb|redis|amqp):\/\/[^\s"']+:[^\s"'@]+@[^\s"']+/gi);
-  if (connStringMatch) {
-    for (const match of connStringMatch) {
-      const index = content.indexOf(match);
-      secrets.push({
-        type: 'connection_string',
-        name: 'connection_string',
-        redactedValue: '*'.repeat(match.length),
-        startIndex: index,
-        endIndex: index + match.length,
-        confidence: 'high',
-      });
-    }
+  const connStringMatch = content.matchAll(/(postgres|mysql|mongodb|redis|amqp):\/\/[^\s"']+:[^\s"'@]+@[^\s"']+/gi);
+  for (const match of connStringMatch) {
+    const index = match.index;
+    secrets.push({
+      type: 'connection_string',
+      name: 'connection_string',
+      redactedValue: '*'.repeat(match[0].length),
+      startIndex: index,
+      endIndex: index + match[0].length,
+      confidence: 'high',
+    });
   }
 
   // Check for JWT tokens
-  const jwtMatch = content.match(/eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g);
-  if (jwtMatch) {
-    for (const match of jwtMatch) {
-      const index = content.indexOf(match);
-      secrets.push({
-        type: 'token',
-        name: 'jwt_token',
-        redactedValue: '*'.repeat(match.length),
-        startIndex: index,
-        endIndex: index + match.length,
-        confidence: 'high',
-      });
-    }
+  const jwtMatch = content.matchAll(/eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g);
+  for (const match of jwtMatch) {
+    const index = match.index;
+    secrets.push({
+      type: 'token',
+      name: 'jwt_token',
+      redactedValue: '*'.repeat(match[0].length),
+      startIndex: index,
+      endIndex: index + match[0].length,
+      confidence: 'high',
+    });
   }
 
   // Phase 2: Prefix-based value scanning
@@ -447,10 +441,32 @@ export function detectSecrets(content: string): DetectedSecret[] {
 }
 
 /**
+ * The detector deliberately has overlapping signatures (for example the PEM
+ * prefix rule and the complete PEM block rule). Apply one replacement per
+ * unioned range so an inner match cannot splice original secret bytes back
+ * into the result after the outer match has been replaced.
+ */
+export function collapseOverlappingSecrets(secrets: readonly DetectedSecret[]): DetectedSecret[] {
+  const sorted = [...secrets].sort((a, b) =>
+    a.startIndex - b.startIndex || b.endIndex - a.endIndex,
+  );
+  const collapsed: DetectedSecret[] = [];
+  for (const secret of sorted) {
+    const previous = collapsed.at(-1);
+    if (!previous || secret.startIndex > previous.endIndex) {
+      collapsed.push({ ...secret });
+      continue;
+    }
+    previous.endIndex = Math.max(previous.endIndex, secret.endIndex);
+  }
+  return collapsed;
+}
+
+/**
  * Redact detected secrets in content, replacing each match with a labelled marker.
  */
 export function redactSecrets(content: string): string {
-  const secrets = detectSecrets(content);
+  const secrets = collapseOverlappingSecrets(detectSecrets(content));
   if (secrets.length === 0) return content;
 
   const sorted = [...secrets].sort((a, b) => b.startIndex - a.startIndex);

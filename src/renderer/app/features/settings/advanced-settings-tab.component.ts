@@ -2,6 +2,7 @@
  * Advanced Settings Tab Component - Runtime, Security, and Data sections.
  */
 
+import { ConfirmService } from '../../shared/confirm/confirm.service';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import {
   ChangeDetectionStrategy,
@@ -333,6 +334,7 @@ interface AdvancedSectionView {
   styleUrl: './advanced-settings-tab.component.scss',
 })
 export class AdvancedSettingsTabComponent {
+  private readonly confirmService = inject(ConfirmService);
   store = inject(SettingsStore);
 
   /** Read a value by key. A bound arrow so the template can pass it as a value. */
@@ -634,7 +636,7 @@ export class AdvancedSettingsTabComponent {
   }
 
   async doResetAll(): Promise<void> {
-    if (!confirm('Reset all settings to their defaults on this machine?')) {
+    if (!await this.confirmService.confirm({ message: 'Reset all settings to their defaults on this machine?', confirmLabel: 'Reset all settings', danger: true })) {
       return;
     }
 

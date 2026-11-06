@@ -10,6 +10,11 @@ import {
 import { getContextEngine } from '../context/context-engine';
 import { loadAuthenticatedEvidencePreviews } from '../context/compaction-evidence-preview';
 import { buildCompactionDecisionLogLines } from '../context/compaction-decision-log';
+import { getCompleteInstanceMessages } from '../history/complete-instance-messages';
+import { isOrchestratorToolsBridgeAvailable } from '../mcp/orchestrator-tools-mcp-config';
+import { getOrchestratorToolsRpcSocketPath } from '../mcp/orchestrator-tools-rpc-server';
+import { projectSessionTranscript } from '../session/session-transcript-view';
+import { resolveAioMcpCliPath } from '../util/aio-mcp-cli-path';
 import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getHookManager } from '../hooks/hook-manager';
@@ -92,6 +97,36 @@ export function setCompactionMarkerRecorderForTesting(
   recorder: CompactionMarkerRecorder | null,
 ): void {
   compactionMarkerRecorder = recorder ?? recordCompactionMarkerToRlm;
+}
+
+/**
+ * Phase 5 (A11 part 1b): the `<context_recovery>` pointer for the continuity
+ * package, built only for sessions that really have the orchestrator-tools
+ * bridge (`read_session`) at spawn — local placement, an injection-capable
+ * provider, and the aio-mcp binary plus RPC socket present. Remote sessions and
+ * anything in doubt get no block and no look-up sentence, so the package never
+ * names a tool the model cannot call.
+ */
+async function getContextRecoveryMessageCount(
+  instance: Instance,
+): Promise<number | undefined> {
+  if (instance.executionLocation?.type === 'remote') return undefined;
+  if (!isOrchestratorToolsBridgeAvailable(instance.provider, {
+    resolveAioMcpCliPath,
+    getSocketPath: getOrchestratorToolsRpcSocketPath,
+  })) return undefined;
+  try {
+    const merged = await getCompleteInstanceMessages(instance);
+    return projectSessionTranscript(merged, { view: 'messages', limit: 1 }).totalItems;
+  } catch (error) {
+    // The pointer is an enhancement: a failed transcript read must never abort
+    // the compaction itself, so the package simply omits the pointer.
+    logger.warn('Context recovery pointer unavailable', {
+      instanceId: instance.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return undefined;
+  }
 }
 
 function buildPostCompactionUsage(previousUsage: ContextUsage): ContextUsage {
@@ -365,6 +400,7 @@ export function setupCompactionCoordinator(
         } catch { /* The default compression budget applies to legacy settings. */ }
         const prepared = await prepareRestartCompaction(instance, {
           ...options, maxInputTokens,
+          recoveryMessageCount: await getContextRecoveryMessageCount(instance),
           evidence: evidencePreviews.map(preview => preview.preview).join('\n\n'),
           decisions: buildCompactionDecisionLogLines(instanceId, activeMessagesOf(instance)).join('\n'),
         });

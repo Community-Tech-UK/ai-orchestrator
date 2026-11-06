@@ -25,7 +25,7 @@ function notStarted(item: PlanQueueItemDto): boolean {
         <h3>Not applicable ({{ notApplicable().length }})</h3>
         <ul>@for (item of notApplicable(); track item.id) { <li>{{ name(item) }}: already started or set aside when the preview opened</li> }</ul>
         <p>Skipping leaves each document open and starts no session for it.</p>
-        @if (willChange().length > 0) { <button type="button" class="pq-confirm-skip" (click)="confirm()">Skip {{ count(willChange().length, 'document') }}</button> }
+        @if (willChange().length > 0) { <button type="button" class="pq-confirm-skip" (click)="skipSelected()">Skip {{ count(willChange().length, 'document') }}</button> }
         <button type="button" (click)="selection.set(null)">Cancel</button>
       </section>
     }
@@ -47,7 +47,7 @@ export class PlanQueueSkipPendingComponent {
   protected readonly name = (item: PlanQueueItemDto) => item.documentPath.split(/[\\/]/).pop();
   protected readonly count = pluralise;
 
-  confirm(): void {
+  skipSelected(): void {
     const ids = this.willChange().map(item => item.id);
     this.selection.set(null);
     for (const id of ids) this.skipItem.emit(id);

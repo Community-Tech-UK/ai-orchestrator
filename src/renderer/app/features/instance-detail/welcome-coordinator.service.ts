@@ -8,6 +8,8 @@ import {
   VcsIpcService,
 } from '../../core/services/ipc';
 import { ProviderStateService } from '../../core/services/provider-state.service';
+import { UndoService } from '../../core/services/undo.service';
+import { snapshotActiveComposer, restoreComposerSnapshot } from '../../core/services/new-session-draft-undo';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
 import { FileAttachmentService } from './file-attachment.service';
 import { normalizeModelForProvider } from '../../../../shared/types/provider.types';
@@ -63,6 +65,7 @@ export class WelcomeCoordinatorService {
   private orchestrationIpc = inject(OrchestrationIpcService);
   private providerState = inject(ProviderStateService);
   private newSessionDraft = inject(NewSessionDraftService);
+  private undo = inject(UndoService);
   private fileAttachment = inject(FileAttachmentService);
 
   // ---------------------------------------------------------------------------
@@ -526,7 +529,9 @@ export class WelcomeCoordinatorService {
   // ---------------------------------------------------------------------------
 
   onWelcomeDiscardDraft(): void {
+    const snapshot = snapshotActiveComposer(this.newSessionDraft);
     this.newSessionDraft.clearActiveComposer();
+    this.undo.register({ kind: 'discard-draft', message: 'Draft discarded', undo: () => restoreComposerSnapshot(this.newSessionDraft, snapshot) });
   }
 
   // ---------------------------------------------------------------------------

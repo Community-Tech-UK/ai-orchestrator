@@ -25,6 +25,8 @@ import { AuxiliaryLlmIpcService } from '../../core/services/ipc/auxiliary-llm-ip
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import { BrowserUnattendedPanelComponent } from './browser-unattended-panel.component';
 import { BrowserGrantPaginator } from './browser-grant-paginator';
+import { browserGrantLabels } from './browser-grant-labels';
+import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 import {
   bindBrowserApprovalDeepLink,
   bindBrowserApprovalFocus,
@@ -62,9 +64,7 @@ import {
 } from './browser-page-view.utils';
 
 interface BrowserSnapshotView { title: string; url: string; text: string }
-
 const recentAuditWindowMs = 15 * 60 * 1000;
-
 @Component({
   selector: 'app-browser-page',
   standalone: true,
@@ -74,6 +74,7 @@ const recentAuditWindowMs = 15 * 60 * 1000;
   styleUrl: './browser-page.component.scss',
 })
 export class BrowserPageComponent implements OnInit {
+  readonly labels = browserGrantLabels; readonly clipboard = inject(CLIPBOARD_SERVICE);
   private readonly ipc = inject(BrowserGatewayIpcService);
   private readonly auxIpc = inject(AuxiliaryLlmIpcService);
   private readonly remoteNodes = inject(RemoteNodeStore);

@@ -99,6 +99,16 @@ export function outputMessageToContinuityEntry(
   const compactionMarkerId = metadataString(message.metadata, ['compactionMarkerId']);
   const compactionMethod = metadataString(message.metadata, ['method', 'compactionMethod']);
   const internalInput = message.metadata?.internalInput;
+  const crossSessionMessage = message.metadata?.crossSessionMessage;
+  // The restart divider is a transcript reset (`isTranscriptReset`) and the
+  // marker `activeMessagesOf`/`isSessionBoundaryMessage` filter on. Its `kind`
+  // must survive continuity: hibernate/wake rebuilds the visible buffer from
+  // these entries, and a marker that lost its kind no longer stops
+  // `read_session`'s before-last-compaction read at the reset.
+  const sessionBoundaryArchived = metadataBoolean(message.metadata, ['archived']);
+  const sessionBoundary = message.metadata?.['kind'] === 'session-boundary'
+    ? { ...(sessionBoundaryArchived === undefined ? {} : { archived: sessionBoundaryArchived }) }
+    : undefined;
 
   return {
     id: message.id,
@@ -106,6 +116,8 @@ export function outputMessageToContinuityEntry(
     content: message.content,
     timestamp: message.timestamp,
     ...(internalInput ? { internalInput: { ...internalInput } } : {}),
+    ...(crossSessionMessage ? { crossSessionMessage: { ...crossSessionMessage } } : {}),
+    ...(sessionBoundary ? { sessionBoundary } : {}),
     ...(tokens === undefined ? {} : { tokens }),
     ...(tokenUsage ? { tokenUsage } : {}),
     ...(toolName
@@ -219,7 +231,9 @@ export function continuityEntryToOutputMessage(entry: ConversationEntry): Output
     || entry.tokenUsage
     || entry.isCompacted !== undefined
     || entry.compaction
+    || entry.sessionBoundary
     || entry.internalInput
+    || entry.crossSessionMessage
     ? {
         ...(entry.toolUse
           ? {
@@ -239,7 +253,16 @@ export function continuityEntryToOutputMessage(entry: ConversationEntry): Output
         ...(entry.compaction?.markerId ? { compactionMarkerId: entry.compaction.markerId } : {}),
         ...(entry.compaction?.method ? { method: entry.compaction.method } : {}),
         ...(entry.compaction ? { isCompactionBoundary: entry.compaction.boundary } : {}),
+        ...(entry.sessionBoundary
+          ? {
+              kind: 'session-boundary',
+              ...(entry.sessionBoundary.archived === undefined
+                ? {}
+                : { archived: entry.sessionBoundary.archived }),
+            }
+          : {}),
         ...(entry.internalInput ? { internalInput: { ...entry.internalInput } } : {}),
+        ...(entry.crossSessionMessage ? { crossSessionMessage: { ...entry.crossSessionMessage } } : {}),
       }
     : undefined;
 

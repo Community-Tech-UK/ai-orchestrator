@@ -7,6 +7,11 @@
  * look past the region it occupies — which then costs you the one time it
  * mattered.
  *
+ * Waiting-time tips are a deliberate separate exception: earned by waiting
+ * and relevance, retired by feature use, and capped per launch and lifetime.
+ * Their renderer-only policy lives in renderer/app/shared/tips/. The five
+ * inline hints below keep their existing behaviour.
+ *
  * Pure and shared so the decision is testable without a renderer, and so the
  * copy lives in one reviewable place (the same reason `TOOLTIP_COPY` exists).
  */

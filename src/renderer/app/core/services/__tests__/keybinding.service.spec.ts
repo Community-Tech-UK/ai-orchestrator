@@ -71,6 +71,13 @@ describe('KeybindingService input-context gate', () => {
     expect(dispatch.dispatch).toHaveBeenCalledWith('select-orchestrator');
   });
 
+  it('preserves text undo and dispatches app undo outside text fields', () => {
+    const make = () => new KeyboardEvent('keydown', { key: 'z', bubbles: true, cancelable: true, ctrlKey: !service.isMac, metaKey: service.isMac });
+    const typing = make(); textarea.dispatchEvent(typing); expect(typing.defaultPrevented).toBe(false);
+    expect(dispatch.dispatch).not.toHaveBeenCalled();
+    const action = make(); document.body.dispatchEvent(action); expect(action.defaultPrevented).toBe(true);
+    expect(dispatch.dispatch).toHaveBeenCalledWith('undo-last-action');
+  });
   it('removes the document listener when the test injector is destroyed', () => {
     const button = document.createElement('button');
     document.body.append(button);

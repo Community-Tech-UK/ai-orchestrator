@@ -26,3 +26,13 @@ export function buildCrossSessionMessageText(input: CrossSessionMessageWrapInput
     message
   );
 }
+
+/**
+ * Recognises text produced by `buildCrossSessionMessageText` even when its
+ * `crossSessionMessage` metadata was lost (continuity state persisted before
+ * provenance was carried, or restored by older code). Used as a fallback so a
+ * relayed reference can never read as the user's own words.
+ */
+export function isCrossSessionMessageText(content: string): boolean {
+  return content.startsWith('[Cross-session message from "');
+}

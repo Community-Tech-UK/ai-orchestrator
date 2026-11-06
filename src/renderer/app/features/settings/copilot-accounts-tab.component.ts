@@ -11,6 +11,7 @@
  * Harness never sees the token.
  */
 
+import { ConfirmService } from '../../shared/confirm/confirm.service';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import {
@@ -435,6 +436,7 @@ interface RuleGroup {
   `],
 })
 export class CopilotAccountsTabComponent implements OnInit {
+  private readonly confirmService = inject(ConfirmService);
   protected readonly copy = copyFor;
   private readonly ipc = inject(CopilotAccountIpcService);
   private readonly recentDirectories = inject(RecentDirectoriesIpcService);
@@ -632,10 +634,8 @@ export class CopilotAccountsTabComponent implements OnInit {
   }
 
   async remove(account: CopilotAccountView): Promise<void> {
-    const confirmed = globalThis.confirm?.(
-      `Remove "${account.label}"? Existing conversations that used it will no longer resume. `
-      + 'This does not sign you out of GitHub or delete the account itself.',
-    );
+    const confirmed = await this.confirmService.confirm({ message: `Remove "${account.label}"? Existing conversations that used it will no longer resume. `
+      + 'This does not sign you out of GitHub or delete the account itself.', confirmLabel: 'Remove account', danger: true });
     if (!confirmed) return;
     await this.mutate(() => this.ipc.remove(account.id));
   }

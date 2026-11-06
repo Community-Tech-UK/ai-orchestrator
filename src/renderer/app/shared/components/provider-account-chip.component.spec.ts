@@ -1,3 +1,4 @@
+import { ConfirmService } from '../confirm/confirm.service';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -107,8 +108,7 @@ describe('ProviderAccountChipComponent', () => {
         region: 'ams',
       }),
     ];
-    const confirm = vi.fn(() => false);
-    vi.stubGlobal('confirm', confirm);
+    const confirm = vi.spyOn(TestBed.inject(ConfirmService), 'confirm').mockResolvedValue(false);
     const fixture = await render({ provider: 'opencode', model: 'xiaomi-token-plan-ams/mimo-v2.6-pro' });
     expect(fixture.nativeElement.querySelector('.provider-account-chip')).not.toBeNull();
     const options = [...fixture.nativeElement.querySelectorAll('option')].map((option) => option.textContent);
@@ -124,10 +124,13 @@ describe('ProviderAccountChipComponent', () => {
     expect(ipc.update).not.toHaveBeenCalled();
     expect(select.value).toBe('');
 
-    confirm.mockReturnValue(true);
+    confirm.mockResolvedValue(true);
     select.value = 'comtechspare-f7a6';
     await fixture.componentInstance.onSelect({ target: select } as unknown as Event);
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('MiMo Token Plan'));
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringContaining('MiMo Token Plan'),
+      danger: true,
+    }));
     expect(ipc.acknowledgeOwnership).toHaveBeenCalledWith('opencode');
     expect(ipc.update).toHaveBeenCalledWith({
       provider: 'opencode',
@@ -202,8 +205,7 @@ describe('ProviderAccountChipComponent', () => {
   });
 
   it('switches a live session only after confirmation', async () => {
-    const confirm = vi.fn(() => false);
-    vi.stubGlobal('confirm', confirm);
+    const confirm = vi.spyOn(TestBed.inject(ConfirmService), 'confirm').mockResolvedValue(false);
     const fixture = await render({ provider: 'claude', mode: 'session', instanceId: 'inst-1', accountProfileId: 'legacy', accountRoutingSource: 'failover' });
     expect(fixture.nativeElement.querySelector('.text')?.textContent).toBe('Max A');
     expect(fixture.nativeElement.textContent).not.toContain('moved here at a usage limit');
@@ -214,7 +216,7 @@ describe('ProviderAccountChipComponent', () => {
     expect(ipc.switchSession).not.toHaveBeenCalled();
     expect(select.value).toBe('legacy');
 
-    confirm.mockReturnValue(true);
+    confirm.mockResolvedValue(true);
     select.value = 'max-b-1a2b';
     await fixture.componentInstance.onSelect({ target: select } as unknown as Event);
     expect(ipc.switchSession).toHaveBeenCalledWith('inst-1', 'max-b-1a2b');

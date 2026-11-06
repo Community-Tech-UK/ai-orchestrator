@@ -17,6 +17,7 @@
 
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { AskCouncilStore } from './ask-council.store';
+import { CouncilPrefillService } from './council-prefill.service';
 import type { CouncilMember, CouncilSynthesisMethod } from '../../core/services/ipc/compare-ipc.service';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
@@ -32,6 +33,7 @@ type SynthesisChoice = 'consensus' | 'debate' | 'provider';
 })
 export class AskCouncilPageComponent implements OnInit {
   private readonly store = inject(AskCouncilStore);
+  private readonly prefill = inject(CouncilPrefillService);
 
   // ── prompt / provider selection (page-local; the run itself lives in the store) ──
   readonly prompt = signal('');
@@ -97,6 +99,8 @@ export class AskCouncilPageComponent implements OnInit {
   readonly synthesisProviderChoices = computed(() => this.succeededMembers().map((m) => m.provider));
 
   async ngOnInit(): Promise<void> {
+    const prefill = this.prefill.take();
+    if (prefill !== null) this.prompt.set(prefill);
     await this.store.initialize();
     if (this.availableProviders().length > 0 && this.selectedProviders().length === 0) {
       this.selectedProviders.set([...this.availableProviders()]);

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { Instance } from '../../../shared/types/instance.types';
+import type { Instance, OutputMessage } from '../../../shared/types/instance.types';
 import type { ConversationEntry } from '../../session/session-continuity.types';
+import { outputMessagesToContinuityEntries } from '../../session/continuity-message-projection';
+import { normalizeConversationHistory } from '../../session/session-continuity-state';
+import { projectSessionTranscript } from '../../session/session-transcript-view';
 import { DEFAULT_SETTINGS } from '../../../shared/types/settings-defaults';
 import { retainedPromptsMissingFrom } from '../prompt-retention';
 import { restoreWokenOutputBuffer, selectRestoredEntries } from './wake-buffer-restore';
@@ -82,6 +85,49 @@ describe('restoreWokenOutputBuffer', () => {
 
     expect(target.outputBuffer).toEqual([]);
     expect(target.retainedPrompts).toBeUndefined();
+  });
+
+  // The verifier's wake probe: the same transcript that
+  // `projectSessionTranscript` reads as one compaction and a before-reset page
+  // must still read that way after the real hibernate/wake chain —
+  // `outputMessagesToContinuityEntries` + `normalizeConversationHistory` at
+  // `instanceToState`, the JSON on-disk hop, then `restoreWokenOutputBuffer` on
+  // wake (instance-lifecycle.ts). A dropped `metadata.kind` otherwise turns the
+  // before-last-compaction view into post-reset messages.
+  it.each([
+    ['isCompactionBoundary', { isCompactionBoundary: true }],
+    ['threadCompacted', { threadCompacted: true }],
+    ['kind', { kind: 'session-boundary', archived: true }],
+    ['bare kind', { kind: 'session-boundary' }],
+  ] as const)('keeps a %s reset through the real wake round trip', (_name, marker) => {
+    const transcript: OutputMessage[] = [
+      { id: 'm0', timestamp: 1, type: 'user', content: 'Before reset' },
+      {
+        id: 'm1', timestamp: 2, type: 'system', content: '— Previous session archived —',
+        metadata: { ...marker },
+      },
+      { id: 'm2', timestamp: 3, type: 'user', content: 'After reset' },
+    ];
+
+    const before = projectSessionTranscript(transcript, { from: 'before-last-compaction' });
+    expect(before).toMatchObject({ items: [{ text: 'Before reset' }], compactions: [1] });
+
+    // The production persistence chain: projection + normalization as
+    // `instanceToContinuityState` does it, then the JSON round trip every
+    // hibernate/wake makes.
+    const persisted = JSON.parse(JSON.stringify(
+      normalizeConversationHistory(outputMessagesToContinuityEntries(transcript), false),
+    )) as ConversationEntry[];
+
+    const target = instance();
+    restoreWokenOutputBuffer(target, persisted, 1, KEEP);
+
+    expect(target.outputBuffer).toHaveLength(3);
+    const after = projectSessionTranscript(target.outputBuffer, { from: 'before-last-compaction' });
+    expect(after).toMatchObject({ items: [{ text: 'Before reset' }], compactions: [1] });
+    expect(projectSessionTranscript(target.outputBuffer, {})).toMatchObject({
+      items: [{ text: 'After reset' }, { text: 'Before reset' }],
+    });
   });
 
   it('restores tool traffic as typed tool messages with their metadata', () => {

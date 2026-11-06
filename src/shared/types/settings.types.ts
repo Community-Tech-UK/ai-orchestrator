@@ -7,6 +7,7 @@ import type {
   CopilotAccountRoutingRule,
 } from './copilot-account.types';
 import type { DesktopComputerUseSettings } from './desktop-gateway-settings.types';
+import type { DisplaySettings } from './display-settings.types';
 import type { ProviderAccountPools, ProviderAccountProfile } from './provider-account.types';
 import type { LocalAiFallbackPolicy } from './local-ai-guard.types';
 import type { ModelUsageEntry } from './model-usage.types';
@@ -35,18 +36,16 @@ import type {
   CliUpdatePolicy,
   ContextEvidenceMode,
   DefaultMissedRunPolicy,
-  DisplayDensity,
   PauseReachabilityProbeMode,
   ProgressNoteDisplay,
   ProjectPluginTrust,
-  SidebarStyle,
   ThemeMode,
   VoiceSttRoutingMode,
 } from './settings-primitives.types';
 export type * from './settings-primitives.types';
 
 /** Application settings that are persisted to disk. */
-export interface AppSettings extends DesktopComputerUseSettings, ObservationSettings, WorkloadSettings {
+export interface AppSettings extends DesktopComputerUseSettings, DisplaySettings, ObservationSettings, WorkloadSettings {
   // General
   /** Keep the system awake; the display may still sleep. */
   keepAwakeMode: 'off' | 'while-working' | 'always';
@@ -168,16 +167,6 @@ export interface AppSettings extends DesktopComputerUseSettings, ObservationSett
    * default | explanatory | learning | concise.
    */
   outputStyle: string;
-
-  // Display
-  fontSize: number; // 12-20
-  displayDensity: DisplayDensity;
-  sidebarStyle: SidebarStyle;
-  contextWarningThreshold: number; // 0-100 percentage
-  showToolMessages: boolean;
-  showThinking: boolean; // Display AI thinking process in collapsible panels
-  thinkingDefaultExpanded: boolean; // Show thinking panels expanded instead of collapsed
-  showCost: boolean; // Display running cost estimates (per-instance and aggregated). Off = hide for managed setups.
 
   // Recent Directories
   maxRecentDirectories: number; // 5-500, max directories to remember

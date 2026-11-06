@@ -249,6 +249,11 @@
 }
 
 .toast-item {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(520px, calc(100vw - 32px));
   padding: 8px 16px;
   border-radius: 6px;
   background: var(--toast-bg);
@@ -262,3 +267,15 @@
     color: var(--toast-error-fg);
   }
 }
+
+.toast-action {
+  color: var(--primary-color);
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  cursor: pointer;
+  font: inherit;
+  flex-shrink: 0;
+}
+.toast-action:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }

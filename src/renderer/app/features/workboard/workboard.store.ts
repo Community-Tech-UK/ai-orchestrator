@@ -144,6 +144,8 @@ export class WorkboardStore {
 
   /** Total visible cards after filtering and snoozing. */
   readonly visibleCount = computed(() => this.visibleItems().length);
+  readonly snoozedCount = computed(() => this.snoozedSignal().size);
+  clearSnoozes(): void { this.snoozedSignal.set(new Map()); }
 
   readonly selectedWorkspaceId = this.selectedWorkspace.asReadonly();
   readonly selectedItemId = this.selectedItem.asReadonly();

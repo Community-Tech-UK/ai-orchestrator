@@ -13,7 +13,7 @@
  */
 
 import { app } from 'electron';
-import { clearToolOutcomes, getToolOutcomes } from '../learning/tool-outcome-store';
+import { clearToolOutcomes } from '../learning/tool-outcome-store';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as zlib from 'zlib';
@@ -33,8 +33,8 @@ import {
 import { createNativeClaudeArchiveRepairPlan } from './native-claude-archive-repair';
 import { recoverFalseMissingOpeningPromptRepair } from './native-claude-false-repair-recovery';
 import { projectMemoryKeysEqual } from '../memory/project-memory-key';
-import { getOutputStorageManager } from '../memory/output-storage';
-import { retainedPromptsMissingFrom } from '../instance/prompt-retention';
+import { archiveHistoryEntry, unarchiveHistoryEntry } from './history-archive-state';
+import { getCompleteInstanceMessages } from './complete-instance-messages';
 import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
 import { getSessionRecoveryCandidateServiceIfInitialized, type HistoryRecoverySuppressionQuery,
   type RecoveryHistoryIdentity } from '../session/session-recovery-candidate-service';
@@ -462,44 +462,8 @@ export class HistoryManager {
     }
   }
 
-  /**
-   * The live buffer is bounded, so its older messages may already be in
-   * output storage. Flush pending asynchronous writes and join that prefix to
-   * the retained tail before creating permanent history.
-   *
-   * The instance's retained prompts are folded in as well. They are normally
-   * already in output storage, but not when disk storage is disabled or its
-   * write failed — and an archive that lost the user's own prompts is the
-   * exact failure this path exists to prevent.
-   */
   private async getCompleteArchiveMessages(instance: Instance): Promise<OutputMessage[]> {
-    const retainedMessages = [...instance.outputBuffer];
-    const outputStorage = getOutputStorageManager();
-    await outputStorage.flushInstance(instance.id);
-    const storedMessages = await outputStorage.loadMessages(instance.id);
-
-    // Ids are trustworthy between disk and the live buffer — both hold the
-    // original message objects. They are NOT trustworthy for retained prompts:
-    // a hibernate/wake round trip renumbers persisted entries positionally and
-    // wake re-derives the prompt's id from that, so the same prompt can reach
-    // here under a different id than its on-disk copy and would archive twice.
-    const persisted = [...storedMessages, ...retainedMessages];
-    const messagesById = new Map<string, OutputMessage>();
-    for (const message of [
-      ...storedMessages,
-      ...retainedPromptsMissingFrom(instance.retainedPrompts, persisted),
-      ...retainedMessages,
-      // LT-196: held out of `outputBuffer`; folded in only here — see
-      // `tool-outcome-store.ts`.
-      ...getToolOutcomes(instance.id),
-    ]) {
-      messagesById.set(message.id, message);
-    }
-
-    // The three sources overlap, so none of them is a clean chronological
-    // prefix of the others. Sort is stable, so equal timestamps keep source
-    // order.
-    return Array.from(messagesById.values()).sort((a, b) => a.timestamp - b.timestamp);
+    return getCompleteInstanceMessages(instance);
   }
 
   /**
@@ -535,26 +499,11 @@ export class HistoryManager {
    * Archive a history entry from the primary project rail without deleting it.
    */
   async archiveEntry(entryId: string): Promise<boolean> {
-    const entry = this.index.entries.find((item) => item.id === entryId);
-    if (!entry) {
-      return false;
-    }
+    return archiveHistoryEntry({ index: this.index, updateConversation: this.updateConversation.bind(this), saveIndex: this.saveIndex.bind(this) }, entryId);
+  }
 
-    if (entry.archivedAt) {
-      return true;
-    }
-
-    const archivedAt = Date.now();
-    entry.archivedAt = archivedAt;
-    this.index.lastUpdated = archivedAt;
-    await this.updateConversation(entryId, (stored) => {
-      stored.archivedAt = archivedAt;
-    });
-    await this.saveIndex();
-
-    logger.info('Archived history entry', { entryId });
-    getSessionRecoveryCandidateServiceIfInitialized()?.invalidate();
-    return true;
+  async unarchiveEntry(entryId: string): Promise<boolean> {
+    return unarchiveHistoryEntry({ index: this.index, updateConversation: this.updateConversation.bind(this), saveIndex: this.saveIndex.bind(this) }, entryId);
   }
 
   /**
@@ -1413,10 +1362,8 @@ export class HistoryManager {
     // Chain onto the queue — each save waits for ALL previous saves to complete
     const previousQueue = this.saveQueue;
     let resolve: () => void;
-    let reject: (err: Error) => void;
-    this.saveQueue = new Promise<void>((res, rej) => {
+    this.saveQueue = new Promise<void>((res) => {
       resolve = res;
-      reject = rej;
     });
 
     try {
@@ -1424,7 +1371,9 @@ export class HistoryManager {
       await this.doSaveIndex();
       resolve!();
     } catch (error) {
-      reject!(error instanceof Error ? error : new Error(String(error)));
+      // The caller receives the failure; the ordering tail must release so a
+      // later explicit retry can reach disk instead of inheriting rejection.
+      resolve!();
       throw error;
     }
   }

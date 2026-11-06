@@ -3,6 +3,7 @@ import { Subject } from 'rxjs';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import { InstanceEventsService } from '../../core/services/instance-events.service';
 import { ProviderDiagnosticsPanelComponent } from './provider-diagnostics-panel.component';
+import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 
 function makeEnvelope(
   event: ProviderRuntimeEventEnvelope['event'],
@@ -115,6 +116,43 @@ describe('ProviderDiagnosticsPanelComponent', () => {
     expect(text).toContain('system 35');
     expect(text).toContain('MCP tools 12');
     expect(text).toContain('skills 8');
+    const details = fixture.nativeElement.querySelector('details') as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    expect(details.textContent).toContain('req_123');
+    expect(details.textContent).toContain('end_turn');
+    const pills = Array.from(fixture.nativeElement.querySelectorAll('.diagnostic-pill') as NodeListOf<HTMLElement>);
+    expect(pills.map((pill) => pill.textContent).join(' ')).not.toMatch(/req_123|end_turn|Request|Stop/);
+  });
+
+  it('shows a plain warning for an abnormal stop while keeping the raw reason in Details', () => {
+    events.next(makeEnvelope({ kind: 'complete', stopReason: 'max_tokens' }));
+    fixture.detectChanges();
+    const warning = fixture.nativeElement.querySelector('.diagnostic-pill.warning') as HTMLElement;
+    expect(warning.textContent).toContain('Stopped early:');
+    expect(warning.textContent).toContain('Output limit reached');
+    expect(warning.textContent).not.toContain('max_tokens');
+    expect(fixture.nativeElement.querySelector('details').textContent).toContain('max_tokens');
+  });
+
+  it.each(['end_turn', 'stop_sequence', 'tool_use'])('keeps a normal %s stop out of the pills', (stopReason) => {
+    events.next(makeEnvelope({ kind: 'complete', stopReason }));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.diagnostic-pill')).toBeNull();
+    expect(fixture.nativeElement.querySelector('details').textContent).toContain(stopReason);
+  });
+
+  it('copies the original request id and stop reason from their Details buttons', async () => {
+    const copy = vi.spyOn(TestBed.inject(CLIPBOARD_SERVICE), 'copyText').mockResolvedValue({ ok: true });
+    events.next(makeEnvelope({ kind: 'complete', requestId: 'req_copy', stopReason: 'max_tokens' }));
+    fixture.detectChanges();
+    const buttons = fixture.nativeElement.querySelectorAll('details button') as NodeListOf<HTMLButtonElement>;
+    buttons[0].click();
+    buttons[1].click();
+    await fixture.whenStable();
+    expect(copy.mock.calls).toEqual([
+      ['req_copy', { label: 'Request id' }],
+      ['max_tokens', { label: 'Stop reason' }],
+    ]);
   });
 
   it('ignores diagnostics from other instances and hides absent fields', () => {

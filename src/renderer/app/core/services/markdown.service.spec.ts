@@ -34,6 +34,35 @@ describe('MarkdownService.renderSync command stripping', () => {
     expect(html).toContain('<strong>world</strong>');
   });
 
+  it.each(['#', 'No', 'NO.', 'ID'])('adds accessible row picks to a table beginning with %s', (header) => {
+    const container = document.createElement('div');
+    container.innerHTML = service.renderSync(`| ${header} | Finding |\n| --- | --- |\n| 1 | First |\n| 3 | Third |`);
+    const picks = [...container.querySelectorAll('button[data-pick-row]')];
+    expect(picks.map((button) => button.getAttribute('data-pick-row'))).toEqual(['1', '3']);
+    expect(picks[0].getAttribute('aria-pressed')).toBe('false');
+    expect(picks[0].getAttribute('aria-label')).toBe('Select row 1');
+    expect(picks[0].getAttribute('type')).toBe('button');
+    expect(JSON.parse(picks[0].getAttribute('data-pick-text')!)).toBe(`${header}: 1; Finding: First`);
+    expect(container.querySelector('[data-pick-bar]')?.getAttribute('data-pick-count')).toBe('0');
+    expect(container.querySelector('[data-pick-add]')?.textContent).toBe('Add to reply');
+  });
+
+  it('keeps ordinary tables free of row-selection controls', () => {
+    const html = service.renderSync('| Feature | Status |\n| --- | --- |\n| Export | Ready |');
+    expect(html).not.toContain('data-pick-');
+    expect(html).toContain('<th>Feature</th>');
+  });
+
+  it('escapes quotes and markup inside picked-row data while preserving the plain cell text', () => {
+    const container = document.createElement('div');
+    container.innerHTML = service.renderSync('| # | Finding |\n| --- | --- |\n| 1 | `<script>alert(1)</script>` " onmouseover="oops |');
+    const pick = container.querySelector('button[data-pick-row]');
+    expect(pick).not.toBeNull();
+    expect(JSON.parse(pick!.getAttribute('data-pick-text')!)).toBe('#: 1; Finding: <script>alert(1)</script> " onmouseover="oops');
+    expect(pick?.getAttribute('onmouseover')).toBeNull();
+    expect(container.querySelector('script')).toBeNull();
+  });
+
   it('makes inline file paths focusable links after sanitising', () => {
     const container = document.createElement('div');
     container.innerHTML = service.renderSync('`src/app.ts`');

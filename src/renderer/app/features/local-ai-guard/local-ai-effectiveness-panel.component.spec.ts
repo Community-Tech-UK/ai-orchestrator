@@ -12,6 +12,7 @@ import type {
 } from '../../../../shared/types/local-ai-guard.types';
 import { LocalAiGuardStore } from '../../core/state/local-ai-guard.store';
 import { LocalAiEffectivenessPanelComponent } from './local-ai-effectiveness-panel.component';
+import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
 
@@ -97,7 +98,7 @@ describe('LocalAiEffectivenessPanelComponent', () => {
     expect(text).toContain('$2.50 estimated avoided cost');
   });
 
-  it('preserves exact sub-cent measured, estimated, and avoided-estimated costs', async () => {
+  it('uses cents in cost metrics and preserves exact costs in a collapsed Details fold', async () => {
     store.effectiveness.mockReturnValue(summary({
       knownCostUsd: 0.004,
       estimatedCostUsd: 0.018,
@@ -107,12 +108,16 @@ describe('LocalAiEffectivenessPanelComponent', () => {
 
     const costText = costMetricText();
     expect(costText).toEqual([
-      '$0.004 measured cloud cost',
-      '$0.018 estimated cloud cost',
+      'under 1 cent measured cloud cost',
+      '$0.02 estimated cloud cost',
       '9,000 estimated avoided tokens',
-      '$0.025 estimated avoided cost',
+      '$0.03 estimated avoided cost',
     ]);
-    expect(costText.join(' ')).not.toMatch(/\$0\.00 measured|\$0\.02 estimated|\$0\.03 estimated avoided/);
+    const details = fixture.nativeElement.querySelector('.cost-details') as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    expect(details.textContent).toContain('$0.004');
+    expect(details.textContent).toContain('$0.018');
+    expect(details.textContent).toContain('$0.025');
   });
 
   it('keeps normal cents readable, removes binary tails, and never displays a tiny nonzero cost as zero', async () => {
@@ -126,7 +131,7 @@ describe('LocalAiEffectivenessPanelComponent', () => {
     const costText = costMetricText();
     expect(costText[0]).toBe('$1.25 measured cloud cost');
     expect(costText[1]).toBe('$0.30 estimated cloud cost');
-    expect(costText[3]).toBe('$1e-21 estimated avoided cost');
+    expect(costText[3]).toBe('under 1 cent estimated avoided cost');
     expect(costText.join(' ')).not.toContain('0.30000000000000004');
     expect(costText[3]).not.toContain('$0.00');
   });
@@ -141,8 +146,38 @@ describe('LocalAiEffectivenessPanelComponent', () => {
 
     const costText = costMetricText();
     expect(costText[0]).toBe('$0.00 measured cloud cost');
-    expect(costText[1]).toBe('$0.00000000000000000001 estimated cloud cost');
-    expect(costText[3]).toBe('$1e-21 estimated avoided cost');
+    expect(costText[1]).toBe('under 1 cent estimated cloud cost');
+    expect(costText[3]).toBe('under 1 cent estimated avoided cost');
+    expect(fixture.nativeElement.querySelector('.cost-details').textContent).toContain('$1e-20');
+    expect(fixture.nativeElement.querySelector('.cost-details').textContent).toContain('$1e-21');
+  });
+
+  it('shows $0.73 everyday and the full raw value only in Details', async () => {
+    store.effectiveness.mockReturnValue(summary({ knownCostUsd: 0.7302072 }));
+    await recreate();
+    expect(costMetricText()[0]).toBe('$0.73 measured cloud cost');
+    expect(fixture.nativeElement.querySelector('.cost-details').textContent).toContain('$0.7302072');
+  });
+
+  it('labels an unknown endpoint without exposing its identifier outside Details', () => {
+    const rows = Array.from(fixture.nativeElement.querySelectorAll('.breakdown-list li') as NodeListOf<HTMLElement>);
+    expect(rows[0].querySelector('.breakdown-label')?.textContent).toBe('Studio endpoint');
+    expect(rows[1].querySelector('.breakdown-label')?.textContent).toBe('Unknown endpoint');
+    expect(rows[1].querySelector('details')?.textContent).toContain('target-2');
+    expect(rows[1].getAttribute('aria-label')).not.toContain('target-2');
+  });
+
+  it('copies the exact cost and unknown endpoint id from Details', async () => {
+    store.effectiveness.mockReturnValue(summary({ knownCostUsd: 0.7302072 }));
+    await recreate();
+    const copy = vi.spyOn(TestBed.inject(CLIPBOARD_SERVICE), 'copyText').mockResolvedValue({ ok: true });
+    (fixture.nativeElement.querySelector('[aria-label="Copy measured cloud cost"]') as HTMLButtonElement).click();
+    (fixture.nativeElement.querySelector('[aria-label="Copy endpoint id"]') as HTMLButtonElement).click();
+    await fixture.whenStable();
+    expect(copy.mock.calls).toEqual([
+      ['$0.7302072', { label: 'measured cloud cost' }],
+      ['target-2', { label: 'endpoint id' }],
+    ]);
   });
 
   it('LT-193: shows the unpriced-dispatch metric only when it is nonzero, and it never claims zero cost', async () => {

@@ -36,6 +36,7 @@ import type { TaskPreflightReport } from '../../../../../shared/types/task-prefl
 import { TaskPreflightCardComponent } from '../../../shared/components/task-preflight-card.component';
 import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
 import { AppIconButtonDirective } from '../../../shared/tooltip/icon-button.directive';
+import { ConfirmService } from '../../../shared/confirm/confirm.service';
 
 @Component({
   selector: 'app-verification-dashboard',
@@ -56,6 +57,7 @@ import { AppIconButtonDirective } from '../../../shared/tooltip/icon-button.dire
   styleUrl: './verification-dashboard.component.scss',
 })
 export class VerificationDashboardComponent implements OnDestroy, AfterViewInit {
+  private readonly confirmService = inject(ConfirmService);
   private draftService = inject(DraftService);
   private ipc = inject(IpcFacadeService);
   private taskIpc = inject(TaskIpcService);
@@ -331,9 +333,13 @@ export class VerificationDashboardComponent implements OnDestroy, AfterViewInit 
     this.store.viewSessionResults(sessionId);
   }
 
-  deleteSession(sessionId: string, event: Event): void {
+  async deleteSession(sessionId: string, event: Event): Promise<void> {
     event.stopPropagation(); // Don't trigger viewSession
-    if (confirm('Are you sure you want to delete this verification session? This removes the session and its results.')) {
+    if (await this.confirmService.confirm({
+      message: 'Are you sure you want to delete this verification session? This removes the session and its results.',
+      confirmLabel: 'Delete session',
+      danger: true,
+    })) {
       this.store.deleteSession(sessionId);
     }
   }

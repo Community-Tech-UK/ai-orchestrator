@@ -29,6 +29,7 @@ import { SessionRecoveryStore } from '../../core/state/session-recovery.store';
 import { SessionRecoveryBannerComponent } from '../../shared/components/session-recovery-banner/session-recovery-banner.component';
 import { ResumePickerController } from '../resume/resume-picker.controller';
 import { DashboardComponent } from './dashboard.component';
+import { FeatureUsageService } from '../../shared/tips/feature-usage.service';
 
 const directory = dirname(fileURLToPath(import.meta.url));
 const dashboardTemplate = readFileSync(resolve(directory, './dashboard.component.html'), 'utf8');
@@ -245,6 +246,15 @@ describe('DashboardComponent resume picker routing', () => {
     component.ngOnDestroy();
   });
 
+  it('starts the explicit Quick chat in scratch even with a project selected', async () => {
+    selectedInstance.set({ id: 'selected', workingDirectory: '/project', executionLocation: { type: 'local' } });
+    TestBed.overrideProvider(ScratchDirectoryService, { useValue: { init: async () => undefined, dir: () => '/scratch', isScratch: (path: string) => path === '/scratch' } });
+    const component = TestBed.runInInjectionContext(() => new DashboardComponent());
+    await component.createGeneralChat(true);
+    expect(TestBed.inject(NewSessionDraftService).open).toHaveBeenCalledWith('/scratch', null, { hintWorkspace: false });
+    component.ngOnDestroy();
+  });
+
   it('routes the resume.openPicker keybinding through the normal unfiltered open path', () => {
     const component = TestBed.runInInjectionContext(() => new DashboardComponent());
 
@@ -292,5 +302,14 @@ describe('DashboardComponent resume picker routing', () => {
     expect(component.sideChatPreferredChatId()).toBe('side-7');
     expect(sideChatStore.initialize).toHaveBeenCalled();
     fixture.destroy();
+  });
+
+  it('records the side-chat feature when the rail opens it and does not record a close', () => {
+    localStorage.removeItem('working-tips:v1');
+    const component = TestBed.runInInjectionContext(() => new DashboardComponent());
+    const usage = TestBed.inject(FeatureUsageService);
+    component.toggleSideChat(); expect(usage.count('toggle-side-chat')).toBe(1);
+    component.toggleSideChat(); expect(usage.count('toggle-side-chat')).toBe(1);
+    component.ngOnDestroy();
   });
 });

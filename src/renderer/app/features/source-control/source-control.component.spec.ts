@@ -17,6 +17,7 @@ import { ɵresolveComponentResources as resolveComponentResources } from '@angul
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ConfirmService } from '../../shared/confirm/confirm.service';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { SourceControlComponent } from './source-control.component';
 import { SourceControlStore } from '../../core/state/source-control.store';
@@ -132,13 +133,21 @@ describe('SourceControlComponent (VS Code SCM restyle)', () => {
 
   it('discloses recoverable trash removal and respects cancellation', async () => {
     const discard = vi.spyOn(store, 'discardFiles').mockResolvedValue({ success: true });
-    const confirmTrash = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const confirmTrash = TestBed.inject(ConfirmService);
     const fixture = await render();
     fixture.nativeElement.querySelector('[aria-label="Trash src/newfile.ts"]').click();
-    expect(confirmTrash).toHaveBeenCalledWith(expect.stringContaining('Move to Trash (recoverable)'));
+    expect(confirmTrash.pending()).toMatchObject({
+      message: expect.stringContaining('Move to Trash (recoverable)'),
+      confirmLabel: 'Move to Trash', danger: false,
+    });
     expect(discard).not.toHaveBeenCalled();
-    confirmTrash.mockReturnValue(true);
+    confirmTrash.resolve(false);
+    await fixture.whenStable();
+    expect(discard).not.toHaveBeenCalled();
     fixture.nativeElement.querySelector('[aria-label="Trash src/newfile.ts"]').click();
+    expect(discard).not.toHaveBeenCalled();
+    confirmTrash.resolve(true);
+    await fixture.whenStable();
     expect(discard).toHaveBeenCalledExactlyOnceWith(REPO, ['src/newfile.ts']);
   });
 

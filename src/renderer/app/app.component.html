@@ -89,6 +89,7 @@
   <!-- Decision 16(b): mounted app-wide, not in the collapsible sidebar, so the
        Cmd+W close-instance action can always reach it. -->
   <app-terminate-confirm-dialog />
+  <app-confirm-dialog />
   <app-help-drawer />
 
   <!-- tabindex="-1": focus lands here when a closing banner has no nearer target. -->
@@ -115,7 +116,12 @@
   @if (toastService.toasts().length > 0) {
     <div class="toast-stack" role="status" aria-live="polite">
       @for (toast of toastService.toasts(); track toast.id) {
-        <div class="toast-item" [class.toast-error]="toast.type === 'error'">{{ toast.text }}</div>
+        <div class="toast-item" [class.toast-error]="toast.type === 'error'"
+          (mouseenter)="toastService.pause(toast.id, 'hover')" (mouseleave)="toastService.resume(toast.id, 'hover')"
+          (focusin)="toastService.pause(toast.id, 'focus')" (focusout)="onToastFocusOut(toast.id, $event)">
+          <span>{{ toast.text }}</span>
+          @if (toast.action; as action) { <button type="button" class="toast-action" (click)="action.run()">{{ action.label }}</button> }
+        </div>
       }
     </div>
   }

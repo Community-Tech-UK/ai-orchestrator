@@ -61,6 +61,7 @@ export const SESSION_CHANNELS = {
   HISTORY_LIST: 'history:list',
   HISTORY_LOAD: 'history:load',
   HISTORY_ARCHIVE: 'history:archive',
+  HISTORY_UNARCHIVE: 'history:unarchive',
   HISTORY_DELETE: 'history:delete',
   HISTORY_RESTORE: 'history:restore',
   HISTORY_CLEAR: 'history:clear',

@@ -224,6 +224,8 @@ export function createSessionDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHA
       return ipcRenderer.invoke(ch.HISTORY_ARCHIVE, { entryId });
     },
 
+    unarchiveHistoryEntry: (entryId: string): Promise<IpcResponse> => ipcRenderer.invoke(ch.HISTORY_UNARCHIVE, { entryId }),
+
     /**
      * Delete a history entry
      */

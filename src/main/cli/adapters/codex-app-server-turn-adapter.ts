@@ -112,6 +112,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     if (notification.method === 'thread/goal/cleared') this.threadGoal = { threadId, status: null };
     if (notification.method !== 'thread/goal/updated') return;
     const status = (notification.params['goal'] as { status?: unknown } | undefined)?.status;
+    logger.info('Codex thread goal changed', { status: ['active', 'paused', 'blocked', 'usageLimited', 'budgetLimited', 'complete'].includes(String(status)) ? status : 'unknown' });
     this.threadGoal = { threadId, status: typeof status === 'string' ? status as ThreadGoalStatus : null };
   }
 

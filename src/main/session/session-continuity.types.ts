@@ -1,6 +1,6 @@
 import type { ExecutionLocation, NodePlacementPrefs } from '../../shared/types/worker-node.types';
 import type { AccountInvocationOrigin, AccountRouteSource } from '../../shared/types/provider-account.types';
-import type { AccountPreferences, InstanceProvider, ThinkingContent } from '../../shared/types/instance.types';
+import type { AccountPreferences, CrossSessionMessageMetadata, InstanceProvider, ThinkingContent } from '../../shared/types/instance.types';
 import type { CopilotRouteSource } from '../../shared/types/copilot-account.types';
 import type { InternalInputMetadata } from '../../shared/types/input-provenance.types';
 
@@ -200,8 +200,26 @@ export interface ConversationEntry {
     markerId?: string;
     method?: string;
   };
+  /**
+   * The session restart divider `createSessionBoundaryMessage` writes
+   * (`metadata.kind === 'session-boundary'`). It is a transcript reset:
+   * `read_session`'s before-last-compaction read (`isTranscriptReset`), the
+   * compaction-tail filter and `isSessionBoundaryMessage` all key on the kind,
+   * and hibernate/wake rebuilds the visible buffer from these entries through
+   * `continuityEntryToOutputMessage` — dropping the kind there erased the
+   * reset. `archived` rides along exactly as written. Absent on records
+   * written before this field existed.
+   */
+  sessionBoundary?: { archived?: boolean };
   /** Harness authored this entry (LT-657); it is never the user's message. */
   internalInput?: InternalInputMetadata;
+  /**
+   * Another session relayed this entry (delivered by CrossSessionMessagingService);
+   * it is never the user's own words. Provenance must survive the continuity round
+   * trip so a restored relay cannot grant `@session` read scope or land in prompt
+   * retention as a user prompt.
+   */
+  crossSessionMessage?: CrossSessionMessageMetadata;
 }
 
 export interface PendingTask {

@@ -17,6 +17,7 @@ import {
 } from '@angular/core';
 import { VerificationStore } from '../../../core/state/verification.store';
 import type { VerificationCost } from '../../../../../shared/types/verification.types';
+import { formatMoneyPlain } from '../../../shared/utils/format-money';
 
 @Component({
   selector: 'app-verification-monitor',
@@ -641,7 +642,7 @@ export class VerificationMonitorComponent {
   }
 
   formatCost(cost: VerificationCost): string {
-    return cost === 'unknown' ? 'Unknown' : `$${cost.toFixed(4)}`;
+    return cost === 'unknown' ? 'Unknown' : formatMoneyPlain(cost);
   }
 
   // ============================================

@@ -236,7 +236,7 @@ export const KNOWLEDGE_GRAPH_HELP: HelpEntry = {
       kind: 'callout',
       variant: 'info',
       heading: 'What this does',
-      body: 'Organises project entities, facts, code symbols, and codebase intelligence. Tabs cover graph queries, wake context setup, and conversation import.',
+      body: 'Organises project entities, facts, code symbols, and codebase intelligence. Tabs cover graph queries, project notes, and conversation import.',
     },
     {
       kind: 'steps',
@@ -261,7 +261,7 @@ export const KNOWLEDGE_GRAPH_HELP: HelpEntry = {
       kind: 'callout',
       variant: 'tip',
       heading: 'Codebase mining',
-      body: 'Browse to a directory and click Mine to extract facts, symbols, and hints. Pause or resume mining at any time.',
+      body: 'Browse to a directory and click Mine to extract facts, symbols, and project notes. Pause or resume mining at any time.',
     },
     {
       kind: 'callout',

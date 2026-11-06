@@ -3,6 +3,7 @@
  * Configure remote worker node connections from within Settings.
  */
 
+import { ConfirmService } from '../../shared/confirm/confirm.service';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 import {
@@ -87,6 +88,7 @@ export type { RemoteNodesSection };
   styleUrl: './remote-nodes-settings-tab.component.scss',
 })
 export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
+  private readonly confirmService = inject(ConfirmService);
   protected readonly store = inject(SettingsStore);
   private readonly ipc = inject(RemoteNodeIpcService);
   private readonly clipboard = inject(CLIPBOARD_SERVICE);
@@ -391,7 +393,7 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
   }
 
   async revokePairing(token: string): Promise<void> {
-    if (!confirm('Revoke this one-time pairing credential?')) {
+    if (!await this.confirmService.confirm({ message: 'Revoke this one-time pairing credential?', confirmLabel: 'Revoke credential', danger: true })) {
       return;
     }
 
@@ -408,7 +410,7 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
   }
 
   async regenerateToken(): Promise<void> {
-    if (!confirm('Generate a new manual pairing token? The previous manual token will no longer be offered for registration.')) {
+    if (!await this.confirmService.confirm({ message: 'Generate a new manual pairing token? The previous manual token will no longer be offered for registration.', confirmLabel: 'Generate token', danger: true })) {
       return;
     }
     this.regenerating.set(true);
@@ -458,7 +460,7 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
   }
 
   async revokeNode(nodeId: string): Promise<void> {
-    if (!confirm(`Revoke node "${nodeId}"? It will no longer be able to connect.`)) {
+    if (!await this.confirmService.confirm({ message: `Revoke node "${nodeId}"? It will no longer be able to connect.`, confirmLabel: 'Revoke node', danger: true })) {
       return;
     }
     this.error.set(null);
@@ -513,11 +515,9 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
   /** Fire the login Chrome on the node (opens on that machine's screen). */
   private async runLoginOnNodeFor(nodeId: string, url: string): Promise<void> {
     const entry = this.nodeHealthEntries().find((e) => e.id === nodeId);
-    const ok = confirm(
-      `Open a login Chrome on "${entry?.name ?? nodeId}"?\n\n` +
+    const ok = await this.confirmService.confirm({ message: `Open a login Chrome on "${entry?.name ?? nodeId}"?\n\n` +
       "Chrome opens on that computer's screen and the node's managed Chrome is " +
-      'stopped first. You must be at that machine (or on remote desktop) to log in.',
-    );
+      'stopped first. You must be at that machine (or on remote desktop) to log in.', confirmLabel: 'Open login Chrome', danger: true });
     if (!ok) {
       return;
     }
@@ -550,12 +550,10 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     // shares the trusted-operator model with service.restart; this is the
     // in-app authorization gate).
     if (config.enabled && !wasEnabled) {
-      const ok = confirm(
-        `Enable browser automation on "${entry?.name ?? nodeId}"?\n\n` +
+      const ok = await this.confirmService.confirm({ message: `Enable browser automation on "${entry?.name ?? nodeId}"?\n\n` +
         'Agents spawned on this node will be able to drive a logged-in Chrome ' +
         'with no per-action approval. Only do this on a trusted node with a ' +
-        'dedicated automation profile.',
-      );
+        'dedicated automation profile.', confirmLabel: 'Enable browser automation', danger: true });
       if (!ok) {
         return;
       }
@@ -599,11 +597,9 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     const wasEnabled = entry?.androidAutomation?.enabled ?? entry?.androidAutomationReady ?? false;
 
     if (payload.enabled && !wasEnabled) {
-      const ok = confirm(
-        `Enable Android automation on "${entry?.name ?? nodeId}"?\n\n` +
+      const ok = await this.confirmService.confirm({ message: `Enable Android automation on "${entry?.name ?? nodeId}"?\n\n` +
         'Agents spawned on this node will be able to control the leased Android ' +
-        'device or emulator through mobile-mcp. Only enable this on a trusted node.',
-      );
+        'device or emulator through mobile-mcp. Only enable this on a trusted node.', confirmLabel: 'Enable Android automation', danger: true });
       if (!ok) {
         return;
       }

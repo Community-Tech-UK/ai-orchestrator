@@ -21,6 +21,7 @@ import { ConsensusHeatmapComponent } from './consensus-heatmap.component';
 import { StreamingTextComponent } from '../../../shared/components/streaming-text/streaming-text.component';
 import { CLIPBOARD_SERVICE } from '../../../core/services/clipboard.service';
 import type { VerdictStatus, VerificationCost } from '../../../../../shared/types/verification.types';
+import { formatMoneyPlain } from '../../../shared/utils/format-money';
 
 type ResultTab = 'summary' | 'comparison' | 'debate' | 'raw' | 'export';
 
@@ -82,7 +83,7 @@ export class VerificationResultsComponent {
   }
 
   formatCost(cost?: VerificationCost): string {
-    return cost === undefined || cost === 'unknown' ? 'Unknown' : `$${cost.toFixed(4)}`;
+    return cost === undefined || cost === 'unknown' ? 'Unknown' : formatMoneyPlain(cost);
   }
 
   formatPersonality(personality?: string): string {

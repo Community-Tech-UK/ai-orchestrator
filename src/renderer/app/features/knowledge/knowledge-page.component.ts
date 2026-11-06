@@ -38,7 +38,7 @@ interface FolderPickerApi {
       <div class="page-header">
         <div class="header-title">
           <span class="title">Knowledge Graph</span>
-          <span class="subtitle">Entities, facts, wake context, and codebase intelligence</span>
+          <span class="subtitle">Entities, facts, project notes, and codebase intelligence</span>
         </div>
       </div>
 
@@ -93,7 +93,7 @@ interface FolderPickerApi {
         <button class="tab" type="button"
           [class.active]="activeTab() === 'wake'"
           (click)="activeTab.set('wake')">
-          Wake Context
+          Project notes
         </button>
         <button class="tab" type="button"
           [class.active]="activeTab() === 'import'"
@@ -131,13 +131,13 @@ interface FolderPickerApi {
                     </div>
 
                     <div>
-                      <div class="section-title">Project Hints</div>
+                      <div class="section-title">Project notes</div>
                       @if (projectMemory.wakeHints.length > 0) {
                         <ul class="list compact">
                           @for (hint of projectMemory.wakeHints; track hint.targetId) {
                             <li>
                               <span>{{ hint.content }}</span>
-                              <span class="muted">Importance {{ hint.importance }}</span>
+                              <span class="muted">Priority {{ hint.importance }}</span>
                               <button class="btn btn-sm" type="button" (click)="inspectProjectHint(hint)">
                                 Evidence
                               </button>
@@ -145,7 +145,7 @@ interface FolderPickerApi {
                           }
                         </ul>
                       } @else {
-                        <div class="hint">No source-backed project hints yet.</div>
+                        <div class="hint">No source-backed project notes yet.</div>
                       }
                     </div>
 
@@ -481,7 +481,7 @@ interface FolderPickerApi {
                     <div class="stat-row"><span>Facts found</span><span class="num">{{ miningStatus.factsExtracted }}</span></div>
                   }
                   @if (miningStatus.hintsCreated !== undefined) {
-                    <div class="stat-row"><span>Hints created</span><span class="num">{{ miningStatus.hintsCreated }}</span></div>
+                    <div class="stat-row"><span>Notes created</span><span class="num">{{ miningStatus.hintsCreated }}</span></div>
                   }
                   @if (miningStatus.completedAt) {
                     <div class="stat-row"><span>Last mined</span><span class="mono small">{{ miningStatus.completedAt | date:'short' }}</span></div>

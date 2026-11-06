@@ -41,13 +41,13 @@ export function registerVerificationCostSmoke(): void {
   afterEach(() => { TestBed.resetTestingModule(); CliVerificationCoordinator._resetForTesting(); });
 
   it.each([
-    { name: 'known paid completion', reported: 0.07, cost: 0.07, display: '$0.0700' },
+    { name: 'known paid completion', reported: 0.07, cost: 0.07, display: '$0.07' },
     { name: 'unknown completion', reported: undefined, cost: 'unknown', display: 'Unknown' },
-    { name: 'true zero completion', reported: 0, cost: 0, display: '$0.0000' },
-    { name: 'paid provider failure', reported: 0.07, failure: true, cost: 0.07, display: '$0.0700' },
+    { name: 'true zero completion', reported: 0, cost: 0, display: '$0.00' },
+    { name: 'paid provider failure', reported: 0.07, failure: true, cost: 0.07, display: '$0.07' },
     { name: 'unknown provider failure', reported: undefined, failure: true, cost: 'unknown', display: 'Unknown' },
-    { name: 'paid budget stop', reported: 0.07, budget: true, cost: 0.07, display: '$0.0700' },
-    { name: 'pre-dispatch failure', reported: undefined, initializeFailure: true, cost: 0, display: '$0.0000' },
+    { name: 'paid budget stop', reported: 0.07, budget: true, cost: 0.07, display: '$0.07' },
+    { name: 'pre-dispatch failure', reported: undefined, initializeFailure: true, cost: 0, display: '$0.00' },
   ])('preserves $name in the live monitor and final result', async ({ reported, failure, budget, initializeFailure, cost, display }) => {
     const state = TestBed.inject(VerificationStateService);
     const sessions = TestBed.inject(VerificationSessionStore);

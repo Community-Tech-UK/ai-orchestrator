@@ -16,6 +16,7 @@
  * Hosts embed the chip unconditionally.
  */
 
+import { ConfirmService } from '../confirm/confirm.service';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -94,6 +95,7 @@ const OWNERSHIP_COPY: Record<PooledProvider, { subscription: string; vendor: str
   `],
 })
 export class ProviderAccountChipComponent {
+  private readonly confirmService = inject(ConfirmService);
   private readonly ipc = inject(ProviderAccountIpcService);
 
   readonly provider = input<string | null>(null);
@@ -224,9 +226,7 @@ export class ProviderAccountChipComponent {
     }
     const instanceId = this.instanceId();
     if (!instanceId || value === this.currentProfileId()) return;
-    const confirmed = globalThis.confirm?.(
-      `Move this conversation to "${this.labelFor(value)}"? The current session ends and the conversation continues on that account.`,
-    );
+    const confirmed = await this.confirmService.confirm({ message: `Move this conversation to "${this.labelFor(value)}"? The current session ends and the conversation continues on that account.`, confirmLabel: 'Move conversation', danger: true });
     if (!confirmed) {
       target.value = this.currentProfileId();
       return;
@@ -245,9 +245,11 @@ export class ProviderAccountChipComponent {
     const provider = this.pooled();
     if (!provider || !this.ownershipOpen()) return false;
     const copy = OWNERSHIP_COPY[provider];
-    const confirmed = globalThis.confirm?.(
-      `Before "${account.label}" can be used, confirm that every ${pooledProviderLabel(provider)} account is a ${copy.subscription} subscription you personally pay for, and that you understand ${copy.vendor} may still apply its own usage policies.`,
-    );
+    const confirmed = await this.confirmService.confirm({
+      message: `Before "${account.label}" can be used, confirm that every ${pooledProviderLabel(provider)} account is a ${copy.subscription} subscription you personally pay for, and that you understand ${copy.vendor} may still apply its own usage policies.`,
+      confirmLabel: 'Confirm and turn on',
+      danger: true,
+    });
     if (!confirmed) return false;
     const acknowledged = await this.ipc.acknowledgeOwnership(provider);
     if (!acknowledged.success) {

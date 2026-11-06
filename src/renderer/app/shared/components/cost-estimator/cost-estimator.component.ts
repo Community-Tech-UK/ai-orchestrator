@@ -16,6 +16,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import type { CostBreakdown, SessionCostSummary } from '../../../../../shared/types/verification-ui.types';
+import { formatMoneyPlain } from '../../utils/format-money';
 import { AioTooltipDirective } from '../../tooltip/aio-tooltip.directive';
 
 @Component({
@@ -357,9 +358,7 @@ export class CostEstimatorComponent {
 
   formatCost(cost: number): string {
     if (cost === 0) return 'Free';
-    if (cost < 0.001) return '<$0.001';
-    if (cost < 0.01) return `$${cost.toFixed(3)}`;
-    return `$${cost.toFixed(2)}`;
+    return formatMoneyPlain(cost);
   }
 
   formatTokens(tokens: number): string {

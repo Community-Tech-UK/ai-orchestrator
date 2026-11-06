@@ -12,6 +12,7 @@ import { TestBed } from '@angular/core/testing';
 import { signal, ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { AskCouncilPageComponent } from './ask-council-page.component';
 import { AskCouncilStore } from './ask-council.store';
+import { CouncilPrefillService } from './council-prefill.service';
 import type { CouncilMember, CouncilRun, CouncilSynthesisResult } from '../../core/services/ipc/compare-ipc.service';
 
 // AskCouncilPageComponent uses templateUrl/styleUrl; these tests are logic-only
@@ -83,6 +84,31 @@ describe('AskCouncilPageComponent', () => {
   // ── ngOnInit ────────────────────────────────────────────────────────────────
 
   describe('ngOnInit', () => {
+    it('consumes the pending prefill once without starting a Council run', async () => {
+      const prefill = TestBed.inject(CouncilPrefillService);
+      prefill.set('A question and answer to assess');
+      mockStore.availableProviders.set(['claude']);
+      await component.ngOnInit();
+      expect(component.prompt()).toBe('A question and answer to assess');
+      expect(prefill.take()).toBeNull();
+      expect(mockStore.start).not.toHaveBeenCalled();
+
+      const nextPage = TestBed.createComponent(AskCouncilPageComponent).componentInstance;
+      await nextPage.ngOnInit();
+      expect(nextPage.prompt()).toBe('');
+      expect(mockStore.start).not.toHaveBeenCalled();
+    });
+
+    it('allows editing a prefill and sends the edited text only after the explicit run action', async () => {
+      TestBed.inject(CouncilPrefillService).set('Original reply');
+      mockStore.availableProviders.set(['claude']);
+      await component.ngOnInit();
+      component.onPromptInput({ target: { value: 'Edited review question' } } as unknown as Event);
+      expect(mockStore.start).not.toHaveBeenCalled();
+      await component.runCouncil();
+      expect(mockStore.start).toHaveBeenCalledExactlyOnceWith('Edited review question', ['claude']);
+    });
+
     it('initializes the store', async () => {
       await component.ngOnInit();
       expect(mockStore.initialize).toHaveBeenCalledOnce();

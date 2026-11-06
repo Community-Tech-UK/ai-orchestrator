@@ -104,14 +104,9 @@ import {
   removeInstanceComputerUseMode,
   setInstanceComputerUseMode,
 } from './lifecycle/computer-use-scoping';
-import {
-  removeInstanceHardened,
-  setInstanceHardened,
-} from './lifecycle/hardened-mode-scoping';
-import {
-  removeInstanceContainedExecution,
-  setInstanceContainedExecution,
-} from './lifecycle/contained-execution-scoping';
+import { removeInstanceHardened, setInstanceHardened } from './lifecycle/hardened-mode-scoping';
+import { configureInstanceTaskTools, removeInstanceTaskTools } from './lifecycle/task-tools-scoping';
+import { removeInstanceContainedExecution, setInstanceContainedExecution } from './lifecycle/contained-execution-scoping';
 import { removeInstanceSignalFence, setInstanceSignalFence } from './lifecycle/signal-fence-scoping';
 import { attemptInstanceFailover } from './instance-failover';
 import { classifyLoopError } from '../core/loop-error-classification';
@@ -830,6 +825,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     routing?: Pick<AttachAccountRouteOptions, 'moveOffLimitedAccount'>,
   ): Promise<CliAdapter> {
     const instance = options.instanceId ? this.deps.getInstance(options.instanceId) : undefined;
+    if (instance) configureInstanceTaskTools(instance, this.settings.getAll().claudeShowTaskList, executionLocation ?? instance.executionLocation, cliType);
     // Queue sessions never push: every start, respawn and resume passes through here (plan-queue-push-guard.ts).
     const queueSession = isQueueSession(instance, (id) => this.deps.getInstance(id));
     // A remote node cannot be read from here, so its session carries a flag and the node builds the guard.
@@ -1341,6 +1337,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       removeInstanceHardened(instance.id);
       removeInstanceSignalFence(instance.id);
       removeInstanceContainedExecution(instance.id);
+      removeInstanceTaskTools(instance.id);
       this.activityDetectors.delete(instance.id);
       this.lateEnricherPreambles.delete(instance.id);
       this.deps.clearFirstMessageTracking(instance.id);
@@ -1570,6 +1567,7 @@ export class InstanceLifecycleManager extends EventEmitter {
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CliType (cli-detection) vs CliType (settings) mismatch
         instance.provider = resolvedCliType as any;
+        configureInstanceTaskTools(instance, settingsAll.claudeShowTaskList, executionLocation, resolvedCliType);
         await initializeInstanceEvidenceOwnership(instance, settingsAll);
         // IPC seeds the current submission for immediate display. Publish that
         // same record before provider startup without adding it to the buffer

@@ -1,3 +1,4 @@
+import { ConfirmService } from '../../shared/confirm/confirm.service';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -358,7 +359,7 @@ describe('swapping away from a PROTECTED rule', () => {
         error: { message: 'That target is protected for Copilot account "enterprise".' },
       })
       .mockResolvedValueOnce({ success: true });
-    const confirmSpy = vi.spyOn(globalThis, 'confirm').mockReturnValue(true);
+    const confirmSpy = vi.spyOn(TestBed.inject(ConfirmService), 'confirm').mockResolvedValue(true);
 
     const fixture = await render('/work/ebrd');
     await fixture.componentInstance.mapTo(account('enterprise', 'Work'), new Event('click'));
@@ -376,7 +377,7 @@ describe('swapping away from a PROTECTED rule', () => {
       success: false,
       error: { message: 'That target is protected for Copilot account "enterprise".' },
     });
-    const confirmSpy = vi.spyOn(globalThis, 'confirm').mockReturnValue(false);
+    const confirmSpy = vi.spyOn(TestBed.inject(ConfirmService), 'confirm').mockResolvedValue(false);
 
     const fixture = await render('/work/ebrd');
     await fixture.componentInstance.mapTo(account('enterprise', 'Work'), new Event('click'));

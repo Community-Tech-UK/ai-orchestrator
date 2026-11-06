@@ -191,6 +191,64 @@ describe('buildFileMenuItems', () => {
 });
 
 describe('buildMessageContextMenuItems', () => {
+  it('keeps Council prefill and the session second opinion as independent actions', () => {
+    const askOtherModels = vi.fn();
+    const requestReview = vi.fn();
+    const item = {
+      id: 'item-answer', type: 'message', bufferIndex: 3,
+      message: { id: 'answer', type: 'assistant', content: 'An answer' },
+    } as DisplayItem;
+    const items = buildMessageContextMenuItems(item, {
+      copyMessage: vi.fn(), forkFromHere: vi.fn(), askOtherModels, requestReview,
+    });
+    expect(items.map(entry => entry.label)).toEqual([
+      'Copy message', 'Fork from here', 'Ask other models about this reply', 'Get a second opinion',
+    ]);
+    items[2].action();
+    expect(askOtherModels).toHaveBeenCalledOnce();
+    expect(requestReview).not.toHaveBeenCalled();
+    items[3].action();
+    expect(requestReview).toHaveBeenCalledOnce();
+    expect(askOtherModels).toHaveBeenCalledOnce();
+  });
+
+  it('offers Council after copy and fork for assistant replies and invokes the supplied action', () => {
+    const item = {
+      id: 'item-answer', type: 'message', bufferIndex: 3,
+      message: { id: 'answer', type: 'assistant', content: 'An answer' },
+    } as DisplayItem;
+    const askOtherModels = vi.fn();
+    const items = buildMessageContextMenuItems(item, {
+      copyMessage: vi.fn(), forkFromHere: vi.fn(), askOtherModels,
+    });
+    expect(items.map((entry) => entry.label)).toEqual([
+      'Copy message', 'Fork from here', 'Ask other models about this reply',
+    ]);
+    items[2].action();
+    expect(askOtherModels).toHaveBeenCalledOnce();
+  });
+
+  it('does not offer Council for user messages even with an action', () => {
+    const item = {
+      id: 'item-user', type: 'message', bufferIndex: 0,
+      message: { id: 'user', type: 'user', content: 'A question' },
+    } as DisplayItem;
+    const items = buildMessageContextMenuItems(item, {
+      copyMessage: vi.fn(), forkFromHere: vi.fn(), askOtherModels: vi.fn(),
+    });
+    expect(items.map((entry) => entry.label)).toEqual(['Copy message', 'Fork from here']);
+  });
+
+  it('offers Council for the answer in a thought group', () => {
+    const item = {
+      id: 'thought', type: 'thought-group', bufferIndex: 2,
+      response: { id: 'answer', type: 'assistant', content: 'An answer' },
+    } as DisplayItem;
+    expect(buildMessageContextMenuItems(item, {
+      copyMessage: vi.fn(), forkFromHere: vi.fn(), askOtherModels: vi.fn(),
+    }).at(-1)?.label).toBe('Ask other models about this reply');
+  });
+
   it('offers copy and fork for a user message with a buffer index', () => {
     const item = {
       id: 'item-1',

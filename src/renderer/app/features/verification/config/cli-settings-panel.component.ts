@@ -12,6 +12,7 @@ import { AppIconButtonDirective } from '../../../shared/tooltip/icon-button.dire
  * Based on Section 3.6 of the UI spec
  */
 
+import { ConfirmService } from '../../../shared/confirm/confirm.service';
 import {
   Component,
   signal,
@@ -53,6 +54,7 @@ interface CliSettingsEntry {
   styleUrl: './cli-settings-panel.component.scss',
 })
 export class CliSettingsPanelComponent implements OnInit {
+  private readonly confirmService = inject(ConfirmService);
   private store = inject(VerificationStore);
   private providerIpc = inject(ProviderIpcService);
   private unifiedCatalog = inject(UnifiedCatalogStore);
@@ -266,14 +268,14 @@ export class CliSettingsPanelComponent implements OnInit {
     return date.toLocaleDateString();
   }
 
-  clearAllData(): void {
-    if (confirm('Are you sure you want to clear all verification data? This cannot be undone.')) {
+  async clearAllData(): Promise<void> {
+    if (await this.confirmService.confirm({ message: 'Are you sure you want to clear all verification data? This cannot be undone.', confirmLabel: 'Clear verification data', danger: true })) {
       this.store.clearHistory();
     }
   }
 
-  resetToDefaults(): void {
-    if (confirm('Reset all settings to defaults? This cannot be undone.')) {
+  async resetToDefaults(): Promise<void> {
+    if (await this.confirmService.confirm({ message: 'Reset all settings to defaults? This cannot be undone.', confirmLabel: 'Reset settings', danger: true })) {
       // Reset settings
       this.parallelExecution = true;
       this.maxConcurrent = 4;

@@ -9,6 +9,7 @@ import {
 import { TodoStore } from '../../core/state/todo.store';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import { readStorage, writeStorage } from '../../shared/utils/typed-storage';
+import type { TodoItem } from '../../../../shared/types/todo.types';
 import type { ArtifactEntry } from '../chats/session-artifacts.util';
 
 const todoStoreStub = {
@@ -84,6 +85,19 @@ describe('SessionProgressPanelComponent', () => {
     }).compileComponents();
   });
 
+  it('shows the running sixth task, opens every task, and can fold again', () => {
+    const tasks = Array.from({ length: 7 }, (_, i) => ({ id: String(i), content: `Task ${i + 1}`, status: i === 5 ? 'in_progress' : i < 5 ? 'completed' : 'pending' } as TodoItem));
+    TestBed.overrideProvider(TodoStore, { useValue: { ...todoStoreStub, todos: () => tasks } });
+    createPanel();
+    expect(fixture.nativeElement.textContent).toContain('Task 6');
+    expect(fixture.nativeElement.querySelectorAll('.task-row')).toHaveLength(5);
+    const more = fixture.nativeElement.querySelector('button.more-row') as HTMLButtonElement;
+    expect(more?.textContent).toContain('2 earlier'); more.click(); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.task-row')).toHaveLength(7);
+    const fewer = fixture.nativeElement.querySelector('button.more-row') as HTMLButtonElement;
+    expect(fewer.textContent).toContain('Show fewer'); fewer.click(); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.task-row')).toHaveLength(5);
+  });
   it('renders the expanded panel by default', () => {
     createPanel();
     expect(fixture.nativeElement.querySelector('.progress-panel')).toBeTruthy();

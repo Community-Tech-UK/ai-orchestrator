@@ -86,7 +86,7 @@
                       </div>
                     }
                     <div class="message-content">
-                      <div class="markdown-content" [innerHTML]="item.renderedResponse"></div>
+                      <div class="markdown-content" [class.md-row-picking-enabled]="!areTablePicksDisabled(item.response)" [class.md-row-picking-disabled]="areTablePicksDisabled(item.response)" [innerHTML]="item.renderedResponse"></div>
                       @if (item.response.attachments && item.response.attachments.length > 0) {
                         <app-message-attachments [attachments]="item.response.attachments" />
                       }
@@ -294,6 +294,8 @@
                   } @else {
                     <div
                       class="markdown-content"
+                      [class.md-row-picking-enabled]="!areTablePicksDisabled(item.message)"
+                      [class.md-row-picking-disabled]="areTablePicksDisabled(item.message)"
                       [class.user-message-collapsed]="item.message.type === 'user' && shouldShowUserMessageToggle(item.message) && !isUserMessageExpanded(item.message.id)"
                       [class.progress-note-collapsed]="isProgressNote(item.message) && !isProgressNoteExpanded(item.message.id)"
                       [innerHTML]="item.renderedMessage"></div>

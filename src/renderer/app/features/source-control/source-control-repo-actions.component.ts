@@ -17,6 +17,7 @@
  * testable in isolation.
  */
 
+import { ConfirmService } from '../../shared/confirm/confirm.service';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -471,6 +472,7 @@ import { modKeyLabel } from '../../core/keybindings/shortcut-display';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SourceControlRepoActionsComponent {
+  private readonly confirmService = inject(ConfirmService);
   private readonly modifier = modKeyLabel(/Mac|iPhone|iPad|iPod/.test(navigator.platform));
   protected readonly commitHint = this.modifier === '⌘' ? copyFor('sourceControl.commitMac') : copyFor('sourceControl.commitOther');
   protected readonly commitPlaceholder = `Commit message — ${this.modifier}+Enter to commit`;
@@ -634,10 +636,8 @@ export class SourceControlRepoActionsComponent {
     if (outcome.success) return;
 
     if (outcome.dirty) {
-      const confirmed = window.confirm(
-        `Switching to "${name}" would overwrite uncommitted changes.\n\n` +
-        `Continue and DISCARD your local changes? This cannot be undone.`,
-      );
+      const confirmed = await this.confirmService.confirm({ message: `Switching to "${name}" would overwrite uncommitted changes.\n\n` +
+        `Continue and DISCARD your local changes? This cannot be undone.`, confirmLabel: 'Discard and switch branch', danger: true });
       if (!confirmed) return;
       await this.store.checkoutBranch(repoPath, name, { force: true });
     } else if (outcome.error) {

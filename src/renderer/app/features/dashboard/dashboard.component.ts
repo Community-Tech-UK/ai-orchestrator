@@ -53,7 +53,6 @@ import { SidebarNavComponent } from './sidebar-nav.component';
 import { SidebarFooterComponent } from './sidebar-footer.component';
 import { WorkspaceRailComponent } from './workspace-rail.component';
 import { BrowserPreviewNoticeComponent } from './browser-preview-notice.component';
-import { SessionProgressPanelComponent } from '../instance-detail/session-progress-panel.component';
 import { DEFAULT_KEYBINDING_ELIGIBILITY_STATE } from '../../../../shared/types/keybinding.types';
 import {
   resolveDashboardProjectContext,
@@ -64,6 +63,7 @@ import { TerminateConfirmStore } from '../../shared/terminate-confirm/terminate-
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { SessionRecoveryBannerComponent } from '../../shared/components/session-recovery-banner/session-recovery-banner.component';
 import { PlanQueueQuestionsBannerComponent } from '../plan-queue/components/plan-queue-questions-banner.component';
+import { FeatureUsageService } from '../../shared/tips/feature-usage.service';
 @Component({
   selector: 'app-dashboard',
   standalone: true,
@@ -87,13 +87,14 @@ import { PlanQueueQuestionsBannerComponent } from '../plan-queue/components/plan
     SidebarNavComponent,
     SidebarFooterComponent,
     BrowserPreviewNoticeComponent, SessionRecoveryBannerComponent, PlanQueueQuestionsBannerComponent,
-    SessionProgressPanelComponent, AioTooltipDirective,
+    AioTooltipDirective,
   ],
   templateUrl: './dashboard.component.html',
   styleUrl: './dashboard.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class DashboardComponent implements OnInit, OnDestroy {
+  private readonly featureUsage = inject(FeatureUsageService);
   private router = inject(Router);
   store = inject(InstanceStore);
   private terminateConfirm = inject(TerminateConfirmStore);
@@ -164,14 +165,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
     return this.newSessionDraft.nodeId();
   });
-
-  // Selected instance for the floating session-progress HUD. Rendered at
-  // dashboard level (anchored to .main-content) so it docks against the
-  // workspace scrollbar instead of floating over the centred chat column.
-  // Null while a chat is selected so the HUD doesn't overlap chat-detail.
-  progressPanelInstance = computed(() =>
-    this.chatStore.selectedChatId() ? null : this.store.selectedInstance()
-  );
 
   isBenchmarkMode = computed(() => {
     if (typeof window === 'undefined') {
@@ -544,10 +537,10 @@ export class DashboardComponent implements OnInit, OnDestroy {
    * draft in that project; otherwise use the dedicated scratch directory for a
    * general chat.
    */
-  async createGeneralChat(): Promise<void> {
+  async createGeneralChat(forceScratch = false): Promise<void> {
     await this.scratchDirectory.init();
     const context = this.getCurrentProjectContext();
-    if (context) {
+    if (context && !forceScratch) {
       this.openNewSessionDraft(context.workingDirectory, context.nodeId);
       return;
     }
@@ -643,6 +636,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   toggleSideChat(): void {
     this.sideChatPreferredChatId.set(null);
     this.showSideChat.update((open) => !open);
+    if (this.showSideChat()) this.featureUsage.record('toggle-side-chat');
     this.viewLayoutService.setActivePreset(null);
   }
 

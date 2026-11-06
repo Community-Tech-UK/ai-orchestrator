@@ -3,6 +3,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LoopStore } from '../../core/state/loop.store';
 import { InstanceIpcService } from '../../core/services/ipc/instance-ipc.service';
+import { UndoService } from '../../core/services/undo.service';
 import { WorkboardCardComponent } from './workboard-card.component';
 import { WorkboardStore } from './workboard.store';
 import type { WorkboardItem, WorkboardPendingActionRequest } from './workboard.types';
@@ -53,8 +54,10 @@ describe('WorkboardCardComponent', () => {
   let snoozedIds: ReturnType<typeof signal<ReadonlySet<string>>>;
   let snoozeItem: ReturnType<typeof vi.fn>;
   let unsnoozeItem: ReturnType<typeof vi.fn>;
+  const undo = { register: vi.fn() };
 
   beforeEach(async () => {
+    undo.register.mockReset();
     listUserActionRequestsForInstance = vi.fn(async () => ({ success: true, data: [] }));
     respondToUserAction = vi.fn(async () => ({ success: true }));
     resume = vi.fn(async () => undefined);
@@ -73,6 +76,7 @@ describe('WorkboardCardComponent', () => {
     await TestBed.configureTestingModule({
       imports: [WorkboardCardComponent],
       providers: [
+        { provide: UndoService, useValue: undo },
         { provide: InstanceIpcService, useValue: { listUserActionRequestsForInstance, respondToUserAction } },
         { provide: LoopStore, useValue: { resume } },
         { provide: WorkboardStore, useValue: { isSnoozed, snoozeItem, unsnoozeItem } },
@@ -215,13 +219,21 @@ describe('WorkboardCardComponent', () => {
     expect(snooze.getAttribute('aria-pressed')).toBe('false');
     snooze.click();
     expect(snoozeItem).toHaveBeenCalledWith(item().id);
+    expect(undo.register).toHaveBeenCalledWith(expect.objectContaining({ kind: 'snooze-card' }));
+    expect(undo.register.mock.calls[0][0].undo()).toBe(true);
+    expect(unsnoozeItem).toHaveBeenCalledWith(item().id);
+    snooze.click();
 
     // The click above already flipped the underlying signal via `snoozeItem`;
     // re-render and confirm the card picks it up.
     fixture.detectChanges();
     expect(snooze.getAttribute('aria-pressed')).toBe('true');
+    unsnoozeItem.mockClear();
     snooze.click();
-    expect(unsnoozeItem).toHaveBeenCalledWith(item().id);
+    expect(unsnoozeItem).toHaveBeenCalledExactlyOnceWith(item().id);
+    expect(snoozedIds().has(item().id)).toBe(false);
+    fixture.detectChanges();
+    expect(snooze.getAttribute('aria-pressed')).toBe('false');
   });
 
   it('clicking an action button does not also activate the card (no bubbling select)', async () => {

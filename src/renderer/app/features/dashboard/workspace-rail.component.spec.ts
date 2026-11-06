@@ -1,5 +1,6 @@
 import { By } from '@angular/platform-browser';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import { ɵresolveComponentResources as resolveComponentResources, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { RouterTestingModule } from '@angular/router/testing';
@@ -15,6 +16,7 @@ import { TerminalDrawerStore } from '../../core/state/terminal-drawer.store';
 import type { SideChatAttention } from '../../../../shared/types/side-chat.types';
 import { KeybindingService } from '../../core/services/keybinding.service';
 import { WorkspaceRailComponent } from './workspace-rail.component';
+import { ActionDispatchService } from '../../core/services/action-dispatch.service';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
 const styles = readFileSync(resolve(specDirectory, './workspace-rail.component.scss'), 'utf8');
@@ -35,6 +37,7 @@ describe('WorkspaceRailComponent', () => {
   const markAllSeen = vi.fn().mockResolvedValue(undefined);
   const sideChatAttention = signal<SideChatAttention[]>([]);
   const requestOpen = vi.fn();
+  const dispatch = vi.fn();
   const connectedNodes = signal<unknown[]>([]);
 
   beforeEach(async () => {
@@ -46,6 +49,7 @@ describe('WorkspaceRailComponent', () => {
     await TestBed.configureTestingModule({
       imports: [WorkspaceRailComponent, RouterTestingModule.withRoutes([])],
       providers: [
+        { provide: ActionDispatchService, useValue: { dispatch } },
         {
           provide: AutomationStore,
           useValue: {
@@ -82,14 +86,21 @@ describe('WorkspaceRailComponent', () => {
     return document.body.querySelector('.context-menu');
   }
 
+  it('opens the session finder from Search', () => {
+    const search = fixture.nativeElement.querySelector('[aria-label="Search"]') as HTMLElement;
+    search.click();
+    expect(dispatch).toHaveBeenCalledWith('open-session-picker');
+    expect(search.tagName).toBe('BUTTON');
+  });
+
   it('keeps every control named with a real tooltip and retains distinct old names', () => {
     expect(fixture.nativeElement.querySelectorAll('[title]')).toHaveLength(0);
     for (const host of fixture.debugElement.queryAll(By.css('a, button.rail-btn'))) {
       expect(host.nativeElement.getAttribute('aria-label')).toBeTruthy();
       expect(host.injector.get(AioTooltipDirective)).toBeTruthy();
     }
-    const search = fixture.debugElement.query(By.css('a[aria-label="Search"]'));
-    expect(search.injector.get(AioTooltipDirective).appTooltip()).toBe('Search projects, sessions, and messages');
+    const search = fixture.debugElement.query(By.css('button[aria-label="Search"]'));
+    expect(search.injector.get(AioTooltipDirective).appTooltip()).toBe(copyFor('findSession'));
   });
   it('shows live rebound shortcut chips and keeps expanded panel hints on keyboard focus', () => {
     const keybindings = TestBed.inject(KeybindingService);

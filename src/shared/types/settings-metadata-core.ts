@@ -318,6 +318,20 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
     category: 'display',
   },
   {
+    key: 'showWorkingTips',
+    label: 'Show a tip while a session is working',
+    description: 'After 30 seconds of waiting, Harness may show one short tip about a feature you have not used. At most two per launch. A tip stops once you have used its feature.',
+    type: 'boolean',
+    category: 'display',
+  },
+  {
+    key: 'claudeShowTaskList',
+    label: "Show Claude's task list in chats",
+    description: "Adds Claude's task tool to sessions you start yourself so the task list can appear. Costs a small amount on every message. Applies to new and restarted sessions. Plan-queue workers, scheduled jobs and loops that start their own session never get it. A loop that runs inside one of these chats shares the chat's Claude session, so it has the task list too.",
+    type: 'boolean',
+    category: 'display',
+  },
+  {
     key: 'maxRecentDirectories',
     label: 'Recent folders to remember',
     description: 'How many recently opened folders to keep in your workspace history.',

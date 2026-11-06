@@ -89,6 +89,8 @@ export const SETTING_SURFACING = {
   showToolMessages: 'tab',
   showThinking: 'tab',
   thinkingDefaultExpanded: 'tab',
+  showWorkingTips: 'tab',
+  claudeShowTaskList: 'tab',
   showCost: 'tab',
   maxRecentDirectories: 'tab',
   // Edited by the "Import shortcuts" textarea on the Keyboard tab

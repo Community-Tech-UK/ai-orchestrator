@@ -12,6 +12,7 @@
  * See `docs/plans/2026-05-12-source-control-phase-2-plan.md` Phase 2a.
  */
 
+import { ConfirmService } from '../../shared/confirm/confirm.service';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -55,6 +56,7 @@ import type {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SourceControlComponent {
+  private readonly confirmService = inject(ConfirmService);
   private readonly modifier = modKeyLabel(/Mac|iPhone|iPad|iPod/.test(navigator.platform));
   protected store = inject(SourceControlStore);
   private viewLayoutService = inject(ViewLayoutService);
@@ -393,18 +395,18 @@ export class SourceControlComponent {
   // Untracked entries: disclose recoverable removal before sending to Trash.
   // -------------------------------------------------------------------------
 
-  onDiscardFile(repo: RepoState, filePath: string): void {
-    const ok = window.confirm(
-      `Discard changes to ${filePath}?\n\nThis reverts the file to HEAD and cannot be undone.`,
-    );
+  async onDiscardFile(repo: RepoState, filePath: string): Promise<void> {
+    const ok = await this.confirmService.confirm({ message: `Discard changes to ${filePath}?\n\nThis reverts the file to HEAD and cannot be undone.`, confirmLabel: 'Discard changes', danger: true });
     if (!ok) return;
     void this.store.discardFiles(repo.absolutePath, [filePath]);
   }
 
-  onDiscardUntracked(repo: RepoState, filePath: string): void {
-    const ok = window.confirm(
-      `Move to Trash (recoverable)\n\nMove "${filePath}" to the Trash?\n\nYou can recover it from your Trash if you change your mind.`,
-    );
+  async onDiscardUntracked(repo: RepoState, filePath: string): Promise<void> {
+    const ok = await this.confirmService.confirm({
+      message: `Move to Trash (recoverable)\n\nMove "${filePath}" to the Trash?\n\nYou can recover it from your Trash if you change your mind.`,
+      confirmLabel: 'Move to Trash',
+      danger: false,
+    });
     if (!ok) return;
     void this.store.discardFiles(repo.absolutePath, [filePath]);
   }

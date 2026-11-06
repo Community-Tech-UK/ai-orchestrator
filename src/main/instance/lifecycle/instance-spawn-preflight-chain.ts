@@ -16,6 +16,7 @@ import { attachCopilotRoute } from './copilot-route-preflight';
 import { attachAccountRoute } from './account-route-preflight';
 import { isAccountPoolActive } from '../../providers/account-pool/provider-account-store';
 import { attachUsageOverageStopGuard } from '../instance-usage-overage-wiring';
+import { isInstanceTaskTools } from './task-tools-scoping';
 import { isSignalFenceSettingEnabled } from '../../sandbox/signal-fence-setting';
 
 export interface InstanceSpawnPreflightDeps {
@@ -103,6 +104,7 @@ export class InstanceSpawnPreflightChain {
       || permissionHookRequired
       || copilotRouteRequired
       || accountRouteRequired
+      || isInstanceTaskTools(spawnOptions.instanceId)
       || instance.bareMode === true,
     );
 

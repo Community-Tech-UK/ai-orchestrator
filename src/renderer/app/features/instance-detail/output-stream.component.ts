@@ -21,10 +21,11 @@ import {
 } from '@angular/core';
 import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import { OutputMessage } from '../../core/state/instance.store';
+import type { InstanceStatus } from '../../core/state/instance/instance.types';
 import type { FailedImageRef, FileAttachment } from '../../../../shared/types/instance.types';
 import type { UserPromptRef } from '../../../../shared/types/prompt-index.types';
 import { MarkdownService } from '../../core/services/markdown.service';
-import { IpcFacadeService, InstanceIpcService } from '../../core/services/ipc';
+import { InstanceIpcService } from '../../core/services/ipc';
 import { InstanceOutputStore } from '../../core/state/instance/instance-output.store';
 import { PerfInstrumentationService } from '../../core/services/perf-instrumentation.service';
 import { MessageAttachmentsComponent } from '../../shared/components/message-attachments/message-attachments.component';
@@ -35,6 +36,9 @@ import { ToolGroupComponent } from '../../shared/components/tool-group/tool-grou
 import { DisplayItemProcessor, DisplayItem } from './display-item-processor.service';
 import { ExpansionStateService } from './expansion-state.service';
 import { PlanUpdateCardComponent } from './plan-update-card.component';
+import { ReplyMenuActions } from './reply-menu-actions';
+import { buildReplyQuestionContext } from './reply-question-context';
+import { handleTablePickClick, tablePicksDisabled } from './table-pick';
 import { ContextMenuComponent, ContextMenuItem } from '../../shared/components/context-menu/context-menu.component';
 import {
   buildFileMenuItems,
@@ -52,7 +56,6 @@ import { SettingsStore } from '../../core/state/settings.store';
 import { MessageFormatService } from './message-format.service';
 import { OutputScrollService } from './output-scroll.service';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
-import { CrossModelReviewIpcService } from '../../core/services/ipc/cross-model-review-ipc.service';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import type { LinkKind } from '../../../../shared/utils/link-detection';
 import { shouldCollapseUserMessage, toggleExpandedId } from './output-stream-message-collapse';
@@ -118,7 +121,11 @@ import {
 })
 export class OutputStreamComponent {
   messages = input.required<OutputMessage[]>();
+  appendToComposer = output<string>();
+  /** True only in hosts that bind (appendToComposer) to a real composer merge; row picks stay hidden elsewhere. */
+  tablePicksToComposer = input(false);
   instanceId = input.required<string>();
+  sessionStatus = input<InstanceStatus | undefined>();
   provider = input<string>('claude');
   showThinking = input<boolean>(true);
   thinkingDefaultExpanded = input<boolean>(false);
@@ -237,7 +244,6 @@ export class OutputStreamComponent {
   );
 
   private markdownService = inject(MarkdownService);
-  private ipc = inject(IpcFacadeService);
   private instanceIpc = inject(InstanceIpcService);
   private outputStore = inject(InstanceOutputStore);
   private instanceStore = inject(InstanceStore);
@@ -248,7 +254,7 @@ export class OutputStreamComponent {
   private scrollService = inject(OutputScrollService);
   private clipboard = inject(CLIPBOARD_SERVICE);
   private fileIpc = inject(FileIpcService);
-  private reviewIpc = inject(CrossModelReviewIpcService);
+  private replyActions = inject(ReplyMenuActions);
   private displayItemProcessor = new DisplayItemProcessor();
 
   /**
@@ -865,6 +871,8 @@ export class OutputStreamComponent {
         return;
       }
 
+      if (handleTablePickClick(mouseEvent, (text) => this.appendToComposer.emit(text))) return;
+
       const followupButton = target.closest<HTMLButtonElement>('button[data-followup-prompt]');
       if (followupButton) {
         mouseEvent.preventDefault();
@@ -1105,6 +1113,10 @@ export class OutputStreamComponent {
     return this.progressNoteDisplay() === 'compact' && isProgressNoteMessage(message);
   }
 
+  protected areTablePicksDisabled(message: OutputMessage): boolean {
+    return tablePicksDisabled(message, this.tablePicksToComposer(), this.sessionStatus() ?? this.instanceStore.getInstance(this.instanceId())?.status);
+  }
+
   protected isProgressNoteExpanded(messageId: string): boolean {
     return this.expandedProgressNoteIds().has(messageId);
   }
@@ -1179,28 +1191,19 @@ export class OutputStreamComponent {
         );
         this.closeContextMenu();
       },
-      forkFromHere: () => this.forkFromMessage(item),
+      forkFromHere: () => {
+        this.closeContextMenu();
+        void this.replyActions.forkFromMessage(this.instanceId(), item.bufferIndex);
+      },
+      askOtherModels: () => {
+        this.closeContextMenu();
+        this.replyActions.openAskCouncil(buildReplyQuestionContext(this.messages(), item, this.olderMessagesHiddenCount()));
+      },
       requestReview: () => {
         this.closeContextMenu();
-        void this.reviewIpc.requestReview(this.instanceId());
+        this.replyActions.requestReview(this.instanceId());
       },
     });
-  }
-
-  private async forkFromMessage(item: DisplayItem): Promise<void> {
-    const instanceId = this.instanceId();
-    const bufferIndex = item.bufferIndex;
-    if (!instanceId || bufferIndex === undefined) return;
-    this.closeContextMenu();
-
-    const result = await this.ipc.forkSession(instanceId, bufferIndex + 1, `Fork at message ${bufferIndex + 1}`);
-
-    if (result?.success && result.data) {
-      const data = result.data as { id?: string };
-      if (data.id) {
-        this.instanceStore.setSelectedInstance(data.id);
-      }
-    }
   }
 
   private buildLinkedFileTarget(rawPath: string): LinkedFileTarget {

@@ -13,6 +13,7 @@
  * resolver's precedence ladder, which is our problem, not theirs.
  */
 
+import { ConfirmService } from '../../shared/confirm/confirm.service';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -173,6 +174,7 @@ const SIGN_IN_POLL_TIMEOUT_MS = 180_000;
   `],
 })
 export class CopilotProjectRoutingMenuComponent {
+  private readonly confirmService = inject(ConfirmService);
   private readonly ipc = inject(CopilotAccountIpcService);
 
   /** Absolute path of the project this menu belongs to. */
@@ -375,9 +377,7 @@ export class CopilotProjectRoutingMenuComponent {
         // A protected rule exists to stop work inside an employer's scope
         // silently falling to another seat, so moving it is a decision, not a
         // click. Ask once, then honour the answer.
-        const confirmed = globalThis.confirm(
-          `${account.label} — this project is protected for another Copilot account. Move it anyway?`,
-        );
+        const confirmed = await this.confirmService.confirm({ message: `${account.label} — this project is protected for another Copilot account. Move it anyway?`, confirmLabel: 'Move protected rule', danger: true });
         if (!confirmed) return;
         const retry = remote
           ? await this.ipc.createRule({

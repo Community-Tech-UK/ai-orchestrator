@@ -1,5 +1,5 @@
 import { getSecretAuditLog } from './secret-redaction';
-import { detectSecretsInContent, type DetectedSecret } from './secret-detector';
+import { collapseOverlappingSecrets, detectSecretsInContent, type DetectedSecret } from './secret-detector';
 
 export type EgressContentKind = 'diff' | 'prompt' | 'webhook' | 'memory' | 'channel';
 
@@ -83,26 +83,4 @@ function lineNumberAt(content: string, index: number): number {
     if (content[offset] === '\n') line += 1;
   }
   return line;
-}
-
-/**
- * The detector deliberately has overlapping signatures (for example the PEM
- * prefix rule and the complete PEM block rule). Apply one replacement per
- * unioned range so an inner match cannot splice original secret bytes back
- * into the result after the outer match has been replaced.
- */
-function collapseOverlappingSecrets(secrets: readonly DetectedSecret[]): DetectedSecret[] {
-  const sorted = [...secrets].sort((a, b) =>
-    a.startIndex - b.startIndex || b.endIndex - a.endIndex,
-  );
-  const collapsed: DetectedSecret[] = [];
-  for (const secret of sorted) {
-    const previous = collapsed.at(-1);
-    if (!previous || secret.startIndex > previous.endIndex) {
-      collapsed.push({ ...secret });
-      continue;
-    }
-    previous.endIndex = Math.max(previous.endIndex, secret.endIndex);
-  }
-  return collapsed;
 }

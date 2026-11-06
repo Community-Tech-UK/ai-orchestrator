@@ -443,36 +443,8 @@
       </div>
 
       <div class="input-hints">
-        @if (showGhostText()) {
-          <span class="hint hint-ghost">Tab or → to accept suggestion</span>
-        } @else if (loopStarting()) {
-          <span class="hint hint-loop">Starting loop...</span>
-        } @else if (loopArmed()) {
-          <span class="hint hint-loop">Enter to start loop, Shift+Enter for new line</span>
-        } @else if (isInitializing()) {
-          <span class="hint">Enter to queue, Shift+Enter for new line</span>
-        } @else if (isRespawning()) {
-          <span class="hint">Enter to send after interrupt, Shift+Enter for new line</span>
-        } @else if (isCompacting() && queuedCount() > 0) {
-          <span class="hint hint-starting">Codex is compacting… your message will send afterwards</span>
-        } @else if (isSteeringTarget()) {
-          <span class="hint">Enter to queue, Shift+Enter for new line</span>
-        } @else {
-          <span class="hint hint-idle">Press Enter to send, Shift+Enter for new line</span>
-        }
-        @if (isInitializing()) {
-          <span class="hint hint-starting">Starting up...</span>
-        } @else if (isRespawning()) {
-          <span class="hint hint-respawning">Recovering session...</span>
-        } @else if (isCompacting()) {
-          <span class="hint hint-starting">Waiting for provider compaction to finish</span>
-        } @else if (isBusy()) {
-          <span class="hint hint-interrupt">Esc interrupts without sending</span>
-        } @else if (isReplayFallback()) {
-          <span class="hint hint-recovery">Condensed context will attach on send</span>
-        } @else {
-          <span class="hint hint-idle">Type / for commands, Cmd+K for palette</span>
-        }
+        <span class="hint">{{ composerHint() }}</span>
+        <!-- Quota notices mount here, after the single hint line. -->
       </div>
 
       <div class="composer-actions-right">

@@ -23,6 +23,8 @@ import {
   fallbackNotificationGroupCostLabel,
   groupLocalAiFallbackNotifications,
 } from './local-ai-fallback-notification-groups';
+import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
+import { formatMoneyExact, formatMoneyPlain } from '../../shared/utils/format-money';
 
 const SLOT_LABELS: Record<AuxiliaryLlmSlot, string> = {
   compression: 'Compression',
@@ -68,6 +70,13 @@ const SLOT_LABELS: Record<AuxiliaryLlmSlot, string> = {
               <span aria-hidden="true">·</span>
               {{ costEstimate(request) }}
             </span>
+            @if (request.estimatedCostUsd !== undefined) {
+              <details>
+                <summary>Details</summary>
+                <span>Estimated cost: {{ exactMoney(request.estimatedCostUsd) }}</span>
+                <button type="button" class="fallback-action" aria-label="Copy estimated fallback cost" [disabled]="isResolving()" (click)="clipboard.copyText(exactMoney(request.estimatedCostUsd), { label: 'estimated fallback cost' })">Copy</button>
+              </details>
+            }
             @if (store.error()) {
               <span class="fallback-error">{{ safeError() }}</span>
             }
@@ -146,6 +155,11 @@ const SLOT_LABELS: Record<AuxiliaryLlmSlot, string> = {
                 <span aria-hidden="true">·</span>
                 {{ notificationGroupCostLabel(group.events) }}
               </span>
+              <details>
+                <summary>Details</summary>
+                <span>{{ notificationGroupCostLabel(group.events, exactMoney) }}</span>
+                <button type="button" class="fallback-action" aria-label="Copy fallback cost" (click)="clipboard.copyText(notificationGroupCostLabel(group.events, exactMoney), { label: 'fallback cost' })">Copy</button>
+              </details>
             </div>
             <button
               type="button"
@@ -217,6 +231,8 @@ const SLOT_LABELS: Record<AuxiliaryLlmSlot, string> = {
     .fallback-error {
       color: var(--error-color);
     }
+    summary { cursor: pointer; color: var(--text-secondary); }
+    summary:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
 
     .fallback-actions {
       display: flex;
@@ -363,6 +379,8 @@ const SLOT_LABELS: Record<AuxiliaryLlmSlot, string> = {
 })
 export class LocalAiFallbackBannerComponent {
   protected readonly store = inject(LocalAiGuardStore);
+  protected readonly clipboard = inject(CLIPBOARD_SERVICE);
+  protected readonly exactMoney = formatMoneyExact;
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
   private readonly _announcement = signal('');
@@ -432,7 +450,7 @@ export class LocalAiFallbackBannerComponent {
   protected costEstimate(request: LocalAiFallbackRequest): string {
     return request.estimatedCostUsd === undefined
       ? 'Cost unknown'
-      : `$${request.estimatedCostUsd.toFixed(4)} estimated`;
+      : `${formatMoneyPlain(request.estimatedCostUsd)} estimated`;
   }
 
   protected safeError(): string {

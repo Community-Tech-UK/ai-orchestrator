@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { isOrchestratorRuntimeInjectionProvider } from '../../shared/types/mcp-scopes.types';
 import { ORCHESTRATOR_TOOL_DEFERRAL_ENV } from './orchestrator-mcp-deferral';
 import { ORCHESTRATOR_TOOL_STABLE_ENV } from './orchestrator-mcp-stable-tools';
 import { INTER_SESSION_MESSAGING_ENABLED_ENV } from './orchestrator-session-messaging-tools';
@@ -109,4 +110,42 @@ export function buildOrchestratorToolsMcpConfig(
       orchestrator: bridge,
     },
   });
+}
+
+/**
+ * Lookups injected by the caller instead of imported here, so this module stays
+ * clear of the large RPC server module (same pattern as the `exists` option).
+ */
+export interface OrchestratorToolsBridgeLookups {
+  resolveAioMcpCliPath: () => string | null | undefined;
+  getSocketPath: () => string | null | undefined;
+  exists?: (candidatePath: string) => boolean;
+}
+
+/**
+ * True when a session on this provider would really get the orchestrator-tools
+ * bridge at spawn: the provider takes the runtime injection, the `aio-mcp`
+ * binary resolves to an existing path, and the parent RPC socket exists.
+ *
+ * Deliberately does not mint a capability token (side-effect unproven), and
+ * does not cover remote placement — the caller also requires a local
+ * `executionLocation`. Any doubt answers false, so a continuity package never
+ * names `read_session` to a model that cannot call it (Phase 5, A11 part 1b).
+ */
+export function isOrchestratorToolsBridgeAvailable(
+  provider: string | undefined,
+  lookups: OrchestratorToolsBridgeLookups,
+): boolean {
+  if (!isOrchestratorRuntimeInjectionProvider(provider)) {
+    return false;
+  }
+  const binary = lookups.resolveAioMcpCliPath();
+  if (!binary) {
+    return false;
+  }
+  const exists = lookups.exists ?? existsSync;
+  if (!exists(binary)) {
+    return false;
+  }
+  return Boolean(lookups.getSocketPath());
 }

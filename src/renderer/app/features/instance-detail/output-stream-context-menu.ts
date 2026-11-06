@@ -126,7 +126,12 @@ export function visibleFailedImages(failures: readonly FailedImageRef[]): Failed
 
 export function buildMessageContextMenuItems(
   item: DisplayItem,
-  actions: { copyMessage: () => void; forkFromHere: () => void; requestReview?: () => void },
+  actions: {
+    copyMessage: () => void;
+    forkFromHere: () => void;
+    askOtherModels?: () => void;
+    requestReview?: () => void;
+  },
 ): ContextMenuItem[] {
   const items: ContextMenuItem[] = [];
   const content = item.message?.content || item.response?.content;
@@ -150,6 +155,13 @@ export function buildMessageContextMenuItems(
       label: 'Fork from here',
       divider: true,
       action: actions.forkFromHere,
+    });
+  }
+  if (forkableMessage?.type === 'assistant' && actions.askOtherModels) {
+    items.push({
+      id: 'ask-other-models',
+      label: 'Ask other models about this reply',
+      action: actions.askOtherModels,
     });
   }
   if (forkableMessage?.type === 'assistant' && content && actions.requestReview) {

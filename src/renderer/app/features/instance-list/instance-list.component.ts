@@ -43,8 +43,10 @@ import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 import { ProjectRailBuilderService } from './project-rail-builder.service';
 import { ProjectRailPathService } from './project-rail-path.service';
 import { CrossSessionMessagingStore } from '../../core/state/instance/cross-session-messaging.store';
+import { UndoService } from '../../core/services/undo.service';
+import { archiveWithUndo, removeProjectWithUndo } from './instance-list-undo';
 import { ToastService } from '../../core/services/toast.service';
-import { getAllProjectHistoryItems, getOrderedRootIds } from './project-rail-tree.utils';
+import { getOrderedRootIds } from './project-rail-tree.utils';
 import {
   getInstanceThreadId,
   type HierarchicalHistoryItem,
@@ -106,13 +108,13 @@ export class InstanceListComponent implements OnDestroy {
   private clipboard = inject(CLIPBOARD_SERVICE);
   private crossSessionMessaging = inject(CrossSessionMessagingStore);
   private toast = inject(ToastService);
+  private undo = inject(UndoService);
 
   filterInput = signal(loadFilterText());
   filterText = signal(loadFilterText());
   statusFilter = signal<string>(loadStatusFilter());
   locationFilter = signal<'all' | 'local' | 'remote'>(loadLocationFilter());
   filtersOpen = signal(false);
-  pendingArchiveId = signal<string | null>(null);
   collapsedIds = signal<Set<string>>(new Set());
   collapsedHistoryParentIds = signal<Set<string>>(new Set());
   collapsedProjectKeys = signal<Set<string>>(new Set());
@@ -445,7 +447,6 @@ export class InstanceListComponent implements OnDestroy {
     displayTitle: string;
   }): Promise<void> {
     this.closeProjectMenu({ restoreFocus: false });
-    this.pendingArchiveId.set(null);
     this.store.setSelectedInstance(payload.instance.id);
     await this.ensurePreferredEditorLoaded();
     this.showContextMenu(payload.event, this.buildLiveInstanceContextMenuItems(
@@ -458,7 +459,6 @@ export class InstanceListComponent implements OnDestroy {
     event.preventDefault();
     event.stopPropagation();
     this.closeProjectMenu({ restoreFocus: false });
-    this.pendingArchiveId.set(null);
     await this.ensurePreferredEditorLoaded();
     this.showContextMenu(event, this.buildHistoryContextMenuItems(entry));
   }
@@ -686,7 +686,7 @@ export class InstanceListComponent implements OnDestroy {
       label: 'Archive thread',
       divider: true,
       danger: true,
-      action: () => void this.historyStore.archiveEntry(entry.id),
+      action: () => void this.archiveWithUndo(entry),
     });
 
     return items;
@@ -913,14 +913,8 @@ export class InstanceListComponent implements OnDestroy {
 
     this.closeProjectMenu();
 
-    // Archive all history entries for this project
-    for (const entry of getAllProjectHistoryItems(group)) {
-      await this.historyStore.archiveEntry(entry.id);
-    }
-
-    // Remove from recent directories
-    await this.recentDirectoriesService.removeDirectory(group.path);
-    await this.loadRecentDirectories();
+    await removeProjectWithUndo(group, this.getProjectNodeId(group), { history: this.historyStore, recent: this.recentDirectoriesService,
+      undo: this.undo, toast: this.toast, reload: () => this.loadRecentDirectories() });
   }
 
   startProjectConversation(group: ProjectGroup, event: Event): void {
@@ -1098,7 +1092,6 @@ export class InstanceListComponent implements OnDestroy {
     }
 
     this.closeProjectMenu({ restoreFocus: false });
-    this.pendingArchiveId.set(null);
 
     const entry = this.historyStore.entries().find((item) => item.id === entryId);
     const conversation = await this.historyStore.loadConversation(entryId, {
@@ -1131,18 +1124,15 @@ export class InstanceListComponent implements OnDestroy {
     return selectedNow === selectedAtStart || selectedNow === restoredInstanceId;
   }
 
-  onArchiveHistory(entryId: string, event: Event): void {
-    event.preventDefault();
-    event.stopPropagation();
+  async onArchiveHistory(entryId: string, event: Event): Promise<void> {
+    event.preventDefault(); event.stopPropagation();
     this.closeProjectMenu({ restoreFocus: false });
-    this.pendingArchiveId.set(entryId);
+    const entry = this.historyStore.entries().find((item) => item.id === entryId);
+    if (entry) await this.archiveWithUndo(entry);
   }
 
-  async confirmArchiveHistory(entryId: string, event: Event): Promise<void> {
-    event.preventDefault();
-    event.stopPropagation();
-    this.pendingArchiveId.set(null);
-    await this.historyStore.archiveEntry(entryId);
+  private archiveWithUndo(entry: ConversationHistoryEntry): Promise<void> {
+    return archiveWithUndo(entry, { history: this.historyStore, undo: this.undo, toast: this.toast });
   }
 
   @HostListener('document:click', ['$event'])
@@ -1158,23 +1148,12 @@ export class InstanceListComponent implements OnDestroy {
       this.closeProjectMenu({ restoreFocus: false });
     }
 
-    // Any click outside the archive request/confirm buttons cancels the pending
-    // archive (those button handlers call stopPropagation so they never reach
-    // the document handler).
-    if (this.pendingArchiveId() !== null) {
-      this.pendingArchiveId.set(null);
-    }
+
   }
 
   @HostListener('document:keydown', ['$event'])
   onDocumentKeyDown(event: KeyboardEvent): void {
     if (event.key !== 'Escape') {
-      return;
-    }
-
-    if (this.pendingArchiveId() !== null) {
-      event.preventDefault();
-      this.pendingArchiveId.set(null);
       return;
     }
 

@@ -14,6 +14,8 @@ import {
   type ComposerCompletionItem,
   type ComposerCompletionKind,
 } from './composer-autocomplete.service';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 
 export type {
   ComposerCompletionItem,
@@ -30,6 +32,7 @@ export interface ComposerCompletionQuery {
 @Component({
   selector: 'app-composer-autocomplete',
   standalone: true,
+  imports: [AioTooltipDirective],
   template: `
     @if (isOpen()) {
       <div class="composer-completions" role="listbox" aria-label="Composer completions">
@@ -40,6 +43,7 @@ export interface ComposerCompletionQuery {
             role="option"
             [class.selected]="i === selectedIndex()"
             [attr.aria-selected]="i === selectedIndex()"
+            [appTooltip]="item.kind === 'session' ? sessionTooltip : ''"
             (mousedown)="onItemMouseDown($event)"
             (mouseenter)="selectedIndex.set(i)"
             (click)="acceptItem(item)"
@@ -122,6 +126,7 @@ export interface ComposerCompletionQuery {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ComposerAutocompleteComponent implements OnDestroy {
+  protected readonly sessionTooltip = copyFor('readSession');
   private readonly autocomplete = inject(ComposerAutocompleteService);
   private searchGeneration = 0;
   private unbindTextarea: (() => void) | null = null;
@@ -131,7 +136,7 @@ export class ComposerAutocompleteComponent implements OnDestroy {
   protected readonly query = signal<ComposerCompletionQuery | null>(null);
   protected readonly items = signal<ComposerCompletionItem[]>([]);
   protected readonly selectedIndex = signal(0);
-  protected readonly isOpen = computed(() => this.query()?.kind === 'file' && this.items().length > 0);
+  protected readonly isOpen = computed(() => (this.query()?.kind === 'file' || this.query()?.kind === 'session') && this.items().length > 0);
 
   constructor() {
     effect(() => {
@@ -229,13 +234,15 @@ export class ComposerAutocompleteComponent implements OnDestroy {
     this.query.set(query);
     this.selectedIndex.set(0);
 
-    if (!query || query.kind !== 'file' || query.query.length === 0) {
+    if (!query || (query.kind !== 'file' && query.kind !== 'session') || (query.kind === 'file' && query.query.length === 0)) {
       this.closeItemsOnly();
       return;
     }
 
     const generation = ++this.searchGeneration;
-    const items = await this.autocomplete.searchFiles(query.query, this.workspaceCwd());
+    const items = query.kind === 'session'
+      ? await this.autocomplete.searchSessions(query.query, this.workspaceCwd())
+      : await this.autocomplete.searchFiles(query.query, this.workspaceCwd());
 
     if (generation !== this.searchGeneration) return;
 
@@ -286,6 +293,9 @@ export function detectComposerCompletion(text: string, cursor: number): Composer
     };
   }
 
+  if (token.startsWith('@session:')) {
+    return { kind: 'session', query: token.slice(9), start, end: safeCursor };
+  }
   if (token.startsWith('@') && token.length > 1) {
     return {
       kind: 'file',
@@ -305,7 +315,7 @@ export function applyComposerCompletion(
 ): { text: string; cursor: number } {
   const marker = markerForKind(item.kind);
   const insertText = item.insertText.startsWith(marker) ? item.insertText : `${marker}${item.insertText}`;
-  const needsTrailingSpace = item.kind === 'file' && !/\s/.test(text[completion.end] ?? '');
+  const needsTrailingSpace = (item.kind === 'file' || item.kind === 'session') && !/\s/.test(text[completion.end] ?? '');
   const replacement = needsTrailingSpace ? `${insertText} ` : insertText;
   const nextText = `${text.slice(0, completion.start)}${replacement}${text.slice(completion.end)}`;
   return {

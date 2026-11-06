@@ -1,3 +1,9 @@
+import { ConfirmService } from '../../shared/confirm/confirm.service';
+import { FeatureUsageService } from '../../shared/tips/feature-usage.service';
+import { WorkingTipComponent } from '../../shared/tips/working-tip.component';
+import { createWorkingTipRuntime, isCompactionPreviewControlAvailable } from '../../shared/tips/working-tip-runtime';
+import { LoopOutstandingPanelComponent } from '../loop/loop-outstanding-panel.component';
+import { ChildSessionNavComponent } from './child-session-nav.component';
 /**
  * Instance Detail Component - Full view of a selected instance
  */
@@ -27,34 +33,31 @@ import { NewSessionDraftService } from '../../core/services/new-session-draft.se
 import type { InstanceRuntimeSummary } from '../../../../shared/types/local-model-runtime.types';
 import { OutputStreamComponent } from './output-stream.component';
 import { InputPanelComponent } from './input-panel.component';
+import { appendTextToComposer } from './append-text-to-composer';
+import { mergeComposerRestoreText } from './composer-restore-text';
 import { DropZoneComponent } from '../file-drop/drop-zone.component';
 import { ActivityStatusComponent } from './activity-status.component';
-import { ChildInstancesPanelComponent } from './child-instances-panel.component';
 import { ChildDiagnosticBundleModalComponent } from '../orchestration/child-diagnostic-bundle.modal.component';
-import { TodoListComponent } from './todo-list.component';
+import { SessionProgressPanelComponent } from './session-progress-panel.component';
 import { UserActionRequestComponent } from './user-action-request.component';
 import { BrowserApprovalRequestComponent } from './browser-approval-request.component';
 import { InstanceHeaderComponent } from './instance-header.component';
 import { InstanceWelcomeComponent } from './instance-welcome.component';
 import type { NewSessionSubmitRequest } from './input-panel-new-session-submit';
-import { InstanceReviewPanelComponent } from './instance-review-panel.component';
 import { CrossModelReviewPanelComponent } from './cross-model-review-panel.component';
 import { ProviderDiagnosticsPanelComponent } from './provider-diagnostics-panel.component';
-import { CheckpointTimelineComponent } from '../checkpoints/checkpoint-timeline.component';
-import { HistoryIpcService } from '../../core/services/ipc/history-ipc.service';
+import { SessionStatusDockComponent } from './session-status-dock.component';
+import { resolveEscapeRouting } from './session-status-dock.rules';
 import { CrossModelReviewIpcService } from '../../core/services/ipc/cross-model-review-ipc.service';
 import { OrchestrationHudComponent } from '../orchestration/orchestration-hud.component';
 import { LoopStopConfirmService } from '../loop/loop-stop-confirm.service';
 import { LoopControlComponent } from '../loop/loop-control.component';
-import { LoopOutstandingPanelComponent } from '../loop/loop-outstanding-panel.component';
 import { LoopStore } from '../../core/state/loop.store';
 import { LoopPromptHistoryService } from '../loop/loop-prompt-history.service';
 import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
 import { QuickActionDispatcherService } from '../orchestration/quick-action-dispatcher.service';
-import { TodoStore } from '../../core/state/todo.store';
 import { AutomationStore } from '../../core/state/automation.store';
 import { RemoteBrowseModalComponent } from '../../shared/components/remote-browse-modal/remote-browse-modal.component';
-import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { WelcomeCoordinatorService } from './welcome-coordinator.service';
 import { HistoryPreviewSessionService } from './history-preview-session.service';
 import { FileAttachmentService } from './file-attachment.service';
@@ -113,13 +116,13 @@ interface ResendEditedEvent {
     InputPanelComponent,
     DropZoneComponent,
     ActivityStatusComponent,
-    ChildInstancesPanelComponent,
-    TodoListComponent,
+    WorkingTipComponent,
+    ChildSessionNavComponent,
+    SessionProgressPanelComponent,
     UserActionRequestComponent,
     BrowserApprovalRequestComponent,
     InstanceHeaderComponent,
     InstanceWelcomeComponent,
-    InstanceReviewPanelComponent,
     CrossModelReviewPanelComponent,
     ProviderDiagnosticsPanelComponent,
     RemoteBrowseModalComponent,
@@ -127,14 +130,15 @@ interface ResendEditedEvent {
     ChildDiagnosticBundleModalComponent,
     LoopControlComponent,
     LoopOutstandingPanelComponent,
-    CheckpointTimelineComponent,
-    AioTooltipDirective
+    SessionStatusDockComponent
   ],
   templateUrl: './instance-detail.component.html',
   styleUrl: './instance-detail.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class InstanceDetailComponent {
+  private readonly featureUsage = inject(FeatureUsageService);
+  private readonly confirmService = inject(ConfirmService);
   private router = inject(Router);
   private store = inject(InstanceStore);
   private historyStore = inject(HistoryStore);
@@ -146,7 +150,6 @@ export class InstanceDetailComponent {
   private newSessionDraft = inject(NewSessionDraftService);
   private providerIpc = inject(ProviderIpcService);
   private crossModelReviewService = inject(CrossModelReviewIpcService);
-  private historyIpc = inject(HistoryIpcService);
   private quickActionDispatcher = inject(QuickActionDispatcherService);
   private loopStopConfirm = inject(LoopStopConfirmService);
   private loopStore = inject(LoopStore);
@@ -155,7 +158,6 @@ export class InstanceDetailComponent {
   readonly welcomeCoordinator = inject(WelcomeCoordinatorService);
   private fileAttachment = inject(FileAttachmentService);
   private unifiedCatalog = inject(UnifiedCatalogStore);
-  todoStore = inject(TodoStore);
   canShowFileExplorer = input(false);
   isFileExplorerOpen = input(false);
   toggleFileExplorer = output<void>();
@@ -166,6 +168,14 @@ export class InstanceDetailComponent {
 
   /** Reference to the input panel for triggering edit mode from the output stream. */
   private inputPanel = viewChild(InputPanelComponent);
+  /** Status dock (the optional-chip strip) for Esc routing and Cmd+Shift+V. */
+  private statusDock = viewChild(SessionStatusDockComponent);
+  readonly appendTextToComposer = (text: string): void => appendTextToComposer(this.inputPanel(), text);
+  /** The compact-preview tip is offered only while its real control — the context warning's Preview / Compact Now actions — is on screen. */
+  readonly compactPreviewControlAvailable = computed(() =>
+    isCompactionPreviewControlAvailable(this.contextWarningLevel(), this.contextWarningDismissed(), this.isCompacting()));
+  readonly workingTipContext = createWorkingTipRuntime(this.store, this.settingsStore, this.loopStore,
+    () => this.inputPanel(), () => this.compactPreviewControlAvailable());
 
   instance = this.store.selectedInstance;
   historyPreview = computed<HistoryPreviewView | null>(() => {
@@ -220,142 +230,25 @@ export class InstanceDetailComponent {
     return this.crossModelReviewService.getReviewForInstance(inst.id) ?? null;
   });
 
-  // Inspector panel visibility (F3: on-demand inspectors)
-  showTodoInspector = signal(false);
-  showReviewInspector = signal(false);
-  showChildrenInspector = signal(false);
+  // Cross-model review panel visibility (the strip's chips live in SessionStatusDockComponent)
   showCrossModelReviewPanel = signal(false);
-  showCheckpointInspector = signal(false);
-  /** Number of restorable session snapshots for the current instance (E1). */
-  checkpointCount = signal(0);
-  /** Aggregated outstanding items (Needs human / Open questions) inspector. */
-  showOutstandingInspector = signal(false);
-  enteringInspectorToggle = signal<'todo' | 'review' | 'children' | 'checkpoint' | 'outstanding' | null>(null);
 
-  /** Open outstanding-item count for this instance's session — gates the
-   *  toggle + drives its badge. Reads the loop store's latest query result
-   *  filtered to this instance id so loop backlog does not bleed across
-   *  sessions that share a working directory. */
-  outstandingOpenCount = computed(() => {
-    const inst = this.instance();
-    if (!inst) return 0;
-    return this.loopStore.outstanding().filter((i) => i.chatId === inst.id && i.status === 'open').length;
-  });
-  hasOutstanding = computed(() => this.outstandingOpenCount() > 0);
-
-  // Review panel state — driven by output events from InstanceReviewPanelComponent
-  reviewHasContent = signal(false);
-  reviewBadgeInfo = signal<{ issueCount: number; hasErrors: boolean } | null>(null);
-
-  // Container visibility — only render the toggle bar when at least one toggle has content
-  anyInspectorVisible = computed(() =>
-    this.todoStore.hasTodos() || this.reviewHasContent() || this.hasChildren() || this.hasCheckpoints()
-    || this.hasOutstanding()
-  );
-
-  // Computed: show the checkpoint toggle only when the instance has restorable
-  // snapshots (E1). Gated like the other toggles so the bar still only appears
-  // when there is content to show.
-  hasCheckpoints = computed(() => this.checkpointCount() > 0);
-
-  // Auto-expand Tasks panel on first appearance (false → true transition).
-  // Guard: only fires when the TodoStore's session matches the current instance,
-  // preventing stale data from a previous instance from triggering auto-expand
-  // during the async gap between setSession() and loadTodos().
-  private todoAutoExpandedForInstance = signal<string | null>(null);
-
-  private todoAutoExpandEffect = effect(() => {
-    const inst = this.instance();
-    const hasTodos = this.todoStore.hasTodos();
-    const todoSessionId = this.todoStore.currentSessionId();
-    if (!inst) return;
-
-    // Don't auto-expand if todo data is stale (from a previous instance)
-    if (todoSessionId !== inst.sessionId) return;
-
-    if (hasTodos && this.todoAutoExpandedForInstance() !== inst.id) {
-      this.todoAutoExpandedForInstance.set(inst.id);
-      this.showTodoInspector.set(true);
-    }
-  });
-
-  private inspectorBarWasVisible = false;
-
-  private inspectorToggleEntranceEffect = effect(() => {
-    const barVisible = this.anyInspectorVisible();
-    const nextEnteringToggle = this.getEnteringInspectorToggle();
-
-    if (!barVisible) {
-      this.inspectorBarWasVisible = false;
-      this.enteringInspectorToggle.set(null);
-      return;
-    }
-
-    if (!this.inspectorBarWasVisible) {
-      this.enteringInspectorToggle.set(nextEnteringToggle);
-    }
-
-    this.inspectorBarWasVisible = true;
-  });
-
-  // Keep TodoStore session in sync and reset inspector state on instance change
+  // Reset view state on instance or provider-session change
   private instanceChangeSync = effect(() => {
     // Do not subscribe to the full instance snapshot here. Streaming output
     // and status events replace that object many times per second; treating
-    // each replacement as a session switch reset every inspector and retried
+    // each replacement as a session switch reset every panel and retried
     // its IPC loads, which made the active conversation visibly flicker.
     // These primitive selectors update only for a real visible-instance or
     // provider-session change (including a fresh restart of the same instance).
-    const instanceId = this.store.selectedInstanceIdentity();
-    const sessionId = this.store.selectedInstanceSessionId();
-    void this.todoStore.setSession(sessionId);
+    void this.store.selectedInstanceIdentity();
+    void this.store.selectedInstanceSessionId();
 
-    // Reset inspector panels on instance change
-    this.showTodoInspector.set(false);
-    this.showReviewInspector.set(false);
-    this.showChildrenInspector.set(false);
     this.showCrossModelReviewPanel.set(false);
-    this.todoAutoExpandedForInstance.set(null);
-    this.reviewHasContent.set(false);
-    this.reviewBadgeInfo.set(null);
-    this.enteringInspectorToggle.set(null);
-    this.inspectorBarWasVisible = false;
-
-    // E1: reset + reload the restorable-snapshot count for the checkpoint toggle
-    // gate. Guard against a stale resolve landing after a fast instance switch.
-    this.showCheckpointInspector.set(false);
-    this.checkpointCount.set(0);
-    const checkpointInstanceId = instanceId;
-    if (checkpointInstanceId) {
-      void this.historyIpc
-        .listSessionSnapshots(checkpointInstanceId)
-        .then((res) => {
-          if (this.instance()?.id !== checkpointInstanceId) return;
-          this.checkpointCount.set(res.success && Array.isArray(res.data) ? res.data.length : 0);
-        })
-        .catch(() => {
-          /* best-effort; leave the count at 0 so the toggle stays hidden */
-        });
-    }
-
-    // Outstanding items: reset the panel and (best-effort) load the open set
-    // for this session so the toggle + badge reflect captured human-gated work
-    // without leaking backlog from other sessions in the same workspace.
-    this.showOutstandingInspector.set(false);
-    const outstandingChatId = instanceId;
-    if (outstandingChatId) {
-      void this.loopStore.loadOutstanding({ chatId: outstandingChatId, status: 'open' });
-    }
 
     // Reset welcome-screen state so it doesn't bleed across sessions.
     this.welcomeCoordinator.resetState();
   });
-
-  // Computed: any inspector is open
-  hasActiveInspector = computed(() =>
-    this.showTodoInspector() || this.showReviewInspector() || this.showChildrenInspector()
-    || this.showCheckpointInspector() || this.showOutstandingInspector()
-  );
 
   // Computed: show children toggle only when instance has children
   hasChildren = computed(() => {
@@ -597,19 +490,18 @@ export class InstanceDetailComponent {
       return;
     }
 
-    // Escape - interrupt busy or respawning instance
+    // Escape - dismiss an open status-dock surface (chip panel or overflow row) first, else interrupt an in-flight turn
     if (event.key === 'Escape') {
       const inst = this.instance();
-      if (inst && (
-        inst.status === 'busy'
-        || inst.status === 'processing'
-        || inst.status === 'thinking_deeply'
-        || inst.status === 'waiting_for_permission'
-        || inst.status === 'respawning'
-        || inst.status === 'interrupting'
-        || inst.status === 'cancelling'
-        || inst.status === 'interrupt-escalating'
-      )) {
+      const routing = resolveEscapeRouting({
+        dockPanelWasOpen: this.statusDock()?.dismissOpenSurface() ?? false,
+        instanceStatus: inst?.status,
+      });
+      if (routing === 'chip-panel') {
+        event.preventDefault();
+        return;
+      }
+      if (routing === 'interrupt' && inst) {
         event.preventDefault();
         this.onInterrupt();
       }
@@ -935,6 +827,7 @@ export class InstanceDetailComponent {
     const finalMessage = this.fileAttachment.prependPendingFolders(message, folders);
 
     this.store.steerInput(inst.id, finalMessage, this.pendingFiles());
+    this.featureUsage.record('steer');
     this.draftService.clearPendingFiles(inst.id);
     this.draftService.clearPendingFolders(inst.id);
   }
@@ -1016,7 +909,7 @@ export class InstanceDetailComponent {
       if (inputPanel) {
         inputPanel.restoreTextToComposer(removedMessage.message);
       } else {
-        this.draftService.setDraft(inst.id, removedMessage.message);
+        this.draftService.setDraft(inst.id, mergeComposerRestoreText(removedMessage.message, this.draftService.getDraft(inst.id)));
       }
       if (removedMessage.files && removedMessage.files.length > 0) {
         this.draftService.addPendingFiles(inst.id, removedMessage.files);
@@ -1029,6 +922,7 @@ export class InstanceDetailComponent {
     if (!inst) return;
 
     void this.store.steerQueuedMessage(inst.id, index);
+    this.featureUsage.record('steer');
   }
 
   onFilesDropped(files: File[]): void {
@@ -1171,12 +1065,10 @@ export class InstanceDetailComponent {
     const effectiveTarget = inst.pendingYoloMode ?? inst.yoloMode;
     const willEnable = !effectiveTarget;
     if (willEnable) {
-      const confirmed = confirm(
-        'Enable YOLO mode? This will auto-approve all tool calls for this instance.' +
+      const confirmed = await this.confirmService.confirm({ message: 'Enable YOLO mode? This will auto-approve all tool calls for this session.' +
           (inst.status === 'busy'
-            ? '\n\nThe instance is busy — YOLO will turn on automatically once the current turn finishes.'
-            : '')
-      );
+            ? '\n\nThe session is busy — YOLO will turn on automatically once the current turn finishes.'
+            : ''), confirmLabel: 'Enable YOLO', danger: true });
       if (!confirmed) return;
     }
 
@@ -1464,16 +1356,6 @@ export class InstanceDetailComponent {
     }
   }
 
-  onReviewStarted(): void {
-    this.reviewHasContent.set(true);
-    this.reviewBadgeInfo.set(null);
-  }
-
-  onReviewCompleted(result: { issueCount: number; hasErrors: boolean }): void {
-    this.reviewHasContent.set(true);
-    this.reviewBadgeInfo.set(result);
-  }
-
   private ensureHistoryPreviewRestored(applySelection = true): Promise<string | null> {
     const conversation = this.historyStore.previewConversation();
     if (!conversation) return Promise.resolve(null);
@@ -1516,27 +1398,8 @@ export class InstanceDetailComponent {
     );
   }
 
-  private getEnteringInspectorToggle(): 'todo' | 'review' | 'children' | null {
-    if (this.todoStore.hasTodos()) {
-      return 'todo';
-    }
-    if (this.reviewHasContent()) {
-      return 'review';
-    }
-    if (this.hasChildren()) {
-      return 'children';
-    }
-    return null;
-  }
-
   openReviewPanel(): void {
-    this.showReviewInspector.set(true);
-  }
-
-  onInspectorToggleAnimationEnd(toggle: 'todo' | 'review' | 'children' | 'checkpoint' | 'outstanding'): void {
-    if (this.enteringInspectorToggle() === toggle) {
-      this.enteringInspectorToggle.set(null);
-    }
+    this.statusDock()?.openReviewPanel();
   }
 
   toggleCrossModelReviewPanel(): void {
@@ -1560,6 +1423,7 @@ export class InstanceDetailComponent {
   onPreviewCompaction(): void {
     if (this.instance() && !this.isCompacting()) {
       this.compactionPreviewOpen.set(true);
+      this.featureUsage.record('compact-preview');
     }
   }
 

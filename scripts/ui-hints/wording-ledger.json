@@ -1221,6 +1221,138 @@
     "why": "long"
   },
   {
+    "id": "b4741629ed4534f5",
+    "owner": "src/renderer/app/features/dashboard/sidebar-header.component.ts",
+    "text": "Start a session in the current project.",
+    "why": "long"
+  },
+  {
+    "id": "d8ac391854d8152e",
+    "owner": "src/renderer/app/features/dashboard/sidebar-header.component.ts",
+    "text": "Start a Quick chat without a project folder.",
+    "why": "long"
+  },
+  {
+    "id": "0b718e76bda91455",
+    "owner": "src/renderer/app/features/dashboard/workspace-rail.component.ts",
+    "text": "Find a session by name, prompt or folder.",
+    "why": "long"
+  },
+  {
+    "id": "a5a7ed40d4dc3727",
+    "owner": "src/renderer/app/features/instance-detail/activity-status.component.ts",
+    "text": "This provider shares its thinking only when a step finishes. Harness shows how long it has been working.",
+    "why": "long"
+  },
+  {
+    "id": "b58bf06846e52c7e",
+    "owner": "src/renderer/app/features/instance-detail/composer-autocomplete.ts",
+    "text": "Read on request only. The agent opens it with read_session if it needs to.",
+    "why": "long"
+  },
+  {
+    "id": "147d05ed2815c68d",
+    "owner": "src/renderer/app/features/knowledge/wake-management.component.ts",
+    "text": "The background selected from saved notes for a new session.",
+    "why": "long"
+  },
+  {
+    "id": "14cc71b336560740",
+    "owner": "src/renderer/app/features/knowledge/wake-management.component.ts",
+    "text": "Notes kept out of starting notes: duplicate copies, and older notes last shown before 4 May 2026.",
+    "why": "long"
+  },
+  {
+    "id": "244057a78cb54d01",
+    "owner": "src/renderer/app/features/knowledge/wake-management.component.ts",
+    "text": "Write the fact or guideline you want future sessions to know.",
+    "why": "long"
+  },
+  {
+    "id": "2990f07c3e97a068",
+    "owner": "src/renderer/app/features/knowledge/wake-management.component.ts",
+    "text": "The notes included in starting notes now: one current copy of each fact.",
+    "why": "long"
+  },
+  {
+    "id": "34a00b9f2167b551",
+    "owner": "src/renderer/app/features/knowledge/wake-management.component.ts",
+    "text": "Save a short fact or guideline for future sessions.",
+    "why": "long"
+  },
+  {
+    "id": "443a58fd2973c192",
+    "owner": "src/renderer/app/features/knowledge/wake-management.component.ts",
+    "text": "Limit starting notes to this project. Leave blank to use the selected project.",
+    "why": "long"
+  },
+  {
+    "id": "46bb95c7ead9ceb0",
+    "owner": "src/renderer/app/features/knowledge/wake-management.component.ts",
+    "text": "Short facts the AI is given at the start of every session in this project. Keep the list short: every note is read every time.",
+    "why": "long"
+  },
+  {
+    "id": "68866b32e05f70aa",
+    "owner": "src/renderer/app/features/knowledge/wake-management.component.ts",
+    "text": "Group related notes under a topic such as architecture or security.",
+    "why": "long"
+  },
+  {
+    "id": "7378c3432782c6db",
+    "owner": "src/renderer/app/features/knowledge/wake-management.component.ts",
+    "text": "Higher numbers are included first when there is not enough room.",
+    "why": "long"
+  },
+  {
+    "id": "8e6de8d1de038617",
+    "owner": "src/renderer/app/features/knowledge/wake-management.component.ts",
+    "text": "A short description of this project, included in starting notes.",
+    "why": "long"
+  },
+  {
+    "id": "94f232c765218c9a",
+    "owner": "src/renderer/app/features/knowledge/wake-management.component.ts",
+    "text": "Build a fresh starting-notes preview for the chosen project.",
+    "why": "long"
+  },
+  {
+    "id": "ae33cd3188192c68",
+    "owner": "src/renderer/app/features/knowledge/wake-management.component.ts",
+    "text": "Included in a session's starting notes. Notes shown often and never useful are good ones to remove.",
+    "why": "consequence"
+  },
+  {
+    "id": "aeeae52562688b0e",
+    "owner": "src/renderer/app/features/knowledge/wake-management.component.ts",
+    "text": "Close this editor without saving the draft.",
+    "why": "consequence"
+  },
+  {
+    "id": "b48f0435fbfd8597",
+    "owner": "src/renderer/app/features/knowledge/wake-management.component.ts",
+    "text": "A lesson Harness worked out from earlier sessions. It is shown to the AI as background, never as an instruction, until you approve it.",
+    "why": "consequence"
+  },
+  {
+    "id": "c2a4f8d0e8393942",
+    "owner": "src/renderer/app/features/knowledge/wake-management.component.ts",
+    "text": "Remove this note from the saved list.",
+    "why": "consequence"
+  },
+  {
+    "id": "c712b5d77752cf86",
+    "owner": "src/renderer/app/features/knowledge/wake-management.component.ts",
+    "text": "Edit the description included in starting notes.",
+    "why": "long"
+  },
+  {
+    "id": "bb2886de3c8a4f94",
+    "owner": "src/renderer/app/features/mcp/mcp-server-cost.component.ts",
+    "text": "Providers that send every tool with each message add up to this many tokens. Claude normally loads tools only when needed, so it adds just the tool names,",
+    "why": "consequence"
+  },
+  {
     "id": "8746fd8586a3103a",
     "owner": "src/renderer/app/features/side-chat/side-chat-panel.component.ts",
     "text": "Choose an available provider and model first",
@@ -1478,6 +1610,12 @@
     "owner": "src/renderer/app/shared/components/provider-quota-chip/provider-quota-chip.component.ts",
     "text": "Quota is being consumed ahead of this window's time budget",
     "why": "long"
+  },
+  {
+    "id": "a2c87d6190b32ae7",
+    "owner": "src/renderer/app/features/instance-list/instance-list.component.ts",
+    "text": "Hides this thread from the project list. The conversation is kept in Archive.",
+    "why": "consequence"
   },
   {
     "id": "afd7924a554f2b10",

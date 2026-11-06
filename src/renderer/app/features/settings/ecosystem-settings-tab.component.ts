@@ -19,6 +19,7 @@ import {
   OnDestroy
 } from '@angular/core';
 import { IpcFacadeService } from '../../core/services/ipc';
+import { ConfirmService } from '../../shared/confirm/confirm.service';
 import { RecentDirectoriesIpcService } from '../../core/services/ipc/recent-directories-ipc.service';
 import { SettingsStore } from '../../core/state/settings.store';
 import type { RecentDirectoriesOptions } from '../../../../shared/types/recent-directories.types';
@@ -119,6 +120,9 @@ interface FileReadTextResponse {
   styleUrl: './ecosystem-settings-tab.component.scss',
 })
 export class EcosystemSettingsTabComponent implements OnDestroy {
+  private readonly confirmService = inject(ConfirmService);
+  private discardPending = false;
+  private destroyed = false;
   private ipc = inject(IpcFacadeService);
   private recentDirsIpc = inject(RecentDirectoriesIpcService);
   private settingsStore = inject(SettingsStore);
@@ -222,6 +226,7 @@ export class EcosystemSettingsTabComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.destroyed = true;
     try {
       if (this.unsubscribeChanged) this.unsubscribeChanged();
     } catch {
@@ -268,16 +273,31 @@ export class EcosystemSettingsTabComponent implements OnDestroy {
    * safe to proceed; a `false` return means the caller must leave all state
    * (selection, category, working directory, and editor text) untouched.
    *
-   * `reload()` calls this synchronously from the constructor's working-directory
+   * `reload()` enters this from the constructor's working-directory
    * `effect()`, so these signal reads run `untracked` — otherwise the effect
    * would pick up `hasUnsavedChanges`/`selectedKind`/`selectedKey` as extra
    * dependencies and re-fire (silently reloading the open file) on every edit.
    */
-  private confirmDiscard(consequence: string): boolean {
-    return untracked(() => {
-      if (!this.hasUnsavedChanges()) return true;
-      return confirm(`Discard unsaved changes to ${this.openResourceLabel()}? ${consequence}`);
-    });
+  private async confirmDiscard(consequence: string): Promise<boolean> {
+    // An answer belongs to one action. Watcher reloads and other navigation
+    // must not queue another box or consume that action's answer.
+    if (this.destroyed || this.discardPending) return false;
+    const snapshot = untracked(() => ({
+      dirty: this.hasUnsavedChanges(), content: this.fileContent(),
+      path: this.selectedFilePath(), directory: this.workingDirectory(), label: this.openResourceLabel(),
+    }));
+    if (!snapshot.dirty) return true;
+    this.discardPending = true;
+    try {
+      const answer = await this.confirmService.confirm({
+        message: `Discard unsaved changes to ${snapshot.label}? ${consequence}`,
+        confirmLabel: 'Discard changes', danger: true,
+      });
+      return answer && !this.destroyed && snapshot.content === this.fileContent()
+        && snapshot.path === this.selectedFilePath() && snapshot.directory === this.workingDirectory();
+    } finally {
+      this.discardPending = false;
+    }
   }
 
   private clearSelection(): void {
@@ -292,10 +312,10 @@ export class EcosystemSettingsTabComponent implements OnDestroy {
   }
 
   /** Switch the visible resource category (bound to the shared section switcher). */
-  selectCategory(categoryId: string): void {
+  async selectCategory(categoryId: string): Promise<void> {
     const category = categoryId as EcosystemCategory;
     if (category === this.activeCategory()) return;
-    if (!this.confirmDiscard('Switching categories will discard them.')) return;
+    if (!await this.confirmDiscard('Switching categories will discard them.')) return;
     this.activeCategory.set(category);
     this.clearSelection();
   }
@@ -315,11 +335,11 @@ export class EcosystemSettingsTabComponent implements OnDestroy {
     }
   }
 
-  onSelectWorkingDirectory(event: Event): void {
+  async onSelectWorkingDirectory(event: Event): Promise<void> {
     const target = event.target as HTMLSelectElement;
     const next = target.value;
     if (next === this.workingDirectory()) return;
-    if (!this.confirmDiscard('Changing the working directory will discard them.')) {
+    if (!await this.confirmDiscard('Changing the working directory will discard them.')) {
       // Snap the <select> back to the current value on the next render.
       target.value = this.workingDirectory();
       return;
@@ -329,7 +349,7 @@ export class EcosystemSettingsTabComponent implements OnDestroy {
   }
 
   async pickWorkingDirectory(): Promise<void> {
-    if (!this.confirmDiscard('Changing the working directory will discard them.')) return;
+    if (!await this.confirmDiscard('Changing the working directory will discard them.')) return;
     const selected = await this.recentDirsIpc.selectFolderAndTrack();
     if (!selected) return;
     this.clearSelection();
@@ -340,7 +360,7 @@ export class EcosystemSettingsTabComponent implements OnDestroy {
   async reload(): Promise<void> {
     const wd = this.workingDirectory();
     if (!wd) return;
-    if (!this.confirmDiscard('Reloading will replace it with the file on disk.')) return;
+    if (!await this.confirmDiscard('Reloading will replace it with the file on disk.')) return;
 
     this.loading.set(true);
     this.error.set(null);
@@ -405,9 +425,9 @@ export class EcosystemSettingsTabComponent implements OnDestroy {
     }
   }
 
-  select(kind: EcosystemKind, key: string, filePath: string | null): void {
+  async select(kind: EcosystemKind, key: string, filePath: string | null): Promise<void> {
     if (this.selectedKind() === kind && this.selectedKey() === key) return;
-    if (!this.confirmDiscard('Selecting a different item will discard them.')) return;
+    if (!await this.confirmDiscard('Selecting a different item will discard them.')) return;
     this.selectedKind.set(kind);
     this.selectedKey.set(key);
     this.selectedFilePath.set(filePath);
@@ -426,8 +446,8 @@ export class EcosystemSettingsTabComponent implements OnDestroy {
    * styles may replace). Selecting and activating stay one step, matching the
    * picker's pre-existing click-to-activate behavior.
    */
-  selectOutputStyle(name: string): void {
-    if (!this.confirmDiscard('Selecting a different output style will discard them.')) return;
+  async selectOutputStyle(name: string): Promise<void> {
+    if (!await this.confirmDiscard('Selecting a different output style will discard them.')) return;
     this.selectedOutputStyleName.set(name);
     this.setOutputStyle(name);
   }
@@ -458,9 +478,9 @@ export class EcosystemSettingsTabComponent implements OnDestroy {
     return this.selectedFilePath() ? [this.selectedFilePath()!] : [];
   });
 
-  selectCandidateFile(filePath: string): void {
+  async selectCandidateFile(filePath: string): Promise<void> {
     if (filePath === this.selectedFilePath()) return;
-    if (!this.confirmDiscard('Selecting a different file will discard them.')) return;
+    if (!await this.confirmDiscard('Selecting a different file will discard them.')) return;
     this.selectedFilePath.set(filePath);
     this.fileContent.set('');
     this.originalFileContent.set('');
@@ -498,7 +518,7 @@ export class EcosystemSettingsTabComponent implements OnDestroy {
 
   /** Reload the open file from disk, discarding in-memory edits (guarded). */
   async reloadSelectedFile(): Promise<void> {
-    if (!this.confirmDiscard('Reloading the file will discard them.')) return;
+    if (!await this.confirmDiscard('Reloading the file will discard them.')) return;
     await this.loadSelectedFile();
   }
 

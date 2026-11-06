@@ -73,17 +73,17 @@ describe('local AI fallback notification grouping', () => {
     expect(fallbackNotificationGroupCostLabel([
       event('measured-a', 1, { knownCostUsd: 0.001 }),
       event('measured-b', 2, { knownCostUsd: 0.002 }),
-    ])).toBe('$0.0030 measured');
+    ])).toBe('under 1 cent measured');
 
     expect(fallbackNotificationGroupCostLabel([
       event('measured', 1, { knownCostUsd: 0.001 }),
       event('estimated', 2, { estimatedCostUsd: 0.0025 }),
-    ])).toBe('$0.0035 estimated');
+    ])).toBe('under 1 cent estimated');
 
     expect(fallbackNotificationGroupCostLabel([
       event('estimated', 1, { estimatedCostUsd: 0.0025 }),
       event('unknown', 2),
-    ])).toBe('$0.0025 estimated + 1 cost unknown');
+    ])).toBe('under 1 cent estimated + 1 cost unknown');
 
     expect(fallbackNotificationGroupCostLabel([
       event('unknown-a', 1),

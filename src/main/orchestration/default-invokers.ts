@@ -1321,7 +1321,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     if (sameSession && p.forceContextReset && persistentLoopAdapters.has(p.loopRunId)) {
       await recyclePersistentLoopAdapter(p.loopRunId);
       oneShotContextReset = true;
-      emitActivity({ kind: 'status', message: 'Context reset for PLAN→IMPLEMENT (fresh session)' });
+      emitActivity({ kind: 'status', message: 'Started this round with a clean context' });
     }
     if (!reusedAdapter && sameSession) {
       const persistentCliType = await resolveCliType(

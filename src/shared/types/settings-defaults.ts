@@ -176,6 +176,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showToolMessages: true,
   showThinking: true,
   thinkingDefaultExpanded: false,
+  showWorkingTips: true,
+  claudeShowTaskList: false,
   showCost: true,
 
   // Recent Directories

@@ -61,6 +61,8 @@ function makeFakeStore() {
     selectedItemId,
     selectedWorkboardItem,
     visibleCount: signal(0),
+    snoozedCount: signal(0),
+    clearSnoozes: vi.fn(),
     selectedWorkspaceId: signal('all'),
     workspaceOptions: signal([
       { id: 'all', label: 'All workspaces', workingDirectory: '' },
@@ -126,6 +128,12 @@ describe('WorkboardPageComponent', () => {
     });
   });
 
+  it('offers Show for the count of hidden snoozed cards', async () => {
+    store.snoozedCount.set(2); const fixture = await render();
+    const show = fixture.nativeElement.querySelector('.wb-snoozed button') as HTMLButtonElement;
+    expect(show?.textContent).toBe('Show'); expect(fixture.nativeElement.textContent).toContain('2 snoozed');
+    show.click(); expect(store.clearSnoozes).toHaveBeenCalledOnce();
+  });
   it('renders the four lane headings in order even when empty', async () => {
     const fixture = await render();
     const headings = Array.from(
