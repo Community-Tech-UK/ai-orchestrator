@@ -58,7 +58,7 @@ export function classifyTurnEnding(input: TurnEndingInput): TurnEndingClassifica
     .filter((value): value is string => typeof value === 'string')
     .map((value) => value.toLowerCase().replace(/[- ]/g, '_'));
   const providerRetrying = meta['providerRetrying'] === true || meta['retrying'] === true || meta['willRetry'] === true || meta['will_retry'] === true;
-  const cancelled = input.cancelled || meta['cancelled'] === true || native.some((reason) => ['cancelled', 'canceled', 'interrupted'].includes(reason));
+  const cancelled = input.cancelled || meta['cancelled'] === true || native.some((reason) => ['cancelled', 'canceled', 'interrupted', 'aborted_streaming', 'aborted_tools'].includes(reason));
   const suppression = providerRetrying ? { providerRetrying: true, autoContinueSuppressed: true } : {};
   const result = (reason: ProviderTurnEndingReason, evidence: string, extras: Partial<TurnEndingClassification> = {}): TurnEndingClassification =>
     ({ reason, evidence, ...extras, ...suppression });

@@ -67,6 +67,7 @@ export class InstanceStateService {
     selectedInstanceId: null,
     loading: false,
     error: null,
+    listLoadFailure: null,
   });
 
   // ============================================
@@ -104,6 +105,17 @@ export class InstanceStateService {
    */
   setError(error: string | null): void {
     this.state.update((s) => (s.error === error ? s : { ...s, error }));
+  }
+
+  /**
+   * Record that the session list could not be loaded, and end the loading state.
+   *
+   * Kept apart from `error`, which create and restart flows share and which a later load never clears.
+   * This one stays until a full snapshot replaces the list (see `setInstances`), so the rail can keep
+   * showing it, with a retry, for as long as the list is in doubt.
+   */
+  failListLoad(detail: string): void {
+    this.state.update((s) => ({ ...s, loading: false, listLoadFailure: { detail } }));
   }
 
   /**
@@ -260,6 +272,7 @@ export class InstanceStateService {
       ...s,
       instances: restored,
       loading: false,
+      listLoadFailure: null,
     }));
   }
 }

@@ -7,6 +7,7 @@ import type { InstanceAsyncWorkRegistry } from './instance-async-work-registry';
 import { CONTINUATION_DISPATCH_POLICY, type ContinuationTrigger } from './turn-ending-continuation-policy';
 import { clearInstanceTurnEnding, getInstanceTurnEnding, invalidateInstanceRecoveryEpoch } from './instance-turn-ending-state';
 import { globalPauseHoldsAutomaticInput } from '../global-pause/global-pause-service';
+import type { InstanceSettledWaitOptions } from './instance-settled-tracker';
 
 export interface ContinuationRecoveryAdapter {
   hasProviderAutoContinuation?(): Promise<boolean>;
@@ -21,7 +22,7 @@ export interface InstanceContinuationDispatchHost {
   getInstance(instanceId: string): ContinuationInstance | undefined;
   getAdapter?(instanceId: string): unknown;
   wakeInstance?(instanceId: string): Promise<void>;
-  waitForInstanceSettled(instanceId: string, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<unknown>;
+  waitForInstanceSettled(instanceId: string, options?: InstanceSettledWaitOptions): Promise<unknown>;
   sendInput(instanceId: string, message: string, attachments?: undefined, options?: {
     autoContinuation?: boolean; internalSource?: InternalInputSource; signal?: AbortSignal;
     beforeProviderDispatch?: () => void;
@@ -169,7 +170,10 @@ export class InstanceContinuationDispatch {
     try {
       if (!this.started || this.pending.get(instanceId) !== reservation || signal.aborted) return false;
       if (options.settle !== false) {
-        try { await this.host.waitForInstanceSettled(instanceId, { timeoutMs: 60_000, signal }); }
+        try { await this.host.waitForInstanceSettled(instanceId, {
+          timeoutMs: 60_000, signal,
+          ...(request.expectedEnding === 'crash' ? { mode: 'input-ready' as const } : {}),
+        }); }
         catch { return false; }
       }
       if (!this.current(reservation)) return false;

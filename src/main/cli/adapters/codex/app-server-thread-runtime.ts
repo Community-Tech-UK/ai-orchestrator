@@ -196,6 +196,7 @@ export class CodexAppServerThreadRuntime {
   getCurrentTurnId(): string | null { return this.activeTurn?.turnId ?? null; }
   getActiveTurnOrigin(): CodexAppServerTurnOrigin | null { return this.activeTurn?.origin ?? null; }
   hasActiveTurn(): boolean { return this.activeTurn !== null; }
+  getActiveTurnState(): TurnCaptureState | null { return this.activeTurn?.state ?? null; }
   /** The running turn of either origin, while a developer item can still reach it. */
   getRunningTurn(): { turnId: string; state: TurnCaptureState } | null {
     const active = this.activeTurn;

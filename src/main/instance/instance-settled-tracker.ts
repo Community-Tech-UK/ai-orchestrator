@@ -4,6 +4,7 @@ import {
   INSTANCE_SETTLED_DEBOUNCE_MS,
   findLatestSettlingOutput,
   isInstanceSettled,
+  type InstanceSettledMode,
 } from './instance-state-machine';
 
 export interface InstanceSettledEvent {
@@ -16,6 +17,7 @@ export interface InstanceSettledEvent {
 }
 
 export interface InstanceSettledWaitOptions {
+  mode?: InstanceSettledMode;
   afterTimestamp?: number;
   timeoutMs?: number;
   debounceMs?: number;
@@ -120,6 +122,7 @@ export class InstanceSettledTracker {
 
       const lastEventAt = this.settledLastEventAt.get(instanceId) ?? 0;
       return isInstanceSettled({
+        mode: options.mode,
         status: instance.status,
         outputBuffer: instance.outputBuffer,
         activeTurnId: instance.activeTurnId,

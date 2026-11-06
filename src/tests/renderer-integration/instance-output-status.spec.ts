@@ -40,7 +40,7 @@ describe('live ACP status text in renderer output and racing history replay', ()
       provider: 'opencode', status: 'idle', contextUsage: { used: 0, total: 1000, percentage: 0 },
       lastActivity: 1, providerSessionId: 'fixture-session', sessionId: 'fixture-session', restartEpoch: 0,
       workingDirectory: '/tmp', yoloMode: false, launchMode: 'orchestrated', outputBuffer: [] };
-    state.state.set({ instances: new Map([[instance.id, instance]]), selectedInstanceId: null, loading: false, error: null });
+    state.state.set({ instances: new Map([[instance.id, instance]]), selectedInstanceId: null, loading: false, error: null, listLoadFailure: null });
   });
   afterEach(() => { store.cleanupAll(); TestBed.resetTestingModule(); });
   const terminalCases = [

@@ -24,8 +24,8 @@ export const INSTANCE_SETTLED_DEBOUNCE_MS = 150;
 
 /**
  * States that can represent a completed worker turn once assistant/error
- * output has been observed. The output requirement is load-bearing: startup
- * and transient idle states must not be treated as completed work.
+ * output has been observed. Startup and transient idle states must not be
+ * treated as completed work.
  */
 export const INSTANCE_SETTLED_STATUSES = new Set<InstanceStatus>([
   'idle',
@@ -35,7 +35,11 @@ export const INSTANCE_SETTLED_STATUSES = new Set<InstanceStatus>([
   'failed',
 ]);
 
+export type InstanceSettledMode = 'turn-complete' | 'input-ready';
+
 export interface InstanceSettledPredicateInput {
+  /** Recovery can await a writable idle session without claiming a completed reply. */
+  mode?: InstanceSettledMode;
   status: InstanceStatus;
   outputBuffer: readonly Pick<OutputMessage, 'id' | 'timestamp' | 'type'>[];
   activeTurnId?: string;
@@ -90,13 +94,14 @@ export function findLatestSettlingOutput(
  * Defines when a worker instance is safe for supervisors to evaluate.
  *
  * Predicate:
- * - status is idle-like or terminal;
- * - at least one assistant/error output exists after the watched turn starts;
+ * - status is idle-like or terminal (only idle/ready for input readiness);
+ * - completed-turn waits require assistant/error output after the watched turn;
  * - no provider turn id or interrupt lifecycle is still active;
  * - the latest state/output event is older than the debounce window.
  */
 export function isInstanceSettled(input: InstanceSettledPredicateInput): boolean {
-  if (!isInstanceSettledStatus(input.status)) {
+  const inputReady = input.mode === 'input-ready';
+  if (inputReady ? input.status !== 'idle' && input.status !== 'ready' : !isInstanceSettledStatus(input.status)) {
     return false;
   }
 
@@ -114,7 +119,7 @@ export function isInstanceSettled(input: InstanceSettledPredicateInput): boolean
 
   const settlingOutput = findLatestSettlingOutput(input.outputBuffer, input.afterTimestamp);
   if (!settlingOutput) {
-    if (!isOutputOptionalSettledStatus(input.status)) {
+    if (!inputReady && !isOutputOptionalSettledStatus(input.status)) {
       return false;
     }
     if (

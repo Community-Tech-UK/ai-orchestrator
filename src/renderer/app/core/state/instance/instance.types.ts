@@ -245,11 +245,20 @@ export function getInstanceThreadId(
 // Store State
 // ============================================
 
+/** Why the live session list could not be loaded from the main process. */
+export interface InstanceListLoadFailure {
+  /** Raw reason (an error code or message). Technical, so the UI keeps it behind a Details disclosure. */
+  detail: string;
+}
+
 export interface InstanceStoreState {
   instances: Map<string, Instance>;
   selectedInstanceId: string | null;
   loading: boolean;
+  /** Message for actions such as create or restart. A later successful load does not clear it. */
   error: string | null;
+  /** Set while the last attempt to load the session list has failed; only a full snapshot clears it. */
+  listLoadFailure: InstanceListLoadFailure | null;
 }
 
 // ============================================

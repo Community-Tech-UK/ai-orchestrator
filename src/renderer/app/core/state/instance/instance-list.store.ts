@@ -48,6 +48,11 @@ function supportsResumeRestart(provider: Instance['provider']): boolean {
   return provider === 'claude' || provider === 'codex';
 }
 
+/** The reason a state snapshot was refused, as support would want it: "IPC_AUTH_FAILED: Missing or invalid auth token…". */
+function describeResyncFailure(error: { code?: string; message?: string } | undefined): string {
+  return [error?.code, error?.message].filter(Boolean).join(': ') || 'The state snapshot did not include a session list.';
+}
+
 @Injectable({ providedIn: 'root' })
 export class InstanceListStore {
   private stateService = inject(InstanceStateService);
@@ -102,7 +107,7 @@ export class InstanceListStore {
     const requestedRevision = this.stateService.captureTranscriptRevision();
     this.stateService.setLoading(true);
     try {
-      interface Resync { success: boolean; error?: string; data?: { instances?: unknown[] } }
+      interface Resync { success: boolean; error?: { code?: string; message?: string }; data?: { instances?: unknown[] } }
       let response = (await this.ipc.stateResync()) as Resync;
       if (!response.success) {
         await this.ipc.appReady();
@@ -121,12 +126,10 @@ export class InstanceListStore {
         }
         return;
       }
-      this.stateService.setLoading(false);
-      this.stateService.setError(response.error || 'Failed to load instances');
+      this.stateService.failListLoad(describeResyncFailure(response.error));
     } catch (err) {
       console.error('Failed to load instances:', err);
-      this.stateService.setLoading(false);
-      this.stateService.setError('Failed to load instances');
+      this.stateService.failListLoad(err instanceof Error ? err.message : String(err));
     }
   }
 

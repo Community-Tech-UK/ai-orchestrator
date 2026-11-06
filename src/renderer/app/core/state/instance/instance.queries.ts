@@ -84,6 +84,9 @@ export class InstanceQueries {
   /** Error state */
   readonly error = computed(() => this.stateService.state().error);
 
+  /** Why the session list could not be loaded; null once a load has succeeded */
+  readonly listLoadFailure = computed(() => this.stateService.state().listLoadFailure);
+
   /** Instance count */
   readonly instanceCount = computed(() =>
     this.stateService.state().instances.size

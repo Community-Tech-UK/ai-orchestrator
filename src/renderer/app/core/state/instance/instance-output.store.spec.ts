@@ -48,6 +48,7 @@ describe('InstanceOutputStore', () => {
       selectedInstanceId: null,
       loading: false,
       error: null,
+      listLoadFailure: null,
     });
   });
 

@@ -91,6 +91,7 @@ export class InstanceStore implements OnDestroy {
   readonly selectedInstanceSessionId = this.queries.selectedInstanceSessionId;
   readonly loading = this.queries.loading;
   readonly error = this.queries.error;
+  readonly listLoadFailure = this.queries.listLoadFailure;
   readonly instanceCount = this.queries.instanceCount;
   readonly instancesByStatus = this.queries.instancesByStatus;
   readonly totalContextUsage = this.queries.totalContextUsage;

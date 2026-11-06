@@ -9,6 +9,7 @@
 
       <div class="filter-bar">
         <input
+          #railFilter
           type="text"
           class="filter-input"
           placeholder="Filter projects or sessions..."
@@ -154,6 +155,8 @@
           }
         </div>
       </div>
+
+      <app-instance-list-load-failure (recovered)="railFilter.focus()" />
 
       <div
         class="instance-viewport"

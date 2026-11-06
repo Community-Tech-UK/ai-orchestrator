@@ -558,11 +558,12 @@ describe('InstanceListStore', () => {
       displayName: 'Snapshot instance',
     });
     expect(stateService.state().loading).toBe(false);
+    expect(stateService.state().listLoadFailure).toBeNull();
   });
 
   it('retries the initial load after appReady when the first resync is refused', async () => {
     ipc.stateResync
-      .mockResolvedValueOnce({ success: false, error: 'IPC_AUTH_FAILED: Missing or invalid auth token' })
+      .mockResolvedValueOnce({ success: false, error: { code: 'IPC_AUTH_FAILED', message: 'Missing or invalid auth token for state:resync' } })
       .mockResolvedValueOnce({
         success: true,
         data: {
@@ -591,16 +592,105 @@ describe('InstanceListStore', () => {
     expect(stateService.getInstance('recovered-instance')?.displayName).toBe('Recovered');
     expect(stateService.state().loading).toBe(false);
     expect(stateService.state().error).toBeNull();
+    expect(stateService.state().listLoadFailure).toBeNull();
   });
 
-  it('clears loading and surfaces an error when the initial load keeps failing', async () => {
-    ipc.stateResync.mockResolvedValue({ success: false, error: 'IPC_AUTH_FAILED' });
+  describe('when the session list cannot be loaded (LT-719)', () => {
+    const snapshotPayload = {
+      id: 'snapshot-instance',
+      displayName: 'Snapshot instance',
+      createdAt: 1,
+      historyThreadId: 'thread-snapshot',
+      parentId: null,
+      childrenIds: [],
+      status: 'idle',
+      lastActivity: 2,
+      sessionId: 'session-snapshot',
+      workingDirectory: '/tmp/project',
+      yoloMode: false,
+      provider: 'claude',
+      outputBuffer: [],
+    };
 
-    await store.loadInitialInstances();
+    // The shape main returns (see IpcMainHandler.ensureAuthorized): an object, never a string.
+    const refused = { success: false, error: { code: 'IPC_AUTH_FAILED', message: 'Missing or invalid auth token for state:resync' } };
+    const refusedDetail = 'IPC_AUTH_FAILED: Missing or invalid auth token for state:resync';
 
-    expect(stateService.state().loading).toBe(false);
-    expect(stateService.state().error).toBe('IPC_AUTH_FAILED');
-    expect(stateService.state().instances.size).toBe(0);
+    it('clears loading and records a persistent failure when the initial load keeps failing', async () => {
+      ipc.stateResync.mockResolvedValue(refused);
+
+      await store.loadInitialInstances();
+
+      expect(stateService.state().loading).toBe(false);
+      expect(stateService.state().listLoadFailure).toEqual({ detail: refusedDetail });
+      // The shared message used by create and restart flows is left alone, so it can neither leak nor go stale here.
+      expect(stateService.state().error).toBeNull();
+      expect(stateService.state().instances.size).toBe(0);
+    });
+
+    it('describes whatever reason came back, and a snapshot that has no session list', async () => {
+      const noList = { detail: 'The state snapshot did not include a session list.' };
+
+      ipc.stateResync.mockResolvedValue({ success: true, data: {} });
+      await store.loadInitialInstances();
+      expect(stateService.state().listLoadFailure).toEqual(noList);
+
+      ipc.stateResync.mockResolvedValue({ success: false });
+      await store.loadInitialInstances();
+      expect(stateService.state().listLoadFailure).toEqual(noList);
+
+      ipc.stateResync.mockResolvedValue({ success: false, error: { message: 'Not in Electron' } });
+      await store.loadInitialInstances();
+      expect(stateService.state().listLoadFailure).toEqual({ detail: 'Not in Electron' });
+    });
+
+    it('records the message when the resync itself throws, whatever it throws', async () => {
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      try {
+        ipc.stateResync.mockRejectedValueOnce(new Error('socket closed'));
+        await store.loadInitialInstances();
+        expect(stateService.state().listLoadFailure).toEqual({ detail: 'socket closed' });
+        expect(stateService.state().loading).toBe(false);
+
+        ipc.stateResync.mockRejectedValueOnce('plain refusal');
+        await store.loadInitialInstances();
+        expect(stateService.state().listLoadFailure).toEqual({ detail: 'plain refusal' });
+      } finally {
+        logged.mockRestore();
+      }
+    });
+
+    it('keeps the failure through live events and clears it only when a full snapshot loads', async () => {
+      ipc.stateResync.mockResolvedValue(refused);
+      await store.loadInitialInstances();
+
+      store.addInstance(snapshotPayload);
+      expect(stateService.getInstance('snapshot-instance')).toBeDefined();
+      expect(stateService.state().listLoadFailure).toEqual({ detail: refusedDetail });
+
+      ipc.stateResync.mockResolvedValue({ success: true, data: { instances: [snapshotPayload] } });
+      await store.loadInitialInstances();
+
+      expect(stateService.state().listLoadFailure).toBeNull();
+      expect(stateService.getInstance('snapshot-instance')?.displayName).toBe('Snapshot instance');
+    });
+
+    it('replaces the failure when a retry fails again, and does not blank a list that already loaded', async () => {
+      ipc.stateResync.mockResolvedValue({ success: true, data: { instances: [snapshotPayload] } });
+      await store.loadInitialInstances();
+      expect(stateService.state().listLoadFailure).toBeNull();
+
+      ipc.stateResync.mockResolvedValue({ success: false, error: { message: 'first refusal' } });
+      await store.loadInitialInstances();
+      const first = stateService.state().listLoadFailure;
+      ipc.stateResync.mockResolvedValue({ success: false, error: { message: 'second refusal' } });
+      await store.loadInitialInstances();
+
+      expect(first).toEqual({ detail: 'first refusal' });
+      expect(stateService.state().listLoadFailure).toEqual({ detail: 'second refusal' });
+      expect(stateService.state().listLoadFailure).not.toBe(first);
+      expect(stateService.getInstance('snapshot-instance')).toBeDefined();
+    });
   });
 
   it('returns the created instance id when creating a blank instance', async () => {

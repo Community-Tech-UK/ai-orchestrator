@@ -2,8 +2,6 @@ import type {
   CliMessage,
   AdapterInputDispatch,
   CliResponse,
-  CliToolCall,
-  TurnInterruptCompletion,
 } from './base-cli-adapter';
 import { CodexAppServerNotificationAdapter } from './codex-app-server-notification-adapter';
 import type { FileAttachment, InstanceStatus, ThinkingContent } from '../../../shared/types/instance.types';
@@ -15,11 +13,7 @@ import type {
   TurnCaptureState,
   UserInput,
 } from './codex/app-server-types';
-import { getCommandAggregatedOutput, getCommandExitCode } from './codex/thread-item-accessors';
-import {
-  extractCodexAppServerError,
-  formatCodexAppServerError,
-} from './codex/app-server-errors';
+import { buildToolCallsFromTurnState, toTurnInterruptCompletion } from './codex/turn-result';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
 import { hasPendingBrowserApproval } from './codex/browser-approval-watchdog';
 import { wrapCodexSystemInstructions } from './codex/codex-prompt-blocks';
@@ -57,6 +51,9 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
   private readonly pendingProviderNotifications = new PendingCodexTurnNotifications();
   /** Harness sends in flight; they own the busy/idle status while they run. */
   private pendingHarnessSends = 0;
+  private terminating = false;
+  /** Bounded replay protection; native turn ids are never reused. */
+  private readonly finishedProviderTurns = new Set<string>();
   /** Last goal status Codex reported, keyed to the thread it was reported for. */
   private threadGoal: { threadId: string; status: ThreadGoalStatus | null } | null = null;
 
@@ -93,6 +90,8 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
 
   protected override handleIdleAppServerNotification(notification: AppServerNotification): void {
     this.trackThreadGoal(notification);
+    if (notification.method === 'turn/started' && notification.params['threadId'] === this.getAppServerThreadId()
+      && this.finishedProviderTurns.has(notificationTurnId(notification) as string)) return;
     const currentTurnId = this.appServerRuntime.getCurrentTurnId();
     const belongsToCurrentRoot = currentTurnId && notification.params['threadId'] === this.getAppServerThreadId()
       && notificationTurnId(notification) === currentTurnId;
@@ -178,18 +177,29 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
 
   /** Follow a root-thread turn Codex started itself. Compact turns stay with compaction. */
   private followProviderTurn(notification: AppServerNotification, buffered: AppServerNotification[] = []): boolean {
-    if (notification.method !== 'turn/started' || !this.useAppServer) return false;
+    if (notification.method === 'turn/completed' && notification.params['threadId'] === this.getAppServerThreadId()) {
+      this.rememberFinishedTurn(notificationTurnId(notification));
+    }
+    if (notification.method !== 'turn/started' || !this.useAppServer || !this.isSpawned || this.terminating) return false;
     const rootThreadId = this.getAppServerThreadId();
     if (!rootThreadId || notification.params['threadId'] !== rootThreadId) return false;
     const turnId = (notification.params['turn'] as { id?: unknown } | undefined)?.id;
     if (typeof turnId !== 'string') return false;
+    if (this.finishedProviderTurns.has(turnId)) return false;
     if (this.contextCostController.isCompactTurnExpected()) return false;
+    const active = this.appServerRuntime.getActiveTurnState();
+    const activeTurnId = this.appServerRuntime.getCurrentTurnId();
+    if (active && activeTurnId !== null && activeTurnId !== turnId && !active.completed) {
+      this.rememberFinishedTurn(activeTurnId);
+      this.completeTurn(active, null);
+    }
     if (this.appServerRuntime.hasActiveTurn() || this.providerTurnDone || this.harnessTurnPublishing) {
       // Capturing and publishing both own the prior turn's output and usage.
       const currentTurnId = this.appServerRuntime.getCurrentTurnId();
       // The current capture adopts its first turn/started, including before turn/start replies.
       if (!this.appServerRuntime.hasActiveTurn() || (currentTurnId !== null && currentTurnId !== turnId)) {
         this.pendingProviderNotifications.push(notification);
+        this.emit('status', 'busy' as InstanceStatus);
         return true;
       }
       return false;
@@ -198,18 +208,30 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
       ...this.turnCaptureCallbacks(),
       onBufferedNotification: event => {
         this.pendingProviderNotifications.release(event);
+        if (event.method === 'turn/completed' && event.params['threadId'] === rootThreadId) {
+          this.rememberFinishedTurn(notificationTurnId(event));
+        }
         super.handleIdleAppServerNotification(event);
       },
     }, [notification, ...buffered]);
     if (!capture) return false;
+    // Another queued root start proves this replayed turn ended, even if its terminal was lost.
+    const replayed = this.appServerRuntime.getActiveTurnState();
+    if (this.pendingProviderNotifications.length > 0 && replayed && !replayed.completed) {
+      this.rememberFinishedTurn(turnId);
+      this.completeTurn(replayed, null);
+    }
     logger.info('Following a turn Codex started by itself', { threadId: rootThreadId, turnId });
     this.emit('status', 'busy' as InstanceStatus);
     const startedAtMs = Date.now();
+    const epoch = this.childRolloutRetryEpoch;
+    const current = () => epoch === this.childRolloutRetryEpoch && rootThreadId === this.getAppServerThreadId();
     const done: Promise<void> = capture
-      .then((state) => this.finishProviderTurn(state, rootThreadId, startedAtMs))
-      .catch((error: unknown) => this.failProviderTurn(turnId, error))
+      .then((state) => current() ? this.finishProviderTurn(state, rootThreadId, startedAtMs) : undefined)
+      .catch((error: unknown) => { if (current()) this.failProviderTurn(turnId, error); })
       .finally(() => {
         if (this.providerTurnDone === done) this.providerTurnDone = null;
+        if (!current()) return;
         if (this.followPendingProviderTurn()) return;
         // A terminated or exited adapter reports through its exit path, and a Harness send owns its own status.
         if (!this.isSpawned || !this.useAppServer || this.pendingHarnessSends > 0) return;
@@ -221,18 +243,33 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
   }
 
   private followPendingProviderTurn(): boolean {
-    if (this.providerTurnDone || this.harnessTurnPublishing || this.appServerRuntime.hasActiveTurn()
-      || this.pendingProviderNotifications.length === 0) return false;
-    const [first, ...rest] = this.pendingProviderNotifications.takeTurn();
-    this.followProviderTurn(first, rest);
-    return true;
+    while (!this.providerTurnDone && !this.harnessTurnPublishing && !this.appServerRuntime.hasActiveTurn()
+      && this.pendingProviderNotifications.length > 0) {
+      const [first, ...rest] = this.pendingProviderNotifications.takeTurn();
+      if (this.followProviderTurn(first, rest)) return true;
+      for (const event of [first, ...rest]) {
+        this.pendingProviderNotifications.release(event);
+        super.handleIdleAppServerNotification(event);
+      }
+    }
+    return false;
+  }
+
+  private rememberFinishedTurn(turnId: unknown): void {
+    if (typeof turnId !== 'string') return;
+    this.finishedProviderTurns.add(turnId);
+    const oldest = this.finishedProviderTurns.values().next();
+    if (this.finishedProviderTurns.size > 64 && !oldest.done) this.finishedProviderTurns.delete(oldest.value);
   }
 
   private async finishProviderTurn(state: TurnCaptureState, rootThreadId: string, startedAtMs: number): Promise<void> {
+    const epoch = this.childRolloutRetryEpoch;
     const endedAtMs = Date.now();
     const turnId = state.turnId;
+    this.rememberFinishedTurn(turnId);
     this.usageAccounting.fallback(rootThreadId, state.finalTurn?.usage as Record<string, unknown> | undefined);
     if (turnId) await this.reconcileChildRollouts(rootThreadId, turnId, startedAtMs, endedAtMs);
+    if (epoch !== this.childRolloutRetryEpoch || rootThreadId !== this.getAppServerThreadId()) return;
     if (state.finalTurn?.status === 'interrupted' && !state.finalTurn.usage) {
       this.usageAccounting.estimateInterruptedOutput(rootThreadId, this.unreportedStreamedCharacters(state));
     }
@@ -430,7 +467,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
   private emitCompletedTurn(turnState: TurnCaptureState): void {
     // Emit the final response
     const responseContent = turnState.lastAgentMessage || '';
-    const toolCalls = this.buildToolCallsFromTurnState(turnState);
+    const toolCalls = buildToolCallsFromTurnState(turnState);
 
     if (responseContent || toolCalls.length > 0) {
       const extracted = extractThinkingContent(responseContent, { headerStyle: false });
@@ -507,11 +544,15 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
   }
 
   override async terminate(graceful = true): Promise<void> {
+    this.terminating = true;
+    this.providerTurnDone = null;
+    this.finishedProviderTurns.clear();
     this.pendingProviderNotifications.clear();
     this.childRolloutRetryEpoch++;
     for (const timer of this.childRolloutRetryTimers) clearTimeout(timer);
     this.childRolloutRetryTimers.clear();
-    await super.terminate(graceful);
+    try { await super.terminate(graceful); }
+    finally { this.terminating = false; }
   }
 
   private scheduleChildRolloutRetry(
@@ -545,7 +586,9 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
   }
 
   protected async reconcileChildRollouts(rootThreadId: string, rootTurnId: string, startedAtMs: number, endedAtMs: number): Promise<void> {
+    const epoch = this.childRolloutRetryEpoch;
     const receipts = await readChildRolloutUsage(rootThreadId, rootTurnId, { startedAtMs, endedAtMs });
+    if (epoch !== this.childRolloutRetryEpoch || rootThreadId !== this.getAppServerThreadId()) return;
     if (!this.usageAccounting.ownsThread(rootThreadId)) return;
     for (const { threadId, usage, baseline } of receipts) {
       if (baseline && !this.usageAccounting.hasThreadSnapshot(threadId)) this.usageAccounting.seed(threadId, baseline);
@@ -599,7 +642,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
       createState: createCodexTurnCaptureState,
       belongsToTurn: (state, notification) => this.belongsToTurn(state, notification),
       handleNotification: (state, notification) => this.handleTurnNotification(state, notification),
-      toInterruptCompletion: (state) => this.toTurnInterruptCompletion(state),
+      toInterruptCompletion: toTurnInterruptCompletion,
       resolveNotificationIdleTimeoutMs: (turnEstablished) => {
         const configured = this.resolveNotificationIdleTimeoutMs(turnEstablished);
         const activeTimeoutMs = metadata?.['continueWhileActiveOnTimeout'] === true
@@ -629,70 +672,10 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     }
   }
 
-  private toTurnInterruptCompletion(state: TurnCaptureState): TurnInterruptCompletion {
-    const finalStatus = state.finalTurn?.status;
-    const reason = state.error instanceof Error
-      ? state.error.message
-      : typeof state.error === 'string'
-        ? state.error
-        : state.finalTurn?.error !== undefined && state.finalTurn.error !== null
-          ? formatCodexAppServerError(extractCodexAppServerError({ error: state.finalTurn.error }))
-          : undefined;
-
-    if (finalStatus === 'interrupted') {
-      return { status: 'interrupted', turnId: state.turnId ?? undefined, reason };
-    }
-
-    if (finalStatus === 'completed') {
-      return { status: 'completed', turnId: state.turnId ?? undefined, reason };
-    }
-
-    if (finalStatus === 'failed') {
-      return { status: 'rejected', turnId: state.turnId ?? undefined, reason: reason ?? 'Codex turn failed' };
-    }
-
-    return {
-      status: state.completed ? 'completed' : 'unknown',
-      turnId: state.turnId ?? undefined,
-      reason,
-    };
-  }
-
   /** Test-facing compatibility wrapper around the runtime-owned state factory. */
   private createTurnCaptureState(threadId: string): TurnCaptureState {
     return createCodexTurnCaptureState(threadId);
   }
 
-  /** Converts captured commands and file changes into tool calls. */
-  private buildToolCallsFromTurnState(state: TurnCaptureState): CliToolCall[] {
-    const toolCalls: CliToolCall[] = [];
-
-    for (const cmd of state.commandExecutions) {
-      const exitCode = getCommandExitCode(cmd);
-      toolCalls.push({
-        id: cmd.id || `tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        name: 'command_execution',
-        arguments: {
-          command: cmd.command,
-          exitCode,
-          status: cmd.status,
-        },
-        result: getCommandAggregatedOutput(cmd) || undefined,
-      });
-    }
-
-    for (const fc of state.fileChanges) {
-      toolCalls.push({
-        id: fc.id || `tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        name: 'file_change',
-        arguments: {
-          path: fc.path,
-          changeType: fc.changeType,
-        },
-        result: fc.description || undefined,
-      });
-    }
-    return toolCalls;
-  }
   protected abstract resolveNotificationIdleTimeoutMs(turnEstablished: boolean): number;
 }
