@@ -41,11 +41,12 @@ export class PlanQueueRunControl {
           logger.info('Plan queue run paused', { runId: run.id, actor });
           break;
         case 'resume':
+          if (run.status === 'running' && run.holdReason) { host.upsertRun({ ...run, holdReason: null }); break; }
           if (run.status !== 'paused') break;
           await host.preflightRun(run);
           // Retry an interrupted checkpoint/revert before allowing the scheduler to run.
           await host.holdRun(run);
-          host.upsertRun({ ...host.getRun(run.id), status: 'running' });
+          host.upsertRun({ ...host.getRun(run.id), status: 'running', holdReason: null });
           logger.info('Plan queue run resumed', { runId: run.id, actor });
           break;
         case 'set-routing':

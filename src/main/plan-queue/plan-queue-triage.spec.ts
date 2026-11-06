@@ -20,6 +20,7 @@ let create: ReturnType<typeof vi.fn>;
 let select: ReturnType<typeof vi.fn>;
 let userClosed: boolean;
 let retire: ReturnType<typeof vi.fn>;
+let breaker: { note: ReturnType<typeof vi.fn>; succeeded: ReturnType<typeof vi.fn> };
 /** What the created triage session reports; null = the provider it was asked for. */
 let live: { provider?: string; currentModel?: string } | null;
 
@@ -27,6 +28,7 @@ beforeEach(() => {
   run = { ...initialRun, config: { ...initialRun.config } };
   items = Array.from({ length: 9 }, (_, index) => newPlanQueueItem(`item-${index}`, run.id, `/repo/${index}_plan.md`, index));
   now = 0; userClosed = false; retire = vi.fn(); live = null;
+  breaker = { note: vi.fn(), succeeded: vi.fn() };
   create = vi.fn().mockResolvedValue({ id: 'triage-1' });
   select = vi.fn().mockResolvedValue({ ok: true, choice: { provider: 'claude' } });
   const host = {
@@ -40,7 +42,7 @@ beforeEach(() => {
       return saved;
     },
     consumeUserClose: () => userClosed, selectVerifier: select, registerRole: vi.fn(), requestPump: vi.fn(),
-    liveParentId: () => 'parent', retireInstance: retire, now: () => now,
+    liveParentId: () => 'parent', retireInstance: retire, now: () => now, breaker: () => breaker,
   };
   triage = new PlanQueueTriage(host as unknown as ConstructorParameters<typeof PlanQueueTriage>[0]);
 });
@@ -111,28 +113,92 @@ describe('readiness batches and retries', () => {
     expect(create.mock.calls[1][0].initialPrompt).not.toContain('/repo/0_plan.md');
   });
 
-  it('parks unreported documents after two outcomes, with both provider causes', async () => {
-    await start();
-    triage.onOutcome('triage-1', run.id, { kind: 'failed', reason: 'checker failed' });
-    create.mockResolvedValueOnce({ id: 'triage-2' });
-    await start();
-    triage.onOutcome('triage-2', run.id, { kind: 'provider-limit', notice: 'weekly limit' });
-    expect(items[0]).toMatchObject({ state: 'parked', parkReason: 'triage-failed' });
-    expect(items[0].detail).toContain('checker failed');
-    expect(items[0].detail).toContain('Codex');
-    expect(items[0].detail).toContain('Claude');
-    expect(items[8].state).toBe('discovered');
+  it('never sets a document aside for a failed session or a usage limit, however often they happen', async () => {
+    for (let attempt = 1; attempt <= 6; attempt += 1) {
+      create.mockResolvedValueOnce({ id: `triage-${attempt}` });
+      now += 60 * 60_000;
+      await start();
+      triage.onOutcome(`triage-${attempt}`, run.id, attempt % 2 ? { kind: 'failed', reason: 'checker failed' } : { kind: 'provider-limit', notice: 'weekly limit' });
+    }
+    expect(items.every(item => item.state === 'discovered')).toBe(true);
+    expect(breaker.note).toHaveBeenCalledWith(run.id, null, 'its session failed: checker failed');
   });
 
-  it('parks the batch after three consecutive failed starts', async () => {
+  it('retries at once on another provider, then waits 1, 5 and 15 minutes', async () => {
+    create.mockResolvedValueOnce({ id: 'triage-0' });
+    await start();
+    triage.onOutcome('triage-0', run.id, { kind: 'failed', reason: 'checker failed' });
+    for (const [attempt, waitMs] of [[1, 60_000], [2, 5 * 60_000], [3, 15 * 60_000]] as const) {
+      create.mockResolvedValueOnce({ id: `triage-${attempt}` });
+      create.mockClear();
+      await start();
+      triage.onOutcome(`triage-${attempt}`, run.id, { kind: 'failed', reason: 'checker failed' });
+      await waitForRetirement();
+      now += waitMs - 1;
+      triage.maybeStart(run, items);
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(create).toHaveBeenCalledTimes(1);
+      now += 1;
+    }
+  });
+
+  it('counts a whole batch with no answer towards a hold, and a partly answered batch as a good sign', async () => {
+    const ended = { kind: 'turn-complete' as const };
+    create.mockResolvedValueOnce({ id: 'batch-1' });
+    await start();
+    triage.onOutcome('batch-1', run.id, ended as never);
+    expect(breaker.note).toHaveBeenCalledWith(run.id, null, 'it ended without answering');
+    expect(breaker.succeeded).not.toHaveBeenCalled();
+    create.mockResolvedValueOnce({ id: 'batch-2' });
+    await start();
+    items[0] = { ...items[0], state: 'queued' };
+    triage.onOutcome('batch-2', run.id, ended as never);
+    expect(breaker.succeeded).toHaveBeenCalledWith(run.id, null);
+  });
+
+  it('sets nothing aside once the run is on hold', async () => {
+    const ended = { kind: 'turn-complete' as const };
+    for (const id of ['batch-1', 'batch-2', 'alone']) {
+      create.mockResolvedValueOnce({ id });
+      now += 60 * 60_000;
+      await start();
+      if (id === 'alone') run = { ...run, holdReason: 'No new work is starting' };
+      triage.onOutcome(id, run.id, ended as never);
+    }
+    expect(items.every(item => item.state === 'discovered')).toBe(true);
+  });
+
+  it('asks about each document alone before setting any aside, so one bad document cannot take the batch with it', async () => {
+    const ended = { kind: 'turn-complete' as const };
+    create.mockResolvedValueOnce({ id: 'batch-1' });
+    await start();
+    triage.onOutcome('batch-1', run.id, ended as never);
+    now += 60 * 60_000;
+    create.mockResolvedValueOnce({ id: 'batch-2' });
+    await start();
+    triage.onOutcome('batch-2', run.id, ended as never);
+    expect(items.every(item => item.state === 'discovered')).toBe(true);
+    now += 60 * 60_000;
+    create.mockResolvedValueOnce({ id: 'alone' });
+    create.mockClear();
+    await start();
+    expect(create.mock.calls[0][0].initialPrompt).toContain('/repo/0_plan.md');
+    expect(create.mock.calls[0][0].initialPrompt).not.toContain('/repo/1_plan.md');
+    triage.onOutcome('alone', run.id, ended as never);
+    expect(items[0]).toMatchObject({ state: 'parked', parkReason: 'triage-failed' });
+    expect(items[1].state).toBe('discovered');
+    expect(items[0].detail).toContain('ended without answering');
+  });
+
+  it('leaves documents waiting after failed starts and lets the breaker hold the run', async () => {
     create.mockRejectedValue(new Error('spawn unavailable'));
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      now = attempt * 60_000;
+      now = attempt * 60 * 60_000;
       await start();
     }
-    expect(items.slice(0, 8).every((item) => item.state === 'parked')).toBe(true);
-    expect(items[0].detail).toContain('spawn unavailable');
-    expect(items[8].state).toBe('discovered');
+    expect(items.every((item) => item.state === 'discovered')).toBe(true);
+    expect(breaker.note).toHaveBeenCalledTimes(3);
+    expect(breaker.note).toHaveBeenCalledWith(run.id, null, 'spawn unavailable');
   });
 });
 
@@ -323,9 +389,7 @@ describe('retry routing at the final asynchronous dispatch boundary', () => {
     expect(now).toBe(0); // Reselection did not enter the failed-start backoff.
     expect(items[0].state).toBe('discovered');
     triage.onOutcome('current-retry', run.id, { kind: 'failed', reason: 'second actual failure' });
-    expect(items[0]).toMatchObject({ state: 'parked', parkReason: 'triage-failed' });
-    expect(items[0].detail).toContain('first actual failure');
-    expect(items[0].detail).toContain('second actual failure');
+    expect(items[0].state).toBe('discovered');
   });
 });
 

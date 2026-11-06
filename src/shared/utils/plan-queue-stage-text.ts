@@ -1,9 +1,10 @@
 /**
  * Words for the Plan Queue steps that have no session: Harness running a job's checks, landing it, or the job
- * waiting for one of those. Shared by the session list and the Plan Queue page so both say the same thing.
+ * waiting for one of those. Shared by the session list, the Plan Queue page and `plan_queue_status` evidence so all
+ * three say the same thing.
  */
-import type { PlanQueueItemDto } from '@contracts/schemas/plan-queue';
-import { describeHealthDuration } from '../../../../shared/utils/plan-queue-health-lines';
+import type { PlanQueueCheckWait, PlanQueueItemDto } from '@contracts/schemas/plan-queue';
+import { describeHealthDuration } from './plan-queue-health-lines';
 import { foldDetail, planQueueDocumentLabel } from './plan-queue-item-display';
 
 /** A step past this is called out as longer than usual. Checks and landings normally take well under it. */
@@ -27,6 +28,17 @@ export interface PlanQueueStageLine {
 
 const LONG_HINT = ' This is taking longer than usual.';
 
+const CHECK_WAITS: Record<PlanQueueCheckWait, { text: string; hint: string }> = {
+  'other-checks': { text: 'waiting for a free check slot', hint: 'Another job\'s checks are using the place this one needs.' },
+  'computer-busy': { text: 'waiting for the computer to be less busy', hint: 'Harness holds new checks while the computer is under heavy load.' },
+  'harness-held': { text: 'waiting for Harness to start new work again', hint: 'New work is held or paused across Harness, so these checks have not started.' },
+  'run-on-hold': { text: 'waiting while this run is on hold', hint: 'Nothing new starts in this run for now. The run shows why.' },
+  'tidying-up': { text: 'waiting while Harness tidies up a finished job', hint: 'Nothing new starts in this run until a finished job\'s session and folder are cleared away.' },
+  'trying-later': { text: 'waiting to try again', hint: 'Its checks could not start last time, so Harness will try again shortly.' },
+  'checked-together': { text: 'waiting to be checked with another job', hint: 'It will be checked as part of another job\'s group.' },
+};
+const CHECK_WAIT_UNKNOWN = { text: 'waiting for its turn to be checked', hint: 'The work is done and waits for Harness to check it.' };
+
 /** `now` is the caller's clock, so a list re-renders the times together. Null when the job is not in such a step. */
 export function planQueueStageLine(item: PlanQueueItemDto, now: number): PlanQueueStageLine | null {
   const stage = item.stage;
@@ -46,10 +58,11 @@ export function planQueueStageLine(item: PlanQueueItemDto, now: number): PlanQue
     case 'landing':
       return line('landing', `Landing ${name}: commit checks running`,
         'Harness is adding this job to the base branch and running the commit checks, so no session shows it.');
-    case 'waiting-for-checks':
-      // The queue's own note says why when it is not simply a full slot (paused checks, usage, a closed checker).
-      return line('waiting', `${name}: waiting for a free check slot`,
-        foldDetail(item.detail)?.preview ?? 'The work is done and waits for Harness to check it.');
+    case 'waiting-for-checks': {
+      const wait = stage.checkWait ? CHECK_WAITS[stage.checkWait] : CHECK_WAIT_UNKNOWN;
+      // The queue's own note is more exact when it has one (usage, a closed checker).
+      return line('waiting', `${name}: ${wait.text}`, foldDetail(item.detail)?.preview ?? wait.hint);
+    }
     case 'waiting-to-land':
       return line('waiting', `${name}: waiting for another job to finish landing`,
         'Jobs land one at a time; this one has passed its checks.');

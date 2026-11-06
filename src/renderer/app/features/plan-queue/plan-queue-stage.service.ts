@@ -3,7 +3,7 @@ import { InstanceStore } from '../../core/state/instance.store';
 import { PlanQueueStore } from '../../core/state/plan-queue.store';
 import { isProjectRailHiddenSession } from '../../../../shared/utils/project-rail-hidden-session';
 import { ProjectRailPathService } from '../instance-list/project-rail-path.service';
-import { PLAN_QUEUE_STAGE_TICK_MS, planQueueStageLine, planQueueStageSummary, type PlanQueueStageLine } from './plan-queue-stage-text';
+import { PLAN_QUEUE_STAGE_TICK_MS, planQueueStageLine, planQueueStageSummary, type PlanQueueStageLine } from '../../../../shared/utils/plan-queue-stage-text';
 
 /** One running Plan Queue run's jobs that are in a step with no session (checks, landing, or waiting for either). */
 export interface PlanQueueStageRun {

@@ -86,6 +86,11 @@ export class SessionQueueService {
     return SessionAdmissionStore.getInstance(getRLMDatabase().getRawDb());
   }
 
+  /** Whether a message is still waiting in this session's durable queue. */
+  hasQueuedMessages(instanceId: string): boolean {
+    return this.getStore().listQueued(instanceId).length > 0;
+  }
+
   /** Only a fresh passive head may bridge two provider turns without an idle edge. */
   getReadyHandoffId(instanceId: string): string | undefined {
     const head = this.getStore().listQueued(instanceId)[0];

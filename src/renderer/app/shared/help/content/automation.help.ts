@@ -174,8 +174,8 @@ export const PLAN_QUEUE_HELP: HelpEntry = {
     {
       kind: 'callout',
       variant: 'warning',
-      heading: 'Land anyway and Discard cannot be undone',
-      body: 'Landing a branch that never passed verification, or discarding a parked item\'s work, both require an explicit confirm click because neither can be reversed afterward.',
+      heading: 'Land anyway and Discard need a confirm click',
+      body: 'Landing a branch that never passed verification, or discarding a parked item\'s work, both require an explicit confirm click. A landed branch stays landed. Harness keeps discarded work for 30 days, and an agent can bring it back.',
     },
   ],
 };

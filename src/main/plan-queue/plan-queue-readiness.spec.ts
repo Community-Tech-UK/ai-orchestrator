@@ -20,6 +20,7 @@ let run: PlanQueueRun;
 let host: Parameters<typeof reconcileWaitingDocuments>[0];
 let applyTriageRecords: typeof Readiness.applyTriageRecords;
 let automaticDecisionPatch: typeof Readiness.automaticDecisionPatch;
+let missingDocumentNote: typeof Readiness.missingDocumentNote;
 let reconcileWaitingDocuments: typeof Readiness.reconcileWaitingDocuments;
 
 function technicalQuestion(): PlanQueueQuestion {
@@ -61,7 +62,7 @@ beforeEach(async () => {
   vi.spyOn(realFs, 'lstat');
   syncBuiltinESMExports();
   vi.resetModules();
-  ({ applyTriageRecords, automaticDecisionPatch, reconcileWaitingDocuments } = await import('./plan-queue-readiness'));
+  ({ applyTriageRecords, automaticDecisionPatch, missingDocumentNote, reconcileWaitingDocuments } = await import('./plan-queue-readiness'));
 });
 
 afterEach(() => {
@@ -178,13 +179,12 @@ describe('reconcileWaitingDocuments', () => {
       expect(host.getItem(item.id).detail).toMatch(/outside/i);
     } finally { rmSync(external, { recursive: true, force: true }); }
   });
-  it('parks inspection permission errors instead of interpreting them as a missing document', async () => {
+  it.each(['EACCES', 'EMFILE', 'EIO'])('tries again on a %s read, which says nothing about the document and would hit every job at once', async code => {
     const item = addItem({ state: 'needs-answer', question: technicalQuestion() });
     writeFileSync(item.documentPath, 'Active plan');
-    vi.mocked(realFs.lstat).mockRejectedValueOnce(Object.assign(new Error('Permission denied'), { code: 'EACCES' }));
+    vi.mocked(realFs.lstat).mockRejectedValueOnce(Object.assign(new Error('Could not read'), { code }));
     await reconcileWaitingDocuments(host, run);
-    expect(host.getItem(item.id)).toMatchObject({ state: 'parked', parkReason: 'worker-error', question: null, verdict: null });
-    expect(host.getItem(item.id).detail).toContain('Permission denied');
+    expect(host.getItem(item.id)).toMatchObject({ state: 'needs-answer', parkReason: null });
     expect(realFs.lstat).toHaveBeenCalledTimes(1);
   });
 
@@ -239,6 +239,15 @@ describe('reconcileWaitingDocuments', () => {
     await reconcileWaitingDocuments(host, run);
     expect(host.getItem(item.id)).toMatchObject({ state: 'parked', parkReason: 'missing-document', verdict: null });
     expect(host.getItem(item.id).detail).toContain('no exact completed replacement');
+  });
+
+  it('says what became of a started job\'s document', async () => {
+    const document = path.join(workspace, 'started_plan.md');
+    expect(await missingDocumentNote(document, workspace)).toContain('no exact completed replacement');
+    writeFileSync(document.replace(/\.md$/, '_completed.md'), 'Closed document');
+    expect(await missingDocumentNote(document, workspace)).toContain('closed as started_plan_completed.md');
+    writeFileSync(document, 'Active plan');
+    expect(await missingDocumentNote(document, workspace)).toBeNull();
   });
 
   it('retains an active source when a completed sibling also exists', async () => {

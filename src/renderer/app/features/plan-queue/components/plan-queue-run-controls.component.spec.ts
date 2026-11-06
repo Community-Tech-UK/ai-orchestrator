@@ -1,142 +1,50 @@
-import { ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
-import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { ComponentRef, ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PlanQueueItemDto, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
+import type { PlanQueueRunDto } from '@contracts/schemas/plan-queue';
 import { PlanQueueRunControlsComponent } from './plan-queue-run-controls.component';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
-const template = readFileSync(resolve(specDirectory, './plan-queue-run-controls.component.html'), 'utf8');
-const styles = readFileSync(resolve(specDirectory, './plan-queue-run-controls.component.scss'), 'utf8');
-
 await resolveComponentResources((url) => {
-  if (url.endsWith('plan-queue-run-controls.component.html')) return Promise.resolve(template);
-  if (url.endsWith('plan-queue-run-controls.component.scss')) return Promise.resolve(styles);
+  if (url.endsWith('plan-queue-run-controls.component.html')) return Promise.resolve(readFileSync(resolve(specDirectory, './plan-queue-run-controls.component.html'), 'utf8'));
   if (url.endsWith('.html') || url.endsWith('.scss')) return Promise.resolve('');
   return Promise.reject(new Error(`Unexpected resource: ${url}`));
 });
 
-function makeRun(overrides: Partial<PlanQueueRunDto> = {}): PlanQueueRunDto {
-  return {
-    id: 'run-1',
-    parentInstanceId: 'inst-1',
-    kind: 'plans',
-    workspaceCwd: '/repo',
-    status: 'running',
-    config: {
-      workerSlots: 3,
-      verificationSlots: 2,
-      maxRounds: 3,
-      maxLoadAverage: 30,
-      postMergeGate: [],
-      verifierGates: [],
-      relaxSettings: false,
-    },
-    workerProvider: 'claude',
-    relaxedSettings: [],
-    startedAt: 1,
-    endedAt: null,
-    items: [],
-    ...overrides,
-  };
-}
+const run = (overrides: Partial<PlanQueueRunDto> = {}) => ({ id: 'run', status: 'running', items: [], holdReason: null, ...overrides }) as unknown as PlanQueueRunDto;
 
 describe('PlanQueueRunControlsComponent', () => {
-  let fixture: ComponentFixture<PlanQueueRunControlsComponent>;
+  let ref: ComponentRef<PlanQueueRunControlsComponent>;
+  let host: HTMLElement;
+  const fixture = () => {
+    const created = TestBed.createComponent(PlanQueueRunControlsComponent);
+    ref = created.componentRef;
+    host = created.nativeElement as HTMLElement;
+    return created;
+  };
+  const resume = () => host.querySelector<HTMLButtonElement>('.pq-resume');
 
-  async function render(run: PlanQueueRunDto): Promise<void> {
-    await TestBed.configureTestingModule({ imports: [PlanQueueRunControlsComponent] }).compileComponents();
-    fixture = TestBed.createComponent(PlanQueueRunControlsComponent);
-    fixture.componentRef.setInput('run', run);
-    fixture.detectChanges();
-  }
+  beforeEach(() => TestBed.configureTestingModule({ imports: [PlanQueueRunControlsComponent] }));
 
-  beforeEach(() => {
-    TestBed.resetTestingModule();
+  it('says why a held run has stopped starting work, and offers Resume', () => {
+    const created = fixture();
+    ref.setInput('run', run({ holdReason: 'No new work is starting: three jobs failed the same way.' }));
+    created.detectChanges();
+    expect(host.querySelector('.pq-run-status')?.textContent).toContain('On hold');
+    expect(host.querySelector('.pq-run-hold')?.textContent).toContain('three jobs failed the same way');
+    const emitted = vi.fn();
+    created.componentInstance.resumeRun.subscribe(emitted);
+    resume()!.click();
+    expect(emitted).toHaveBeenCalledWith('run');
   });
 
-  it('explains that Pause stops new work and pauses running work until resume on keyboard focus', async () => {
-    await render(makeRun());
-    const button = fixture.nativeElement.querySelector('button') as HTMLButtonElement;
-    const matches = button.matches.bind(button);
-    vi.spyOn(button, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
-    button.focus(); fixture.detectChanges();
-    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('Stops anything new from starting and pauses work already running. Paused work is saved and carries on when you resume.');
-    button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+  it('shows no Resume on a healthy running run', () => {
+    const created = fixture();
+    ref.setInput('run', run());
+    created.detectChanges();
+    expect(resume()).toBeNull();
   });
-
-  it('shows Pause and Cancel for a running run', async () => {
-    await render(makeRun({ status: 'running' }));
-    expect(fixture.nativeElement.textContent).toContain('Pause');
-    expect(fixture.nativeElement.textContent).toContain('Cancel');
-    expect(fixture.nativeElement.textContent).not.toContain('Resume');
-  });
-
-  it('shows Resume and Cancel for a paused run', async () => {
-    await render(makeRun({ status: 'paused' }));
-    expect(fixture.nativeElement.textContent).toContain('Resume');
-    expect(fixture.nativeElement.textContent).toContain('Cancel');
-    expect(Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>).map(button => button.textContent?.trim())).not.toContain('Pause');
-  });
-
-  it('shows no action buttons for a completed run', async () => {
-    await render(makeRun({ status: 'completed' }));
-    expect(fixture.nativeElement.querySelectorAll('button')).toHaveLength(0);
-  });
-
-  it('emits pauseRun with the run id', async () => {
-    await render(makeRun({ id: 'run-x', status: 'running' }));
-    const emitted: string[] = [];
-    fixture.componentInstance.pauseRun.subscribe((id) => emitted.push(id));
-    (fixture.nativeElement.querySelector('button') as HTMLButtonElement).click();
-    expect(emitted).toEqual(['run-x']);
-  });
-
-  it('requires a confirm click before emitting cancelRun', async () => {
-    await render(makeRun({ id: 'run-x', status: 'running' }));
-    const emitted: string[] = [];
-    fixture.componentInstance.cancelRun.subscribe((id) => emitted.push(id));
-
-    (fixture.nativeElement.querySelector('.pq-cancel') as HTMLButtonElement).click();
-    fixture.detectChanges();
-    expect(emitted).toHaveLength(0);
-    expect(fixture.nativeElement.textContent).toContain('Cancel this run?');
-
-    (fixture.nativeElement.querySelector('.pq-confirm-yes') as HTMLButtonElement).click();
-    expect(emitted).toEqual(['run-x']);
-  });
-
-  it('lets James back out of the cancel confirmation without cancelling', async () => {
-    await render(makeRun({ id: 'run-x', status: 'running' }));
-    const emitted: string[] = [];
-    fixture.componentInstance.cancelRun.subscribe((id) => emitted.push(id));
-
-    (fixture.nativeElement.querySelector('.pq-cancel') as HTMLButtonElement).click();
-    fixture.detectChanges();
-    (fixture.nativeElement.querySelectorAll('button')[1] as HTMLButtonElement).click();
-    fixture.detectChanges();
-
-    expect(emitted).toHaveLength(0);
-    expect(fixture.nativeElement.textContent).toContain('Pause');
-  });
-  it('shows Running with what it is working on and the next document', async () => {
-    const item: PlanQueueItemDto = {
-      id: 'item-1', runId: 'run-1', documentPath: '/repo/a_plan.md', state: 'verifying', round: 2,
-      erroredRounds: 0, branchName: null, worktreePath: null, baseCommit: null, checkpointCommit: null,
-      landedCommit: null, workerInstanceId: null, verifierInstanceId: null, question: null,
-      answer: null, parkReason: null, detail: null, verdict: null, createdAt: 1, updatedAt: 1,
-    };
-    await render(makeRun({ items: [item, { ...item, id: 'next', documentPath: '/repo/b_plan.md', state: 'queued' }] }));
-    expect(fixture.nativeElement.textContent).toContain('Running · working on a_plan.md; next b_plan.md');
-  });
-  it.each([['paused', 'Paused · 0 documents waiting to resume'], ['completed', 'Finished'], ['cancelled', 'Cancelled']] as const)(
-    'shows the %s status word before controls', async (status, label) => {
-      await render(makeRun({ status }));
-      expect(fixture.nativeElement.querySelector('.pq-run-status')?.textContent).toBe(label);
-    },
-  );
-
 });

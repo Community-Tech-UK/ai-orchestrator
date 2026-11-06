@@ -129,7 +129,7 @@ export async function reconcilePlanQueueWorktrees(
         kind: 'invalid-worktree', path: item.worktreePath,
         branchName: item.branchName ?? undefined, itemId: item.id,
         reason: 'The saved checkout is unusable or does not match its queue item.',
-        suggestedAction: 'Review the item details before retrying. For a parked item, explicitly approved Discard can preserve an item-owned orphan checkout; foreign or still-registered checkouts are refused.',
+        suggestedAction: 'Review the item details before retrying. For a parked item, explicitly approved Discard can preserve an item-owned orphan checkout; foreign or still-registered checkouts stay where they are.',
       });
     }
   }

@@ -26,26 +26,29 @@
 const path = require('path');
 const { flipFuses, FuseVersion, FuseV1Options } = require('@electron/fuses');
 
+/** The binary electron-builder produced, or null for a platform this hook does not harden. */
+function packagedExecutablePath({ electronPlatformName, appOutDir, packager }) {
+  const { productName } = packager.appInfo;
+  switch (electronPlatformName) {
+    case 'darwin':
+      return path.join(appOutDir, `${productName}.app`, 'Contents', 'MacOS', productName);
+    case 'linux':
+      // Linux binaries take the lower-cased package name, not the product name.
+      return path.join(appOutDir, packager.executableName);
+    case 'win32':
+      return path.join(appOutDir, `${productName}.exe`);
+    default:
+      return null;
+  }
+}
+
 /**
  * @param {import('@electron/packager').AfterPackContext} context
  */
 module.exports = async (context) => {
-  const { electronPlatformName, appOutDir } = context;
-
-  let executableName;
-  if (electronPlatformName === 'darwin') {
-    executableName = path.join(
-      appOutDir,
-      `${context.packager.appInfo.productName}.app`,
-      'Contents',
-      'MacOS',
-      context.packager.appInfo.productName,
-    );
-  } else if (electronPlatformName === 'linux') {
-    executableName = path.join(appOutDir, context.packager.appInfo.productName);
-  } else if (electronPlatformName === 'win32') {
-    executableName = path.join(appOutDir, `${context.packager.appInfo.productName}.exe`);
-  } else {
+  const { electronPlatformName } = context;
+  const executableName = packagedExecutablePath(context);
+  if (!executableName) {
     console.warn(`[set-electron-fuses] Unsupported platform: ${electronPlatformName} — skipping`);
     return;
   }
@@ -77,3 +80,5 @@ module.exports = async (context) => {
 
   console.log('[set-electron-fuses] Fuses applied successfully');
 };
+
+module.exports.packagedExecutablePath = packagedExecutablePath;

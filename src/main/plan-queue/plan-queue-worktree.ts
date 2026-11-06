@@ -306,6 +306,16 @@ export class PlanQueueWorktreeService {
     });
   }
 
+  /**
+   * Discard of a job with a live worktree: commit its edits to the branch, then remove the folder.
+   * An unfinished merge cannot be committed and may hold hand-made fixes, so `checkpoint` throwing
+   * for one leaves the folder in place.
+   */
+  async retireForDiscard(item: PlanQueueItem, repoRoot: string): Promise<void> {
+    const removal = await this.removeWithProof(await this.checkpoint(item, 'discarded'), repoRoot);
+    if (!removal.removed) throw new Error(`Its worktree could not be removed (${removal.reason}: ${removal.detail})`);
+  }
+
   /** Remove the worktree directory, keeping the branch. Refuses without proof. */
   async removeWithProof(item: PlanQueueItem, repoRoot: string): Promise<RemovalResult> {
     const worktreePath = requireWorktree(item);

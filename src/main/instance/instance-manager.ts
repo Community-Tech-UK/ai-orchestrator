@@ -163,7 +163,8 @@ import {
   type InstanceSendInputOptions,
 } from './instance-input-cancellation';
 import { summarizeCreateInstanceConfig } from './lifecycle/instance-create-logging';
-import { automatedResendInput, formatInternalInputForProvider, internalInputMetadata } from './internal-input-provenance';
+import { automatedResendInput, formatInternalInputForProvider, heldTurnResendInput, internalInputMetadata } from './internal-input-provenance';
+import { cancelInstanceProviderLimitResumes } from './instance-provider-limit-resume-scheduler';
 import { resolveNativeOpenCodeCommandInput } from '../commands/provider-native-commands';
 import { dispatchNativeOpenCodeCommand } from './instance-native-command-input';
 import { runInstanceLocalInput } from './instance-local-input';
@@ -468,8 +469,9 @@ export class InstanceManager extends EventEmitter {
     getInstanceProviderLimitHandler().configure({
       isEnabled: () => this.settings.get('instanceProviderLimitResumeEnabled') === true,
       setWaitReason: (id, waitReason) => this.queueInstanceUpdate(id, { waitReason }),
+      cancelDurableResumes: (id) => void cancelInstanceProviderLimitResumes({ instanceId: id, historyThreadId: this.state.getInstance(id)?.historyThreadId }),
       resendInput: (id, prompt) => {
-        const resend = automatedResendInput(prompt);
+        const resend = heldTurnResendInput(this.state.getInstance(id), prompt);
         void this.sendInput(id, resend.message, undefined, resend.options).catch((err) =>
           logger.warn('Provider-limit resume re-send failed', {
             instanceId: id,

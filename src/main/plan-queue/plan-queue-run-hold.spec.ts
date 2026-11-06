@@ -54,7 +54,7 @@ beforeEach(() => {
     store: { listActiveRuns: () => [run], listItems: () => [item], listWorkspaceRoots: () => [directory],
       listRunsWithRelaxation: () => [] } as unknown as PlanQueueFlowHost['store'],
     history: { getPin: () => null, recordPinIfAbsent: vi.fn(), listEvents: () => [], listVerdicts: () => [] } as unknown as PlanQueueFlowHost['history'],
-    checksAdmitted: () => true, pauseForSharedError: vi.fn(),
+    checksAdmitted: () => true, setRunHold: vi.fn(),
     getRun: () => run, getItem: () => item,
     save: vi.fn((next) => (item = next)), transition: vi.fn((next, state, patch) => (item = { ...next, ...patch, state })),
     instances: { createInstance: vi.fn(async () => ({ id: 'fresh' })), sendInput: vi.fn(async () => undefined),

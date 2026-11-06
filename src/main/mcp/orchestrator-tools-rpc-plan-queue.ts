@@ -1,4 +1,4 @@
-import { PLAN_QUEUE_CLI_METHODS, PlanQueueCliMovePayloadSchema, PlanQueueCliMoveResultSchema } from './plan-queue-cli-contracts';
+import { PLAN_QUEUE_CLI_METHODS, PlanQueueCliDiscardPayloadSchema, PlanQueueCliDiscardResultSchema, PlanQueueCliMovePayloadSchema, PlanQueueCliMoveResultSchema } from './plan-queue-cli-contracts';
 import type { PlanQueueToolOperations } from './plan-queue-tools';
 
 export function isPlanQueueCliRpcMethod(method: string): boolean {
@@ -9,6 +9,10 @@ export function isPlanQueueCliRpcMethod(method: string): boolean {
 export async function dispatchPlanQueueCliRpc(method: string, callerInstanceId: string, payload: Record<string, unknown>,
   operations: PlanQueueToolOperations | null): Promise<unknown> {
   if (!operations) throw new Error('Plan Queue is unavailable');
+  if (method === PLAN_QUEUE_CLI_METHODS.discard) {
+    const { itemIds } = PlanQueueCliDiscardPayloadSchema.parse(payload);
+    return PlanQueueCliDiscardResultSchema.parse(await operations.discardItems(callerInstanceId, itemIds));
+  }
   if (method !== PLAN_QUEUE_CLI_METHODS.move) throw new Error('Unknown plan-queue command');
   const { runId, targetInstanceId } = PlanQueueCliMovePayloadSchema.parse(payload);
   const { ownerInstanceId } = await operations.moveRun(callerInstanceId, runId, targetInstanceId ?? callerInstanceId);

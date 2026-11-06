@@ -7,7 +7,9 @@
 import { getLogger } from '../logging/logger';
 import { gitExec } from '../workspace/git/git-exec';
 import { getGitWriteQueue } from '../workspace/git/git-write-queue';
+import { isOwnCheckout } from './plan-queue-git';
 import type { PlanQueueFlowHost } from './plan-queue-host';
+import { quarantineOrphanCheckout, retainedQueuePathExists } from './plan-queue-orphan-checkout';
 import { inspectSetAsideWork } from './plan-queue-set-aside';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import { planQueueBranchName } from './plan-queue-worktree';
@@ -24,8 +26,9 @@ const refTip = (ref: string, cwd: string): Promise<string> => gitExec(['for-each
 
 /**
  * Call before the branch is deleted, under the item's lock. Returns when the reference expires, or
- * null when there was nothing worth keeping. Throws, stopping the discard, if a branch about to be
- * deleted could not be kept. With no branch nothing is being deleted, so a failure there only logs.
+ * null when there was nothing worth keeping. Throws, so the branch stays, if a branch about to be
+ * deleted could not be kept. With no branch nothing is being deleted, so failing to write the
+ * reference there only logs.
  */
 export async function keepDiscardedWork(item: PlanQueueItem, run: PlanQueueRun, now: number): Promise<number | null> {
   const repoRoot = run.workspaceCwd;
@@ -43,11 +46,57 @@ export async function keepDiscardedWork(item: PlanQueueItem, run: PlanQueueRun, 
       await gitExec(['update-ref', ref, tip], repoRoot);
       return expiresAt;
     } catch (error) {
-      if (branchTip) throw new Error(`Nothing was discarded: its work could not be kept (${String(error)})`, { cause: error });
+      if (branchTip) throw new Error(`Its work could not be kept (${String(error)})`, { cause: error });
       logger.warn('Could not keep a discarded checkpoint', { itemId: item.id, error: String(error) });
       return null;
     }
   });
+}
+
+type DiscardHost = Pick<PlanQueueFlowHost, 'getItem' | 'getRun' | 'save' | 'worktrees'>;
+
+/** Removes the worktree, keeps the work, then deletes the branch. Returns when the kept work expires. */
+async function clearAway(host: DiscardHost, parked: PlanQueueItem): Promise<number | null> {
+  let item = parked;
+  const run = host.getRun(item.runId);
+  if (item.worktreePath && await isOwnCheckout(item.worktreePath)) {
+    await host.worktrees.retireForDiscard(item, run.workspaceCwd);
+    item = host.getItem(item.id);
+  }
+  // Whatever is left there is a broken checkout, which is moved aside rather than removed.
+  if (item.worktreePath && await retainedQueuePathExists(item.worktreePath)) {
+    item = await quarantineOrphanCheckout(item, run.workspaceCwd, planQueueBranchName(item), (next) => { host.save(next); });
+  }
+  const cleared = item.worktreePath ? host.save({ ...item, worktreePath: null }) : item;
+  const discardRefExpiresAt = await keepDiscardedWork(cleared, run, Date.now());
+  if (cleared.branchName) await host.worktrees.deleteBranchWithProof(cleared, run.workspaceCwd, { discardRequested: true });
+  return discardRefExpiresAt;
+}
+
+/**
+ * A discard always takes the job off the list. Nothing is deleted until its work is safe, so anything
+ * git will not release stays on disk, and the job's detail says why. Call under the item's lock with
+ * its sessions stopped.
+ */
+export async function discardParkedItem(host: DiscardHost, parked: PlanQueueItem, actor: string): Promise<void> {
+  const discarded = { discardedAt: Date.now(), discardedBy: actor };
+  try {
+    const discardRefExpiresAt = await clearAway(host, parked);
+    host.save({ ...host.getItem(parked.id), ...discarded, discardRefExpiresAt });
+  } catch (error) {
+    logger.warn('Discarded a job but could not clear everything away', { itemId: parked.id, error: String(error) });
+    const item = host.getItem(parked.id);
+    const detail = `${item.detail ?? ''}\nLeft in place when discarded: ${error instanceof Error ? error.message : String(error)}`.trim();
+    host.save({ ...item, ...discarded, discardRefExpiresAt: null, detail: detail.slice(0, 8000) });
+  }
+}
+
+/** Resume of a discarded job carries on from its kept work, if any. Call under the item's lock. */
+export async function restoreBeforeResume(host: Pick<PlanQueueFlowHost, 'getItem' | 'getRun' | 'save'>, itemId: string): Promise<void> {
+  const item = host.getItem(itemId);
+  if (!item.discardedAt) return;
+  const repoRoot = host.getRun(item.runId).workspaceCwd;
+  if (await refTip(discardedRef(item.id), repoRoot) || await refTip(`refs/heads/${planQueueBranchName(item)}`, repoRoot)) await restoreDiscardedWork(host, itemId);
 }
 
 /** Undo: put the branch back and return the job to Set aside. Call under the item's lock. */
@@ -58,13 +107,14 @@ export async function restoreDiscardedWork(host: Pick<PlanQueueFlowHost, 'getIte
   const ref = discardedRef(item.id);
   const branchName = planQueueBranchName(item);
   await getGitWriteQueue().enqueue('plan-queue-restore-discarded', async () => {
-    const tip = await refTip(ref, repoRoot);
-    if (!tip) throw new Error('This job\'s work was not kept, so it cannot be restored');
+    // A discard that could not delete the branch left the work there, and it may have moved on since.
     const existing = await refTip(`refs/heads/${branchName}`, repoRoot);
-    if (existing && existing !== tip) throw new Error(`Branch ${branchName} already exists with different work`);
-    if (!existing) await gitExec(['branch', branchName, tip], repoRoot);
+    const kept = await refTip(ref, repoRoot);
+    if (!existing && !kept) throw new Error('This job\'s work was not kept, so it cannot be restored');
+    if (!existing) await gitExec(['branch', branchName, kept], repoRoot);
     host.save({ ...host.getItem(itemId), branchName, discardedAt: null, discardedBy: null, discardRefExpiresAt: null });
-    await gitExec(['update-ref', '-d', ref], repoRoot);
+    // A branch that moved on may not contain the kept commits, so that reference stays.
+    if (!existing || existing === kept) await gitExec(['update-ref', '-d', ref], repoRoot);
   });
 }
 

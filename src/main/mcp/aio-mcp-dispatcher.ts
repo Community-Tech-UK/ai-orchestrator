@@ -102,7 +102,7 @@ function formatHelp(): string {
     '  browser-credentials Request approval to use a saved login; manage fill grants',
     '  copilot-account     Inspect Copilot profiles and workspace routing',
     '  loop                List parked loops and resume one',
-    '  plan-queue          See who owns each Plan Queue run and move one to another session',
+    '  plan-queue          See who owns each Plan Queue run, move one, list or discard set-aside jobs',
     '  pause               Check, hold or release new work',
     '  connector           Connect a session to an assigned connector',
     '  microsoft365        Ask James to approve adding a Microsoft 365 account connector',

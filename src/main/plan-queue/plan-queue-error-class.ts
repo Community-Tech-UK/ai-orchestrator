@@ -1,33 +1,17 @@
-/** Queue-specific backoff and a circuit for identical failures across jobs. */
-import { WorktreeCapacityError } from '../workspace/git/worktree-manager';
+/** Queue-specific backoff for failures that pass by themselves. */
+import { classifyQueuePreparationError } from './plan-queue-failure-class';
 import type { PlanQueueFlowHost } from './plan-queue-host';
+import type { PlanQueueRunBreaker } from './plan-queue-run-breaker';
 import type { PlanQueueItem } from './plan-queue.types';
 
-export function classifyQueuePreparationError(error: unknown): 'transient-capacity' | 'this-job' {
-  if (error instanceof WorktreeCapacityError || error instanceof Error && error.cause instanceof WorktreeCapacityError) return 'transient-capacity';
-  const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
-  const message = error instanceof Error ? error.message : String(error);
-  return ['EAGAIN', 'EMFILE', 'ENFILE', 'EBUSY'].includes(code)
-    || /Maximum concurrent worktrees|resource governor|load gate|provider.*(?:at capacity|concurrency)|too many concurrent/i.test(message)
-    ? 'transient-capacity' : 'this-job';
-}
-/**
- * A worker turn that failed for a reason that passes by itself, so it is retried in the same session
- * before the item parks. The wording is what the queue's own records show workers parking with: a Codex
- * turn that stalled or went silent (900000 ms) and a model at capacity. (A resource governor pause arrives
- * when the worker starts, not mid-turn, and is already deferred by `PlanQueuePreparationErrors`.)
- * A sign-in expiry is not here: it needs James.
- */
-export function isTransientQueueTurnFailure(reason: string): boolean {
-  return /transport closed|provider (?:returned )?5\d\d|adapter not spawned|timed out waiting for the turn to accept|model is at capacity|codex turn stalled|codex went silent for/i.test(reason);
-}
-
 export class PlanQueuePreparationErrors {
-  private readonly failures = new Map<string, { itemId: string; reason: string }>();
   private readonly waitingUntil = new Map<string, number>();
-  constructor(private readonly host: PlanQueueFlowHost) {}
+  constructor(private readonly host: PlanQueueFlowHost, private readonly breaker: PlanQueueRunBreaker) {}
 
-  succeeded(runId: string, itemId: string): void { this.failures.delete(runId); this.waitingUntil.set(itemId, 0); }
+  succeeded(runId: string, itemId: string): void { this.breaker.succeeded(runId, itemId); this.waitingUntil.set(itemId, 0); }
+
+  /** Keeps a job from being picked up again for a while, so a passing fault can pass. */
+  holdOff(itemId: string, ms: number): void { this.waitingUntil.set(itemId, Date.now() + ms); }
   forget(itemId: string): void { this.waitingUntil.delete(itemId); }
 
   waiting(item: PlanQueueItem): boolean {
@@ -42,7 +26,13 @@ export class PlanQueuePreparationErrors {
 
   /** True means the error was transient and the item is queued again. */
   defer(item: PlanQueueItem, error: unknown): boolean {
-    if (classifyQueuePreparationError(error) !== 'transient-capacity') return false;
+    if (classifyQueuePreparationError(error) !== 'transient-capacity') {
+      const reason = error instanceof Error ? error.message : String(error);
+      if (!this.breaker.isTrialOfSameFault(item.runId, item.id, reason)) return false;
+      // A trial start during a hold: the fault is still there, and that isn't this job's fault.
+      this.host.transition(item, 'queued', { detail: 'Waiting for the run to come off hold' });
+      return true;
+    }
     const events = this.host.history.listEvents(item.id);
     const working = events.findIndex(row => row.toState === 'working');
     const tries = (working < 0 ? events : events.slice(0, working)).filter(row => row.reason === 'capacity-wait').length;
@@ -58,11 +48,6 @@ export class PlanQueuePreparationErrors {
   }
 
   failed(item: PlanQueueItem, error: unknown): void {
-    const reason = (error instanceof Error ? error.message : String(error)).replace(/\s+/g, ' ').trim();
-    const previous = this.failures.get(item.runId);
-    this.failures.set(item.runId, { itemId: item.id, reason });
-    if (previous?.itemId !== item.id && previous?.reason === reason) {
-      this.host.pauseForSharedError(item.runId, `Paused: every job fails with the same error: ${reason}. Fix it, then press Resume.`);
-    }
+    this.breaker.note(item.runId, item.id, error instanceof Error ? error.message : String(error));
   }
 }

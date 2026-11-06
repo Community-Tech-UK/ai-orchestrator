@@ -219,6 +219,22 @@ describe('CodeRetrievalService', () => {
       expect(results).toEqual([]);
     });
 
+    it('adds no automatic code for text too long to search whole, but still searches it when asked', async () => {
+      const searchWorkspaceChunks = vi.fn(async () => ({ indexed: true, results: [makeResult()] }));
+      const service = new CodeRetrievalService({
+        store,
+        indexWorkerGateway: { searchWorkspaceChunks } as never,
+      });
+      const longPrompt = `${'Some background about the work. '.repeat(20)}Why does the provider limit retry fail?`;
+
+      await expect(service.search({ workspacePath, query: longPrompt, limit: 5, strongMatchOnly: true }))
+        .resolves.toEqual([]);
+      expect(searchWorkspaceChunks).not.toHaveBeenCalled();
+
+      await service.search({ workspacePath, query: longPrompt, limit: 5 });
+      expect(searchWorkspaceChunks).toHaveBeenCalledTimes(1);
+    });
+
     it('warms in the background and ripgreps when the workspace is not yet indexed', async () => {
       const searchWorkspaceChunks = vi.fn(async () => ({ indexed: false, results: [] }));
       const warmWorkspace = vi.fn(async () => ({ indexed: true, absPath: workspacePath, primaryLanguage: 'typescript' }));

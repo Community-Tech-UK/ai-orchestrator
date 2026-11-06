@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PLAN_QUEUE_CONFIG } from '@contracts/schemas/plan-queue';
+import { createPlanQueueToolDefinitions } from '../mcp/plan-queue-tools';
 import { PlanQueueCoordinator } from './plan-queue-coordinator';
+import { PLAN_QUEUE_EVIDENCE_EVENT_LIMIT } from './plan-queue-run-evidence';
 import { createPlanQueueToolOperations } from './plan-queue-tool-operations';
 
 vi.mock('../core/config/settings-manager', () => ({
@@ -53,6 +55,31 @@ describe('Plan Queue tool operation adoption routing', () => {
     const status = createPlanQueueToolOperations(() => coordinator).status('caller', 'run') as { items: object[] };
     expect(status.items[0]).toMatchObject({ itemId: 'item', state: 'verifying' });
     expect(JSON.stringify(status)).not.toContain('"stage"');
+  });
+
+  it('adds evidence to one run\'s status only when asked, and refuses it for the overview', () => {
+    const coordinator = new PlanQueueCoordinator();
+    vi.spyOn(coordinator, 'getRunDto').mockReturnValue({ id: 'run', parentInstanceId: 'caller', kind: 'plans', workspaceCwd: '/repo', status: 'completed',
+      config: DEFAULT_PLAN_QUEUE_CONFIG.plans, workerProvider: 'claude', relaxedSettings: [], startedAt: 1, endedAt: 2, items: [], checks: { runs: 1, jobs: 3 } });
+    const listRunEvents = vi.spyOn(coordinator, 'listRunEvents').mockReturnValue([]);
+    const ops = createPlanQueueToolOperations(() => coordinator);
+    expect(ops.status('caller', 'run')).not.toHaveProperty('evidence');
+    expect(listRunEvents).not.toHaveBeenCalled();
+    expect(ops.status('caller', 'run', true)).toMatchObject({ runId: 'run', evidence: { onPage: { checks: '1 test run covered 3 jobs' }, timeline: [] } });
+    expect(listRunEvents).toHaveBeenCalledWith('run', PLAN_QUEUE_EVIDENCE_EVENT_LIMIT + 1);
+    expect(() => ops.status('caller', undefined, true)).toThrow('evidence needs run_id');
+  });
+
+  it('carries the evidence flag from the tool call through validation to the reply', async () => {
+    const coordinator = new PlanQueueCoordinator();
+    vi.spyOn(coordinator, 'getRunDto').mockReturnValue({ id: 'run', parentInstanceId: 'caller', kind: 'plans', workspaceCwd: '/repo', status: 'completed',
+      config: DEFAULT_PLAN_QUEUE_CONFIG.plans, workerProvider: 'claude', relaxedSettings: [], startedAt: 1, endedAt: 2, items: [] });
+    vi.spyOn(coordinator, 'listRunEvents').mockReturnValue([]);
+    const tools = createPlanQueueToolDefinitions({ instanceId: 'caller', planQueueTools: createPlanQueueToolOperations(() => coordinator) });
+    const status = tools.find(tool => tool.name === 'plan_queue_status')!;
+    await expect(status.handler({ run_id: 'run', evidence: true })).resolves.toHaveProperty('evidence');
+    await expect(status.handler({ run_id: 'run' })).resolves.not.toHaveProperty('evidence');
+    await expect(status.handler({ evidence: true })).rejects.toThrow('evidence needs run_id');
   });
 
   it('maps adopt to a run action and keeps authenticated caller identity', async () => {

@@ -6,6 +6,7 @@ import { DEFAULT_PLAN_QUEUE_CONFIG } from '@contracts/schemas/plan-queue';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { createSqliteWasmDatabase, initSqliteWasm } from '../db/sqlite-wasm-driver';
 import { runLoopMigrations } from '../orchestration/loop-schema';
+import { PlanQueueRunBreaker } from './plan-queue-run-breaker';
 import { PlanQueuePreparationErrors } from './plan-queue-error-class';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { recordQueueRestart } from './plan-queue-restart-progress';
@@ -36,7 +37,7 @@ beforeEach(() => {
   host = { history: store.history, getRun: (id: string) => store.getRun(id)!, getItem: (id: string) => store.getItem(id)!,
     transition: (item: PlanQueueItem, state: PlanQueueItem['state'], patch: Partial<PlanQueueItem>) => {
       const next = { ...item, ...patch, state }; store.upsertItem(next); return next;
-    }, pauseForSharedError: vi.fn(), worktrees: { worktreeUsage: () => ({ inUse: 5, maxConcurrent: 5 }) },
+    }, setRunHold: vi.fn(), notifyParent: vi.fn(), requestPump: vi.fn(), worktrees: { worktreeUsage: () => ({ inUse: 5, maxConcurrent: 5 }) },
     tracker: { isShuttingDown: () => false, beginTurn: vi.fn() }, instances: { sendInput: vi.fn(async () => undefined) },
   } as unknown as PlanQueueFlowHost;
 });
@@ -44,10 +45,10 @@ afterEach(() => { db.close(); rmSync(root, { recursive: true, force: true }); vi
 
 describe('queue failure safeguards', () => {
   it('waits with bounded backoff and recovers its wait after a new controller', () => {
-    const errors = new PlanQueuePreparationErrors(host);
+    const errors = new PlanQueuePreparationErrors(host, new PlanQueueRunBreaker(host));
     expect(errors.defer(host.getItem('one'), new Error('Maximum concurrent worktrees (5) reached'))).toBe(true);
     expect(host.getItem('one')).toMatchObject({ state: 'queued', parkReason: null, detail: 'Waiting for a free work folder (5 in use)' });
-    expect(new PlanQueuePreparationErrors(host).waiting(host.getItem('one'))).toBe(true);
+    expect(new PlanQueuePreparationErrors(host, new PlanQueueRunBreaker(host)).waiting(host.getItem('one'))).toBe(true);
     vi.advanceTimersByTime(30_000);
     expect(errors.waiting(host.getItem('one'))).toBe(false);
     errors.defer(host.getItem('one'), new Error('Maximum concurrent worktrees (5) reached'));
@@ -57,13 +58,13 @@ describe('queue failure safeguards', () => {
     expect(errors.waiting(host.getItem('one'))).toBe(false);
   });
 
-  it('pauses only after identical job errors on two different jobs', () => {
-    const errors = new PlanQueuePreparationErrors(host);
-    errors.failed(host.getItem('one'), new Error('disk unavailable'));
-    errors.failed(host.getItem('one'), new Error('disk unavailable'));
-    expect(host.pauseForSharedError).not.toHaveBeenCalled();
-    errors.failed(host.getItem('two'), new Error('disk unavailable'));
-    expect(host.pauseForSharedError).toHaveBeenCalledTimes(1);
+  it('puts a trial job back in line when the fault is still there, instead of setting it aside', () => {
+    const breaker = new PlanQueueRunBreaker(host);
+    const errors = new PlanQueuePreparationErrors(host, breaker);
+    expect(errors.defer(host.getItem('one'), new Error('disk unavailable'))).toBe(false);
+    vi.spyOn(breaker, 'isTrialOfSameFault').mockReturnValueOnce(true);
+    expect(errors.defer(host.getItem('one'), new Error('disk unavailable'))).toBe(true);
+    expect(host.getItem('one')).toMatchObject({ state: 'queued', parkReason: null });
   });
 
   it('counts consecutive restarts but resets on changed work or a completed round', async () => {

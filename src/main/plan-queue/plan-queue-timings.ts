@@ -8,7 +8,7 @@
  */
 import os from 'node:os';
 import { getLogger } from '../logging/logger';
-import type { PlanQueueItemState } from '@contracts/schemas/plan-queue';
+import type { PlanQueueCheckWait, PlanQueueItemState } from '@contracts/schemas/plan-queue';
 import type { PlanQueueHistoryStore } from './plan-queue-history-store';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 
@@ -123,6 +123,7 @@ export class LandingTimer {
  */
 export class PlanQueueSlotWaits {
   private readonly blockedSince = new Map<string, number>();
+  private readonly checkWaits = new Map<string, PlanQueueCheckWait>();
   private readonly freedAt: Record<'worker' | 'check', number> = { worker: 0, check: 0 };
 
   constructor(private readonly history: Pick<PlanQueueHistoryStore, 'recordEvent'>, private readonly now: () => number = Date.now) {}
@@ -133,6 +134,15 @@ export class PlanQueueSlotWaits {
   /** When the scheduler first found this item ready with no slot free, if it has. Saves to the item don't move it. */
   waitingSince(itemId: string): number | undefined { return this.blockedSince.get(itemId); }
 
+  /** Why the scheduler's latest pass left this item's checks unstarted. True when that changed, so the screen can be told. */
+  explain(itemId: string, why: PlanQueueCheckWait): boolean {
+    if (this.checkWaits.get(itemId) === why) return false;
+    this.checkWaits.set(itemId, why);
+    return true;
+  }
+
+  whyWaiting(itemId: string): PlanQueueCheckWait | undefined { return this.checkWaits.get(itemId); }
+
   /** A slot of this kind opened: an item left the states that hold one. */
   freed(kind: 'worker' | 'check'): void { this.freedAt[kind] = this.now(); }
 
@@ -140,6 +150,7 @@ export class PlanQueueSlotWaits {
   started(item: TimedItem, kind: 'worker' | 'check'): void {
     const since = this.blockedSince.get(item.id);
     this.blockedSince.delete(item.id);
+    this.checkWaits.delete(item.id);
     if (since === undefined) return;
     const at = this.now();
     const freed = this.freedAt[kind];
@@ -150,5 +161,6 @@ export class PlanQueueSlotWaits {
   /** Forget items that are no longer waiting for a start (parked, skipped, run ended). */
   prune(stillWaiting: ReadonlySet<string>): void {
     for (const id of this.blockedSince.keys()) if (!stillWaiting.has(id)) this.blockedSince.delete(id);
+    for (const id of this.checkWaits.keys()) if (!stillWaiting.has(id)) this.checkWaits.delete(id);
   }
 }

@@ -57,6 +57,57 @@ describe('connector RPC authorization', () => {
   });
 });
 
+describe('Microsoft 365 connector tool calls', () => {
+  it('accepts the _meta field MCP clients add to a call, without passing it to the tool', async () => {
+    const access = new ConnectorAccessRegistry();
+    access.grant('session', ['connector']);
+    const callTool = vi.fn(async () => ({ folders: [] }));
+    const deps = {
+      access,
+      repo: {
+        list: () => [
+          {
+            record: {
+              id: 'connector',
+              name: 'm365-example',
+              kind: 'microsoft365' as const,
+              accountId: 'account',
+              autoConnect: true,
+              mailEnabled: true,
+            },
+          },
+        ],
+      },
+      auth: { getAccessToken: vi.fn() },
+      graph: { listTools: () => [], callTool },
+    };
+    await expect(
+      dispatchConnectorRpc(
+        'connectors.graph',
+        'session',
+        {
+          name: 'm365-example',
+          method: 'tools/call',
+          params: {
+            name: 'graph_mail_list_folders',
+            arguments: { folderId: 'inbox' },
+            _meta: { progressToken: 1 },
+          },
+        },
+        deps,
+      ),
+    ).resolves.toEqual({ content: [{ type: 'text', text: '{"folders":[]}' }] });
+    expect(callTool).toHaveBeenCalledWith(
+      'account',
+      'graph_mail_list_folders',
+      { folderId: 'inbox' },
+      true,
+      expect.any(Function),
+      expect.anything(),
+    );
+  });
+});
+
 describe('Microsoft 365 connector approvals', () => {
   it('names the connector and warns of attendee notifications without copying private message bodies', () => {
     const approval = buildConnectorMutationApproval(

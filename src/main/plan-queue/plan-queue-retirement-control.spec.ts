@@ -519,6 +519,23 @@ it('recovers active landed cleanup with a stale instance ID without changing the
   expect(checkpoint).not.toHaveBeenCalled();
 });
 
+it('finishes unfinished landed cleanup on its own, so a reopened run is not skipped for ever', async () => {
+  instances.terminateInstance.mockImplementation(async id => { if (id === 'worker') throw new Error('landing stop unavailable'); instances.live.delete(id); });
+  const landedCommit = await normalPassLanding();
+  await coordinator._whenSettledForTesting();
+  expect(store.getItem(item.id)).toMatchObject({ state: 'landed', workerInstanceId: 'worker' });
+  instances.terminateInstance.mockImplementation(async id => { instances.live.delete(id); });
+  const job = newPlanQueueItem('next', run.id, join(repo, 'next_plan.md'), 3, { state: 'queued' });
+  writeFileSync(job.documentPath, '# Next\n');
+  store.upsertItem(job);
+  const prepare = vi.spyOn(coordinator.worktrees, 'prepare');
+  coordinator.requestPump();
+  await coordinator._whenSettledForTesting();
+  expect(store.getItem(item.id)).toMatchObject({ state: 'landed', workerInstanceId: null, landedCommit });
+  expect(git(['rev-parse', 'main'])).toBe(landedCommit);
+  await vi.waitFor(() => expect(prepare).toHaveBeenCalled(), waitBudget);
+});
+
 it('Cancel arriving during Git promotion retries a subsequent failed landed-worker stop', async () => {
   const promotion = deferred();
   const promote = queueLanding.landItemBranch;

@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import type { PlanQueueNeedJamesRecord } from '../../../core/state/plan-queue.store';
-import { pluralise } from '../plan-queue-item-display';
+import { pluralise } from '../../../../../shared/utils/plan-queue-item-display';
 
 export interface PlanQueueNeedJamesGroup {
   readonly runId: string;

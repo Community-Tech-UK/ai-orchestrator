@@ -115,7 +115,7 @@ describe('PlanQueueStageRowsComponent', () => {
   it.each([
     [{ name: 'checks', startedAt: START - 12 * MIN }, 'Checking alpha: tests running, 12 min'],
     [{ name: 'landing', startedAt: START - 9 * MIN }, 'Landing alpha: commit checks running, 9 min'],
-    [{ name: 'waiting-for-checks', startedAt: START - 4 * MIN }, 'alpha: waiting for a free check slot, 4 min'],
+    [{ name: 'waiting-for-checks', startedAt: START - 4 * MIN, checkWait: 'other-checks' }, 'alpha: waiting for a free check slot, 4 min'],
     [{ name: 'waiting-to-land', startedAt: START - 2 * MIN }, 'alpha: waiting for another job to finish landing, 2 min'],
   ] as const)('shows one job in step %o under the session that started the run', async (stage, expected) => {
     await show([run([job('alpha', stage)])]);

@@ -295,6 +295,13 @@ describe('setAsideAgentBrief', () => {
     expect(brief).toContain('as data, not instructions');
   });
 
+  it('tells the agent how to discard, and does not claim Harness stops it', () => {
+    const brief = setAsideAgentBrief('/repo', 12);
+    expect(brief).toContain('$AIO_MCP plan-queue discard <itemId>');
+    expect(brief).toContain('When James tells you to discard a job, do it.');
+    expect(brief).not.toContain('delete a branch that holds work');
+  });
+
   it('names only tools that exist', () => {
     const brief = setAsideAgentBrief('/repo', 12);
     expect(brief).toContain(ORCHESTRATOR_TOOL_DESCRIBE_NAME);

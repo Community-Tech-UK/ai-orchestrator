@@ -13,6 +13,7 @@ Source: October 10 and October 20 research lists (`claude_oct-todo.md`, “Previ
 - Stance: Rejected.
 - Reason: Repeated upstream attempts were removed; no current measured need justifies the interruption.
 - Reopen when: Observed usability failures and user research justify a targeted flow.
+- Not covered: Agent-facing waiting check-ins (`src/main/instance/instance-waiting-check-in.ts`), which James approved on 6 November 2026. They prompt the agent, not a person, and only when a turn ends waiting on work with nothing to wake it. Observed failure: Claude stopped on two things that could never notify it, and sat idle for 13 minutes.
 
 ## OpenCode tooltip component
 

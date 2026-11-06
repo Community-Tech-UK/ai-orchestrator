@@ -87,7 +87,74 @@ describe('aio-mcp plan-queue', () => {
     expect(second.output.join('')).toBe('Moved Plan Queue run run-mine to session target.\n');
   });
 
+  it('lists the set-aside jobs in this folder, and in every folder with --all', async () => {
+    const status = { runs: [
+      { runId: 'run-here', workspace: '/repo', items: [
+        { itemId: 'job-1', document: '/repo/docs/a_plan.md', state: 'parked', parkReason: 'round-limit' },
+        { itemId: 'job-gone', document: '/repo/docs/b_plan.md', state: 'parked', discardedAt: 1 },
+        { itemId: 'job-live', document: '/repo/docs/c_plan.md', state: 'working' },
+      ] },
+      { runId: 'run-elsewhere', workspace: '/other-repo', items: [{ itemId: 'job-2', document: '/other-repo/docs/d_plan.md', state: 'parked' }] },
+    ] };
+    const here = run(['jobs'], status);
+    await here.done;
+    expect(here.client.call).toHaveBeenCalledWith('orchestrator_tools.plan_queue_status', {});
+    expect(here.output.join('')).toBe('job-1 | round-limit | /repo/docs/a_plan.md\n');
+
+    const all = run(['jobs', '--all', '--json'], status);
+    await all.done;
+    expect(JSON.parse(all.output.join('')).jobs.map((job: { itemId: string }) => job.itemId)).toEqual(['job-1', 'job-2']);
+
+    const none = run(['jobs'], { runs: [] });
+    await none.done;
+    expect(none.output.join('')).toContain('No set-aside jobs here');
+  });
+
+  it('discards each job named, once, in one call', async () => {
+    const { client, output, done } = run(['discard', 'job-1', 'job-2', 'job-1'], { discarded: ['job-1', 'job-2'], leftInPlace: [], failed: [] });
+    await done;
+    expect(client.call.mock.calls).toEqual([['orchestrator_tools.plan_queue_cli.discard', { itemIds: ['job-1', 'job-2'] }]]);
+    expect(output.join('')).toBe('Discarded job job-1.\nDiscarded job job-2.\n');
+  });
+
+  it('sends a long list in batches', async () => {
+    const ids = Array.from({ length: 25 }, (_, index) => `job-${index}`);
+    const output: string[] = [];
+    const client = { call: vi.fn(async (_method: string, payload: unknown) => ({ discarded: (payload as { itemIds: string[] }).itemIds, leftInPlace: [], failed: [] })) };
+    await runPlanQueueCli(['discard', ...ids, '--json'], { client, env, stdout: text => { output.push(text); } });
+    expect(client.call.mock.calls.map(([, payload]) => (payload as { itemIds: string[] }).itemIds.length)).toEqual([10, 10, 5]);
+    expect(JSON.parse(output.join('')).discarded).toEqual(ids);
+  });
+
+  it('reports the jobs that failed and fails overall', async () => {
+    const { output, done } = run(['discard', 'stuck', 'fine'], { discarded: ['fine'], leftInPlace: [], failed: [{ itemId: 'stuck', error: 'Only a parked item can be discarded' }] });
+    await expect(done).rejects.toThrow('1 of 2 job(s) failed or timed out.');
+    expect(output.join('')).toBe('Discarded job fine.\nCould not discard job stuck: Only a parked item can be discarded\n');
+  });
+
+  it('says what git would not release, and still counts the job as discarded', async () => {
+    const { output, done } = run(['discard', 'job-1'], { discarded: ['job-1'], leftInPlace: [{ itemId: 'job-1', what: ['queue/a'] }], failed: [] });
+    await done;
+    expect(output.join('')).toBe('Discarded job job-1.\nLeft in place for job job-1: queue/a\n');
+  });
+
+  it('carries on to the next batch when a whole call fails', async () => {
+    const ids = Array.from({ length: 11 }, (_, index) => `job-${index}`);
+    const output: string[] = [];
+    const client = { call: vi.fn(async (_method: string, payload: unknown) => {
+      const { itemIds } = payload as { itemIds: string[] };
+      if (itemIds.length === 10) throw new Error('timed out');
+      return { discarded: itemIds, leftInPlace: [], failed: [] };
+    }) };
+    await expect(runPlanQueueCli(['discard', ...ids, '--json'], { client, env, stdout: text => { output.push(text); } }))
+      .rejects.toThrow('10 of 11 job(s) failed or timed out.');
+    expect(JSON.parse(output.join('')).discarded).toEqual(['job-10']);
+  });
+
   it.each([
+    [['discard'], 'requires at least one <item-id>'],
+    [['discard', 'job-1', '--force'], 'Unknown plan-queue discard option'],
+    [['jobs', 'extra'], 'The jobs options are --all and --json'],
     [['move'], 'requires <run-id>'],
     [['move', 'run', '--to'], '--to needs a session id'],
     [['move', 'run', 'extra'], 'Unexpected plan-queue move argument'],

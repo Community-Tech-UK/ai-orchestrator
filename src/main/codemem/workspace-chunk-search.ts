@@ -77,16 +77,22 @@ export function searchHydratedChunks(
   const hits = store.searchWorkspaceChunks(workspaceRoot.workspaceHash, query, CANDIDATE_POOL_SIZE);
   const chunksByHash = store.getChunks(hits.map((hit) => hit.contentHash));
   const ranked: { rank: number; result: CodeRetrievalResult }[] = [];
+  const seenLocations = new Set<string>();
   for (const hit of hits) {
     const chunk = chunksByHash.get(hit.contentHash);
     if (!chunk) continue;
+    if (options.strongMatchOnly && !isStrongMatch(terms, hit.pathFromRoot, hit.name)) continue;
+
+    // The chunker emits some nested spans more than once, with the same lines and text.
+    const location = `${hit.pathFromRoot}:${hit.startLine}:${hit.endLine}`;
+    if (seenLocations.has(location)) continue;
+    seenLocations.add(location);
 
     // FTS already matched at least one word, even where stemming hides it here.
     const matchedTerms = Math.max(
       1,
       countMatchedTerms(terms, chunkRankingText(hit.pathFromRoot, hit.name, chunk.rawText)),
     );
-    if (options.strongMatchOnly && !isStrongMatch(terms, matchedTerms, hit.name)) continue;
 
     ranked.push({
       rank: Math.abs(hit.score) * fileKindWeight(hit.pathFromRoot) * (matchedTerms / Math.max(1, terms.length)),

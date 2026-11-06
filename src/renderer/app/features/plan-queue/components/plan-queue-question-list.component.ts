@@ -3,7 +3,7 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
 import type { PlanQueueQuestionGroup } from '../../../core/state/plan-queue.store';
 import { planQueueDocumentBasename } from './plan-queue-item-list.component';
 import { PlanQueueQuestionCardComponent } from './plan-queue-question-card.component';
-import { planQueueKindLabel, pluralise } from '../plan-queue-item-display';
+import { planQueueKindLabel, pluralise } from '../../../../../shared/utils/plan-queue-item-display';
 
 /** Above this many open questions, each run's group starts folded. */
 export const PLAN_QUEUE_QUESTIONS_OPEN_LIMIT = 10;

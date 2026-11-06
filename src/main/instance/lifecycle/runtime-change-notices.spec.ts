@@ -200,6 +200,21 @@ describe('announceRuntimeChangeSet (LT-030)', () => {
     expect(adapter.sendInput).not.toHaveBeenCalled();
   });
 
+  it('holds notices and replay context for the next input without starting a turn', async () => {
+    const emitted: string[] = [];
+    const held: string[] = [];
+    const adapter = { sendInput: vi.fn(async () => undefined), queueNextPromptContext: vi.fn() };
+    await announceRuntimeChangeSet({
+      instance, adapter, emitSystemNotice: (_instance, text) => { emitted.push(text); },
+      notices: [notice('PROVIDER', 'provider-changed')], preamble: 'REPLAY', delivery: 'with-next-input',
+      holdUntilAnswered: (text) => { held.push(text); },
+    } as Parameters<typeof announceRuntimeChangeSet>[0]);
+    expect(emitted).toEqual(['PROVIDER']);
+    expect(held).toEqual(['REPLAY\n\nPROVIDER']);
+    expect(adapter.sendInput).not.toHaveBeenCalled();
+    expect(adapter.queueNextPromptContext).not.toHaveBeenCalled();
+  });
+
   it('renders transcript-only notices without sending or queueing anything', async () => {
     const emitted: string[] = [];
     const adapter = { sendInput: vi.fn(async () => undefined), queueNextPromptContext: vi.fn() };

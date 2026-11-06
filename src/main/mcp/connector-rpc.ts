@@ -129,9 +129,10 @@ export async function dispatchConnectorRpc(
           .map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
       };
     case 'tools/call': {
+      // Not strict: MCP clients add protocol fields such as _meta beside these two.
+      // They are dropped here, and each tool strictly validates its own arguments.
       const args = z
         .object({ name: z.string(), arguments: z.record(z.string(), z.unknown()).optional() })
-        .strict()
         .parse(input.params);
       const result = await runtime.graph.callTool(
         record.accountId,

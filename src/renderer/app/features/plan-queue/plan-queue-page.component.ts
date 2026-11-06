@@ -23,7 +23,7 @@ import { PlanQueueRunListComponent, planQueueRoutingSummary, type PlanQueueAccou
 import type { PlanQueueParentSessionOption, PlanQueueStartRequest } from './components/plan-queue-start-form.component';
 import { PlanQueueStartFormComponent } from './components/plan-queue-start-form.component';
 import { PlanQueueSkipPendingComponent } from './components/plan-queue-skip-pending.component';
-import { planQueueKindLabel, pluralise } from './plan-queue-item-display';
+import { planQueueKindLabel, pluralise } from '../../../../shared/utils/plan-queue-item-display';
 
 /** Marks a Set aside agent; `SET_ASIDE_FOLDER_METADATA` in the main process's plan-queue-set-aside.ts. */
 const SET_ASIDE_AGENT_METADATA = 'planQueueSetAsideFolder';

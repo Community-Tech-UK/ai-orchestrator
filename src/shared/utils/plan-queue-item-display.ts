@@ -1,5 +1,5 @@
 /**
- * Presenter-only text helpers for Plan Queue item cards: strip absolute paths
+ * Presenter-only text helpers for Plan Queue cards, shared with the words agents read: strip absolute paths
  * from displayed details, fold long ones, and small plain-English word rules.
  * Never touches stored data.
  */

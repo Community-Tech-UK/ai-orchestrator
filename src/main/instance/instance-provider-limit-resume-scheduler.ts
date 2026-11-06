@@ -73,6 +73,35 @@ export function buildProviderLimitContinuationTurn(reason: 'reset' | 'account-sw
 }
 
 /**
+ * Delete a session's pending durable resumes. A restart drops the live park and
+ * its canceller but keeps the automation, and a restored session can have a new
+ * instance id, so this also matches on the conversation. Best-effort: a resume
+ * that survives costs one stray turn, which must not fail the caller.
+ */
+export async function cancelInstanceProviderLimitResumes(params: {
+  instanceId: string;
+  historyThreadId?: string;
+}): Promise<void> {
+  try {
+    const { getAutomationStore } = await import('../automations');
+    const store = getAutomationStore();
+    for (const automation of await store.list()) {
+      const action = automation.action.systemAction;
+      if (!automation.active || action?.type !== 'instanceProviderLimitResume') continue;
+      const destination = automation.destination;
+      const sameConversation = params.historyThreadId !== undefined
+        && destination.kind === 'thread' && destination.historyEntryId === params.historyThreadId;
+      if (action.instanceId === params.instanceId || sameConversation) await store.delete(automation.id);
+    }
+  } catch (err) {
+    logger.warn('Failed to delete durable instance provider-limit resumes', {
+      instanceId: params.instanceId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+/**
  * Schedule an instance resume two ways, exactly like the loop path:
  *
  * 1. A **durable one-time automation** (survives app restart/crash) whose

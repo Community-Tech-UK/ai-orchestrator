@@ -32,6 +32,7 @@ function fakeOps(): PlanQueueToolOperations & { calls: unknown[][] } {
     reportTriage: record('reportTriage'),
     setAside: vi.fn(async (...args: unknown[]) => record('setAside')(...args)),
     clearSetAside: vi.fn(async (...args: unknown[]) => record('clearSetAside')(...args)),
+    discardItems: vi.fn(async () => ({ discarded: [], leftInPlace: [], failed: [] })),
     moveRun: vi.fn(async (_caller: string, _runId: string, targetInstanceId: string) => ({ ownerInstanceId: targetInstanceId })),
     isQueueInstance: (id) => id === WORKER,
   };

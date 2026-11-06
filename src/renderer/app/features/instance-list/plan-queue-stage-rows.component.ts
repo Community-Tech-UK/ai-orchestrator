@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
-import type { PlanQueueStageLine } from '../plan-queue/plan-queue-stage-text';
+import type { PlanQueueStageLine } from '../../../../shared/utils/plan-queue-stage-text';
 import { PlanQueueStageService, type PlanQueueStageRun } from '../plan-queue/plan-queue-stage.service';
 
 /**

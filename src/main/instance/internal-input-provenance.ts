@@ -2,6 +2,7 @@ import type {
   InternalInputMetadata,
   InternalInputSource,
 } from '../../shared/types/input-provenance.types';
+import type { Instance } from '../../shared/types/instance.types';
 import type { InstanceSendInputOptions } from './instance-input-cancellation';
 
 /**
@@ -101,4 +102,21 @@ export function automatedResendInput(providerText: string): {
   return internal
     ? { message: internal.text, options: { automatedInput: true, internalSource: internal.source } }
     : { message: providerText, options: { automatedInput: true } };
+}
+
+/**
+ * A held turn the chat already shows as its latest user message goes out as a
+ * retry, so it gets no second bubble. A turn held before it was shown keeps its
+ * first one here.
+ */
+export function heldTurnResendInput(
+  instance: Pick<Instance, 'outputBuffer'> | undefined,
+  providerText: string,
+): ReturnType<typeof automatedResendInput> {
+  const resend = automatedResendInput(providerText);
+  if (resend.options.internalSource) return resend;
+  const latestUserMessage = instance?.outputBuffer.filter((message) => message.type === 'user').at(-1);
+  return latestUserMessage?.content === resend.message
+    ? { ...resend, options: { ...resend.options, isRetry: true } }
+    : resend;
 }

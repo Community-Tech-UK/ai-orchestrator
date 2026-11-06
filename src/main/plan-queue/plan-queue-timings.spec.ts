@@ -22,6 +22,21 @@ function storeWithClock() {
 const rows = (store: PlanQueueStore, reason: string) => (db.prepare('SELECT item_id, detail_head FROM plan_queue_item_events WHERE reason = ? ORDER BY rowid')
   .all<{ item_id: string; detail_head: string }>(reason)).map(row => ({ itemId: row.item_id, ...JSON.parse(row.detail_head) as Record<string, unknown> }));
 
+describe('why a check waits', () => {
+  it('reports a change once, and forgets the reason when the item starts or leaves the line', () => {
+    const waits = new PlanQueueSlotWaits({ recordEvent: vi.fn() } as never);
+    expect(waits.explain('a', 'computer-busy')).toBe(true);
+    expect(waits.explain('a', 'computer-busy')).toBe(false);
+    expect(waits.explain('a', 'other-checks')).toBe(true);
+    expect(waits.whyWaiting('a')).toBe('other-checks');
+    waits.started({ id: 'a', runId: 'run', state: 'awaiting-slot', round: 0 }, 'check');
+    expect(waits.whyWaiting('a')).toBeUndefined();
+    waits.explain('b', 'tidying-up');
+    waits.prune(new Set());
+    expect(waits.whyWaiting('b')).toBeUndefined();
+  });
+});
+
 describe('landing timer', () => {
   it('adds up each phase and reads the machine load at the start and end of the pre-commit check only', async () => {
     let now = 0; const loads = [1.234, 5.678, 99];

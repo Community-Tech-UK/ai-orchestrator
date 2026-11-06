@@ -78,7 +78,7 @@ beforeEach(() => {
   saves = [];
   onSave = () => undefined;
   const save = (next: PlanQueueItem) => { onSave(next); saves.push(next); item = next; return item; };
-  service = new PlanQueueWorktreeService({ repoRootForItem: () => repo, creator: {} as never, saveItem: save, skipInstall: true });
+  service = new PlanQueueWorktreeService({ repoRootForItem: () => repo, creator: { getAllSessions: () => [] } as never, saveItem: save, skipInstall: true, stopLeftoversIn: async () => 0 });
   flow = newFlow();
 });
 
@@ -97,7 +97,7 @@ describe('explicit orphan Discard through the real queue flow', () => {
       runLoopMigrations(db);
       const store = new PlanQueueStore(db);
       store.upsertRun({ id: item.runId, parentInstanceId: 'parent', parentHistoryThreadId: null,
-        kind: 'plans', workspaceCwd: repo, status: 'completed', config: DEFAULT_PLAN_QUEUE_CONFIG.plans,
+        kind: 'plans', workspaceCwd: repo, status: 'completed', config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, baseBranch: 'main' },
         workerProvider: null, workerModel: null, relaxation: null, startedAt: 1, endedAt: 1 });
       store.upsertItem(item);
       const control = new PlanQueueCoordinator();
@@ -122,6 +122,7 @@ describe('explicit orphan Discard through the real queue flow', () => {
       const preserved = after.detail?.match(/Orphan checkout retained at (.+)\n/)?.[1];
       expect(preserved).toBeTruthy();
       expect(after.state).toBe('queued');
+      expect(after.discardedAt ?? null).toBeNull();
       expect(after.worktreePath).toBeNull();
       expect(after.branchName).toBeNull();
       expect(after.detail).toContain(`Orphan checkout retained at ${preserved}\n`);
@@ -214,7 +215,7 @@ describe('explicit orphan Discard through the real queue flow', () => {
   });
 
   it.each(['root', 'mismatched-pointer', 'symlink-copy', 'symlink-parent', 'symlink-gitfile', 'dangling-symlink'])(
-    'refuses %s without deleting its branch or any retained data', async (scenario) => {
+    'leaves %s alone, deleting no branch or retained data, and the job still leaves the list', async (scenario) => {
       breakMetadata();
       if (scenario === 'root') item = { ...item, worktreePath: repo };
       if (scenario === 'mismatched-pointer') writeFileSync(join(source, '.git'), `gitdir: ${join(repo, 'foreign/.git/worktrees/sample-abc123')}\n`);
@@ -230,25 +231,97 @@ describe('explicit orphan Discard through the real queue flow', () => {
         renameSync(join(source, '.git'), join(source, 'pointer'));
         symlinkSync(join(source, 'pointer'), join(source, '.git'));
       }
-      await expect(flow.discard(item.id)).rejects.toThrow();
+      await flow.discard(item.id);
       expect(git(['rev-parse', 'queue/sample-abc123'])).toBe(item.baseCommit);
       expect(item.branchName).toBe('queue/sample-abc123');
-      expect(saves).toEqual([]);
+      expect(saves).toHaveLength(1);
+      expect(item.discardedAt).toBeTruthy();
       expect(readFileSync(join(repo, 'base.txt'), 'utf8')).toBe('base\n');
     },
   );
 
-  it('refuses a valid registered checkout including uncommitted worker edits', async () => {
-    await expect(flow.discard(item.id)).rejects.toThrow('metadata still exists');
-    expect(git(['rev-parse', 'HEAD'], source)).toBe(item.baseCommit);
+  it('saves a live checkout\'s uncommitted edits, removes it, and keeps the work for Restore', async () => {
+    await flow.discard(item.id);
+    expect(existsSync(source)).toBe(false);
+    expect(item).toMatchObject({ worktreePath: null, branchName: null, discardedBy: 'James' });
+    const kept = `refs/plan-queue/discarded/${item.id}`;
+    expect(git(['show', `${kept}:untracked.txt`])).toBe('retained work');
+    expect(git(['show', `${kept}:base.txt`])).toBe('tracked edit');
+  });
+
+  it('leaves an unfinished merge and its hand-made fixes in place, and the job still leaves the list', async () => {
+    writeFileSync(join(source, 'second.txt'), 'worker\n');
+    git(['add', '-A'], source);
+    git(['-c', 'commit.gpgsign=false', 'commit', '-qm', 'worker'], source);
+    writeFileSync(join(repo, 'base.txt'), 'main moved\n');
+    writeFileSync(join(repo, 'second.txt'), 'main\n');
+    git(['add', '.']);
+    git(['-c', 'commit.gpgsign=false', 'commit', '-qm', 'main moved']);
+    expect(() => git(['merge', git(['rev-parse', '--abbrev-ref', 'HEAD'])], source)).toThrow();
+    writeFileSync(join(source, 'second.txt'), 'hand-made fix\n');
+    git(['add', 'second.txt'], source);
+
+    await flow.discard(item.id);
+
+    expect(item.discardedAt).toBeTruthy();
+    expect(item.worktreePath).toBe(source);
+    expect(item.detail).toContain('Left in place when discarded');
+    expect(readFileSync(join(source, 'second.txt'), 'utf8')).toBe('hand-made fix\n');
+    expect(git(['rev-parse', '-q', '--verify', 'MERGE_HEAD'], source)).toBeTruthy();
+  });
+
+  it('takes a job off the list when its project folder is gone', async () => {
+    const elsewhere = join(tmpdir(), 'queue-orphan-spec-missing-folder');
+    const gone = new PlanQueueItemFlow({
+      worktrees: service, getItem: () => item, getRun: () => ({ workspaceCwd: elsewhere, config: { baseBranch: 'main' } }),
+      save: (next: PlanQueueItem) => { item = next; return item; },
+    } as unknown as PlanQueueFlowHost);
+    await gone.discard(item.id, 'session other');
+    expect(item).toMatchObject({ discardedBy: 'session other', discardRefExpiresAt: null });
+    expect(item.discardedAt).toBeTruthy();
+    expect(item.detail).toContain('Left in place when discarded');
+  });
+
+  it('takes a job off the list when its project folder is no longer a repository', async () => {
+    const plain = realpathSync(mkdtempSync(join(tmpdir(), 'queue-orphan-spec-plain-')));
+    const notRepo = new PlanQueueItemFlow({
+      worktrees: service, getItem: () => item, getRun: () => ({ workspaceCwd: plain, config: { baseBranch: 'main' } }),
+      save: (next: PlanQueueItem) => { item = next; return item; },
+    } as unknown as PlanQueueFlowHost);
+    try {
+      item = { ...item, worktreePath: null };
+      await notRepo.discard(item.id);
+      expect(item.discardedAt).toBeTruthy();
+    } finally { rmSync(plain, { recursive: true, force: true }); }
+  });
+
+  it.each([
+    ['a detached HEAD', () => git(['checkout', '-q', '--detach'], source)],
+    ['another branch', () => git(['checkout', '-qb', 'worker-side-branch'], source)],
+  ])('leaves a live checkout on %s untouched, and the job still leaves the list', async (_name, move) => {
+    move();
+    await flow.discard(item.id);
+    expect(item.discardedAt).toBeTruthy();
+    expect(item.worktreePath).toBe(source);
+    expect(item.detail).toContain('Left in place when discarded');
+    expect(readFileSync(join(source, 'untracked.txt'), 'utf8')).toBe('retained work\n');
+    expect(git(['rev-parse', 'queue/sample-abc123'])).toBe(item.baseCommit);
+  });
+
+  it('leaves a folder with no checkout in it alone, and the job still leaves the list', async () => {
+    rmSync(join(source, '.git'));
+    await flow.discard(item.id);
+    expect(item.discardedAt).toBeTruthy();
     expect(readFileSync(join(source, 'untracked.txt'), 'utf8')).toBe('retained work\n');
   });
 
-  it('refuses an orphan branch that is now attached to another checkout', async () => {
+  it('leaves an orphan alone when its branch is now attached to another checkout', async () => {
     breakMetadata();
     const other = join(repo, '.worktrees/other');
     git(['worktree', 'add', '-q', other, 'queue/sample-abc123']);
-    await expect(flow.discard(item.id)).rejects.toThrow('Git still registers');
+    await flow.discard(item.id);
+    expect(item.detail).toContain('Git still registers');
+    expect(item.discardedAt).toBeTruthy();
     expect(git(['symbolic-ref', '--short', 'HEAD'], other)).toBe('queue/sample-abc123');
     expect(readFileSync(join(source, 'untracked.txt'), 'utf8')).toBe('retained work\n');
   });
@@ -262,12 +335,14 @@ describe('explicit orphan Discard through the real queue flow', () => {
     expect(git(['rev-parse', 'queue/sample-abc123'])).toBe(item.baseCommit);
   });
 
-  it('retains truthful planned recovery evidence when the move fails, then retries', async () => {
+  it('retains truthful planned recovery evidence when the move fails, and a second discard finishes it', async () => {
     breakMetadata();
     vi.mocked(fs.rename).mockRejectedValueOnce(new Error('move unavailable'));
-    await expect(flow.discard(item.id)).rejects.toThrow('move unavailable');
+    await flow.discard(item.id);
+    expect(item.discardedAt).toBeTruthy();
     expect(item.worktreePath).toBe(source);
     expect(item.detail).toContain('recovery location:');
+    expect(item.detail).toContain('move unavailable');
     expect(item.detail).not.toContain('retained at');
     expect(existsSync(source)).toBe(true);
     await settleQueue();
@@ -279,7 +354,8 @@ describe('explicit orphan Discard through the real queue flow', () => {
   it('recovers after the move succeeded but the path-clear save failed', async () => {
     breakMetadata();
     onSave = (next) => { if (!next.worktreePath) throw new Error('save interrupted'); };
-    await expect(flow.discard(item.id)).rejects.toThrow('save interrupted');
+    await flow.discard(item.id);
+    expect(item.detail).toContain('save interrupted');
     const preserved = retainedPath();
     expect(existsSync(source)).toBe(false);
     expect(readFileSync(join(preserved, 'untracked.txt'), 'utf8')).toBe('retained work\n');
@@ -293,17 +369,40 @@ describe('explicit orphan Discard through the real queue flow', () => {
     expect(retainedPath()).toBe(preserved);
   });
 
-  it('never deletes a branch checked out elsewhere even when its saved path is absent', async () => {
+  it('never deletes a branch checked out elsewhere, but the job still leaves the list', async () => {
     item = { ...item, worktreePath: null };
-    await expect(flow.discard(item.id)).rejects.toThrow('still checked out');
+    await flow.discard(item.id);
+    expect(item.detail).toContain('still checked out');
+    expect(item.discardedAt).toBeTruthy();
     expect(git(['rev-parse', 'HEAD'], source)).toBe(item.baseCommit);
     expect(item.branchName).toBe('queue/sample-abc123');
+    expect(readFileSync(join(source, 'untracked.txt'), 'utf8')).toBe('retained work\n');
+
+    await flow.restoreDiscarded(item.id);
+    expect(item).toMatchObject({ branchName: 'queue/sample-abc123', discardedAt: null, discardedBy: null });
   });
 
-  it('rechecks ownership after saving the receipt and refuses a changed gitfile', async () => {
+  it('restores a job whose branch moved on after the discard, keeping the older copy', async () => {
+    item = { ...item, worktreePath: null };
+    git(['add', '-A'], source);
+    git(['-c', 'commit.gpgsign=false', 'commit', '-qm', 'worker'], source);
+    await flow.discard(item.id);
+    const kept = git(['rev-parse', `refs/plan-queue/discarded/${item.id}`]);
+    writeFileSync(join(source, 'later.txt'), 'later\n');
+    git(['add', '-A'], source);
+    git(['-c', 'commit.gpgsign=false', 'commit', '-qm', 'later'], source);
+
+    await flow.restoreDiscarded(item.id);
+
+    expect(item.discardedAt).toBeNull();
+    expect(git(['rev-parse', `refs/plan-queue/discarded/${item.id}`])).toBe(kept);
+  });
+
+  it('rechecks ownership after saving the receipt and leaves a changed gitfile alone', async () => {
     breakMetadata();
-    onSave = () => writeFileSync(join(source, '.git'), 'gitdir: /unrelated/checkout\n');
-    await expect(flow.discard(item.id)).rejects.toThrow('changed during recovery');
+    onSave = (next) => { if (!next.discardedAt) writeFileSync(join(source, '.git'), 'gitdir: /unrelated/checkout\n'); };
+    await flow.discard(item.id);
+    expect(item.detail).toContain('changed during recovery');
     expect(existsSync(source)).toBe(true);
     expect(readFileSync(join(source, 'untracked.txt'), 'utf8')).toBe('retained work\n');
     expect(git(['rev-parse', 'queue/sample-abc123'])).toBe(item.baseCommit);

@@ -706,8 +706,7 @@ export class InstanceLifecycleManager extends EventEmitter {
    * the quota-park banner's "Switch provider" button. Picks the first eligible
    * fallback (installed, not parked) and swaps via the reconciler. Does NOT
    * consume the automatic-failover budget — this is an explicit user action,
-   * equivalent to a manual provider change. Cancels an active quota park
-   * before swapping so the countdown/auto-resume don't race the new provider.
+   * equivalent to a manual provider change.
    */
   async failoverNow(instanceId: string): Promise<{ switched: boolean; to?: string; note: string }> {
     const instance = this.deps.getInstance(instanceId);
@@ -742,10 +741,6 @@ export class InstanceLifecycleManager extends EventEmitter {
         note: `no eligible fallback (considered: ${considered.map((c) => `${c.provider}:${c.vetoReason ?? 'ok'}`).join(', ')})`,
       };
     }
-    // Clear an active quota park so its auto-resume doesn't fire on the old provider.
-    try {
-      getInstanceProviderLimitHandler().cancel(instanceId);
-    } catch { /* not parked — fine */ }
     const from = instance.provider;
     await this.failoverSwapProvider(instanceId, to);
     instance.failedOverFrom = from;

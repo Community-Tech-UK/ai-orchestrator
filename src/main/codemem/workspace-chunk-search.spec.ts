@@ -122,6 +122,16 @@ describe('searchHydratedChunks', () => {
     expect(searchHydratedChunks(store, '/repo', 'worker queue', 5).results[0]?.score).toBe(-12.5);
   });
 
+  it('does not show the same location twice', () => {
+    const { paths } = searchOver(
+      [hit('src/failover.ts', 'first', -40), hit('src/failover.ts', 'second', -39), hit('src/other.ts', 'third', -30)],
+      { first: 'failover', second: 'failover', third: 'failover' },
+      'failover',
+    );
+
+    expect(paths).toEqual(['src/failover.ts', 'src/other.ts']);
+  });
+
   describe('automatic context', () => {
     it('does not touch the index for a chatty message', () => {
       const { store, paths } = searchOver(
@@ -135,15 +145,30 @@ describe('searchHydratedChunks', () => {
       expect(paths).toEqual([]);
     });
 
-    it('drops chunks sharing only one word with the message', () => {
+    it('keeps only source files named after two words of the message', () => {
       const { paths } = searchOver(
-        [hit('src/weak.ts', 'weak', -50), hit('src/strong.ts', 'strong', -10)],
-        { weak: 'provider', strong: 'provider limit retry' },
+        [
+          hit('src/retry-worker.ts', 'body-only', -60),
+          hit('docs/provider-limit.md', 'doc', -50),
+          hit('src/provider-limit.ts', 'named', -10),
+        ],
+        { 'body-only': 'provider limit retry', doc: 'provider limit', named: 'export {}' },
         'provider limit retry',
         { strongMatchOnly: true },
       );
 
-      expect(paths).toEqual(['src/strong.ts']);
+      expect(paths).toEqual(['src/provider-limit.ts']);
+    });
+
+    it('stays quiet on everyday words that happen to match, like a sourdough recipe', () => {
+      const { paths } = searchOver(
+        [hit('docs/plans/loop-library.md', 'doc', -60), hit('src/recipe.ts', 'code', -40)],
+        { doc: 'a good recipe', code: 'good recipe' },
+        'what is a good recipe for sourdough',
+        { strongMatchOnly: true },
+      );
+
+      expect(paths).toEqual([]);
     });
 
     it('still finds the chunk defining an identifier named on its own', () => {

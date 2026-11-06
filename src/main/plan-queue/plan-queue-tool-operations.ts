@@ -10,6 +10,7 @@ import { getLogger } from '../logging/logger';
 import type { PlanQueueCoordinator } from './plan-queue-coordinator';
 import { describeAccountRules, copilotLabel, poolLabel } from './plan-queue-account-rules';
 import { describeRouting, routeChoiceFromArgs } from './plan-queue-routing';
+import { describeRunEvidence, PLAN_QUEUE_EVIDENCE_EVENT_LIMIT } from './plan-queue-run-evidence';
 import { describeQueueHealth } from '../../shared/utils/plan-queue-health-lines';
 import { planQueueRunCanMove } from '../../shared/utils/plan-queue-run-movable';
 
@@ -118,11 +119,14 @@ export function createPlanQueueToolOperations(coordinator: () => PlanQueueCoordi
           + accountNotes.map((note) => ` ${note}`).join(''),
       };
     },
-    status(_callerInstanceId, runId) {
+    status(_callerInstanceId, runId, evidence) {
+      if (evidence && !runId) throw new Error('evidence needs run_id');
       if (runId) {
         const run = coordinator().getRunDto(runId);
         if (!run) throw new Error(`Plan queue run not found: ${runId}`);
-        return runSummary(run);
+        if (!evidence) return runSummary(run);
+        const events = coordinator().listRunEvents(runId, PLAN_QUEUE_EVIDENCE_EVENT_LIMIT + 1);
+        return { ...runSummary(run), evidence: describeRunEvidence(run, events, Date.now()) };
       }
       // Nine short lines for the whole queue, in the same words as the Plan Queue page; not repeated per run.
       const health = describeQueueHealth(coordinator().getQueueHealth());
@@ -137,6 +141,24 @@ export function createPlanQueueToolOperations(coordinator: () => PlanQueueCoordi
       await coordinator().control(toControlPayload(args), callerInstanceId);
       return { done: true };
     },
+    // One page update per run, and a job that fails does not stop the rest.
+    discardItems: (callerInstanceId, itemIds) => coordinator().quietly(async () => {
+      const discarded: string[] = [];
+      const leftInPlace: { itemId: string; what: string[] }[] = [];
+      const failed: { itemId: string; error: string }[] = [];
+      for (const itemId of itemIds) {
+        try {
+          await coordinator().control({ action: 'discard-item', itemId }, callerInstanceId);
+          discarded.push(itemId);
+          const { branchName, worktreePath } = coordinator().getItem(itemId);
+          const what = [branchName, worktreePath].filter((left) => left !== null);
+          if (what.length > 0) leftInPlace.push({ itemId, what });
+        } catch (error) {
+          failed.push({ itemId, error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      return { discarded, leftInPlace, failed };
+    }),
     setAside: (callerInstanceId, offset) => coordinator().setAsideAgents.review(callerInstanceId, offset),
     clearSetAside: (callerInstanceId) => coordinator().setAsideAgents.clear(callerInstanceId),
     reportVerdict: (callerInstanceId, args) => coordinator().reportVerdict(callerInstanceId, args),

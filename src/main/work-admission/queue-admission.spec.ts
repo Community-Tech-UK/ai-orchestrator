@@ -4,12 +4,20 @@ import { queueAdmission } from './queue-admission';
 
 afterEach(() => WorkAdmission._resetForTesting());
 describe('queue admission', () => {
+  it('says why a check cannot start', () => {
+    const policy = queueAdmission({ workerSlots: 1, verificationSlots: 2, maxLoadAverage: 30 }, 0, 0);
+    expect(policy.whyNoCheck(0)).toBeNull();
+    expect(policy.whyNoCheck(2)).toBe('other-checks');
+    expect(policy.whyNoChecklist(0)).toBeNull();
+    expect(policy.whyNoChecklist(1)).toBe('other-checks');
+  });
+
   it('starts neither workers, verifiers nor triage during Hold', () => {
     const admission = getWorkAdmission();
     admission.setGlobalPhase('holding');
     const policy = queueAdmission({ workerSlots: 3, verificationSlots: 2, maxLoadAverage: 30 }, 0, 0);
     expect(policy.canStartWorker(0)).toBe(false);
-    expect(policy.canStartCheck(0)).toBe(false);
+    expect(policy.whyNoCheck(0)).toBe('harness-held');
     expect(policy.canStartTriage()).toBe(false);
     admission.setGlobalPhase('none');
     expect(queueAdmission({ workerSlots: 3, verificationSlots: 2, maxLoadAverage: 30 }, 0, 0).canStartWorker(0)).toBe(true);

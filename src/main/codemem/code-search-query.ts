@@ -16,7 +16,7 @@ const MAX_RANKED_TEXT_CHARS = 20_000;
 
 /** Below this many informative words, automatic context has too little to go on. */
 const MIN_STRONG_MATCH_TERMS = 2;
-const MIN_STRONG_MATCH_COVERAGE = 0.5;
+const MIN_PREFIX_LENGTH = 3;
 
 /**
  * Words that say nothing about which code is meant. Domain nouns such as
@@ -36,9 +36,26 @@ const STOP_WORDS = new Set<string>(`
   thank sure cool great nice awesome fix fixed fixes add added adds make makes made
 `.trim().split(/\s+/));
 
+/**
+ * Everyday words that say nothing about code, even when a file is named after
+ * them. Kept out of `STOP_WORDS` because a deliberate search can still use them.
+ */
+const CHATTY_WORDS = new Set<string>(`
+  good better best bad worse look looks looking see seen sees saw think thought know knew try trying
+  tried show shows showing tell told find found start started stop stopped mean means right wrong new
+  old last next first still already again maybe actually really probably sorry wait check checks
+  checking run running work works working put putting take taking give given able sure time times day
+  today now
+`.trim().split(/\s+/));
+
 const DOC_PATH = /(^|\/)(docs?|documentation)\/|\.(md|mdx|rst|txt|adoc)$/i;
 const DATA_PATH = /\.(json|jsonl|ya?ml|toml|lock|csv|tsv|xml|svg|snap|map|ini|env)$/i;
 const TEST_PATH = /\.(spec|test)\.|(^|\/)(__tests__|tests?|fixtures?)\//i;
+const SOURCE_PATH = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|pyi|java|kt|kts|groovy|gradle|go|rs|rb|php|phtml|inc|twig|jsp|swift|dart|lua|c|h|cc|cpp|hpp|cs|scala|sh|bash|zsh|ps1|bat|sql|proto|graphql|html|css|scss|sass|less|vue|svelte)$/i;
+/** Folders of copies, output and third-party code. Their files look like source but nobody here is working on them. */
+const NON_SOURCE_FOLDER = /(^|\/)(tmp|temp|\.tmp|\.cache|node_modules|dist|coverage|vendor|third_party|wp-admin|wp-includes|_scratch|_archive|Pods|DerivedData)\/|^(out|build|target)\/|(^|\/)[^/]*-archive-[^/]*\//i;
+/** Parts of nearly every path, which say nothing about what a file does. */
+const PATH_NOISE_WORDS = new Set(['src', 'main', 'lib']);
 
 export type CodeFileKind = 'code' | 'test' | 'doc' | 'data';
 
@@ -114,26 +131,61 @@ export function fileKindWeight(relativePath: string): number {
   return FILE_KIND_WEIGHT[classifyFileKind(relativePath)];
 }
 
+function isInformative(term: string): boolean {
+  return !CHATTY_WORDS.has(term.toLowerCase());
+}
+
 /** Whether a query says enough to be worth searching for automatic context at all. */
 export function canMatchStrongly(terms: readonly string[]): boolean {
-  return terms.length >= MIN_STRONG_MATCH_TERMS || terms.some(isIdentifierLike);
+  return terms.filter(isInformative).length >= MIN_STRONG_MATCH_TERMS || terms.some(isIdentifierLike);
+}
+
+function isSourceFile(relativePath: string): boolean {
+  return classifyFileKind(relativePath) === 'code'
+    && SOURCE_PATH.test(relativePath)
+    && !NON_SOURCE_FOLDER.test(relativePath);
+}
+
+/** The words a path and symbol name are made of: `src/planQueue-worker.ts` gives plan, queue, worker. */
+function nameWords(relativePath: string, chunkName: string): string[] {
+  return `${relativePath.replace(/\.[^./]+$/, '')} ${chunkName}`
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((word) => !PATH_NOISE_WORDS.has(word));
+}
+
+/** Very short words must match whole, or `id` would match `identity`. */
+function isNamedBy(word: string, stem: string): boolean {
+  return stem.length < MIN_PREFIX_LENGTH ? word === stem : word.startsWith(stem);
 }
 
 /**
- * Whether a chunk is relevant enough to add to a prompt unasked. Sending
- * unrelated code on every message costs tokens and misleads, so automatic
- * context needs more than one shared word: at least two informative words and
- * half the query, or the chunk that defines a code name from it. Merely
- * containing the name is not enough, because `GitHub` is shaped like a class.
+ * Whether a chunk is relevant enough to add to a prompt unasked. Unrelated code
+ * costs tokens and misleads, and shared words in a chunk's body prove little: a
+ * blind review found about 7% of such matches relevant on real messages, and
+ * words in the file path or symbol name did far better. So a chunk must be
+ * source code and either be named after two informative words or define a code
+ * name from the query. Merely containing the name is not enough, because `GitHub` is
+ * shaped like a class.
  */
 export function isStrongMatch(
   terms: readonly string[],
-  matchedTerms: number,
+  relativePath: string,
   chunkName: string,
 ): boolean {
-  if (terms.some((term) => isIdentifierLike(term) && term === chunkName)) {
-    return true;
+  if (!isSourceFile(relativePath)) return false;
+  if (terms.some((term) => isIdentifierLike(term) && term === chunkName)) return true;
+
+  // Each name word counts once, so `session` and `sessions` cannot pass on one word.
+  const unmatched = new Set(nameWords(relativePath, chunkName));
+  let named = 0;
+  for (const term of terms.filter(isInformative)) {
+    const stem = comparableStem(term);
+    const word = [...unmatched].find((candidate) => isNamedBy(candidate, stem));
+    if (word === undefined) continue;
+    unmatched.delete(word);
+    named += 1;
   }
-  return matchedTerms >= MIN_STRONG_MATCH_TERMS
-    && matchedTerms / terms.length >= MIN_STRONG_MATCH_COVERAGE;
+  return named >= MIN_STRONG_MATCH_TERMS;
 }

@@ -7,7 +7,7 @@
  * the stored data.
  */
 import type { PlanQueueItemDto, PlanQueueParkReason } from '@contracts/schemas/plan-queue';
-import { stripAbsolutePaths } from './plan-queue-item-display';
+import { stripAbsolutePaths } from '../../../../shared/utils/plan-queue-item-display';
 
 /** The buttons a set-aside card may show; only the ones a reason applies to. */
 export type PlanQueueParkAction =
@@ -80,8 +80,8 @@ export const PARK_REASON_HELP: Record<PlanQueueParkReason, PlanQueueParkReasonHe
   },
   'provider-limit': {
     label: 'Usage limit reached',
-    meaning: "The provider's usage limit stopped the session.",
-    next: 'Resume once the usage limit resets.',
+    meaning: "The provider's usage limit stopped the session, and Harness waited a day for it to come back.",
+    next: 'Check the usage on this account, then Resume.',
     actions: ['resume', 'discard'],
   },
   cancelled: {
@@ -116,9 +116,9 @@ export const PARK_REASON_HELP: Record<PlanQueueParkReason, PlanQueueParkReasonHe
   },
   'missing-document': {
     label: 'The document is gone',
-    meaning: 'The source document is missing and has no exact completed replacement.',
-    next: 'Restore the document (or its exact completed replacement), then Resume.',
-    actions: ['resume', 'discard'],
+    meaning: 'The source document is no longer where this job expects it. The details say if it was closed under a new name.',
+    next: 'If the plan was closed, keep the work with Merge without checks or Discard it. Otherwise restore the document, then Resume.',
+    actions: ['resume', 'merge-without-checks', 'discard'],
   },
   'stopped-by-harness': {
     label: 'Harness stopped this job',

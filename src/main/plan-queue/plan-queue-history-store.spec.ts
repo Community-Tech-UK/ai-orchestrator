@@ -11,6 +11,30 @@ beforeAll(() => initSqliteWasm());
 afterEach(() => db?.close());
 
 describe('queue round history', () => {
+  it('lists one run\'s events newest first with timing rows, without workers\' closing messages or other runs', () => {
+    db = createSqliteWasmDatabase(':memory:'); runLoopMigrations(db);
+    const store = new PlanQueueStore(db);
+    for (const id of ['run', 'other-run']) store.upsertRun({
+      id, parentInstanceId: 'parent', parentHistoryThreadId: null, kind: 'plans', workspaceCwd: '/repo',
+      status: 'completed', config: DEFAULT_PLAN_QUEUE_CONFIG.plans, relaxation: null,
+      workerProvider: 'claude', workerModel: null, startedAt: 1, endedAt: 2,
+    });
+    const job = newPlanQueueItem('job', 'run', '/repo/job_plan.md', 1);
+    const other = newPlanQueueItem('other', 'other-run', '/repo/other_plan.md', 1);
+    store.upsertItem(job); store.upsertItem(other);
+    // After the event each job writes when it is created, so the order below is exact.
+    const later = Date.now() + 60_000;
+    const record = (itemId: string, runId: string, offset: number, reason: string | null) => store.history.recordEvent({
+      itemId, runId, at: later + offset, fromState: 'verifying', toState: 'verifying', reason, detailHead: null, round: 0, tokens: 0 });
+    record('job', 'run', 10, 'worker-claim');
+    record('job', 'run', 20, null);
+    record('job', 'run', 30, 'slot-wait');
+    record('job', 'run', 40, 'checklist-run');
+    record('other', 'other-run', 50, 'checklist-run');
+    expect(store.history.listRunEvents('run', 3).map(event => event.at)).toEqual([later + 40, later + 30, later + 20]);
+    expect(store.history.listRunEvents('run', 10).filter(event => event.at >= later).map(event => event.reason)).toEqual(['checklist-run', 'slot-wait', null]);
+  });
+
   it('counts actual checklist runs and unique jobs in each participating run across retries', () => {
     db = createSqliteWasmDatabase(':memory:'); runLoopMigrations(db);
     const store = new PlanQueueStore(db);

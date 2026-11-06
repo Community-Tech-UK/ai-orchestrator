@@ -15,6 +15,7 @@ import type {
   PlanQueueRunDto,
 } from '@contracts/schemas/plan-queue';
 import { documentStem } from './plan-queue-item-flow';
+import { planQueueChecksLabel } from '../../shared/utils/plan-queue-item-display';
 import { isNotReachedItem } from '../../shared/utils/plan-queue-item-outcome';
 import { relaxedSettingsFor } from './plan-queue-relaxation';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
@@ -65,6 +66,7 @@ export function runToDto(run: PlanQueueRun, items: readonly PlanQueueItem[], che
     kind: run.kind,
     workspaceCwd: run.workspaceCwd,
     status: run.status,
+    holdReason: run.holdReason ?? null,
     config: run.config,
     workerProvider: run.workerProvider,
     workerModel: run.workerModel,
@@ -120,7 +122,8 @@ export function buildRunSummaryMessage(run: PlanQueueRun, items: readonly PlanQu
   const lines = [
     `Plan Queue run ${run.id} (${run.kind}) ended: ${run.status}. Landed ${count('landed')}, parked ${parked.length}, skipped ${count('skipped') - notReached}, not reached ${notReached}.`,
   ];
-  if (checks?.runs) lines.push(`${checks.runs} test ${checks.runs === 1 ? 'run' : 'runs'} covered ${checks.jobs} ${checks.jobs === 1 ? 'job' : 'jobs'}.`);
+  const checksLabel = planQueueChecksLabel(checks);
+  if (checksLabel) lines.push(`${checksLabel}.`);
   if (parked.length) {
     lines.push('', 'Parked (retained branches are named below; Resume, Land anyway or Discard in the Plan Queue panel):');
     for (const item of parked) {

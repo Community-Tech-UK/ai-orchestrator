@@ -1920,7 +1920,6 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     expect(await coordinator.setAsideAgents.clear(agent.id)).toMatchObject({ cleared: 0, left: 1 });
     expect(git(['rev-parse', '--verify', branch])).toBeTruthy();
     await expect(coordinator.control({ action: 'land-anyway', itemId }, agent.id)).rejects.toThrow('may only retry');
-    await expect(coordinator.control({ action: 'discard-item', itemId }, agent.id)).rejects.toThrow('may only retry');
     await expect(coordinator.control({ action: 'adopt', runId }, agent.id)).rejects.toThrow('may only retry');
     await expect(coordinator.startRun({ parentInstanceId: agent.id, kind: 'plans' })).rejects.toThrow('Set aside session');
 
@@ -1933,6 +1932,33 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     expect(events).toEqual([{ runId }]);
     expect(coordinator.getRunDto(runId)!.items[0]).toMatchObject({ branchName: null });
     expect(coordinator.getRunDto(runId)!.items[0].discardedBy).toContain('the Set aside agent');
+  });
+
+  it('the Set aside agent can discard a job holding work at no cost to its retries, and bring it back', async () => {
+    const { runId, itemId, branch } = await parkedAtRoundLimit();
+    const agent = fake.addParent();
+    agent.metadata = { [SET_ASIDE_FOLDER_METADATA]: repo };
+
+    await coordinator.control({ action: 'discard-item', itemId }, agent.id);
+
+    expect(git(['branch', '--list', branch])).toBe('');
+    expect(coordinator.getRunDto(runId)!.items[0].discardedBy).toContain('the Set aside agent');
+    expect((await coordinator.setAsideAgents.review(agent.id, 0)).restartsLeft).toBe(PLAN_QUEUE_SET_ASIDE_RESTART_LIMIT);
+
+    await coordinator.control({ action: 'restore-discarded', itemId }, agent.id);
+
+    expect(git(['branch', '--list', branch])).not.toBe('');
+    expect(coordinator.getRunDto(runId)!.items[0]).toMatchObject({ state: 'parked', discardedAt: null });
+  });
+
+  it('lets another session discard a job while its owner is alive, and records who did', async () => {
+    const { runId, itemId, branch } = await parkedAtRoundLimit();
+    const other = fake.addParent();
+
+    await coordinator.control({ action: 'discard-item', itemId }, other.id);
+
+    expect(git(['branch', '--list', branch])).toBe('');
+    expect(coordinator.getRunDto(runId)!.items[0].discardedBy).toBe(`session ${other.id}`);
   });
 
   it('applies the Set aside agent limits on the control path, before anything changes and at no cost', async () => {
@@ -2003,6 +2029,19 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     expect(resumedWorker.config.initialPrompt).toContain('James resumed this parked item');
     expect(resumedWorker.config.initialPrompt).toContain(branch);
     expect(git(['show', 'main:2026-01-01-alpha_plan.feature.txt'])).toBe('built 2026-01-01-alpha_plan');
+  });
+
+  it('Resume on a discarded job carries on from its kept work and lands it', async () => {
+    const { runId, itemId, branch } = await parkedAtRoundLimit();
+    fake.scripts.verifier = pass;
+    await coordinator.control({ action: 'discard-item', itemId });
+    expect(git(['branch', '--list', branch])).toBe('');
+
+    await coordinator.control({ action: 'resume-item', itemId });
+    await waitForRun(runId);
+
+    expect(coordinator.getRunDto(runId)!.items[0]).toMatchObject({ state: 'landed', discardedAt: null });
+    expect(fake.created.filter((i) => i.role === 'worker').at(-1)!.config.initialPrompt).toContain(branch);
   });
 
   it('Resume sends the worker the findings the item was parked with', async () => {
@@ -2180,7 +2219,7 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     await expect(coordinator.control({ action: 'cancel', runId: run.id }, rescuer.id)).rejects.toThrow(/Only the session that started/);
 
     fake.live.delete(parent.id);
-    // A session the queue spawned can never rescue, and the rescue covers only cancel and discard.
+    // A session the queue spawned can never rescue, and the rescue covers only adopt and cancel.
     fake.live.set('worker-other-run', { ...rescuer, id: 'worker-other-run', metadata: { planQueueRole: 'worker' } });
     await expect(coordinator.control({ action: 'cancel', runId: run.id }, 'worker-other-run')).rejects.toThrow(/Only the session that started/);
     await expect(coordinator.control({ action: 'pause', runId: run.id }, rescuer.id)).rejects.toThrow(/Use action "adopt" to take over/);
@@ -2213,9 +2252,7 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     await coordinator.control({ action: 'discard-item', itemId }, rescuer.id);
 
     expect(git(['branch', '--list', branch])).toBe('');
-    expect(coordinator.getRunDto(runId)!.items[0].discardedBy).toContain(
-      `session ${rescuer.id}, because the session that started the run (${parentId}) no longer exists`,
-    );
+    expect(coordinator.getRunDto(runId)!.items[0].discardedBy).toBe(`session ${rescuer.id}`);
   });
 
   it('surfaces a worker waiting for input as a question and resumes it on "continue"', async () => {
@@ -2896,7 +2933,7 @@ describe('PlanQueueCoordinator — providers and accounts', { timeout: 30_000 },
     });
   });
 
-  it('parks undecided documents with the real reason when triage cannot start', async () => {
+  it('holds the run with the real reason, and sets no document aside, when triage cannot start', async () => {
     planDoc('2026-01-01-alpha');
     // Hold every spawn until the exclusion is in place, so the order is deterministic.
     let openTools!: () => void;
@@ -2909,19 +2946,15 @@ describe('PlanQueueCoordinator — providers and accounts', { timeout: 30_000 },
     const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
     excludedProviders = ['claude'];
     openTools();
-    // A refused start is retried no sooner than a minute later; three refusals park it.
+    // Refused starts wait 1, then 5 minutes; the third matching one holds the run.
     await vi.waitFor(() => {
       clock += 60_000;
       coordinator.requestPump();
-      expect(coordinator.getRunDto(run.id)!.items[0]?.state).toBe('parked');
+      expect(coordinator.getRunDto(run.id)!.holdReason).toContain('claude has been added to the "never auto-pick these providers" list');
     }, { timeout: 15_000, interval: 30 });
 
     expect(fake.created.some((i) => i.role === 'triage')).toBe(false);
-    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({
-      state: 'parked',
-      parkReason: 'triage-failed',
-      detail: expect.stringContaining('could not start after three tries: claude has been added to the "never auto-pick these providers" list since this run started, so the queue will not start another session on it'),
-    });
+    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'discovered', parkReason: null });
   });
 
   it('refuses to start a run whose saved choice names an account the queue may not use', async () => {
@@ -3264,7 +3297,7 @@ it('holds a worker that hits a usage limit mid-turn to wait for usage instead of
   expect(fake.created.filter((i) => i.role === 'worker').length).toBeGreaterThan(1);
 }, 30_000);
 
-it('parks a worker for James once it has waited for usage three times in one item', async () => {
+it('keeps a worker waiting through repeated usage limits, and does not park it within the day', async () => {
   planDoc('2026-01-01-worker-usage-limit-repeats');
   fake.scripts.worker = (instance, _message, source) => {
     source.say(instance, 'Claude usage limit reached.');
@@ -3272,31 +3305,53 @@ it('parks a worker for James once it has waited for usage three times in one ite
   };
   const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
   const itemId = store.listItems(run.id)[0].id;
-  for (let hold = 1; hold <= 3; hold += 1) {
+  for (let hold = 1; hold <= 4; hold += 1) {
     await vi.waitFor(() => expect(store.history.listEvents(itemId).filter((e) => e.reason === 'worker-usage-limit-hold')).toHaveLength(hold), { timeout: 15_000, interval: 50 });
     await vi.waitFor(() => expect(store.getItem(itemId)).toMatchObject({ state: 'queued', workerInstanceId: null }), { timeout: 15_000, interval: 50 });
     // Pause then Resume gives the item a fresh try at once, which hits the limit again.
     await coordinator.control({ action: 'pause', runId: run.id });
     await coordinator.control({ action: 'resume', runId: run.id });
   }
-  await vi.waitFor(() => expect(store.getItem(itemId)).toMatchObject({ state: 'parked', parkReason: 'provider-limit' }), { timeout: 15_000, interval: 50 });
+  expect(store.getItem(itemId)).toMatchObject({ parkReason: null });
+  expect(store.getItem(itemId)!.state).not.toBe('parked');
 }, 60_000);
 
-it.each([
-  ['provider-limit', 'the verifier stopped at a usage limit before reporting a verdict'],
-  ['needs-input', 'the verifier asked a question instead of reporting a verdict'],
-] as const)('counts verifier %s failures with a specific reason', async (kind, detail) => {
+it('counts a verifier asking a question as a failed round with a specific reason', async () => {
   planDoc('2026-01-01-specific-verifier-stop');
-  fake.scripts.verifier = (instance, _message, source) => {
-    if (kind === 'needs-input') source.setStatus(instance, 'waiting_for_input');
-    else {
-      source.say(instance, 'Claude usage limit reached.');
-      source.setStatus(instance, 'idle');
-    }
-  };
+  fake.scripts.verifier = (instance, _message, source) => { source.setStatus(instance, 'waiting_for_input'); };
   const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
   await waitForRun(run.id);
-  expect(store.listItems(run.id)[0]).toMatchObject({ state: 'parked', parkReason: 'verifier-unreliable', erroredRounds: 2, detail });
+  expect(store.listItems(run.id)[0]).toMatchObject({ state: 'parked', parkReason: 'verifier-unreliable', erroredRounds: 2,
+    detail: 'the verifier asked a question instead of reporting a verdict' });
+}, 30_000);
+
+it('waits when a checker hits its usage limit, which judged nothing and is not a failed round', async () => {
+  planDoc('2026-01-01-checker-usage-limit');
+  fake.scripts.verifier = (instance, _message, source) => {
+    source.say(instance, 'Claude usage limit reached.');
+    source.setStatus(instance, 'idle');
+  };
+  const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
+  const itemId = store.listItems(run.id)[0].id;
+  await vi.waitFor(() => expect(store.getItem(itemId)?.detail).toMatch(/^Waiting for usage: /), { timeout: 15_000, interval: 50 });
+  expect(store.getItem(itemId)).toMatchObject({ state: 'awaiting-slot', parkReason: null, erroredRounds: 0, round: 0 });
+  expect(store.history.listEvents(itemId).filter((event) => event.reason === 'worker-usage-limit-hold')).toHaveLength(1);
+}, 30_000);
+
+it('holds a run when jobs keep failing the same way, without stopping or setting aside the jobs still waiting', async () => {
+  for (const name of ['one', 'two', 'three', 'four']) planDoc(`2026-01-01-${name}`);
+  const prepare = vi.spyOn(coordinator.worktrees, 'prepare').mockRejectedValue(new Error('fatal: disk unavailable'));
+  const parent = fake.addParent();
+  const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans', config: { workerSlots: 1 } });
+  await vi.waitFor(() => expect(coordinator.getRunDto(run.id)!.holdReason).toContain('disk unavailable'), { timeout: 20_000, interval: 25 });
+  await coordinator._whenSettledForTesting();
+  const dto = coordinator.getRunDto(run.id)!;
+  expect(dto.status).toBe('running');
+  expect(dto.items.filter(item => item.state === 'parked')).toHaveLength(3);
+  expect(dto.items.filter(item => item.state === 'queued')).toHaveLength(1);
+  prepare.mockRestore();
+  await coordinator.control({ action: 'resume', runId: run.id });
+  expect(coordinator.getRunDto(run.id)!.holdReason).toBeNull();
 }, 30_000);
 
 it('clears the former conversation before handing work to the step-up worker', async () => {

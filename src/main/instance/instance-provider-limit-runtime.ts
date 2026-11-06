@@ -7,6 +7,7 @@ import { getLogger } from '../logging/logger';
 import { assertGlobalPauseInputCurrent, runWithGlobalPauseInput } from '../global-pause/global-pause-input';
 import type { InstanceSendInputOptions } from './instance-input-cancellation';
 import { globalPauseHoldsAutomaticInput } from '../global-pause/global-pause-service';
+import { getSessionQueueService } from '../session/session-queue-service';
 
 const logger = getLogger('InstanceProviderLimitRuntime');
 
@@ -106,6 +107,22 @@ export function holdQueuedInstanceInput(instanceId: string): boolean {
   }
 }
 
+
+/** Whether a held or queued user turn goes out as soon as this session's park ends. */
+export function userTurnFollowsPark(instanceId: string): boolean {
+  const limits = getInstanceProviderLimitHandler();
+  if (!limits.isParked(instanceId)) return false;
+  if (limits.hasHeldTurn(instanceId)) return true;
+  try {
+    return getSessionQueueService().hasQueuedMessages(instanceId);
+  } catch (checkError) {
+    logger.warn('Could not read the queued input for a parked session', {
+      instanceId,
+      error: checkError instanceof Error ? checkError.message : String(checkError),
+    });
+    return false;
+  }
+}
 
 /** Queued prompts wait in their durable queue instead of joining another turn's resender. */
 export async function assertQueuedInputProviderReady(instanceId: string, options: InstanceSendInputOptions): Promise<void> {

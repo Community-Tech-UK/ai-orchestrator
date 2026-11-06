@@ -228,6 +228,17 @@ export class PlanQueueHistoryStore {
       .map(rowToEvent);
   }
 
+  /**
+   * One run's newest events first, timing rows included, for `plan_queue_status` evidence. A worker's closing message
+   * is left out: it is long prose that the document and verdict already cover.
+   */
+  listRunEvents(runId: string, limit: number): PlanQueueItemEvent[] {
+    return this.db
+      .prepare(`SELECT * FROM plan_queue_item_events WHERE run_id = ? AND reason IS NOT 'worker-claim' ORDER BY at DESC, rowid DESC LIMIT ?`)
+      .all<EventRow>(runId, limit)
+      .map(rowToEvent);
+  }
+
   /** The criteria this job started from. First writer wins (Step 5). */
   recordPinIfAbsent(pin: PlanQueueItemPin): void {
     this.db.prepare(`

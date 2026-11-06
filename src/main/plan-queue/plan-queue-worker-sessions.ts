@@ -1,4 +1,5 @@
 /** Provider conversation recording and one fresh-start retry for a failed reopen. */
+import * as path from 'node:path';
 import { getLogger } from '../logging/logger';
 import type { PlanQueueFlowHost, PlanQueueInstancePort } from './plan-queue-host';
 import { hasCheckout } from './plan-queue-orphan-checkout';
@@ -131,4 +132,25 @@ export class PlanQueueWorkerSessions {
       }).catch((failure: unknown) => logger.error('Plan queue resume fallback failed', failure instanceof Error ? failure : undefined));
     });
   }
+}
+
+/** The worker stopped to ask something: put it to James as a question on the item. */
+export function askJamesForWorker(host: Pick<PlanQueueFlowHost, 'save' | 'notifyParent' | 'getRun'>, item: PlanQueueItem, lastAssistantOutput: string | null): void {
+  const text = lastAssistantOutput?.trim() || 'The worker stopped and is waiting for input.';
+  const saved = host.save({
+    ...item,
+    question: {
+      question: text.slice(0, 2000),
+      options: [
+        { id: 'continue', label: 'Carry on using your best judgement' },
+        { id: 'park', label: 'Stop and park this item' },
+      ],
+    },
+  });
+  host.notifyParent(
+    host.getRun(saved.runId),
+    `Plan Queue: the worker for ${path.basename(saved.documentPath).replace(/\.md$/i, '')} is waiting for James.\n\n${text.slice(0, 1500)}\n\n`
+      + `Ask James, then call plan_queue_answer with item_id "${saved.id}" and option_id "continue" or "park". James can also answer the worker directly in its own session.`,
+    [saved],
+  );
 }

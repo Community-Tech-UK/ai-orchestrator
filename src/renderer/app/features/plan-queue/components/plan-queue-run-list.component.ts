@@ -12,7 +12,7 @@ import { PlanQueueItemListComponent, planQueueStateLabel } from './plan-queue-it
 import { PlanQueueRoutingPanelComponent } from './plan-queue-routing-panel.component';
 import { PlanQueueRunControlsComponent } from './plan-queue-run-controls.component';
 import { PlanQueueRunOwnerComponent, type PlanQueueSessionOption } from './plan-queue-run-owner.component';
-import { planQueueChecksLabel, planQueueKindLabel, pluralise } from '../plan-queue-item-display';
+import { planQueueChecksLabel, planQueueKindLabel, pluralise } from '../../../../../shared/utils/plan-queue-item-display';
 import { isNotReachedItem, PLAN_QUEUE_NOT_REACHED_LABEL } from '../../../../../shared/utils/plan-queue-item-outcome';
 
 /**

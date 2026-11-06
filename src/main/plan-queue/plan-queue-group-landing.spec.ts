@@ -301,7 +301,7 @@ it('reuses evidence from an already landed member whose other owning run complet
 });
 
 
-it('parks a Git proof error without silently reusing or running old-HEAD checks', async () => {
+it('waits on a Git proof error without silently reusing or running old-HEAD checks', async () => {
   const { flow, execute, prepare, pass } = runtimeFlow();
   await prepare('one'); await prepare('two');
   await flow.startVerification(store.getItem('one')!); await pass('one');
@@ -312,7 +312,7 @@ it('parks a Git proof error without silently reusing or running old-HEAD checks'
   });
   await flow.startVerification(store.getItem('two')!);
   expect(execute).toHaveBeenCalledTimes(1);
-  expect(store.getItem('two')).toMatchObject({ state: 'parked', parkReason: 'worktree-error',
+  expect(store.getItem('two')).toMatchObject({ state: 'awaiting-slot', parkReason: null,
     detail: expect.stringContaining('Cannot read group ancestry') });
 });
 

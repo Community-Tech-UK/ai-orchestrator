@@ -170,7 +170,7 @@ describe('reconcilePlanQueueWorktrees', () => {
       reason: 'The saved checkout is unusable or does not match its queue item.',
       suggestedAction: expect.stringContaining('explicitly approved Discard'),
     }]);
-    expect(alerts[0].suggestedAction).toContain('foreign or still-registered checkouts are refused');
+    expect(alerts[0].suggestedAction).toContain('foreign or still-registered checkouts stay where they are');
     expect(readFileSync(join(worktreePath, 'stranded.txt'), 'utf8')).toBe('preserve my uncommitted work\n');
     expect(readFileSync(gitfilePath, 'utf8')).toBe(gitfile);
     expect(existsSync(metadata)).toBe(false);

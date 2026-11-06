@@ -20,8 +20,29 @@ describe('planQueueStageLine', () => {
   it('says what Harness is doing, for which plan, and for how long', () => {
     expect(text({ name: 'checks', startedAt: NOW - 12 * MIN })).toBe('Checking desk-shared-crm: tests running, 12 min');
     expect(text({ name: 'landing', startedAt: NOW - 9 * MIN })).toBe('Landing desk-shared-crm: commit checks running, 9 min');
-    expect(text({ name: 'waiting-for-checks', startedAt: NOW - 4 * MIN })).toBe('desk-shared-crm: waiting for a free check slot, 4 min');
+    expect(text({ name: 'waiting-for-checks', startedAt: NOW - 4 * MIN, checkWait: 'other-checks' })).toBe('desk-shared-crm: waiting for a free check slot, 4 min');
     expect(text({ name: 'waiting-to-land', startedAt: NOW - 2 * MIN })).toBe('desk-shared-crm: waiting for another job to finish landing, 2 min');
+  });
+
+  it.each([
+    ['computer-busy', 'waiting for the computer to be less busy'],
+    ['harness-held', 'waiting for Harness to start new work again'],
+    ['run-on-hold', 'waiting while this run is on hold'],
+    ['tidying-up', 'waiting while Harness tidies up a finished job'],
+    ['trying-later', 'waiting to try again'],
+    ['checked-together', 'waiting to be checked with another job'],
+  ] as const)('gives the real reason for a %s wait', (checkWait, words) => {
+    expect(text({ name: 'waiting-for-checks', startedAt: NOW - 4 * MIN, checkWait })).toBe(`desk-shared-crm: ${words}, 4 min`);
+  });
+
+  it('never claims a slot is taken before the scheduler has looked', () => {
+    expect(text({ name: 'waiting-for-checks', startedAt: NOW - 4 * MIN })).toBe('desk-shared-crm: waiting for its turn to be checked, 4 min');
+  });
+
+  it('prefers the queue\'s own note for the tooltip', () => {
+    const stage: PlanQueueItemStage = { name: 'waiting-for-checks', startedAt: NOW, checkWait: 'trying-later' };
+    expect(planQueueStageLine(item(stage), NOW)?.hint).toBe('Its checks could not start last time, so Harness will try again shortly.');
+    expect(planQueueStageLine(item(stage, { detail: 'No usage left on this account.' }), NOW)?.hint).toBe('No usage left on this account.');
   });
 
   it('is null for a job with no such step', () => {

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   automatedResendInput,
   formatInternalInputForProvider,
+  heldTurnResendInput,
   internalInputMetadata,
   parseInternalInputEnvelope,
 } from './internal-input-provenance';
@@ -47,6 +48,23 @@ describe('internal input provenance (LT-657)', () => {
 
     const user = automatedResendInput('please finish the migration');
     expect(user).toEqual({ message: 'please finish the migration', options: { automatedInput: true } });
+  });
+
+  it('re-sends a held turn without a second bubble only when the chat already shows it', () => {
+    const shown = { outputBuffer: [
+      { type: 'user', content: 'older request' },
+      { type: 'user', content: 'please finish the migration' },
+      { type: 'system', content: 'Provider limit reached.' },
+    ] } as never;
+    expect(heldTurnResendInput(shown, 'please finish the migration').options).toEqual({ automatedInput: true, isRetry: true });
+    expect(heldTurnResendInput(shown, 'older request').options).toEqual({ automatedInput: true });
+    expect(heldTurnResendInput(undefined, 'please finish the migration').options).toEqual({ automatedInput: true });
+  });
+
+  it('never marks a Harness turn as a retry of a user message', () => {
+    const shown = { outputBuffer: [{ type: 'user', content: 'Item 3 landed.' }] } as never;
+    const resend = heldTurnResendInput(shown, formatInternalInputForProvider('plan-queue', 'Item 3 landed.'));
+    expect(resend.options).toEqual({ automatedInput: true, internalSource: 'plan-queue' });
   });
 
   it('marks the provider-limit continuation turn as Harness-authored', () => {

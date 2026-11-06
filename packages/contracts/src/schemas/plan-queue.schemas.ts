@@ -319,13 +319,20 @@ export const PlanQueueRunConfigSchema = z.object({
 
 export const PlanQueueSpendSchema = z.object({ tokens: z.number().int().nonnegative(), costUsd: z.number().nonnegative().finite(), exactUsd: z.number().nonnegative().finite(), unpricedTokens: z.number().int().nonnegative().optional() });
 
+/** What the scheduler found on its latest pass when it did not start a job's checks. */
+export const PlanQueueCheckWaitSchema = z.enum([
+  'other-checks', 'computer-busy', 'harness-held', 'run-on-hold', 'tidying-up', 'trying-later', 'checked-together',
+]);
+
 /**
  * A step the queue runs itself, with no session to show for it: its own checks, the landing checks, or a wait for
  * either. `startedAt` comes from stored history, so it is still right after a restart; null when no row records it.
+ * `checkWait` is absent until the scheduler has looked at the job.
  */
 export const PlanQueueItemStageSchema = z.object({
   name: z.enum(['checks', 'landing', 'waiting-for-checks', 'waiting-to-land']),
   startedAt: z.number().int().nullable(),
+  checkWait: PlanQueueCheckWaitSchema.optional(),
 });
 
 export const PlanQueueItemDtoSchema = z.object({
@@ -397,6 +404,8 @@ export const PlanQueueRunDtoSchema = z.object({
   kind: PlanQueueKindSchema,
   workspaceCwd: PathSchema,
   status: PlanQueueRunStatusSchema,
+  /** Why the run has stopped starting new work after a shared failure. */
+  holdReason: z.string().max(2000).nullable().optional(),
   config: PlanQueueRunConfigSchema,
   workerProvider: z.string().max(100).nullable(),
   /** The effective worker model, including older runs without config.routing. */
@@ -518,7 +527,7 @@ export const PlanQueueStartArgsSchema = z.object({
   step_up: PlanQueueRouteChoiceArgsSchema.optional(),
 }).strict();
 
-export const PlanQueueStatusArgsSchema = z.object({ run_id: IdSchema.optional() });
+export const PlanQueueStatusArgsSchema = z.object({ run_id: IdSchema.optional(), evidence: z.boolean().optional() });
 
 /** Retries and resumes one Set aside agent session may make; each can start paid sessions. */
 export const PLAN_QUEUE_SET_ASIDE_RESTART_LIMIT = 10;
@@ -573,6 +582,7 @@ export type PlanQueueAccountRef = z.infer<typeof PlanQueueAccountRefSchema>;
 export type PlanQueueAccountRules = z.infer<typeof PlanQueueAccountRulesSchema>;
 export type PlanQueueFolderChecklist = z.infer<typeof PlanQueueFolderChecklistSchema>;
 export type PlanQueueRouteChoiceArgs = z.infer<typeof PlanQueueRouteChoiceArgsSchema>;
+export type PlanQueueCheckWait = z.infer<typeof PlanQueueCheckWaitSchema>;
 export type PlanQueueItemStage = z.infer<typeof PlanQueueItemStageSchema>;
 export type PlanQueueItemDto = z.infer<typeof PlanQueueItemDtoSchema>;
 export type PlanQueueRunDto = z.infer<typeof PlanQueueRunDtoSchema>;

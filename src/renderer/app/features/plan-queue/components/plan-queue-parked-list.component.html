@@ -15,7 +15,7 @@
   @if (agentFolders().length > 0) {
     <details class="pq-sort-out">
       <summary>Sort out with an agent</summary>
-      <p>An agent clears jobs that hold nothing, then lists what needs you. It can't delete work or merge without checks. It may retry merges or resume jobs up to {{ restartLimit }} times in all, which uses provider usage.</p>
+      <p>An agent clears jobs that hold nothing, then lists what needs you. It discards jobs whose work has already merged, and any you tell it to, which deletes their branches. It can't merge without checks. It may retry merges or resume jobs up to {{ restartLimit }} times in all, which uses provider usage.</p>
       <div class="pq-sort-out-projects">
         @for (entry of agentFolders(); track entry.folder) {
           <button type="button" class="pq-sort-out-start" (click)="sortOut.emit(entry.folder)">Sort out {{ entry.name }} ({{ pluralise(entry.count, 'job') }})</button>
@@ -137,7 +137,7 @@
     }
     @if (isConfirming(item.id, 'discard-item')) {
       <div class="pq-parked-confirm" role="group" aria-label="Confirm discard">
-        Discard this job? This deletes its branch, including any work that never reached main. This cannot be undone.
+        Discard this job? This deletes its branch, including any work that never reached main. Harness keeps that work for 30 days, and an agent can bring it back.
         <button type="button" class="pq-confirm-yes" (click)="confirmAction(item.id, 'discard-item')">
           Confirm discard
         </button>

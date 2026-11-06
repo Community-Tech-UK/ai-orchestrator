@@ -96,7 +96,7 @@ describe('combined queue checks', () => {
     const flow = new PlanQueueItemFlow(host);
     const pumpHost = { ...host, flow, triage: null, loadAverage: () => [0, 0, 0], followParent: (value: PlanQueueRun) => value,
       isShuttingDown: () => false, isControlling: () => false, resolveRunParent: () => 'parent', finishRun: vi.fn(),
-      notifyParent: vi.fn(), logItemError: (_value: PlanQueueItem, error: unknown) => { throw error; } };
+      notifyParent: vi.fn(), logItemError: (_value: PlanQueueItem, error: unknown) => { throw error; }, announceRun: vi.fn() };
     try {
       await pumpPlanQueue(pumpHost);
       await vi.waitFor(() => expect(executions).toEqual(['/combined']));
@@ -206,6 +206,25 @@ describe('combined queue checks', () => {
       expect(turnsWhenCheckerStarted).toEqual([0]);
       expect(item('leader').state).toBe('verifying');
       expect(host.requestPump).toHaveBeenCalled();
+    });
+
+    it('keeps the job waiting when checks cannot start, and tells the breaker', async () => {
+      const { flow } = realFlow();
+      const noted = vi.spyOn(flow.breaker, 'note');
+      vi.spyOn(PlanQueueGateRunner.prototype, 'executeCommands').mockRejectedValue(new Error('/bin/sh: npm: command not found'));
+      await flow.startVerification(item('leader'));
+      expect(item('leader')).toMatchObject({ state: 'awaiting-slot', parkReason: null });
+      expect(item('leader').detail).toContain('npm: command not found');
+      expect(noted).toHaveBeenCalledWith('run', 'leader', '/bin/sh: npm: command not found');
+      expect(flow.checklistTurns.size).toBe(0);
+    });
+
+    it('sets one job aside only after its checks repeatedly fail to start', async () => {
+      const { flow } = realFlow();
+      vi.spyOn(PlanQueueGateRunner.prototype, 'executeCommands').mockRejectedValue(new Error('checkout is broken'));
+      for (let attempt = 1; attempt <= 3; attempt += 1) await flow.startVerification(item('leader'));
+      expect(item('leader')).toMatchObject({ state: 'parked', parkReason: 'worktree-error' });
+      expect(item('leader').detail).toContain('Could not run Harness checks: checkout is broken');
     });
 
     it('is given back when a Pause stops the commands', async () => {

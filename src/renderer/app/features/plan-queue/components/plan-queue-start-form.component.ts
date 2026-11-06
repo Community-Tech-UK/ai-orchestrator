@@ -4,7 +4,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, input, output, si
 import { FormsModule } from '@angular/forms';
 import type { PlanQueueDiscoveryPreview, PlanQueueKind } from '@contracts/schemas/plan-queue';
 import { PlanQueueIpcService } from '../../../core/services/ipc/plan-queue-ipc.service';
-import { planQueueKindLabel, pluralise } from '../plan-queue-item-display';
+import { planQueueKindLabel, pluralise } from '../../../../../shared/utils/plan-queue-item-display';
 
 export interface PlanQueueParentSessionOption {
   readonly id: string;

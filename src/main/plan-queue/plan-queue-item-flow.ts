@@ -9,7 +9,7 @@ import { PARK_ON_REPEATED_FINDING, repeatedFindingIds } from './plan-queue-progr
 import { selectCurrentQueueVerifier } from './plan-queue-checker-routing';
 import { holdItem, isHoldNote, parkAfterVerifierRestoreFailure, PlanQueueSpawnRunPaused, resumeReason, restoreVerifierTree, usageWaitNote } from './plan-queue-run-hold';
 import { PlanQueueSpawnOutOfUsage } from './plan-queue-spawn';
-import { PlanQueueUsageWaits } from './plan-queue-usage-wait';
+import { PlanQueueUsageWaits, takeUsageHold } from './plan-queue-usage-wait';
 import { recordItemTiming, recordSessionEnd, recordSessionStart, TIMING_REASONS } from './plan-queue-timings';
 import { PlanQueueSpawnStoppedByUser } from './plan-queue-user-close';
 /**
@@ -42,9 +42,10 @@ import { relaxedSettingsFor } from './plan-queue-relaxation';
 import { unreportedVerifierReason, type PlanQueueTurnOutcome } from './plan-queue-instance-tracker';
 import { hasPendingLandingCleanup, PlanQueueItemLanding } from './plan-queue-item-landing';
 import { startQueueVerification } from './plan-queue-start-verification';
-import { hasCheckout, InvalidQueueCheckoutError, quarantineOrphanCheckout, retainedQueuePathExists } from './plan-queue-orphan-checkout';
-import { keepDiscardedWork, PlanQueueDiscardedRefs, restoreDiscardedWork } from './plan-queue-discard';
+import { hasCheckout, InvalidQueueCheckoutError, retainedQueuePathExists } from './plan-queue-orphan-checkout';
+import { discardParkedItem, PlanQueueDiscardedRefs, restoreBeforeResume, restoreDiscardedWork } from './plan-queue-discard';
 import { PlanQueueKeptFolders } from './plan-queue-kept-folders';
+import { PlanQueueRunBreaker } from './plan-queue-run-breaker';
 import { planQueueBranchName } from './plan-queue-worktree';
 import { describePlanningMoves } from './plan-queue-planning-files';
 import {
@@ -54,20 +55,18 @@ import {
   buildWorkerPrompt,
 } from './plan-queue-prompts';
 import { canStepUp, stepUpItem } from './plan-queue-step-up';
-import { PlanQueueWorkerSessions } from './plan-queue-worker-sessions';
+import { PlanQueueWorkerSessions, askJamesForWorker } from './plan-queue-worker-sessions';
 import { PlanQueueVerifierReminders } from './plan-queue-verifier-reminder';
 import type { VerifierSelection } from './plan-queue-verifier-select';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 
-/** A worker that hits a usage limit mid-turn waits for usage this many times in an item's life, then parks for James. */
-const MAX_USAGE_LIMIT_HOLDS = 3;
-const USAGE_LIMIT_HOLD = 'worker-usage-limit-hold';
 
 const logger = getLogger('PlanQueueItemFlow');
 
 /** Two verifier rounds that end without a usable verdict park the item. */
 export const MAX_ERRORED_ROUNDS = 2;
 const RECLAIM_HOLD_OWNER = 'plan-queue';
+const CHECK_RETRY_MS = 60_000;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -101,13 +100,15 @@ export class PlanQueueItemFlow {
   readonly discardedRefs: PlanQueueDiscardedRefs;
   /** Jobs running a Harness checklist now. Held in memory, so a restart starts with none. */
   readonly checklistTurns = new Set<string>();
+  readonly breaker: PlanQueueRunBreaker;
 
   constructor(private readonly host: PlanQueueFlowHost) {
     this.usageWaits = new PlanQueueUsageWaits((id, kind, waitedMs) => recordItemTiming(host, id, TIMING_REASONS.usageWait, { kind, waitedMs }));
     this.verification = new PlanQueueVerification(host, new PlanQueueGateRunner(), {
       lock: (id, action) => this.withItemLock(id, action), waiting: id => this.isWaitingForUsage(id),
     });
-    this.preparationErrors = new PlanQueuePreparationErrors(host);
+    this.breaker = new PlanQueueRunBreaker(host);
+    this.preparationErrors = new PlanQueuePreparationErrors(host, this.breaker);
     this.retries = new PlanQueueTurnRetries(host);
     this.keptFolders = new PlanQueueKeptFolders(host, (id, action) => this.withItemLock(id, action));
     this.discardedRefs = new PlanQueueDiscardedRefs(host, (id, action) => this.withItemLock(id, action));
@@ -134,6 +135,11 @@ export class PlanQueueItemFlow {
       || [item.workerInstanceId, item.verifierInstanceId].some(id => !!id
         && (this.stopping.has(id) || (this.pendingRetirements.has(id) && this.host.instances.getInstance(id) !== undefined)
           || this.host.tracker.isTracked(id) || this.host.roleOf(id) !== undefined));
+  }
+
+  /** The scheduler's retry. A cleanup already under way is left to finish. */
+  finishLandingCleanup(itemId: string): Promise<void> {
+    return this.locks.has(itemId) ? Promise.resolve() : this.withItemLock(itemId, () => this.landing.retryCleanup(itemId));
   }
 
   /** Serialize operations; read current state inside the lock before saving. */
@@ -396,46 +402,24 @@ export class PlanQueueItemFlow {
           }
           return;
         case 'needs-input':
-          this.askJamesForWorker(item, outcome.lastAssistantOutput);
+          askJamesForWorker(this.host, item, outcome.lastAssistantOutput);
           return;
         case 'provider-limit': {
-          // A usage limit passes, so the item waits for usage like a worker that could not start. The count is in the
-          // persisted history: a limit the usage data does not track would otherwise loop here with nobody told.
-          const holds = this.host.history.listEvents(item.id).filter((event) => event.reason === USAGE_LIMIT_HOLD).length;
-          if (holds >= MAX_USAGE_LIMIT_HOLDS) { await this.parkUnlocked(item, 'provider-limit', outcome.notice); return; }
-          this.host.history.recordEvent({ itemId: item.id, runId: item.runId, fromState: item.state, toState: 'queued',
-            reason: USAGE_LIMIT_HOLD, detailHead: null, round: item.round, tokens: 0 });
+          // A usage limit passes, so the item waits for usage like a worker that could not start. The history is
+          // persisted: a limit the usage data does not track would otherwise loop here with nobody told.
+          const waitMs = takeUsageHold(this.host.history, item, 'queued');
+          if (waitMs === null) { await this.parkUnlocked(item, 'provider-limit', outcome.notice); return; }
           const waiting = new PlanQueueSpawnOutOfUsage(null, "this worker's provider");
-          this.usageWaits.start(item.id, waiting, 'worker');
+          this.usageWaits.start(item.id, waiting, 'worker', waitMs);
           await this.holdUnlocked(item, usageWaitNote(waiting.message));
           return;
         }
         case 'failed':
           if (this.host.consumeUserClose?.(instanceId)) await this.parkUnlocked(item, 'cancelled', 'Stopped: you closed its session. Resume carries on from the same branch.');
-          else await this.parkUnlocked(item, 'worker-error', outcome.reason);
+          else { await this.parkUnlocked(item, 'worker-error', outcome.reason); this.breaker.note(item.runId, item.id, outcome.reason); }
           return;
       }
     });
-  }
-
-  private askJamesForWorker(item: PlanQueueItem, lastAssistantOutput: string | null): void {
-    const text = lastAssistantOutput?.trim() || 'The worker stopped and is waiting for input.';
-    const saved = this.host.save({
-      ...item,
-      question: {
-        question: text.slice(0, 2000),
-        options: [
-          { id: 'continue', label: 'Carry on using your best judgement' },
-          { id: 'park', label: 'Stop and park this item' },
-        ],
-      },
-    });
-    this.host.notifyParent(
-      this.host.getRun(saved.runId),
-      `Plan Queue: the worker for ${documentStem(saved.documentPath)} is waiting for James.\n\n${text.slice(0, 1500)}\n\n`
-        + `Ask James, then call plan_queue_answer with item_id "${saved.id}" and option_id "continue" or "park". James can also answer the worker directly in its session.`,
-      [saved],
-    );
   }
 
   /** James answered a worker's question from the panel or the parent session. */
@@ -470,7 +454,8 @@ export class PlanQueueItemFlow {
       park: (item, reason, detail) => this.parkUnlocked(item, reason, detail),
       fix: (item, prompt, detail) => this.toFixing(item, prompt, detail),
       spawn: (item, base) => this.selectAndSpawnVerifier(item, base),
-      checksFinished: () => this.releaseChecklistTurn(waiting.id),
+      checksFinished: ran => { this.releaseChecklistTurn(waiting.id); if (ran) this.breaker.succeeded(waiting.runId, waiting.id); },
+      checksFailed: message => { this.breaker.note(waiting.runId, waiting.id, message); this.preparationErrors.holdOff(waiting.id, CHECK_RETRY_MS); },
     }, waiting.id)).finally(finished);
   }
 
@@ -542,6 +527,16 @@ export class PlanQueueItemFlow {
       this.host.requestPump();
       return;
     }
+    if (outcome.kind === 'provider-limit' && !verdict && !treeChanged) {
+      // A checker at its usage limit judged nothing, so this is a wait, not an errored round.
+      const waiting = new PlanQueueSpawnOutOfUsage(null, "this checker's provider");
+      const waitMs = takeUsageHold(this.host.history, item, 'awaiting-slot');
+      this.verification.forgetCheck(item.id);
+      if (waitMs === null) { await this.parkUnlocked(item, 'provider-limit', outcome.notice); return; }
+      this.host.transition(item, 'awaiting-slot', { detail: usageWaitNote(waiting.message) });
+      this.usageWaits.start(item.id, waiting, 'check', waitMs);
+      return;
+    }
     if (outcome.kind !== 'turn-complete' || !verdict || treeChanged) {
       const reason = treeChanged
         ? 'the verifier changed the worktree, so its verdict was discarded and its changes reverted'
@@ -587,6 +582,7 @@ export class PlanQueueItemFlow {
     const erroredRounds = item.erroredRounds + 1; this.verification.forgetCheck(item.id);
     if (erroredRounds >= MAX_ERRORED_ROUNDS) {
       await this.parkUnlocked({ ...item, erroredRounds }, 'verifier-unreliable', reason);
+      this.breaker.note(item.runId, item.id, reason);
       return;
     }
     this.host.transition(item, 'awaiting-slot', { erroredRounds, detail: reason });
@@ -618,8 +614,9 @@ export class PlanQueueItemFlow {
       const item = this.host.getItem(itemId);
       await Promise.all([item.workerInstanceId, item.verifierInstanceId].filter((id): id is string => Boolean(id)).map(id => this.stopInstance(id)));
       this.preparationErrors.succeeded(item.runId, item.id);
+      await restoreBeforeResume(this.host, itemId);
       // `steppedUpAt` stays: a handed-over document resumes on the step-up choice and is never handed over twice.
-      this.host.transition(this.host.getItem(itemId), 'queued', { parkReason: null, detail: null, heldAt: null, round: 0, erroredRounds: 0, landingRefusals: 0, baseConflicts: 0, question: null, landedCommit: null, verdict: null, verifiedMainCommit: null, pendingInstruction: this.workerSessions.carryOverForResume(itemId) });
+      this.host.transition(this.host.getItem(itemId), 'queued', { parkReason: null, detail: null, heldAt: null, discardedAt: null, discardedBy: null, round: 0, erroredRounds: 0, landingRefusals: 0, baseConflicts: 0, question: null, landedCommit: null, verdict: null, verifiedMainCommit: null, pendingInstruction: this.workerSessions.carryOverForResume(itemId) });
     });
   }
 
@@ -671,20 +668,13 @@ export class PlanQueueItemFlow {
     this.host.requestPump();
   }
 
-  /** Explicit Discard: preserve an item-owned orphan copy before deleting its branch. */
+  /** Explicit Discard: stop the job's sessions, then clear it away; see plan-queue-discard.ts. */
   discard(itemId: string, actor = 'James'): Promise<void> {
     return this.withItemLock(itemId, async () => {
-      let item = this.host.getItem(itemId);
+      const item = this.host.getItem(itemId);
       if (item.state !== 'parked') throw new Error('Only a parked item can be discarded');
       await Promise.all([item.workerInstanceId, item.verifierInstanceId].filter((id): id is string => Boolean(id)).map((id) => this.stopInstance(id)));
-      if (item.worktreePath && await retainedQueuePathExists(item.worktreePath)) {
-        item = await quarantineOrphanCheckout(item, this.host.getRun(item.runId).workspaceCwd, planQueueBranchName(item), (next) => { this.host.save(next); });
-      }
-      const cleared = item.worktreePath ? this.host.save({ ...item, worktreePath: null }) : item;
-      const run = this.host.getRun(item.runId);
-      const discardRefExpiresAt = await keepDiscardedWork(cleared, run, Date.now());
-      if (cleared.branchName) await this.host.worktrees.deleteBranchWithProof(cleared, run.workspaceCwd, { discardRequested: true });
-      this.host.save({ ...this.host.getItem(itemId), discardedAt: Date.now(), discardedBy: actor, discardRefExpiresAt });
+      await discardParkedItem(this.host, item, actor);
     });
   }
 

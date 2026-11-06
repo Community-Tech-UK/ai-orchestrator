@@ -63,7 +63,7 @@ describe('PlanQueueParkedListComponent', () => {
     const element = fixture.nativeElement as HTMLElement;
     const buttons = [...element.querySelectorAll<HTMLButtonElement>('.pq-sort-out-start')];
     expect(buttons.map((button) => button.textContent?.trim())).toEqual(['Sort out big (2 jobs)', 'Sort out small (1 job)']);
-    expect(element.querySelector('.pq-sort-out p')?.textContent).toContain("It can't delete work or merge without checks");
+    expect(element.querySelector('.pq-sort-out p')?.textContent).toContain("It can't merge without checks");
     expect(element.querySelector('.pq-sort-out p')?.textContent).toContain('uses provider usage');
     const started: string[] = [];
     fixture.componentInstance.sortOut.subscribe((folder) => started.push(folder));
@@ -477,7 +477,7 @@ describe('PlanQueueParkedListComponent', () => {
     (fixture.nativeElement.querySelector('.pq-discard') as HTMLButtonElement).click();
     fixture.detectChanges();
     expect(emitted).toHaveLength(0);
-    expect(fixture.nativeElement.textContent).toContain('cannot be undone');
+    expect(fixture.nativeElement.textContent).toContain('keeps that work for 30 days');
 
     (fixture.nativeElement.querySelector('.pq-confirm-yes') as HTMLButtonElement).click();
     expect(emitted).toEqual(['item-a']);

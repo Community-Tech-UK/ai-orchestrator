@@ -426,6 +426,34 @@ describe('InstanceProviderLimitHandler.cancel', () => {
   });
 });
 
+describe('InstanceProviderLimitHandler.endParkAfterRuntimeMove', () => {
+  it('ends the park, sends the held turn once, and blocks a racing resume', () => {
+    const h = makeHarness();
+    h.handler.maybePark({ instanceId: 'i1', provider: CLAUDE, resetAtHint: Date.now() + 60_000, reason: 'x', resumePrompt: 'held' });
+    h.handler.endParkAfterRuntimeMove('i1');
+    expect(h.handler.isParked('i1')).toBe(false);
+    expect(h.waitReasons.get('i1')).toBeNull();
+    expect(h.cancels).toBe(1);
+    expect(h.handler.resumeFromAutomation('i1', 'held')).toBe('resent');
+    expect(h.resends).toEqual([{ instanceId: 'i1', prompt: 'held' }]);
+  });
+
+  it('leaves a session that is not parked untouched', () => {
+    const h = makeHarness();
+    h.waitReasons.set('i1', { kind: 'quota-park', provider: 'codex', resumeAt: Date.now() + 60_000 });
+    h.handler.endParkAfterRuntimeMove('i1');
+    expect(h.waitReasons.get('i1')).toMatchObject({ kind: 'quota-park' });
+    expect(h.resends).toHaveLength(0);
+  });
+
+  it('clears durable resumes even when a restart left no live park', () => {
+    const cancelDurableResumes = vi.fn();
+    const h = makeHarness({ cancelDurableResumes });
+    h.handler.endParkAfterRuntimeMove('i1');
+    expect(cancelDurableResumes).toHaveBeenCalledWith('i1');
+  });
+});
+
 describe('InstanceProviderLimitHandler.release', () => {
   it('drops the park and cancels the scheduled resume on a normal terminate', () => {
     const h = makeHarness();

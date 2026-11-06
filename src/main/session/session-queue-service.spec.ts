@@ -53,6 +53,16 @@ describe('SessionQueueService', () => {
     expect(row?.message).toBe('hello');
   });
 
+  it('reports whether a session still has a queued message', async () => {
+    const service = getSessionQueueService();
+    expect(service.hasQueuedMessages('i1')).toBe(false);
+    const { admissionId } = await service.enqueueUserMessage({ instanceId: 'i1', message: 'hello' });
+    expect(service.hasQueuedMessages('i1')).toBe(true);
+    expect(service.hasQueuedMessages('i2')).toBe(false);
+    service.cancelQueuedMessage(admissionId);
+    expect(service.hasQueuedMessages('i1')).toBe(false);
+  });
+
   it('offers only an unclaimed fresh passive queue head for a retained-busy handoff', async () => {
     const service = getSessionQueueService();
     const first = await service.enqueueUserMessage({ instanceId: 'i1', message: 'first' });

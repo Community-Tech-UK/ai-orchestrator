@@ -1,4 +1,5 @@
 /** Readiness decisions and lifecycle reconciliation before any work starts. */
+import { getLogger } from '../logging/logger';
 import { lstat, realpath } from 'fs/promises';
 import * as path from 'path';
 import { classifyQuestionRisk } from '../../shared/attention/question-need';
@@ -13,6 +14,9 @@ import { buildQuestionsMessage, withSkipOption } from './plan-queue-messages';
 import type { PlanQueueStore } from './plan-queue-store';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import { rememberTriageRecord } from './plan-queue-triage-memory';
+
+const logger = getLogger('PlanQueueReadiness');
+const reportedUnreadable = new Set<string>();
 
 export const PRE_START_STATES = new Set<PlanQueueItemState>(['discovered', 'needs-answer', 'queued']);
 type ReadinessHost = Pick<PlanQueueFlowHost, 'getRun' | 'getItem' | 'transition' | 'notifyParent'> & {
@@ -82,6 +86,23 @@ async function documentExists(documentPath: string, repoRoot: string): Promise<b
   }
 }
 
+const completedName = (documentPath: string): string => documentPath.replace(/\.md$/i, '_completed.md');
+
+/**
+ * Why a started job can no longer be checked against its document, or null when it can. A job that started before its
+ * plan was closed holds a branch, so unlike a waiting entry it cannot just be retired. Anything but a plain absence is
+ * left for the check itself to report.
+ */
+export async function missingDocumentNote(documentPath: string, repoRoot: string): Promise<string | null> {
+  try {
+    if (await documentExists(documentPath, repoRoot)) return null;
+    const completed = completedName(documentPath);
+    return completed !== documentPath && await documentExists(completed, repoRoot)
+      ? `This job's plan has since been closed as ${path.basename(completed)}, so there is nothing left to check the work against. The work stays on its branch.`
+      : `Source document is missing and has no exact completed replacement: ${documentPath}. Restore or reconcile the document before resuming.`;
+  } catch { return null; }
+}
+
 function hasNotStarted(item: PlanQueueItem): boolean {
   return PRE_START_STATES.has(item.state) && !item.branchName && !item.worktreePath;
 }
@@ -89,7 +110,7 @@ function hasNotStarted(item: PlanQueueItem): boolean {
 /** Only untouched entries can be retired; branch-owned work is never discarded. */
 export async function reconcileWaitingDocuments(host: ReadinessHost, run: PlanQueueRun): Promise<void> {
   for (const snapshot of host.store.listItems(run.id).filter(hasNotStarted)) {
-    let outcome: 'present' | 'completed' | 'missing' | 'error';
+    let outcome: 'present' | 'completed' | 'missing' | 'refused' | 'unreadable';
     let detail: string;
     try {
       const relative = path.relative(run.workspaceCwd, snapshot.documentPath);
@@ -100,7 +121,7 @@ export async function reconcileWaitingDocuments(host: ReadinessHost, run: PlanQu
         outcome = 'present';
         detail = '';
       } else {
-        const completed = snapshot.documentPath.replace(/\.md$/i, '_completed.md');
+        const completed = completedName(snapshot.documentPath);
         if (completed !== snapshot.documentPath && await documentExists(completed, run.workspaceCwd)) {
           outcome = 'completed';
           detail = `Superseded by exact completed replacement: ${completed}. Queue entry retired; this is not a verification verdict.`;
@@ -110,7 +131,8 @@ export async function reconcileWaitingDocuments(host: ReadinessHost, run: PlanQu
         }
       }
     } catch (error) {
-      outcome = 'error';
+      // A system error passes or shows up again at the start; a refusal is about the document itself.
+      outcome = (error as NodeJS.ErrnoException).code ? 'unreadable' : 'refused';
       detail = `Could not inspect source document: ${error instanceof Error ? error.message : String(error)}`;
     }
     // Filesystem awaits allow cancellation, answers and worker starts. Never write a stale row.
@@ -118,7 +140,12 @@ export async function reconcileWaitingDocuments(host: ReadinessHost, run: PlanQu
     const item = host.getItem(snapshot.id);
     if (!['running', 'paused'].includes(currentRun.status) || !hasNotStarted(item)
       || item.documentPath !== snapshot.documentPath) continue;
-    if (outcome === 'completed') host.transition(item, 'skipped', { question: null, detail: detail.slice(0, 8000) });
+    if (outcome === 'unreadable') {
+      // Once per job: this runs on every pass. A read that never recovers parks the job when it starts.
+      if (!reportedUnreadable.has(item.id)) logger.warn('Plan queue: could not inspect a waiting document', { itemId: item.id, detail });
+      reportedUnreadable.add(item.id);
+    }
+    else if (outcome === 'completed') host.transition(item, 'skipped', { question: null, detail: detail.slice(0, 8000) });
     else if (outcome !== 'present') host.transition(item, 'parked', { question: null, parkReason: outcome === 'missing' ? 'missing-document' : 'worker-error', detail: detail.slice(0, 8000) });
     else if (item.state === 'needs-answer' && item.question) {
       const automatic = automaticDecisionPatch(item.question);

@@ -100,7 +100,7 @@
     <section class="pq-section pq-section-parked" aria-labelledby="pq-parked-heading">
       <h2 id="pq-parked-heading">Set aside</h2>
       @if (store.parkedItems().length > 0) { <p class="pq-purpose">
-        Work kept from stopped or cancelled runs, grouped by why it stopped. Resume puts a job back in the queue and clears its last check result. Discard deletes its branch, including any work that never reached main.
+        Work kept from stopped or cancelled runs, grouped by why it stopped. Resume puts a job back in the queue and clears its last check result. Discard deletes its branch, including any work that never reached main; Harness keeps that work for 30 days.
       </p> }
       <app-plan-queue-parked-list
         [items]="store.parkedItems()"

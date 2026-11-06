@@ -261,8 +261,11 @@ export async function announceRuntimeChangeSet(params: {
   /**
    * ACP account handoffs must never start a notice-only model turn
    * (`next-prompt`); `transcript-only` renders the notices and sends nothing.
+   * `with-next-input` holds them for a user turn that is about to go out: on
+   * their own they would replay that turn as the current objective, and the
+   * model would do the same request twice.
    */
-  delivery?: 'immediate' | 'next-prompt' | 'transcript-only';
+  delivery?: 'immediate' | 'next-prompt' | 'with-next-input' | 'transcript-only';
   notices: RuntimeChangeNotice[];
   emitSystemNotice(
     instance: Instance,
@@ -344,6 +347,11 @@ export async function announceRuntimeChangeSet(params: {
   if (!body) return;
   if (params.delivery === 'next-prompt') {
     params.adapter.queueNextPromptContext?.(body);
+    params.assertCurrent?.();
+    return;
+  }
+  if (params.delivery === 'with-next-input') {
+    params.holdUntilAnswered?.(body, imageCarryover?.attachments);
     params.assertCurrent?.();
     return;
   }

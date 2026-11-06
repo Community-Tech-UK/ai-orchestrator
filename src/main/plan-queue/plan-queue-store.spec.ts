@@ -285,7 +285,7 @@ describe('PlanQueueStore', () => {
       expect(columnsBefore).not.toContain('pending_instruction');
 
       runLoopMigrations(old);
-      expect(old.prepare('SELECT * FROM plan_queue_runs').get()).toEqual({ ...runBefore, unpriced_tokens: 0 });
+      expect(old.prepare('SELECT * FROM plan_queue_runs').get()).toEqual({ ...runBefore, unpriced_tokens: 0, hold_reason: null });
       expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...itemBefore, held_at: null, pending_instruction: null, worker_provider: null, worker_model: null, stepped_up_at: null, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0, discarded_at: null, discarded_by: null, discard_ref_expires_at: null });
       const upgraded = new PlanQueueStore(old);
       expect(upgraded.getItem('legacy-item')).toMatchObject({ heldAt: null, pendingInstruction: null, state: 'fixing', round: 2 });
@@ -509,7 +509,7 @@ it('upgrades v25 with existing queue work to worker-session storage and repeats 
     const itemBefore = old.prepare('SELECT * FROM plan_queue_items').get<Record<string, unknown>>();
     expect(itemBefore).not.toHaveProperty('worker_session_json');
     runLoopMigrations(old);
-    expect(old.prepare('SELECT * FROM plan_queue_runs').get()).toEqual({ ...runBefore, unpriced_tokens: 0 });
+    expect(old.prepare('SELECT * FROM plan_queue_runs').get()).toEqual({ ...runBefore, unpriced_tokens: 0, hold_reason: null });
     expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...itemBefore, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0, discarded_at: null, discarded_by: null, discard_ref_expires_at: null });
     const upgraded = new PlanQueueStore(old);
     const item = upgraded.getItem('item-25')!;
@@ -526,7 +526,7 @@ it('upgrades v25 with existing queue work to worker-session storage and repeats 
     expect(old.prepare('SELECT COUNT(*) AS n FROM loop_migrations WHERE version = ?')
       .get<{ n: number }>(LOOP_SCHEMA_VERSION)?.n).toBe(1);
     expect(old.prepare('SELECT name FROM loop_migrations WHERE version = ?')
-      .get<{ name: string }>(LOOP_SCHEMA_VERSION)?.name).toBe('050_plan_queue_item_discard');
+      .get<{ name: string }>(LOOP_SCHEMA_VERSION)?.name).toBe('051_plan_queue_run_hold_reason');
   } finally { old.close(); }
 });
 
@@ -542,6 +542,12 @@ describe('which attempt at a document is newest', () => {
     attempt('newer', 20);
     expect(store.findLatestParkedItem(documentPath, 'parent-1')?.id).toBe('newer');
     expect(store.listParkedInFolder('/repo').map(({ item }) => item.id)).toEqual(['newer', 'older']);
+  });
+
+  it('never offers a discarded job as the earlier attempt, even when its branch was left in place', () => {
+    attempt('kept', 10);
+    attempt('discarded', 20, { discardedAt: 30, discardedBy: 'James' });
+    expect(store.findLatestParkedItem(documentPath, 'parent-1')?.id).toBe('kept');
   });
 
   it('reports a newer merged attempt even after the older row is saved again', () => {

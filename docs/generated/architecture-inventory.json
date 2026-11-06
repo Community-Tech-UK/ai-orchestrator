@@ -6199,7 +6199,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3654
+      "lines": 3649
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
@@ -6214,16 +6214,16 @@
       "lines": 3523
     },
     {
+      "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
+      "lines": 3493
+    },
+    {
       "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
       "lines": 3488
     },
     {
       "path": "docs/superpowers/plans/2026-04-05-bash-validation-pipeline_completed.md",
       "lines": 3440
-    },
-    {
-      "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
-      "lines": 3438
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave3-workflow-resume-history-recovery-plan_completed.md",
@@ -6295,7 +6295,7 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2523
+      "lines": 2525
     },
     {
       "path": "docs/superpowers/plans/2026-04-07-remote-folder-browsing_completed.md",
@@ -6786,6 +6786,10 @@
       "lines": 1203
     },
     {
+      "path": "src/main/instance/instance-provider-limit-handler.spec.ts",
+      "lines": 1202
+    },
+    {
       "path": "src/renderer/app/core/state/instance/instance-messaging.store.spec.ts",
       "lines": 1200
     },
@@ -6828,10 +6832,6 @@
     {
       "path": "src/main/orchestration/multi-verify-coordinator.ts",
       "lines": 1176
-    },
-    {
-      "path": "src/main/instance/instance-provider-limit-handler.spec.ts",
-      "lines": 1174
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase3-monorepo-consolidation_completed.md",
@@ -7014,6 +7014,10 @@
       "lines": 1023
     },
     {
+      "path": "src/main/instance/instance-provider-limit-handler.ts",
+      "lines": 1017
+    },
+    {
       "path": "src/renderer/app/features/plan/plan-page.component.ts",
       "lines": 1015
     },
@@ -7052,10 +7056,6 @@
     {
       "path": "src/main/orchestration/cross-model-review-service.ts",
       "lines": 987
-    },
-    {
-      "path": "src/main/instance/instance-provider-limit-handler.ts",
-      "lines": 986
     },
     {
       "path": "src/main/orchestration/cli-verification-extension.ts",
@@ -7366,6 +7366,10 @@
       "lines": 854
     },
     {
+      "path": "docs/AIO_MCP_CLI.md",
+      "lines": 850
+    },
+    {
       "path": "src/main/services/voice/providers/local-whisper-transcription-provider.ts",
       "lines": 850
     },
@@ -7443,14 +7447,14 @@
     },
     {
       "path": "src/main/plan-queue/plan-queue-coordinator.ts",
-      "lines": 831
-    },
-    {
-      "path": "docs/AIO_MCP_CLI.md",
-      "lines": 829
+      "lines": 830
     },
     {
       "path": "docs/plans/2026-10-22-aio-tidies-up-after-itself_plan_completed.md",
+      "lines": 829
+    },
+    {
+      "path": "src/main/instance/lifecycle/runtime-reconciler.ts",
       "lines": 829
     },
     {
@@ -7488,10 +7492,6 @@
     {
       "path": "docs/superpowers/specs/2026-05-06-claude-code-feature-harvest-design_completed.md",
       "lines": 814
-    },
-    {
-      "path": "src/main/instance/lifecycle/runtime-reconciler.ts",
-      "lines": 813
     },
     {
       "path": "src/shared/types/loop.types.ts",

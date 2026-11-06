@@ -1,4 +1,4 @@
-import { pluralise } from '../plan-queue-item-display';
+import { pluralise } from '../../../../../shared/utils/plan-queue-item-display';
 import type { PlanQueueRunDto } from '@contracts/schemas/plan-queue';
 type Spend = NonNullable<PlanQueueRunDto['spend']>;
 const dollars = (costUsd: number) => `$${costUsd.toFixed(2)}`;

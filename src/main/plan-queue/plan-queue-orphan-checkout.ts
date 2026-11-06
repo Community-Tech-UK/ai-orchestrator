@@ -114,7 +114,7 @@ export async function assertQueueCheckoutOwnership(worktreePath: string, repoRoo
 
 export class InvalidQueueCheckoutError extends Error {
   constructor(options?: ErrorOptions) {
-    super('The saved queue checkout is invalid or belongs to another branch. Its files are unchanged. An explicitly approved Discard can preserve an item-owned orphan checkout before retrying; foreign or registered checkouts are refused.', options);
+    super('The saved queue checkout is invalid or belongs to another branch. Its files are unchanged. An explicitly approved Discard can preserve an item-owned orphan checkout before retrying; foreign or registered checkouts stay where they are.', options);
     this.name = 'InvalidQueueCheckoutError';
   }
 }

@@ -2,20 +2,24 @@
  * Who may answer or control a Plan Queue run.
  *
  * The panel (no caller) and the session that started the run (the parent) act
- * as James. Every other MCP caller is refused, with one exception.
+ * as James. Every other MCP caller is refused, with these exceptions.
+ *
+ * Discard: any session the queue did not spawn may discard a parked item or undo
+ * a discard, whoever owns the run. Discard keeps the work (plan-queue-discard.ts).
  *
  * Stranded-run rescue: session ids are not kept across restarts, so once the
  * parent is gone no MCP caller could stop the run, which would keep its
  * documents locked indefinitely. Any session that the queue did not spawn may
- * then adopt or cancel the run, or discard a parked item or undo a discard. The audit trail records the
+ * then adopt or cancel the run. The audit trail records the
  * rescuer in each affected item's detail and in the log. A missing or
  * edit-superseded source can be rescued after restored-parent resolution.
  * A sleeping, idle or failed retained owner keeps the run; handover requires
  * that owner's explicit control or the operator panel.
  *
- * Set aside agent: the session James starts from the Set aside tab may retry a
- * merge or resume a job in its own folder, and nothing else, even on a run it
- * would otherwise be able to adopt. It clears jobs through plan-queue-set-aside.ts.
+ * Set aside agent: the session James starts from the Set aside tab may discard or
+ * restore any job, and retry a merge or resume a job in its own folder. It may do
+ * nothing else, even on a run it would otherwise be able to adopt. It clears empty
+ * jobs through plan-queue-set-aside.ts.
  */
 
 import type { PlanQueueControlPayload } from '@contracts/schemas/plan-queue';
@@ -32,11 +36,15 @@ type PlanQueueControlAction = PlanQueueControlPayload['action'];
 export const STRANDED_RESCUE_ACTIONS: ReadonlySet<PlanQueueControlAction> = new Set<PlanQueueControlAction>([
   'adopt',
   'cancel',
+]);
+
+/** Control actions any session the queue did not spawn may take, whoever owns the run. */
+const DISCARD_ACTIONS: ReadonlySet<PlanQueueControlAction> = new Set<PlanQueueControlAction>([
   'discard-item',
   'restore-discarded',
 ]);
 
-/** The only control actions the Set aside agent may take, and only in its own folder. */
+/** Besides discarding, the only control actions the Set aside agent may take, and only in its own folder. */
 export const SET_ASIDE_AGENT_ACTIONS: ReadonlySet<PlanQueueControlAction> = new Set<PlanQueueControlAction>([
   'resume-item',
   'retry-landing',
@@ -68,8 +76,8 @@ export function authorizePlanQueueControl(
 ): string {
   const setAsideFolder = callerInstanceId === undefined ? undefined : lookup.setAsideFolder(callerInstanceId);
   if (setAsideFolder !== undefined) {
-    if (!SET_ASIDE_AGENT_ACTIONS.has(action) || setAsideFolder !== run.workspaceCwd) {
-      throw new Error('The Set aside agent may only retry a merge or resume a job in its own folder. List this for James.');
+    if (!DISCARD_ACTIONS.has(action) && (!SET_ASIDE_AGENT_ACTIONS.has(action) || setAsideFolder !== run.workspaceCwd)) {
+      throw new Error('The Set aside agent may only retry a merge or resume a job in its own folder, or discard or restore a job. List this for James.');
     }
     return `the Set aside agent (session ${callerInstanceId})`;
   }
@@ -86,6 +94,10 @@ export function authorizePlanQueueControl(
     }
   }
   if (callerInstanceId === undefined || callerInstanceId === run.parentInstanceId) return 'James';
+  if (DISCARD_ACTIONS.has(action) && !lookup.isQueueInstance(callerInstanceId)) {
+    logger.info('Plan queue: a session other than the owner discarded or restored a job', { runId: run.id, action, callerInstanceId });
+    return `session ${callerInstanceId}`;
+  }
   const strandedRescuer = !lookup.instanceExists(run.parentInstanceId) && !lookup.isQueueInstance(callerInstanceId);
   if (strandedRescuer && STRANDED_RESCUE_ACTIONS.has(action)) {
     logger.warn('Plan queue: stranded-run rescue authorised for a session other than the parent', {

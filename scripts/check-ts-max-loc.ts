@@ -295,13 +295,13 @@ const ALLOWLIST: Record<string, number> = {
   // instance-permission-request-flow.ts (architecture-quality 2.1).
   // Raised 2417 -> 2472: earlier creep up to the slack edge plus hasRuntimeInstance()
   // for minting MCP capabilities while crash recovery is unpublished (2026-10-18).
-  'src/main/instance/instance-manager.ts': 2472,
+  'src/main/instance/instance-manager.ts': 2480,
   // Raised 1068 -> 1105 (2026-07-17 loop-issue fixes).
   'src/main/instance/instance-orchestration.ts': 1105,
   // Raised 715 -> 935 for the session usage-overage stop (maybeParkOnUsageLimit,
   // the hold-vs-auto-resume park split, and the hold/release announcements;
-  // 2026-09-26).
-  'src/main/instance/instance-provider-limit-handler.ts': 935,
+  // 2026-09-26). Raised 935 -> 960 for endParkAfterRuntimeMove (2026-11-06).
+  'src/main/instance/instance-provider-limit-handler.ts': 975,
   'src/main/instance/lifecycle/interrupt-respawn-handler.ts': 1421,
   // Was 697 of 700. LT-018 added occupancy resets to the two fresh-session
   // fallback branches (`applyRuntimeChange`'s resume failure and
@@ -309,7 +309,7 @@ const ALLOWLIST: Record<string, number> = {
   // context percentage into a new session. Two extractions already came out of
   // this file in the same change (`resolveRuntimeChangeModel`,
   // `resolveSwapContextUsage`); a third purely to reclaim 5 lines would be churn.
-  'src/main/instance/lifecycle/runtime-reconciler.ts': 775, // raised 705 -> 775 (2026-10-10): MiMo in-place account-switch branch (machinery in runtime-reconciler-account-handoff.ts)
+  'src/main/instance/lifecycle/runtime-reconciler.ts': 790, // raised 705 -> 775 (2026-10-10): MiMo in-place account-switch branch (machinery in runtime-reconciler-account-handoff.ts); 775 -> 790 (2026-11-06): ending a provider-limit park after a move
   // Main process — IPC handlers
   'src/main/ipc/handlers/app-handlers.ts': 660,
   // Raised 1208 -> 1251 (2026-07-17 thread-resilience + context-evidence handlers).

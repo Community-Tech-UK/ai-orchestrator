@@ -11,12 +11,17 @@ import { RuntimeReconciler } from './runtime-reconciler';
 import type { RuntimeReconcilerDeps } from './runtime-reconciler.types';
 import { attachAccountRoute, persistedAccountProfileId, stampAccountRouteOnInstance } from './account-route-preflight';
 import { _resetAdapterLoansForTesting } from './adapter-loan-registry';
+import { _resetInstanceProviderLimitHandlerForTesting, getInstanceProviderLimitHandler } from '../instance-provider-limit-handler';
 
-const { continuity } = vi.hoisted(() => ({
+const { continuity, queuedInput } = vi.hoisted(() => ({
   continuity: {
     updateState: vi.fn().mockResolvedValue(undefined),
     writeThroughIdentityLocked: vi.fn().mockResolvedValue(undefined),
   },
+  queuedInput: { waiting: false },
+}));
+vi.mock('../../session/session-queue-service', () => ({
+  getSessionQueueService: () => ({ hasQueuedMessages: () => queuedInput.waiting }),
 }));
 vi.mock('../../logging/logger', () => ({
   getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
@@ -116,14 +121,18 @@ function harness(
     queueUpdate: vi.fn(),
   } satisfies RuntimeReconcilerDeps;
   return { instance, reconciler: new RuntimeReconciler(deps), adapter, createRuntimeAdapter, routed, snapshot,
-    emitSystemNotice: deps.emitSystemNotice };
+    emitSystemNotice: deps.emitSystemNotice, holdContinuity: deps.holdContinuityUntilAnswered };
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
+  queuedInput.waiting = false;
   _resetAdapterLoansForTesting();
 });
-afterEach(() => _resetAdapterLoansForTesting());
+afterEach(() => {
+  _resetAdapterLoansForTesting();
+  _resetInstanceProviderLimitHandlerForTesting();
+});
 
 describe('provider swaps scope account profiles to the destination', () => {
   it('switches a failed MiMo session to Codex and persists the selected Codex account', async () => {
@@ -291,5 +300,134 @@ describe('provider swaps scope account profiles to the destination', () => {
       expect(h.instance.accountPreferences).toBeUndefined();
       expect(h.instance.accountProfileId).toBe('example-codex');
     });
+  });
+});
+
+describe('a session parked on a provider limit', () => {
+  const codexSession = { provider: 'codex', currentModel: 'gpt-6-sol', accountProfileId: 'example-codex' } as const;
+
+  function parkOnLimit(h: ReturnType<typeof harness>, resumePrompt: string | null) {
+    const cancelResume = vi.fn();
+    const setWaitReason = vi.fn();
+    const clearActive = vi.fn(() => 0);
+    const resentOn: [string, string][] = [];
+    const limits = getInstanceProviderLimitHandler();
+    limits.configure({
+      isEnabled: () => true,
+      setWaitReason,
+      resendInput: (_id, prompt) => { resentOn.push([h.instance.provider, prompt]); },
+      getQuotaSnapshot: () => null,
+      getWorkspaceCwd: () => h.instance.workingDirectory,
+      getProviderModel: () => ({ provider: h.instance.provider, model: h.instance.currentModel ?? null }),
+      providerLimitLedger: { record: vi.fn(), getActive: () => null, clearActive },
+      scheduleResume: () => cancelResume,
+    });
+    expect(limits.maybePark({
+      instanceId: h.instance.id, provider: h.instance.provider, model: h.instance.currentModel,
+      resetAtHint: Date.now() + 3_600_000, reason: 'Example limit', resumePrompt,
+    })).toBe('parked');
+    setWaitReason.mockClear();
+    return { limits, cancelResume, setWaitReason, clearActive, resentOn };
+  }
+
+  it('stops waiting once it moves to another provider', async () => {
+    const h = harness(codexSession);
+    const park = parkOnLimit(h, null);
+
+    await h.reconciler.applyRuntimeChange(h.instance.id, { provider: 'claude', model: 'sonnet' });
+
+    expect(h.instance.provider).toBe('claude');
+    expect(park.limits.isParked(h.instance.id)).toBe(false);
+    expect(park.setWaitReason).toHaveBeenCalledWith(h.instance.id, null);
+    expect(park.cancelResume).toHaveBeenCalledOnce();
+    expect(park.resentOn).toEqual([]);
+  });
+
+  it('keeps the old provider limit recorded for other sessions', async () => {
+    const h = harness(codexSession);
+    const park = parkOnLimit(h, null);
+
+    await h.reconciler.applyRuntimeChange(h.instance.id, { provider: 'claude', model: 'sonnet' });
+
+    expect(park.clearActive).not.toHaveBeenCalled();
+  });
+
+  it('sends the held turn on the new provider', async () => {
+    const h = harness(codexSession);
+    const park = parkOnLimit(h, 'Example held turn');
+
+    await h.reconciler.applyRuntimeChange(h.instance.id, { provider: 'claude', model: 'sonnet' });
+
+    expect(park.resentOn).toEqual([['claude', 'Example held turn']]);
+  });
+
+  it('carries the change with the held turn so the model only gets that request once', async () => {
+    const h = harness(codexSession);
+    const park = parkOnLimit(h, 'Example held turn');
+
+    await h.reconciler.applyRuntimeChange(h.instance.id, { provider: 'claude', model: 'sonnet' });
+
+    expect(h.adapter.sendInput).not.toHaveBeenCalled();
+    expect(h.holdContinuity).toHaveBeenCalledWith(h.instance.id, expect.stringContaining('Example conversation continuity'), undefined);
+    expect(h.holdContinuity).toHaveBeenCalledWith(h.instance.id, expect.stringContaining('Provider changed from codex'), undefined);
+    expect(park.resentOn).toEqual([['claude', 'Example held turn']]);
+  });
+
+  it('carries the change with a queued message so the model only gets that request once', async () => {
+    const h = harness(codexSession);
+    parkOnLimit(h, null);
+    queuedInput.waiting = true;
+
+    await h.reconciler.applyRuntimeChange(h.instance.id, { provider: 'claude', model: 'sonnet' });
+
+    expect(h.adapter.sendInput).not.toHaveBeenCalled();
+    expect(h.holdContinuity).toHaveBeenCalledWith(h.instance.id, expect.stringContaining('Provider changed from codex'), undefined);
+  });
+
+  it('tells the model straight away when no turn is waiting', async () => {
+    const h = harness(codexSession);
+    parkOnLimit(h, null);
+
+    await h.reconciler.applyRuntimeChange(h.instance.id, { provider: 'claude', model: 'sonnet' });
+
+    expect(h.adapter.sendInput).toHaveBeenCalledWith(expect.stringContaining('Example conversation continuity'));
+  });
+
+  it('stops waiting once it moves to another account on the same provider', async () => {
+    const h = harness(codexSession, [profile('codex', 'example-codex'), profile('codex', 'example-codex-two', 1)]);
+    const park = parkOnLimit(h, null);
+
+    await h.reconciler.applyRuntimeChange(h.instance.id, {
+      provider: 'codex', accountProfileId: 'example-codex-two',
+      accountHandoffKind: 'explicit', accountHandoffConfirmed: true,
+    });
+
+    expect(h.instance.accountProfileId).toBe('example-codex-two');
+    expect(park.limits.isParked(h.instance.id)).toBe(false);
+  });
+
+  it('keeps waiting when only the model changes', async () => {
+    const h = harness(codexSession);
+    const park = parkOnLimit(h, 'Example held turn');
+
+    await h.reconciler.applyRuntimeChange(h.instance.id, { provider: 'codex', model: 'gpt-6-astra' });
+
+    expect(h.instance.currentModel).toBe('gpt-6-astra');
+    expect(park.limits.isParked(h.instance.id)).toBe(true);
+    expect(park.resentOn).toEqual([]);
+  });
+
+  it('keeps waiting when the switch fails', async () => {
+    const h = harness(codexSession);
+    const park = parkOnLimit(h, 'Example held turn');
+    vi.mocked(h.adapter.spawn).mockRejectedValue(new Error('Example spawn failure'));
+
+    await expect(h.reconciler.applyRuntimeChange(h.instance.id, { provider: 'claude', model: 'sonnet' }))
+      .rejects.toThrow('Example spawn failure');
+
+    expect(h.instance.provider).toBe('codex');
+    expect(park.limits.isParked(h.instance.id)).toBe(true);
+    expect(park.cancelResume).not.toHaveBeenCalled();
+    expect(park.resentOn).toEqual([]);
   });
 });

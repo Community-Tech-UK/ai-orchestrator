@@ -44,7 +44,7 @@ describe('queue continuation after Copilot compaction', () => {
       history,
       worktrees: new PlanQueueWorktreeService({ repoRootForItem: () => run.workspaceCwd, history, saveItem: next => { item = next; },
         creator: { createWorktree: unused, cleanupWorktree: unused, getAllSessions: unused } }),
-      checksAdmitted: unused, pauseForSharedError: unused, selectVerifier: unused,
+      checksAdmitted: unused, setRunHold: unused, selectVerifier: unused,
       transition: unused, unregisterRole: unused, roleOf: unused, notifyParent: unused,
       liveParentId: unused, resolveRunParent: unused, requestPump: unused, livetestPortsInUse: unused,
       getRun: () => run, getItem: () => item, save: next => (item = next), tracker,

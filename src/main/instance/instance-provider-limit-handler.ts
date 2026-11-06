@@ -128,6 +128,8 @@ export interface InstanceProviderLimitHandlerDeps {
     request: InstanceProviderLimitResumeRequest;
     resumeInstance: (instanceId: string, opts?: { resumePromptFallback?: string }) => void;
   }) => () => void;
+  /** Delete this session's durable resumes, including any left by a park from before a restart. */
+  cancelDurableResumes?: (instanceId: string) => void;
 }
 
 export interface MaybeParkParams {
@@ -791,6 +793,31 @@ export class InstanceProviderLimitHandler {
   }
 
   /**
+   * The session now runs on another provider or account, so the limit it was
+   * parked on no longer applies to it. Ends the park and sends any held turn on
+   * the new runtime; a queued message drains once the waitReason clears.
+   *
+   * Unlike {@link cancel} and {@link resumeNow} this leaves the ledger alone:
+   * the old account is still limited for every other session, and
+   * `getProviderModel` already names the new runtime. Durable resumes go even
+   * without a live park; otherwise this is a no-op when not parked, so a loop's
+   * own quota-park waitReason is left in place.
+   */
+  endParkAfterRuntimeMove(instanceId: string): void {
+    this.deps?.cancelDurableResumes?.(instanceId);
+    const entry = this.parked.get(instanceId);
+    if (!entry) return;
+    this.parked.delete(instanceId);
+    entry.cancel();
+    entry.stopEarlyResumeProbe();
+    // Block a racing timer/automation from re-sending the same turn.
+    this.lastResumeAt.set(instanceId, Date.now());
+    this.deps?.setWaitReason(instanceId, null);
+    if (entry.resumePrompt) this.deps?.resendInput(instanceId, entry.resumePrompt);
+    logger.info('Ended provider-limit park; the session moved to another provider or account', { instanceId });
+  }
+
+  /**
    * Instance-teardown hook. Drops all in-memory park state for the instance
    * (early-resume probe interval, parked entry, resume-dedupe marker) so a
    * terminated instance never leaves zombie timers or Map entries behind.
@@ -864,6 +891,10 @@ export class InstanceProviderLimitHandler {
 
   isParked(instanceId: string): boolean {
     return this.parked.has(instanceId);
+  }
+
+  hasHeldTurn(instanceId: string): boolean {
+    return Boolean(this.parked.get(instanceId)?.resumePrompt);
   }
 
   /**

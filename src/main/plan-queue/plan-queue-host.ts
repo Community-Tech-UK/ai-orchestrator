@@ -68,7 +68,8 @@ export interface PlanQueueFlowHost {
   readonly store: PlanQueueStore;
   readonly history: PlanQueueHistoryStore;
   checksAdmitted(run: PlanQueueRun): boolean;
-  pauseForSharedError(runId: string, detail: string): void;
+  /** Stops new starts on a run, or clears that. Live work is not touched. */
+  setRunHold(runId: string, holdReason: string | null): void;
   readonly instances: PlanQueueInstancePort;
   readonly worktrees: PlanQueueWorktreeService;
   readonly tracker: PlanQueueInstanceTracker;

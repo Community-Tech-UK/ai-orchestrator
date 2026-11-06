@@ -7,7 +7,7 @@ import { PlanQueueStore } from '../../../core/state/plan-queue.store';
 import { planQueueDocumentBasename } from './plan-queue-item-list.component';
 
 import { planQueueDisplayParkReason, planQueueParkReasonLabel, type PlanQueueParkReasonDisplay } from '../plan-queue-park-reason-help';
-import { foldDetail, pluralise } from '../plan-queue-item-display';
+import { foldDetail, pluralise } from '../../../../../shared/utils/plan-queue-item-display';
 import { planQueueBulkResumePreview, planQueueBulkRetryPreview, type PlanQueueBulkPreview } from '../plan-queue-bulk-preview';
 
 type ParkedAction = 'land-anyway' | 'discard-item';
@@ -45,7 +45,7 @@ interface ParkedSection {
 /**
  * Parked items across every run, sectioned by why they stopped so each reason is explained once. Only open sections
  * render, a page at a time, and only rendered rows fetch their `git diff --shortstat`. Resume is reversible so it
- * fires immediately; Land anyway and Discard are one-way, so both require an explicit confirm click.
+ * fires immediately; Land anyway and Discard are bigger steps, so both require an explicit confirm click.
  */
 @Component({
   selector: 'app-plan-queue-parked-list',

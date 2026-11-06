@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { PlanQueueStore } from '../../../core/state/plan-queue.store';
-import { planQueueDocumentLabel } from '../plan-queue-item-display';
+import { planQueueDocumentLabel } from '../../../../../shared/utils/plan-queue-item-display';
 
 /** Documents named in the banner before the rest collapse into "and N more". */
 const NAMED_DOCUMENTS = 2;

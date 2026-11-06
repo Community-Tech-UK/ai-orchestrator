@@ -67,6 +67,9 @@ export class CodeRetrievalService {
     const sanitized = sanitizeRetrievalQuery(rawQuery);
     const query = sanitized.query;
     if (query.length < 2) return [];
+    // Text long enough to need cutting down is a prompt or a paste with its own
+    // instructions, and a fragment of it is no reason to add code unasked.
+    if (options.strongMatchOnly && sanitized.sanitized) return [];
 
     const limit = Math.max(1, Math.min(Math.floor(options.limit ?? 8), 50));
     const workspacePath = path.resolve(options.workspacePath);

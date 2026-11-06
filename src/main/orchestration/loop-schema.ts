@@ -9,7 +9,7 @@
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { PLAN_QUEUE_MIGRATIONS } from '../plan-queue/plan-queue-migrations';
 
-export const LOOP_SCHEMA_VERSION = 50;
+export const LOOP_SCHEMA_VERSION = 51;
 
 export interface LoopMigration {
   version: number;
@@ -573,6 +573,12 @@ export const LOOP_MIGRATIONS: readonly LoopMigration[] = [
         if (receipt) update.run(row.updated_at, receipt[1], row.detail.slice(0, receipt.index).trim() || null, row.id);
       }
     },
+  },
+  {
+    // Plan Queue: why a run has stopped starting new work after a shared failure. Stored so it survives a restart.
+    version: 51,
+    name: '051_plan_queue_run_hold_reason',
+    up: `ALTER TABLE plan_queue_runs ADD COLUMN hold_reason TEXT;`,
   },
 ];
 

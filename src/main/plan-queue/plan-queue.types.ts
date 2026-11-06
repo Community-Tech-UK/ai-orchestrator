@@ -33,6 +33,8 @@ export interface PlanQueueRun {
   status: PlanQueueRunStatus;
   config: PlanQueueRunConfig;
   relaxation: PlanQueueRelaxationSnapshot | null;
+  /** Why the run has stopped starting new work after a shared failure; live work carries on. */
+  holdReason?: string | null;
   workerProvider: string | null;
   workerModel: string | null;
   startedAt: number;

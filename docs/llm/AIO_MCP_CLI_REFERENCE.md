@@ -40,6 +40,8 @@ $AIO_MCP loop list [--all] [--limit <n>] [--json]
 $AIO_MCP loop resume <loop-run-id> [--json]
 $AIO_MCP plan-queue list [--all] [--json]
 $AIO_MCP plan-queue move <run-id> [--to <session-id>] [--json]
+$AIO_MCP plan-queue jobs [--all] [--json]
+$AIO_MCP plan-queue discard <item-id> [<item-id>...] [--json]
 $AIO_MCP remote-nodes [--json]
 $AIO_MCP local-ai --help
 $AIO_MCP release-readiness --help
@@ -70,6 +72,16 @@ owner is told unless it is asleep. `plan-queue list` shows the runs that can be 
 set-aside jobs; `--all` adds other folders) with their owners and the command to
 take each over.
 
+`plan-queue jobs` lists the set-aside jobs in your folder with their ids (`--all` adds
+other folders). `plan-queue discard <item-id> [<item-id>...]` removes those jobs and
+deletes their branches, like Discard on the Plan Queue page. You do not need to own the
+run. Sessions the queue started are refused, and only parked jobs can be discarded. A
+parked job always leaves the list: any work a branch held is kept for 30 days, and
+`restore-discarded` on `plan_queue_control` brings a job back. Anything git will not
+release stays on disk and is listed in the output. A job that fails does not
+stop the others, the command exits with an error if any failed, and it is safe to run
+it again.
+
 `loop` is not `aio-loop-control`. `aio-loop-control` is the control channel
 inside a running loop iteration (`complete`, `block`, `wakeup`, `fail`) and
 needs `AIO_LOOP_CONTROL_FILE` in its environment. It cannot restart a parked
@@ -99,14 +111,15 @@ target repository's own commands or `[]` for any other repository), `plan_queue_
 (`action`, `run_id?`, `item_id?`, `routing?`, `move_in_progress?`). Use them when James asks to work through the
 plan or livetest documents; ask James any question the queue sends back and
 record his choice with `plan_queue_answer`. Answer and control are refused
-from anyone but the session that started the run, except one rescue: once that
-session no longer exists, another session may `cancel` the stranded run or
-`discard-item` one of its parked items (do it only when James asked; the item
-detail records who did it). To take over a run whose owner is still there but
+from anyone but the session that started the run, with two exceptions. Any session
+the queue did not start may `discard-item` a parked item or `restore-discarded` it
+(do it only when James asked or you have checked its work is on the base branch; the
+item records who discarded it). Once the starting
+session no longer exists, another session may also `cancel` the stranded run. To take over a run whose owner is still there but
 will not hand it over, use `$AIO_MCP plan-queue move <run_id>` (see Main Commands). `plan_queue_report_triage` and
 `plan_queue_report_verdict` belong to the queue's own triage and verifier
-sessions and are refused from anyone else. These are MCP tools, not `$AIO_MCP`
-CLI subcommands.
+sessions and are refused from anyone else. These are MCP tools, not `$AIO_MCP` CLI
+subcommands, though `plan-queue discard` does the same as `discard-item`.
 
 `plan_queue_status` shows an `accountRules` line with account labels when James has set
 never-use or use-last account rules.
@@ -118,6 +131,18 @@ snapshot includes those same operational runs alongside its requested recent
 window (fifty by default). The list IPC's `limit` bounds that recent window only;
 active runs and runs with parked work can take the total above it. Ordinary
 terminal history stays bounded.
+
+To check how a run went, call `plan_queue_status` with `run_id` and `evidence: true`.
+This works for finished runs. It adds the exact words the Plan Queue page shows
+(`onPage`: the run's checks line, each job's "Checked together" label and live step),
+the settings, each document's commits and check receipts (`head`, `testedTree`,
+`checkGroup`), and a timeline of states, `checklist-run` events, checker sessions,
+`slot-wait` waits and landing timings. A long run's timeline keeps the newest 500
+events and sets `earlierEventsLeftOut`. Use it rather than reading the database or
+asking James to look at the page. Finished runs sit in the page's collapsed History
+section, not under Runs. The words come from the same code as the page, and the
+component tests cover the template, so this proves the data and wording rather than
+the pixels on his screen.
 
 Plan Queue Pause stops workers, triage and checkers immediately, saving work on
 each document's branch. A merge already landing finishes; Resume starts fresh

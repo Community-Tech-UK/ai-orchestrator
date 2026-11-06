@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlanQueueItemDto } from '@contracts/schemas/plan-queue';
 import { PlanQueueStore } from '../../../core/state/plan-queue.store';
-import { planQueueDocumentLabel } from '../plan-queue-item-display';
+import { planQueueDocumentLabel } from '../../../../../shared/utils/plan-queue-item-display';
 import { PlanQueueQuestionsBannerComponent } from './plan-queue-questions-banner.component';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));

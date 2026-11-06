@@ -8,22 +8,26 @@ import { getLogger } from '../logging/logger';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import type { PlanQueueTurnOutcome } from './plan-queue-instance-tracker';
 import { buildTriagePrompt } from './plan-queue-prompts';
+import type { PlanQueueRunBreaker } from './plan-queue-run-breaker';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import type { VerifierChoice } from './plan-queue-verifier-select';
 
 const logger = getLogger('PlanQueueTriage');
 export const TRIAGE_BATCH_SIZE = 8;
 const MAX_ATTEMPTS = 2;
-const SPAWN_BACKOFF_MS = 60_000;
+const BACKOFF_MS = [60_000, 5 * 60_000, 15 * 60_000];
 type TriageHost = Pick<PlanQueueFlowHost,
   'instances' | 'transition' | 'registerRole' | 'tracker' | 'requestPump' | 'getItem' | 'getRun' | 'selectVerifier' | 'consumeUserClose'> & {
   liveParentId(run: PlanQueueRun): string | undefined;
   retireInstance(instanceId: string): void | Promise<void>;
   now(): number;
+  breaker(): Pick<PlanQueueRunBreaker, 'note' | 'succeeded'>;
 };
 interface Attempt {
   runId: string;
   attempts: number;
+  /** Sessions that finished without answering. Only these count against a document. */
+  unanswered: number;
   /** Provider and model of the first attempt; a retry checks with a different one. */
   provider: string;
   model: string | null;
@@ -51,9 +55,11 @@ export class PlanQueueTriage {
     if ((this.spawnFailures.get(run.id)?.notBefore ?? 0) > this.host.now()) return;
     const undecided = items.filter((item) => item.state === 'discovered').sort((a, b) => a.createdAt - b.createdAt);
     if (!undecided.length) return;
-    const firstAttempt = this.attempts.get(undecided[0].id);
+    // A batch that ended without answering could be one bad document, so each is then asked about alone.
+    const alone = undecided.find((item) => (this.attempts.get(item.id)?.unanswered ?? 0) >= MAX_ATTEMPTS);
+    const firstAttempt = this.attempts.get((alone ?? undecided[0]).id);
     // Keep retries with the same first provider together so every second attempt is diverse.
-    const batch = undecided.filter((item) => {
+    const batch = alone ? [alone] : undecided.filter((item) => {
       const attempt = this.attempts.get(item.id);
       return firstAttempt ? attempt?.provider === firstAttempt.provider : !attempt;
     }).slice(0, TRIAGE_BATCH_SIZE);
@@ -80,13 +86,8 @@ export class PlanQueueTriage {
         return;
       }
       const message = errorMessage(error).slice(0, 1500);
-      const count = (this.spawnFailures.get(run.id)?.count ?? 0) + 1;
-      this.spawnFailures.set(run.id, { count, notBefore: this.host.now() + SPAWN_BACKOFF_MS });
+      this.backOff(run.id, message);
       logger.warn('Plan queue: triage failed to start', { runId: run.id, error: message });
-      if (count >= 3) {
-        for (const id of session.itemIds) this.park(id, `its session could not start after three tries: ${message}`);
-        this.spawnFailures.delete(run.id);
-      }
       this.host.requestPump();
     });
     this.pendingSpawns.set(run.id, spawning);
@@ -160,7 +161,6 @@ export class PlanQueueTriage {
     const live = this.host.instances.getInstance(instance.id);
     session.provider = live?.provider ?? (session.provider || 'unknown provider');
     session.model = live?.currentModel ?? null;
-    this.spawnFailures.delete(run.id);
     this.host.registerRole(instance.id, { role: 'triage', runId: run.id });
     this.host.tracker.track(instance.id);
   }
@@ -183,15 +183,24 @@ export class PlanQueueTriage {
       this.host.requestPump();
       return;
     }
+    // A failed session or a usage limit says nothing about the documents. They try another provider, but it never counts against them.
+    const cause = outcome.kind === 'failed' ? `its session failed: ${outcome.reason.slice(0, 1500)}`
+      : outcome.kind === 'provider-limit' ? "the provider's usage limit was reached" : null;
+    const answered = session.itemIds.some(id => this.host.getItem(id).state !== 'discovered');
+    // The first retry goes straight away, because it goes to a different provider.
+    if (cause) this.backOff(runId, cause, 1);
+    else if (answered) { this.spawnFailures.delete(runId); this.host.breaker().succeeded(runId, null); }
+    // A whole batch with no answer looks like the provider, not the documents, so it counts towards a hold too.
+    else this.backOff(runId, 'it ended without answering', 1);
     for (const id of session.itemIds) {
       if (this.host.getItem(id).state !== 'discovered') { this.attempts.delete(id); continue; }
-      const attempt = this.attempts.get(id) ?? { runId, attempts: 0, provider: session.provider, model: session.model, causes: [] };
+      const attempt = this.attempts.get(id) ?? { runId, attempts: 0, unanswered: 0, provider: session.provider, model: session.model, causes: [] };
       attempt.attempts += 1;
-      const cause = outcome.kind === 'failed' ? `its session failed: ${outcome.reason.slice(0, 1500)}`
-        : outcome.kind === 'provider-limit' ? "the provider's usage limit was reached" : 'it ended without answering';
-      attempt.causes.push(`${cause} (${providerLabel(session.provider)})`);
+      if (!cause) attempt.unanswered += 1;
+      attempt.causes.push(`${cause ?? 'it ended without answering'} (${providerLabel(session.provider)})`);
       this.attempts.set(id, attempt);
-      if (attempt.attempts >= MAX_ATTEMPTS) this.park(id, attempt.causes.join(', then '));
+      const held = Boolean(this.host.getRun(runId).holdReason);
+      if (!held && (attempt.unanswered > MAX_ATTEMPTS || (attempt.unanswered === MAX_ATTEMPTS && session.itemIds.length === 1))) this.park(id, attempt.causes.join(', then '));
     }
     this.retire(runId, instanceId);
     this.host.requestPump();
@@ -256,6 +265,14 @@ export class PlanQueueTriage {
       settled();
       logger.warn('Plan queue: stopping triage failed', { instanceId, error: errorMessage(error) });
     });
+  }
+
+  /** Waits longer each time, and tells the breaker, which holds the run if this keeps happening. */
+  private backOff(runId: string, message: string, freeRetries = 0): void {
+    const count = (this.spawnFailures.get(runId)?.count ?? 0) + 1;
+    const waitMs = count <= freeRetries ? 0 : BACKOFF_MS[Math.min(count - freeRetries, BACKOFF_MS.length) - 1];
+    this.spawnFailures.set(runId, { count, notBefore: this.host.now() + waitMs });
+    this.host.breaker().note(runId, null, message);
   }
 
   private park(id: string, cause: string): void {

@@ -1,11 +1,11 @@
 import { planQueueDisplayParkReason } from '../plan-queue-park-reason-help';
 import { isNotReachedItem, PLAN_QUEUE_NOT_REACHED_LABEL } from '../../../../../shared/utils/plan-queue-item-outcome';
-import { foldDetail, planQueueCheckGroupLabel, pluralise } from '../plan-queue-item-display';
+import { foldDetail, planQueueCheckGroupLabel, pluralise } from '../../../../../shared/utils/plan-queue-item-display';
 import { copyFor } from '../../../shared/tooltip/tooltip-copy';
 import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
 import { queueItemSpendLabel } from './plan-queue-spend-label';
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, input, output, signal } from '@angular/core';
-import { PLAN_QUEUE_STAGE_TICK_MS, planQueueStageLine } from '../plan-queue-stage-text';
+import { PLAN_QUEUE_STAGE_TICK_MS, planQueueStageLine } from '../../../../../shared/utils/plan-queue-stage-text';
 import type {
   PlanQueueItemDto,
   PlanQueueItemState,

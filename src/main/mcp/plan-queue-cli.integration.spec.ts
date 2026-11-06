@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PLAN_QUEUE_CONFIG, type PlanQueueRunDto } from '@contracts/schemas/plan-queue';
 import { PlanQueueCoordinator } from '../plan-queue/plan-queue-coordinator';
+import type { PlanQueueItem } from '../plan-queue/plan-queue.types';
 import { createPlanQueueToolOperations } from '../plan-queue/plan-queue-tool-operations';
 import { OrchestratorToolsRpcServer } from './orchestrator-tools-rpc-server';
 import { runPlanQueueCli } from './plan-queue-cli';
@@ -26,6 +27,7 @@ function harness(queueSessions: string[] = [], setAsideSessions: string[] = []) 
       state: 'parked', round: 3, erroredRounds: 0, branchName: 'queue/a', worktreePath: null, baseCommit: null, checkpointCommit: null, landedCommit: null,
       workerInstanceId: null, verifierInstanceId: null, question: null, answer: null, parkReason: 'round-limit', detail: null, verdict: null, createdAt: 1, updatedAt: 1 }] }]]);
   vi.spyOn(coordinator, 'getRunDto').mockImplementation(id => runs.get(id) ?? null);
+  const getItem = vi.spyOn(coordinator, 'getItem').mockReturnValue({ branchName: null, worktreePath: null } as PlanQueueItem);
   vi.spyOn(coordinator, 'isQueueInstance').mockImplementation(id => queueSessions.includes(id));
   vi.spyOn(coordinator, 'setAsideAgents', 'get').mockReturnValue(
     { folderOf: (id: string) => (setAsideSessions.includes(id) ? '/repo' : undefined) } as unknown as PlanQueueCoordinator['setAsideAgents']);
@@ -41,7 +43,7 @@ function harness(queueSessions: string[] = [], setAsideSessions: string[] = []) 
     });
     return output.join('');
   };
-  return { coordinator, control, cli };
+  return { coordinator, control, getItem, cli };
 }
 
 describe('aio-mcp plan-queue move through the parent dispatcher', () => {
@@ -100,6 +102,33 @@ describe('aio-mcp plan-queue move through the parent dispatcher', () => {
     const { control, cli } = harness();
     await expect(cli(['move', 'run-1'], 'stranger')).rejects.toThrow('unknown orchestrator-tools instance');
     expect(control).not.toHaveBeenCalled();
+  });
+
+  it('discards a job through the control path as the calling session, not as James', async () => {
+    const { control, cli } = harness();
+    await expect(cli(['discard', 'item'])).resolves.toBe('Discarded job item.\n');
+    expect(control).toHaveBeenCalledWith({ action: 'discard-item', itemId: 'item' }, 'caller');
+  });
+
+  it('gets through a folder\'s worth of jobs without hitting the call limit', async () => {
+    const { control, cli } = harness();
+    const ids = Array.from({ length: 160 }, (_, index) => `job-${index}`);
+    const text = await cli(['discard', ...ids, '--json']);
+    expect(JSON.parse(text)).toMatchObject({ failed: [] });
+    expect(control).toHaveBeenCalledTimes(160);
+  });
+
+  it('reports a job the coordinator refuses and still discards the rest', async () => {
+    const { control, cli } = harness();
+    control.mockRejectedValueOnce(new Error('Only a parked item can be discarded'));
+    await expect(cli(['discard', 'stuck', 'fine'])).rejects.toThrow('1 of 2 job(s) failed or timed out.');
+    expect(control).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports what git would not release', async () => {
+    const { getItem, cli } = harness();
+    getItem.mockReturnValue({ branchName: 'queue/a', worktreePath: null } as PlanQueueItem);
+    await expect(cli(['discard', 'item'])).resolves.toBe('Discarded job item.\nLeft in place for job item: queue/a\n');
   });
 
   it('passes the coordinator\'s refusal back to the agent unchanged', async () => {

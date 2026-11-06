@@ -3,10 +3,9 @@
  *
  * `plan_queue_start`, `plan_queue_answer` and `plan_queue_control` are for
  * the session that runs a queue (the "parent"): answer and control are refused
- * from anyone else, and start is hidden from queue-spawned sessions. The one
- * exception is the stranded-run rescue in plan-queue-control-authority.ts:
- * once the parent no longer exists, another non-queue session may adopt or cancel the
- * run or discard a parked item.
+ * from anyone else, and start is hidden from queue-spawned sessions. The
+ * exceptions are in plan-queue-control-authority.ts: any non-queue session may discard
+ * a parked item, and once the parent no longer exists it may adopt or cancel the run.
  * `plan_queue_status` is read-only and open to every session, including the
  * queue's own. `plan_queue_report_triage` and `plan_queue_report_verdict` are
  * for the instances the queue spawns, and are accepted only from the instance
@@ -34,9 +33,11 @@ import type { McpServerToolDefinition } from './mcp-server-tools';
 
 export interface PlanQueueToolOperations {
   start(callerInstanceId: string, args: PlanQueueStartArgs): Promise<unknown>;
-  status(callerInstanceId: string, runId?: string): unknown;
+  status(callerInstanceId: string, runId?: string, evidence?: boolean): unknown;
   answer(callerInstanceId: string, itemId: string, optionId: string): Promise<unknown>;
   control(callerInstanceId: string, args: PlanQueueControlArgs): Promise<unknown>;
+  /** `aio-mcp plan-queue discard`: `discard-item` for each job, under the same rules. */
+  discardItems(callerInstanceId: string, itemIds: readonly string[]): Promise<{ discarded: string[]; leftInPlace: { itemId: string; what: string[] }[]; failed: { itemId: string; error: string }[] }>;
   reportVerdict(callerInstanceId: string, args: PlanQueueReportVerdictArgs): unknown;
   reportTriage(callerInstanceId: string, args: PlanQueueReportTriageArgs): unknown;
   setAside(callerInstanceId: string, offset: number): Promise<unknown>;
@@ -132,10 +133,13 @@ export const PLAN_QUEUE_TOOL_SPECS = {
     },
   },
   plan_queue_status: {
-    description: 'Show a Plan Queue run: each document\'s state, verification round, open question, park reason and verdict findings. Without run_id, lists every running or paused run and every finished run with parked documents, plus the ten most recent runs, deduplicated and newest first. The recent window caps only ordinary history.',
+    description: 'Show a Plan Queue run: each document\'s state, verification round, open question, park reason and verdict findings. Without run_id, lists every running or paused run and every finished run with parked documents, plus the ten most recent runs, deduplicated and newest first. The recent window caps only ordinary history. With run_id and evidence: true, also returns what proves how the run went, finished runs included: the exact words the Plan Queue page shows for it, each document\'s commits and check receipts (own commit, tested code, shared check group), and its timeline of states, checklist runs, checker sessions, waits and landings. Use this instead of reading the database or asking James to look at the page. It is long, so ask only when you need it.',
     inputSchema: {
       type: 'object',
-      properties: { run_id: { type: 'string', description: 'Run id returned by plan_queue_start.' } },
+      properties: {
+        run_id: { type: 'string', description: 'Run id returned by plan_queue_start.' },
+        evidence: { type: 'boolean', description: 'Add the page wording, receipts and timeline for this run. Needs run_id.' },
+      },
       additionalProperties: false,
     },
   },
@@ -152,7 +156,7 @@ export const PLAN_QUEUE_TOOL_SPECS = {
     },
   },
   plan_queue_control: {
-    description: 'Control a Plan Queue run or item: pause stops its workers, triage and checkers now and saves work on document branches; resume continues with fresh sessions. Cancel ends a run (run_id); set-routing changes its worker, checker and step-up providers and accounts for future sessions (run_id and routing, optional move_in_progress); skip an item that has not started, resume a parked item, retry a blocked merge of a verified item, land a parked item without a verifier PASS, or discard a parked item\'s branch (item_id). Land anyway and discard change git state, so do them only when James asked. If the session that started a run no longer exists, any session the queue did not spawn may adopt the run (it then answers its questions and receives its summary), cancel it, or discard a parked item. Adopt when the work should continue; cancel only when James asked. Use request-handover (run_id) to ask an existing owner to transfer this run. Only that owner or the panel may handover (run_id, target_instance_id); this requires all Queue workers, triage and checkers to have stopped. A sleeping owner retains ownership. If the owner does not hand over a run that work James asked you to do needs, run `$AIO_MCP plan-queue move <run_id>` in your shell: it moves the run to you with James\'s authority, as the Plan Queue page does. Say which run you moved and why.',
+    description: 'Control a Plan Queue run or item: pause stops its workers, triage and checkers now and saves work on document branches; resume continues with fresh sessions. Cancel ends a run (run_id); set-routing changes its worker, checker and step-up providers and accounts for future sessions (run_id and routing, optional move_in_progress); skip an item that has not started, resume a parked item, retry a blocked merge of a verified item, land a parked item without a verifier PASS, or discard a parked item\'s branch (item_id). Land anyway changes git state, so do it only when James asked. Discard deletes a branch, so do it only when James asked or you have checked its work is on the base branch. Any session the queue did not spawn may discard a parked item or undo that with restore-discarded (item_id), whoever owns the run; discarded work is kept for 30 days. To discard several, run `$AIO_MCP plan-queue discard <item_id>...` in your shell. If the session that started a run no longer exists, any session the queue did not spawn may adopt the run (it then answers its questions and receives its summary) or cancel it. Adopt when the work should continue; cancel only when James asked. Use request-handover (run_id) to ask an existing owner to transfer this run. Only that owner or the panel may handover (run_id, target_instance_id); this requires all Queue workers, triage and checkers to have stopped. A sleeping owner retains ownership. If the owner does not hand over a run that work James asked you to do needs, run `$AIO_MCP plan-queue move <run_id>` in your shell: it moves the run to you with James\'s authority, as the Plan Queue page does. Say which run you moved and why.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -286,7 +290,10 @@ type Handler = (callerInstanceId: string, ops: PlanQueueToolOperations, args: un
 
 const HANDLERS: Record<PlanQueueToolName, Handler> = {
   plan_queue_start: (caller, ops, args) => ops.start(caller, PlanQueueStartArgsSchema.parse(args)),
-  plan_queue_status: (caller, ops, args) => ops.status(caller, PlanQueueStatusArgsSchema.parse(args ?? {}).run_id),
+  plan_queue_status: (caller, ops, args) => {
+    const parsed = PlanQueueStatusArgsSchema.parse(args ?? {});
+    return ops.status(caller, parsed.run_id, parsed.evidence);
+  },
   plan_queue_answer: (caller, ops, args) => {
     const parsed = PlanQueueAnswerArgsSchema.parse(args);
     return ops.answer(caller, parsed.item_id, parsed.option_id);

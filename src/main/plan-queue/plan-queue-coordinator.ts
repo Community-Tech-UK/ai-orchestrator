@@ -243,7 +243,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       requestPump: () => this.requestPump(),
       consumeUserClose: (id) => this.consumeUserClose(id),
       liveParentId: (run) => this.requireFlow().liveParentId(run),
-      retireInstance: (id) => this.requireFlow().stopInstance(id),
+      retireInstance: (id) => this.requireFlow().stopInstance(id), breaker: () => this.requireFlow().breaker,
     });
     const interval = deps.pumpIntervalMs === undefined ? DEFAULT_PUMP_INTERVAL_MS : deps.pumpIntervalMs;
     if (interval !== null) {
@@ -319,12 +319,9 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   get tracker(): PlanQueueInstanceTracker { return this.require(this.trackerInstance); }
   get store(): PlanQueueStore { return this.requireDeps().store; }
   get history() { return this.store.history; }
-  pauseForSharedError(runId: string, detail: string): void {
-    const run = this.getRun(runId);
-    if (run.status !== 'running') return;
-    this.saveRun({ ...run, status: 'paused' });
-    this.notifyParent(this.getRun(runId), detail);
-    void this.control({ action: 'pause', runId }).catch(error => logger.warn('Could not stop all paused queue sessions', { error: String(error) }));
+  setRunHold(runId: string, holdReason: string | null): void {
+    const run = this.saveRun({ ...this.getRun(runId), holdReason });
+    if (holdReason) this.notifyParent(run, `Plan Queue: ${holdReason}`);
   }
   checksAdmitted(run: PlanQueueRun): boolean {
     return this.getRun(run.id).status === 'running' && !this.tracker.isShuttingDown()
@@ -460,8 +457,9 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     const stages = this.stagesOf(snapshots.flatMap(snapshot => snapshot.items));
     return snapshots.map(({ run, items, checks }) => runToDto(run, items, checks, stages));
   }
+  listRunEvents(runId: string, limit: number) { return this.history.listRunEvents(runId, limit); }
   /** Steps with no session (checks, landing, waits), timed from stored history; see plan-queue-item-stage.ts. */
-  private stagesOf(items: readonly PlanQueueItem[]) { return itemStages(this.history, items, this.sessionStartedAt); }
+  private stagesOf(items: readonly PlanQueueItem[]) { return itemStages(this.history, items, this.sessionStartedAt, id => this.store.waits.whyWaiting(id)); }
 
   /** The "Queue health" measures for the recent window, from the stored events and verdicts. */
   getQueueHealth(): PlanQueueHealth { return this.requireDeps().store.queueHealth(); }
@@ -678,6 +676,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       loadAverage: () => this.requireDeps().loadAverage(), followParent: run => this.require(this.parents).follow(run),
       isShuttingDown: () => this.tracker.isShuttingDown(), isControlling: id => this.runControl.isControlling(id),
       finishRun: (run, status) => this.finishRun(run, status), logItemError: (item, error) => this.logItemError(item, error),
+      announceRun: runId => this.announce({ runId }),
     });
   }
   private async routeOutcome(instanceId: string, outcome: PlanQueueTurnOutcome): Promise<void> {
@@ -728,7 +727,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   /** A resumed item re-opens a finished run so the scheduler picks it up. */
   private reopen(run: PlanQueueRun): void {
     if (run.status === 'completed' || run.status === 'cancelled') {
-      const reopened = this.saveRun({ ...run, status: 'running', endedAt: null });
+      const reopened = this.saveRun({ ...run, status: 'running', endedAt: null, holdReason: null });
       if (reopened.config.relaxSettings) this.applyRelaxation(reopened);
     }
   }
@@ -804,7 +803,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   }
 
   /** Each announcement carries the whole run, so a bulk change sends one per run when it ends. */
-  private async quietly<T>(work: () => Promise<T>): Promise<T> {
+  async quietly<T>(work: () => Promise<T>): Promise<T> {
     this.quietDepth += 1;
     try { return await work(); } finally {
       this.quietDepth -= 1;

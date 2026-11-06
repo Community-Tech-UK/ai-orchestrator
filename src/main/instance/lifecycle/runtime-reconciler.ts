@@ -62,6 +62,9 @@ import { announceRuntimeChangeSet, runtimeChangeNoticesFor } from './runtime-cha
 import type { UnifiedSpawnOptions } from '../../cli/adapters/adapter-factory';
 import type { DesiredRuntime, Instance } from '../../../shared/types/instance.types';
 import { isLogicalMiMoModel } from '../../../shared/types/provider-account.types';
+import { getInstanceProviderLimitHandler } from '../instance-provider-limit-handler';
+import { userTurnFollowsPark } from '../instance-provider-limit-runtime';
+import { currentAccountProfileId } from '../../providers/account-pool/account-failover-coordinator';
 import { ACCOUNT_HANDOFF_SAVE_WARNING, accountChangeNotice, accountPreferencesAfterProviderSwap, applyAccountHandoff, isAccountOnlyChange, restoreAccount, snapshotAccount, tryAccountSwitchInPlace } from './runtime-reconciler-account-handoff';
 import type {
   RecoveryRespawnHooks,
@@ -73,6 +76,11 @@ import type {
 const logger = getLogger('RuntimeReconciler');
 
 export { computeRuntimeDiff, planContinuity };
+
+/** What a provider limit applies to; a model change stays on the same account. */
+function limitedRuntimeOf(instance: Instance): string {
+  return JSON.stringify([instance.provider, currentAccountProfileId(instance), instance.copilotAccountProfileId]);
+}
 
 export class RuntimeReconciler {
   constructor(private readonly deps: RuntimeReconcilerDeps) {}
@@ -87,7 +95,16 @@ export class RuntimeReconciler {
     if (!instance) {
       throw new Error(`Instance ${instanceId} not found`);
     }
+    const limitedRuntime = limitedRuntimeOf(instance);
+    await this.applyRuntimeChangeLocked(instanceId, instance, desired, limitedRuntime);
+    // After the session lock is released: ending a park can send the held turn.
+    if (limitedRuntimeOf(instance) !== limitedRuntime) {
+      getInstanceProviderLimitHandler().endParkAfterRuntimeMove(instanceId);
+    }
+    return instance;
+  }
 
+  private async applyRuntimeChangeLocked(instanceId: string, instance: Instance, desired: DesiredRuntime, limitedRuntime: string): Promise<void> {
     const release = await getSessionMutex().acquire(instanceId, 'runtime-change');
     const assertCurrent = () => assertRuntimeChangeOwner(this.deps, instance);
     let runtimeChangeClaim: RuntimeChangeClaim | undefined;
@@ -140,7 +157,7 @@ export class RuntimeReconciler {
           instanceId,
           accountProfileId: instance.accountProfileId,
         });
-        return instance;
+        return;
       }
       assertCurrent();
       const isProviderSwap = diff.providerChanged;
@@ -545,7 +562,8 @@ export class RuntimeReconciler {
           // only start a run on the notice alone.
           ...(isAccountOnlyChange(diff) && !providerHasConversation
             && !instance.outputBuffer.some((msg) => msg.type === 'assistant') ? { delivery: 'transcript-only' as const }
-            : diff.accountProfileChanged && instance.provider === 'opencode' ? { delivery: 'next-prompt' as const } : {}),
+            : diff.accountProfileChanged && instance.provider === 'opencode' ? { delivery: 'next-prompt' as const }
+            : limitedRuntimeOf(instance) !== limitedRuntime && userTurnFollowsPark(instanceId) ? { delivery: 'with-next-input' as const } : {}),
           emitSystemNotice: this.deps.emitSystemNotice.bind(this.deps),
           notices: runtimeChangeNoticesFor({
             isYoloOnlyChange,
@@ -609,8 +627,6 @@ export class RuntimeReconciler {
 
       publishRuntimeChange(this.deps, instance, { isYoloOnlyChange, model: validatedModel ?? newModel,
         nextReasoningEffort, yoloModeChanged: diff.yoloModeChanged, nextYoloMode });
-
-      return instance;
     } finally {
       // LT-030: claim first, so a waiting loop wakes into a settled instance.
       runtimeChangeClaim?.release();

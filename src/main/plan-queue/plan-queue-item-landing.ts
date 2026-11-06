@@ -80,6 +80,7 @@ export function hasPendingLandingCleanup(item: PlanQueueItem): boolean {
 
 export class PlanQueueItemLanding {
   private readonly active = new Map<string, AbortController>();
+  private readonly cleanupFailures = new Map<string, string>();
   constructor(private readonly ctx: PlanQueueLandingContext) {}
 
   cancel(itemId: string): void { this.active.get(itemId)?.abort(); }
@@ -203,6 +204,20 @@ export class PlanQueueItemLanding {
     // Proof services persist ownership changes themselves; never restore their stale input row.
     host.save({ ...host.getItem(item.id), workerInstanceId: null, verifierInstanceId: null, detail: notes.join(' ') || null });
     host.requestPump();
+  }
+
+  /** Never rejects: a failure stays pending for the scheduler's next pass, and passes are frequent, so each different failure is logged once. Lock held. */
+  async retryCleanup(itemId: string): Promise<void> {
+    try {
+      const item = this.ctx.host.getItem(itemId);
+      if (!hasPendingLandingCleanup(item)) return;
+      await this.finishCleanup(item);
+      this.cleanupFailures.delete(itemId);
+    } catch (error) {
+      const message = errorMessage(error);
+      if (this.cleanupFailures.get(itemId) !== message) logger.warn('Plan queue: landed job cleanup failed; it will be retried', { itemId, error: message });
+      this.cleanupFailures.set(itemId, message);
+    }
   }
 
   /** Steps 1-3 and the fast-forward, timed: every attempt that ran a step leaves one landing-time row. */

@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
 import type { PlanQueueItemDto } from '@contracts/schemas/plan-queue';
-import { pluralise } from '../plan-queue-item-display';
+import { pluralise } from '../../../../../shared/utils/plan-queue-item-display';
 
 function notStarted(item: PlanQueueItemDto): boolean {
   return ['discovered', 'needs-answer', 'queued'].includes(item.state)

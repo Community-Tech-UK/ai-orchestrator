@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DISCARDED_REF_PREFIX, DISCARDED_WORK_KEPT_MS, keepDiscardedWork, PlanQueueDiscardedRefs, restoreDiscardedWork } from './plan-queue-discard';
+import { DISCARDED_REF_PREFIX, DISCARDED_WORK_KEPT_MS, keepDiscardedWork, PlanQueueDiscardedRefs, restoreBeforeResume, restoreDiscardedWork } from './plan-queue-discard';
 import { RESCUE_REF_PREFIX } from './plan-queue-landing-leftover';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import { planQueueBranchName } from './plan-queue-worktree';
@@ -115,13 +115,35 @@ describe('restoreDiscardedWork', () => {
     expect(saved().branchName).toBe(branchName);
   });
 
-  it('refuses when no work was kept, or a different branch has the name', async () => {
+  it('brings kept work back before a Resume, and does nothing when none was kept', async () => {
+    const { host } = hostFor(item({ discardedAt: 1000 }));
+    await restoreBeforeResume(host, 'item-1');
+    expect(host.getItem().discardedAt).toBe(1000);
+
+    const { branchName, tip } = branchWithWork();
+    git('update-ref', ref(), tip);
+    git('branch', '-qD', branchName);
+    await restoreBeforeResume(host, 'item-1');
+
+    expect(git('rev-parse', branchName)).toBe(tip);
+    expect(host.getItem()).toMatchObject({ branchName, discardedAt: null });
+  });
+
+  it('refuses when no work was kept anywhere', async () => {
     const { host } = hostFor(item({ discardedAt: 1000 }));
     await expect(restoreDiscardedWork(host, 'item-1')).rejects.toThrow('was not kept');
+  });
 
-    const { branchName } = branchWithWork();
-    git('update-ref', ref(), git('rev-parse', 'main'));
-    await expect(restoreDiscardedWork(host, 'item-1')).rejects.toThrow(`Branch ${branchName} already exists`);
+  it('uses the job\'s branch when it has moved on, and keeps the older copy', async () => {
+    const { host } = hostFor(item({ discardedAt: 1000 }));
+    const { tip } = branchWithWork();
+    const older = git('rev-parse', 'main');
+    git('update-ref', ref(), older);
+
+    await restoreDiscardedWork(host, 'item-1');
+
+    expect(git('rev-parse', ref())).toBe(older);
+    expect(git('rev-parse', planQueueBranchName(item()))).toBe(tip);
   });
 
   it('refuses a job that was not discarded', async () => {

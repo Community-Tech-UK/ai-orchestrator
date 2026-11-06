@@ -12,6 +12,28 @@ describe('routing authority', () => {
   });
 });
 
+describe('discard authority', () => {
+  const lookup = {
+    instanceExists: () => true,
+    isQueueInstance: (id: string) => id === 'worker',
+    setAsideFolder: () => undefined,
+  };
+
+  it('lets any session the queue did not spawn discard or restore a job while the owner is alive, and names it', () => {
+    expect(authorizePlanQueueControl(run, 'discard-item', 'other', lookup)).toBe('session other');
+    expect(authorizePlanQueueControl(run, 'restore-discarded', 'other', lookup)).toBe('session other');
+  });
+
+  it('refuses a session the queue spawned', () => {
+    expect(() => authorizePlanQueueControl(run, 'discard-item', 'worker', lookup)).toThrow('Only the session that started');
+  });
+
+  it('opens nothing else to that session', () => {
+    expect(() => authorizePlanQueueControl(run, 'land-anyway', 'other', lookup)).toThrow('Only the session that started');
+    expect(() => authorizePlanQueueControl(run, 'cancel', 'other', lookup)).toThrow('Only the session that started');
+  });
+});
+
 describe('Set aside agent authority', () => {
   const lookup = {
     instanceExists: (id: string) => id === 'agent',
@@ -19,19 +41,26 @@ describe('Set aside agent authority', () => {
     setAsideFolder: (id: string) => (id === 'agent' ? '/repo' : undefined),
   };
 
-  it('may retry a merge or resume a job in its own folder, named in the audit trail', () => {
-    expect(authorizePlanQueueControl(run, 'retry-landing', 'agent', lookup)).toContain('the Set aside agent');
-    expect(authorizePlanQueueControl(run, 'resume-item', 'agent', lookup)).toContain('the Set aside agent');
+  it('may retry a merge, or resume, discard or restore a job, named in the audit trail', () => {
+    for (const action of ['retry-landing', 'resume-item', 'discard-item', 'restore-discarded'] as const) {
+      expect(authorizePlanQueueControl(run, action, 'agent', lookup)).toContain('the Set aside agent');
+    }
   });
 
-  it('may not land without checks, discard one job or take over a run, even a stranded one', () => {
-    for (const action of ['land-anyway', 'discard-item', 'adopt', 'cancel', 'set-routing', 'handover', 'request-handover'] as const) {
+  it('may not land without checks or take over a run, even a stranded one', () => {
+    for (const action of ['land-anyway', 'adopt', 'cancel', 'set-routing', 'handover', 'request-handover'] as const) {
       expect(() => authorizePlanQueueControl(run, action, 'agent', lookup)).toThrow('may only retry a merge or resume');
     }
   });
 
-  it('may not touch another folder', () => {
-    expect(() => authorizePlanQueueControl({ ...run, workspaceCwd: '/other' }, 'resume-item', 'agent', lookup)).toThrow('its own folder');
+  it('may not retry or resume in another folder, but may discard or restore there', () => {
+    const elsewhere = { ...run, workspaceCwd: '/other' };
+    for (const action of ['resume-item', 'retry-landing'] as const) {
+      expect(() => authorizePlanQueueControl(elsewhere, action, 'agent', lookup)).toThrow('its own folder');
+    }
+    for (const action of ['discard-item', 'restore-discarded'] as const) {
+      expect(authorizePlanQueueControl(elsewhere, action, 'agent', lookup)).toContain('the Set aside agent');
+    }
   });
 
   it('keeps those limits when it is the recorded parent', () => {

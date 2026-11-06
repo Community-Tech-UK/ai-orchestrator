@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isTransientQueueTurnFailure } from './plan-queue-error-class';
+import { isTransientQueueTurnFailure } from './plan-queue-failure-class';
 
 describe('isTransientQueueTurnFailure', () => {
   it.each([

@@ -40,6 +40,7 @@ interface RunRow {
   status: string;
   config_json: string;
   relaxation_json: string | null;
+  hold_reason: string | null;
   worker_provider: string | null;
   worker_model: string | null;
   started_at: number;
@@ -126,12 +127,13 @@ export class PlanQueueStore {
     this.db.prepare(`
       INSERT INTO plan_queue_runs (
         id, parent_instance_id, parent_history_thread_id, kind, workspace_cwd, status, config_json, relaxation_json,
-        worker_provider, worker_model, started_at, ended_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        worker_provider, worker_model, started_at, ended_at, updated_at, hold_reason
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         status          = excluded.status,
         config_json     = excluded.config_json,
         relaxation_json = excluded.relaxation_json,
+        hold_reason     = excluded.hold_reason,
         worker_provider = excluded.worker_provider,
         worker_model    = excluded.worker_model,
         ended_at        = excluded.ended_at,
@@ -150,6 +152,7 @@ export class PlanQueueStore {
       run.startedAt,
       run.endedAt,
       this.now(),
+      run.holdReason ?? null,
     );
   }
 
@@ -345,7 +348,7 @@ export class PlanQueueStore {
   findLatestParkedItem(documentPath: string, parentInstanceId: string): PlanQueueItem | null {
     const row = this.db.prepare(`SELECT item.* FROM plan_queue_items item
       JOIN plan_queue_runs run ON run.id = item.run_id
-      WHERE item.document_path = ? AND item.state = 'parked' AND item.branch_name IS NOT NULL
+      WHERE item.document_path = ? AND item.state = 'parked' AND item.branch_name IS NOT NULL AND item.discarded_at IS NULL
         AND run.parent_instance_id = ? ORDER BY item.created_at DESC, item.id DESC LIMIT 1`)
       .get<ItemRow>(documentPath, parentInstanceId);
     return row ? rowToItem(row) : null;
@@ -478,6 +481,7 @@ function rowToRun(row: RunRow): PlanQueueRun {
   const { routing, ...stored } = JSON.parse(row.config_json) as Partial<Omit<PlanQueueRunConfig, 'routing'>> & { routing?: StoredPlanQueueRouting };
   return {
     ...(row.tokens || row.cost_usd || row.exact_cost_usd ? { spend: { tokens: row.tokens, costUsd: row.cost_usd, exactUsd: row.exact_cost_usd, ...(row.unpriced_tokens ? { unpricedTokens: row.unpriced_tokens } : {}) } } : {}),
+    ...(row.hold_reason ? { holdReason: row.hold_reason } : {}),
     id: row.id,
     parentInstanceId: row.parent_instance_id,
     parentHistoryThreadId: row.parent_history_thread_id ?? null,

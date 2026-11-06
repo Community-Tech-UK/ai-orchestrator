@@ -1,4 +1,4 @@
-import { isTransientQueueTurnFailure } from './plan-queue-error-class';
+import { isTransientQueueTurnFailure } from './plan-queue-failure-class';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import type { PlanQueueItem } from './plan-queue.types';
 
