@@ -1,0 +1,37 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js
+
+  … 57 test file(s) done (full log: _scratch/test-run.round3-resumed-full-suite.log)
+  … 141 test file(s) done (full log: _scratch/test-run.round3-resumed-full-suite.log)
+  … 251 test file(s) done (full log: _scratch/test-run.round3-resumed-full-suite.log)
+  … 399 test file(s) done (full log: _scratch/test-run.round3-resumed-full-suite.log)
+  … 502 test file(s) done (full log: _scratch/test-run.round3-resumed-full-suite.log)
+  … 612 test file(s) done (full log: _scratch/test-run.round3-resumed-full-suite.log)
+  … 766 test file(s) done (full log: _scratch/test-run.round3-resumed-full-suite.log)
+  … 908 test file(s) done (full log: _scratch/test-run.round3-resumed-full-suite.log)
+  … 1067 test file(s) done (full log: _scratch/test-run.round3-resumed-full-suite.log)
+  … 1308 test file(s) done (full log: _scratch/test-run.round3-resumed-full-suite.log)
+  … 1511 test file(s) done (full log: _scratch/test-run.round3-resumed-full-suite.log)
+  … 1727 test file(s) done (full log: _scratch/test-run.round3-resumed-full-suite.log)
+  … 1899 test file(s) done (full log: _scratch/test-run.round3-resumed-full-suite.log)
+  … 2108 test file(s) done (full log: _scratch/test-run.round3-resumed-full-suite.log)
+  … 2277 test file(s) done (full log: _scratch/test-run.round3-resumed-full-suite.log)
+  … 2387 test file(s) done (full log: _scratch/test-run.round3-resumed-full-suite.log)
+  … 2495 test file(s) done (full log: _scratch/test-run.round3-resumed-full-suite.log)
+  … 2642 test file(s) done (full log: _scratch/test-run.round3-resumed-full-suite.log)
+✗ 1 of 35384 tests failed in 2243.0s:
+
+  ✗ src/worker-agent/__tests__/capability-reporter.spec.ts › capability-reporter returns valid capabilities with correct platform
+    Error: test or hook timed out after ~5009ms (vitest drops its timeout message from the JSON report; raise the timeout argument on the test below or fix what is hanging)
+        at task (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)
+        at Object.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)
+        at Object.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)
+        at chain (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/src/worker-agent/__tests__/capability-reporter.spec.ts:21:3
+        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419
+        …(truncated — see log)
+
+full log: _scratch/test-run.round3-resumed-full-suite.log
+
+✗ FAILED — 1 of 35384 tests failed (exit 1).

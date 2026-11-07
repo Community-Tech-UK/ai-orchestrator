@@ -1,0 +1,54 @@
+{
+  "at": "2026-10-27T16:13:06.977488+00:00",
+  "outcome": "FAIL",
+  "exitCode": 1,
+  "total": 35384,
+  "passed": 35374,
+  "failed": 1,
+  "pending": 9,
+  "files": 2792,
+  "commandReceipt": {
+    "startedAt": "2026-10-27T15:33:45.100Z",
+    "endedAt": "2026-10-27T16:11:09.460Z",
+    "command": [
+      "npm",
+      "run",
+      "test:quiet"
+    ],
+    "exitCode": 1,
+    "signal": null,
+    "log": "resumed-full-suite.log.txt",
+    "maxTestForks": 2
+  },
+  "failures": [
+    {
+      "file": "src/worker-agent/__tests__/capability-reporter.spec.ts",
+      "test": "capability-reporter returns valid capabilities with correct platform"
+    }
+  ],
+  "result": "test-results.round3-resumed-full-suite.json.redacted.gz",
+  "fullLog": "test-run.round3-resumed-full-suite.log.redacted.gz",
+  "priorRoundThreeAttempt": "interrupted; no exit receipt or JSON; outcome unknown",
+  "sourceComparedWith": "../round2/source-check-seal.json",
+  "allImplementationAndTestSourceHashesMatch": true,
+  "windowsAcceptance": "OPEN for all five repaired-bundle checks",
+  "dingley": "NOT RUN; explicit script-rerun authority absent",
+  "independentVerdict": "not claimed; queue coordinator owns the next review",
+  "additionalCheckReceipts": [
+    {
+      "startedAt": "2026-10-27T16:11:45.850Z",
+      "endedAt": "2026-10-27T16:11:55.570Z",
+      "command": [
+        "npm",
+        "run",
+        "test:quiet",
+        "--",
+        "src/worker-agent/__tests__/capability-reporter.spec.ts"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "log": "resumed-capability-isolation.log.txt",
+      "maxTestForks": 2
+    }
+  ]
+}

@@ -1,0 +1,220 @@
+[
+  {
+    "at": "2026-10-27T13:16:32.793Z",
+    "label": "focus",
+    "name": "browser.evaluate",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588783",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588783:target",
+      "expression": "({focus:document.activeElement.id,hidden:document.hidden,width:innerWidth,height:innerHeight,url:location.href})",
+      "actionHint": "Read harmless fixture focus and viewport"
+    },
+    "result": {
+      "decision": "allowed",
+      "outcome": "succeeded",
+      "data": {
+        "type": "object",
+        "json": "{\"focus\":\"\",\"height\":1270,\"hidden\":false,\"url\":\"chrome-error://chromewebdata/\",\"width\":2558}"
+      },
+      "auditId": "853c1883-6fc1-4219-8643-713e60826e4c"
+    }
+  },
+  {
+    "at": "2026-10-27T13:16:32.887Z",
+    "label": "tab",
+    "name": "browser.press_key",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588783",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588783:target",
+      "key": "Tab"
+    },
+    "result": {
+      "decision": "allowed",
+      "outcome": "succeeded",
+      "data": {
+        "applied": true,
+        "key": "Tab",
+        "modifiers": [],
+        "focus": {
+          "tagName": "BODY",
+          "text": "This site can’t be reached\n\nThe connection was reset.\n\nTry:\n\nChecking the connection\nChecking the proxy and the firewall\nRunning Windows Network Diagnostics\nERR_CONNECTION_RESET\nReload\nDetails"
+        },
+        "url": "http://192.168.0.96:18752/round-two",
+        "title": "192.168.0.96"
+      },
+      "auditId": "9683b6da-082a-4d53-ac7f-adfd310b611c"
+    }
+  },
+  {
+    "at": "2026-10-27T13:16:32.922Z",
+    "label": "tablet",
+    "name": "browser.set_viewport",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588783",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588783:target",
+      "width": 768,
+      "height": 1024
+    },
+    "result": {
+      "decision": "allowed",
+      "outcome": "succeeded",
+      "data": {
+        "mode": "tab_emulation",
+        "scope": "tab",
+        "requested": {
+          "width": 768,
+          "height": 1024
+        },
+        "actual": {
+          "innerWidth": 0,
+          "innerHeight": 0
+        },
+        "emulation": {
+          "width": 0,
+          "height": 0,
+          "deviceScaleFactor": 1
+        },
+        "previous": {
+          "emulationActive": false
+        }
+      },
+      "auditId": "2fe33bab-cc8e-4159-9be0-42774b3f719f"
+    }
+  },
+  {
+    "at": "2026-10-27T13:16:33.004Z",
+    "label": "tablet-after",
+    "name": "browser.evaluate",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588783",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588783:target",
+      "expression": "({focus:document.activeElement.id,width:innerWidth,height:innerHeight,tablet:matchMedia('(max-width:800px)').matches})",
+      "actionHint": "Read harmless fixture layout after tablet override"
+    },
+    "result": {
+      "decision": "allowed",
+      "outcome": "succeeded",
+      "data": {
+        "type": "object",
+        "json": "{\"focus\":\"\",\"height\":1214,\"tablet\":false,\"width\":2558}"
+      },
+      "auditId": "b7018c9b-6864-404b-9e68-293e19237b85"
+    }
+  },
+  {
+    "at": "2026-10-27T13:16:33.030Z",
+    "label": "tablet-reset",
+    "name": "browser.set_viewport",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588783",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588783:target",
+      "reset": true
+    },
+    "result": {
+      "decision": "allowed",
+      "outcome": "succeeded",
+      "data": {
+        "mode": "reset",
+        "scope": "tab",
+        "actual": {
+          "innerWidth": 0,
+          "innerHeight": 0
+        },
+        "emulation": {
+          "width": 0,
+          "height": 0,
+          "deviceScaleFactor": 1
+        },
+        "previous": {
+          "emulationActive": false
+        }
+      },
+      "auditId": "1e39d457-a036-4e1b-ae64-56653dab26c0"
+    }
+  },
+  {
+    "at": "2026-10-27T13:16:33.038Z",
+    "label": "window",
+    "name": "browser.set_viewport",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588783",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588783:target",
+      "scope": "window"
+    },
+    "result": {
+      "decision": "allowed",
+      "outcome": "succeeded",
+      "data": {
+        "mode": "read",
+        "scope": "window",
+        "actual": {
+          "innerWidth": 0,
+          "innerHeight": 0
+        },
+        "window": {
+          "windowId": 771587906,
+          "otherTabIds": [
+            771588487,
+            771588443,
+            771588447,
+            771588450,
+            771588453,
+            771588456,
+            771588459,
+            771588464,
+            771588467,
+            771588470,
+            771588477,
+            771588484,
+            771588488,
+            771588491,
+            771588494,
+            771588497,
+            771588500,
+            771588503,
+            771588506,
+            771588509,
+            771588532,
+            771588539,
+            771588542,
+            771588551,
+            771588558,
+            771588564,
+            771588567,
+            771588575,
+            771588578,
+            771588581,
+            771588584,
+            771588595,
+            771588604,
+            771588627,
+            771588616,
+            771588622,
+            771588630,
+            771588633,
+            771588636,
+            771588639,
+            771588674,
+            771588677,
+            771588680,
+            771588683,
+            771588686,
+            771588692,
+            771588703,
+            771588727,
+            771588736,
+            771588739,
+            771588746
+          ],
+          "bounds": {
+            "left": 0,
+            "top": 0,
+            "width": 0,
+            "height": 0
+          }
+        }
+      },
+      "auditId": "c8681182-f1ce-4339-a1fe-bd7015c59198"
+    }
+  }
+]

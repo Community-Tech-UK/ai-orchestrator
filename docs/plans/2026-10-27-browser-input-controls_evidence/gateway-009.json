@@ -1,0 +1,126 @@
+[
+  {
+    "at": "2026-10-27T12:54:02.830Z",
+    "label": "tablet-second-reproduction",
+    "name": "browser.set_viewport",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "width": 768,
+      "height": 1024
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"tab_emulation\",\"scope\":\"tab\",\"requested\":{\"width\":768,\"height\":1024},\"actual\":{\"innerWidth\":2558,\"innerHeight\":1270},\"emulation\":{\"width\":0,\"height\":0,\"deviceScaleFactor\":1},\"previous\":{\"emulationActive\":false}},\"auditId\":\"75a45a42-4f76-4d10-985d-b146576a7dd6\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:54:02.877Z",
+    "label": "tablet-snapshot-without-new-debugger",
+    "name": "browser.snapshot",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"title\":\"Harmless input controls fixture\",\"url\":\"http://192.168.0.96:18752/phase-five\",\"text\":\"Harmless input controls fixture\\n\\nFixture session: [REDACTED]\\n\\nActivations: 1\\n\\nHarmless link\\nFixture navigation\\nFirst column\\tMiddle column\\tLast column\\nHarmless value one\\tHarmless value two\\tHarmless value three\\n\\nContent 2558 x 1270\",\"renderer\":\"unknown\"},\"auditId\":\"93424bc0-828c-40ed-9a2f-7ef2547ea109\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:54:02.914Z",
+    "label": "tablet-reset-after-reproduction",
+    "name": "browser.set_viewport",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "reset": true
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"reset\",\"scope\":\"tab\",\"actual\":{\"innerWidth\":2558,\"innerHeight\":1270},\"emulation\":{\"width\":0,\"height\":0,\"deviceScaleFactor\":1},\"previous\":{\"emulationActive\":false}},\"auditId\":\"afd8890b-d232-489b-bcbd-7eb0f415280d\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:54:02.932Z",
+    "label": "check5-final-zoom-reset",
+    "name": "browser.set_zoom",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "reset": true
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"reset\",\"zoomFactor\":1,\"zoomPercent\":100,\"previousZoomFactor\":1,\"zoomScope\":\"per-origin\",\"previousZoomScope\":\"per-origin\",\"viewport\":{\"innerWidth\":2558,\"innerHeight\":1214},\"restorationFailed\":\"browser_zoom_baseline_lost\"},\"auditId\":\"2fad3ad2-a482-4fa5-94e3-f84b8fca2590\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:54:02.966Z",
+    "label": "check5-final-viewport-reset",
+    "name": "browser.set_viewport",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "reset": true
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"reset\",\"scope\":\"tab\",\"actual\":{\"innerWidth\":2558,\"innerHeight\":1214},\"emulation\":{\"width\":0,\"height\":0,\"deviceScaleFactor\":1},\"previous\":{\"emulationActive\":false}},\"auditId\":\"af4d65b1-b854-405e-91ac-42a1d85b50bb\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:54:02.977Z",
+    "label": "check5-final-zoom-read",
+    "name": "browser.set_zoom",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"read\",\"zoomFactor\":1,\"zoomPercent\":100,\"previousZoomFactor\":1,\"zoomScope\":\"per-origin\",\"previousZoomScope\":\"per-origin\",\"viewport\":{\"innerWidth\":2558,\"innerHeight\":1214}},\"auditId\":\"9d0804f3-5e65-4211-85a7-961940697e79\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:54:03.003Z",
+    "label": "check5-final-viewport-read",
+    "name": "browser.set_viewport",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"read\",\"scope\":\"tab\",\"actual\":{\"innerWidth\":2558,\"innerHeight\":1214},\"emulation\":{\"width\":0,\"height\":0,\"deviceScaleFactor\":1},\"previous\":{\"emulationActive\":false}},\"auditId\":\"8899e5cc-fba3-4012-8bca-bf886b4786da\"}"
+        }
+      ]
+    }
+  }
+]

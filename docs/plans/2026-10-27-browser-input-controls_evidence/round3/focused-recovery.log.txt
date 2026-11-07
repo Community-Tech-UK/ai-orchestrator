@@ -1,0 +1,6 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/browser-gateway/browser-extension-assets.spec.ts src/main/browser-gateway/browser-input-control-operations.spec.ts src/main/browser-gateway/browser-credential-dispatch-boundary.spec.ts src/main/browser-gateway/browser-secret-observation-recovery.spec.ts src/main/browser-gateway/browser-secret-operator-recovery.spec.ts src/main/browser-gateway/browser-secret-observation-protection-extension.spec.ts src/main/orchestration/default-loop-native-finality.spec.ts
+
+✓ 7 files · 230 tests passed in 7.5s
+  full log: _scratch/test-run.round3-focused-recovery.log

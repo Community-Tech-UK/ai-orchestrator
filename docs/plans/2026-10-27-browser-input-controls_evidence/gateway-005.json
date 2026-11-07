@@ -1,0 +1,108 @@
+[
+  {
+    "at": "2026-10-27T12:47:55.155Z",
+    "label": "check3-viewport-baseline",
+    "name": "browser.set_viewport",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"read\",\"scope\":\"tab\",\"actual\":{\"innerWidth\":2558,\"innerHeight\":1270},\"emulation\":{\"width\":0,\"height\":0,\"deviceScaleFactor\":1},\"previous\":{\"emulationActive\":false}},\"auditId\":\"92de2a79-d256-46a5-b4a2-7c03dd6e19bd\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:47:55.171Z",
+    "label": "check3-window-baseline",
+    "name": "browser.set_viewport",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "scope": "window"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"read\",\"scope\":\"window\",\"actual\":{\"innerWidth\":2558,\"innerHeight\":1270},\"window\":{\"windowId\":771587906,\"otherTabIds\":[771588487,771588443,771588447,771588450,771588453,771588456,771588459,771588464,771588467,771588470,771588477,771588484,771588488,771588491,771588494,771588497,771588500,771588503,771588506,771588509,771588532,771588539,771588542,771588551,771588558,771588564,771588567,771588575,771588578,771588581,771588584,771588595,771588604,771588627,771588616,771588622,771588630,771588633,771588636,771588639,771588674,771588677,771588680,771588683,771588686,771588692,771588703,771588727,771588736,771588739,771588746],\"bounds\":{\"left\":0,\"top\":0,\"width\":0,\"height\":0}}},\"auditId\":\"20a61245-8465-492e-aa30-d31e020f78d2\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:47:55.189Z",
+    "label": "check3-zoom-baseline",
+    "name": "browser.set_zoom",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"read\",\"zoomFactor\":1,\"zoomPercent\":100,\"previousZoomFactor\":1,\"zoomScope\":\"per-origin\",\"previousZoomScope\":\"per-origin\",\"viewport\":{\"innerWidth\":2558,\"innerHeight\":1270}},\"auditId\":\"81b5824a-69a7-401e-92ba-bce838e23a8c\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:47:55.222Z",
+    "label": "zoom-200",
+    "name": "browser.set_zoom",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "zoomFactor": 2
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"set\",\"zoomFactor\":2,\"zoomPercent\":200,\"previousZoomFactor\":1,\"zoomScope\":\"per-tab\",\"previousZoomScope\":\"per-origin\",\"viewport\":{\"innerWidth\":1279,\"innerHeight\":635}},\"auditId\":\"2941638a-a829-481e-8d7a-1843cf265194\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:47:55.331Z",
+    "label": "zoom-layout",
+    "name": "browser.evaluate",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "expression": "({hidden:document.hidden,visibility:document.visibilityState,viewport:{width:innerWidth,height:innerHeight},devicePixelRatio,cssZoom:getComputedStyle(document.documentElement).zoom,transform:getComputedStyle(document.documentElement).transform,controls:[...document.querySelectorAll('a,input,button')].filter(e=>getComputedStyle(e).display!=='none').map(e=>({id:e.id,fontSize:getComputedStyle(e).fontSize,width:e.getBoundingClientRect().width,height:e.getBoundingClientRect().height,visible:e.getBoundingClientRect().bottom<=innerHeight}))})",
+      "actionHint": "Read harmless fixture readability and dimensions at real Chrome 200 percent zoom"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"type\":\"object\",\"json\":\"{\\\"controls\\\":[{\\\"fontSize\\\":\\\"18px\\\",\\\"height\\\":48,\\\"id\\\":\\\"harmless-link\\\",\\\"visible\\\":true,\\\"width\\\":129.53125},{\\\"fontSize\\\":\\\"18px\\\",\\\"height\\\":52,\\\"id\\\":\\\"first\\\",\\\"visible\\\":true,\\\"width\\\":236},{\\\"fontSize\\\":\\\"18px\\\",\\\"height\\\":52,\\\"id\\\":\\\"second\\\",\\\"visible\\\":true,\\\"width\\\":236}],\\\"cssZoom\\\":\\\"1\\\",\\\"devicePixelRatio\\\":2,\\\"hidden\\\":false,\\\"transform\\\":\\\"none\\\",\\\"viewport\\\":{\\\"height\\\":607,\\\"width\\\":1279},\\\"visibility\\\":\\\"visible\\\"}\"},\"auditId\":\"a7763432-30de-461d-b2fa-78f5b66eab64\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:47:55.342Z",
+    "label": "zoom-200-read",
+    "name": "browser.set_zoom",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"read\",\"zoomFactor\":2,\"zoomPercent\":200,\"previousZoomFactor\":2,\"zoomScope\":\"per-tab\",\"previousZoomScope\":\"per-tab\",\"viewport\":{\"innerWidth\":1279,\"innerHeight\":607}},\"auditId\":\"2bdd294c-4fc0-4d1d-b2bd-e64e6d735be2\"}"
+        }
+      ]
+    }
+  }
+]

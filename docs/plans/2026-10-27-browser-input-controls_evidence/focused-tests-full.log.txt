@@ -1,0 +1,14 @@
+
+ RUN  v4.1.12 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c
+
+ ✓ |main| src/main/browser-gateway/browser-action-classifier.spec.ts (40 tests) 8ms
+ ✓ |main| src/main/browser-gateway/browser-credential-dispatch-boundary.spec.ts (6 tests) 14ms
+ ✓ |main| src/main/browser-gateway/browser-input-control-operations.spec.ts (22 tests) 2026ms
+       ✓ does not upgrade an effect-verified failure to success on a same-key retry  2002ms
+
+ Test Files  3 passed (3)
+      Tests  68 passed (68)
+   Start at  12:44:29
+   Duration  3.58s (transform 1.78s, setup 199ms, import 2.49s, tests 2.05s, environment 688ms)
+
+JSON report written to /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/_scratch/test-results.pid-20662.json

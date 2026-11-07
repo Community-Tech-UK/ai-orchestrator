@@ -1,0 +1,33 @@
+{
+  "at": "2026-10-27",
+  "source": "production database; read-only query of these three fixture grant IDs only",
+  "grants": [
+    {
+      "id": "6728bf85-f83b-4028-9f66-c8f1fa14ebe3",
+      "mode": "per_action",
+      "decision": "allow",
+      "decided_by": "user",
+      "reason": "auto_approved_by_yolo_mode",
+      "created_at": 1793105208408,
+      "consumed_at": 1793105210570
+    },
+    {
+      "id": "a925e86e-dd32-4f9a-ba0a-80073a3d4963",
+      "mode": "per_action",
+      "decision": "allow",
+      "decided_by": "user",
+      "reason": "auto_approved_by_yolo_mode",
+      "created_at": 1793105232042,
+      "consumed_at": 1793105234130
+    },
+    {
+      "id": "d0481754-81a5-4679-909f-e7e05e123d77",
+      "mode": "per_action",
+      "decision": "allow",
+      "decided_by": "user",
+      "reason": "auto_approved_by_yolo_mode",
+      "created_at": 1793105232018,
+      "consumed_at": 1793105232019
+    }
+  ]
+}

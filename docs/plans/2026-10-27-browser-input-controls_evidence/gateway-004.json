@@ -1,0 +1,202 @@
+[
+  {
+    "at": "2026-10-27T12:47:45.406Z",
+    "label": "check2-viewport-baseline",
+    "name": "browser.set_viewport",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"read\",\"scope\":\"tab\",\"actual\":{\"innerWidth\":2558,\"innerHeight\":1270},\"emulation\":{\"width\":0,\"height\":0,\"deviceScaleFactor\":1},\"previous\":{\"emulationActive\":false}},\"auditId\":\"be19e9bc-0147-43e3-ba49-56afbdea949b\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:47:45.419Z",
+    "label": "check2-window-baseline",
+    "name": "browser.set_viewport",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "scope": "window"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"read\",\"scope\":\"window\",\"actual\":{\"innerWidth\":2558,\"innerHeight\":1270},\"window\":{\"windowId\":771587906,\"otherTabIds\":[771588487,771588443,771588447,771588450,771588453,771588456,771588459,771588464,771588467,771588470,771588477,771588484,771588488,771588491,771588494,771588497,771588500,771588503,771588506,771588509,771588532,771588539,771588542,771588551,771588558,771588564,771588567,771588575,771588578,771588581,771588584,771588595,771588604,771588627,771588616,771588622,771588630,771588633,771588636,771588639,771588674,771588677,771588680,771588683,771588686,771588692,771588703,771588727,771588736,771588739,771588746],\"bounds\":{\"left\":0,\"top\":0,\"width\":0,\"height\":0}}},\"auditId\":\"a24b6c8a-2b2f-4b3f-bb68-316f471d8d0e\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:47:45.427Z",
+    "label": "check2-zoom-baseline",
+    "name": "browser.set_zoom",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"read\",\"zoomFactor\":1,\"zoomPercent\":100,\"previousZoomFactor\":1,\"zoomScope\":\"per-origin\",\"previousZoomScope\":\"per-origin\",\"viewport\":{\"innerWidth\":2558,\"innerHeight\":1270}},\"auditId\":\"452021d3-d813-46e3-8718-a0d4d7e94633\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:47:45.450Z",
+    "label": "tablet-set",
+    "name": "browser.set_viewport",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "width": 768,
+      "height": 1024
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"tab_emulation\",\"scope\":\"tab\",\"requested\":{\"width\":768,\"height\":1024},\"actual\":{\"innerWidth\":768,\"innerHeight\":1024},\"emulation\":{\"width\":0,\"height\":0,\"deviceScaleFactor\":1},\"previous\":{\"emulationActive\":false}},\"auditId\":\"48db288c-9e60-4f48-b988-10e725c5585e\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:47:45.545Z",
+    "label": "tablet-layout",
+    "name": "browser.evaluate",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "expression": "({hidden:document.hidden,visibility:document.visibilityState,viewport:{width:innerWidth,height:innerHeight},tablet:matchMedia('(max-width:800px)').matches,menuDisplay:getComputedStyle(document.querySelector('#menu')).display,navDisplay:getComputedStyle(document.querySelector('nav')).display,table:{clientWidth:document.querySelector('#table-wrap').clientWidth,scrollWidth:document.querySelector('#table-wrap').scrollWidth},events:window.fixtureEvents?.map(e=>({codeEmpty:e.code==='',keyCode:e.keyCode}))})",
+      "actionHint": "Read tablet fixture layout, menu and wide table overflow"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"type\":\"object\",\"json\":\"{\\\"events\\\":[{\\\"codeEmpty\\\":true,\\\"keyCode\\\":9},{\\\"codeEmpty\\\":true,\\\"keyCode\\\":9}],\\\"hidden\\\":false,\\\"menuDisplay\\\":\\\"none\\\",\\\"navDisplay\\\":\\\"block\\\",\\\"table\\\":{\\\"clientWidth\\\":2506,\\\"scrollWidth\\\":2506},\\\"tablet\\\":false,\\\"viewport\\\":{\\\"height\\\":1214,\\\"width\\\":2558},\\\"visibility\\\":\\\"visible\\\"}\"},\"auditId\":\"2d914166-1f2e-4181-92e7-0145167e6914\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:47:45.637Z",
+    "label": "tablet-menu-open",
+    "name": "browser.click",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "selector": "#menu",
+      "actionHint": "Open the harmless fixture menu"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":null,\"auditId\":\"9176f315-6c02-4d22-844a-92fc5800f3fe\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:47:45.656Z",
+    "label": "tablet-menu-query",
+    "name": "browser.query_elements",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "query": "Fixture menu",
+      "limit": 5
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":[{\"selector\":\"#menu\",\"tagName\":\"BUTTON\",\"role\":\"button\",\"text\":\"Fixture menu\",\"inputType\":\"submit\",\"value\":\"\",\"expanded\":true}],\"auditId\":\"75a81a45-ed75-40d7-9f06-2468fc3f487c\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:47:45.749Z",
+    "label": "tablet-scroll",
+    "name": "browser.evaluate",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "expression": "(()=>{let t=document.querySelector('#table-wrap');t.scrollLeft=300;return {menuExpanded:document.querySelector('#menu').getAttribute('aria-expanded'),navDisplay:getComputedStyle(document.querySelector('nav')).display,scrollLeft:t.scrollLeft,clientWidth:t.clientWidth,scrollWidth:t.scrollWidth,viewport:{width:innerWidth,height:innerHeight}}})()",
+      "actionHint": "Scroll the harmless wide fixture table and read the tablet layout"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"type\":\"object\",\"json\":\"{\\\"clientWidth\\\":2506,\\\"menuExpanded\\\":\\\"true\\\",\\\"navDisplay\\\":\\\"block\\\",\\\"scrollLeft\\\":0,\\\"scrollWidth\\\":2506,\\\"viewport\\\":{\\\"height\\\":1214,\\\"width\\\":2558}}\"},\"auditId\":\"37871a20-98e4-41be-915f-b44eafd93764\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:47:45.779Z",
+    "label": "tablet-reset",
+    "name": "browser.set_viewport",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "reset": true
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"reset\",\"scope\":\"tab\",\"actual\":{\"innerWidth\":2558,\"innerHeight\":1214},\"emulation\":{\"width\":0,\"height\":0,\"deviceScaleFactor\":1},\"previous\":{\"emulationActive\":false}},\"auditId\":\"44d8226c-3dc6-4d54-878e-673c92ec5d76\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:47:45.807Z",
+    "label": "tablet-restored-read",
+    "name": "browser.set_viewport",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"read\",\"scope\":\"tab\",\"actual\":{\"innerWidth\":2558,\"innerHeight\":1214},\"emulation\":{\"width\":0,\"height\":0,\"deviceScaleFactor\":1},\"previous\":{\"emulationActive\":false}},\"auditId\":\"7c6bbadf-af6e-4a4e-9db0-900ae308716a\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:47:45.829Z",
+    "label": "check2-zoom-reset",
+    "name": "browser.set_zoom",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "reset": true
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"reset\",\"zoomFactor\":1,\"zoomPercent\":100,\"previousZoomFactor\":1,\"zoomScope\":\"per-origin\",\"previousZoomScope\":\"per-origin\",\"viewport\":{\"innerWidth\":2558,\"innerHeight\":1214},\"restorationFailed\":\"browser_zoom_baseline_lost\"},\"auditId\":\"e1aa49cd-28bf-4252-a543-cb384e7721ee\"}"
+        }
+      ]
+    }
+  }
+]

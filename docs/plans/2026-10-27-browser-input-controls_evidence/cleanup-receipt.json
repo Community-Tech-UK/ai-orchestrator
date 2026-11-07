@@ -1,0 +1,123 @@
+{
+  "at": "2026-10-27T13:03:41.427518+00:00",
+  "ownedPidsAndGroupsStopped": [
+    {
+      "name": "renderer",
+      "pid": 28179,
+      "alive": false,
+      "groupAlive": false
+    },
+    {
+      "name": "electron",
+      "pid": 44571,
+      "alive": false,
+      "groupAlive": false
+    },
+    {
+      "name": "renderer",
+      "pid": 20183,
+      "alive": false,
+      "groupAlive": false
+    },
+    {
+      "name": "electron-retry",
+      "pid": 22993,
+      "alive": false,
+      "groupAlive": false
+    },
+    {
+      "name": "renderer",
+      "pid": 42041,
+      "alive": false,
+      "groupAlive": false
+    },
+    {
+      "name": "electron-retry",
+      "pid": 42257,
+      "alive": false,
+      "groupAlive": false
+    }
+  ],
+  "removed": [
+    {
+      "path": "/tmp/aio-lt-queue-07419a7c",
+      "existsAfter": false
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/dist",
+      "existsAfter": false
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/.angular",
+      "existsAfter": false
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/_scratch/lt-input-controls-20261027/runtime",
+      "existsAfter": false
+    }
+  ],
+  "preserved": [
+    {
+      "path": "node_modules",
+      "reason": "dependency installation predated this campaign"
+    },
+    {
+      "path": "node_modules/.vite",
+      "reason": "pre-existing cache predates this campaign"
+    }
+  ],
+  "ports": [
+    {
+      "port": 9752,
+      "listening": false
+    },
+    {
+      "port": 4752,
+      "listening": false
+    },
+    {
+      "port": 18752,
+      "listening": false
+    }
+  ],
+  "gitStatus": [
+    " M docs/plans/livetest-remediation-register.md",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/REPORT.md",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/activation-authority.json",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/build-main.log.txt",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/command-receipts.jsonl",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/dev-app-cdp.json",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/dev-app-cdp2.json",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/dev-app-cdp3.json",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/electron-retry.log.txt",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/electron-round2.log.txt",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/electron.log.txt",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/fixture-close.json",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/focused-tests-full.log.txt",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/focused-tests-results.json",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/focused-tests.log.txt",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/gateway-001.json",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/gateway-002.json",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/gateway-003.json",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/gateway-004.json",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/gateway-005.json",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/gateway-006.json",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/gateway-007.json",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/gateway-008.json",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/gateway-009.json",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/gateway-screenshot.json",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/process-cleanup.json",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/renderer-round2.log.txt",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/renderer.log.txt",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/runtime-receipts.jsonl",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/source-check-seal.json",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/typecheck-spec.log.txt",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/typecheck.log.txt",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/windows-source-comparison.json",
+    "?? docs/plans/2026-10-27-browser-input-controls_evidence/zoom-200.jpg"
+  ],
+  "stagedPaths": [],
+  "branch": "queue/2026-10-14-browser-gateway-inp-419a7c",
+  "ownerStillActive": true,
+  "activePlanGitStatus": "?? docs/plans/2026-10-27-browser-input-controls-remediation_plan.md"
+}

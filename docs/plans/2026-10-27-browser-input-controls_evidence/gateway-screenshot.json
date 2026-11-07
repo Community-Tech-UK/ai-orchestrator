@@ -1,0 +1,27 @@
+[
+  {
+    "at": "2026-10-27T12:48:03.090Z",
+    "label": "zoom-screenshot",
+    "name": "browser.screenshot",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "maxWidth": 1600,
+      "maxHeight": 1000,
+      "fullPage": false
+    },
+    "result": {
+      "content": [
+        {
+          "type": "image",
+          "mimeType": "image/jpeg",
+          "data": "[binary screenshot retained by tool receipt]"
+        },
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":\"[image/jpeg returned as image content]\",\"auditId\":\"1286b567-c6a5-4a6d-a737-baf114e5b638\"}"
+        }
+      ]
+    }
+  }
+]

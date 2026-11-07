@@ -1,0 +1,6 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js scripts/__tests__/dependency-compatibility.spec.ts src/main/operator/git-batch-service.spec.ts
+
+✓ 2 files · 8 tests passed in 7.4s
+  full log: _scratch/test-run.round3-prior-failures.log

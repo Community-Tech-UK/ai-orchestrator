@@ -1,0 +1,16 @@
+{
+  "at": "2026-10-27T12:55:43.271Z",
+  "name": "browser.close_tab",
+  "arguments": {
+    "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+    "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target"
+  },
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"closed\":true,\"remainingTabCount\":40,\"profileId\":\"existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757\",\"targetId\":\"existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target\",\"inspectionState\":\"readable\"},\"auditId\":\"11b26c53-76ce-4b68-a2de-66d853a16dce\"}"
+      }
+    ]
+  }
+}

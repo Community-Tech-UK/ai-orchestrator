@@ -1,0 +1,68 @@
+{
+  "at": "2026-10-27T13:56:06.807Z",
+  "baseline": false,
+  "sourceHash": "06e966f585bad04e20ba515bc5259f93d2835946b6d52b996b029fe401e07a01",
+  "receipts": [
+    {
+      "app": {
+        "hidden": false,
+        "title": "Harness",
+        "url": "http://localhost:4752/setup",
+        "root": true,
+        "textLength": 1038,
+        "health": true
+      }
+    },
+    {
+      "key": "Tab",
+      "modifiers": [],
+      "focus": "lt-first"
+    },
+    {
+      "key": "Tab",
+      "modifiers": [],
+      "focus": "lt-second"
+    },
+    {
+      "key": "Tab",
+      "modifiers": [
+        "Shift"
+      ],
+      "focus": "lt-first"
+    },
+    {
+      "firstPress": {
+        "applied": true,
+        "key": "Enter",
+        "modifiers": [],
+        "focus": {
+          "tagName": "BODY"
+        },
+        "url": "http://localhost:4752/#lt-activation",
+        "title": "Harness"
+      }
+    },
+    {
+      "sameKey": {
+        "applied": true,
+        "key": "Enter",
+        "modifiers": [],
+        "focus": {
+          "tagName": "BODY"
+        },
+        "url": "http://localhost:4752/#lt-activation",
+        "title": "Harness",
+        "deduplicated": true
+      }
+    },
+    {
+      "once": {
+        "hash": "#lt-activation"
+      }
+    },
+    {
+      "result": "FAIL",
+      "error": "Successful dedupe/Enter failed"
+    }
+  ]
+}

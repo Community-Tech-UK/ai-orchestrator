@@ -1,0 +1,339 @@
+{
+  "at": "2026-10-27T16:13:06.977488+00:00",
+  "integrityOnly": true,
+  "completionVerdict": null,
+  "head": "ad42495c613643f45d0932ded885085218cbc7a6",
+  "source": [
+    {
+      "landingPath": "resources/browser-extension/background.js",
+      "sha256": "06e966f585bad04e20ba515bc5259f93d2835946b6d52b996b029fe401e07a01"
+    },
+    {
+      "landingPath": "resources/browser-extension/manifest.json",
+      "sha256": "51f3c58469f7367000ff9cbb6ca341a9cfa8487f8f0c7ff9252dbc393b427fdb"
+    },
+    {
+      "landingPath": "src/main/browser-gateway/browser-extension-assets.spec.ts",
+      "sha256": "96108ad655adece8d45929bf68182b07f953e2cf6dfde99e2484cd9b18a26a47"
+    },
+    {
+      "landingPath": "docs/plans/livetest-remediation-register.md",
+      "sha256": "cd69e5488330c82876911eac7411362d3a7be73b449f285ab5457108549b35d7"
+    },
+    {
+      "landingPath": "src/main/browser-gateway/browser-secret-recovery.testutil.ts",
+      "sha256": "d91f9672be6076f695bfe9d75ae6e4fd444407ac0156b419e56417d370697a84"
+    }
+  ],
+  "rootOwned": [
+    {
+      "rootPath": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-14-browser-gateway-input-controls_livetest.md",
+      "landingPath": "docs/plans/2026-10-14-browser-gateway-input-controls_livetest.md",
+      "sha256": "1f53f5473c9ad8df50f9d90a7d1762a3440c31bb3f3fc272735e2c4ea1985026"
+    },
+    {
+      "rootPath": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-27-browser-input-controls-remediation_plan.md",
+      "landingPath": "docs/plans/2026-10-27-browser-input-controls-remediation_plan.md",
+      "sha256": "9540badbf88c8708f681a17636e4cab3564a6038f47892e94ea0501b4c52f837"
+    }
+  ],
+  "evidence": [
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/REPORT.md",
+      "sha256": "35d8976bba6d4c2e416c39d502e649f9bba328088e1aecca36634be813bcd400",
+      "bytes": 8090
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/browser-bridge-schema.log.txt",
+      "sha256": "963d011ecd2c5cb4263b77e9a4ecc38965dd6951a738b8e6f666e8d1e0a97346",
+      "bytes": 789
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/build-main.log.txt",
+      "sha256": "045ec631c3ee7f3ab0b773bb5f0fa89fca7fecae1938bd94ec4c64ba15af7f85",
+      "bytes": 284
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/build-renderer.log.txt",
+      "sha256": "2066147e48abcef9da929a08f7bdd8be376f1aa5e728c129dd270c019f64b220",
+      "bytes": 5447
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/capability-timeout-investigation.json",
+      "sha256": "bc1125665dd43199df684e603988ed9a6f67125f6324d5e18c025b8be5664fc0",
+      "bytes": 1899
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/closing-windows-roster.json",
+      "sha256": "f87118a6d572a0587df7c22fe2279ddc841b8dbaa4debd3fa9ee95cc53946509",
+      "bytes": 1814
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/command-receipts.jsonl",
+      "sha256": "ce8e155b412bf530a653bec347ee78a719c83ac177a1af384e2da4d4687efa11",
+      "bytes": 5520
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/dev-app-probe.json",
+      "sha256": "40c2cadf9f94ddb0b75b2defc128cfd9982f177097a54cbf25298560d8a623ce",
+      "bytes": 1650
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/dev-app-probe.log.txt",
+      "sha256": "aa314980a03ac8b4291cf7c2f7c4d990e5393cb0abdc8416f8eb1ca3bc1f9579",
+      "bytes": 115
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/dev-app.log.txt",
+      "sha256": "f91cf5dc57bf0c69ec18e06200e5fe02961a214357553b392c31cf882a8a18c4",
+      "bytes": 51679
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/fixture-reachability.log.txt",
+      "sha256": "bdb6ff6cf391c4b36c906a3b99e20dd54a026163d38ae2437225598960cfcdd1",
+      "bytes": 202
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/focused-recovery.log.txt",
+      "sha256": "9dee21f8212249ebacbad4a8e5557b333318a14249c618484250f52a1c2c12be",
+      "bytes": 631
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/focused.log.txt",
+      "sha256": "c64f6461f09401cd3db5cc71a54eb705256019ad3d2f43ca8c01b3b2e54f62b4",
+      "bytes": 523
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/full-suite-load.jsonl",
+      "sha256": "f3725a8e994ac85bc2d749ea23ec615115d73fbf730669b3a86de926d5bc85c2",
+      "bytes": 1271
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/full-suite.log.txt",
+      "sha256": "718639a34f61a96ebf8122e48beacc73985d0440ccff931d6dc6ca14bc905093",
+      "bytes": 63
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/integration-manifest.json",
+      "sha256": "3e68c658513393a98a26d54179f9b57800ca952d2f068cef66c3d333fc465c85",
+      "bytes": 2471
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/interrupted-full-suite-status.json",
+      "sha256": "0833b7483a41309b6ebbc8969cd7afaf74d48f77c296f94bd3828e50c919a98d",
+      "bytes": 455
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/lint.log.txt",
+      "sha256": "a9f86453985a02868554a836eef151dc9a361f1e39714fc833e0933028e09a98",
+      "bytes": 89
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/local-review.json",
+      "sha256": "609e7f6fe37f59149490e3c4aad37e5a89ee6463cee5a871dc5c580ad0253f12",
+      "bytes": 1126
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/log-relocation.json",
+      "sha256": "81c7cc0d8f94a56e59a8c20e697849435cca5186046a7effa53a46bd8178d350",
+      "bytes": 1515
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/native-abi.log.txt",
+      "sha256": "e8995f1f7e3db17e2dabe67ab6f149331b1ff1f63ad22e212e104d73004e20e2",
+      "bytes": 70
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/npm-ci.log.txt",
+      "sha256": "8810a770fa3d89f61704ef7b402b767d0283813a42758dac8337a79d553c0b18",
+      "bytes": 2550
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/prior-failure-full-run-progress.json",
+      "sha256": "20280c4cc13ed0da442e99836bb35c07e4703e58a8701d8c3249204988afb103",
+      "bytes": 1922
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/prior-failures.log.txt",
+      "sha256": "3c7810debe0d644ac6e9187bf65f2ae7d86d5f7e2577f9bc96804129a9583d75",
+      "bytes": 252
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/resume-windows-preflight.json",
+      "sha256": "bf5bb7d9c390aa24d35aaca95e39382ca69f9f6ab2cf71cf65eb7773c326ebfe",
+      "bytes": 5549
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/resumed-capability-isolation.log.txt",
+      "sha256": "694342484955f8a7e52a9d76d2766ab24ee64e44bdafa16babc15759ea856146",
+      "bytes": 226
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/resumed-full-suite-progress.jsonl",
+      "sha256": "2a534f2847de99139d512a6545b5f9f6b87c70e0d19f35d78dafaf14c10208c5",
+      "bytes": 3316
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/resumed-full-suite-result.json",
+      "sha256": "9a5f5151fc41ea9d59b5bd656eeadc94f033902330d8f9770764095f71bccc37",
+      "bytes": 1611
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/resumed-full-suite.log.txt",
+      "sha256": "3b8a7a134574762301119dbc77b10fcf086d7dd421a0c5974970e71a1f0d2aac",
+      "bytes": 3204
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/roster.log.txt",
+      "sha256": "802053c05816f0e2497dff23a3ce6c43d21132ca468ef49d0d9ae52cbc1b9ba5",
+      "bytes": 4702
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/runtime-start.json",
+      "sha256": "fa36b0939ac5ee00093aabf66d748fe1fe2591ac72fc6155b0f8c8204a9fae53",
+      "bytes": 192
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/runtime-stop.json",
+      "sha256": "7c688f5ede38767e0094970d025a9c99bd371a36d3e1948a3ac455bc465add6f",
+      "bytes": 105
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/runtime-verified-stopped.json",
+      "sha256": "7700903f6444a070ccfb80cb3e1850a31c15f51f436d7444ac7f13623c84b064",
+      "bytes": 505
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/test-results.json",
+      "sha256": "cc30a1a6bff289e70c5621fba14aaadea938a6fd0aae7a6cbaca21f53a774621",
+      "bytes": 3344
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/test-results.round3-focused-recovery.json.redacted.gz",
+      "sha256": "164092ba9abbc4a62de6cf96f4b826d9ff69f158cef62e912cfe88f527e78276",
+      "bytes": 11179
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/test-results.round3-focused.json.redacted.gz",
+      "sha256": "6062571fdf6810385a96402ab52966c24fe06462efd10b7ee74fb4322c025d92",
+      "bytes": 9547
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/test-results.round3-prior-failures.json.redacted.gz",
+      "sha256": "5ed0ebcc6a3a8d114a0f51ff2caaa456a10f3a55251185819715e38e00e47f5e",
+      "bytes": 914
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/test-results.round3-resumed-capability-isolation.json.redacted.gz",
+      "sha256": "2564e85e110f171dc81bef8c4703f6bf6392a5efadb8a8994c797f6e8252dbf8",
+      "bytes": 532
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/test-results.round3-resumed-full-suite.json.redacted.gz",
+      "sha256": "20a3966d88cd465089bd225c6fa3617fde7d44574207a24fa92b957b3e494845",
+      "bytes": 1510857
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/test-run.round3-focused-recovery.log.redacted.gz",
+      "sha256": "0645f62bf6b1e4881958e328c18226cfa7f52c26ddeb916062ce6380254bab4c",
+      "bytes": 829
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/test-run.round3-focused.log.redacted.gz",
+      "sha256": "1014bbfe1171ef0aef652c326154769b9ec1715020c26d32c3f2c34fc6a7f0ca",
+      "bytes": 629
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/test-run.round3-full-suite.log.redacted.gz",
+      "sha256": "d89708048b2084c29cebb22dc1b1f211ed7c3a45bb89b0cf0ec0483bed8a12a9",
+      "bytes": 15686
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/test-run.round3-prior-failures.log.redacted.gz",
+      "sha256": "01123032e3b31baef3ce826dfbc964bcb8393e83db74a50ae6ac3c21c990545e",
+      "bytes": 626
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/test-run.round3-resumed-capability-isolation.log.redacted.gz",
+      "sha256": "a3636b6016afee6232b4914619982affba761652d5f34b53170e3bb6bcdd9017",
+      "bytes": 678
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/test-run.round3-resumed-full-suite.log.redacted.gz",
+      "sha256": "d25c7bdc9b5ca9b6d82198fc9f2931729567a47082cf2cca0d4527dc6e4b81ea",
+      "bytes": 440774
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/ts-max-loc.log.txt",
+      "sha256": "ecc1964ba2c358ecb29c5f966937ce66ed33740100b7c1a6733c0ef08f110189",
+      "bytes": 10148
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/typecheck-spec.log.txt",
+      "sha256": "4e31c408e8be4057c1075f658596af0cb057c7a9329948cca2022b8326a00133",
+      "bytes": 129
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/typecheck.log.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/ui-hints.log.txt",
+      "sha256": "5e2ddb12cfeb4fb5abfa1700ff1f5e7fbc01c84f4ac7b28160c8b55fdf21ab90",
+      "bytes": 226
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/update-route-investigation.json",
+      "sha256": "55f9fc4bb497fb3d9d66e0fe6192e1bf87ac5c3dc091ad0476fe277b970e2927",
+      "bytes": 1654
+    },
+    {
+      "path": "docs/plans/2026-10-27-browser-input-controls_evidence/round3/windows-receipts.json",
+      "sha256": "aebe163d0874387bd2edf8b09fac1804e9e2141de1b7ca9f53e7090cff567a78",
+      "bytes": 5368
+    }
+  ],
+  "verificationInputs": [
+    {
+      "path": "package.json",
+      "sha256": "59b14f077bd607b076e156a9ac9d5f2645306d852039b8e0b6d4f314b7b5e04c"
+    },
+    {
+      "path": "package-lock.json",
+      "sha256": "a1b0b186b9371516670ba5d12bf387d951bef620ceebc97574473f818f85f891"
+    },
+    {
+      "path": "vitest.config.ts",
+      "sha256": "7f99cc0abe17c60d7df42f6ffc7b206acfe5eef461a0aef1e369463de55b3152"
+    },
+    {
+      "path": "vitest.pool.ts",
+      "sha256": "f1b37948ff8b612a4c90be5d42f8199ff95ae4802d7904127a09bbd9b835c2c7"
+    },
+    {
+      "path": "vitest.heap.ts",
+      "sha256": "b21692a834a744b65a23044159560e74ccb3123d14fc4e523106ed785ec47655"
+    },
+    {
+      "path": "scripts/run-tests-quiet.js",
+      "sha256": "c59485cd0d6348f799ec273deafc64af58ae5f2f95063598554163ec4e241f70"
+    },
+    {
+      "path": "tsconfig.json",
+      "sha256": "05355853797158d1a8c97714dfded1ddd503c36f4549ddbae0287f406ac04812"
+    },
+    {
+      "path": "tsconfig.spec.json",
+      "sha256": "eae831e25a546eb2a69d759e14f4597ffd4fdf6b35fa24abc7fe93abf8df001f"
+    },
+    {
+      "path": "tsconfig.electron.json",
+      "sha256": "94fc9f75f4dd6f7a503487da6aeb7ebf78892ab04f7f4394130f565b87915564"
+    }
+  ],
+  "fullSuiteOutcome": "FAIL",
+  "windowsAcceptance": "OPEN",
+  "dingley": "NOT RUN",
+  "cleanupReceipt": "cleanup-receipt.json"
+}

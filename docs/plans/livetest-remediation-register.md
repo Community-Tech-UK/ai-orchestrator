@@ -339,6 +339,14 @@ sections below. The historical reproduction remains unchanged.
 | LT-726 | P2 | **SOURCE FIX VERIFIED 2026-11-06 in a Linux container; first AppImage release build pending.** Linux packages could not finish building, because `scripts/set-electron-fuses.js` opened `Harness` when the binary is `harness`, so the security fuses were never set. | [LT-726 detail](#lt-726) | [Fixing plan](2026-11-06-code-context-precision_plan_completed.md); [installed check 9](2026-11-06-search-and-memory-repair_plan_livetest.md#9-windows-and-linux-packages-hold-only-their-own-runtime) |
 | LT-727 | P1 | **SOURCE FIX VERIFIED 2026-11-06; rebuilt-app check pending.** Every Microsoft 365 connector tool call was refused before reaching Microsoft, because the connector rejected the standard `_meta` field that MCP clients add to a call. | [LT-727 detail](#lt-727) | [Check 3](2026-10-26-plugins-cleanup-and-global-connectors_livetest.md#3-microsoft-365-account-routing-and-write-policy) |
 
+### New input-controls findings — 2026-10-27
+
+| ID | Priority | Status | Detail | Origin |
+| --- | --- | --- | --- | --- |
+| LT-997 | P1 | **OPEN — local 0.2.45 repair implemented; Windows rerun pending.** Native Tab/Shift+Tab do not move focus and Enter does not activate a harmless link; trusted events have empty key/code. Effect-checked Enter fails honestly; unverified focus keys report applied success. | [LT-997 detail](#lt-997) | [Input controls checks 1/4](2026-10-14-browser-gateway-input-controls_livetest.md) |
+| LT-998 | P1 | **OPEN — local 0.2.45 repair implemented; Windows rerun pending.** Tab-scoped 768×1024 emulation disappears when the command ends; subsequent page reads remain desktop-sized. A repeated set reports tab_emulation despite mismatched actual dimensions. | [LT-998 detail](#lt-998) | [Input controls check 2](2026-10-14-browser-gateway-input-controls_livetest.md) |
+| LT-999 | P2 | **OPEN — local 0.2.45 repair implemented; Windows rerun pending.** Window read mode returns zero width/height for the live Chrome window, preventing a usable original-bounds capture. Optional shared-window resizing was not attempted. | [LT-999 detail](#lt-999) | [Input controls restoration protocol](2026-10-14-browser-gateway-input-controls_livetest.md) |
+| LT-1000 | P2 | **OPEN — observed on the Windows worker (extension 0.2.50).** With 200% browser zoom and a 768×1024 tab emulation active, viewport reads fail with `browser_tab_viewport_dimensions_mismatch` although the emulation is correct and the page is laid out at the expected width. Cause not proven. | [LT-1000 detail](#lt-1000) | [Input controls check 2](2026-10-14-browser-gateway-input-controls_livetest.md) |
 | LT-728 | P2 | **OPEN — reproduced live 2026-10-27 (recorded as LT-710 on the agent-runtime branch; renumbered 2026-11-07 because main uses LT-710 for the fresh-profile migration race).** The required Claude fresh-eyes checker stays active without a verdict until the headless deadline expires, then reports `Review cancelled`. The deadline is the headless request budget, not the ordinary cross-model timeout/floor. Clean-cache and invalidation live checks remain blocked by this reproduced failure, not an established provider outage. | [LT-728 detail](#lt-728) | [Agent runtime residuals AR-006](2026-09-27-livetest-agent-runtime-residuals_livetest.md#evidence-run--2026-10-27-verifier-follow-up) |
 | LT-711 | P3 | **OPEN — historical report, awaiting independent reproduction.** Cursor was reported on 2026-10-04 to emit empty `completed` updates for real failed reads and rejected shell permissions. The raw receipt is absent, so no current miner or provider behaviour is claimed. Distinct from LT-612 and from AR-007’s retired clause. The detail section sets no priority; P3 is assigned for an unreproduced historical report. | [LT-711 detail](#lt-711) | [Agent runtime residuals 2026-10-04 batch report](2026-09-27-livetest-agent-runtime-residuals_livetest.md#evidence-run--2026-10-04-orchestrating-session-and-batch-agents) |
 | LT-712 | P3 | **IMPLEMENTED on main (handoff-observability plan, merged 2026-11-07); live proof open.** Audit rows now carry the queued command ID, and head reinsertion is logged with that ID and the queue depth; the LT-616 handoff log is unchanged. AR-003 stays open until an identified rebuilt coordinator repeats the handoff run and the audit join is observed live. | [LT-712 detail](#lt-712) | [Agent runtime residuals AR-003](2026-09-27-livetest-agent-runtime-residuals_livetest.md#ar-003--lt-371-live-browser-command-socket-handoff-correlation) |
@@ -10659,3 +10667,222 @@ The source investigation recorded in the active repair plan identifies synchroni
 **Required behaviour:** connector tool calls succeed when the client adds protocol fields, those fields never reach the tool, and each connector stays bound to its account with its write and approval checks unchanged.
 
 **Acceptance:** after a rebuild and restart, a new Claude session and a new Codex session each list folders through `m365-communitytech` and `m365-fortitude` using the ordinary connector tools. A regression test in `connector-rpc.spec.ts` covers the `_meta` call. Check 3 in the [owning live-test document](2026-10-26-plugins-cleanup-and-global-connectors_livetest.md) stays open for the rest of its steps.
+
+## LT-997 — shared-tab native named keys have no default effect
+
+**Status: OPEN; repaired in local 0.2.45; Windows acceptance pending.**
+Origin: browser input controls live-test checks 1 and 4. Implementation status is in the
+root-owned active [remediation follow-up](2026-10-27-browser-input-controls-remediation_plan_completed.md).
+Evidence: [campaign receipts and report](2026-10-27-browser-input-controls_evidence/REPORT.md).
+
+### Observed behaviour
+
+On the real Windows shared tab, repeated Tab and Shift+Tab returned `applied: true` but kept
+focus on `#harmless-link`; focusing `#first` first produced the same failure there. The orange
+4px focus indication remained visible and the page was not hidden. Enter on the same link,
+with an informative harmless hint and `expectUrlChange: true`, failed `browser_click_no_effect`.
+The fixture server received zero activations from both distinct Enter attempts. Ordinary
+`browser.click` on the same link subsequently navigated and incremented the server counter once.
+The grant rows for both Enter attempts read `auto_approved_by_yolo_mode`, checked read-only.
+
+Trusted native event observations show virtual key codes 9/16 but empty `key` and `code`,
+`isTab: false`, no cancellation, and correct Shift release. A same-key retry of the failed
+Enter returns `deduplicated: true`, `applied: false`, outcome `failed`, reason
+`press_key_prior_attempt_outcome_unknown`; this safety behaviour passes and must be preserved.
+
+### Root cause investigation
+
+Executing path: service `pressKey` delegates through `browser-input-control-operations.ts` to
+the extension `press_key` command. `dispatchNamedKeyWithModifiers` in
+`resources/browser-extension/background.js:3114-3145` sends virtual key codes without the named
+`key` or physical `code` fields. The observed empty event identity matches that payload. This
+localizes the failure to native dispatch/default behaviour, not policy refusal or a broken link.
+A corrected-payload Windows comparison has not been run; the final repair is not claimed proven.
+The existing mocked controls/classifier/credential-boundary tests still pass.
+
+### Required behaviour
+
+Native Tab and Shift+Tab traverse actual focusable controls; Enter activates the approved
+harmless link. Read-back names the resulting focus without field values. Modifiers always
+release. Effect-checked failures remain honest and retries never duplicate activations.
+
+### Acceptance
+
+- Run owning checks 1 and 4 on a real Windows shared tab after the repair, including a successful
+  first activation, a duplicate with exactly one total activation, and a deliberate new-key press.
+- Cover the actual named-key dispatch identity and real default effects, rather than only the
+  presence of CDP calls in a mock. Preserve failed-outcome dedupe and credential/action gates.
+- Run the canonical verification gates and independent review before claiming a fix.
+
+## LT-998 — tab viewport emulation does not survive its command
+
+**Status: OPEN; repaired in local 0.2.45; Windows acceptance pending.**
+Origin: input controls check 2. Status: [active follow-up](2026-10-27-browser-input-controls-remediation_plan_completed.md).
+Evidence: [campaign report](2026-10-27-browser-input-controls_evidence/REPORT.md), receipts 004/009.
+
+### Observed behaviour
+
+From 2558×1270, the first 768×1024 set returned `mode: tab_emulation`, requested and actual
+768×1024, but reported emulation width/height zero. The next visible page read was 2558×1214,
+tablet media query false, menu hidden, and table client/scroll widths both 2506. The menu
+selector click toggled its expanded state while hidden, so it is not accepted as a tablet
+interaction pass. Attempting horizontal scroll returned scrollLeft zero at desktop width.
+The second set already reported actual 2558×1270 against requested 768×1024 while returning
+success and tab_emulation. A subsequent ordinary snapshot independently showed desktop
+dimensions. No whole-window resize was used to substitute for tab emulation.
+
+### Root cause investigation
+
+`setTabViewportState` in `resources/browser-extension/background.js:3253-3291` sets metrics in a
+short `withDebugger` session. `attachAndRunDebugger:2806-2827` always detaches that session;
+there is no retained per-tab viewport session/baseline. The override's loss after command end
+is consistent with that lifecycle. `readTabEmulation:3239-3250` additionally sends
+`Emulation.getDeviceMetricsOverride` and silently converts errors to inactive/zero metrics.
+These are source-backed causes to investigate; no instrumentation of the worker's detach
+boundary or corrected-session comparison was performed. Do not treat the returned mode as
+proof of persistent emulation.
+
+### Required behaviour
+
+Tab emulation remains at the requested CSS dimensions while subsequent Gateway calls inspect
+and operate the responsive layout. Read-back reports actual state accurately; failed application
+must not be described as a successful matching viewport. Reset restores the real baseline.
+
+### Acceptance
+
+- Owning check 2 passes: verified 768×1024, operable collapsed menu, actual table overflow/scroll,
+  and reset to original dimensions, all on the same Windows tab.
+- Include cross-command and debugger-detach coverage, including a mismatched application result.
+- Preserve explicit tab/window distinction, other tabs, and restoration-failure reporting.
+
+## LT-999 — window bounds read-back fabricates zero dimensions
+
+**Status: OPEN; repaired in local 0.2.45; Windows acceptance and optional isolated resize pending.**
+Origin: input controls restoration protocol and optional window-scope check 2.
+Status: [active follow-up](2026-10-27-browser-input-controls-remediation_plan_completed.md).
+Evidence: [campaign report](2026-10-27-browser-input-controls_evidence/REPORT.md), window-read receipts.
+
+### Observed behaviour
+
+Every scope-window read names window 771587906 and its other tabs, but returns
+`bounds: {left:0,top:0,width:0,height:0}` while the live content width is 2558px. This does not
+provide a usable original window baseline. Whole-window resizing was deliberately omitted;
+no actual window restoration failure is claimed reproduced.
+
+### Root cause
+
+The extension reads `windowInfo.bounds.width/height/left/top`, including both read-mode and
+resize-baseline paths (`resources/browser-extension/background.js:3305-3310,3340-3356,3373-3394`).
+Chrome's Window object exposes those properties directly, not inside `bounds`; the wrong
+lookup is silently replaced with zero. Confirmed against the primary
+[Chrome Window API reference](https://developer.chrome.com/docs/extensions/reference/api/windows#type-Window)
+on 27 October 2026. The same source issue threatens resize restoration, but that consequence
+was not exercised against James's shared window.
+
+### Required behaviour
+
+Return actual nonzero dimensions for a live window and retain its real original bounds/state
+before a resize. Unavailable dimensions must be an explicit unavailable/error result, not a
+fabricated valid zero-size baseline.
+
+### Acceptance
+
+- Read mode returns real bounds and affected-tab inventory on Windows.
+- A safe isolated-window resize/reset restores exact original bounds/state, including a failure
+  path; other shared windows are untouched.
+- Extension mocks use the real top-level Chrome Window API shape, and the canonical checks pass.
+
+Numbering note for LT-997–LT-999: all registered checkout registers and the active July follow-up
+were scanned; LT-996 was the highest existing reference. The older queue base's LT-707 and the
+root's LT-708/LT-709 reconciliation are left unchanged. Integrate these additions without replacing
+concurrent register entries. The historical July completed plan and frozen backlog are not edited.
+
+Runtime/source check: downloaded the Windows extension's manifest and background script through
+the allowlisted read-only worker file transfer. Disk manifest 0.2.43 matches the running relay;
+the worktree manifest is 0.2.44. The full scripts differ, but the named-key dispatch, debugger
+attach/detach, and viewport read/set/window blocks cited above are byte-identical. Hash receipts
+are retained in `windows-source-comparison.json`; downloaded source copies are removed with the
+runtime. This compares the configured extension files, not an attestation of Chrome's in-memory
+script bytes.
+
+
+### LT-997 / LT-998 / LT-999 — review repair evidence, 27 October 2026
+
+These items remain OPEN for Windows acceptance. The original observations and source line
+references above describe the pre-repair bundle. The new source and evidence supersede the
+old "no fix" implementation state, not the original observations.
+
+- LT-997: every named-key/modifier event now includes key and code. The actual isolated dev
+  Chromium runtime verifies Tab/Tab/Shift+Tab and harmless Enter link activation. Regression
+  assertions pin these fields, modifier release and existing successful/failed dedupe.
+- LT-998: explicit viewport overrides retain their owned debugger session until reset; normal
+  commands reuse it, failure retains desired metrics, watchdog detach recovers the override,
+  and Gateway shutdown releases it. The unsupported metrics getter is removed. A mismatched
+  actual size fails with `browser_viewport_dimensions_mismatch`. Real dev Chromium proves
+  cross-command/failure persistence and reset; regressions cover recovery and retained zoom
+  restoration state as well. No shared-window fallback was added.
+- LT-999: real top-level Window bounds are read in every path; missing/nonpositive dimensions
+  fail with `browser_window_bounds_unavailable`. Restoration applies normal bounds first and
+  a non-normal state separately. Chrome-shaped tests cover read, resize/reset, unavailable
+  bounds and maximized restoration. No user window was resized.
+
+Proof scope: [round-two report](2026-10-27-browser-input-controls_evidence/round2/REPORT.md).
+Local dev Chromium uses the shipped functions with a CDP transport adapter, not the Windows
+extension/coordinator path. The Windows extension remains 0.2.43. The documented file-transfer
+route explicitly refused the configured extension folder (`remote_write_refused`), so no
+post-repair Windows pass is claimed. Checks 1, 2 and 4 remain open pending an approved install
+and reload. Dingley remains outside the authorised fixture scope.
+
+Review finding 5 is resolved as a test-protocol clarification, not a new product defect:
+reset only mechanisms a check mutated; independently reread unchanged state. A no-baseline
+zoom reset still reports `browser_zoom_baseline_lost`, preserving honest restart/loss reporting.
+
+Review finding 6 has an explicit queue harvest manifest under `round2/`. The root-owned owner
+and active follow-up must land with this queue-owned register/source/evidence. No worker merge
+or root tracked-register edit is authorised; do not overwrite concurrent root entries. The
+coordinator and independent verifier retain responsibility for integration and closure.
+
+Final round-two status: actual dev Chromium now proves successful activation dedupe (1), new-key
+activation (2), and a post-keyUp transport failure whose retry leaves count 3 unchanged; active
+viewport survives and resets. Static/build gates and the 222-test focused feature/credential/
+recovery selection pass. The full suite remains red: 42 recorded failures, of which 38 VM-harness
+API-stub failures and the linked-install mismatch were repaired/retested. Unchanged native-finality
+timeout cases still fail in isolation. No full rerun was launched at shared host load 325.41.
+Windows installation was explicitly refused; no repaired Windows PASS, whole-suite PASS or
+independent verdict is claimed. See the round-two report and all retained failures.
+
+## LT-1000 — tab viewport read reports a mismatch while browser zoom is 200%
+
+**Status: OPEN; observed on the Windows worker running extension 0.2.50 on 7 November 2026.**
+Origin: input controls check 2 (tablet emulation) combined with check 3 (real zoom), Windows fixture.
+Evidence: [round-four receipts](2026-10-27-browser-input-controls_evidence/round4/windows-receipts.json).
+
+### Observed behaviour
+
+With tab emulation set to 768×1024 and browser zoom set to 200%, two separate viewport reads
+returned `browser_tab_viewport_dimensions_mismatch`. The emulation itself was still active
+(768×1024), and the page reported `innerWidth` 384, which is 768 divided by the zoom factor. At zoom
+1 the same emulation read back correctly. Resetting the zoom alone returned the viewport read to a
+correct 768×1024. Reset of the emulation returned the original 2034 width.
+
+### Root cause
+
+Established in source for the merged extension (`resources/browser-extension/background.js`,
+the `main` build, version 0.2.50). `setTabViewportState` runs `assertTabViewportDimensions` after
+every viewport command, including a read (mode `read`) whenever a tab override is still recorded
+(`background.js:3805`, assertion at `3736-3739`). That assertion compares `window.innerWidth` and
+`innerHeight` in CSS pixels with the requested size. Browser zoom 200% halves the CSS width of a
+768 px emulation to 384, so the comparison fails although the emulation is correct. Zoom 1 passes,
+which matches the live observation. Not yet confirmed by a live run against the merged build.
+
+### Required behaviour
+
+A viewport read under emulation plus browser zoom reports the emulation that is in effect, with
+actual dimensions that match the zoom-adjusted layout. It must not report a mismatch when the
+emulation is correct.
+
+### Acceptance
+
+- Under 768×1024 emulation at zoom 2, a read returns the emulated mode without a mismatch error.
+- A set at zoom 2 either succeeds with the same check or fails with a reason that explains the zoom.
+- Reset still restores the original zoom and viewport.

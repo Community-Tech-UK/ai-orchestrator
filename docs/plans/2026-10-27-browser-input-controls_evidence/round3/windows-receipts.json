@@ -1,0 +1,114 @@
+{
+  "at": "2026-10-27T14:21:37.658Z",
+  "health": {
+    "at": "2026-10-27T14:19:44.204Z",
+    "decision": "allowed",
+    "outcome": "succeeded",
+    "status": "ready",
+    "remoteExtensions": {
+      "total": 1,
+      "ready": 1,
+      "silent": 0,
+      "nodes": [
+        {
+          "nodeId": "bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be",
+          "nodeName": "windows-pc",
+          "enabled": true,
+          "running": true,
+          "silent": false,
+          "channelState": "fresh",
+          "commandsDeliverable": true,
+          "lastContactAt": 1793110520555,
+          "contactAgeMs": 3053,
+          "coordinatorPollAgeMs": 3053,
+          "relayContactAgeMs": 13256,
+          "connectionFlap": {
+            "stormActive": false,
+            "replacesInWindow": 0,
+            "windowMs": 300000
+          },
+          "queue": {
+            "queuedCount": 0,
+            "inFlightCount": 0,
+            "waitingPollerCount": 2
+          },
+          "contactGaps": {
+            "gapCount": 2,
+            "longestGapMs": 146459,
+            "lastGapMs": 146459,
+            "lastGapEndedAt": 1793033852670
+          },
+          "serviceWorkerRestarts": 1,
+          "registration": "ok",
+          "lastRegistrationCheckAt": 1793110499703,
+          "secretObservation": {
+            "reported": true,
+            "protectionEnabled": false,
+            "taintedOriginCount": 0,
+            "taintedTabCount": 0,
+            "observedAt": 1793107775173,
+            "ageMs": 2748435
+          }
+        }
+      ]
+    },
+    "controls": {
+      "press_key": {
+        "sharedTabs": true,
+        "managedProfiles": true,
+        "mechanism": "native keystrokes (CDP Input.dispatchKeyEvent on shared tabs, CDP keyboard on managed profiles); named keys only — type text with browser.type"
+      },
+      "set_viewport": {
+        "sharedTabs": true,
+        "managedProfiles": true,
+        "windowScope": "scope 'window' (real Chrome window resize) is shared-tab only and reports the affected window, its other tabs and retained original bounds; managed profiles support scope 'tab' emulation only"
+      },
+      "set_zoom": {
+        "sharedTabs": true,
+        "managedProfiles": false,
+        "mechanism": "real Chrome zoom via chrome.tabs.setZoom with per-tab zoom settings (original factor and settings preserved for reset); managed profiles have no browser-zoom surface and CSS zoom/transforms/device-scale are never substituted"
+      }
+    }
+  },
+  "preflight": {
+    "decision": "allowed",
+    "outcome": "succeeded",
+    "summary": "Selected a remote-extension tab on \"windows-pc\" on the same site; rejected 143 other target(s).",
+    "selectedWasDifferentPortAndNotUsed": true
+  },
+  "fixtureOpen": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"id\":\"existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588796:target\",\"profileId\":\"existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588796\",\"pageId\":\"771588796\",\"mode\":\"existing-tab\",\"nodeId\":\"bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be\",\"nodeName\":\"windows-pc\",\"title\":\"100.68.10.5\",\"url\":\"http://100.68.10.5:18752/\",\"origin\":\"http://100.68.10.5:18752\",\"driver\":\"extension\",\"status\":\"selected\",\"lastSeenAt\":1793110855202,\"targetId\":\"existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588796:target\",\"inspectionState\":\"inspection_unavailable\",\"textUnavailableReason\":\"page_text_read_failed\",\"windowId\":771587906,\"tabIndex\":52,\"pinned\":false,\"active\":true},\"auditId\":\"88beadf3-21da-4e59-b690-1f2ffe2aaa88\"}"
+      }
+    ]
+  },
+  "fixtureSnapshot": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"title\":\"100.68.10.5\",\"url\":\"http://100.68.10.5:18752/\",\"text\":\"\",\"textUnavailableReason\":\"page_text_read_failed\",\"renderer\":\"unknown\"},\"auditId\":\"2d017999-acbb-446e-a91f-dace89221deb\"}"
+      }
+    ]
+  },
+  "fixtureError": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"type\":\"object\",\"json\":\"{\\\"hidden\\\":false,\\\"text\\\":\\\"This page isn’t working\\\\n\\\\n100.68.10.5 didn’t send any data.\\\\n\\\\nERR_EMPTY_RESPONSE\\\\nReload\\\",\\\"title\\\":\\\"100.68.10.5\\\",\\\"url\\\":\\\"chrome-error://chromewebdata/\\\"}\"},\"auditId\":\"f4418a42-f076-4e22-941e-41049196f677\"}"
+      }
+    ]
+  },
+  "fixtureClose": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"closed\":true,\"remainingTabCount\":40,\"profileId\":\"existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588796\",\"targetId\":\"existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588796:target\",\"inspectionState\":\"inspection_unavailable\"},\"auditId\":\"01438f4e-83c4-4ac4-b8e7-bca5a25d8ab9\"}"
+      }
+    ]
+  },
+  "windowsExtensionVersion": "0.2.43",
+  "desiredVersion": "0.2.45",
+  "noInputControlMutations": true
+}

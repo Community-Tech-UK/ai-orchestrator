@@ -1,0 +1,74 @@
+{
+  "at": "2026-10-27T14:25:19.352Z",
+  "reason": "Preserve logs as harvestable evidence rather than ignored *.log runtime files",
+  "mappings": [
+    {
+      "from": "browser-bridge-schema.log",
+      "to": "browser-bridge-schema.log.txt"
+    },
+    {
+      "from": "build-main.log",
+      "to": "build-main.log.txt"
+    },
+    {
+      "from": "build-renderer.log",
+      "to": "build-renderer.log.txt"
+    },
+    {
+      "from": "dev-app-probe.log",
+      "to": "dev-app-probe.log.txt"
+    },
+    {
+      "from": "dev-app.log",
+      "to": "dev-app.log.txt"
+    },
+    {
+      "from": "fixture-reachability.log",
+      "to": "fixture-reachability.log.txt"
+    },
+    {
+      "from": "focused-recovery.log",
+      "to": "focused-recovery.log.txt"
+    },
+    {
+      "from": "focused.log",
+      "to": "focused.log.txt"
+    },
+    {
+      "from": "lint.log",
+      "to": "lint.log.txt"
+    },
+    {
+      "from": "native-abi.log",
+      "to": "native-abi.log.txt"
+    },
+    {
+      "from": "npm-ci.log",
+      "to": "npm-ci.log.txt"
+    },
+    {
+      "from": "prior-failures.log",
+      "to": "prior-failures.log.txt"
+    },
+    {
+      "from": "roster.log",
+      "to": "roster.log.txt"
+    },
+    {
+      "from": "ts-max-loc.log",
+      "to": "ts-max-loc.log.txt"
+    },
+    {
+      "from": "typecheck-spec.log",
+      "to": "typecheck-spec.log.txt"
+    },
+    {
+      "from": "typecheck.log",
+      "to": "typecheck.log.txt"
+    },
+    {
+      "from": "ui-hints.log",
+      "to": "ui-hints.log.txt"
+    }
+  ]
+}

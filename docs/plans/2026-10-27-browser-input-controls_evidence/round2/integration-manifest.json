@@ -1,0 +1,61 @@
+{
+  "at": "2026-10-27T14:06:23.682637+00:00",
+  "status": "pending_coordinator_harvest",
+  "queueCheckout": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c",
+  "rootCheckout": "/Users/suas/work/orchestrat0r/ai-orchestrator",
+  "rootOwned": [
+    {
+      "rootPath": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-14-browser-gateway-input-controls_livetest.md",
+      "landingPath": "docs/plans/2026-10-14-browser-gateway-input-controls_livetest.md",
+      "sha256": "dc7895ecffee07f4830bf48eeda1841571157ea7e596facc771e7017e202733f"
+    },
+    {
+      "rootPath": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-27-browser-input-controls-remediation_plan.md",
+      "landingPath": "docs/plans/2026-10-27-browser-input-controls-remediation_plan.md",
+      "sha256": "2dc10eafc6f865d61b7246749cbe0ca2d449f4cfca8b87cbb9c1d7422288c0fb"
+    }
+  ],
+  "queueOwned": [
+    {
+      "queuePath": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/resources/browser-extension/background.js",
+      "landingPath": "resources/browser-extension/background.js",
+      "sha256": "06e966f585bad04e20ba515bc5259f93d2835946b6d52b996b029fe401e07a01"
+    },
+    {
+      "queuePath": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/resources/browser-extension/manifest.json",
+      "landingPath": "resources/browser-extension/manifest.json",
+      "sha256": "51f3c58469f7367000ff9cbb6ca341a9cfa8487f8f0c7ff9252dbc393b427fdb"
+    },
+    {
+      "queuePath": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/src/main/browser-gateway/browser-extension-assets.spec.ts",
+      "landingPath": "src/main/browser-gateway/browser-extension-assets.spec.ts",
+      "sha256": "96108ad655adece8d45929bf68182b07f953e2cf6dfde99e2484cd9b18a26a47"
+    },
+    {
+      "queuePath": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/docs/plans/livetest-remediation-register.md",
+      "landingPath": "docs/plans/livetest-remediation-register.md",
+      "sha256": "cd69e5488330c82876911eac7411362d3a7be73b449f285ab5457108549b35d7"
+    },
+    {
+      "queuePath": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/src/main/browser-gateway/browser-secret-recovery.testutil.ts",
+      "landingPath": "src/main/browser-gateway/browser-secret-recovery.testutil.ts",
+      "sha256": "d91f9672be6076f695bfe9d75ae6e4fd444407ac0156b419e56417d370697a84"
+    }
+  ],
+  "evidenceDirectory": "docs/plans/2026-10-27-browser-input-controls_evidence",
+  "requiredDefectAnchors": [
+    "lt-997",
+    "lt-998",
+    "lt-999"
+  ],
+  "integrationRequirements": [
+    "Apply queue source/register changes with concurrent root entries preserved.",
+    "Use root-owned live document and active follow-up, not the stale worktree owner.",
+    "Harvest the complete evidence directory with the branch.",
+    "Check root register anchors and relative evidence paths after harvest.",
+    "Keep owner and follow-up active; no _completed rename without independent queue verdict."
+  ],
+  "workerHasMerged": false,
+  "workerHasCommitted": false,
+  "wholeSuiteAcceptance": "OPEN"
+}

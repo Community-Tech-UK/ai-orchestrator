@@ -1,0 +1,4 @@
+{"address":"127.0.0.1","status":200,"fixture":true}
+{"address":"192.168.0.96","error":"fetch failed"}
+{"address":"192.168.0.156","error":"fetch failed"}
+{"address":"100.68.10.5","error":"fetch failed"}

@@ -1,0 +1,26 @@
+{"at":"2026-10-27T13:21:32.538Z","command":["npx","tsc","--noEmit"],"exitCode":0,"durationMs":35349,"log":"typecheck.log"}
+{"at":"2026-10-27T13:22:36.357Z","command":["npm","run","typecheck:spec"],"exitCode":0,"durationMs":63815,"log":"typecheck-spec.log"}
+{"at":"2026-10-27T13:22:53.835Z","command":["npm","run","lint"],"exitCode":0,"durationMs":17478,"log":"lint.log"}
+{"at":"2026-10-27T13:22:55.491Z","command":["npm","run","check:ts-max-loc"],"exitCode":0,"durationMs":1655,"log":"ts-max-loc.log"}
+{"at":"2026-10-27T13:22:59.563Z","command":["npm","run","check:ui-hints"],"exitCode":0,"durationMs":4072,"log":"ui-hints.log"}
+{"at":"2026-10-27T13:23:46.660Z","command":["npm","run","build:main"],"exitCode":0,"durationMs":47097,"log":"build-main-final.log"}
+{"at":"2026-10-27T13:24:14.048Z","command":["npm","run","build:renderer"],"exitCode":0,"durationMs":27388,"log":"build-renderer.log"}
+{"at":"2026-10-27T13:35:36.494Z","command":["npm","run","test:quiet"],"env":{"AIO_TEST_MAX_FORKS":"2","AIO_TEST_SUMMARY":"0"},"exitCode":130,"status":"interrupted_incomplete_not_a_pass","reason":"Replaced conservative fixed limit with project capacity-based default","log":"full-suite-interrupted.log"}
+{"at":"2026-10-27T13:44:04.675Z","command":["npm","run","test:quiet","--","src/main/browser-gateway/browser-extension-assets.spec.ts","src/main/browser-gateway/browser-input-control-operations.spec.ts","src/main/browser-gateway/browser-credential-dispatch-boundary.spec.ts"],"exitCode":0,"log":"focused-final.log","qualification":"182 passing tests before the final mismatch and maximized-state additions; final source is covered by the full run and closing focused rerun."}
+{"at":"2026-10-27T13:47:39.803Z","command":["npm","run","test:quiet"],"env":{"AIO_TEST_SUMMARY":"0"},"exitCode":1,"log":"full-suite.log","result":{"failed":42,"total":35384},"failures":"full-suite-failures.json","qualification":"38 failures caused by missing debugger event in separate recovery harness; repaired subsequently. Remaining four failures are under independent investigation."}
+{"at":"2026-10-27T13:51:52.155Z","command":["npx","tsc","--noEmit"],"exitCode":0,"durationMs":34487,"log":"typecheck.log"}
+{"at":"2026-10-27T13:53:00.011Z","command":["npm","run","typecheck:spec"],"exitCode":0,"durationMs":67852,"log":"typecheck-spec.log"}
+{"at":"2026-10-27T13:53:18.839Z","command":["npm","run","lint"],"exitCode":0,"durationMs":18828,"log":"lint.log"}
+{"at":"2026-10-27T13:53:20.634Z","command":["npm","run","check:ts-max-loc"],"exitCode":0,"durationMs":1794,"log":"ts-max-loc.log"}
+{"at":"2026-10-27T13:53:24.906Z","command":["npm","run","check:ui-hints"],"exitCode":0,"durationMs":4271,"log":"ui-hints.log"}
+{"at":"2026-10-27T13:54:17.047Z","command":["npm","run","build:main"],"exitCode":0,"durationMs":52140,"log":"build-main-final.log"}
+{"at":"2026-10-27T13:54:49.552Z","command":["npm","run","build:renderer"],"exitCode":0,"durationMs":32504,"log":"build-renderer.log"}
+{"at": "2026-10-27T14:01:47.346612+00:00", "command": "npm ci --ignore-scripts --no-audit --no-fund", "exitCode": 0, "log": "npm-ci.log", "qualification": "Separate lockfile install; original linked install preserved. Matching pre-existing native artifacts reused read-only."}
+{"at": "2026-10-27T14:01:47.346912+00:00", "command": "node scripts/verify-native-abi.js", "exitCode": 0, "log": "native-abi.log"}
+{"at": "2026-10-27T14:01:47.346920+00:00", "command": "focused six-file controls/credential/recovery tests", "exitCode": 0, "log": "focused-closing.log", "testsPassed": 222}
+{"at": "2026-10-27T14:01:47.346924+00:00", "command": "isolated dependency/git/native-finality rerun", "exitCode": 1, "log": "outside-scope-rerun.log"}
+{"at": "2026-10-27T14:01:47.346927+00:00", "command": "branch-lock dependency, native-finality and controls rerun", "exitCode": 1, "log": "clean-install-focused.log", "testsPassed": 232, "testsFailed": 3, "qualification": "Dependency and feature/recovery tests pass; three native-finality cases fail."}
+{"at": "2026-10-27T14:01:47.346930+00:00", "command": "node cdp-runtime.mjs with AIO_LT_BASELINE=1", "exitCode": 1, "log": "dev-runtime-baseline.log", "qualification": "Expected negative: unmodified base handler retains focus on link."}
+{"at": "2026-10-27T14:01:47.346933+00:00", "command": "node cdp-runtime.mjs final source", "exitCode": 0, "log": "dev-runtime-final.log", "qualification": "Real dev Electron Chromium, CDP adapter; not Windows Gateway."}
+{"at": "2026-10-27T14:01:47.346936+00:00", "command": "final full-suite rerun", "status": "not_run", "reason": "Shared host load reached 325.41. Whole-suite acceptance remains open."}
+{"at": "2026-10-27T14:01:47.346938+00:00", "command": "git diff --check", "exitCode": 0}

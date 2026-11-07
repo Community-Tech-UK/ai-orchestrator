@@ -1,0 +1,35 @@
+{
+  "at": "2026-10-27T12:52:49.147Z",
+  "target": {
+    "title": "Harness",
+    "url": "http://localhost:4752/"
+  },
+  "commands": [
+    {
+      "method": "Emulation.setFocusEmulationEnabled",
+      "result": {}
+    },
+    {
+      "method": "Emulation.setPageVisibilityOverride",
+      "error": "{\"code\":-32601,\"message\":\"'Emulation.setPageVisibilityOverride' wasn't found\"}"
+    },
+    {
+      "method": "Runtime.evaluate",
+      "expression": "(async()=>{const ipc=await window.electronAPI.browserGetHealth();return {hidden:document.hidden,visibility:document.visibilityState,rootPresent:!!document.querySelector('app-root'),renderedTextLength:document.body.innerText.length,ipc:{success:ipc.success,error:ipc.error,status:ipc.data?.status,controls:ipc.data?.controls,remoteExtensions:ipc.data?.remoteExtensions}}})()",
+      "result": {
+        "result": {
+          "type": "object",
+          "value": {
+            "hidden": false,
+            "visibility": "visible",
+            "rootPresent": true,
+            "renderedTextLength": 0,
+            "ipc": {
+              "success": true
+            }
+          }
+        }
+      }
+    }
+  ]
+}

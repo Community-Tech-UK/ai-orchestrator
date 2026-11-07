@@ -1,0 +1,26 @@
+{
+  "at": "2026-10-27T13:43:54.149Z",
+  "reviewer": "implementing_worker_self_review_not_independent_gate",
+  "scope": [
+    "resources/browser-extension/background.js",
+    "resources/browser-extension/manifest.json",
+    "src/main/browser-gateway/browser-extension-assets.spec.ts",
+    "src/main/browser-gateway/browser-secret-recovery.testutil.ts"
+  ],
+  "checked": [
+    "Named event identity and printable-key refusal remain on existing guarded route",
+    "Retained debugger released on reset/shutdown/tab removal; normal commands serialized; watchdog retains desired metrics for recovery",
+    "No guessed window bounds; normal-state bounds before restoring maximized state",
+    "Original bundle-hash rows retained; new version row appended",
+    "Existing outcome/dedupe/credential assertions preserved; mocks changed to documented Chrome Window shape",
+    "Owner remains at root only; active follow-up untracked; coordinator harvest explicitly pending",
+    "No external release, Dingley action, credential fill, commit or branch change",
+    "Separate recovery VM now exposes the actual debugger event API; all original recovery/protection assertions pass unchanged."
+  ],
+  "unresolved": [
+    "Windows extension deployment refused by file-transfer policy",
+    "Windows checks 1/2/4 unverified after repair",
+    "Queue independent verifier and integration pending",
+    "Whole-suite acceptance remains red; later targeted repairs do not convert the recorded full run to a pass."
+  ]
+}

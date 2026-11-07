@@ -1,0 +1,1 @@
+✓ better-sqlite3: NODE_MODULE_VERSION 146 matches Electron 42.11.18

@@ -1,0 +1,1 @@
+sandbox_extension_issue_file_to_process failed for /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/node_modules/electron/dist/Electron.app: 1 (Operation not permitted)

@@ -1,0 +1,174 @@
+{
+  "at": "2026-10-27T13:57:48.245Z",
+  "baseline": false,
+  "sourceHash": "06e966f585bad04e20ba515bc5259f93d2835946b6d52b996b029fe401e07a01",
+  "receipts": [
+    {
+      "app": {
+        "hidden": false,
+        "title": "Harness",
+        "url": "http://localhost:4752/setup",
+        "root": true,
+        "textLength": 1038,
+        "health": true
+      }
+    },
+    {
+      "key": "Tab",
+      "modifiers": [],
+      "focus": "lt-first"
+    },
+    {
+      "key": "Tab",
+      "modifiers": [],
+      "focus": "lt-second"
+    },
+    {
+      "key": "Tab",
+      "modifiers": [
+        "Shift"
+      ],
+      "focus": "lt-first"
+    },
+    {
+      "firstPress": {
+        "applied": true,
+        "key": "Enter",
+        "modifiers": [],
+        "focus": {
+          "tagName": "A",
+          "id": "lt-link",
+          "text": "Harmless test link",
+          "href": "http://localhost:4752/setup#lt-activation"
+        },
+        "url": "http://localhost:4752/setup#lt-activation",
+        "title": "Harness"
+      }
+    },
+    {
+      "sameKey": {
+        "applied": true,
+        "key": "Enter",
+        "modifiers": [],
+        "focus": {
+          "tagName": "A",
+          "id": "lt-link",
+          "text": "Harmless test link",
+          "href": "http://localhost:4752/setup#lt-activation"
+        },
+        "url": "http://localhost:4752/setup#lt-activation",
+        "title": "Harness",
+        "deduplicated": true
+      }
+    },
+    {
+      "once": {
+        "count": 1,
+        "hash": "#lt-activation"
+      }
+    },
+    {
+      "newKey": {
+        "applied": true,
+        "key": "Enter",
+        "modifiers": [],
+        "focus": {
+          "tagName": "A",
+          "id": "lt-link",
+          "text": "Harmless test link",
+          "href": "http://localhost:4752/setup#lt-activation"
+        },
+        "url": "http://localhost:4752/setup#lt-activation",
+        "title": "Harness"
+      }
+    },
+    {
+      "newKeyActivationCount": 2
+    },
+    {
+      "base": {
+        "innerWidth": 1400,
+        "innerHeight": 900
+      }
+    },
+    {
+      "set": {
+        "mode": "tab_emulation",
+        "scope": "tab",
+        "requested": {
+          "width": 768,
+          "height": 1024
+        },
+        "emulation": {
+          "width": 768,
+          "height": 1024,
+          "deviceScaleFactor": 1
+        },
+        "previous": {
+          "emulationActive": false
+        },
+        "actual": {
+          "innerWidth": 768,
+          "innerHeight": 1024
+        }
+      }
+    },
+    {
+      "after": {
+        "innerWidth": 768,
+        "innerHeight": 1024
+      }
+    },
+    {
+      "expectedFailure": "deliberate transport failure after native keyUp"
+    },
+    {
+      "failedRetry": {
+        "applied": false,
+        "key": "Enter",
+        "modifiers": [],
+        "deduplicated": true
+      }
+    },
+    {
+      "beforeRetry": 3,
+      "afterRetry": 3
+    },
+    {
+      "afterFailure": {
+        "innerWidth": 768,
+        "innerHeight": 1024
+      }
+    },
+    {
+      "reset": {
+        "mode": "reset",
+        "scope": "tab",
+        "emulation": {
+          "width": 0,
+          "height": 0,
+          "deviceScaleFactor": 1
+        },
+        "previous": {
+          "emulationActive": true,
+          "emulationWidth": 768,
+          "emulationHeight": 1024
+        },
+        "actual": {
+          "innerWidth": 1400,
+          "innerHeight": 900
+        }
+      }
+    },
+    {
+      "restored": {
+        "innerWidth": 1400,
+        "innerHeight": 900
+      }
+    },
+    {
+      "result": "PASS",
+      "qualification": "Real isolated Electron Chromium; shipped handlers with CDP transport adapter. Not Windows extension or coordinator evidence."
+    }
+  ]
+}

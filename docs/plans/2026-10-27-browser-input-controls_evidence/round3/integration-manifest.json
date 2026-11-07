@@ -1,0 +1,55 @@
+{
+  "at": "2026-10-27T16:13:06.977488+00:00",
+  "status": "pending_coordinator_harvest",
+  "queueCheckout": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c",
+  "rootCheckout": "/Users/suas/work/orchestrat0r/ai-orchestrator",
+  "rootOwned": [
+    {
+      "rootPath": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-14-browser-gateway-input-controls_livetest.md",
+      "landingPath": "docs/plans/2026-10-14-browser-gateway-input-controls_livetest.md",
+      "sha256": "1f53f5473c9ad8df50f9d90a7d1762a3440c31bb3f3fc272735e2c4ea1985026"
+    },
+    {
+      "rootPath": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-27-browser-input-controls-remediation_plan.md",
+      "landingPath": "docs/plans/2026-10-27-browser-input-controls-remediation_plan.md",
+      "sha256": "9540badbf88c8708f681a17636e4cab3564a6038f47892e94ea0501b4c52f837"
+    }
+  ],
+  "queueOwned": [
+    {
+      "landingPath": "resources/browser-extension/background.js",
+      "sha256": "06e966f585bad04e20ba515bc5259f93d2835946b6d52b996b029fe401e07a01"
+    },
+    {
+      "landingPath": "resources/browser-extension/manifest.json",
+      "sha256": "51f3c58469f7367000ff9cbb6ca341a9cfa8487f8f0c7ff9252dbc393b427fdb"
+    },
+    {
+      "landingPath": "src/main/browser-gateway/browser-extension-assets.spec.ts",
+      "sha256": "96108ad655adece8d45929bf68182b07f953e2cf6dfde99e2484cd9b18a26a47"
+    },
+    {
+      "landingPath": "docs/plans/livetest-remediation-register.md",
+      "sha256": "cd69e5488330c82876911eac7411362d3a7be73b449f285ab5457108549b35d7"
+    },
+    {
+      "landingPath": "src/main/browser-gateway/browser-secret-recovery.testutil.ts",
+      "sha256": "d91f9672be6076f695bfe9d75ae6e4fd444407ac0156b419e56417d370697a84"
+    }
+  ],
+  "evidenceDirectory": "docs/plans/2026-10-27-browser-input-controls_evidence",
+  "requiredDefectAnchors": [
+    "lt-997",
+    "lt-998",
+    "lt-999"
+  ],
+  "requirements": [
+    "Harvest the current root-owned owner/follow-up, never the stale queue owner.",
+    "Harvest queue-owned source/register/evidence together with the root-owned documents.",
+    "Preserve concurrent root register entries when integrating LT-997/998/999.",
+    "Check relative evidence links and register anchors after coordinated harvest.",
+    "Do not close either active document before independent queue verification."
+  ],
+  "workerHasIntegrated": false,
+  "workerHasCommitted": false
+}

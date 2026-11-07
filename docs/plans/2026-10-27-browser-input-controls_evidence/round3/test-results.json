@@ -1,0 +1,64 @@
+{
+  "at": "2026-10-27T16:12:49.001Z",
+  "redaction": "Project diagnostics.redactValue applied before retaining raw runner output; no auxiliary model endpoint used",
+  "results": [
+    {
+      "report": "test-results.round3-focused-recovery.json.redacted.gz",
+      "success": true,
+      "total": 230,
+      "passed": 230,
+      "failed": 0,
+      "pending": 0,
+      "files": 7,
+      "failures": []
+    },
+    {
+      "report": "test-results.round3-focused.json.redacted.gz",
+      "success": true,
+      "total": 192,
+      "passed": 192,
+      "failed": 0,
+      "pending": 0,
+      "files": 4,
+      "failures": []
+    },
+    {
+      "report": "test-results.round3-prior-failures.json.redacted.gz",
+      "success": true,
+      "total": 8,
+      "passed": 8,
+      "failed": 0,
+      "pending": 0,
+      "files": 2,
+      "failures": []
+    },
+    {
+      "report": "test-results.round3-resumed-capability-isolation.json.redacted.gz",
+      "success": true,
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "pending": 0,
+      "files": 1,
+      "failures": []
+    },
+    {
+      "report": "test-results.round3-resumed-full-suite.json.redacted.gz",
+      "success": false,
+      "total": 35384,
+      "passed": 35374,
+      "failed": 1,
+      "pending": 9,
+      "files": 2792,
+      "failures": [
+        {
+          "file": "src/worker-agent/__tests__/capability-reporter.spec.ts",
+          "name": "capability-reporter returns valid capabilities with correct platform",
+          "messages": [
+            "Error: STACK_TRACE_ERROR\n    at task (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/src/worker-agent/__tests__/capability-reporter.spec.ts:21:3\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)"
+          ]
+        }
+      ]
+    }
+  ]
+}

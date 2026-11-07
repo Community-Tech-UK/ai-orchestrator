@@ -1,0 +1,65 @@
+{
+  "run": "2026-11-07 Plan Queue resume, Windows fixture checks",
+  "worker": {
+    "computer": "windows-pc",
+    "nodeId": "bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be",
+    "extensionVersionReportedByRoster": "0.2.50",
+    "extensionReloadedAt": 1794044044424,
+    "worktreeManifestVersion": "0.2.45",
+    "mainCheckoutManifestVersion": "0.2.51",
+    "note": "The worker runs 0.2.50. That is neither the 0.2.45 repair in this worktree nor main's 0.2.51. Byte-level comparison with the worker's files was not performed. Results below describe the 0.2.50 build as observed."
+  },
+  "fixture": {
+    "url": "http://192.168.0.95:18752/",
+    "kind": "harmless local HTML fixture with two text fields, a counted link, a responsive menu and a wide table",
+    "server": "temporary node server on the Mac, stopped after the run; its log is fixture-server.log.txt",
+    "reachability": "200 from 192.168.0.95, 192.168.0.155 and 100.68.10.5 on the Mac; the Windows tab rendered normally"
+  },
+  "results": {
+    "check1_keyboard": {
+      "result": "PASS on 0.2.50",
+      "observed": "Tab moved focus to #first, then #second; Shift+Tab returned to #first; Tab reached #harmless-link; Enter with the activation hint and a dedupe key activated the link once (URL changed to /activated, server count 1).",
+      "auditIds": ["0ca154d8-8e47-4b40-9662-6099f0b7e058", "13ecad2a-d028-4527-9b1d-bb00f9074e60", "e0b6c35b-d77e-4030-94e7-2475924644d4", "ae3dbaa3-5319-4af3-ad2c-1f2ec15a8194", "c67ee3fc-afab-41ac-8eb3-7074f107cbd6", "fb2aaa6c-290b-4f48-9c56-d6567f2d999b"],
+      "intermittentFailure": "Several Tab presses returned outcome failed with reason 'Cannot access a chrome-extension:// URL of different extension' (audit 0e0c74de-d617-495f-ae7b-d068f28c27f2 and c84ba924-919c-4516-97be-8176d0fefa9f, 38c72583-f5c1-40e4-bbeb-277dfadbbcfb). Focus did not change on those attempts; a retry succeeded. Cause not established."
+    },
+    "check4_idempotency": {
+      "result": "PASS for successful-first-press dedupe and deliberate new-key press; failed-attempt and active-baseline cases partly covered",
+      "observed": "Same-key Enter retry returned deduplicated:true and the server count stayed at 1. A new-key Enter re-pressed and activated again (count 2). A stale-target press was denied and not run (profile_target_or_url_not_found). Zoom factor 2 and 768x1024 emulation survived that failed call.",
+      "auditIds": ["a7a66a31-febb-4ebf-87fa-78adac378fd1", "217f40e0-461f-4dc9-a743-5f1fdeeb73d6", "0947a1c7-9ef3-4fef-b5ed-ecb118f1ebe5"],
+      "notCovered": "A mid-dispatch failure of a real Enter while zoom and emulation are active was not produced. The stale-target probe is the permitted alternative."
+    },
+    "check2_tablet": {
+      "result": "PASS on 0.2.50 for emulation persistence, responsive menu and reset; table overflow observed only",
+      "observed": "Set 768x1024 reported tab_emulation with actual 768x1024. It stayed active across a read and an unrelated query. The #menu button became visible at that width and opened the nav (aria-expanded true, link visible). The wide table showed a horizontal overflow scrollbar. Reset returned innerWidth 2034 (baseline 2034). Height returned 920 against a 976 baseline, the same debugger-attached height difference recorded in round one.",
+      "auditIds": ["5c90dcd7-ec05-4710-a78c-d693ebc391ad", "6f9bd986-02e5-44f4-8c7b-3fcc65e60410", "5d40c965-2bdb-4567-a5bc-02c1bb16dab1", "1dc84ebd-8a50-4872-8e8d-b37211e73e04"],
+      "notCovered": "No scroll action on the table was performed; only the overflow was seen.",
+      "newDefect": "With zoom 200% active and emulation 768x1024, read calls returned browser_tab_viewport_dimensions_mismatch (audits 862d7b4b-994b-4a8a-965f-eea0a0856699 and 9727d041-0bff-40f7-aa22-bbef4310c954), while innerWidth read 384. Zoom 1 reads succeeded. Filed as LT-1000."
+    },
+    "check2_window_bounds_LT999": {
+      "result": "Read returns non-zero bounds on 0.2.50",
+      "observed": "Window read: left 0, top 0, width 2048, height 1104. Fifteen other tabs listed. No resize performed.",
+      "auditId": "19399c32-ee28-4df9-996d-0994f1c55b20"
+    },
+    "check3_zoom": {
+      "result": "PASS on 0.2.50",
+      "observed": "Baseline factor 1 per-origin. Set factor 2 read back 200% per-tab; screenshot legible. Reset returned factor 1 per-origin with no restorationFailed.",
+      "auditIds": ["5f43efba-be75-42f6-a1e2-3b864d4c8f90", "660e3358-27ac-4cf8-82d4-7010e21b352c", "4e60ff84-5bb6-4ac6-ba46-2b6db74f5d11"]
+    },
+    "check5_existing_operations": {
+      "result": "PASS for benign fixture operations and the negative credential gate",
+      "observed": "Ordinary click on #harmless-link with expectUrlChange navigated once (server count 1). fill_form wrote and verified both benign fields by selector. Negative secure fill was denied as credential_not_authorized:origin_not_authorized and not run. No credential was requested or entered.",
+      "auditIds": ["2eb1715d-437a-4c28-bf4e-be6178f2ca7d", "a488af83-06d0-4e2a-a92f-cd0713ca7b81", "e0f90924-7b38-4975-9105-5596af8433f5"],
+      "notCovered": "A successful saved-login fill was not attempted and is not claimed."
+    },
+    "check6_dingley": {
+      "result": "NOT RUN (explicit Dingley boundary kept)",
+      "observed": "No Dingley tab was navigated, read or changed. Dingley tabs were open in the worker browser and were left alone."
+    }
+  },
+  "cleanup": {
+    "fixtureTab": "closed via browser.close_tab, audit bef6022c-dbe5-42f2-b616-aec6d8d49449, closed:true, remainingTabCount 15",
+    "fixtureServer": "stopped; port 18752 closed; temp directory removed",
+    "devApp": "not launched in this round"
+  },
+  "fullSuite": "Not rerun in this round: host load average was 55 at 17:38 (the runbook waits for below 30). The round-three result (1 failure of 35,384) stands as the last recorded run."
+}

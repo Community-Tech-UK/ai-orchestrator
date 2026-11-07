@@ -1,0 +1,136 @@
+[
+  {
+    "at": "2026-10-27T12:47:12.020Z",
+    "label": "failed-enter-same-key",
+    "name": "browser.press_key",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "key": "Enter",
+      "actionHint": "activate the harmless link",
+      "expectUrlChange": true,
+      "idempotencyKey": "lt-20261027-enter-one"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"failed\",\"data\":{\"applied\":false,\"key\":\"Enter\",\"modifiers\":[],\"deduplicated\":true},\"reason\":\"press_key_prior_attempt_outcome_unknown\",\"auditId\":\"01a5e6e5-b183-4f38-aa43-7b070c9ba2f5\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:47:14.131Z",
+    "label": "failed-enter-new-key",
+    "name": "browser.press_key",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "key": "Enter",
+      "actionHint": "activate the harmless link",
+      "expectUrlChange": true,
+      "idempotencyKey": "lt-20261027-enter-two"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"failed\",\"data\":{\"before\":{\"url\":\"http://192.168.0.96:18752/\",\"title\":\"Harmless input controls fixture\",\"text\":\"Harmless input controls fixture\\n\\nFixture session: [REDACTED]\\n\\nActivations: 0\\n\\nHarmless link\\nFixture navigation\\nFirst column\\tMiddle column\\tLast column\\nHarmless value one\\tHarmless value two\\tHarmless val\"},\"after\":{\"url\":\"http://192.168.0.96:18752/\",\"title\":\"Harmless input controls fixture\",\"text\":\"Harmless input controls fixture\\n\\nFixture session: [REDACTED]\\n\\nActivations: 0\\n\\nHarmless link\\nFixture navigation\\nFirst column\\tMiddle column\\tLast column\\nHarmless value one\\tHarmless value two\\tHarmless val\"},\"suggestedAction\":\"browser.reload\"},\"reason\":\"browser_click_no_effect\",\"auditId\":\"4d3d1ff7-0d3d-45cb-b362-39f694f5c355\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:47:14.194Z",
+    "label": "keyup-event-diagnostics",
+    "name": "browser.evaluate",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "expression": "(()=>{window.fixtureEvents=[];for(const type of ['keydown','keyup'])addEventListener(type,e=>window.fixtureEvents.push({event:type,key:e.key,code:e.code,keyCode:e.keyCode,which:e.which,trusted:e.isTrusted,shift:e.shiftKey,control:e.ctrlKey,alt:e.altKey,meta:e.metaKey,defaultPrevented:e.defaultPrevented}));return {listening:true,focused:document.activeElement.id}})()",
+      "actionHint": "Record harmless fixture native keyboard event metadata"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"type\":\"object\",\"json\":\"{\\\"focused\\\":\\\"harmless-link\\\",\\\"listening\\\":true}\"},\"auditId\":\"d919cb20-ec99-4785-a015-ed9550ca58a0\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:47:14.272Z",
+    "label": "tab-event-probe",
+    "name": "browser.press_key",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "key": "Tab"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"applied\":true,\"key\":\"Tab\",\"modifiers\":[],\"focus\":{\"tagName\":\"A\",\"id\":\"harmless-link\",\"text\":\"Harmless link\",\"href\":\"http://192.168.0.96:18752/activate?request=1\"},\"url\":\"http://192.168.0.96:18752/\",\"title\":\"Harmless input controls fixture\"},\"auditId\":\"68c1c1c4-19a1-4d1c-b4c0-e9ee93597f26\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:47:14.346Z",
+    "label": "tab-event-probe-read",
+    "name": "browser.evaluate",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "expression": "({events:window.fixtureEvents,focus:document.activeElement.id,visible:document.visibilityState})",
+      "actionHint": "Read harmless fixture native keyboard event metadata"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"type\":\"object\",\"json\":\"{\\\"events\\\":[{\\\"alt\\\":false,\\\"code\\\":\\\"\\\",\\\"control\\\":false,\\\"defaultPrevented\\\":false,\\\"event\\\":\\\"keydown\\\",\\\"key\\\": \\\"[REDACTED]\\\",\\\"keyCode\\\":9,\\\"meta\\\":false,\\\"shift\\\":false,\\\"trusted\\\":true,\\\"which\\\":9},{\\\"alt\\\":false,\\\"code\\\":\\\"\\\",\\\"control\\\":false,\\\"defaultPrevented\\\":false,\\\"event\\\":\\\"keyup\\\",\\\"key\\\": \\\"[REDACTED]\\\",\\\"keyCode\\\":9,\\\"meta\\\":false,\\\"shift\\\":false,\\\"trusted\\\":true,\\\"which\\\":9}],\\\"focus\\\":\\\"harmless-link\\\",\\\"visible\\\":\\\"visible\\\"}\"},\"auditId\":\"e8e97271-4d66-433e-9ac2-8dfcfdf1eb4d\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:47:14.382Z",
+    "label": "reset-check1-viewport",
+    "name": "browser.set_viewport",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "reset": true
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"reset\",\"scope\":\"tab\",\"actual\":{\"innerWidth\":2558,\"innerHeight\":1214},\"emulation\":{\"width\":0,\"height\":0,\"deviceScaleFactor\":1},\"previous\":{\"emulationActive\":false}},\"auditId\":\"62652235-188a-4b68-aae7-19bd01d9e1d5\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:47:14.390Z",
+    "label": "reset-check1-zoom",
+    "name": "browser.set_zoom",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "reset": true
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"reset\",\"zoomFactor\":1,\"zoomPercent\":100,\"previousZoomFactor\":1,\"zoomScope\":\"per-origin\",\"previousZoomScope\":\"per-origin\",\"viewport\":{\"innerWidth\":2558,\"innerHeight\":1214},\"restorationFailed\":\"browser_zoom_baseline_lost\"},\"auditId\":\"ed12c02f-e49d-40d2-9ea2-1904fa41b453\"}"
+        }
+      ]
+    }
+  }
+]

@@ -1,0 +1,38 @@
+[
+  {
+    "name": "renderer",
+    "pid": 28179,
+    "alive": false,
+    "groupAlive": false
+  },
+  {
+    "name": "electron",
+    "pid": 44571,
+    "alive": false,
+    "groupAlive": false
+  },
+  {
+    "name": "renderer",
+    "pid": 20183,
+    "alive": false,
+    "groupAlive": false
+  },
+  {
+    "name": "electron-retry",
+    "pid": 22993,
+    "alive": false,
+    "groupAlive": false
+  },
+  {
+    "name": "renderer",
+    "pid": 42041,
+    "alive": false,
+    "groupAlive": false
+  },
+  {
+    "name": "electron-retry",
+    "pid": 42257,
+    "alive": false,
+    "groupAlive": false
+  }
+]

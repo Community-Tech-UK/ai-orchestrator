@@ -1,0 +1,38 @@
+{
+  "at": "2026-10-27T13:55:17.507Z",
+  "baseline": true,
+  "sourceHash": "023e4ae7a45448c3f3e3efc7c3fab17cffc89db7755e07b6da16481dc90f81f3",
+  "receipts": [
+    {
+      "app": {
+        "hidden": false,
+        "title": "Harness",
+        "url": "http://localhost:4752/",
+        "root": true,
+        "textLength": 1019,
+        "health": true
+      }
+    },
+    {
+      "key": "Tab",
+      "modifiers": [],
+      "focus": "lt-link"
+    },
+    {
+      "key": "Tab",
+      "modifiers": [],
+      "focus": "lt-link"
+    },
+    {
+      "key": "Tab",
+      "modifiers": [
+        "Shift"
+      ],
+      "focus": "lt-link"
+    },
+    {
+      "result": "FAIL",
+      "error": "Focus sequence failed"
+    }
+  ]
+}

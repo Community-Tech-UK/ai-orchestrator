@@ -1,0 +1,30 @@
+{
+  "windowsDiskManifestVersion": "0.2.43",
+  "runningRelayVersion": "0.2.43",
+  "worktreeManifestVersion": "0.2.44",
+  "windowsBackgroundSha256": "f48f2476e9f5751fbb7af50878f9d2e23be1542654a37d276d8190d1189558a5",
+  "worktreeBackgroundSha256": "023e4ae7a45448c3f3e3efc7c3fab17cffc89db7755e07b6da16481dc90f81f3",
+  "comparisons": [
+    {
+      "start": "async function dispatchNamedKeyWithModifiers",
+      "end": "async function pressKeyCommand",
+      "identical": true,
+      "windowsSha256": "18df1f0e89d91cdbe35f2baad35bab1eecada47e8477834cc1dcd73bb08fbf0e",
+      "worktreeSha256": "18df1f0e89d91cdbe35f2baad35bab1eecada47e8477834cc1dcd73bb08fbf0e"
+    },
+    {
+      "start": "async function attachAndRunDebugger",
+      "end": "function detachDebuggerQuietly",
+      "identical": true,
+      "windowsSha256": "fd2a1d24d6c52fa61145ea003671e2232c9d91128e6126d15905e68a986a56ea",
+      "worktreeSha256": "fd2a1d24d6c52fa61145ea003671e2232c9d91128e6126d15905e68a986a56ea"
+    },
+    {
+      "start": "async function readTabEmulation",
+      "end": "// --- Real Chrome zoom",
+      "identical": true,
+      "windowsSha256": "bc6914340aab9391a37bfb27c16df353d35426260763cb445a798e6ad36febfe",
+      "worktreeSha256": "bc6914340aab9391a37bfb27c16df353d35426260763cb445a798e6ad36febfe"
+    }
+  ]
+}

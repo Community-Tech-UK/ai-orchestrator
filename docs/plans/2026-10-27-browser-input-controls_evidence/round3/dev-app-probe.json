@@ -1,0 +1,47 @@
+{
+  "at": "2026-10-27T14:21:28.226Z",
+  "url": "http://localhost:4752/setup",
+  "commands": [
+    {
+      "method": "Emulation.setFocusEmulationEnabled",
+      "result": {}
+    },
+    {
+      "method": "Emulation.setPageVisibilityOverride",
+      "error": "Protocol error (Emulation.setPageVisibilityOverride): 'Emulation.setPageVisibilityOverride' wasn't found"
+    }
+  ],
+  "state": {
+    "hidden": false,
+    "visibility": "visible",
+    "rootPresent": true,
+    "renderedTextLength": 1027,
+    "ipc": {
+      "success": true,
+      "status": "ready",
+      "controls": {
+        "press_key": {
+          "sharedTabs": true,
+          "managedProfiles": true,
+          "mechanism": "native keystrokes (CDP Input.dispatchKeyEvent on shared tabs, CDP keyboard on managed profiles); named keys only — type text with browser.type"
+        },
+        "set_viewport": {
+          "sharedTabs": true,
+          "managedProfiles": true,
+          "windowScope": "scope 'window' (real Chrome window resize) is shared-tab only and reports the affected window, its other tabs and retained original bounds; managed profiles support scope 'tab' emulation only"
+        },
+        "set_zoom": {
+          "sharedTabs": true,
+          "managedProfiles": false,
+          "mechanism": "real Chrome zoom via chrome.tabs.setZoom with per-tab zoom settings (original factor and settings preserved for reset); managed profiles have no browser-zoom surface and CSS zoom/transforms/device-scale are never substituted"
+        }
+      },
+      "remoteExtensions": {
+        "total": 0,
+        "ready": 0,
+        "silent": 0,
+        "nodes": []
+      }
+    }
+  }
+}

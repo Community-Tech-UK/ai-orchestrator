@@ -1,0 +1,36 @@
+[
+  {
+    "app": {
+      "hidden": false,
+      "title": "",
+      "url": "chrome-error://chromewebdata/",
+      "root": false,
+      "textLength": 0,
+      "health": true
+    }
+  },
+  {
+    "key": "Tab",
+    "modifiers": [],
+    "focus": "lt-first"
+  },
+  {
+    "key": "Tab",
+    "modifiers": [],
+    "focus": "lt-second"
+  },
+  {
+    "key": "Tab",
+    "modifiers": [
+      "Shift"
+    ],
+    "focus": "lt-first"
+  },
+  {
+    "enterHash": ""
+  },
+  {
+    "result": "FAIL",
+    "error": "Enter failed"
+  }
+]

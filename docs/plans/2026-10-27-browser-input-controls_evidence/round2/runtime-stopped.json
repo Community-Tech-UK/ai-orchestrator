@@ -1,0 +1,12 @@
+[
+  {
+    "pid": 37149,
+    "name": "renderer",
+    "alive": false
+  },
+  {
+    "pid": 37153,
+    "name": "dev-app",
+    "alive": false
+  }
+]

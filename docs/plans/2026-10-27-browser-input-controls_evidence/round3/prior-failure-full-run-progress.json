@@ -1,0 +1,36 @@
+{
+  "at": "2026-10-27T16:00:45.811228+00:00",
+  "priorFailureFileCount": 6,
+  "results": [
+    {
+      "file": "scripts/__tests__/dependency-compatibility.spec.ts",
+      "passedFileSummary": " \u2713 |main| scripts/__tests__/dependency-compatibility.spec.ts (5 tests) 1960ms",
+      "qualification": "File summary in unfinished full run; not an overall suite pass."
+    },
+    {
+      "file": "src/main/browser-gateway/browser-secret-observation-protection-extension.spec.ts",
+      "passedFileSummary": " \u2713 |main| src/main/browser-gateway/browser-secret-observation-protection-extension.spec.ts (8 tests) 39ms",
+      "qualification": "File summary in unfinished full run; not an overall suite pass."
+    },
+    {
+      "file": "src/main/browser-gateway/browser-secret-observation-recovery.spec.ts",
+      "passedFileSummary": " \u2713 |main| src/main/browser-gateway/browser-secret-observation-recovery.spec.ts (10 tests) 63ms",
+      "qualification": "File summary in unfinished full run; not an overall suite pass."
+    },
+    {
+      "file": "src/main/browser-gateway/browser-secret-operator-recovery.spec.ts",
+      "passedFileSummary": " \u2713 |main| src/main/browser-gateway/browser-secret-operator-recovery.spec.ts (20 tests) 173ms",
+      "qualification": "File summary in unfinished full run; not an overall suite pass."
+    },
+    {
+      "file": "src/main/operator/git-batch-service.spec.ts",
+      "passedFileSummary": " \u2713 |main| src/main/operator/git-batch-service.spec.ts (3 tests) 13899ms",
+      "qualification": "File summary in unfinished full run; not an overall suite pass."
+    },
+    {
+      "file": "src/main/orchestration/default-loop-native-finality.spec.ts",
+      "passedFileSummary": " \u2713 |main| src/main/orchestration/default-loop-native-finality.spec.ts (8 tests) 1399ms",
+      "qualification": "File summary in unfinished full run; not an overall suite pass."
+    }
+  ]
+}

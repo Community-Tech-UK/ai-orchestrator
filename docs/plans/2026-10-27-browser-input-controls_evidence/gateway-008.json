@@ -1,0 +1,185 @@
+[
+  {
+    "at": "2026-10-27T12:49:31.504Z",
+    "label": "check5-viewport-baseline",
+    "name": "browser.set_viewport",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"read\",\"scope\":\"tab\",\"actual\":{\"innerWidth\":2558,\"innerHeight\":1270},\"emulation\":{\"width\":0,\"height\":0,\"deviceScaleFactor\":1},\"previous\":{\"emulationActive\":false}},\"auditId\":\"cbdecfc5-ceab-4979-9585-940ac80e0567\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:49:31.520Z",
+    "label": "check5-window-baseline",
+    "name": "browser.set_viewport",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "scope": "window"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"read\",\"scope\":\"window\",\"actual\":{\"innerWidth\":2558,\"innerHeight\":1270},\"window\":{\"windowId\":771587906,\"otherTabIds\":[771588487,771588443,771588447,771588450,771588453,771588456,771588459,771588464,771588467,771588470,771588477,771588484,771588488,771588491,771588494,771588497,771588500,771588503,771588506,771588509,771588532,771588539,771588542,771588551,771588558,771588564,771588567,771588575,771588578,771588581,771588584,771588595,771588604,771588627,771588616,771588622,771588630,771588633,771588636,771588639,771588674,771588677,771588680,771588683,771588686,771588692,771588703,771588727,771588736,771588739,771588746],\"bounds\":{\"left\":0,\"top\":0,\"width\":0,\"height\":0}}},\"auditId\":\"709a3b1e-5ac6-4d5f-8783-de203bd09c82\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:49:31.547Z",
+    "label": "check5-zoom-baseline",
+    "name": "browser.set_zoom",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"read\",\"zoomFactor\":1,\"zoomPercent\":100,\"previousZoomFactor\":1,\"zoomScope\":\"per-origin\",\"previousZoomScope\":\"per-origin\",\"viewport\":{\"innerWidth\":2558,\"innerHeight\":1270}},\"auditId\":\"ca56bcc1-daec-4f9f-98b6-22930977fc57\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:49:32.173Z",
+    "label": "ordinary-click-activates",
+    "name": "browser.click",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "selector": "#harmless-link",
+      "actionHint": "activate the harmless link",
+      "expectUrlChange": true
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":null,\"auditId\":\"24cfe093-e9e6-4def-8ed0-5852c6db90fe\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:49:32.417Z",
+    "label": "ordinary-navigation",
+    "name": "browser.navigate",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "url": "http://192.168.0.96:18752/phase-five"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":null,\"auditId\":\"4051ad9e-6e5a-4667-8a6f-ec3cb7410256\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:49:32.526Z",
+    "label": "ordinary-form-fill",
+    "name": "browser.fill_form",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "fields": [
+        {
+          "selector": "#first",
+          "value": "benign first",
+          "verify": {
+            "value": "benign first"
+          }
+        },
+        {
+          "selector": "#second",
+          "value": "benign second",
+          "verify": {
+            "value": "benign second"
+          }
+        }
+      ]
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":null,\"auditId\":\"892599dc-5920-44b6-83bb-ef411e436db1\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:49:32.554Z",
+    "label": "ordinary-form-read",
+    "name": "browser.query_elements",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "query": "harmless field",
+      "limit": 4
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":[{\"selector\":\"#first\",\"tagName\":\"INPUT\",\"role\":\"input\",\"accessibleName\":\"First harmless field\",\"inputType\":\"text\",\"value\":\"benign first\"},{\"selector\":\"#second\",\"tagName\":\"INPUT\",\"role\":\"input\",\"accessibleName\":\"Second harmless field\",\"inputType\":\"text\",\"value\":\"benign second\"}],\"auditId\":\"6afeef15-e58e-4f7d-b41d-8fae853942d0\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:49:32.616Z",
+    "label": "credential-negative-guard",
+    "name": "browser.fill_credential",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "vaultItemRef": "fixture-placeholder-no-saved-login",
+      "fields": [
+        {
+          "selector": "#first",
+          "kind": "username"
+        }
+      ]
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"denied\",\"outcome\":\"not_run\",\"data\":null,\"reason\":\"credential_not_authorized:origin_not_authorized: browser.fill_credential is not authorized for http://192.168.0.96:18752 (login). A session grant from browser.request_grant does not cover credential fill. This scope already covers: https://procontract.due-north.com, https://auth.reportmi.gca.gov.uk, https://www.delta-esourcing.com, https://etenderwales.ukp.app.jaggaer.com, https://tenders.diamond.ac.uk, https://education.app.jaggaer.com, https://www.etenders.gov.ie, https://e-sourcingni.ukp.app.jaggaer.com. Call browser.request_credential_access with this profileId, targetId, exact saved login name and reason. Wait for its approved status, then retry secure fill. It works without the shell CLI connection.\",\"auditId\":\"99ae57dc-882b-4f14-95ca-240bc7835166\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:49:32.647Z",
+    "label": "snapshot-regression",
+    "name": "browser.snapshot",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"title\":\"Harmless input controls fixture\",\"url\":\"http://192.168.0.96:18752/phase-five\",\"text\":\"Harmless input controls fixture\\n\\nFixture session: [REDACTED]\\n\\nActivations: 1\\n\\nHarmless link\\nFixture navigation\\nFirst column\\tMiddle column\\tLast column\\nHarmless value one\\tHarmless value two\\tHarmless value three\\n\\nContent 2558 x 1214\",\"renderer\":\"unknown\"},\"auditId\":\"e398c5f3-2e08-40a8-a78c-4c91a5724ddb\"}"
+        }
+      ]
+    }
+  }
+]

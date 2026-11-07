@@ -1,0 +1,9 @@
+{
+  "at": "2026-10-27",
+  "command": "upload_to_node",
+  "node": "windows-pc",
+  "path": "documents/Work/orchestrat0r/ai-orchestrator/resources/browser-extension/background.js",
+  "exitCode": 1,
+  "error": "remote_write_refused: Remote write refused for documents/Work/orchestrat0r/ai-orchestrator/resources/browser-extension/background.js",
+  "mutationApplied": false
+}

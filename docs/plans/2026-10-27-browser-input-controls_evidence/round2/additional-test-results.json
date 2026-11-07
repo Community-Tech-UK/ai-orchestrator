@@ -1,0 +1,159 @@
+[
+  {
+    "label": "outside-scope-rerun",
+    "summary": {
+      "success": false,
+      "numPassedTests": 13,
+      "numFailedTests": 3,
+      "numTotalTests": 16
+    },
+    "files": [
+      {
+        "file": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/scripts/__tests__/dependency-compatibility.spec.ts",
+        "status": "failed",
+        "failures": [
+          {
+            "name": "dependency compatibility keeps the installed production tree valid",
+            "messages": [
+              "AssertionError: node_modules is linked from /Users/suas/work/orchestrat0r/ai-orchestrator, whose manifests differ; run a real install here: expected [ 'package.json', 'package-lock.json' ] to deeply equal []\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/scripts/__tests__/dependency-compatibility.spec.ts:183:7\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new ZoneAwarePromise (/Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/zone.js/fesm2015/zone.js:2238:23)\n    at runWithCancel (file:///Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new ZoneAwarePromise (/Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/zone.js/fesm2015/zone.js:2238:23)\n    at runWithTimeout (file:///Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64"
+            ]
+          }
+        ]
+      },
+      {
+        "file": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/src/main/operator/git-batch-service.spec.ts",
+        "status": "passed",
+        "failures": []
+      },
+      {
+        "file": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/src/main/orchestration/default-loop-native-finality.spec.ts",
+        "status": "failed",
+        "failures": [
+          {
+            "name": "native finality 'partial-paused'",
+            "messages": [
+              "AssertionError: expected false to be true // Object.is equality\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/src/main/orchestration/default-loop-native-finality.spec.ts:109:26"
+            ]
+          },
+          {
+            "name": "native finality 'partial-no-native-cost'",
+            "messages": [
+              "AssertionError: expected false to be true // Object.is equality\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/src/main/orchestration/default-loop-native-finality.spec.ts:109:26"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "label": "clean-install-focused",
+    "summary": {
+      "success": false,
+      "numPassedTests": 232,
+      "numFailedTests": 3,
+      "numTotalTests": 235
+    },
+    "files": [
+      {
+        "file": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/scripts/__tests__/dependency-compatibility.spec.ts",
+        "status": "passed",
+        "failures": []
+      },
+      {
+        "file": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/src/main/browser-gateway/browser-credential-dispatch-boundary.spec.ts",
+        "status": "passed",
+        "failures": []
+      },
+      {
+        "file": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/src/main/browser-gateway/browser-extension-assets.spec.ts",
+        "status": "passed",
+        "failures": []
+      },
+      {
+        "file": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/src/main/browser-gateway/browser-input-control-operations.spec.ts",
+        "status": "passed",
+        "failures": []
+      },
+      {
+        "file": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/src/main/browser-gateway/browser-secret-observation-protection-extension.spec.ts",
+        "status": "passed",
+        "failures": []
+      },
+      {
+        "file": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/src/main/browser-gateway/browser-secret-observation-recovery.spec.ts",
+        "status": "passed",
+        "failures": []
+      },
+      {
+        "file": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/src/main/browser-gateway/browser-secret-operator-recovery.spec.ts",
+        "status": "passed",
+        "failures": []
+      },
+      {
+        "file": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/src/main/orchestration/default-loop-native-finality.spec.ts",
+        "status": "failed",
+        "failures": [
+          {
+            "name": "native finality 'partial-unpaused'",
+            "messages": [
+              "AssertionError: expected false to be true // Object.is equality\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/src/main/orchestration/default-loop-native-finality.spec.ts:109:26"
+            ]
+          },
+          {
+            "name": "native finality 'partial-no-native-cost'",
+            "messages": [
+              "AssertionError: expected { source: 'one-shot', \u2026(11) } to match object { outcome: 'error', \u2026(1) }\n(13 matching properties omitted from actual)\n    at Proxy.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/node_modules/@vitest/expect/dist/index.js:1283:10)\n    at Proxy.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/node_modules/@vitest/expect/dist/index.js:1156:15)\n    at Proxy.methodWrapper (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/node_modules/chai/index.js:1737:25)\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/src/main/orchestration/default-loop-native-finality.spec.ts:117:21"
+            ]
+          },
+          {
+            "name": "native finality 'partial-native-error'",
+            "messages": [
+              "AssertionError: expected 'Claude CLI timeout' to be 'Claude CLI reported error_during_exec\u2026' // Object.is equality\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/src/main/orchestration/default-loop-native-finality.spec.ts:116:37"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "label": "focused-closing",
+    "summary": {
+      "success": true,
+      "numPassedTests": 222,
+      "numFailedTests": 0,
+      "numTotalTests": 222
+    },
+    "files": [
+      {
+        "file": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/src/main/browser-gateway/browser-credential-dispatch-boundary.spec.ts",
+        "status": "passed",
+        "failures": []
+      },
+      {
+        "file": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/src/main/browser-gateway/browser-extension-assets.spec.ts",
+        "status": "passed",
+        "failures": []
+      },
+      {
+        "file": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/src/main/browser-gateway/browser-input-control-operations.spec.ts",
+        "status": "passed",
+        "failures": []
+      },
+      {
+        "file": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/src/main/browser-gateway/browser-secret-observation-protection-extension.spec.ts",
+        "status": "passed",
+        "failures": []
+      },
+      {
+        "file": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/src/main/browser-gateway/browser-secret-observation-recovery.spec.ts",
+        "status": "passed",
+        "failures": []
+      },
+      {
+        "file": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/src/main/browser-gateway/browser-secret-operator-recovery.spec.ts",
+        "status": "passed",
+        "failures": []
+      }
+    ]
+  }
+]

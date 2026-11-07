@@ -1,0 +1,8 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"closed\":true,\"remainingTabCount\":40,\"profileId\":\"existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588783\",\"targetId\":\"existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588783:target\",\"inspectionState\":\"inspection_unavailable\"},\"auditId\":\"115c4d74-20a1-4df1-ae9e-fa0f79a6eb70\"}"
+    }
+  ]
+}

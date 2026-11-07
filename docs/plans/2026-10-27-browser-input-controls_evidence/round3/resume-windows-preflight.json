@@ -1,0 +1,160 @@
+{
+  "at": "2026-10-27T15:35:00.131Z",
+  "health": {
+    "decision": "allowed",
+    "outcome": "succeeded",
+    "checkedAt": 1793115250996,
+    "remote": {
+      "total": 1,
+      "ready": 1,
+      "silent": 0,
+      "nodes": [
+        {
+          "nodeId": "bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be",
+          "nodeName": "windows-pc",
+          "enabled": true,
+          "running": true,
+          "silent": false,
+          "channelState": "fresh",
+          "commandsDeliverable": true,
+          "lastContactAt": 1793115243037,
+          "contactAgeMs": 7955,
+          "coordinatorPollAgeMs": 7955,
+          "relayContactAgeMs": 16361,
+          "connectionFlap": {
+            "stormActive": false,
+            "replacesInWindow": 0,
+            "windowMs": 300000
+          },
+          "queue": {
+            "queuedCount": 0,
+            "inFlightCount": 0,
+            "waitingPollerCount": 2
+          },
+          "contactGaps": {
+            "gapCount": 0,
+            "longestGapMs": 0
+          },
+          "serviceWorkerRestarts": 0,
+          "registration": "ok",
+          "lastRegistrationCheckAt": 1793115240911,
+          "secretObservation": {
+            "reported": true,
+            "protectionEnabled": false,
+            "taintedOriginCount": 0,
+            "taintedTabCount": 0,
+            "observedAt": 1793115241752,
+            "ageMs": 9240
+          }
+        }
+      ]
+    },
+    "controls": {
+      "press_key": {
+        "sharedTabs": true,
+        "managedProfiles": true,
+        "mechanism": "native keystrokes (CDP Input.dispatchKeyEvent on shared tabs, CDP keyboard on managed profiles); named keys only \u2014 type text with browser.type"
+      },
+      "set_viewport": {
+        "sharedTabs": true,
+        "managedProfiles": true,
+        "windowScope": "scope 'window' (real Chrome window resize) is shared-tab only and reports the affected window, its other tabs and retained original bounds; managed profiles support scope 'tab' emulation only"
+      },
+      "set_zoom": {
+        "sharedTabs": true,
+        "managedProfiles": false,
+        "mechanism": "real Chrome zoom via chrome.tabs.setZoom with per-tab zoom settings (original factor and settings preserved for reset); managed profiles have no browser-zoom surface and CSS zoom/transforms/device-scale are never substituted"
+      }
+    }
+  },
+  "windows": {
+    "id": "bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be",
+    "name": "windows-pc",
+    "status": "connected",
+    "extensionRelay": {
+      "enabled": true,
+      "running": true,
+      "socketPath": "\\\\.\\pipe\\ai-orchestrator-browser-gateway",
+      "registration": "ok",
+      "lastRegistrationCheckAt": 1793115240911,
+      "manifestPath": "C:\\Users\\shutu\\AppData\\Local\\Google\\Chrome\\NativeMessagingHosts\\com.ai_orchestrator.browser_gateway_relay.json",
+      "extensionVersion": "0.2.43",
+      "extensionReloadedAt": 1793096731491,
+      "lastExtensionContactAt": 1793115274033,
+      "forwardsRuntimeEvidence": true
+    },
+    "fileTransfer": {
+      "enabled": true,
+      "maxFileBytes": 52428800,
+      "roots": [
+        {
+          "id": "browserDownloads",
+          "label": "Browser Downloads",
+          "path": "C:\\Users\\shutu\\.orchestrator\\browser-automation-profile\\Downloads",
+          "read": true,
+          "write": false
+        },
+        {
+          "id": "scratch",
+          "label": "AIO Scratch",
+          "path": "C:\\Users\\shutu\\.orchestrator\\_scratch\\aio-transfers",
+          "read": true,
+          "write": true
+        },
+        {
+          "id": "downloads",
+          "label": "Downloads",
+          "path": "C:\\Users\\shutu\\Downloads",
+          "read": true,
+          "write": false
+        },
+        {
+          "id": "documents",
+          "label": "Documents",
+          "path": "C:\\Users\\shutu\\Documents",
+          "read": true,
+          "write": false
+        },
+        {
+          "id": "desktop",
+          "label": "Desktop",
+          "path": "C:\\Users\\shutu\\Desktop",
+          "read": true,
+          "write": false
+        },
+        {
+          "id": "browser-uploads",
+          "label": "Browser upload staging (safety net until fix confirmed live)",
+          "path": "C:\\Users\\shutu\\Documents\\Work\\_scratch",
+          "read": true,
+          "write": true
+        }
+      ]
+    }
+  },
+  "preflight": {
+    "decision": "allowed",
+    "outcome": "succeeded",
+    "auditId": "543bff52-b537-4bbb-b890-ac1b35e8f136",
+    "selected": {
+      "channel": "remote-extension",
+      "computer": "windows-pc",
+      "usesRealUserSession": true,
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588488:target",
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588488",
+      "url": "http://100.68.10.5:52215/app/today",
+      "title": "Today | Community Tech Work Finder"
+    },
+    "summary": "Selected a remote-extension tab on \"windows-pc\" on the same site; rejected 91 other target(s).",
+    "fixtureWasExactMatch": false
+  },
+  "actions": {
+    "openedTab": false,
+    "navigatedTab": false,
+    "mutatedViewport": false,
+    "mutatedZoom": false,
+    "deployed": false,
+    "dingley": false
+  },
+  "reason": "Preflight's selected tab is unrelated (same host, different port); it was not reused. Installed extension remains 0.2.43, repair is 0.2.45; current destination remains read-only. No repeat of refused write or alternate shell bypass."
+}

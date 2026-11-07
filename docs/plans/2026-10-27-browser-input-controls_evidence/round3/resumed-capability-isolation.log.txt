@@ -1,0 +1,6 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/worker-agent/__tests__/capability-reporter.spec.ts
+
+✓ 1 files · 2 tests passed in 9.3s
+  full log: _scratch/test-run.round3-resumed-capability-isolation.log

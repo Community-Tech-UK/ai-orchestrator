@@ -1,0 +1,27 @@
+import http from 'node:http';
+let activations = 0;
+const page = `<!doctype html><html><head><meta charset="utf-8"><title>LT fixture</title>
+<style>
+ :focus{outline:4px solid orange;outline-offset:2px}
+ nav{display:block}
+ #menu{display:none}
+ @media (max-width:800px){ nav{display:none} #menu{display:inline-block} }
+ .wide{overflow-x:auto;max-width:100%}
+ table{width:1600px;border-collapse:collapse}
+ td,th{border:1px solid #888;padding:4px;min-width:120px}
+</style></head><body>
+<h1>Harmless fixture</h1>
+<label>First <input id="first" type="text"></label>
+<label>Second <input id="second" type="text"></label>
+<button id="menu" aria-expanded="false" onclick="this.setAttribute('aria-expanded', this.getAttribute('aria-expanded')==='true'?'false':'true'); document.getElementById('nav').style.display = this.getAttribute('aria-expanded')==='true' ? 'block':'none'">Menu</button>
+<nav id="nav"><a id="harmless-link" href="/activated">Harmless link</a></nav>
+<div class="wide" id="wide-wrap"><table id="wide"><tr>${Array.from({length:12},(_,i)=>`<th>Col ${i+1}</th>`).join('')}</tr><tr>${Array.from({length:12},(_,i)=>`<td>Cell ${i+1}</td>`).join('')}</tr></table></div>
+</body></html>`;
+const server = http.createServer((req, res) => {
+  const url = new URL(req.url, 'http://x');
+  if (url.pathname === '/activated') { activations += 1; res.writeHead(200, {'content-type':'text/html; charset=utf-8'}); res.end(`<!doctype html><title>activated</title><p>activated ${activations}</p>`); return; }
+  if (url.pathname === '/metrics') { res.writeHead(200, {'content-type':'application/json'}); res.end(JSON.stringify({activations})); return; }
+  if (url.pathname === '/' ) { res.writeHead(200, {'content-type':'text/html; charset=utf-8'}); res.end(page); return; }
+  res.writeHead(404); res.end('not found');
+});
+server.listen(18752, '0.0.0.0', () => console.log('listening', JSON.stringify(server.address())));

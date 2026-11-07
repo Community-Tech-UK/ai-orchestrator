@@ -1,0 +1,32 @@
+{
+  "at": "2026-10-27T14:25:19.098Z",
+  "processes": [
+    {
+      "pid": 47450,
+      "alive": false,
+      "errorCode": "ESRCH"
+    },
+    {
+      "pid": 47680,
+      "alive": false,
+      "errorCode": "ESRCH"
+    }
+  ],
+  "ports": [
+    {
+      "port": 9752,
+      "open": false,
+      "errorCode": "ECONNREFUSED"
+    },
+    {
+      "port": 4752,
+      "open": false,
+      "errorCode": "ECONNREFUSED"
+    },
+    {
+      "port": 18752,
+      "open": false,
+      "errorCode": "ECONNREFUSED"
+    }
+  ]
+}

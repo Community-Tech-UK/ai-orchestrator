@@ -1,0 +1,30 @@
+{
+  "at": "2026-10-27T15:54:24.559172+00:00",
+  "kind": "read-only source investigation; no updater triggered",
+  "repositoryPath": [
+    "src/worker-agent/index.ts:203 -> startWorkerSelfUpdate",
+    "src/worker-agent/worker-self-update-wiring.ts:50 -> WorkerSelfUpdater -> start",
+    "worker-self-update.ts planUpdate fetches refs and resolves @{u}; check/apply wait until quiet; apply fast-forwards and rebuilds candidate",
+    "worker-extension-relay.ts:568/579 adds expected extension version to poll replies; background.js:1396 reloads expected version"
+  ],
+  "observedRuntime": "The scoped roster receipt reports waiting_for_idle and installed extension 0.2.43; source inspection is not attestation of the running worker bundle bytes.",
+  "conclusion": "Normal deployment exists; feeding this private queue repair through integration/publish or another granted installation route is outside this worker's authority. No root write refusal was bypassed. No upstream push, worker restart or extension reload was performed.",
+  "files": [
+    {
+      "path": "src/worker-agent/index.ts",
+      "sha256": "e2be6e1e5ac6fbe72a5df1eb32227229356ee1ba035cebe47d892e9eb64d1174"
+    },
+    {
+      "path": "src/worker-agent/worker-self-update-wiring.ts",
+      "sha256": "e97dcbc3b2a0b088d74f0dc60f0d364b0db2d0b556c51a9eb44257f915af300d"
+    },
+    {
+      "path": "src/worker-agent/worker-self-update.ts",
+      "sha256": "4269f8258e4a3016084b6b1c8d38dfb0bad0e4ed6a99839d54998e0b2625ff3b"
+    },
+    {
+      "path": "src/worker-agent/worker-extension-relay.ts",
+      "sha256": "4397bf698f0d381b99ae2eafb6dd9c9c82c4e76985133842872ee43d3099aa6e"
+    }
+  ]
+}

@@ -1,0 +1,117 @@
+{
+  "at": "2026-10-27T16:16:16.424053+00:00",
+  "partialAttempts": [
+    {
+      "command": [
+        "python3",
+        "_scratch/lt-input-round3/cleanup-resume.py"
+      ],
+      "exitCode": 1,
+      "error": "ENOTEMPTY at node_modules; only .DS_Store remained"
+    },
+    {
+      "command": [
+        "python3",
+        "_scratch/lt-input-round3/cleanup-resume.py"
+      ],
+      "exitCode": 1,
+      "error": "ENOTEMPTY at dist/src; only .DS_Store remained",
+      "originalDependenciesRestoredBeforeThisFailure": true,
+      "preAndPostMoveLinkDigestAssertionPassed": true
+    }
+  ],
+  "finalCommand": [
+    "python3",
+    "_scratch/lt-input-round3/finish-cleanup.py"
+  ],
+  "finalCommandExitCode": 0,
+  "metadataOnlyRmdirRetries": [
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/dist/.DS_Store"
+  ],
+  "deleted": [
+    "branch-specific node_modules removed by prior cleanup; original dependency links already restored",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/dist",
+    "/tmp/aio-lt-queue-07419a7c",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/_scratch/lt-input-controls-20261027",
+    "_scratch/test-run.round3-focused-recovery.log",
+    "_scratch/test-run.round3-full-suite.log",
+    "_scratch/test-results.round3-focused.json",
+    "_scratch/test-run.round3-focused.log",
+    "_scratch/test-results.round3-resumed-full-suite.json",
+    "_scratch/test-results.round3-resumed-capability-isolation.json",
+    "_scratch/test-results.round3-prior-failures.json",
+    "_scratch/test-results.round3-focused-recovery.json",
+    "_scratch/test-run.round3-resumed-capability-isolation.log",
+    "_scratch/test-run.round3-prior-failures.log",
+    "_scratch/test-run.round3-resumed-full-suite.log",
+    "_scratch/lt-input-round3"
+  ],
+  "ownedProcesses": [
+    {
+      "pid": 47450,
+      "alive": false
+    },
+    {
+      "pid": 47680,
+      "alive": false
+    }
+  ],
+  "ports": [
+    {
+      "port": 9752,
+      "open": false
+    },
+    {
+      "port": 4752,
+      "open": false
+    },
+    {
+      "port": 18752,
+      "open": false
+    }
+  ],
+  "profileAbsent": true,
+  "distAbsent": true,
+  "ownedScratchAbsent": true,
+  "originalLinkedDependenciesRestored": true,
+  "restoredDependencyLinkCount": 1165,
+  "restoredDependencyLinkDigest": "81b14c1a72e6895cfd987dbfcf7f9983fedc27b66a87f3b6eb7cdabb8e90d9fa",
+  "deletedScriptHashes": {
+    "_scratch/lt-input-round3/dev-probe.mjs": "97a4033be52aabdbeb040a560c90dc9f020c56de460f9cde8e35346012e1a5e3",
+    "_scratch/lt-input-round3/.DS_Store": "c1aa6522ab8dd90f2db82b640911b8ba4761fb895412862b9c0182d0b28bad89",
+    "_scratch/lt-input-round3/aio.mjs": "9b41b7fad143b342415017f26581c594a6360fe8cb2ad4e4df757d1b380b9b82",
+    "_scratch/lt-input-round3/finish-cleanup.py": "b91d27c9bd7b4e833c131f1b49d51d41492edb069797f5813a07ee3ab9149b7b",
+    "_scratch/lt-input-round3/stop-runtime": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "_scratch/lt-input-round3/runtime.mjs": "6b6ff714858d5e282eda6a81c21ef8a76cbb366bbad14067e9bb9bc488a585cc",
+    "_scratch/lt-input-round3/gates.mjs": "e8625030d69923f50062f3eedfbd1f2505061b48545d10ae7014589244d54efe",
+    "_scratch/lt-input-round3/preserve-results.mjs": "acebe4d98ba368aa4f296198b28c9dc3af482b146c50dec41a19178a112a0baa",
+    "_scratch/lt-input-round3/cleanup-resume.py": "cd84fe400639834417c70f7dadafcc267d919bd189518c3e7af8995d88b31d20",
+    "_scratch/lt-input-round3/finalize-resume.py": "2bb71924ef090872e7e9944c5351f372f0f6a424f60789f741c737f0ee4dba8f",
+    "_scratch/lt-input-round3/full-gate.mjs": "9e58b0369e82e735d5f6ee2301f3d4d8157e251b0a9d73e2c62566cb31720004",
+    "_scratch/lt-input-round3/run-command.mjs": "0ee3f8e6ea82247799a77d0f3d83818c4f1b6dca5bed8be95a7243dd7de234a3"
+  },
+  "reportSha256": "35d8976bba6d4c2e416c39d502e649f9bba328088e1aecca36634be813bcd400",
+  "preDeletionSealSha256": "c7d8a8159928532db9db006396d64476a2a35fb4953d5ba7ba999d204d61df30",
+  "manifestSha256": "3e68c658513393a98a26d54179f9b57800ca952d2f068cef66c3d333fc465c85",
+  "git": {
+    "branch": "queue/2026-10-14-browser-gateway-inp-419a7c",
+    "matchingBranch": "* queue/2026-10-14-browser-gateway-inp-419a7c",
+    "ownWorktreeStillRegistered": true,
+    "stagedPaths": [],
+    "status": "M docs/plans/2026-10-27-browser-input-controls_evidence/round3/REPORT.md\n M docs/plans/2026-10-27-browser-input-controls_evidence/round3/command-receipts.jsonl\n M docs/plans/2026-10-27-browser-input-controls_evidence/round3/test-results.json\n?? docs/plans/2026-10-27-browser-input-controls_evidence/round3/capability-timeout-investigation.json\n?? docs/plans/2026-10-27-browser-input-controls_evidence/round3/closing-windows-roster.json\n?? docs/plans/2026-10-27-browser-input-controls_evidence/round3/integration-manifest.json\n?? docs/plans/2026-10-27-browser-input-controls_evidence/round3/interrupted-full-suite-status.json\n?? docs/plans/2026-10-27-browser-input-controls_evidence/round3/local-review.json\n?? docs/plans/2026-10-27-browser-input-controls_evidence/round3/prior-failure-full-run-progress.json\n?? docs/plans/2026-10-27-browser-input-controls_evidence/round3/resume-windows-preflight.json\n?? docs/plans/2026-10-27-browser-input-controls_evidence/round3/resumed-capability-isolation.log.txt\n?? docs/plans/2026-10-27-browser-input-controls_evidence/round3/resumed-full-suite-progress.jsonl\n?? docs/plans/2026-10-27-browser-input-controls_evidence/round3/resumed-full-suite-result.json\n?? docs/plans/2026-10-27-browser-input-controls_evidence/round3/resumed-full-suite.log.txt\n?? docs/plans/2026-10-27-browser-input-controls_evidence/round3/source-check-seal.json\n?? docs/plans/2026-10-27-browser-input-controls_evidence/round3/test-results.round3-resumed-capability-isolation.json.redacted.gz\n?? docs/plans/2026-10-27-browser-input-controls_evidence/round3/test-results.round3-resumed-full-suite.json.redacted.gz\n?? docs/plans/2026-10-27-browser-input-controls_evidence/round3/test-run.round3-full-suite.log.redacted.gz\n?? docs/plans/2026-10-27-browser-input-controls_evidence/round3/test-run.round3-resumed-capability-isolation.log.redacted.gz\n?? docs/plans/2026-10-27-browser-input-controls_evidence/round3/test-run.round3-resumed-full-suite.log.redacted.gz\n?? docs/plans/2026-10-27-browser-input-controls_evidence/round3/update-route-investigation.json"
+  },
+  "operations": {
+    "commit": false,
+    "stash": false,
+    "branchChange": false,
+    "worktreeChange": false,
+    "completedRename": false,
+    "productionDeployment": false,
+    "dingleyInteraction": false
+  },
+  "leftInPlace": [
+    "AIO-managed worktree",
+    "original linked dependencies",
+    "report, seal and evidence receipts"
+  ]
+}

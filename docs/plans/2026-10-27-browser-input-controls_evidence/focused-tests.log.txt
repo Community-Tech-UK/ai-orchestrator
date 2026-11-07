@@ -1,0 +1,6 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/browser-gateway/browser-input-control-operations.spec.ts src/main/browser-gateway/browser-action-classifier.spec.ts src/main/browser-gateway/browser-credential-dispatch-boundary.spec.ts
+
+✓ 3 files · 68 tests passed in 6.7s
+  full log: _scratch/test-run.pid-20662.log

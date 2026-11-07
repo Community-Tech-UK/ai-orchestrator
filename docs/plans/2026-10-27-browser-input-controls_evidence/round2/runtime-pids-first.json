@@ -1,0 +1,13 @@
+{
+  "supervisor": 90274,
+  "children": [
+    {
+      "pid": 90275,
+      "name": "renderer"
+    },
+    {
+      "pid": 90276,
+      "name": "dev-app"
+    }
+  ]
+}

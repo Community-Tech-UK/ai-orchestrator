@@ -1,0 +1,1 @@
+Own dev app rendered and health IPC succeeded after focus emulation; no paired Windows worker in isolated profile.

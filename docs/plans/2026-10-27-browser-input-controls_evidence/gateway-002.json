@@ -1,0 +1,118 @@
+[
+  {
+    "at": "2026-10-27T12:46:47.767Z",
+    "label": "inspect-key-events",
+    "name": "browser.evaluate",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "expression": "({focus:document.activeElement.id,keyboard:document.querySelector('#keyboard').textContent,first:document.querySelector('#first').getBoundingClientRect().toJSON(),links:[...document.querySelectorAll('a')].map(x=>x.href),history:history.length})",
+      "actionHint": "Read fixture keyboard event readback and focused control"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"type\":\"object\",\"json\":\"{\\\"first\\\":{\\\"bottom\\\":244.21875,\\\"height\\\":52,\\\"left\\\":189.53125,\\\"right\\\":420.53125,\\\"top\\\":192.21875,\\\"width\\\":231,\\\"x\\\":189.53125,\\\"y\\\":192.21875},\\\"focus\\\":\\\"harmless-link\\\",\\\"history\\\":1,\\\"keyboard\\\": \\\"[REDACTED]\\\",\\\"links\\\":[\\\"http://192.168.0.96:18752/activate?request=1\\\"]}\"},\"auditId\":\"89adecbf-6652-4804-8341-57d67f9b9242\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:46:47.867Z",
+    "label": "focus-first-field",
+    "name": "browser.type",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "selector": "#first",
+      "value": "fixture"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":null,\"auditId\":\"43e1b60e-7f52-49f7-8c5e-8b862f906284\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:46:47.944Z",
+    "label": "advance-from-field",
+    "name": "browser.press_key",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "key": "Tab",
+      "idempotencyKey": "lt-20261027-tab-from-first"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"applied\":true,\"key\":\"Tab\",\"modifiers\":[],\"focus\":{\"tagName\":\"INPUT\",\"id\":\"first\",\"type\":\"text\",\"ariaLabel\":\"First harmless field\"},\"url\":\"http://192.168.0.96:18752/\",\"title\":\"Harmless input controls fixture\"},\"auditId\":\"34e2ddef-1357-4e4a-935d-f2ebeb385fab\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:46:48.054Z",
+    "label": "inspect-from-field",
+    "name": "browser.evaluate",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "expression": "({focus:document.activeElement.id,keyboard:document.querySelector('#keyboard').textContent,hidden:document.hidden})",
+      "actionHint": "Read fixture focus after native Tab"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"type\":\"object\",\"json\":\"{\\\"focus\\\":\\\"first\\\",\\\"hidden\\\":false,\\\"keyboard\\\": \\\"[REDACTED]\\\"}\"},\"auditId\":\"bd709fc3-8e51-4893-b15d-dbe661ccb66b\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:46:48.152Z",
+    "label": "focus-link-for-enter",
+    "name": "browser.evaluate",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "expression": "document.querySelector('#harmless-link').focus();({focus:document.activeElement.id})",
+      "actionHint": "Focus the harmless fixture link"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"type\":\"object\",\"json\":\"{\\\"focus\\\":\\\"harmless-link\\\"}\"},\"auditId\":\"f7d425fb-0113-4a34-bc11-bc3d95180685\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:46:50.571Z",
+    "label": "enter-fixture-link",
+    "name": "browser.press_key",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "key": "Enter",
+      "actionHint": "activate the harmless link",
+      "expectUrlChange": true,
+      "idempotencyKey": "lt-20261027-enter-one"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"failed\",\"data\":{\"before\":{\"url\":\"http://192.168.0.96:18752/\",\"title\":\"Harmless input controls fixture\",\"text\":\"Harmless input controls fixture\\n\\nFixture session: [REDACTED]\\n\\nActivations: 0\\n\\nHarmless link\\nFixture navigation\\nFirst column\\tMiddle column\\tLast column\\nHarmless value one\\tHarmless value two\\tHarmless val\"},\"after\":{\"url\":\"http://192.168.0.96:18752/\",\"title\":\"Harmless input controls fixture\",\"text\":\"Harmless input controls fixture\\n\\nFixture session: [REDACTED]\\n\\nActivations: 0\\n\\nHarmless link\\nFixture navigation\\nFirst column\\tMiddle column\\tLast column\\nHarmless value one\\tHarmless value two\\tHarmless val\"},\"suggestedAction\":\"browser.reload\"},\"reason\":\"browser_click_no_effect\",\"auditId\":\"6e4671e4-a321-4875-870c-a0871d76f783\"}"
+        }
+      ]
+    }
+  }
+]

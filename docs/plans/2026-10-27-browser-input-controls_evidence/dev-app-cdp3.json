@@ -1,0 +1,60 @@
+{
+  "at": "2026-10-27T12:54:37.460Z",
+  "target": {
+    "title": "Harness",
+    "url": "http://localhost:4752/setup"
+  },
+  "commands": [
+    {
+      "method": "Emulation.setFocusEmulationEnabled",
+      "result": {}
+    },
+    {
+      "method": "Emulation.setPageVisibilityOverride",
+      "error": "{\"code\":-32601,\"message\":\"'Emulation.setPageVisibilityOverride' wasn't found\"}"
+    },
+    {
+      "method": "Runtime.evaluate",
+      "expression": "(async()=>{const ipc=await window.electronAPI.browserGetHealth();const health=ipc.data?.data??ipc.data;return {hidden:document.hidden,visibility:document.visibilityState,rootPresent:!!document.querySelector('app-root'),renderedTextLength:document.body.innerText.length,ipc:{success:ipc.success,error:ipc.error,status:health?.status,controls:health?.controls,remoteExtensions:health?.remoteExtensions},rootMarkup:document.querySelector('app-root')?.outerHTML.slice(0,300)}})()",
+      "result": {
+        "result": {
+          "type": "object",
+          "value": {
+            "hidden": false,
+            "visibility": "visible",
+            "rootPresent": true,
+            "renderedTextLength": 1027,
+            "ipc": {
+              "success": true,
+              "status": "ready",
+              "controls": {
+                "press_key": {
+                  "sharedTabs": true,
+                  "managedProfiles": true,
+                  "mechanism": "native keystrokes (CDP Input.dispatchKeyEvent on shared tabs, CDP keyboard on managed profiles); named keys only — type text with browser.type"
+                },
+                "set_viewport": {
+                  "sharedTabs": true,
+                  "managedProfiles": true,
+                  "windowScope": "scope 'window' (real Chrome window resize) is shared-tab only and reports the affected window, its other tabs and retained original bounds; managed profiles support scope 'tab' emulation only"
+                },
+                "set_zoom": {
+                  "sharedTabs": true,
+                  "managedProfiles": false,
+                  "mechanism": "real Chrome zoom via chrome.tabs.setZoom with per-tab zoom settings (original factor and settings preserved for reset); managed profiles have no browser-zoom surface and CSS zoom/transforms/device-scale are never substituted"
+                }
+              },
+              "remoteExtensions": {
+                "total": 0,
+                "ready": 0,
+                "silent": 0,
+                "nodes": []
+              }
+            },
+            "rootMarkup": "<app-root ng-version=\"22.2.1\" _nghost-ng-c1624761711=\"\"><div _ngcontent-ng-c1624761711=\"\" class=\"app-container macos\"><div _ngcontent-ng-c1624761711=\"\" class=\"title-bar-drag-area\"></div><div _ngcontent-ng-c1624761711=\"\" class=\"title-bar-overlay macos\" style=\"\"><button _ngcontent-ng-c1624761711=\"\" ty"
+          }
+        }
+      }
+    }
+  ]
+}

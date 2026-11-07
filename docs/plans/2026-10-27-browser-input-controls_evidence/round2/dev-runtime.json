@@ -1,0 +1,105 @@
+[
+  {
+    "app": {
+      "hidden": false,
+      "title": "Harness",
+      "url": "http://localhost:4752/setup",
+      "root": true,
+      "textLength": 1038,
+      "health": true
+    }
+  },
+  {
+    "key": "Tab",
+    "modifiers": [],
+    "focus": "lt-first"
+  },
+  {
+    "key": "Tab",
+    "modifiers": [],
+    "focus": "lt-second"
+  },
+  {
+    "key": "Tab",
+    "modifiers": [
+      "Shift"
+    ],
+    "focus": "lt-first"
+  },
+  {
+    "enterHash": "#lt-activation"
+  },
+  {
+    "base": {
+      "innerWidth": 1400,
+      "innerHeight": 900
+    }
+  },
+  {
+    "set": {
+      "mode": "tab_emulation",
+      "scope": "tab",
+      "requested": {
+        "width": 768,
+        "height": 1024
+      },
+      "emulation": {
+        "width": 768,
+        "height": 1024,
+        "deviceScaleFactor": 1
+      },
+      "previous": {
+        "emulationActive": false
+      },
+      "actual": {
+        "innerWidth": 768,
+        "innerHeight": 1024
+      }
+    }
+  },
+  {
+    "after": {
+      "innerWidth": 768,
+      "innerHeight": 1024
+    }
+  },
+  {
+    "expectedFailure": "deliberate mid-command failure"
+  },
+  {
+    "afterFailure": {
+      "innerWidth": 768,
+      "innerHeight": 1024
+    }
+  },
+  {
+    "reset": {
+      "mode": "reset",
+      "scope": "tab",
+      "emulation": {
+        "width": 0,
+        "height": 0,
+        "deviceScaleFactor": 1
+      },
+      "previous": {
+        "emulationActive": true,
+        "emulationWidth": 768,
+        "emulationHeight": 1024
+      },
+      "actual": {
+        "innerWidth": 1400,
+        "innerHeight": 900
+      }
+    }
+  },
+  {
+    "restored": {
+      "innerWidth": 1400,
+      "innerHeight": 900
+    }
+  },
+  {
+    "result": "PASS",
+    "qualification": "Real isolated Electron Chromium; shipped handlers with CDP transport adapter. Not Windows extension or coordinator evidence."
+  }
+]

@@ -1,0 +1,25 @@
+{
+  "at": "2026-10-27T14:03:23.570Z",
+  "rows": [
+    {
+      "pid": 36893,
+      "alive": false
+    },
+    {
+      "pid": 37149,
+      "alive": false
+    },
+    {
+      "pid": 37153,
+      "alive": false
+    },
+    {
+      "processGroup": 37149,
+      "alive": false
+    },
+    {
+      "processGroup": 37153,
+      "alive": false
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "at": "2026-10-27T16:12:21.132806+00:00",
+  "stage": "full suite finished; separate reproduction checked after exit",
+  "fullSuiteExitCode": 1,
+  "failureFile": "src/worker-agent/__tests__/capability-reporter.spec.ts",
+  "failureTest": "returns valid capabilities with correct platform",
+  "observedFailure": "Existing 5000ms budget exceeded; first test duration 5009ms; second test passed in 376ms",
+  "fileDiffAgainstQueueBase": "",
+  "callPath": [
+    "reportCapabilities -> detectLocalModelEndpoints -> actual local endpoint fetches (2000ms probe budgets)",
+    "reportCapabilities -> detectLocalSttEndpoints -> actual local endpoint fetch",
+    "reportCapabilities -> listWorkerOpenCodeAccountProfileIds -> readSelectedOpenCodeAuthList -> selected CLI launch/auth list (8000ms process budget) and local credential names"
+  ],
+  "proofLimit": "Source confirms live I/O is unmocked. No instrumentation has identified the operation responsible for the five-second timeout. Shared-host load is recorded, not asserted as the cause.",
+  "noTestsOrTimeoutsChanged": true,
+  "needsJames": false,
+  "remainingAgentWork": "Identify the slow probe with timing instrumentation; obtain a clean full-suite result. A passing isolated run does not make the failed full run green.",
+  "loadAverages": [
+    29.3525390625,
+    40.58935546875,
+    40.34130859375
+  ],
+  "isolation": {
+    "success": true,
+    "passed": 2,
+    "failed": 0,
+    "tests": [
+      {
+        "test": "capability-reporter returns valid capabilities with correct platform",
+        "status": "passed",
+        "durationMs": 2567.397833
+      },
+      {
+        "test": "capability-reporter includes provided working directories",
+        "status": "passed",
+        "durationMs": 66.53787499999999
+      }
+    ],
+    "qualification": "Original test unchanged. Passing alone does not prove the reason for the earlier timeout."
+  }
+}

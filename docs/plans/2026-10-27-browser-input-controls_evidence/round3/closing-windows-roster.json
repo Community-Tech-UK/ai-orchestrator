@@ -1,0 +1,65 @@
+{
+  "at": "2026-10-27T16:11:47.206Z",
+  "node": {
+    "id": "bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be",
+    "name": "windows-pc",
+    "connected": true,
+    "status": "connected",
+    "extensionVersion": "0.2.43",
+    "extensionLastContactAt": 1793117501442,
+    "workerAutoUpdate": {
+      "state": "waiting_for_idle",
+      "targetCommit": "ef10afff5943421098f5df6dc33edcffb53f84eb",
+      "lastCheckedAt": 1793117399205
+    },
+    "fileTransfer": {
+      "enabled": true,
+      "maxFileBytes": 52428800,
+      "roots": [
+        {
+          "id": "browserDownloads",
+          "label": "Browser Downloads",
+          "path": "C:\\Users\\shutu\\.orchestrator\\browser-automation-profile\\Downloads",
+          "read": true,
+          "write": false
+        },
+        {
+          "id": "scratch",
+          "label": "AIO Scratch",
+          "path": "C:\\Users\\shutu\\.orchestrator\\_scratch\\aio-transfers",
+          "read": true,
+          "write": true
+        },
+        {
+          "id": "downloads",
+          "label": "Downloads",
+          "path": "C:\\Users\\shutu\\Downloads",
+          "read": true,
+          "write": false
+        },
+        {
+          "id": "documents",
+          "label": "Documents",
+          "path": "C:\\Users\\shutu\\Documents",
+          "read": true,
+          "write": false
+        },
+        {
+          "id": "desktop",
+          "label": "Desktop",
+          "path": "C:\\Users\\shutu\\Desktop",
+          "read": true,
+          "write": false
+        },
+        {
+          "id": "browser-uploads",
+          "label": "Browser upload staging (safety net until fix confirmed live)",
+          "path": "C:\\Users\\shutu\\Documents\\Work\\_scratch",
+          "read": true,
+          "write": true
+        }
+      ]
+    }
+  },
+  "noDeploymentOrRecoveryTriggered": true
+}

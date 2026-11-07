@@ -1,0 +1,59 @@
+{
+  "at": "2026-10-27T14:09:13.929Z",
+  "deleted": [
+    "branch-specific node_modules",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-browser-gateway-inp-419a7c/dist",
+    "/tmp/aio-lt-queue-07419a7c",
+    "owned scratch scripts and npm cache"
+  ],
+  "originalLinkedDependenciesRestored": true,
+  "ownedProcesses": [
+    {
+      "pid": 36893,
+      "alive": false
+    },
+    {
+      "pid": 37149,
+      "alive": false
+    },
+    {
+      "pid": 37153,
+      "alive": false
+    }
+  ],
+  "ports": [
+    {
+      "port": 9752,
+      "open": false
+    },
+    {
+      "port": 4752,
+      "open": false
+    },
+    {
+      "port": 18752,
+      "open": false
+    }
+  ],
+  "profileAbsent": true,
+  "distAbsent": true,
+  "scratchAbsent": true,
+  "reportSha256": "459075f1528432a57b7041e5b97110dc6d352037efa04d142df7c109b19d1877",
+  "preDeletionSealSha256": "f824e5bb83dc9b46481b25fc0179fdd5e2d99a4748ceae0853ca92254d3b1625",
+  "git": {
+    "branch": "queue/2026-10-14-browser-gateway-inp-419a7c",
+    "matchingBranches": "* queue/2026-10-14-browser-gateway-inp-419a7c",
+    "registeredWorktreeCount": 18,
+    "ownWorktreeStillRegistered": true,
+    "stagedPaths": [],
+    "status": "M docs/plans/livetest-remediation-register.md\n M resources/browser-extension/background.js\n M resources/browser-extension/manifest.json\n M src/main/browser-gateway/browser-extension-assets.spec.ts\n M src/main/browser-gateway/browser-secret-recovery.testutil.ts\n?? docs/plans/2026-10-27-browser-input-controls_evidence/round2/"
+  },
+  "operations": {
+    "commit": false,
+    "stash": false,
+    "branchChange": false,
+    "worktreeChange": false,
+    "completedRename": false,
+    "productionDeployment": false
+  }
+}

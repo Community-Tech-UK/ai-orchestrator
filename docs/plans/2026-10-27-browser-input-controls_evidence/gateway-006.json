@@ -1,0 +1,184 @@
+[
+  {
+    "at": "2026-10-27T12:48:25.401Z",
+    "label": "zoom-reset",
+    "name": "browser.set_zoom",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "reset": true
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"reset\",\"zoomFactor\":1,\"zoomPercent\":100,\"previousZoomFactor\":2,\"zoomScope\":\"per-origin\",\"previousZoomScope\":\"per-tab\",\"viewport\":{\"innerWidth\":2558,\"innerHeight\":1270}},\"auditId\":\"876e985a-4211-4ff1-aeaa-2415c033fd1e\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:48:25.409Z",
+    "label": "zoom-reset-read",
+    "name": "browser.set_zoom",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"read\",\"zoomFactor\":1,\"zoomPercent\":100,\"previousZoomFactor\":1,\"zoomScope\":\"per-origin\",\"previousZoomScope\":\"per-origin\",\"viewport\":{\"innerWidth\":2558,\"innerHeight\":1270}},\"auditId\":\"ba6b0f3d-a8cc-49cd-a068-6c00b34457ca\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:48:25.462Z",
+    "label": "check3-viewport-reset",
+    "name": "browser.set_viewport",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "reset": true
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"reset\",\"scope\":\"tab\",\"actual\":{\"innerWidth\":2558,\"innerHeight\":1270},\"emulation\":{\"width\":0,\"height\":0,\"deviceScaleFactor\":1},\"previous\":{\"emulationActive\":false}},\"auditId\":\"6d3da36c-2cd2-4983-8a2c-0252d748b98c\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:48:25.506Z",
+    "label": "check4-viewport-baseline",
+    "name": "browser.set_viewport",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"read\",\"scope\":\"tab\",\"actual\":{\"innerWidth\":2558,\"innerHeight\":1270},\"emulation\":{\"width\":0,\"height\":0,\"deviceScaleFactor\":1},\"previous\":{\"emulationActive\":false}},\"auditId\":\"20c23751-393c-4b71-a079-8dc2c3e14812\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:48:25.523Z",
+    "label": "check4-window-baseline",
+    "name": "browser.set_viewport",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "scope": "window"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"read\",\"scope\":\"window\",\"actual\":{\"innerWidth\":2558,\"innerHeight\":1270},\"window\":{\"windowId\":771587906,\"otherTabIds\":[771588487,771588443,771588447,771588450,771588453,771588456,771588459,771588464,771588467,771588470,771588477,771588484,771588488,771588491,771588494,771588497,771588500,771588503,771588506,771588509,771588532,771588539,771588542,771588551,771588558,771588564,771588567,771588575,771588578,771588581,771588584,771588595,771588604,771588627,771588616,771588622,771588630,771588633,771588636,771588639,771588674,771588677,771588680,771588683,771588686,771588692,771588703,771588727,771588736,771588739,771588746],\"bounds\":{\"left\":0,\"top\":0,\"width\":0,\"height\":0}}},\"auditId\":\"29af8ba9-76b1-4cce-9b2d-8bbfa10fe5e5\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:48:25.529Z",
+    "label": "check4-zoom-baseline",
+    "name": "browser.set_zoom",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"read\",\"zoomFactor\":1,\"zoomPercent\":100,\"previousZoomFactor\":1,\"zoomScope\":\"per-origin\",\"previousZoomScope\":\"per-origin\",\"viewport\":{\"innerWidth\":2558,\"innerHeight\":1270}},\"auditId\":\"61af3362-0776-46dd-b4da-bdd3db103441\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:48:25.626Z",
+    "label": "check4-event-identity-listener",
+    "name": "browser.evaluate",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "expression": "(()=>{window.fixtureEventFlags=[];for(const type of ['keydown','keyup'])addEventListener(type,e=>window.fixtureEventFlags.push({event:type,isTab:e.key==='Tab',isEnter:e.key==='Enter',keyEmpty:e.key==='',codeEmpty:e.code==='',keyCode:e.keyCode,shift:e.shiftKey,control:e.ctrlKey,alt:e.altKey,meta:e.metaKey}));return {listening:true}})()",
+      "actionHint": "Observe named-key identity and released modifiers on the harmless fixture"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"type\":\"object\",\"json\":\"{\\\"listening\\\":true}\"},\"auditId\":\"758d343f-c3b6-4918-a618-6cb315429876\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:48:25.704Z",
+    "label": "shift-tab-live-event",
+    "name": "browser.press_key",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "key": "Tab",
+      "modifiers": [
+        "Shift"
+      ]
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"applied\":true,\"key\":\"Tab\",\"modifiers\":[\"Shift\"],\"focus\":{\"tagName\":\"A\",\"id\":\"harmless-link\",\"text\":\"Harmless link\",\"href\":\"http://192.168.0.96:18752/activate?request=1\"},\"url\":\"http://192.168.0.96:18752/\",\"title\":\"Harmless input controls fixture\"},\"auditId\":\"10fba597-c191-47f1-a7d9-4a5dd1df0817\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:48:25.790Z",
+    "label": "normal-tab-after-shift",
+    "name": "browser.press_key",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "key": "Tab"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"applied\":true,\"key\":\"Tab\",\"modifiers\":[],\"focus\":{\"tagName\":\"A\",\"id\":\"harmless-link\",\"text\":\"Harmless link\",\"href\":\"http://192.168.0.96:18752/activate?request=1\"},\"url\":\"http://192.168.0.96:18752/\",\"title\":\"Harmless input controls fixture\"},\"auditId\":\"a1ef7157-8c57-4a1f-ad38-c3ab02ec2e62\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:48:25.854Z",
+    "label": "key-identity-read",
+    "name": "browser.evaluate",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "expression": "({flags:window.fixtureEventFlags,focus:document.activeElement.id})",
+      "actionHint": "Read named-key identity and modifier release diagnostics"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"type\":\"object\",\"json\":\"{\\\"flags\\\":[{\\\"alt\\\":false,\\\"codeEmpty\\\":true,\\\"control\\\":false,\\\"event\\\":\\\"keydown\\\",\\\"isEnter\\\":false,\\\"isTab\\\":false,\\\"keyCode\\\":16,\\\"keyEmpty\\\":true,\\\"meta\\\":false,\\\"shift\\\":true},{\\\"alt\\\":false,\\\"codeEmpty\\\":true,\\\"control\\\":false,\\\"event\\\":\\\"keydown\\\",\\\"isEnter\\\":false,\\\"isTab\\\":false,\\\"keyCode\\\":9,\\\"keyEmpty\\\":true,\\\"meta\\\":false,\\\"shift\\\":true},{\\\"alt\\\":false,\\\"codeEmpty\\\":true,\\\"control\\\":false,\\\"event\\\":\\\"keyup\\\",\\\"isEnter\\\":false,\\\"isTab\\\":false,\\\"keyCode\\\":9,\\\"keyEmpty\\\":true,\\\"meta\\\":false,\\\"shift\\\":true},{\\\"alt\\\":false,\\\"codeEmpty\\\":true,\\\"control\\\":false,\\\"event\\\":\\\"keyup\\\",\\\"isEnter\\\":false,\\\"isTab\\\":false,\\\"keyCode\\\":16,\\\"keyEmpty\\\":true,\\\"meta\\\":false,\\\"shift\\\":false},{\\\"alt\\\":false,\\\"codeEmpty\\\":true,\\\"control\\\":false,\\\"event\\\":\\\"keydown\\\",\\\"isEnter\\\":false,\\\"isTab\\\":false,\\\"keyCode\\\":9,\\\"keyEmpty\\\":true,\\\"meta\\\":false,\\\"shift\\\":false},{\\\"alt\\\":false,\\\"codeEmpty\\\":true,\\\"control\\\":false,\\\"event\\\":\\\"keyup\\\",\\\"isEnter\\\":false,\\\"isTab\\\":false,\\\"keyCode\\\":9,\\\"keyEmpty\\\":true,\\\"meta\\\":false,\\\"shift\\\":false}],\\\"focus\\\":\\\"harmless-link\\\"}\"},\"auditId\":\"796dd31b-fd25-4394-bcc9-afde554c9525\"}"
+        }
+      ]
+    }
+  }
+]

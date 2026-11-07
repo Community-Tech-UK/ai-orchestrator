@@ -1,0 +1,24 @@
+{
+  "at": "2026-10-27T16:13:06.977488+00:00",
+  "kind": "worker self-review; not an independent completion gate",
+  "newProductionOrTestChanges": false,
+  "allPriorSealedSourceHashesMatch": true,
+  "allSixChecksHaveCurrentDisposition": true,
+  "windowsChecksClosed": false,
+  "dingleyRestrictionPreserved": true,
+  "unrelatedPreflightTabUntouched": true,
+  "interruptedAttemptNotPromotedToPass": true,
+  "duplicateJsonHealthKeyRemovedDuringReview": true,
+  "backlogNotEdited": "its current header explicitly forbids current status additions",
+  "completedJulyPlanNotEdited": true,
+  "integrationStillPending": true,
+  "gitDiffCheck": "",
+  "activeRootDocumentStatus": "M docs/plans/2026-10-14-browser-gateway-input-controls_livetest.md\n?? docs/plans/2026-10-27-browser-input-controls-remediation_plan.md",
+  "remainingPrerequisites": [
+    "approved installed-extension update/reload route",
+    "reachable Windows harmless fixture",
+    "explicit Dingley script rerun instruction",
+    "independent queue verification",
+    "diagnose capability timeout and obtain a passing full suite; agent work, not a James action"
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "at": "2026-10-27T14:01:47.486526+00:00",
+  "observation": "rtk proxy uptime",
+  "observedLocalMinute": "2026-10-27 13:57",
+  "loadAverages": [
+    325.41,
+    186.52,
+    98.43
+  ],
+  "disposition": "No further full suite launched; dev runtime stopped; unrelated processes untouched."
+}

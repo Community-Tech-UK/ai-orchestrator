@@ -1,0 +1,184 @@
+[
+  {
+    "at": "2026-10-27T12:46:18.158Z",
+    "label": "preflight",
+    "data": {
+      "controls": {
+        "press_key": {
+          "sharedTabs": true,
+          "managedProfiles": true,
+          "mechanism": "native keystrokes (CDP Input.dispatchKeyEvent on shared tabs, CDP keyboard on managed profiles); named keys only — type text with browser.type"
+        },
+        "set_viewport": {
+          "sharedTabs": true,
+          "managedProfiles": true,
+          "windowScope": "scope 'window' (real Chrome window resize) is shared-tab only and reports the affected window, its other tabs and retained original bounds; managed profiles support scope 'tab' emulation only"
+        },
+        "set_zoom": {
+          "sharedTabs": true,
+          "managedProfiles": false,
+          "mechanism": "real Chrome zoom via chrome.tabs.setZoom with per-tab zoom settings (original factor and settings preserved for reset); managed profiles have no browser-zoom surface and CSS zoom/transforms/device-scale are never substituted"
+        }
+      },
+      "remoteExtensions": {
+        "total": 1,
+        "ready": 1,
+        "silent": 0,
+        "nodes": [
+          {
+            "nodeId": "bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be",
+            "nodeName": "windows-pc",
+            "enabled": true,
+            "running": true,
+            "silent": false,
+            "channelState": "fresh",
+            "commandsDeliverable": true,
+            "lastContactAt": 1793104988316,
+            "contactAgeMs": 199,
+            "coordinatorPollAgeMs": 199,
+            "relayContactAgeMs": 8944,
+            "connectionFlap": {
+              "stormActive": false,
+              "replacesInWindow": 0,
+              "windowMs": 300000
+            },
+            "queue": {
+              "queuedCount": 0,
+              "inFlightCount": 0,
+              "waitingPollerCount": 2
+            },
+            "contactGaps": {
+              "gapCount": 2,
+              "longestGapMs": 146459,
+              "lastGapMs": 146459,
+              "lastGapEndedAt": 1793033852670
+            },
+            "serviceWorkerRestarts": 1,
+            "registration": "ok",
+            "lastRegistrationCheckAt": 1793104971448,
+            "secretObservation": {
+              "reported": true,
+              "protectionEnabled": false,
+              "taintedOriginCount": 0,
+              "taintedTabCount": 0,
+              "observedAt": 1793103646047,
+              "ageMs": 1342468
+            }
+          }
+        ]
+      }
+    }
+  },
+  {
+    "at": "2026-10-27T12:46:18.159Z",
+    "label": "fixture-open",
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"id\":\"existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target\",\"profileId\":\"existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757\",\"pageId\":\"771588757\",\"mode\":\"existing-tab\",\"nodeId\":\"bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be\",\"nodeName\":\"windows-pc\",\"title\":\"Harmless input controls fixture\",\"url\":\"http://192.168.0.96:18752/\",\"origin\":\"http://192.168.0.96:18752\",\"driver\":\"extension\",\"status\":\"selected\",\"lastSeenAt\":1793105149505,\"targetId\":\"existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target\",\"inspectionState\":\"readable\",\"windowId\":771587906,\"tabIndex\":51,\"pinned\":false,\"active\":true},\"auditId\":\"9dd7b442-3396-4c80-9ad1-b327ac4adb01\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:46:18.159Z",
+    "label": "baseline-viewport",
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"read\",\"scope\":\"tab\",\"actual\":{\"innerWidth\":2558,\"innerHeight\":1270},\"emulation\":{\"width\":0,\"height\":0,\"deviceScaleFactor\":1},\"previous\":{\"emulationActive\":false}},\"auditId\":\"10942e94-3769-4975-bced-746e36a6b41d\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:46:18.159Z",
+    "label": "baseline-zoom",
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"read\",\"zoomFactor\":1,\"zoomPercent\":100,\"previousZoomFactor\":1,\"zoomScope\":\"per-origin\",\"previousZoomScope\":\"per-origin\",\"viewport\":{\"innerWidth\":2558,\"innerHeight\":1270}},\"auditId\":\"e511a830-0c79-4dba-b5c9-8de9fab6ddef\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:46:18.169Z",
+    "label": "window-baseline",
+    "name": "browser.set_viewport",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "scope": "window"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"mode\":\"read\",\"scope\":\"window\",\"actual\":{\"innerWidth\":2558,\"innerHeight\":1270},\"window\":{\"windowId\":771587906,\"otherTabIds\":[771588487,771588443,771588447,771588450,771588453,771588456,771588459,771588464,771588467,771588470,771588477,771588484,771588488,771588491,771588494,771588497,771588500,771588503,771588506,771588509,771588532,771588539,771588542,771588551,771588558,771588564,771588567,771588575,771588578,771588581,771588584,771588595,771588604,771588627,771588616,771588622,771588630,771588633,771588636,771588639,771588674,771588677,771588680,771588683,771588686,771588692,771588703,771588727,771588736,771588739,771588746],\"bounds\":{\"left\":0,\"top\":0,\"width\":0,\"height\":0}}},\"auditId\":\"8b3b6678-c741-4e71-9b53-64aae180d636\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:46:18.255Z",
+    "label": "focus-read",
+    "name": "browser.evaluate",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "expression": "JSON.stringify({hidden:document.hidden,visibility:document.visibilityState,focus:document.activeElement.id,focusOutline:getComputedStyle(document.activeElement).outline,viewport:{width:innerWidth,height:innerHeight}})",
+      "actionHint": "Read harmless fixture visibility, focus indication and dimensions"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"type\":\"string\",\"json\":\"\\\"{\\\\\\\"hidden\\\\\\\":false,\\\\\\\"visibility\\\\\\\":\\\\\\\"visible\\\\\\\",\\\\\\\"focus\\\\\\\":\\\\\\\"harmless-link\\\\\\\",\\\\\\\"focusOutline\\\\\\\":\\\\\\\"rgb(194, 65, 12) solid 4px\\\\\\\",\\\\\\\"viewport\\\\\\\":{\\\\\\\"width\\\\\\\":2558,\\\\\\\"height\\\\\\\":1270}}\\\"\"},\"auditId\":\"43649e24-b669-44c0-8b7d-30921b9c28e2\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:46:18.347Z",
+    "label": "tab-first",
+    "name": "browser.press_key",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "key": "Tab"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"applied\":true,\"key\":\"Tab\",\"modifiers\":[],\"focus\":{\"tagName\":\"A\",\"id\":\"harmless-link\",\"text\":\"Harmless link\",\"href\":\"http://192.168.0.96:18752/activate?request=1\"},\"url\":\"http://192.168.0.96:18752/\",\"title\":\"Harmless input controls fixture\"},\"auditId\":\"0318c87f-5a78-45f3-853b-70e4a37ed7d1\"}"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-10-27T12:46:18.426Z",
+    "label": "tab-reverse",
+    "name": "browser.press_key",
+    "arguments": {
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588757:target",
+      "key": "Tab",
+      "modifiers": [
+        "Shift"
+      ]
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"applied\":true,\"key\":\"Tab\",\"modifiers\":[\"Shift\"],\"focus\":{\"tagName\":\"A\",\"id\":\"harmless-link\",\"text\":\"Harmless link\",\"href\":\"http://192.168.0.96:18752/activate?request=1\"},\"url\":\"http://192.168.0.96:18752/\",\"title\":\"Harmless input controls fixture\"},\"auditId\":\"ce41b132-9f20-4742-8175-a0aedf19b5a7\"}"
+        }
+      ]
+    }
+  }
+]
