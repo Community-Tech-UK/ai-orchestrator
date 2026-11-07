@@ -94,6 +94,7 @@ const WorkerNodeCapabilitiesSchema = z.object({
   cpuCores: z.number().int().positive(),
   totalMemoryMB: z.number().int().positive(),
   availableMemoryMB: z.number().int().nonnegative(),
+  busyCores: z.number().nonnegative().optional(),
   gpuName: z.string().optional(),
   gpuMemoryMB: z.number().int().optional(),
   supportedClis: z.array(z.string()),

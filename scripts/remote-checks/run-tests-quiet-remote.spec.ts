@@ -304,7 +304,7 @@ describe('sending a snapshot', () => {
     expect(second.code).toBe(0);
 
     expect(git(farRepo(setup), 'count-objects', '-v')).not.toBe(objectsAfterFirst);
-    const sent = second.runArgs.trim().split(' ')[4];
+    const sent = second.runArgs.trim().split(' ').at(-3)!;
     expect(git(farRepo(setup), 'cat-file', 'blob', `${sent}:new.txt`)).toBe('uncommitted');
     expect(git(setup.project, 'for-each-ref')).toBe(refs);
     expect(git(setup.project, 'status', '--short')).toBe(status);

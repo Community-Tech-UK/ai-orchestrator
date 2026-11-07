@@ -20,9 +20,11 @@ const fakes = vi.hoisted(() => {
     removeAllListeners() {
       listeners.clear();
     },
+    setComputerChoices: vi.fn(),
   };
   return {
     settings: {} as Record<string, unknown>,
+    settingListeners: new Map<string, (value: unknown) => void>(),
     config: {
       enabled: true,
       serverPort: 4878,
@@ -43,6 +45,7 @@ vi.mock('../core/config/settings-manager', () => ({
   getSettingsManager: () => ({
     getAll: () => fakes.settings,
     get: (key: string) => fakes.settings[key],
+    on: (event: string, listener: (value: unknown) => void) => fakes.settingListeners.set(event, listener),
   }),
 }));
 
@@ -105,6 +108,7 @@ describe('createWorkerNodeSubsystemStep', () => {
     vi.clearAllMocks();
     fakes.registry.removeAllListeners();
     fakes.settings = {};
+    fakes.settingListeners.clear();
     fakes.config.enabled = true;
     fakes.config.autoOffloadBrowser = true;
   });
@@ -113,6 +117,16 @@ describe('createWorkerNodeSubsystemStep', () => {
   // "start server" IPC handler, so a normally-started coordinator never
   // advertised and workers had nothing to discover when their pinned
   // coordinator URL died.
+  it('gives the registry the Computers page\'s choices, and each change to them', async () => {
+    const first = [{ id: 'pc', paused: false, sessions: true }];
+    fakes.settings = { computers: first };
+    await createWorkerNodeSubsystemStep(buildContext()).fn();
+    expect(fakes.registry.setComputerChoices).toHaveBeenCalledWith(first);
+    const changed = [{ id: 'pc', paused: true, sessions: true }];
+    fakes.settingListeners.get('setting:computers')!(changed);
+    expect(fakes.registry.setComputerChoices).toHaveBeenLastCalledWith(changed);
+  });
+
   it('advertises over mDNS once the connection server has started', async () => {
     await createWorkerNodeSubsystemStep(buildContext()).fn();
 

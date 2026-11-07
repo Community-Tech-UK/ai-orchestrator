@@ -8,7 +8,7 @@ const require = createRequire(import.meta.url);
 type Summary = Record<string, unknown>;
 const { format, readRuns, summarise } = require('./report.js') as {
   format: (summary: Summary) => string;
-  readRuns: (file: string) => Record<string, unknown>[];
+  readRuns: (dir: string) => Record<string, unknown>[];
   summarise: (runs: Record<string, unknown>[], since?: string, names?: Record<string, string>) => Summary;
 };
 
@@ -17,25 +17,25 @@ afterEach(() => {
   for (const folder of folders.splice(0)) rmSync(folder, { recursive: true, force: true });
 });
 
-function logFile(lines: string[]): string {
+function logFolder(lines: string[], older: string[] = []): string {
   const folder = mkdtempSync(join(tmpdir(), 'where-work-ran-'));
   folders.push(folder);
-  const file = join(folder, 'runs.jsonl');
-  writeFileSync(file, lines.join('\n'));
-  return file;
+  writeFileSync(join(folder, 'runs.jsonl'), lines.join('\n'));
+  if (older.length) writeFileSync(join(folder, 'runs.old.jsonl'), older.join('\n'));
+  return folder;
 }
 
 const line = (run: Record<string, unknown>) => JSON.stringify({ ranOn: 'pc', tookMs: 60_000, fellBackBecause: null, ...run });
 
 describe('where work ran', () => {
   it('groups each day by kind and computer, with minutes and why runs stayed here', () => {
-    const runs = readRuns(logFile([
-      line({ at: '2026-11-05T10:00:00Z' }),
+    const runs = readRuns(logFolder([
       line({ at: '2026-11-06T10:00:00Z' }),
       line({ at: '2026-11-06T11:00:00Z', ranOn: 'mac', tookMs: 120_000, fellBackBecause: 'the PC could not be reached' }),
       line({ at: '2026-11-06T12:00:00Z', ranOn: 'mac', kind: 'local', tookMs: 30_000 }),
       '{"at": "half a line',
-    ]));
+    ], [line({ at: '2026-11-05T10:00:00Z' })]));
+    expect(runs).toHaveLength(4);
     expect(format(summarise(runs, '2026-11-06', { pc: 'the Windows PC' }))).toBe([
       '2026-11-06',
       '  full test runs: 1 on the Windows PC (1 min), 1 on this Mac (2 min)',
@@ -45,6 +45,6 @@ describe('where work ran', () => {
   });
 
   it('says so when there is nothing to report', () => {
-    expect(format(summarise(readRuns(join(tmpdir(), 'no-such-folder', 'runs.jsonl'))))).toBe('No runs recorded.');
+    expect(format(summarise(readRuns(join(tmpdir(), 'no-such-folder'))))).toBe('No runs recorded.');
   });
 });

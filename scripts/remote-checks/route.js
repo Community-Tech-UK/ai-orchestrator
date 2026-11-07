@@ -15,7 +15,15 @@ function remoteChecksDir(env = process.env) {
   return env.AIO_REMOTE_CHECKS_DIR || path.join(os.homedir(), '.ai-orchestrator', 'remote-checks');
 }
 
-/** `{ host, label, sshConfig?, ssh?, queueChecks? }`, or null when remote checks aren't set up. */
+const DEFAULT_SLOTS = 3;
+const MAX_SLOTS = 8;
+
+/**
+ * `{ host, label, sshConfig?, ssh?, queueChecks?, paused, testRuns, checks, slots, nodeName? }`, or null when remote
+ * checks aren't set up. The machine takes test runs and checks unless they're turned off, and runs `slots` at once.
+ * Harness's Computers page changes `paused`, `testRuns`, `checks` and `slots`; `nodeName` names the paired computer
+ * this machine is part of.
+ */
 function readConfig(env = process.env) {
   let raw;
   try {
@@ -25,7 +33,22 @@ function readConfig(env = process.env) {
   }
   const config = JSON.parse(raw);
   if (typeof config.host !== 'string' || !config.host) throw new Error('remote checks config has no host');
-  return { label: 'the remote machine', ...config };
+  const slots = Number.isInteger(config.slots) && config.slots >= 1 && config.slots <= MAX_SLOTS ? config.slots : DEFAULT_SLOTS;
+  return {
+    label: 'the remote machine',
+    ...config,
+    paused: config.paused === true,
+    testRuns: config.testRuns !== false,
+    checks: config.checks !== false,
+    slots,
+  };
+}
+
+/** Why this kind of work stays here today by choice, or null. `work` is `testRuns` or `checks`. */
+function stayReason(config, work) {
+  if (config.paused === true) return `${config.label} is paused`;
+  if (config[work] === false) return `${work === 'testRuns' ? 'test runs' : 'checks'} are turned off for ${config.label}`;
+  return null;
 }
 
 /** Harness's own check, in a folder queue sessions share. Those sessions carry AIO_QUEUE_SESSION. */
@@ -63,29 +86,49 @@ function isLargeTargetedRun(args) {
 function decideRoute({ args, env = process.env, root, config }) {
   if (env.GITHUB_ACTIONS || !config) return { kind: 'local' };
   const queueCheck = isQueueCheck(root, env);
+  const chosenHere = stayReason(config, 'testRuns');
   if (isLargeTargetedRun(args)) {
-    if (env.AIO_REMOTE_CHECKS === 'off' || (queueCheck && !config.queueChecks)) return { kind: 'local' };
+    if (env.AIO_REMOTE_CHECKS === 'off' || chosenHere || (queueCheck && !config.queueChecks)) return { kind: 'local' };
     return { kind: 'remote', turn: false, specs: args };
   }
   if (!isPlainFullRun(args)) return { kind: 'local' };
   if (env.AIO_REMOTE_CHECKS === 'off') {
     return { kind: 'mac', turn: !queueCheck, reason: 'AIO_REMOTE_CHECKS=off asked for it' };
   }
+  if (chosenHere) return { kind: 'mac', turn: !queueCheck, reason: chosenHere };
   if (queueCheck && !config.queueChecks) {
     return { kind: 'mac', turn: false, reason: 'queue checks stay on the Mac for now' };
   }
   return { kind: 'remote', turn: !queueCheck };
 }
 
+/** Readers parse the whole log each time, so past this it starts again, keeping the one before as runs.old.jsonl. */
+const RUN_LOG_LIMIT_BYTES = 1_000_000;
+
 /** One line per run. A logging fault must never stop a test run. */
 function appendRunLog(entry, env = process.env) {
   try {
     const dir = remoteChecksDir(env);
     fs.mkdirSync(dir, { recursive: true });
-    fs.appendFileSync(path.join(dir, 'runs.jsonl'), `${JSON.stringify(entry)}\n`);
+    const file = path.join(dir, 'runs.jsonl');
+    const older = path.join(dir, 'runs.old.jsonl');
+    try {
+      // Two runs logging at once could both see a full log; the second would move the first's fresh file over the
+      // history. A log started in the last minute is never moved again.
+      const justStarted = fs.existsSync(older) && Date.now() - fs.statSync(older).mtimeMs < 60_000;
+      if (!justStarted && fs.statSync(file).size > RUN_LOG_LIMIT_BYTES) {
+        fs.renameSync(file, older);
+        // A rename keeps the file's old time, which says nothing about when it moved.
+        const now = new Date();
+        fs.utimesSync(older, now, now);
+      }
+    } catch {
+      /* no log yet */
+    }
+    fs.appendFileSync(file, `${JSON.stringify(entry)}\n`);
   } catch {
     /* the run matters more than its log */
   }
 }
 
-module.exports = { appendRunLog, countSpecFiles, decideRoute, isLoopRun, isQueueCheck, readConfig, remoteChecksDir };
+module.exports = { appendRunLog, countSpecFiles, decideRoute, isLoopRun, isQueueCheck, readConfig, remoteChecksDir, stayReason };

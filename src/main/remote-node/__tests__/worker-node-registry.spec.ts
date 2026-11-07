@@ -273,6 +273,47 @@ describe('WorkerNodeRegistry', () => {
       expect(registry.selectNode(noPrefs)).toBeNull();
     });
 
+    describe('with the Computers page\'s choices', () => {
+      const choice = (id: string, change: { paused?: boolean; sessions?: boolean } = {}) => ({ id, paused: false, sessions: true, ...change });
+
+      it('never chooses a paused computer, or one with agent sessions turned off', () => {
+        registry.registerNode(makeNode('paused'));
+        registry.registerNode(makeNode('no-sessions'));
+        registry.setComputerChoices([choice('paused', { paused: true }), choice('no-sessions', { sessions: false })]);
+        expect(registry.selectNode(noPrefs)).toBeNull();
+        registry.registerNode(makeNode('unlisted'));
+        expect(registry.selectNode(noPrefs)?.id).toBe('unlisted');
+      });
+
+      it('prefers a computer earlier in the order over one with more memory and spare slots', () => {
+        registry.registerNode(makeNode('roomy', {
+          capabilities: makeCapabilities({ availableMemoryMB: 8000, totalMemoryMB: 8192 }),
+        }));
+        registry.registerNode(makeNode('first', {
+          activeInstances: 2,
+          capabilities: makeCapabilities({ availableMemoryMB: 1024, totalMemoryMB: 8192 }),
+        }));
+        registry.setComputerChoices([choice('first'), choice('roomy')]);
+        expect(registry.selectNode(noPrefs)?.id).toBe('first');
+        registry.setComputerChoices([choice('roomy'), choice('first')]);
+        expect(registry.selectNode(noPrefs)?.id).toBe('roomy');
+      });
+
+      it('takes a copy, so a later change to the list given has no effect until set again', () => {
+        registry.registerNode(makeNode('one'));
+        const choices = [choice('one')];
+        registry.setComputerChoices(choices);
+        choices[0]!.paused = true;
+        expect(registry.selectNode(noPrefs)?.id).toBe('one');
+      });
+    });
+
+    it('prefers the less busy computer when workers say how busy they are', () => {
+      registry.registerNode(makeNode('busy', { capabilities: makeCapabilities({ cpuCores: 16, busyCores: 15 }) }));
+      registry.registerNode(makeNode('idle', { capabilities: makeCapabilities({ cpuCores: 16, busyCores: 1 }) }));
+      expect(registry.selectNode(noPrefs)?.id).toBe('idle');
+    });
+
     it('selects the single available healthy node', () => {
       registry.registerNode(makeNode('s3'));
       expect(registry.selectNode(noPrefs)?.id).toBe('s3');

@@ -191,6 +191,8 @@ export interface WorkerNodeCapabilities {
   cpuCores: number;
   totalMemoryMB: number;
   availableMemoryMB: number;
+  /** Cores in use on average since the worker's previous report. Absent from a first report and from older workers. */
+  busyCores?: number;
   gpuName?: string;
   gpuMemoryMB?: number;
   supportedClis: CanonicalCliType[];

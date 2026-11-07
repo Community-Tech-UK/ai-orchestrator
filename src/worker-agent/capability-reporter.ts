@@ -64,6 +64,34 @@ export function setWorkerBuildStatusProvider(provider: (() => WorkerBuildStatus)
  * Detect local capabilities (CLIs, browser, GPU, memory) for reporting
  * to the coordinator. Called once on startup and periodically on heartbeat.
  */
+let lastCpuTimes: os.CpuInfo['times'][] | null = null;
+
+function withBusyCores(busyCores: number | undefined): { busyCores?: number } {
+  return busyCores === undefined ? {} : { busyCores };
+}
+
+/**
+ * Cores in use on average since the previous call, from the kernel's per-core tick counters, so it works on Windows,
+ * which has no load average. Undefined the first time, and whenever the core count changes.
+ */
+export function busyCoresSinceLastReport(sample: () => os.CpuInfo[] = os.cpus): number | undefined {
+  const now = sample().map(cpu => cpu.times);
+  const before = lastCpuTimes;
+  lastCpuTimes = now;
+  if (!before || before.length !== now.length || now.length === 0) return undefined;
+  let busy = 0;
+  let total = 0;
+  now.forEach((times, core) => {
+    const was = before[core]!;
+    const idle = times.idle - was.idle;
+    const all = (times.user - was.user) + (times.nice - was.nice) + (times.sys - was.sys) + (times.irq - was.irq) + idle;
+    if (all <= 0) return;
+    busy += all - idle;
+    total += all;
+  });
+  return total > 0 ? Math.round((busy / total) * now.length * 10) / 10 : undefined;
+}
+
 export async function reportCapabilities(
   workingDirectories: string[],
   maxConcurrentInstances = 10,
@@ -103,6 +131,7 @@ export async function reportCapabilities(
     cpuCores: os.cpus().length,
     totalMemoryMB: Math.round(os.totalmem() / (1024 * 1024)),
     availableMemoryMB: Math.round(os.freemem() / (1024 * 1024)),
+    ...withBusyCores(busyCoresSinceLastReport()),
     gpuName: gpu.name,
     gpuMemoryMB: gpu.memoryMB,
     supportedClis,

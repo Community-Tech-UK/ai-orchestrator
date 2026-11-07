@@ -4,10 +4,10 @@
  * config file there, no test machine is set up and there is nothing to say.
  */
 import { readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { PlanQueueHealth } from '@contracts/schemas/plan-queue';
 import { getLogger } from '../logging/logger';
+import { readTestMachine, remoteChecksDir } from '../computers/test-machine-file';
 
 const logger = getLogger('PlanQueueTestMachine');
 
@@ -15,39 +15,31 @@ const DAY_MS = 24 * 60 * 60_000;
 /** Tests can go quiet for a while. Past this, an old fault says nothing about the machine now. */
 const NOTICE_LIFETIME_MS = 60 * 60_000;
 const MAC = 'mac';
-const CHOSE_THE_MAC = /AIO_REMOTE_CHECKS=off|queue checks stay on the Mac/;
+/** Runs kept here on purpose, by a person or the Computers page, rather than by a fault. route.js writes these reasons. */
+const CHOSE_THE_MAC = /AIO_REMOTE_CHECKS=off|queue checks stay on the Mac| is paused$|^(?:test runs|checks) are turned off for /;
 const COULD_NOT_REACH = /could not be reached|was lost during the run/;
 
 interface RunLine { at: string; kind?: string; ranOn: string; fellBackBecause: string | null }
 type TestMachineHealth = NonNullable<PlanQueueHealth['testMachine']>;
 
-function remoteChecksDir(): string {
-  return process.env['AIO_REMOTE_CHECKS_DIR'] || join(homedir(), '.ai-orchestrator', 'remote-checks');
-}
-
 function readLabel(dir: string): string | null {
-  let text: string;
   try {
-    text = readFileSync(join(dir, 'config.json'), 'utf8');
-  } catch {
-    return null;
-  }
-  try {
-    const { label } = JSON.parse(text) as { label?: unknown };
-    return typeof label === 'string' && label ? label.slice(0, 100) : 'the test machine';
+    return readTestMachine(dir)?.label ?? null;
   } catch (error) {
     logger.warn('Remote checks config could not be read', { error: String(error) });
     return null;
   }
 }
 
+/** Both log files, the older first: the scripts start a new one past about a megabyte. */
 function readRuns(dir: string): RunLine[] {
-  let text: string;
-  try {
-    text = readFileSync(join(dir, 'runs.jsonl'), 'utf8');
-  } catch {
-    return [];
-  }
+  const text = ['runs.old.jsonl', 'runs.jsonl'].map((name) => {
+    try {
+      return readFileSync(join(dir, name), 'utf8');
+    } catch {
+      return '';
+    }
+  }).join('\n');
   // A run still being written, or killed part way, can leave half a line.
   return text.split('\n').flatMap((line) => {
     try {

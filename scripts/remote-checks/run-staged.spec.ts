@@ -100,7 +100,7 @@ function commit(setup: Setup, args: string[], { scenario = 'pass', env = {} }: {
   return {
     code: result.status,
     output: `${result.stdout}${result.stderr}`,
-    sent: (name: string) => git(join(setup.fake, 'home/remote-checks/repo.git'), 'cat-file', 'blob', `${runArgs[4]}:${name}`),
+    sent: (name: string) => git(join(setup.fake, 'home/remote-checks/repo.git'), 'cat-file', 'blob', `${runArgs.at(-3)}:${name}`),
     sshCalls: read(join(setup.fake, 'ssh.log')).split('\n').filter(Boolean),
     relatedList: read(join(setup.fake, 'related-list')),
     localBuilds: read(join(setup.fake, 'local-builds')).split('\n').filter(Boolean).length,

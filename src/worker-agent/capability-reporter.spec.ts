@@ -765,3 +765,18 @@ describe('project discovery reuse across heartbeats', () => {
     expect(ctor.mock.calls.length).toBe(before);
   });
 });
+
+describe('busyCoresSinceLastReport', () => {
+  const cores = (...ticks: Array<[busy: number, idle: number]>) => () => ticks.map(([busy, idle]) => ({
+    model: 'test', speed: 1, times: { user: busy, nice: 0, sys: 0, irq: 0, idle },
+  }));
+
+  it('counts cores in use since the previous report, and says nothing when it cannot compare', async () => {
+    const { busyCoresSinceLastReport } = await import('./capability-reporter');
+    busyCoresSinceLastReport(cores([0, 0], [0, 0]));
+    // One core fully busy, the other a quarter busy: 1.25 cores, to one decimal place.
+    expect(busyCoresSinceLastReport(cores([100, 0], [25, 75]))).toBe(1.3);
+    expect(busyCoresSinceLastReport(cores([100, 0], [25, 75]))).toBeUndefined();
+    expect(busyCoresSinceLastReport(cores([200, 0]))).toBeUndefined();
+  });
+});

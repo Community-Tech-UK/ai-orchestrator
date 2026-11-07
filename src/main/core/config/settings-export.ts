@@ -49,6 +49,8 @@ const MACHINE_LOCAL_SETTING_KEYS = new Set<keyof AppSettings>([
   'workspaceSecretsAllowAgentRequests',
   'voiceLocalSttWorkerNodeId',
   'remoteNodesEnabled',
+  // Node ids mean nothing on another Mac.
+  'computers',
   'remoteNodesServerHost',
   'remoteNodesServerPort',
   'remoteNodesNamespace',

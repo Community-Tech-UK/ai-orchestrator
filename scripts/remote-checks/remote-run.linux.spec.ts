@@ -346,6 +346,25 @@ describe.runIf(hasUserSystemd())('remote-run.sh on a real machine', () => {
     expect(run.result()).toMatchObject({ status: 'no-slot' });
   }, LIMIT);
 
+  it('uses only as many slots as the Mac asks for', async () => {
+    const machine = setUp(2);
+    const commit = machine.snapshot('pass');
+    mkdirSync(join(machine.base, 'slots'), { recursive: true });
+    const lock = join(machine.base, 'slots/1.lock');
+    const holder = spawn('flock', ['-o', lock, 'sleep', '30'], { stdio: 'ignore' });
+    expect(await waitFor(() => spawnSync('flock', ['-n', lock, 'true']).status !== 0)).toBe(true);
+
+    const child = spawn('bash', [machine.script, 'run', `one-slot-${process.pid}`, commit, '0', '0'], {
+      stdio: 'pipe', env: { ...process.env, AIO_SLOT_COUNT: '1' },
+    });
+    children.push(child);
+    let output = '';
+    child.stdout.on('data', (chunk) => { output += String(chunk); });
+    await new Promise<void>(resolve => child.on('close', () => resolve()));
+    holder.kill('SIGKILL');
+    expect(output).toContain('"status":"no-slot"');
+  }, LIMIT);
+
   it('runs only the related tests when given a list, keeping awkward names as data', async () => {
     const machine = setUp();
     const commit = machine.snapshot('pass');

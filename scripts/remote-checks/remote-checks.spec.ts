@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -63,6 +63,18 @@ describe('decideRoute', () => {
     expect(route([], {}, queueFolder, { ...config, queueChecks: true })).toEqual({ kind: 'remote', turn: false });
   });
 
+  it('keeps work here, saying why, when the machine is paused or test runs are turned off for it', () => {
+    expect(route([], {}, root, { ...config, paused: true })).toEqual({ kind: 'mac', turn: true, reason: 'the PC is paused' });
+    expect(route([], {}, root, { ...config, testRuns: false })).toEqual({
+      kind: 'mac', turn: true, reason: 'test runs are turned off for the PC',
+    });
+    expect(route([], {}, root, { ...config, checks: false })).toEqual({ kind: 'remote', turn: true });
+    const queueFolder = '/work/repo/.worktrees/queue/item-1';
+    expect(route([], {}, queueFolder, { ...config, queueChecks: true, paused: true })).toMatchObject({ kind: 'mac', turn: false });
+    const specs = Array.from({ length: 50 }, (_, index) => `src/s${index}.spec.ts`);
+    expect(route(specs, {}, root, { ...config, paused: true })).toEqual({ kind: 'local' });
+  });
+
   describe('a long list of spec files', () => {
     const specs = Array.from({ length: 50 }, (_, index) => `src/s${index}.spec.ts`);
 
@@ -117,9 +129,43 @@ describe('readConfig', () => {
     writeFileSync(join(dir, 'config.json'), '{}');
     expect(() => readConfig({ AIO_REMOTE_CHECKS_DIR: dir })).toThrow(/no host/);
   });
+
+  it('takes work and runs three at once unless the file says otherwise, and ignores a slot count it cannot use', () => {
+    const dir = temp();
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({ host: 'pc' }));
+    expect(readConfig({ AIO_REMOTE_CHECKS_DIR: dir })).toMatchObject({ paused: false, testRuns: true, checks: true, slots: 3 });
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({ host: 'pc', paused: true, testRuns: false, checks: false, slots: 5 }));
+    expect(readConfig({ AIO_REMOTE_CHECKS_DIR: dir })).toMatchObject({ paused: true, testRuns: false, checks: false, slots: 5 });
+    for (const slots of [0, 9, 2.5, '4']) {
+      writeFileSync(join(dir, 'config.json'), JSON.stringify({ host: 'pc', slots }));
+      expect(readConfig({ AIO_REMOTE_CHECKS_DIR: dir })).toMatchObject({ slots: 3 });
+    }
+  });
 });
 
 describe('appendRunLog', () => {
+  it('starts a new log past about a megabyte, keeping the one before', () => {
+    const dir = temp();
+    writeFileSync(join(dir, 'runs.jsonl'), `${'x'.repeat(1_000_001)}\n`);
+    writeFileSync(join(dir, 'runs.old.jsonl'), 'oldest\n');
+    const anHourAgo = new Date(Date.now() - 3_600_000);
+    utimesSync(join(dir, 'runs.old.jsonl'), anHourAgo, anHourAgo);
+    appendRunLog({ at: 'now' }, { AIO_REMOTE_CHECKS_DIR: dir });
+    expect(readFileSync(join(dir, 'runs.jsonl'), 'utf8')).toBe('{"at":"now"}\n');
+    expect(readFileSync(join(dir, 'runs.old.jsonl'), 'utf8').length).toBe(1_000_002);
+    expect(Date.now() - statSync(join(dir, 'runs.old.jsonl')).mtimeMs).toBeLessThan(60_000);
+    appendRunLog({ at: 'later' }, { AIO_REMOTE_CHECKS_DIR: dir });
+    expect(readFileSync(join(dir, 'runs.jsonl'), 'utf8')).toBe('{"at":"now"}\n{"at":"later"}\n');
+  });
+
+  it('never moves a log started in the last minute, so two runs at once keep the history', () => {
+    const dir = temp();
+    writeFileSync(join(dir, 'runs.jsonl'), `${'x'.repeat(1_000_001)}\n`);
+    writeFileSync(join(dir, 'runs.old.jsonl'), 'history\n');
+    appendRunLog({ at: 'now' }, { AIO_REMOTE_CHECKS_DIR: dir });
+    expect(readFileSync(join(dir, 'runs.old.jsonl'), 'utf8')).toBe('history\n');
+  });
+
   it('adds one line per run', () => {
     const dir = temp();
     appendRunLog({ ranOn: 'a' }, { AIO_REMOTE_CHECKS_DIR: dir });

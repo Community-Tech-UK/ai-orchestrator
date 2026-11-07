@@ -97,6 +97,7 @@ describe('checks on the test machine', () => {
     const run = runChecks(setup);
     expect(run.code).toBe(0);
     expect(run.sent).toEqual(CHECKS);
+    expect(run.sshCalls.find(call => call.includes(' run '))).toContain('AIO_SLOT_COUNT=3 bash');
     expect(run.sshCalls.join('\n')).not.toContain('npm run lint');
     expect(run.stdout).toContain('✓ npm run lint');
     expect(run.stdout).toMatch(/Ran on the PC in \d+s\./);
@@ -148,6 +149,19 @@ describe('checks on the test machine', () => {
     expect(run.stdout).toContain('✗ npm run lint: exit 3');
     expect(run.stdout).toContain('✓ npm run typecheck');
     expect(run.stdout).toContain('because AIO_REMOTE_CHECKS=off asked for it');
+  }, LIMIT);
+
+  it('keeps checks here, saying why, when the machine is paused or checks are turned off for it', () => {
+    for (const [change, why] of [[{ paused: true }, 'the PC is paused'], [{ checks: false }, 'checks are turned off for the PC']] as const) {
+      const setup = setUp();
+      const configFile = join(setup.dir, 'config.json');
+      writeFileSync(configFile, JSON.stringify({ ...JSON.parse(readFileSync(configFile, 'utf8')), ...change }));
+      const run = runChecks(setup);
+      expect(run.code).toBe(0);
+      expect(run.sshCalls).toEqual([]);
+      expect(run.stdout).toContain(`because ${why}`);
+      expect(run.runLog[0]).toMatchObject({ kind: 'checks', ranOn: 'mac', fellBackBecause: why });
+    }
   }, LIMIT);
 
   it('keeps queue checks here unless the config lets them go', () => {

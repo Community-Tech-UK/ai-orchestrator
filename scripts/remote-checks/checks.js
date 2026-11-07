@@ -13,7 +13,7 @@
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const { appendRunLog, isLoopRun, isQueueCheck, readConfig } = require('./route');
+const { appendRunLog, isLoopRun, isQueueCheck, readConfig, stayReason } = require('./route');
 const { runOnRemote } = require('./run-remote');
 
 /** The only commands this runs, exactly as written. remote-run.sh's `known_check` has the same list. */
@@ -57,6 +57,8 @@ const SHOWN_LINES = 40;
 function decideChecksRoute({ env = process.env, root, config }) {
   if (env.GITHUB_ACTIONS || !config) return { kind: 'local' };
   if (env.AIO_REMOTE_CHECKS === 'off') return { kind: 'mac', reason: 'AIO_REMOTE_CHECKS=off asked for it' };
+  const chosenHere = stayReason(config, 'checks');
+  if (chosenHere) return { kind: 'mac', reason: chosenHere };
   if (isQueueCheck(root, env) && !config.queueChecks) return { kind: 'mac', reason: 'queue checks stay on the Mac for now' };
   return { kind: 'remote' };
 }

@@ -46,6 +46,12 @@ describe('readTestMachineHealth', () => {
     });
   });
 
+  it('does not call a run kept here by the Computers page a fallback', () => {
+    for (const reason of ['the Windows PC is paused', 'test runs are turned off for the Windows PC']) {
+      expect(read(folder([run(2 * MIN, 'pc'), run(MIN, 'mac', reason)]))?.movedToMac).toEqual({ count: 0, of: 1, share: 0 });
+    }
+  });
+
   it('counts where full runs went, and does not call a chosen Mac run a fallback', () => {
     const health = read(folder([run(3 * MIN, 'pc'), run(2 * MIN, 'mac', OFF), run(MIN, 'pc'), run(30 * MIN, 'mac', 'the Windows PC had no free slot')]));
     expect(health?.ranThere).toEqual({ count: 2, of: 4, share: 0.5 });
@@ -60,6 +66,12 @@ describe('readTestMachineHealth', () => {
 
   it('leaves out runs older than the window', () => {
     expect(read(folder([run(15 * DAY, 'pc'), run(MIN, 'pc')]))?.ranThere.of).toBe(1);
+  });
+
+  it('reads the older log too, which the scripts keep when they start a new one', () => {
+    const dir = folder([run(MIN, 'pc')]);
+    writeFileSync(join(dir, 'runs.old.jsonl'), `${JSON.stringify(run(2 * DAY, 'mac', UNREACHABLE))}\n`);
+    expect(read(dir)?.ranThere).toEqual({ count: 1, of: 2, share: 0.5 });
   });
 
   it('survives half-written lines', () => {

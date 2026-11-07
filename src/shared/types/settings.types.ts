@@ -46,6 +46,16 @@ import type {
 } from './settings-primitives.types';
 export type * from './settings-primitives.types';
 
+/** A paired computer's choices on the Computers page. A computer that isn't listed takes work as before. */
+export interface ComputerChoice {
+  /** The paired computer's node id. */
+  id: string;
+  /** Harness doesn't choose it for new work. A session sent to it by name, or already running there, still goes. */
+  paused: boolean;
+  /** Harness may start agent sessions there when it chooses a computer itself. */
+  sessions: boolean;
+}
+
 /** Application settings that are persisted to disk. */
 export interface AppSettings
   extends DesktopComputerUseSettings, DisplaySettings, MobileGatewaySettings, ObservationSettings, TokenLeverSettings, TokenTrialSettings,
@@ -576,6 +586,8 @@ export interface AppSettings
   remoteNodesTlsCertPath: string;
   remoteNodesTlsKeyPath: string;
   remoteNodesRegisteredNodes: string;
+  /** Paired computers in the order Harness tries them for new work; this Mac comes after all of them. */
+  computers: ComputerChoice[];
 
   // Thin-client WebSocket API (web/mobile/event transport)
   thinClientWsEnabled: boolean;

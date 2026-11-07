@@ -202,6 +202,7 @@ export const SETTING_SURFACING = {
   remoteNodesAutoOffloadBrowser: 'bespoke', // remote-nodes tab
   remoteNodesAutoOffloadAndroid: 'bespoke', // remote-nodes tab
   remoteNodesAutoOffloadGpu: 'bespoke', // remote-nodes tab
+  computers: 'bespoke', // computers page
   remoteNodesNamespace: 'bespoke', // remote-nodes tab
   remoteNodesRequireTls: 'bespoke', // remote-nodes tab
   remoteNodesTlsMode: 'bespoke', // remote-nodes tab

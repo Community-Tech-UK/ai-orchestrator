@@ -19,13 +19,15 @@ const KIND_NAMES = {
   checks: 'checks',
 };
 
-function readRuns(file) {
-  let text;
-  try {
-    text = fs.readFileSync(file, 'utf8');
-  } catch {
-    return [];
-  }
+/** Every run in the log folder, the older file first. */
+function readRuns(dir) {
+  const text = ['runs.old.jsonl', 'runs.jsonl'].map((name) => {
+    try {
+      return fs.readFileSync(path.join(dir, name), 'utf8');
+    } catch {
+      return '';
+    }
+  }).join('\n');
   return text.split('\n').flatMap(line => {
     try {
       const run = JSON.parse(line);
@@ -82,7 +84,7 @@ if (require.main === module) {
     /* a broken config only costs the friendly name */
   }
   const names = config ? { [config.host]: config.label } : {};
-  console.log(format(summarise(readRuns(path.join(remoteChecksDir(), 'runs.jsonl')), since, names)));
+  console.log(format(summarise(readRuns(remoteChecksDir()), since, names)));
 }
 
 module.exports = { format, readRuns, summarise };

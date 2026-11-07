@@ -7,11 +7,21 @@ import type {
   NodePlacementPrefs,
   NodePlatform,
 } from '../../shared/types/worker-node.types';
+import type { ComputerChoice } from '../../shared/types/settings.types';
 
 const logger = getLogger('WorkerNodeRegistry');
 
+/**
+ * What each place in the Computers page's order is worth: more than memory, spare slots, latency and an idle processor
+ * together (at most 85), so the order decides between healthy computers. A caller's own preferences can still outweigh it.
+ */
+const ORDER_STEP = 90;
+/** Most an idle computer gains over a fully busy one. */
+const IDLE_WEIGHT = 20;
+
 export class WorkerNodeRegistry extends EventEmitter {
   private nodes = new Map<string, WorkerNodeInfo>();
+  private choices: ComputerChoice[] = [];
 
   private static instance: WorkerNodeRegistry | null = null;
 
@@ -113,6 +123,14 @@ export class WorkerNodeRegistry extends EventEmitter {
   // Selection
   // ---------------------------------------------------------------------------
 
+  /**
+   * The Computers page's order, pauses and agent-session switches. Only `selectNode`, Harness choosing a computer
+   * itself, reads them: a session sent to a computer by name or by capability, or resuming where it ran, still goes.
+   */
+  setComputerChoices(choices: readonly ComputerChoice[]): void {
+    this.choices = choices.map(choice => ({ ...choice }));
+  }
+
   selectNode(prefs: NodePlacementPrefs): WorkerNodeInfo | null {
     const candidates = this.getHealthyNodes();
     if (candidates.length === 0) return null;
@@ -162,8 +180,20 @@ export class WorkerNodeRegistry extends EventEmitter {
       return -Infinity;
     }
 
+    const choice = this.choices.find(entry => entry.id === node.id);
+    if (choice?.paused || choice?.sessions === false) return -Infinity;
+
     // --- Base capability match ---
     let score = 100;
+
+    // Earlier in the Computers page's order. Unlisted computers come after every listed one.
+    const rank = this.choices.findIndex(entry => entry.id === node.id);
+    if (rank >= 0) score += ORDER_STEP * (this.choices.length - rank);
+
+    // Idle processor (+0..20), when the worker reports it.
+    if (caps.busyCores !== undefined && caps.cpuCores > 0) {
+      score += (1 - Math.min(1, caps.busyCores / caps.cpuCores)) * IDLE_WEIGHT;
+    }
 
     // Platform preference (+20)
     if (prefs.preferPlatform && caps.platform === prefs.preferPlatform) {

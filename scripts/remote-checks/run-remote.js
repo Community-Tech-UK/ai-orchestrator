@@ -253,7 +253,9 @@ async function runOnRemote({ config, root, logPath, jsonPath, noCache, ci, take 
       if (listed.code !== 0 || listed.timedOut) return { ok: false, reason: `${config.label} could not be reached` };
     }
     const flag = value => (value ? '1' : '0');
-    const result = await streamRun(config, `${prefix}bash ${script} run ${id} ${snapshot.commit} ${flag(ci)} ${flag(noCache)}`, logPath);
+    // A slot count from the config, which readConfig has already held to 1 to 8.
+    const slots = Number.isInteger(config.slots) ? `AIO_SLOT_COUNT=${config.slots} ` : '';
+    const result = await streamRun(config, `${prefix}${slots}bash ${script} run ${id} ${snapshot.commit} ${flag(ci)} ${flag(noCache)}`, logPath);
 
     if (!result) return { ok: false, reason: `the connection to ${config.label} was lost during the run` };
     if (result.status === 'no-slot') return { ok: false, reason: `${config.label} had no free slot` };

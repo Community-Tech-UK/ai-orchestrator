@@ -25,6 +25,8 @@ HOME_OF_PROJECT="$BASE${PROJECT:+/projects/$PROJECT}"
 REPO="$HOME_OF_PROJECT/repo.git"
 RUNS="$BASE/runs"
 SLOT_COUNT=3
+# Harness's Computers page can choose another number, which run-remote.js passes on.
+case "${AIO_SLOT_COUNT:-}" in [1-8]) SLOT_COUNT="$AIO_SLOT_COUNT" ;; esac
 SLOT_WAIT_SECONDS=180
 RUN_LIMIT_SECONDS=3600
 SNAPSHOT_MAX_AGE_SECONDS=86400

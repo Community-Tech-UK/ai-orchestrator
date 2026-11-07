@@ -1,4 +1,5 @@
 import { getSettingsManager } from '../core/config/settings-manager';
+import type { ComputerChoice } from '../../shared/types/settings.types';
 import { getThinClientWsServer } from '../event-bus/thin-client-ws-server';
 import { getLogger } from '../logging/logger';
 import { getNotificationService } from '../notifications/notification-service';
@@ -44,6 +45,9 @@ export function createWorkerNodeSubsystemStep(
       // later from Settings or pair-both. Otherwise authenticated sockets have
       // no registration handler and every worker appears disconnected.
       const registry = getWorkerNodeRegistry();
+      // The Computers page's order, pauses and agent-session switches, kept current.
+      registry.setComputerChoices(getSettingsManager().get('computers'));
+      getSettingsManager().on('setting:computers', (choices: ComputerChoice[]) => registry.setComputerChoices(choices));
       const connection = getWorkerNodeConnectionServer();
       const rpcRouter = new RpcEventRouter(connection, registry);
       rpcRouter.start();
