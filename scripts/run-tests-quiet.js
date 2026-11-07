@@ -44,8 +44,9 @@
  *   AIO_REMOTE_CHECKS=off npm run test:quiet             # full run on this Mac
  *
  * Remote checks: with ~/.ai-orchestrator/remote-checks/config.json in place, a plain full
- * run goes to the machine it names, and everything else stays here. If that machine can't
- * produce a valid result, the run happens here and says why. See scripts/remote-checks/.
+ * run or a long list of spec files goes to the machine it names, and everything else stays
+ * here. If that machine can't produce a valid result, the run happens here and says why.
+ * See scripts/remote-checks/.
  *
  * Cache: Vitest's result cache is ON by default for faster warm re-runs.
  * Pass --no-cache or set AIO_TEST_NO_CACHE=1 after large delete/rename batches.
@@ -235,9 +236,9 @@ function formatDuration(ms) {
 }
 
 /** After a run elsewhere: the specs that only prove anything on macOS, merged into its report. */
-async function runMacOnlySpecs(remoteExitCode) {
-  if (process.platform !== 'darwin') return remoteExitCode;
-  const macExitCode = await runVitest({ testArgs: MAC_ONLY_SPECS, jsonPath: MAC_ONLY_JSON_PATH });
+async function runMacOnlySpecs(remoteExitCode, specs) {
+  if (process.platform !== 'darwin' || !specs.length) return remoteExitCode;
+  const macExitCode = await runVitest({ testArgs: specs, jsonPath: MAC_ONLY_JSON_PATH });
   mergeMacOnlyReport({ mainPath: JSON_PATH, macPath: MAC_ONLY_JSON_PATH, root: ROOT, macExitCode });
   return remoteExitCode !== 0 ? remoteExitCode : macExitCode;
 }
@@ -295,11 +296,14 @@ async function runSuite() {
       jsonPath: JSON_PATH,
       noCache: forceNoCache || passthroughArgs.includes('--no-cache'),
       ci: process.env.CI,
+      // A spec file relates to itself, so this runs exactly the named list.
+      relatedTo: route.specs,
     });
     stopProgress();
     if (remote.ok) {
+      const macOnly = route.specs ? MAC_ONLY_SPECS.filter(spec => route.specs.includes(spec)) : MAC_ONLY_SPECS;
       outcome = {
-        exitCode: await runMacOnlySpecs(remote.exitCode),
+        exitCode: await runMacOnlySpecs(remote.exitCode, macOnly),
         where: `Ran on ${config.label} in ${formatDuration(Date.now() - started)}.`,
         ranOn: config.host,
         waitedMs: remote.waitedMs,
@@ -315,6 +319,7 @@ async function runSuite() {
   appendRunLog({
     at: new Date(started).toISOString(),
     project: path.basename(ROOT),
+    ...(route.specs ? { kind: 'targeted' } : {}),
     loop: isLoopRun(),
     fingerprint: outcome.fingerprint ?? null,
     ranOn: outcome.ranOn,

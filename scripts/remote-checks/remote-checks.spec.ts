@@ -63,6 +63,27 @@ describe('decideRoute', () => {
     expect(route([], {}, queueFolder, { ...config, queueChecks: true })).toEqual({ kind: 'remote', turn: false });
   });
 
+  describe('a long list of spec files', () => {
+    const specs = Array.from({ length: 50 }, (_, index) => `src/s${index}.spec.ts`);
+
+    it('goes to the far machine, with no turn on the Mac, once it reaches the limit', () => {
+      expect(route(specs)).toEqual({ kind: 'remote', turn: false, specs });
+      expect(route(specs.slice(1))).toEqual({ kind: 'local' });
+    });
+
+    it('stays as it always was with anything else on the command line', () => {
+      expect(route([...specs, '-u'])).toEqual({ kind: 'local' });
+      expect(route([...specs.slice(1), 'src/main'])).toEqual({ kind: 'local' });
+    });
+
+    it('stays here when remote checks are off or queue checks stay on the Mac, and with no machine', () => {
+      expect(route(specs, { AIO_REMOTE_CHECKS: 'off' })).toEqual({ kind: 'local' });
+      expect(route(specs, {}, '/work/repo/.worktrees/queue/item-1')).toEqual({ kind: 'local' });
+      expect(route(specs, {}, root, null)).toEqual({ kind: 'local' });
+      expect(route(specs, { GITHUB_ACTIONS: 'true' })).toEqual({ kind: 'local' });
+    });
+  });
+
   it('treats a session working in a queue folder as a session', () => {
     expect(route([], { AIO_QUEUE_SESSION: '1' }, '/work/repo/.worktrees/queue/item-1')).toEqual({ kind: 'remote', turn: true });
   });

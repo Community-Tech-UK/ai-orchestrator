@@ -29,6 +29,9 @@ const CODEX_PROTOCOL_TESTS = [
   'scripts/__tests__/refresh-codex-protocol.spec.ts',
 ];
 
+// scripts/remote-checks/run-staged.js exits with this when the tests belong on this machine.
+const STAY_ON_THE_MAC = 75;
+
 function getStagedTestRelatedFiles(options = {}) {
   const exec = options.execFileSync ?? execFileSync;
   const existsSync = options.existsSync ?? fs.existsSync;
@@ -77,6 +80,10 @@ function runStagedTests(options = {}) {
     }
   }
 
+  const selection = [...new Set(relatedFiles)];
+  const elsewhere = options.runElsewhere?.(selection, run);
+  if (elsewhere !== undefined && elsewhere !== STAY_ON_THE_MAC) return elsewhere;
+
   // Related tests can launch compiled workers through indirect dependencies.
   // Rebuild every source selection rather than duplicating Vitest's graph here;
   // documentation/generated-only commits return above without paying this cost.
@@ -107,7 +114,7 @@ function runStagedTests(options = {}) {
   // Feed the entire list through stdin to one Vitest run instead: no cmd.exe or
   // OS argument-length limit, and each related test specification executes once.
   const result = run(process.execPath, [path.join(__dirname, 'run-related-tests.mjs')], {
-    input: JSON.stringify([...new Set(relatedFiles)]),
+    input: JSON.stringify(selection),
     stdio: ['pipe', 'inherit', 'inherit'],
     shell: false,
   });
@@ -125,9 +132,24 @@ function runStagedTests(options = {}) {
   return result.status ?? 1;
 }
 
+/** A change that reaches a lot of tests can go to the test machine. It builds there too. */
+function runOnTestMachine(selection, run) {
+  const result = run(process.execPath, [path.join(__dirname, 'remote-checks', 'run-staged.js')], {
+    input: JSON.stringify(selection),
+    stdio: ['pipe', 'inherit', 'inherit'],
+    shell: false,
+  });
+  if (result.error) {
+    console.error(`test-staged could not try the test machine: ${result.error.message}`);
+    return STAY_ON_THE_MAC;
+  }
+  // A killed run says nothing about the machine or the tests, so it fails like any other killed run.
+  return result.signal ? 1 : result.status ?? 1;
+}
+
 function main() {
   try {
-    process.exit(runStagedTests());
+    process.exit(runStagedTests({ runElsewhere: runOnTestMachine }));
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);
@@ -141,5 +163,6 @@ if (require.main === module) {
 module.exports = {
   SOURCE_FILE_PATTERN,
   getStagedTestRelatedFiles,
+  runOnTestMachine,
   runStagedTests,
 };

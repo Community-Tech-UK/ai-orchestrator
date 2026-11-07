@@ -42,6 +42,11 @@ describe('Plan Queue tool operation adoption routing', () => {
     vi.spyOn(coordinator, 'getRunDto').mockReturnValue({ id: 'run', parentInstanceId: 'caller', kind: 'plans', workspaceCwd: '/repo', status: 'running', config: DEFAULT_PLAN_QUEUE_CONFIG.plans,
       workerProvider: 'claude', relaxedSettings: [], startedAt: 1, endedAt: null, items: [] });
     expect(createPlanQueueToolOperations(() => coordinator).status('caller', 'run')).not.toHaveProperty('queueHealth');
+    expect(overview.queueHealth).not.toHaveProperty('notice');
+    const quiet = coordinator.getQueueHealth();
+    vi.mocked(coordinator.getQueueHealth).mockReturnValue({ ...quiet, testMachine: { label: 'the PC', ranThere: NOTHING, movedToMac: NOTHING, unreachable: true } });
+    const moved = createPlanQueueToolOperations(() => coordinator).status('caller') as { queueHealth: Record<string, string> };
+    expect(moved.queueHealth['notice']).toContain("the PC can't be reached");
   });
 
   it('leaves the session-list stage out of plan_queue_status, which is already very large', () => {

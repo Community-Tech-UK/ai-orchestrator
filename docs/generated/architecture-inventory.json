@@ -6210,12 +6210,12 @@
       "lines": 3564
     },
     {
-      "path": "docs/superpowers/plans/2026-04-28-wave2-navigation-pickers-prompt-recall-plan_completed.md",
-      "lines": 3523
+      "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
+      "lines": 3533
     },
     {
-      "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
-      "lines": 3520
+      "path": "docs/superpowers/plans/2026-04-28-wave2-navigation-pickers-prompt-recall-plan_completed.md",
+      "lines": 3523
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
@@ -7447,7 +7447,7 @@
     },
     {
       "path": "src/main/plan-queue/plan-queue-coordinator.ts",
-      "lines": 830
+      "lines": 831
     },
     {
       "path": "docs/plans/2026-10-22-aio-tidies-up-after-itself_plan_completed.md",
@@ -7540,6 +7540,10 @@
     {
       "path": "src/renderer/app/shared/components/provider-quota-chip/provider-quota-chip.component.spec.ts",
       "lines": 802
+    },
+    {
+      "path": "scripts/run-tests-quiet.js",
+      "lines": 801
     },
     {
       "path": "src/main/memory/procedural-store.ts",

@@ -13,6 +13,7 @@ interface StagedFilesOptions {
 interface RunOptions extends StagedFilesOptions {
   files?: string[];
   log?: (message: string) => void;
+  runElsewhere?: (selection: string[], run: NonNullable<RunOptions['spawnSync']>) => number;
   spawnSync?: (
     command: string,
     args: string[],
@@ -20,8 +21,9 @@ interface RunOptions extends StagedFilesOptions {
   ) => { status?: number | null; signal?: NodeJS.Signals | null; error?: Error };
 }
 
-const { getStagedTestRelatedFiles, runStagedTests } = require('../test-staged.js') as {
+const { getStagedTestRelatedFiles, runOnTestMachine, runStagedTests } = require('../test-staged.js') as {
   getStagedTestRelatedFiles: (options?: StagedFilesOptions) => string[];
+  runOnTestMachine: (selection: string[], run: NonNullable<RunOptions['spawnSync']>) => number;
   runStagedTests: (options?: RunOptions) => number;
 };
 
@@ -276,5 +278,51 @@ describe('test-staged: runStagedTests', () => {
         spawnSync: (command) => command === 'npm' ? { status: 0 } : result,
       })).toBe(1);
     }
+  });
+
+  it('takes the test machine\'s result, and builds nothing here', () => {
+    for (const status of [0, 1, 3]) {
+      const spawnSync = vi.fn();
+      expect(runStagedTests({ files: ['src/main/foo.ts'], spawnSync, log: () => {}, runElsewhere: () => status })).toBe(status);
+      expect(spawnSync).not.toHaveBeenCalled();
+    }
+  });
+
+  it('builds and tests here when the test machine hands the run back', () => {
+    const spawnSync = vi.fn(() => ({ status: 0 }));
+    const selections: string[][] = [];
+    expect(runStagedTests({
+      files: ['src/main/foo.ts', 'src/main/foo.ts'], spawnSync, log: () => {},
+      runElsewhere: (selection) => { selections.push(selection); return 75; },
+    })).toBe(0);
+    expect(selections).toEqual([['src/main/foo.ts']]);
+    expect(spawnSync).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not offer an empty selection to the test machine', () => {
+    const runElsewhere = vi.fn(() => 0);
+    expect(runStagedTests({ files: [], spawnSync: vi.fn(), log: () => {}, runElsewhere })).toBe(0);
+    expect(runElsewhere).not.toHaveBeenCalled();
+  });
+});
+
+describe('test-staged: runOnTestMachine', () => {
+  it('sends the list as data and returns the exit code', () => {
+    const run = vi.fn(() => ({ status: 4 }));
+    expect(runOnTestMachine(['src/a $(b).ts'], run)).toBe(4);
+    expect(run).toHaveBeenCalledWith(process.execPath, [path.resolve('scripts/remote-checks/run-staged.js')], {
+      input: JSON.stringify(['src/a $(b).ts']), stdio: ['pipe', 'inherit', 'inherit'], shell: false,
+    });
+  });
+
+  it('hands the run back when the route cannot even start, so the commit is not blocked', () => {
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(runOnTestMachine([], () => ({ error: new Error('cannot start node') }))).toBe(75);
+    quiet.mockRestore();
+  });
+
+  it('fails a killed run rather than reading it as a pass or an absent machine', () => {
+    expect(runOnTestMachine([], () => ({ status: null, signal: 'SIGTERM' as const }))).toBe(1);
+    expect(runOnTestMachine([], () => ({ status: null }))).toBe(1);
   });
 });

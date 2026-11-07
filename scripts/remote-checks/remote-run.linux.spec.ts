@@ -39,6 +39,15 @@ else {
 }
 `;
 
+/** Stands in for scripts/run-related-tests.mjs: reports what it was asked to relate to. */
+const FAKE_RELATED = `
+import { readFileSync, writeFileSync } from 'node:fs';
+const files = JSON.parse(readFileSync(0, 'utf8'));
+console.log('stub related running');
+writeFileSync(process.argv[2], JSON.stringify({ numTotalTests: files.length, testResults: files.map(name => ({ name })) }));
+process.exit(files.some(file => file.includes('fails')) ? 3 : 0);
+`;
+
 const temps: string[] = [];
 const children: ChildProcessWithoutNullStreams[] = [];
 afterEach(() => {
@@ -88,6 +97,7 @@ function setUp(slotWaitSeconds = 180) {
   writeFileSync(join(project, 'scripts/ci-npm-ci.sh'), FAKE_INSTALL);
   writeFileSync(join(project, 'scripts/sync-dist.js'), '');
   writeFileSync(join(project, 'stub-vitest.mjs'), FAKE_VITEST);
+  writeFileSync(join(project, 'scripts/run-related-tests.mjs'), FAKE_RELATED);
 
   const pidFile = join(root, 'pids');
   const snapshot = (behaviour: string): string => {
@@ -199,6 +209,39 @@ describe.runIf(hasUserSystemd())('remote-run.sh on a real machine', () => {
     for (const holder of holders) holder.kill('SIGKILL');
 
     expect(run.result()).toMatchObject({ status: 'no-slot' });
+  }, LIMIT);
+
+  it('runs only the related tests when given a list, keeping awkward names as data', async () => {
+    const machine = setUp();
+    const commit = machine.snapshot('pass');
+    const files = ['src/a $(touch pwned);b.ts', "src/it's.ts"];
+    const id = `related-run-${process.pid}`;
+    execFileSync('bash', [machine.script, 'related', id], { input: JSON.stringify(files) });
+    const child = spawn('bash', [machine.script, 'run', id, commit, '0', '0'], { stdio: 'pipe' });
+    children.push(child);
+    let output = '';
+    child.stdout.on('data', (chunk) => { output += String(chunk); });
+    await new Promise<void>(resolve => child.on('close', () => resolve()));
+
+    expect(output).toContain('stub related running');
+    expect(output).not.toContain('stub vitest running');
+    expect(output).toContain('"status":"ok"');
+    const report = execFileSync('bash', [machine.script, 'fetch', id], { maxBuffer: 16 * 1024 * 1024 });
+    expect(JSON.parse(gunzipSync(report).toString()).testResults.map((suite: { name: string }) => suite.name)).toEqual(files);
+    expect(existsSync(join(machine.base, 'slots/1/repo/pwned'))).toBe(false);
+  }, LIMIT);
+
+  it('passes on the related run\'s own exit code', async () => {
+    const machine = setUp();
+    const commit = machine.snapshot('pass');
+    const id = `related-fail-${process.pid}`;
+    execFileSync('bash', [machine.script, 'related', id], { input: JSON.stringify(['fails.ts']) });
+    const child = spawn('bash', [machine.script, 'run', id, commit, '0', '0'], { stdio: 'pipe' });
+    children.push(child);
+    let output = '';
+    child.stdout.on('data', (chunk) => { output += String(chunk); });
+    await new Promise<void>(resolve => child.on('close', () => resolve()));
+    expect(output).toContain('"exit":3');
   }, LIMIT);
 
   it('names a setup fault rather than reporting tests', async () => {

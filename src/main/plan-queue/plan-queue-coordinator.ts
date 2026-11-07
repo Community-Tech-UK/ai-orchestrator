@@ -62,6 +62,7 @@ import { PlanQueueRunControl } from './plan-queue-run-control';
 import { buildRunSummaryMessage, runToDto } from './plan-queue-messages';
 import { itemStages } from './plan-queue-item-stage';
 import { PlanQueueParentTracker } from './plan-queue-parent';
+import { withTestMachine } from './plan-queue-test-machine';
 import { PlanQueueTriage } from './plan-queue-triage';
 import { PlanQueueUserClose } from './plan-queue-user-close';
 import { reconcilePlanQueueWorktrees } from './plan-queue-reconciler';
@@ -462,7 +463,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   private stagesOf(items: readonly PlanQueueItem[]) { return itemStages(this.history, items, this.sessionStartedAt, id => this.store.waits.whyWaiting(id)); }
 
   /** The "Queue health" measures for the recent window, from the stored events and verdicts. */
-  getQueueHealth(): PlanQueueHealth { return this.requireDeps().store.queueHealth(); }
+  getQueueHealth(): PlanQueueHealth { return withTestMachine(this.requireDeps().store.queueHealth(), Date.now()); }
 
   getAlerts(): PlanQueueAlert[] { return [...this.alerts]; }
 

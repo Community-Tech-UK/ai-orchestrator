@@ -1,6 +1,6 @@
 'use strict';
 /**
- * Sends a full test run to the machine named in the remote checks config, and brings
+ * Sends a test run to the machine named in the remote checks config, and brings
  * the result back as if Vitest had run here: output streams into the usual log, and the
  * usual JSON report arrives with the far machine's paths rewritten to local ones.
  *
@@ -176,11 +176,13 @@ async function fetchReport(config, script, id, remoteRoot, root, jsonPath) {
  * @param {string} options.jsonPath
  * @param {boolean} options.noCache
  * @param {string|undefined} options.ci value of `CI` to pass through
+ * @param {(root: string) => object} [options.take] how to capture the code; the files on disk by default
+ * @param {string[]} [options.relatedTo] run only the tests related to these files, not the whole suite
  */
-async function runOnRemote({ config, root, logPath, jsonPath, noCache, ci }) {
+async function runOnRemote({ config, root, logPath, jsonPath, noCache, ci, take = takeSnapshot, relatedTo }) {
   let snapshot;
   try {
-    snapshot = takeSnapshot(root);
+    snapshot = take(root);
   } catch (err) {
     return {
       ok: false,
@@ -210,6 +212,11 @@ async function runOnRemote({ config, root, logPath, jsonPath, noCache, ci }) {
     if (sendFault) return { ok: false, reason: sendFault };
 
     const id = `${Date.now().toString(36)}-${crypto.randomBytes(4).toString('hex')}`;
+    if (relatedTo) {
+      // File names travel as data. Built into the command, a shell on the far machine would read them.
+      const listed = await sshCommand(config, `bash ${script} related ${id}`, { input: JSON.stringify(relatedTo) });
+      if (listed.code !== 0 || listed.timedOut) return { ok: false, reason: `${config.label} could not be reached` };
+    }
     const flag = value => (value ? '1' : '0');
     const result = await streamRun(config, `bash ${script} run ${id} ${snapshot.commit} ${flag(ci)} ${flag(noCache)}`, logPath);
 

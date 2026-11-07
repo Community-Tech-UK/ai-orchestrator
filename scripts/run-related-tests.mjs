@@ -3,6 +3,9 @@
 import { readFileSync } from 'node:fs';
 import { startVitest } from 'vitest/node';
 
+// With a path, also write Vitest's JSON report there, which a run on another machine brings back.
+const reportPath = process.argv[2];
+
 let ctx;
 try {
   const files = JSON.parse(readFileSync(0, 'utf8'));
@@ -15,6 +18,7 @@ try {
       related: [...new Set(files)],
       run: true,
       passWithNoTests: true,
+      ...(reportPath ? { reporters: ['default', 'json'], outputFile: { json: reportPath } } : {}),
     });
   }
 } catch (error) {

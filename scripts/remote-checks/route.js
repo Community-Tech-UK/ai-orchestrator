@@ -8,6 +8,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+const LARGE_TARGETED_SPECS = 50;
+const SPEC_FILE = /^[^-].*\.(?:spec|test)\.[cm]?[jt]sx?$/;
+
 function remoteChecksDir(env = process.env) {
   return env.AIO_REMOTE_CHECKS_DIR || path.join(os.homedir(), '.ai-orchestrator', 'remote-checks');
 }
@@ -43,14 +46,24 @@ function isPlainFullRun(args) {
   return args.every(arg => arg === '--no-cache');
 }
 
+/** A long list of spec files costs a full run's worth of waiting here: one of 137 files took nearly 14 minutes. */
+function isLargeTargetedRun(args) {
+  return args.length >= LARGE_TARGETED_SPECS && args.every(arg => SPEC_FILE.test(arg));
+}
+
 /**
  * - `local`: exactly what the runner did before remote checks existed.
- * - `remote`: try the far machine first.
+ * - `remote`: try the far machine first. `specs` is set when it's a named list, not the whole suite.
  * - `mac`: a full run that belongs on the Mac; `turn` says if it waits for the others.
  */
 function decideRoute({ args, env = process.env, root, config }) {
-  if (env.GITHUB_ACTIONS || !config || !isPlainFullRun(args)) return { kind: 'local' };
+  if (env.GITHUB_ACTIONS || !config) return { kind: 'local' };
   const queueCheck = isQueueCheck(root, env);
+  if (isLargeTargetedRun(args)) {
+    if (env.AIO_REMOTE_CHECKS === 'off' || (queueCheck && !config.queueChecks)) return { kind: 'local' };
+    return { kind: 'remote', turn: false, specs: args };
+  }
+  if (!isPlainFullRun(args)) return { kind: 'local' };
   if (env.AIO_REMOTE_CHECKS === 'off') {
     return { kind: 'mac', turn: !queueCheck, reason: 'AIO_REMOTE_CHECKS=off asked for it' };
   }

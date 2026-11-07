@@ -397,6 +397,16 @@ export const PlanQueueHealthSchema = z.object({
   setAsideRounds: z.object({ items: z.number().int().nonnegative(), rounds: z.number().int().nonnegative() }),
   /** Tests that failed in more than one document, most documents first. */
   repeatFailingTests: z.array(z.object({ test: z.string().min(1).max(300), jobs: z.number().int().min(2) })).max(5),
+  /** Where full test runs went. Absent when no test machine is set up. */
+  testMachine: z.object({
+    label: z.string().min(1).max(100),
+    /** Of all full runs, those that ran on the test machine. */
+    ranThere: HealthShareSchema,
+    /** Of full runs that tried the test machine, those that ended up on the Mac. */
+    movedToMac: HealthShareSchema,
+    /** The latest run couldn't reach the test machine, so tests are running on the Mac. */
+    unreachable: z.boolean(),
+  }).optional(),
 });
 
 export const PlanQueueRunDtoSchema = z.object({

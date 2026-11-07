@@ -52,6 +52,24 @@ describe('PlanQueueHealthComponent', () => {
     expect(rows[8][1]).toBe('None');
   });
 
+  it('shows no notice while tests run where they should', () => {
+    fixture.componentRef.setInput('health', {
+      ...empty, testMachine: { label: 'the Windows PC', ranThere: NOTHING, movedToMac: NOTHING, unreachable: false },
+    });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.pq-health-notice')).toBeNull();
+  });
+
+  it('says so, as a status message, when tests have moved to the Mac', () => {
+    fixture.componentRef.setInput('health', {
+      ...empty, testMachine: { label: 'the Windows PC', ranThere: NOTHING, movedToMac: NOTHING, unreachable: true },
+    });
+    fixture.detectChanges();
+    const notice = fixture.nativeElement.querySelector('.pq-health-notice') as HTMLElement;
+    expect(notice.getAttribute('role')).toBe('status');
+    expect(notice.textContent).toContain("the Windows PC can't be reached");
+  });
+
   it('asks for a refresh', () => {
     fixture.componentRef.setInput('health', empty);
     fixture.detectChanges();

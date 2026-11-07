@@ -4,6 +4,7 @@
 #
 #   bases                                    list commits the machine already has
 #   receive <commit> <base|none>             take a git pack on stdin and name the snapshot
+#   related <id>                             take a JSON list of source files on stdin; the run tests only what relates to them
 #   run <id> <commit> <ci> <no-cache>        run the suite, streaming output; last line is the result
 #   fetch <id>                               send the JSON report, gzipped, then tidy up
 #
@@ -140,10 +141,16 @@ cmd_slot_job() {
   local args=(run)
   [ "$no_cache" = 1 ] && { args+=(--no-cache); export AIO_TEST_NO_CACHE=1; }
   [ "$ci" = 1 ] && export CI=1
-  # Same arguments as runVitest() in scripts/run-tests-quiet.js.
-  AIO_TEST_MAX_FORKS=8 LANG=C.UTF-8 node node_modules/vitest/vitest.mjs "${args[@]}" \
-    --reporter=default --reporter=json "--outputFile.json=$dir/results.json"
-  local code=$?
+  local code
+  if [ -f "$dir/related.json" ]; then
+    AIO_TEST_MAX_FORKS=8 LANG=C.UTF-8 node scripts/run-related-tests.mjs "$dir/results.json" < "$dir/related.json"
+    code=$?
+  else
+    # Same arguments as runVitest() in scripts/run-tests-quiet.js.
+    AIO_TEST_MAX_FORKS=8 LANG=C.UTF-8 node node_modules/vitest/vitest.mjs "${args[@]}" \
+      --reporter=default --reporter=json "--outputFile.json=$dir/results.json"
+    code=$?
+  fi
   write_result "$dir" ok '' "$code" "$tree" "$(node -v)" "$lock" "$work" "$waited"
 }
 
@@ -169,6 +176,11 @@ cmd_job() {
     [ "$announced" = 1 ] || { echo "[remote checks] waiting for a free slot"; announced=1; }
     sleep 2
   done
+}
+
+cmd_related() {
+  mkdir -p "$RUNS/$1" || exit 1
+  cat > "$RUNS/$1/related.json" || exit 1
 }
 
 cmd_run() {
@@ -212,9 +224,10 @@ command_name="${1:-}"
 case "$command_name" in
   bases) cmd_bases ;;
   receive) cmd_receive "$@" ;;
+  related) cmd_related "$@" ;;
   run) cmd_run "$@" ;;
   job) cmd_job "$@" ;;
   slot-job) cmd_slot_job "$@" ;;
   fetch) cmd_fetch "$@" ;;
-  *) echo "usage: remote-run.sh bases|receive|run|fetch" >&2; exit 2 ;;
+  *) echo "usage: remote-run.sh bases|receive|related|run|fetch" >&2; exit 2 ;;
 esac

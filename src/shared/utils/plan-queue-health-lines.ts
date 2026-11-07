@@ -36,11 +36,28 @@ function landingValue(landing: PlanQueueHealth['landingTime']): string {
   return `${typical(landing, 'landings')}${parts.length ? `: ${parts.join(', ')}` : ''}`;
 }
 
+function testMachineLines(testMachine: PlanQueueHealth['testMachine']): PlanQueueHealthLine[] {
+  if (!testMachine) return [];
+  const { label, ranThere, movedToMac } = testMachine;
+  return [
+    { label: `Full test runs on ${label}`, value: shareValue(ranThere, 'full test runs') },
+    { label: 'Full test runs that moved to the Mac', value: movedToMac.count === 0 ? 'None' : shareValue(movedToMac, 'full test runs') },
+  ];
+}
+
+/** Said only while it's true: when tests are running where they should, this panel adds nothing. */
+function testMachineNotice(testMachine: PlanQueueHealth['testMachine']): string | null {
+  return testMachine?.unreachable
+    ? `Tests are running on this Mac because ${testMachine.label} can't be reached. Check it's switched on and connected. Tests go back to it by themselves.`
+    : null;
+}
+
 /** The measures in reading order. Every figure covers the recent window and finished work only. */
-export function describeQueueHealth(health: PlanQueueHealth): { heading: string; lines: PlanQueueHealthLine[] } {
+export function describeQueueHealth(health: PlanQueueHealth): { heading: string; lines: PlanQueueHealthLine[]; notice: string | null } {
   const { waiting, setAsideRounds, repeatFailingTests } = health;
   return {
     heading: `Queue health, last ${health.windowDays} days`,
+    notice: testMachineNotice(health.testMachine),
     lines: [
       { label: 'Attempts that land', value: shareValue(health.attemptsLanded, 'finished attempts') },
       { label: 'Documents that land', value: shareValue(health.documentsLanded, 'documents') },
@@ -55,6 +72,7 @@ export function describeQueueHealth(health: PlanQueueHealth): { heading: string;
         : `${setAsideRounds.rounds} ${setAsideRounds.rounds === 1 ? 'round' : 'rounds'} on ${setAsideRounds.items} ${setAsideRounds.items === 1 ? 'item' : 'items'}` },
       { label: 'Tests failing in more than one job', value: repeatFailingTests.length === 0 ? 'None'
         : repeatFailingTests.map(({ test, jobs }) => `${test} (${jobs} jobs)`).join('; ') },
+      ...testMachineLines(health.testMachine),
     ],
   };
 }

@@ -34,6 +34,36 @@ describe('Queue health wording', () => {
     });
   });
 
+  describe('the test machine', () => {
+    const testMachine = {
+      label: 'the Windows PC', ranThere: { count: 27, of: 34, share: 27 / 34 }, movedToMac: { count: 0, of: 27, share: 0 }, unreachable: false,
+    };
+    const lineFor = (machine: PlanQueueHealth['testMachine']) => Object.fromEntries(
+      describeQueueHealth({ ...health, testMachine: machine }).lines.map(line => [line.label, line.value]));
+
+    it('adds where full runs went, and nothing when no machine is set up', () => {
+      expect(lineFor(testMachine)).toMatchObject({
+        'Full test runs on the Windows PC': '79% (27 of 34 full test runs)', 'Full test runs that moved to the Mac': 'None',
+      });
+      expect(Object.keys(lineFor(undefined)).filter(label => label.startsWith('Full test runs'))).toEqual([]);
+    });
+
+    it('counts runs that moved to the Mac', () => {
+      expect(lineFor({ ...testMachine, movedToMac: { count: 2, of: 29, share: 2 / 29 } })['Full test runs that moved to the Mac'])
+        .toBe('7% (2 of 29 full test runs)');
+    });
+
+    it('stays quiet while tests run where they should', () => {
+      expect(describeQueueHealth({ ...health, testMachine }).notice).toBeNull();
+      expect(describeQueueHealth(health).notice).toBeNull();
+    });
+
+    it('says what happened and what to do when the machine cannot be reached', () => {
+      expect(describeQueueHealth({ ...health, testMachine: { ...testMachine, unreachable: true } }).notice)
+        .toBe("Tests are running on this Mac because the Windows PC can't be reached. Check it's switched on and connected. Tests go back to it by themselves.");
+    });
+  });
+
   it('says so, rather than showing zero, when nothing is measured', () => {
     const empty: PlanQueueHealth = { ...health,
       attemptsLanded: { count: 0, of: 0, share: null }, freeSlotToStart: { count: 0, medianMs: null },

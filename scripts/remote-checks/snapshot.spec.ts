@@ -8,9 +8,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 interface Snapshot { commit: string; tree: string; env: NodeJS.ProcessEnv; cleanup(): void }
 const require = createRequire(import.meta.url);
-const { SnapshotRefused, takeSnapshot } = require('./snapshot.js') as {
+const { SnapshotRefused, takeSnapshot, takeStagedSnapshot } = require('./snapshot.js') as {
   SnapshotRefused: new (message: string) => Error;
   takeSnapshot(root: string, options?: { maxUntrackedBytes?: number; baseEnv?: NodeJS.ProcessEnv }): Snapshot;
+  takeStagedSnapshot(root: string, options?: { baseEnv?: NodeJS.ProcessEnv }): Snapshot;
 };
 
 const temps: string[] = [];
@@ -200,4 +201,100 @@ describe('takeSnapshot', () => {
     await new Promise(resolve => writer.on('close', resolve));
     renameSync(join(root, 'racing.txt'), join(root, 'done.txt'));
   }, 30_000);
+});
+
+describe('takeStagedSnapshot', () => {
+  const fileIn = (root: string, snapshot: Snapshot, name: string): string =>
+    execFileSync('git', ['cat-file', 'blob', `${snapshot.tree}:${name}`], { cwd: root, env: snapshot.env, encoding: 'utf8' });
+
+  it('captures what is staged, not what is on disk', () => {
+    const root = repo();
+    writeFileSync(join(root, 'tracked.txt'), 'staged\n');
+    writeFileSync(join(root, 'staged-new.txt'), 'staged new\n');
+    git(root, 'add', 'tracked.txt', 'staged-new.txt');
+    writeFileSync(join(root, 'tracked.txt'), 'another session is editing this\n');
+    writeFileSync(join(root, 'untracked.txt'), 'not part of this commit\n');
+
+    const snapshot = takeStagedSnapshot(root);
+
+    expect(fileIn(root, snapshot, 'tracked.txt')).toBe('staged\n');
+    expect(filesIn(root, snapshot)).toEqual(['.gitignore', 'staged-new.txt', 'tracked.txt']);
+    snapshot.cleanup();
+  });
+
+  it('matches the tree a commit of the index would make', () => {
+    const root = repo();
+    writeFileSync(join(root, 'tracked.txt'), 'staged\n');
+    git(root, 'add', 'tracked.txt');
+    writeFileSync(join(root, 'tracked.txt'), 'later edit\n');
+
+    const snapshot = takeStagedSnapshot(root);
+    snapshot.cleanup();
+    git(root, 'commit', '-qm', 'next');
+
+    expect(snapshot.tree).toBe(git(root, 'rev-parse', 'HEAD^{tree}'));
+  });
+
+  it('leaves the index, refs and object store byte-for-byte as they were', () => {
+    const root = repo();
+    writeFileSync(join(root, 'tracked.txt'), 'staged\n');
+    git(root, 'add', 'tracked.txt');
+    const before = fingerprint(join(root, '.git'));
+
+    takeStagedSnapshot(root).cleanup();
+
+    expect(fingerprint(join(root, '.git'))).toEqual(before);
+  });
+
+  it('reads the index a hook was given, relative or absolute, over the real one', () => {
+    const root = repo();
+    writeFileSync(join(root, 'tracked.txt'), 'in the real index\n');
+    git(root, 'add', 'tracked.txt');
+    const other = join(root, '.git', 'next-index-1.lock');
+    const env = { ...process.env, GIT_INDEX_FILE: other };
+    execFileSync('git', ['read-tree', 'HEAD'], { cwd: root, env });
+
+    for (const named of [other, relative(root, other)]) {
+      const snapshot = takeStagedSnapshot(root, { baseEnv: { ...process.env, GIT_INDEX_FILE: named } });
+      expect(fileIn(root, snapshot, 'tracked.txt')).toBe('one\n');
+      snapshot.cleanup();
+    }
+  });
+
+  it('refuses a staged file with a secret-looking name rather than sending it', () => {
+    const root = repo();
+    mkdirSync(join(root, 'config'));
+    writeFileSync(join(root, 'config/.ENV'), 'SETTING=placeholder\n');
+    git(root, 'add', 'config/.ENV');
+    expect(() => takeStagedSnapshot(root)).toThrow(SnapshotRefused);
+    expect(() => takeStagedSnapshot(root)).toThrow(/config\/\.ENV/);
+  });
+
+  it('ignores a secret-looking file that is only on disk, or is being deleted', () => {
+    const root = repo();
+    writeFileSync(join(root, 'old.key'), 'placeholder\n');
+    git(root, 'add', '-A');
+    git(root, 'commit', '-qm', 'tracked key');
+    git(root, 'rm', '-q', 'old.key');
+    writeFileSync(join(root, '.env'), 'SETTING=placeholder\n');
+
+    const snapshot = takeStagedSnapshot(root);
+
+    expect(filesIn(root, snapshot)).not.toContain('.env');
+    snapshot.cleanup();
+  });
+
+  it('works in a linked worktree', () => {
+    const root = repo();
+    const linked = join(temp(), 'linked');
+    git(root, 'worktree', 'add', '-q', '--detach', linked);
+    writeFileSync(join(linked, 'tracked.txt'), 'staged in the worktree\n');
+    git(linked, 'add', 'tracked.txt');
+    writeFileSync(join(linked, 'tracked.txt'), 'later\n');
+
+    const snapshot = takeStagedSnapshot(linked);
+
+    expect(fileIn(linked, snapshot, 'tracked.txt')).toBe('staged in the worktree\n');
+    snapshot.cleanup();
+  });
 });

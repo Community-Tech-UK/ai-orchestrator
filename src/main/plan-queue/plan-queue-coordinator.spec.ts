@@ -1063,6 +1063,19 @@ describe('PlanQueueCoordinator — whole run against a temp repo', { timeout: 30
       publishMs: expect.any(Number), totalMs: expect.any(Number), loadStart: expect.any(Number), loadEnd: expect.any(Number) })]);
     expect(coordinator.getQueueHealth()).toMatchObject({ attemptsLanded: { count: 1, of: 1 }, firstCheckPassed: { count: 1, of: 1 },
       landingTime: { count: 1 }, checkTime: { count: 1 } });
+
+    // Where full test runs went comes from the remote checks folder, when there is one.
+    const machine = join(repo, 'remote-checks-folder');
+    mkdirSync(machine);
+    writeFileSync(join(machine, 'config.json'), '{"host":"pc","label":"the PC"}');
+    try {
+      vi.stubEnv('AIO_REMOTE_CHECKS_DIR', machine);
+      expect(coordinator.getQueueHealth().testMachine).toMatchObject({ label: 'the PC', unreachable: false });
+      vi.stubEnv('AIO_REMOTE_CHECKS_DIR', join(repo, 'no-such-folder'));
+      expect(coordinator.getQueueHealth()).not.toHaveProperty('testMachine');
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('runs three items with two worker slots, one verification and one landing at a time', async () => {

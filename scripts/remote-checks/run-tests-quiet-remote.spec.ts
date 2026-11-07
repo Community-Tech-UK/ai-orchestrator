@@ -5,64 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildQueuePushGuardEnv } from '../../src/main/plan-queue/plan-queue-push-guard';
+import { FAKE_SSH } from './fake-ssh.testing';
 
-/**
- * The real runner and the real send, against a fake `ssh`. The fake passes `bases` and
- * `receive` straight to the real remote-run.sh, so packs truly travel between repositories,
- * and acts out `run` and `fetch` per scenario. The real `run` is in remote-run.linux.spec.ts.
- */
-const FAKE_SSH = String.raw`#!/bin/bash
-cmd="${'$'}{!#}"
-echo "$cmd" >> "$FAKE_DIR/ssh.log"
-scenario="$(cat "$FAKE_DIR/scenario")"
-cd "$FAKE_DIR/home" || exit 255
-sha() { sha256sum 2>/dev/null || shasum -a 256; }
-case "$cmd" in
-  *' receive '*)
-    case "$scenario" in
-      receive-refuses) head -c 100 >/dev/null; exit 1 ;;
-      receive-drops) head -c 100 >/dev/null; exit 255 ;;
-    esac
-    exec bash -c "$cmd"
-    ;;
-  *' run '*)
-    set -- $cmd
-    commit="$5"
-    echo "$cmd" > "$FAKE_DIR/run-args"
-    repo=remote-checks/repo.git
-    tree="$(git -C "$repo" rev-parse "$commit^{tree}")"
-    node="$(git -C "$repo" cat-file blob "$commit:.nvmrc")"
-    lock="$(git -C "$repo" cat-file blob "$commit:package-lock.json" | sha | cut -d' ' -f1)"
-    code=0
-    case "$scenario" in
-      wrong-tree) tree=0000000000000000000000000000000000000000 ;;
-      wrong-node) node=v0.0.0 ;;
-      wrong-lock) lock=0000 ;;
-      tests-fail|crash-clean-report) code=1 ;;
-    esac
-    echo '[test pool] 8 test worker(s); far machine output'
-    case "$scenario" in
-      lost) exit 255 ;;
-      no-result) exit 0 ;;
-      no-slot) echo 'AIO_REMOTE_RESULT {"status":"no-slot","exit":1}'; exit 0 ;;
-      setup-failed) echo 'AIO_REMOTE_RESULT {"status":"setup-failed","reason":"npm ci failed","exit":1}'; exit 0 ;;
-    esac
-    echo "AIO_REMOTE_RESULT {\"status\":\"ok\",\"reason\":\"\",\"exit\":$code,\"tree\":\"$tree\",\"node\":\"$node\",\"lock\":\"$lock\",\"root\":\"/far/slots/1/repo\"}"
-    ;;
-  *' fetch '*)
-    case "$scenario" in
-      missing-report) exit 1 ;;
-      empty-report) printf '{"numTotalTests":0,"testResults":[]}' | gzip -c ;;
-      tests-fail) printf '%s' '{"numTotalTests":1,"numPassedTests":0,"numFailedTests":1,"testResults":[{"name":"/far/slots/1/repo/src/a.spec.ts","status":"failed","assertionResults":[{"status":"failed","title":"a","fullName":"a","failureMessages":["boom at /far/slots/1/repo/src/a.spec.ts:1"]}]}]}' | gzip -c ;;
-      *) printf '%s' '{"numTotalTests":1,"numPassedTests":1,"numFailedTests":0,"testResults":[{"name":"/far/slots/1/repo/src/a.spec.ts","status":"passed","assertionResults":[{"status":"passed","title":"a","fullName":"a","failureMessages":[]}]}]}' | gzip -c ;;
-    esac
-    ;;
-  *)
-    [ "$scenario" = unreachable ] && exit 255
-    exec bash -c "$cmd"
-    ;;
-esac
-`;
+/** The real runner and the real send, against the fake `ssh` in fake-ssh.testing.ts. */
 
 /** Stands in for Vitest on the Mac, and records how it was started. */
 const FAKE_VITEST = String.raw`
@@ -107,7 +52,7 @@ function setUp(projectFolder = 'project', withConfig = true): Setup {
   mkdirSync(dir);
 
   copyFileSync(join(__dirname, '../run-tests-quiet.js'), join(project, 'scripts/run-tests-quiet.js'));
-  for (const file of ['snapshot.js', 'route.js', 'mac-turn.js', 'mac-only.js', 'run-remote.js', 'remote-run.sh']) {
+  for (const file of ['snapshot.js', 'route.js', 'mac-turn.js', 'mac-only.js', 'run-remote.js', 'remote-run.sh', 'related-estimate.js']) {
     copyFileSync(join(__dirname, file), join(project, 'scripts/remote-checks', file));
   }
   writeFileSync(join(project, 'scripts/check-node.js'), '');
@@ -267,6 +212,36 @@ describe('run-tests-quiet with remote checks', () => {
     expect(run.stdout).not.toContain('Ran on');
     expect(run.runLog).toEqual([]);
   }, LIMIT);
+
+  describe('a long list of spec files', () => {
+    const specs = Array.from({ length: 50 }, (_, index) => `src/s${index}.spec.ts`);
+
+    it('goes to the far machine as a list of names sent as data, and is logged as targeted', () => {
+      const setup = setUp();
+      const run = runQuiet(setup, { args: specs });
+      expect(run.code).toBe(0);
+      expect(run.stdout).toMatch(/Ran on the PC in \d+s\./);
+      expect(JSON.parse(readFileSync(join(setup.fake, 'related-list'), 'utf8'))).toEqual(specs);
+      expect(run.sshCalls.join('\n')).not.toContain('src/s1.spec.ts');
+      expect(run.localRuns).toEqual([]);
+      expect(run.runLog[0]).toMatchObject({ kind: 'targeted', ranOn: 'far' });
+    }, LIMIT);
+
+    it('falls back to the same list on the Mac, says why, and takes no turn', () => {
+      const setup = setUp();
+      const run = runQuiet(setup, { args: specs, scenario: 'unreachable' });
+      expect(run.code).toBe(0);
+      expect(run.stdout).toContain('Running on the Mac because');
+      expect(run.localRuns).toHaveLength(1);
+      expect(existsSync(join(setup.dir, 'mac-turn.lock'))).toBe(false);
+    }, LIMIT);
+
+    it.runIf(process.platform === 'darwin')('runs a named Mac-only spec here, and no others', () => {
+      const run = runQuiet(setUp(), { args: [...specs, 'src/main/sandbox/signal-fence.spec.ts'] });
+      expect(run.code).toBe(0);
+      expect(run.localRuns).toEqual([{ macOnly: true }]);
+    }, LIMIT);
+  });
 
   it('changes nothing without a config file', () => {
     const run = runQuiet(setUp('project', false));

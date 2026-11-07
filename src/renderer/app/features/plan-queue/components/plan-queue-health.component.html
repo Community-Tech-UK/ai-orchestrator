@@ -1,5 +1,8 @@
 @if (summary(); as summary) {
   <h2 id="pq-health-heading">{{ summary.heading }}</h2>
+  @if (summary.notice; as notice) {
+    <p class="pq-health-notice" role="status">{{ notice }}</p>
+  }
   <dl class="pq-health-list">
     @for (line of summary.lines; track line.label) {
       <div class="pq-health-row">
