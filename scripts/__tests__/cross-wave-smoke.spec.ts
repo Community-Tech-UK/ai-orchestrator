@@ -435,18 +435,19 @@ describe('Wave 7 cross-wave smoke', () => {
   it('keeps recent operator-facing UI surfaces mounted and discoverable', async () => {
     // Global destinations moved from the sidebar-actions strip into the
     // slim workspace rail (copilot_todo.md item 6); the rail is now the
-    // canonical home for the Browser destination.
+    // canonical home for the Browser destination. The global actions moved
+    // out of the dashboard into the root command catalog.
     const [
       appTs,
       appHtml,
-      dashboardTs,
+      commandTypesTs,
       workspaceRailTs,
       sidebarNavTs,
       controlSurfaceRegistryTs,
     ] = await Promise.all([
       readFile(join(process.cwd(), 'src/renderer/app/app.component.ts'), 'utf-8'),
       readFile(join(process.cwd(), 'src/renderer/app/app.component.html'), 'utf-8'),
-      readFile(join(process.cwd(), 'src/renderer/app/features/dashboard/dashboard.component.ts'), 'utf-8'),
+      readFile(join(process.cwd(), 'src/shared/types/command.types.ts'), 'utf-8'),
       readFile(join(process.cwd(), 'src/renderer/app/features/dashboard/workspace-rail.component.ts'), 'utf-8'),
       readFile(join(process.cwd(), 'src/renderer/app/features/dashboard/sidebar-nav.component.ts'), 'utf-8'),
       readFile(join(process.cwd(), 'src/renderer/app/shared/control-surface/control-surface.registry.ts'), 'utf-8'),
@@ -454,8 +455,8 @@ describe('Wave 7 cross-wave smoke', () => {
 
     expect(appTs).toContain('CliUpdatePillComponent');
     expect(appHtml).toContain('<app-cli-update-pill');
-    expect(dashboardTs).toContain("id: 'app.open-browser'");
-    expect(dashboardTs).toContain("id: 'app.open-doctor'");
+    expect(commandTypesTs).toContain("actionId: 'app.open-browser'");
+    expect(commandTypesTs).toContain("actionId: 'app.open-doctor'");
     expect(workspaceRailTs).toContain('routerLink="/browser"');
     expect(sidebarNavTs).toContain('listDashboardNavGroups');
     expect(controlSurfaceRegistryTs).toContain("id: 'browser'");

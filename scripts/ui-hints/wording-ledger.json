@@ -215,31 +215,36 @@
     "id": "2c3cfe3eb701ed8d",
     "owner": "src/renderer/app/features/instance-detail/cross-model-review-indicator.component.ts",
     "text": "Remote reviewers flagged concerns — click to view.",
-    "why": "long"
+    "why": "long",
+    "retired": "Second opinion concerns tooltip now comes from the shared copy list (secondOpinion keys)"
   },
   {
     "id": "58ab79ec3c28a442",
     "owner": "src/renderer/app/features/instance-detail/cross-model-review-indicator.component.ts",
     "text": "Cross-model review skipped because no secondary reviewers were available",
-    "why": "long"
+    "why": "long",
+    "retired": "The extra review is now called Second opinion on screen, not Cross-model review"
   },
   {
     "id": "93d7897a9c755e34",
     "owner": "src/renderer/app/features/instance-detail/cross-model-review-indicator.component.ts",
     "text": "Local review completed as advisory; no remote reviewer completed.",
-    "why": "long"
+    "why": "long",
+    "retired": "Local-model-only second opinion wording moved to the shared copy list"
   },
   {
     "id": "04002a391cef1307",
     "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
     "text": "Fast Mode OFF — standard output. Click to enable faster output",
-    "why": "long"
+    "why": "long",
+    "retired": "Fast mode tooltip reworded in plain words: faster replies at some capability cost, when on"
   },
   {
     "id": "0b414c9bcc3794ec",
     "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
     "text": "Fast Mode ON — faster output at some capability cost. Click to disable",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Fast mode tooltip reworded in plain words: faster replies at some capability cost, when off"
   },
   {
     "id": "0dbba00cf9829e2a",
@@ -257,7 +262,8 @@
     "id": "340a3a4bec7720aa",
     "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
     "text": "YOLO mode ON — auto-approve all actions",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Auto-approve wording replaces YOLO on the message-box switch (switch on), what it does beside it"
   },
   {
     "id": "43d1f0cebfefe5cc",
@@ -275,7 +281,8 @@
     "id": "a252628f732955fb",
     "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
     "text": "YOLO mode OFF — will prompt for approvals",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Auto-approve wording replaces YOLO on the message-box switch (switch off), what it does beside it"
   },
   {
     "id": "b664604de894119e",
@@ -409,7 +416,8 @@
     "id": "597bda62eccb57ae",
     "owner": "src/renderer/app/features/instance-detail/user-action-request.component.ts",
     "text": "Enable YOLO mode to auto-approve all permissions for this session",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Enable Auto-approve wording replaces the YOLO mode wording on the permission card"
   },
   {
     "id": "b912ee03fe26d3f7",
@@ -1058,7 +1066,8 @@
     "id": "04271284932f59c3",
     "owner": "src/renderer/app/features/instance-detail/cross-model-review-indicator.component.ts",
     "text": " automatic second opinions used today. Resets at midnight. You can still ask for one from a reply's menu.",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Second opinion daily limit tooltip (first part) now comes from the shared copy list"
   },
   {
     "id": "3b243615710ccb89",
@@ -1647,7 +1656,8 @@
     "id": "afd7924a554f2b10",
     "owner": "src/renderer/app/features/instance-detail/cross-model-review-indicator.component.ts",
     "text": "All automatic second opinions used today. Resets at midnight. You can still ask for one from a reply's menu.",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Second opinion daily limit tooltip (second part) now comes from the shared copy list"
   },
   {
     "id": "ac75b889aeeb944f",
@@ -2665,5 +2675,149 @@
     "owner": "src/renderer/app/features/instance-detail/fanout-cost.component.ts",
     "text": "Running cost of the helper sessions this session started, scouts included. A helper that has not reported a cost yet is not in the total.",
     "why": "consequence"
+  },
+  {
+    "id": "05e6441ea0729cfc",
+    "owner": "src/renderer/app/features/cost/cost-page.component.ts",
+    "text": "What Copilot counted for this session, read from Copilot's own records after each reply.",
+    "why": "long"
+  },
+  {
+    "id": "938fb58942e1c03e",
+    "owner": "src/renderer/app/features/dashboard/workspace-rail.component.ts",
+    "text": "Questions, approvals, failed runs and decisions agents made for you. Opens the Workboard.",
+    "why": "long"
+  },
+  {
+    "id": "c24e45d6f5b42e32",
+    "owner": "src/renderer/app/features/dashboard/workspace-rail.component.ts",
+    "text": "Sidechat activity did not load. Open to try again.",
+    "why": "long"
+  },
+  {
+    "id": "91bbbe7400438d82",
+    "owner": "src/renderer/app/features/instance-detail/composer-quota-notice.component.ts",
+    "text": "Plan usage for the account this session uses. The usage chip in the title bar has the detail.",
+    "why": "long"
+  },
+  {
+    "id": "63ba1dd7eb507ca0",
+    "owner": "src/renderer/app/features/instance-detail/context-advice-list.component.ts",
+    "text": "Summarise older conversation output to make more room.",
+    "why": "long"
+  },
+  {
+    "id": "b9ed8f0e47bb28f5",
+    "owner": "src/renderer/app/features/instance-detail/context-bar.component.ts",
+    "text": "Model, permissions, account, plan, context, use and cache for this session.",
+    "why": "long"
+  },
+  {
+    "id": "0052c62d1ee76e45",
+    "owner": "src/renderer/app/features/instance-detail/context-details-popover.component.ts",
+    "text": "Close Context details",
+    "why": "consequence"
+  },
+  {
+    "id": "0610fd44cc5dbe6f",
+    "owner": "src/renderer/app/features/instance-detail/context-measured-view.component.ts",
+    "text": "Ask the running agent to count its current context. This may use a small amount of plan usage.",
+    "why": "long"
+  },
+  {
+    "id": "464b47995be5f1d1",
+    "owner": "src/renderer/app/features/instance-detail/context-measured-view.component.ts",
+    "text": "Claude counted the tokens in its current conversation.",
+    "why": "long"
+  },
+  {
+    "id": "1f2687a0716bdad9",
+    "owner": "src/renderer/app/features/instance-detail/cross-model-review-indicator.component.ts",
+    "text": "Today's automatic second-opinion allowance is used up. You can still ask for one from a reply's menu.",
+    "why": "long"
+  },
+  {
+    "id": "59cf58d0d7f356f7",
+    "owner": "src/renderer/app/features/instance-detail/cross-model-review-indicator.component.ts",
+    "text": "The check for the latest completed turn was skipped because no secondary reviewers were available.",
+    "why": "long"
+  },
+  {
+    "id": "85a7aa9c1f7055f2",
+    "owner": "src/renderer/app/features/instance-detail/cross-model-review-indicator.component.ts",
+    "text": "The check for this turn failed. Click for details.",
+    "why": "long"
+  },
+  {
+    "id": "9b25cb2960a3c5d5",
+    "owner": "src/renderer/app/features/instance-detail/cross-model-review-indicator.component.ts",
+    "text": "A local model checked this turn as advice; no remote reviewer completed. Its output is advisory.",
+    "why": "long"
+  },
+  {
+    "id": "a7f3dbdd35bbeec3",
+    "owner": "src/renderer/app/features/instance-detail/cross-model-review-indicator.component.ts",
+    "text": "Remote reviewers found no concerns in this turn. Click to view their notes.",
+    "why": "long"
+  },
+  {
+    "id": "e13206a598c967ed",
+    "owner": "src/renderer/app/features/instance-detail/cross-model-review-indicator.component.ts",
+    "text": "Remote reviewers flagged concerns in this turn. Click to view their notes.",
+    "why": "long"
+  },
+  {
+    "id": "e1d1051ffd1891ee",
+    "owner": "src/renderer/app/features/instance-detail/cross-model-review-indicator.component.ts",
+    "text": " used today. Resets at midnight.",
+    "why": "consequence"
+  },
+  {
+    "id": "0f9a335619fe67e7",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Faster replies at some capability cost. Click to disable",
+    "why": "consequence"
+  },
+  {
+    "id": "2f51e162833822f3",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Auto-approve is off: asks before acting",
+    "why": "consequence"
+  },
+  {
+    "id": "a2b7b851becc4fec",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Faster replies at some capability cost. Click to enable",
+    "why": "consequence"
+  },
+  {
+    "id": "f1a1b781ae74dea9",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Auto-approve is on: runs tools and edits without asking you",
+    "why": "consequence"
+  },
+  {
+    "id": "729353a514d88429",
+    "owner": "src/renderer/app/features/instance-detail/session-status/session-status-card.component.ts",
+    "text": "Claude keeps this conversation cached for about an hour after your last message on your plan. After that, the next message re-sends it at full price.",
+    "why": "consequence"
+  },
+  {
+    "id": "f01e6e299f72ad7e",
+    "owner": "src/renderer/app/features/instance-detail/user-action-request.component.ts",
+    "text": "Enable Auto-approve to run tools and edits without asking for this session",
+    "why": "consequence"
+  },
+  {
+    "id": "3eef5f3632014211",
+    "owner": "src/renderer/app/shared/components/tool-group/tool-group.component.ts",
+    "text": "How large this helper agent's last request was, how many tools it used and how long it ran. This is not its cost; the session card shows cost by model.",
+    "why": "consequence"
+  },
+  {
+    "id": "dd82da1318c712e1",
+    "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
+    "text": "This session has a question waiting for your answer",
+    "why": "long"
   }
 ]

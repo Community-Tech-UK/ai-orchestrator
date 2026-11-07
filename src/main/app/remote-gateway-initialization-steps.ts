@@ -121,6 +121,7 @@ export function createWorkerNodeSubsystemStep(
       registry.on('node:connected', (node) => {
         windowManager.sendToRenderer('remote-node:event', { type: 'connected', node });
         const nodeId = typeof node === 'string' ? node : node.id;
+        getNotificationService().resolve(`node:${nodeId}`);
         instanceManager.resumeStuckTrackingForNode(nodeId);
         handleLateNodeReconnect(nodeId, instanceManager);
         // Diagnostic only: a bad worker report must not break node registration,
@@ -173,6 +174,7 @@ export function createWorkerNodeSubsystemStep(
         if (getSettingsManager().get('notifyOnNodeDisconnect') === false) return;
         getNotificationService().notify({
           kind: 'node-disconnected',
+          resolveKey: `node:${nodeId}`,
           title: 'Worker node disconnected',
           // The browser promise holds only while the offload guard is active
           // (browser-remote-offload-policy.ts guardOfflineBrowserComputer).

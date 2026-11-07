@@ -68,6 +68,7 @@ describe('UserActionRequestComponent', () => {
     submitSecretCard: vi.fn(),
     declineSecretCard: vi.fn(),
     toggleYoloMode: vi.fn(),
+    sendInput: vi.fn(),
   };
 
   const fakeInstanceStore = {
@@ -105,6 +106,7 @@ describe('UserActionRequestComponent', () => {
     fakeIpc.respondToInputRequired.mockResolvedValue({ success: true, data: {} });
     fakeIpc.submitSecretCard.mockResolvedValue({ success: true, data: { reference: 'secret://github-pat' } });
     fakeIpc.declineSecretCard.mockResolvedValue({ success: true, data: { declined: true } });
+    fakeIpc.sendInput.mockResolvedValue({ success: true, data: {} });
     fakeIpc.toggleYoloMode.mockResolvedValue({ success: true, data: {} });
 
     fakeInstanceStore.getInstance.mockReturnValue(undefined);
@@ -522,9 +524,9 @@ describe('UserActionRequestComponent', () => {
     await settle(fixture);
     fixture.detectChanges();
 
-    expect(fakeIpc.respondToInputRequired).toHaveBeenCalledWith('inst-acp', 'acp_permission:7', 'cancel', 'acp_permission:7');
+    expect(fakeIpc.respondToInputRequired).toHaveBeenCalledWith('inst-acp', 'acp_permission:7', ' ', 'acp_permission:7');
     expect(fixture.nativeElement.textContent).not.toContain('Tool: rm answer.txt');
-    expect(fakeInstanceStore.decrementPendingApproval).toHaveBeenCalledWith('inst-acp');
+    expect(fakeInstanceStore.decrementPendingApproval).toHaveBeenCalledWith('inst-acp', 'acp_permission:7');
   });
 
   it('drops a card whose request already expired instead of showing an error', async () => {
@@ -644,7 +646,7 @@ describe('UserActionRequestComponent', () => {
     expect(fixture.nativeElement.querySelector('.btn-approve')).toBeNull();
     expect(fixture.nativeElement.querySelector('.scope-select')).toBeNull();
     expect(fixture.nativeElement.textContent).toContain("Harness can't add an allow rule for WebFetch");
-    expect(fixture.nativeElement.textContent).toContain('YOLO button at the top of this session');
+    expect(fixture.nativeElement.textContent).toContain('switch on Auto-approve with the YOLO button at the top of this session');
     buttonByText('OK').click();
     await settle(fixture);
     expect(fakeIpc.respondToInputRequired.mock.calls[0]?.slice(4, 6)).toEqual([undefined, undefined]);
@@ -773,6 +775,7 @@ describe('UserActionRequestComponent', () => {
     expect(modifyCall).toBeDefined();
     // arg[0]=instanceId, [1]=requestId, [2]=response, [3]=permissionKey, [4]=decisionAction, [5]=scope, [6]=metadata, [7]=updatedInput
     expect(modifyCall![7]).toEqual(newInput);
+    expect(fakeInstanceStore.decrementPendingApproval).toHaveBeenCalledWith('inst-a', 'req-valid-json');
   });
 
   it('shows the backend error when allowing a deferred permission fails', async () => {
@@ -917,7 +920,7 @@ describe('UserActionRequestComponent', () => {
     const optionButtons = Array.from(
       fixture.nativeElement.querySelectorAll('.ask-option'),
     ) as HTMLButtonElement[];
-    expect(optionButtons.length).toBe(2);
+    expect(optionButtons.length).toBe(3);
     expect(fixture.nativeElement.textContent).toContain('Robyn Ball');
     expect(fixture.nativeElement.textContent).toContain('genuine confusion');
 
@@ -949,6 +952,7 @@ describe('UserActionRequestComponent', () => {
     expect(auqCall).toBeDefined();
     expect(auqCall![0]).toBe('inst-a');
     expect(auqCall![2]).toBe('Posts: Robyn Ball, Janet Pearce');
+    expect(fakeInstanceStore.decrementPendingApproval).toHaveBeenCalledWith('inst-a', 'req-auq');
   });
 
   it('single-select AskUserQuestion replaces the prior choice', async () => {
@@ -996,6 +1000,72 @@ describe('UserActionRequestComponent', () => {
     const singleCall = calls.find((c: unknown[]) => c[1] === 'req-auq-single');
     expect(singleCall).toBeDefined();
     expect(singleCall![2]).toBe('Flow: Autonomous');
+  });
+
+  it('offers and submits an own answer alongside Claude options', async () => {
+    await showPermission({ type: 'ask_user_question', questions: [{ header: 'Flow', question: 'Which?', options: [{ label: 'One' }], multiSelect: false }] });
+    buttonByText('Type your own answer').click(); fixture.detectChanges();
+    const text = fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement;
+    text.value = 'Use another way'; text.dispatchEvent(new Event('input')); fixture.detectChanges();
+    buttonByText('Submit').click(); await settle(fixture);
+    expect(fakeIpc.respondToInputRequired.mock.calls[0]?.slice(0, 4)).toEqual(['inst-a', 'permission-1', 'Flow: Use another way', undefined]);
+    expect(fakeIpc.respondToInputRequired.mock.calls[0]?.[8]).toEqual({ kind: 'answered', summary: 'Use another way' });
+  });
+
+  it('renders the agent options and sends the exact ACP option id', async () => {
+    await showPermission({ type: 'acp_permission_request', transport: 'acp', options: [
+      { optionId: 'always', name: 'Remember allow', kind: 'allow_always' },
+      { optionId: 'once', name: 'Just this time', kind: 'allow_once' },
+    ] });
+    expect(fixture.nativeElement.textContent).toContain('Applies to later requests from this agent');
+    buttonByText('Just this time').click(); await settle(fixture);
+    expect(fakeIpc.respondToInputRequired).toHaveBeenCalledWith('inst-a', 'permission-1', 'once', 'permission-1');
+  });
+
+  it('shows and dismisses a quiet receipt when a pending card times out', async () => {
+    await showPermission({ type: 'deferred_permission', tool_name: 'Write' });
+    onInputRequiredResolved({ instanceId: 'inst-a', requestId: 'permission-1', reason: 'timeout' }); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('No answer in time; nothing ran');
+    buttonByText('Dismiss').click(); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).not.toContain('No answer in time');
+  });
+
+  it('sends a held refusal note as the deny response', async () => {
+    await showPermission({ type: 'deferred_permission', tool_name: 'Bash' });
+    buttonByText('Tell it what to do instead').click(); fixture.detectChanges();
+    const input = fixture.nativeElement.querySelector('app-permission-deny-note input') as HTMLInputElement;
+    expect(buttonByText('Send').disabled).toBe(true);
+    input.value = 'use /tmp instead'; input.dispatchEvent(new Event('input')); fixture.detectChanges();
+    buttonByText('Send').click(); await settle(fixture);
+    expect(fakeIpc.respondToInputRequired).toHaveBeenCalledWith('inst-a', 'permission-1', 'use /tmp instead', undefined, 'deny', undefined,
+      expect.objectContaining({ type: 'deferred_permission', denyNote: 'use /tmp instead' }));
+  });
+
+  it('sends a refusal-card note through ordinary input after the normal denial', async () => {
+    await showPermission({ type: 'permission_denial', tool_name: 'Edit', action: 'edit', path: '/tmp/file' });
+    await fixture.componentInstance.onDenyWithNote(fixture.componentInstance.pendingRequests()[0], 'never touch that file');
+    expect(fakeIpc.respondToInputRequired.mock.calls[0][2]).toContain('Permission denied');
+    expect(fakeIpc.sendInput).toHaveBeenCalledExactlyOnceWith('inst-a', 'never touch that file');
+    expect(fakeIpc.respondToInputRequired.mock.invocationCallOrder[0]).toBeLessThan(fakeIpc.sendInput.mock.invocationCallOrder[0]);
+  });
+
+  it('does not show a receipt for a decision being answered in this window', async () => {
+    await showPermission({ type: 'deferred_permission', tool_name: 'Write' });
+    let finish!: (value: unknown) => void;
+    fakeIpc.respondToInputRequired.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const answer = fixture.componentInstance.onApprove(fixture.componentInstance.pendingRequests()[0]);
+    onInputRequiredResolved({ instanceId: 'inst-a', requestId: 'permission-1', reason: 'decided' }); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).not.toContain('Answered somewhere else');
+    finish({ success: true }); await answer;
+  });
+
+  it('closes a refusal note on Escape without sending anything', async () => {
+    await showPermission({ type: 'deferred_permission' });
+    buttonByText('Tell it what to do instead').click(); fixture.detectChanges();
+    const input = fixture.nativeElement.querySelector('app-permission-deny-note input') as HTMLInputElement;
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('app-permission-deny-note input')).toBeNull();
+    expect(fakeIpc.respondToInputRequired).not.toHaveBeenCalled();
   });
 
   it('renders the secret card and submits on the dedicated channel, never respondToInputRequired', async () => {

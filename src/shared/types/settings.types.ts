@@ -7,6 +7,7 @@ import type { CodexTurnCeilingSettings } from './codex-turn-ceiling-settings.typ
 import type { TokenTrialSettings } from './token-trial-settings.types';
 import type { DesktopComputerUseSettings } from './desktop-gateway-settings.types';
 import type { DisplaySettings } from './display-settings.types';
+import type { MobileGatewaySettings } from './mobile-gateway-settings.types';
 import type { ProviderAccountPools, ProviderAccountProfile } from './provider-account.types';
 import type { LocalAiFallbackPolicy } from './local-ai-guard.types';
 import type { ModelUsageEntry } from './model-usage.types';
@@ -17,6 +18,7 @@ import type { RemoteReviewerProvider } from './reviewer-provider.types';
 import type { TokenLeverSettings } from './token-lever-settings.types';
 
 export type { ModelUsageEntry } from './model-usage.types';
+export type { MobileGatewaySettings } from './mobile-gateway-settings.types';
 
 // Default values live in settings-defaults.ts; re-exported here so importers
 // keep a single module for both the shape and the shipped defaults.
@@ -46,7 +48,7 @@ export type * from './settings-primitives.types';
 
 /** Application settings that are persisted to disk. */
 export interface AppSettings
-  extends DesktopComputerUseSettings, DisplaySettings, ObservationSettings, TokenLeverSettings, TokenTrialSettings,
+  extends DesktopComputerUseSettings, DisplaySettings, MobileGatewaySettings, ObservationSettings, TokenLeverSettings, TokenTrialSettings,
     CodexTurnCeilingSettings, WorkloadSettings {
   // General
   /** Keep the system awake; the display may still sleep. */
@@ -103,6 +105,8 @@ export interface AppSettings
    * Default true so steering aborts the turn without respawning.
    */
   residentClaudeSession: boolean;
+  /** Internal rollout gate for in-turn Claude permissions. Off until live validation. */
+  claudeLivePermissionPrompts: boolean;
   /** Per-concrete-provider rollout mode for durable context evidence. */
   contextEvidenceModeByProvider: Record<string, ContextEvidenceMode>;
   theme: ThemeMode;
@@ -281,6 +285,8 @@ export interface AppSettings
    * (they may only appear in labelled advisory blocks). Default ON.
    */
   memoryInstructionGate: boolean;
+  /** Restore retrieval on every message instead of filtering new user topics. */
+  memoryNotesEveryMessage: boolean;
   /**
    * WS7 Phase B — ordered fallback providers a regular session may fail over to
    * when its recovery ladder exhausts on a provider-fault category. Empty = off.
@@ -575,27 +581,6 @@ export interface AppSettings
   thinClientWsEnabled: boolean;
   thinClientWsHost: string;
   thinClientWsPort: number;
-
-  // Mobile Gateway (phone control app — see docs/mobile-app/)
-  mobileGatewayEnabled: boolean;
-  mobileGatewayPort: number;
-  mobileGatewayBindInterface: 'tailscale' | 'all';
-  /** JSON array of paired MobileDevice records. */
-  mobileGatewayDevices: string;
-  // Optional TLS (wss://). Tailscale already encrypts the link E2E, so this is
-  // extra hardening only. Point these at a `tailscale cert <host>.<tailnet>.ts.net`
-  // key/cert (publicly trusted, so iOS connects without a trust prompt). Empty =>
-  // plain ws:// over the tailnet. Both must be set to enable TLS.
-  mobileGatewayTlsCertPath: string;
-  mobileGatewayTlsKeyPath: string;
-  // APNs push (direct from Mac → Apple). Empty key => push disabled.
-  /** PEM contents of the APNs Auth Key (.p8). */
-  mobileGatewayApnsKeyP8: string;
-  mobileGatewayApnsKeyId: string;
-  mobileGatewayApnsTeamId: string;
-  mobileGatewayApnsBundleId: string;
-  /** true → api.push.apple.com, false → api.sandbox.push.apple.com. */
-  mobileGatewayApnsProduction: boolean;
 
   // Network (Pause on VPN)
   pauseFeatureEnabled: boolean;

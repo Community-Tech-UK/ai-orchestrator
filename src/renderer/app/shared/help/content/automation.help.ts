@@ -33,7 +33,7 @@ export const AUTOMATIONS_HELP: HelpEntry = {
         'Provider: Auto lets Harness choose; or pin a specific CLI.',
         'Accounts: runs that start a new session follow the Never use and Use last account rules on the Plan Queue page. Loop runs do not, and a run that wakes one of your existing sessions keeps that session\'s account. Copilot runs follow Never use only.',
         'Missed runs: Skip, Notify, or Run once. Concurrency: Skip or Queue.',
-        'YOLO mode skips safety checks; use only for trusted, sandboxed work.',
+        'Auto-approve runs tools without asking; use only for trusted, sandboxed work.',
       ],
     },
     {

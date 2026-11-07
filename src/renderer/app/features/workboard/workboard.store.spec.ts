@@ -11,6 +11,8 @@ import { RepoJobStore } from '../../core/state/repo-job.store';
 import { toWorkspaceId } from '../../../../shared/utils/workspace-key';
 import { WorkboardStore } from './workboard.store';
 import type { WorkboardInstanceInput } from './workboard.types';
+import { needsYouTestSources } from './needs-you.testing';
+import { NeedsYouStore } from './needs-you.store';
 
 const NOW = 1_700_000_000_000;
 
@@ -48,6 +50,7 @@ function fakeInstanceStore() {
   return {
     instances: signal<WorkboardInstanceInput[]>([]),
     setSelectedInstance: vi.fn(),
+    selectedInstanceId: signal<string | null>(null),
   };
 }
 function fakeAutomationStore() {
@@ -61,6 +64,7 @@ function fakeAutomationStore() {
 function fakeLoopStore() {
   return {
     recentRuns: signal<LoopRunSummaryPayload[]>([]),
+    activeStates: signal(new Map()), banners: signal(new Map()),
     refreshRecentRuns: vi.fn(
       async (): Promise<RefreshRecentRunsResult> => ({ ok: true, runs: [] as LoopRunSummaryPayload[] }),
     ),
@@ -84,6 +88,7 @@ describe('WorkboardStore', () => {
   let store: WorkboardStore;
 
   beforeEach(() => {
+    localStorage.clear();
     instanceStore = fakeInstanceStore();
     automationStore = fakeAutomationStore();
     loopStore = fakeLoopStore();
@@ -92,6 +97,7 @@ describe('WorkboardStore', () => {
     TestBed.configureTestingModule({
       providers: [
         WorkboardStore,
+        ...needsYouTestSources(NOW),
         { provide: InstanceStore, useValue: instanceStore },
         { provide: AutomationStore, useValue: automationStore },
         { provide: LoopStore, useValue: loopStore },
@@ -125,7 +131,7 @@ describe('WorkboardStore', () => {
     expect(options.slice(1).map((o) => o.label)).toEqual(['apple', 'zebra']);
   });
 
-  it('filters every lane when a workspace is selected', () => {
+  it('filters ordinary lanes by workspace while keeping Needs you complete', () => {
     instanceStore.instances.set([
       instance({ id: 'a', status: 'busy', workingDirectory: '/repo/apple' }),
       instance({ id: 'b', status: 'waiting_for_input', workingDirectory: '/repo/zebra' }),
@@ -133,9 +139,9 @@ describe('WorkboardStore', () => {
     expect(store.visibleCount()).toBe(2);
 
     store.selectWorkspace(toWorkspaceId('/repo/apple'));
-    expect(store.visibleCount()).toBe(1);
+    expect(store.visibleCount()).toBe(2);
     expect(store.lanes().working).toHaveLength(1);
-    expect(store.lanes()['needs-you']).toHaveLength(0);
+    expect(store.lanes()['needs-you']).toHaveLength(1);
   });
 
   it('reflects correlated items in lane counts and arrays', () => {
@@ -149,6 +155,15 @@ describe('WorkboardStore', () => {
     expect(store.items()).toHaveLength(1);
     expect(lanes['needs-you']).toHaveLength(1);
     expect(lanes.working).toHaveLength(0);
+  });
+
+  it('moves a seen failure to Done and keeps the complete lane count equal to the root count', () => {
+    instanceStore.instances.set([instance({ status: 'failed' })]);
+    const root = TestBed.inject(NeedsYouStore);
+    expect(store.lanes()['needs-you'].length + store.requests().length).toBe(root.count());
+    store.selectItem('instance:inst-1');
+    expect(store.lanes()['needs-you']).toHaveLength(0);
+    expect(store.lanes().done).toHaveLength(1); expect(root.count()).toBe(0);
   });
 
   it('carries the WS-C2 shared attentionLevel — not a re-derived lane — on items', () => {

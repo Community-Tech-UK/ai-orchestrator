@@ -317,7 +317,7 @@ function tokenOverlapScore(text: string, queryTokens: Set<string>): number {
   for (const token of queryTokens) {
     if (tokens.has(token)) score += 0.25;
   }
-  return score;
+  return Math.min(5 * 0.25, score);
 }
 
 function clamp(value: number, min: number, max: number): number {

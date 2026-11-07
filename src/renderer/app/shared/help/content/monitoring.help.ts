@@ -298,7 +298,7 @@ export const WORKBOARD_HELP: HelpEntry = {
       kind: 'list',
       heading: 'Lanes',
       items: [
-        'Needs You: human input, permission, review, arbitration, or a failure needs attention.',
+        'Needs you: human input, permission, review, arbitration, or a failure needs attention.',
         'Working: execution is actively progressing.',
         'Waiting: queued, paused, hibernated, or rate-limited but resumable.',
         'Done / Idle: clean terminal work (last 24h) and available idle sessions.',
@@ -308,7 +308,7 @@ export const WORKBOARD_HELP: HelpEntry = {
       kind: 'steps',
       heading: 'How to use it',
       items: [
-        'Check the Needs You lane first for anything urgent.',
+        'Check the Needs you lane first for anything urgent.',
         'Filter by workspace to focus on one project across every lane.',
         'Click a card to open its detail pane; session-backed work reuses the full transcript and controls.',
       ],

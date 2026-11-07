@@ -104,6 +104,7 @@ import { ClaudeResidentRequest } from './claude-resident-request';
 import { claudeRateLimitNotice } from './claude-rate-limit-notice';
 import { dispatchRateLimitTelemetry } from '../usage-limit-dispatch';
 import { getAdapterAccountRoute } from '../../providers/account-pool/adapter-account-routes';
+import { ClaudeLivePermissionBroker } from './claude-live-permission';
 
 export type { DeferredToolUse } from './claude-cli-adapter.types';
 export type { ClaudeCliSpawnOptions } from './claude-cli-adapter.types';
@@ -123,6 +124,10 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   protected override readonly defersInputDispatch = true;
   private parser: NdjsonParser;
   private formatter: InputFormatter | null = null;
+  readonly livePermissions = new ClaudeLivePermissionBroker({
+    emit: (event, payload) => this.emit(event, payload),
+    sendRawControl: message => this.formatter ? this.formatter.sendRawControl(message) : Promise.reject(new Error('Claude is not running.')),
+  }, () => this.spawnOptions.instanceId);
   private spawnOptions: ClaudeCliSpawnOptions;
   /** Track pending permission requests to avoid duplicate prompts */
   private pendingPermissions = new Set<string>();
@@ -414,6 +419,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     };
   }
 
+  requestContextUsage(): Promise<ClaudeControlReply> { return this.requestControl('get_context_usage', {}, 10_000); }
+
   override getContextCapabilities(): ProviderContextCapabilities {
     const resident = this.getAdapterCapabilities().residentSession;
     return {
@@ -445,6 +452,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
    *  - the process or formatter is not currently live (pre-spawn, post-exit).
    */
   override interrupt(): InterruptResult {
+    this.livePermissions.dropAll('cancelled');
     if (this.spawnOptions.residentClaude === true && this.isRealPipe() && this.formatter) {
       // Resident path: protocol-level interrupt, no SIGINT, process stays alive.
       let resolve!: (result: TurnInterruptCompletion) => void;
@@ -703,6 +711,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       };
 
       const cleanupAfterSettle = (): void => {
+        this.livePermissions.dropAll('exited');
         this.process = null;
         this.formatter = null;
         this.parser.reset();
@@ -1016,6 +1025,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       disallowedToolsOverride: this.disallowedToolsOverride,
       shouldUseNativeResume: this.shouldUseNativeResume(),
       shouldUsePermissionHook: this.shouldUsePermissionHook(),
+      livePermissionPrompts: this.shouldUsePermissionHook() && this.spawnOptions.residentClaude === true && this.spawnOptions.livePermissionPrompts === true,
       materializeInlineJsonArg: (value, forceFile) => this.materializeInlineJsonArg(value, forceFile),
     });
     const mode = args.includes('--fork-session') ? 'fork' : args.includes('--resume') ? 'resume' : 'fresh';
@@ -1260,6 +1270,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   // A partial watchdog result stops transport without changing its semantic outcome.
   private terminateProcess(graceful: boolean, cancelCurrent = true): Promise<void> {
     this.nativeCompaction.cancel();
+    this.livePermissions.dropAll('exited');
     return this.oneShotLifecycle.terminate(async () => {
       const turn = this.oneShotLifecycle.current;
       await this.residentSettlement.drain(); await turn?.drain();
@@ -1343,6 +1354,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     }
     this.nativeCompaction.cancel();
     this.residentSettlement.settle();
+    this.livePermissions.dropAll('exited');
     this.residentTurnActive = false;
 
     // Clear any in-flight resident interrupt WITHOUT resolving it.
@@ -1384,6 +1396,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     }
     if (this.nativeCompaction.isCompactionEcho(raw)) return;
     this.nativeCompaction.observeMessage(raw);
+    if (this.livePermissions.handle(message.type, raw)) return;
     switch (message.type) {
       case 'assistant': {
         const streamError = parseClaudeStreamError(raw);

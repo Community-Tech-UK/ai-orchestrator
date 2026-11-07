@@ -1,6 +1,11 @@
 import type { OutputMessage } from '../../core/state/instance/instance.types';
 import type { ThinkingContent } from '../../../../shared/types/instance.types';
 import type { CopilotPlanUpdate } from './copilot-plan-update';
+import type { InterruptBoundaryState } from '../../../../shared/types/interrupt-boundary.types';
+export type {
+  InterruptBoundaryPhase as InterruptDisplayPhase,
+  InterruptBoundaryOutcome as InterruptDisplayOutcome,
+} from '../../../../shared/types/interrupt-boundary.types';
 
 export interface DisplayItem {
   id: string;
@@ -41,27 +46,11 @@ export interface DisplayItem {
   compactionSummary?: CompactionSummaryDisplay;
 }
 
-export type InterruptDisplayPhase =
-  | 'requested'
-  | 'cancelling'
-  | 'escalated'
-  | 'respawning'
-  | 'completed';
-
-export type InterruptDisplayOutcome =
-  | 'cancelled'
-  | 'cancelled-for-edit'
-  | 'respawn-success'
-  | 'respawn-fallback'
-  | 'unresolved';
-
-export interface InterruptBoundaryDisplay {
-  phase: InterruptDisplayPhase;
+export interface InterruptBoundaryDisplay extends InterruptBoundaryState {
   requestId: string;
-  outcome: InterruptDisplayOutcome;
+  text?: string;
   at: number;
   reason?: string;
-  fallbackMode?: 'native-resume' | 'resume-unconfirmed' | 'replay-fallback';
 }
 
 export type CompactionFallbackMode =

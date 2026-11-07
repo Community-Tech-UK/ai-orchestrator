@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { CostTracker } from './cost-tracker';
+import { CostEntryEventSchema } from '../../../../packages/contracts/src/schemas/cost-events.schemas';
+import { CostTracker, type CostEntry } from './cost-tracker';
 import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../../db/sqlite-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../../persistence/rlm/rlm-schema';
@@ -282,6 +283,51 @@ describe('CostTracker persistence (E15)', () => {
     expect(restored.getEntries()[0].byModel).toEqual(byModel);
     tracker.clearEntries();
     expect(db.prepare('SELECT COUNT(*) AS n FROM cost_entry_model_usage').get<{n:number}>()?.n).toBe(0);
+  });
+
+  it('emits a complete updated DB entry when credits attach outside the 10,000-row memory window', () => {
+    const original = new CostTracker(); original.setDatabase(db);
+    const byModel = [{ model: 'gpt', inputTokens: 12, outputTokens: 3, cacheReadTokens: 4, cacheWriteTokens: 5 }];
+    const old = original.recordUsage('old-instance', 'old-session', 'gpt', 12, 3, 4, 5, 0, 0, false,
+      { provider: 'copilot', byModel });
+    db.prepare(`WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x + 1 FROM n WHERE x < 10000)
+      INSERT INTO cost_entries (id, timestamp, instance_id, session_id, model, input_tokens, output_tokens,
+        cache_read_tokens, cache_write_tokens, reasoning_tokens, cost, is_estimated)
+      SELECT 'new-' || x, ? + x, 'new-instance', 'new-session', 'gpt', 0, 0, 0, 0, 0, 0, 0 FROM n`).run(old.timestamp);
+    const tracker = new CostTracker(); tracker.setDatabase(db);
+    expect(tracker.getEntries()).toHaveLength(10000);
+    expect(tracker.getEntries().some(entry => entry.id === old.id)).toBe(false);
+    const events: CostEntry[] = [];
+    tracker.on('cost-recorded', entry => events.push(entry));
+    const credits = { creditsNano: 3e9, premiumRequests: 1, checkpointEventId: 'outside-window',
+      checkpointTotalNano: 8e9, checkpointPremiumTotal: 6 };
+    expect(tracker.attachProviderCredits(old.id, credits)).toBe(true);
+    expect(events).toHaveLength(1);
+    expect(CostEntryEventSchema.safeParse(events[0]).success).toBe(true);
+    expect(events[0]).toMatchObject({ id: old.id, instanceId: 'old-instance', sessionId: 'old-session',
+      provider: 'copilot', timestamp: old.timestamp, model: 'gpt', inputTokens: 12, outputTokens: 3,
+      cacheReadTokens: 4, cacheWriteTokens: 5, cost: 0, byModel,
+      aiCreditsNano: 3e9, premiumRequests: 1, creditCheckpointId: 'outside-window' });
+    expect(db.prepare('SELECT ai_credits_nano FROM cost_entries WHERE id = ?').get(old.id)).toEqual({ ai_credits_nano: 3e9 });
+    expect(tracker.getLastProviderCreditCheckpoint('old-session')).toEqual({ eventId: 'outside-window', totalNano: 8e9, premiumTotal: 6 });
+    expect(tracker.attachProviderCredits(old.id, credits)).toBe(false);
+    expect(tracker.attachProviderCredits('missing-entry', credits)).toBe(false);
+    expect(events).toHaveLength(1);
+    expect(tracker.getEntries()).toHaveLength(10000);
+    expect(tracker.getEntries().some(entry => entry.id === old.id)).toBe(false);
+  });
+
+  it('does not mutate memory or emit a booking when the credit database update fails', () => {
+    const tracker = new CostTracker(); tracker.setDatabase(db);
+    const entry = tracker.recordUsage('i', 's', 'gpt', 1, 1, 0, 0, 0, 0, false, { provider: 'copilot' });
+    const events: CostEntry[] = []; tracker.on('cost-recorded', value => events.push(value));
+    db.exec(`CREATE TRIGGER refuse_credit_update BEFORE UPDATE OF ai_credits_nano ON cost_entries
+      BEGIN SELECT RAISE(ABORT, 'credit update refused'); END`);
+    expect(() => tracker.attachProviderCredits(entry.id, { creditsNano: 2e9, premiumRequests: 1,
+      checkpointEventId: 'failed-update', checkpointTotalNano: 2e9 })).toThrow('credit update refused');
+    expect(entry.aiCreditsNano).toBeUndefined();
+    expect(events).toEqual([]);
+    expect(tracker.getLastProviderCreditCheckpoint('s')).toBeUndefined();
   });
 
   it('rehydrates history on a fresh tracker pointed at the same DB (survives restart)', () => {

@@ -164,7 +164,7 @@ export async function finalizeLoopWorktree(args: FinalizeLoopWorktreeArgs): Prom
       });
       transition('blocked', {
         integrationBranch,
-        lastError: 'Managed worktree integration failed; inspect AIO logs',
+        lastError: 'Managed worktree integration failed; inspect Harness logs',
       });
       await manager.cleanupWorktree(worktreeSessionId, { retainBranch: true });
       store.clearWorktreeInfo(state.id);
@@ -207,7 +207,7 @@ export async function finalizeLoopWorktree(args: FinalizeLoopWorktreeArgs): Prom
     });
     transition(
       lifecycle.phase === 'promoted' ? 'promoted' : 'blocked',
-      { lastError: 'Managed worktree finalization failed; inspect AIO logs' },
+      { lastError: 'Managed worktree finalization failed; inspect Harness logs' },
     );
   }
 }

@@ -1,3 +1,5 @@
+import { detectUsedLessons } from '../memory/retrieval-eval/lesson-use-detector';
+import type { OutputMessage } from '../../shared/types/instance.types';
 import { getLogger } from '../logging/logger';
 import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import { getObservationStore } from './observation-store';
@@ -19,6 +21,7 @@ export class PolicyAdapter {
   private static instance: PolicyAdapter | null = null;
 
   private logger = getLogger('PolicyAdapter');
+  private readonly surfaced = new Map<string, { lessons: { id: string; text: string }[]; replies: Set<string> }>();
   private config = { ...DEFAULT_OBSERVATION_CONFIG };
 
   static getInstance(): PolicyAdapter {
@@ -58,6 +61,7 @@ export class PolicyAdapter {
     instanceId?: string,
     taskType?: string
   ): Promise<string> {
+    if (instanceId) this.surfaced.delete(instanceId);
     if (!this.config.enabled) return '';
     try {
       this.logger.debug('Building observation context', { instanceId, taskType });
@@ -138,7 +142,7 @@ export class PolicyAdapter {
 
         // Record injection
         try {
-          await getObservationStore().recordInjection(reflection.id, true);
+          await getObservationStore().recordShown(reflection.id);
         } catch (error) {
           // Don't fail the whole operation if injection recording fails
           this.logger.warn('Failed to record injection', {
@@ -148,6 +152,7 @@ export class PolicyAdapter {
         }
       }
 
+      if (instanceId) this.surfaced.set(instanceId, { lessons: selected.map(r => ({ id: r.id, text: r.insight })), replies: new Set() });
       lines.push(''); // Trailing newline
 
       const formatted = lines.join('\n');
@@ -168,6 +173,27 @@ export class PolicyAdapter {
       return '';
     }
   }
+
+  cleanupInstance(instanceId: string): void { this.surfaced.delete(instanceId); }
+
+  noteOutput(instanceId: string, message: Pick<OutputMessage, 'id' | 'type' | 'content'>): void {
+    const entry = this.surfaced.get(instanceId);
+    if (!entry || message.type !== 'assistant' || !message.content?.trim()) return;
+    if (!entry.replies.has(message.id) && entry.replies.size >= 3) {
+      this.surfaced.delete(instanceId);
+      return;
+    }
+    // Providers update the same message as it streams; count replies, not chunks.
+    entry.replies.add(message.id);
+    const used = new Set(detectUsedLessons(message.content, entry.lessons));
+    for (const id of used) {
+      try { getObservationStore().recordUse(id); }
+      catch (error) { this.logger.warn('Failed to record observation use', { reflectionId: id, error }); }
+    }
+    entry.lessons = entry.lessons.filter(lesson => !used.has(lesson.id));
+    if (!entry.lessons.length) this.surfaced.delete(instanceId);
+  }
+
 }
 
 /**

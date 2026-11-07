@@ -13,8 +13,17 @@ export interface ManagedWorktreeStatusView {
 
 const HARVEST_FAILED_REASON = 'Harvest failed with uncommitted work';
 
+/** Old persisted reason keys remain readable; new writes use the screen vocabulary. */
+const LEGACY_REASON_TEXT: Readonly<Record<string, string>> = {
+  'Managed worktree integration failed; inspect AIO logs': 'Managed worktree integration failed; inspect Harness logs',
+  'Managed worktree finalization failed; inspect AIO logs': 'Managed worktree finalization failed; inspect Harness logs',
+  'Managed worktree recovery failed; inspect AIO logs': 'Managed worktree recovery failed; inspect Harness logs',
+  'Session branch changed outside AIO; review it before landing': 'Session branch changed outside Harness; review it before landing',
+};
+
 function publicWorktreeBlockReason(reason: string | undefined): string {
   if (!reason) return 'manual attention required';
+  reason = LEGACY_REASON_TEXT[reason] ?? reason;
   const exactReasons = new Set([
     'root checkout has uncommitted changes',
     'unable to compare root changes with the promotion',
@@ -28,14 +37,14 @@ function publicWorktreeBlockReason(reason: string | undefined): string {
     'Session branch metadata is missing',
     'Durable session branch is missing',
     'Managed worktree base branch metadata is missing',
-    'Managed worktree integration failed; inspect AIO logs',
-    'Managed worktree finalization failed; inspect AIO logs',
-    'Managed worktree recovery failed; inspect AIO logs',
+    'Managed worktree integration failed; inspect Harness logs',
+    'Managed worktree finalization failed; inspect Harness logs',
+    'Managed worktree recovery failed; inspect Harness logs',
     'Managed session branch identity could not be verified',
     'Managed integration branch identity could not be verified',
     'Managed worktree ownership could not be verified',
     'Session adds active plan/spec/livetest documents; land it manually',
-    'Session branch changed outside AIO; review it before landing',
+    'Session branch changed outside Harness; review it before landing',
   ]);
   if (exactReasons.has(reason)) return reason;
   if (
@@ -47,7 +56,7 @@ function publicWorktreeBlockReason(reason: string | undefined): string {
   ) {
     return reason;
   }
-  return 'manual attention required; inspect AIO logs';
+  return 'manual attention required; inspect Harness logs';
 }
 
 /** Human-facing outcome for AIO-owned worktree finalization. */
@@ -94,7 +103,7 @@ export function managedWorktreeStatus(
         return {
           tone: 'preserved',
           label: 'marked resolved',
-          detail: `you resolved this workspace by hand; AIO no longer manages ${lifecycle.sessionBranch}`,
+          detail: `you resolved this workspace by hand; Harness no longer manages ${lifecycle.sessionBranch}`,
         };
       }
       if (lifecycle.integrationBranch && (

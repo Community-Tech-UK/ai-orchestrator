@@ -542,7 +542,7 @@ export class ProviderDoctor {
           // its repair action said npm, and copilot/cursor differed in wording.
           const installCmd = INSTALL_COMMANDS[provider] ?? 'check the provider docs';
           recs.push(
-            `Optional: the ${provider} CLI is not installed. The orchestrator works fine without it — install it only if you want to use this provider: ${installCmd}`,
+            `Optional: the ${provider} CLI is not installed. Harness works fine without it — install it only if you want to use this provider: ${installCmd}`,
           );
           break;
         }

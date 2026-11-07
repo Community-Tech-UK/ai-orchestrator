@@ -114,10 +114,10 @@ const CARD_ACTIONABLE_REQUEST_TYPES = new Set(['approve_action', 'confirm']);
         <button
           type="button"
           class="wb-card-action wb-card-snooze"
-          [attr.aria-pressed]="snoozed()"
+          [attr.aria-pressed]="isCheck() ? null : snoozed()"
           (click)="onSnoozeToggle($event)"
         >
-          {{ snoozed() ? 'Un-snooze' : 'Snooze' }}
+          {{ isCheck() ? 'Got it' : snoozed() ? 'Un-snooze' : 'Snooze' }}
         </button>
       </div>
     </div>
@@ -141,6 +141,8 @@ export class WorkboardCardComponent {
   protected readonly workspaceLabel = computed(() => basename(this.item().workingDirectory) || 'No workspace');
   protected readonly relTime = computed(() => relativeTime(this.item().updatedAt, this.now() || Date.now()));
   protected readonly snoozed = computed(() => this.workboardStore.isSnoozed(this.item().id));
+  protected readonly isCheck = computed(() => this.item().lane === 'needs-you'
+    && (this.item().attentionLevel === 'failed' || this.item().attentionLevel === 'review'));
   protected readonly isActing = signal(false);
   protected readonly isResuming = signal(false);
 
@@ -176,10 +178,10 @@ export class WorkboardCardComponent {
     return [...seen];
   });
 
-  /** Accessible label keeps the raw status readable even with a friendly pill. */
+  /** Accessible label uses the same words as the visible status pill. */
   protected readonly ariaLabel = computed(() => {
     const item = this.item();
-    return `${item.title}, ${sourceLabel(item.primary.kind)}, ${item.primary.rawStatus}`;
+    return `${item.title}, ${sourceLabel(item.primary.kind)}, ${item.statusLabel}`;
   });
 
   /** Full title and folder, for when the card text is cut short. Lives on the focusable card button. */
@@ -270,7 +272,9 @@ export class WorkboardCardComponent {
   protected onSnoozeToggle(event: Event): void {
     event.stopPropagation();
     const id = this.item().id;
-    if (this.workboardStore.isSnoozed(id)) {
+    if (this.isCheck()) {
+      this.workboardStore.markItemSeen(id);
+    } else if (this.workboardStore.isSnoozed(id)) {
       this.workboardStore.unsnoozeItem(id);
     } else {
       this.workboardStore.snoozeItem(id);

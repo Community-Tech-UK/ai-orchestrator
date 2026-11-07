@@ -16,28 +16,7 @@
           [value]="filterInput()"
           (input)="onFilterChange($event)"
         />
-        <div class="state-quick-filters" role="group" aria-label="Filter by state">
-          <button
-            type="button"
-            class="state-quick-btn"
-            [class.active]="statusFilter() === 'all'"
-            [attr.aria-pressed]="statusFilter() === 'all'"
-            appTooltip="Show all sessions"
-            (click)="setStatusFilter('all')"
-          >
-            All
-          </button>
-          <button
-            type="button"
-            class="state-quick-btn"
-            [class.active]="statusFilter() === 'active'"
-            [attr.aria-pressed]="statusFilter() === 'active'"
-            appTooltip="Show active sessions only"
-            (click)="setStatusFilter('active')"
-          >
-            Active
-          </button>
-        </div>
+        <app-session-attention-tabs [value]="statusFilter()" (changed)="setStatusFilter($event)" />
         <div class="filters-anchor">
           <button
             type="button"
@@ -215,6 +194,9 @@
                     }
                   </div>
                   <span class="project-subtitle" tabindex="0" [appTooltip]="group.subtitle" appTooltipVariant="overflow">{{ group.subtitle }}</span>
+                  @if (!group.isExpanded && (group.needsYouCount ?? 0) > 0) {
+                    <span class="project-needs-you">Needs you: {{ group.mostUrgentTitle }}{{ (group.needsYouCount ?? 0) > 1 ? ' +' + ((group.needsYouCount ?? 0) - 1) : '' }}</span>
+                  }
                 </div>
               </button>
               <div class="project-actions" [class.visible]="openProjectMenuKey() === group.key">
@@ -378,6 +360,7 @@
                     [depth]="depth"
                     [hasChildren]="item.hasChildren"
                     [childCount]="item.childrenCount"
+                    [descendantNeedsYou]="item.descendantNeedsYou ?? 0"
                     [isExpanded]="item.isExpanded"
                     [isLastChild]="isLast"
                     [parentChain]="parentChain"

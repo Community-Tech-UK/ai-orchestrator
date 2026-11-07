@@ -3,6 +3,7 @@
  * Collapsible navigation menu with grouped links to dashboard-visible surfaces.
  */
 
+import { readNavPreference, writeNavPreference } from '../../shared/control-surface/control-surface-tiers';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -15,8 +16,8 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
 import { SettingsStore } from '../../core/state/settings.store';
 import { AutomationStore } from '../../core/state/automation.store';
 import { DocReviewStore } from '../doc-review/doc-review.store';
-import { listDashboardNavGroups } from '../../shared/control-surface/control-surface-nav';
 import { ControlSurfaceIconPipe } from '../../shared/control-surface/control-surface-icon.pipe';
+import { listDashboardNavGroups, splitNavGroupsByTier } from '../../shared/control-surface/control-surface-nav';
 
 @Component({
   selector: 'app-sidebar-nav',
@@ -40,7 +41,7 @@ import { ControlSurfaceIconPipe } from '../../shared/control-surface/control-sur
 
       @if (expanded()) {
         <nav class="nav-menu" role="navigation" aria-label="Feature navigation">
-          @for (group of groups(); track group.id) {
+          @for (group of tiers().everyday; track group.id) {
             <div class="nav-group">
               <span class="group-label">{{ group.label }}</span>
               @for (item of group.items; track item.id) {
@@ -62,6 +63,36 @@ import { ControlSurfaceIconPipe } from '../../shared/control-surface/control-sur
               }
             </div>
           }
+          <button type="button" class="nav-toggle" (click)="toggleMore()"
+            [attr.aria-expanded]="moreOpen()" aria-controls="tools-views-more-tools">
+            More tools ({{ tiers().moreCount }})
+          </button>
+          @if (moreOpen()) {
+            <div id="tools-views-more-tools">
+          @for (group of tiers().more; track group.id) {
+            <div class="nav-group">
+              <span class="group-label">{{ group.label }}</span>
+              @for (item of group.items; track item.id) {
+                <a class="nav-item"
+                  [routerLink]="item.path"
+                  routerLinkActive="active">
+                  <svg class="nav-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                    [innerHTML]="item.icon">
+                  </svg>
+                  <span class="nav-label">{{ item.label }}</span>
+                  @if (item.id === 'automations' && unreadAutomations() > 0) {
+                    <span class="nav-badge">{{ unreadAutomations() }}</span>
+                  }
+                  @if (item.id === 'doc-review' && pendingDocReviews() > 0) {
+                    <span class="nav-badge">{{ pendingDocReviews() }}</span>
+                  }
+                </a>
+              }
+            </div>
+          }
+            </div>
+          }
         </nav>
       }
     </div>
@@ -74,6 +105,12 @@ export class SidebarNavComponent {
   readonly expanded = signal(true);
   private readonly settings = inject(SettingsStore);
   readonly groups = computed(() => listDashboardNavGroups(this.settings.settings().observationMemoryEnabled));
+  readonly tiers = computed(() => splitNavGroupsByTier(this.groups()));
+  readonly moreOpen = signal(readNavPreference('aiorch.toolsViews.moreOpen'));
+  toggleMore(): void {
+    this.moreOpen.update(open => !open);
+    writeNavPreference('aiorch.toolsViews.moreOpen', this.moreOpen());
+  }
   readonly unreadAutomations = this.automationStore.unreadCount;
   readonly pendingDocReviews = this.docReviewStore.pendingCount;
 }

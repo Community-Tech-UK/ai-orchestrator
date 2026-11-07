@@ -188,6 +188,9 @@ export function runtimeChangeNoticesFor(params: {
 }): RuntimeChangeNotice[] {
   const yolo: RuntimeChangeNotice = {
     text: yoloNoticeText(params.nextYoloMode),
+    userText: params.nextYoloMode
+      ? 'Auto-approve is on: the agent now acts without asking.'
+      : 'Auto-approve is off: the agent asks before acting.',
     kind: 'yolo-mode-changed',
   };
   const accountNotices: RuntimeChangeNotice[] = [
@@ -395,7 +398,8 @@ export async function announceRuntimeChangeSet(params: {
   }
   if (params.preamble?.trim()) {
     const held = [params.preamble, imageCarryover?.note].filter((part): part is string => Boolean(part?.trim())).join('\n\n');
-    params.holdUntilAnswered?.(held, imageCarryover?.attachments);
+    // This replay owns the complete image list, including an empty one.
+    params.holdUntilAnswered?.(held, imageCarryover?.attachments ?? []);
   }
   try {
     await sendInputWithoutWedging(params.adapter, body, {

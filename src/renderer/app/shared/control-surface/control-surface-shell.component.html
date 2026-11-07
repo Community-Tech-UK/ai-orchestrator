@@ -3,6 +3,7 @@
   [class.layout-standard]="activeSurface().layout === 'standard'"
   [class.layout-wide]="activeSurface().layout === 'wide'"
   [class.layout-fullBleed]="activeSurface().layout === 'fullBleed'"
+  [class.no-nav]="!showControlNav()"
   [class.nav-collapsed]="controlNavCollapsed()"
 >
   <header class="control-header">
@@ -24,79 +25,107 @@
   </header>
 
   <div class="control-body">
-    <aside id="control-center-navigation" class="control-nav" aria-label="Control Center navigation">
-      <button
-        class="control-nav-toggle"
-        type="button"
-        (click)="toggleControlNav()"
-        aria-controls="control-center-navigation"
-        [attr.aria-expanded]="!controlNavCollapsed()"
-        [appIconButton]="controlNavCollapsed() ? 'Expand navigation' : 'Collapse navigation'"
-        [appTooltipShowWhenExpanded]="true"
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M15 18l-6-6 6-6" />
-        </svg>
-      </button>
-      @if (!controlNavCollapsed()) {
-        <div class="control-nav-search">
-          <input
-            #navSearchInput
-            class="control-nav-search-input"
-            type="search"
-            placeholder="Find a page or setting…"
-            aria-label="Search pages and settings"
-            [value]="navQuery()"
-            (input)="onNavSearch($event)"
-            (keydown.enter)="openFirstNavResult($event)"
-            (keydown.escape)="onNavSearchEscape($event)"
-          />
-        </div>
-      }
-      @if (navResults(); as resultGroups) {
-        @for (group of resultGroups; track group.id) {
-          <section class="control-nav-group">
-            <h2>{{ group.label }}</h2>
-            @for (result of group.results; track result.id) {
-              <a
-                class="control-nav-item control-nav-result"
-                [routerLink]="result.path"
-                [queryParams]="result.queryParams"
-                [fragment]="result.fragment"
-                (click)="onNavResultChosen()"
-              >
-                <svg class="control-nav-icon" viewBox="0 0 24 24" aria-hidden="true" [innerHTML]="result.icon | controlSurfaceIcon"></svg>
-                <span class="control-nav-result-text">
-                  {{ result.label }}
-                  @if (result.section) { <small>{{ result.section }}</small> }
-                </span>
-              </a>
-            }
-          </section>
-        } @empty {
-          <p class="control-nav-empty" role="status">Nothing matches “{{ navQuery().trim() }}”.</p>
+    @if (showControlNav()) {
+      <aside id="control-center-navigation" class="control-nav" aria-label="Control Center navigation">
+        <button
+          class="control-nav-toggle"
+          type="button"
+          (click)="toggleControlNav()"
+          aria-controls="control-center-navigation"
+          [attr.aria-expanded]="!controlNavCollapsed()"
+          [appIconButton]="controlNavCollapsed() ? 'Expand navigation' : 'Collapse navigation'"
+          [appTooltipShowWhenExpanded]="true"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M15 18l-6-6 6-6" />
+          </svg>
+        </button>
+        @if (!controlNavCollapsed()) {
+          <div class="control-nav-search">
+            <input
+              #navSearchInput
+              class="control-nav-search-input"
+              type="search"
+              placeholder="Find a page or setting…"
+              aria-label="Search pages and settings"
+              [value]="navQuery()"
+              (input)="onNavSearch($event)"
+              (keydown.enter)="openFirstNavResult($event)"
+              (keydown.escape)="onNavSearchEscape($event)"
+            />
+          </div>
         }
-      } @else {
-        @for (group of navGroups(); track group.id) {
-          <section class="control-nav-group">
-            <h2>{{ group.label }}</h2>
-            @for (item of group.items; track item.id) {
-              <a
-                class="control-nav-item"
-                [routerLink]="item.path"
-                routerLinkActive="active"
-                [routerLinkActiveOptions]="{ exact: isExactNavMatch(item.path) }"
-                [appTooltip]="item.label"
-                [attr.aria-label]="item.label"
-              >
-                <svg class="control-nav-icon" viewBox="0 0 24 24" aria-hidden="true" [innerHTML]="item.icon | controlSurfaceIcon"></svg>
-                <span>{{ item.label }}</span>
-              </a>
+        @if (navResults(); as resultGroups) {
+          @for (group of resultGroups; track group.id) {
+            <section class="control-nav-group">
+              <h2>{{ group.label }}</h2>
+              @for (result of group.results; track result.id) {
+                <a
+                  class="control-nav-item control-nav-result"
+                  [routerLink]="result.path"
+                  [queryParams]="result.queryParams"
+                  [fragment]="result.fragment"
+                  (click)="onNavResultChosen()"
+                >
+                  <svg class="control-nav-icon" viewBox="0 0 24 24" aria-hidden="true" [innerHTML]="result.icon | controlSurfaceIcon"></svg>
+                  <span class="control-nav-result-text">
+                    {{ result.label }}
+                    @if (result.section) { <small>{{ result.section }}</small> }
+                  </span>
+                </a>
+              }
+            </section>
+          } @empty {
+            <p class="control-nav-empty" role="status">Nothing matches “{{ navQuery().trim() }}”.</p>
+          }
+        } @else {
+            @for (group of navTiers().everyday; track group.id) {
+              <section class="control-nav-group">
+                <h2>{{ group.label }}</h2>
+                @for (item of group.items; track item.id) {
+                  <a
+                    class="control-nav-item"
+                    [routerLink]="item.path"
+                    routerLinkActive="active"
+                    [routerLinkActiveOptions]="{ exact: isExactNavMatch(item.path) }"
+                    [appTooltip]="item.label"
+                    [attr.aria-label]="item.label"
+                  >
+                    <svg class="control-nav-icon" viewBox="0 0 24 24" aria-hidden="true" [innerHTML]="item.icon | controlSurfaceIcon"></svg>
+                    <span>{{ item.label }}</span>
+                  </a>
+                }
+              </section>
             }
-          </section>
+            <button type="button" class="control-more-toggle" (click)="toggleMore()"
+              [attr.aria-expanded]="moreVisible()" aria-controls="control-center-more-tools">
+              More tools ({{ navTiers().moreCount }})
+            </button>
+            @if (moreVisible()) {
+              <div id="control-center-more-tools">
+                @for (group of navTiers().more; track group.id) {
+                  <section class="control-nav-group">
+                    <h2>{{ group.label }}</h2>
+                    @for (item of group.items; track item.id) {
+                      <a
+                        class="control-nav-item"
+                        [routerLink]="item.path"
+                        routerLinkActive="active"
+                        [routerLinkActiveOptions]="{ exact: isExactNavMatch(item.path) }"
+                        [appTooltip]="item.label"
+                        [attr.aria-label]="item.label"
+                      >
+                        <svg class="control-nav-icon" viewBox="0 0 24 24" aria-hidden="true" [innerHTML]="item.icon | controlSurfaceIcon"></svg>
+                        <span>{{ item.label }}</span>
+                      </a>
+                    }
+                  </section>
+                }
+              </div>
+            }
         }
-      }
-    </aside>
+      </aside>
+    }
 
     <main class="control-content">
       <router-outlet />

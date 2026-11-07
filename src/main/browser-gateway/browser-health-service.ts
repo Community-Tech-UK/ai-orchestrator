@@ -569,7 +569,7 @@ export class BrowserHealthService {
           available: bridgeAvailable,
           status: bridgeAvailable ? 'available_via_mcp' : 'unconfigured',
           message: bridgeAvailable
-            ? 'Codex can use Browser Gateway through injected MCP config in local AIO sessions.'
+            ? 'Codex can use Browser Gateway through injected MCP config in local Harness sessions.'
             : 'Codex Browser Gateway access is unavailable because the Browser Gateway MCP bridge is unavailable.',
         },
         gemini: {

@@ -6,7 +6,10 @@ const mocks = vi.hoisted(() => ({
   handlers: new Map<string, Handler>(),
   removeHandler: vi.fn(),
   cleanup: null as (() => void) | null,
+  setCount: vi.fn(),
+  setWindowProvider: vi.fn(),
 }));
+vi.mock('../../app/attention-badge', () => ({ getAttentionBadge: () => ({ setCount: mocks.setCount, setWindowProvider: mocks.setWindowProvider }) }));
 
 vi.mock('electron', () => ({
   ipcMain: {
@@ -38,6 +41,7 @@ describe('registerNotificationHandlers', () => {
   }];
   const service = {
     list: vi.fn(() => records),
+    markSeen: vi.fn(),
     dismiss: vi.fn(() => true),
     clear: vi.fn(() => 3),
     subscribe: vi.fn((listener: (record: unknown) => void) => {
@@ -98,6 +102,26 @@ describe('registerNotificationHandlers', () => {
     expect(service.dismiss).not.toHaveBeenCalled();
   });
 
+  it('marks only a validated selection seen', async () => {
+    registerNotificationHandlers({ notificationService: service as never, windowManager: windowManager as never });
+    for (const selection of [{}, { ids: [] }, { ids: Array.from({ length: 101 }, () => 'n') }, { instanceId: '' }]) {
+      expect(await invoke('notification:mark-seen', selection)).toMatchObject({ success: false });
+    }
+    expect(service.markSeen).not.toHaveBeenCalled();
+    expect(await invoke('notification:mark-seen', { instanceId: 'a' })).toEqual({ success: true });
+    expect(service.markSeen).toHaveBeenCalledWith({ instanceId: 'a' });
+  });
+
+  it('rejects invalid badge counts and sends a validated count to the badge service', async () => {
+    registerNotificationHandlers({ notificationService: service as never, windowManager: windowManager as never });
+    for (const count of [-1, 0.5, 10000, '3']) {
+      expect(await invoke('notification:set-badge', { count })).toMatchObject({ success: false });
+    }
+    expect(mocks.setCount).not.toHaveBeenCalled();
+    expect(await invoke('notification:set-badge', { count: 3 })).toEqual({ success: true });
+    expect(mocks.setCount).toHaveBeenCalledWith(3);
+  });
+
   it('stops forwarding deltas and removes every handler during cleanup', () => {
     registerNotificationHandlers({
       notificationService: service as never,
@@ -111,6 +135,8 @@ describe('registerNotificationHandlers', () => {
     expect(mocks.removeHandler).toHaveBeenCalledWith('notification:list');
     expect(mocks.removeHandler).toHaveBeenCalledWith('notification:dismiss');
     expect(mocks.removeHandler).toHaveBeenCalledWith('notification:clear');
+    expect(mocks.removeHandler).toHaveBeenCalledWith('notification:mark-seen');
+    expect(mocks.removeHandler).toHaveBeenCalledWith('notification:set-badge');
   });
 });
 

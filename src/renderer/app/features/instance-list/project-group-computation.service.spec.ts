@@ -4,6 +4,7 @@ import { NewSessionDraftService } from '../../core/services/new-session-draft.se
 import type { Instance } from '../../core/state/instance.store';
 import type { ConversationHistoryEntry } from '../../../../shared/types/history.types';
 import { ProjectGroupComputationService } from './project-group-computation.service';
+import { NeedsYouStore } from '../workboard/needs-you.store';
 
 function makeInstance(overrides: Partial<Instance> = {}): Instance {
   return {
@@ -62,6 +63,7 @@ describe('ProjectGroupComputationService filtering', () => {
     TestBed.configureTestingModule({
       providers: [
         ProjectGroupComputationService,
+        { provide: NeedsYouStore, useValue: { sessionIds: () => new Set(), entries: () => [] } },
         {
           provide: NewSessionDraftService,
           useValue: {
@@ -77,6 +79,33 @@ describe('ProjectGroupComputationService filtering', () => {
 
   afterEach(() => {
     TestBed.resetTestingModule();
+  });
+
+  it('presents the most urgent descendant rather than hiding its approval behind a ready parent', () => {
+    const parent = service.buildVisibleItems(makeInstance({ id: 'parent' }), {
+      filter: '', status: 'all', location: 'all', projectMatches: false,
+      collapsed: new Set(), collapsedHistoryParentIds: new Set(), historySortMode: 'created',
+      childrenByParent: new Map([['parent', ['child']]]), activityCutoff: null,
+      instanceMap: new Map([['child', makeInstance({ id: 'child', parentId: 'parent', status: 'waiting_for_permission' })]]),
+    })!;
+    expect(service.getProjectStateSummary([parent], [], false)).toMatchObject({
+      projectStateLabel: 'Needs your OK', projectStateTone: 'attention',
+    });
+  });
+
+  it.each([
+    ['processing', 'Working', 'working'], ['thinking_deeply', 'Working', 'working'],
+    ['waiting_for_input', 'Needs your answer', 'attention'], ['failed', 'Problem', 'attention'],
+    ['degraded', 'Problem', 'attention'], ['waking', 'Connecting', 'connecting'],
+    ['hibernated', 'Ready', 'ready'],
+  ] as const)('presents project state %s', (status, label, tone) => {
+    const root = makeInstance({ status });
+    const item = service.buildVisibleItems(root, {
+      filter: '', status: 'all', location: 'all', projectMatches: false,
+      collapsed: new Set(), collapsedHistoryParentIds: new Set(), historySortMode: 'created',
+      childrenByParent: new Map(), activityCutoff: null, instanceMap: new Map([[root.id, root]]),
+    })!;
+    expect(service.getProjectStateSummary([item], [], false)).toMatchObject({ projectStateLabel: label, projectStateTone: tone });
   });
 
   it('matches project queries by terms across title and path', () => {
@@ -469,9 +498,10 @@ describe('ProjectGroupComputationService filtering', () => {
   });
 
   describe('project header state words come from the one status presenter', () => {
+    // Each session has its own id, as it does in the app.
     const live = (status: Instance['status']) => ({
       kind: 'live' as const,
-      instance: makeInstance({ status }),
+      instance: makeInstance({ id: `session-${status}`, status }),
       railTitle: 'Session',
       hasChildren: false,
       childrenCount: 0,
@@ -481,12 +511,12 @@ describe('ProjectGroupComputationService filtering', () => {
 
     it('says "Needs your answer" for a waiting question, not "Awaiting input"', () => {
       expect(service.getProjectStateSummary([live('idle'), live('waiting_for_input')], [], false))
-        .toEqual({ projectStateLabel: 'Needs your answer', projectStateTone: 'attention' });
+        .toMatchObject({ projectStateLabel: 'Needs your answer', projectStateTone: 'attention' });
     });
 
     it('says "Problem" for an errored session, not "Issue", and ranks it above a question', () => {
       expect(service.getProjectStateSummary([live('waiting_for_input'), live('error')], [], false))
-        .toEqual({ projectStateLabel: 'Problem', projectStateTone: 'attention' });
+        .toMatchObject({ projectStateLabel: 'Problem', projectStateTone: 'attention' });
     });
 
     it('keeps the quieter project states as they were', () => {

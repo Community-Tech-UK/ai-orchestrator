@@ -1518,7 +1518,7 @@ describe('InstanceManager', () => {
         event: expect.objectContaining({
           kind: 'output',
           messageType: 'system',
-          content: 'Instance may be stuck — no output for 300s. Will auto-restart if unresponsive.',
+          content: 'No output for 300s. If it stays silent, Harness will restart the session.',
           metadata: expect.objectContaining({
             watchdogWarning: true,
             elapsedMs: 300_000,

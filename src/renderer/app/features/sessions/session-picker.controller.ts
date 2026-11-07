@@ -96,7 +96,7 @@ export class SessionPickerController implements OverlayController<SessionPickerI
     const otherLive = live.filter((item) => !isAtLeastAsUrgent(item.value.attentionLevel ?? 'idle', 'failed'));
 
     return [
-      { id: 'needs-you', label: 'Needs You', items: needsYou },
+      { id: 'needs-you', label: 'Needs you', items: needsYou },
       { id: 'live', label: 'Live Sessions', items: otherLive },
       { id: 'history', label: 'History', items: history },
       { id: 'archived', label: 'Archived', items: archived },

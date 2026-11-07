@@ -14,7 +14,7 @@ import { InstanceMessagingStore } from './instance-messaging.store';
 
 describe('InstanceStore.compactInstance', () => {
   it('uses the compactor verdict as well as the IPC transport verdict', async () => {
-    const streams = ['batchUpdate$', 'compactStatus$', 'fastToggled$', 'inputRequired$', 'inputRequiredResolved$',
+    const streams = ['batchUpdate$', 'compactStatus$', 'fastToggled$', 'inputRequired$', 'inputRequiredResolved$', 'inputContextDelivered$',
       'instanceCreated$', 'instanceOutput$', 'instanceTranscriptChunk$', 'instanceRemoved$', 'instanceStateUpdate$', 'orchestrationActivity$', 'yoloToggled$'];
     const bus = Object.fromEntries(streams.map(name => [name, new Subject<unknown>()]));
     const compactInstance = vi.fn();

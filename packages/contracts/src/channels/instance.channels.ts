@@ -38,6 +38,8 @@ export const INSTANCE_CHANNELS = {
   INSTANCE_BATCH_UPDATE: 'instance:batch-update',
   INSTANCE_CREATED: 'instance:created',
   INSTANCE_REMOVED: 'instance:removed',
+  INSTANCE_SUBAGENT_USAGE: 'instance:subagent-usage',
+  INSTANCE_INPUT_CONTEXT_DELIVERED: 'instance:input-context-delivered',
   INSTANCE_LIST: 'instance:list',
   INSTANCE_LOAD_OLDER_MESSAGES: 'instance:load-older-messages',
   INSTANCE_GET_PROMPT_INDEX: 'instance:get-prompt-index',

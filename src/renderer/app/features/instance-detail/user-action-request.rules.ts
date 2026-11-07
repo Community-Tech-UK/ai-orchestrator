@@ -1,4 +1,5 @@
 import { resolveClaudeAllowRuleTool } from '../../../../shared/permissions/claude-allow-rule-tools';
+import { friendlyToolName } from '../../../../shared/permissions/friendly-tool-name';
 import { PERMISSION_SCOPE_WORDS } from '../../../../shared/permissions/permission-scope-presentation';
 export type InputRequiredScope = 'once' | 'session' | 'always';
 
@@ -8,6 +9,8 @@ export interface InputRequiredRequestLike {
   permissionMetadata?: {
     type?: string;
     tool_name?: string;
+    /** Set by the live "Allow once" broker, whose once is strictly this one call. */
+    live?: boolean;
     path?: string;
   };
 }
@@ -67,14 +70,19 @@ export function permissionScopesFor(meta: PermissionMetadata): InputRequiredScop
   }
 }
 
+/** A command ask keeps the command wording; any other tool is named so "this session" cannot be read as every tool. */
+function namedTool(meta: PermissionMetadata): string | undefined {
+  return meta?.tool_name === 'Bash' ? undefined : friendlyToolName(meta?.tool_name || 'this tool');
+}
+
 export function approveLabelFor(meta: PermissionMetadata, scope: InputRequiredScope): string | undefined {
   if (permissionAskKind(meta) === 'claude-denial') {
     return canAddClaudeAllowRule(meta) ? 'Always allow (adds a rule to ~/.claude/settings.json and restarts)' : undefined;
   }
   if (permissionAskKind(meta) === 'single' || scope === 'once') return PERMISSION_SCOPE_WORDS.once.allow;
-  return scope === 'session'
-    ? PERMISSION_SCOPE_WORDS.session.allow
-    : `${PERMISSION_SCOPE_WORDS.always.allow} this command`;
+  const tool = namedTool(meta);
+  if (scope === 'session') return tool ? `Allow ${tool} for this session` : PERMISSION_SCOPE_WORDS.session.allow;
+  return `${PERMISSION_SCOPE_WORDS.always.allow} ${tool ?? 'this command'}`;
 }
 
 export function rejectLabelFor(meta: PermissionMetadata, scope: InputRequiredScope): string {
@@ -82,9 +90,9 @@ export function rejectLabelFor(meta: PermissionMetadata, scope: InputRequiredSco
     return canAddClaudeAllowRule(meta) ? PERMISSION_SCOPE_WORDS.once.refuse : 'OK';
   }
   if (permissionAskKind(meta) === 'single' || scope === 'once') return PERMISSION_SCOPE_WORDS.once.refuse;
-  return scope === 'session'
-    ? PERMISSION_SCOPE_WORDS.session.refuse
-    : `${PERMISSION_SCOPE_WORDS.always.refuse} this command`;
+  const tool = namedTool(meta);
+  if (scope === 'session') return tool ? `Block ${tool} for this session` : PERMISSION_SCOPE_WORDS.session.refuse;
+  return `${PERMISSION_SCOPE_WORDS.always.refuse} ${tool ?? 'this command'}`;
 }
 
 export function decisionFor(meta: PermissionMetadata, approved: boolean, selected: InputRequiredScope):
@@ -105,11 +113,20 @@ export function permissionHintFor(meta: PermissionMetadata, scope: InputRequired
   if (permissionAskKind(meta) === 'claude-denial') {
     const tool = meta?.tool_name || 'this tool';
     if (!canAddClaudeAllowRule(meta)) {
-      return `Harness can't add an allow rule for ${tool}. To allow it, switch on YOLO using the YOLO button at the top of this session, then ask Claude to try again; or add a rule to ~/.claude/settings.json yourself.`;
+      return `Harness can't add an allow rule for ${tool}. To allow it, switch on Auto-approve with the YOLO button at the top of this session, then ask Claude to try again; or add a rule to ~/.claude/settings.json yourself.`;
     }
     return `Allows ${tool} on ${meta?.path || 'the requested resource'} in every Claude session. The session restarts, so ask Claude to try again once it reconnects.`;
   }
   if (permissionAskKind(meta) !== 'claude-held') return '';
+  if (meta?.live) {
+    if (scope === 'once') return 'Allows only this call.';
+    return scope === 'always' ? 'Saved in Harness. Remove it under Settings > Permissions > Rules.' : 'Applies only in this session.';
+  }
   if (scope === 'once') return 'Also allows the same command for the next hour.';
   return scope === 'always' ? 'Saved in Harness (~/.orchestrator/permissions.json) for this exact command, in every session.' : '';
+}
+
+/** A refusal can carry a typed reason except for a one-shot ask, whose only answers are the two buttons. */
+export function canTellWhatToDoInstead(meta: PermissionMetadata): boolean {
+  return permissionAskKind(meta) !== 'single';
 }

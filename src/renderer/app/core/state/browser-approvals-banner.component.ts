@@ -1,3 +1,4 @@
+import { NoticeSlotService } from '../notices/notice-slot.service';
 /**
  * Browser Approvals Banner
  *
@@ -20,6 +21,8 @@ import {
   effect,
   inject,
   signal,
+  DestroyRef,
+  computed,
 } from '@angular/core';
 import { Router } from '@angular/router';
 import type {
@@ -54,6 +57,7 @@ import {
   imports: [AppIconButtonDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    @if (slot()) {
     @if (oldestPending(); as approval) {
       @if (isMinimized()) {
         <section class="approvals-banner compact" role="status" aria-live="polite">
@@ -176,6 +180,7 @@ import {
           </div>
         </section>
       }
+    }
     }
   `,
   styles: [`
@@ -417,6 +422,8 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
   /** The raw diagnostic behind a failure sentence, shown only under Details. */
   readonly errorDetail = signal<string | null>(null);
   private readonly boundRequestId = signal('');
+
+  protected readonly slot = inject(NoticeSlotService).register('browser-approvals', computed(() => this.oldestPending() !== null), inject(DestroyRef));
 
   constructor() {
     effect(() => {

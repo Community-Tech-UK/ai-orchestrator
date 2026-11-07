@@ -522,7 +522,7 @@ function defaultFileTransferRoots(homedir: string): WorkerNodeFileTransferRoot[]
   const roots: WorkerNodeFileTransferRoot[] = [
     {
       id: 'scratch',
-      label: 'AIO Scratch',
+      label: 'Harness Scratch',
       path: scratchPath,
       read: true,
       write: true,

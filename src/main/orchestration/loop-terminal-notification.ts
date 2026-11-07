@@ -130,6 +130,7 @@ export function notifyLoopTerminal(
     if (!notice) return;
     getNotificationService().notify({
       kind: notice.kind,
+      instanceId: state.chatId,
       title: notice.title,
       body: notice.body,
       urgency: notice.urgency,
@@ -143,7 +144,7 @@ export function notifyLoopTerminal(
 export function notifyLoopFailedStepPause(state: LoopState, reason: string): void {
   try {
     if (getSettingsManager().get('notifyOnLoopTerminal') === false) return;
-    getNotificationService().notify({ kind: 'loop-needs-you', title: 'Loop paused: a step failed',
+    getNotificationService().notify({ kind: 'loop-needs-you', instanceId: state.chatId, title: 'Loop paused: a step failed',
       body: clip(reason, MAX_REASON_CHARS), urgency: 'critical',
       fingerprintFields: { loopRunId: state.id, seq: state.totalIterations, cause: 'step-failed' } });
   } catch { /* Notifications cannot alter runtime state. */ }

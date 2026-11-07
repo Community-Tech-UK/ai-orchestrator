@@ -153,6 +153,45 @@ export const TOOLTIP_COPY = {
     label: 'Edit queued message',
     meaning: 'Returns this queued message to the message box so you can edit it before sending.',
   },
+  'secondOpinion.checking': {
+    label: 'Second opinion: checking…', meaning: 'Checking the latest completed turn.',
+  },
+  'secondOpinion.verified': {
+    label: 'Second opinion: ✓', meaning: 'Remote reviewers found no concerns in this turn. Click to view their notes.',
+  },
+  'secondOpinion.concerns': {
+    label: 'Second opinion: concerns', meaning: 'Remote reviewers flagged concerns in this turn. Click to view their notes.',
+  },
+  'secondOpinion.localOnly': {
+    label: 'Second opinion: local model only', meaning: 'A local model checked this turn as advice; no remote reviewer completed. Its output is advisory.',
+  },
+  'secondOpinion.failed': {
+    label: 'Second opinion: failed', meaning: 'The check for this turn failed. Click for details.',
+  },
+  'secondOpinion.skipped': {
+    label: 'Second opinion: skipped', meaning: 'The check for the latest completed turn was skipped because no secondary reviewers were available.',
+  },
+  'secondOpinion.limitReached': {
+    label: 'Second opinion: limit reached', meaning: "Today's automatic second-opinion allowance is used up. You can still ask for one from a reply's menu.",
+  },
+  'rail.needsYou': {
+    label: 'Needs you', meaning: 'Questions, approvals, failed runs and decisions agents made for you. Opens the Workboard.',
+  },
+  'cost.aiCredits': {
+    label: 'AI credits', meaning: "What Copilot counted for this session, read from Copilot's own records after each reply.",
+  },
+  'cost.subagentSize': {
+    label: 'Helper agent', meaning: "How large this helper agent's last request was, how many tools it used and how long it ran. This is not its cost; the session card shows cost by model.",
+  },
+  'composer.quota': {
+    label: 'Plan usage', meaning: 'Plan usage for the account this session uses. The usage chip in the title bar has the detail.',
+  },
+  'session.status': {
+    label: 'Session status', meaning: 'Model, permissions, account, plan, context, use and cache for this session.',
+  },
+  'session.cacheWarm': {
+    label: 'Cache warm', meaning: 'Claude keeps this conversation cached for about an hour after your last message on your plan. After that, the next message re-sends it at full price.',
+  },
   'accounts.signIn': {
     label: 'Sign in',
     meaning: 'Opens a terminal already running the sign-in command',
@@ -162,7 +201,7 @@ export const TOOLTIP_COPY = {
     meaning: 'Copies a sign-in command to paste in your terminal',
   },
   'compaction.freshSession': {
-    label: 'Fresh session',
+    label: 'Continued from a summary',
     meaning: 'Restarts the agent with a summary of older turns, full recent turns, user messages, and an anchor index. The earlier conversation stays in history; the agent waits for your next message.',
   },
   'diskSpace.review': { label: 'Review and clean up', meaning: 'Shows the current list and its consequence before you decide.' },

@@ -59,6 +59,7 @@ class HostComponent {
 describe('GettingStartedBarComponent (UX5)', () => {
   let fixture: ComponentFixture<HostComponent>;
   let cwd: string;
+  let directory = signal('');
   /**
    * A real signal, not a plain function returning a mutated array. With a plain
    * function the component's `computed` never tracks it, so a test that changed
@@ -68,12 +69,13 @@ describe('GettingStartedBarComponent (UX5)', () => {
   let instances: ReturnType<typeof signal<{ id: string }[]>>;
 
   function mount(): void {
+    directory = signal(cwd);
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       imports: [HostComponent],
       providers: [
         { provide: InstanceStore, useValue: { instances } },
-        { provide: SettingsStore, useValue: { settings: () => ({ defaultWorkingDirectory: cwd }) } },
+        { provide: SettingsStore, useValue: { settings: () => ({ defaultWorkingDirectory: directory() }) } },
         { provide: Router, useValue: { navigate } },
       ],
     });
@@ -106,7 +108,8 @@ describe('GettingStartedBarComponent (UX5)', () => {
     fixture.componentInstance.report.set(zeroCliReport());
     fixture.detectChanges();
     expect(bar()).not.toBeNull();
-    expect(steps()).toHaveLength(3);
+    expect(steps()).toHaveLength(1);
+    expect(bar()?.textContent).toContain("Next: connect a CLI");
   });
 
   it('counts progress as N of M', () => {
@@ -122,15 +125,15 @@ describe('GettingStartedBarComponent (UX5)', () => {
     fixture.componentInstance.report.set(report('ready', ['ready', 'degraded']));
     fixture.detectChanges();
     expect(steps()[0]?.getAttribute('data-done')).toBe('false');
-    expect(steps()[steps().length - 1]?.getAttribute('data-done')).toBe('true');
+    expect(steps()).toHaveLength(1);
   });
 
   it('says each step’s state in words, not by dimming alone', () => {
     mount();
     fixture.componentInstance.report.set(report('ready', ['ready', 'degraded']));
     fixture.detectChanges();
-    expect(bar()?.textContent).toContain('To do');
-    expect(bar()?.textContent).toContain('Done');
+    expect(bar()?.textContent).toContain('Next: choose a working folder');
+    expect(bar()?.textContent).toContain('1 of 3 done');
   });
 
   /** Completing the steps IS the dismissal — the spec asks for a bar that unmounts. */
@@ -164,9 +167,13 @@ describe('GettingStartedBarComponent (UX5)', () => {
     byStep('provider-available').click();
     expect(navigate).toHaveBeenCalledWith(['/settings'], { fragment: 'cli-health' });
 
+    fixture.componentInstance.report.set(report('ready'));
+    fixture.detectChanges();
     byStep('working-directory').click();
     expect(navigate).toHaveBeenCalledWith(['/settings'], { fragment: 'general' });
 
+    directory.set('/tmp/project');
+    fixture.detectChanges();
     byStep('first-session').click();
     expect(navigate).toHaveBeenCalledWith(['/']);
   });

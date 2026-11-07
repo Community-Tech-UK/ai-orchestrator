@@ -276,7 +276,7 @@ describe('ResourceGovernor', () => {
 
     expect(h.emitSystemMessage).toHaveBeenCalledWith(
       'has-work',
-      expect.stringContaining('hibernated'),
+      expect.stringContaining('put to sleep'),
       expect.objectContaining({ reason: 'memory-critical' }),
     );
   });

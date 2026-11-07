@@ -1,3 +1,4 @@
+import type { InstanceInputContextDeliveredEvent } from '../../shared/types/input-context-delivery.types';
 import { IpcRenderer, IpcRendererEvent } from 'electron';
 import { IPC_CHANNELS } from '../generated/channels';
 import type {
@@ -36,6 +37,21 @@ export function createDiagnosticsDomain(ipcRenderer: IpcRenderer, ch: typeof IPC
 
     contextAttributionGet: (payload: { instanceId: string }): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.CONTEXT_ATTRIBUTION_GET, payload),
+
+    contextProviderMeasure: (payload: { instanceId: string }): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.CONTEXT_PROVIDER_MEASURE, payload),
+
+    onInputContextDelivered: (callback: (delivery: InstanceInputContextDeliveredEvent) => void): (() => void) => {
+      const listener = (_event: IpcRendererEvent, delivery: InstanceInputContextDeliveredEvent) => callback(delivery);
+      ipcRenderer.on(ch.INSTANCE_INPUT_CONTEXT_DELIVERED, listener);
+      return () => ipcRenderer.removeListener(ch.INSTANCE_INPUT_CONTEXT_DELIVERED, listener);
+    },
+
+    onSubagentUsage: (callback: (sample: import('../../shared/types/cost-session.types').SubagentUsageSample) => void): (() => void) => {
+      const listener = (_event: IpcRendererEvent, sample: import('../../shared/types/cost-session.types').SubagentUsageSample) => callback(sample);
+      ipcRenderer.on(ch.INSTANCE_SUBAGENT_USAGE, listener);
+      return () => ipcRenderer.removeListener(ch.INSTANCE_SUBAGENT_USAGE, listener);
+    },
 
     cacheAnalyticsGet: (payload: { instanceId: string }): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.CACHE_ANALYTICS_GET, payload),

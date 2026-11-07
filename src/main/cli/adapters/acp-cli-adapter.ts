@@ -8,6 +8,7 @@
  * agent binary or expose ACP as a first-class UI-selectable provider yet.
  */
 
+import { selectAcpPermissionOutcome } from './acp-permission-outcome';
 import { existsSync } from 'fs';
 import { isAbsolute } from 'node:path';
 import { spawnSync } from 'child_process';
@@ -75,7 +76,6 @@ import type {
   AcpSessionNewResult,
   AcpSessionPromptParams,
   AcpSessionPromptResult,
-  AcpSessionRequestPermissionOutcome,
   AcpSessionRequestPermissionParams,
   AcpSessionUpdate,
   AcpSessionUpdateNotificationParams,
@@ -347,14 +347,15 @@ function toError(value: unknown, fallback: string): Error {
   }
   return new Error(typeof value === 'string' ? value : fallback);
 }
-function slug(value: string): string {
-  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-}
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
+}
+function isAcpPermissionOptionKind(value: unknown): value is AcpPermissionOption['kind'] {
+  return value === 'allow_once' || value === 'allow_always' || value === 'reject_once'
+    || value === 'reject_always' || value === 'other';
 }
 export class AcpCliAdapter extends BaseCliAdapter {
   /** B9: ACP speaks JSON-RPC over stdio (Agent Client Protocol). */
@@ -1028,13 +1029,14 @@ export class AcpCliAdapter extends BaseCliAdapter {
   async sendRaw(response: string, permissionKey?: string): Promise<void> {
     const pending = this.resolvePendingPermissionRequest(permissionKey);
     if (pending) {
-      const outcome = this.selectPermissionOutcome(pending, response, permissionKey);
+      const outcome = selectAcpPermissionOutcome(pending.options, response);
       await this.sendResponse(pending.rpcId, { outcome });
       this.pendingPermissionRequests.delete(pending.key);
       // Close the registry entry with the user's real decision; left open, it
       // reads as "blocked on approval" and is later recorded as a timeout denial.
       const chosen = outcome.outcome === 'selected' ? pending.options.find((o) => o.optionId === outcome.optionId) : undefined;
-      this.acpConfig.permissionRegistry?.resolve?.(pending.key, chosen?.kind.startsWith('allow') === true, 'user');
+      const granted = chosen?.kind === 'allow_once' || chosen?.kind === 'allow_always';
+      this.acpConfig.permissionRegistry?.resolve?.(this.buildRegistryPermissionId(pending.key), granted, 'user');
       this.emit('status', 'busy');
       return;
     }
@@ -1810,6 +1812,11 @@ export class AcpCliAdapter extends BaseCliAdapter {
     }
 
     const options = this.normalizePermissionOptions(params['options']);
+    if (!options) {
+      await this.sendErrorResponse(request.id, JSON_RPC_INVALID_REQUEST, 'Malformed options for session/request_permission.');
+      return;
+    }
+
     const key = this.buildPermissionKey(request.id);
     const pending: AcpPendingPermissionRequest = {
       key,
@@ -1842,6 +1849,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       timestamp: Date.now(),
       metadata: {
         type: 'acp_permission_request',
+        expiresAt: pending.createdAt + (this.acpConfig.permissionRequestTimeoutMs ?? 60_000),
         action: 'acp_permission',
         path: String(request.id),
         toolCallId: pending.toolCallId,
@@ -1851,11 +1859,12 @@ export class AcpCliAdapter extends BaseCliAdapter {
       },
     });
 
-    if (this.acpConfig.permissionRegistry && this.acpConfig.permissionContext) {
+    const permissionContext = this.acpConfig.permissionContext;
+    if (this.acpConfig.permissionRegistry && permissionContext?.instanceId) {
       const permissionRequest: PermissionRequest = {
-        id: key,
-        instanceId: this.acpConfig.permissionContext.instanceId,
-        childId: this.acpConfig.permissionContext.childId,
+        id: this.buildRegistryPermissionId(key),
+        instanceId: permissionContext.instanceId,
+        childId: permissionContext.childId,
         action: pending.kind,
         description: this.buildPermissionPrompt(pending),
         toolName: pending.title,
@@ -1938,8 +1947,12 @@ export class AcpCliAdapter extends BaseCliAdapter {
       return;
     }
 
-    const responseText = decision.granted ? 'allow' : 'deny';
-    const outcome = this.selectPermissionOutcome(pending, responseText, key);
+    const optionKind = decision.granted ? 'allow' : 'reject';
+    const selectedOption = pending.options.find((option) => option.kind === `${optionKind}_once`)
+      ?? pending.options.find((option) => option.kind === `${optionKind}_always`);
+    const outcome = selectedOption
+      ? { outcome: 'selected', optionId: selectedOption.optionId }
+      : { outcome: 'cancelled' };
     await this.sendResponse(pending.rpcId, { outcome });
     // Settled without the user (timeout, auto-approve, parent decision): the
     // renderer card for this request must go, or it stays up answering nothing.
@@ -1957,7 +1970,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
   /** A permission request nobody answered: close its registry entry (banner, audit) and its card. */
   private withdrawInputRequired(key: string, reason: Extract<InputRequiredResolvedReason, 'cancelled' | 'exited'>): void {
-    this.acpConfig.permissionRegistry?.resolve?.(key, false, 'cancelled');
+    this.acpConfig.permissionRegistry?.resolve?.(this.buildRegistryPermissionId(key), false, 'cancelled');
     this.emitInputRequiredResolved(key, reason);
   }
 
@@ -2070,34 +2083,37 @@ export class AcpCliAdapter extends BaseCliAdapter {
     });
   }
 
-  private normalizePermissionOptions(options: unknown): AcpPermissionOption[] {
-    if (!Array.isArray(options)) {
+  private normalizePermissionOptions(options: unknown): AcpPermissionOption[] | undefined {
+    const malformed = (field: string) => {
       this.emitRecoverableProtocolError('Malformed ACP permission request options', {
         method: 'session/request_permission',
-        field: 'options',
-        expected: 'array',
+        field,
       });
-      return [];
-    }
+      return undefined;
+    };
+    if (!Array.isArray(options)) return malformed('options');
 
-    return options.flatMap((option) => {
-      if (!isRecord(option)) {
-        return [];
-      }
+    const normalized: AcpPermissionOption[] = [];
+    const optionIds = new Set<string>();
+    for (const option of options) {
+      if (!isRecord(option)) return malformed('options[]');
 
       const optionId = optionalString(option['optionId']);
       const name = optionalString(option['name']);
-      const kind = optionalString(option['kind']);
-      if (!optionId || !name || !kind) {
-        return [];
+      const kind = option['kind'];
+      if (!optionId?.trim() || !name?.trim() || !isAcpPermissionOptionKind(kind) || optionIds.has(optionId)) {
+        return malformed('options[]');
       }
 
-      return [{
+      optionIds.add(optionId);
+      normalized.push({
         optionId,
         name,
-        kind: kind as AcpPermissionOption['kind'],
-      }];
-    });
+        kind,
+      });
+    }
+
+    return normalized;
   }
 
   private buildPermissionPrompt(pending: AcpPendingPermissionRequest): string {
@@ -2133,70 +2149,22 @@ export class AcpCliAdapter extends BaseCliAdapter {
     return undefined;
   }
 
-  private selectPermissionOutcome(
-    pending: AcpPendingPermissionRequest,
-    response: string,
-    permissionKey?: string,
-  ): AcpSessionRequestPermissionOutcome {
-    const normalized = slug(response);
-
-    if (!normalized || normalized === 'cancel') {
-      return { outcome: 'cancelled' };
-    }
-
-    const directOptionId = permissionKey && pending.options.find((option) =>
-      option.optionId === permissionKey || this.buildPermissionKey(option.optionId) === permissionKey,
-    );
-    if (directOptionId) {
-      return { outcome: 'selected', optionId: directOptionId.optionId };
-    }
-
-    const matchedByIdOrLabel = pending.options.find((option) =>
-      slug(option.optionId) === normalized || slug(option.name) === normalized || normalized.includes(slug(option.name)),
-    );
-    if (matchedByIdOrLabel) {
-      return { outcome: 'selected', optionId: matchedByIdOrLabel.optionId };
-    }
-
-    const allowOption = pending.options.find((option) => option.kind.startsWith('allow'));
-    const rejectOption = pending.options.find((option) => option.kind.startsWith('reject'));
-
-    if (
-      normalized.startsWith('y')
-      || normalized.includes('allow')
-      || normalized.includes('approve')
-      || normalized.includes('grant')
-    ) {
-      if (allowOption) {
-        return { outcome: 'selected', optionId: allowOption.optionId };
-      }
-    }
-
-    if (
-      normalized.startsWith('n')
-      || normalized.includes('deny')
-      || normalized.includes('reject')
-      || normalized.includes('decline')
-    ) {
-      if (rejectOption) {
-        return { outcome: 'selected', optionId: rejectOption.optionId };
-      }
-      return { outcome: 'cancelled' };
-    }
-
-    if (allowOption) {
-      return { outcome: 'selected', optionId: allowOption.optionId };
-    }
-
-    if (pending.options[0]) {
-      return { outcome: 'selected', optionId: pending.options[0].optionId };
-    }
-
-    return { outcome: 'cancelled' };
-  }
-
   private buildPermissionKey(id: AcpJsonRpcId | string): string {
     return `acp_permission:${String(id)}`;
+  }
+
+  /**
+   * Shared-registry id for an adapter-local permission key. ACP rpc ids are
+   * connection-local (every session has `acp_permission:1`) while
+   * `PermissionRegistry` is a singleton keyed by request id alone, so registry
+   * registration, resolution, cancellation and timeout ids are namespaced by
+   * the owning instance — one session's answer must never settle another
+   * session's pending promise. The adapter-local key stays connection-local:
+   * downstream request state is keyed by (instanceId, requestId).
+   */
+  private buildRegistryPermissionId(key: string): string {
+    const instanceId = this.acpConfig.permissionContext?.instanceId;
+    return instanceId ? `${instanceId}:${key}` : key;
   }
 
   private buildElicitationKey(id: AcpJsonRpcId | string): string {

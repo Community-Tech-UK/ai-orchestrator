@@ -14,8 +14,8 @@ describe('stall notices', () => {
     sample.mockResolvedValue(null);
     expect(await buildStuckNotice({ elapsedMs: 70_000, pid: null })).toMatchObject({
       id: expect.stringMatching(/^stuck-warn-/), type: 'system',
-      content: 'Instance may be stuck — no output for 70s. Will auto-restart if unresponsive.',
-      metadata: { watchdogWarning: true, elapsedMs: 70_000 },
+      content: 'No output for 70s. If it stays silent, Harness will restart the session.',
+      metadata: { watchdogWarning: true, elapsedMs: 70_000, detail: '70s without output' },
     });
   });
 
@@ -23,14 +23,14 @@ describe('stall notices', () => {
     sample.mockResolvedValue(stopped);
     const result = await buildStuckNotice({ elapsedMs: 70_000, pid: 100 });
     expect(result.content).toContain('paused by the system');
-    expect(result.metadata).toEqual({ watchdogWarning: true, elapsedMs: 70_000, processFacts: stopped });
+    expect(result.metadata).toEqual({ watchdogWarning: true, elapsedMs: 70_000, processFacts: stopped, detail: '70s without output' });
   });
 
   it('keeps the existing spawn notice when sampling fails', async () => {
     sample.mockResolvedValue(null);
     expect(await buildSpawnStallNotice({ timeoutMs: 30_000, pid: null })).toMatchObject({
       id: expect.stringMatching(/^spawn-stall-/), type: 'system',
-      content: 'Instance started but produced no output for 30s. It may be stuck. Will auto-restart if unresponsive.',
+      content: "The session started 30s ago and hasn't responded yet. It may still be loading. If nothing happens, restart the session.",
       metadata: { spawnStall: true, timeoutMs: 30_000 },
     });
   });
@@ -55,7 +55,7 @@ describe('stall notices', () => {
     sample.mockClear();
     const notice = await buildStuckNotice({ elapsedMs: 70_000, pid: null, sampleProcessFacts: async () => null });
     expect(sample).not.toHaveBeenCalled();
-    expect(notice.content).toBe('Instance may be stuck — no output for 70s. Will auto-restart if unresponsive.');
+    expect(notice.content).toBe('No output for 70s. If it stays silent, Harness will restart the session.');
     expect(notice.metadata).not.toHaveProperty('processFacts');
   });
 });

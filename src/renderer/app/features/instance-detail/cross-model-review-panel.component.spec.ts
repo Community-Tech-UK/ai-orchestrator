@@ -39,6 +39,15 @@ describe('CrossModelReviewPanelComponent local review authority', () => {
     }).compileComponents();
   });
 
+  it('names the live agent in the actionable button', () => {
+    const fixture = TestBed.createComponent(CrossModelReviewPanelComponent);
+    fixture.componentRef.setInput('review', review([result('gemini', 'remote', true)], undefined));
+    fixture.componentRef.setInput('provider', 'codex'); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Ask Codex to Address');
+    expect(fixture.nativeElement.textContent).toContain('Show all');
+    expect(fixture.nativeElement.textContent).toContain('Raw review');
+  });
+
   it('shows local-only concerns as advisory and withholds authoritative actions', async () => {
     const value = review(
       [result('local:qwen', 'local', true)],
@@ -48,7 +57,7 @@ describe('CrossModelReviewPanelComponent local review authority', () => {
     (component as unknown as { review: ReturnType<typeof signal<AggregatedReview | null>> }).review = signal(value);
 
     expect(component.hasConcerns()).toBe(false);
-    expect(component.headerTitle()).toContain('advisory only');
+    expect(component.headerTitle()).toContain('local model only');
     expect(component.localStatusText()).toContain('Local reviewer qwen: used');
 
     await component.onAction('start-debate');
@@ -116,7 +125,7 @@ describe('CrossModelReviewPanelComponent local review authority', () => {
     (component as unknown as { review: ReturnType<typeof signal<AggregatedReview | null>> }).review = signal(value);
 
     expect(component.hasConcerns()).toBe(true);
-    expect(component.headerTitle()).toContain('1 concern found');
+    expect(component.headerTitle()).toContain('1 concern');
     expect(component.localStatusText()).toContain('Local reviewer: skipped');
     expect(component.localStatusText()).toContain('unhealthy');
 

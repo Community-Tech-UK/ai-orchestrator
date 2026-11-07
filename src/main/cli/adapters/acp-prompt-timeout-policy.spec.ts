@@ -190,9 +190,15 @@ describe('describeAcpPromptTimeoutCause', () => {
 });
 
 describe('describeAcpStallWarning', () => {
-  it('only claims the turn may be stuck when nothing owns the silence', () => {
+  it('explains the remaining child wait without calling it a lease', () => {
+    expect(describeAcpStallWarning({ kind: 'tool', subject: 'Checking tests', childActivity: 'observed', lastChildActivityAgeMs: 12_000, leaseRemainingMs: 150_000 }, 90_000))
+      .toBe('Checking tests is still running (12s since its last activity). Harness waits up to 3 more minutes for it.');
+    expect(describeAcpStallWarning({ kind: 'tool', subject: 'Checking tests', childActivity: 'none', leaseRemainingMs: 60_000 }, 90_000))
+      .toContain('no activity reported yet');
+  });
+  it('offers stopping or waiting without promising an automatic action', () => {
     expect(describeAcpStallWarning({ kind: 'unowned' }, 300_000))
-      .toBe("This turn hasn't produced any output for 300s — it may be stuck. Cancel the turn to try again.");
+      .toBe('No output for 300s. You can stop this turn and send again, or keep waiting.');
   });
 
   it('names a long-running tool instead of calling a healthy turn stuck', () => {
@@ -201,7 +207,7 @@ describe('describeAcpStallWarning', () => {
       90_000,
     );
 
-    expect(warning).toBe('Tool call npm run build has been in_progress for 90s with no update.');
+    expect(warning).toBe('npm run build has been running for 90s with no update.');
     expect(warning).not.toContain('stuck');
   });
 

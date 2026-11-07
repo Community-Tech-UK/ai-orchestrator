@@ -88,3 +88,22 @@ describe('machine session spawn policy',()=>{
     expect(applyInstanceSpawnPolicy('codex', chat, {}).bashOutputMaxChars).toBeUndefined();
   });
 });
+
+
+describe('live permission spawn policy', () => {
+  const human = { id: 'human-placeholder', depth: 0, parentId: null, metadata: {} };
+  it('is off unless enabled and re-evaluates every replacement', () => {
+    expect(applyInstanceSpawnPolicy('claude', human, {}).livePermissionPrompts).toBe(false);
+    for (const options of [{}, { resume: true }, { resume: true, forkSession: true }]) {
+      expect(applyInstanceSpawnPolicy('claude', human, options, true).livePermissionPrompts).toBe(true);
+      expect(applyInstanceSpawnPolicy('claude', human, { ...options, livePermissionPrompts: true }, false).livePermissionPrompts).toBe(false);
+    }
+    expect(applyInstanceSpawnPolicy('codex', human, {}, true).livePermissionPrompts).toBe(false);
+  });
+  it.each(['loop', 'review', 'verification', 'consensus', 'workflow', 'automation', 'failover', 'internal', 'child', 'plan-queue', 'ping-pong-review', 'node-run', 'repo-job'] as const)('never enables %s machine work', reason => {
+    expect(applyInstanceSpawnPolicy('claude', human, { machineSession: reason, livePermissionPrompts: true }, true).livePermissionPrompts).toBe(false);
+  });
+  it.each([{ parentId: 'parent-placeholder' }, { metadata: { automationId: 'automation-placeholder' } }, { metadata: { planQueueRunId: 'queue-placeholder' } }, { metadata: { pingPongReviewer: true } }])('uses inferred machine policy too (%j)', data => {
+    expect(applyInstanceSpawnPolicy('claude', { ...human, ...data }, {}, true).livePermissionPrompts).toBe(false);
+  });
+});

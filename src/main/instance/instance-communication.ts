@@ -2,6 +2,9 @@
  * Instance Communication Manager - Handles adapter events and message passing
  */
 
+import type { ContinuityPreambleOptions } from './instance-continuity-input-queue';
+import type { InputContextDelivery } from '../../shared/types/input-context-delivery.types';
+import { recordInstanceContextCall } from '../context/instance-cache-usage';
 import { isOccupancyPressureReading } from '../../shared/utils/context-occupancy';
 import { clearToolOutcomes, recordToolOutcome } from '../learning/tool-outcome-store';
 import { EventEmitter } from 'events';
@@ -13,6 +16,7 @@ import { remoteContextDetails } from '../remote-node/instance-interaction-schema
 import { BaseCliAdapter, type CliResponse } from '../cli/adapters/base-cli-adapter';
 // History archiving moved exclusively to instance-lifecycle.ts terminateInstance()
 import { getSettingsManager } from '../core/config/settings-manager';
+import { getOrchestrationActivityBridge } from '../orchestration/orchestration-activity-bridge';
 import { getLogger } from '../logging/logger';
 import { errorDiagnostic, textDiagnostic } from '../logging/source-diagnostics';
 import { getOutputStorageManager } from '../memory/output-storage';
@@ -52,7 +56,7 @@ import { getPauseCoordinator } from '../pause/pause-coordinator';
 import { OrchestratorPausedError } from '../pause/orchestrator-paused-error';
 import { extractTodoToolItems } from './todo-tool-parser';
 import { detectCompletionProviderLimit, readAdapterRateLimitTelemetry } from './instance-provider-limit-detection';
-import { detectAuthFailureSignal } from './instance-auth-failure-detection';
+import { reportAuthFailureTurn } from './instance-auth-repair-runtime';
 import {
   applyPlanModeTurnHint,
   shouldSkipKnownProviderLimitDispatch,
@@ -66,6 +70,7 @@ import {
 } from './instance-lifecycle-hooks';
 import {
   getAdapterRuntimeCapabilities,
+  getAdapterCurrentTurnId,
   isAggregateOnlyOccupancy,
   isContextOverflowMessage,
   isCorruptedSessionMessage,
@@ -73,7 +78,6 @@ import {
   isStatelessExecAdapter,
 } from './instance-communication-adapter-helpers';
 import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
-import { isProviderAuthenticationError } from '../cli/adapters/provider-authentication-error';
 import { buildRepeatedErrorDiagnosticFields } from './repeated-error-diagnostics';
 import {
   createInvalidSessionNotice,
@@ -219,7 +223,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         id: generateId(),
         timestamp: Date.now(),
         type: 'system',
-        content: 'Context window limit reached. The instance has been stopped. Please start a new conversation or delegate large tasks to child instances.',
+        content: 'The conversation is too long for the model, so the session stopped. Start a new session, or hand big tasks to helper agents.',
         metadata: { contextOverflow: true, fatal: true }
       };
       this.addToOutputBuffer(instance, guidanceMessage);
@@ -294,15 +298,6 @@ export class InstanceCommunicationManager extends EventEmitter {
     const message = createInvalidSessionNotice(instance, generateId(), Date.now());
     this.addToOutputBuffer(instance, message);
     this.emit('output', { instanceId, message });
-  }
-
-  private getAdapterCurrentTurnId(adapter: CliAdapter): string | undefined {
-    if (typeof (adapter as { getCurrentTurnId?: unknown }).getCurrentTurnId !== 'function') {
-      return undefined;
-    }
-
-    const turnId = (adapter as { getCurrentTurnId: () => string | null }).getCurrentTurnId();
-    return turnId ?? undefined;
   }
 
   private withRuntimeMetadata(
@@ -478,12 +473,12 @@ export class InstanceCommunicationManager extends EventEmitter {
     }
   }
 
-  queueContinuityPreamble(instanceId: string, preamble: string): void {
-    this.continuityInputQueue.queueContinuity(instanceId, preamble);
+  queueContinuityPreamble(instanceId: string, preamble: string, options: ContinuityPreambleOptions = { userOnly: false }): void {
+    this.continuityInputQueue.queueContinuity(instanceId, preamble, options);
   }
 
-  queueRetrievedContext(instanceId: string, context: string): void {
-    this.continuityInputQueue.queueRetrievedContext(instanceId, context);
+  queueRetrievedContext(instanceId: string, context: string, retrievedContextTokens: number | null = null): void {
+    this.continuityInputQueue.queueRetrievedContext(instanceId, context, retrievedContextTokens);
   }
 
   /** History sent straight to the adapter (with any images) rides with the next input until the model replies. */
@@ -584,20 +579,7 @@ export class InstanceCommunicationManager extends EventEmitter {
    * failure.
    */
   private reportAuthFailureTurn(instanceId: string, error: unknown): void {
-    if (!this.deps.onAuthFailureTurn) return;
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    const authoritative = isProviderAuthenticationError(error);
-    const signal = authoritative
-      ? { reason: `provider protocol reported auth failure: ${errorMessage.slice(0, 160)}` }
-      : detectAuthFailureSignal(errorMessage);
-    if (!signal) return;
-    const lastTurn = this.overflow.getLastSent(instanceId);
-    this.deps.onAuthFailureTurn({
-      instanceId,
-      reason: signal.reason,
-      resumeTurn: lastTurn ? { ...lastTurn } : null,
-      authoritative,
-    });
+    reportAuthFailureTurn(this.deps, id => this.overflow.getLastSent(id), instanceId, error);
   }
 
   // ============================================
@@ -618,7 +600,7 @@ export class InstanceCommunicationManager extends EventEmitter {
     message: string,
     attachments?: FileAttachment[],
     contextBlock?: string | null,
-    options?: Pick<InstanceSendInputOptions, 'autoContinuation' | 'automatedInput' | 'queuedAdmissionId' | 'signal' | 'beforeProviderDispatch' | 'onProviderInputDelivered' | 'assertProviderDispatchCurrent' | 'internalSource' | 'providerNativeCommandId' | 'crossSessionSourceId'>,
+    options?: Pick<InstanceSendInputOptions, 'autoContinuation' | 'automatedInput' | 'queuedAdmissionId' | 'signal' | 'beforeProviderDispatch' | 'onProviderInputDelivered' | 'assertProviderDispatchCurrent' | 'internalSource' | 'providerNativeCommandId' | 'crossSessionSourceId' | 'inputMessageId' | 'inputContextDelivery'>,
   ): Promise<void> {
     await waitForGlobalPauseInput(instanceId, options);
     throwIfInstanceInputAborted(options?.signal);
@@ -743,13 +725,20 @@ export class InstanceCommunicationManager extends EventEmitter {
       provider: instance.provider,
       model: instance.currentModel ?? null,
       prompt: message,
+      resumeTurn: { message, attachments, contextBlock, internalSource: options?.internalSource,
+        inputMessageId: options?.inputMessageId, inputContextDelivery: options?.inputContextDelivery },
     })) {
       logger.info('Skipped adapter dispatch because the provider has an active known limit', { instanceId });
       return;
     }
-    const preparedContext = options?.providerNativeCommandId ? { contextBlock: null, attachments, commit: () => undefined } : this.continuityInputQueue.prepare(instanceId, contextBlock, attachments);
+    const preparedContext = options?.providerNativeCommandId ? { contextBlock: null, attachments, commit: () => undefined } : this.continuityInputQueue.prepare(instanceId, contextBlock, attachments,
+      options?.internalSource ? 'internal' : isAutomaticInstanceInput(options) ? 'automated' : 'user');
     const finalContextBlock = preparedContext.contextBlock;
     attachments = preparedContext.attachments;
+    const queuedTokens = 'retrievedContextTokens' in preparedContext ? preparedContext.retrievedContextTokens : undefined;
+    const inputContextDelivery: InputContextDelivery | undefined = options?.inputContextDelivery
+      ?? (options?.inputMessageId && queuedTokens !== undefined
+        ? { messageId: options.inputMessageId, deliveryId: generateId(), tokens: queuedTokens } : undefined);
 
     const isAutoContinuation = options?.autoContinuation === true;
     const finalMessageBase = finalContextBlock ? `${finalContextBlock}\n\n${message}` : message;
@@ -852,7 +841,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         const warning: OutputMessage = {
           id: generateId(),
           type: 'system',
-          content: `${adapterName} does not support image attachments. ${imageAttachments.length} image(s) will be dropped.`,
+          content: `${adapterName} can't take image attachments, so ${imageAttachments.length} image${imageAttachments.length === 1 ? ' was' : 's were'} left out.`,
           timestamp: Date.now(),
         };
         instance.outputBuffer.push(warning);
@@ -866,7 +855,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         const warning: OutputMessage = {
           id: generateId(),
           type: 'system',
-          content: `${adapterName} does not support file attachments. ${fileAttachments.length} file(s) will be dropped.`,
+          content: `${adapterName} can't take file attachments, so ${fileAttachments.length} file${fileAttachments.length === 1 ? ' was' : 's were'} left out.`,
           timestamp: Date.now(),
         };
         instance.outputBuffer.push(warning);
@@ -878,7 +867,10 @@ export class InstanceCommunicationManager extends EventEmitter {
     await waitForGlobalPauseInput(instanceId, options);
     logger.info('Sending message to adapter');
     // Observe admitted sends; commit context and watchdog state only while dispatch remains eligible.
-    const receipt = createInstanceInputReceipt(instanceId, () => ({ message: finalMessage, attachments, contextBlock: finalContextBlock }), options?.queuedAdmissionId, () => { if (committed) options?.onProviderInputDelivered?.(); });
+    const receipt = createInstanceInputReceipt(instanceId, () => ({ message: finalMessage, attachments, contextBlock: finalContextBlock }), options?.queuedAdmissionId, () => {
+      if (committed) options?.onProviderInputDelivered?.();
+      if (inputContextDelivery) this.emit('input-context-delivered', { instanceId, ...inputContextDelivery });
+    });
     let committed = false;
     const deferredDispatch = (adapter instanceof BaseCliAdapter || adapter instanceof RemoteCliAdapter) && Boolean(options?.queuedAdmissionId || options?.signal || options?.beforeProviderDispatch || options?.assertProviderDispatchCurrent || isAutomaticInstanceInput(options));
     const commitDispatch = (): void => {
@@ -890,7 +882,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       throwIfInstanceInputAborted(options?.signal);
       committed = true;
       preparedContext.commit();
-      this.overflow.rememberLastSent(instanceId, { message, attachments, contextBlock: finalContextBlock, internalSource: options?.internalSource }, !isAutomaticInstanceInput(options) ? instance.requestCount : undefined);
+      this.overflow.rememberLastSent(instanceId, { message, attachments, contextBlock: finalContextBlock, internalSource: options?.internalSource, inputMessageId: options?.inputMessageId, inputContextDelivery }, !isAutomaticInstanceInput(options) ? instance.requestCount : undefined);
       this.overflow.rememberDispatch(instanceId, inputDispatch, finalMessage);
       // Cancelled admissions keep a failed receipt without consuming context or starting watchdog state.
       if (this.deps.createSnapshot) {
@@ -945,7 +937,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           });
         } else this.emitAttachmentDropWarnings(instanceId, instance, adapter.getName(), attachments);
         attachments = undefined;
-        this.overflow.rememberLastSent(instanceId, { message, attachments, contextBlock: finalContextBlock, internalSource: options?.internalSource }, !isAutomaticInstanceInput(options) ? instance.requestCount : undefined);
+        this.overflow.rememberLastSent(instanceId, { message, attachments, contextBlock: finalContextBlock, internalSource: options?.internalSource, inputMessageId: options?.inputMessageId, inputContextDelivery }, !isAutomaticInstanceInput(options) ? instance.requestCount : undefined);
 
         if (!message.trim()) {
           logger.info('Dropped unsupported attachments from empty user input; skipping adapter retry', {
@@ -1063,7 +1055,7 @@ export class InstanceCommunicationManager extends EventEmitter {
     }
 
     if (getPauseCoordinator().isPaused()) {
-      throw new OrchestratorPausedError('Permission response refused while orchestrator is paused');
+      throw new OrchestratorPausedError('Permission response refused while Harness is paused');
     }
 
     instance.lastActivity = Date.now();
@@ -1162,7 +1154,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         const instance = this.deps.getInstance(instanceId);
         if (!instance) return;
         const outcome = safeToolOutcome(this.withRuntimeMetadata(message, adapterGenerationAtSubscribe,
-          this.getMessageTurnId(message) ?? this.getAdapterCurrentTurnId(adapter)));
+          this.getMessageTurnId(message) ?? getAdapterCurrentTurnId(adapter)));
         if (!instance.parentId) recordToolOutcome(instanceId, safeToolOutcome(message));
         const call = projectToolOutcome(instance.outputBuffer, outcome);
         if (call) {
@@ -1170,9 +1162,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         }
         return;
       }
-      // Persist provenance before instance metadata is added below. The visible
-      // message needs adapter generation/turn tags; the raw capture must remain
-      // the adapter's original event for deterministic replay.
+      // Capture original adapter provenance before generation/turn tags are added.
       const selfWakeup = readClaudeSelfWakeupNotice(message.metadata);
       if (selfWakeup) getSelfWakeupTracker().observe(instanceId, selfWakeup);
       let rawAdapterPayload = toJsonSafeProviderEventPayload(message);
@@ -1198,7 +1188,7 @@ export class InstanceCommunicationManager extends EventEmitter {
             getRecoverySensitiveValues(instance),
           ) as ProviderRuntimeEventRaw['payload'];
         }
-        const turnId = this.getMessageTurnId(message) ?? this.getAdapterCurrentTurnId(adapter);
+        const turnId = this.getMessageTurnId(message) ?? getAdapterCurrentTurnId(adapter);
         const wasActiveBefore = Boolean(instance.activeTurnId);
         if (turnId) {
           instance.activeTurnId = turnId;
@@ -1393,7 +1383,7 @@ export class InstanceCommunicationManager extends EventEmitter {
             id: generateId(),
             timestamp: Date.now(),
             type: 'system',
-            content: 'Session history contains invalid messages and cannot be resumed. Please restart this instance to start a fresh session.',
+            content: "This session's saved history is damaged, so it can't be resumed. Restart the session to start fresh.",
             metadata: { corruptedSession: true, fatal: true }
           };
           this.addToOutputBuffer(instance, message, { countAsProcessOutput: true });
@@ -1453,10 +1443,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         }
         ticket.release();
 
-        // Tool hooks run only after publication. Adapters emit tool records and
-        // the answer that follows them in one synchronous burst (Codex exec), so
-        // awaiting hooks first let the answer overtake its tool result and made
-        // turn-ending classification auto-continue a finished turn.
+        // Publish before awaiting tool hooks so a synchronous answer cannot overtake its results.
         if (message.type === 'tool_use' || message.type === 'tool_result') {
           await this.toolResultProcessor.processToolLifecycle(instanceId, instance, message);
         }
@@ -1657,11 +1644,11 @@ export class InstanceCommunicationManager extends EventEmitter {
       // They are indistinguishable by shape, so discriminate on history
       // instead: a reset cannot *un*-report occupancy. Same rule
       // `buildPostCompactionUsage` applies to AIO-driven compaction.
+      if (!recordInstanceContextCall(this.deps.getInstance(instanceId), usage)) return;
       const isNoReadingShape = usage.isEstimated === true && usage.used === 0;
       const alreadyReported =
         this.deps.getInstance(instanceId)?.contextUsage?.occupancyReported === true;
       const occupancyReported = !isNoReadingShape || alreadyReported;
-
       // LT-034: `occupancyReported` says the number is known; it does not say
       // the number is occupancy. Providers declaring anything other than
       // `occupancyReporting: 'current'` have no window reading, so their
@@ -1996,6 +1983,11 @@ export class InstanceCommunicationManager extends EventEmitter {
     // Heartbeat events from adapters that block inside sendInput() (e.g.
     // Codex app-server). These prove the adapter is alive and processing
     // without adding messages to the output buffer.
+    adapter.on('reasoning-headline', (text: string) => {
+      if (isStaleAdapterEvent('reasoning-headline') || typeof text !== 'string') return;
+      getOrchestrationActivityBridge().reportReasoning(instanceId, text);
+    });
+
     adapter.on('heartbeat', () => {
       if (isStaleAdapterEvent('heartbeat')) {
         return;

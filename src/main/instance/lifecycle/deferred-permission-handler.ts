@@ -19,6 +19,8 @@ import { getLogger } from '../../logging/logger';
 import { planSessionRecovery, computeResumeConfigFingerprint } from './session-recovery';
 import { getSessionContinuityManagerIfInitialized } from '../../session/session-continuity';
 import { applyProviderSessionDurability } from './provider-session-durability';
+import { livePermissionsOf, type ResumeDeferredOptions } from './deferred-permission-options';
+import { HARNESS_DENY_PREFIX } from '../../cli/adapters/claude-permission-response';
 
 const logger = getLogger('DeferredPermissionHandler');
 
@@ -120,11 +122,29 @@ export class DeferredPermissionHandler {
     instanceId: string,
     approved: boolean,
     updatedInput?: Record<string, unknown>,
-    options?: { yoloMode?: boolean },
+    options?: ResumeDeferredOptions,
   ): Promise<void> {
     const instance = this.deps.getInstance(instanceId);
     if (!instance) {
       throw new Error(`Instance ${instanceId} not found`);
+    }
+    const livePermissions = livePermissionsOf(this.deps.getAdapter(instanceId));
+    if (livePermissions?.answer(options?.requestId, { approved, updatedInput, note: options?.denyNote })) {
+      await livePermissions.whenAnswered?.(options?.requestId);
+      return;
+    }
+    // A stale explicit live answer must never authorize a held call or another
+    // ask. A requestId that names one of this broker's own cards (still live or
+    // already closed — a cancelled card, a decided card) is a live answer and
+    // stops here when the broker could not take it; an explicit id is also
+    // refused while any ask is pending so it can never select a different one.
+    // Ids the broker never minted are held-path request ids and fall through.
+    if (
+      livePermissions
+      && options?.requestId
+      && (livePermissions.knowsCard?.(options.requestId) || livePermissions.hasPending())
+    ) {
+      throw new Error('Live permission request is no longer pending');
     }
     const previousYoloMode = instance.yoloMode;
     if (options?.yoloMode !== undefined) {
@@ -157,7 +177,8 @@ export class DeferredPermissionHandler {
             decisionVerb,
             approved
               ? 'User approved via orchestrator UI (interrupt in flight)'
-              : 'User denied via orchestrator UI (interrupt in flight)',
+              : options?.denyNote?.trim() ? HARNESS_DENY_PREFIX + options.denyNote.trim()
+                : 'User denied via orchestrator UI (interrupt in flight)',
             updatedInput,
           );
         }
@@ -239,7 +260,8 @@ export class DeferredPermissionHandler {
       this.services.writeDecision(
         deferred.toolUseId,
         decisionVerb,
-        approved ? 'User approved via orchestrator UI' : 'User denied via orchestrator UI',
+        approved ? 'User approved via orchestrator UI' : options?.denyNote?.trim()
+          ? HARNESS_DENY_PREFIX + options.denyNote.trim() : 'User denied via orchestrator UI',
         updatedInput,
       );
 

@@ -40,7 +40,7 @@ interface EditPreview {
       <!-- Page Header -->
       <div class="page-header">
         <div class="header-title">
-          <span class="title">Multi-Edit</span>
+          <span class="title">Multi-File Edit</span>
           <span class="subtitle">Preview and apply multi-file edits with diffs</span>
         </div>
         <div class="header-actions">

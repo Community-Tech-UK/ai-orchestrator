@@ -1,3 +1,4 @@
+import { ProviderContextMeasurementService } from '../../context/provider-context-measurement';
 import { ipcMain, shell } from 'electron';
 import { z } from 'zod';
 import { IPC_CHANNELS } from '@contracts/channels';
@@ -52,6 +53,46 @@ const InstanceScopedPayloadSchema = z.object({
 let cliUpdateDeltaCleanup: (() => void) | null = null;
 
 export function registerDiagnosticsHandlers(deps: DiagnosticsHandlerDependencies = {}): void {
+  const measurement = new ProviderContextMeasurementService();
+  const estimateAttribution = async (instance: import('../../../shared/types/instance.types').Instance) => {
+    /* eslint-disable @typescript-eslint/no-require-imports */
+    const { computeContextAttribution } = require('../../context/context-attribution-service') as typeof import('../../context/context-attribution-service');
+    const { getBrowserGatewayRpcSocketPath } = require('../../browser-gateway') as typeof import('../../browser-gateway');
+    const { getDesktopGatewayInjectionState } = require('../../desktop-gateway') as typeof import('../../desktop-gateway');
+    const { isOrchestratorRuntimeInjectionProvider } = require('../../../shared/types/mcp-scopes.types') as typeof import('../../../shared/types/mcp-scopes.types');
+    /* eslint-enable @typescript-eslint/no-require-imports */
+    const settings = getSettingsManager().getAll();
+    const isRemote = instance.executionLocation?.type === 'remote';
+    const requestedBrowserMode = resolveBrowserToolsMode(
+      getInstanceBrowserToolsMode(instance.id), settings.browserMcpToolDeferral,
+    );
+    const browserInjected = !isRemote && requestedBrowserMode !== 'off'
+      && Boolean(getBrowserGatewayRpcSocketPath());
+    const report = await computeContextAttribution({
+      instance,
+      mcpProfile: {
+        browserGateway: browserInjected
+          ? resolveBrowserGatewayToolMode(instance.provider, requestedBrowserMode === 'deferred')
+          : 'off',
+        orchestratorTools: isOrchestratorRuntimeInjectionProvider(instance.provider)
+          ? resolveOrchestratorToolMode(instance.provider, settings.orchestratorMcpToolDeferral)
+          : 'off',
+        codemem: !isRemote && settings.codememEnabled,
+        computerUse:
+          !isRemote
+          && settings.computerUseEnabled
+          && getDesktopGatewayInjectionState().supported,
+      },
+    });
+    return report;
+  };
+  ipcMain.handle(IPC_CHANNELS.CONTEXT_PROVIDER_MEASURE, validatedHandler(IPC_CHANNELS.CONTEXT_PROVIDER_MEASURE,
+    InstanceScopedPayloadSchema, async ({ instanceId }): Promise<IpcResponse> => {
+      const instance = deps.instanceManager?.getInstance(instanceId);
+      if (!instance) return toErrorResponse('CONTEXT_PROVIDER_UNKNOWN_INSTANCE', new Error('Session not found.'));
+      const adapter = deps.instanceManager?.getAdapter(instanceId) as { requestContextUsage?: () => Promise<import('../../cli/adapters/claude-control-channel').ClaudeControlReply> } | undefined;
+      return { success: true, data: await measurement.measure(instance, adapter, () => estimateAttribution(instance)) };
+    }));
   ipcMain.handle(
     IPC_CHANNELS.DIAGNOSTICS_GET_DOCTOR_REPORT,
     validatedHandler(
@@ -147,36 +188,7 @@ export function registerDiagnosticsHandlers(deps: DiagnosticsHandlerDependencies
             new Error(`Unknown instance: ${payload.instanceId}`),
           );
         }
-        /* eslint-disable @typescript-eslint/no-require-imports */
-        const { computeContextAttribution } = require('../../context/context-attribution-service') as typeof import('../../context/context-attribution-service');
-        const { getBrowserGatewayRpcSocketPath } = require('../../browser-gateway') as typeof import('../../browser-gateway');
-        const { getDesktopGatewayInjectionState } = require('../../desktop-gateway') as typeof import('../../desktop-gateway');
-        const { isOrchestratorRuntimeInjectionProvider } = require('../../../shared/types/mcp-scopes.types') as typeof import('../../../shared/types/mcp-scopes.types');
-        /* eslint-enable @typescript-eslint/no-require-imports */
-        const settings = getSettingsManager().getAll();
-        const isRemote = instance.executionLocation?.type === 'remote';
-        const requestedBrowserMode = resolveBrowserToolsMode(
-          getInstanceBrowserToolsMode(instance.id), settings.browserMcpToolDeferral,
-        );
-        const browserInjected = !isRemote && requestedBrowserMode !== 'off'
-          && Boolean(getBrowserGatewayRpcSocketPath());
-        const report = await computeContextAttribution({
-          instance,
-          mcpProfile: {
-            browserGateway: browserInjected
-              ? resolveBrowserGatewayToolMode(instance.provider, requestedBrowserMode === 'deferred')
-              : 'off',
-            orchestratorTools: isOrchestratorRuntimeInjectionProvider(instance.provider)
-              ? resolveOrchestratorToolMode(instance.provider, settings.orchestratorMcpToolDeferral)
-              : 'off',
-            codemem: !isRemote && settings.codememEnabled,
-            computerUse:
-              !isRemote
-              && settings.computerUseEnabled
-              && getDesktopGatewayInjectionState().supported,
-          },
-        });
-        return { success: true, data: report };
+        return { success: true, data: await estimateAttribution(instance) };
       },
     ),
   );

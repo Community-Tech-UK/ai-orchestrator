@@ -99,6 +99,7 @@ vi.mock('../../runtime/operation-deadline', async (importOriginal) => {
 });
 
 import { InterruptRespawnHandler } from './interrupt-respawn-handler';
+import { INTERRUPT_RESTARTED_NOTICE, INTERRUPT_SETTLED_NOTICE } from '../../../shared/copy/interrupt-copy';
 import { RuntimeReconciler } from './runtime-reconciler';
 import type { RuntimeReconcilerDeps } from './runtime-reconciler.types';
 
@@ -433,7 +434,7 @@ describe('InterruptRespawnHandler.interrupt()', () => {
       phase: 'completed', outcome: 'cancelled', requestId: instance.interruptRequestId,
     }), expect.anything());
     expect(state.outputMessages).toContainEqual(expect.objectContaining({
-      content: 'Interrupted — waiting for input',
+      content: 'Stopped. Ready for your next message.',
     }));
     expect(state.queueUpdateCalls.at(-1)?.[0]).toBe('inst-1');
     expect(state.queueUpdateCalls.at(-1)?.[1]).toBe('idle');
@@ -971,8 +972,8 @@ describe('InterruptRespawnHandler recovery-ladder exhaustion (WS7 Phase B)', () 
  * rewording can no longer make them reappear.
  */
 describe('InterruptRespawnHandler routine interrupt notices (U10)', () => {
-  const WAITING = 'Interrupted — waiting for input';
-  const RESTARTED = 'Interrupted — session restarted (resume failed)';
+  const WAITING = INTERRUPT_SETTLED_NOTICE;
+  const RESTARTED = INTERRUPT_RESTARTED_NOTICE;
 
   function notice(state: FakeDepsState, content: string): OutputMessage | undefined {
     return state.outputMessages.find((message) => message.content === content);
@@ -1167,7 +1168,7 @@ describe('InterruptRespawnHandler routine interrupt notices (U10)', () => {
       .filter((message) => message.type === 'system');
     expect(notices.length).toBeGreaterThanOrEqual(4);
     for (const message of notices) {
-      const saysResumeFailed = message.content.endsWith('(resume failed)');
+      const saysResumeFailed = message.content.endsWith('(resume failed)') || message.content === INTERRUPT_RESTARTED_NOTICE;
       expect(message.metadata?.['resumeFailed'] === true, message.content).toBe(saysResumeFailed);
     }
   });

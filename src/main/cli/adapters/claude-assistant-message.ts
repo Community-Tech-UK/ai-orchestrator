@@ -26,6 +26,7 @@ export interface ClaudeAssistantMessageHost {
     timestamp: number,
     fallbackText?: string,
   ): void;
+  livePermissions?: { hasPending(): boolean };
   lastKnownContextWindow: number;
   hasPerCallUsageThisTurn: boolean;
   lastObservedContextUsage: { used: number; total: number } | null;
@@ -131,6 +132,7 @@ export function processClaudeAssistantMessage(
 
   if (assistantMsg.message?.usage && !fromHelper) {
     const usage = assistantMsg.message.usage;
+    const mainThread = !assistantMsg.parent_tool_use_id;
     const totalUsedTokens =
       (usage.input_tokens || 0) +
       (usage.cache_creation_input_tokens || 0) +
@@ -140,14 +142,26 @@ export function processClaudeAssistantMessage(
     const contextWindow = host.lastKnownContextWindow;
     const percentage = (totalUsedTokens / contextWindow) * 100;
 
-    host.hasPerCallUsageThisTurn = true;
-    host.lastObservedContextUsage = { used: totalUsedTokens, total: contextWindow };
+    if (mainThread) {
+      host.hasPerCallUsageThisTurn = true;
+      host.lastObservedContextUsage = { used: totalUsedTokens, total: contextWindow };
+    }
     host.emit('context', {
       used: totalUsedTokens,
       total: contextWindow,
       percentage: Math.min(percentage, 100),
+      uncachedInput: usage.input_tokens ?? 0,
+      cacheRead: usage.cache_read_input_tokens ?? 0,
+      cacheWrite: usage.cache_creation_input_tokens ?? 0,
+      mainThread,
+      // Provider call identity: frames of ONE model call share `message.id`
+      // and re-report the same call usage, so the accounting layer charges the
+      // call once. Occupancy above updates on every frame regardless.
+      ...(typeof assistantMsg.message.id === 'string' && assistantMsg.message.id
+        ? { callId: assistantMsg.message.id }
+        : {}),
     });
   }
 
-  host.emit('status', 'busy' as InstanceStatus);
+  if (!host.livePermissions?.hasPending()) host.emit('status', 'busy' as InstanceStatus);
 }

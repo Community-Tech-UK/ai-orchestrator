@@ -3,8 +3,10 @@
   "markers": {
     "backdrop": {
       "src/renderer/app/features/chats/session-artifacts-strip.component.ts": { "count": 1, "reason": "the scrim button closes the file context menu when clicked" },
+      "src/renderer/app/features/instance-detail/context-details-popover.component.ts": { "count": 1, "reason": "Click-away layer behind the Context details popover; it has no text of its own" },
       "src/renderer/app/features/instance-detail/instance-header.component.ts": { "count": 1, "reason": "the open-menu scrim closes the header context menu when clicked" },
       "src/renderer/app/features/instance-detail/session-progress-panel.component.ts": { "count": 1, "reason": "the scrim button closes the output context menu when clicked" },
+      "src/renderer/app/features/instance-detail/session-status/session-status-host.component.ts": { "count": 1, "reason": "Click-away layer behind the Session status card; it has no text of its own" },
       "src/renderer/app/features/orchestration/child-diagnostic-bundle.modal.component.ts": { "count": 1, "reason": "the modal scrim dismisses the diagnostic bundle dialog when clicked" },
       "src/renderer/app/features/settings/settings.component.ts": { "count": 2, "reason": "the settings nav and help-drawer scrims close their panels when clicked" },
       "src/renderer/app/features/source-control/source-control-diff-viewer.component.ts": { "count": 1, "reason": "the diff overlay scrim closes the full diff when clicked" }

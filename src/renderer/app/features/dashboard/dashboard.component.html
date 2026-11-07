@@ -94,7 +94,6 @@
     <!-- Main content area -->
     <main class="main-content">
       <app-session-recovery-banner (openRecoveryRequested)="openRecoveryPicker()" />
-      <app-plan-queue-questions-banner />
       <div
         class="workspace-shell"
         [class.empty]="!hasWorkspaceSelection()"
@@ -237,20 +236,6 @@
   <!-- History Sidebar -->
   @if (showHistory()) {
     <app-history-sidebar (closeHistory)="showHistory.set(false)" />
-  }
-
-  <!-- Command Palette -->
-  @if (showCommandPalette()) {
-    <app-command-palette
-      (closeRequested)="showCommandPalette.set(false)"
-      (commandExecuted)="onCommandExecuted($event)"
-    />
-  }
-
-  @if (showCommandHelp()) {
-    <app-command-help-host
-      (closeRequested)="showCommandHelp.set(false)"
-    />
   }
 
   @if (showSessionPicker()) {

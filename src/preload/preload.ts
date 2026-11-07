@@ -56,6 +56,7 @@ import { createGovernedProposalDomain } from './domains/governed-proposal.preloa
 import { createLearningScanDomain } from './domains/learning-scan.preload';
 import { createCompareDomain } from './domains/compare.preload';
 import { createWorkboardDomain } from './domains/workboard.preload';
+import { createPermissionRulesDomain } from './domains/permission-rules.preload';
 import { createPermissionRegistryDomain } from './domains/permission-registry.preload';
 import type { IpcResponse } from './domains/types';
 import { readIpcAuthToken } from './ipc-auth-token';
@@ -118,6 +119,7 @@ const electronAPI = {
   ...createCompareDomain(ipcRenderer, IPC_CHANNELS),
   ...createWorkboardDomain(ipcRenderer, IPC_CHANNELS),
   ...createPermissionRegistryDomain(ipcRenderer, IPC_CHANNELS),
+  ...createPermissionRulesDomain(ipcRenderer, IPC_CHANNELS),
 
   /**
    * Get current platform

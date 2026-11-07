@@ -67,6 +67,11 @@ describe('searchSettings', () => {
     expect(searchSettings('   ', catalog)).toEqual([]);
   });
 
+  it('scores declared metadata keywords at description weight', () => {
+    const metadata = [meta({ key: 'showThinking', label: 'Visible reasoning', description: 'Details', keywords: ['hidden-intent'] })];
+    expect(searchSettings('hidden-intent', settingsSearchCatalog(metadata))[0]?.key).toBe('showThinking');
+  });
+
   it('ranks a label prefix above a description mention', () => {
     const results = searchSettings('context', catalog);
     expect(results.map((r) => r.key)).toEqual(['ctx', 'other']);
@@ -108,6 +113,10 @@ describe('bestSettingMatch', () => {
 
   it('is null when nothing matches', () => {
     expect(bestSettingMatch('zzzzz-no-such-setting')).toBeNull();
+  });
+
+  it('finds the rendered routing matrix by its declared intent keyword', () => {
+    expect(searchSettings('tier').map(match => match.key)).toContain('orchestrationRoutingPolicyJson');
   });
 
   it('finds the bespoke concurrency setting by intent words', () => {

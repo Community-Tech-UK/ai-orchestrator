@@ -1268,7 +1268,7 @@ describe('MobileGatewayServer', () => {
         body: JSON.stringify({ requestId: 'req-2', decisionAction: 'allow', decisionScope: 'once' }),
       });
       expect(res.status).toBe(200);
-      expect(source.resumeAfterDeferredPermission).toHaveBeenCalledWith('a', true, undefined);
+      expect(source.resumeAfterDeferredPermission).toHaveBeenCalledWith('a', true, undefined, { requestId: 'req-2', denyNote: undefined });
       expect(source.recordInputRequiredPermissionDecision).toHaveBeenCalledWith({
         instanceId: 'a',
         requestId: 'req-2',
@@ -1427,7 +1427,7 @@ describe('MobileGatewayServer', () => {
       }),
     });
     expect(res.status).toBe(200);
-    expect(source.resumeAfterDeferredPermission).toHaveBeenCalledWith('a', true, replacement);
+    expect(source.resumeAfterDeferredPermission).toHaveBeenCalledWith('a', true, replacement, { requestId: 'req-modify-1', denyNote: undefined });
     // 'modify' maps to 'allow' for PermissionManager
     expect(source.recordInputRequiredPermissionDecision).toHaveBeenCalledWith({
       instanceId: 'a',
@@ -1435,6 +1435,21 @@ describe('MobileGatewayServer', () => {
       action: 'allow',
       scope: 'once',
     });
+  });
+
+  it('answers the selected live card from the phone while another card remains pending', async () => {
+    const token = await pairToken();
+    for (const requestId of ['live-one', 'live-two']) source.emit('instance:input-required', {
+      instanceId: 'a', requestId, prompt: 'Allow WebFetch?',
+      metadata: { type: 'deferred_permission', live: true, tool_name: 'WebFetch', tool_input: { url: 'https://example.com' } },
+    });
+    const response = await authed(token, '/api/instances/a/respond', { method: 'POST', body: JSON.stringify({
+      requestId: 'live-two', decisionAction: 'deny', response: 'Use local data instead.',
+    }) });
+    expect(response.status).toBe(200);
+    expect(source.resumeAfterDeferredPermission).toHaveBeenCalledWith('a', false, undefined, { requestId: 'live-two', denyNote: 'Use local data instead.' });
+    const prompts = await (await authed(token, '/api/prompts')).json();
+    expect(prompts.map((prompt: { requestId: string }) => prompt.requestId)).toEqual(['live-one']);
   });
 
   it('rejects modify without updatedInput (fail-safe: no silent degrade to allow)', async () => {

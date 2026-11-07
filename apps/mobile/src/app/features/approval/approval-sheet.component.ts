@@ -56,7 +56,7 @@ interface FileDiffView {
           <button type="button" class="allow" [disabled]="pending()" (click)="decide('allow')">Allow</button>
         </div>
       } @else if (prompt().kind === 'permission') {
-        <h3 class="title">{{ prompt().toolName ? prompt().toolName + ' needs approval' : 'Approve action?' }}</h3>
+        <h3 class="title">{{ prompt().toolName ? 'Needs your OK: ' + prompt().toolName : 'Needs your OK' }}</h3>
         @if (fileDiff(); as d) {
           <div class="diff-head">
             <span class="diff-path">{{ d.filePath }}</span>

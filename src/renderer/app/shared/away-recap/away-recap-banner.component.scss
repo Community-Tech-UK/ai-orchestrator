@@ -16,6 +16,7 @@
 .away-recap__list { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; }
 
 .away-recap__card {
+  background: transparent; color: inherit; border: 0; padding: 3px; text-align: left; cursor: pointer;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -48,3 +49,5 @@
   background: transparent;
   color: inherit;
 }
+
+.away-recap__card:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }

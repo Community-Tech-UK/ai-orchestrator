@@ -344,7 +344,7 @@ export function createLateRuntimeInitializationSteps(
     { name: 'Truncation cleanup', fn: () => { initTruncationCleanup(); } },
     { name: 'Codex command-output archive cleanup', fn: () => { initCodexCommandOutputArchiveCleanup(); } },
     { name: 'ACP attachment store cleanup', fn: () => { initAcpAttachmentStoreCleanup(); } },
-    { name: 'Leaked AIO Codex thread cleanup', fn: () => { cleanupLeakedAioCodexThreads(); } },
+    { name: 'Leaked Harness Codex thread cleanup', fn: () => { cleanupLeakedAioCodexThreads(); } },
     { name: 'Private Codex rollout-path reconcile', fn: () => { reconcilePrivateCodexRolloutPaths(); } },
     { name: 'Codex state backup pruning', fn: () => { pruneCodexStateBackups(); } },
     { name: 'Stale Codex temp home sweep', fn: () => { sweepStaleCodexTempHomes(); initializeCodexTempHomeMaintenance(); } },
@@ -472,7 +472,7 @@ export function createLateRuntimeInitializationSteps(
     createWorkerNodeSubsystemStep(context),
     createMobileGatewayStep(instanceManager, windowManager),
     {
-      name: 'Cross-model review',
+      name: 'Second opinion',
       fn: async () => {
         const crossModelReview = getCrossModelReviewService();
         crossModelReview.setInstanceManager(instanceManager);

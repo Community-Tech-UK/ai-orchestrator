@@ -62,6 +62,13 @@ describe('InstanceQueries', () => {
     TestBed.resetTestingModule();
   });
 
+  it('uses the shared answer label in activity fallbacks', () => {
+    stateService.addInstance(createInstance({ activityState: 'waiting_input' }));
+    stateService.setSelectedInstance('inst-1');
+    expect(queries.selectedInstanceActivity()).toBe('Needs your answer');
+    expect(queries.instanceActivities().get('inst-1')).toBe('Needs your answer');
+  });
+
   it('resolves a selected superseded edit source to its replacement instance', () => {
     stateService.addInstance(createInstance({
       id: 'source-1',

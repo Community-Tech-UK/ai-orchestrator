@@ -2129,7 +2129,7 @@ export class BrowserGatewayService {
           // to the audit log. Keep the machine-readable code as the prefix.
           reason:
             'file_not_found: filePath must be readable on the coordinator (the machine '
-            + 'running AI Orchestrator). Pass a coordinator-local path even for tabs on a '
+            + 'running Harness). Pass a coordinator-local path even for tabs on a '
             + 'remote worker node — Browser Gateway stages the file onto the node '
             + 'automatically. Do not pre-copy the file to the node and pass a node-local path.',
           summary: 'browser.upload_file denied: filePath not readable on the coordinator',

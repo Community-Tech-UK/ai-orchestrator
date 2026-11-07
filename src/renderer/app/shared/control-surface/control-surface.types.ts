@@ -78,6 +78,7 @@ export type ControlSurfaceId =
 
 export interface ControlSurfaceItem {
   readonly id: ControlSurfaceId;
+  readonly tier: 'everyday' | 'more';
   readonly path: string;
   readonly label: string;
   readonly title: string;

@@ -13,14 +13,14 @@
  * set high enough that only a real echo trips it.
  */
 
-const STOPWORDS = new Set([
+export const STOPWORDS = new Set([
   'the', 'a', 'an', 'and', 'or', 'but', 'to', 'of', 'in', 'on', 'for', 'with',
   'is', 'are', 'be', 'it', 'this', 'that', 'as', 'at', 'by', 'from', 'you',
   'your', 'we', 'i', 'not', 'do', 'so', 'if', 'when', 'before', 'after', 'they',
 ]);
 
 /** Light suffix stem so tense/plural variants match (acquire/acquired, suite/suites). */
-function stem(token: string): string {
+export function stem(token: string): string {
   for (const suffix of ['ing', 'ed', 'es', 's']) {
     if (token.length > suffix.length + 2 && token.endsWith(suffix)) {
       return token.slice(0, -suffix.length);
@@ -29,7 +29,7 @@ function stem(token: string): string {
   return token;
 }
 
-function contentTokens(text: string): Set<string> {
+export function contentTokens(text: string): Set<string> {
   const tokens = (text.toLowerCase().match(/[a-z0-9_]+/g) ?? [])
     .filter((token) => token.length >= 3 && !STOPWORDS.has(token))
     .map(stem);

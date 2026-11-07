@@ -114,3 +114,12 @@ export function isCorruptedSessionMessage(content: string): boolean {
     lower.includes('invalid_request_error') && lower.includes('non-empty')
   );
 }
+
+export function getAdapterCurrentTurnId(adapter: CliAdapter): string | undefined {
+    if (typeof (adapter as { getCurrentTurnId?: unknown }).getCurrentTurnId !== 'function') {
+      return undefined;
+    }
+
+    const turnId = (adapter as { getCurrentTurnId: () => string | null }).getCurrentTurnId();
+    return turnId ?? undefined;
+  }

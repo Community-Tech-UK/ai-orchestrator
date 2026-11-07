@@ -11,6 +11,7 @@ import { WorkboardCardComponent } from './workboard-card.component';
 import { WorkboardDecisionTimelineComponent } from './workboard-decision-timeline.component';
 import { WorkboardSourceSummaryComponent } from './workboard-source-summary.component';
 import { WorkboardStore } from './workboard.store';
+import { NeedsYouRequestRowComponent } from './needs-you-request-row.component';
 import type { WorkboardLane } from './workboard.types';
 
 interface LaneMeta {
@@ -21,7 +22,7 @@ interface LaneMeta {
 
 /** Fixed lane presentation metadata, in display order. */
 export const WORKBOARD_LANE_META: readonly LaneMeta[] = [
-  { lane: 'needs-you', heading: 'Needs You', empty: 'All clear' },
+  { lane: 'needs-you', heading: 'Needs you', empty: 'All clear' },
   { lane: 'working', heading: 'Working', empty: 'Nothing active' },
   { lane: 'waiting', heading: 'Waiting', empty: 'Nothing queued or paused' },
   { lane: 'done', heading: 'Done / Idle', empty: 'No recent completions' },
@@ -45,6 +46,7 @@ const REFRESH_INTERVAL_MS = 4000;
   imports: [
     InstanceDetailComponent,
     WorkboardCardComponent,
+    NeedsYouRequestRowComponent,
     WorkboardDecisionTimelineComponent,
     WorkboardSourceSummaryComponent,
   ],
@@ -112,9 +114,12 @@ const REFRESH_INTERVAL_MS = 4000;
             <section class="wb-lane" [attr.data-lane]="meta.lane" [attr.aria-labelledby]="'wb-lane-' + meta.lane">
               <h2 class="wb-lane-head" [id]="'wb-lane-' + meta.lane">
                 <span class="wb-lane-name">{{ meta.heading }}</span>
-                <span class="wb-lane-count">{{ store.lanes()[meta.lane].length }}</span>
+                <span class="wb-lane-count">{{ store.lanes()[meta.lane].length + (meta.lane === 'needs-you' ? store.requests().length : 0) }}</span>
               </h2>
               <div class="wb-lane-cards">
+                @if (meta.lane === 'needs-you') {
+                  @for (entry of store.requests(); track entry.key) { <app-needs-you-request-row [entry]="entry" /> }
+                }
                 @for (item of store.lanes()[meta.lane]; track item.id) {
                   <app-workboard-card
                     [item]="item"
@@ -123,7 +128,7 @@ const REFRESH_INTERVAL_MS = 4000;
                     (activate)="onActivate($event)"
                   />
                 }
-                @if (store.lanes()[meta.lane].length === 0) {
+                @if (store.lanes()[meta.lane].length === 0 && (meta.lane !== 'needs-you' || store.requests().length === 0)) {
                   <p class="wb-lane-empty">{{ meta.empty }}</p>
                 }
               </div>

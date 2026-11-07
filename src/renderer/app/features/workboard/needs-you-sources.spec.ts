@@ -1,0 +1,102 @@
+import { describe, expect, it } from 'vitest';
+import { NEEDS_YOU_RECENCY_MS } from '../../../../shared/attention/needs-you';
+import { requestEntries, workboardEntry } from './needs-you-sources';
+import type { NeedsYouSources } from './needs-you-sources';
+
+const now = 30 * 86400_000;
+const empty = (): NeedsYouSources => ({ permissions: [], browsers: [], fallbacks: [], plans: [], documents: [], memories: [], sidechats: [], outstanding: [], toolLoops: [] });
+
+describe('needs-you source mapping', () => {
+  it('excludes old document reviews, answered questions and all 293 pre-B5 rows', () => {
+    const sources = empty();
+    sources.documents = [
+      { id: 'old', title: 'old', status: 'pending', createdAt: now - NEEDS_YOU_RECENCY_MS - 1 },
+      { id: 'fresh', title: 'fresh', status: 'pending', createdAt: now - 1 },
+    ];
+    sources.outstanding = Array.from({ length: 293 }, (_, index) => ({
+      id: String(index), kind: 'needs-human', status: 'open', firstSeenRound: null, riskClass: null,
+      userResponse: null, text: 'legacy', createdAt: 1, updatedAt: now - 17 * 86400_000, chatId: 'a',
+    }));
+    expect(requestEntries(sources, now).map((item) => item.key)).toEqual(['doc-review:fresh']);
+  });
+  it('maps deadlines, groups plan documents, excludes unread sidechats and uses B5 applied rules', () => {
+    const sources = empty();
+    sources.permissions = [{ id: 'p', instanceId: 'a', description: 'Allow tool', createdAt: 1, expiresAt: now + 100 }];
+    sources.browsers = [{ requestId: 'b', instanceId: 'a', createdAt: 2, expiresAt: now + 200 }];
+    sources.fallbacks = [{ id: 'f', slot: 'summary', createdAt: 3, expiresAt: now + 300 }];
+    sources.plans = [1, 2].map((id) => ({ id: String(id), documentPath: '/plan/foo_plan.md', updatedAt: 4 }));
+    sources.memories = [{ id: 'm', title: 'Memory', status: 'pending', createdAt: 5 }];
+    sources.sidechats = [{ parent: { kind: 'chat', chatId: 'c' }, parentTitle: 'Parent', needsAttention: 0, attentionSince: null },
+      { parent: { kind: 'chat', chatId: 'd' }, parentTitle: 'Other', needsAttention: 1, attentionSince: 50 }];
+    sources.outstanding = [{ id: 'o', kind: 'decision-applied', status: 'open', riskClass: null, firstSeenRound: 1, userResponse: null, text: 'Choice', createdAt: 6, updatedAt: 6, chatId: 'a' }];
+    sources.toolLoops = [{ instanceId: 't', toolName: 'Bash', detectedAt: 7 }];
+    const result = requestEntries(sources, now);
+    expect(result).toHaveLength(8);
+    expect(result.find((item) => item.source === 'browser-approval')?.deadlineAt).toBe(now + 200);
+    expect(result.find((item) => item.source === 'plan-queue-question')?.title).toBe('Plan Queue has 2 questions for you');
+    expect(result.find((item) => item.source === 'loop-decision')?.kind).toBe('applied');
+    expect(result.find((item) => item.source === 'memory-review')?.kind).toBe('check');
+  });
+  it('maps each correlated Workboard source once', () => {
+    for (const kind of ['instance', 'loop-run', 'automation-run', 'repo-job'] as const) {
+      const item = { id: `${kind}:a`, primary: { kind }, attentionLevel: 'failed', title: 'Failure', updatedAt: 42, instanceId: 'i' };
+      expect(workboardEntry(item as never)).toMatchObject({ source: kind === 'instance' ? 'session' : kind, kind: 'check', instanceId: 'i' });
+    }
+  });
+  it('sorts a sidechat by its real onset: after an older untimed prompt, before newer, behind timed deadlines', async () => {
+    const { sortNeedsYou } = await import('../../../../shared/attention/needs-you');
+    const sources = empty();
+    sources.permissions = [{ id: 'p', instanceId: 'a', description: 'Allow', createdAt: 900, expiresAt: now + 100 }];
+    sources.sidechats = [{ parent: { kind: 'chat', chatId: 'd' }, parentTitle: 'Side', needsAttention: 1, attentionSince: 500 }];
+    sources.outstanding = [100, 800].map((at) => ({ id: `q${at}`, kind: 'needs-human', status: 'open', riskClass: null, firstSeenRound: 1, userResponse: null, text: 'Q', createdAt: at, updatedAt: at, chatId: 'a' }));
+    const entries = requestEntries(sources, now);
+    expect(entries.find((e) => e.source === 'sidechat')?.since).toBe(500);
+    expect(sortNeedsYou(entries).map((e) => (e.source === 'sidechat' ? 'sidechat' : e.key))).toEqual(['permission-request:p', 'loop-question:q100', 'sidechat', 'loop-question:q800']);
+  });
+  it('keeps a sidechat entry stable when its attention state is unchanged and renews it for a new episode', () => {
+    const sources = empty();
+    sources.sidechats = [{ parent: { kind: 'chat', chatId: 'd' }, parentTitle: 'Side', needsAttention: 1, attentionSince: 500 }];
+    const first = requestEntries(sources, now)[0];
+    expect(requestEntries(sources, now + 60_000)[0]).toEqual(first);
+    sources.sidechats = [{ ...sources.sidechats[0], attentionSince: 900 }];
+    const reopened = requestEntries(sources, now)[0];
+    expect(reopened.key).toBe(first.key);
+    expect(reopened.since).toBe(900);
+    expect(reopened.version).not.toBe(first.version);
+  });
+  it('keeps untimed sidechat waits stable so older untimed prompts stay ahead while deadlines still win', async () => {
+    const { sortNeedsYou } = await import('../../../../shared/attention/needs-you');
+    const sources = empty();
+    sources.permissions = [{ id: 'p', instanceId: 'a', description: 'Allow', createdAt: 900, expiresAt: now + 100 }];
+    sources.sidechats = [{ parent: { kind: 'chat', chatId: 'd' }, parentTitle: 'Side', needsAttention: 1, attentionSince: null }];
+    sources.outstanding = [{ id: 'q-old', kind: 'needs-human', status: 'open', riskClass: null, firstSeenRound: 1, userResponse: null, text: 'Q', createdAt: 100, updatedAt: 100, chatId: 'a' }];
+    const firstSidechat = requestEntries(sources, now).find((entry) => entry.source === 'sidechat')!;
+    const secondSidechat = requestEntries(sources, now + 60_000).find((entry) => entry.source === 'sidechat')!;
+    expect(firstSidechat.since).toBe(Number.MAX_SAFE_INTEGER);
+    expect(secondSidechat.since).toBe(firstSidechat.since);
+    expect(sortNeedsYou(requestEntries(sources, now)).map((entry) => (entry.source === 'sidechat' ? 'sidechat' : entry.key)))
+      .toEqual(['permission-request:p', 'loop-question:q-old', 'sidechat']);
+  });
+  it('keeps session sidechat ownership stable across node changes and reopened episodes', () => {
+    const sources = empty();
+    sources.sidechats = [{ parent: { kind: 'session', historyThreadId: 'thread-1', originNodeId: 'node-a' }, parentTitle: 'Session', needsAttention: 1, attentionSince: 500 }];
+    const first = requestEntries(sources, now)[0];
+    sources.sidechats = [{ parent: { kind: 'session', historyThreadId: 'thread-1', originNodeId: 'node-b' }, parentTitle: 'Session', needsAttention: 0, attentionSince: null }];
+    expect(requestEntries(sources, now)).toEqual([]);
+    sources.sidechats = [{ parent: { kind: 'session', historyThreadId: 'thread-1', originNodeId: 'node-b' }, parentTitle: 'Session', needsAttention: 1, attentionSince: 900 }];
+    const reopened = requestEntries(sources, now)[0];
+    expect(reopened.key).toBe(first.key);
+    expect(reopened.since).toBe(900);
+    expect(reopened.version).not.toBe(first.version);
+  });
+  it('orders two sidechat parents by their own attention onset timestamps', async () => {
+    const { sortNeedsYou } = await import('../../../../shared/attention/needs-you');
+    const sources = empty();
+    sources.sidechats = [
+      { parent: { kind: 'chat', chatId: 'newer' }, parentTitle: 'Newer', needsAttention: 1, attentionSince: 700 },
+      { parent: { kind: 'chat', chatId: 'older' }, parentTitle: 'Older', needsAttention: 1, attentionSince: 400 },
+    ];
+    expect(sortNeedsYou(requestEntries(sources, now)).map((entry) => entry.key))
+      .toEqual(['sidechat:chat:older', 'sidechat:chat:newer']);
+  });
+});

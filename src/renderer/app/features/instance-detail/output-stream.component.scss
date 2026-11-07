@@ -444,6 +444,18 @@
         overflow-wrap: anywhere;
       }
 
+      .message-detail summary {
+        cursor: pointer;
+        margin-top: 4px;
+      }
+
+      .message-detail pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        max-height: 240px;
+        overflow: auto;
+      }
+
       .cross-session-badge {
         display: inline-flex;
         align-items: center;
@@ -716,7 +728,9 @@
         font-family: var(--font-mono);
         font-weight: 600;
         color: var(--text-muted);
-        white-space: nowrap;
+        min-width: 0;
+        white-space: normal;
+        overflow-wrap: anywhere;
       }
 
       .load-more-skeleton {
@@ -832,19 +846,18 @@
           flex-shrink: 0;
         }
 
-        .cycle-summary {
-          flex: 1;
-          min-width: 0;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-
         .cycle-duration {
           flex-shrink: 0;
           opacity: 0.5;
           font-size: 11px;
         }
+      }
+
+      .work-cycle-header .cycle-summary {
+        flex: 1;
+        min-width: 0;
+        white-space: normal;
+        overflow-wrap: anywhere;
       }
 
       .work-cycle.expanded .work-cycle-header {

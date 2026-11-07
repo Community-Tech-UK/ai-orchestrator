@@ -1,19 +1,9 @@
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import { generateId } from '../../shared/utils/id-generator';
+import { describeInterruptBoundary } from '../../shared/copy/interrupt-copy';
+import type { InterruptBoundaryOutcome, InterruptBoundaryPhase } from '../../shared/types/interrupt-boundary.types';
 
-export type InterruptBoundaryPhase =
-  | 'requested'
-  | 'cancelling'
-  | 'escalated'
-  | 'respawning'
-  | 'completed';
-
-export type InterruptBoundaryOutcome =
-  | 'cancelled'
-  | 'cancelled-for-edit'
-  | 'respawn-success'
-  | 'respawn-fallback'
-  | 'unresolved';
+export type { InterruptBoundaryOutcome, InterruptBoundaryPhase } from '../../shared/types/interrupt-boundary.types';
 
 export interface InterruptBoundaryMarker {
   phase: InterruptBoundaryPhase;
@@ -35,7 +25,7 @@ export function buildInterruptBoundaryMessage(marker: InterruptBoundaryMarker): 
     id: generateId(),
     timestamp: at,
     type: 'system',
-    content: `Interrupt ${marker.phase}: ${marker.outcome}`,
+    content: describeInterruptBoundary(marker),
     metadata: {
       kind: 'interrupt-boundary',
       phase: marker.phase,

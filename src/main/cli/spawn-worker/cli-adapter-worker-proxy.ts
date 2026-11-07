@@ -203,7 +203,7 @@ export class CliAdapterWorkerProxy extends EventEmitter {
 
   async sendInput(message: string, attachments?: FileAttachment[], _options?: AdapterInputOptions): Promise<void> {
     if (getPauseCoordinator().isPaused()) {
-      throw new OrchestratorPausedError('CLI input refused while orchestrator is paused');
+      throw new OrchestratorPausedError('CLI input refused while Harness is paused');
     }
     if (!this.spawned) {
       throw new Error('Adapter not spawned - call spawn() first');

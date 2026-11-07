@@ -4,8 +4,8 @@
  * All read-only computed values derived from instance state.
  */
 
-import { isOccupancyPressureReading } from '../../../../../shared/utils/context-occupancy';
 import { presentInstanceStatus } from '../../../../../shared/attention/instance-status-presentation';
+import { isOccupancyPressureReading } from '../../../../../shared/utils/context-occupancy';
 import { Injectable, inject, computed } from '@angular/core';
 import { InstanceStateService } from './instance-state.service';
 import { ActivityDebouncerService } from '../../services/activity-debouncer.service';

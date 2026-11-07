@@ -17,6 +17,7 @@ import type { SideChatAttention } from '../../../../shared/types/side-chat.types
 import { KeybindingService } from '../../core/services/keybinding.service';
 import { WorkspaceRailComponent } from './workspace-rail.component';
 import { ActionDispatchService } from '../../core/services/action-dispatch.service';
+import { NeedsYouStore } from '../workboard/needs-you.store';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
 const styles = readFileSync(resolve(specDirectory, './workspace-rail.component.scss'), 'utf8');
@@ -38,6 +39,9 @@ describe('WorkspaceRailComponent', () => {
   const sideChatAttention = signal<SideChatAttention[]>([]);
   const requestOpen = vi.fn();
   const dispatch = vi.fn();
+  const attentionLoadState = signal<'idle' | 'loading' | 'loaded' | 'error'>('loaded');
+  const retryAttentionLoad = vi.fn().mockResolvedValue(undefined);
+  const needsYouCount = signal(3);
   const connectedNodes = signal<unknown[]>([]);
 
   beforeEach(async () => {
@@ -45,11 +49,14 @@ describe('WorkspaceRailComponent', () => {
     connectedNodes.set([]);
     sideChatAttention.set([]);
     requestOpen.mockClear();
+    retryAttentionLoad.mockClear();
+    attentionLoadState.set('loaded');
     markAllSeen.mockClear();
     await TestBed.configureTestingModule({
       imports: [WorkspaceRailComponent, RouterTestingModule.withRoutes([])],
       providers: [
         { provide: ActionDispatchService, useValue: { dispatch } },
+        { provide: NeedsYouStore, useValue: { count: needsYouCount } },
         {
           provide: AutomationStore,
           useValue: {
@@ -63,6 +70,8 @@ describe('WorkspaceRailComponent', () => {
             attentionList: sideChatAttention.asReadonly(),
             attentionBadgeCount: () => sideChatAttention().reduce((sum, entry) => sum + entry.unread + entry.needsAttention, 0),
             requestOpen,
+            attentionLoadState: attentionLoadState.asReadonly(),
+            retryAttentionLoad,
           },
         },
         { provide: RemoteNodeStore, useValue: { connectedNodes: connectedNodes.asReadonly() } },
@@ -120,6 +129,24 @@ describe('WorkspaceRailComponent', () => {
       expect(toggle.injector.get(AioTooltipDirective).appTooltipShowWhenExpanded()).toBe(true);
       expect(toggle.injector.get(AioTooltipDirective).appTooltipPosition()).toBe('after');
     }
+  });
+
+  it('has no Plugins rail destination', () => {
+    expect(fixture.nativeElement.querySelector('a[href="/plugins"]')).toBeNull();
+  });
+
+  it('puts Needs you first with the shared count, accessible label and no native title', () => {
+    const link = fixture.nativeElement.querySelector('nav a') as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe('/work');
+    expect(link.getAttribute('aria-label')).toBe('Needs you: 3 waiting');
+    expect(link.querySelector('.rail-badge')?.textContent).toBe('3');
+    expect(link.hasAttribute('title')).toBe(false);
+    needsYouCount.set(120); fixture.detectChanges();
+    expect(link.querySelector('.rail-badge')?.textContent).toBe('99+');
+    needsYouCount.set(0); fixture.detectChanges();
+    expect(link.getAttribute('aria-label')).toBe('Needs you: nothing waiting');
+    expect(link.querySelector('.rail-badge')).toBeNull();
+    needsYouCount.set(3);
   });
 
   it('shows the unread automations badge on the rail destination', () => {
@@ -189,7 +216,7 @@ describe('WorkspaceRailComponent', () => {
   it('names parent sessions in the sidechat attention list and opens the exact conversation', () => {
     const parent = { kind: 'session' as const, historyThreadId: 'thread-1', originNodeId: null };
     sideChatAttention.set([{
-      parent, parentTitle: 'Provider Hardening', total: 2, running: 1, unread: 1, needsAttention: 0, targetChatId: 'side-9',
+      parent, parentTitle: 'Provider Hardening', total: 2, running: 1, unread: 1, needsAttention: 0, attentionSince: null, targetChatId: 'side-9',
     }]);
     fixture.detectChanges();
 
@@ -207,12 +234,71 @@ describe('WorkspaceRailComponent', () => {
 
   it('shows a running indicator, not a count, when sidechats are only working', () => {
     sideChatAttention.set([{
-      parent: { kind: 'chat', chatId: 'c1' }, parentTitle: 'Chat', total: 1, running: 1, unread: 0, needsAttention: 0, targetChatId: 'side-1',
+      parent: { kind: 'chat', chatId: 'c1' }, parentTitle: 'Chat', total: 1, running: 1, unread: 0, needsAttention: 0, attentionSince: null, targetChatId: 'side-1',
     }]);
     fixture.detectChanges();
 
     expect(sideChatButton().querySelector('.rail-badge')).toBeNull();
     expect(sideChatButton().querySelector('.rail-activity-dot')).not.toBeNull();
+  });
+
+  function attentionFailureButton(): HTMLButtonElement | null {
+    return fixture.nativeElement.querySelector('button[aria-label="Sidechat activity did not load. Open to try again."]');
+  }
+
+  it('shows no failure control while sidechat activity loads normally', () => {
+    expect(attentionFailureButton()).toBeNull();
+    attentionLoadState.set('loading');
+    fixture.detectChanges();
+    expect(attentionFailureButton()).toBeNull();
+  });
+
+  it('shows a keyboard-reachable failure control that names the problem and retries from the menu', () => {
+    attentionLoadState.set('error');
+    fixture.detectChanges();
+
+    const button = attentionFailureButton();
+    expect(button).not.toBeNull();
+    expect(button?.hasAttribute('title')).toBe(false);
+    expect(button?.getAttribute('aria-haspopup')).toBe('menu');
+    expect(button?.getAttribute('aria-expanded')).toBe('false');
+
+    button?.click();
+    fixture.detectChanges();
+    expect(button?.getAttribute('aria-expanded')).toBe('true');
+    const items = Array.from(renderedMenu()?.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]') ?? []);
+    expect(items.map((item) => item.textContent?.trim())).toEqual(['Sidechat activity did not load', 'Try again']);
+    expect(items[0].disabled).toBe(true);
+    expect(items[1].disabled).toBe(false);
+
+    items[1].click();
+    expect(retryAttentionLoad).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the failure, not "No sidechat activity", in the right-click sidechat menu', () => {
+    attentionLoadState.set('error');
+    fixture.detectChanges();
+
+    sideChatButton().dispatchEvent(new KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true }));
+    fixture.detectChanges();
+
+    const labels = Array.from(renderedMenu()?.querySelectorAll('button[role="menuitem"]') ?? []).map((item) => item.textContent?.trim());
+    expect(labels).toEqual(['Sidechat activity did not load', 'Try again']);
+  });
+
+  it('keeps known sidechat activity listed after the failure items', () => {
+    const parent = { kind: 'session' as const, historyThreadId: 'thread-1', originNodeId: null };
+    sideChatAttention.set([{
+      parent, parentTitle: 'Provider Hardening', total: 1, running: 0, unread: 1, needsAttention: 0, attentionSince: null, targetChatId: 'side-9',
+    }]);
+    attentionLoadState.set('error');
+    fixture.detectChanges();
+
+    sideChatButton().dispatchEvent(new KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true }));
+    fixture.detectChanges();
+
+    const labels = Array.from(renderedMenu()?.querySelectorAll('button[role="menuitem"]') ?? []).map((item) => item.textContent?.trim());
+    expect(labels).toEqual(['Sidechat activity did not load', 'Try again', 'Provider Hardening — 1 unread']);
   });
 
   it('links to the Plan Queue page', () => {

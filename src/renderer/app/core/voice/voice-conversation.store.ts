@@ -24,6 +24,7 @@ import {
 } from './realtime-transcription.service';
 import { LocalSegmentedTranscriptionService } from './local-segmented-transcription.service';
 import { VoicePlaybackService } from './voice-playback.service';
+import { presentInstanceStatus } from '../../../../shared/attention/instance-status-presentation';
 
 export interface VoiceConversationSessionContext {
   instanceId: string;
@@ -287,9 +288,10 @@ export class VoiceConversationStore {
     } else if (this.isStableStatus(this.context.status)) {
       this.context.sendInput(message);
     } else {
+      const label = presentInstanceStatus(this.context.status).label;
       this.enterError(
         'session-unavailable',
-        `Voice cannot send while the session is ${this.context.status}.`
+        `Voice can't send right now: the session ${label === 'Problem' ? 'has a problem' : `is ${label.toLowerCase()}`}.`
       );
       return;
     }

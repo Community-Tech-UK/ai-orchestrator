@@ -14,7 +14,7 @@ import type { ElectronAPI } from '../../../../../preload/preload';
 export interface IpcResponse<T = unknown> {
   success: boolean;
   data?: T;
-  error?: { message: string };
+  error?: { message: string; code?: string };
 }
 
 /** File entry from directory listing */

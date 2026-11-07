@@ -20,7 +20,7 @@ const OBSERVER_PAGE_HTML = `<!doctype html>
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Orchestrator Observer</title>
+    <title>Harness Observer</title>
     <link rel="stylesheet" href="/observer.css">
     <script src="/observer-client.js" defer></script>
   </head>
@@ -28,15 +28,15 @@ const OBSERVER_PAGE_HTML = `<!doctype html>
     <header>
       <div>
         <h2>Read-only Observer</h2>
-        <h1>Local Orchestrator</h1>
-        <p class="subtitle">Observe local instances, repo jobs, and prompts without write access. This page auto-refreshes through the observer event stream.</p>
+        <h1>Local Harness</h1>
+        <p class="subtitle">Observe local sessions, repo jobs, and prompts without write access. This page auto-refreshes through the observer event stream.</p>
       </div>
       <div class="urls" id="observer-urls"></div>
     </header>
 
     <section class="toolbar">
       <label>
-        Selected Instance
+        Selected Session
         <select id="instance-select"></select>
       </label>
       <button class="secondary" id="refresh-btn" type="button">Refresh Snapshot</button>
@@ -48,7 +48,7 @@ const OBSERVER_PAGE_HTML = `<!doctype html>
     <section class="grid">
       <article class="panel">
         <div class="panel-header">
-          <h3>Instances</h3>
+          <h3>Sessions</h3>
           <span class="meta" id="instance-count">0</span>
         </div>
         <div class="panel-list" id="instance-list"></div>
@@ -65,7 +65,7 @@ const OBSERVER_PAGE_HTML = `<!doctype html>
       <article class="panel">
         <div class="panel-header">
           <h3>Live Detail</h3>
-          <span class="meta" id="detail-title">Select an instance</span>
+          <span class="meta" id="detail-title">Select a session</span>
         </div>
         <div class="detail-list" id="detail-list"></div>
         <div class="message-list" id="message-list"></div>

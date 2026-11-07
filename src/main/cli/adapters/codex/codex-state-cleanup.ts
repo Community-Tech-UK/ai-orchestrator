@@ -113,7 +113,7 @@ export function cleanupLeakedAioCodexThreads(
         driverFactory,
       });
       if (migratedThreads !== leakedCount) {
-        throw new Error(`Expected to migrate ${leakedCount} AIO threads, migrated ${migratedThreads}`);
+        throw new Error(`Expected to migrate ${leakedCount} Harness threads, migrated ${migratedThreads}`);
       }
     } catch (error) {
       logger.warn('Could not migrate leaked AIO threads into private state; leaving user database unchanged', {
@@ -235,7 +235,7 @@ export function migrateLeakedAioThreadsToPrivateState(
     rewritePrivateRolloutPaths(privateDb, sessionsDir, threadIds);
 
     if (migratedThreads !== expectedThreads) {
-      throw new Error(`Private Codex state contains ${migratedThreads} of ${expectedThreads} expected AIO threads`);
+      throw new Error(`Private Codex state contains ${migratedThreads} of ${expectedThreads} expected Harness threads`);
     }
     migrationCompleted = true;
     return migratedThreads;

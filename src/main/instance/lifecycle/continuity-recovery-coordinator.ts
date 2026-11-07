@@ -90,7 +90,7 @@ export class ContinuityRecoveryCoordinator {
 
   async recover(resolvedCandidate: ResolvedRecoveryCandidate): Promise<RecoverSessionResult> {
     if (getPauseCoordinator().isPaused()) {
-      throw new OrchestratorPausedError('Session recovery refused while orchestrator is paused');
+      throw new OrchestratorPausedError('Session recovery refused while Harness is paused');
     }
     const revived = await reviveContinuitySession({
       resumeSession: (instanceId, options) =>

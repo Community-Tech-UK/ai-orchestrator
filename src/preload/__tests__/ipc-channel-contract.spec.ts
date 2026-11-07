@@ -287,7 +287,7 @@ describe('IPC Channel Contract', () => {
           success: false,
           error: {
             code: 'ORCHESTRATOR_PAUSED',
-            message: 'Session recovery refused while orchestrator is paused',
+            message: 'Session recovery refused while Harness is paused',
             timestamp: 124,
           },
         }),
@@ -303,7 +303,7 @@ describe('IPC Channel Contract', () => {
     await expect(domain.recoverSession({ recoveryKey: 'history:claude:thread-1' }))
       .rejects.toMatchObject({
         code: 'ORCHESTRATOR_PAUSED',
-        message: 'Session recovery refused while orchestrator is paused',
+        message: 'Session recovery refused while Harness is paused',
       });
     expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(1, IPC_CHANNELS.SESSION_RECOVERY_LIST);
     expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(

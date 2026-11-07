@@ -10,7 +10,7 @@ import { createProviderPromptCheckpoint } from './instance-provider-prompt-check
 import { requireOpenCodeNativeForkPlacement } from './opencode-native-fork-placement';
 import { resolveContextCeilingTokens } from '../../cli/adapters/context-ceiling';
 import { resolveClaudeBashOutputMaxChars } from '../../cli/adapters/claude-output-caps';
-export function applyInstanceSpawnPolicy(cliType:string,instance:Pick<Instance,'depth'|'parentId'|'metadata'|'additionalDirectories'|'automationAuthority'> & {id?:string;executionLocation?:Instance['executionLocation']}|undefined,options:UnifiedSpawnOptions):UnifiedSpawnOptions {
+export function applyInstanceSpawnPolicy(cliType:string,instance:Pick<Instance,'depth'|'parentId'|'metadata'|'additionalDirectories'|'automationAuthority'> & {id?:string;executionLocation?:Instance['executionLocation']}|undefined,options:UnifiedSpawnOptions,livePermissionPromptsEnabled=false):UnifiedSpawnOptions {
   if (instance?.automationAuthority && instance.executionLocation?.type === 'remote') refuseAutomationAuthority('remote execution cannot enforce the saved limits');
   options = boundAutomationSpawnOptions(instance?.automationAuthority, cliType, options);
   const m = instance?.metadata;
@@ -26,9 +26,10 @@ export function applyInstanceSpawnPolicy(cliType:string,instance:Pick<Instance,'
   const trialKey = options.trialKey ?? resolvedTrial.key ?? undefined;
   const trialKeySource = options.trialKeySource ?? (trialKey === resolvedTrial.key ? resolvedTrial.source ?? undefined : undefined);
   const durable=applyProviderSessionDurability(cliType,instance,options);
+  const machineSession = durable.machineSession ?? reason ?? undefined;
   const nodePlacement = cliType === 'opencode' && typeof m?.['openCodeForkSessionId'] === 'string' && m['openCodeForkSessionId'].trim()
     ? requireOpenCodeNativeForkPlacement(durable.nodePlacement) : durable.nodePlacement;
-  return {...durable,nodePlacement,instanceId:durable.instanceId ?? instance?.id,jobId:durable.jobId ?? jobId,...(cliType === 'opencode' && instance?.id ? { beforeProviderPrompt: createProviderPromptCheckpoint(instance.id) } : {}),additionalDirectories:normalizeOpenCodeAdditionalDirectories(instance?.additionalDirectories ?? options.additionalDirectories,options.modelRuntimeTarget?.kind === 'local-model' ? 'local-model' : cliType),trialKey:durable.trialKey ?? trialKey,trialKeySource,machineSession:durable.machineSession ?? reason ?? undefined,sessionKind:kind,
+  return {...durable,nodePlacement,instanceId:durable.instanceId ?? instance?.id,jobId:durable.jobId ?? jobId,...(cliType === 'opencode' && instance?.id ? { beforeProviderPrompt: createProviderPromptCheckpoint(instance.id) } : {}),additionalDirectories:normalizeOpenCodeAdditionalDirectories(instance?.additionalDirectories ?? options.additionalDirectories,options.modelRuntimeTarget?.kind === 'local-model' ? 'local-model' : cliType),trialKey:durable.trialKey ?? trialKey,trialKeySource,machineSession,livePermissionPrompts:cliType === 'claude' && livePermissionPromptsEnabled && !machineSession,sessionKind:kind,
     queueRole:durable.queueRole ?? (typeof m?.['planQueueRole'] === 'string' ? m['planQueueRole'] : undefined),
     ...(cliType === 'claude' ? {
       contextCeilingTokens: durable.contextCeilingTokens ?? resolveContextCeilingTokens(Boolean(reason)),

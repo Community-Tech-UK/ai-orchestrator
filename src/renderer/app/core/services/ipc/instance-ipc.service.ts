@@ -1,3 +1,4 @@
+import type { InstanceInputContextDeliveredEvent } from '../../../../../shared/types/input-context-delivery.types';
 /**
  * Instance IPC Service - Instance lifecycle and management
  */
@@ -361,6 +362,11 @@ export class InstanceIpcService {
   // ============================================
   // Event Subscriptions
   // ============================================
+
+  onInputContextDelivered(callback: (delivery: InstanceInputContextDeliveredEvent) => void): () => void {
+    if (!this.api) return () => { /* Browser preview has no Electron bridge. */ };
+    return this.api.onInputContextDelivered(delivery => this.ngZone.run(() => callback(delivery)));
+  }
 
   onInstanceTranscriptChunk(callback: (chunk: unknown) => void): () => void {
     return this.base.on('instance:transcript-chunk', callback);

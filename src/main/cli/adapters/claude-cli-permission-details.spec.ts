@@ -67,3 +67,10 @@ describe('isPermissionDenialContent', () => {
     });
   });
 });
+
+
+describe('human denial echo', () => {
+  it('does not turn a Harness refusal or a deny note into another card', () => {
+    expect(isPermissionDenialContent('Harness: the user declined this call. Permission denied. Use another way.')).toBe(false);
+  });
+});

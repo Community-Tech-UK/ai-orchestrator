@@ -354,7 +354,7 @@ describe('reconcileManagedWorktreeLifecycles', () => {
     expect(row.lifecycle).toMatchObject({
       phase: 'blocked',
       sessionTip: originalSessionTip,
-      lastError: 'Session branch changed outside AIO; review it before landing',
+      lastError: 'Session branch changed outside Harness; review it before landing',
     });
     expect(await git(['rev-parse', 'main'], repo)).toBe(mainBefore);
     expect(await git(['branch', '--list', 'integration/main'], repo)).toBe('');
@@ -368,7 +368,7 @@ describe('reconcileManagedWorktreeLifecycles', () => {
     expect(again).toEqual({ reconciled: 0, blocked: 1, total: 1 });
     expect(row.lifecycle).toMatchObject({
       phase: 'blocked',
-      lastError: 'Session branch changed outside AIO; review it before landing',
+      lastError: 'Session branch changed outside Harness; review it before landing',
     });
     expect(await git(['rev-parse', branchName], repo)).toBe(rescuedTip);
     expect(await git(['rev-parse', 'main'], repo)).toBe(mainBefore);

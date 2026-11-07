@@ -73,12 +73,24 @@
                         }
                       </button>
                     }
+                    @if (canTypeOwnAnswer(request)) {
+                      <button
+                        type="button"
+                        class="ask-option"
+                        [class.selected]="asks.isOwn(request.id, qIndex)"
+                        [attr.aria-pressed]="asks.isOwn(request.id, qIndex)"
+                        (click)="asks.toggleOwn(request.id, qIndex, entry.multiSelect)"
+                        [disabled]="isResponding()"
+                      >Type your own answer</button>
+                    }
                   </div>
-                } @else {
+                }
+                @if (entry.options.length === 0 || asks.isOwn(request.id, qIndex)) {
                   <textarea
                     class="question-input"
                     rows="2"
                     [placeholder]="'Type your answer...'"
+                    [attr.aria-label]="entry.header || entry.question"
                     [disabled]="isResponding()"
                     [value]="asks.text(request.id, qIndex)"
                     (input)="asks.setText(request.id, qIndex, $any($event.target).value)"
@@ -159,10 +171,13 @@
             }
           </div>
         } @else if (request.requestType === 'input_required' && !isPermissionRequest(request)) {
-          <!-- Generic input_required prompt: collect free-form text -->
+          <!-- Generic input_required prompt: the agent's own choices as buttons, then free-form text -->
+          @if (acpPermissionOptions(request); as options) {
+            <app-acp-permission-options [options]="options" [busy]="isResponding()" (optionChosen)="onSelectOption(request, $event)" />
+          }
           <div class="questions-form">
             <label class="question-item">
-              <span class="question-label">Your response</span>
+              <span class="question-label">{{ acpPermissionOptions(request) ? 'Or type a reply' : 'Your response' }}</span>
               <textarea
                 class="question-input"
                 rows="3"
@@ -292,6 +307,9 @@
             >
               {{ getRejectLabel(request) }}
             </button>
+            @if (isPermissionRequest(request) && canTellWhatToDoInstead(request.permissionMetadata)) {
+              <app-permission-deny-note [busy]="isResponding()" (noteSent)="onDenyWithNote(request, $event)" />
+            }
             @if (request.requestType === 'switch_mode' && request.targetMode === 'build') {
               <button class="btn-secondary" type="button" [disabled]="isResponding()"
                 (click)="openPlanHandoff(request)">Build in a new session</button>
@@ -304,9 +322,9 @@
                   [disabled]="isResponding() || yoloCost.checking() || !!yoloCost.confirmation()"
                   [appTooltip]="copy('permissions.enableYolo')"
                 >
-                  YOLO
+                  Auto-approve
                 </button>
-                <span class="scope-write-hint">{{ copy('permissions.enableYolo') }}</span>
+                <span class="scope-write-hint">Approves all permissions for this session without asking.</span>
               }
             }
             @if (getApproveLabel(request); as approveLabel) {

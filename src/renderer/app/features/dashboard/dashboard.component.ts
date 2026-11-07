@@ -35,8 +35,7 @@ import { ChatDetailComponent } from '../chats/chat-detail.component';
 import { ScratchDirectoryService } from '../../core/services/scratch-directory.service';
 import { CliErrorComponent } from '../cli-error/cli-error.component';
 import { HistorySidebarComponent } from '../history/history-sidebar.component';
-import { CommandPaletteComponent } from '../commands/command-palette.component';
-import { CommandHelpHostComponent } from '../commands/command-help-host.component';
+import { PaletteOverlaysService } from '../commands/palette-overlays.service';
 import { SessionPickerHostComponent } from '../sessions/session-picker-host.component';
 import { ResumePickerHostComponent } from '../resume/resume-picker-host.component';
 import { ResumePickerController } from '../resume/resume-picker.controller';
@@ -63,7 +62,6 @@ import { resolveArchivedSideChatContext } from './dashboard-archived-side-chat';
 import { TerminateConfirmStore } from '../../shared/terminate-confirm/terminate-confirm.store';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { SessionRecoveryBannerComponent } from '../../shared/components/session-recovery-banner/session-recovery-banner.component';
-import { PlanQueueQuestionsBannerComponent } from '../plan-queue/components/plan-queue-questions-banner.component';
 import { FeatureUsageService } from '../../shared/tips/feature-usage.service';
 @Component({
   selector: 'app-dashboard',
@@ -75,8 +73,6 @@ import { FeatureUsageService } from '../../shared/tips/feature-usage.service';
     ChatDetailComponent,
     CliErrorComponent,
     HistorySidebarComponent,
-    CommandPaletteComponent,
-    CommandHelpHostComponent,
     SessionPickerHostComponent,
     ResumePickerHostComponent,
     PromptHistorySearchHostComponent,
@@ -87,7 +83,7 @@ import { FeatureUsageService } from '../../shared/tips/feature-usage.service';
     WorkspaceRailComponent,
     SidebarNavComponent,
     SidebarFooterComponent,
-    BrowserPreviewNoticeComponent, SessionRecoveryBannerComponent, PlanQueueQuestionsBannerComponent,
+    BrowserPreviewNoticeComponent, SessionRecoveryBannerComponent,
     AioTooltipDirective,
   ],
   templateUrl: './dashboard.component.html',
@@ -117,8 +113,9 @@ export class DashboardComponent implements OnInit, OnDestroy {
   sourceControlStore = inject(SourceControlStore);
 
   showHistory = signal(false);
-  showCommandPalette = signal(false);
-  showCommandHelp = signal(false);
+  private readonly paletteOverlays = inject(PaletteOverlaysService);
+  showCommandPalette = this.paletteOverlays.commandPaletteOpen;
+  showCommandHelp = this.paletteOverlays.commandHelpOpen;
   showSessionPicker = signal(false);
   showResumePicker = signal(false);
   showPromptHistorySearch = signal(false);
@@ -393,19 +390,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
       }),
       ...visibleInstanceActions,
       this.actionDispatch.register({
-        id: 'toggle-command-palette',
-        when: ['instance-selected'],
-        run: () => {
-          this.showCommandPalette.set(!this.showCommandPalette());
-        },
-      }),
-      this.actionDispatch.register({
-        id: 'toggle-settings',
-        run: () => {
-          void this.router.navigate(['/settings']);
-        },
-      }),
-      this.actionDispatch.register({
         id: 'toggle-history',
         run: () => {
           this.showHistory.set(!this.showHistory());
@@ -488,30 +472,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
             selectedInstance: () => this.store.selectedInstance(),
             interruptInstance: (instanceId) => this.store.interruptInstance(instanceId),
           });
-        },
-      }),
-      this.actionDispatch.register({
-        id: 'app.open-rlm',
-        run: () => {
-          this.openRlm();
-        },
-      }),
-      this.actionDispatch.register({
-        id: 'app.open-browser',
-        run: () => {
-          this.openBrowser();
-        },
-      }),
-      this.actionDispatch.register({
-        id: 'app.open-doctor',
-        run: () => {
-          this.openDoctor();
-        },
-      }),
-      this.actionDispatch.register({
-        id: 'app.open-command-help',
-        run: () => {
-          this.showCommandHelp.set(true);
         },
       }),
       this.actionDispatch.register({
@@ -723,33 +683,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
     void this.router.navigate(['/settings']);
   }
 
-  openRlm(): void {
-    this.router.navigate(['/rlm']);
-  }
-
-  async openBrowser(): Promise<void> {
-    const navigated = await this.router.navigate(['/browser']);
-    if (!navigated) {
-      console.warn('[app.open-browser] Navigation to /browser was cancelled');
-    }
-  }
-
-  openDoctor(): void {
-    void this.router.navigate(['/settings'], {
-      fragment: 'doctor',
-    });
-  }
-
   onRetryCliDetection(): void {
     this.cliStore.refresh();
-  }
-
-  onCommandExecuted(event: { commandId: string; args: string[] }): void {
-    console.log('Command executed:', event);
-    // Command execution is handled by the palette component via CommandStore
-    if (event.commandId === 'builtin-rlm') {
-      this.openRlm();
-    }
   }
 
   onFileDragged(event: {

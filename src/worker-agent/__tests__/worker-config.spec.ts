@@ -193,7 +193,7 @@ describe('loadWorkerConfig', () => {
       expect(rootIds).toContain('desktop');
     }
     expect(fileTransfer?.roots.find((root) => root.id === 'scratch')).toMatchObject({
-      label: 'AIO Scratch',
+      label: 'Harness Scratch',
       read: true,
       write: true,
     });

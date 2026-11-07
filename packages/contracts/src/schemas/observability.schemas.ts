@@ -153,6 +153,11 @@ export const NotificationDeltaEventSchema = z.object({
   urgency: z.enum(['normal', 'critical']),
   fingerprint: z.string().min(1).max(2_000),
   createdAt: z.number().int().nonnegative(),
+  seenAt: z.number().int().nonnegative().optional(),
+  resolvedAt: z.number().int().nonnegative().optional(),
+  updatedAt: z.number().int().nonnegative().optional(),
+  repeatCount: z.number().int().positive().optional(),
+  resolveKey: z.string().min(1).max(500).optional(),
   delivery: z.enum([
     'desktop',
     'fingerprint-suppressed',
@@ -160,6 +165,37 @@ export const NotificationDeltaEventSchema = z.object({
     'quiet-hours',
     'desktop-unavailable',
   ]),
+}).strict();
+
+export const NotificationMarkSeenPayloadSchema = z.object({
+  ids: z.array(z.string().min(1).max(500)).min(1).max(100).optional(),
+  instanceId: z.string().min(1).max(200).optional(),
+}).strict().refine(value => value.ids !== undefined || value.instanceId !== undefined, {
+  message: 'Select notification ids or a session',
+});
+
+export const NotificationOpenTargetEventSchema = z.object({
+  instanceId: z.string().min(1).max(200),
+}).strict();
+
+export const NotificationSetBadgePayloadSchema = z.object({
+  count: z.number().int().min(0).max(9999),
+}).strict();
+
+export const InstanceInputContextDeliveredEventSchema = z.object({
+  instanceId: z.string().min(1).max(200),
+  messageId: z.string().min(1).max(200),
+  deliveryId: z.string().min(1).max(200),
+  tokens: z.number().finite().nonnegative().nullable(),
+}).strict();
+
+export const InstanceSubagentUsageEventSchema = z.object({
+  instanceId: z.string().min(1).max(200),
+  toolUseId: z.string().min(1).max(500),
+  finalContextTokens: z.number().int().nonnegative(),
+  toolUses: z.number().int().nonnegative(),
+  durationMs: z.number().nonnegative().finite(),
+  final: z.boolean(),
 }).strict();
 
 /** Push event: one skill activation was recorded (skill observability). */

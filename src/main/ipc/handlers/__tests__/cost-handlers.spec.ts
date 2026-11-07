@@ -105,6 +105,17 @@ describe('cost-handlers event forwarding', () => {
     expect(result.data).toMatchObject({ byPurpose: [], byProvider: [], totals: { key: 'all' } });
   });
 
+  it.each([{}, { instanceId: 42 }, { instanceId: '' }, { instanceId: 'i', sessionId: 5 }])('validates the session breakdown payload %j', async payload => {
+    setup();
+    expect((await invoke(IPC_CHANNELS.COST_GET_SESSION_BREAKDOWN, payload)).success).toBe(false);
+  });
+  it('returns a database-backed breakdown through the renderer channel', async () => {
+    const { tracker } = setup();
+    tracker.recordUsage('breakdown-instance', 'breakdown-session', 'sonnet', 100, 10, 0, 0, 0.01);
+    const response = await invoke(IPC_CHANNELS.COST_GET_SESSION_BREAKDOWN, { instanceId: 'breakdown-instance', sessionId: 'breakdown-session' });
+    expect(response).toMatchObject({ success: true, data: { turns: 1, totalCostUsd: 0.01 } });
+  });
+
   it('handles COST_GET_HISTORY with the same stored entries used by the cost page', async () => {
     const { tracker } = setup();
     tracker.recordUsage('inst-1', 'sess-1', 'model', 0, 0, 0, 0, 1);

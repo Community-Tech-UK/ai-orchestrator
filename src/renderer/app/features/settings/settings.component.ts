@@ -10,6 +10,10 @@ import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive'
  * subsystem health — see copilot_todo.md items 1, 12, 13 and 15.
  */
 
+import { buildSettingsNav, pageBadge } from './settings-nav-model';
+import { pageForTab } from './settings-pages';
+import { SETTINGS_SECTION_TARGETS } from './settings-section-targets';
+import { SettingsSectionTabsComponent } from './ui/settings-section-tabs.component';
 import {
   AfterViewChecked,
   ChangeDetectionStrategy,
@@ -67,7 +71,7 @@ import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directi
 import type { HelpEntry, HelpLiveStatus } from '../../shared/help/help-content.types';
 import { SETTINGS_TAB_HELP } from './help/settings-help';
 import { scrollToSettingRow } from './settings-row-landing';
-import { bestSettingMatch, settingsSearchCatalog, type SettingsSearchEntry } from '../../../../shared/types/settings-search-catalog';
+import { bestSettingMatch, settingsSearchCatalog, withSectionTargets, type SettingsSearchEntry } from '../../../../shared/types/settings-search-catalog';
 import { SettingsHealthNoticesComponent } from './settings-health-notices.component';
 import {
   HELP_COLLAPSED_KEY,
@@ -79,7 +83,6 @@ import {
   type HelpStatus,
   type NavBadge,
   type SettingsLayoutMode,
-  type SettingsNavItem,
   type SettingsTab,
 } from './settings-navigation';
 import { bindSettingsViewportMediaQueries } from './settings-viewport-media';
@@ -90,7 +93,7 @@ import { SettingsCompactNavFocus } from './settings-compact-nav-focus';
   selector: 'app-settings',
   standalone: true,
   imports: [
-    SettingsHealthNoticesComponent,
+    SettingsHealthNoticesComponent, SettingsSectionTabsComponent, AioTooltipDirective,
     GeneralSettingsTabComponent,
     OrchestrationSettingsTabComponent,
     CrossSessionMessagingSettingsTabComponent,
@@ -375,29 +378,15 @@ export class SettingsComponent implements AfterViewChecked {
     }
   });
 
-  /** NAV_ITEMS filtered by the current search query. */
-  private readonly filteredItems = computed(() => {
-    const query = this.searchQuery().trim().toLowerCase();
-    if (!query) {
-      return NAV_ITEMS;
-    }
-    return NAV_ITEMS.filter((item) => {
-      const haystack = `${item.id} ${item.label} ${item.summary} ${item.group ?? ''} ${
-        item.keywords ?? ''
-      }`.toLowerCase();
-      return haystack.includes(query);
-    });
-  });
-
-  readonly ungroupedItems = computed(() => this.filteredItems().filter((item) => !item.group));
-  readonly groups = computed(() => [
-    ...new Set(
-      this.filteredItems()
-        .filter((item) => item.group)
-        .map((item) => item.group as string),
-    ),
-  ]);
-  readonly hasResults = computed(() => this.filteredItems().length > 0);
+  readonly nav = computed(() => buildSettingsNav(this.searchQuery()));
+  readonly hasResults = computed(() => this.nav().hasResults);
+  readonly activePage = computed(() => pageForTab(this.activeTab()));
+  readonly activePageTabs = computed(() => this.activePage().tabs.map(id => ({
+    id, label: NAV_ITEMS.find(item => item.id === id)!.label, panelId: 'settings-page-section',
+    badge: this.navBadges()[id]?.text,
+  })));
+  readonly pageBadge = pageBadge;
+  selectPageTab(tab: string): void { if (isSettingsTab(tab)) this.selectTab(tab); }
 
   constructor() {
     // Keep the live health stores warm so nav badges and the help pane reflect
@@ -463,10 +452,6 @@ export class SettingsComponent implements AfterViewChecked {
     }
   }
 
-  getGroupItems(group: string): SettingsNavItem[] {
-    return this.filteredItems().filter((item) => item.group === group);
-  }
-
   onSearch(event: Event): void {
     this.searchQuery.set((event.target as HTMLInputElement).value);
   }
@@ -482,7 +467,7 @@ export class SettingsComponent implements AfterViewChecked {
    * obvious one", and offering a ranked menu inside a nav rail that is already
    * filtering itself would be two competing result lists in one panel.
    */
-  readonly searchRowMatch = computed(() => bestSettingMatch(this.searchQuery()));
+  readonly searchRowMatch = computed(() => bestSettingMatch(this.searchQuery(), withSectionTargets(settingsSearchCatalog(), SETTINGS_SECTION_TARGETS)));
 
   /** Switch to the matched row's tab and scroll it into view. */
   jumpToSearchMatch(): void {

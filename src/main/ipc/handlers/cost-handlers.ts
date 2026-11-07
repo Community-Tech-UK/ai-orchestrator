@@ -21,12 +21,17 @@ import {
 } from '@contracts/schemas/session';
 import { repairStoredCostEntriesA0 } from '../../core/system/cost-entries-a0-repair';
 import { getCostPurposeSummary } from '../../core/system/cost-purpose-summary';
+import { subscribeSubagentUsage } from '../../instance/subagent-usage-publisher';
+import { registerCleanup } from '../../util/cleanup-registry';
+import { getSessionSpendBreakdown } from '../../core/system/session-spend-breakdown';
+import { getCopilotCreditRecorder } from '../../core/system/copilot-credit-recorder';
 import { getCostTracker, type BudgetAlert, type CostEntry } from '../../core/system/cost-tracker';
 import { WindowManager } from '../../window-manager';
 import { getRLMDatabase } from '../../persistence/rlm-database';
 import { getLogger } from '../../logging/logger';
 
 const logger = getLogger('CostHandlers');
+let subagentPushCleanup: (() => void) | undefined;
 
 /**
  * Renderer cost history (preload `costGetHistory(instanceId?, limit?)`). Local
@@ -61,6 +66,18 @@ export function registerCostHandlers(deps: {
     } catch {
       return { success: false, error: { code: 'COST_GET_EPHEMERAL_USAGE_FAILED',
         message: 'Temporary Codex usage is unavailable', timestamp: Date.now() } };
+    }
+  });
+  subagentPushCleanup?.();
+  subagentPushCleanup = subscribeSubagentUsage(sample => deps.windowManager.sendToRenderer(IPC_CHANNELS.INSTANCE_SUBAGENT_USAGE, sample));
+  registerCleanup(subagentPushCleanup);
+  ipcMain.handle(IPC_CHANNELS.COST_GET_SESSION_BREAKDOWN, async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const request = validateIpcPayload(z.object({ instanceId: InstanceIdSchema, sessionId: z.string().min(1).max(500).optional() }), payload, 'COST_GET_SESSION_BREAKDOWN');
+      return { success: true, data: getSessionSpendBreakdown(getRLMDatabase().getRawDb(), request.instanceId, request.sessionId,
+        getCopilotCreditRecorder().getCopilotCacheState(request.instanceId)) };
+    } catch (error) {
+      return { success: false, error: { code: 'COST_GET_SESSION_BREAKDOWN_FAILED', message: (error as Error).message, timestamp: Date.now() } };
     }
   });
   ipcMain.handle(IPC_CHANNELS.COST_GET_PURPOSE_SUMMARY, async (_event, payload: unknown): Promise<IpcResponse> => {

@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { PERMISSION_SCOPE_WORDS } from '../../../../shared/permissions/permission-scope-presentation';
 import {
   approveLabelFor,
+  canTellWhatToDoInstead,
+  permissionHintFor,
   canAddClaudeAllowRule,
   decisionFor,
   permissionAskKind,
@@ -73,6 +75,12 @@ describe('permission card decisions', () => {
     expect(permissionScopesFor({ type: 'permission_denial' })).toEqual([]);
   });
 
+  it('names the control the header really has when it points an unsupported-tool denial at Auto-approve', () => {
+    const hint = permissionHintFor({ type: 'permission_denial', tool_name: 'WebFetch' }, 'always');
+    expect(hint).toContain('switch on Auto-approve with the YOLO button at the top of this session');
+    expect(hint).toContain('~/.claude/settings.json');
+  });
+
   it('offers three scopes for held commands and only Once for single approvals', () => {
     expect(permissionAskKind(held)).toBe('claude-held');
     expect(permissionScopesFor(held)).toEqual(['once', 'session', 'always']);
@@ -121,5 +129,22 @@ describe('permission card decisions', () => {
     expect(decisionFor(held, false, 'always')).toEqual({ action: 'deny', scope: 'always' });
     expect(decisionFor(held, true, 'once')).toEqual({ action: 'allow', scope: 'once' });
     expect(decisionFor(single, true, 'always')).toEqual({ action: 'allow', scope: 'once' });
+  });
+});
+
+describe('live card tools and refusal notes', () => {
+  it('offers refusal notes only on Claude held or denial cards', () => {
+    for (const type of ['deferred_permission', 'permission_denial']) expect(canTellWhatToDoInstead({ type })).toBe(true);
+    for (const type of ['codex_mcp_approval', 'acp_permission_request', 'ask_user_question']) expect(canTellWhatToDoInstead({ type })).toBe(false);
+  });
+  it('names non-shell tools and tells the truth about strict once', () => {
+    for (const tool_name of ['Write', 'WebFetch', 'mcp__browser-gateway__browser_health']) {
+      const meta = { type: 'deferred_permission', live: true, tool_name };
+      expect(defaultInputRequiredScope(meta)).toBe('once');
+      expect(approveLabelFor(meta, 'once')).toBe(PERMISSION_SCOPE_WORDS.once.allow);
+      expect(approveLabelFor(meta, 'session')).toContain(tool_name === 'Write' ? 'Write' : tool_name === 'WebFetch' ? 'WebFetch' : 'browser_health (browser-gateway)');
+      expect(permissionHintFor(meta, 'once')).toBe('Allows only this call.');
+      expect(permissionHintFor(meta, 'always')).toContain('Settings > Permissions > Rules');
+    }
   });
 });

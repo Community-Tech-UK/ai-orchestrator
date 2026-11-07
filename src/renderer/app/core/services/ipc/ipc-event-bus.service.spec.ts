@@ -1,3 +1,4 @@
+import type { InstanceInputContextDeliveredEvent } from '../../../../../shared/types/input-context-delivery.types';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
@@ -27,6 +28,7 @@ function makeProviderEnvelope(
 }
 
 describe('IpcEventBusService', () => {
+  let capturedDelivery: ((event: InstanceInputContextDeliveredEvent) => void) | undefined;
   let capturedProviderRuntimeEvent:
     | ((event: ProviderRuntimeEventEnvelope) => void)
     | undefined;
@@ -43,6 +45,7 @@ describe('IpcEventBusService', () => {
   beforeEach(() => {
     TestBed.resetTestingModule();
     capturedProviderRuntimeEvent = undefined;
+    capturedDelivery = undefined;
 
     (window as unknown as { electronAPI: unknown }).electronAPI = {
       onProviderRuntimeEvent: (callback: (event: ProviderRuntimeEventEnvelope) => void) => {
@@ -60,6 +63,10 @@ describe('IpcEventBusService', () => {
         {
           provide: InstanceIpcService,
           useValue: {
+            onInputContextDelivered: (callback: (event: InstanceInputContextDeliveredEvent) => void) => {
+              capturedDelivery = callback;
+              return () => { capturedDelivery = undefined; };
+            },
             onInstanceCreated: () => () => undefined,
             onInstanceRemoved: (callback: typeof removeInstance) => { removeInstance = callback; return () => undefined; },
             onInstanceStateUpdate: (callback: typeof updateInstance) => { updateInstance = callback; return () => undefined; },
@@ -81,6 +88,15 @@ describe('IpcEventBusService', () => {
     } else {
       delete (window as unknown as { electronAPI?: unknown }).electronAPI;
     }
+  });
+
+  it('bridges delivery metadata separately from output and removes its listener', () => {
+    const service = TestBed.inject(IpcEventBusService);
+    const received: InstanceInputContextDeliveredEvent[] = [];
+    const subscription = service.inputContextDelivered$.subscribe(event => received.push(event));
+    const delivery = { instanceId: 'inst-1', messageId: 'user', deliveryId: 'delivery', tokens: 120 };
+    capturedDelivery?.(delivery); expect(received).toEqual([delivery]);
+    subscription.unsubscribe(); expect(capturedDelivery).toBeUndefined();
   });
 
   it('bridges provider runtime output envelopes into instanceOutput$', () => {

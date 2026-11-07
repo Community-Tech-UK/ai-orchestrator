@@ -635,7 +635,7 @@ export const ReactionEventSchema = z.object({
 export const OrchestrationActivityEventSchema = z.object({
   instanceId: z.string(),
   activity: z.string(),
-  category: z.enum(['orchestration', 'debate', 'verification', 'task']),
+  category: z.enum(['orchestration', 'debate', 'verification', 'task', 'reasoning']),
   progress: z.object({
     current: z.number(),
     total: z.number(),

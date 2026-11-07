@@ -38,7 +38,7 @@ interface MemoryEntryView extends MemoryEntry {
     <div class="page">
       <div class="page-header">
         <div class="header-title">
-          <span class="title">Memory</span>
+          <span class="title">Memory Browser</span>
           <span class="subtitle">Memory retrieval, learned patterns, and session history</span>
         </div>
       </div>

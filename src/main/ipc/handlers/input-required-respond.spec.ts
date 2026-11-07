@@ -39,6 +39,7 @@ describe('respondToInputRequired and the receipt for the answer', () => {
       getRequestReceipts: vi.fn(() => ({ beginReply })),
       sendInputResponse: vi.fn(async () => { calls.push('sent'); }),
       resumeAfterDeferredPermission: vi.fn(async () => { calls.push('resumed'); }),
+      isPendingInputRequiredPermission: vi.fn(() => true),
       recordInputRequiredPermissionDecision: vi.fn(),
       clearPendingInputRequiredPermission: vi.fn(),
       respawnAfterUnexpectedExit: vi.fn(async () => undefined),
@@ -116,14 +117,24 @@ describe('respondToInputRequired and the receipt for the answer', () => {
     it('commits an allow with its scope', async () => {
       await respond({ ...deferred, decisionAction: 'allow', decisionScope: 'always' });
 
-      expect(manager['resumeAfterDeferredPermission']).toHaveBeenCalledWith('inst-1', true, undefined);
+      expect(manager['resumeAfterDeferredPermission']).toHaveBeenCalledWith('inst-1', true, undefined, { requestId: 'req-1' });
       expect(commit).toHaveBeenCalledWith(expect.objectContaining({ decision: { action: 'allow', scope: 'always' } }));
+    });
+
+    it('refuses a reply for a request the session is no longer waiting on, before anything resumes', async () => {
+      manager['isPendingInputRequiredPermission']?.mockReturnValueOnce(false);
+
+      const result = await respond({ ...deferred, decisionAction: 'allow', decisionScope: 'once' });
+
+      expect(result).toMatchObject({ success: false, error: { code: 'INPUT_REQUIRED_NOT_PENDING' } });
+      expect(manager['resumeAfterDeferredPermission']).not.toHaveBeenCalled();
+      expect(beginReply).not.toHaveBeenCalled();
     });
 
     it('commits a deny', async () => {
       await respond({ ...deferred, response: 'denied', decisionAction: 'deny' });
 
-      expect(manager['resumeAfterDeferredPermission']).toHaveBeenCalledWith('inst-1', false, undefined);
+      expect(manager['resumeAfterDeferredPermission']).toHaveBeenCalledWith('inst-1', false, undefined, { requestId: 'req-1' });
       expect(commit).toHaveBeenCalledWith(expect.objectContaining({ decision: { action: 'deny', scope: undefined } }));
     });
 

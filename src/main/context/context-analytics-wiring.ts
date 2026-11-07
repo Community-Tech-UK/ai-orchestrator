@@ -24,11 +24,23 @@ export interface ContextAnalyticsWiringSources {
   instanceEvents: Pick<EventEmitter, 'on' | 'off'>;
   /** SettingsManager (or a compatible emitter in tests). */
   settingsEvents: Pick<EventEmitter, 'on' | 'off'>;
+  compactionEvents?: Pick<EventEmitter, 'on' | 'off'>;
   service?: CacheAnalyticsService;
 }
 
 export function wireContextAnalytics(sources: ContextAnalyticsWiringSources): () => void {
   const service = sources.service ?? getCacheAnalyticsService();
+  const onInput = (payload: { instanceId?: string }): void => {
+    if (payload?.instanceId) service.noteTurnStart(payload.instanceId);
+  };
+  const onCompacted = (payload: { instanceId?: string; result?: { success?: boolean } }): void => {
+    if (payload?.instanceId && payload.result?.success === true) service.resetBaseline(payload.instanceId);
+  };
+  const onState = (payload: { instanceId?: string; state?: string; status?: string }): void => {
+    if (payload?.instanceId && ['respawning', 'waking', 'starting'].includes(payload.state ?? payload.status ?? '')) {
+      service.noteConfigEvent(payload.instanceId, 'session restarted');
+    }
+  };
 
   const onModelChanged = (payload: { instanceId?: string }): void => {
     if (payload?.instanceId) service.noteConfigEvent(payload.instanceId, 'model/provider change');
@@ -46,12 +58,18 @@ export function wireContextAnalytics(sources: ContextAnalyticsWiringSources): ()
   };
 
   sources.instanceEvents.on('instance:model-changed', onModelChanged);
+  sources.instanceEvents.on('instance:input-started', onInput);
+  sources.instanceEvents.on('instance:state-changed', onState);
+  sources.compactionEvents?.on('compaction-completed', onCompacted);
   sources.instanceEvents.on('instance:yolo-toggled', onYoloToggled);
   sources.instanceEvents.on('instance:removed', onRemoved);
   sources.settingsEvents.on('setting-changed', onSettingChanged);
 
   return () => {
     sources.instanceEvents.off('instance:model-changed', onModelChanged);
+    sources.instanceEvents.off('instance:input-started', onInput);
+    sources.instanceEvents.off('instance:state-changed', onState);
+    sources.compactionEvents?.off('compaction-completed', onCompacted);
     sources.instanceEvents.off('instance:yolo-toggled', onYoloToggled);
     sources.instanceEvents.off('instance:removed', onRemoved);
     sources.settingsEvents.off('setting-changed', onSettingChanged);

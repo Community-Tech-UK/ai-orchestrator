@@ -12,6 +12,7 @@ import { basename } from 'node:path';
 import { Subject } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { NeedsYouStore } from '../workboard/needs-you.store';
 import { InstanceIpcService, IpcEventBusService, IpcFacadeService } from '../../core/services/ipc';
 import { StatsIpcService } from '../../core/services/ipc/stats-ipc.service';
 import { RecentDirectoriesIpcService } from '../../core/services/ipc/recent-directories-ipc.service';
@@ -178,7 +179,7 @@ describe('session rail after the first state resync keeps failing', () => {
     stateResync = vi.fn();
     appReady = vi.fn().mockResolvedValue({ success: true, data: {} });
     const streams = [
-      'batchUpdate$', 'compactStatus$', 'fastToggled$', 'inputRequired$', 'inputRequiredResolved$',
+      'batchUpdate$', 'compactStatus$', 'fastToggled$', 'inputRequired$', 'inputRequiredResolved$', 'inputContextDelivered$',
       'instanceCreated$', 'instanceOutput$', 'instanceRemoved$', 'instanceStateUpdate$',
       'instanceTranscriptChunk$', 'orchestrationActivity$', 'yoloToggled$',
     ];
@@ -186,8 +187,9 @@ describe('session rail after the first state resync keeps failing', () => {
     TestBed.configureTestingModule({
       providers: [
         // The real InstanceStore and InstanceListStore run; only the IPC edge and unrelated stores are faked.
-        { provide: IpcFacadeService, useValue: { stateResync, appReady } },
+        { provide: IpcFacadeService, useValue: { stateResync, appReady, on: vi.fn(() => () => undefined) } },
         { provide: IpcEventBusService, useValue: eventBus },
+        { provide: NeedsYouStore, useValue: { sessionIds: () => new Set<string>(), entries: () => [] } },
         { provide: InstanceIpcService, useValue: {} },
         { provide: StatsIpcService, useValue: {} },
         { provide: ToastService, useValue: { show: vi.fn() } },

@@ -6,6 +6,12 @@ vi.mock('../core/config/settings-manager', () => ({
   getSettingsManager: () => ({ getAll: () => ({ defaultModelByProvider: {} }) }),
 }));
 
+// These in-memory chats have no global loops. Keep the real archive path without booting
+// the app-wide coordinator; chat-service.spec.ts covers loop cancellation and ordering.
+vi.mock('../orchestration/loop-coordinator', () => ({ getLoopCoordinator: () => ({
+  getActiveLoops: () => [], cancelLoop: vi.fn(async () => true),
+}) }));
+
 const CLAUDE = { provider: 'claude' as const, model: null };
 
 describe('SideChatService', () => {

@@ -41,7 +41,7 @@ export class InternalOrchestratorConversationAdapter implements NativeConversati
     return {
       thread: this.threadFromRef(ref),
       messages: [],
-      warnings: ['Internal orchestrator conversations are stored directly in the conversation ledger.'],
+      warnings: ['Internal Harness conversations are stored directly in the conversation ledger.'],
       rawRefs: [],
     };
   }

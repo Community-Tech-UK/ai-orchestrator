@@ -1,3 +1,4 @@
+import { NoticeSlotService } from '../../core/notices/notice-slot.service';
 /**
  * Browser Computer Offline Banner
  *
@@ -11,7 +12,7 @@
  * from {@link RemoteNodeStore}.
  */
 
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, DestroyRef } from '@angular/core';
 import type { RemoteNodeRosterEntry } from '../../../../shared/types/worker-node.types';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { isRemoteNodeOnline } from '../../core/state/remote-node-connectivity';
@@ -22,6 +23,7 @@ import { SettingsStore } from '../../core/state/settings.store';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    @if (slot()) {
     @if (unavailable().length > 0) {
       <section class="browser-offline-banner" role="status" aria-live="polite">
         <span class="status-dot" aria-hidden="true"></span>
@@ -33,6 +35,7 @@ import { SettingsStore } from '../../core/state/settings.store';
           }
         </div>
       </section>
+    }
     }
   `,
   styles: [`
@@ -94,6 +97,8 @@ export class BrowserComputerOfflineBannerComponent {
       ? []
       : browserComputers;
   });
+
+  protected readonly slot = inject(NoticeSlotService).register('browser-computer-offline', computed(() => this.unavailable().length > 0), inject(DestroyRef));
 
   protected readonly hinted = computed(() => this.unavailable().filter((node) => node.connectivityHint));
 

@@ -9,6 +9,7 @@ import type { SideChatAttention, SideChatParentRef, SideChatSummary } from '../.
 
 const PARENT_A: SideChatParentRef = { kind: 'session', historyThreadId: 'thread-a', originNodeId: null };
 const PARENT_B: SideChatParentRef = { kind: 'session', historyThreadId: 'thread-b', originNodeId: null };
+const PARENT_A_REOPENED: SideChatParentRef = { kind: 'session', historyThreadId: 'thread-a', originNodeId: 'windows-pc' };
 
 function chat(id: string): ChatRecord {
   return {
@@ -26,7 +27,7 @@ function summary(id: string, parent: SideChatParentRef, state: SideChatSummary['
 }
 
 function attention(parent: SideChatParentRef, overrides: Partial<SideChatAttention> = {}): SideChatAttention {
-  return { parent, parentTitle: 'Session', total: 1, running: 0, unread: 0, needsAttention: 0, targetChatId: null, ...overrides };
+  return { parent, parentTitle: 'Session', total: 1, running: 0, unread: 0, needsAttention: 0, attentionSince: null, targetChatId: null, ...overrides };
 }
 
 describe('SideChatStore', () => {
@@ -72,6 +73,147 @@ describe('SideChatStore', () => {
     expect(store.attentionBadgeCount()).toBe(3);
     expect(store.attentionList()[0]?.parent).toEqual(PARENT_B);
     expect(ipc['sideChatList']).not.toHaveBeenCalled();
+  });
+
+  it('surfaces an unsuccessful initial attention response', async () => {
+    ipc['sideChatAttentionAll'].mockResolvedValueOnce({
+      success: false,
+      error: { message: 'Attention unavailable' },
+    });
+
+    await store.initialize();
+
+    expect(store.attentionLoadState()).toBe('error');
+    expect(store.attentionFor(PARENT_A)).toBeNull();
+  });
+
+  it('surfaces a rejected initial attention request', async () => {
+    ipc['sideChatAttentionAll'].mockRejectedValueOnce(new Error('IPC disconnected'));
+
+    await store.initialize();
+
+    expect(store.attentionLoadState()).toBe('error');
+  });
+
+  it('recovers the attention snapshot after an explicit retry', async () => {
+    ipc['sideChatAttentionAll']
+      .mockResolvedValueOnce({ success: false, error: { message: 'Attention unavailable' } })
+      .mockResolvedValueOnce({ success: true, data: [attention(PARENT_A, { unread: 2 })] });
+
+    await store.initialize();
+    await store.retryAttentionLoad();
+
+    expect(ipc['sideChatAttentionAll']).toHaveBeenCalledTimes(2);
+    expect(store.attentionLoadState()).toBe('loaded');
+    expect(store.attentionFor(PARENT_A)?.unread).toBe(2);
+  });
+
+  it('keeps a live attention delta received while a retry snapshot is pending', async () => {
+    ipc['sideChatAttentionAll'].mockResolvedValueOnce({ success: false, error: { message: 'Attention unavailable' } });
+    await store.initialize();
+
+    let finish!: (value: unknown) => void;
+    ipc['sideChatAttentionAll'].mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const retry = store.retryAttentionLoad();
+    expect(store.attentionLoadState()).toBe('loading');
+
+    emit({ type: 'side-chat-attention', attention: attention(PARENT_A, { needsAttention: 1, attentionSince: 2_000 }) });
+    finish({ success: true, data: [attention(PARENT_A), attention(PARENT_B, { unread: 1 })] });
+    await retry;
+
+    expect(store.attentionFor(PARENT_A)).toMatchObject({ needsAttention: 1, attentionSince: 2_000 });
+    expect(store.attentionFor(PARENT_B)?.unread).toBe(1);
+    expect(store.attentionLoadState()).toBe('loaded');
+  });
+
+  it('refreshes values and drops parents that existed before a failed load once a retry snapshot is authoritative', async () => {
+    ipc['sideChatAttentionAll'].mockResolvedValueOnce({ success: false, error: { message: 'Attention unavailable' } });
+    await store.initialize();
+    emit({ type: 'side-chat-attention', attention: attention(PARENT_A, { running: 1 }) });
+    emit({ type: 'side-chat-attention', attention: attention(PARENT_B, { unread: 1 }) });
+
+    ipc['sideChatAttentionAll'].mockResolvedValueOnce({ success: true, data: [attention(PARENT_A, { unread: 3 })] });
+    await store.retryAttentionLoad();
+
+    expect(store.attentionFor(PARENT_A)).toMatchObject({ unread: 3, running: 0 });
+    expect(store.attentionFor(PARENT_B)).toBeNull();
+  });
+
+  it('lets a delta received after a retry starts win over both the older value and the snapshot', async () => {
+    ipc['sideChatAttentionAll'].mockResolvedValueOnce({ success: false, error: { message: 'Attention unavailable' } });
+    await store.initialize();
+    emit({ type: 'side-chat-attention', attention: attention(PARENT_A, { running: 1 }) });
+    emit({ type: 'side-chat-attention', attention: attention(PARENT_B, { unread: 1 }) });
+
+    let finish!: (value: unknown) => void;
+    ipc['sideChatAttentionAll'].mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const retry = store.retryAttentionLoad();
+    emit({ type: 'side-chat-attention', attention: attention(PARENT_A, { needsAttention: 2, attentionSince: 5_000 }) });
+    finish({ success: true, data: [attention(PARENT_A, { unread: 3 })] });
+    await retry;
+
+    expect(store.attentionFor(PARENT_A)).toMatchObject({ needsAttention: 2, attentionSince: 5_000, unread: 0 });
+    expect(store.attentionFor(PARENT_B)).toBeNull();
+  });
+
+  it('retries only after a failed load', async () => {
+    await store.retryAttentionLoad();
+    expect(ipc['sideChatAttentionAll']).not.toHaveBeenCalled();
+    expect(store.attentionLoadState()).toBe('idle');
+
+    await store.initialize();
+    await store.retryAttentionLoad();
+    expect(ipc['sideChatAttentionAll']).toHaveBeenCalledTimes(1);
+    expect(store.attentionLoadState()).toBe('loaded');
+  });
+
+  it('ignores a snapshot that resolves after teardown', async () => {
+    let finish!: (value: unknown) => void;
+    ipc['sideChatAttentionAll'].mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const loading = store.initialize();
+
+    store.disposeForTesting();
+    finish({ success: true, data: [attention(PARENT_A, { unread: 2 })] });
+    await loading;
+
+    expect(store.attentionFor(PARENT_A)).toBeNull();
+    expect(store.attentionLoadState()).toBe('idle');
+  });
+
+  it('preserves the main attention onset for a logical session across node changes and new episodes', async () => {
+    vi.useFakeTimers();
+    try {
+      await store.initialize();
+      vi.setSystemTime(1_000);
+      emit({ type: 'side-chat-attention', attention: attention(PARENT_A, { needsAttention: 1, attentionSince: 1_000 }) });
+      expect(store.attentionFor(PARENT_A)?.attentionSince).toBe(1_000);
+
+      vi.setSystemTime(5_000);
+      emit({ type: 'side-chat-attention', attention: attention(PARENT_A_REOPENED, { needsAttention: 1, attentionSince: 1_000 }) });
+      expect(store.attentionFor(PARENT_A)?.parent).toEqual(PARENT_A_REOPENED);
+      expect(store.attentionFor(PARENT_A)?.attentionSince).toBe(1_000);
+
+      vi.setSystemTime(9_000);
+      emit({ type: 'side-chat-attention', attention: attention(PARENT_A_REOPENED, { needsAttention: 0, attentionSince: null }) });
+      expect(store.attentionFor(PARENT_A)?.attentionSince).toBeNull();
+
+      vi.setSystemTime(12_000);
+      emit({ type: 'side-chat-attention', attention: attention(PARENT_A_REOPENED, { needsAttention: 1, attentionSince: 12_000 }) });
+      expect(store.attentionFor(PARENT_A)?.attentionSince).toBe(12_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps a newer attention delta when the initial snapshot arrives late', async () => {
+    let finish!: (value: unknown) => void;
+    ipc['sideChatAttentionAll'].mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const loading = store.initialize();
+    emit({ type: 'side-chat-attention', attention: attention(PARENT_A, { needsAttention: 1, attentionSince: 2_000 }) });
+    finish({ success: true, data: [attention(PARENT_A), attention(PARENT_B, { unread: 1 })] });
+    await loading;
+    expect(store.attentionFor(PARENT_A)).toMatchObject({ needsAttention: 1, attentionSince: 2_000 });
+    expect(store.attentionFor(PARENT_B)?.unread).toBe(1);
   });
 
   it('keeps drafts, selection and pending provider per parent, surviving panel destruction', () => {

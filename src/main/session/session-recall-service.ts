@@ -1,3 +1,4 @@
+import { prepareRetrievalQuery, retrievalContentTokens } from '../memory/retrieval-eval/retrieval-query';
 import type { AutomationStore } from '../automations/automation-store';
 import { getAutomationStore } from '../automations';
 import { getChildResultStorage } from '../orchestration/child-result-storage';
@@ -18,8 +19,8 @@ import {
 } from '../memory/project-memory-key';
 
 function scoreText(queryTerms: string[], text: string): number {
-  const haystack = text.toLowerCase();
-  return queryTerms.reduce((score, term) => score + (haystack.includes(term) ? 1 : 0), 0);
+  const haystack = retrievalContentTokens(text);
+  return queryTerms.reduce((score, term) => score + (haystack.has(term) ? 1 : 0), 0);
 }
 
 function hasFailureStatus(status: string): boolean {
@@ -40,7 +41,12 @@ export class SessionRecallService {
   ) {}
 
   async search(query: SessionRecallQuery): Promise<SessionRecallResult[]> {
-    const terms = query.query.toLowerCase().split(/\s+/).filter(Boolean);
+    const prepared = prepareRetrievalQuery(query.query);
+    query = { ...query, query: prepared.query };
+    const terms = prepared.terms;
+    const isBrowseQuery = prepared.query.length === 0;
+    if (!isBrowseQuery && terms.length === 0) return [];
+    const includeByScore = (score: number): boolean => score > 0 || isBrowseQuery;
     const limit = query.limit ?? 20;
     const results: SessionRecallResult[] = [];
     const sourceFilter = query.sources ? new Set<SessionRecallSource>(query.sources) : undefined;
@@ -57,7 +63,7 @@ export class SessionRecallService {
         }
         const text = `${result.taskDescription} ${result.summary} ${result.conclusions.join(' ')} ${result.keyDecisions.join(' ')}`;
         const score = scoreText(terms, text);
-        if (score > 0 || terms.length === 0) {
+        if (includeByScore(score)) {
           results.push({
             source: 'child_result',
             id: result.id,
@@ -89,7 +95,7 @@ export class SessionRecallService {
         }
         const text = `${run.configSnapshot?.name ?? ''} ${run.outputSummary ?? ''} ${run.error ?? ''}`;
         const score = scoreText(terms, text);
-        if (score > 0 || terms.length === 0) {
+        if (includeByScore(score)) {
           results.push({
             source: 'automation_run',
             id: run.id,
@@ -137,7 +143,7 @@ export class SessionRecallService {
             node.routing?.reason,
           ].filter(Boolean).join(' ');
           const score = scoreText(terms, text);
-          if (score > 0 || terms.length === 0) {
+          if (includeByScore(score)) {
             results.push({
               source: 'child_diagnostic',
               id: `${meta.id}:${node.instanceId}`,
@@ -172,7 +178,7 @@ export class SessionRecallService {
       for (const snapshot of snapshots) {
         const text = `${snapshot.id} ${snapshot.rootId}`;
         const score = scoreText(terms, text);
-        if (score > 0 || terms.length === 0) {
+        if (includeByScore(score)) {
           results.push({
             source: 'agent_tree',
             id: snapshot.id,
@@ -203,7 +209,7 @@ export class SessionRecallService {
           }
           const text = `${archive.displayName} ${archive.workingDirectory} ${(archive.tags ?? []).join(' ')}`;
           const score = scoreText(terms, text);
-          if (score > 0 || terms.length === 0) {
+          if (includeByScore(score)) {
             results.push({
               source: 'archived_session',
               id: archive.id,

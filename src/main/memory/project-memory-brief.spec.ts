@@ -418,6 +418,24 @@ describe('ProjectMemoryBriefService', () => {
     expect(brief.sources).toHaveLength(4);
   });
 
+  it('caps shared-word ranking at five so long prompts cannot displace stronger evidence', async () => {
+    const common = 'alpha bravo charlie delta echo foxtrot golf hotel india juliet';
+    const service = new ProjectMemoryBriefService({
+      promptHistory: { getForProject: () => promptAlias([
+        { id: 'five', text: 'alpha bravo charlie delta echo concise', createdAt: now, projectPath: '/repo' },
+        { id: 'ten', text: common, createdAt: now, projectPath: '/repo' },
+      ]) },
+      history: { getEntries: () => [] }, snippets: { expandSnippetsOnDemand: async () => [] }, recall: emptyRecall(),
+      projectKnowledge: { getReadModel: () => projectReadModel({ facts: [{ targetKind: 'kg_triple', targetId: 'important',
+        subject: 'Repository', predicate: 'uses', object: 'strict validation', confidence: 1,
+        validFrom: null, validTo: null, sourceFile: 'src/config.ts', evidenceCount: 1 }] }) },
+    });
+    const brief = await service.buildBrief({ projectPath: '/repo', initialPrompt: common, maxResults: 2 });
+    expect(brief.sources.map(source => source.id)).toContain('prompt:five');
+    expect(brief.sources.map(source => source.id)).not.toContain('prompt:ten');
+    expect(brief.sources.some(source => source.type === 'project-fact')).toBe(true);
+  });
+
   it('can disable mined memory and continue when project knowledge reads fail', async () => {
     const projectKnowledge = { getReadModel: vi.fn(() => projectReadModel()) };
     const service = new ProjectMemoryBriefService({

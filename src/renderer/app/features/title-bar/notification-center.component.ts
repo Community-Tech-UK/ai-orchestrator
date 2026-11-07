@@ -3,11 +3,13 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  effect,
   HostListener,
   OnInit,
   inject,
   signal,
 } from '@angular/core';
+import { SessionNavigator } from '../../core/services/session-navigator.service';
 import { NotificationCenterStore } from '../../core/state/notification-center.store';
 import { ToolLoopAlertStore } from '../../core/state/tool-loop-alert.store';
 import { InstanceStore } from '../../core/state/instance.store';
@@ -51,8 +53,15 @@ import type { NotificationRecord } from '../../../../shared/types/notification.t
             @for (record of store.records().slice(0, 10); track record.id) {
               <li [class.critical]="record.urgency === 'critical'">
                 <div class="notification-center-item-body">
-                  <strong>{{ record.title }}</strong>
-                  <span>{{ record.body }}</span>
+                  @if (record.instanceId) {
+                    <button type="button" class="notification-session" (click)="openSession(record)">
+                      <strong>{{ record.title }}</strong><span>{{ record.body }}</span>
+                    </button>
+                  } @else {
+                    <strong>{{ record.title }}</strong><span>{{ record.body }}</span>
+                  }
+                  @if (record.repeatCount && record.repeatCount > 1) { <span>×{{ record.repeatCount }}</span> }
+                  @if (record.resolvedAt !== undefined) { <span class="resolved">Resolved</span> }
                   @if (showToolLoopActions(record)) {
                     <div class="notification-center-actions">
                       <button
@@ -159,6 +168,9 @@ import type { NotificationRecord } from '../../../../shared/types/notification.t
       padding: 0.45rem 0;
     }
     li:first-child { border-top: 0; padding-top: 0; }
+    .notification-session { display: grid; gap: 0.15rem; padding: 0; background: transparent; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+    .notification-session:focus-visible { outline: 2px solid var(--primary-color); }
+    .resolved { color: var(--text-muted); }
     .notification-center-item-body { display: grid; gap: 0.15rem; min-width: 0; }
     li.critical strong { color: var(--error-color, #ef4444); }
     li span, .notification-center-empty { color: var(--text-secondary); font-size: var(--text-xs); margin: 0; }
@@ -189,11 +201,25 @@ import type { NotificationRecord } from '../../../../shared/types/notification.t
 })
 export class NotificationCenterComponent implements OnInit {
   protected readonly store = inject(NotificationCenterStore);
+  private readonly navigator = inject(SessionNavigator);
   private readonly toolLoopAlerts = inject(ToolLoopAlertStore);
   private readonly instances = inject(InstanceStore);
   private readonly settings = inject(SettingsStore);
   private readonly elementRef = inject<ElementRef<HTMLElement>>(ElementRef);
   protected readonly open = signal(false);
+
+  constructor() {
+    effect(() => {
+      if (this.open()) void this.store.markSeen({ ids: this.store.records().slice(0, 10).map(record => record.id) });
+    });
+  }
+
+  protected openSession(record: NotificationRecord): void {
+    if (!record.instanceId) return;
+    this.navigator.openSession(record.instanceId);
+    this.store.markSessionSeen(record.instanceId);
+    this.open.set(false);
+  }
 
   ngOnInit(): void {
     this.store.init();

@@ -335,7 +335,7 @@ export abstract class BaseCliAdapter extends EventEmitter {
    */
   async sendInput(message: string, attachments?: FileAttachment[], options?: AdapterInputOptions): Promise<void> {
     if (getPauseCoordinator().isPaused()) {
-      throw new OrchestratorPausedError('CLI input refused while orchestrator is paused');
+      throw new OrchestratorPausedError('CLI input refused while Harness is paused');
     }
 
     const internalSource = options?.internalSource;

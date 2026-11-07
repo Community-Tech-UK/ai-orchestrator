@@ -149,6 +149,16 @@ export const BUILT_IN_COMMANDS: Omit<CommandTemplate, 'id' | 'createdAt' | 'upda
     builtIn: true,
   },
   {
+    name: 'status',
+    description: 'Show this session’s model, permissions, plan and usage',
+    template: '',
+    aliases: ['session', 'info'],
+    category: 'session',
+    usage: '/status',
+    execution: { type: 'ui', actionId: 'session.open-status' },
+    builtIn: true,
+  },
+  {
     name: 'help',
     description: 'Show all available commands',
     template: '',

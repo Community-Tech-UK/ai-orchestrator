@@ -268,7 +268,7 @@ export class HarnessMcpStartupRecovery {
 
 const SERVER_LABELS: Record<string, string> = {
   'browser-gateway': 'Browser Gateway',
-  orchestrator: 'Harness orchestrator tools',
+  orchestrator: 'Harness tools',
   codemem: 'Codemem',
   [COMPUTER_USE_MCP_SERVER_NAME]: 'Computer Use',
 };

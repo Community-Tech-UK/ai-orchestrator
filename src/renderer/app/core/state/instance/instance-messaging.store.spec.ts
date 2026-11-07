@@ -254,7 +254,8 @@ describe('InstanceMessagingStore', () => {
     expect(currentStore.getQueuedMessageCount('inst-1')).toBe(0);
     expect(instance?.outputBuffer[instance.outputBuffer.length - 1]).toMatchObject({
       type: 'error',
-      content: expect.stringContaining('Failed to send message'),
+      content: "Your message wasn't sent.",
+      metadata: { detail: 'Instance inst-1 is in error state and cannot accept input' },
     });
   });
 
@@ -522,7 +523,8 @@ describe('InstanceMessagingStore', () => {
     expect(instance?.status).toBe('idle');
     expect(instance?.outputBuffer[instance.outputBuffer.length - 1]).toMatchObject({
       type: 'error',
-      content: expect.stringContaining('timed out'),
+      content: "Your message didn't reach the session within 60s. Check the session is running, then send it again.",
+      metadata: { detail: expect.stringContaining('Send input timed out after 60s.') },
     });
   });
 

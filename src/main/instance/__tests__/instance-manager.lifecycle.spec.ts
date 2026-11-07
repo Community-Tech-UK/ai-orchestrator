@@ -2235,7 +2235,7 @@ describe('InstanceManager', () => {
       expect(spawnEpoch).toBeDefined();
       expect(restartEpoch).toBeDefined();
       expect(restartEpoch?.entries).toEqual([]);
-      expect(restartEpoch?.note).toMatch(/no AIO system-prompt blocks were re-injected/i);
+      expect(restartEpoch?.note).toMatch(/no Harness system-prompt blocks were re-injected/i);
     });
 
     it('rejects and rolls back the replacement adapter when fresh restart spawn fails', async () => {

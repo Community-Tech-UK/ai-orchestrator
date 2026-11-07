@@ -371,6 +371,7 @@ describe('VoiceConversationStore', () => {
     expect(harness.steerInput).not.toHaveBeenCalled();
     expect(harness.store.mode()).toBe('error');
     expect(harness.store.errorCode()).toBe('session-unavailable');
+    expect(harness.store.error()).toBe("Voice can't send right now: the session has a problem.");
   });
 
   it('releases the main-process transcription session on stop', async () => {

@@ -14,8 +14,9 @@ import { StatsIpcService } from '../../services/ipc/stats-ipc.service';
 import { UpdateBatcherService, StateUpdate } from '../../services/update-batcher.service';
 import { ActivityDebouncerService } from '../../services/activity-debouncer.service';
 import { ToastService } from '../../services/toast.service';
+import { SessionNavigator } from '../../services/session-navigator.service';
 import { ProviderStateService, type ProviderType } from '../../services/provider-state.service';
-import { generateActivityStatus } from '../../utils/tool-activity-map';
+import { activityFromOutput } from '../../utils/tool-activity-map';
 
 // Sub-stores
 import { InstanceStateService } from './instance-state.service';
@@ -45,6 +46,7 @@ import { withAutomationRevealed } from './instance-automation-metadata';
 import { RespawnWatchdog } from './instance-respawn-watchdog';
 import { InstanceTranscriptResync } from './instance-transcript-resync';
 import { projectActiveTurnId } from './turn-settlement';
+import { InstancePendingApprovals } from './instance-pending-approvals';
 
 @Injectable({ providedIn: 'root' })
 export class InstanceStore implements OnDestroy {
@@ -66,8 +68,10 @@ export class InstanceStore implements OnDestroy {
   private activityDebouncer = inject(ActivityDebouncerService);
   private automationStore = inject(AutomationStore);
   private toast = inject(ToastService);
+  private readonly sessionNavigator = inject(SessionNavigator);
   private providerState = inject(ProviderStateService);
   private unsubscribes: (() => void)[] = [];
+  private readonly pendingApprovals = new InstancePendingApprovals();
 
   // Compaction state (tracked per instance)
   private _compactingInstances = signal(new Set<string>());
@@ -100,6 +104,8 @@ export class InstanceStore implements OnDestroy {
   readonly rootInstances = this.queries.rootInstances;
   readonly selectedInstanceActivity = this.queries.selectedInstanceActivity;
   readonly instanceActivities = this.queries.instanceActivities;
+  readonly liveActivities = this.activityDebouncer.activities;
+  readonly fastUnavailableProviders = signal<ReadonlySet<string>>(new Set<string>());
 
   // ============================================
   // Constructor & Lifecycle
@@ -118,6 +124,7 @@ export class InstanceStore implements OnDestroy {
     this.batcher.destroy();
     this.outputStore.cleanupAll();
     this.transcriptResync.clear();
+    this.pendingApprovals.clearAll();
 
     // Clean up respawn watchdog timers
     this.respawnWatchdog.clearAll();
@@ -142,12 +149,17 @@ export class InstanceStore implements OnDestroy {
     );
     this.addSubscription(
       this.eventBus.instanceRemoved$.subscribe((instanceId) => {
+        this.clearPendingApprovals(instanceId);
         this.transcriptResync.remove(instanceId);
         this.activityDebouncer.clearActivity(instanceId);
         this.outputStore.cleanupInstance(instanceId);
         this.listStore.removeInstance(instanceId);
       })
     );
+    this.addSubscription(this.eventBus.inputContextDelivered$.subscribe((delivery) => {
+      this.batcher.forceFlush();
+      this.outputStore.acceptInputContextDelivery(delivery);
+    }));
     this.addSubscription(this.eventBus.instanceTranscriptChunk$.subscribe((payload) => {
       this.batcher.forceFlush();
       const id = (payload as { instanceId?: unknown } | null)?.instanceId;
@@ -171,6 +183,7 @@ export class InstanceStore implements OnDestroy {
         // Applied toggle → yoloMode flips, pendingYoloMode clears.
         // Queued/cancelled while busy → yoloMode unchanged, pendingYoloMode set/cleared.
         this.stateService.updateInstance(instanceId, { yoloMode, pendingYoloMode });
+        if (yoloMode) this.clearPendingApprovals(instanceId);
       })
     );
     this.addSubscription(
@@ -182,6 +195,7 @@ export class InstanceStore implements OnDestroy {
           // flickering the toggle) now that we know it isn't honored.
           const provider = this.stateService.getInstance(instanceId)?.provider;
           if (provider) {
+            this.fastUnavailableProviders.update(values => new Set([...values, provider]));
             this.providerState.rememberFastModeForProvider(provider as ProviderType, false);
           }
         }
@@ -198,14 +212,14 @@ export class InstanceStore implements OnDestroy {
           && (message.metadata?.['kind'] === 'model-selection-degraded'
             || message.metadata?.['kind'] === 'pending-model-change-failed')
         ) {
-          this.toast.show(message.content, 'error');
+          this.toast.show(message.content, 'error', { key: `model-change:${instanceId}`,
+            action: { label: 'Show session', run: () => this.sessionNavigator.openSession(instanceId) } });
         }
 
-        // Track tool usage for activity status
+        const activity = activityFromOutput(message); if (activity) this.activityDebouncer.setActivity(instanceId, activity.activity, activity.tool);
+        // Count actual tool calls independently of thinking activity.
         if (message.type === 'tool_use' && message.metadata?.['name']) {
           const toolName = message.metadata['name'] as string;
-          const activity = generateActivityStatus(toolName);
-          this.activityDebouncer.setActivity(instanceId, activity, toolName);
           // Record tool usage for stats
           const inst = this.stateService.state().instances.get(instanceId);
           if (inst?.sessionId) {
@@ -265,13 +279,10 @@ export class InstanceStore implements OnDestroy {
     this.addSubscription(
       this.eventBus.inputRequired$.subscribe((payload) => {
         if (payload.instanceId) {
-          // Check if YOLO mode is enabled — skip tracking if so
           const inst = this.stateService.getInstance(payload.instanceId);
-          if (inst?.yoloMode) return;
-
-          this.stateService.updateInstance(payload.instanceId, {
-            pendingApprovalCount: (inst?.pendingApprovalCount ?? 0) + 1,
-          });
+          if (!inst) return;
+          const count = this.pendingApprovals.add(inst, payload.requestId, payload.metadata?.['type']);
+          if (count !== undefined) this.stateService.updateInstance(inst.id, { pendingApprovalCount: count });
         }
       })
     );
@@ -279,7 +290,7 @@ export class InstanceStore implements OnDestroy {
     // raised itself never counted as pending, so its closing takes nothing away.
     this.addSubscription(
       this.eventBus.inputRequiredResolved$.subscribe((payload) => {
-        if (payload.kind !== 'user-action') this.decrementPendingApproval(payload.instanceId);
+        if (payload.kind !== 'user-action') this.decrementPendingApproval(payload.instanceId, payload.requestId);
       })
     );
   }
@@ -842,18 +853,15 @@ export class InstanceStore implements OnDestroy {
     return completed;
   }
 
-  /** Decrement pending approval count for an instance (called after approval response) */
-  decrementPendingApproval(instanceId: string): void {
-    const inst = this.stateService.getInstance(instanceId);
-    if (inst && (inst.pendingApprovalCount ?? 0) > 0) {
-      this.stateService.updateInstance(instanceId, {
-        pendingApprovalCount: (inst.pendingApprovalCount ?? 0) - 1,
-      });
-    }
+  /** Settle one permission; duplicate or late replies cannot consume another request. */
+  decrementPendingApproval(instanceId: string, requestId: string): void {
+    const count = this.pendingApprovals.settle(instanceId, this.stateService.getInstance(instanceId), requestId);
+    if (count !== undefined) this.stateService.updateInstance(instanceId, { pendingApprovalCount: count });
   }
 
   /** Clear all pending approvals for an instance (e.g., when YOLO mode is toggled on) */
   clearPendingApprovals(instanceId: string): void {
+    this.pendingApprovals.clear(instanceId);
     const inst = this.stateService.getInstance(instanceId);
     if (inst && (inst.pendingApprovalCount ?? 0) > 0) {
       this.stateService.updateInstance(instanceId, {

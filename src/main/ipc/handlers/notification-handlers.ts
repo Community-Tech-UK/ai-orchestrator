@@ -1,6 +1,8 @@
 import { ipcMain } from 'electron';
 import { z } from 'zod';
 import { IPC_CHANNELS } from '@contracts/channels';
+import { NotificationMarkSeenPayloadSchema, NotificationSetBadgePayloadSchema } from '@contracts/schemas/observability';
+import { getAttentionBadge } from '../../app/attention-badge';
 import type { WindowManager } from '../../window-manager';
 import { getNotificationService, type NotificationService } from '../../notifications/notification-service';
 import { registerCleanup } from '../../util/cleanup-registry';
@@ -29,6 +31,14 @@ export function registerNotificationHandlers(dependencies: NotificationHandlerDe
     async (): Promise<IpcResponse> => ({ success: true, data: notificationService.list() }),
   );
 
+  ipcMain.handle(IPC_CHANNELS.NOTIFICATION_SET_BADGE,
+    validatedHandler(IPC_CHANNELS.NOTIFICATION_SET_BADGE, NotificationSetBadgePayloadSchema, async ({ count }) => {
+      const badge = getAttentionBadge();
+      badge.setWindowProvider(() => dependencies.windowManager.getMainWindow());
+      badge.setCount(count);
+      return { success: true };
+    }));
+
   ipcMain.handle(
     IPC_CHANNELS.NOTIFICATION_DISMISS,
     validatedHandler(IPC_CHANNELS.NOTIFICATION_DISMISS, dismissSchema, async ({ id }) => ({
@@ -42,6 +52,14 @@ export function registerNotificationHandlers(dependencies: NotificationHandlerDe
     async (): Promise<IpcResponse> => ({ success: true, data: { cleared: notificationService.clear() } }),
   );
 
+  ipcMain.handle(
+    IPC_CHANNELS.NOTIFICATION_MARK_SEEN,
+    validatedHandler(IPC_CHANNELS.NOTIFICATION_MARK_SEEN, NotificationMarkSeenPayloadSchema, async (selection) => {
+      notificationService.markSeen(selection);
+      return { success: true };
+    }),
+  );
+
   let cleanedUp = false;
   const cleanup = () => {
     if (cleanedUp) return;
@@ -52,6 +70,8 @@ export function registerNotificationHandlers(dependencies: NotificationHandlerDe
     ipcMain.removeHandler(IPC_CHANNELS.NOTIFICATION_LIST);
     ipcMain.removeHandler(IPC_CHANNELS.NOTIFICATION_DISMISS);
     ipcMain.removeHandler(IPC_CHANNELS.NOTIFICATION_CLEAR);
+    ipcMain.removeHandler(IPC_CHANNELS.NOTIFICATION_MARK_SEEN);
+    ipcMain.removeHandler(IPC_CHANNELS.NOTIFICATION_SET_BADGE);
   };
   activeCleanup = cleanup;
   registerCleanup(cleanup);

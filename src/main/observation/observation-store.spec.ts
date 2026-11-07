@@ -324,6 +324,17 @@ describe('ObservationStore', () => {
     });
   });
 
+  it('counts showing separately from demonstrated use without double-counting the showing', () => {
+    const reflection = store.storeReflection({ title: 'Note', insight: 'Check migration order', observationIds: [], patterns: [], confidence: 0.8,
+      applicability: [], createdAt: 1, ttl: 100000, usageCount: 0, effectivenessScore: 0.2, promotedToProcedural: false });
+    store.recordShown(reflection.id);
+    expect(reflection.usageCount).toBe(1); expect(reflection.effectivenessScore).toBe(0.2);
+    expect(store.getStats().successfulInjections).toBe(0);
+    store.recordUse(reflection.id);
+    expect(reflection.usageCount).toBe(1); expect(reflection.effectivenessScore).toBeCloseTo(0.28);
+    expect(store.getStats().totalInjections).toBe(1); expect(store.getStats().successfulInjections).toBe(1);
+  });
+
   describe('recordInjection', () => {
     it('should update injection stats on success', () => {
       const reflection = store.storeReflection({

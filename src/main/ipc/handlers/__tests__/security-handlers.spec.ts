@@ -38,6 +38,8 @@ const securityMocks = vi.hoisted(() => ({
     configure: vi.fn(),
     getConfig: vi.fn(() => ({})),
     getStats: vi.fn(() => ({})),
+    listUserRules: vi.fn(() => [] as Record<string, unknown>[]),
+    removeUserRule: vi.fn(() => true),
     getLearningStats: vi.fn(() => ({})),
     getPendingBatches: vi.fn(() => []),
     recordBatchDecisionForPending: vi.fn(() => 0),
@@ -144,6 +146,20 @@ describe('security-handlers trusted sender gate', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('VALIDATION_FAILED');
     expect(securityMocks.permissionManager.configure).not.toHaveBeenCalled();
+  });
+
+  it('lists only the safe user-rule DTO and validates removals before persistence', async () => {
+    securityMocks.permissionManager.listUserRules.mockReturnValueOnce([{
+      id: 'rule-1234-saved', name: 'Private internal name', action: 'deny', scope: 'bash',
+      pattern: 'x'.repeat(400), literal: true, enabled: true, source: 'user', priority: 99, conditions: [{ path: '/private' }],
+    }]);
+    const result = await handlers.get(IPC_CHANNELS.PERMISSION_LIST_USER_RULES)!({});
+    expect(result).toEqual({ success: true, data: [{ id: 'rule-1234-saved', action: 'deny', scope: 'bash', pattern: 'x'.repeat(300), literal: true, enabled: true, createdAt: 1234 }] });
+    const remove = handlers.get(IPC_CHANNELS.PERMISSION_REMOVE_USER_RULE)!;
+    expect((await remove({}, { ruleId: '' })).success).toBe(false);
+    expect(securityMocks.permissionManager.removeUserRule).not.toHaveBeenCalled();
+    expect(await remove({}, { ruleId: 'rule-1234-saved' })).toEqual({ success: true, data: true });
+    expect(securityMocks.permissionManager.removeUserRule).toHaveBeenCalledExactlyOnceWith('rule-1234-saved');
   });
 
   it('rejects every registered channel for an untrusted sender before any side effect', async () => {

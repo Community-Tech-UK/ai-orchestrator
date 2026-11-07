@@ -312,8 +312,8 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/instance/lifecycle/runtime-reconciler.ts': 843, // raised 705 -> 775 (2026-10-10): MiMo in-place account-switch branch (machinery in runtime-reconciler-account-handoff.ts); 775 -> 790 (2026-11-06): ending a provider-limit park after a move; 790 -> 843 (2026-11-06): Phase 1 token levers merged on top
   // Main process — IPC handlers
   'src/main/ipc/handlers/app-handlers.ts': 660,
-  // Raised 1208 -> 1251 (2026-07-17 thread-resilience + context-evidence handlers).
-  'src/main/ipc/handlers/instance-handlers.ts': 1251,
+  // Tightened 1251 -> 1230 after extracting instance-deferred-permission-response.ts.
+  'src/main/ipc/handlers/instance-handlers.ts': 1230,
   // Added 2026-07-16 at 794 (Fable WS6 LOOP_LIST_RECIPES + WS7 LOOP_ASSESS_SCOPE
   // read-only endpoints and the LOOP_START scope guard). Re-tighten after the
   // loop-handler split.

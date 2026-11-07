@@ -3,6 +3,9 @@ import { writeSessionReadAuditRow } from '../session/session-read-audit';
 import { getCompleteInstanceMessages } from '../history/complete-instance-messages';
 import { getHistoryManager } from '../history/history-manager';
 import { getScratchDirectory } from '../util/scratch-directory';
+import { getCompactionCoordinator } from '../context/compaction-coordinator';
+import { registerInputRequiredNotifier } from '../notifications/input-required-notifier';
+import { registerCleanup } from '../util/cleanup-registry';
 import { app } from 'electron';
 import { getHookManager } from '../hooks/hook-manager';
 import {
@@ -249,6 +252,7 @@ export function createInitializationSteps(
           const { getSettingsManager } = require('../core/config/settings-manager') as typeof import('../core/config/settings-manager');
           wireContextAnalytics({
             instanceEvents: instanceManager,
+            compactionEvents: getCompactionCoordinator(),
             settingsEvents: getSettingsManager(),
           });
         } catch (error) {
@@ -467,6 +471,7 @@ export function createInitializationSteps(
         getNodeLatencyForInstance: context.getNodeLatencyForInstance,
       }),
     },
+    { name: 'Input-required alerts', fn: () => { registerCleanup(registerInputRequiredNotifier({ instanceManager, windowManager })); } },
     {
       name: 'Background task publisher',
       fn: () => initializeInstanceAsyncWorkPublisher(instanceManager),

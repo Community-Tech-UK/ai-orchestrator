@@ -9,8 +9,8 @@ import { registerLocalAiGuardHandlers } from '../ipc/handlers/local-ai-guard-han
 import { AuxiliarySlotBackoff } from '../rlm/auxiliary-slot-backoff';
 import { getLocalAiAuxiliaryHooks } from './local-ai-auxiliary-bridge';
 
-const mocks = vi.hoisted(() => ({ notify: vi.fn(), handlers: new Map<string, (event: unknown, payload?: unknown) => Promise<unknown>>() }));
-vi.mock('../notifications/notification-service', () => ({ getNotificationService: () => ({ notify: mocks.notify }) }));
+const mocks = vi.hoisted(() => ({ notify: vi.fn(), resolve: vi.fn(), handlers: new Map<string, (event: unknown, payload?: unknown) => Promise<unknown>>() }));
+vi.mock('../notifications/notification-service', () => ({ getNotificationService: () => ({ notify: mocks.notify, resolve: mocks.resolve }) }));
 vi.mock('electron', () => ({ ipcMain: { handle: (channel: string, handler: never) => mocks.handlers.set(channel, handler), removeHandler: (channel: string) => mocks.handlers.delete(channel) } }));
 vi.mock('../rlm/token-counter', () => ({ getTokenCounter: () => ({ countTokens: (text: string) => text.length }) }));
 vi.mock('../logging/logger', () => ({ getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }) }));
@@ -25,7 +25,7 @@ function runtime(subscribe?: (listener: () => void) => () => void) {
     activity: {}, probes: {}, recovery: {},
   } as never);
 }
-beforeEach(() => { mocks.notify.mockClear(); AuxiliaryLlmService._resetForTesting(); });
+beforeEach(() => { mocks.notify.mockClear(); mocks.resolve.mockClear(); AuxiliaryLlmService._resetForTesting(); });
 afterEach(() => vi.useRealTimers());
 describe('helper backoff runtime bridge and retry IPC', () => {
   it.each(['deadline', 'periodic-refresh', 'snapshot-read'] as const)('expires published pauses through %s without claiming recovery', async path => {
@@ -54,6 +54,8 @@ describe('helper backoff runtime bridge and retry IPC', () => {
       backoff.retryNow('compression'); expect(guard.helperPauses).toEqual([]);
       backoff.recordSuccess('compression');
       expect(mocks.notify.mock.calls.map(call => call[0].kind)).toEqual(['local-ai-helper-paused', 'local-ai-helper-resumed']);
+      expect(mocks.notify.mock.calls[0][0].resolveKey).toBe('local-ai-helper:compression');
+      expect(mocks.resolve).toHaveBeenCalledWith('local-ai-helper:compression');
     } finally { cleanup(); uninstall(); guard.dispose(); }
   });
   it('publishes pauses in snapshots, bumps revisions and sends one notice per outage and recovery', async () => {

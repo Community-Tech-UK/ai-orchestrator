@@ -37,6 +37,13 @@ export interface RawCliPayload {
   subtype?: string;
   timestamp?: number;
   message?: {
+    /**
+     * Provider call identity (`msg_…`). One model call can arrive as several
+     * assistant stream frames (thinking / text / tool_use) that share this id
+     * and the same call usage; per-call accounting keys on it so a call is
+     * charged once, not once per frame.
+     */
+    id?: string;
     content?: RawContentBlock[];
     usage?: {
       input_tokens?: number;
@@ -182,6 +189,8 @@ export interface ClaudeCliSpawnOptions {
    * Pass a value explicitly in tests or when calling the adapter directly.
    */
   residentClaude?: boolean;
+  livePermissionPrompts?: boolean;
+  instanceId?: string;
   /** Minimal mode (--bare): skips hooks, LSP, plugins, auto-memory, CLAUDE.md
    *  auto-discovery, and keychain reads for faster startup (~14% faster).
    *  Requires explicit ANTHROPIC_API_KEY or apiKeyHelper — OAuth/keychain auth

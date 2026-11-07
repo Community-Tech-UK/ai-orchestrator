@@ -100,6 +100,12 @@ export interface SideChatAttention {
   unread: number;
   needsAttention: number;
   /**
+   * When the oldest still-open needs-attention episode began (epoch ms), or
+   * null when none is open. Stamped in main on first observation and cleared
+   * when the conversation leaves needs-attention, so a reopened episode is new.
+   */
+  attentionSince: number | null;
+  /**
    * The conversation an attention entrypoint should open: needs-attention
    * first, then unread, then running. Null when nothing is pending.
    */

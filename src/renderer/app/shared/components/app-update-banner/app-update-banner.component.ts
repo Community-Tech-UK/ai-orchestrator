@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { NoticeSlotService } from '../../../core/notices/notice-slot.service';
+import { ChangeDetectionStrategy, Component, computed, inject, DestroyRef } from '@angular/core';
 import { AppUpdateStore } from '../../../core/state/app-update.store';
 
 @Component({
@@ -6,6 +7,7 @@ import { AppUpdateStore } from '../../../core/state/app-update.store';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    @if (slot()) {
     @if (store.visible()) {
       <section
         class="app-update-banner"
@@ -32,6 +34,7 @@ import { AppUpdateStore } from '../../../core/state/app-update.store';
           </button>
         </div>
       </section>
+    }
     }
   `,
   styles: [`
@@ -70,6 +73,8 @@ import { AppUpdateStore } from '../../../core/state/app-update.store';
 })
 export class AppUpdateBannerComponent {
   protected readonly store = inject(AppUpdateStore);
+  protected readonly slot = inject(NoticeSlotService).register('app-update', computed(() => this.store.visible()), inject(DestroyRef));
+
   protected readonly availableVersion = computed(() => {
     const status = this.store.status();
     return status?.availableVersion ?? 'update';

@@ -1,3 +1,6 @@
+import { ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
+import { readFileSync } from 'node:fs';
+import { join, basename } from 'node:path';
 /**
  * ComposerToolbarComponent spec
  *
@@ -29,6 +32,8 @@ import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive'
 import { HistoryPreviewSessionService } from './history-preview-session.service';
 import { USAGE_CAUSE_TOOLTIPS } from '../../../../shared/usage-insight/usage-cause-copy';
 import type { ContextUsage, InstanceStatus } from '../../core/state/instance/instance.types';
+
+await resolveComponentResources(async url => url.endsWith('context-evidence-panel.component.html') ? readFileSync(join(__dirname, '../../shared/components/context-evidence-panel', basename(url)), 'utf8') : '');
 import type {
   InstanceRuntimeSummary,
   ModelRuntimeTarget,
@@ -50,7 +55,7 @@ const providerAccountIpcStub = {
 };
 
 const toolbarProviders = [
-  { provide: InstanceStore, useValue: {} },
+  { provide: InstanceStore, useValue: { getInstance: () => undefined } },
   { provide: InstanceIpcService, useValue: ipcStub },
   { provide: ToastService, useValue: toastStub },
   { provide: ProviderAccountIpcService, useValue: providerAccountIpcStub },

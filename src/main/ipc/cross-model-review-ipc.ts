@@ -88,7 +88,7 @@ export function registerCrossModelReviewIpcHandlers(
           ].join('\n\n');
 
           const debateId = await getDebateCoordinator().startDebate(
-            `Should the primary ${review.outputType} response be revised based on the cross-model review findings?`,
+            `Should the primary ${review.outputType} response be revised based on the findings in the second opinion?`,
             debateContext,
             undefined,
             { instanceId: payload.instanceId, provider: reviewContext.primaryProvider },

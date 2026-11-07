@@ -1,9 +1,14 @@
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 /**
  * Context Bar Component - Visual indicator of token/context usage
  */
 
+import { ProviderQuotaStore } from '../../core/state/provider-quota.store';
+import { resolveBillingMode } from '../../../../shared/utils/billing-mode';
+import { sessionQuotaSnapshot } from './session-quota-snapshot';
+import { SessionStatusService } from './session-status/session-status.service';
 import { DecimalPipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, signal, output, Injector } from '@angular/core';
 import type { ContextEvidenceScope } from '@contracts/types/context-evidence';
 import { ContextUsage, InstanceStore } from '../../core/state/instance.store';
 import { SettingsStore } from '../../core/state/settings.store';
@@ -11,7 +16,6 @@ import { ContextEvidencePanelComponent } from '../../shared/components/context-e
 import { ContextAttributionPanelComponent } from './context-attribution-panel.component';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { SESSION_COST_TOOLTIP } from '../../../../shared/types/session-cost-copy';
-import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import { contextSizeAdvice } from './context-size-advice';
 import { CACHE_MISS_ADVICE, LONG_CONTEXT_ADVICE } from '../../../../shared/usage-insight/usage-cause-copy';
 
@@ -76,7 +80,7 @@ const CODEX_PRICE_LINE_NOTE = '272K tokens. Requests above this cost double.';
             <span class="percentage no-data" tabindex="0" [appTooltip]="copy('context.noOccupancy')">no data</span>
           }
           @if (showCostEffective() && costEstimate()) {
-            <span class="cost" tabindex="0" [appTooltip]="costTooltip">≈\${{ costEstimate() | number:'1.2-2' }}</span>
+            <span class="cost" tabindex="0" [appTooltip]="costTooltip">≈\${{ costEstimate() | number:'1.2-2' }}{{ costBilling() === 'plan' ? ' API-equivalent' : '' }}</span>
           }
         </div>
       } @else {
@@ -90,21 +94,23 @@ const CODEX_PRICE_LINE_NOTE = '272K tokens. Requests above this cost double.';
         <button
           type="button"
           class="usage-toggle"
-          aria-label="Toggle context usage attribution panel"
+          aria-label="Toggle Where the context goes"
           [attr.aria-expanded]="attributionPanelOpen()"
           (click)="toggleAttributionPanel()"
         >
-          Usage
+          Where the context goes
         </button>
         <button
           type="button"
           class="evidence-toggle"
-          aria-label="Toggle context evidence panel"
+          aria-label="Toggle Details"
           [attr.aria-expanded]="evidencePanelOpen()"
           (click)="toggleEvidencePanel()"
         >
-          Evidence
+          Details
         </button>
+        <button type="button" class="usage-toggle" [appTooltip]="statusTooltip"
+          (click)="openSessionStatus()">Session status</button>
       }
     </div>
 
@@ -291,6 +297,15 @@ export class ContextBarComponent {
   protected readonly idleAdvice = CACHE_MISS_ADVICE;
   protected readonly longAdvice = LONG_CONTEXT_ADVICE;
   protected readonly copy = copyFor;
+  private readonly injector = inject(Injector);
+  readonly statusTooltip = copyFor('session.status');
+  readonly statusOpened = output<void>();
+  openSessionStatus(): void {
+    const id = this.instanceId();
+    if (!id) return;
+    this.attributionPanelOpenState.set(false); this.evidencePanelOpenState.set(false);
+    this.statusOpened.emit(); this.injector.get(SessionStatusService).openFor(id);
+  }
   readonly costTooltip = SESSION_COST_TOOLTIP;
   usage = input.required<ContextUsage>();
   compact = input<boolean>(false);
@@ -303,6 +318,11 @@ export class ContextBarComponent {
   instanceId = input<string | null>(null);
 
   private settings = inject(SettingsStore);
+  private readonly quota = inject(ProviderQuotaStore);
+  readonly costBilling = computed(() => {
+    const id = this.instanceId(); const instance = id ? this.instanceStore.getInstance(id) : null;
+    return instance ? resolveBillingMode(instance.provider, sessionQuotaSnapshot(instance, this.quota.snapshots(), this.quota.accountSnapshots())) : 'unknown';
+  });
   private instanceStore = inject(InstanceStore);
 
   /** Per-call `showCost` input AND the global cost-visibility setting. */
@@ -388,6 +408,8 @@ export class ContextBarComponent {
   });
 
   costEstimate = computed(() => {
+    const id = this.instanceId();
+    if (id && this.instanceStore.getInstance(id)?.provider === 'copilot') return null;
     const cost = this.usage().costEstimate;
     return cost !== undefined && cost > 0 ? cost : null;
   });

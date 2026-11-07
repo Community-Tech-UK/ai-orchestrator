@@ -65,6 +65,7 @@ describe('McpPageComponent template', () => {
     expect(template).not.toContain('fanOutSharedServer(server)');
     expect(template).toContain('openCurrentProviderUserFile()');
     expect(template).toContain('app-workspace-mcp-connectors-panel');
+    expect(template).toContain('{{ scopeLabel(srv.scope) }}');
   });
 
   it('does not submit redacted URL or arg placeholders as real values', () => {

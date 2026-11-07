@@ -1,3 +1,8 @@
+import { Router } from '@angular/router';
+import { CONTROL_SURFACES } from '../../shared/control-surface/control-surface.registry';
+import { EVERYDAY_SURFACE_IDS } from '../../shared/control-surface/control-surface-tiers';
+import { NAV_ITEMS } from '../settings/settings-navigation';
+import { buildDestinations } from './palette-destinations';
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { CommandStore, type ExtendedCommand } from '../../core/state/command.store';
 import { InstanceStore } from '../../core/state/instance.store';
@@ -33,9 +38,12 @@ export class CommandPaletteController implements OverlayController<ExtendedComma
   private actionDispatch = inject(ActionDispatchService);
   private keybindingService = inject(KeybindingService);
 
+  private readonly router = inject(Router);
+  private readonly destinations = buildDestinations(CONTROL_SURFACES, NAV_ITEMS);
+
   readonly title: string = 'Command palette';
-  readonly placeholder: string = 'Search commands...';
-  readonly emptyLabel: string = 'No commands found';
+  readonly placeholder: string = 'Search commands and pages...';
+  readonly emptyLabel: string = 'No matching commands or pages';
   readonly query = signal('');
 
   readonly groups = computed<OverlayGroup<ExtendedCommand>[]>(() => {
@@ -53,11 +61,25 @@ export class CommandPaletteController implements OverlayController<ExtendedComma
       groups.set(category, list);
     }
 
-    return [...groups.entries()].map(([category, categoryItems]) => ({
+    const commandGroups = [...groups.entries()].map(([category, categoryItems]) => ({
       id: category,
       label: CATEGORY_LABELS[category],
       items: categoryItems,
     }));
+    const everydayOrder = [...EVERYDAY_SURFACE_IDS];
+    const destinations = this.destinations.filter(d => matchesOverlayQuery([d.name, ...d.keywords], query))
+      .sort((a, b) => {
+        const rank = (d: typeof a) => query
+          ? scoreOverlayQuery([d.name, ...d.keywords], query)
+          : this.usageStore.frecency('command', `go:${d.id}`);
+        const fallback = (d: typeof a) => {
+          const index = everydayOrder.indexOf(d.id as typeof everydayOrder[number]);
+          return index < 0 ? everydayOrder.length : index;
+        };
+        return rank(b) - rank(a) || fallback(a) - fallback(b);
+      }).slice(0, query ? 12 : 8)
+      .map(d => ({ id: `go:${d.id}`, label: d.name, description: d.description, keywords: d.keywords, value: d }));
+    return [...commandGroups, { id: 'go-to', label: 'Go to', items: destinations }];
   });
 
   setQuery(query: string): void {
@@ -66,6 +88,13 @@ export class CommandPaletteController implements OverlayController<ExtendedComma
 
   async run(item: OverlayItem<ExtendedCommand>): Promise<boolean> {
     const command = item.value;
+    if (item.disabled) return false;
+    if (command.destination) {
+      const { path, fragment } = command.destination;
+      const navigated = await this.router.navigate([path], { fragment });
+      if (navigated) await this.usageStore.record('command', `go:${command.id}`);
+      return navigated;
+    }
     const instanceId = this.instanceStore.selectedInstance()?.id;
     const args = parseArgsFromQuery(this.query(), command.name);
 
@@ -95,7 +124,10 @@ export class CommandPaletteController implements OverlayController<ExtendedComma
   }
 
   protected toItem(command: ExtendedCommand): OverlayItem<ExtendedCommand> {
-    const eligibility = this.commandStore.commandEligibility(command);
+    const needsSession = !this.instanceStore.selectedInstance() && !command.isSkill && command.execution?.type !== 'ui';
+    const eligibility = needsSession
+      ? { eligible: false, reason: 'Select a session first' }
+      : this.commandStore.commandEligibility(command);
     const aliases = command.aliases?.length ? `Aliases: ${command.aliases.map((alias) => `/${alias}`).join(', ')}` : undefined;
     const commandBinding = this.keybindingService.allBindings().find(
       (b) => b.action === `command:${command.name}`,

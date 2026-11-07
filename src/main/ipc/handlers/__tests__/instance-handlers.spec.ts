@@ -139,6 +139,7 @@ function makeMockInstanceManager(): InstanceManager {
     changeAgentMode: vi.fn(),
     toggleYoloMode: vi.fn(),
     requestYoloModeToggle: vi.fn(),
+    setYoloMode: vi.fn(),
     changeModel: vi.fn(),
     requestModelChange: vi.fn(),
     serializeForIpc: vi.fn((inst: unknown) => inst as Record<string, unknown>),
@@ -151,6 +152,7 @@ function makeMockInstanceManager(): InstanceManager {
     emitSystemMessage: vi.fn(),
     clearPendingInputRequiredPermission: vi.fn(),
     recordInputRequiredPermissionDecision: vi.fn(),
+    isPendingInputRequiredPermission: vi.fn().mockReturnValue(true),
   } as unknown as InstanceManager;
 }
 
@@ -1127,6 +1129,33 @@ describe('instance-handlers', () => {
   // ----------------------------------------------------------
 
   describe('INPUT_REQUIRED_RESPOND', () => {
+    it('forwards the request id and refusal note to the held or live answer', async () => {
+      const result = await invoke(IPC_CHANNELS.INPUT_REQUIRED_RESPOND, {
+        instanceId: 'inst-live', requestId: 'perm-live-example', response: 'Use the local data instead.',
+        decisionAction: 'deny', decisionScope: 'once', metadata: { type: 'deferred_permission', denyNote: 'Use the local data instead.' },
+      });
+      expect(result.success).toBe(true);
+      expect(mockInstanceManager.resumeAfterDeferredPermission).toHaveBeenCalledWith(
+        'inst-live', false, undefined, { requestId: 'perm-live-example', denyNote: 'Use the local data instead.' },
+      );
+      expect(mockInstanceManager.setYoloMode).not.toHaveBeenCalled();
+    });
+
+    it('rejects a deferred reply whose request id is not pending for the instance', async () => {
+      vi.mocked(mockInstanceManager.isPendingInputRequiredPermission).mockReturnValue(false);
+
+      const result = await invoke(IPC_CHANNELS.INPUT_REQUIRED_RESPOND, {
+        instanceId: 'inst-live', requestId: 'cancelled-card', response: 'approved',
+        decisionAction: 'allow', decisionScope: 'once', metadata: { type: 'deferred_permission' },
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('INPUT_REQUIRED_NOT_PENDING');
+      expect(mockInstanceManager.resumeAfterDeferredPermission).not.toHaveBeenCalled();
+      expect(mockInstanceManager.recordInputRequiredPermissionDecision).not.toHaveBeenCalled();
+      expect(mockInstanceManager.clearPendingInputRequiredPermission).not.toHaveBeenCalled();
+    });
+
     it('responds to input required prompt and clears pending request', async () => {
       vi.mocked(mockInstanceManager.sendInputResponse).mockResolvedValue(undefined);
 
@@ -1192,6 +1221,7 @@ describe('instance-handlers', () => {
         'inst-56',
         true,
         undefined,
+        { requestId: 'req-defer-1' },
       );
       expect(mockInstanceManager.recordInputRequiredPermissionDecision).toHaveBeenCalledWith({
         instanceId: 'inst-56',
@@ -1226,7 +1256,7 @@ describe('instance-handlers', () => {
         'inst-56',
         true,
         undefined,
-        { yoloMode: true },
+        { requestId: 'req-defer-yolo', yoloMode: true },
       );
     });
 
@@ -1403,6 +1433,7 @@ describe('instance-handlers', () => {
         'inst-60',
         true, // approved (modify is not deny)
         replacement,
+        { requestId: 'req-modify-1' },
       );
       // 'modify' maps to 'allow' for PermissionManager
       expect(mockInstanceManager.recordInputRequiredPermissionDecision).toHaveBeenCalledWith({
@@ -1464,6 +1495,7 @@ describe('instance-handlers', () => {
         'inst-61',
         true,
         undefined, // no updatedInput for plain allow
+        { requestId: 'req-allow-plain' },
       );
     });
 
@@ -1483,6 +1515,7 @@ describe('instance-handlers', () => {
         'inst-62',
         false, // denied
         undefined,
+        { requestId: 'req-deny-plain', denyNote: undefined },
       );
     });
   });

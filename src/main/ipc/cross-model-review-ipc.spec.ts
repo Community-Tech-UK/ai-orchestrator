@@ -60,6 +60,19 @@ describe('cross-model review IPC handlers', () => {
     });
   });
 
+  it('names the second opinion in a debate started from its panel', async () => {
+    mocks.getReviewHistory.mockReturnValueOnce([{ id: 'review-1', outputType: 'code', reviews: [] }]);
+    mocks.getReviewContext.mockReturnValueOnce({ taskDescription: 'Check this change', content: 'Example output', primaryProvider: 'codex' });
+    mocks.startDebate.mockResolvedValueOnce('debate-1');
+    await expect(invoke(IPC_CHANNELS.CROSS_MODEL_REVIEW_ACTION, {
+      reviewId: 'review-1', instanceId: 'instance-1', action: 'start-debate',
+    })).resolves.toEqual({ success: true, data: { action: 'start-debate', debateId: 'debate-1' } });
+    expect(mocks.startDebate).toHaveBeenCalledWith(
+      'Should the primary code response be revised based on the findings in the second opinion?',
+      expect.stringContaining('Example output'), undefined, { instanceId: 'instance-1', provider: 'codex' },
+    );
+  });
+
   it('wraps review actions in a structured response', async () => {
     await expect(invoke(IPC_CHANNELS.CROSS_MODEL_REVIEW_ACTION, {
       reviewId: 'review-1',

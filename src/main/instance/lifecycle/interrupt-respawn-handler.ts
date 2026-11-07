@@ -44,6 +44,7 @@ import {
   emitInterruptBoundaryDisplayMarker,
   type InterruptBoundaryMarker,
 } from '../../display-items/interrupt-boundary-renderer';
+import { INTERRUPT_SETTLED_NOTICE, INTERRUPT_RESTARTED_NOTICE } from '../../../shared/copy/interrupt-copy';
 import type {
   Instance,
   InstanceStatus,
@@ -614,7 +615,7 @@ export class InterruptRespawnHandler {
       id: generateId(),
       timestamp: Date.now(),
       type: 'system',
-      content: 'Interrupted — waiting for input',
+      content: INTERRUPT_SETTLED_NOTICE,
       metadata: { ...ROUTINE_AUDIENCE_METADATA, interruptStatus: 'interrupted', turnId: instance.activeTurnId },
     });
     this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage, undefined, undefined, undefined, undefined, {
@@ -721,7 +722,7 @@ export class InterruptRespawnHandler {
       id: generateId(),
       timestamp: Date.now(),
       type: 'system',
-      content: 'Interrupted — waiting for input',
+      content: INTERRUPT_SETTLED_NOTICE,
       metadata: {
         ...ROUTINE_AUDIENCE_METADATA,
         interruptStatus: result.status,
@@ -1030,8 +1031,8 @@ export class InterruptRespawnHandler {
           type: 'system' as const,
           content: triggeredByInterrupt
             ? (interruptResumeFailed
-                ? 'Interrupted — session restarted (resume failed)'
-                : 'Interrupted — waiting for input')
+                ? INTERRUPT_RESTARTED_NOTICE
+                : INTERRUPT_SETTLED_NOTICE)
             : (actuallyResumed ? 'Session reconnected automatically' : 'Session restarted automatically (resume failed)'),
           timestamp: Date.now(),
           metadata: triggeredByInterrupt

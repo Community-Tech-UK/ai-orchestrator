@@ -87,7 +87,7 @@ const DISCORD_COMMANDS = [
   },
   {
     name: 'revive',
-    description: 'Revive a hibernated session',
+    description: 'Wake a sleeping session',
     options: [
       { name: 'project', description: 'Project name or path', type: DISCORD_OPTION_STRING, required: false, autocomplete: true },
       { name: 'session', description: 'Session display name or id', type: DISCORD_OPTION_STRING, required: false, autocomplete: true },
@@ -461,7 +461,7 @@ export class DiscordAdapter extends BaseChannelAdapter {
         const user = await this.client.users.fetch(result.senderId);
         if (user) {
           await user.send(
-            `✅ **Paired successfully!** You're now connected to the Orchestrator.\n\nTry these commands:\n• \`/help\` — see all available commands\n• \`/list\` — list running instances\n• \`@projectname message\` — send to a specific project`
+            `✅ **Paired successfully!** You're now connected to Harness.\n\nTry these commands:\n• \`/help\` — see all available commands\n• \`/list\` — list running sessions\n• \`@projectname message\` — send to a specific project`
           );
         }
       } catch (err) {
@@ -927,7 +927,7 @@ export class DiscordAdapter extends BaseChannelAdapter {
   }
 
   private pairingCodeMessage(code: string): string {
-    return `You're not yet paired with this bot. Your pairing code is: **${code}**\nEnter this code in the Orchestrator UI to pair your account. Code expires in 1 hour.`;
+    return `You're not yet paired with this bot. Your pairing code is: **${code}**\nEnter this code in the Harness UI to pair your account. Code expires in 1 hour.`;
   }
 
   private async replyToUnknownWhoAmI(message: DiscordMessage, senderId: string): Promise<void> {

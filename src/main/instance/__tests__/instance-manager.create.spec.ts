@@ -1427,7 +1427,7 @@ describe('InstanceManager', () => {
         instance.outputBuffer.some(
           (message) =>
             message.type === 'system'
-            && /copilot-cli does not support image attachments in orchestrator mode/i.test(message.content),
+            && /copilot-cli can't take image attachments, so 1 image was left out\./i.test(message.content),
         ),
       ).toBe(true);
       expect(instance.outputBuffer.some((message) => message.type === 'error')).toBe(false);

@@ -2,6 +2,7 @@
  * Security IPC Service - Security, secret detection, and redaction operations
  */
 
+import type { SavedPermissionRule } from '../../../../../shared/types/saved-permission-rule.types';
 import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService, IpcResponse } from './electron-ipc.service';
 
@@ -115,6 +116,16 @@ export class SecurityIpcService {
   async permissionGetAuditLog(instanceId?: string, limit?: number): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.permissionGetAuditLog(instanceId, limit);
+  }
+
+  async permissionListUserRules(): Promise<IpcResponse<SavedPermissionRule[]>> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.permissionListUserRules();
+  }
+
+  async permissionRemoveUserRule(ruleId: string): Promise<IpcResponse<boolean>> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.permissionRemoveUserRule(ruleId);
   }
 
   /**

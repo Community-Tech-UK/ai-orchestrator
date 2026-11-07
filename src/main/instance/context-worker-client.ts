@@ -1,3 +1,4 @@
+import type { RetrievalQueryStrategy } from '../memory/retrieval-eval/retrieval-query';
 /**
  * ContextWorkerClient — main-process implementation of InstanceContextPort.
  *
@@ -81,7 +82,6 @@ const RLM_SECTION_MAX_COUNT = 10;
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type RpcMsgWithId = ContextWorkerRpcMsg;
 export interface ContextWorkerClientOptions { rpcTimeoutMs?: number; workerFactory?: (userDataPath: string) => ContextWorkerProcessHandle; userDataPath?: string; }
 
 export interface ContextWorkerMetrics {
@@ -324,8 +324,7 @@ export class ContextWorkerClient implements
 
   async initializeRlm(instance: Instance): Promise<void> {
     instance.rlmStoreSessionId = instance.sessionId;
-    const id = this.nextId();
-    await this.postRpc({ type: 'initialize-rlm', id, snapshot: snapshotFromInstance(instance) });
+    await this.postRpc({ type: 'initialize-rlm', id: this.nextId(), snapshot: snapshotFromInstance(instance) });
   }
 
   async ingestInitialOutputToRlm(instance: Instance, messages: OutputMessage[]): Promise<void> {
@@ -343,6 +342,7 @@ export class ContextWorkerClient implements
     message: string,
     maxTokens?: number,
     topK?: number,
+    queryStrategy?: RetrievalQueryStrategy,
   ): Promise<RlmContextInfo | null> {
     if (this.isDegraded) return null;
     const id = this.nextId();
@@ -353,6 +353,7 @@ export class ContextWorkerClient implements
       query: message,
       maxTokens,
       topK,
+      ...(queryStrategy ? { queryStrategy } : {}),
     });
     return (result as RlmContextInfo | null) ?? null;
   }
@@ -466,8 +467,7 @@ export class ContextWorkerClient implements
   }
 
   async reloadRlmPersistence(): Promise<void> {
-    const id = this.nextId();
-    await this.postRpc({ type: 'reload-rlm-persistence', id });
+    await this.postRpc({ type: 'reload-rlm-persistence', id: this.nextId() });
   }
 
   async startHotPrewarm(): Promise<boolean> {
@@ -640,7 +640,7 @@ export class ContextWorkerClient implements
   }
 
   private postFireAndForget(
-    msg: Exclude<ContextWorkerInboundMsg, RpcMsgWithId>,
+    msg: Exclude<ContextWorkerInboundMsg, ContextWorkerRpcMsg>,
   ): void {
     if (this.isDegraded || !this.worker) {
       this.metrics.dropped++;
@@ -661,7 +661,7 @@ export class ContextWorkerClient implements
   }
 
   private postRpc(
-    msg: RpcMsgWithId,
+    msg: ContextWorkerRpcMsg,
     timeoutMode: RpcTimeoutMode = 'resolve-null',
   ): Promise<unknown> {
     return this.rpcTracker.post(

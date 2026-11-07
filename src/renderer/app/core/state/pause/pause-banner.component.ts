@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { NoticeSlotService } from '../../notices/notice-slot.service';
+import { ChangeDetectionStrategy, Component, computed, inject, DestroyRef } from '@angular/core';
 import { Router } from '@angular/router';
 import { PauseStore } from './pause.store';
 
@@ -7,6 +8,7 @@ import { PauseStore } from './pause.store';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    @if (slot()) {
     @if (store.isPaused()) {
       <section class="pause-banner" [class.error]="store.detectorError()">
         <div class="banner-main">
@@ -24,6 +26,7 @@ import { PauseStore } from './pause.store';
           <button type="button" class="banner-btn" (click)="openNetworkSettings()">Network</button>
         </div>
       </section>
+    }
     }
   `,
   styles: [`
@@ -113,10 +116,12 @@ export class PauseBannerComponent {
   protected readonly store = inject(PauseStore);
   private readonly router = inject(Router);
 
+  protected readonly slot = inject(NoticeSlotService).register('pause', computed(() => this.store.isPaused()), inject(DestroyRef));
+
   protected readonly title = computed(() => {
     if (this.store.detectorError()) return 'Network detector needs attention';
     if (this.store.reasons().includes('vpn')) return 'Paused for VPN';
-    return 'Orchestrator paused';
+    return 'Harness paused';
   });
 
   protected readonly detail = computed(() => {

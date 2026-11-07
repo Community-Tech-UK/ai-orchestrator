@@ -23,6 +23,7 @@ export interface ExtendedCommand extends CommandTemplate {
   isSkill?: boolean;
   skillId?: string;
   trigger?: string;
+  destination?: { path: string; fragment?: string };
 }
 
 const UNAVAILABLE_NATIVE_STATUSES = new Set([

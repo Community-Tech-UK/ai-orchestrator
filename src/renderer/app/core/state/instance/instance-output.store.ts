@@ -4,6 +4,8 @@
  * Handles high-frequency output messages with throttling to prevent UI thrashing.
  */
 
+import type { InstanceInputContextDeliveredEvent } from '../../../../../shared/types/input-context-delivery.types';
+import { applyInputContextDelivery } from '../../../../../shared/utils/input-context-delivery';
 import { Injectable, inject, NgZone } from '@angular/core';
 import { InstanceStateService } from './instance-state.service';
 import type { OutputMessage } from './instance.types';
@@ -30,6 +32,20 @@ export class InstanceOutputStore implements ImageAttachmentSink {
     const message = 'Unable to restore the full conversation history. Reload the session to try again.';
     this.stateService.setError(message);
     this.toast.show(message, 'error');
+  }
+
+  acceptInputContextDelivery(delivery: InstanceInputContextDeliveredEvent): void {
+    const timer = this.stateService.outputThrottleTimers.get(delivery.instanceId);
+    if (timer) clearTimeout(timer);
+    this.stateService.outputThrottleTimers.delete(delivery.instanceId);
+    this.flushOutput(delivery.instanceId, false);
+    this.transcriptReplay.noteInputContextDelivery(delivery);
+    const instance = this.stateService.getInstance(delivery.instanceId);
+    if (!instance) return;
+    this.stateService.updateInstance(delivery.instanceId, {
+      outputBuffer: applyInputContextDelivery(instance.outputBuffer, delivery),
+      retainedPrompts: applyInputContextDelivery(instance.retainedPrompts ?? [], delivery),
+    });
   }
 
   /** Install repaired history without replaying tools, notifications, stats or image extraction. */

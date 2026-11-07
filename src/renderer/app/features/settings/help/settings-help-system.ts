@@ -393,7 +393,7 @@ export const COMPUTER_USE_TAB_HELP: HelpEntry = {
       heading: 'Setup on macOS',
       items: [
         'Enable Computer Use above.',
-        'Grant Screen Recording and Accessibility to AI Orchestrator (use the Open settings buttons).',
+        'Grant Screen Recording and Accessibility to Harness (use the Open settings buttons).',
         'Install the input helper (brew install cliclick) to enable click/type/scroll/drag.',
         'Click Refresh to re-check permission and driver health.',
       ],

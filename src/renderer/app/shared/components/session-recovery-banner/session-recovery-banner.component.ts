@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, output } from '@angular/core';
+import { NoticeSlotService } from '../../../core/notices/notice-slot.service';
+import { ChangeDetectionStrategy, Component, OnInit, computed, inject, output, DestroyRef } from '@angular/core';
 import type {
   SessionRecoveryCandidate,
   SessionRecoveryReason,
@@ -63,6 +64,8 @@ export class SessionRecoveryBannerComponent implements OnInit {
     const fingerprint = this.candidateFingerprint();
     return this.candidates().length > 0 && !this.dismissalStore.isDismissed(fingerprint);
   });
+  protected readonly slot = inject(NoticeSlotService).register('session-recovery', computed(() => this.visible()), inject(DestroyRef));
+
   protected readonly title = computed(() => {
     const count = this.candidateCount();
     return count === 1

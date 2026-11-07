@@ -37,7 +37,7 @@ interface ArchiveEntry {
       <!-- Page header -->
       <div class="page-header">
         <div class="header-title">
-          <span class="title">Archives</span>
+          <span class="title">Archive</span>
           <span class="subtitle">Session archive management and search</span>
         </div>
         <div class="header-actions">

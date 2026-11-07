@@ -14,11 +14,14 @@ import { DatePipe } from '@angular/common';
 import type { OutputMessage } from '../../../core/state/instance.store';
 import { ExpansionStateService } from '../../../features/instance-detail/expansion-state.service';
 import { countFailedToolCalls } from '../../../../../shared/turn-tool-events';
+import { AioTooltipDirective } from '../../tooltip/aio-tooltip.directive';
+import { copyFor } from '../../tooltip/tooltip-copy';
+import { SubagentUsageStore } from '../../../core/state/subagent-usage.store';
 
 @Component({
   selector: 'app-tool-group',
   standalone: true,
-  imports: [DatePipe],
+  imports: [DatePipe, AioTooltipDirective],
   template: `
     <div class="tool-group" [class.expanded]="isExpanded()">
       <button
@@ -48,6 +51,9 @@ import { countFailedToolCalls } from '../../../../../shared/turn-tool-events';
                   msg.timestamp | date: 'HH:mm:ss'
                 }}</span>
               </div>
+              @if (helperText(msg); as text) {
+                <p class="helper-usage" tabindex="0" [appTooltip]="helperTooltip">{{ text }}</p>
+              }
               <pre class="tool-item-content"><code>{{ formatContent(msg) }}</code></pre>
             </div>
           }
@@ -200,6 +206,19 @@ export class ToolGroupComponent {
   toolMessages = input.required<OutputMessage[]>();
   instanceId = input<string>('');
   itemId = input<string>('');
+
+  readonly helperTooltip = copyFor('cost.subagentSize');
+  private readonly helpers = inject(SubagentUsageStore);
+
+  /** How big a helper agent got, for the Task and Agent rows; only a measured sample is shown. */
+  helperText(message: OutputMessage): string | null {
+    if (message.type !== 'tool_use' || !['Task', 'Agent'].includes(this.getToolName(message))) return null;
+    const sample = this.helpers.sample(this.instanceId(), String(message.metadata?.['id'] ?? message.id));
+    if (!sample) return null;
+    const tokens = sample.finalContextTokens >= 1000 ? `${Math.round(sample.finalContextTokens / 1000)}K` : String(sample.finalContextTokens);
+    const duration = sample.durationMs < 60000 ? `${Math.round(sample.durationMs / 1000)} sec` : `${Math.round(sample.durationMs / 60000)} min`;
+    return `Helper agent · ${tokens} tokens${sample.final ? ' at the end' : ''} · ${sample.toolUses} tool calls · ${duration}${sample.final ? '' : ' · running'}`;
+  }
 
   private expansionState = inject(ExpansionStateService);
 

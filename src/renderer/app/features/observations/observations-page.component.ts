@@ -55,7 +55,7 @@ type PanelState = 'loading' | 'unavailable' | 'empty' | 'loaded';
       <header class="page-header">
         <div class="header-left">
           <div class="header-text">
-            <h1 class="page-title">Observations &amp; Reflections</h1>
+            <h1 class="page-title">Observations</h1>
             <p class="page-subtitle">Auto-reflection on agent actions and pattern recognition</p>
           </div>
         </div>

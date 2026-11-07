@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { permissionDenyNote } from '../../shared/permissions/permission-deny-note';
 import { validateIpcPayload } from '@contracts/schemas/common';
 import {
   InputRequiredResponsePayloadSchema,
@@ -72,6 +73,7 @@ export interface ThinClientCommandExecutorDeps {
     | 'getOrchestrationHandler'
     | 'hibernateInstance'
     | 'interruptInstance'
+    | 'isPendingInputRequiredPermission'
     | 'recordInputRequiredPermissionDecision'
     | 'resumeAfterDeferredPermission'
     | 'sendInput'
@@ -215,7 +217,7 @@ async function respondInput(
         success: false,
         error: {
           code: 'ORCHESTRATOR_PAUSED',
-          message: 'Input response refused while orchestrator is paused',
+          message: 'Input response refused while Harness is paused',
           timestamp: Date.now(),
         },
       };
@@ -233,10 +235,23 @@ async function respondInput(
           },
         };
       }
+      // Same ownership rule as the renderer channel: a stale, cancelled or
+      // fabricated requestId must never authorize an unrelated held tool call.
+      if (!deps.instanceManager.isPendingInputRequiredPermission(validated.instanceId, validated.requestId)) {
+        return {
+          success: false,
+          error: {
+            code: 'INPUT_REQUIRED_NOT_PENDING',
+            message: 'No pending permission request is waiting for this response.',
+            timestamp: Date.now(),
+          },
+        };
+      }
       await deps.instanceManager.resumeAfterDeferredPermission(
         validated.instanceId,
         action !== 'deny',
         action === 'modify' ? validated.updatedInput : undefined,
+        { requestId: validated.requestId, denyNote: permissionDenyNote(validated) },
       );
       recordOrClearInputPermission(deps, validated);
       clearRemotePrompt(deps, validated.requestId);

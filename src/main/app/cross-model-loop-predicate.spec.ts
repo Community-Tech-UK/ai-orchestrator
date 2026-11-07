@@ -14,7 +14,7 @@ describe('Cross-model active-loop initialization', () => {
     const reviewSpy = vi.spyOn(reviews, 'getCrossModelReviewService').mockReturnValue(review as unknown as reviews.CrossModelReviewService);
     const loopSpy = vi.spyOn(loops, 'getLoopCoordinator').mockReturnValue({ getActiveLoops: () => active } as unknown as loops.LoopCoordinator);
     try {
-      const step = createLateRuntimeInitializationSteps({ instanceManager: {}, windowManager: {} } as AppInitializationContext).find((entry) => entry.name === 'Cross-model review');
+      const step = createLateRuntimeInitializationSteps({ instanceManager: {}, windowManager: {} } as AppInitializationContext).find((entry) => entry.name === 'Second opinion');
       await step!.fn();
       expect(predicate!('ordinary')).toBe(false);
       active = [

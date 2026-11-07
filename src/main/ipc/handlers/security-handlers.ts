@@ -8,6 +8,7 @@ import {
   BashValidatePayloadSchema,
   PermissionAnalyzeShadowedRulesPayloadSchema,
   PermissionPatternPayloadSchema,
+  PermissionRemoveUserRulePayloadSchema,
   PermissionGetAuditLogPayloadSchema,
   PermissionRecordBatchDecisionPayloadSchema,
   PermissionRecordDecisionPayloadSchema,
@@ -44,8 +45,8 @@ import {
   validatedHandler,
   type EnsureTrustedSender,
 } from '../validated-handler';
-import { DurableApprovalStore } from '../../orchestration/durable-approval-store';
-import { pendingApprovalDigest } from '../../orchestration/pending-approval-digest';
+import type { SavedPermissionRule } from '../../../shared/types/saved-permission-rule.types';
+import { z } from 'zod';
 
 export function registerSecurityHandlers(deps: {
   /**
@@ -271,43 +272,6 @@ export function registerSecurityHandlers(deps: {
     )
   );
 
-  /**
-   * N9 — one aggregate line about everything currently blocked on a human.
-   *
-   * Reuses the SAME pure digest the overnight reminder uses
-   * (`pending-approval-digest.ts`), over the same `pending_approvals` rows, so
-   * the banner and the desktop notification can never disagree about how many
-   * sessions are waiting or for how long. The renderer tracks a per-instance
-   * `pendingApprovalCount` but has no approval timestamps, so computing this
-   * there would have meant a second, weaker source of truth.
-   *
-   * `minAgeMs: 0` — unlike the reminder, a banner is not an interruption, so it
-   * should reflect what is true now rather than waiting five minutes to speak.
-   */
-  handle(
-    IPC_CHANNELS.PERMISSION_GET_APPROVAL_DIGEST,
-    async (): Promise<IpcResponse> => {
-      try {
-        const store = DurableApprovalStore.getInstance(getRLMDatabase().getRawDb());
-        const digest = pendingApprovalDigest({
-          pending: store.listPending(),
-          now: Date.now(),
-          minAgeMs: 0,
-        });
-        return { success: true, data: { digest } };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'PERMISSION_GET_APPROVAL_DIGEST_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now(),
-          },
-        };
-      }
-    }
-  );
-
   handle(
     IPC_CHANNELS.PERMISSION_GET_PENDING_BATCH,
     async (): Promise<IpcResponse> => {
@@ -425,6 +389,21 @@ export function registerSecurityHandlers(deps: {
       }
     }
   );
+
+  handle(IPC_CHANNELS.PERMISSION_LIST_USER_RULES, validatedHandler(
+    'PERMISSION_LIST_USER_RULES', z.object({}).optional(), async () => ({
+      success: true,
+      data: getPermissionManager().listUserRules().map((rule): SavedPermissionRule => {
+        const timestamp = /^rule-(\d+)-/.exec(rule.id)?.[1];
+        return { id: rule.id, action: rule.action, scope: rule.scope, pattern: rule.pattern.slice(0, 300),
+          literal: rule.literal === true, enabled: rule.enabled, createdAt: timestamp ? Number(timestamp) : null };
+      }),
+    }),
+  ));
+  handle(IPC_CHANNELS.PERMISSION_REMOVE_USER_RULE, validatedHandler(
+    'PERMISSION_REMOVE_USER_RULE', PermissionRemoveUserRulePayloadSchema,
+    async ({ ruleId }) => ({ success: true, data: getPermissionManager().removeUserRule(ruleId) }),
+  ));
 
   // Static lint: rules that can never fire because a broader earlier rule
   // always matches first. Read-only.

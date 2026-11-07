@@ -11,6 +11,8 @@ import * as path from 'path';
 import * as zlib from 'zlib';
 import { promisify } from 'util';
 import type { OutputMessage } from '../../shared/types/instance.types';
+import type { InputContextDelivery } from '../../shared/types/input-context-delivery.types';
+import { applyInputContextDelivery } from '../../shared/utils/input-context-delivery';
 import type { UserPromptRef } from '../../shared/types/prompt-index.types';
 import { getLogger } from '../logging/logger';
 
@@ -115,6 +117,8 @@ export class OutputStorageManager {
   private storageDir: string;
   private indices: Map<string, StorageIndex> = new Map();
   private pendingWrites = new Map<string, Promise<void>>();
+  private chunkReadRevision = 0;
+  private pendingEnforcement: Promise<void> = Promise.resolve();
   private maxDiskStorageMB: number = 500;
   private chunkSize: number = 100; // messages per chunk
   private lastReadChunk: { instanceId: string; chunkIndex: number; messages: OutputMessage[] } | null = null;
@@ -145,12 +149,23 @@ export class OutputStorageManager {
   storeMessages(instanceId: string, messages: OutputMessage[]): Promise<void> {
     if (messages.length === 0) return Promise.resolve();
 
+    return this.enqueueWrite(instanceId, () => this.writeMessages(instanceId, messages))
+      .then(() => this.enforceStorageLimit());
+  }
+
+  /** Update existing stored prompts without creating another transcript message. */
+  patchInputContextDelivery(instanceId: string, delivery: InputContextDelivery): Promise<void> {
+    return this.enqueueWrite(instanceId, () => this.writeInputContextDelivery(instanceId, delivery))
+      .then(() => this.enforceStorageLimit());
+  }
+
+  private enqueueWrite(instanceId: string, operation: () => Promise<void>): Promise<void> {
     // Output overflows are emitted without awaiting their disk write. Keep each
     // instance ordered so an archive can flush an exact, complete transcript.
     const previousWrite = this.pendingWrites.get(instanceId) ?? Promise.resolve();
     const write = previousWrite
       .catch(() => undefined)
-      .then(() => this.writeMessages(instanceId, messages));
+      .then(operation);
     const queued: Promise<void> = write.then(
       () => {
         if (this.pendingWrites.get(instanceId) === queued) {
@@ -171,6 +186,44 @@ export class OutputStorageManager {
   /** Wait until all previously queued overflow writes for an instance finish. */
   async flushInstance(instanceId: string): Promise<void> {
     await this.pendingWrites.get(instanceId);
+  }
+
+  private async writeInputContextDelivery(instanceId: string, delivery: InputContextDelivery): Promise<void> {
+    const index = this.indices.get(instanceId);
+    if (!index || (index.userPrompts && !index.userPrompts.some(prompt => prompt.id === delivery.messageId))) return;
+    const readable = readableChunkPositions(index.chunks);
+    for (let position = 0; position < index.chunks.length; position++) {
+      if (!readable.has(position)) continue;
+      const chunk = index.chunks[position];
+      const chunkPath = this.getChunkPath(instanceId, chunk.chunkIndex);
+      let original: Buffer;
+      try {
+        original = await fs.promises.readFile(chunkPath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        const key = `${instanceId}/${chunk.chunkIndex}`;
+        if (!this.missingChunks.has(key)) logger.warn('Stored output chunk is missing', { instanceId, chunkIndex: chunk.chunkIndex });
+        this.missingChunks.add(key);
+        continue;
+      }
+      const messages: OutputMessage[] = JSON.parse((await gunzip(original)).toString());
+      const updated = applyInputContextDelivery(messages, delivery);
+      if (!updated.some((message, offset) => message !== messages[offset])) continue;
+      const compressed = await gzip(JSON.stringify(updated));
+      const temporaryPath = `${chunkPath}.metadata.tmp`;
+      try {
+        await fs.promises.writeFile(temporaryPath, compressed);
+        await fs.promises.rename(temporaryPath, chunkPath);
+      } finally {
+        await fs.promises.rm(temporaryPath, { force: true });
+      }
+      this.chunkReadRevision++;
+      this.lastReadChunk = null;
+      index.totalSizeBytes += compressed.length - chunk.sizeBytes;
+      chunk.sizeBytes = compressed.length;
+      index.lastUpdated = Date.now();
+      await this.saveIndex(instanceId, index);
+    }
   }
 
   private async writeMessages(instanceId: string, messages: OutputMessage[]): Promise<void> {
@@ -211,9 +264,6 @@ export class OutputStorageManager {
     }
 
     await this.saveIndex(instanceId, index);
-
-    // Check if we need to clean up old data
-    await this.enforceStorageLimit();
   }
 
   /**
@@ -228,6 +278,7 @@ export class OutputStorageManager {
       limit?: number;
     }
   ): Promise<OutputMessage[]> {
+    await this.flushInstance(instanceId);
     const index = this.indices.get(instanceId);
     if (!index || index.chunks.length === 0) {
       return [];
@@ -268,6 +319,7 @@ export class OutputStorageManager {
     instanceId: string,
     options: { beforeOffset?: number; limit: number },
   ): Promise<{ messages: OutputMessage[]; startOffset: number; totalStored: number }> {
+    await this.flushInstance(instanceId);
     const index = this.indices.get(instanceId);
     if (!index || index.chunks.length === 0) {
       return { messages: [], startOffset: 0, totalStored: 0 };
@@ -304,6 +356,7 @@ export class OutputStorageManager {
    * that never mutate them (the IPC pager, whose results are cloned) opt in.
    */
   private async readChunk(instanceId: string, chunkIndex: number, useCache = false): Promise<OutputMessage[]> {
+    const readRevision = this.chunkReadRevision;
     const cached = this.lastReadChunk;
     if (useCache && cached && cached.instanceId === instanceId && cached.chunkIndex === chunkIndex) {
       return cached.messages;
@@ -313,10 +366,10 @@ export class OutputStorageManager {
     try {
       const compressed = await fs.promises.readFile(this.getChunkPath(instanceId, chunkIndex));
       const messages: OutputMessage[] = JSON.parse((await gunzip(compressed)).toString());
-      if (!useCache) return messages;
+      if (!useCache || readRevision !== this.chunkReadRevision) return messages;
       // Paging walks a large restored chunk one page at a time; keep the last
       // decoded chunk briefly so each page does not gunzip it again. Chunk
-      // files are written once and never rewritten under the same index.
+      // metadata rewrites invalidate it; an older in-flight read cannot restore stale data.
       const entry = { instanceId, chunkIndex, messages };
       this.lastReadChunk = entry;
       setTimeout(() => {
@@ -344,18 +397,25 @@ export class OutputStorageManager {
    * repeats. Returns [] for unknown instances.
    */
   async getUserPrompts(instanceId: string): Promise<UserPromptRef[]> {
-    const index = this.indices.get(instanceId);
-    if (!index) return [];
-    if (index.userPrompts) return index.userPrompts;
-
-    const messages = await this.loadMessages(instanceId);
-    index.userPrompts = toPromptRefs(messages);
-    try {
-      await this.saveIndex(instanceId, index);
-    } catch (error) {
-      logger.warn('Failed to persist backfilled prompt index', { instanceId, error: String(error) });
-    }
-    return index.userPrompts;
+    let prompts: UserPromptRef[] = [];
+    await this.enqueueWrite(instanceId, async () => {
+      const index = this.indices.get(instanceId);
+      if (!index) return;
+      if (index.userPrompts) { prompts = index.userPrompts; return; }
+      // Backfilling also commits the index: own the same queue as deletion.
+      const messages: OutputMessage[] = [];
+      const readable = readableChunkPositions(index.chunks);
+      for (let position = 0; position < index.chunks.length; position++) {
+        if (readable.has(position)) messages.push(...await this.readChunk(instanceId, index.chunks[position].chunkIndex));
+      }
+      prompts = index.userPrompts = toPromptRefs(messages);
+      try {
+        await this.saveIndex(instanceId, index);
+      } catch (error) {
+        logger.warn('Failed to persist backfilled prompt index', { instanceId, error: String(error) });
+      }
+    });
+    return prompts;
   }
 
   /**
@@ -404,10 +464,15 @@ export class OutputStorageManager {
   /**
    * Delete all stored output for an instance
    */
-  async deleteInstance(instanceId: string): Promise<void> {
+  deleteInstance(instanceId: string): Promise<void> {
+    return this.enqueueWrite(instanceId, () => this.deleteStoredInstance(instanceId));
+  }
+
+  private async deleteStoredInstance(instanceId: string): Promise<void> {
     const index = this.indices.get(instanceId);
     if (!index) return;
 
+    this.chunkReadRevision++;
     if (this.lastReadChunk?.instanceId === instanceId) this.lastReadChunk = null;
     for (const key of this.missingChunks) {
       if (key.startsWith(`${instanceId}/`)) this.missingChunks.delete(key);
@@ -538,66 +603,53 @@ export class OutputStorageManager {
   /**
    * Enforce storage limit by removing oldest data
    */
-  private async enforceStorageLimit(): Promise<void> {
+  private enforceStorageLimit(): Promise<void> {
+    // No instance-owned operation awaits this queue: a pass acquires each
+    // target's ordinary write queue only after the initiating write released it.
+    const pass = this.pendingEnforcement.catch(() => undefined)
+      .then(() => this.enforceStorageLimitPass());
+    this.pendingEnforcement = pass;
+    return pass;
+  }
+
+  private async enforceStorageLimitPass(): Promise<void> {
     if (this.maxDiskStorageMB === 0) return; // Unlimited
-
     const maxBytes = this.maxDiskStorageMB * 1024 * 1024;
-    let totalBytes = 0;
-
-    for (const index of this.indices.values()) {
-      totalBytes += index.totalSizeBytes;
-    }
-
-    if (totalBytes <= maxBytes) return;
-
-    // Sort indices by last updated (oldest first)
-    const sortedIndices = Array.from(this.indices.values())
-      .sort((a, b) => a.lastUpdated - b.lastUpdated);
-
-    // Remove oldest chunks until we're under the limit
+    const totalBytes = () => [...this.indices.values()].reduce((sum, index) => sum + index.totalSizeBytes, 0);
+    const sortedIndices = [...this.indices.values()].sort((a, b) => a.lastUpdated - b.lastUpdated);
     for (const index of sortedIndices) {
-      while (totalBytes > maxBytes && index.chunks.length > 0) {
-        const oldestChunk = index.chunks[0];
-
-        // Delete the chunk file — unless a later entry of a legacy index
-        // (see readableChunkPositions) still reads the same file.
-        const sharedFile = index.chunks.some(
-          (chunk, position) => position > 0 && chunk.chunkIndex === oldestChunk.chunkIndex,
-        );
-        if (!sharedFile) {
-          const chunkPath = this.getChunkPath(index.instanceId, oldestChunk.chunkIndex);
-          try {
-            await fs.promises.unlink(chunkPath);
-          } catch {
-            // Ignore if file doesn't exist
-          }
-        }
-
-        // Update totals
-        totalBytes -= oldestChunk.sizeBytes;
-        index.totalSizeBytes -= oldestChunk.sizeBytes;
-        index.totalMessages -= oldestChunk.messageCount;
-        index.chunks.shift();
-
-        // Drop tallied prompts that lived in the evicted chunk — their
-        // messages are gone, so the jump rail could no longer load them.
-        // Timestamp-bounded (chunk ranges are contiguous), not id-exact.
-        if (index.userPrompts && index.userPrompts.length > 0) {
-          index.userPrompts = index.userPrompts.filter(
-            (prompt) => prompt.timestamp > oldestChunk.endTimestamp,
+      if (totalBytes() <= maxBytes) break;
+      await this.enqueueWrite(index.instanceId, async () => {
+        // A queued explicit delete and subsequent store may have replaced it.
+        if (this.indices.get(index.instanceId) !== index) return;
+        while (totalBytes() > maxBytes && index.chunks.length > 0) {
+          const oldestChunk = index.chunks[0];
+          const sharedFile = index.chunks.some(
+            (chunk, position) => position > 0 && chunk.chunkIndex === oldestChunk.chunkIndex,
           );
-        }
-
-        // If instance has no more chunks, delete it entirely
-        if (index.chunks.length === 0) {
-          await this.deleteInstance(index.instanceId);
-          break;
-        } else {
+          if (!sharedFile) {
+            try {
+              await fs.promises.unlink(this.getChunkPath(index.instanceId, oldestChunk.chunkIndex));
+            } catch {
+              // Ignore if file doesn't exist, as with ordinary instance deletion.
+            }
+          }
+          this.chunkReadRevision++;
+          this.lastReadChunk = null;
+          index.totalSizeBytes -= oldestChunk.sizeBytes;
+          index.totalMessages -= oldestChunk.messageCount;
+          index.chunks.shift();
+          if (index.userPrompts?.length) {
+            index.userPrompts = index.userPrompts.filter(prompt => prompt.timestamp > oldestChunk.endTimestamp);
+          }
+          if (index.chunks.length === 0) {
+            // Already owns this instance queue: do not enqueue public deletion.
+            await this.deleteStoredInstance(index.instanceId);
+            break;
+          }
           await this.saveIndex(index.instanceId, index);
         }
-      }
-
-      if (totalBytes <= maxBytes) break;
+      });
     }
   }
 

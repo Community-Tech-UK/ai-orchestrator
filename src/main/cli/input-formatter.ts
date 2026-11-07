@@ -173,6 +173,8 @@ export class InputFormatter {
   async sendCancelControlRequest(requestId: string): Promise<void> {
     await this.writeToStdin({ type: 'control_cancel_request', request_id: requestId });
   }
+  /** Write a protocol response/cancellation without wrapping it as a user turn. */
+  sendRawControl(message: Record<string, unknown>): Promise<void> { return this.writeToStdin(message); }
 
   /**
    * Close the stdin stream

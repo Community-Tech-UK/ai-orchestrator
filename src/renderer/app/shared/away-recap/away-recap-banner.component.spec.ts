@@ -1,3 +1,4 @@
+import { SessionNavigator } from '../../core/services/session-navigator.service';
 /**
  * N12 wiring. `away-recap.ts` was the one module in this wave with zero callers
  * — a data file, not a feature. These prove the banner reaches main and behaves
@@ -12,9 +13,10 @@ import { LoopIpcService } from '../../core/services/ipc/loop-ipc.service';
 
 await resolveComponentResources(() => Promise.resolve(''));
 
+const openSession = vi.fn();
 const RECAP = {
   cards: [{
-    runId: 'r1', goal: 'Fix the login flow', outcome: 'needs-you' as const,
+    runId: 'r1', chatId: 'chat-1', goal: 'Fix the login flow', outcome: 'needs-you' as const,
     status: 'error', iterations: 4, durationMs: 1_000, costCents: 25,
     outstandingCount: 2, endReason: 'boom',
   }],
@@ -26,7 +28,7 @@ function mount(getAwayRecap = vi.fn(async () => ({ success: true, data: { recap:
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     imports: [AwayRecapBannerComponent],
-    providers: [{ provide: LoopIpcService, useValue: { getAwayRecap } }],
+    providers: [{ provide: LoopIpcService, useValue: { getAwayRecap } }, { provide: SessionNavigator, useValue: { openSession } }],
   });
   const fixture = TestBed.createComponent(AwayRecapBannerComponent);
   fixture.detectChanges();
@@ -55,6 +57,13 @@ describe('AwayRecapBannerComponent (N12)', () => {
   });
 
   /** Outcome must be readable without colour. */
+  it('opens the session from a recap card button', async () => {
+    openSession.mockClear();
+    const { fixture } = mount(); await focus(fixture);
+    fixture.nativeElement.querySelector('button.away-recap__card').click();
+    expect(openSession).toHaveBeenCalledWith('chat-1');
+  });
+
   it('prints the outcome word on each card', async () => {
     const { fixture } = mount();
     await focus(fixture);
@@ -122,7 +131,7 @@ describe('AwayRecapBannerComponent (N12)', () => {
   it('keeps an unread recap when a later one arrives instead of overwriting it', async () => {
     const SECOND = {
       cards: [{
-        runId: 'r2', goal: 'Ship the docs', outcome: 'finished' as const,
+        runId: 'r2', chatId: 'chat-2', goal: 'Ship the docs', outcome: 'finished' as const,
         status: 'completed', iterations: 2, durationMs: 500, costCents: 10,
         outstandingCount: 0, endReason: null,
       }],

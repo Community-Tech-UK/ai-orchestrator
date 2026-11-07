@@ -7,6 +7,9 @@ const CODEX_TURN_CEILING_MAX_TOKENS = 10_000_000_000;
 const CODEX_CEILING_APP_SERVER_ONLY = ' This only works for Codex sessions that use the Codex app server. A session in command mode (hardened sessions, or when the app server is unavailable) learns its token use only when a turn ends, so these limits cannot act during its turns. Codex sessions on a remote worker computer are not limited.';
 
 export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
+  { key: 'memoryNotesEveryMessage', label: 'Add retrieved notes to every message',
+    description: 'Off: Harness adds notes only to your own messages, when they are new. On: every message, as before.',
+    type: 'boolean', category: 'advanced', keywords: ['memory', 'retrieval', 'notes'] },
   {
     key: 'workloadLevel', label: 'Workload',
     description: 'Less or more unattended work at once. Balanced keeps existing limits. Lowering this lets running work finish.',
@@ -128,6 +131,7 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'maxDiskStorageMB',
+    dependsOn: 'enableDiskStorage',
     label: 'Disk storage limit (MB)',
     description: 'Most disk space to use for saved output, in megabytes. 0 means no limit.',
     type: 'number',
@@ -225,6 +229,7 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'chromeDevtoolsAttachProfileId',
+    dependsOn: 'chromeDevtoolsAttachEnabled',
     label: 'chrome-devtools managed profile',
     description: 'The managed browser profile chrome-devtools attaches to. Pick one of your managed profiles from the Browser screen. Only used when the attach toggle above is on.',
     type: 'select',
@@ -375,7 +380,7 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'claudeSubprocessEnvScrub',
     label: 'Scrub environment from Claude subprocesses',
-    description: 'Sets CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 so commands the Claude CLI runs do not inherit sensitive environment variables. Off by default: the scrub may also strip the orchestrator variables that power the approval hook and RTK — enable only after verifying those still work.',
+    description: 'Sets CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 so commands the Claude CLI runs do not inherit sensitive environment variables. Off by default: the scrub may also strip the Harness variables that power the approval hook and RTK — enable only after verifying those still work.',
     type: 'boolean',
     category: 'advanced',
   },
@@ -389,7 +394,7 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'orchestratorMcpToolDeferral',
     label: 'Load Harness tools on demand',
-    description: 'Give new agent sessions a small core set of Harness orchestrator tools plus a search tool that loads the rest on demand, instead of injecting all ~45 tool schemas upfront. Codex uses a fixed search/describe/execute wrapper. Cursor still receives the full list. Applies at the next session spawn.',
+    description: 'Give new agent sessions a small core set of Harness tools plus a search tool that loads the rest on demand, instead of injecting all ~45 tool schemas upfront. Codex uses a fixed search/describe/execute wrapper. Cursor still receives the full list. Applies at the next session spawn.',
     type: 'boolean',
     category: 'advanced',
   },

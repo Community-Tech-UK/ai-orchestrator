@@ -12,7 +12,7 @@ const transport = {
   residentClaude: 'policy', bare: 'policy', name: 'policy', chrome: 'policy', excludeDynamicSystemPromptSections: 'policy',
   trialKey: 'spawn',
   trialKeySource: 'local: only labels the policy-log line the executing machine writes for itself',
-  sessionId: 'spawn', workingDirectory: 'spawn', model: 'spawn', yoloMode: 'spawn', resume: 'spawn', forkSession: 'spawn',
+  instanceId: 'spawn', sessionId: 'spawn', workingDirectory: 'spawn', model: 'spawn', yoloMode: 'spawn', resume: 'spawn', forkSession: 'spawn',
   allowedTools: 'spawn', disallowedTools: 'spawn', systemPrompt: 'spawn', mcpConfig: 'spawn', reasoningEffort: 'spawn', rtk: 'spawn',
   env: 'local: environment and credentials are composed on the executing worker',
   envRemove: 'local: account authentication isolation is derived on the executing worker',
@@ -20,6 +20,7 @@ const transport = {
   debugLogging: 'local: worker reads its own debug setting; not exposed through UnifiedSpawnOptions',
   maxTokens: 'local: not exposed through UnifiedSpawnOptions or createClaudeAdapter',
   betas: 'local: not exposed through UnifiedSpawnOptions or createClaudeAdapter',
+  livePermissionPrompts: 'local: the in-turn permission channel is not sent to workers; a remote session keeps the held-approval flow',
 } satisfies Record<keyof ClaudeCliSpawnOptions, string>;
 
 describe('local and remote Claude spawn option parity', () => {

@@ -1,5 +1,7 @@
 import type { ProviderRuntimeEvent } from '@contracts/types/provider-runtime-events';
 import { extractProviderErrorDiagnostics } from './instance-communication.diagnostics';
+import { getCopilotCreditRecorder } from '../core/system/copilot-credit-recorder';
+import { instanceCacheTtlMs } from '../context/instance-cache-usage';
 import { machineSessionReasonOf } from '../../shared/utils/machine-session';
 import { resolveSpendPurpose } from '../core/system/spend-purpose';
 import { sessionKindOf } from '../../shared/types/session-kind.types';
@@ -24,11 +26,13 @@ import { deferUntilResponseUsageSettled } from '../cli/adapters/deferred-respons
 const logger = getLogger('InstanceCommunication');
 
 export type CompletionCostIdentity = Pick<Instance,
-  'sessionId' | 'provider' | 'currentModel' | 'parentId' | 'agentId' | 'metadata' | 'reasoningEffort'>;
+  'sessionId' | 'provider' | 'currentModel' | 'parentId' | 'agentId' | 'metadata' | 'reasoningEffort'
+  | 'copilotAccountProfileId' | 'accountProfileId' | 'executionLocation'>;
 export function captureCompletionCostIdentity(instance: Instance): CompletionCostIdentity {
   return { sessionId: instance.sessionId, provider: instance.provider, currentModel: instance.currentModel,
     parentId: instance.parentId, agentId: instance.agentId, metadata: { ...instance.metadata },
-    reasoningEffort: instance.reasoningEffort };
+    reasoningEffort: instance.reasoningEffort, copilotAccountProfileId: instance.copilotAccountProfileId,
+    accountProfileId: instance.accountProfileId, executionLocation: instance.executionLocation };
 }
 
 function codexTurnOf(response: CliResponse): CostAttributionRecord['codexTurn'] {
@@ -102,9 +106,10 @@ export function recordCompletionCost(
       // Every completed turn counts, even without usage (A#158). An absent
       // cost stays unknown; preserve a supplied $0 on usage so the real
       // purpose summary can distinguish it. There is no cache measurement.
-      getCostTracker().recordUsage(instanceId, billingInstance.sessionId, model, 0, 0, 0, 0, providerCost, 0, isEstimated, {
+      const zeroEntry = getCostTracker().recordUsage(instanceId, billingInstance.sessionId, model, 0, 0, 0, 0, providerCost, 0, isEstimated, {
         provider: billingInstance.provider, byModel: response.usage?.byModel, origin,
       });
+      if (billingInstance.provider === 'copilot') void getCopilotCreditRecorder().bookAfterTurn(billingInstance, zeroEntry.id);
       recordInstanceTurnAttribution({
         ...attribution,
         instanceId, parentId: billingInstance.parentId, agentId: billingInstance.agentId,
@@ -134,6 +139,7 @@ export function recordCompletionCost(
       isEstimated,
       { provider: billingInstance.provider, byModel: response.usage?.byModel, origin },
     );
+    if (billingInstance.provider === 'copilot') void getCopilotCreditRecorder().bookAfterTurn(billingInstance, entry.id);
     instance.contextUsage.costEstimate = (instance.contextUsage.costEstimate ?? 0) + entry.cost;
     recordInstanceTurnAttribution({
       ...attribution,
@@ -151,8 +157,9 @@ export function recordCompletionCost(
       ...(billingInstance.metadata?.['spendPurpose'] === 'automation' || billingInstance.metadata?.['spendPurpose'] === 'channel'
         ? { spendPurpose: billingInstance.metadata['spendPurpose'] } : {}),
     });
-    if (!isEstimated) {
-      getCacheAnalyticsService().recordTurn(instanceId, { input, cacheRead, cacheWrite });
+    if (!isEstimated && billingInstance.provider !== 'claude') {
+      getCacheAnalyticsService().recordTurn(instanceId, { input, cacheRead, cacheWrite, promptTokens: input + cacheRead + cacheWrite,
+        model, provider: billingInstance.provider, ttlMs: instanceCacheTtlMs(billingInstance) });
     }
   } catch (err) {
     logger.debug('recordCompletionCost failed', { instanceId, error: String(err) });

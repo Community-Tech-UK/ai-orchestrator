@@ -12,6 +12,7 @@ export const AwayOutcomeSchema = z.enum(['needs-you', 'stopped-short', 'finished
 
 export const AwayRunCardSchema = z.object({
   runId: z.string(),
+  chatId: z.string(),
   goal: z.string(),
   outcome: AwayOutcomeSchema,
   status: z.string(),

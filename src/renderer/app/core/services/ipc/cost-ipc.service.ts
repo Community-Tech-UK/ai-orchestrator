@@ -11,6 +11,7 @@ import type {
   CostRestoreRollbackSummary,
   CostRestoreSummary,
 } from '../../../../../shared/types/cost-history-restore.types';
+import type { SessionSpendBreakdown } from '../../../../../shared/types/cost-session.types';
 
 @Injectable({ providedIn: 'root' })
 export class CostIpcService {
@@ -68,6 +69,11 @@ export class CostIpcService {
   async costGetPurposeSummary(range?: CostPurposeRange): Promise<IpcResponse<CostPurposeSummary>> {
     if (!this.api) return {success:false,error:{message:'Not in Electron'}};
     return this.api.costGetPurposeSummary(range);
+  }
+
+  async costGetSessionBreakdown(instanceId: string, sessionId?: string): Promise<IpcResponse<SessionSpendBreakdown>> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.costGetSessionBreakdown(instanceId, sessionId);
   }
 
   /**

@@ -340,8 +340,11 @@ export class LocalAiIncidentService {
     const duration = transitionKind === 'recovered' && incident.resolvedAt !== undefined
       ? ` Duration: ${formatDuration(incident.resolvedAt - incident.openedAt)}.`
       : '';
+    const resolveKey = `local-ai-incident:${incident.id}`;
+    if (transitionKind === 'recovered') this.notifications.resolve(resolveKey);
     this.notifications.notify({
       kind,
+      ...(transitionKind === 'recovered' ? {} : { resolveKey }),
       title,
       body:
         `Endpoint: ${this.endpointLabel(incident.targetId)}. Failed layer: ${layers}. ` +

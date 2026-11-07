@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal, effect } from '@angular/core';
+import { SavedPermissionDecisionsComponent } from './saved-permission-decisions.component';
 import { SettingsStore } from '../../core/state/settings.store';
 import { SecurityIpcService, type ShadowedRuleFindingDto } from '../../core/services/ipc/security-ipc.service';
 import { TaskIpcService } from '../../core/services/ipc/task-ipc.service';
@@ -29,6 +30,7 @@ export type { PermissionsSection };
     SaveStateBannerComponent,
     AioTooltipDirective,
     SettingsSectionTabsComponent,
+    SavedPermissionDecisionsComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './permissions-settings-tab.component.html',

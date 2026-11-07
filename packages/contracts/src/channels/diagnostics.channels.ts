@@ -11,6 +11,7 @@ export const DIAGNOSTICS_CHANNELS = {
   DIAGNOSTICS_EXPORT_ARTIFACT_BUNDLE: 'diagnostics:export-artifact-bundle',
   DIAGNOSTICS_REVEAL_BUNDLE: 'diagnostics:reveal-bundle',
   CONTEXT_ATTRIBUTION_GET: 'diagnostics:context-attribution-get',
+  CONTEXT_PROVIDER_MEASURE: 'diagnostics:context-provider-measure',
   CACHE_ANALYTICS_GET: 'diagnostics:cache-analytics-get',
   /** "Where your usage went": the last 7 days of Claude usage, split into Anthropic's nine causes. */
   USAGE_INSIGHT_GET: 'usage-insight:get',

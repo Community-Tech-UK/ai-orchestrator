@@ -12,6 +12,7 @@
  * - On startup, orphaned .gz files (saved but not indexed) are recovered into the index.
  */
 
+import { INTERRUPT_RESTARTED_NOTICE } from '../../shared/copy/interrupt-copy';
 import { app } from 'electron';
 import { clearToolOutcomes } from '../learning/tool-outcome-store';
 import * as fs from 'fs';
@@ -1514,6 +1515,7 @@ export class HistoryManager {
     return (
       content === 'Session restarted automatically (resume failed)'
       || content === 'Interrupted — session restarted (resume failed)'
+      || content === INTERRUPT_RESTARTED_NOTICE
     );
   }
 

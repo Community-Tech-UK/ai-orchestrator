@@ -108,6 +108,7 @@ export interface CommunicationDependencies {
     quotaBlind?: boolean;
     reason: string;
     resumePrompt: string | null;
+    resumeTurn?: AuthRepairTurn | null;
   }) => 'parked' | 'already-parked' | 'skipped' | 'switching-account';
   /**
    * Invoked when a turn fails with provider-credential phrasing (an expired
@@ -133,6 +134,7 @@ export interface CommunicationDependencies {
     provider: Instance['provider'];
     model: string | null;
     prompt: string;
+    resumeTurn?: AuthRepairTurn | null;
   }) => 'parked' | 'already-parked' | 'skipped' | 'switching-account';
   /** Clears an expired provider-limit gate after a verified non-limit completion. */
   clearProviderLimitAfterSuccessfulTurn?: (params: {

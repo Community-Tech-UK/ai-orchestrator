@@ -94,6 +94,11 @@
   line-height: 1;
 }
 
+/* Sidechat activity failed to load; the control appears only then. */
+.rail-btn--alert {
+  color: var(--warning-color);
+}
+
 /* Sidechats are working in the background (no unread answer yet). */
 .rail-activity-dot {
   position: absolute;

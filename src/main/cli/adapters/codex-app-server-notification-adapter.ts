@@ -139,6 +139,7 @@ export abstract class CodexAppServerNotificationAdapter extends CodexAppServerAd
 
   private itemNotificationHost(): CodexItemNotificationHost {
     return {
+      emitReasoningHeadline: (text) => this.emit('reasoning-headline', text),
       emitOutput: (payload) => {
         this.emit('output', payload);
       },

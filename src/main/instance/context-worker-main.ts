@@ -267,6 +267,7 @@ async function handleMessage(msg: ContextWorkerInboundMsg): Promise<void> {
           msg.query,
           msg.maxTokens,
           msg.topK,
+          msg.queryStrategy,
         );
         respond(msg.id, result);
       } catch {

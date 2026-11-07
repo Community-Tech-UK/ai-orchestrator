@@ -108,6 +108,7 @@ export class CodexContextCostController {
   private readonly governor = new CodexTurnCostGovernor();
   private readonly signals = new CodexCompactionSignalTracker();
   private pendingRecovery: PendingRecovery | null = null;
+  private boundaryNoticeShown = false;
   /**
    * Set when a compaction is observed outside an active `compactContext` wait
    * (e.g. Codex self-managed compaction during the controlled-recovery interrupt).
@@ -445,23 +446,16 @@ export class CodexContextCostController {
       if (!compacted) {
         throw this.pause(
           'compaction-unobserved',
-          'Codex context recovery paused because compaction could not be confirmed. The conversation was preserved; retry or compact manually before continuing.',
+          "Harness paused the task because it couldn't confirm Codex shortened its conversation. Your conversation is intact. Send again, or use Compact now first.",
         );
       }
 
       this.deps.recordRecovery?.('compaction-observed');
       if (await params.providerWillContinue?.()) {
-        this.deps.emitSystem(
-          'Codex reached a shared context-policy boundary, so Harness interrupted it and observed compaction. Codex is continuing the task by itself.',
-          { contextCostRecovery: true, action: pending.action },
-        );
+        this.emitBoundaryNotice("Codex's conversation was getting long, so Harness had it shortened. Codex is carrying on with the task.", pending.action);
         this.deps.recordRecovery?.('continued');
         return true;
       }
-      this.deps.emitSystem(
-        'Codex reached a shared context-policy boundary, so Harness interrupted it, observed compaction, and is continuing on the same thread.',
-        { contextCostRecovery: true, action: pending.action },
-      );
       this.deps.recordActionProof?.('same-thread-continuation', 'requested');
       try {
         await this.continueTurnWithRetry(params);
@@ -482,6 +476,7 @@ export class CodexContextCostController {
         );
       }
       this.deps.recordActionProof?.('same-thread-continuation', 'observed');
+      this.emitBoundaryNotice("Codex's conversation was getting long, so Harness had it shortened and asked Codex to carry on.", pending.action);
       this.deps.recordRecovery?.('continued');
       return true;
     } finally {
@@ -491,6 +486,12 @@ export class CodexContextCostController {
 
   clearPending(): void {
     this.pendingRecovery = null;
+  }
+
+  private emitBoundaryNotice(content: string, action: PendingRecovery['action']): void {
+    if (this.boundaryNoticeShown) { logger.info('Codex conversation shortened again', { action }); return; }
+    this.boundaryNoticeShown = true;
+    this.deps.emitSystem(content, { contextCostRecovery: true, contextCostRecoveryNotice: true, action });
   }
 
   /**

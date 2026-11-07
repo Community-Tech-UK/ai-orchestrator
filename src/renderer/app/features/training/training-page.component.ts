@@ -63,7 +63,7 @@ interface RewardTrend {
     <div class="page">
       <div class="page-header">
         <div class="header-title">
-          <span class="title">Training</span>
+          <span class="title">Training Data</span>
           <span class="subtitle">GRPO outcomes, trends, top strategies, and config import/export</span>
         </div>
         <div class="header-actions">

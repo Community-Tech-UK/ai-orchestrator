@@ -43,6 +43,7 @@ describe('createThinClientCommandExecutor', () => {
       getOrchestrationHandler: vi.fn(() => ({ respondToUserAction: vi.fn() }) as unknown as OrchestrationHandler),
       recordInputRequiredPermissionDecision: vi.fn(),
       clearPendingInputRequiredPermission: vi.fn(),
+      isPendingInputRequiredPermission: vi.fn(() => true),
       resumeAfterDeferredPermission: vi.fn(async () => undefined),
       sendInputResponse: vi.fn(async () => undefined),
       appendSyntheticUserMessage: vi.fn(),
@@ -111,6 +112,7 @@ describe('createThinClientCommandExecutor', () => {
       wakeInstance: vi.fn(async () => undefined),
       sendInputResponse: vi.fn(async () => undefined),
       clearPendingInputRequiredPermission: vi.fn(),
+      isPendingInputRequiredPermission: vi.fn(() => true),
       recordInputRequiredPermissionDecision: vi.fn(),
       getOrchestrationHandler: vi.fn(() => ({ respondToUserAction }) as unknown as OrchestrationHandler),
       getInstance: vi.fn(() => undefined),
@@ -391,8 +393,35 @@ function makeBaseInstanceManager() {
     appendSyntheticUserMessage: vi.fn(),
     recordInputRequiredPermissionDecision: vi.fn(),
     clearPendingInputRequiredPermission: vi.fn(),
+    isPendingInputRequiredPermission: vi.fn(() => true),
     resumeAfterDeferredPermission: vi.fn(async () => undefined),
     sendInputResponse: vi.fn(async () => undefined),
     getOrchestrationHandler: vi.fn(() => ({ respondToUserAction: vi.fn() }) as unknown as OrchestrationHandler),
   };
 }
+
+
+describe('thin client live permission correlation', () => {
+  it.each(['allow', 'deny', 'modify'] as const)('forwards the exact request id for %s', async action => {
+    const instanceManager = makeBaseInstanceManager();
+    const execute = createThinClientCommandExecutor({ instanceManager, pauseCoordinator: { isPaused: () => false }, remoteObserver: { clearPrompt: vi.fn() } });
+    const input = { url: 'https://example.com' };
+    const result = await execute('instance:respond-input', { ipcAuthToken: 'PLACEHOLDER', instanceId: 'inst-1', requestId: 'live-card', response: 'Use local data.',
+      decisionAction: action, decisionScope: 'once', ...(action === 'modify' ? { updatedInput: input } : {}), metadata: { type: 'deferred_permission', live: true, denyNote: 'Use local data.' } });
+    expect(result.success).toBe(true);
+    expect(instanceManager.resumeAfterDeferredPermission).toHaveBeenCalledWith('inst-1', action !== 'deny', action === 'modify' ? input : undefined,
+      { requestId: 'live-card', denyNote: action === 'deny' ? 'Use local data.' : undefined });
+  });
+
+  it('rejects a reply whose request id is not a pending request of that instance', async () => {
+    const instanceManager = makeBaseInstanceManager();
+    instanceManager.isPendingInputRequiredPermission = vi.fn(() => false);
+    const execute = createThinClientCommandExecutor({ instanceManager, pauseCoordinator: { isPaused: () => false }, remoteObserver: { clearPrompt: vi.fn() } });
+    const result = await execute('instance:respond-input', { ipcAuthToken: 'PLACEHOLDER', instanceId: 'inst-1', requestId: 'cancelled-card', response: 'approved.',
+      decisionAction: 'allow', decisionScope: 'once', metadata: { type: 'deferred_permission' } });
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INPUT_REQUIRED_NOT_PENDING');
+    expect(instanceManager.resumeAfterDeferredPermission).not.toHaveBeenCalled();
+    expect(instanceManager.recordInputRequiredPermissionDecision).not.toHaveBeenCalled();
+  });
+});

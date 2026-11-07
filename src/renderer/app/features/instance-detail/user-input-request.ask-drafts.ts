@@ -42,6 +42,8 @@ export class AskAnswerDrafts {
   private readonly revision = signal(0);
   private readonly picks = new Map<string, Map<number, Set<string>>>();
   private readonly texts = new Map<string, Map<number, string>>();
+  /** Questions whose choices include "Type your own answer", so a typed reply stands instead of a choice. */
+  private readonly own = new Map<string, Set<number>>();
 
   isPicked(requestId: string, index: number, label: string): boolean {
     this.revision();
@@ -53,14 +55,36 @@ export class AskAnswerDrafts {
     return this.texts.get(requestId)?.get(index) ?? '';
   }
 
+  /** True while the person has chosen to write their own answer instead of using a listed choice. */
+  isOwn(requestId: string, index: number): boolean {
+    this.revision();
+    return this.own.get(requestId)?.has(index) ?? false;
+  }
+
+  /** A click on "Type your own answer". A single-select drops its pick; turning it off drops the text. */
+  toggleOwn(requestId: string, index: number, multiSelect: boolean): void {
+    const ownIndexes = new Set(this.own.get(requestId));
+    if (ownIndexes.delete(index)) {
+      this.own.set(requestId, ownIndexes);
+      this.store(requestId, index, undefined, '');
+      return;
+    }
+    ownIndexes.add(index);
+    this.own.set(requestId, ownIndexes);
+    this.store(requestId, index, multiSelect ? undefined : new Set<string>(), this.texts.get(requestId)?.get(index) ?? '');
+  }
+
   /** A click on a choice. A single-select holds one; a multi-select toggles each. */
   toggle(requestId: string, index: number, label: string, multiSelect: boolean): void {
     const current = new Set(this.picks.get(requestId)?.get(index));
     const wasPicked = current.has(label);
-    if (!multiSelect) current.clear();
+    if (!multiSelect) {
+      current.clear();
+      this.own.get(requestId)?.delete(index);
+    }
     if (!wasPicked) current.add(label);
     else if (multiSelect) current.delete(label);
-    this.store(requestId, index, current, '');
+    this.store(requestId, index, current, multiSelect && this.isOwn(requestId, index) ? this.text(requestId, index) : '');
   }
 
   setText(requestId: string, index: number, text: string): void {
@@ -127,6 +151,7 @@ export class AskAnswerDrafts {
   clear(requestId: string): void {
     this.picks.delete(requestId);
     this.texts.delete(requestId);
+    this.own.delete(requestId);
     this.revision.update((count) => count + 1);
   }
 

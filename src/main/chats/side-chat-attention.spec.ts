@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { createOperatorTables } from '../operator/operator-schema';
@@ -44,6 +44,8 @@ describe('SideChatAttentionTracker', () => {
     const linkStore = new SideChatLinkStore(db);
     const instanceManager = new FakeInstanceManager();
     const latestSequences = new Map<string, number>();
+    const clock = { value: 1_000 };
+    const getLatestAssistantSequence = vi.fn(async (link: { chatId: string }) => latestSequences.get(link.chatId) ?? 0);
 
     chatStore.insert({
       id: 'parent-1', name: 'Parent', provider: 'codex',
@@ -54,8 +56,9 @@ describe('SideChatAttentionTracker', () => {
       linkStore,
       chatStore,
       instanceManager: instanceManager as never,
-      getLatestAssistantSequence: async (link) => latestSequences.get(link.chatId) ?? 0,
+      getLatestAssistantSequence,
       resolveParentTitle: async (parent) => (parent.kind === 'chat' ? chatStore.get(parent.chatId)?.name ?? null : null),
+      now: () => clock.value,
     });
 
     function addSideChat(id: string, options: {
@@ -87,7 +90,7 @@ describe('SideChatAttentionTracker', () => {
       }
     }
 
-    return { tracker, addSideChat, latestSequences, linkStore };
+    return { tracker, addSideChat, latestSequences, linkStore, clock, instanceManager, chatStore, getLatestAssistantSequence };
   }
 
   it('reports zero attention for a parent with no sidechats', async () => {
@@ -100,6 +103,7 @@ describe('SideChatAttentionTracker', () => {
       running: 0,
       unread: 0,
       needsAttention: 0,
+      attentionSince: null,
       targetChatId: null,
     });
   });
@@ -161,5 +165,71 @@ describe('SideChatAttentionTracker', () => {
 
     expect(all).toHaveLength(1);
     expect(all[0]).toMatchObject({ parent: PARENT, unread: 1 });
+  });
+
+  it('stamps attention onset, keeps it while unchanged and restarts it for a reopened episode', async () => {
+    const { tracker, addSideChat, clock, instanceManager, chatStore } = harness();
+    addSideChat('needs', { status: 'waiting_for_permission' });
+    const instanceId = chatStore.get('needs')!.currentInstanceId!;
+    const instance = instanceManager.getInstance(instanceId)!;
+
+    expect((await tracker.forParent(PARENT)).attentionSince).toBe(1_000);
+    clock.value = 5_000;
+    expect((await tracker.forParent(PARENT)).attentionSince).toBe(1_000);
+
+    instance.status = 'idle';
+    expect(await tracker.forParent(PARENT)).toMatchObject({ needsAttention: 0, attentionSince: null });
+    clock.value = 9_000;
+    instance.status = 'waiting_for_permission';
+    expect((await tracker.forParent(PARENT)).attentionSince).toBe(9_000);
+  });
+
+  it('uses the oldest still-open episode across several sidechats', async () => {
+    const { tracker, addSideChat, clock, instanceManager, chatStore } = harness();
+    addSideChat('first', { status: 'waiting_for_permission' });
+    await tracker.forParent(PARENT);
+    clock.value = 2_000;
+    addSideChat('second', { status: 'waiting_for_permission' });
+    expect((await tracker.forParent(PARENT)).attentionSince).toBe(1_000);
+    instanceManager.getInstance(chatStore.get('first')!.currentInstanceId!)!.status = 'idle';
+    expect((await tracker.forParent(PARENT)).attentionSince).toBe(2_000);
+  });
+
+  it('starts a new episode when an archived sidechat returns to the active list', async () => {
+    const { tracker, addSideChat, clock, chatStore } = harness();
+    addSideChat('needs', { status: 'waiting_for_permission' });
+    expect((await tracker.forParent(PARENT)).attentionSince).toBe(1_000);
+    chatStore.update('needs', { archivedAt: 2_000 });
+    expect((await tracker.forParent(PARENT)).attentionSince).toBeNull();
+    clock.value = 9_000;
+    chatStore.update('needs', { archivedAt: null });
+    expect((await tracker.forParent(PARENT)).attentionSince).toBe(9_000);
+  });
+
+  it('does not let an older slow snapshot reset a continuous waiting episode', async () => {
+    const { tracker, addSideChat, clock, instanceManager, chatStore, getLatestAssistantSequence } = harness();
+    addSideChat('needs', { status: 'idle' });
+    let finishOld!: (sequence: number) => void;
+    let started!: () => void;
+    const oldStarted = new Promise<void>(resolve => { started = resolve; });
+    getLatestAssistantSequence.mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve; started(); }));
+    const older = tracker.forParent(PARENT); await oldStarted;
+    instanceManager.getInstance(chatStore.get('needs')!.currentInstanceId!)!.status = 'waiting_for_permission';
+    clock.value = 2_000;
+    const newer = tracker.forParent(PARENT);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    finishOld(0);
+    await older;
+    expect((await newer).attentionSince).toBe(2_000);
+    clock.value = 3_000;
+    expect((await tracker.forParent(PARENT)).attentionSince).toBe(2_000);
+  });
+
+  it('propagates a failed refresh and allows the next refresh for that parent', async () => {
+    const { tracker, addSideChat, getLatestAssistantSequence } = harness();
+    addSideChat('needs', { status: 'waiting_for_permission' });
+    getLatestAssistantSequence.mockRejectedValueOnce(new Error('Ledger lookup failed'));
+    await expect(tracker.forParent(PARENT)).rejects.toThrow('Ledger lookup failed');
+    expect((await tracker.forParent(PARENT)).attentionSince).toBe(1_000);
   });
 });

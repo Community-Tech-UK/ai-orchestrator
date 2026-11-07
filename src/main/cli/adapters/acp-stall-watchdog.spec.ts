@@ -141,6 +141,7 @@ describe('buildAcpStallOutputMessage', () => {
     expect(message.type).toBe('system');
     expect(message.metadata?.['watchdogWarning']).toBe(true);
     expect(message.metadata?.['source']).toBe('acp-stall-warning');
-    expect(message.content).toContain('may be stuck');
+    expect(message.content).toContain('keep waiting');
+    expect(message.content).not.toMatch(/may be stuck|Cancel the turn/);
   });
 });

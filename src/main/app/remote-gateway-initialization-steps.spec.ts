@@ -35,6 +35,7 @@ const fakes = vi.hoisted(() => {
     rpcRouterStart: vi.fn(),
     publish: vi.fn(),
     notify: vi.fn(),
+    resolve: vi.fn(),
   };
 });
 
@@ -63,7 +64,7 @@ vi.mock('../remote-node', () => ({
 }));
 
 vi.mock('../notifications/notification-service', () => ({
-  getNotificationService: () => ({ notify: fakes.notify }),
+  getNotificationService: () => ({ notify: fakes.notify, resolve: fakes.resolve }),
 }));
 
 vi.mock('../event-bus/thin-client-ws-server', () => ({ getThinClientWsServer: vi.fn() }));
@@ -274,6 +275,14 @@ describe('createWorkerNodeSubsystemStep', () => {
 
     expect(() => fakes.registry.emit('node:connected', unreadable)).not.toThrow();
     expect(fakes.notify).not.toHaveBeenCalledWith(expect.objectContaining({ kind: 'node-reconnected' }));
+  });
+
+  it('resolves an outage even when notifications have since been disabled', async () => {
+    await createWorkerNodeSubsystemStep(buildContext()).fn();
+    fakes.registry.emit('node:disconnected', makeNode({ id: 'node-1', name: 'windows-pc' }));
+    fakes.settings = { notifyOnNodeDisconnect: false };
+    fakes.registry.emit('node:connected', makeNode({ id: 'node-1', name: 'windows-pc' }));
+    expect(fakes.resolve).toHaveBeenCalledWith('node:node-1');
   });
 
   it('stays quiet for a connect that was never announced as a disconnect', async () => {

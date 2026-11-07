@@ -256,7 +256,7 @@ export class QueuePersistenceService {
     console.warn('QueuePersistenceService: failed to durably enqueue message', { instanceId, attempt, error });
     this.setDurabilityFlag(instanceId, entry, true);
     if (attempt === 0) {
-      this.toast.show('A queued message could not be saved for crash recovery — it will keep retrying.', 'error');
+      this.toast.show('A queued message could not be saved for crash recovery — it will keep retrying.', 'error', { key: 'queue-persistence' });
     }
     if (attempt >= MAX_ENQUEUE_ATTEMPTS - 1) return;
     const delay = Math.min(ENQUEUE_RETRY_BASE_MS * 2 ** attempt, ENQUEUE_RETRY_MAX_MS);

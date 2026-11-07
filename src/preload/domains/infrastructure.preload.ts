@@ -142,10 +142,6 @@ export function createInfrastructureDomain(
     permissionGetPendingBatch: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.PERMISSION_GET_PENDING_BATCH);
     },
-    /** N9: the aggregate "what is blocked right now" line. */
-    permissionGetApprovalDigest: (): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.PERMISSION_GET_APPROVAL_DIGEST);
-    },
     permissionRecordBatchDecision: (
       params: { action: 'allow_all' | 'deny_all'; scope: 'once' | 'session' | 'always' }
     ): Promise<IpcResponse> => {
@@ -226,6 +222,8 @@ export function createInfrastructureDomain(
     costGetEphemeralUsage: (limit = 100): Promise<IpcResponse<CodexEphemeralUsageResult>> => {
       return ipcRenderer.invoke(ch.COST_GET_EPHEMERAL_USAGE, { limit });
     },
+    costGetSessionBreakdown: (instanceId: string, sessionId?: string): Promise<IpcResponse<import('../../shared/types/cost-session.types').SessionSpendBreakdown>> =>
+      ipcRenderer.invoke(ch.COST_GET_SESSION_BREAKDOWN, { instanceId, sessionId }),
     costGetPurposeSummary: (range?: CostPurposeRange): Promise<IpcResponse<CostPurposeSummary>> => {
       return ipcRenderer.invoke(ch.COST_GET_PURPOSE_SUMMARY, range);
     },

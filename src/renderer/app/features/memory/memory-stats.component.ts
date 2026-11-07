@@ -51,7 +51,7 @@ interface MemoryStats {
     <div class="stats-container">
       <!-- Header -->
       <div class="stats-header">
-        <span class="stats-title">Memory Statistics</span>
+        <span class="stats-title title">Memory Stats</span>
       </div>
 
       @if (stats(); as s) {

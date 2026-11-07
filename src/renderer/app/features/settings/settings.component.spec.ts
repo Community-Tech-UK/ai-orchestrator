@@ -228,6 +228,20 @@ describe('SettingsComponent', () => {
     fixture.detectChanges();
   });
 
+  it('opens a legacy CLI Health fragment on the Health page', () => {
+    fragment$.next('cli-health');
+    expect(component.activeTab()).toBe('cli-health');
+    expect(component.activePage().label).toBe('Health');
+    expect(component.activePageTabs().map(tab => tab.id)).toContain('cli-health');
+  });
+
+  it('restores a legacy stored tab to its new page', () => {
+    localStorage.setItem('aiorch.settings.lastTab', 'auxiliary-models');
+    const restored = TestBed.createComponent(SettingsComponent).componentInstance;
+    expect(restored.activeTab()).toBe('auxiliary-models');
+    expect(restored.activePage().label).toBe('Agents');
+  });
+
   it('uses the URL fragment as the canonical settings section link', () => {
     fragment$.next('remote-nodes');
 
@@ -430,6 +444,16 @@ describe('SettingsComponent', () => {
       queryParamMap$.next(convertToParamMap({ setting: 'no-such"setting' }));
       await new Promise((r) => setTimeout(r));
       expect(component.activeTab()).toBe(before);
+    });
+
+    it('jumps to the exact Discord card and its owning legacy tab', async () => {
+      component.searchQuery.set('discord');
+      const row = addRow('section:connections.discord');
+      expect(component.searchRowMatch()?.key).toBe('section:connections.discord');
+      component.jumpToSearchMatch();
+      await frame();
+      expect(component.activeTab()).toBe('connections');
+      expect(row.scrollIntoView).toHaveBeenCalled();
     });
 
     it('offers no jump target for an empty query', () => {

@@ -41,7 +41,7 @@ interface SessionSkillSummaryRow {
           [appTooltip]="copy['skills.badge'].meaning"
           (click)="onTogglePopover($event)"
         >
-          ⚡ {{ sessionSkillCount() }} active
+          Skills used: {{ sessionSkillCount() }}
         </button>
         @if (showPopover()) {
           <div class="session-skills-popover">

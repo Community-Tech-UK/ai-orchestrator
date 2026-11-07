@@ -149,6 +149,8 @@ export class ProviderDiagnosticsPanelComponent {
   private readonly snapshot = signal<ProviderDiagnosticsSnapshot>({});
   readonly instanceId = input('');
   readonly contextUsage = input<ContextUsage | null>(null);
+  /** Item ids another surface already shows (the context popover leaves out the ring it explains). */
+  readonly exclude = input<readonly string[]>([]);
   private previousInstanceId = '';
 
   readonly detailItems = computed<ProviderDiagnosticItem[]>(() => {
@@ -195,8 +197,11 @@ export class ProviderDiagnosticsPanelComponent {
       });
     }
 
-    return items;
+    return items.filter(item => !this.exclude().includes(item.id));
   });
+
+  /** Rate-limit or quota states that need a look. */
+  readonly warningItems = computed(() => this.items().filter(item => (item.id === 'rate-limit' || item.id === 'quota') && item.tone));
 
   constructor() {
     effect(() => {

@@ -17,6 +17,8 @@ export interface NotificationInput {
   urgency?: NotificationUrgency;
   fingerprintFields?: unknown;
   onClick?: () => void;
+  resolveKey?: string;
+  cooldownKey?: string;
 }
 
 export interface DesktopNotificationPort {
@@ -115,7 +117,7 @@ function digestBody(kind: string, count: number): string {
 }
 
 /**
- * Central notification policy. Every call creates an in-app-center record;
+ * Central notification policy. Repeats fold into an unresolved in-app record;
  * desktop delivery is a best-effort, rate-limited projection of that record.
  */
 export class NotificationService {
@@ -131,6 +133,7 @@ export class NotificationService {
   private readonly pendingDigests = new Map<string, PendingDigest>();
   private readonly listeners = new Set<(record: NotificationRecord) => void>();
   private sequence = 0;
+  private openTargetHandler?: (instanceId: string) => void;
 
   constructor(options: NotificationServiceOptions = {}) {
     this.desktop = options.desktop ?? electronDesktopNotificationPort;
@@ -149,41 +152,74 @@ export class NotificationService {
       title: input.title,
       body: input.body,
     });
+    const existing = [...this.records].reverse().find(record => record.fingerprint === fingerprint && record.resolvedAt === undefined);
     const record: NotificationRecord = {
-      id: `notification-${now}-${++this.sequence}`,
+      ...existing,
+      id: existing?.id ?? `notification-${now}-${++this.sequence}`,
       kind: input.kind,
       ...(input.instanceId ? { instanceId: input.instanceId } : {}),
       title: input.title,
       body: input.body,
       urgency,
       fingerprint,
-      createdAt: now,
-      delivery: 'desktop-unavailable',
+      createdAt: existing?.createdAt ?? now,
+      delivery: existing?.delivery ?? 'desktop-unavailable',
+      ...(existing ? { repeatCount: (existing.repeatCount ?? 1) + 1, updatedAt: now } : {}),
+      ...(input.resolveKey ? { resolveKey: input.resolveKey } : {}),
     };
 
     const lastFingerprint = this.fingerprintLastSeen.get(fingerprint);
     this.fingerprintLastSeen.set(fingerprint, now);
     this.pruneFingerprints(now, policy.dedupeWindowMs);
     if (lastFingerprint !== undefined && now - lastFingerprint < policy.dedupeWindowMs) {
-      record.delivery = 'fingerprint-suppressed';
-      return this.addRecord(record);
+      if (!existing) record.delivery = 'fingerprint-suppressed';
+      return this.retainRecord(record);
     }
 
     if (urgency !== 'critical' && isWithinQuietHours(now, policy.quietHours)) {
       record.delivery = 'quiet-hours';
-      return this.addRecord(record);
+      return this.retainRecord(record);
     }
 
-    const lastDeliveredAt = this.kindLastDesktopDelivery.get(input.kind);
+    const cooldownKey = input.cooldownKey ?? input.kind;
+    const lastDeliveredAt = this.kindLastDesktopDelivery.get(cooldownKey);
     if (urgency !== 'critical' && lastDeliveredAt !== undefined && now - lastDeliveredAt < policy.cooldownMs) {
       record.delivery = 'cooldown-suppressed';
       this.enqueueDigest(input.kind, policy.cooldownMs - (now - lastDeliveredAt));
-      return this.addRecord(record);
+      return this.retainRecord(record);
     }
 
-    record.delivery = this.showDesktop(input, urgency);
-    if (record.delivery === 'desktop') this.kindLastDesktopDelivery.set(input.kind, now);
-    return this.addRecord(record);
+    const instanceId = input.instanceId;
+    const onClick = input.onClick ?? (instanceId
+      ? () => this.openTargetHandler?.(instanceId) : undefined);
+    record.delivery = this.showDesktop({ ...input, onClick }, urgency);
+    if (record.delivery === 'desktop') this.kindLastDesktopDelivery.set(cooldownKey, now);
+    return this.retainRecord(record);
+  }
+
+  setOpenTargetHandler(handler: (instanceId: string) => void): void {
+    this.openTargetHandler = handler;
+  }
+
+  markSeen(selection: { ids?: string[]; instanceId?: string }): void {
+    const ids = new Set(selection.ids ?? []);
+    this.updateMatching(record => record.seenAt === undefined &&
+      (ids.has(record.id) || (!!selection.instanceId && record.instanceId === selection.instanceId)), 'seenAt');
+  }
+
+  resolve(key: string): void {
+    this.updateMatching(record => record.resolveKey === key && record.resolvedAt === undefined, 'resolvedAt');
+  }
+
+  private updateMatching(matches: (record: NotificationRecord) => boolean, field: 'seenAt' | 'resolvedAt'): void {
+    const now = this.now();
+    for (let i = 0; i < this.records.length; i++) {
+      if (!matches(this.records[i])) continue;
+      const record = { ...this.records[i], [field]: now, updatedAt: now };
+      this.records[i] = record;
+      if (field === 'resolvedAt') this.fingerprintLastSeen.delete(record.fingerprint);
+      this.publish(record);
+    }
   }
 
   list(): readonly NotificationRecord[] {
@@ -210,9 +246,16 @@ export class NotificationService {
     return () => this.listeners.delete(listener);
   }
 
-  private addRecord(record: NotificationRecord): NotificationRecord {
-    this.records.push(record);
+  private retainRecord(record: NotificationRecord): NotificationRecord {
+    const index = this.records.findIndex(existing => existing.id === record.id);
+    if (index < 0) this.records.push(record);
+    else this.records[index] = record;
     if (this.records.length > MAX_RECORDS) this.records.splice(0, this.records.length - MAX_RECORDS);
+    this.publish(record);
+    return record;
+  }
+
+  private publish(record: NotificationRecord): void {
     for (const listener of this.listeners) {
       try {
         listener(record);
@@ -220,7 +263,6 @@ export class NotificationService {
         // A stale renderer bridge must not break notification delivery or other subscribers.
       }
     }
-    return record;
   }
 
   private getPolicy(): NotificationPolicy {

@@ -337,7 +337,7 @@ export class RemoteCliAdapter extends EventEmitter {
       throw new Error('RemoteCliAdapter: not spawned — call spawn() before sendInput()');
     }
     if (getPauseCoordinator().isPaused()) {
-      throw new OrchestratorPausedError('Remote input refused while orchestrator is paused');
+      throw new OrchestratorPausedError('Remote input refused while Harness is paused');
     }
 
     if (this.contextDispatchPending) {
@@ -355,7 +355,7 @@ export class RemoteCliAdapter extends EventEmitter {
       this.assertNotStopping();
       assertAdapterInputCurrent(dispatch);
       if (this.remoteInstanceId !== instanceId || this.interactionId !== interactionId || this.contextDispatchPending !== owner) throw new Error('Remote instance changed before provider dispatch.');
-      if (getPauseCoordinator().isPaused()) throw new OrchestratorPausedError('Remote input refused while orchestrator is paused');
+      if (getPauseCoordinator().isPaused()) throw new OrchestratorPausedError('Remote input refused while Harness is paused');
       if (nativeCommand && !this.availableCommands.some((command) => command.name === commandName)) throw new Error('The selected native command is no longer available in this session.');
     };
     try {
@@ -405,7 +405,7 @@ export class RemoteCliAdapter extends EventEmitter {
     this.assertNotStopping();
     const params = InstanceSendRawParamsSchema.parse({ instanceId: this.remoteInstanceId, response, permissionKey });
     if (!this.pendingInputs.has(params.permissionKey)) throw inputNotPending();
-    if (getPauseCoordinator().isPaused()) throw new OrchestratorPausedError('Permission response refused while orchestrator is paused');
+    if (getPauseCoordinator().isPaused()) throw new OrchestratorPausedError('Permission response refused while Harness is paused');
     try { await this.nodeConnection.sendRpc(this.targetNodeId, 'instance.sendRaw', params); }
     catch (error) {
       if (error instanceof Error && (('code' in error && error.code === RPC_ERROR_CODES.INPUT_REQUIRED_NOT_PENDING)

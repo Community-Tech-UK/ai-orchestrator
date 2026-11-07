@@ -72,7 +72,7 @@ describe('real manager and communication no-op resolution is not delivery',()=>{
   const adapterSend=vi.fn(async()=>{});
   const adapter={sendInput:adapterSend};
   const communication={deps:{getInstance:()=>instance,getAdapter:()=>adapter,checkKnownProviderLimitBeforeSend:()=>mode==='known-limit'?'already-parked':'skipped',queueUpdate:vi.fn()},continuityInputQueue:{prepare:()=>({contextBlock:null,commit:vi.fn()})},inputFailureScopes:{open:()=>({activate:vi.fn(),close:vi.fn(),isCurrent:()=>false})},overflow:{rememberLastSent:vi.fn(),rememberDispatch:vi.fn()},toolResultProcessor:{resetAutonomousCount:vi.fn()}};
-  const manager={state:{getInstance:()=>instance},emit:vi.fn(),maybeHandleSwitchModeReply:async()=>true};
+  const manager={state:{getInstance:()=>instance},emit:vi.fn(),awaitInputReady:async()=>undefined,maybeHandleSwitchModeReply:async()=>true};
   const send=async(id:string,message:string,attachments: FileAttachment[] | undefined, options?: InstanceSendInputOptions)=>mode==='switch-mode'?InstanceManager.prototype.sendInput.call(manager as unknown as InstanceManager,id,message,attachments,options):InstanceCommunicationManager.prototype.sendInput.call(communication as unknown as InstanceCommunicationManager,id,message,attachments,null,options);
   const f=await threadFixture('delivered',send);expect(f.run().status).toBe('succeeded');expect(adapterSend).toHaveBeenCalledTimes(mode==='accepted'?1:0);
   if(mode==='accepted')expect(f.run().threadPromptDelivered).toBe(true);else expect(f.run().threadPromptDelivered).not.toBe(true);

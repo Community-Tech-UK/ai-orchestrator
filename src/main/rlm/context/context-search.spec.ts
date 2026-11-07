@@ -157,12 +157,13 @@ describe('executeSemanticSearch RLM recall trace (WS16)', () => {
     };
     await executeSemanticSearch(
       store,
-      { query: 'find alpha', topK: 5, minSimilarity: 0.5, useHyDE: false },
+      { query: 'find alpha', topK: 5, minSimilarity: 0.5, useHyDE: false, queryStrategy: 'last-question' },
       { vectorStore: vectorStore as never, hydeService: null, searchWindowSize: 30 },
     );
 
     const traces = getRecallTraceStore().bySurface('rlm');
     expect(traces).toHaveLength(1);
+    expect(traces[0].strategy).toBe('last-question');
     // Ghost section (not in store) is filtered out of the trace.
     expect(traces[0].returned).toEqual([
       { id: 'sec-a', score: 0.91 },

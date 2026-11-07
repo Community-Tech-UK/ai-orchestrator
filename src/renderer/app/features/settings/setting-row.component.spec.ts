@@ -1,4 +1,5 @@
-import { ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
+import { SettingsStore } from '../../core/state/settings.store';
+import { ɵresolveComponentResources as resolveComponentResources, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -12,6 +13,12 @@ import { SettingRowComponent } from './setting-row.component';
 await resolveComponentResources((url) => {
   if (url.endsWith('.scss')) return Promise.resolve('');
   return Promise.reject(new Error(`Unexpected resource: ${url}`));
+});
+
+const parentSettings = signal({ ...DEFAULT_SETTINGS, computerUseEnabled: false });
+beforeEach(() => {
+  parentSettings.set({ ...DEFAULT_SETTINGS, computerUseEnabled: false });
+  TestBed.configureTestingModule({ providers: [{ provide: SettingsStore, useValue: { settings: parentSettings } }] });
 });
 
 const autonomySetting: SettingMetadata = {
@@ -28,10 +35,6 @@ const autonomySetting: SettingMetadata = {
 };
 
 describe('SettingRowComponent', () => {
-  beforeEach(() => {
-    TestBed.resetTestingModule();
-  });
-
   it('selects the persisted value after rendering its options', () => {
     const fixture = TestBed.createComponent(SettingRowComponent);
     fixture.componentRef.setInput('setting', autonomySetting);
@@ -320,7 +323,19 @@ describe('SettingRowComponent — stage badges (S2.2)', () => {
 
   it('names the setting a dependent control needs', () => {
     const meta: SettingMetadata = { ...stageBase, dependsOn: 'computerUseEnabled' };
-    expect(pills(render(meta, true))).toContain('requires computerUseEnabled');
+    expect(pills(render(meta, true))).toContain('Needs “Enable Computer Use” on');
+  });
+
+  it('updates a dependency badge live and leaves the control editable', () => {
+    const fixture = render({ ...stageBase, dependsOn: 'computerUseEnabled' }, true);
+    expect(pills(fixture)).toContain('Needs “Enable Computer Use” on');
+    expect(fixture.nativeElement.querySelector('input').disabled).toBe(false);
+    parentSettings.update(settings => ({ ...settings, computerUseEnabled: true }));
+    fixture.detectChanges();
+    expect(pills(fixture)).toEqual([]);
+    parentSettings.update(settings => ({ ...settings, computerUseEnabled: false }));
+    fixture.detectChanges();
+    expect(pills(fixture)).toContain('Needs “Enable Computer Use” on');
   });
 
   /**

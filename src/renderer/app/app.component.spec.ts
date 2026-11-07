@@ -1,4 +1,6 @@
 import { By } from '@angular/platform-browser';
+import { ToastService } from './core/services/toast.service';
+import { NotificationShellService } from './core/notices/notification-shell.service';
 import {
   computed,
   CUSTOM_ELEMENTS_SCHEMA,
@@ -34,6 +36,7 @@ import { LocalAiGuardStore } from './core/state/local-ai-guard.store';
 import { RunFailureStateService } from './features/instance-detail/run-failure-state.service';
 import { LocalAiStatusChipComponent } from './features/local-ai-guard/local-ai-status-chip.component';
 import { AioTooltipDirective } from './shared/tooltip/aio-tooltip.directive';
+import { NeedsYouStore } from './features/workboard/needs-you.store';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
 const template = readFileSync(resolve(specDirectory, './app.component.html'), 'utf8');
@@ -157,6 +160,8 @@ async function setupAppComponent(
   await TestBed.configureTestingModule({
     imports: [AppComponent],
     providers: [
+      { provide: NotificationShellService, useValue: { start: vi.fn(), stop: vi.fn() } },
+      { provide: NeedsYouStore, useValue: { init: vi.fn() } },
       { provide: Router, useValue: options.router ?? createRouterMock() },
       {
         provide: IpcFacadeService,
@@ -237,7 +242,9 @@ describe('AppComponent startup banner', () => {
     await TestBed.configureTestingModule({
       imports: [AppComponent],
       providers: [
-        { provide: Router, useValue: router },
+        { provide: NotificationShellService, useValue: { start: vi.fn(), stop: vi.fn() } },
+      { provide: NeedsYouStore, useValue: { init: vi.fn() } },
+      { provide: Router, useValue: router },
         {
           provide: IpcFacadeService,
           useValue: {
@@ -316,8 +323,19 @@ describe('AppComponent startup banner', () => {
     expect(chip.nativeElement.textContent.trim()).toBe('Sending 3');
     expect(chip.nativeElement.hasAttribute('title')).toBe(false);
     expect(chip.injector.get(AioTooltipDirective).appTooltip()).toBe('Queued paused traffic is resuming');
-    // The visible "Sending 3 queued messages" status toast still carries the state.
-    expect(fixture.nativeElement.querySelector('.resume-toast').textContent).toContain('Sending 3 queued messages');
+    expect(fixture.nativeElement.querySelectorAll('.title-activity-chip')).toHaveLength(1);
+    expect(fixture.nativeElement.querySelector('.resume-toast')).toBeNull();
+  });
+
+  it('announces sticky errors as alerts and provides their action and dismiss buttons', () => {
+    const toast = TestBed.inject(ToastService); const fix = vi.fn();
+    toast.show('Broken', 'error', { action: { label: 'Show session', run: fix } });
+    fixture.detectChanges();
+    const alert = fixture.nativeElement.querySelector('.toast-item[role="alert"]') as HTMLElement;
+    expect(alert.textContent).toContain('Broken');
+    alert.querySelector('button')?.click(); expect(fix).toHaveBeenCalledOnce();
+    alert.querySelector<HTMLButtonElement>('[aria-label="Dismiss Broken"]')?.click(); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.toast-item')).toBeNull();
   });
 
   it('renders a dismiss control for degraded startup checks', () => {
@@ -523,6 +541,14 @@ describe('AppComponent startup banner', () => {
 });
 
 describe('AppComponent title bar layout', () => {
+  it('mounts both global command hosts and initializes the consolidated attention source', async () => {
+    const { fixture } = await setupAppComponent();
+    expect(fixture.nativeElement.querySelectorAll('app-command-palette-host')).toHaveLength(1);
+    expect(fixture.nativeElement.querySelectorAll('app-session-status-host')).toHaveLength(1);
+    expect(fixture.nativeElement.querySelectorAll('app-needs-you-strip')).toHaveLength(1);
+    expect(fixture.nativeElement.querySelector('app-approval-digest-banner')).toBeNull();
+    expect(TestBed.inject(NeedsYouStore).init).toHaveBeenCalledOnce();
+  });
   it('initializes and destroys the Local AI Guard store exactly once with the root shell', async () => {
     const localAiGuardStore = {
       initialize: vi.fn(async () => void 0),
@@ -616,7 +642,9 @@ describe('AppComponent title bar layout', () => {
     await TestBed.configureTestingModule({
       imports: [AppComponent],
       providers: [
-        { provide: Router, useValue: createRouterMock() },
+        { provide: NotificationShellService, useValue: { start: vi.fn(), stop: vi.fn() } },
+      { provide: NeedsYouStore, useValue: { init: vi.fn() } },
+      { provide: Router, useValue: createRouterMock() },
         {
           provide: IpcFacadeService,
           useValue: {

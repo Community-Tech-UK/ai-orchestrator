@@ -84,6 +84,7 @@ import {
   retainFailedCreation, SESSION_RECORD_ROLLBACK_LABELS, shouldRetainFailedCreation,
 } from './lifecycle/failed-creation-retention';
 import { DeferredPermissionHandler } from './lifecycle/deferred-permission-handler';
+import type { ResumeDeferredOptions } from './lifecycle/deferred-permission-options';
 import {
   attachCopilotRoute,
   isCopilotRoutingError,
@@ -197,7 +198,6 @@ export class InstanceLifecycleManager extends EventEmitter {
   private deps: LifecycleDependencies;
   private activityDetectors = new Map<string, ActivityStateDetector>();
   private recoveryEngine: RecoveryRecipeEngine | null = null;
-  /** Queue-aware YOLO toggling (park-while-busy + auto-apply-on-idle). */
   /** Queue-aware runtime changes (park-while-busy + auto-apply-on-settle). */
   private _desiredRuntimeQueue?: DesiredRuntimeQueue;
 
@@ -837,7 +837,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       ...(harnessCliEnv ?? (queueEnv ? baseEnv : undefined) ? { env: harnessCliEnv ?? baseEnv } : {}),
       ...(queueSession ? { disallowedTools: [...(options.disallowedTools ?? []), ...QUEUE_DENIED_TOOLS] } : {}),
       ...(remoteQueue ? { queuePushGuard: true } : {}),
-    });
+    }, this.settings.getAll().claudeLivePermissionPrompts === true);
     const routeOrigin = instance?.accountRouteOrigin ?? 'interactive';
     const routedOptions = await attachCopilotRoute(cliType, durableOptions, routeOrigin, {
       persistedProfileId: instance?.copilotAccountProfileId,
@@ -978,7 +978,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       id: generateId(),
       timestamp: Date.now(),
       type: 'system',
-      content: 'Initial prompt queued while the orchestrator is paused. It will be sent when pause is lifted.',
+      content: 'Initial prompt queued while Harness is paused. It will be sent when pause is lifted.',
       metadata: {
         source: 'pause-on-vpn',
         queuedInitialPrompt: true,
@@ -2892,7 +2892,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         // only continuity. Record an empty epoch so the manifest stays honest.
         recordContextManifest(instanceId, 'restart-compact', [], {
           note:
-            'Fresh restart: no AIO system-prompt blocks were re-injected. Only a '
+            'Fresh restart: no Harness system-prompt blocks were re-injected. Only a '
             + 'compacted continuity summary was sent as a follow-up user message.',
         });
       } catch (error) {
@@ -3305,7 +3305,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
   // ============================================
 
   async resumeAfterDeferredPermission(
-    instanceId: string, approved: boolean, updatedInput?: Record<string, unknown>, options?: { yoloMode?: boolean },
+    instanceId: string, approved: boolean, updatedInput?: Record<string, unknown>, options?: ResumeDeferredOptions,
   ): Promise<void> {
     await this.deferredPermission.resumeAfterDeferredPermission(instanceId, approved, updatedInput, options);
     if (options?.yoloMode !== undefined) {

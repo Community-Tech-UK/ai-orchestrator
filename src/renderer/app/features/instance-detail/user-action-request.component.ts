@@ -21,6 +21,7 @@ import type { InputRequiredEvent } from '../../core/services/ipc/ipc-event-bus.s
 import { InstanceStore } from '../../core/state/instance.store';
 import {
   approveLabelFor,
+  canTellWhatToDoInstead,
   decisionFor,
   permissionHintFor,
   permissionScopesFor,
@@ -36,6 +37,7 @@ import type { UserActionRequest } from './user-action-request.types';
 import { PlanHandoffDialogComponent } from './plan-handoff-dialog.component';
 import {
   toInputRequiredRequest,
+  acpPermissionOptions,
   isAcpInputRequired,
   isInputRequiredNotPending,
   respondToQuestion,
@@ -58,6 +60,8 @@ import {
   SecretCardDrafts,
   submitSecretCardDraft,
 } from './user-action-request.secret-card';
+import { AcpPermissionOptionsComponent } from './acp-permission-options.component';
+import { PermissionDenyNoteComponent } from './permission-deny-note.component';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import { RuntimeChangeConfirmComponent } from './runtime-change-confirm.component';
@@ -72,7 +76,7 @@ const requestGeneration = (request: UserActionRequest): string => JSON.stringify
 @Component({
   selector: 'app-user-action-request',
   standalone: true,
-  imports: [AioTooltipDirective, RequestReceiptsComponent, PlanHandoffDialogComponent, RuntimeChangeConfirmComponent],
+  imports: [AioTooltipDirective, RequestReceiptsComponent, PlanHandoffDialogComponent, RuntimeChangeConfirmComponent, AcpPermissionOptionsComponent, PermissionDenyNoteComponent],
   templateUrl: './user-action-request.component.html',
   styleUrl: './user-action-request.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -464,6 +468,15 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
   }
 
   readonly scopeLabel = scopeOptionLabel;
+  readonly acpPermissionOptions = acpPermissionOptions;
+  /** An agent-protocol form wants one of its listed answers, so only plain questions offer a typed one. */
+  canTypeOwnAnswer(request: UserActionRequest): boolean { return !isAcpInputRequired(request); }
+  readonly canTellWhatToDoInstead = canTellWhatToDoInstead;
+
+  /** A refusal that tells the agent what to do instead; the typed note is what the agent sees as the reason. */
+  onDenyWithNote(request: UserActionRequest, note: string): Promise<ReplyOutcome> {
+    return this.respond(request, false, undefined, { denyNote: note });
+  }
 
   onInputRequiredTextChange(requestId: string, event: Event): void {
     const target = event.target as HTMLTextAreaElement;
@@ -683,8 +696,9 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
   }
 
   async onSubmitInputRequired(request: UserActionRequest): Promise<void> {
-    const responseText = (this.inputRequiredTexts.get(this.draftKey(request.instanceId, request.id)) || '').trim();
-    if (!responseText) return;
+    const rawText = this.inputRequiredTexts.get(this.draftKey(request.instanceId, request.id)) || '';
+    if (!rawText.trim()) return;
+    const responseText = isAcpInputRequired(request) ? rawText : rawText.trim();
 
     // Keep the typed text if the reply fails, so a retry still has something to send.
     if (await this.respond(request, true, responseText) === 'sent') this.inputRequiredTexts.delete(this.draftKey(request.instanceId, request.id));
@@ -795,7 +809,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         this.pendingRequests.update((requests) =>
           requests.filter((r) => r.id !== request.id || r.instanceId !== request.instanceId)
         );
-        if (!this.resolutions.has(this.draftKey(request.instanceId, request.id))) this.instanceStore.decrementPendingApproval(request.instanceId);
+        if (!this.resolutions.has(this.draftKey(request.instanceId, request.id))) this.instanceStore.decrementPendingApproval(request.instanceId, request.id);
       } else setResponseError(this.responseErrors, this.draftKey(request.instanceId, request.id), responseErrorMessage(result, 'Failed to submit your decision.'));
     } catch (error) {
       setResponseError(this.responseErrors, this.draftKey(request.instanceId, request.id), errorMessage(error, 'Failed to submit your decision.'));
@@ -822,10 +836,14 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
       if (request.requestType === 'input_required') {
         if (!this.isPermissionRequest(request)) {
           const acp = isAcpInputRequired(request);
-          // Cancel on an ACP card is a real answer (outcome `cancelled`); on
-          // other generic cards the reply is plain input, so nothing is sent.
-          const inputText = (selectedOption || (!approved && acp ? 'cancel' : '')).trim();
-          if (!inputText) {
+          // Cancel on an ACP card is a real answer (outcome `cancelled`). It sends one space, which
+          // crosses the nonempty IPC field without shadowing an advertised option id "cancel". An ACP
+          // reply is otherwise sent as typed, so an opaque option id keeps its exact bytes. Other
+          // generic cards take plain input and send nothing for Cancel.
+          const cancelling = acp && !approved;
+          const typed = selectedOption ?? '';
+          const inputText = cancelling ? ' ' : acp ? typed : typed.trim();
+          if (!cancelling && !inputText.trim()) {
             return 'failed';
           }
 
@@ -845,7 +863,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
             this.pendingRequests.update((requests) =>
               requests.filter((r) => r.id !== request.id || r.instanceId !== request.instanceId)
             );
-            if (!this.resolutions.has(this.draftKey(request.instanceId, request.id))) this.instanceStore.decrementPendingApproval(request.instanceId);
+            if (!this.resolutions.has(this.draftKey(request.instanceId, request.id))) this.instanceStore.decrementPendingApproval(request.instanceId, request.id);
             return 'sent';
           }
           if (this.resolutions.get(this.draftKey(request.instanceId, request.id)) === 'decided') this.receiptStore.closed(request.id, 'decided', request.instanceId);
@@ -871,7 +889,9 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
             response = `Permission granted. Please proceed with the operation.`;
           }
         } else {
-          response = 'Permission denied. Please do not perform that operation.';
+          const denyNote = metadataExtras?.['denyNote'];
+          response = this.isDeferredPermission(request) && typeof denyNote === 'string' && denyNote.trim()
+            ? denyNote.trim() : 'Permission denied. Please do not perform that operation.';
         }
 
         // Pass metadata so the IPC handler can route to the correct flow:
@@ -910,6 +930,12 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
           return 'stale';
         }
         if (result.success) {
+          // A Claude denial is final before the note exists, so the note goes to the agent as its next message.
+          const denyNote = metadataExtras?.['denyNote'];
+          if (!approved && this.isPermissionDenial(request) && typeof denyNote === 'string' && denyNote.trim()) {
+            const sent = await this.ipc.sendInput(request.instanceId, denyNote.trim());
+            if (!sent.success) throw new Error(responseErrorMessage(sent, 'Could not send your note.'));
+          }
           const resultData = result.data as { yoloMode?: boolean; granted?: boolean } | undefined;
           this.inputRequiredScopes.delete(this.draftKey(request.instanceId, request.id));
           const acknowledgedOnly = rejectLabelFor(meta, this.getInputRequiredScope(request)) === 'OK';
@@ -931,7 +957,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
             this.pendingRequests.update((requests) =>
               requests.filter((r) => r.id !== request.id || r.instanceId !== request.instanceId)
             );
-            if (!this.resolutions.has(this.draftKey(request.instanceId, request.id))) this.instanceStore.decrementPendingApproval(request.instanceId);
+            if (!this.resolutions.has(this.draftKey(request.instanceId, request.id))) this.instanceStore.decrementPendingApproval(request.instanceId, request.id);
           }
           return 'sent';
         }

@@ -134,6 +134,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   modelUsageByKey: {},
   modelPickerFavorites: [],
   residentClaudeSession: true,
+  claudeLivePermissionPrompts: false,
   contextEvidenceModeByProvider: { ...DEFAULT_CONTEXT_EVIDENCE_MODE_BY_PROVIDER },
   theme: 'dark',
 
@@ -240,6 +241,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   sessionHandoffStateEnabled: true,
   // WS16: agent-derived memories never reach system-prompt tier by default.
   memoryInstructionGate: true,
+  memoryNotesEveryMessage: false,
   // WS14: empty = no automatic overload fallback model.
   claudeFallbackModel: '',
   claudeBashOutputMaxChars: 12_000,

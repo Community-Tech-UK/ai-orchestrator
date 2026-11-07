@@ -471,3 +471,17 @@ describe('deriveWorkspaceOptions', () => {
     expect(options).toHaveLength(2);
   });
 });
+
+
+describe('status presentation', () => {
+  it.each([
+    ['thinking_deeply', 'Thinking'], ['waiting_for_input', 'Needs your answer'],
+    ['waiting_for_permission', 'Needs your OK'], ['respawning', 'Restarting'],
+    ['hibernated', 'Asleep'], ['degraded', 'Problem'],
+  ] as const)('presents %s without exposing its code', (status, label) => {
+    expect(projectWorkboard(input({ instances: [instance({ status })] }))[0].statusLabel).toBe(label);
+  });
+  it('uses the loop formatter for terminal review states', () => {
+    expect(projectWorkboard(input({ loopRuns: [loop({ status: 'completed-needs-review', endedAt: NOW })] }))[0].statusLabel).toBe('ended, see notes');
+  });
+});

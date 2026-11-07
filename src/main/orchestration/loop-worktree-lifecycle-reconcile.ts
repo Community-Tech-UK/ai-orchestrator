@@ -17,7 +17,7 @@ import { removeOrphanWorktree } from './loop-worktree-reconcile';
 const logger = getLogger('LoopWorktreeLifecycleReconcile');
 
 const SESSION_BRANCH_CHANGED_BLOCK_REASON =
-  'Session branch changed outside AIO; review it before landing';
+  'Session branch changed outside Harness; review it before landing';
 
 export interface PendingManagedWorktreeLifecycle {
   id: string;
@@ -365,7 +365,7 @@ export async function reconcileManagedWorktreeLifecycles(
         if (!integration.success) {
           transition('blocked', {
             integrationBranch,
-            lastError: 'Managed worktree integration failed; inspect AIO logs',
+            lastError: 'Managed worktree integration failed; inspect Harness logs',
           });
           if (worktreeExists && row.worktreePath) {
             if (await removeOrphanWorktree(
@@ -445,7 +445,7 @@ export async function reconcileManagedWorktreeLifecycles(
     } catch (error) {
       transition(
         lifecycle.phase === 'promoted' ? 'promoted' : 'blocked',
-        { lastError: 'Managed worktree recovery failed; inspect AIO logs' },
+        { lastError: 'Managed worktree recovery failed; inspect Harness logs' },
       );
       blocked++;
       logger.warn('Managed worktree lifecycle reconcile blocked', {

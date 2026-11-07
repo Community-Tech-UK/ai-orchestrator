@@ -10,7 +10,6 @@ import {
   RequiredModelIdSchema,
 } from './common.schemas';
 import { ProviderAccountProfileIdSchema } from './provider-account.schemas';
-import { CostModelUsageDeltaSchema } from './cost-model-usage.schemas';
 export * from './session-admission.schemas';
 export * from './session-snapshot.schemas';
 export * from './session-recovery.schemas';
@@ -761,22 +760,7 @@ export const CostClearEntriesPayloadSchema = z.object({
   ipcAuthToken: IpcAuthTokenSchema,
 }).optional();
 
-export const CostEntryEventSchema = z.object({
-  id: z.string().min(1).max(200),
-  timestamp: z.number().int().nonnegative(),
-  instanceId: InstanceIdSchema,
-  sessionId: SessionIdSchema,
-  model: RequiredModelIdSchema,
-  inputTokens: z.number().int().nonnegative(),
-  outputTokens: z.number().int().nonnegative(),
-  cacheReadTokens: z.number().int().nonnegative().optional(),
-  cacheWriteTokens: z.number().int().nonnegative().optional(),
-  reasoningTokens: z.number().int().nonnegative().optional(),
-  cost: z.number().nonnegative().finite(),
-  /** LT-100: true when tokens/cost are a heuristic estimate, not measured. */
-  isEstimated: z.boolean().optional(),
-  byModel: z.array(CostModelUsageDeltaSchema).max(100).optional(),
-}).strict();
+export { CostEntryEventSchema } from './cost-events.schemas';
 
 export const CostBudgetAlertEventSchema = z.object({
   type: z.enum(['daily', 'weekly', 'monthly', 'session']),

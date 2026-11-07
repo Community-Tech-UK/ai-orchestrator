@@ -937,7 +937,7 @@ function countTokenOverlap(queryTokens: Set<string>, text: string): number {
       overlap += 1;
     }
   }
-  return overlap;
+  return Math.min(5, overlap);
 }
 
 function recencyBoost(timestamp: number): number {

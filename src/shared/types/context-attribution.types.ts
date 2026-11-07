@@ -54,6 +54,8 @@ export interface CacheTurnSample {
   cacheWrite: number;
   /** cacheRead / (input + cacheRead); 0 when the denominator is 0. */
   ratio: number;
+  promptTokens?: number;
+  model?: string;
 }
 
 /** A config-affecting event used to explain cache breaks. */
@@ -68,6 +70,10 @@ export interface CacheBreakEvent {
   trailingMedian: number;
   /** Most recent correlated config event, e.g. "model change". */
   probableCause?: string;
+  missedTokens?: number;
+  extraCostUsd?: number;
+  idleMs?: number;
+  cause?: string;
 }
 
 export interface CacheAnalyticsReport {
@@ -75,4 +81,8 @@ export interface CacheAnalyticsReport {
   /** Most recent samples, oldest first (bounded for the sparkline). */
   samples: CacheTurnSample[];
   lastBreak?: CacheBreakEvent;
+  rewriteTokens?: number;
+  rewriteCostUsd?: number;
+  expectedRewriteTokens?: number;
+  rewriteIsEstimated?: boolean;
 }

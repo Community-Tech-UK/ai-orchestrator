@@ -4,6 +4,7 @@ import { NgZone } from '@angular/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { IpcRenderer } from 'electron';
 import { createInstanceDomain } from '../../preload/domains/instance.preload';
+import { createDiagnosticsDomain } from '../../preload/domains/diagnostics.preload';
 import { IPC_CHANNELS } from '@contracts/channels';
 import { createInstance } from '../../shared/types/instance.types';
 import { setupInstanceTranscriptReplayForwarding } from '../../main/app/instance-transcript-replay-forwarding';
@@ -31,7 +32,10 @@ describe('authoritative replay IPC integration', () => {
     const listeners = new Map<string, (event: unknown, data: unknown) => void>();
     const renderer = { on: (channel: string, handler: (event: unknown, data: unknown) => void) => listeners.set(channel, handler),
       removeListener: (channel: string) => listeners.delete(channel) } as unknown as IpcRenderer;
-    window.electronAPI = createInstanceDomain(renderer, IPC_CHANNELS) as unknown as typeof window.electronAPI;
+    window.electronAPI = {
+      ...createInstanceDomain(renderer, IPC_CHANNELS),
+      ...createDiagnosticsDomain(renderer, IPC_CHANNELS),
+    } as unknown as typeof window.electronAPI;
     const instance = Object.assign(createInstance({ workingDirectory: '/tmp/placeholder', provider: 'opencode' }), {
       id: 'startup-placeholder', adapterGeneration: 1, restartEpoch: 0,
     });
@@ -71,7 +75,10 @@ describe('authoritative replay IPC integration', () => {
     const listeners = new Map<string, (event: unknown, data: unknown) => void>();
     const renderer = { on: (channel: string, handler: (event: unknown, data: unknown) => void) => listeners.set(channel, handler),
       removeListener: (channel: string) => listeners.delete(channel) } as unknown as IpcRenderer;
-    window.electronAPI = createInstanceDomain(renderer, IPC_CHANNELS) as unknown as typeof window.electronAPI;
+    window.electronAPI = {
+      ...createInstanceDomain(renderer, IPC_CHANNELS),
+      ...createDiagnosticsDomain(renderer, IPC_CHANNELS),
+    } as unknown as typeof window.electronAPI;
     const stats = { statsRecordToolUsage: vi.fn(), statsRecordSessionEnd: vi.fn() };
     const image = { processMessage: vi.fn() };
     TestBed.configureTestingModule({ providers: [InstanceIpcService, IpcEventBusService, InstanceOutputStore,

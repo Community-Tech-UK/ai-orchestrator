@@ -20,6 +20,7 @@ import { getLogger } from '../../logging/logger';
 import { getPauseCoordinator } from '../../pause/pause-coordinator';
 import { getRemoteObserverServer } from '../../remote/observer-server';
 import { getSelfPermissionGranter } from '../../security/self-permission-granter';
+import { permissionDenyNote } from '../../../shared/permissions/permission-deny-note';
 
 const logger = getLogger('InstanceHandlers');
 
@@ -47,6 +48,22 @@ export async function respondToInputRequired(instanceManager: InstanceManager, p
     // Route deferred permission responses to the resume flow instead of stdin
     if (validatedPayload.metadata?.['type'] === 'deferred_permission') {
       const action = validatedPayload.decisionAction;
+
+      // The reply must name a request this instance is still waiting on. A
+      // cancelled, already-answered or fabricated requestId must never reach the
+      // resume flow, where it could authorize an unrelated held tool call. The
+      // renderer drops the card on this code (it handles INPUT_REQUIRED_NOT_PENDING
+      // as "stale, not failed").
+      if (!instanceManager.isPendingInputRequiredPermission(validatedPayload.instanceId, validatedPayload.requestId)) {
+        return {
+          success: false,
+          error: {
+            code: 'INPUT_REQUIRED_NOT_PENDING',
+            message: 'No pending permission request is waiting for this response.',
+            timestamp: Date.now(),
+          },
+        };
+      }
 
       // Fail-safe: 'modify' without updatedInput must never silently degrade to
       // a plain allow of the original input.  The schema cross-refine catches
@@ -78,20 +95,11 @@ export async function respondToInputRequired(instanceManager: InstanceManager, p
       const updatedInput = action === 'modify' ? validatedPayload.updatedInput : undefined;
       const enableYolo = approved && validatedPayload.metadata?.['enableYolo'] === true;
       reply = instanceManager.getRequestReceipts().beginReply(validatedPayload.instanceId, validatedPayload.requestId);
-      if (enableYolo) {
-        await instanceManager.resumeAfterDeferredPermission(
-          validatedPayload.instanceId,
-          approved,
-          updatedInput,
-          { yoloMode: true },
-        );
-      } else {
-        await instanceManager.resumeAfterDeferredPermission(
-          validatedPayload.instanceId,
-          approved,
-          updatedInput,
-        );
-      }
+      await instanceManager.resumeAfterDeferredPermission(
+        validatedPayload.instanceId, approved, updatedInput,
+        { requestId: validatedPayload.requestId, ...(enableYolo ? { yoloMode: true } : {}),
+          ...(!approved ? { denyNote: permissionDenyNote(validatedPayload) } : {}) },
+      );
 
       if (validatedPayload.decisionAction && validatedPayload.decisionScope) {
         // Map 'modify' to 'allow' for PermissionManager — it only knows allow/deny.

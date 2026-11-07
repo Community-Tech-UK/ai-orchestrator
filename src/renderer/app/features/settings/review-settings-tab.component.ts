@@ -52,7 +52,7 @@ const LOCAL_REVIEW_SETTING_KEYS = new Set<keyof AppSettings>([
   imports: [ProviderModelOverrideComponent, SettingsTieredRowListComponent, AioTooltipDirective, AppIconButtonDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="settings-list-card" aria-label="Cross-model review settings">
+    <section class="settings-list-card" aria-label="Second opinion settings">
       <app-settings-tiered-row-list
         [settings]="genericReviewSettings()"
         [valueFor]="readSetting"
@@ -88,7 +88,7 @@ const LOCAL_REVIEW_SETTING_KEYS = new Set<keyof AppSettings>([
 
       @if (orderedProviders().length === 0) {
         <p class="reviewer-priority__empty">
-          No reviewers selected. Cross-model review auto-picks whichever
+          No reviewers selected. Second opinion auto-picks whichever
           supported CLIs are installed. Add one below to take control.
         </p>
       } @else {

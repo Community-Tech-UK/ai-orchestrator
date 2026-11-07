@@ -77,7 +77,7 @@ export async function previewCompaction(
       totalMessageCount: turns.length,
       totalExchangeCount: exchanges.length,
       keepLatestExchanges: opts?.keepLatestExchanges ?? 0,
-      note: "This provider manages context compaction internally. AIO cannot preview or bound what will be summarized — confirming runs the provider's own compaction as-is.",
+      note: "This provider manages context compaction internally. Harness cannot preview or bound what will be summarized — confirming runs the provider's own compaction as-is.",
     };
   }
 

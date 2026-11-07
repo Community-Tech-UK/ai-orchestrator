@@ -99,6 +99,7 @@ describe('buildAwayRecap (N12)', () => {
       now: NOW,
     });
     expect(recap!.cards[0]!.outstandingCount).toBe(3);
+    expect(recap!.cards[0]!.chatId).toBe('chat-1');
   });
 
   it('clips a long goal and never renders an empty title', () => {

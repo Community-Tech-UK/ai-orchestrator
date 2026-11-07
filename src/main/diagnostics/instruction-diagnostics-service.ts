@@ -162,7 +162,7 @@ export class InstructionDiagnosticsService {
       diagnostics.push({
         code: 'conflicting-instruction-sources',
         severity: 'warning',
-        message: 'Copilot instructions are present alongside AGENTS or orchestrator project instructions.',
+        message: 'Copilot instructions are present alongside AGENTS or Harness project instructions.',
         candidates: loadedProjectSources
           .filter((source) => ['copilot', 'agents', 'orchestrator'].includes(source.kind))
           .map((source) => source.path),

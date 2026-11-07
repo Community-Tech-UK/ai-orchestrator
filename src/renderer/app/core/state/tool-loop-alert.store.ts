@@ -74,6 +74,8 @@ export class ToolLoopAlertStore {
     return byId;
   });
 
+  readonly liveIds = computed(() => new Set(this.live().keys()));
+
   constructor() {
     // Multiple preload listeners on one channel are supported, so this
     // subscribes independently rather than being threaded through the toast.

@@ -4,12 +4,13 @@ import type { CasStore } from './cas-store';
 import type { IndexWorkerGateway } from './index-worker-gateway';
 import { inferLanguage } from './code-index-manager';
 import { searchHydratedChunks, type CodeRetrievalResult } from './workspace-chunk-search';
-import { sanitizeRetrievalQuery } from '../memory/retrieval-eval/query-sanitizer';
+import { prepareRetrievalQuery, type RetrievalQueryStrategy } from '../memory/retrieval-eval/retrieval-query';
 import { getRecallTraceStore } from '../memory/retrieval-eval/recall-trace-store';
 
 export type { CodeRetrievalResult };
 
 export interface CodeRetrievalSearchOptions {
+  queryStrategy?: RetrievalQueryStrategy;
   workspacePath: string;
   query: string;
   limit?: number;
@@ -64,12 +65,12 @@ export class CodeRetrievalService {
     if (rawQuery.length < 2) return [];
 
     // WS16: recover search intent from over-long pasted queries before FTS.
-    const sanitized = sanitizeRetrievalQuery(rawQuery);
+    const sanitized = prepareRetrievalQuery(rawQuery);
     const query = sanitized.query;
     if (query.length < 2) return [];
     // Text long enough to need cutting down is a prompt or a paste with its own
     // instructions, and a fragment of it is no reason to add code unasked.
-    if (options.strongMatchOnly && sanitized.sanitized) return [];
+    if (options.strongMatchOnly && sanitized.strategy !== 'unchanged') return [];
 
     const limit = Math.max(1, Math.min(Math.floor(options.limit ?? 8), 50));
     const workspacePath = path.resolve(options.workspacePath);
@@ -83,11 +84,11 @@ export class CodeRetrievalService {
       getRecallTraceStore().record({
         surface: 'codemem',
         query,
-        rawQuery: sanitized.sanitized ? rawQuery : undefined,
-        sanitizedQuery: sanitized.sanitized ? query : undefined,
+        rawQuery: sanitized.strategy !== 'unchanged' ? rawQuery : undefined,
+        sanitizedQuery: sanitized.strategy !== 'unchanged' ? query : undefined,
         // WS16 check 4 asks to see WHICH strategy recovered the query, not just
         // that one did. The sanitizer already knows; it was simply dropped here.
-        strategy: sanitized.strategy,
+        strategy: options.queryStrategy ?? sanitized.strategy,
         returned: results.map((r) => ({ id: r.relativePath, score: r.score })),
       });
     } catch { /* tracing is best-effort observability */ }

@@ -14,6 +14,7 @@ import {
 
 function card(over: Partial<AwayRunCard> & { runId: string }): AwayRunCard {
   return {
+    chatId: 'chat-1',
     goal: 'A goal',
     outcome: 'finished',
     status: 'completed',

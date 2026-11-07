@@ -260,6 +260,6 @@ describe('HarnessMcpStartupRecovery', () => {
       { name: 'orchestrator', status: 'failed' },
     ]);
 
-    expect(notices[0].content).toContain('Browser Gateway, Codemem and Harness orchestrator tools failed');
+    expect(notices[0].content).toContain('Browser Gateway, Codemem and Harness tools failed');
   });
 });

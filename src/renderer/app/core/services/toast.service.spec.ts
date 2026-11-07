@@ -30,3 +30,36 @@ describe('action toast lifetime', () => {
     service.dismissAll(); expect(service.toasts()).toEqual([]);
   });
 });
+
+describe('ToastService notices', () => {
+  it('keeps errors, expires success at four seconds and warning at eight', () => {
+    vi.useFakeTimers();
+    const service = new ToastService();
+    service.show('Error', 'error');
+    service.show('Saved');
+    service.show('Warning', 'warning');
+    vi.advanceTimersByTime(3999);
+    expect(service.toasts()).toHaveLength(3);
+    vi.advanceTimersByTime(1);
+    expect(service.toasts().map(t => t.text)).toEqual(['Error', 'Warning']);
+    vi.advanceTimersByTime(4000);
+    expect(service.toasts().map(t => t.text)).toEqual(['Error']);
+  });
+  it('folds keys, sorts errors first, caps visible rows and withdraws by key', () => {
+    vi.useFakeTimers();
+    const service = new ToastService();
+    service.show('Saved');
+    service.show('Warning', 'warning');
+    service.show('Another');
+    service.show('Broken', 'error', { key: 'error' });
+    service.show('Broken again', 'error', { key: 'error' });
+    expect(service.visibleToasts()).toHaveLength(3);
+    expect(service.visibleToasts()[0]).toMatchObject({ text: 'Broken again', repeatCount: 2 });
+    expect(service.overflowCount()).toBe(1);
+    service.dismissKey('error');
+    expect(service.toasts()).toHaveLength(3);
+    service.dismissAll();
+    expect(service.toasts()).toEqual([]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});

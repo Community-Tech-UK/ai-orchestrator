@@ -80,7 +80,7 @@ interface ConcurrencyRowView {
       </ol>
     </section>
 
-    <section class="settings-list-card" aria-label="Model routing">
+    <section class="settings-list-card" aria-label="Model routing" data-setting-key="orchestrationRoutingPolicyJson">
       <!-- S4.2: orchestrationRoutingPolicyJson previously had no UI at all, so
            the only way to move an expensive gate onto a cheaper model was to
            hand-edit JSON through the settings CLI. -->

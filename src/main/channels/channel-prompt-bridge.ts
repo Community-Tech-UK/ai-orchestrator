@@ -21,6 +21,7 @@
  *     moved on), so a later unrelated message is never mistaken for an answer.
  */
 
+import { randomUUID } from 'node:crypto';
 import { getLogger } from '../logging/logger';
 import type { ChannelManager } from './channel-manager';
 import type {
@@ -28,6 +29,7 @@ import type {
   ChannelPlatform,
   InboundChannelMessage,
 } from '../../shared/types/channels';
+import type { ResumeDeferredOptions } from '../instance/lifecycle/deferred-permission-options';
 import type { BaseChannelAdapter } from './channel-adapter';
 
 const logger = getLogger('ChannelPromptBridge');
@@ -55,6 +57,7 @@ export interface PromptBridgeInstanceManager {
     instanceId: string,
     approved: boolean,
     updatedInput?: Record<string, unknown>,
+    options?: ResumeDeferredOptions,
   ): Promise<unknown>;
   clearPendingInputRequiredPermission(instanceId: string, requestId: string): void;
   getOrchestrationHandler(): PromptBridgeOrchestration;
@@ -80,15 +83,16 @@ interface PromptOption {
 }
 
 interface PendingChannelPrompt {
+  /** Opaque button reference, short enough for channel custom-id limits. */
+  actionId: string;
   requestId: string;
   instanceId: string;
   kind: 'permission' | 'user-action';
   requestType?: string;
-  platform: ChannelPlatform;
-  /** Every chat the question was posted to (used to match a text reply). */
-  chatIds: string[];
+  /** Every channel chat the question was posted to (used to match replies). */
+  chats: Pick<WatchingChat, 'platform' | 'chatId'>[];
   /** Message ids of the posted questions, for post-resolution annotation. */
-  postedMessages: { chatId: string; messageId: string }[];
+  postedMessages: { platform: ChannelPlatform; chatId: string; messageId: string }[];
   /** True when the agent is waiting for free-form text (ask_questions), not a yes/no. */
   expectsText: boolean;
   options?: PromptOption[];
@@ -97,7 +101,7 @@ interface PendingChannelPrompt {
 
 /** A rendered prompt awaiting a watching chat (buffered to close the first-turn race). */
 interface PromptSpec {
-  base: Omit<PendingChannelPrompt, 'platform' | 'chatIds' | 'postedMessages' | 'createdAt'>;
+  base: Omit<PendingChannelPrompt, 'chats' | 'postedMessages' | 'createdAt'>;
   body: string;
   actions: ChannelMessageAction[];
 }
@@ -105,19 +109,30 @@ interface PromptSpec {
 /** Backstop so buffered-but-never-watched prompts can't grow unbounded. */
 const MAX_BUFFERED_INSTANCES = 200;
 
+function promptKey(instanceId: string, requestId: string): string { return JSON.stringify([instanceId, requestId]); }
+
 export class ChannelPromptBridge {
   private readonly prompts = new Map<string, PendingChannelPrompt>();
   /** Prompts raised before any chat was watching the instance (first-turn race). */
   private readonly bufferedByInstance = new Map<string, PromptSpec[]>();
   private orchestration: PromptBridgeOrchestration | null = null;
   private started = false;
+  private readonly resolving = new Set<string>();
+  private readonly onInputResolved = (payload: unknown): void => {
+    const p = payload as { requestId?: string; instanceId?: string };
+    if (!p?.requestId || !p.instanceId) return;
+    this.prompts.delete(promptKey(p.instanceId, p.requestId));
+    const remaining = this.bufferedByInstance.get(p.instanceId)?.filter(spec => spec.base.requestId !== p.requestId);
+    if (remaining?.length) this.bufferedByInstance.set(p.instanceId, remaining);
+    else this.bufferedByInstance.delete(p.instanceId);
+  };
 
   private readonly onInputRequired = (payload: unknown): void => this.handleInputRequired(payload);
   private readonly onUserAction = (request: unknown): void => this.handleUserAction(request);
   /** A question closed (answered elsewhere, timed out, stopped): stop offering it in the chat. */
   private readonly onUserActionResolved = (settled: unknown): void => {
-    const requestId = (settled as { request?: { id?: unknown } } | null)?.request?.id;
-    if (typeof requestId === 'string') this.prompts.delete(requestId);
+    const request = (settled as { request?: { id?: unknown; instanceId?: unknown } } | null)?.request;
+    if (typeof request?.id === 'string' && typeof request.instanceId === 'string') this.prompts.delete(promptKey(request.instanceId, request.id));
   };
   private readonly onStateUpdate = (payload: unknown): void => this.handleStateUpdate(payload);
 
@@ -134,6 +149,7 @@ export class ChannelPromptBridge {
       return;
     }
     im.on('instance:input-required', this.onInputRequired);
+    im.on('instance:input-required-resolved', this.onInputResolved);
     im.on('instance:state-update', this.onStateUpdate);
     try {
       this.orchestration = im.getOrchestrationHandler();
@@ -151,6 +167,7 @@ export class ChannelPromptBridge {
     try {
       const im = this.deps.getInstanceManager();
       im.removeListener('instance:input-required', this.onInputRequired);
+      im.removeListener('instance:input-required-resolved', this.onInputResolved);
       im.removeListener('instance:state-update', this.onStateUpdate);
     } catch {
       // Instance manager already gone; nothing to detach.
@@ -159,6 +176,7 @@ export class ChannelPromptBridge {
     this.orchestration?.removeListener('user-action-resolved', this.onUserActionResolved);
     this.orchestration = null;
     this.prompts.clear();
+    this.resolving.clear();
     this.bufferedByInstance.clear();
     this.started = false;
   }
@@ -175,26 +193,28 @@ export class ChannelPromptBridge {
       metadata?: Record<string, unknown>;
     };
     if (!p?.instanceId || !p?.requestId) return;
-    if (this.prompts.has(p.requestId)) return;
+    if (this.prompts.has(promptKey(p.instanceId, p.requestId))) return;
 
     const meta = p.metadata ?? {};
     const toolName =
       (typeof meta['tool_name'] === 'string' && meta['tool_name']) ||
       (typeof meta['toolName'] === 'string' && meta['toolName']) ||
       undefined;
-    const title = toolName ? `**${toolName}** needs approval` : '**Permission required**';
+    const title = toolName ? `**${toolName}** needs your approval` : '**Permission required**';
     const detail = p.prompt?.trim() || (toolName ? `Allow \`${toolName}\` to run?` : 'An action needs your approval.');
     const body = `⚠️ ${title}\n${detail}\n\nReply **yes** / **no**, or use the buttons below.`;
 
+    const actionId = 'prompt-' + randomUUID();
     this.deliverOrBuffer(p.instanceId, {
       base: {
+        actionId,
         requestId: p.requestId,
         instanceId: p.instanceId,
         kind: 'permission',
         expectsText: false,
       },
       body,
-      actions: this.approveDenyActions(p.requestId),
+      actions: this.approveDenyActions(actionId),
     });
   }
 
@@ -209,7 +229,7 @@ export class ChannelPromptBridge {
       questions?: unknown;
     };
     if (!r?.id || !r?.instanceId) return;
-    if (this.prompts.has(r.id)) return;
+    if (this.prompts.has(promptKey(r.instanceId, r.id))) return;
 
     const requestType = typeof r.requestType === 'string' ? r.requestType : undefined;
     const options: PromptOption[] = Array.isArray(r.options)
@@ -226,13 +246,14 @@ export class ChannelPromptBridge {
     const message = r.message?.trim() || 'An agent is waiting for your response.';
     const lines = [`❓ **${title}**`, message];
 
+    const actionId = 'prompt-' + randomUUID();
     let actions: ChannelMessageAction[] = [];
     let expectsText = false;
 
     if (options.length > 0) {
       lines.push('', 'Choose an option:');
       options.slice(0, MAX_OPTION_BUTTONS).forEach((o, i) => lines.push(`**${i + 1}.** ${o.label}`));
-      actions = this.optionActions(r.id, options);
+      actions = this.optionActions(actionId, options);
       if (options.length > MAX_OPTION_BUTTONS) {
         lines.push('', `Reply with the option name to pick beyond the first ${MAX_OPTION_BUTTONS}.`);
         expectsText = true;
@@ -243,11 +264,12 @@ export class ChannelPromptBridge {
     } else {
       // A bare confirm / approve_action / switch_mode.
       lines.push('', 'Reply **yes** / **no**, or use the buttons below.');
-      actions = this.approveDenyActions(r.id);
+      actions = this.approveDenyActions(actionId);
     }
 
     this.deliverOrBuffer(r.instanceId, {
       base: {
+        actionId,
         requestId: r.id,
         instanceId: r.instanceId,
         kind: 'user-action',
@@ -301,7 +323,7 @@ export class ChannelPromptBridge {
     if (watchers.length === 0) return;
     this.bufferedByInstance.delete(instanceId);
     for (const spec of specs) {
-      if (this.prompts.has(spec.base.requestId)) continue;
+      if (this.prompts.has(promptKey(spec.base.instanceId, spec.base.requestId))) continue;
       this.postPrompt(spec.base, watchers, spec.body, spec.actions);
     }
   }
@@ -316,13 +338,16 @@ export class ChannelPromptBridge {
    * request is unknown or already answered.
    */
   async resolveByRequestId(
+    instanceId: string,
     requestId: string,
     approved: boolean,
     response?: string,
   ): Promise<boolean> {
-    const prompt = this.prompts.get(requestId);
-    if (!prompt) return false;
-    this.prompts.delete(requestId);
+    const key = promptKey(instanceId, requestId);
+    const prompt = this.prompts.get(key);
+    if (!prompt || this.resolving.has(key)) return false;
+    if (approved && prompt.options?.length && !prompt.options.some(option => option.id === response)) return false;
+    this.resolving.add(key);
 
     try {
       const im = this.deps.getInstanceManager();
@@ -330,7 +355,7 @@ export class ChannelPromptBridge {
         // The question closed a moment before this answer: nothing was sent, so do not say it was.
         if (im.getOrchestrationHandler().respondToUserAction(requestId, approved, response) === 'not-pending') return false;
       } else {
-        await im.resumeAfterDeferredPermission(prompt.instanceId, approved);
+        await im.resumeAfterDeferredPermission(prompt.instanceId, approved, undefined, { requestId: prompt.requestId, denyNote: approved ? undefined : response });
         im.clearPendingInputRequiredPermission(prompt.instanceId, requestId);
       }
     } catch (err) {
@@ -339,8 +364,9 @@ export class ChannelPromptBridge {
         err instanceof Error ? err : new Error(String(err)),
       );
       return false;
-    }
+    } finally { this.resolving.delete(key); }
 
+    if (this.prompts.get(key) === prompt) this.prompts.delete(key);
     void this.annotateResolved(prompt, approved, response);
     return true;
   }
@@ -351,8 +377,9 @@ export class ChannelPromptBridge {
    * normally. Called by the router before it treats the message as a new turn.
    */
   async tryResolveTextReply(msg: InboundChannelMessage, adapter: BaseChannelAdapter): Promise<boolean> {
-    const prompt = [...this.prompts.values()].find((p) => p.chatIds.includes(msg.chatId));
-    if (!prompt) return false;
+    const prompts = [...this.prompts.values()].filter(p => p.chats.some(chat => chat.platform === msg.platform && chat.chatId === msg.chatId));
+    if (prompts.length !== 1) return false;
+    const [prompt] = prompts;
 
     const text = msg.content.trim();
     const lower = text.toLowerCase();
@@ -363,26 +390,26 @@ export class ChannelPromptBridge {
         (o) => o.id.toLowerCase() === lower || o.label.toLowerCase() === lower,
       );
       if (match) {
-        const ok = await this.resolveByRequestId(prompt.requestId, true, match.id);
+        const ok = await this.resolveByRequestId(prompt.instanceId, prompt.requestId, true, match.id);
         if (ok) await this.ackTextReply(msg, adapter, `Selected **${match.label}**.`);
         return ok;
       }
     }
 
     if (NEGATIVE.has(lower)) {
-      const ok = await this.resolveByRequestId(prompt.requestId, false);
+      const ok = await this.resolveByRequestId(prompt.instanceId, prompt.requestId, false);
       if (ok) await this.ackTextReply(msg, adapter, 'Denied.');
       return ok;
     }
 
     if (prompt.expectsText) {
-      const ok = await this.resolveByRequestId(prompt.requestId, true, text);
+      const ok = await this.resolveByRequestId(prompt.instanceId, prompt.requestId, true, text);
       if (ok) await this.ackTextReply(msg, adapter, 'Answer sent to the agent.');
       return ok;
     }
 
     if (AFFIRMATIVE.has(lower)) {
-      const ok = await this.resolveByRequestId(prompt.requestId, true);
+      const ok = await this.resolveByRequestId(prompt.instanceId, prompt.requestId, true);
       if (ok) await this.ackTextReply(msg, adapter, 'Approved.');
       return ok;
     }
@@ -392,8 +419,30 @@ export class ChannelPromptBridge {
     return false;
   }
 
-  hasPendingPrompt(requestId: string): boolean {
-    return this.prompts.has(requestId);
+  /** Only a reference issued for this live prompt proves button ownership.
+   * Legacy request-number-only buttons remain parseable but cannot safely
+   * resolve a request: another connection may have reused that number. */
+  async resolveChannelAction(
+    channel: Pick<InboundChannelMessage, 'platform' | 'chatId'>,
+    reference: string,
+    approved: boolean,
+    response?: string,
+  ): Promise<boolean> {
+    const matches = [...this.prompts.values()].filter(p => p.chats.some(chat => chat.platform === channel.platform && chat.chatId === channel.chatId) && p.actionId === reference);
+    if (matches.length !== 1) return false;
+    const [prompt] = matches;
+    if (approved && prompt.options?.length) {
+      // Only the bounded indexes actually issued as buttons can select an
+      // option. Keep the complete provider id in this live prompt's options.
+      const option = prompt.options.slice(0, MAX_OPTION_BUTTONS).find((_, index) => response === `option-${index}`);
+      if (!option) return false;
+      return this.resolveByRequestId(prompt.instanceId, prompt.requestId, true, option.id);
+    }
+    return this.resolveByRequestId(prompt.instanceId, prompt.requestId, approved, response);
+  }
+
+  hasPendingPrompt(instanceId: string, requestId: string): boolean {
+    return this.prompts.has(promptKey(instanceId, requestId));
   }
 
   // ---------------------------------------------------------------------------
@@ -401,32 +450,31 @@ export class ChannelPromptBridge {
   // ---------------------------------------------------------------------------
 
   private postPrompt(
-    base: Omit<PendingChannelPrompt, 'platform' | 'chatIds' | 'postedMessages' | 'createdAt'>,
+    base: Omit<PendingChannelPrompt, 'chats' | 'postedMessages' | 'createdAt'>,
     watchers: WatchingChat[],
     body: string,
     actions: ChannelMessageAction[],
   ): void {
-    const chatIds = [...new Set(watchers.map((w) => w.chatId))];
     const record: PendingChannelPrompt = {
       ...base,
-      platform: watchers[0].platform,
-      chatIds,
+      chats: watchers.map(({ platform, chatId }) => ({ platform, chatId })),
       postedMessages: [],
       createdAt: Date.now(),
     };
-    this.prompts.set(record.requestId, record);
+    this.prompts.set(promptKey(record.instanceId, record.requestId), record);
 
     const cm = this.deps.getChannelManager();
     const postedChatIds = new Set<string>();
     for (const watcher of watchers) {
-      if (postedChatIds.has(watcher.chatId)) continue;
-      postedChatIds.add(watcher.chatId);
+      const chatKey = JSON.stringify([watcher.platform, watcher.chatId]);
+      if (postedChatIds.has(chatKey)) continue;
+      postedChatIds.add(chatKey);
       const adapter = cm.getAdapter(watcher.platform);
       if (!adapter) continue;
       void adapter
         .sendMessage(watcher.chatId, body, { replyTo: watcher.replyToMessageId, actions })
         .then((sent) => {
-          record.postedMessages.push({ chatId: watcher.chatId, messageId: sent.messageId });
+          record.postedMessages.push({ platform: watcher.platform, chatId: watcher.chatId, messageId: sent.messageId });
         })
         .catch((err: unknown) => {
           logger.warn('Failed to post channel prompt', {
@@ -456,8 +504,8 @@ export class ChannelPromptBridge {
 
   private optionActions(requestId: string, options: PromptOption[]): ChannelMessageAction[] {
     const encReq = encodeURIComponent(requestId);
-    return options.slice(0, MAX_OPTION_BUTTONS).map((option) => ({
-      id: `orch:answer:${encReq}~${encodeURIComponent(option.id)}`,
+    return options.slice(0, MAX_OPTION_BUTTONS).map((option, index) => ({
+      id: `orch:answer:${encReq}~option-${index}`,
       label: option.label.slice(0, 80),
       style: 'primary' as const,
     }));
@@ -487,9 +535,9 @@ export class ChannelPromptBridge {
         ? '✅ Approved'
         : '🚫 Denied';
     const cm = this.deps.getChannelManager();
-    const adapter = cm.getAdapter(prompt.platform);
-    if (!adapter) return;
     for (const posted of prompt.postedMessages) {
+      const adapter = cm.getAdapter(posted.platform);
+      if (!adapter) continue;
       try {
         await adapter.editMessage(posted.chatId, posted.messageId, outcome);
       } catch {

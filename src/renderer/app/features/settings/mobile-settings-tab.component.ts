@@ -61,7 +61,7 @@ import type {
           <strong>Push notifications (APNs)</strong>
         </div>
         <p class="hint">
-          Get pinged on your phone when an agent needs approval — even when the app is closed.
+          Get pinged on your phone when an agent needs your approval, even when the app is closed.
           Paste your Apple Push <code>.p8</code> Auth Key and IDs from the Apple Developer account.
           Push delivers over Apple's network independently of Tailscale.
         </p>

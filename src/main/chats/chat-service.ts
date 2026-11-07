@@ -891,7 +891,7 @@ export class ChatService {
     const now = Date.now();
     const chat = this.store.insert({
       id: randomUUID(),
-      name: thread.title?.trim() || 'Orchestrator',
+      name: thread.title?.trim() || 'Harness',
       provider: null,
       model: null,
       currentCwd: null,

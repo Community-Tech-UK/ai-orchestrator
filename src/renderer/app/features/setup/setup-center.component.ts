@@ -115,7 +115,7 @@ export class SetupCenterComponent implements OnInit {
       return 'Readiness checks are not available in this environment.';
     }
     if (report.status === 'ready') {
-      return 'Every startup check passed. The orchestrator is ready to run agents.';
+      return 'Every startup check passed. Harness is ready to run agents.';
     }
     const attention = this.attentionCount();
     return `${attention} check${attention === 1 ? '' : 's'} need attention before everything works smoothly.`;

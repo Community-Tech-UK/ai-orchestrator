@@ -1,3 +1,4 @@
+import type { RetrievalQueryStrategy } from '../memory/retrieval-eval/retrieval-query';
 /**
  * InstanceContextPort — narrow interface for RLM and unified memory operations.
  *
@@ -51,6 +52,7 @@ export interface InstanceContextPort {
     message: string,
     maxTokens?: number,
     topK?: number,
+    queryStrategy?: RetrievalQueryStrategy,
   ): Promise<RlmContextInfo | null>;
   buildUnifiedMemoryContext(
     instance: Instance,

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { migrate } from '../cas-schema';
 import { CasStore } from '../cas-store';
 import { CodeRetrievalService } from '../code-retrieval-service';
+import { getRecallTraceStore } from '../../memory/retrieval-eval/recall-trace-store';
 import type { Chunk } from '../types';
 import type { SqliteDriver } from '../../db/sqlite-driver';
 import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
@@ -82,6 +83,15 @@ describe('CodeRetrievalService', () => {
       stale: false,
     }));
     expect(results[0]?.content).toContain('issueSessionToken');
+  });
+
+  it('keeps the original cleanup strategy when an upstream caller already cleaned the query', async () => {
+    const fallback = vi.fn(async () => []);
+    const service = new CodeRetrievalService({ store, runFallbackSearch: fallback });
+    getRecallTraceStore().clear();
+    await service.search({ workspacePath, query: 'Why does migration rollback fail?', queryStrategy: 'last-question' });
+    expect(fallback).toHaveBeenCalledWith(workspacePath, 'Why does migration rollback fail?', 8);
+    expect(getRecallTraceStore().bySurface('codemem').at(-1)?.strategy).toBe('last-question');
   });
 
   it('falls back to bounded grep search when the codemem index is cold', async () => {

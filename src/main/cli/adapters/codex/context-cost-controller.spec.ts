@@ -19,6 +19,19 @@ function createController(overrides: Partial<ConstructorParameters<typeof CodexC
 }
 
 describe('CodexContextCostController shared-policy execution adapter', () => {
+  it('posts one plain boundary notice per controller lifetime across both continuation paths', async () => {
+    const { controller, deps } = createController();
+    deps.getCompactionTarget = () => ({ threadId: 'thread-fixture', start: async () => controller.recordCompactionObserved(1_000) });
+    for (const providerWillContinue of [true, false]) {
+      await controller.requestRecovery('controlled-recovery');
+      await controller.recoverAfterTurn({ turnStatus: 'interrupted', recoveryCount: 0,
+        continueTurn: async () => undefined, providerWillContinue: async () => providerWillContinue });
+    }
+    expect(deps.emitSystem).toHaveBeenCalledExactlyOnceWith(
+      "Codex's conversation was getting long, so Harness had it shortened. Codex is carrying on with the task.",
+      expect.objectContaining({ contextCostRecovery: true }),
+    );
+  });
   it('observes cumulative cost as telemetry without making a threshold decision', () => {
     const interrupt = vi.fn(() => ({ status: 'unsupported' as const }));
     const observations: unknown[] = [];
@@ -439,10 +452,10 @@ describe('CodexContextCostController shared-policy execution adapter', () => {
 
         const error = await outcome;
         expect(isSurfacedToUserError(error)).toBe(true);
-        expect((error as Error).message).toMatch(/compaction could not be confirmed/);
+        expect((error as Error).message).toMatch(/couldn't confirm Codex shortened its conversation/);
         expect(continueTurn).not.toHaveBeenCalled();
         expect(deps.emitSystem).toHaveBeenCalledWith(
-          expect.stringMatching(/compaction could not be confirmed/),
+          expect.stringMatching(/couldn't confirm Codex shortened its conversation/),
           expect.objectContaining({ contextCostRecoveryPaused: true }),
         );
         // An aborted compaction proves the provider signals compaction, so native stays enabled.
@@ -724,7 +737,7 @@ describe('CodexContextCostController with turns Codex runs itself', () => {
 
     expect(continueTurn).not.toHaveBeenCalled();
     expect(deps.emitSystem).toHaveBeenLastCalledWith(
-      expect.stringContaining('Codex is continuing the task by itself'),
+      expect.stringContaining('Codex is carrying on with the task'),
       expect.objectContaining({ contextCostRecovery: true }),
     );
   });

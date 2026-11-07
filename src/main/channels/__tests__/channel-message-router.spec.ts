@@ -2,10 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as os from 'os';
 import { EventEmitter } from 'events';
 import { ChannelMessageRouter } from '../channel-message-router';
+import { DiscordAdapter } from '../adapters/discord-adapter';
+import { ORCHESTRATION_MARKER_START, ORCHESTRATION_MARKER_END, parseOrchestratorCommands } from '../../orchestration/orchestration-protocol';
 import type { ChannelManager, ChannelEvent } from '../channel-manager';
 import type { ChannelPersistence } from '../channel-persistence';
 import type { ChannelRouteStore, SavedChannelRoutePin } from '../channel-route-store';
-import type { AccessPolicy, InboundChannelMessage, SendOptions, SentMessage } from '../../../shared/types/channels';
+import type { AccessPolicy, ChannelMessageAction, InboundChannelMessage, SendOptions, SentMessage } from '../../../shared/types/channels';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 
 // ---------------------------------------------------------------------------
@@ -179,6 +181,17 @@ function makeOutputEnvelope(
       messageType: 'assistant',
     },
   };
+}
+
+/** Exercise the actual Discord serialization limit and parser without connecting. */
+function discordCallback(action: ChannelMessageAction): { customId: string; content: string } {
+  const codec = Object.create(DiscordAdapter.prototype) as {
+    buildSendPayload(content: string, actions: ChannelMessageAction[]): { components: { components: { custom_id: string }[] }[] };
+    buttonToContent(customId: string): string;
+  };
+  const payload = codec.buildSendPayload('Choose', [action]);
+  const customId = payload.components[0].components[0].custom_id;
+  return { customId, content: codec.buttonToContent(customId) };
 }
 
 function makeSentMessage(overrides: Partial<SentMessage> = {}): SentMessage {
@@ -764,7 +777,7 @@ describe('ChannelMessageRouter', () => {
       expect(content).toContain('Active sessions:');
       expect(content).toContain('* Live Session — idle');
       expect(content).toContain('Revivable sessions:');
-      expect(content).toContain('* Sleeping Session — hibernated');
+      expect(content).toContain('* Sleeping Session — Asleep');
       expect(content).not.toContain('Old archived request');
     });
 
@@ -1477,15 +1490,65 @@ describe('ChannelMessageRouter', () => {
       await Promise.resolve();
 
       const promptSend = adapter.sendMessage.mock.calls.find(
-        (call) => typeof call[1] === 'string' && call[1].includes('needs approval'),
+        (call) => typeof call[1] === 'string' && call[1].includes('needs your approval'),
       );
       expect(promptSend).toBeDefined();
       expect(promptSend?.[0]).toBe('c1');
       const options = promptSend?.[2] as SendOptions | undefined;
       expect(options?.actions?.map((a) => a.id)).toEqual([
-        'orch:approve:req-1',
-        'orch:reject:req-1',
+        expect.stringMatching(/^orch:approve:prompt-[a-f0-9-]{36}$/),
+        expect.stringMatching(/^orch:reject:prompt-[a-f0-9-]{36}$/),
       ]);
+    });
+
+    it('routes posted buttons to their owning session when RPC numbers collide in one chat', async () => {
+      instanceManager.getInstances.mockReturnValue([
+        { id: 'A', status: 'busy' }, { id: 'B', status: 'busy' },
+      ]);
+      router.start();
+      for (const id of ['A', 'B']) {
+        await router.handleInboundMessage(makeMessage({ content: '@instance-' + id + ' hello', chatId: 'c1' }));
+        instanceManager.emit('instance:input-required', {
+          instanceId: id, requestId: 'acp_permission:1', prompt: 'Allow ' + id + '?',
+        });
+      }
+      const posted = adapter.sendMessage.mock.calls.filter(call => call[1].includes('Allow '));
+      expect(posted).toHaveLength(2);
+      const actions = posted.map(call => call[2]!.actions!);
+      expect(actions[0][0].id).not.toBe(actions[1][0].id);
+      expect(actions.every(row => row.every(action => action.id.length <= 100))).toBe(true);
+      // An old request-number-only button is ambiguous in this chat.
+      await router.handleInboundMessage(makeMessage({ chatId: 'c1', content: '/approve acp_permission:1' }));
+      expect(instanceManager.resumeAfterDeferredPermission).not.toHaveBeenCalled();
+      const reference = decodeURIComponent(actions[1][0].id.split(':')[2]);
+      await router.handleInboundMessage(makeMessage({ chatId: 'wrong-chat', content: '/approve ' + reference }));
+      expect(instanceManager.resumeAfterDeferredPermission).not.toHaveBeenCalled();
+      await router.handleInboundMessage(makeMessage({ chatId: 'c1', content: '/approve ' + reference }));
+      expect(instanceManager.resumeAfterDeferredPermission).toHaveBeenCalledExactlyOnceWith('B', true, undefined,
+        { requestId: 'acp_permission:1', denyNote: undefined });
+      instanceManager.emit('instance:input-required-resolved', { instanceId: 'B', requestId: 'acp_permission:1', reason: 'decided' });
+      const aReference = decodeURIComponent(actions[0][1].id.split(':')[2]);
+      await router.handleInboundMessage(makeMessage({ chatId: 'c1', content: '/reject ' + aReference }));
+      expect(instanceManager.resumeAfterDeferredPermission).toHaveBeenLastCalledWith('A', false, undefined,
+        { requestId: 'acp_permission:1', denyNote: undefined });
+    });
+
+    it.each(['inst-1', 'B'])('refuses stale and legacy buttons after RPC number reuse by %s', async (replacement) => {
+      await routeInitialTurn();
+      const emit = (instanceId: string) => instanceManager.emit('instance:input-required', {
+        instanceId, requestId: 'acp_permission:1', prompt: 'Allow?',
+      });
+      emit('inst-1');
+      const oldButton = adapter.sendMessage.mock.calls.find(call => call[2]?.actions?.[0])![2]!.actions![0];
+      const oldReference = decodeURIComponent(oldButton.id.split(':')[2]);
+      instanceManager.emit('instance:input-required-resolved', { instanceId: 'inst-1', requestId: 'acp_permission:1', reason: 'exited' });
+      await router.handleInboundMessage(makeMessage({ content: '@instance-' + replacement + ' hello', chatId: 'c1' }));
+      emit(replacement);
+      for (const reference of [oldReference, 'acp_permission:1']) {
+        await router.handleInboundMessage(makeMessage({ chatId: 'c1', content: '/approve ' + reference }));
+      }
+      expect(instanceManager.resumeAfterDeferredPermission).not.toHaveBeenCalled();
+      expect(adapter.sendMessage).toHaveBeenLastCalledWith('c1', 'That request is no longer waiting for a response.', expect.anything());
     });
 
     it('does not post when no channel is watching the instance', async () => {
@@ -1512,12 +1575,14 @@ describe('ChannelMessageRouter', () => {
       });
       await Promise.resolve();
 
-      // The Approve button maps to `/approve req-1`.
+      const button = adapter.sendMessage.mock.calls.find(call => call[2]?.actions?.[0]?.id.startsWith('orch:approve:'))![2]!.actions![0];
+      const reference = decodeURIComponent(button.id.split(':')[2]);
       await router.handleInboundMessage(
-        makeMessage({ id: 'btn', chatId: 'c1', messageId: 'b1', content: '/approve req-1' }),
+        makeMessage({ id: 'btn', chatId: 'c1', messageId: 'b1', content: '/approve ' + reference }),
       );
 
-      expect(instanceManager.resumeAfterDeferredPermission).toHaveBeenCalledWith('inst-1', true);
+      expect(instanceManager.resumeAfterDeferredPermission).toHaveBeenCalledWith('inst-1', true, undefined,
+        { requestId: 'req-1', denyNote: undefined });
       expect(instanceManager.clearPendingInputRequiredPermission).toHaveBeenCalledWith('inst-1', 'req-1');
     });
 
@@ -1535,7 +1600,8 @@ describe('ChannelMessageRouter', () => {
         makeMessage({ id: 'reply', chatId: 'c1', messageId: 'r1', content: 'no' }),
       );
 
-      expect(instanceManager.resumeAfterDeferredPermission).toHaveBeenCalledWith('inst-1', false);
+      expect(instanceManager.resumeAfterDeferredPermission).toHaveBeenCalledWith('inst-1', false, undefined,
+        { requestId: 'req-1', denyNote: undefined });
       // A denied plain reply must not also be routed as a new turn.
       expect(instanceManager.sendInput).not.toHaveBeenCalledWith(
         'inst-1',
@@ -1566,14 +1632,91 @@ describe('ChannelMessageRouter', () => {
       );
       expect(promptSend).toBeDefined();
       const options = promptSend?.[2] as SendOptions | undefined;
-      expect(options?.actions?.[0]?.id).toBe('orch:answer:uar-1~main');
+      expect(options?.actions?.[0]?.id).toMatch(/^orch:answer:prompt-[a-f0-9-]{36}~option-0$/);
 
-      // The option button maps to `/answer uar-1 dev`.
+      const callback = discordCallback(options!.actions![1]);
       await router.handleInboundMessage(
-        makeMessage({ id: 'ans', chatId: 'c1', messageId: 'a1', content: '/answer uar-1 dev' }),
+        makeMessage({ id: 'ans', chatId: 'c1', messageId: 'a1', content: callback.content }),
       );
 
       expect(orchestration.respondToUserAction).toHaveBeenCalledWith('uar-1', true, 'dev');
+    });
+
+    it.each(['choice_'.repeat(8), '選択🌍/a~b? value%'.repeat(20)])(
+      'preserves the exact accepted option through Discord serialization, parsing and router dispatch: %s', async optionId => {
+        await routeInitialTurn();
+        const command = { action: 'request_user_action', requestType: 'select_option', title: 'Choose safely', message: 'Choose',
+          options: [{ id: optionId, label: 'First choice' }] };
+        const parsed = parseOrchestratorCommands(ORCHESTRATION_MARKER_START + JSON.stringify(command) + ORCHESTRATION_MARKER_END);
+        expect(parsed).toHaveLength(1);
+        const orchestration = instanceManager.getOrchestrationHandler();
+        orchestration.emit('user-action-request', { ...parsed[0], id: 'uar-bounded', instanceId: 'inst-1', createdAt: 1 });
+        const posted = adapter.sendMessage.mock.calls.find(call => call[1].includes('Choose safely'))!;
+        const action = posted[2]!.actions![0];
+        const callback = discordCallback(action);
+        await router.handleInboundMessage(makeMessage({ chatId: 'c1', content: callback.content }));
+        expect(orchestration.respondToUserAction).toHaveBeenCalledExactlyOnceWith('uar-bounded', true, optionId);
+        expect(action.id.length).toBeLessThanOrEqual(100);
+        expect(callback.customId).toBe(action.id);
+      },
+    );
+
+    it('refuses corrupted or unissued option references without resolving the prompt', async () => {
+      await routeInitialTurn();
+      const orchestration = instanceManager.getOrchestrationHandler();
+      orchestration.emit('user-action-request', { id: 'uar-options', instanceId: 'inst-1', requestType: 'select_option',
+        title: 'Choose exact option', message: 'Choose', options: [{ id: 'provider-choice', label: 'First' },
+          ...Array.from({ length: 4 }, (_, index) => ({ id: 'other-choice-' + index, label: 'Other ' + index }))] });
+      const action = adapter.sendMessage.mock.calls.find(call => call[1].includes('Choose exact option'))![2]!.actions![0];
+      const prefix = action.id.slice(0, action.id.indexOf('~') + 1);
+      for (const invalid of ['option-4', 'option-00', 'option-0-extra', 'provider-choice', '']) {
+        const callback = discordCallback({ ...action, id: prefix + invalid });
+        await router.handleInboundMessage(makeMessage({ chatId: 'c1', content: callback.content }));
+      }
+      expect(orchestration.respondToUserAction).not.toHaveBeenCalled();
+      await router.handleInboundMessage(makeMessage({ chatId: 'c1', content: discordCallback(action).content }));
+      expect(orchestration.respondToUserAction).toHaveBeenCalledExactlyOnceWith('uar-options', true, 'provider-choice');
+    });
+
+    it('retains full option-id and label text replies beyond the posted button limit', async () => {
+      await routeInitialTurn();
+      const orchestration = instanceManager.getOrchestrationHandler();
+      const options = Array.from({ length: 5 }, (_, index) => ({ id: 'choice_' + index + '_'.repeat(120), label: 'Choice ' + index }));
+      const ask = () => orchestration.emit('user-action-request', { id: 'uar-text-choice', instanceId: 'inst-1', requestType: 'select_option',
+        title: 'Choose by reply', message: 'Choose', options });
+      ask();
+      await router.handleInboundMessage(makeMessage({ chatId: 'c1', content: options[4].id }));
+      expect(orchestration.respondToUserAction).toHaveBeenLastCalledWith('uar-text-choice', true, options[4].id);
+      ask();
+      await router.handleInboundMessage(makeMessage({ chatId: 'c1', content: options[4].label.toUpperCase() }));
+      expect(orchestration.respondToUserAction).toHaveBeenLastCalledWith('uar-text-choice', true, options[4].id);
+      expect(orchestration.respondToUserAction).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not dispatch an arbitrary text answer as an option when more than four choices exist', async () => {
+      await routeInitialTurn();
+      const orchestration = instanceManager.getOrchestrationHandler();
+      orchestration.emit('user-action-request', { id: 'uar-invalid-text', instanceId: 'inst-1', requestType: 'select_option',
+        title: 'Choose known option', message: 'Choose', options: Array.from({ length: 5 }, (_, index) => ({ id: 'choice-' + index, label: 'Choice ' + index })) });
+      await router.handleInboundMessage(makeMessage({ chatId: 'c1', content: 'not a provider choice' }));
+      expect(orchestration.respondToUserAction).not.toHaveBeenCalled();
+    });
+
+    it('refuses stale and foreign option callbacks after prompt reuse', async () => {
+      await routeInitialTurn();
+      const orchestration = instanceManager.getOrchestrationHandler();
+      const ask = (id: string) => orchestration.emit('user-action-request', { id: 'uar-reused', instanceId: 'inst-1', requestType: 'select_option',
+        title: 'Fresh choice', message: 'Choose', options: [{ id, label: 'Choose this' }] });
+      ask('old-provider-choice');
+      const oldAction = adapter.sendMessage.mock.calls.find(call => call[1].includes('Fresh choice'))![2]!.actions![0];
+      instanceManager.emit('instance:state-update', { instanceId: 'inst-1', status: 'idle' });
+      adapter.sendMessage.mockClear(); ask('new-provider-choice');
+      const newAction = adapter.sendMessage.mock.calls.find(call => call[1].includes('Fresh choice'))![2]!.actions![0];
+      await router.handleInboundMessage(makeMessage({ chatId: 'c1', content: discordCallback(oldAction).content }));
+      await router.handleInboundMessage(makeMessage({ chatId: 'foreign-chat', content: discordCallback(newAction).content }));
+      expect(orchestration.respondToUserAction).not.toHaveBeenCalled();
+      await router.handleInboundMessage(makeMessage({ chatId: 'c1', content: discordCallback(newAction).content }));
+      expect(orchestration.respondToUserAction).toHaveBeenCalledExactlyOnceWith('uar-reused', true, 'new-provider-choice');
     });
 
     it('forwards a free-text answer for an ask_questions prompt', async () => {
@@ -1844,7 +1987,7 @@ describe('ChannelMessageRouter', () => {
       await Promise.resolve();
       expect(adapter.sendMessage).not.toHaveBeenCalledWith(
         'c1',
-        expect.stringContaining('needs approval'),
+        expect.stringContaining('needs your approval'),
         expect.anything(),
       );
 
@@ -1856,7 +1999,7 @@ describe('ChannelMessageRouter', () => {
       );
 
       const promptSend = adapter.sendMessage.mock.calls.find(
-        (c) => typeof c[1] === 'string' && c[1].includes('needs approval'),
+        (c) => typeof c[1] === 'string' && c[1].includes('needs your approval'),
       );
       expect(promptSend?.[0]).toBe('c1');
     });

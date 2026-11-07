@@ -112,8 +112,10 @@ export class LocalAiGuardRuntime {
     if (!transition) return;
     const { kind, pause } = transition;
     try {
+      if (kind === 'resumed') getNotificationService().resolve(`local-ai-helper:${pause.slot}`);
       getNotificationService().notify({
         kind: `local-ai-helper-${kind}`,
+        ...(kind === 'paused' ? { resolveKey: `local-ai-helper:${pause.slot}` } : {}),
         title: kind === 'paused' ? 'Local helper model offline' : 'Local helper model recovered',
         body: kind === 'paused'
           ? `Summaries and titles are using the basic fallback. Next retry ${new Date(pause.pausedUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}.`

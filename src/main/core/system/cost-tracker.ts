@@ -5,6 +5,8 @@
  */
 
 import type { ModelUsageDelta } from '../../../shared/types/provider-model-usage.types';
+import { buildCostSummary } from './cost-summary-builder';
+import { type CostEntryRow, rowToEntry } from './cost-entry-row';
 import { EventEmitter } from 'events';
 import { computeTokenCost } from '../../../shared/data/model-pricing';
 import type { SqliteDriver, SqliteStatement } from '../../db/sqlite-driver';
@@ -21,6 +23,7 @@ export interface CostEntry {
   instanceId: string;
   sessionId: string;
   model: string;
+  provider?: string;
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens?: number;
@@ -28,6 +31,12 @@ export interface CostEntry {
   reasoningTokens?: number;
   cost: number;
   byModel?: ModelUsageDelta[];
+  /** Copilot's own AI-credit accounting for this turn; absent for other providers. */
+  aiCreditsNano?: number;
+  premiumRequests?: number;
+  creditCheckpointId?: string;
+  creditCheckpointTotalNano?: number;
+  creditCheckpointPremiumTotal?: number;
   /**
    * True when the token counts (and therefore `cost`, unless a provider
    * cost override was also supplied) came from a heuristic estimate rather
@@ -42,46 +51,14 @@ export interface CostEntry {
   origin?: string;
 }
 
-/** Persisted row shape for the `cost_entries` table (snake_case columns). */
-interface CostEntryRow {
-  id: string;
-  timestamp: number;
-  instance_id: string;
-  session_id: string;
-  model: string;
-  input_tokens: number;
-  output_tokens: number;
-  cache_read_tokens: number;
-  cache_write_tokens: number;
-  reasoning_tokens: number;
-  cost: number;
-  is_estimated: number;
-  origin: string | null;
-}
-
-function rowToEntry(row: CostEntryRow): CostEntry {
-  return {
-    id: row.id,
-    timestamp: row.timestamp,
-    instanceId: row.instance_id,
-    sessionId: row.session_id,
-    model: row.model,
-    inputTokens: row.input_tokens,
-    outputTokens: row.output_tokens,
-    cacheReadTokens: row.cache_read_tokens,
-    cacheWriteTokens: row.cache_write_tokens,
-    reasoningTokens: row.reasoning_tokens,
-    cost: row.cost,
-    isEstimated: row.is_estimated === 1,
-    ...(row.origin !== null ? { origin: row.origin } : {}),
-  };
-}
-
 /**
  * Cost summary for a time period or session
  */
 export interface CostSummary {
   totalCost: number;
+  totalAiCreditsNano: number;
+  providers?: string[];
+  firstCreditsAt?: number;
   /**
    * Portion of `totalCost` contributed by entries with `isEstimated: true`.
    * Lets a total that mixes measured and estimated entries say so instead
@@ -97,15 +74,20 @@ export interface CostSummary {
   totalReasoningTokens: number;
   byModel: Record<string, {
     cost: number;
+    aiCreditsNano?: number;
     inputTokens: number;
     outputTokens: number;
     reasoningTokens: number;
     requests: number;
     /** True when any request for this model contributed an estimated entry. */
     hasEstimated: boolean;
+    hasUnknownCost?: boolean;
   }>;
   bySession: Record<string, {
     cost: number;
+    instanceId?: string;
+    provider?: string;
+    aiCreditsNano?: number;
     tokens: number;
     requests: number;
     /** True when any request for this session contributed an estimated entry. */
@@ -180,9 +162,10 @@ export class CostTracker extends EventEmitter {
     try {
       this.insertStmt = db.prepare(`
         INSERT OR REPLACE INTO cost_entries
-          (id, timestamp, instance_id, session_id, model,
-           input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, cost, is_estimated, origin)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (id, timestamp, instance_id, session_id, model, provider,
+           input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, cost, is_estimated, origin,
+           ai_credits_nano, premium_requests, credit_checkpoint_id, credit_checkpoint_total_nano, credit_checkpoint_premium_total)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       this.db = db;
       // Flush any entries recorded before persistence was attached (INSERT OR
@@ -229,9 +212,10 @@ export class CostTracker extends EventEmitter {
     if (!this.db) return;
     const rows = this.db
       .prepare(
-        `SELECT id, timestamp, instance_id, session_id, model,
+        `SELECT id, timestamp, instance_id, session_id, model, provider,
                 input_tokens, output_tokens, cache_read_tokens,
-                cache_write_tokens, reasoning_tokens, cost, is_estimated, origin
+                cache_write_tokens, reasoning_tokens, cost, is_estimated, origin,
+                ai_credits_nano, premium_requests, credit_checkpoint_id, credit_checkpoint_total_nano, credit_checkpoint_premium_total
          FROM cost_entries ORDER BY timestamp DESC LIMIT ?`,
       )
       .all<CostEntryRow>(this.maxEntries);
@@ -289,6 +273,7 @@ export class CostTracker extends EventEmitter {
           entry.instanceId,
           entry.sessionId,
           entry.model,
+          entry.provider ?? null,
           entry.inputTokens,
           entry.outputTokens,
           entry.cacheReadTokens ?? 0,
@@ -297,6 +282,8 @@ export class CostTracker extends EventEmitter {
           entry.cost,
           entry.isEstimated ? 1 : 0,
           entry.origin ?? null,
+          entry.aiCreditsNano ?? null, entry.premiumRequests ?? null,
+          entry.creditCheckpointId ?? null, entry.creditCheckpointTotalNano ?? null, entry.creditCheckpointPremiumTotal ?? null,
         );
         if (this.db && entry.byModel) {
           const statement = this.db.prepare(`INSERT OR REPLACE INTO cost_entry_model_usage
@@ -384,6 +371,7 @@ export class CostTracker extends EventEmitter {
       instanceId,
       sessionId,
       model,
+      provider: options?.provider,
       inputTokens,
       outputTokens,
       cacheReadTokens,
@@ -419,81 +407,58 @@ export class CostTracker extends EventEmitter {
    * Get cost summary for a time range
    */
   getSummary(startTime?: number, endTime?: number): CostSummary {
-    const start = startTime || 0;
-    const end = endTime || Date.now();
+    const summary = buildCostSummary(this.entries, startTime, endTime);
+    if (this.db) summary.firstCreditsAt = this.db.prepare(`SELECT MIN(timestamp) AS firstAt FROM cost_entries
+      WHERE ai_credits_nano IS NOT NULL`).get<{ firstAt: number | null }>()?.firstAt ?? undefined;
+    return summary;
+  }
 
-    const filtered = this.entries.filter(
-      (e) => e.timestamp >= start && e.timestamp <= end
-    );
-
-    const byModel: CostSummary['byModel'] = {};
-    const bySession: CostSummary['bySession'] = {};
-    let totalCost = 0;
-    let totalEstimatedCost = 0;
-    let hasEstimatedEntries = false;
-    let totalInputTokens = 0;
-    let totalOutputTokens = 0;
-    let totalCacheReadTokens = 0;
-    let totalCacheWriteTokens = 0;
-    let totalReasoningTokens = 0;
-
-    for (const entry of filtered) {
-      totalCost += entry.cost;
-      totalInputTokens += entry.inputTokens;
-      totalOutputTokens += entry.outputTokens;
-      totalCacheReadTokens += entry.cacheReadTokens || 0;
-      totalCacheWriteTokens += entry.cacheWriteTokens || 0;
-      totalReasoningTokens += entry.reasoningTokens || 0;
-      if (entry.isEstimated) {
-        totalEstimatedCost += entry.cost;
-        hasEstimatedEntries = true;
-      }
-
-      // By model
-      if (!byModel[entry.model]) {
-        byModel[entry.model] = {
-          cost: 0,
-          inputTokens: 0,
-          outputTokens: 0,
-          reasoningTokens: 0,
-          requests: 0,
-          hasEstimated: false,
-        };
-      }
-      byModel[entry.model].cost += entry.cost;
-      byModel[entry.model].inputTokens += entry.inputTokens;
-      byModel[entry.model].outputTokens += entry.outputTokens;
-      byModel[entry.model].reasoningTokens += entry.reasoningTokens || 0;
-      byModel[entry.model].requests += 1;
-      if (entry.isEstimated) byModel[entry.model].hasEstimated = true;
-
-      // By session
-      if (!bySession[entry.sessionId]) {
-        bySession[entry.sessionId] = { cost: 0, tokens: 0, requests: 0, hasEstimated: false };
-      }
-      bySession[entry.sessionId].cost += entry.cost;
-      bySession[entry.sessionId].tokens +=
-        entry.inputTokens + entry.outputTokens + (entry.reasoningTokens || 0)
-        + (entry.cacheReadTokens || 0) + (entry.cacheWriteTokens || 0);
-      bySession[entry.sessionId].requests += 1;
-      if (entry.isEstimated) bySession[entry.sessionId].hasEstimated = true;
+  /** Persist credits before updating memory or notifying live readers. */
+  attachProviderCredits(entryId: string, credits: {
+    creditsNano: number; premiumRequests: number; checkpointEventId: string; checkpointTotalNano: number; checkpointPremiumTotal?: number;
+  }): boolean {
+    if (![credits.creditsNano, credits.premiumRequests, credits.checkpointTotalNano].every(n => Number.isFinite(n) && n >= 0)) return false;
+    let entry = this.entries.find(e => e.id === entryId);
+    if (!entry && this.db) {
+      const row = this.db.prepare('SELECT * FROM cost_entries WHERE id = ?').get<CostEntryRow>(entryId);
+      if (!row) return false;
+      entry = rowToEntry(row);
+      const models = this.db.prepare('SELECT * FROM cost_entry_model_usage WHERE entry_id = ? ORDER BY model').all<{
+        model: string; input_tokens: number; output_tokens: number; cache_read_tokens: number; cache_write_tokens: number; cost_usd: number | null;
+      }>(entryId);
+      if (models.length) entry.byModel = models.map(model => ({ model: model.model,
+        inputTokens: model.input_tokens, outputTokens: model.output_tokens,
+        cacheReadTokens: model.cache_read_tokens, cacheWriteTokens: model.cache_write_tokens,
+        ...(model.cost_usd !== null ? { costUsd: model.cost_usd } : {}) }));
     }
+    if (!entry) return false;
+    const values = { aiCreditsNano: credits.creditsNano, premiumRequests: credits.premiumRequests,
+      creditCheckpointId: credits.checkpointEventId, creditCheckpointTotalNano: credits.checkpointTotalNano,
+      creditCheckpointPremiumTotal: credits.checkpointPremiumTotal };
+    if (this.db) {
+      const result = this.db.prepare(`UPDATE cost_entries SET ai_credits_nano = ?, premium_requests = ?,
+        credit_checkpoint_id = ?, credit_checkpoint_total_nano = ?, credit_checkpoint_premium_total = ? WHERE id = ? AND credit_checkpoint_id IS NULL`)
+        .run(credits.creditsNano, credits.premiumRequests, credits.checkpointEventId, credits.checkpointTotalNano, credits.checkpointPremiumTotal ?? null, entryId);
+      if (!result.changes) return false;
+    } else if (entry.creditCheckpointId) return false;
+    Object.assign(entry, values);
+    this.emit('cost-recorded', entry);
+    return true;
+  }
 
-    return {
-      totalCost,
-      totalEstimatedCost,
-      hasEstimatedEntries,
-      totalInputTokens,
-      totalOutputTokens,
-      totalCacheReadTokens,
-      totalCacheWriteTokens,
-      totalReasoningTokens,
-      byModel,
-      bySession,
-      requestCount: filtered.length,
-      startTime: start,
-      endTime: end,
-    };
+  getLastProviderCreditCheckpoint(sessionId: string): { eventId: string; totalNano: number; premiumTotal: number } | undefined {
+    if (this.db) {
+      const row = this.db.prepare(`SELECT credit_checkpoint_id AS eventId, credit_checkpoint_total_nano AS totalNano,
+        COALESCE(credit_checkpoint_premium_total, 0) AS premiumTotal
+        FROM cost_entries WHERE session_id = ? AND credit_checkpoint_id IS NOT NULL
+        ORDER BY credit_checkpoint_total_nano DESC, timestamp DESC LIMIT 1`)
+        .get<{ eventId: string; totalNano: number; premiumTotal: number }>(sessionId);
+      return row;
+    }
+    const rows = this.entries.filter(e => e.sessionId === sessionId && e.creditCheckpointId);
+    const last = rows.at(-1);
+    return last ? { eventId: last.creditCheckpointId!, totalNano: last.creditCheckpointTotalNano!,
+      premiumTotal: last.creditCheckpointPremiumTotal ?? 0 } : undefined;
   }
 
   /**

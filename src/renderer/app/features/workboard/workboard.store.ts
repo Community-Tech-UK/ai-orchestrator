@@ -7,10 +7,9 @@ import {
   buildWorkboardLanes,
   deriveWorkspaceOptions,
   filterItemsByWorkspace,
-  projectWorkboard,
-  snoozeClearedByAttention,
 } from './workboard-projection';
-import type { AttentionLevel } from '../../../../shared/attention/attention-level';
+import { NeedsYouStore } from './needs-you.store';
+import { workboardEntry, workboardEntryKey } from './needs-you-sources';
 import type {
   WorkboardItem,
   WorkboardLanes,
@@ -28,7 +27,7 @@ const ALL_WORKSPACES_OPTION: WorkboardWorkspaceOption = {
 };
 
 /**
- * Composes the four authoritative source stores into the Workboard view model.
+ * Adds page selection, workspace filtering and refresh errors to the shared root projection.
  *
  * It owns ONLY view state and derivation — selected workspace, selected item,
  * the injected clock, refresh orchestration, and per-source error summaries. It
@@ -42,10 +41,7 @@ export class WorkboardStore {
   private readonly automationStore = inject(AutomationStore);
   private readonly loopStore = inject(LoopStore);
   private readonly repoJobStore = inject(RepoJobStore);
-
-  /** Injected clock. Advanced on each refresh tick so relative times and the
-   *  24-hour terminal boundary update predictably (and deterministically in tests). */
-  private readonly nowSignal = signal(Date.now());
+  private readonly needsYou = inject(NeedsYouStore);
 
   private readonly selectedWorkspace = signal<string>(ALL_WORKSPACES);
   private readonly selectedItem = signal<string | null>(null);
@@ -55,19 +51,8 @@ export class WorkboardStore {
   private readonly automationErrorSignal = signal<string | null>(null);
   private readonly repoJobErrorSignal = signal<string | null>(null);
 
-  /** WS-C2 snooze: session-only (no natural persistence layer exists yet for
-   *  Workboard view state — everything else here is either derived or an
-   *  injected clock). Losing snoozes on reload is acceptable: a reload
-   *  always re-shows every genuinely live item, which is the safe default.
-   *
-   *  LT-481: keyed to the attention level held at snooze time, not just the
-   *  item id. Without the baseline the hand-raise predicate cleared a snooze
-   *  the instant it was set on anything already in the Needs You lane. */
-  private readonly snoozedSignal = signal<ReadonlyMap<string, AttentionLevel>>(new Map());
-
   constructor() {
-    // The Workboard is the only surface that needs the global recent-loop read
-    // model live, so it wires the loop event listeners once on init.
+    // Also support opening this page directly; loop wiring is idempotent.
     this.loopStore.ensureWired();
 
     // Clear the selection when the selected item leaves the projection (terminal
@@ -80,42 +65,16 @@ export class WorkboardStore {
         untracked(() => this.selectedItem.set(null));
       }
     });
-
-    // WS-C2 snooze hand-raise: automatically drop a snooze once the item's
-    // attention genuinely rises above its snooze-time level (see
-    // `snoozeClearedByAttention`) or the item leaves the projection entirely.
-    // Runs on every `items()` recompute so the card reappears the moment it
-    // actually needs you, not on the next manual refresh.
-    effect(() => {
-      const currentItems = this.items();
-      const snoozed = untracked(() => this.snoozedSignal());
-      if (snoozed.size === 0) return;
-      const stillSnoozed = new Map<string, AttentionLevel>();
-      for (const item of currentItems) {
-        const baseline = snoozed.get(item.id);
-        if (baseline !== undefined && !snoozeClearedByAttention(item.attentionLevel, baseline)) {
-          stillSnoozed.set(item.id, baseline);
-        }
-      }
-      if (stillSnoozed.size !== snoozed.size) {
-        untracked(() => this.snoozedSignal.set(stillSnoozed));
-      }
-    });
   }
 
   // ────── read model ──────
 
   /** All correlated, retention-filtered items (unfiltered by workspace). */
-  readonly items = computed<WorkboardItem[]>(() =>
-    projectWorkboard({
-      instances: this.instanceStore.instances(),
-      loopRuns: this.loopStore.recentRuns(),
-      automationRuns: this.automationStore.runs(),
-      automations: this.automationStore.automations(),
-      repoJobs: this.repoJobStore.jobs(),
-      now: this.nowSignal(),
-    }),
-  );
+  readonly items = this.needsYou.workItems;
+  readonly requests = computed(() => {
+    const workKeys = new Set(this.items().map(workboardEntryKey));
+    return this.needsYou.entries().filter((entry) => !workKeys.has(entry.key));
+  });
 
   /** Workspace options: "All workspaces" first, then derived choices. */
   readonly workspaceOptions = computed<WorkboardWorkspaceOption[]>(() => [
@@ -132,10 +91,11 @@ export class WorkboardStore {
    *  workspace filter and snooze are independent — snoozing never affects
    *  the workspace picker's counts (those come from the unfiltered `items()`). */
   readonly visibleItems = computed<WorkboardItem[]>(() => {
-    const snoozed = this.snoozedSignal();
-    const filtered = this.filteredItems();
-    if (snoozed.size === 0) return filtered;
-    return filtered.filter((item) => !snoozed.has(item.id));
+    // Needs you is global, including when another workspace is selected.
+    const projected = this.items().map((item) => item.lane === 'needs-you' && this.needsYou.isSeen(workboardEntry(item))
+      ? { ...item, lane: 'done' as const } : item);
+    return projected.filter((item) => !this.needsYou.isSnoozed(workboardEntryKey(item))
+      && (this.selectedWorkspace() === ALL_WORKSPACES || item.lane === 'needs-you' || item.workspaceId === this.selectedWorkspace()));
   });
 
   /** Lane arrays, always all four lanes, sorted per lane policy. Snoozed
@@ -143,9 +103,9 @@ export class WorkboardStore {
   readonly lanes = computed<WorkboardLanes>(() => buildWorkboardLanes(this.visibleItems()));
 
   /** Total visible cards after filtering and snoozing. */
-  readonly visibleCount = computed(() => this.visibleItems().length);
-  readonly snoozedCount = computed(() => this.snoozedSignal().size);
-  clearSnoozes(): void { this.snoozedSignal.set(new Map()); }
+  readonly visibleCount = computed(() => this.visibleItems().length + this.requests().length);
+  readonly snoozedCount = this.needsYou.snoozedCount;
+  clearSnoozes(): void { this.needsYou.clearSnoozes(); }
 
   readonly selectedWorkspaceId = this.selectedWorkspace.asReadonly();
   readonly selectedItemId = this.selectedItem.asReadonly();
@@ -178,6 +138,7 @@ export class WorkboardStore {
   selectItem(itemId: string): void {
     this.selectedItem.set(itemId);
     const item = this.items().find((candidate) => candidate.id === itemId);
+    if (item) this.needsYou.markSeen(workboardEntryKey(item));
     if (item?.instanceId) {
       this.instanceStore.setSelectedInstance(item.instanceId);
     }
@@ -191,7 +152,7 @@ export class WorkboardStore {
   /** Advance the injected clock. Called on the page's refresh tick; tests may
    *  pass an explicit `now` for determinism. */
   advanceClock(now: number = Date.now()): void {
-    this.nowSignal.set(now);
+    this.needsYou.advanceClock(now);
   }
 
   /**
@@ -245,29 +206,25 @@ export class WorkboardStore {
    *  attention rises again (see the hand-raise effect in the constructor) —
    *  callers never need to un-snooze a genuinely urgent item themselves. */
   snoozeItem(itemId: string): void {
-    // LT-481: record the level the item holds right now. The hand-raise
-    // predicate compares against this baseline, so snoozing an already-loud
-    // card no longer clears itself on the next projection tick.
-    const baseline = this.items().find((item) => item.id === itemId)?.attentionLevel;
-    if (baseline === undefined) return;
-    this.snoozedSignal.update((snoozed) => {
-      if (snoozed.has(itemId)) return snoozed;
-      return new Map(snoozed).set(itemId, baseline);
-    });
+    const item = this.items().find((item) => item.id === itemId);
+    if (!item) return;
+    const entry = workboardEntry(item);
+    this.needsYou.snooze(entry.key);
   }
 
-  /** Explicit user un-snooze (e.g. an "undo" affordance). */
+  markItemSeen(itemId: string): void {
+    const item = this.items().find((item) => item.id === itemId);
+    if (item) this.needsYou.markSeen(workboardEntryKey(item));
+  }
+
   unsnoozeItem(itemId: string): void {
-    this.snoozedSignal.update((snoozed) => {
-      if (!snoozed.has(itemId)) return snoozed;
-      const next = new Map(snoozed);
-      next.delete(itemId);
-      return next;
-    });
+    const item = this.items().find((item) => item.id === itemId);
+    if (item) this.needsYou.unsnooze(workboardEntryKey(item));
   }
 
   isSnoozed(itemId: string): boolean {
-    return this.snoozedSignal().has(itemId);
+    const item = this.items().find((item) => item.id === itemId);
+    return item ? this.needsYou.isSnoozed(workboardEntryKey(item)) : false;
   }
 }
 

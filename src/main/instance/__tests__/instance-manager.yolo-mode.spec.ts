@@ -860,6 +860,12 @@ import { WorkerNodeRegistry } from '../../remote-node/worker-node-registry';
 import { getProviderAccountRoutingService } from '../../providers/account-pool/provider-account-routing-service';
 import { getDeferDecisionStore } from '../../cli/hooks/defer-decision-store';
 import type { BatchUpdatePayload } from '../../../shared/types/ipc.types';
+import { ClaudeLivePermissionBroker } from '../../cli/adapters/claude-live-permission';
+import { getToolExecutionGate, type ToolExecutionGateDecision } from '../../security/tool-execution-gate';
+import type { InputRequiredPayload } from '../instance-permission-request-flow';
+import type { StuckProcessDetector } from '../stuck-process-detector';
+import * as inputContexts from '../instance-input-contexts';
+import type { InstanceSendInputOptions } from '../instance-input-cancellation';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -1051,6 +1057,136 @@ describe('InstanceManager', () => {
     // A settled turn is what marks the provider session stored (busy → idle).
     instance.providerSessionPersisted = true;
   }
+
+  it.each([
+    ['user', undefined],
+    ['automated', { automatedInput: true }],
+    ['internal', { internalSource: 'child-announcement', automatedInput: true }],
+  ] satisfies Array<[string, InstanceSendInputOptions | undefined]>)(
+    'passes %s origin from the real send path to context retrieval', async (origin, options) => {
+      const assemble = vi.spyOn(inputContexts, 'buildInputContexts').mockResolvedValue({
+        rlmContext: null, unifiedMemoryContext: null, indexedCodebaseContext: null,
+      });
+      const communication = (manager as unknown as { communication: { sendInput(...args: unknown[]): Promise<void> } }).communication;
+      const dispatch = vi.spyOn(communication, 'sendInput').mockResolvedValue(undefined);
+      try {
+        const instance = await createReadyInstance();
+        await manager.sendInput(instance.id, 'Continue the migration', undefined, options);
+        expect(assemble).toHaveBeenCalledWith(expect.any(Object), instance, expect.any(String), origin);
+        expect(dispatch).toHaveBeenCalled();
+      } finally { assemble.mockRestore(); dispatch.mockRestore(); }
+    },
+  );
+
+  it('publishes an honest soft warning and restarts on the hard watchdog event', async () => {
+    const instance = await createReadyInstance();
+    Object.assign(manager.getAdapter(instance.id)!, { getPid: () => null });
+    const internals = manager as unknown as { stuckDetector: StuckProcessDetector;
+      lifecycle: { respawnAfterInterrupt(id: string): Promise<void> } };
+    const respawn = vi.spyOn(internals.lifecycle, 'respawnAfterInterrupt').mockResolvedValue(undefined);
+    try {
+      internals.stuckDetector.emit('process:suspect-stuck', { instanceId: instance.id, elapsedMs: 70_000 });
+      await vi.waitFor(() => expect(instance.outputBuffer).toContainEqual(expect.objectContaining({
+        content: 'No output for 70s. If it stays silent, Harness will restart the session.',
+        metadata: { watchdogWarning: true, elapsedMs: 70_000, detail: '70s without output' },
+      })));
+      internals.stuckDetector.emit('process:stuck', { instanceId: instance.id });
+      expect(respawn).toHaveBeenCalledWith(instance.id);
+    } finally { respawn.mockRestore(); }
+  });
+
+  describe('live permission manager wiring', () => {
+    function gate(action: 'allow' | 'ask') {
+      return vi.spyOn(getToolExecutionGate(), 'evaluate').mockImplementation(({ request }) => ({
+        action, reason: 'Example policy', source: 'permission-rule',
+        permission: { request, action, reason: 'Example policy', source: 'mode', mode: 'prompt', fromCache: false, decidedAt: request.timestamp },
+      } satisfies ToolExecutionGateDecision));
+    }
+
+    async function setupLive() {
+      const instance = await createReadyInstance();
+      manager.updateInstanceStatus(instance.id, 'busy');
+      const adapter = manager.getAdapter(instance.id)!;
+      const sendRawControl = vi.fn().mockResolvedValue(undefined);
+      const broker = new ClaudeLivePermissionBroker({ emit: (event, payload) => adapter.emit(event, payload), sendRawControl });
+      const capabilities = adapter.getRuntimeCapabilities();
+      Object.assign(adapter, { livePermissions: broker, isRunning: () => true, getPid: () => 12345,
+        getSessionId: () => instance.sessionId,
+        getRuntimeCapabilities: () => ({ ...capabilities, supportsPermissionPrompts: true, supportsDeferPermission: true }),
+      });
+      const prompts: InputRequiredPayload[] = [];
+      manager.on('instance:input-required', payload => prompts.push(payload));
+      const ask = (id: string) => broker.handle('control_request', { type: 'control_request', request_id: id,
+        request: { subtype: 'can_use_tool', tool_name: 'WebFetch', input: { url: 'https://example.com' } } });
+      return { instance, adapter, broker, prompts, ask, sendRawControl };
+    }
+
+    it('keeps the successful live request until the caller records its session decision', async () => {
+      const policy = gate('ask');
+      try {
+        const test = await setupLive();
+        test.ask('control-session');
+        await vi.waitFor(() => expect(test.prompts).toHaveLength(1));
+        const requestId = test.prompts[0].requestId;
+        mockPermissionManager.recordUserDecision.mockClear();
+        await manager.resumeAfterDeferredPermission(test.instance.id, true, undefined, { requestId });
+        manager.recordInputRequiredPermissionDecision({ instanceId: test.instance.id, requestId, action: 'allow', scope: 'session' });
+        expect(mockPermissionManager.recordUserDecision).toHaveBeenCalledWith(test.instance.id,
+          expect.objectContaining({ id: expect.stringMatching(/^perm-live-/), resource: 'tool:WebFetch' }), 'allow', 'session');
+        expect(test.sendRawControl).toHaveBeenCalledWith(expect.objectContaining({
+          response: expect.objectContaining({ request_id: 'control-session', response: expect.objectContaining({ behavior: 'allow' }) }),
+        }));
+      } finally { policy.mockRestore(); }
+    });
+
+    it('forwards automatic decisions to both concurrent live asks by their ids', async () => {
+      const policy = gate('allow');
+      try {
+        const test = await setupLive();
+        test.ask('control-one'); test.ask('control-two');
+        await vi.waitFor(() => expect(test.sendRawControl).toHaveBeenCalledTimes(2));
+        await vi.waitFor(() => expect(test.broker.hasPending()).toBe(false));
+        expect(test.prompts).toEqual([]);
+      } finally { policy.mockRestore(); }
+    });
+
+    it('answers live Auto-approve without respawning and queues the explicit value with an existing model change', async () => {
+      const policy = gate('ask');
+      try {
+        const test = await setupLive();
+        test.ask('control-auto');
+        await vi.waitFor(() => expect(test.prompts).toHaveLength(1));
+        await manager.requestModelChange(test.instance.id, { model: 'opus' });
+        mockCreateCliAdapter.mockClear(); mockAdapterTerminate.mockClear();
+        const applied = vi.fn(); manager.on('instance:yolo-toggled', applied);
+        await manager.resumeAfterDeferredPermission(test.instance.id, true, undefined, { requestId: test.prompts[0].requestId, yoloMode: true });
+        expect(test.instance.yoloMode).toBe(false);
+        expect(test.instance.desiredRuntime).toMatchObject({ model: 'opus', yoloMode: true });
+        expect(mockCreateCliAdapter).not.toHaveBeenCalled();
+        expect(mockAdapterTerminate).not.toHaveBeenCalled();
+        expect(applied).not.toHaveBeenCalledWith(expect.objectContaining({ yoloMode: true }));
+      } finally { policy.mockRestore(); }
+    });
+
+    it('keeps the real watchdog quiet behind a live permission card', async () => {
+      const policy = gate('ask');
+      try {
+        const test = await setupLive();
+        test.ask('control-watchdog');
+        await vi.waitFor(() => expect(test.prompts).toHaveLength(1));
+        const detector = (manager as unknown as { stuckDetector: StuckProcessDetector }).stuckDetector;
+        const suspect = vi.fn(); const stuck = vi.fn();
+        detector.on('process:suspect-stuck', suspect); detector.on('process:stuck', stuck);
+        vi.useFakeTimers();
+        detector.startTracking(test.instance.id); detector.updateState(test.instance.id, 'tool_executing');
+        for (let elapsed = 0; elapsed < 45 * 60_000; elapsed += 10_000) {
+          vi.advanceTimersByTime(10_000);
+          (detector as unknown as { checkAll(): void }).checkAll();
+        }
+        expect(suspect).not.toHaveBeenCalled(); expect(stuck).not.toHaveBeenCalled();
+      } finally { policy.mockRestore(); vi.useRealTimers(); }
+    });
+  });
 
   describe('requestYoloModeToggle (reconciler-backed)', () => {
     it('applies immediately from a settled state, respawning with yolo enabled and sending the notice', async () => {

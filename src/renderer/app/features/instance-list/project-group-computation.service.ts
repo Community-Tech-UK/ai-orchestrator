@@ -1,8 +1,10 @@
+import { presentInstanceStatus } from '../../../../shared/attention/instance-status-presentation';
+import { attentionLevelForInstanceStatus, isAtLeastAsUrgent } from '../../../../shared/attention/attention-level';
 import { Injectable, inject } from '@angular/core';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
+import { NeedsYouStore } from '../workboard/needs-you.store';
 import type { Instance } from '../../core/state/instance.store';
 import type { ConversationHistoryEntry } from '../../../../shared/types/history.types';
-import { presentInstanceStatus } from '../../../../shared/attention/instance-status-presentation';
 import type {
   HierarchicalHistoryItem,
   HierarchicalInstance,
@@ -10,6 +12,8 @@ import type {
 } from './instance-list.types';
 
 interface ProjectStateSummary {
+  needsYouCount: number;
+  mostUrgentTitle: string | null;
   projectStateLabel: string;
   projectStateTone: 'working' | 'attention' | 'connecting' | 'ready' | 'history';
 }
@@ -21,9 +25,15 @@ export interface HistoryEntryParentPartition {
   orphanedChildEntries: ConversationHistoryEntry[];
 }
 
+/** Statuses a project shows as "Connecting" while its most urgent session is in one of them. */
+const CONNECTING_PROJECT_STATUSES: ReadonlySet<string> = new Set([
+  'initializing', 'respawning', 'waking', 'interrupting', 'cancelling', 'interrupt-escalating',
+]);
+
 @Injectable({ providedIn: 'root' })
 export class ProjectGroupComputationService {
   private newSessionDraft = inject(NewSessionDraftService);
+  private readonly needsYou = inject(NeedsYouStore);
 
   /**
    * Statuses that count as "Active" in the State filter: live/current sessions
@@ -104,8 +114,12 @@ export class ProjectGroupComputationService {
     const textMatches = !context.filter ||
       context.projectMatches ||
       this.matchesInstanceText(instance, context.filter);
+    const level = attentionLevelForInstanceStatus(instance.status);
     const statusMatches =
       context.status === 'all' ||
+      (context.status === 'attn:needs-you' && this.needsYou.sessionIds().has(instance.id)) ||
+      (context.status === 'attn:working' && level === 'working') ||
+      (context.status === 'attn:idle' && (level === 'idle' || level === 'waiting')) ||
       (context.status === 'active'
         ? this.isActiveStatus(instance.status)
         : instance.status === context.status);
@@ -143,6 +157,8 @@ export class ProjectGroupComputationService {
       childrenCount: immediateChildren.length,
       isExpanded: !context.collapsed.has(instance.id),
       children: immediateChildren,
+      descendantNeedsYou: visibleLiveChildren.reduce((count, child) => count + (child.descendantNeedsYou ?? 0)
+        + (this.needsYou.sessionIds().has(child.instance.id) ? 1 : 0), 0),
     };
   }
 
@@ -273,36 +289,43 @@ export class ProjectGroupComputationService {
     historyItems: ConversationHistoryEntry[],
     hasDraft: boolean
   ): ProjectStateSummary {
-    const statuses = new Set(liveItems.map((item) => item.instance.status));
-
-    if (statuses.has('error')) {
-      return { projectStateLabel: presentInstanceStatus('error').label, projectStateTone: 'attention' };
-    }
-    if (statuses.has('waiting_for_input')) {
-      return { projectStateLabel: presentInstanceStatus('waiting_for_input').label, projectStateTone: 'attention' };
-    }
-    if (statuses.has('busy')) {
-      return { projectStateLabel: 'Working', projectStateTone: 'working' };
-    }
-    if (
-      statuses.has('initializing')
-      || statuses.has('respawning')
-      || statuses.has('interrupting')
-      || statuses.has('cancelling')
-      || statuses.has('interrupt-escalating')
-    ) {
-      return { projectStateLabel: 'Connecting', projectStateTone: 'connecting' };
-    }
-    if (liveItems.length > 0) {
-      return { projectStateLabel: 'Ready', projectStateTone: 'ready' };
+    const members: Instance[] = [];
+    const memberTitles = new Map<string, string>();
+    const visit = (items: readonly HierarchicalRailItem[]): void => {
+      for (const item of items) {
+        if (item.kind === 'live' && !memberTitles.has(item.instance.id)) {
+          members.push(item.instance); memberTitles.set(item.instance.id, item.railTitle);
+        }
+        visit(item.children);
+      }
+    };
+    visit(liveItems);
+    const needsYouCount = members.filter((member) => this.needsYou.sessionIds().has(member.id)).length;
+    const mostUrgent = this.needsYou.entries().find((entry) => entry.instanceId && this.needsYou.sessionIds().has(entry.instanceId) && memberTitles.has(entry.instanceId));
+    const attention = { needsYouCount, mostUrgentTitle: mostUrgent?.instanceId ? memberTitles.get(mostUrgent.instanceId) ?? mostUrgent.title : null };
+    // An errored session still ranks above a waiting question here; otherwise the shared attention scale decides.
+    const urgent = members.find((member) => member.status === 'error') ?? members.reduce<Instance | undefined>((best, member) =>
+      !best || !isAtLeastAsUrgent(attentionLevelForInstanceStatus(best.status), attentionLevelForInstanceStatus(member.status))
+        ? member : best, undefined);
+    if (urgent) {
+      const view = presentInstanceStatus(urgent.status);
+      if (view.needsYou || view.tone === 'danger' || view.tone === 'warning') {
+        return { ...attention, projectStateLabel: view.label, projectStateTone: 'attention' };
+      }
+      if (CONNECTING_PROJECT_STATUSES.has(urgent.status)) {
+        return { ...attention, projectStateLabel: 'Connecting', projectStateTone: 'connecting' };
+      }
+      return view.inProgress
+        ? { ...attention, projectStateLabel: 'Working', projectStateTone: 'working' }
+        : { ...attention, projectStateLabel: 'Ready', projectStateTone: 'ready' };
     }
     if (hasDraft) {
-      return { projectStateLabel: 'Draft ready', projectStateTone: 'ready' };
+      return { ...attention, projectStateLabel: 'Draft ready', projectStateTone: 'ready' };
     }
     if (historyItems.length > 0) {
-      return { projectStateLabel: 'Recent history', projectStateTone: 'history' };
+      return { ...attention, projectStateLabel: 'Recent history', projectStateTone: 'history' };
     }
-    return { projectStateLabel: 'Available', projectStateTone: 'history' };
+    return { ...attention, projectStateLabel: 'Available', projectStateTone: 'history' };
   }
 
   getProjectDraftInfo(workingDirectory: string | null | undefined): {

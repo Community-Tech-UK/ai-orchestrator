@@ -28,7 +28,7 @@ import { ChannelIpcService } from '../../core/services/ipc/channel-ipc.service';
       </p>
 
       <!-- Discord -->
-      <div class="connection-card" [class.connected]="store.discord().status === 'connected'">
+      <div data-setting-key="section:connections.discord" class="connection-card" [class.connected]="store.discord().status === 'connected'">
         <div class="card-row">
           <div class="card-info">
             <span class="card-name">Discord</span>
@@ -115,7 +115,7 @@ import { ChannelIpcService } from '../../core/services/ipc/channel-ipc.service';
       </div>
 
       <!-- WhatsApp -->
-      <div class="connection-card" [class.connected]="store.whatsapp().status === 'connected'">
+      <div data-setting-key="section:connections.whatsapp" class="connection-card" [class.connected]="store.whatsapp().status === 'connected'">
         <div class="card-row">
           <div class="card-info">
             <span class="card-name">WhatsApp</span>

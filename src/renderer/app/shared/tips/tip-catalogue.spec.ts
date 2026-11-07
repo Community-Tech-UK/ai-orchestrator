@@ -14,7 +14,9 @@ describe('working tip catalogue integration guard', () => {
     }
   });
   it('has live keybindings and real usage recorder sites for every feature', () => {
-    const dashboard = readFileSync(resolve('src/renderer/app/features/dashboard/dashboard.component.ts'), 'utf8');
+    // The global actions are registered for the whole app lifetime now; a few stay on the dashboard.
+    const dashboard = readFileSync(resolve('src/renderer/app/features/dashboard/dashboard.component.ts'), 'utf8')
+      + readFileSync(resolve('src/renderer/app/features/commands/palette-overlays.service.ts'), 'utf8');
     const recorderSource = dashboard + readFileSync(resolve('src/renderer/app/features/instance-detail/instance-detail.component.ts'), 'utf8')
       + readFileSync(resolve('src/renderer/app/features/compare/ask-council.store.ts'), 'utf8');
     for (const tip of WORKING_TIPS) {

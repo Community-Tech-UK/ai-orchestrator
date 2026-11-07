@@ -41,7 +41,7 @@ interface ReplayTimelineEntry {
       <header class="hero">
         <div class="hero-copy">
           <p class="eyebrow">Read-only Observer</p>
-          <h1>Replay & Share</h1>
+          <h1>Replay</h1>
           <p class="subtitle">
             Inspect a live run, archived history entry, or saved share bundle before replaying it locally.
           </p>

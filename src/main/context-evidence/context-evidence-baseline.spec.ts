@@ -8,14 +8,20 @@ const electronMocks = vi.hoisted(() => ({
   getPath: vi.fn(() => '/tmp/aio-context-evidence-baseline'),
 }));
 
-const fsMocks = vi.hoisted(() => ({
-  mkdir: vi.fn().mockResolvedValue(undefined),
-  writeFile: vi.fn().mockResolvedValue(undefined),
-  readFile: vi.fn(),
-  readdir: vi.fn(),
-  stat: vi.fn(),
-  unlink: vi.fn(),
-}));
+const fsMocks = vi.hoisted(() => {
+  const named = {
+    mkdir: vi.fn().mockResolvedValue(undefined),
+    writeFile: vi.fn().mockResolvedValue(undefined),
+    readFile: vi.fn(),
+    readdir: vi.fn(),
+    stat: vi.fn(),
+    unlink: vi.fn(),
+    open: vi.fn(),
+  };
+  // Copilot's checkpoint reader pulls `open` through the node: specifier, which
+  // the mock intercepts; the interop also reads a default export.
+  return { ...named, default: named };
+});
 
 const hookMocks = vi.hoisted(() => ({
   triggerHooks: vi.fn().mockResolvedValue(undefined),

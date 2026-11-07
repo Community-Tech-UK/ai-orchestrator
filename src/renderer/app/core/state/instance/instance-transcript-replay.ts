@@ -1,10 +1,12 @@
+import type { InstanceInputContextDeliveredEvent } from '../../../../../shared/types/input-context-delivery.types';
+import { applyInputContextDelivery } from '../../../../../shared/utils/input-context-delivery';
 import { JsonChunkAssembler } from '../../../../../shared/utils/json-chunks';
 import { parseInstanceTranscriptReplay, TranscriptReplayIdentitySchema, type InstanceTranscriptReplay } from '../../../../../shared/utils/instance-transcript-replay';
 import type { Instance, OutputMessage } from './instance.types';
 import { appendInstanceOutputMessage } from './instance-output-message-merge';
 
 type Identity = Omit<InstanceTranscriptReplay, 'messages'>;
-interface Transfer { identity: Identity; transferId: string; startedAt: number; live: OutputMessage[]; characters: number; timer?: ReturnType<typeof setTimeout> }
+interface Transfer { identity: Identity; transferId: string; startedAt: number; live: OutputMessage[]; deliveries: InstanceInputContextDeliveredEvent[]; characters: number; timer?: ReturnType<typeof setTimeout> }
 const MAX_LIVE_CHARACTERS = 16 * 1024 * 1024;
 /** Assembly owns no UI hooks. Only live arrivals after the snapshot's first chunk survive replacement. */
 export class InstanceTranscriptReplayAssembler {
@@ -30,7 +32,7 @@ export class InstanceTranscriptReplayAssembler {
       if (known && identity.revision <= known.value) return undefined;
       this.drop(instance.id);
       if (this.transfers.size >= 8) throw new Error('Too many history replay transfers.');
-      transfer = { identity, transferId: chunk.transferId, startedAt: this.now(), live: [], characters: 0 };
+      transfer = { identity, transferId: chunk.transferId, startedAt: this.now(), live: [], deliveries: [], characters: 0 };
       this.transfers.set(instance.id, transfer);
       const expiring = transfer;
       transfer.timer = setTimeout(() => { if (this.transfers.get(instance.id) === expiring) this.fail(instance.id); }, 30_000);
@@ -42,9 +44,10 @@ export class InstanceTranscriptReplayAssembler {
       if (!completed) return undefined;
       const snapshot = parseInstanceTranscriptReplay(completed.value);
       if (JSON.stringify(transfer.identity) !== JSON.stringify(TranscriptReplayIdentitySchema.parse(snapshot))) throw new Error('Conflicting history replay snapshot.');
-      const messages = [...snapshot.messages];
+      let messages = [...snapshot.messages];
       const userIds = new Set(messages.filter(message => message.type === 'user').map(message => message.id));
       for (const message of transfer.live) appendInstanceOutputMessage(messages, message, userIds);
+      for (const delivery of transfer.deliveries) messages = applyInputContextDelivery(messages, delivery);
       this.drop(instance.id);
       return { ...snapshot, messages };
     } catch (error) { this.drop(instance.id); throw error; }
@@ -59,6 +62,16 @@ export class InstanceTranscriptReplayAssembler {
     const pendingCharacters = [...this.transfers.values()].reduce((sum, pending) => sum + pending.characters, 0);
     if (this.now() - transfer.startedAt >= 30_000 || pendingCharacters + characters > MAX_LIVE_CHARACTERS) { this.fail(instanceId); return; }
     transfer.live.push(message); transfer.characters += characters;
+  }
+  noteInputContextDelivery(delivery: InstanceInputContextDeliveredEvent): void {
+    const transfer = this.transfers.get(delivery.instanceId);
+    if (!transfer) return;
+    const characters = JSON.stringify(delivery).length;
+    const pendingCharacters = [...this.transfers.values()].reduce((sum, pending) => sum + pending.characters, 0);
+    if (this.now() - transfer.startedAt >= 30_000 || pendingCharacters + characters > MAX_LIVE_CHARACTERS) {
+      this.fail(delivery.instanceId); return;
+    }
+    transfer.deliveries.push(delivery); transfer.characters += characters;
   }
   private drop(instanceId: string): void {
     const transfer = this.transfers.get(instanceId);

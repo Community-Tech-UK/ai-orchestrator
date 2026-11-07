@@ -27,7 +27,7 @@ import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token
 import type { McpRuntimeToolContextSelection } from '../mcp/mcp-runtime-tool-context';
 import { getMcpManager } from '../mcp/mcp-manager';
 import { getContextWorkerClient } from './context-worker-client';
-import { sanitizeRetrievalQuery } from '../memory/retrieval-eval/query-sanitizer';
+import { prepareRetrievalQuery } from '../memory/retrieval-eval/retrieval-query';
 import { getProjectMemoryBriefService } from '../memory/project-memory-brief';
 import { extractAuthoredLessons } from '../memory/project-story-convention';
 import { getProjectKnowledgeCoordinator } from '../memory/project-knowledge-coordinator';
@@ -231,7 +231,7 @@ export async function assembleInstanceSystemPrompt(
   // Inject observation memory context (learned reflections from past sessions).
   // Deadline-bounded and off-thread via the context worker.
   const observationQuery = config.initialPrompt
-    ? sanitizeRetrievalQuery(config.initialPrompt).query
+    ? prepareRetrievalQuery(config.initialPrompt).query
     : '';
   if (observationQuery) {
     try {
@@ -273,7 +273,7 @@ export async function assembleInstanceSystemPrompt(
       const projectBriefRequest = {
         projectPath: instance.workingDirectory,
         instanceId: instance.id,
-        initialPrompt: config.initialPrompt,
+        initialPrompt: prepareRetrievalQuery(config.initialPrompt ?? '').query,
         provider: config.provider,
         model: config.modelOverride || resolvedAgent.modelOverride || settings.getAll().defaultModel,
       };

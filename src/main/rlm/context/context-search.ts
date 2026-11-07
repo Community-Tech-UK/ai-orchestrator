@@ -255,6 +255,7 @@ export async function executeSemanticSearch(
           getRecallTraceStore().record({
             surface: 'rlm',
             query,
+            strategy: params.queryStrategy ?? 'unchanged',
             returned: searchResults
               .filter((r) => store.sections.some((s) => s.id === r.entry.sectionId))
               .map((r) => ({ id: r.entry.sectionId, score: r.similarity })),

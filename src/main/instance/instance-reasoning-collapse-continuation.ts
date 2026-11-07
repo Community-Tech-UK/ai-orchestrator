@@ -67,7 +67,7 @@ export class InstanceReasoningCollapseContinuation {
     if (event.status === 'hibernated') {
       const reason = getInstanceTurnEnding(event.instanceId);
       if (reason) this.host.emitSystemMessage?.(event.instanceId,
-        `This session was hibernated after stopping because of ${reason.replaceAll('_', ' ')}. Work is preserved.`,
+        `This session was put to sleep after stopping because of ${reason.replaceAll('_', ' ')}. Work is preserved.`,
         { source: 'turn-ending-hibernation', reason });
     }
     // Adapter spawn can emit idle before lifecycle restoration finishes at ready.

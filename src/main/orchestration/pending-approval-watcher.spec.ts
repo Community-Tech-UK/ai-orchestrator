@@ -11,6 +11,9 @@ vi.mock('../logging/logger', () => ({
   getLogger: () => ({ info: vi.fn(), debug: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
 
+const notices = vi.hoisted(() => ({ notify: vi.fn(), resolve: vi.fn() }));
+vi.mock('../notifications/notification-service', () => ({ getNotificationService: () => notices }));
+
 let clock = 1_000_000;
 const now = () => clock;
 
@@ -26,6 +29,7 @@ function blocked(ageMs: number): PendingApprovalLike {
 beforeEach(() => {
   vi.useFakeTimers();
   clock = 1_000_000;
+  vi.clearAllMocks();
 });
 
 afterEach(() => {
@@ -109,6 +113,15 @@ describe('startPendingApprovalWatcher (N9)', () => {
     shouldThrow = false;
     vi.advanceTimersByTime(30);
     expect(onDigest).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolves the retained notice after the queue empties', () => {
+    let pending: PendingApprovalLike[] = [blocked(10 * 60_000)];
+    startPendingApprovalWatcher({ listPending: () => pending, pollMs: 10, now });
+    vi.advanceTimersByTime(10);
+    expect(notices.notify).toHaveBeenCalledWith(expect.objectContaining({ resolveKey: 'pending-approvals' }));
+    pending = []; vi.advanceTimersByTime(10);
+    expect(notices.resolve).toHaveBeenCalledWith('pending-approvals');
   });
 
   it('stops cleanly', () => {

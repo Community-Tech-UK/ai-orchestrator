@@ -7,8 +7,9 @@
 
 import { Component, input, output, computed, inject, ChangeDetectionStrategy } from '@angular/core';
 import { CrossModelReviewIpcService } from '../../core/services/ipc/cross-model-review-ipc.service';
-import { countReviewResultsWithConcerns } from '../../../../shared/utils/cross-model-review-concerns';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
+import { countReviewResultsWithConcerns } from '../../../../shared/utils/cross-model-review-concerns';
 
 @Component({
   selector: 'app-cross-model-review-indicator',
@@ -17,37 +18,34 @@ import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive'
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (hasVisibleState()) {
-      <span
+      <button
+        type="button"
         class="review-indicator"
         [class.reviewing]="isPending()"
-        [class.verified]="isVerified()"
-        [class.concerns]="hasConcerns()"
-        [class.advisory]="hasLocalAdvisory() && !hasConcerns() && !isVerified()"
-        [class.failed]="hasLocalFailure() && !hasConcerns() && !isVerified()"
-        [class.skipped]="isSkipped()"
+        [class.verified]="!isPending() && isVerified()"
+        [class.concerns]="!isPending() && hasConcerns()"
+        [class.advisory]="!isPending() && hasLocalAdvisory() && !hasConcerns() && !isVerified()"
+        [class.failed]="!isPending() && hasLocalFailure() && !hasConcerns() && !isVerified()"
+        [class.skipped]="!isPending() && !hasFinishedReview() && (isSkipped() || limitReached())"
         [appTooltip]="tooltip()"
-        role="button"
-        tabindex="0"
         (click)="indicatorClicked.emit()"
-        (keydown.enter)="indicatorClicked.emit()"
-        (keydown.space)="indicatorClicked.emit()"
       >
         @if (isPending()) {
-          <span class="spinner">&#x21bb;</span> Reviewing...
-        } @else if (limitReached()) {
-          Limit reached
+          <span class="spinner">&#x21bb;</span> Second opinion: checking…
         } @else if (isVerified()) {
-          &#x2713; Reviewed{{ hasLocalAdvisory() ? ' + local advisory' : '' }}
+          Second opinion: &#x2713;
         } @else if (hasConcerns()) {
-          &#x26A0; {{ concernCount() }} concern{{ concernCount() > 1 ? 's' : '' }}
+          Second opinion: {{ concernCount() }} concern{{ concernCount() > 1 ? 's' : '' }}
         } @else if (hasLocalAdvisory()) {
-          &#x2691; Local advisory
+          Second opinion: local model only
         } @else if (hasLocalFailure()) {
-          &#x26A0; Review failed
+          Second opinion: failed
+        } @else if (limitReached()) {
+          Second opinion: limit reached
         } @else if (isSkipped()) {
-          &#x2014;
+          Second opinion: skipped
         }
-      </span>
+      </button>
     }
   `,
   styles: [`
@@ -131,11 +129,6 @@ export class CrossModelReviewIndicatorComponent {
     this.review()?.reviews.filter((result) => result.source === 'local') ?? []
   );
 
-  enabled = computed(() => {
-    const s = this.reviewService.status();
-    return s?.enabled ?? false;
-  });
-
   isPending = computed(() => this.reviewService.pendingInstances().has(this.instanceId()));
   isSkipped = computed(() => this.reviewService.skippedInstances().has(this.instanceId()));
 
@@ -154,6 +147,7 @@ export class CrossModelReviewIndicatorComponent {
   hasLocalFailure = computed(() => this.review()?.localReviewer?.status === 'failed');
 
   limitReached = computed(() => this.reviewService.status()?.dailyUsage?.limitReached ?? false);
+  hasFinishedReview = computed(() => this.review() != null);
 
   hasVisibleState = computed(() =>
     this.isPending() || this.isSkipped() || this.limitReached() || this.review() != null
@@ -165,28 +159,30 @@ export class CrossModelReviewIndicatorComponent {
     return countReviewResultsWithConcerns(this.remoteReviews());
   });
 
+  /** The measured count shows in every state except the limit one, which already states it. */
   tooltip = computed(() => {
     const usage = this.reviewService.status()?.dailyUsage;
-    return this.tooltipDetails() + (usage ? ` Second opinions today: ${usage.used} of ${usage.limit}.` : '');
+    return this.tooltipDetails() + (usage && !this.limitReached() ? ` Second opinions today: ${usage.used} of ${usage.limit}.` : '');
   });
 
   private readonly tooltipDetails = computed(() => {
-    if (this.isPending()) return 'Cross-model review in progress...';
-    if (this.limitReached()) {
-      return "All automatic second opinions used today. Resets at midnight. You can still ask for one from a reply's menu.";
-    }
-    if (this.isSkipped()) return 'Cross-model review skipped because no secondary reviewers were available';
+    const usage = this.reviewService.status()?.dailyUsage;
+    const limit = this.limitReached() && usage
+      ? `${copyFor('secondOpinion.limitReached')} ${usage.used} of ${usage.limit} used today. Resets at midnight.`
+      : '';
+    if (this.isPending()) return `${copyFor('secondOpinion.checking')}${limit ? ` ${limit}` : ''}`;
     const r = this.review();
-    if (!r) return 'No review available';
-    const turn = r.turnSeq === undefined ? '' : ` Reviewed turn ${r.turnSeq}.`;
+    if (!r) return limit || (this.isSkipped() ? copyFor('secondOpinion.skipped') : 'No review available');
+    const turn = r.turnSeq === undefined ? ' Latest completed turn.' : ` Reviewed turn ${r.turnSeq}.`;
     const local = r.localReviewer;
     const localSuffix = local
       ? ` Local reviewer ${local.status}${local.reason ? `: ${local.reason}` : ''}.`
       : this.localReviews().length > 0 ? ' Local reviewer output is advisory.' : '';
-    if (this.hasConcerns()) return `Remote reviewers flagged concerns \u2014 click to view.${localSuffix}${turn}`;
-    if (this.isVerified()) return `Remote reviewers approved this output.${localSuffix}${turn}`;
-    if (local?.status === 'failed') return `Local reviewer failed: ${local.reason ?? 'unknown failure'}. No remote reviewer completed.`;
-    if (local?.status === 'skipped') return `Local reviewer skipped: ${local.reason ?? 'unavailable'}. No remote reviewer completed.`;
-    return 'Local review completed as advisory; no remote reviewer completed.';
+    const suffix = `${turn}${limit ? ` ${limit}` : ''}`;
+    if (this.hasConcerns()) return `${copyFor('secondOpinion.concerns')}${localSuffix}${suffix}`;
+    if (this.isVerified()) return `${copyFor('secondOpinion.verified')}${localSuffix}${suffix}`;
+    if (local?.status === 'failed') return `${copyFor('secondOpinion.failed')}${localSuffix} No remote reviewer completed.${suffix}`;
+    if (local?.status === 'skipped') return `${copyFor('secondOpinion.skipped')}${localSuffix}${suffix}`;
+    return `${copyFor('secondOpinion.localOnly')}${localSuffix}${suffix}`;
   });
 }

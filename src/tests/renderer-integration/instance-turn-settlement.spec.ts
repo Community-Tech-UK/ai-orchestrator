@@ -33,7 +33,7 @@ describe('InstanceStore turn settlement over the real event bus', () => {
         onBatchUpdate: (next: typeof batch) => { batch = next; return () => undefined; },
         onInstanceCreated: noop, onInstanceRemoved: noop, onInstanceTranscriptChunk: noop,
         onFastToggled: noop, onYoloToggled: noop, onOrchestrationActivity: noop,
-        onCompactStatus: noop, onInputRequired: noop, onInputRequiredResolved: noop,
+        onCompactStatus: noop, onInputRequired: noop, onInputRequiredResolved: noop, onInputContextDelivered: noop,
       } },
       { provide: StatsIpcService, useValue: { statsRecordSessionEnd: vi.fn().mockResolvedValue(undefined) } },
       { provide: ToastService, useValue: {} },

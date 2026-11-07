@@ -1,4 +1,5 @@
 import { OTHER_COMPUTERS_TITLE } from '../../../../shared/display-names';
+import { EVERYDAY_SURFACE_IDS } from './control-surface-tiers';
 import { controlSurfaceIcon } from './control-surface-icons';
 import type {
   ControlSurfaceGroup,
@@ -49,6 +50,7 @@ interface SurfaceDefinition {
 function surface(definition: SurfaceDefinition): ControlSurfaceItem {
   return {
     id: definition.id,
+    tier: EVERYDAY_SURFACE_IDS.has(definition.id) ? 'everyday' : 'more',
     path: definition.path,
     label: definition.label,
     title: definition.title ?? definition.label,
@@ -101,7 +103,7 @@ export const CONTROL_SURFACES: readonly ControlSurfaceItem[] = [
   surface({ id: 'search', path: '/search', label: 'Search Code', subtitle: 'Search indexed codebase content.', group: 'code', kind: 'tool', dashboard: true }),
   surface({ id: 'security', path: '/security', label: 'Security', subtitle: 'Review security and audit findings.', group: 'monitoring', kind: 'diagnostic', dashboard: true }),
   surface({ id: 'logs', path: '/logs', label: 'Logs', subtitle: 'Inspect app logs and debug output.', group: 'monitoring', kind: 'diagnostic', dashboard: true }),
-  surface({ id: 'observations', path: '/observations', label: 'Telemetry', subtitle: 'Review observations and reflections.', group: 'knowledge', kind: 'diagnostic', dashboard: true }),
+  surface({ id: 'observations', path: '/observations', label: 'Observations', subtitle: 'Review observations and reflections.', group: 'knowledge', kind: 'diagnostic', dashboard: true }),
   surface({ id: 'knowledge', path: '/knowledge', label: 'Knowledge Graph', subtitle: 'Explore structured project knowledge.', group: 'knowledge', kind: 'view', layout: 'wide', dashboard: true }),
   surface({ id: 'memory-review', path: '/memory-review', label: 'Memory review', subtitle: 'Approve, edit, or reject lessons the agent captured on its own.', group: 'knowledge', kind: 'workflow', dashboard: true }),
   surface({ id: 'plugins', path: '/plugins', label: 'Plugins', subtitle: 'Manage runtime plugin integrations.', group: 'integrations', kind: 'integration', dashboard: true }),
@@ -109,7 +111,7 @@ export const CONTROL_SURFACES: readonly ControlSurfaceItem[] = [
   surface({ id: 'remote-config', path: '/remote-config', label: 'Remote Config', subtitle: 'Sync settings from remote configuration sources.', group: 'integrations', kind: 'integration', dashboard: true, settings: true }),
   surface({ id: 'communication', hidden: true, path: '/communication', label: 'Session Messaging', subtitle: 'Configure cross-session communication.', group: 'integrations', kind: 'integration', dashboard: true }),
   surface({ id: 'multi-edit', path: '/multi-edit', label: 'Multi-File Edit', subtitle: 'Review and apply coordinated edits.', group: 'code', kind: 'tool', layout: 'wide', dashboard: true }),
-  surface({ id: 'editor', path: '/editor', label: 'Editor', subtitle: 'Edit workspace files directly.', group: 'code', kind: 'tool', layout: 'fullBleed', dashboard: true }),
+  surface({ id: 'editor', path: '/editor', label: 'Editor Integration', subtitle: 'Connect an editor to your workspace.', group: 'code', kind: 'tool', layout: 'fullBleed', dashboard: true }),
   surface({ id: 'archive', path: '/archive', label: 'Archive', subtitle: 'Browse and restore archived sessions.', group: 'storage', kind: 'view', dashboard: true, settings: true }),
   surface({ id: 'semantic-search', path: '/semantic-search', label: 'Semantic Search', subtitle: 'Search code and memory semantically.', group: 'code', kind: 'tool', dashboard: true }),
   surface({ id: 'channels', path: '/channels', label: 'Discord & WhatsApp', title: 'Discord & WhatsApp', subtitle: 'Connect external messaging channels.', group: 'integrations', kind: 'integration', dashboard: true }),

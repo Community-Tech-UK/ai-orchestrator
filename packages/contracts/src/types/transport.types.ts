@@ -44,7 +44,7 @@ export interface IpcMessage<T = unknown> {
 // Orchestration Activity Payloads
 // ============================================
 
-export type OrchestrationActivityCategory = 'orchestration' | 'debate' | 'verification' | 'task';
+export type OrchestrationActivityCategory = 'orchestration' | 'debate' | 'verification' | 'task' | 'reasoning';
 
 export interface OrchestrationActivityPayload {
   instanceId: string;

@@ -2,6 +2,8 @@ import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
+import { InstanceStore } from '../../core/state/instance.store';
+import { SettingsStore } from '../../core/state/settings.store';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { ContextAttributionPanelComponent } from './context-attribution-panel.component';
 
@@ -21,7 +23,10 @@ describe('context attribution hints', () => {
       contextManifestGet: async () => ({ success: true, data: { history: [{
         epoch: 1, at: 1, trigger: 'spawn', entries: [{ kind: 'instructions', status: 'supplied', contentHash: 'example-hash', charLength: 12 }],
       }] } }),
-    }) } }] });
+    }) } },
+      { provide: InstanceStore, useValue: { getInstance: () => undefined } },
+      { provide: SettingsStore, useValue: { showCost: () => false } },
+    ] });
     const fixture = TestBed.createComponent(ContextAttributionPanelComponent);
     fixture.componentRef.setInput('instanceId', 'example');
     fixture.detectChanges();

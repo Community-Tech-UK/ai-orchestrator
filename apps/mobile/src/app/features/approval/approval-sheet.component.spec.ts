@@ -23,6 +23,10 @@ function render(prompt: MobilePromptDto, pending = false) {
 }
 
 describe('ApprovalSheetComponent', () => {
+  it.each([['Bash', 'Needs your OK: Bash'], [undefined, 'Needs your OK']])('uses the shared approval vocabulary with tool %s', (toolName, title) => {
+    const { element } = render({ ...PROMPT, toolName });
+    expect(element.querySelector('h3')?.textContent).toBe(title);
+  });
   it.each([
     PROMPT,
     { ...PROMPT, kind: 'user-action' as const, requestType: 'select_option' as const, options: [{ id: 'one', label: 'One' }] },

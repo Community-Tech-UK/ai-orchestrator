@@ -1,3 +1,4 @@
+import { getLogger } from '../logging/logger';
 import type { AdapterInputDispatch, AdapterInputRetryReason } from '../cli/adapters/base-cli-adapter.types';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import { assertGlobalPauseInputCurrent, runWithGlobalPauseInput } from '../global-pause/global-pause-input';
@@ -5,7 +6,6 @@ import { getSessionAdmissionService } from '../session/session-admission-service
 import type { FileAttachment } from '../../shared/types/instance.types';
 import type { Instance } from '../../shared/types/instance.types';
 import { throwIfInstanceInputAborted, type InstanceSendInputOptions } from './instance-input-cancellation';
-import { getLogger } from '../logging/logger';
 import { captureInstanceRecoveryEpoch, isInstanceRecoveryEpochCurrent } from './instance-turn-ending-state';
 const logger = getLogger('InstanceInputReceipt');
 
@@ -71,7 +71,11 @@ export function createInstanceInputReceipt(
         ...(queuedAdmissionId ? [queuedAdmissionId] as const : [] as const));
     },
     delivered: () => {
-      if (admission) getSessionAdmissionService().markDelivered(admission.admissionId);
+      // A successful physical send must never become a resend because bookkeeping failed.
+      try { if (admission) getSessionAdmissionService().markDelivered(admission.admissionId); }
+      catch (error) {
+        logger.error('Input delivered but delivery bookkeeping failed', error instanceof Error ? error : new Error(String(error)), { instanceId });
+      }
       if (observed) return;
       observed = true;
       try { onDelivered?.(); } catch (error) { logger.warn('Provider delivery observer failed', { instanceId, error }); }

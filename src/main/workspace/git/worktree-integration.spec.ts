@@ -192,7 +192,7 @@ describe('integrateIntoSharedBranch (auto-integration)', () => {
 
     expect(result).toMatchObject({
       success: false,
-      error: 'Integration branch is not registered as AIO-owned',
+      error: 'Integration branch is not registered as Harness-owned',
     });
     expect(await git(['rev-parse', 'integration/main'], repo)).toBe(before);
     expect(await git(['ls-tree', '-r', '--name-only', 'integration/main'], repo))

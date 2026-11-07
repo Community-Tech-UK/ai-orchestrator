@@ -1,3 +1,5 @@
+import { SessionNavigator } from '../../core/services/session-navigator.service';
+import { NoticeSlotService } from '../../core/notices/notice-slot.service';
 /**
  * N12 — "while you were away".
  *
@@ -26,6 +28,8 @@ import {
   HostListener,
   inject,
   signal,
+  DestroyRef,
+  computed,
 } from '@angular/core';
 
 import { LoopIpcService } from '../../core/services/ipc/loop-ipc.service';
@@ -37,13 +41,14 @@ import type { AwayRecapPayload } from '@contracts/schemas/loop';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    @if (slot()) {
     @if (recap(); as summary) {
       <aside class="away-recap" role="status" aria-live="polite">
         <div class="away-recap__text">
           <strong class="away-recap__headline">{{ summary.headline }}</strong>
           <ul class="away-recap__list">
             @for (card of summary.cards; track card.runId) {
-              <li class="away-recap__card" [attr.data-outcome]="card.outcome">
+              <li><button type="button" class="away-recap__card" [attr.data-outcome]="card.outcome" (click)="openSession(card.chatId)">
                 <span class="away-recap__outcome">{{ outcomeLabel(card.outcome) }}</span>
                 <span class="away-recap__goal">{{ card.goal }}</span>
                 <span class="away-recap__meta">
@@ -52,7 +57,7 @@ import type { AwayRecapPayload } from '@contracts/schemas/loop';
                     · {{ card.outstandingCount }} open question{{ card.outstandingCount === 1 ? '' : 's' }}
                   }
                 </span>
-              </li>
+              </button></li>
             }
           </ul>
         </div>
@@ -64,15 +69,21 @@ import type { AwayRecapPayload } from '@contracts/schemas/loop';
         >Dismiss</button>
       </aside>
     }
+    }
   `,
   styleUrl: './away-recap-banner.component.scss',
 })
 export class AwayRecapBannerComponent {
+  private readonly navigator = inject(SessionNavigator);
+  protected openSession(chatId: string): void { this.navigator.openSession(chatId); }
+
   private readonly ipc = inject(LoopIpcService);
 
   /** Boundary for "ended while you were away". */
   private awaySince = Date.now();
   protected readonly recap = signal<AwayRecapPayload | null>(null);
+
+  protected readonly slot = inject(NoticeSlotService).register('away-recap', computed(() => this.recap() !== null), inject(DestroyRef));
 
   @HostListener('window:blur')
   protected onBlur(): void {

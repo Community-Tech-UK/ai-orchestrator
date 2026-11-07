@@ -27,6 +27,7 @@ import { InstanceStore, type ContextUsage, type Instance } from '../../core/stat
 import { SettingsStore } from '../../core/state/settings.store';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { USAGE_CAUSE_TOOLTIPS } from '../../../../shared/usage-insight/usage-cause-copy';
+import { SessionStatusService } from './session-status/session-status.service';
 
 // ContextBarComponent's own template is inline, but it statically imports
 // ContextEvidencePanelComponent (external templateUrl/styleUrl). TestBed's
@@ -70,9 +71,11 @@ describe('ContextBarComponent', () => {
   const fakeInstanceStore = { getInstance: (id: string) => instances.get(id) };
   const fakeSettingsStore = { showCost: () => true };
   afterEach(() => vi.restoreAllMocks());
+  const openFor = vi.fn();
 
   beforeEach(async () => {
     instances.clear();
+    openFor.mockClear();
     fakeSettingsStore.showCost = () => true;
 
     TestBed.overrideComponent(ContextBarComponent, {
@@ -84,6 +87,7 @@ describe('ContextBarComponent', () => {
       providers: [
         { provide: InstanceStore, useValue: fakeInstanceStore },
         { provide: SettingsStore, useValue: fakeSettingsStore },
+        { provide: SessionStatusService, useValue: { openFor } },
       ],
     }).compileComponents();
 
@@ -115,6 +119,29 @@ describe('ContextBarComponent', () => {
     fixture.detectChanges();
     expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('This provider has not reported context occupancy for this session');
     expect(fixture.nativeElement.querySelectorAll('[title]')).toHaveLength(0);
+  });
+
+  it('opens the shared Session status card for this instance', () => {
+    setInstanceId(fixture.componentInstance, 'inst-1'); fixture.detectChanges();
+    const button = (Array.from(fixture.nativeElement.querySelectorAll('button')) as HTMLButtonElement[])
+      .find(item => item.textContent?.trim() === 'Session status');
+    button!.click();
+    expect(openFor).toHaveBeenCalledExactlyOnceWith('inst-1');
+    expect(fixture.componentInstance.evidencePanelOpen()).toBe(false);
+    expect(fixture.componentInstance.attributionPanelOpen()).toBe(false);
+  });
+
+  it('names the context panels consistently for sighted and screen-reader users', () => {
+    setInstanceId(fixture.componentInstance, 'inst-1'); fixture.detectChanges();
+    const buttons = Array.from(fixture.nativeElement.querySelectorAll('button')) as HTMLButtonElement[];
+    const attribution = buttons.find(button => button.textContent?.trim() === 'Where the context goes');
+    const evidence = buttons.find(button => button.textContent?.trim() === 'Details');
+    expect(attribution?.getAttribute('aria-label')).toBe('Toggle Where the context goes');
+    expect(evidence?.getAttribute('aria-label')).toBe('Toggle Details');
+    attribution!.click(); fixture.detectChanges();
+    expect(fixture.componentInstance.attributionPanelOpen()).toBe(true);
+    evidence!.click(); fixture.detectChanges();
+    expect(fixture.componentInstance.evidencePanelOpen()).toBe(true);
   });
 
   /**

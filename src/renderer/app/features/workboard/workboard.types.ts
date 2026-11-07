@@ -110,6 +110,7 @@ export interface WorkboardInstanceInput {
   provider: string;
   lastActivity: number;
   currentActivity?: string;
+  pendingApprovalCount?: number;
 }
 
 /** Immutable input to the pure projection. `now` is injected for determinism. */
@@ -122,6 +123,7 @@ export interface WorkboardProjectionInput {
   automations: readonly Automation[];
   repoJobs: readonly RepoJobRecord[];
   now: number;
+  pausedForYou?: ReadonlyMap<string, 'sign-off' | 'blocked' | 'step-failed' | 'stuck'>;
 }
 
 /** Lane arrays keyed by lane. Every lane is always present (possibly empty). */

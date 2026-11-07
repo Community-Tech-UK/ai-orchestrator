@@ -52,6 +52,10 @@ export const PermissionPatternPayloadSchema = z.object({
   patternId: z.string().min(1).max(200),
 });
 
+export const PermissionRemoveUserRulePayloadSchema = z.object({
+  ruleId: z.string().min(1).max(200),
+});
+
 export const PermissionGetAuditLogPayloadSchema = z.object({
   instanceId: z.string().min(1).max(200).optional(),
   limit: z.number().int().min(1).max(500).optional(),

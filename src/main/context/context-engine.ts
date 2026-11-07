@@ -20,6 +20,9 @@ import type { CompactionExecutionOptions } from './compaction-execution-options'
 import type { IndexedCodebaseContextInfo } from '../indexing/indexed-codebase-context';
 import type { InstanceContextPort } from '../instance/instance-context-port';
 import type { ContextBudget, RlmContextInfo, UnifiedMemoryContextInfo } from '../instance/instance-types';
+import { prepareRetrievalQuery, type RetrievalQueryStrategy } from '../memory/retrieval-eval/retrieval-query';
+import { TurnInjectionPolicy } from './turn-injection-policy';
+import { filterTurnContext } from './filter-turn-context';
 import { getLogger } from '../logging/logger';
 import {
   getCompactionCoordinator,
@@ -50,9 +53,11 @@ export interface ContextAssembleRequest {
   message: string;
   contextPort: InstanceContextPort;
   taskId?: string;
+  memoryNotesEveryMessage?: boolean;
   buildIndexedCodebaseContext?: (
     instance: Instance,
     message: string,
+    queryStrategy?: RetrievalQueryStrategy,
   ) => Promise<IndexedCodebaseContextInfo | null>;
 }
 
@@ -96,6 +101,7 @@ export interface ContextEngine {
  */
 export class LegacyContextEngine implements ContextEngine {
   private readonly coordinator: CompactionCoordinator;
+  private readonly injections = new Map<string, TurnInjectionPolicy>();
   private readonly latestUsage = new Map<string, ContextUsage>();
   private readonly lastTurnStatus = new Map<string, InstanceStatus>();
 
@@ -104,6 +110,7 @@ export class LegacyContextEngine implements ContextEngine {
   }
 
   onContextUpdate(instanceId: string, usage: ContextUsage): void {
+    if (usage.source === 'thread-compacted' || usage.source === 'post-compaction-reset') this.injections.delete(instanceId);
     this.latestUsage.set(instanceId, usage);
     this.coordinator.onContextUpdate(instanceId, usage);
   }
@@ -119,20 +126,32 @@ export class LegacyContextEngine implements ContextEngine {
     contextPort,
     taskId = `context-${Date.now()}`,
     buildIndexedCodebaseContext,
+    memoryNotesEveryMessage = false,
   }: ContextAssembleRequest): Promise<ContextAssemblyResult> {
     const budget = contextPort.calculateContextBudget(instance, message);
+    const empty = { budget, rlmContext: null, unifiedMemoryContext: null, indexedCodebaseContext: null };
+    const query = prepareRetrievalQuery(message);
+    const previous = this.injections.get(instance.id);
+    const policy = previous?.matches(instance.sessionId, instance.restartEpoch ?? 0) ? previous : new TurnInjectionPolicy();
+    this.injections.set(instance.id, policy);
+    const turn = policy.begin(instance.sessionId, instance.restartEpoch ?? 0, message);
+    if (!memoryNotesEveryMessage && !turn.retrieve) {
+      logger.info('Skipped retrieved notes', { instanceId: instance.id, reason: turn.reason, tokens: 0 });
+      return empty;
+    }
     const [rlmContext, unifiedMemoryContext, indexedCodebaseContext] = await Promise.all([
-      contextPort.buildRlmContext(instance.id, message, budget.rlmMaxTokens, budget.rlmTopK),
-      contextPort.buildUnifiedMemoryContext(instance, message, taskId, budget.unifiedMaxTokens),
-      buildIndexedCodebaseContext ? buildIndexedCodebaseContext(instance, message) : Promise.resolve(null),
+      contextPort.buildRlmContext(instance.id, query.query, budget.rlmMaxTokens, budget.rlmTopK, query.strategy),
+      contextPort.buildUnifiedMemoryContext(instance, query.query, taskId, budget.unifiedMaxTokens),
+      buildIndexedCodebaseContext && (memoryNotesEveryMessage || turn.code) ? buildIndexedCodebaseContext(instance, query.query, query.strategy) : Promise.resolve(null),
     ]);
-
-    return {
-      budget,
-      rlmContext,
-      unifiedMemoryContext,
-      indexedCodebaseContext,
-    };
+    const result = { budget, rlmContext, unifiedMemoryContext, indexedCodebaseContext };
+    if (memoryNotesEveryMessage) return result;
+    if (this.injections.get(instance.id) !== policy) return empty;
+    const filtered = filterTurnContext(policy, result);
+    const tokens = (value: typeof result) => (value.rlmContext?.tokens ?? 0) + (value.unifiedMemoryContext?.tokens ?? 0) + (value.indexedCodebaseContext?.tokens ?? 0);
+    const skipped = tokens(result) - tokens(filtered);
+    if (skipped > 0 || !turn.code) logger.info('Skipped retrieved notes', { instanceId: instance.id, reason: 'already shown, same topic or session cap', tokens: Math.max(0, skipped) });
+    return filtered;
   }
 
   afterTurn({ instance, status }: ContextAfterTurnRequest): void {
@@ -142,8 +161,10 @@ export class LegacyContextEngine implements ContextEngine {
     }
   }
 
-  compactInstance(instanceId: string, options?: CompactionExecutionOptions): Promise<CompactionResult> {
-    return this.coordinator.compactInstance(instanceId, options);
+  async compactInstance(instanceId: string, options?: CompactionExecutionOptions): Promise<CompactionResult> {
+    const result = await this.coordinator.compactInstance(instanceId, options);
+    if (result.success) this.injections.delete(instanceId);
+    return result;
   }
 
   getStatus(instanceId: string): ContextStatus {
@@ -155,6 +176,7 @@ export class LegacyContextEngine implements ContextEngine {
   }
 
   cleanupInstance(instanceId: string): void {
+    this.injections.delete(instanceId);
     this.latestUsage.delete(instanceId);
     this.lastTurnStatus.delete(instanceId);
     this.coordinator.cleanupInstance(instanceId);

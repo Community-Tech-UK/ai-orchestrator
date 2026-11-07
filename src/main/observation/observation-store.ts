@@ -218,8 +218,12 @@ export class ObservationStore extends EventEmitter {
   /**
    * Record injection usage and update effectiveness
    */
-  recordInjection(reflectionId: string, success: boolean): void {
-    this.stats.totalInjections++;
+  recordShown(reflectionId: string): void { this.recordFeedback(reflectionId); }
+  recordUse(reflectionId: string): void { this.recordFeedback(reflectionId, true, false); }
+  recordInjection(reflectionId: string, success: boolean): void { this.recordFeedback(reflectionId, success); }
+
+  private recordFeedback(reflectionId: string, success?: boolean, shown = true): void {
+    if (shown) this.stats.totalInjections++;
     if (success) {
       this.stats.successfulInjections++;
     }
@@ -231,9 +235,9 @@ export class ObservationStore extends EventEmitter {
       return;
     }
 
-    const newUsageCount = reflection.usageCount + 1;
+    const newUsageCount = reflection.usageCount + (shown ? 1 : 0);
     // Exponential moving average: new = old * 0.9 + current * 0.1
-    const newEffectiveness = reflection.effectivenessScore * 0.9 + (success ? 1 : 0) * 0.1;
+    const newEffectiveness = success === undefined ? reflection.effectivenessScore : reflection.effectivenessScore * 0.9 + (success ? 1 : 0) * 0.1;
 
     reflection.usageCount = newUsageCount;
     reflection.effectivenessScore = newEffectiveness;

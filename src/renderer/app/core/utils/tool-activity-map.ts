@@ -1,6 +1,8 @@
 /**
  * Tool Activity Map - Maps Claude tool names to human-readable activity labels
  */
+import type { OutputMessage } from '../../../../shared/types/instance.types';
+import { liveThoughtLine } from '../../../../shared/utils/live-thought-line';
 
 /**
  * Maps tool names to user-friendly activity descriptions.
@@ -62,7 +64,24 @@ export const TOOL_ACTIVITY_MAP: Record<string, string> = {
  * Get human-readable activity label for a tool
  */
 export function getToolActivity(toolName: string): string {
-  return TOOL_ACTIVITY_MAP[toolName] || TOOL_ACTIVITY_MAP['default'];
+  return Object.hasOwn(TOOL_ACTIVITY_MAP, toolName) ? TOOL_ACTIVITY_MAP[toolName] : TOOL_ACTIVITY_MAP['default'];
+}
+
+export type ToolCategory = 'read' | 'search' | 'edit' | 'command' | 'web' | 'delegate' | 'plan' | 'server' | 'other';
+
+const TOOL_CATEGORIES: Record<string, ToolCategory> = {
+  Read: 'read', read: 'read', ListDirectory: 'read',
+  Grep: 'search', Glob: 'search', search: 'search',
+  Edit: 'edit', Write: 'edit', NotebookEdit: 'edit', edit: 'edit', move: 'edit', delete: 'edit', apply_patch: 'edit',
+  Bash: 'command', execute: 'command', exec_command: 'command', write_stdin: 'command',
+  WebFetch: 'web', WebSearch: 'web', fetch: 'web', web_search: 'web',
+  Task: 'delegate', Agent: 'delegate', spawn_agent: 'delegate',
+  TodoWrite: 'plan', TodoRead: 'plan', update_plan: 'plan',
+};
+
+/** Categories share the activity vocabulary, including the provider-native aliases. */
+export function toolCategory(name: string): ToolCategory {
+  return /^mcp__[^_].*?__/.test(name) ? 'server' : Object.hasOwn(TOOL_CATEGORIES, name) ? TOOL_CATEGORIES[name] : 'other';
 }
 
 /**
@@ -102,7 +121,7 @@ export function generateActivityStatus(
 ): string {
   // If we have thinking content with a topic, show that
   if (thinkingContent) {
-    const topic = extractThinkingTopic(thinkingContent);
+    const topic = liveThoughtLine(thinkingContent);
     if (topic) {
       return `Thinking · ${topic}`;
     }
@@ -114,4 +133,16 @@ export function generateActivityStatus(
   }
 
   return 'Processing';
+}
+
+/** Transient progress from real output shapes; never derives a thought from answer text. */
+export function activityFromOutput(message: OutputMessage): { activity: string; tool: string } | null {
+  if (message.type === 'tool_use') {
+    const name = message.metadata?.['name'];
+    return typeof name === 'string' && name.trim() ? { activity: getToolActivity(name), tool: name } : null;
+  }
+  if (message.type !== 'assistant') return null;
+  const text = message.thinking?.at(-1)?.content;
+  const line = text ? liveThoughtLine(text) : null;
+  return line ? { activity: `Thinking · ${line}`, tool: 'thinking' } : null;
 }

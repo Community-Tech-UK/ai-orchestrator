@@ -76,49 +76,21 @@
     }
 
     <nav id="settings-section-navigation" class="settings-nav">
-      @for (item of ungroupedItems(); track item.id) {
-        @let badge = navBadges()[item.id];
-        <button
-          class="nav-item"
-          type="button"
-          [class.active]="activeTab() === item.id"
-          (click)="selectTab(item.id)"
-          [appTooltip]="effectiveNavCollapsed() && !(compactViewport() && compactNavOpen()) ? navLabel(item.label, badge?.text ?? null, !!item.recommended) : null"
+      @for (entry of nav().pages; track entry.page.id) {
+        @let badge = pageBadge(entry.page, navBadges());
+        <button class="nav-item" type="button"
+          [class.active]="activePage().id === entry.page.id"
+          [attr.aria-current]="activePage().id === entry.page.id ? 'page' : null"
+          (click)="selectTab(entry.matchingTabs[0].id)"
+          [appTooltip]="effectiveNavCollapsed() && !(compactViewport() && compactNavOpen()) ? navLabel(entry.page.label, badge?.text ?? null, false) : null"
           appTooltipPosition="after"
-          [attr.aria-label]="navLabel(item.label, badge?.text ?? null, !!item.recommended)"
-        >
-          <span class="nav-item-icon"><app-settings-nav-icon [name]="item.id" /></span>
-          <span class="nav-item-label">{{ item.label }}</span>
+          [attr.aria-label]="navLabel(entry.page.label, badge?.text ?? null, false)">
+          <span class="nav-item-icon"><app-settings-nav-icon [name]="entry.page.tabs[0]" /></span>
+          <span class="nav-item-label">{{ entry.page.label }}</span>
           @if (badge) {
             <span class="nav-badge" [attr.data-status]="badge.status">{{ badge.text }}</span>
-          } @else if (item.recommended) {
-            <span class="nav-recommended">Recommended</span>
           }
         </button>
-      }
-
-      @for (group of groups(); track group) {
-        <span class="nav-group-label">{{ group }}</span>
-        @for (item of getGroupItems(group); track item.id) {
-          @let badge = navBadges()[item.id];
-          <button
-            class="nav-item"
-            type="button"
-            [class.active]="activeTab() === item.id"
-            (click)="selectTab(item.id)"
-            [appTooltip]="effectiveNavCollapsed() && !(compactViewport() && compactNavOpen()) ? navLabel(item.label, badge?.text ?? null, !!item.recommended) : null"
-            appTooltipPosition="after"
-            [attr.aria-label]="navLabel(item.label, badge?.text ?? null, !!item.recommended)"
-          >
-            <span class="nav-item-icon"><app-settings-nav-icon [name]="item.id" /></span>
-            <span class="nav-item-label">{{ item.label }}</span>
-            @if (badge) {
-              <span class="nav-badge" [attr.data-status]="badge.status">{{ badge.text }}</span>
-            } @else if (item.recommended) {
-              <span class="nav-recommended">Recommended</span>
-            }
-          </button>
-        }
       }
 
       @if (!hasResults()) {
@@ -165,7 +137,12 @@
         </div>
       }
 
-      <div
+      @if (activePageTabs().length > 1) {
+        <app-settings-section-tabs ariaLabel="Page sections" [tabs]="activePageTabs()"
+          [activeId]="activeTab()" (activeIdChange)="selectPageTab($event)" />
+      }
+      <div id="settings-page-section" [attr.role]="activePageTabs().length > 1 ? 'tabpanel' : null"
+        [attr.aria-labelledby]="activePageTabs().length > 1 ? activeTab() : null"
         class="settings-content"
         [class.embedded]="isEmbeddedTab()"
         [class.expanded]="isExpandedTab()"
@@ -215,11 +192,11 @@
               <app-general-settings-tab />
             }
             @case ('copilot-accounts') {
-              <app-copilot-accounts-tab />
+              <app-copilot-accounts-tab data-setting-key="section:copilot-accounts.accounts" />
             }
             @case ('provider-accounts') {
               @defer (on immediate) {
-                <app-provider-accounts-tab />
+                <app-provider-accounts-tab data-setting-key="section:provider-accounts.accounts" />
               } @placeholder {
                 <div class="settings-skeleton" aria-busy="true" aria-label="Loading provider accounts…">
                   <div class="skeleton-card">
@@ -236,13 +213,13 @@
               <app-network-settings-tab />
             }
             @case ('voice') {
-              <app-voice-settings-tab />
+              <app-voice-settings-tab data-setting-key="section:voice.speech" />
             }
             @case ('orchestration') {
               <app-orchestration-settings-tab />
             }
             @case ('cross-session-messaging') {
-              <app-cross-session-messaging-settings-tab />
+              <app-cross-session-messaging-settings-tab data-setting-key="section:cross-session-messaging.messaging" />
             }
             @case ('memory') {
               <app-memory-settings-tab />
@@ -251,14 +228,14 @@
               <app-display-settings-tab />
             }
             @case ('ecosystem') {
-              <app-ecosystem-settings-tab />
+              <app-ecosystem-settings-tab data-setting-key="section:ecosystem.plugins" />
             }
             @case ('permissions') {
-              <app-permissions-settings-tab />
+              <app-permissions-settings-tab data-setting-key="section:permissions.approvals" />
             }
             @case ('computer-use') {
               @defer (on immediate) {
-                <app-computer-use-settings-tab />
+                <app-computer-use-settings-tab data-setting-key="section:computer-use.desktop" />
               } @placeholder {
                 <div class="settings-skeleton" aria-busy="true" aria-label="Loading computer use settings…">
                   <div class="skeleton-card">
@@ -275,32 +252,32 @@
               <app-advanced-settings-tab />
             }
             @case ('keyboard') {
-              <app-keyboard-settings-tab />
+              <app-keyboard-settings-tab data-setting-key="section:keyboard.shortcuts" />
             }
             @case ('remote-nodes') {
-              <app-remote-nodes-settings-tab />
+              <app-remote-nodes-settings-tab data-setting-key="section:remote-nodes.workers" />
             }
             @case ('mobile') {
-              <app-mobile-settings-tab />
+              <app-mobile-settings-tab data-setting-key="section:mobile.phone" />
             }
             @case ('cli-health') {
-              <app-cli-health-settings-tab />
+              <app-cli-health-settings-tab data-setting-key="section:cli-health.updates" />
             }
             @case ('doctor') {
-              <app-doctor-settings-tab />
+              <app-doctor-settings-tab data-setting-key="section:doctor.diagnostics" />
             }
             @case ('provider-quota') {
-              <app-provider-quota-settings-tab />
+              <app-provider-quota-settings-tab data-setting-key="section:provider-quota.limits" />
             }
             @case ('rtk-savings') {
               <app-rtk-savings-tab />
             }
             @case ('auxiliary-models') {
-              <app-auxiliary-models-settings-tab />
+              <app-auxiliary-models-settings-tab data-setting-key="section:auxiliary-models.helpers" />
             }
             @case ('models') {
               @defer (on immediate) {
-                <app-models-page />
+                <app-models-page data-setting-key="section:models.models" />
               } @placeholder {
                 <div class="settings-skeleton" aria-busy="true" aria-label="Loading models…">
                   <div class="skeleton-card">
@@ -312,7 +289,7 @@
             }
             @case ('mcp') {
               @defer (on immediate) {
-                <app-mcp-page />
+                <app-mcp-page data-setting-key="section:mcp.servers" />
               } @placeholder {
                 <div class="settings-skeleton" aria-busy="true" aria-label="Loading MCP settings…">
                   <div class="skeleton-card">
@@ -323,17 +300,17 @@
               }
             }
             @case ('hooks') {
-              <app-hooks-page />
+              <app-hooks-page data-setting-key="section:hooks.events" />
             }
             @case ('worktrees') {
-              <app-worktree-page />
+              <app-worktree-page data-setting-key="section:worktrees.worktrees" />
             }
             @case ('snapshots') {
-              <app-snapshot-page />
+              <app-snapshot-page data-setting-key="section:snapshots.snapshots" />
             }
             @case ('archive') {
               @defer (on immediate) {
-                <app-archive-page />
+                <app-archive-page data-setting-key="section:archive.history" />
               } @placeholder {
                 <div class="settings-skeleton" aria-busy="true" aria-label="Loading archive…">
                   <div class="skeleton-card">
@@ -344,7 +321,7 @@
               }
             }
             @case ('remote-config') {
-              <app-remote-config-page />
+              <app-remote-config-page data-setting-key="section:remote-config.sync" />
             }
           }
         </div>

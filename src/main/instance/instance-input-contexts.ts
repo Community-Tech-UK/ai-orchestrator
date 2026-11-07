@@ -7,6 +7,8 @@
  * private methods.
  */
 
+import type { RetrievalQueryStrategy } from '../memory/retrieval-eval/retrieval-query';
+import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
 import { generateId } from '../../shared/utils/id-generator';
 import { getContextEngine } from '../context/context-engine.js';
@@ -39,7 +41,7 @@ export interface InputPreflightTimeoutOptions<T> {
 
 export interface InputContextAssemblyDeps {
   context: InstanceContextPort;
-  queueRetrievedContext: (instanceId: string, context: string) => void;
+  queueRetrievedContext: (instanceId: string, context: string, retrievedContextTokens: number | null) => void;
 }
 
 export async function runInputPreflight<T>({
@@ -110,14 +112,21 @@ export async function buildInputContexts(
   deps: InputContextAssemblyDeps,
   instance: Instance,
   message: string,
+  origin: 'user' | 'internal' | 'automated' = 'user',
 ): Promise<InputContextBundle> {
+  const memoryNotesEveryMessage = getSettingsManager().getAll().memoryNotesEveryMessage === true;
+  if (origin !== 'user' && !memoryNotesEveryMessage) {
+    logger.debug('Skipped retrieved notes for machine-written message', { instanceId: instance.id, origin });
+    return { rlmContext: null, unifiedMemoryContext: null, indexedCodebaseContext: null };
+  }
   const assembly = await getContextEngine().assemble({
     instance,
     message,
+    memoryNotesEveryMessage,
     contextPort: deps.context,
     taskId: generateId(),
-    buildIndexedCodebaseContext: (targetInstance, targetMessage) =>
-      buildIndexedCodebaseContext(targetInstance, targetMessage),
+    buildIndexedCodebaseContext: (targetInstance, targetMessage, queryStrategy) =>
+      buildIndexedCodebaseContext(targetInstance, targetMessage, queryStrategy),
   });
 
   return {
@@ -171,9 +180,18 @@ export function queueDeferredInputContexts(
   void contextPromise
     .then((contexts) => {
       logInputContexts(instanceId, contexts, 'deferred');
-      const contextBlock = buildContextBlock(deps, contexts);
+      // Measure exactly the formatter-retained payload, once, alongside its text.
+      const formatted = [
+        { text: deps.context.formatUnifiedMemoryContextBlock(contexts.unifiedMemoryContext), tokens: contexts.unifiedMemoryContext?.tokens },
+        { text: formatIndexedCodebaseContextBlock(contexts.indexedCodebaseContext), tokens: contexts.indexedCodebaseContext?.tokens },
+        { text: deps.context.formatRlmContextBlock(contexts.rlmContext), tokens: contexts.rlmContext?.tokens },
+      ].filter(part => Boolean(part.text));
+      const contextBlock = formatted.map(part => part.text).join('\n\n');
+      const retrievedContextTokens = formatted.some(part => typeof part.tokens !== 'number' || !Number.isFinite(part.tokens) || part.tokens < 0)
+        ? null : formatted.reduce((sum, part) => sum + (part.tokens as number), 0);
       if (contextBlock) {
-        deps.queueRetrievedContext(instanceId, contextBlock);
+        // Retrieved notes wait for a user turn, independently of restored history.
+        deps.queueRetrievedContext(instanceId, contextBlock, retrievedContextTokens);
       }
     })
     .catch((error) => {
@@ -282,6 +300,7 @@ export function logInputContexts(
 export async function buildIndexedCodebaseContext(
   instance: Instance,
   message: string,
+  queryStrategy?: RetrievalQueryStrategy,
 ): Promise<IndexedCodebaseContextInfo | null> {
   if (instance.parentId) {
     return null;
@@ -291,6 +310,7 @@ export async function buildIndexedCodebaseContext(
     return await getIndexedCodebaseContextService().buildContext({
       workspacePath: instance.workingDirectory,
       query: message,
+      ...(queryStrategy ? { queryStrategy } : {}),
       maxTokens: 900,
       topK: 5,
     });

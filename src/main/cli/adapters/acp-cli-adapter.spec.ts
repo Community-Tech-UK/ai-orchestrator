@@ -2643,7 +2643,8 @@ describe('AcpCliAdapter', () => {
     // must not render as a red failure on every interactive ACP chat.
     expect(noticeOutputs[0]?.type).toBe('system');
     expect(noticeOutputs[0]?.metadata['watchdogWarning']).toBe(true);
-    expect(noticeOutputs[0]?.content).toContain('may be stuck');
+    expect(noticeOutputs[0]?.content).toContain('keep waiting');
+    expect(noticeOutputs[0]?.content).not.toMatch(/may be stuck|Cancel the turn/);
 
     // Let the pending promise drain so the test doesn't hang; cancel will
     // reject it locally now (fix #3).

@@ -339,6 +339,7 @@ export const SETTINGS_TOOL_POLICY = {
   modelUsageByKey: open(modelUsageByKeySchema),
   modelPickerFavorites: open(z.array(z.string().min(1).max(768)).max(50)),
   residentClaudeSession: readOnly(),
+  claudeLivePermissionPrompts: readOnly(false, z.boolean()),
   // Rollout posture is a trusted operator decision. Agents may inspect it but
   // cannot silently advance a provider from off/shadow to enforce mid-run.
   // Schema-gated (2026-07-31 hardening) even though `normalizeContextEvidenceModeByProvider`
@@ -429,6 +430,7 @@ export const SETTINGS_TOOL_POLICY = {
   sessionHandoffStateEnabled: open(z.boolean()),
   // WS16: provenance gate for instruction-tier memory (readOnly — safety default).
   memoryInstructionGate: readOnly(),
+  memoryNotesEveryMessage: open(z.boolean()),
   // WS14: overload fallback model for Claude sessions (empty = off).
   claudeFallbackModel: open(z.string().max(100)),
   claudeBashOutputMaxChars: open(z.number().int().min(0).max(128_000)

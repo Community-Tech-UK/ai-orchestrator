@@ -95,6 +95,18 @@ export function getStateLookupKeys(
   return Array.from(keys);
 }
 
+/** Clone a patch while retaining delivery measurements from earlier successful sends. */
+export function cloneConversationEntryPatch(
+  entry: ConversationEntry,
+  patch: Partial<Omit<ConversationEntry, 'id'>>,
+): Partial<Omit<ConversationEntry, 'id'>> {
+  const cloned = structuredClone(patch);
+  if (cloned.retrievedContextDeliveries) cloned.retrievedContextDeliveries = {
+    ...entry.retrievedContextDeliveries, ...cloned.retrievedContextDeliveries,
+  };
+  return cloned;
+}
+
 export function normalizeConversationEntryForPersistence(
   entry: ConversationEntry,
   redactToolOutputs: boolean,

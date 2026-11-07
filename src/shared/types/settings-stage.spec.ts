@@ -73,7 +73,12 @@ describe('badgesFor', () => {
 
   it('names the setting a dependent control needs', () => {
     const [badge] = badgesFor({ dependsOn: 'computerUseEnabled' });
-    expect(badge!.text).toContain('computerUseEnabled');
+    expect(badge!.text).toBe('Needs “Enable Computer Use” on');
+    expect(badge!.detail).not.toContain('computerUseEnabled');
+  });
+
+  it('hides the dependency badge while the parent is enabled', () => {
+    expect(badgesFor({ dependsOn: 'computerUseEnabled' }, true)).toEqual([]);
   });
 
   /** Order is need-based, not alphabetical: safety, then "why is nothing happening". */
@@ -82,7 +87,7 @@ describe('badgesFor', () => {
       stage: 'experimental', requiresRestart: true, dependsOn: 'computerUseEnabled',
     });
     expect(badges.map((b) => b.text)).toEqual([
-      'experimental', 'restart required', 'requires computerUseEnabled',
+      'experimental', 'restart required', 'Needs “Enable Computer Use” on',
     ]);
   });
 });

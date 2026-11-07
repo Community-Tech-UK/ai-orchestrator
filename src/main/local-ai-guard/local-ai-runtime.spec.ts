@@ -20,7 +20,7 @@ import {
   notifyFallbackInto,
 } from './local-ai-runtime';
 
-const helperNotices = vi.hoisted(() => ({ notify: vi.fn() }));
+const helperNotices = vi.hoisted(() => ({ notify: vi.fn(), resolve: vi.fn() }));
 vi.mock('../notifications/notification-service', () => ({
   getNotificationService: () => helperNotices,
 }));

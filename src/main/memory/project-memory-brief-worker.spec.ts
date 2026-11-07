@@ -126,6 +126,19 @@ describe('buildProjectMemoryBriefInWorker', () => {
     }));
   });
 
+  it('caps shared words at five, preserving evidence quality over a longer word match', async () => {
+    const common = 'alpha bravo charlie delta echo foxtrot golf hotel india juliet';
+    const fact = readModel.facts[0];
+    const brief = await buildProjectMemoryBriefInWorker({ projectPath: '/repo', initialPrompt: common, maxResults: 1 }, {
+      projectKnowledge: { getReadModel: () => ({ ...readModel, facts: [
+        { ...fact, targetId: 'strong', subject: 'alpha bravo charlie delta echo', confidence: 1 },
+        { ...fact, targetId: 'weak', subject: common, confidence: 0.1 },
+      ], wakeHints: [], codeSymbols: [] }) },
+    });
+    expect(brief.sources).toHaveLength(1);
+    expect(brief.sources[0].id).toContain('strong');
+  });
+
   it('returns an empty brief when project knowledge is unavailable', async () => {
     const brief = await buildProjectMemoryBriefInWorker(
       { projectPath: '/missing' },

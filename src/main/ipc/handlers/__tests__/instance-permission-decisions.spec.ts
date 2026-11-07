@@ -100,6 +100,7 @@ describe('permission card refusal through IPC and PermissionManager', () => {
         clearPendingInputRequiredPermission: (instanceId: string, requestId: string) => flow.clearPending(instanceId, requestId),
         recordInputRequiredPermissionDecision: (params: Parameters<InstancePermissionRequestFlow['recordUserDecision']>[0]) => flow.recordUserDecision(params),
         getRequestReceipts: () => ({ beginReply: () => ({ commit: () => true, abort: () => undefined }) }),
+        isPendingInputRequiredPermission: (instanceId: string, requestId: string) => flow.isPending(instanceId, requestId),
       } as unknown as InstanceManager,
       windowManager: {} as WindowManager,
     });
@@ -149,5 +150,18 @@ describe('permission card refusal through IPC and PermissionManager', () => {
     await ask('req-again', metadata);
     expect(forwarded).toEqual(['req-first', 'req-again']);
     expect(resumed).toEqual([false]);
+  });
+
+  it('a reply for a request that is no longer pending never reaches the held resume flow', async () => {
+    const metadata = { type: 'deferred_permission', tool_name: 'Bash', tool_use_id: 'toolu_test', tool_input: { command: 'echo approval-example' } };
+    await ask('req-first', metadata);
+    expect(forwarded).toEqual(['req-first']);
+    // The card was cancelled/withdrawn after forwarding (instance:input-required-resolved).
+    flow.clearPending('inst-a', 'req-first');
+    const response = await refuse(metadata);
+    expect(response.success).toBe(false);
+    expect(response.error?.code).toBe('INPUT_REQUIRED_NOT_PENDING');
+    expect(resumed).toEqual([]);
+    expect(sendInputResponse).not.toHaveBeenCalled();
   });
 });

@@ -1,5 +1,6 @@
 import { AioTooltipDirective } from '../tooltip/aio-tooltip.directive';
 import { AppIconButtonDirective } from '../tooltip/icon-button.directive';
+import { splitNavGroupsByTier, readNavPreference, writeNavPreference } from './control-surface-tiers';
 import { ChangeDetectionStrategy, Component, DestroyRef, type ElementRef, computed, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
@@ -49,6 +50,13 @@ export class ControlSurfaceShellComponent {
   protected readonly navQuery = signal('');
   /** Null while the search box is empty, which shows the normal page list. */
   protected readonly navResults = computed(() => searchControlNav(this.navQuery(), this.navGroups()));
+  protected readonly navTiers = computed(() => splitNavGroupsByTier(this.navGroups()));
+  protected readonly moreOpen = signal(readNavPreference('aiorch.control.moreToolsOpen'));
+  protected readonly moreVisible = computed(() => this.moreOpen() || this.activeSurface().tier === 'more');
+  protected toggleMore(): void {
+    this.moreOpen.update(open => !open);
+    writeNavPreference('aiorch.control.moreToolsOpen', this.moreOpen());
+  }
   private readonly activeSurfaceId = signal<ControlSurfaceId | null>(null);
   protected readonly activeSurface = computed<ControlSurfaceItem>(() => {
     const id = this.activeSurfaceId();
@@ -69,6 +77,8 @@ export class ControlSurfaceShellComponent {
    * pane is suppressed there to avoid showing two.
    */
   protected readonly showHelpPane = computed(() => this.activeSurface().id !== 'settings');
+
+  protected readonly showControlNav = computed(() => this.activeSurface().id !== 'settings');
 
   constructor() {
     this.router.events

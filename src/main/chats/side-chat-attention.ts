@@ -5,7 +5,7 @@ import type {
   SideChatParentRef,
   SideChatSummary,
 } from '../../shared/types/side-chat.types';
-import { sideChatConversationState } from '../../shared/types/side-chat.types';
+import { sideChatConversationState, sideChatParentKey } from '../../shared/types/side-chat.types';
 import type { SideChatLinkStore } from './side-chat-link-store';
 import type { ChatStore } from './chat-store';
 import type { InstanceManager } from '../instance/instance-manager';
@@ -21,6 +21,7 @@ export interface SideChatAttentionDeps {
   getLatestAssistantSequence: (link: SideChatLink) => Promise<number>;
   /** Display title of a parent, or null when it no longer resolves. */
   resolveParentTitle: (parent: SideChatParentRef) => Promise<string | null>;
+  now?: () => number;
 }
 
 const STATE_PRIORITY: Record<SideChatConversationState, number> = {
@@ -39,6 +40,10 @@ const STATE_PRIORITY: Record<SideChatConversationState, number> = {
  * failed) takes priority over "running" in the UI sort.
  */
 export class SideChatAttentionTracker {
+  /** Open episodes belong to a logical parent and chat, never a runtime instance. */
+  private readonly attentionOnsets = new Map<string, Map<string, number>>();
+  private readonly parentRefreshes = new Map<string, Promise<void>>();
+
   constructor(private readonly deps: SideChatAttentionDeps) {}
 
   async summariesForParent(parent: SideChatParentRef): Promise<SideChatSummary[]> {
@@ -66,13 +71,45 @@ export class SideChatAttentionTracker {
   }
 
   async forParent(parent: SideChatParentRef): Promise<SideChatAttention> {
+    const key = sideChatParentKey(parent);
+    const previous = this.parentRefreshes.get(key);
+    let release!: () => void;
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    this.parentRefreshes.set(key, pending);
+    try {
+      // Read and publish episodes in order; a slow older ledger lookup cannot reset a newer wait.
+      if (previous) await previous;
+      return await this.collectForParent(parent);
+    } finally {
+      release();
+      if (this.parentRefreshes.get(key) === pending) this.parentRefreshes.delete(key);
+    }
+  }
+
+  private async collectForParent(parent: SideChatParentRef): Promise<SideChatAttention> {
     const summaries = await this.summariesForParent(parent);
+    const parentKey = sideChatParentKey(parent);
+    const onsets = this.attentionOnsets.get(parentKey) ?? new Map<string, number>();
+    const activeChats = new Set(summaries.map(summary => summary.chat.id));
+    for (const chatId of onsets.keys()) {
+      if (!activeChats.has(chatId)) onsets.delete(chatId);
+    }
     let running = 0;
     let unread = 0;
     let needsAttention = 0;
+    let attentionSince: number | null = null;
+    const now = (this.deps.now ?? Date.now)();
     let target: SideChatSummary | null = null;
     for (const summary of summaries) {
-      if (summary.state === 'needs-attention') needsAttention += 1;
+      const chatId = summary.chat.id;
+      if (summary.state === 'needs-attention') {
+        needsAttention += 1;
+        const onset = onsets.get(chatId) ?? now;
+        onsets.set(chatId, onset);
+        attentionSince = attentionSince === null ? onset : Math.min(attentionSince, onset);
+      } else {
+        onsets.delete(chatId);
+      }
       if (summary.state === 'running') running += 1;
       if (summary.latestAssistantSequence > summary.link.lastReadAssistantSequence) unread += 1;
       if (summary.state !== 'idle'
@@ -80,6 +117,8 @@ export class SideChatAttentionTracker {
         target = summary;
       }
     }
+    if (onsets.size > 0) this.attentionOnsets.set(parentKey, onsets);
+    else this.attentionOnsets.delete(parentKey);
     return {
       parent,
       parentTitle: await this.deps.resolveParentTitle(parent),
@@ -87,6 +126,7 @@ export class SideChatAttentionTracker {
       running,
       unread,
       needsAttention,
+      attentionSince,
       targetChatId: target?.chat.id ?? null,
     };
   }

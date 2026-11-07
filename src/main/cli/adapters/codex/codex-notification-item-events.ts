@@ -8,6 +8,7 @@
  * previous switch cases.
  */
 
+import { liveThoughtLine } from '../../../../shared/utils/live-thought-line';
 import { generateId } from '../../../../shared/utils/id-generator';
 import {
   VERIFICATION_CMD_PATTERN,
@@ -50,6 +51,7 @@ export interface CodexItemOutputPayload {
 }
 
 export interface CodexItemNotificationHost {
+  emitReasoningHeadline?(text: string): void;
   emitOutput(payload: CodexItemOutputPayload): void;
   scheduleInferredCompletion(state: TurnCaptureState): void;
   reconcileCompletedAgentMessage(
@@ -324,6 +326,8 @@ export function handleItemCompleted(
     const nextSections = extractReasoningSections(item.summary ?? item.summaryText);
     if (nextSections.length > 0) {
       state.reasoningSummary = mergeReasoningSections(state.reasoningSummary, nextSections);
+      const headline = liveThoughtLine(nextSections[nextSections.length - 1]);
+      if (headline) host.emitReasoningHeadline?.(headline);
     }
   }
 

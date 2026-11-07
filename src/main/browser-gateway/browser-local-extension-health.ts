@@ -316,14 +316,14 @@ function remediationFor(
     case 'unknown':
       return undefined;
     case 'not_installed':
-      return 'Install the Harness Chrome extension and restart AI Orchestrator so it can '
+      return 'Install the Harness Chrome extension and restart Harness so it can '
         + 'write the native-messaging host manifest.';
     case 'registration_broken':
       return brokenLink === 'socket'
-        ? 'The native host points at a socket that no longer exists (usually an AI '
-          + 'Orchestrator restart). Restart AI Orchestrator, then reload the Harness '
+        ? 'The native host points at a socket that no longer exists (usually a Harness '
+          + 'restart). Restart Harness, then reload the Harness '
           + 'extension in chrome://extensions so it reconnects its native port.'
-        : 'The native-messaging host files are incomplete. Restart AI Orchestrator to '
+        : 'The native-messaging host files are incomplete. Restart Harness to '
           + 'rewrite them, then reload the Harness extension in chrome://extensions.';
     case 'silent':
       return 'Chrome or the Harness extension is not polling. Confirm Chrome is running, '

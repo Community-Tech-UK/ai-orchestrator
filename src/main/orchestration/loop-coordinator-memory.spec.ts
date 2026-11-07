@@ -119,7 +119,8 @@ describe('LoopCoordinator cross-loop memory wiring (LF-6)', () => {
   it('LT-29x: records a recall trace on the lessons surface when a lesson is surfaced at loop start', async () => {
     _resetLessonStoreForTesting();
     _resetRecallTraceStoreForTesting();
-    const { lesson } = getLessonStore().capture('Always pass --port for a custom Electron debug port.');
+    const { lesson } = getLessonStore().capture('Always pass --port for a custom Electron debug port.', Date.now(), 'agent-derived', workspace);
+    const other = getLessonStore().capture('Never surface the other project lesson.', Date.now(), 'agent-derived', '/different-project').lesson;
 
     const stubStore: LoopMemoryStore = {
       recordLearning: vi.fn(),
@@ -144,6 +145,7 @@ describe('LoopCoordinator cross-loop memory wiring (LF-6)', () => {
     const traces = getRecallTraceStore().bySurface('lessons');
     expect(traces.length).toBeGreaterThan(0);
     expect(traces[0].returned.some((r) => r.id === lesson.id)).toBe(true);
+    expect(traces[0].returned.some((r) => r.id === other.id)).toBe(false);
 
     await coordinator.cancelLoop(state.id);
     _resetLessonStoreForTesting();

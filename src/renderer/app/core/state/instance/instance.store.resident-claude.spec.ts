@@ -57,7 +57,7 @@ describe('InstanceStore residentClaude adoption', () => {
   beforeEach(() => {
     const streams = [
       'batchUpdate$', 'compactStatus$', 'fastToggled$', 'inputRequired$',
-      'inputRequiredResolved$', 'instanceCreated$', 'instanceOutput$',
+      'inputRequiredResolved$', 'inputContextDelivered$', 'instanceCreated$', 'instanceOutput$',
       'instanceRemoved$', 'instanceStateUpdate$', 'instanceTranscriptChunk$', 'orchestrationActivity$', 'yoloToggled$',
     ];
     eventBus = Object.fromEntries(

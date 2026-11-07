@@ -86,7 +86,7 @@ describe('remote stall process path', () => {
     const warning = await buildStuckNotice({ elapsedMs: 70_000, pid: null,
       sampleProcessFacts: silence => adapter.sampleStallProcessFacts(silence) });
     expect(sendRpc.mock.calls.map(call => call[1])).toEqual(['instance.spawn']);
-    expect(warning.metadata).toEqual({ watchdogWarning: true, elapsedMs: 70_000 });
+    expect(warning.metadata).toEqual({ watchdogWarning: true, elapsedMs: 70_000, detail: '70s without output' });
   });
 
   it('relays parameterless stderr through worker wiring without changing visible session status', async () => {

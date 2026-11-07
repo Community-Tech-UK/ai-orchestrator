@@ -1,5 +1,6 @@
 import { By } from '@angular/platform-browser';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { PaletteOverlaysService } from '../commands/palette-overlays.service';
 import { CUSTOM_ELEMENTS_SCHEMA, signal, ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
@@ -102,6 +103,7 @@ describe('DashboardComponent', () => {
 
     TestBed.configureTestingModule({
       providers: [
+        { provide: PaletteOverlaysService, useValue: { commandPaletteOpen: signal(false), commandHelpOpen: signal(false) } },
         { provide: Router, useValue: { navigate: vi.fn().mockResolvedValue(true) } },
         {
           provide: InstanceStore,
@@ -249,6 +251,16 @@ describe('DashboardComponent', () => {
       component.showSideChat.set(true); component.closeSideChat(); await Promise.resolve();
       expect(document.activeElement).toBe(rail.querySelector('button'));
     } finally { rail.remove(); component.ngOnDestroy(); }
+  });
+
+  it('leaves global navigation and palette actions owned by the root service', () => {
+    const component = TestBed.runInInjectionContext(() => new DashboardComponent());
+    component.ngOnInit();
+    const ids = registeredActions.map(action => action.id);
+    for (const id of ['toggle-command-palette', 'app.open-command-help', 'toggle-settings',
+      'app.open-rlm', 'app.open-browser', 'app.open-doctor']) expect(ids).not.toContain(id);
+    expect(dashboardTemplate).not.toContain('<app-command-palette');
+    component.ngOnDestroy();
   });
 
   it('keeps banner-open recovery filtering scoped to the current picker lifetime', () => {

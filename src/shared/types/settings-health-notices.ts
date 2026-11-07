@@ -84,8 +84,8 @@ export const SETTINGS_HEALTH_NOTICES: readonly SettingsHealthNotice[] = [
     isActive: (s) =>
       bool(s['crossModelReviewLocalEnabled']) && str(s['crossModelReviewLocalSelectorId']).trim() === '',
     message: () =>
-      'Local cross-model review is enabled but no local model is selected, so no local review runs. '
-      + 'Choose a model, or turn local review off.',
+      'Local second opinions are enabled but no local model is selected, so no local second opinion runs. '
+      + 'Choose a model, or turn local second opinions off.',
   },
   {
     id: 'remote-nodes-no-tls-open-bind',

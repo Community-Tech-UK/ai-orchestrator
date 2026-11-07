@@ -55,9 +55,11 @@ describe('WorkboardCardComponent', () => {
   let snoozeItem: ReturnType<typeof vi.fn>;
   let unsnoozeItem: ReturnType<typeof vi.fn>;
   const undo = { register: vi.fn() };
+  const markItemSeen = vi.fn();
 
   beforeEach(async () => {
     undo.register.mockReset();
+    markItemSeen.mockClear();
     listUserActionRequestsForInstance = vi.fn(async () => ({ success: true, data: [] }));
     respondToUserAction = vi.fn(async () => ({ success: true }));
     resume = vi.fn(async () => undefined);
@@ -79,11 +81,17 @@ describe('WorkboardCardComponent', () => {
         { provide: UndoService, useValue: undo },
         { provide: InstanceIpcService, useValue: { listUserActionRequestsForInstance, respondToUserAction } },
         { provide: LoopStore, useValue: { resume } },
-        { provide: WorkboardStore, useValue: { isSnoozed, snoozeItem, unsnoozeItem } },
+        { provide: WorkboardStore, useValue: { isSnoozed, snoozeItem, unsnoozeItem, markItemSeen } },
       ],
     }).compileComponents();
 
     fixture = TestBed.createComponent(WorkboardCardComponent);
+  });
+
+  it('announces the displayed status rather than the source code', () => {
+    fixture.componentRef.setInput('item', item({ statusLabel: 'Needs your answer' }));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.wb-card').getAttribute('aria-label')).toBe('Build session, Session, Needs your answer');
   });
 
   it('never nests a button inside the main clickable button (valid HTML, no swallowed clicks)', async () => {
@@ -305,5 +313,13 @@ describe('WorkboardCardComponent', () => {
     const snooze = fixture.nativeElement.querySelector('.wb-card-snooze') as HTMLButtonElement;
     snooze.click();
     expect(activated).toBe(false);
+  });
+  it('acknowledges a failure with Got it, while a live answer retains Snooze', () => {
+    fixture.componentRef.setInput('item', item({ lane: 'needs-you', attentionLevel: 'failed' })); fixture.detectChanges();
+    const button = fixture.nativeElement.querySelector('.wb-card-snooze') as HTMLButtonElement;
+    expect(button.textContent?.trim()).toBe('Got it'); button.click();
+    expect(markItemSeen).toHaveBeenCalledWith('instance:x'); expect(snoozeItem).not.toHaveBeenCalled();
+    fixture.componentRef.setInput('item', item({ lane: 'needs-you', attentionLevel: 'blocked' })); fixture.detectChanges();
+    expect(button.textContent?.trim()).toBe('Snooze');
   });
 });

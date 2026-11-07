@@ -45,7 +45,7 @@ interface QueryResult {
     <div class="rlm-page">
       <div class="rlm-header">
         <div class="header-title">
-          <span class="title">RLM</span>
+          <span class="title">Learning Database</span>
           <span class="subtitle">Context Manager</span>
         </div>
       </div>

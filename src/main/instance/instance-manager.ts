@@ -9,6 +9,7 @@
  * - InstanceOrchestrationManager: Child spawning, fast-path retrieval
  * - InstancePersistenceManager: Session export, import, storage
  */
+import type { AuthRepairTurn } from './instance-auth-repair-handler';
 import { EventEmitter } from 'events';
 import { createHash } from 'node:crypto';
 import { ProviderRuntimeEventBus } from '../providers/provider-runtime-event-bus';
@@ -80,7 +81,7 @@ import type {
 } from './instance-settled-tracker';
 import { WarmStartManager } from './warm-start-manager';
 import { stopProviderAutoContinuation } from './provider-auto-continuation';
-import { adapterHasActiveProviderTurn, adapterHasActiveToolCalls, StuckProcessDetector } from './stuck-process-detector';
+import { adapterHasActiveProviderTurn, adapterHasActiveToolCalls, adapterHasPendingLiveAsk, StuckProcessDetector } from './stuck-process-detector';
 import { buildInteractivePromptNotice, buildStuckNotice } from './stall-notices';
 import { shouldProbeAdapterProcess, StaleRuntimeReconciler } from './stale-runtime-reconciler';
 import { getClampedLoadWatchdogMultiplier } from '../runtime/system-load-monitor';
@@ -96,6 +97,9 @@ import { createInstanceManagerObserverEmitter } from './lifecycle/safe-event-obs
 import { HarnessMcpStartupRecovery } from './lifecycle/harness-mcp-startup-recovery';
 import { inheritSubagentPermissions } from './instance-permissions-facade';
 import { InstancePermissionRequestFlow } from './instance-permission-request-flow';
+import type { ResumeDeferredOptions } from './lifecycle/deferred-permission-options';
+import { resumeDeferredPermissionWithPolicy } from './lifecycle/resume-deferred-live-policy';
+import { awaitInstanceInputReady } from './instance-input-ready';
 import { cleanupAdjudicatorBreakerForInstance } from '../security/approval-adjudicator';
 import { deleteContextManifest } from '../context/context-manifest-store';
 import type { UserActionRequest } from '../orchestration/orchestration-handler';
@@ -186,15 +190,6 @@ const STEER_INTERRUPT_STATUSES = new Set<InstanceStatus>([
   'thinking_deeply',
   'waiting_for_permission',
 ]);
-// Statuses in which delivering user input can never succeed; sendInput fails
-// fast when the instance lands in one of these while waiting on init/respawn.
-const SEND_TERMINAL_STATUSES = new Set<InstanceStatus>([
-  'terminated',
-  'failed',
-  'error',
-  'cancelled',
-  'superseded',
-]);
 export interface InstanceStateChangedEvent {
   instanceId: string;
   status: InstanceStatus;
@@ -234,7 +229,7 @@ export class InstanceManager extends EventEmitter {
   private readonly permissionRequests = new InstancePermissionRequestFlow({
     getInstance: (id) => this.getInstance(id),
     sendInputResponse: (id, response, permissionKey) => this.sendInputResponse(id, response, permissionKey),
-    resumeAfterDeferredPermission: (id, approved) => this.resumeAfterDeferredPermission(id, approved),
+    resumeAfterDeferredPermission: (id, approved, options) => this.resumeAfterDeferredPermission(id, approved, undefined, options),
     addToOutputBuffer: (inst, msg) => this.communication.addToOutputBuffer(inst, msg),
     publishOutput: (id, msg) => this.publishOutput(id, msg),
     emit: (event, payload) => this.emit(event, payload),
@@ -331,7 +326,7 @@ export class InstanceManager extends EventEmitter {
         const adapter = this.state.getAdapter(id);
         return adapter?.isRunning() ?? false;
       },
-      hasExternalActivity: (id) => this.orchestrationMgr.hasActiveWork(id),
+      hasExternalActivity: (id) => this.orchestrationMgr.hasActiveWork(id) || adapterHasPendingLiveAsk(this.state.getAdapter(id)),
       hasActiveToolCall: (id) => adapterHasActiveToolCalls(this.state.getAdapter(id)),
       hasActiveProviderTurn: (id) => adapterHasActiveProviderTurn(this.state.getAdapter(id)),
     });
@@ -561,13 +556,7 @@ export class InstanceManager extends EventEmitter {
       // Re-send the already-resolved provider turn verbatim. Going back through
       // InstanceManager.sendInput() would resolve slash commands and retrieved
       // context a second time, and would lose the original context block.
-      resendInput: (id, turn) => this.communication.sendInput(
-        id,
-        turn.message,
-        turn.attachments,
-        turn.contextBlock,
-        { automatedInput: true, ...(turn.internalSource ? { internalSource: turn.internalSource } : {}) },
-      ),
+      resendInput: (id, turn) => this.resendPreparedInput(id, turn),
     });
 
     // Lifecycle manager needs dependencies
@@ -631,7 +620,7 @@ export class InstanceManager extends EventEmitter {
       markInterrupted: (id) => this.communication.markInterrupted(id),
       clearInterrupted: (id) => this.communication.clearInterrupted(id),
       addToOutputBuffer: (inst, msg) => this.communication.addToOutputBuffer(inst, msg),
-      queueContinuityPreamble: (id, preamble) => this.communication.queueContinuityPreamble(id, preamble),
+      queueContinuityPreamble: (id, preamble) => this.communication.queueContinuityPreamble(id, preamble, { userOnly: false }),
       queueRetrievedContext: (id, context) => this.communication.queueRetrievedContext(id, context),
       holdContinuityUntilAnswered: (id, text, attachments) => this.communication.holdContinuityUntilAnswered(id, text, attachments),
       clearFirstMessageTracking: (id) => this.hasReceivedFirstMessage.delete(id),
@@ -761,6 +750,7 @@ export class InstanceManager extends EventEmitter {
     this.communication.on('queued-input-ready', (payload) => {
       this.emit('instance:state-update', { ...payload, status: 'busy', timestamp: Date.now() });
     });
+    this.communication.on('input-context-delivered', (payload) => this.emit('instance:input-context-delivered', payload));
     this.communication.on('output', (payload) => this.publishOutput(payload.instanceId, payload.message, payload.raw));
     this.communication.on('history-replayed', (payload) => {
       if (this.state.isInstancePending?.(payload.instanceId) !== true) this.emit('history-replayed', payload);
@@ -770,8 +760,8 @@ export class InstanceManager extends EventEmitter {
       logger.info('Input-required event received', summarizeInputRequiredPayload(payload));
       void this.permissionRequests.handleInputRequired(payload);
     });
-    this.communication.on('input-required-resolved', (payload: { instanceId: string; requestId: string }) => {
-      this.permissionRequests.clearPending(payload.instanceId, payload.requestId);
+    this.communication.on('input-required-resolved', (payload: { instanceId: string; requestId: string; reason?: string }) => {
+      this.permissionRequests.handleResolved(payload);
       this.emit('instance:input-required-resolved', payload);
     });
 
@@ -896,6 +886,11 @@ export class InstanceManager extends EventEmitter {
 
   clearPendingInputRequiredPermission(instanceId: string, requestId: string): void {
     this.permissionRequests.clearPending(instanceId, requestId);
+  }
+
+  /** Whether a client reply's requestId matches a request this instance is still waiting on. */
+  isPendingInputRequiredPermission(instanceId: string, requestId: string): boolean {
+    return this.permissionRequests.isPending(instanceId, requestId);
   }
 
   private clearPendingInteractiveState(instanceId: string): void {
@@ -1200,7 +1195,7 @@ export class InstanceManager extends EventEmitter {
     },
   ): Promise<{ instanceId: string; restoreMode: 'native' | 'replay' }> {
     if (getPauseCoordinator().isPaused()) {
-      throw new OrchestratorPausedError('Session revival refused while orchestrator is paused');
+      throw new OrchestratorPausedError('Session revival refused while Harness is paused');
     }
     return reviveContinuitySession({
       resumeSession: (instanceId, options) => getSessionContinuityManager().resumeSession(instanceId, options),
@@ -1310,9 +1305,12 @@ export class InstanceManager extends EventEmitter {
     instanceId: string,
     approved: boolean,
     updatedInput?: Record<string, unknown>,
-    options?: { yoloMode?: boolean },
+    options?: ResumeDeferredOptions,
   ): Promise<void> {
-    return this.lifecycle.resumeAfterDeferredPermission(instanceId, approved, updatedInput, options);
+    return resumeDeferredPermissionWithPolicy(this.state.getAdapter(instanceId), instanceId, approved, updatedInput, options, {
+      resume: (id, allowed, input, resumeOptions) => this.lifecycle.resumeAfterDeferredPermission(id, allowed, input, resumeOptions),
+      queueYoloMode: (id, enabled) => this.requestModelChange(id, { ...this.state.getInstance(id)?.desiredRuntime, yoloMode: enabled }),
+    });
   }
 
   async changeModel(
@@ -1356,7 +1354,7 @@ export class InstanceManager extends EventEmitter {
     }
 
     if (getPauseCoordinator().isPaused()) {
-      throw new OrchestratorPausedError('Instance steer refused while orchestrator is paused');
+      throw new OrchestratorPausedError('Session steer refused while Harness is paused');
     }
 
     const adapter = this.state.getAdapter(instanceId) as unknown as {
@@ -1457,6 +1455,28 @@ export class InstanceManager extends EventEmitter {
     }
   }
 
+  private awaitInputReady(instance: Instance, options?: InstanceSendInputOptions): Promise<void> {
+    return awaitInstanceInputReady({
+      wake: (id) => this.lifecycle.wakeInstance(id),
+      waitWithBudget: (work, inst, message) => this.awaitWithBudget(work, this.computeInitWaitBudgetMs(inst), message),
+      getInstance: (id) => this.state.getInstance(id),
+    }, instance, options);
+  }
+
+  /** Re-deliver the resolved turn without rebuilding retrieval or appending another message. */
+  private async resendPreparedInput(instanceId: string, turn: AuthRepairTurn): Promise<void> {
+    const options = { automatedInput: true, internalSource: turn.internalSource,
+      inputMessageId: turn.inputMessageId, inputContextDelivery: turn.inputContextDelivery };
+    await waitForGlobalPauseInput(instanceId, options);
+    const instance = this.state.getInstance(instanceId);
+    if (!instance) throw new Error(`Instance ${instanceId} not found`);
+    this.emit('instance:input-started', { instanceId, autoContinuation: true });
+    instance.lastActivity = Date.now();
+    if (getPauseCoordinator().isPaused()) throw new OrchestratorPausedError('Session input refused while Harness is paused');
+    await this.awaitInputReady(instance, options);
+    await this.communication.sendInput(instanceId, turn.message, turn.attachments, turn.contextBlock, options);
+  }
+
   async sendInput(
     instanceId: string,
     message: string,
@@ -1480,7 +1500,7 @@ export class InstanceManager extends EventEmitter {
     instance.lastActivity = Date.now();
 
     if (getPauseCoordinator().isPaused()) {
-      throw new OrchestratorPausedError('Instance input refused while orchestrator is paused');
+      throw new OrchestratorPausedError('Session input refused while Harness is paused');
     }
 
     const inputHookBase = {
@@ -1499,77 +1519,7 @@ export class InstanceManager extends EventEmitter {
     let hookError: string | undefined;
     try {
 
-    // A hibernated session has no adapter: the memory governor killed the CLI
-    // to free heap and left the transcript in place, telling the user to send a
-    // message to wake it. Honour that here — otherwise the send falls through
-    // to the communication layer's "no adapter" bug-state branch, which cannot
-    // even mark the instance failed (hibernated -> error is an illegal
-    // transition) and leaves the renderer's message queued against a session
-    // that will never become idle. Discord/doc-review deliveries already wake
-    // first; this is the same contract for the app's own send path.
-    if (instance.status === 'hibernated' || instance.status === 'waking') {
-      logger.info('Send targets a hibernated session — waking before delivery', {
-        instanceId,
-        status: instance.status,
-      });
-      await this.awaitWithBudget(
-        this.lifecycle.wakeInstance(instanceId),
-        this.computeInitWaitBudgetMs(instance),
-        'Instance wake timed out',
-      );
-      throwIfInstanceInputAborted(options?.signal);
-      // Cast via string to bypass TS narrowing (status was mutated by the wake).
-      const postWakeStatus = instance.status as string;
-      if (postWakeStatus === 'failed' || postWakeStatus === 'error') {
-        throw new Error(`Instance ${instanceId} failed to wake from hibernation`);
-      }
-    }
-
-    // Wait for a background init to finish before delivering input. The budget
-    // scales with host load and transcript-replay size (see init-wait-budget).
-    // On timeout we do NOT abort: a large-context replay may still be
-    // progressing, so re-throw and let the renderer re-queue against the same
-    // readyPromise (dead inits are caught by wake deadlines + StuckProcessDetector).
-    if (instance.readyPromise) {
-      await this.awaitWithBudget(
-        instance.readyPromise,
-        this.computeInitWaitBudgetMs(instance),
-        'Instance initialization timed out',
-      );
-      throwIfInstanceInputAborted(options?.signal);
-      if (instance.status === 'failed') {
-        throw new Error('Instance initialization failed');
-      }
-    }
-
-    // If the instance is respawning after an interrupt, wait for it to finish.
-    // This holds the IPC call instead of rejecting, so the renderer's queued
-    // message is delivered once the new CLI process is ready.
-    if (instance.respawnPromise) {
-      await this.awaitWithBudget(
-        instance.respawnPromise,
-        this.computeInitWaitBudgetMs(instance),
-        'Instance respawn timed out',
-      );
-      throwIfInstanceInputAborted(options?.signal);
-      if (instance.status === 'error' || instance.status === 'failed') {
-        throw new Error('Instance respawn after interrupt failed');
-      }
-    }
-
-    // The waits above can outlive the instance: a wedged init/respawn may only
-    // settle when the user terminates the session, after which the input would
-    // travel the rest of the pipeline and vanish in the communication layer
-    // ("Instance not found in state") with no renderer left listening.
-    // Re-validate liveness so the renderer instead gets an immediate terminal
-    // failure it maps to no-retry + restore-to-draft.
-    const liveInstance = this.state.getInstance(instanceId);
-    if (!liveInstance || SEND_TERMINAL_STATUSES.has(liveInstance.status)) {
-      throw new Error(
-        `Instance ${instanceId} terminated while waiting to deliver input`
-        + ` (status: ${liveInstance?.status ?? 'removed'})`,
-      );
-    }
+    await this.awaitInputReady(instance, options);
 
     // LT-657: Harness-authored text is not a user submission and must never be
     // interpreted as one (hooks, switch-mode replies, slash commands, history).
@@ -1706,9 +1656,9 @@ export class InstanceManager extends EventEmitter {
     // Anything slower than the deadline is queued for the next user turn.
     const inputContextDeps: InputContextAssemblyDeps = {
       context: this.context,
-      queueRetrievedContext: (id, retrieved) => this.communication.queueRetrievedContext(id, retrieved),
+      queueRetrievedContext: (id, retrieved, tokens) => this.communication.queueRetrievedContext(id, retrieved, tokens),
     };
-    const contextPromise = buildInputContexts(inputContextDeps, instance, resolvedMessage);
+    const contextPromise = buildInputContexts(inputContextDeps, instance, resolvedMessage, internalSource ? 'internal' : options?.automatedInput ? 'automated' : 'user');
     const inputContexts = await resolveInputContextsBeforeDeadline(
       instanceId,
       contextPromise,
@@ -1910,6 +1860,8 @@ export class InstanceManager extends EventEmitter {
       autoContinuation: options?.autoContinuation === true, automatedInput: options?.automatedInput === true,
       internalSource, crossSessionSourceId: options?.crossSessionSourceId,
       queuedAdmissionId: options?.queuedAdmissionId,
+      inputMessageId: options?.inputMessageId ?? (!options?.isRetry && userMessage.type === 'user' ? userMessage.id : undefined),
+      inputContextDelivery: options?.inputContextDelivery,
       signal: options?.signal,
       beforeProviderDispatch,
       onProviderInputDelivered: guidance || options?.onProviderInputDelivered ? () => {
@@ -2112,7 +2064,9 @@ export class InstanceManager extends EventEmitter {
   }
 
   queueContinuityPreamble(instanceId: string, preamble: string): void {
-    this.communication.queueContinuityPreamble(instanceId, preamble);
+    // Conversation continuity for whatever turn comes next (compaction
+    // recovery, replay continuity, handoffs), so it is not user-only.
+    this.communication.queueContinuityPreamble(instanceId, preamble, { userOnly: false });
   }
 
   /**

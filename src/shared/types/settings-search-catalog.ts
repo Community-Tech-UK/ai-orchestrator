@@ -14,8 +14,7 @@
  * documented exception is listed below with the tab that does render it.
  *
  * No fuzzy-match library: installing a dependency needs sign-off, and the
- * scorer weights only the label and description, so the optional `keywords`
- * field is never scored here.
+ * scorer weights labels above descriptions and declared intent keywords.
  */
 
 import { SETTINGS_METADATA } from './settings.types';
@@ -58,6 +57,7 @@ const CATEGORY_TAB: Readonly<Record<SettingMetadata['category'], SettingsSearchT
  */
 const HIDDEN_BUT_RENDERED: Readonly<Record<string, SettingsSearchTab>> = {
   concurrencyLimitByProvider: 'orchestration',
+  orchestrationRoutingPolicyJson: 'orchestration',
   computerUseEnabled: 'computer-use',
   computerUseAllowedAppsJson: 'computer-use',
   computerUseDeniedAppsJson: 'computer-use',
@@ -71,6 +71,7 @@ export interface SettingsSearchEntry {
   label: string;
   description: string;
   tab: SettingsSearchTab;
+  keywords?: readonly string[];
 }
 
 export interface SettingsSearchMatch extends SettingsSearchEntry {
@@ -93,7 +94,7 @@ export function settingsSearchCatalog(
   for (const meta of metadata) {
     const tab = tabForSetting(meta);
     if (!tab) continue;
-    out.push({ key: meta.key as string, label: meta.label, description: meta.description, tab });
+    out.push({ key: meta.key as string, label: meta.label, description: meta.description, keywords: meta.keywords, tab });
   }
   return out;
 }
@@ -117,6 +118,7 @@ function scoreEntry(entry: SettingsSearchEntry, query: string): number {
   else if (label.startsWith(query)) score += LABEL_WEIGHT * 2;
   else if (label.includes(query)) score += LABEL_WEIGHT;
   if (description.includes(query)) score += DESCRIPTION_WEIGHT;
+  if (entry.keywords?.some(keyword => keyword.toLowerCase().includes(query))) score += DESCRIPTION_WEIGHT;
   return score;
 }
 
@@ -147,4 +149,15 @@ export function bestSettingMatch(
   catalog: readonly SettingsSearchEntry[] = settingsSearchCatalog(),
 ): SettingsSearchMatch | null {
   return searchSettings(query, catalog)[0] ?? null;
+}
+
+/** Combine typed renderer section targets with generic rows without coupling shared code to Angular. */
+export function withSectionTargets(
+  catalog: readonly SettingsSearchEntry[],
+  targets: readonly { tab: string; anchor: string; label: string; keywords: string }[],
+): SettingsSearchEntry[] {
+  return [...catalog, ...targets.map(target => ({
+    key: `section:${target.tab}.${target.anchor}`, label: target.label,
+    description: target.keywords, tab: target.tab,
+  }))];
 }

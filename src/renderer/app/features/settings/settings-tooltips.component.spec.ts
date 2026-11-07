@@ -45,10 +45,13 @@ describe('Settings navigation tooltip DOM', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelectorAll('[title]')).toHaveLength(0);
     const nav = fixture.debugElement.queryAll(By.css('.nav-item'));
-    expect(nav.length).toBeGreaterThan(20);
+    expect(nav.map(item => item.nativeElement.querySelector('.nav-item-label').textContent.trim())).toEqual([
+      'General', 'Display & input', 'Agents', 'Second opinion', 'Permissions & safety', 'Models',
+      'Tools & plugins', 'Workspace & history', 'Accounts', 'Phone & remote', 'Health', 'Advanced',
+    ]);
     for (const item of nav) {
       const label = item.nativeElement.querySelector('.nav-item-label').textContent.trim();
-      const status = item.nativeElement.querySelector('.nav-badge, .nav-recommended')?.textContent.trim();
+      const status = item.nativeElement.querySelector('.nav-badge')?.textContent.trim();
       const expected = label + (status ? ', ' + status : '');
       expect(item.nativeElement.getAttribute('aria-label')).toBe(expected);
       expect(item.injector.get(AioTooltipDirective).appTooltip()).toBe(expected);
@@ -59,8 +62,12 @@ describe('Settings navigation tooltip DOM', () => {
     const fixture = TestBed.createComponent(SettingsComponent); fixture.detectChanges();
     const nav = fixture.debugElement.queryAll(By.css('.nav-item'));
     for (const item of nav) expect(item.injector.get(AioTooltipDirective).appTooltip()).toBeNull();
-    expect(nav.some(item => item.nativeElement.getAttribute('aria-label')?.includes(', 2 updates'))).toBe(true);
-    expect(nav.some(item => item.nativeElement.getAttribute('aria-label')?.includes(', Recommended'))).toBe(true);
+    const health = nav.find(item => item.nativeElement.querySelector('.nav-item-label').textContent.trim() === 'Health')!;
+    expect(health.nativeElement.getAttribute('aria-label')).toBe('Health, 2 updates');
+    expect(health.nativeElement.querySelector('.nav-badge')?.textContent.trim()).toBe('2 updates');
+    const general = nav.find(item => item.nativeElement.querySelector('.nav-item-label').textContent.trim() === 'General')!;
+    expect(general.nativeElement.getAttribute('aria-label')).toBe('General');
+    expect(general.nativeElement.querySelector('.nav-badge')).toBeNull();
   });
   it('suppresses compact overlay hints while retaining the expanded toggle hint', () => {
     const fixture = TestBed.createComponent(SettingsComponent);

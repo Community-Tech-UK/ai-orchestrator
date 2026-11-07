@@ -52,6 +52,9 @@ export interface UserActionRequest {
   /** Permission metadata for input_required requests (action, path, etc.) */
   permissionMetadata?: {
     type?: string;
+    options?: unknown;
+    expiresAt?: number;
+    live?: boolean;
     tool_use_id?: string;
     action?: string;
     /** Display-friendly (possibly truncated) path shown in prompts. */

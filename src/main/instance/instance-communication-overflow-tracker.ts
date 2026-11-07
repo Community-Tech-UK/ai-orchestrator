@@ -1,8 +1,12 @@
+import type { InputContextDelivery } from '../../shared/types/input-context-delivery.types';
 import type { FileAttachment } from '../../shared/types/instance.types';
 import type { InternalInputSource } from '../../shared/types/input-provenance.types';
 import type { AdapterInputDispatch } from '../cli/adapters/base-cli-adapter.types';
 
 export interface LastSentTurn {
+  /** The existing user message and rendered notes survive physical and cross-call retries. */
+  inputMessageId?: string;
+  inputContextDelivery?: InputContextDelivery;
   message: string;
   attachments?: FileAttachment[];
   contextBlock?: string | null;

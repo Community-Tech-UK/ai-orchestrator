@@ -124,7 +124,10 @@ const WORKER_ENTRY = resolve(SPEC_DIR, '../context-worker-main.ts');
 // names are chosen) joined the graph. A walk of main (160) against the merged tree with
 // this exact parser found it the sole addition, no removals and no Electron importers;
 // it imports nothing (guarded below). Same one-module margin.
-const CLOSURE_SIZE_CEILING = 162;
+// 2026-11-06: 162 after memory/retrieval-eval/lesson-use-detector.ts joined the graph through the
+// shared retrieval query helper (retrieval-query.ts). It is the sole addition to the 161-module walk
+// above, and the Electron check below still finds no Electron value-importer. Same one-module margin.
+const CLOSURE_SIZE_CEILING = 163;
 
 function resolveImport(spec: string, fromFile: string): string | null {
   if (!spec.startsWith('.')) return null; // bare module (electron, node:*, npm)

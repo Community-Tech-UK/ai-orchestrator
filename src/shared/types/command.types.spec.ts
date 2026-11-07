@@ -2,6 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { parseCommandString, resolveTemplate, BUILT_IN_COMMANDS } from './command.types';
 import { parseArgsFromQuery } from '../utils/command-args';
 
+describe('built-in /status command', () => {
+  it('opens the Harness session card through the UI for status, session and info', () => {
+    const command = BUILT_IN_COMMANDS.find(candidate => candidate.name === 'status');
+    expect(command).toMatchObject({
+      aliases: ['session', 'info'], category: 'session', usage: '/status',
+      template: '', builtIn: true, execution: { type: 'ui', actionId: 'session.open-status' },
+    });
+  });
+});
+
 describe('built-in /goal command', () => {
   it('is exposed as an orchestrator loop command instead of a provider-native slash command', () => {
     const command = BUILT_IN_COMMANDS.find((candidate) => candidate.name === 'goal');

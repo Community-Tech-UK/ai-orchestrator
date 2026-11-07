@@ -32,13 +32,14 @@ import {
   canRestartForTerminalSend,
   getRetryDisposition,
   DEFAULT_SEND_RETRY_DELAY_MS,
-  type SendRetryDisposition,
 } from './messaging-retry-disposition';
 import { InstanceStatusReconcilerService } from './instance-status-reconciler.service';
 import { QueuePersistenceService } from './queue-persistence.service';
 import { createQueuePark } from './instance-queue-park';
 import { QueueRetryTimers } from './instance-queue-retry-timers';
 import { createReadyInputHandoff } from './instance-ready-input-handoff';
+import { presentSendFailure, sendRefusedText } from '../../../../../shared/copy/user-message';
+
 // Max transient-failure retries before dropping a queued message. Sized so the
 // cumulative wait exceeds one large-context restart (resume failure → replay).
 // LT-652: a provider-compaction rejection uses its own larger budget in
@@ -287,7 +288,7 @@ export class InstanceMessagingStore {
     this.clearRecoveryMarkers(targetInstanceId, instance);
 
     if (isTerminalStatus(instance.status)) {
-      if (this.canRestartForTerminalSend(instance.status)) {
+      if (canRestartForTerminalSend(instance.status)) {
         await this.queueMessageAndRestartTerminalInstance(targetInstanceId, { message, files });
         return;
       }
@@ -298,7 +299,7 @@ export class InstanceMessagingStore {
       });
       this.addErrorToOutput(
         targetInstanceId,
-        `Cannot send message — instance is ${instance.status}. Try restarting the instance.`
+        sendRefusedText('send', instance.status)
       );
       return;
     }
@@ -359,7 +360,7 @@ export class InstanceMessagingStore {
       });
       this.addErrorToOutput(
         targetInstanceId,
-        `Cannot steer message — instance is ${instance.status}. Try restarting the instance.`
+        sendRefusedText('steer', instance.status)
       );
       return;
     }
@@ -403,7 +404,7 @@ export class InstanceMessagingStore {
       this.enqueueSteerMessage(targetInstanceId, { message, files, kind: 'steer' });
       this.addErrorToOutput(
         targetInstanceId,
-        `Steer message queued, but the active turn did not accept main-process steer:\n${result.error?.message || 'Failed to steer message'}`
+        'Your message is queued because the agent could not take it during this turn.', result.error?.message
       );
       await this.requestInterruptForSteer(targetInstanceId, instance.status);
     }
@@ -424,7 +425,7 @@ export class InstanceMessagingStore {
       });
       this.addErrorToOutput(
         instanceId,
-        `Cannot steer queued message — instance is ${instance.status}. Try restarting the instance.`
+        sendRefusedText('steer-queued', instance.status)
       );
       return;
     }
@@ -579,7 +580,7 @@ export class InstanceMessagingStore {
       const currentInstance = this.stateService.getInstance(targetInstanceId);
       // Use previousStatus to avoid the optimistic 'busy' masking the real state
       const effectiveStatus = previousStatus !== 'busy' ? previousStatus : currentInstance?.status;
-      const retryDisposition = this.getRetryDisposition(effectiveStatus, errorMessage);
+      const retryDisposition = getRetryDisposition(effectiveStatus, errorMessage);
 
       if (!retryDisposition.shouldRetry) {
         // Permanent failure: revert optimistic 'busy' to previous status and show error
@@ -589,7 +590,7 @@ export class InstanceMessagingStore {
           });
         }
         this.restoreMessageToDraft(targetInstanceId, message);
-        this.addErrorToOutput(targetInstanceId, `Failed to send message:\n${errorMessage}`);
+        this.addErrorToOutput(targetInstanceId, presentSendFailure(errorMessage, result.error?.code), errorMessage);
         return;
       }
 
@@ -613,7 +614,7 @@ export class InstanceMessagingStore {
         this.restoreMessageToDraft(targetInstanceId, message);
         this.addErrorToOutput(
           targetInstanceId,
-          `Failed to send message after ${maxRetries} retries:\n${errorMessage}`
+          presentSendFailure(errorMessage, result.error?.code), errorMessage
         );
         return;
       }
@@ -736,10 +737,6 @@ export class InstanceMessagingStore {
     return resolveMessageTarget(this.stateService, instanceId);
   }
 
-  private canRestartForTerminalSend(status: InstanceStatus): boolean {
-    return canRestartForTerminalSend(status);
-  }
-
   /**
    * Queue a message against a hibernated session and ask main to wake it.
    *
@@ -785,13 +782,6 @@ export class InstanceMessagingStore {
     }
   }
 
-  private getRetryDisposition(
-    status: InstanceStatus | undefined,
-    errorMessage: string,
-  ): SendRetryDisposition {
-    return getRetryDisposition(status, errorMessage);
-  }
-
   private enqueueMessage(instanceId: string, queuedMessage: QueuedMessage): void {
     enqueueToQueue(this.stateService, instanceId, queuedMessage);
     void this.queuePersistence.notifyEnqueued(instanceId, queuedMessage, 'back');
@@ -831,7 +821,7 @@ export class InstanceMessagingStore {
   /**
    * Add an error message to the output buffer
    */
-  private addErrorToOutput(instanceId: string, content: string): void {
+  private addErrorToOutput(instanceId: string, content: string, detail?: string): void {
     const instance = this.stateService.getInstance(instanceId);
     if (!instance) return;
 
@@ -840,6 +830,7 @@ export class InstanceMessagingStore {
       timestamp: Date.now(),
       type: 'error',
       content,
+      ...(detail ? { metadata: { detail } } : {}),
     };
 
     this.stateService.updateInstance(instanceId, {

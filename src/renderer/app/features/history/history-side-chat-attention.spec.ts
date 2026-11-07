@@ -15,6 +15,7 @@ import { InstanceStore } from '../../core/state/instance.store';
 import { LoopStore } from '../../core/state/loop.store';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { CrossSessionMessagingStore } from '../../core/state/instance/cross-session-messaging.store';
+import { NeedsYouStore } from '../workboard/needs-you.store';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import { HistoryIpcService } from '../../core/services/ipc/history-ipc.service';
 import { SessionShareIpcService } from '../../core/services/ipc/session-share-ipc.service';
@@ -47,7 +48,7 @@ const legacy = { ...entry, id: 'legacy-archive', historyThreadId: undefined, ses
 const entries = [entry, sibling, legacy];
 
 function attention(patch: Partial<SideChatAttention> = {}): SideChatAttention {
-  return { parent, parentTitle: 'Archived parent', total: 2, unread: 1, needsAttention: 0,
+  return { parent, parentTitle: 'Archived parent', total: 2, unread: 1, needsAttention: 0, attentionSince: null,
     running: 0, targetChatId: 'exact-sidechat', ...patch };
 }
 
@@ -92,6 +93,7 @@ describe.each(['project rail', 'History sidebar'] as const)('%s sidechat attenti
         { provide: RemoteNodeStore, useValue: { hasNodes: signal(false) } },
         { provide: TerminateConfirmStore, useValue: {} },
         { provide: FileIpcService, useValue: {} },
+        { provide: NeedsYouStore, useValue: { sessionIds: () => new Set<string>(), entries: () => [] } },
         { provide: HistoryIpcService, useValue: {} },
         { provide: SessionShareIpcService, useValue: {} },
         { provide: RecentDirectoriesIpcService, useValue: { getDirectories: vi.fn().mockResolvedValue([]) } },

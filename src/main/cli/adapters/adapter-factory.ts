@@ -247,6 +247,8 @@ export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdap
     fallbackModel: options.fallbackModel,
     jsonSchema: options.jsonSchema,
     residentClaude: options.residentClaude,
+    livePermissionPrompts: options.livePermissionPrompts,
+    instanceId: options.instanceId,
     bare: options.bare,
     name: options.name,
     // Default prompt-section exclusion to true for orchestrated instances —

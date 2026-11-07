@@ -1,3 +1,4 @@
+import type { RetrievalQueryStrategy } from '../memory/retrieval-eval/retrieval-query';
 /**
  * Instance Context Manager - RLM and Unified Memory context building
  *
@@ -186,6 +187,7 @@ export class InstanceContextManager implements InstanceContextPort {
    * End RLM session for an instance
    */
   endRlmSession(instanceId: string): void {
+    getPolicyAdapter().cleanupInstance(instanceId);
     const rlmSessionId = this.instanceRlmSessions.get(instanceId);
     const isCrashRecovery = this.recoveryRlmInstances.has(instanceId);
     if (rlmSessionId) {
@@ -403,7 +405,8 @@ export class InstanceContextManager implements InstanceContextPort {
     instanceId: string,
     message: string,
     maxTokens: number = this.config.rlmContextMaxTokens,
-    topK: number = this.config.rlmContextTopK
+    topK: number = this.config.rlmContextTopK,
+    queryStrategy?: RetrievalQueryStrategy,
   ): Promise<RlmContextInfo | null> {
     if (message.trim().length < this.config.rlmContextMinChars) return null;
 
@@ -419,6 +422,7 @@ export class InstanceContextManager implements InstanceContextPort {
       params: {
         query: message,
         topK,
+        ...(queryStrategy ? { queryStrategy } : {}),
       }
     };
 
@@ -634,6 +638,7 @@ export class InstanceContextManager implements InstanceContextPort {
    * Ingest a message into RLM context store
    */
   ingestToRLM(instanceId: string, message: OutputMessage): void {
+    getPolicyAdapter().noteOutput(instanceId, message);
     const storeId = this.instanceRlmStores.get(instanceId);
     if (!storeId) return;
 

@@ -7,7 +7,7 @@ describe('interrupted context alongside existing recovery', () => {
 
   it('preserves both a queued replay context and the new interrupted context until dispatch commits', () => {
     const continuity = new InstanceContinuityInputQueue();
-    continuity.queueContinuity('session', 'SAVED_RECOVERY_CONTEXT');
+    continuity.queueContinuity('session', 'SAVED_RECOVERY_CONTEXT', { userOnly: false });
     getInterruptedContextQueue().queue('session', 'INTERRUPTED_CONTEXT');
     const prepared = continuity.prepare('session', 'CURRENT_CONTEXT');
     expect(prepared.contextBlock).toBe('SAVED_RECOVERY_CONTEXT\n\nINTERRUPTED_CONTEXT\n\nCURRENT_CONTEXT');

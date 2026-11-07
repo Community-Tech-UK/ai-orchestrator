@@ -14,6 +14,9 @@ import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive'
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import { FLEET_COST_TOOLTIP } from '../../../../shared/types/session-cost-copy';
 import { providerName } from '../../../../shared/display-names';
+import { ProviderQuotaStore } from '../../core/state/provider-quota.store';
+import { resolveBillingMode } from '../../../../shared/utils/billing-mode';
+import { sessionQuotaSnapshot } from '../instance-detail/session-quota-snapshot';
 
 @Component({
   selector: 'app-sidebar-footer',
@@ -43,6 +46,7 @@ import { providerName } from '../../../../shared/display-names';
             @if (showCost() && store.totalContextUsage().costEstimate) {
               <span class="stat cost-stat" tabindex="0" [appTooltip]="costTooltip()">
                 ≈\${{ store.totalContextUsage().costEstimate | number: '1.2-2' }}
+                {{ hasPlanCost() ? ' API-equivalent' : '' }}
               </span>
             }
           </div>
@@ -68,6 +72,10 @@ export class SidebarFooterComponent {
   protected readonly copy = copyFor;
   store = inject(InstanceStore);
   private settings = inject(SettingsStore);
+  private readonly quotas = inject(ProviderQuotaStore);
+  readonly hasPlanCost = computed(() => this.store.instances().some(instance =>
+    (instance.contextUsage?.costEstimate ?? 0) > 0 && resolveBillingMode(instance.provider,
+      sessionQuotaSnapshot(instance, this.quotas.snapshots(), this.quotas.accountSnapshots())) === 'plan'));
 
   /** Global cost-visibility toggle (hidden for managed setups). */
   readonly showCost = computed(() => this.settings.showCost());

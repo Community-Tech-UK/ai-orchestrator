@@ -682,7 +682,7 @@ export class ChannelMessageRouter {
       for (const instance of revivableInstances) {
         const name = instance.displayName || instance.id?.slice(0, 8) || 'unknown';
         const age = this.formatAge(instance.lastActivity);
-        lines.push(`* ${name} — hibernated, ${age}`);
+        lines.push(`* ${name} — Asleep, ${age}`);
       }
 
       if (historyEntries.length > 0) {
@@ -865,7 +865,7 @@ export class ChannelMessageRouter {
     }
 
     lines.push('');
-    lines.push('Use `/select <project>` to set the default target, `/pick` for active sessions, or `/revive <project>` for hibernated sessions.');
+    lines.push('Use `/select <project>` to set the default target, `/pick` for active sessions, or `/revive <project>` for sleeping sessions.');
     await adapter.sendMessage(msg.chatId, lines.join('\n'), { replyTo: msg.messageId });
   }
 
@@ -1266,7 +1266,7 @@ export class ChannelMessageRouter {
     if (!liveInstance) {
       await adapter.sendMessage(
         msg.chatId,
-        `Session **${instance.displayName || instance.id.slice(0, 8)}** is listed as hibernated, but it is not present in the live instance store and cannot be revived from Discord.`,
+        `Session **${instance.displayName || instance.id.slice(0, 8)}** is listed as asleep, but it is not present in the live instance store and cannot be revived from Discord.`,
         { replyTo: msg.messageId },
       );
       return;
@@ -1304,7 +1304,7 @@ export class ChannelMessageRouter {
       '`/list` — show numbered projects',
       '`/list <number|project>` — show sessions in a project',
       '`/pick` — pick from active sessions, then `/pick <number>` to select',
-      '`/revive <number|project|project/session>` — wake a hibernated session',
+      '`/revive <number|project|project/session>` — wake a sleeping session',
       '`/select <number|project>` — pin this channel to a project',
       '`/select <project>/<instance>` — pin to a specific instance',
       '`/new <number|project> -- <prompt>` — start a new session in a project',
@@ -1333,7 +1333,7 @@ export class ChannelMessageRouter {
       'Pinned channels route all messages to the pinned project or instance.',
       '',
       '**Approvals:**',
-      'When an agent needs approval or asks a question, the bot posts it here — tap a button or reply **yes**/**no** (or your answer) to send it back.',
+      'When an agent needs your approval or asks a question, the bot posts it here — tap a button or reply **yes**/**no** (or your answer) to send it back.',
     ];
     await adapter.sendMessage(msg.chatId, lines.join('\n'), { replyTo: msg.messageId });
   }
@@ -1983,7 +1983,7 @@ export class ChannelMessageRouter {
       await adapter.sendMessage(msg.chatId, 'No pending request specified.', { replyTo: msg.messageId });
       return;
     }
-    const resolved = await this.promptBridge?.resolveByRequestId(requestId, approved);
+    const resolved = await this.promptBridge?.resolveChannelAction(msg, requestId, approved);
     await adapter.sendMessage(
       msg.chatId,
       resolved
@@ -2010,7 +2010,7 @@ export class ChannelMessageRouter {
       await adapter.sendMessage(msg.chatId, 'No pending request specified.', { replyTo: msg.messageId });
       return;
     }
-    const resolved = await this.promptBridge?.resolveByRequestId(requestId, true, optionId || undefined);
+    const resolved = await this.promptBridge?.resolveChannelAction(msg, requestId, true, optionId || undefined);
     await adapter.sendMessage(
       msg.chatId,
       resolved ? 'Answer sent to the agent.' : 'That request is no longer waiting for a response.',
@@ -2467,7 +2467,7 @@ export class ChannelMessageRouter {
             message_id: sentMessage.messageId,
             thread_id: ctx.threadId ?? null,
             sender_id: 'bot',
-            sender_name: 'Orchestrator',
+            sender_name: 'Harness',
             content: bufferedContent,
             direction: 'outbound',
             instance_id: instanceId,

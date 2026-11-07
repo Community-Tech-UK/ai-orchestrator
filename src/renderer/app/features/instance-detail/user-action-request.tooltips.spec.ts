@@ -39,16 +39,17 @@ describe('permission card tooltip migration', () => {
       permissionMetadata: { type: 'deferred_permission', tool_name: 'Bash', tool_use_id: 'held-tool', tool_input: { command: 'pwd' } },
     } satisfies UserActionRequest]);
     fixture.detectChanges();
-    const sentence = 'Enable YOLO mode to auto-approve all permissions for this session';
+    const sentence = 'Approves all permissions for this session without asking.';
     expect(fixture.nativeElement.querySelector('.btn-yolo + .scope-write-hint').textContent).toBe(sentence);
     const button = fixture.debugElement.query(By.css('.btn-yolo'));
-    expect(button.injector.get(AioTooltipDirective).appTooltip()).toBe(sentence);
+    const hint = 'Enable Auto-approve to run tools and edits without asking for this session';
+    expect(button.injector.get(AioTooltipDirective).appTooltip()).toBe(hint);
     const element = button.nativeElement as HTMLButtonElement;
     const original = element.matches.bind(element);
     vi.spyOn(element, 'matches').mockImplementation(selector => selector === ':focus-visible' || original(selector));
     element.dispatchEvent(new FocusEvent('focus'));
     fixture.detectChanges();
-    expect(document.getElementById(element.getAttribute('aria-describedby')!)?.textContent).toContain(sentence);
+    expect(document.getElementById(element.getAttribute('aria-describedby')!)?.textContent).toBe(hint);
     expect(fixture.nativeElement.querySelectorAll('[title]')).toHaveLength(0);
     element.click();
     await fixture.whenStable();

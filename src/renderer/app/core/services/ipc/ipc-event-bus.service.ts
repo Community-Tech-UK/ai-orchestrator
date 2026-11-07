@@ -1,3 +1,4 @@
+import type { InstanceInputContextDeliveredEvent } from '../../../../../shared/types/input-context-delivery.types';
 import { Injectable, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Observable, filter, map, share } from 'rxjs';
@@ -132,6 +133,9 @@ export class IpcEventBusService {
 
   readonly instanceRemoved$ = this.createStream<string>((next) =>
     this.instanceIpc.onInstanceRemoved(next),
+  );
+  readonly inputContextDelivered$ = this.createStream<InstanceInputContextDeliveredEvent>((next) =>
+    this.instanceIpc.onInputContextDelivered(next),
   );
   readonly instanceTranscriptChunk$ = this.createStream<unknown>((next) =>
     this.instanceIpc.onInstanceTranscriptChunk(next),

@@ -315,7 +315,7 @@ async function discoverJsonSources(): Promise<DiscoveredJsonSource[]> {
     if (Object.keys(servers).length > 0) {
       sources.push({
         provider: 'orchestrator',
-        label: 'Orchestrator bootstrap',
+        label: 'Harness bootstrap',
         filePath: bootstrapPath,
         servers,
       });

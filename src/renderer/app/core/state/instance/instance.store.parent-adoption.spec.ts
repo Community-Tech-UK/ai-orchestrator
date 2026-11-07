@@ -32,7 +32,7 @@ describe('InstanceStore parent adoption wiring', () => {
     const streams = [
       'batchUpdate$', 'compactStatus$', 'fastToggled$', 'inputRequired$',
       'inputRequiredResolved$', 'instanceCreated$', 'instanceOutput$',
-      'instanceRemoved$', 'instanceStateUpdate$', 'instanceTranscriptChunk$', 'orchestrationActivity$', 'yoloToggled$',
+      'instanceRemoved$', 'instanceStateUpdate$', 'inputContextDelivered$', 'instanceTranscriptChunk$', 'orchestrationActivity$', 'yoloToggled$',
     ];
     eventBus = Object.fromEntries(
       streams.map((name) => [name, new Subject<unknown>()]),

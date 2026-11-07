@@ -65,10 +65,10 @@ import { providerName } from '../../../../shared/display-names';
                 </button>
               }
               <button class="btn-review-action" type="button" (click)="toggleAllReviewers()">
-                {{ allReviewersExpanded() ? 'Collapse' : 'Expand' }} Items
+                {{ allReviewersExpanded() ? 'Show less' : 'Show all' }}
               </button>
               <button class="btn-review-action" type="button" (click)="showingFull.set(!showingFull())">
-                {{ showingFull() ? 'Hide' : 'Full' }} Review
+                {{ showingFull() ? 'Hide raw review' : 'Raw review' }}
               </button>
               @if (hasConcerns()) {
                 <button class="btn-review-action" type="button" (click)="onAction('start-debate')">
@@ -295,11 +295,11 @@ export class CrossModelReviewPanelComponent {
   headerTitle = computed(() => {
     if (this.hasConcerns()) {
       const count = this.concernCount();
-      return `Cross-Model Review: ${count} concern${count === 1 ? '' : 's'} found`;
+      return `Second opinion: ${count} concern${count === 1 ? '' : 's'}`;
     }
     return this.hasAuthoritativeRemote()
-      ? 'Cross-Model Review: verified'
-      : 'Cross-Model Review: advisory only';
+      ? 'Second opinion: no concerns'
+      : 'Second opinion: local model only';
   });
 
   localStatusText = computed(() => {

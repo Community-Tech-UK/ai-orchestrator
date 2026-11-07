@@ -7,7 +7,7 @@ export class OrchestratorPausedError extends Error {
   readonly code = 'ORCHESTRATOR_PAUSED';
   readonly hostname?: string;
 
-  constructor(message = 'Orchestrator is paused', opts?: { hostname?: string }) {
+  constructor(message = 'Harness is paused', opts?: { hostname?: string }) {
     super(message);
     this.hostname = opts?.hostname;
   }

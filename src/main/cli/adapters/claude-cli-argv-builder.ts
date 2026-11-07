@@ -1,3 +1,4 @@
+import { HARNESS_READ_ONLY_TOOLS } from './harness-tool-allowlist';
 import { CLAUDE_READ_ONLY_REVIEW_TOOLS, MACHINE_SESSION_DISABLED_PLUGINS } from './claude-machine-session-policy';
 /**
  * Claude CLI argv construction — extracted from `ClaudeCliAdapter.buildArgs()`
@@ -141,6 +142,8 @@ export interface BuildClaudeCliArgsInput {
   shouldUseNativeResume: boolean;
   /** Precomputed by the adapter (`shouldUsePermissionHook()`) — depends on CLI version gating. */
   shouldUsePermissionHook: boolean;
+  /** Precomputed by the adapter; absent means off for existing direct callers. */
+  livePermissionPrompts?: boolean;
   /**
    * Materializes inline JSON to a private file on Windows, and always for MCP
    * configs when forceFile is true. Injected so this module stays free of the
@@ -208,6 +211,8 @@ export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
     // while still requiring approval for potentially dangerous operations like Bash
     logger.debug('NON-YOLO mode: using --permission-mode acceptEdits');
     args.push('--permission-mode', 'acceptEdits');
+    if (input.livePermissionPrompts === true && input.shouldUsePermissionHook
+      && spawnOptions.residentClaude === true && !spawnOptions.machineSession) args.push('--permission-prompt-tool', 'stdio');
 
     // Layer defer hook on top for tools that acceptEdits doesn't auto-approve.
     // The hook intercepts matched tools (Bash, etc.) and returns `defer` to pause
@@ -221,11 +226,8 @@ export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
       });
     }
 
-    // Only pass --allowedTools if explicitly configured (e.g., by agent profiles).
-    // By default, allow all tools — restrictions are handled via --disallowedTools.
-    if (spawnOptions.allowedTools && spawnOptions.allowedTools.length > 0) {
-      args.push('--allowedTools', spawnOptions.allowedTools.join(','));
-    }
+    const allowed = [...new Set([...(spawnOptions.allowedTools ?? []), ...HARNESS_READ_ONLY_TOOLS])];
+    args.push('--allowedTools', allowed.join(','));
   }
 
   const settingsOverlay = buildClaudeSettingsOverlay(spawnOptions, permissionHookEnabled, cliVersion);

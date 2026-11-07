@@ -315,4 +315,18 @@ describe('GovernedProposalService', () => {
     expect(service.rehydrate()).toBe(2);
     expect(getLessonStore().active()).toHaveLength(2);
   });
+  it('keeps project identity through deduplication, approval, editing and restart rehydration', () => {
+    const service = getGovernedProposalService();
+    const text = 'Check migrations before rollback';
+    const a = service.captureMemoryProposal({ text, projectKey: '/repo-a' })!;
+    const b = service.captureMemoryProposal({ text, projectKey: '/repo-b' })!;
+    expect(a.proposal.id).not.toBe(b.proposal.id);
+    service.approve(a.proposal.id, { actor: 'james' });
+    service.approve(b.proposal.id, { actor: 'james', editedText: 'Check migrations before every rollback' });
+    _resetLessonStoreForTesting(); expect(service.rehydrate()).toBe(2);
+    expect(getLessonStore().digest(10, { workspace: '/repo-a' }).map(l => l.text)).toEqual([text]);
+    expect(getLessonStore().digest(10, { workspace: '/repo-b' }).map(l => l.text)).toEqual(['Check migrations before every rollback']);
+    expect(getLessonStore().digest()).toEqual([]);
+  });
+
 });

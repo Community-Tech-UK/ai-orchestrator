@@ -46,4 +46,21 @@ describe('wireContextAnalytics', () => {
     instanceEvents.emit('instance:model-changed', { instanceId: 'i1' });
     expect(spy).toHaveBeenCalledTimes(1);
   });
+
+  it('records input admission and resets the baseline after real compaction events', () => {
+    const compactionEvents = new EventEmitter();
+    const cleanup = wireContextAnalytics({ instanceEvents, settingsEvents, compactionEvents, service });
+    const input = vi.spyOn(service, 'noteTurnStart');
+    const compact = vi.spyOn(service, 'resetBaseline');
+    const config = vi.spyOn(service, 'noteConfigEvent');
+    instanceEvents.emit('instance:input-started', { instanceId: 'i' });
+    compactionEvents.emit('compaction-completed', { instanceId: 'i', result: { success: true } });
+    instanceEvents.emit('instance:state-changed', { instanceId: 'i', status: 'respawning' });
+    expect(input).toHaveBeenCalledWith('i'); expect(compact).toHaveBeenCalledExactlyOnceWith('i');
+    expect(config).toHaveBeenCalledWith('i', 'session restarted');
+    compactionEvents.emit('compaction-completed', { instanceId: 'i', result: { success: false } });
+    expect(compact).toHaveBeenCalledTimes(1);
+    cleanup(); compactionEvents.emit('compaction-completed', { instanceId: 'i' });
+    expect(compact).toHaveBeenCalledTimes(1);
+  });
 });

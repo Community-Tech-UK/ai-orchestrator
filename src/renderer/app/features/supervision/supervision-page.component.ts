@@ -36,7 +36,7 @@ interface SupervisionHealthData {
     <div class="page">
       <div class="page-header">
         <div class="header-title">
-          <span class="title">Supervision</span>
+          <span class="title">Supervisor</span>
           <span class="subtitle">Tree health, failures, and circuit breakers</span>
         </div>
         <div class="header-actions">

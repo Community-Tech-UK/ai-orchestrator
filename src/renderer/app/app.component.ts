@@ -2,8 +2,13 @@ import { ConfirmDialogComponent } from './shared/confirm/confirm-dialog.componen
 /**
  * Root Application Component
  */
+import { copyFor } from './shared/tooltip/tooltip-copy';
+import { NoticeSlotService } from './core/notices/notice-slot.service';
+import { NoticeOverflowComponent } from './core/notices/notice-overflow.component';
+import { NotificationShellService } from './core/notices/notification-shell.service';
+import { AioTooltipDirective } from './shared/tooltip/aio-tooltip.directive';
 
-import { ChangeDetectionStrategy, Component, computed, effect, inject, OnDestroy, OnInit, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, OnDestroy, OnInit, signal } from '@angular/core';
 import { UndoService } from './core/services/undo.service';
 import { ActionDispatchService } from './core/services/action-dispatch.service';
 import { ToastService } from './core/services/toast.service';
@@ -19,7 +24,10 @@ import { ModelFavoritesService } from './features/models/model-favorites.service
 import { RunFailureStateService } from './features/instance-detail/run-failure-state.service';
 import { AwayRecapBannerComponent } from './shared/away-recap/away-recap-banner.component';
 import { TerminateConfirmDialogComponent } from './shared/terminate-confirm/terminate-confirm-dialog.component';
-import { ApprovalDigestBannerComponent } from './shared/approval-digest/approval-digest-banner.component';
+import { NeedsYouStripComponent } from './features/workboard/needs-you-strip.component';
+import { NeedsYouStore } from './features/workboard/needs-you.store';
+import { CommandPaletteHostComponent } from './features/commands/command-palette-host.component';
+import { SessionStatusHostComponent } from './features/instance-detail/session-status/session-status-host.component';
 import { GettingStartedBarComponent } from './shared/getting-started/getting-started-bar.component';
 import { ProviderQuotaChipComponent } from './shared/components/provider-quota-chip/provider-quota-chip.component';
 import { CliUpdatePillComponent } from './features/title-bar/cli-update-pill.component';
@@ -63,28 +71,12 @@ import { KeepAwakeChipComponent } from './features/title-bar/keep-awake-chip.com
 import { LocalAiStatusChipComponent } from './features/local-ai-guard/local-ai-status-chip.component';
 import { LocalAiFallbackBannerComponent } from './features/local-ai-guard/local-ai-fallback-banner.component';
 import { BrowserComputerOfflineBannerComponent } from './features/remote-nodes/browser-computer-offline-banner.component';
-import { AioTooltipDirective } from './shared/tooltip/aio-tooltip.directive';
 import { HelpDrawerComponent } from './shared/help/help-drawer.component';
-import { copyFor } from './shared/tooltip/tooltip-copy';
 
 const STARTUP_BANNER_DISMISSAL_STORAGE_KEY = 'startup-capabilities-banner:dismissed-fingerprint';
 
 /** How many failing checks the banner spells out; the rest are counted and left to Setup. */
 const STARTUP_BANNER_CHECK_LIMIT = 3;
-
-/**
- * WS-A2 `instance:doom-loop` payload — mirrors `ToolLoopDetectionEvent` in
- * `src/main/orchestration/doom-loop-detector.ts` (main-process types are not
- * imported into the renderer bundle; kept minimal and structural here).
- */
-interface ToolLoopWarningPayload {
-  instanceId: string;
-  detector: 'repeat-no-progress' | 'ping-pong' | 'runaway';
-  severity: 'warn' | 'critical';
-  toolName: string;
-  count: number;
-  windowDescription: string;
-}
 
 declare global {
   interface Window {
@@ -122,11 +114,14 @@ const WINDOW_CONTROLS_FALLBACK_INSET = 150;
   selector: 'app-root',
   standalone: true,
   imports: [
+    NoticeOverflowComponent,
     AioTooltipDirective,
     AwayRecapBannerComponent,
     TerminateConfirmDialogComponent,
     ConfirmDialogComponent,
-    ApprovalDigestBannerComponent,
+    NeedsYouStripComponent,
+    CommandPaletteHostComponent,
+    SessionStatusHostComponent,
     GettingStartedBarComponent,
     RouterOutlet,
     ProviderQuotaChipComponent,
@@ -185,10 +180,11 @@ export class AppComponent implements OnInit, OnDestroy {
   private readonly remoteNodeStore = inject(RemoteNodeStore);
   private readonly appUpdateStore = inject(AppUpdateStore);
   private readonly localAiGuardStore = inject(LocalAiGuardStore);
+  private readonly needsYou = inject(NeedsYouStore);
   protected readonly terminalDrawer = inject(TerminalDrawerStore);
 
   private menuListenerCleanup: (() => void) | null = null;
-  private toolLoopListenerCleanup: (() => void) | null = null;
+  private readonly notificationShell = inject(NotificationShellService);
   private resumeToastTimer: ReturnType<typeof setTimeout> | null = null;
 
   isMacOS = false;
@@ -216,11 +212,12 @@ export class AppComponent implements OnInit, OnDestroy {
     return fingerprint === this.dismissedStartupBannerFingerprint() ? null : report;
   });
 
+  protected readonly startupSlot = inject(NoticeSlotService).register('startup',
+    computed(() => this.startupBannerReport() !== null), inject(DestroyRef));
   /**
-   * Title-bar chip: only while startup needs the user. A ready startup shows
-   * nothing at all (healthy means hidden), so a normal launch leaves the title
-   * bar to the quota strip and notifications. Setup stays reachable from the
-   * banner's Setup button and from Settings → Doctor.
+   * Title-bar chip: only while startup needs the user. A ready startup shows nothing at all
+   * (healthy means hidden), so a normal launch leaves the title bar to the quota strip and notifications.
+   * Setup stays reachable from the banner's Setup button and from Settings → Doctor.
    */
   protected readonly startupStatusChipReport = computed(() => {
     const report = this.startupCapabilities();
@@ -315,6 +312,7 @@ export class AppComponent implements OnInit, OnDestroy {
     void this.remoteNodeStore.initialize();
     void this.appUpdateStore.init();
     void this.localAiGuardStore.initialize();
+    this.needsYou.init();
     this.skillStore.initObservability();
 
     this.ipcService.onStartupCapabilities((report) => {
@@ -326,17 +324,7 @@ export class AppComponent implements OnInit, OnDestroy {
       void this.router.navigateByUrl(getControlSurface('settings').path);
     });
 
-    // WS-A2: minimal renderer notice for result-aware tool-loop detections.
-    // Warnings are always emitted by the main-process detector regardless of
-    // the (default-off) auto-interrupt setting; this just surfaces them.
-    this.toolLoopListenerCleanup = this.ipcService.on('instance:doom-loop', (data) => {
-      const event = data as ToolLoopWarningPayload;
-      const prefix = event.severity === 'critical' ? 'Tool loop (critical)' : 'Tool loop warning';
-      this.toastService.show(
-        `${prefix}: ${event.toolName} — ${event.windowDescription}`,
-        'error',
-      );
-    });
+    this.notificationShell.start();
 
     // Signal app ready
     await this.ipcService.appReady();
@@ -402,8 +390,7 @@ export class AppComponent implements OnInit, OnDestroy {
     this.resumeToastTimer = null;
     this.menuListenerCleanup?.();
     this.menuListenerCleanup = null;
-    this.toolLoopListenerCleanup?.();
-    this.toolLoopListenerCleanup = null;
+    this.notificationShell.stop();
     this.windowControlsOverlayCleanup?.();
     this.windowControlsOverlayCleanup = null;
     this.appUpdateStore.dispose();

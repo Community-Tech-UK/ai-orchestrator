@@ -15,11 +15,16 @@ import { workboardSpecialistTarget } from './workboard-source-summary.component'
 import { LoopStore } from '../../core/state/loop.store';
 import { InstanceIpcService } from '../../core/services/ipc/instance-ipc.service';
 import type { WorkboardItem, WorkboardLanes } from './workboard.types';
+import { NeedsYouRequestRowComponent } from './needs-you-request-row.component';
+import type { NeedsYouEntry } from '../../../../shared/attention/needs-you';
+import { input } from '@angular/core';
 
 const NOW = 1_700_000_000_000;
 
 @Component({ selector: 'app-instance-detail', standalone: true, template: '<div class="stub-detail"></div>' })
 class StubInstanceDetailComponent {}
+@Component({ selector: 'app-needs-you-request-row', standalone: true, template: '<span>{{ entry().title }}</span>' })
+class StubRequestRowComponent { readonly entry = input.required<NeedsYouEntry>(); }
 
 function emptyLanes(): WorkboardLanes {
   return { 'needs-you': [], working: [], waiting: [], done: [] };
@@ -58,6 +63,7 @@ function makeFakeStore() {
   const selectedWorkboardItem = signal<WorkboardItem | null>(null);
   return {
     lanes,
+    requests: signal<NeedsYouEntry[]>([]),
     selectedItemId,
     selectedWorkboardItem,
     visibleCount: signal(0),
@@ -87,6 +93,7 @@ function makeFakeStore() {
     isSnoozed: vi.fn(() => false),
     snoozeItem: vi.fn(),
     unsnoozeItem: vi.fn(),
+    markItemSeen: vi.fn(),
   };
 }
 
@@ -120,9 +127,9 @@ describe('WorkboardPageComponent', () => {
       ],
     });
     TestBed.overrideComponent(WorkboardPageComponent, {
-      remove: { imports: [InstanceDetailComponent], providers: [WorkboardStore] },
+      remove: { imports: [InstanceDetailComponent, NeedsYouRequestRowComponent], providers: [WorkboardStore] },
       add: {
-        imports: [StubInstanceDetailComponent],
+        imports: [StubInstanceDetailComponent, StubRequestRowComponent],
         providers: [{ provide: WorkboardStore, useValue: store }],
       },
     });
@@ -139,7 +146,16 @@ describe('WorkboardPageComponent', () => {
     const headings = Array.from(
       fixture.nativeElement.querySelectorAll('.wb-lane-name'),
     ).map((el) => (el as HTMLElement).textContent?.trim());
-    expect(headings).toEqual(['Needs You', 'Working', 'Waiting', 'Done / Idle']);
+    expect(headings).toEqual(['Needs you', 'Working', 'Waiting', 'Done / Idle']);
+  });
+
+  it('renders request rows before work cards and includes them in the lane count', async () => {
+    store.requests.set([{ key: 'doc-review:r', source: 'doc-review', kind: 'answer', title: 'Review plan', since: 1, version: '1' }]);
+    const lanes = emptyLanes(); lanes['needs-you'] = [item({ lane: 'needs-you' })]; store.lanes.set(lanes);
+    const fixture = await render();
+    const lane = fixture.nativeElement.querySelector('[data-lane="needs-you"]');
+    expect(lane.querySelector('.wb-lane-cards').firstElementChild.tagName).toBe('APP-NEEDS-YOU-REQUEST-ROW');
+    expect(lane.querySelector('.wb-lane-count').textContent.trim()).toBe('2');
   });
 
   it('shows the specific empty-state text for each empty lane', async () => {

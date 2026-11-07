@@ -13,6 +13,8 @@
  * a persistence layer can key on it too.
  */
 
+import { normalizeProjectMemoryKey } from './project-memory-key';
+
 export type LessonStatus = 'active' | 'deprecated';
 
 /**
@@ -30,6 +32,7 @@ export type LessonProvenance = 'user-authored' | 'agent-derived' | 'imported' | 
 export interface Lesson {
   id: string;
   text: string;
+  projectKey?: string;
   reinforcements: number;
   /** WS16 — times a surfaced lesson was actually USED by a later iteration. */
   uses: number;
@@ -73,14 +76,16 @@ export class LessonStore {
     text: string,
     now: number = Date.now(),
     provenance: LessonProvenance = 'agent-derived',
+    projectKey?: string,
   ): CaptureResult {
     const normalized = normalizeLessonText(text);
+    const scope = normalizeProjectMemoryKey(projectKey) || undefined;
     if (!normalized) {
       throw new Error('Cannot capture an empty lesson');
     }
 
     for (const lesson of this.lessons.values()) {
-      if (lesson.status === 'active' && normalizeLessonText(lesson.text) === normalized) {
+      if (lesson.status === 'active' && lesson.projectKey === scope && normalizeLessonText(lesson.text) === normalized) {
         lesson.reinforcements += 1;
         lesson.updatedAt = now;
         // A user-authored re-capture upgrades provenance (trust only rises).
@@ -89,10 +94,11 @@ export class LessonStore {
       }
     }
 
-    const id = `lesson-${hashText(normalized)}`;
+    const id = `lesson-${hashText(scope ? JSON.stringify([scope, normalized]) : normalized)}`;
     const lesson: Lesson = {
       id,
       text: text.trim(),
+      ...(scope ? { projectKey: scope } : {}),
       reinforcements: 1,
       uses: 0,
       status: 'active',
@@ -135,6 +141,7 @@ export class LessonStore {
     const lesson: Lesson = {
       id,
       text: newText.trim(),
+      ...(old.projectKey ? { projectKey: old.projectKey } : {}),
       reinforcements: old.reinforcements + 1,
       uses: old.uses,
       status: 'active',
@@ -169,9 +176,9 @@ export class LessonStore {
   }
 
   /** Find the first active lesson whose normalized text matches, or undefined. */
-  findActiveByNormalizedText(normalizedText: string): Lesson | undefined {
+  findActiveByNormalizedText(normalizedText: string, projectKey?: string): Lesson | undefined {
     for (const lesson of this.lessons.values()) {
-      if (lesson.status === 'active' && normalizeLessonText(lesson.text) === normalizedText) {
+      if (lesson.status === 'active' && lesson.projectKey === (normalizeProjectMemoryKey(projectKey) || undefined) && normalizeLessonText(lesson.text) === normalizedText) {
         return lesson;
       }
     }
@@ -194,11 +201,13 @@ export class LessonStore {
    * Ranked digest of active lessons to inject at session start: most-reinforced
    * first, then most-recently-updated, then stable by id. Optionally limited.
    */
-  digest(limit?: number): Lesson[] {
+  digest(limit?: number, scope?: { workspace?: string }): Lesson[] {
+    const project = normalizeProjectMemoryKey(scope?.workspace);
     // WS16: used lessons rank above merely-reinforced ones (reinforcements
     // already includes each use, but ties break toward actually-used).
-    const ranked = this.active().sort(
+    const ranked = this.active().filter(lesson => !lesson.projectKey || lesson.projectKey === project).sort(
       (a, b) =>
+        Number(Boolean(b.projectKey)) - Number(Boolean(a.projectKey)) ||
         b.reinforcements - a.reinforcements ||
         b.uses - a.uses ||
         b.updatedAt - a.updatedAt ||

@@ -17,6 +17,7 @@
  * gated by an explicit `proposal_audit` row.
  */
 
+import { normalizeProjectMemoryKey } from './project-memory-key';
 import { getLogger } from '../logging/logger';
 import {
   getLessonStore,
@@ -49,6 +50,7 @@ export interface CaptureMemoryProposalParams {
   title?: string;
   text: string;
   sourceSessionId?: string | null;
+  projectKey?: string;
   sourceMessageId?: string | null;
   tags?: string[];
 }
@@ -114,6 +116,7 @@ export interface ApproveProposalParams extends DecideProposalParams {
 }
 
 interface ProposalPayload {
+  projectKey?: string;
   text: string;
   normalizedText: string;
   decidedProvenance?: LessonProvenance;
@@ -152,10 +155,11 @@ export class GovernedProposalService {
       const normalizedText = normalizeLessonText(trimmedText);
       if (!normalizedText) return null;
 
-      const payload: ProposalPayload = { text: trimmedText, normalizedText };
+      const projectKey = normalizeProjectMemoryKey(params.projectKey) || undefined;
+      const payload: ProposalPayload = { text: trimmedText, normalizedText, ...(projectKey ? { projectKey } : {}) };
       return getGovernedProposalStore().capture({
         kind: 'memory',
-        normalizedTitle: normalizedText,
+        normalizedTitle: payload.projectKey ? JSON.stringify([payload.projectKey, normalizedText]) : normalizedText,
         title: params.title?.trim() || deriveTitle(trimmedText),
         provenance: 'agent-derived',
         payloadJson: JSON.stringify(payload),
@@ -239,9 +243,10 @@ export class GovernedProposalService {
     const editedText = opts.editedText?.trim();
 
     if (editedText) {
-      this.deprecateLinkedLesson(payload.normalizedText);
-      const { lesson } = getLessonStore().capture(editedText, now, 'user-authored');
+      this.deprecateLinkedLesson(payload.normalizedText, payload.projectKey);
+      const { lesson } = getLessonStore().capture(editedText, now, 'user-authored', payload.projectKey);
       const finalPayload: ProposalPayload = {
+        ...(payload.projectKey ? { projectKey: payload.projectKey } : {}),
         text: editedText,
         normalizedText: normalizeLessonText(editedText),
         decidedProvenance: 'user-authored',
@@ -274,7 +279,7 @@ export class GovernedProposalService {
       return updated;
     }
 
-    this.applyLessonPromotion(payload.text, 'user-approved', now);
+    this.applyLessonPromotion(payload.text, 'user-approved', now, payload.projectKey);
     const finalPayload: ProposalPayload = { ...payload, decidedProvenance: 'user-approved' };
     const updated = getGovernedProposalStore().applyDecision(
       id,
@@ -347,7 +352,7 @@ export class GovernedProposalService {
     const now = Date.now();
     if (proposal.kind !== 'rule') {
       const payload = this.parsePayload(id);
-      this.deprecateLinkedLesson(payload.normalizedText);
+      this.deprecateLinkedLesson(payload.normalizedText, payload.projectKey);
     }
 
     const updated = getGovernedProposalStore().applyDecision(
@@ -381,10 +386,10 @@ export class GovernedProposalService {
     for (const lesson of getLessonStore().active()) {
       if (lesson.provenance !== 'agent-derived') continue;
       const normalizedText = normalizeLessonText(lesson.text);
-      const payload: ProposalPayload = { text: lesson.text, normalizedText };
+      const payload: ProposalPayload = { text: lesson.text, normalizedText, ...(lesson.projectKey ? { projectKey: lesson.projectKey } : {}) };
       const result = store.capture({
         kind: 'memory',
-        normalizedTitle: normalizedText,
+        normalizedTitle: payload.projectKey ? JSON.stringify([payload.projectKey, normalizedText]) : normalizedText,
         title: deriveTitle(lesson.text),
         provenance: 'agent-derived',
         payloadJson: JSON.stringify(payload),
@@ -417,7 +422,7 @@ export class GovernedProposalService {
         if (proposal.kind === 'memory') {
           const payload = JSON.parse(proposal.payloadJson) as ProposalPayload;
           if (!payload.text) continue;
-          this.applyLessonPromotion(payload.text, payload.decidedProvenance ?? 'user-approved', now);
+          this.applyLessonPromotion(payload.text, payload.decidedProvenance ?? 'user-approved', now, payload.projectKey);
           rehydrated += 1;
         } else if (proposal.kind === 'rule') {
           const payload = JSON.parse(proposal.payloadJson) as RuleProposalPayload;
@@ -472,7 +477,7 @@ export class GovernedProposalService {
     try {
       const parsed = JSON.parse(proposal?.payloadJson ?? '{}') as Partial<ProposalPayload>;
       const text = parsed.text ?? fallbackTitle;
-      return { text, normalizedText: parsed.normalizedText ?? normalizeLessonText(text) };
+      return { text, normalizedText: parsed.normalizedText ?? normalizeLessonText(text), ...(typeof parsed.projectKey === 'string' ? { projectKey: normalizeProjectMemoryKey(parsed.projectKey) } : {}) };
     } catch {
       return { text: fallbackTitle, normalizedText: normalizeLessonText(fallbackTitle) };
     }
@@ -503,8 +508,8 @@ export class GovernedProposalService {
     }
   }
 
-  private deprecateLinkedLesson(normalizedText: string): void {
-    const lesson = getLessonStore().findActiveByNormalizedText(normalizedText);
+  private deprecateLinkedLesson(normalizedText: string, projectKey?: string): void {
+    const lesson = getLessonStore().findActiveByNormalizedText(normalizedText, projectKey);
     if (lesson) getLessonStore().deprecate(lesson.id);
   }
 
@@ -513,14 +518,14 @@ export class GovernedProposalService {
    * text), creating it first if it no longer exists in the in-memory store
    * (e.g. replaying an approval across a restart).
    */
-  private applyLessonPromotion(text: string, provenance: LessonProvenance, now: number): void {
+  private applyLessonPromotion(text: string, provenance: LessonProvenance, now: number, projectKey?: string): void {
     const normalized = normalizeLessonText(text);
-    const existing = getLessonStore().findActiveByNormalizedText(normalized);
+    const existing = getLessonStore().findActiveByNormalizedText(normalized, projectKey);
     if (existing) {
       getLessonStore().setProvenance(existing.id, provenance, now);
       return;
     }
-    const { lesson } = getLessonStore().capture(text, now, provenance);
+    const { lesson } = getLessonStore().capture(text, now, provenance, projectKey);
     if (lesson.provenance !== provenance) {
       getLessonStore().setProvenance(lesson.id, provenance, now);
     }

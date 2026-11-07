@@ -33,6 +33,7 @@ describe('A0 stored cost repair', () => {
     const before = db.prepare("SELECT * FROM cost_entries WHERE id='b'").get<Record<string, unknown>>()!;
     delete before['future_cost_tag'];
     delete before['origin'];
+    for (const column of ['provider', 'ai_credits_nano', 'premium_requests', 'credit_checkpoint_id', 'credit_checkpoint_total_nano', 'credit_checkpoint_premium_total']) delete before[column];
     expect(repairCostEntriesA0(db, providers).status).toBe('repaired');
     expect(db.prepare("SELECT * FROM cost_entries_a0_backup WHERE id='b'").get()).toEqual(before);
     expect(costs().find(r => r.id === 'b')?.cost).toBe(0.75);
@@ -74,5 +75,15 @@ describe('A0 stored cost repair', () => {
     const before = costs(); repairCostEntriesA0(db, providers);
     expect(costs()).toEqual(before); expect(backupIds()).toEqual([]);
     expect(db.prepare("SELECT name FROM maintenance_markers WHERE name='a0-cost-deltas'").get()).toBeUndefined();
+  });
+  it('backs up through the widened cost table whether the backup kept the 12- or 18-column shape', () => {
+    db.exec(`ALTER TABLE cost_entries_a0_backup RENAME TO cost_entries_a0_backup_old;
+      CREATE TABLE cost_entries_a0_backup AS SELECT * FROM cost_entries WHERE 0;
+      CREATE UNIQUE INDEX idx_cost_entries_a0_backup_id_wide ON cost_entries_a0_backup(id);
+      DROP TABLE cost_entries_a0_backup_old;`);
+    repairCostEntriesA0(db, providers);
+    expect(backupIds()).toEqual(['a','b','c','d','e','f','g']);
+    expect(db.prepare("SELECT cost FROM cost_entries_a0_backup WHERE id='b'").get<{cost:number}>()?.cost).toBe(1.25);
+    expect(costs().slice(0,3)).toEqual([{id:'a',cost:0.5},{id:'b',cost:0.75},{id:'c',cost:0.2}]);
   });
 });

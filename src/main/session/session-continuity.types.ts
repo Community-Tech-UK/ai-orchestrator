@@ -1,3 +1,4 @@
+import type { RetrievedContextDeliveries, RetrievedContextMetadata } from '../../shared/types/input-context-delivery.types';
 import type { ExecutionLocation, NodePlacementPrefs } from '../../shared/types/worker-node.types';
 import type { AccountInvocationOrigin, AccountRouteSource } from '../../shared/types/provider-account.types';
 import type { AccountPreferences, CrossSessionMessageMetadata, InstanceProvider, ThinkingContent } from '../../shared/types/instance.types';
@@ -177,6 +178,8 @@ export interface SessionState {
 }
 
 export interface ConversationEntry {
+  retrievedContextDeliveries?: RetrievedContextDeliveries;
+  retrievedContextMetadata?: RetrievedContextMetadata;
   id: string;
   role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;

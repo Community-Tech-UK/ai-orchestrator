@@ -31,15 +31,17 @@ import { BiggestTurnsComponent } from './biggest-turns.component';
 import { ClaudeCostDriftComponent } from './claude-cost-drift.component';
 import type { EChartsOption } from 'echarts';
 import type { UsageInsightResponse } from '../../../../shared/usage-insight/usage-insight.types';
+import { HistoryStore } from '../../core/state/history.store';
+import { SettingsStore } from '../../core/state/settings.store';
 
 const SCANNING: UsageInsightResponse = { status: 'scanning', progress: { filesDone: 1, filesTotal: 4, bytesDone: 10, bytesTotal: 40 } };
 
-@Component({ selector: 'app-echarts-themed', template: '' })
+@Component({ selector: 'app-echarts-themed', standalone: true, template: '' })
 class CostChartStubComponent {
   readonly options = input<EChartsOption | null>(null);
   readonly loading = input(false);
-  readonly height = input('300px');
-  readonly emptyMessage = input('No data available');
+  readonly height = input('');
+  readonly emptyMessage = input('');
 }
 
 /**
@@ -49,7 +51,9 @@ class CostChartStubComponent {
 function usageInsightProviders() {
   return [
     { provide: UsageInsightIpcService, useValue: { get: vi.fn().mockResolvedValue({ success: true, data: SCANNING }) } },
-    { provide: InstanceStore, useValue: { instancesMap: signal(new Map()), selectedInstance: signal(null) } },
+    { provide: InstanceStore, useValue: { instancesMap: signal(new Map()), selectedInstance: signal(null), instances: () => [], setSelectedInstance: vi.fn() } },
+    { provide: HistoryStore, useValue: { entries: () => [], loadHistory: vi.fn(), loadConversation: vi.fn() } },
+    { provide: SettingsStore, useValue: { showCost: () => true } },
     { provide: ProviderQuotaStore, useValue: { snapshots: signal({ claude: null }), accountSnapshots: signal([]) } },
   ];
 }
@@ -133,6 +137,7 @@ function buildMockIpc(
   return {
     costGetEphemeralUsage: vi.fn().mockResolvedValue({success:true,data:{entries:[],truncated:false,skippedLines:0}}),
     costGetPurposeSummary: vi.fn().mockResolvedValue({ success: true, data: null }),
+    costGetSessionBreakdown: vi.fn().mockResolvedValue({ success: true, data: { turns: 1, totalCostUsd: 0.1, mainCostUsd: 0.1, helperCostUsd: 0, byModel: [], copilotCache: [] } }),
     costGetSummary: vi.fn().mockResolvedValue({ success: true, data: summaryData }),
     costGetEntries: vi.fn().mockResolvedValue({ success: true, data: entriesData }),
     costGetBudgetStatus: vi.fn().mockResolvedValue({
@@ -174,6 +179,10 @@ describe('CostPageComponent — computed signals', () => {
       providers: [
         { provide: CostIpcService, useValue: mockIpc },
         ...usageInsightProviders(),
+        { provide: InstanceStore, useValue: { instances: () => [{ id: 'inst-1', sessionId: 'sess-aaa', displayName: 'Live repair' }], setSelectedInstance: vi.fn() } },
+        { provide: HistoryStore, useValue: { entries: () => [], loadHistory: vi.fn(), loadConversation: vi.fn() } },
+        { provide: SettingsStore, useValue: { showCost: () => true } },
+        { provide: ProviderQuotaStore, useValue: { snapshots: () => ({ claude: { plan: 'max', windows: [] } }), accountSnapshots: () => [] } },
       ],
     }).compileComponents();
 
@@ -213,6 +222,165 @@ describe('CostPageComponent — computed signals', () => {
   it('totalCost reflects summary.totalCost', () => {
     component.summary.set(MOCK_SUMMARY);
     expect(component.totalCost()).toBeCloseTo(0.012345, 6);
+  });
+
+  it('hides all dollar figures, including live budget alerts, when showCost is off', () => {
+    (component as unknown as { showCost: () => boolean }).showCost = () => false;
+    component.summary.set(MOCK_SUMMARY); component.entries.set(MOCK_ENTRIES);
+    component.budgetAlert.set('Budget exceeded: session budget at 100% ($5.00 of $5.00)');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).not.toContain('$');
+    expect(fixture.nativeElement.textContent).toContain('Cost figures are hidden');
+  });
+
+  it('renders session titles, opens the live session, and loads an unfolded breakdown only once', async () => {
+    component.summary.set({ ...MOCK_SUMMARY, bySession: { 'sess-aaa': { ...MOCK_SUMMARY.bySession['sess-aaa'], instanceId: 'inst-1' } } });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('h1')?.textContent).toBe('Costs & Usage');
+    const open = fixture.nativeElement.querySelector('.session-open') as HTMLButtonElement;
+    expect(open.textContent).toContain('Live repair'); open.click();
+    expect(TestBed.inject(InstanceStore).setSelectedInstance).toHaveBeenCalledWith('inst-1');
+    await component.toggleSession(component.sessionRows()[0]);
+    await component.toggleSession(component.sessionRows()[0]);
+    await component.toggleSession(component.sessionRows()[0]);
+    expect(mockIpc.costGetSessionBreakdown).toHaveBeenCalledTimes(1);
+    const usage = mockIpc.onCostUsageRecorded.mock.calls[0][0] as (data: unknown) => void;
+    usage({ sessionId: 'sess-aaa' }); await Promise.resolve();
+    expect(mockIpc.costGetSessionBreakdown).toHaveBeenCalledTimes(2);
+  });
+
+  it('shows credit columns for Copilot and the plan explanation only for resolved plan providers', () => {
+    component.summary.set({ ...MOCK_SUMMARY, providers: ['claude'] }); fixture.detectChanges();
+    expect(component.allPlanBilling()).toBe(true);
+    expect(fixture.nativeElement.textContent).toContain('All your accounts are on plans');
+    expect(component.hasCredits()).toBe(false);
+    component.summary.set({ ...MOCK_SUMMARY, providers: ['copilot'], totalAiCreditsNano: 12.4e9 }); fixture.detectChanges();
+    expect(component.hasCredits()).toBe(true);
+    expect(fixture.nativeElement.textContent).toContain('12.4');
+    component.summary.set({ ...MOCK_SUMMARY, providers: ['unknown'] });
+    expect(component.allPlanBilling()).toBe(false);
+  });
+
+  it('shows a Copilot model row in AI credits with no dollar amount', () => {
+    component.summary.set({
+      ...MOCK_SUMMARY,
+      totalCost: 0,
+      providers: ['copilot'],
+      totalAiCreditsNano: 12.4e9,
+      byModel: {
+        'gpt-5': { cost: 0, aiCreditsNano: 12.4e9, inputTokens: 100, outputTokens: 20, requests: 1 },
+      },
+      bySession: {},
+    });
+    fixture.detectChanges();
+    expect(component.modelRows()[0].aiCreditsNano).toBe(12.4e9);
+    const modelRow = fixture.nativeElement.querySelector('.provider-cell')?.closest('tr') as HTMLTableRowElement;
+    expect(modelRow).not.toBeNull();
+    expect(modelRow.textContent).not.toContain('$');
+    expect(modelRow.textContent).toContain('12.4');
+    expect(modelRow.textContent).toContain('AI credits');
+  });
+
+  it('keeps both AI credits and dollars when Copilot and a dollar-priced provider share a model', () => {
+    component.summary.set({
+      ...MOCK_SUMMARY,
+      totalCost: 0.5,
+      providers: ['copilot', 'claude'],
+      totalAiCreditsNano: 12.4e9,
+      byModel: {
+        'gpt-5': { cost: 0.5, aiCreditsNano: 12.4e9, inputTokens: 100, outputTokens: 20, requests: 2 },
+      },
+      bySession: {},
+    });
+    fixture.detectChanges();
+    const row = component.modelRows()[0];
+    expect(component.modelCostLabel(row)).toBe('12.4 AI credits · ≈$0.500000 at API prices');
+    const modelRow = fixture.nativeElement.querySelector('.provider-cell')?.closest('tr') as HTMLTableRowElement;
+    expect(modelRow).not.toBeNull();
+    expect(modelRow.textContent).toContain('12.4');
+    expect(modelRow.textContent).toContain('AI credits');
+    expect(modelRow.textContent).toContain('$0.500000');
+  });
+
+  it('keeps the credits and marks the hidden dollars on a mixed row when showCost is off', () => {
+    (component as unknown as { showCost: () => boolean }).showCost = () => false;
+    component.summary.set({
+      ...MOCK_SUMMARY,
+      totalCost: 0.5,
+      providers: ['copilot', 'claude'],
+      totalAiCreditsNano: 12.4e9,
+      byModel: {
+        'gpt-5': { cost: 0.5, aiCreditsNano: 12.4e9, inputTokens: 100, outputTokens: 20, requests: 2 },
+      },
+      bySession: {},
+    });
+    fixture.detectChanges();
+    const row = component.modelRows()[0];
+    expect(component.modelCostLabel(row)).toBe('12.4 AI credits · Hidden');
+    expect(fixture.nativeElement.textContent).not.toContain('$');
+  });
+
+  it('keeps a credited-only row free of $0.000000 when it has no dollars', () => {
+    component.summary.set({
+      ...MOCK_SUMMARY,
+      totalCost: 0,
+      providers: ['copilot'],
+      totalAiCreditsNano: 12.4e9,
+      byModel: {
+        'gpt-5': { cost: 0, aiCreditsNano: 12.4e9, inputTokens: 100, outputTokens: 20, requests: 1 },
+      },
+      bySession: {},
+    });
+    fixture.detectChanges();
+    expect(component.modelCostLabel(component.modelRows()[0])).toBe('12.4 AI credits');
+  });
+
+  it('retries an unavailable session breakdown after Refresh and reopening the row', async () => {
+    mockIpc.costGetSessionBreakdown
+      .mockResolvedValueOnce({ success: false, error: { message: 'Temporarily unavailable' } })
+      .mockResolvedValue({ success: true, data: { turns: 1, totalCostUsd: 0.01, mainCostUsd: 0.01, helperCostUsd: 0, byModel: [], copilotCache: [] } });
+    component.summary.set({ ...MOCK_SUMMARY, bySession: { 'sess-aaa': { ...MOCK_SUMMARY.bySession['sess-aaa'], instanceId: 'inst-1' } } });
+    fixture.detectChanges();
+    const row = component.sessionRows()[0];
+    await component.toggleSession(row);
+    expect(mockIpc.costGetSessionBreakdown).toHaveBeenCalledTimes(1);
+    expect(component.breakdowns().has(row.sessionId)).toBe(false);
+    await component.refreshAll(true);
+    expect(mockIpc.costGetSessionBreakdown).toHaveBeenCalledTimes(2);
+    await component.toggleSession(row);
+    await component.toggleSession(row);
+    expect(mockIpc.costGetSessionBreakdown).toHaveBeenCalledTimes(2);
+    expect(component.breakdowns().get(row.sessionId)?.turns).toBe(1);
+  });
+
+  it.each([undefined, 12.4e9])('retains a known model subtotal alongside unpriced usage and optional credits %s', aiCreditsNano => {
+    component.summary.set({ ...MOCK_SUMMARY, bySession: {}, byModel: {
+      mixed: { cost: 0.5, aiCreditsNano, hasUnknownCost: true, inputTokens: 100, outputTokens: 20, requests: 2 },
+    } });
+    fixture.detectChanges();
+    const row = fixture.nativeElement.querySelector('.provider-cell')?.closest('tr') as HTMLTableRowElement;
+    expect(row.textContent).toContain('≈$0.500000 at API prices');
+    expect(row.textContent).toContain('some cost not available yet');
+    if (aiCreditsNano !== undefined) expect(row.textContent).toContain('12.4 AI credits');
+    (component as unknown as { showCost: () => boolean }).showCost = () => false;
+    expect(component.modelCostLabel(component.modelRows()[0])).not.toContain('$');
+  });
+
+  it.each([false, true])('retains prior paid usage on a credited session detail, unknown=%s', unknown => {
+    component.summary.set({ ...MOCK_SUMMARY, providers: ['copilot'], bySession: {
+      mixed: { provider: 'copilot', aiCreditsNano: 2e9, cost: 0.5, tokens: 120, requests: 2 },
+    } });
+    component.expandedSessions.set(new Set(['mixed']));
+    component.breakdowns.set(new Map([['mixed', { turns: 2, totalCostUsd: 0.5, estimatedShare: 0,
+      mainCostUsd: 0.2, helperCostUsd: 0.3, splitAvailable: false, aiCreditsNano: 2e9, copilotCache: [],
+      byModel: [{ model: 'mixed-history-model', costUsd: 0.5, costKnown: !unknown, inputTokens: 100,
+        outputTokens: 20, cacheReadTokens: 0, cacheWriteTokens: 0, isMainModel: true }] }]]));
+    fixture.detectChanges();
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('mixed-history-model · 120 tokens · ≈$0.50 at API prices');
+    expect(text).toContain('≈$0.500000 at API prices');
+    expect(text).toContain('2 AI credits');
+    if (unknown) expect(text).toContain('some cost not available yet');
   });
 
   // ── LT-100: estimated-vs-measured cost stays visibly distinguishable ────
@@ -417,19 +585,20 @@ describe('CostPageComponent — computed signals', () => {
     await component.refreshAll(false);
     fixture.detectChanges();
     const root = fixture.nativeElement as HTMLElement;
-    expect(root.querySelector('.metric-value')?.textContent?.trim()).toBe('$0.0123');
+    const metricTexts = () => Array.from(root.querySelectorAll('.metric-value')).map(element => element.textContent?.trim());
+    expect(metricTexts()).toContain('≈$0.0123 at API prices');
     const tableFor = (title: string) => Array.from(root.querySelectorAll('.panel-card'))
       .find(panel => panel.querySelector('.panel-title')?.textContent?.trim() === title)
       ?.querySelector('table');
-    expect(tableFor('Per-Model Breakdown')?.querySelector('tbody tr td:nth-child(2)')?.textContent?.trim()).toBe('$0.009000');
-    expect(tableFor('Per-Session Breakdown')?.querySelector('tbody tr td:nth-child(2)')?.textContent?.trim()).toBe('$0.007000');
-    expect(tableFor('Recent Entries')?.querySelector('tbody tr td:nth-child(7)')?.textContent?.trim()).toBe('$0.004500');
+    expect(tableFor('Per-Model Breakdown')?.querySelector('tbody tr td:nth-child(2)')?.textContent?.trim()).toBe('≈$0.009000 at API prices');
+    expect(tableFor('Per-Session Breakdown')?.querySelector('tbody tr td:nth-child(2)')?.textContent?.trim()).toBe('≈$0.007000 at API prices');
+    expect(tableFor('Recent Entries')?.querySelector('tbody tr td:nth-child(7)')?.textContent?.trim()).toBe('≈$0.004500 at API prices');
     expect(root.textContent).not.toContain('\\$');
     component.entries.set([{ ...MOCK_ENTRIES[0], isEstimated: true }]);
     component.summary.set({ ...MOCK_SUMMARY, hasEstimatedEntries: true, totalEstimatedCost: 0.002 });
     fixture.detectChanges();
-    expect(root.querySelector('.metric-value')?.textContent?.trim()).toBe('~$0.0123');
-    expect(root.textContent).toContain('~$0.004500');
+    expect(metricTexts()).toContain('≈$0.0123 at API prices');
+    expect(root.textContent).toContain('~≈$0.004500 at API prices');
     expect(root.textContent).toContain('~ estimated');
   });
 
@@ -577,14 +746,22 @@ describe('Cost estimate focus hints', () => {
     });
     await TestBed.configureTestingModule({
       imports: [CostPageComponent, RouterTestingModule],
-      providers: [{ provide: CostIpcService, useValue: buildMockIpc() }, ...usageInsightProviders()],
+      providers: [
+        { provide: CostIpcService, useValue: buildMockIpc() },
+        { provide: InstanceStore, useValue: { instances: () => [], setSelectedInstance: vi.fn() } },
+        { provide: HistoryStore, useValue: { entries: () => [], loadHistory: vi.fn(), loadConversation: vi.fn() } },
+        { provide: SettingsStore, useValue: { showCost: () => true } },
+        { provide: ProviderQuotaStore, useValue: { snapshots: () => ({}), accountSnapshots: () => [] } },
+        ...usageInsightProviders(),
+      ],
       errorOnUnknownElements: true,
     }).compileComponents();
     const fixture = TestBed.createComponent(CostPageComponent);
     const component = fixture.componentInstance;
     component.summary.set(MOCK_SUMMARY);
     fixture.detectChanges();
-    const estimateHosts = () => fixture.nativeElement.querySelectorAll('.metric-value[tabindex="0"], td.num-col.mono[tabindex="0"]');
+    const estimateHosts = () => fixture.nativeElement.querySelectorAll('.metrics-row .metric-value[tabindex="0"], td.num-col.mono[tabindex="0"]');
+    expect(fixture.nativeElement.querySelector('[aria-label="Copilot AI credits"] .metric-value').tabIndex).toBe(0);
     expect(estimateHosts()).toHaveLength(0);
     component.summary.set({
       ...MOCK_SUMMARY,

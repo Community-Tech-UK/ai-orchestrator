@@ -1,3 +1,4 @@
+import { NoticeSlotService } from '../notices/notice-slot.service';
 /**
  * Pending Approvals Banner (LT-095)
  *
@@ -19,14 +20,15 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  OnDestroy,
   OnInit,
   computed,
   inject,
   signal,
+  DestroyRef,
 } from '@angular/core';
 import type { PendingApprovalItem } from '../../../../shared/types/permission-registry.types';
 import { PermissionRegistryIpcService } from '../services/ipc/permission-registry-ipc.service';
+import { PermissionApprovalsStore } from './permission-approvals.store';
 import {
   classifyPermissionRisk,
   describeApprovalScope,
@@ -36,8 +38,6 @@ import {
   type PermissionRiskInfo,
 } from './pending-approvals-banner.rules';
 
-const REFRESH_INTERVAL_MS = 2_500;
-const CLOCK_TICK_MS = 1_000;
 const EXTEND_MS = 2 * 60_000;
 
 @Component({
@@ -45,6 +45,7 @@ const EXTEND_MS = 2 * 60_000;
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    @if (slot()) {
     @if (pendingRequests().length > 0) {
       <section class="approvals-banner" role="status" aria-live="polite">
         <div class="banner-header">
@@ -108,6 +109,7 @@ const EXTEND_MS = 2 * 60_000;
           }
         </ul>
       </section>
+    }
     }
   `,
   styles: [`
@@ -300,55 +302,27 @@ const EXTEND_MS = 2 * 60_000;
     }
   `],
 })
-export class PendingApprovalsBannerComponent implements OnInit, OnDestroy {
+export class PendingApprovalsBannerComponent implements OnInit {
   private readonly permissionRegistry = inject(PermissionRegistryIpcService);
-  private refreshTimer: ReturnType<typeof setInterval> | null = null;
-  private clockTimer: ReturnType<typeof setInterval> | null = null;
-  private refreshInFlight = false;
+  private readonly approvals = inject(PermissionApprovalsStore);
 
-  readonly pendingRequests = signal<PendingApprovalItem[]>([]);
+  readonly pendingRequests = this.approvals.pendingRequests;
   readonly working = signal<string | null>(null);
   readonly errorMessage = signal<string | null>(null);
-  private readonly now = signal(Date.now());
+  private readonly now = this.approvals.now;
+
+  protected readonly slot = inject(NoticeSlotService).register('permission-approvals', computed(() => this.pendingRequests().length > 0), inject(DestroyRef));
 
   readonly hasCritical = computed(() =>
     this.pendingRequests().some((item) => this.risk(item).tier === 'critical'),
   );
 
   ngOnInit(): void {
-    void this.refresh();
-    this.refreshTimer = setInterval(() => {
-      void this.refresh();
-    }, REFRESH_INTERVAL_MS);
-    this.clockTimer = setInterval(() => {
-      this.now.set(Date.now());
-    }, CLOCK_TICK_MS);
-  }
-
-  ngOnDestroy(): void {
-    if (this.refreshTimer) {
-      clearInterval(this.refreshTimer);
-      this.refreshTimer = null;
-    }
-    if (this.clockTimer) {
-      clearInterval(this.clockTimer);
-      this.clockTimer = null;
-    }
+    this.approvals.startPolling();
   }
 
   async refresh(): Promise<void> {
-    if (this.refreshInFlight) {
-      return;
-    }
-    this.refreshInFlight = true;
-    try {
-      const response = await this.permissionRegistry.listPending();
-      if (response.success) {
-        this.pendingRequests.set(response.data ?? []);
-      }
-    } finally {
-      this.refreshInFlight = false;
-    }
+    await this.approvals.refresh();
   }
 
   risk(item: PendingApprovalItem): PermissionRiskInfo {
@@ -421,6 +395,6 @@ export class PendingApprovalsBannerComponent implements OnInit, OnDestroy {
   }
 
   private removeItem(id: string): void {
-    this.pendingRequests.update((items) => items.filter((item) => item.id !== id));
+    this.approvals.removeItem(id);
   }
 }

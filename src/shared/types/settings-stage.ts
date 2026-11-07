@@ -6,6 +6,7 @@
  * own reading of what "deprecated" should do.
  */
 
+import { SETTINGS_METADATA } from './settings-metadata';
 import type { SettingMetadata, SettingStage } from './settings-metadata.types';
 
 export const DEFAULT_STAGE: SettingStage = 'stable';
@@ -68,6 +69,7 @@ export interface SettingBadge {
  */
 export function badgesFor(
   meta: Pick<SettingMetadata, 'stage' | 'requiresRestart' | 'dependsOn'>,
+  parentEnabled = false,
 ): SettingBadge[] {
   const badges: SettingBadge[] = [];
   const caveat = stageCaveat(meta);
@@ -80,10 +82,11 @@ export function badgesFor(
       detail: 'Takes effect after you restart the app, not immediately.',
     });
   }
-  if (meta.dependsOn) {
+  if (meta.dependsOn && !parentEnabled) {
+    const label = SETTINGS_METADATA.find(parent => parent.key === meta.dependsOn)?.label ?? 'the parent setting';
     badges.push({
-      text: `requires ${String(meta.dependsOn)}`,
-      detail: `This does nothing unless ${String(meta.dependsOn)} is enabled.`,
+      text: `Needs “${label}” on`,
+      detail: `This does nothing until “${label}” is switched on.`,
     });
   }
   return badges;

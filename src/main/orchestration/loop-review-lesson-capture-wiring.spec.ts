@@ -39,7 +39,7 @@ afterEach(() => {
 describe('captureReviewLessonForVerdict', () => {
   it('captures a lesson when loopSurfaceLessons is unset (default ON)', async () => {
     invoke();
-    await vi.waitFor(() => expect(capture).toHaveBeenCalledWith('A lesson.'));
+    await vi.waitFor(() => expect(capture).toHaveBeenCalledWith('A lesson.', expect.any(Number), 'agent-derived', undefined));
     expect(generate).toHaveBeenCalledWith('memoryDistillation', expect.any(String), expect.any(String));
   });
 
@@ -47,6 +47,11 @@ describe('captureReviewLessonForVerdict', () => {
     settings = { loopSurfaceLessons: true };
     invoke();
     await vi.waitFor(() => expect(capture).toHaveBeenCalledTimes(1));
+  });
+
+  it('captures the originating project key', async () => {
+    captureReviewLessonForVerdict({ loopRunId: 'loop-1', workspaceCwd: '/repo-a/', goal: 'migrate', kind: 'fresh-eyes', verdict });
+    await vi.waitFor(() => expect(capture).toHaveBeenCalledWith('A lesson.', expect.any(Number), 'agent-derived', '/repo-a'));
   });
 
   it('does NOT distill or capture when loopSurfaceLessons is false', () => {

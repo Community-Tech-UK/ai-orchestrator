@@ -3,7 +3,7 @@ import { generateId } from '../../shared/utils/id-generator';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import { getPermissionEnforcer } from '../security/permission-enforcer';
 import { areAgentSecretCardRequestsAllowed } from '../secrets/secret-card-policy';
-import { type PermissionRequest, type PermissionScope } from '../security/permission-manager';
+import { type PermissionRequest } from '../security/permission-manager';
 import {
   loadOptionalProjectRules,
   mapCliPermissionActionToScope,
@@ -13,13 +13,14 @@ import {
 import { maybeAdjudicateDeferredPermission, resetAdjudicatorBreaker } from '../security/approval-adjudicator';
 import { getToolExecutionGate, type ToolExecutionGateDecision } from '../security/tool-execution-gate';
 import type { InstanceContextPort } from './instance-context-port';
+import { deferredPermissionResource } from './deferred-permission-resource';
 
 const logger = getLogger('InstanceManager');
 
 export interface InstancePermissionRequestHost {
   getInstance(id: string): Instance | undefined;
   sendInputResponse(instanceId: string, response: string, permissionKey?: string): Promise<void>;
-  resumeAfterDeferredPermission(instanceId: string, approved: boolean): Promise<void>;
+  resumeAfterDeferredPermission(instanceId: string, approved: boolean, options?: { requestId?: string; denyNote?: string }): Promise<void>;
   addToOutputBuffer(instance: Instance, msg: OutputMessage): void;
   publishOutput(instanceId: string, message: OutputMessage): void;
   emit(event: string, payload: unknown): boolean;
@@ -48,6 +49,20 @@ export class InstancePermissionRequestFlow {
   constructor(private readonly host: InstancePermissionRequestHost) {}
 
   async handleInputRequired(payload: InputRequiredPayload): Promise<void> {
+    try { await this.handleInputRequiredInternal(payload); }
+    catch (error) {
+      if (payload.metadata?.['live'] !== true) throw error;
+      logger.warn('Live permission gate failed closed', { instanceId: payload.instanceId, requestId: payload.requestId });
+      try {
+        await this.host.resumeAfterDeferredPermission(payload.instanceId, false, {
+          requestId: payload.requestId, denyNote: 'Harness could not evaluate this call. Continue without it or try another way.',
+        });
+      } catch { logger.error('Unable to deliver live permission gate refusal'); }
+      this.clearPending(payload.instanceId, payload.requestId);
+    }
+  }
+
+  private async handleInputRequiredInternal(payload: InputRequiredPayload): Promise<void> {
     const instance = this.host.getInstance(payload.instanceId);
     const workingDirectory = instance?.workingDirectory || process.cwd();
 
@@ -199,7 +214,7 @@ export class InstancePermissionRequestFlow {
             id: generateId(),
             timestamp: Date.now(),
             type: 'system' as const,
-            content: `Permission auto-denied for ${toolName}: ${decision.reason}`,
+            content: `Permission auto-denied for ${toolName}: ${decision.reason}${savedDecisionHint(decision)}`,
             metadata: {
               permissionDecision: true,
               ...toPermissionGateMetadata(decision),
@@ -219,18 +234,10 @@ export class InstancePermissionRequestFlow {
       const toolName = meta['tool_name'] as string | undefined;
       const toolInput = meta['tool_input'] as Record<string, unknown> | undefined;
 
-      // Build a permission request for the PermissionManager
-      const scope: PermissionScope = toolName === 'Bash' ? 'bash_execute' : 'tool_use';
-      // Use the FULL command (no truncation): the resource is the match key and
-      // the pattern persisted by an "always" decision. Truncating to 200 chars
-      // dropped the tail of long/compound commands, so an "always" rule for a
-      // long command could never match the (re-built) resource on a later run.
-      const resource = toolName === 'Bash' && toolInput?.['command']
-        ? `bash:${String(toolInput['command'])}`
-        : `tool:${toolName || 'unknown'}`;
+      const { scope, resource } = deferredPermissionResource(toolName, toolInput);
 
       const request: PermissionRequest = {
-        id: `perm-defer-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        id: `perm-${meta['live'] === true ? 'live' : 'defer'}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
         instanceId: payload.instanceId,
         scope,
         resource,
@@ -278,7 +285,9 @@ export class InstancePermissionRequestFlow {
           await this.host.resumeAfterDeferredPermission(
             payload.instanceId,
             decision.action === 'allow',
+            { requestId: payload.requestId },
           );
+          this.clearPending(payload.instanceId, payload.requestId);
         } catch (err) {
           logger.error('Auto-resume after deferred permission failed',
             err instanceof Error ? err : undefined,
@@ -291,7 +300,7 @@ export class InstancePermissionRequestFlow {
             id: generateId(),
             timestamp: Date.now(),
             type: 'system' as const,
-            content: `Permission auto-${decision.action === 'allow' ? 'allowed' : 'denied'} for ${toolName}: ${decision.reason}`,
+            content: `Permission auto-${decision.action === 'allow' ? 'allowed' : 'denied'} for ${toolName}: ${decision.reason}${decision.action === 'deny' ? savedDecisionHint(decision) : ''}`,
             metadata: {
               permissionDecision: true,
               ...toPermissionGateMetadata(decision),
@@ -323,7 +332,8 @@ export class InstancePermissionRequestFlow {
             metadataType: metaType,
           });
           try {
-            await this.host.resumeAfterDeferredPermission(payload.instanceId, adjudicated.approved);
+            await this.host.resumeAfterDeferredPermission(payload.instanceId, adjudicated.approved, { requestId: payload.requestId });
+            this.clearPending(payload.instanceId, payload.requestId);
           } catch (err) {
             logger.error('Auto-resume after adjudicated permission failed', err instanceof Error ? err : undefined, { instanceId: payload.instanceId });
           }
@@ -342,6 +352,8 @@ export class InstancePermissionRequestFlow {
         }
       }
     }
+
+    if (meta['live'] === true && !this.pendingByInputId.has(`${payload.instanceId}:${payload.requestId}`)) return;
 
     // Default behavior: forward to renderer and let the user decide.
     const forwardedPayload = {
@@ -385,6 +397,7 @@ export class InstancePermissionRequestFlow {
     this.pendingByInputId.delete(key);
     // WS-B3: a live human decision breaks the adjudicator's denial streak.
     resetAdjudicatorBreaker(params.instanceId);
+    if (params.scope === 'once' && req.id.startsWith('perm-live-')) return;
     try {
       getPermissionEnforcer().recordUserDecision(params.instanceId, req, params.action, params.scope);
     } catch {
@@ -392,8 +405,20 @@ export class InstancePermissionRequestFlow {
     }
   }
 
+  /** A successful live write resolves the card before the awaiting caller records its rule. */
+  handleResolved(payload: { instanceId: string; requestId: string; reason?: string }): void {
+    const request = this.pendingByInputId.get(`${payload.instanceId}:${payload.requestId}`);
+    if (payload.reason === 'decided' && request?.id.startsWith('perm-live-')) return;
+    this.clearPending(payload.instanceId, payload.requestId);
+  }
+
   clearPending(instanceId: string, requestId: string): void {
     this.pendingByInputId.delete(`${instanceId}:${requestId}`);
+  }
+
+  /** Whether this instance is still waiting on the named request. Client replies must match one. */
+  isPending(instanceId: string, requestId: string): boolean {
+    return this.pendingByInputId.has(`${instanceId}:${requestId}`);
   }
 
   clearInstance(instanceId: string): void {
@@ -425,4 +450,9 @@ export class InstancePermissionRequestFlow {
       timestamp: Date.now(),
     });
   }
+}
+
+function savedDecisionHint(decision: ToolExecutionGateDecision): string {
+  return decision.source === 'permission-rule' && decision.permission.matchedRule?.source === 'user'
+    ? ' It matches a saved decision; remove it under Settings > Permissions > Rules.' : '';
 }

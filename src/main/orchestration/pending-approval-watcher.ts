@@ -43,8 +43,9 @@ export function startPendingApprovalWatcher(options: PendingApprovalWatcherOptio
 
   timer = setInterval(() => {
     try {
+      const pending = options.listPending();
       const digest = pendingApprovalDigest({
-        pending: options.listPending(),
+        pending,
         now: now(),
         minAgeMs: options.minAgeMs ?? APPROVAL_MIN_AGE_MS,
       });
@@ -52,6 +53,7 @@ export function startPendingApprovalWatcher(options: PendingApprovalWatcherOptio
         // Queue cleared: re-arm so the next block is reported promptly rather
         // than swallowed by the previous reminder window.
         lastNotifiedAt = null;
+        if (!pending.some(approval => approval.expiresAt > now())) getNotificationService().resolve('pending-approvals');
         return;
       }
       if (lastNotifiedAt !== null && now() - lastNotifiedAt < remindEvery) return;
@@ -63,6 +65,7 @@ export function startPendingApprovalWatcher(options: PendingApprovalWatcherOptio
       }
       getNotificationService().notify({
         kind: 'pending-approvals',
+        resolveKey: 'pending-approvals',
         title: digest.title,
         body: digest.body,
         urgency: 'normal',

@@ -1,3 +1,4 @@
+import type { RetrievalQueryStrategy } from '../../memory/retrieval-eval/retrieval-query';
 /**
  * Context Manager Type Definitions
  *
@@ -112,6 +113,7 @@ export interface SubQueryParams {
  * Semantic search parameters
  */
 export interface SemanticSearchParams {
+  queryStrategy?: RetrievalQueryStrategy;
   query: string;
   topK?: number;
   minSimilarity?: number;

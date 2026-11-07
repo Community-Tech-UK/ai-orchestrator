@@ -19,6 +19,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { SidebarFooterComponent } from './sidebar-footer.component';
 import { InstanceStore } from '../../core/state/instance.store';
 import { SettingsStore } from '../../core/state/settings.store';
+import { ProviderQuotaStore } from '../../core/state/provider-quota.store';
+import type { ProviderQuotaSnapshot } from '../../../../shared/types/provider-quota.types';
 
 // The component's template is inline but its styleUrl is external, so TestBed
 // cannot resolve its def without this. Styles are irrelevant here — these tests
@@ -63,8 +65,9 @@ describe('SidebarFooterComponent', () => {
     usage: FleetUsage;
     showCost?: boolean;
     /** UX5's cost-hidden hint counts instances in an active turn. */
-    instances?: { id: string; status: string }[];
+    instances?: { id: string; status: string; provider?: string; contextUsage?: { costEstimate?: number } }[];
     costByProvider?: { provider: string; cost: number }[];
+    quota?: ProviderQuotaSnapshot;
   }): Promise<string> {
     TestBed.resetTestingModule();
     await TestBed.configureTestingModule({
@@ -78,6 +81,10 @@ describe('SidebarFooterComponent', () => {
             costByProvider: () => opts.costByProvider ?? [],
             instances: () => opts.instances ?? [],
           },
+        },
+        {
+          provide: ProviderQuotaStore,
+          useValue: { snapshots: () => ({ claude: opts.quota }), accountSnapshots: () => [] },
         },
         {
           provide: SettingsStore,
@@ -152,6 +159,13 @@ describe('SidebarFooterComponent', () => {
     const text = await render({ instanceCount: 1, usage: unreported(2.5), showCost: false });
 
     expect(text).not.toContain('2.50');
+  });
+
+  it('labels the fleet total API-equivalent when it includes plan-billed session use', async () => {
+    const text = await render({ instanceCount: 1, usage: unreported(2.5),
+      instances: [{ id: 'i', status: 'idle', provider: 'claude', contextUsage: { costEstimate: 2.5 } }],
+      quota: { provider: 'claude', ok: true, plan: 'max', takenAt: Date.now(), source: 'admin-api', windows: [] } });
+    expect(text).toContain('API-equivalent');
   });
 
   it('renders nothing when there are no sessions and nothing to report', async () => {

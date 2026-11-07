@@ -1,3 +1,4 @@
+import type { InputContextDelivery } from '../../shared/types/input-context-delivery.types';
 import type { InternalInputSource } from '../../shared/types/input-provenance.types';
 import type { AdapterInputRetryReason } from '../cli/adapters/base-cli-adapter.types';
 
@@ -5,6 +6,9 @@ export interface InstanceSendInputOptions {
   isRetry?: boolean;
   /** Durable user queue row to claim exactly once at provider dispatch. */
   queuedAdmissionId?: string;
+  /** Original published user turn, retained across resolved-turn retries. */
+  inputMessageId?: string;
+  inputContextDelivery?: InputContextDelivery;
   autoContinuation?: boolean;
   automatedInput?: boolean;
   signal?: AbortSignal;

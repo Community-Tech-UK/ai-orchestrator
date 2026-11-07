@@ -1,3 +1,5 @@
+import { isProviderAuthenticationError } from '../cli/adapters/provider-authentication-error';
+import { detectAuthFailureSignal } from './instance-auth-failure-detection';
 import type { Instance, InstanceProvider } from '../../shared/types/instance.types';
 import { isPooledProvider } from '../../shared/types/provider-account.types';
 import type { CommunicationDependencies } from './instance-communication.types';
@@ -146,4 +148,23 @@ export function createAuthRepairAccountDeps(
     probeAuth: (provider, instanceId) => probeInstanceAccountAuth(provider, getInstance(instanceId)),
     switchAccount: (params) => switchAccountAfterSignOut(params, { getInstance, emitSystemMessage }),
   };
+}
+
+/** Reports auth failures with the same captured turn that actually reached dispatch. */
+export function reportAuthFailureTurn(
+  deps: Pick<CommunicationDependencies, 'onAuthFailureTurn'>,
+  getResumeTurn: (instanceId: string) => AuthRepairTurn | undefined,
+  instanceId: string,
+  error: unknown,
+): void {
+  if (!deps.onAuthFailureTurn) return;
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  const authoritative = isProviderAuthenticationError(error);
+  const signal = authoritative
+    ? { reason: `provider protocol reported auth failure: ${errorMessage.slice(0, 160)}` }
+    : detectAuthFailureSignal(errorMessage);
+  if (!signal) return;
+  const lastTurn = getResumeTurn(instanceId);
+  deps.onAuthFailureTurn({ instanceId, reason: signal.reason,
+    resumeTurn: lastTurn ? { ...lastTurn } : null, authoritative });
 }

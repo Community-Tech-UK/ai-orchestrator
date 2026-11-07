@@ -142,6 +142,116 @@ describe('SessionRecallService', () => {
     });
   });
 
+  it('searches pasted logs on their last question using content terms', async () => {
+    const service = new SessionRecallService(
+      { listRuns: () => [] } as unknown as AutomationStore,
+      { listSnapshots: async () => [] } as unknown as AgentTreePersistence,
+      { getAllResults: async () => [makeChildResult(), makeChildResult({ id: 'log-only', taskDescription: 'Debug exception stacktrace', summary: 'debug exception stacktrace', keyDecisions: [] })] } as unknown as ChildResultStorage,
+      () => ({ listArchivedSessions: () => [] }) as unknown as SessionArchiveManager,
+    );
+    const results = await service.search({ query: 'DEBUG exception stacktrace\n'.repeat(100) + 'Why are webhook deliveries failing?', sources: ['child_result'] });
+    expect(results.map(result => result.id)).toEqual(['result-1']);
+  });
+
+  it('matches meaningful short queries and excludes unrelated records', async () => {
+    const service = new SessionRecallService(
+      { listRuns: () => [] } as unknown as AutomationStore,
+      { listSnapshots: async () => [] } as unknown as AgentTreePersistence,
+      {
+        getAllResults: async () => [
+          makeChildResult({
+            id: 'ci-hit',
+            taskDescription: 'CI flakes',
+            summary: 'ci pipeline is red',
+            keyDecisions: [],
+          }),
+          makeChildResult({
+            id: 'db-hit',
+            taskDescription: 'DB retries',
+            summary: 'db connection reset fixes',
+            keyDecisions: [],
+          }),
+          makeChildResult({
+            id: 'noise',
+            taskDescription: 'Webhook report',
+            summary: 'delivery notifications only',
+            keyDecisions: [],
+          }),
+        ],
+      } as unknown as ChildResultStorage,
+      () => ({ listArchivedSessions: () => [] }) as unknown as SessionArchiveManager,
+    );
+
+    await expect(service.search({ query: 'ci', sources: ['child_result'] }))
+      .resolves.toMatchObject([{ id: 'ci-hit' }]);
+    await expect(service.search({ query: 'db', sources: ['child_result'] }))
+      .resolves.toMatchObject([{ id: 'db-hit' }]);
+  });
+
+  it('does not treat nonempty all-stopword queries as match-all', async () => {
+    const service = new SessionRecallService(
+      { listRuns: () => [] } as unknown as AutomationStore,
+      { listSnapshots: async () => [] } as unknown as AgentTreePersistence,
+      {
+        getAllResults: async () => [
+          makeChildResult({ id: 'one', summary: 'ci pipeline is red', keyDecisions: [] }),
+          makeChildResult({ id: 'two', summary: 'db connection reset', keyDecisions: [] }),
+        ],
+      } as unknown as ChildResultStorage,
+      () => ({ listArchivedSessions: () => [] }) as unknown as SessionArchiveManager,
+    );
+
+    const results = await service.search({ query: 'the and to', sources: ['child_result'] });
+    expect(results).toEqual([]);
+  });
+
+  it('keeps blank-query browse behavior', async () => {
+    const service = new SessionRecallService(
+      { listRuns: () => [] } as unknown as AutomationStore,
+      { listSnapshots: async () => [] } as unknown as AgentTreePersistence,
+      {
+        getAllResults: async () => [
+          makeChildResult({ id: 'one', summary: 'ci pipeline is red', keyDecisions: [] }),
+          makeChildResult({ id: 'two', summary: 'db connection reset', keyDecisions: [] }),
+        ],
+      } as unknown as ChildResultStorage,
+      () => ({ listArchivedSessions: () => [] }) as unknown as SessionArchiveManager,
+    );
+
+    const results = await service.search({ query: '   ', sources: ['child_result'] });
+    expect(results.map(result => result.id)).toEqual(['one', 'two']);
+  });
+
+  it('uses the pasted-log final question with stopword removal and stemming', async () => {
+    const service = new SessionRecallService(
+      { listRuns: () => [] } as unknown as AutomationStore,
+      { listSnapshots: async () => [] } as unknown as AgentTreePersistence,
+      {
+        getAllResults: async () => [
+          makeChildResult({
+            id: 'migration-hit',
+            taskDescription: 'Fix migration rollback',
+            summary: 'migration fail after restart',
+            keyDecisions: [],
+          }),
+          makeChildResult({
+            id: 'noise',
+            taskDescription: 'Webhook retries',
+            summary: 'delivery queue tuning',
+            keyDecisions: [],
+          }),
+        ],
+      } as unknown as ChildResultStorage,
+      () => ({ listArchivedSessions: () => [] }) as unknown as SessionArchiveManager,
+    );
+
+    const results = await service.search({
+      query: `STACKTRACE\n${'module error\n'.repeat(120)}Why are migrations failing after the restart?`,
+      sources: ['child_result'],
+    });
+    expect(results.map(result => result.id)).toEqual(['migration-hit']);
+  });
+
   it('surfaces stuck child diagnostics by provider and model', async () => {
     const snapshot = makeSnapshot();
     const service = new SessionRecallService(

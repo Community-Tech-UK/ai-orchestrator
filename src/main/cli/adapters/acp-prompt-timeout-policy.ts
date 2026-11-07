@@ -207,13 +207,12 @@ export function describeAcpStallWarning(wait: AcpTurnWait, inactiveMs: number): 
   const seconds = Math.round(inactiveMs / 1000);
   switch (wait.kind) {
     case 'permission':
-      return `Waiting ${seconds}s for a response to the permission request (${wait.subject}).`;
+      return `Waiting ${seconds}s for your answer to a permission request (${wait.subject}).`;
     case 'tool':
-      if (wait.childActivity) return `Tool call ${wait.subject}: ${wait.childActivity === 'observed' ? `child activity observed ${Math.round((wait.lastChildActivityAgeMs ?? 0) / 1000)}s ago` : 'no child activity observed'}. `
-        + `Lease remaining: ${Math.ceil((wait.leaseRemainingMs ?? 0) / 60_000)} minutes.`;
-      return `Tool call ${wait.subject} has been ${wait.status} for ${seconds}s with no update.`;
+      if (wait.childActivity) return `${wait.subject} is still running (${wait.childActivity === 'observed' ? `${Math.round((wait.lastChildActivityAgeMs ?? 0) / 1000)}s since its last activity` : 'no activity reported yet'}). `
+        + `Harness waits up to ${Math.ceil((wait.leaseRemainingMs ?? 0) / 60_000)} more minutes for it.`;
+      return `${wait.subject} has been running for ${seconds}s with no update.`;
     default:
-      return `This turn hasn't produced any output for ${seconds}s — it may be stuck. `
-        + 'Cancel the turn to try again.';
+      return `No output for ${seconds}s. You can stop this turn and send again, or keep waiting.`;
   }
 }

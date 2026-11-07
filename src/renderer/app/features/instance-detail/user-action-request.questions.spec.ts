@@ -156,7 +156,7 @@ describe('answering a waiting question from the message box', () => {
 
       expect(ipc.respondToInputRequired.mock.calls.at(-1)?.slice(0, 4)).toEqual(['inst-a', 'req-1', 'Flow: Autonomous', undefined]);
       expect(text()).not.toContain('Which posting flow?');
-      expect(store.decrementPendingApproval).toHaveBeenCalledWith('inst-a');
+      expect(store.decrementPendingApproval).toHaveBeenCalledWith('inst-a', 'req-1');
       expect(receiptLines()).toEqual(['You answered: Autonomous']);
     });
 

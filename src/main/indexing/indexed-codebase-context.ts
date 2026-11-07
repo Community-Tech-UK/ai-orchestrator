@@ -1,3 +1,4 @@
+import type { RetrievalQueryStrategy } from '../memory/retrieval-eval/retrieval-query';
 import * as path from 'node:path';
 import { getLogger } from '../logging/logger';
 import { getCodeRetrievalService } from '../codemem';
@@ -41,6 +42,7 @@ export interface IndexedCodebaseContextInfo {
 }
 
 export interface IndexedCodebaseContextRequest {
+  queryStrategy?: RetrievalQueryStrategy;
   workspacePath: string;
   query: string;
   maxTokens?: number;
@@ -113,6 +115,7 @@ export class IndexedCodebaseContextService {
       rawResults = await search.search({
         workspacePath,
         query,
+        ...(request.queryStrategy ? { queryStrategy: request.queryStrategy } : {}),
         limit: request.topK ?? DEFAULT_TOP_K,
         maxTokens: request.maxTokens ?? DEFAULT_MAX_TOKENS,
         allowIndexWarm: false,

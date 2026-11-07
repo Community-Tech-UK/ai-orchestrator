@@ -112,7 +112,7 @@ export function buildRepairActions(diagnosis: DiagnosisForRepair): RepairAction[
           // guidance, not a critical fault that demands resolution.
           description: provider === 'opencode'
             ? 'Optional — install OpenCode 2. This replaces the OpenCode 1 opencode command; opencode2 also becomes available. Run this command only when you choose to switch.'
-            : `Optional — install the ${provider} CLI only if you want to use this provider. The orchestrator runs fine without it.`,
+            : `Optional — install the ${provider} CLI only if you want to use this provider. Harness runs fine without it.`,
           severity: 'info',
         });
         break;

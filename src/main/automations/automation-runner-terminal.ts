@@ -8,6 +8,8 @@
 
 import { getLogger } from '../logging/logger';
 import { getNotificationService } from '../notifications/notification-service';
+import { presentAutomationFailure } from '../../shared/copy/automation-failure-copy';
+import { renderUserMessage } from '../../shared/copy/user-message';
 import type {
   Automation,
   AutomationRun,
@@ -28,9 +30,9 @@ export function notifyAutomationDisabled(automationId: string, consecutiveFailur
   try {
     getNotificationService().notify({
       kind: 'automation-breaker',
-      title: 'Automation auto-disabled',
+      title: 'Automation paused after repeated failures',
       body: `Disabled after ${consecutiveFailures ?? 'repeated'} consecutive failures`
-        + `${reason ? ` (last: ${reason.slice(0, 200)})` : ''}. Re-enable it from the Automations page.`,
+        + `. ${reason ? renderUserMessage(presentAutomationFailure(reason)) + ' ' : ''}Re-enable it from the Automations page.`,
       urgency: 'critical',
       fingerprintFields: { automationId },
     });

@@ -18,7 +18,7 @@
     <option value="trusted">Session · trusted</option>
     <option value="unrestricted">Session · unrestricted</option>
   </select>
-  <span class="computer-use-lifecycle" [id]="descriptionId()">next call · no restart · session only</span>
+  <span class="computer-use-lifecycle" [hidden]="compact()" [id]="descriptionId()">next call · no restart · session only</span>
   @if (presentation().relation === 'elevated') {
     <span class="computer-use-lifecycle">Elevated permissions are active for this session.</span>
   } @else if (presentation().relation === 'lowered') {

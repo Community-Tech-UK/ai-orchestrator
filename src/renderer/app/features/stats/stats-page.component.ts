@@ -67,7 +67,7 @@ const PERIODS: Period[] = ['day', 'week', 'month', 'year', 'all'];
       <!-- Page header -->
       <div class="page-header">
         <div class="header-title">
-          <span class="title">Statistics & Metrics</span>
+          <span class="title">Statistics</span>
           <span class="subtitle">Usage analytics, tool metrics, and session summaries</span>
         </div>
         <div class="header-actions">

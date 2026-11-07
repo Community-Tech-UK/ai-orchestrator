@@ -68,6 +68,7 @@ export function buildAwayRecap(input: AwayRecapInput): AwayRecap | null {
 
   const cards: AwayRunCard[] = ended.map((run) => ({
     runId: run.id,
+    chatId: run.chatId,
     goal: clip(run.initialPrompt, MAX_GOAL_CHARS),
     outcome: classifyAwayOutcome(run),
     status: run.status,

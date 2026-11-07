@@ -9,6 +9,8 @@
 export type PermissionsSection = 'requests' | 'rules' | 'audit' | 'insights';
 
 export interface PermissionsApi {
+  permissionListUserRules?: () => Promise<{ success: boolean; data?: import('../../../../shared/types/saved-permission-rule.types').SavedPermissionRule[] }>;
+  permissionRemoveUserRule?: (ruleId: string) => Promise<{ success: boolean; data?: boolean }>;
   permissionGetPendingBatch?: () => Promise<{ success: boolean; data?: { requests?: unknown[] } }>;
   permissionGetLearnedPatterns?: () => Promise<{ success: boolean; data?: LearnedPattern[] }>;
   permissionGetStats?: () => Promise<{ success: boolean; data?: Partial<PermissionStats> }>;

@@ -21,6 +21,9 @@ import {
   effect,
   untracked
 } from '@angular/core';
+import { SessionStatusDockComponent } from './session-status-dock.component';
+import { buildSecondOpinionFollowUp } from './second-opinion-followup';
+import type { PendingSelection } from '../models/compact-model-picker.types';
 import { Router } from '@angular/router';
 import { ContextWarningComponent } from './context-warning.component';
 import { IdleCacheHintComponent } from './idle-cache-hint.component';
@@ -59,7 +62,6 @@ import { InstanceWelcomeComponent } from './instance-welcome.component';
 import type { NewSessionSubmitRequest } from './input-panel-new-session-submit';
 import { CrossModelReviewPanelComponent } from './cross-model-review-panel.component';
 import { ProviderDiagnosticsPanelComponent } from './provider-diagnostics-panel.component';
-import { SessionStatusDockComponent } from './session-status-dock.component';
 import { resolveEscapeRouting } from './session-status-dock.rules';
 import { SessionStatusCardComponent } from './session-status-card.component';
 import { CrossModelReviewIpcService } from '../../core/services/ipc/cross-model-review-ipc.service';
@@ -76,7 +78,6 @@ import { WelcomeCoordinatorService } from './welcome-coordinator.service';
 import { HistoryPreviewSessionService } from './history-preview-session.service';
 import { FileAttachmentService } from './file-attachment.service';
 import { UnifiedCatalogStore } from '../models/unified-catalog.store';
-import type { PendingSelection } from '../models/compact-model-picker.types';
 import type { HudQuickAction } from '../../../../shared/types/orchestration-hud.types';
 import { resolveClaudeContextNote, resolveContextWarningLevel } from './context-warning-level';
 import {
@@ -270,6 +271,8 @@ export class InstanceDetailComponent {
     // provider-session change (including a fresh restart of the same instance).
     void this.store.selectedInstanceIdentity();
     void this.store.selectedInstanceSessionId();
+
+    this.showCrossModelReviewPanel.set(false);
 
     this.showCrossModelReviewPanel.set(false);
 
@@ -701,60 +704,11 @@ export class InstanceDetailComponent {
       const review = this.currentReview();
       if (!review) return;
 
-      // Filter out reviews where parsing failed — these have meaningless default scores
-      const successfulReviews = review.reviews.filter(r => r.parseSuccess);
-      if (successfulReviews.length === 0) {
-        // All reviews failed to parse — nothing actionable to send
-        console.warn('All cross-model reviews failed to parse, skipping feedback injection');
-        this.crossModelReviewService.dismiss({ reviewId: event.reviewId, instanceId: event.instanceId });
-        return;
-      }
-
-      const concerns = successfulReviews
-        .flatMap(r => Object.values(r.scores).flatMap(s => s?.issues ?? []))
-        .filter(Boolean);
-
-      if (concerns.length > 0) {
-        const message = `Cross-model review flagged these issues:\n${concerns.map(c => `- ${c}`).join('\n')}\n\nPlease address them.`;
-        this.onSendMessage(message);
-      } else {
-        // Fallback: issues arrays are empty but scores are low — build message from scores and summaries
-        const scoreLines: string[] = [];
-        for (const result of successfulReviews) {
-          for (const [category, data] of Object.entries(result.scores)) {
-            if (data && data.score <= 2) {
-              const reasoning = data.reasoning && data.reasoning !== 'No data' && data.reasoning !== 'Unable to parse'
-                ? `: ${data.reasoning}` : '';
-              scoreLines.push(`- ${category} scored ${data.score}/4${reasoning}`);
-            }
-          }
-        }
-
-        const summaries = successfulReviews
-          .map(r => r.summary)
-          .filter(s => s && s !== 'Unable to parse reviewer response' && s !== 'Partially parsed response');
-
-        if (scoreLines.length === 0 && summaries.length === 0) {
-          // Successfully parsed but nothing actionable — don't inject empty feedback
-          this.crossModelReviewService.dismiss({ reviewId: event.reviewId, instanceId: event.instanceId });
-          return;
-        }
-
-        const parts: string[] = ['Cross-model review flagged concerns with your last response.'];
-        if (scoreLines.length > 0) {
-          parts.push(`\nLow scores:\n${scoreLines.join('\n')}`);
-        }
-        if (summaries.length > 0) {
-          parts.push(`\nReviewer feedback:\n${summaries.map(s => `> ${s}`).join('\n')}`);
-        }
-        parts.push('\nPlease review and address these concerns.');
-
-        this.onSendMessage(parts.join('\n'));
-      }
+      const message = buildSecondOpinionFollowUp(review);
+      if (message) this.onSendMessage(message);
     }
 
     // Always dismiss the review panel after any action
-    this.showCrossModelReviewPanel.set(false);
     this.crossModelReviewService.dismiss({ reviewId: event.reviewId, instanceId: event.instanceId });
   }
 
@@ -1143,11 +1097,11 @@ export class InstanceDetailComponent {
     const effectiveTarget = inst.pendingYoloMode ?? inst.yoloMode;
     const willEnable = !effectiveTarget;
     if (willEnable) {
-      const confirmed = await this.confirmService.confirm({ message: 'Enable YOLO mode? This will auto-approve all tool calls for this session.' +
+      const confirmed = await this.confirmService.confirm({ message: 'Enable Auto-approve? Runs tools and edits without asking you.' +
           (this.yoloCostNote() ? `\n\n${this.yoloCostNote()}` : '') +
           (inst.status === 'busy'
-            ? '\n\nThe session is busy — YOLO will turn on automatically once the current turn finishes.'
-            : ''), confirmLabel: 'Enable YOLO', danger: true });
+            ? '\n\nThe session is busy — Auto-approve will turn on automatically once the current turn finishes.'
+            : ''), confirmLabel: 'Enable Auto-approve', danger: true });
       if (!confirmed) return;
     }
 

@@ -102,6 +102,8 @@ import { QuickAskPanelComponent } from './quick-ask-panel.component';
 import { ColdCacheChipComponent } from './cold-cache-chip.component';
 import { ColdCacheResumeService } from './cold-cache-resume.service';
 import { setTextareaValueAtEnd } from './input-panel-textarea';
+import { ComposerQuotaNoticeComponent } from './composer-quota-notice.component';
+import { describePostureSentence, postureFromInstance } from '../../../../shared/session-posture';
 import { ComposerBannersComponent } from './composer-banners.component';
 import { ComposerRecoveryBannerComponent } from './composer-recovery-banner.component';
 import { RunReadinessBannerComponent, RunReadinessGate } from './run-readiness-banner.component';
@@ -162,6 +164,7 @@ const LOOP_START_ACK_TIMEOUT_MS = 30_000;
     ComposerToolbarComponent,
     QuickAskPanelComponent,
     ColdCacheChipComponent,
+    ComposerQuotaNoticeComponent,
     RunReadinessBannerComponent,
     LoopToggleComponent,
     LoopConfigPanelComponent,
@@ -704,6 +707,10 @@ export class InputPanelComponent implements OnDestroy {
     const draftValue = this.newSessionDraft.yoloMode();
     return draftValue ?? this.settingsStore.defaultYoloMode();
   });
+  readonly draftPostureSentence = computed(() => describePostureSentence(postureFromInstance({
+    agentId: this.selectedAgentId(), yoloMode: this.effectiveYoloMode(),
+    hardened: this.draftHardened() && !this.hardenedUnavailable(),
+  })));
 
   /** Fast mode is supported by Claude and Codex and remembered per provider. */
   readonly showDraftFastModeToggle = computed(() => {
@@ -1808,8 +1815,8 @@ export class InputPanelComponent implements OnDestroy {
     return provider !== 'auto' && !isHardenedModeSupported(provider);
   });
   readonly hardenedLabel = computed(() => {
-    if (!this.hardenedUnavailable()) return this.draftHardened() ? 'ON' : 'OFF';
-    return this.draftHardened() ? 'ON — unsupported' : 'N/A';
+    if (!this.hardenedUnavailable()) return this.draftHardened() ? 'on' : 'off';
+    return `not available for ${hardenedProviderName(this.selectedProvider())}`;
   });
   readonly hardenedTitle = computed(() => {
     if (this.hardenedUnavailable()) {

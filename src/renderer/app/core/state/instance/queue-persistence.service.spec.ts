@@ -367,7 +367,7 @@ describe('QueuePersistenceService', () => {
 
       expect(entry.notDurable).toBe(true);
       expect(toastMock.show).toHaveBeenCalledTimes(1);
-      expect(toastMock.show).toHaveBeenCalledWith(expect.stringContaining('could not be saved'), 'error');
+      expect(toastMock.show).toHaveBeenCalledWith(expect.stringContaining('could not be saved'), 'error', { key: 'queue-persistence' });
       expect(ipcMock.queueEnqueue).toHaveBeenCalledTimes(1);
 
       // First backoff retry (2s) — still failing.

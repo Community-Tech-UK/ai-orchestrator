@@ -147,6 +147,8 @@ export interface UnifiedSpawnOptions {
    *  When true, uses `control_request{interrupt}` instead of SIGINT.
    *  Defaults from AppSettings.residentClaudeSession. */
   residentClaude?: boolean;
+  /** Claude in-turn permission cards. Explicit opt-in; machine work is excluded by spawn policy. */
+  livePermissionPrompts?: boolean;
   /** Minimal mode (Claude CLI only): skip hooks, LSP, plugins for faster startup.
    *  Requires explicit API key — OAuth/keychain auth is skipped. Defaults to false. */
   bare?: boolean;

@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { loopTerminalNotice } from './loop-terminal-notification';
+import { loopTerminalNotice, notifyLoopTerminal, notifyLoopFailedStepPause } from './loop-terminal-notification';
 
 const base = { iterations: 3, notifyEnabled: true, goal: 'Fix the login flow' } as const;
 
@@ -96,4 +96,15 @@ describe('loopTerminalNotice (N1)', () => {
     });
     expect(notice?.body).toContain('first line second line');
   });
+});
+
+const notification = vi.hoisted(() => ({ notify: vi.fn() }));
+vi.mock('../notifications/notification-service', () => ({ getNotificationService: () => notification }));
+vi.mock('../core/config/settings-manager', () => ({ getSettingsManager: () => ({ get: () => true }) }));
+it('terminal and failed-step pause notices both open the loop session', () => {
+  notification.notify.mockClear();
+  const state = { id: 'run-1', chatId: 'session-1', totalIterations: 3, config: { initialPrompt: 'Fix login' } } as import('../../shared/types/loop.types').LoopState;
+  notifyLoopTerminal(state, 'attempt-failed');
+  notifyLoopFailedStepPause(state, 'Step failed');
+  expect(notification.notify.mock.calls.map(call => call[0].instanceId)).toEqual(['session-1', 'session-1']);
 });

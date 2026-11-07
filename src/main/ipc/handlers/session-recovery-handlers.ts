@@ -94,7 +94,7 @@ function restoreFailure(error: unknown): IpcResponse {
   if (code === 'ORCHESTRATOR_PAUSED' || isOrchestratorPausedError(error)) {
     return responseError(
       'ORCHESTRATOR_PAUSED',
-      'Session recovery refused while orchestrator is paused',
+      'Session recovery refused while Harness is paused',
     );
   }
   if (message.startsWith('Recovery candidate is unavailable')

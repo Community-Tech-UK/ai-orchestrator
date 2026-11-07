@@ -18,13 +18,13 @@ import {
   signal,
 } from '@angular/core';
 import { InstanceStore, Instance } from '../../core/state/instance.store';
+import { presentInstanceStatus } from '../../../../shared/attention/instance-status-presentation';
 import { StatusIndicatorComponent } from '../instance-list/status-indicator.component';
 import { deriveChildState, type ChildDerivedState } from '../../../../shared/utils/child-state-deriver';
 import type { HudQuickAction } from '../../../../shared/types/orchestration-hud.types';
 import { toHudChildInput } from '../orchestration/orchestration-instance-adapter';
 import type { HudChildInput } from '../../../../shared/utils/orchestration-hud-builder';
 import type { InstanceWaitReason } from '../../../../shared/types/instance-wait-reason.types';
-import { presentInstanceStatus } from '../../../../shared/attention/instance-status-presentation';
 
 interface ChildInfo {
   id: string;

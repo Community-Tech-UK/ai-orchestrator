@@ -58,6 +58,7 @@ export class OrchestrationActivityBridge {
   private boundListeners: BoundListener[] = [];
   private debateInstanceMap = new Map<string, string>();
   private verificationInstanceMap = new Map<string, string>();
+  private reasoningSentAt = new Map<string, number>();
   private derivedVerdictIds = new Set<string>();
 
   // eslint-disable-next-line @typescript-eslint/no-empty-function -- singleton pattern
@@ -87,6 +88,19 @@ export class OrchestrationActivityBridge {
     this.debateInstanceMap.set(debateId, instanceId);
   }
 
+  /** Transient progress only; no reasoning body is persisted or sent back to a model. */
+  reportReasoning(instanceId: string, text: string): void {
+    if (!this.windowManager || !text.trim()) return;
+    const now = Date.now();
+    const previous = this.reasoningSentAt.get(instanceId);
+    if (previous !== undefined && now - previous < 2500) return;
+    if (this.reasoningSentAt.size >= 512 && !this.reasoningSentAt.has(instanceId)) {
+      this.reasoningSentAt.delete(this.reasoningSentAt.keys().next().value!);
+    }
+    this.reasoningSentAt.set(instanceId, now);
+    this.send({ instanceId, activity: `Thinking · ${text}`, category: 'reasoning' });
+  }
+
   cleanup(): void {
     for (const { emitter, event, handler } of this.boundListeners) {
       emitter.removeListener(event, handler);
@@ -95,6 +109,7 @@ export class OrchestrationActivityBridge {
     this.debateInstanceMap.clear();
     this.verificationInstanceMap.clear();
     this.derivedVerdictIds.clear();
+    this.reasoningSentAt.clear();
     this.windowManager = null;
   }
 

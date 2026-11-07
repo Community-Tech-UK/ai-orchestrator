@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Instance } from '../../../../shared/types/instance.types';
+import { ClaudeLivePermissionBroker } from '../../../cli/adapters/claude-live-permission';
 import { DeferredPermissionHandler } from '../deferred-permission-handler';
 import { InstanceStateMachine } from '../../instance-state-machine';
 
@@ -47,7 +48,7 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
 }
 
 describe('DeferredPermissionHandler', () => {
-  it('writes the decision, respawns with --resume, and restores the instance to idle', async () => {
+  it.each([[true, 'Use local files.'], [false, 'Use local files.'], [false, undefined], [false, '   ']] as const)('writes the decision and resumes (approved=%s, note=%s)', async (approved, denyNote) => {
     const instance = makeInstance();
     const oldAdapter = {
       getName: vi.fn().mockReturnValue('claude-cli'),
@@ -100,12 +101,13 @@ describe('DeferredPermissionHandler', () => {
     };
     const handler = new DeferredPermissionHandler(deps, ops, services);
 
-    await handler.resumeAfterDeferredPermission(instance.id, true);
+    await handler.resumeAfterDeferredPermission(instance.id, approved, undefined, { denyNote });
 
     expect(services.writeDecision).toHaveBeenCalledWith(
       'tool-1',
-      'allow',
-      'User approved via orchestrator UI',
+      approved ? 'allow' : 'deny',
+      approved ? 'User approved via orchestrator UI' : denyNote?.trim()
+        ? 'Harness: the user declined this call. Use local files.' : 'User denied via orchestrator UI',
       undefined,  // no updatedInput — plain allow
     );
     expect(oldAdapter.terminate).toHaveBeenCalledWith(true);
@@ -298,7 +300,7 @@ describe('DeferredPermissionHandler', () => {
   // waiting_for_permission -> respawning; interrupting -> respawning is a legal
   // transition, so nothing else guards against a stale respawn racing the
   // in-flight interrupt.
-  it('LT-137: skips the respawn (but still writes the decision) when an interrupt is already in flight', async () => {
+  it.each([true, false])('LT-137: skips respawn but writes the decision during an interrupt (approved=%s)', async approved => {
     const instance = makeInstance({ status: 'waiting_for_permission' });
 
     const oldAdapter = {
@@ -359,14 +361,14 @@ describe('DeferredPermissionHandler', () => {
     const handler = new DeferredPermissionHandler(deps, ops, services);
 
     await expect(
-      handler.resumeAfterDeferredPermission(instance.id, true),
+      handler.resumeAfterDeferredPermission(instance.id, approved),
     ).resolves.toBeUndefined();
 
     // The decision is still recorded so it isn't silently lost...
     expect(services.writeDecision).toHaveBeenCalledWith(
       'tool-1',
-      'allow',
-      'User approved via orchestrator UI (interrupt in flight)',
+      approved ? 'allow' : 'deny',
+      approved ? 'User approved via orchestrator UI (interrupt in flight)' : 'User denied via orchestrator UI (interrupt in flight)',
       undefined,
     );
     // ...but the respawn itself is skipped: no terminate/spawn of a second adapter.
@@ -374,5 +376,116 @@ describe('DeferredPermissionHandler', () => {
     expect(ops.createCliAdapter).not.toHaveBeenCalled();
     expect(newAdapter.spawn).not.toHaveBeenCalled();
     expect(instance.status).toBe('interrupting');
+  });
+});
+
+
+describe('live permission fast path', () => {
+  function setup() {
+    const instance = makeInstance();
+    const answers: unknown[] = [];
+    const pending = new Set(['card-one', 'card-two']);
+    const broker = { hasPending: () => pending.size > 0, whenAnswered: vi.fn(async () => undefined), answer: (id: string | undefined, answer: unknown) => {
+      const key = id ?? (pending.size === 1 ? [...pending][0] : undefined);
+      if (!key || !pending.delete(key)) return false;
+      answers.push({ id: key, answer }); return true;
+    } };
+    const adapter = { livePermissions: broker, getDeferredToolUse: () => null, terminate: vi.fn() };
+    const deps = { getInstance: () => instance, getAdapter: vi.fn().mockReturnValue(adapter), setAdapter: vi.fn(), deleteAdapter: vi.fn(), setupAdapterEvents: vi.fn(), queueUpdate: vi.fn() };
+    const ops = { transitionState: vi.fn(), resolveCliTypeForInstance: vi.fn(), getMcpConfig: vi.fn(), getPermissionHookPath: vi.fn(), waitForResumeHealth: vi.fn(), createCliAdapter: vi.fn(), acquireSessionMutex: vi.fn().mockResolvedValue(() => undefined) };
+    const services = { writeDecision: vi.fn(), getDecisionDir: vi.fn(), createDiffTracker: vi.fn() };
+    return { instance, pending, answers, adapter, ops, services, handler: new DeferredPermissionHandler(deps, ops, services) };
+  }
+  it('answers the exact card with edited input and deny note before any mutex, mutation or respawn', async () => {
+    const s = setup();
+    await s.handler.resumeAfterDeferredPermission(s.instance.id, false, undefined, { requestId: 'card-two', denyNote: 'Use local data.' });
+    expect(s.answers).toEqual([{ id: 'card-two', answer: { approved: false, updatedInput: undefined, note: 'Use local data.' } }]);
+    await s.handler.resumeAfterDeferredPermission(s.instance.id, true, { url: 'https://example.com' }, { requestId: 'card-one', yoloMode: true });
+    expect(s.answers[1]).toEqual({ id: 'card-one', answer: { approved: true, updatedInput: { url: 'https://example.com' }, note: undefined } });
+    expect(s.instance.yoloMode).toBe(false);
+    expect(s.ops.acquireSessionMutex).not.toHaveBeenCalled(); expect(s.adapter.terminate).not.toHaveBeenCalled(); expect(s.ops.createCliAdapter).not.toHaveBeenCalled();
+  });
+  it('awaits the live write and propagates failure without recording or falling into held recovery', async () => {
+    const s = setup();
+    s.adapter.livePermissions.whenAnswered.mockRejectedValueOnce(new Error('control write failed'));
+    await expect(s.handler.resumeAfterDeferredPermission(s.instance.id, true, undefined, { requestId: 'card-one' })).rejects.toThrow('control write failed');
+    expect(s.ops.acquireSessionMutex).not.toHaveBeenCalled(); expect(s.adapter.terminate).not.toHaveBeenCalled(); expect(s.services.writeDecision).not.toHaveBeenCalled();
+  });
+  it('selects the sole ask for legacy id-less callers but never guesses between multiple asks', async () => {
+    const s = setup();
+    await expect(s.handler.resumeAfterDeferredPermission(s.instance.id, true)).rejects.toThrow('No deferred tool use');
+    expect(s.answers).toEqual([]);
+    s.pending.delete('card-two');
+    await s.handler.resumeAfterDeferredPermission(s.instance.id, true);
+    expect(s.answers).toHaveLength(1);
+  });
+  it('refuses a stale explicit id instead of authorizing a different pending live call', async () => {
+    const s = setup(); s.pending.delete('card-two');
+    await expect(s.handler.resumeAfterDeferredPermission(s.instance.id, true, undefined, { requestId: 'stale' })).rejects.toThrow();
+    expect(s.answers).toEqual([]); expect(s.adapter.terminate).not.toHaveBeenCalled();
+  });
+  it('never lets a cancelled live card approve an unrelated held tool when no ask is pending', async () => {
+    const instance = makeInstance();
+    let cancelledCardId = '';
+    const broker = new ClaudeLivePermissionBroker({
+      emit: (event: string, payload: unknown) => {
+        if (event === 'input_required') cancelledCardId = (payload as { id: string }).id;
+        return true;
+      },
+      sendRawControl: async () => undefined,
+    });
+    broker.handle('control_request', {
+      request_id: 'control-webfetch',
+      request: { subtype: 'can_use_tool', tool_name: 'WebFetch', input: { url: 'https://example.com' } },
+    });
+    expect(broker.hasPending()).toBe(true);
+    broker.dropAll('cancelled');
+    expect(cancelledCardId).not.toBe('');
+    const writeDecision = vi.fn();
+    const oldAdapter = {
+      livePermissions: broker,
+      getName: vi.fn().mockReturnValue('claude-cli'),
+      getRuntimeCapabilities: vi.fn().mockReturnValue({
+        supportsResume: true,
+        supportsForkSession: false,
+        supportsNativeCompaction: false,
+        supportsPermissionPrompts: true,
+        supportsDeferPermission: true,
+      }),
+      terminate: vi.fn().mockResolvedValue(undefined),
+      getDeferredToolUse: vi.fn().mockReturnValue({
+        toolName: 'Bash',
+        toolInput: { command: 'pwd' },
+        toolUseId: 'held-new-call',
+        sessionId: 'session-resume-1',
+        deferredAt: 10,
+      }),
+    } as const;
+    const handler = new DeferredPermissionHandler(
+      {
+        getInstance: vi.fn().mockReturnValue(instance),
+        getAdapter: vi.fn().mockReturnValue(oldAdapter),
+        setAdapter: vi.fn(),
+        deleteAdapter: vi.fn(),
+        setupAdapterEvents: vi.fn(),
+        queueUpdate: vi.fn(),
+      },
+      {
+        transitionState: vi.fn(),
+        resolveCliTypeForInstance: vi.fn(),
+        getMcpConfig: vi.fn(),
+        getPermissionHookPath: vi.fn(),
+        waitForResumeHealth: vi.fn(),
+        createCliAdapter: vi.fn(),
+        acquireSessionMutex: vi.fn().mockResolvedValue(() => undefined),
+      },
+      { writeDecision, getDecisionDir: vi.fn(), createDiffTracker: vi.fn() },
+    );
+
+    await expect(
+      handler.resumeAfterDeferredPermission(instance.id, true, undefined, { requestId: cancelledCardId }),
+    ).rejects.toThrow('Live permission request is no longer pending');
+    expect(writeDecision).not.toHaveBeenCalled();
+    expect(oldAdapter.terminate).not.toHaveBeenCalled();
   });
 });

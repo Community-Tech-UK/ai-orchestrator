@@ -1124,7 +1124,7 @@ export class LoopCoordinator extends EventEmitter {
           const learnings = await this.loopMemoryStore.surfaceLearnings(workspaceCwd, limit);
           // WS16: digest() honours reinforcement-on-use ranking; remember the
           // surfaced lessons so a later echo can reinforce them on use.
-          const surfaced = getLessonStore().digest(limit);
+          const surfaced = getLessonStore().digest(limit, { workspace: workspaceCwd });
           surfacedLessonsForRun.push(...surfaced.map((l) => ({ id: l.id, text: l.text })));
           // LT-29x: record a 'lessons' recall trace so markUsed() has one to credit.
           if (surfaced.length > 0) getRecallTraceStore().record({ surface: 'lessons', query: config.initialPrompt,
@@ -3641,7 +3641,7 @@ export class LoopCoordinator extends EventEmitter {
       emit: (eventName, payload) => this.emit(eventName, payload),
       setConvergenceNote: (note) => this.completionContext.setConvergenceNote(state.id, note),
       captureReviewLesson: (verdict) => captureReviewLessonForVerdict({
-        loopRunId: state.id,
+        loopRunId: state.id, workspaceCwd: state.config.workspaceCwd,
         goal: state.config.initialPrompt,
         kind: 'fresh-eyes',
         verdict,

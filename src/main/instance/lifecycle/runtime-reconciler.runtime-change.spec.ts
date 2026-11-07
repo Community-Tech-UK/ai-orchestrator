@@ -973,7 +973,7 @@ describe('RuntimeReconciler.applyRuntimeChange — resume-health policy (LT-008)
 
     await reconciler.applyRuntimeChange('inst-1', yoloOnly(true));
 
-    expect(deps.holdContinuityUntilAnswered).toHaveBeenCalledWith('inst-1', 'fallback history', undefined);
+    expect(deps.holdContinuityUntilAnswered).toHaveBeenCalledWith('inst-1', 'fallback history', []);
     const sent = (fresh as unknown as { sendInput: ReturnType<typeof vi.fn> }).sendInput.mock.calls;
     expect(sent).toHaveLength(1);
     expect(String(sent[0][0])).toContain('fallback history');
@@ -1001,7 +1001,7 @@ describe('RuntimeReconciler.applyRuntimeChange — runtime-change notices are vi
 
     expect(deps.emitSystemNotice).toHaveBeenCalledTimes(1);
     const [, content, metadata] = deps.emitSystemNotice.mock.calls[0];
-    expect(content).toContain('[System: YOLO mode enabled');
+    expect(content).toBe('Auto-approve is on: the agent now acts without asking.');
     expect(metadata).toMatchObject({ kind: 'yolo-mode-changed' });
   });
 
@@ -1013,7 +1013,7 @@ describe('RuntimeReconciler.applyRuntimeChange — runtime-change notices are vi
     await reconciler.applyRuntimeChange('inst-1', yoloOnly(false));
 
     expect(deps.emitSystemNotice).toHaveBeenCalledTimes(1);
-    expect(deps.emitSystemNotice.mock.calls[0][1]).toContain('[System: YOLO mode disabled');
+    expect(deps.emitSystemNotice.mock.calls[0][1]).toBe('Auto-approve is off: the agent asks before acting.');
   });
 
   it('still delivers the notice to the adapter as well as recording it', async () => {

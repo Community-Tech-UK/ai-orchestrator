@@ -167,12 +167,13 @@ describe('LegacyContextEngine', () => {
       instance: inst,
       message: 'what changed?',
       taskId: 'task-1',
+      memoryNotesEveryMessage: true,
       contextPort: port,
       buildIndexedCodebaseContext: vi.fn(async (_instance: Instance, _message: string) => indexedCodebaseContext),
     });
 
     expect(port.calculateContextBudget).toHaveBeenCalledWith(inst, 'what changed?');
-    expect(port.buildRlmContext).toHaveBeenCalledWith('i1', 'what changed?', 200, 3);
+    expect(port.buildRlmContext).toHaveBeenCalledWith('i1', 'what changed?', 200, 3, 'unchanged');
     expect(port.buildUnifiedMemoryContext).toHaveBeenCalledWith(inst, 'what changed?', 'task-1', 100);
     expect(result.indexedCodebaseContext).toBe(indexedCodebaseContext);
   });

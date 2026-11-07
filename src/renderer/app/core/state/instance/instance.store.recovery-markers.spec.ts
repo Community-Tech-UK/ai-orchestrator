@@ -27,7 +27,7 @@ describe('InstanceStore recovery markers on model reply', () => {
     const streams = [
       'batchUpdate$', 'compactStatus$', 'fastToggled$', 'inputRequired$',
       'inputRequiredResolved$', 'instanceCreated$', 'instanceOutput$',
-      'instanceRemoved$', 'instanceStateUpdate$', 'instanceTranscriptChunk$', 'orchestrationActivity$', 'yoloToggled$',
+      'instanceRemoved$', 'instanceStateUpdate$', 'inputContextDelivered$', 'instanceTranscriptChunk$', 'orchestrationActivity$', 'yoloToggled$',
     ];
     const eventBus = Object.fromEntries(streams.map((name) => [name, new Subject<unknown>()]));
     instanceOutput$ = eventBus['instanceOutput$'] as typeof instanceOutput$;

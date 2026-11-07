@@ -29,15 +29,15 @@ describe('stableNotificationFingerprint', () => {
 });
 
 describe('NotificationService', () => {
-  it('keeps an in-app record when an identical notification is fingerprint-suppressed', () => {
+  it('folds an identical notification into the unresolved record', () => {
     const { desktop, service } = createHarness();
 
     service.notify({ kind: 'agent-finished', instanceId: 'instance-1', title: 'Finished', body: 'One' });
     const duplicate = service.notify({ kind: 'agent-finished', instanceId: 'instance-1', title: 'Finished', body: 'One' });
 
     expect(desktop.show).toHaveBeenCalledTimes(1);
-    expect(duplicate.delivery).toBe('fingerprint-suppressed');
-    expect(service.list()).toHaveLength(2);
+    expect(duplicate.repeatCount).toBe(2);
+    expect(service.list()).toHaveLength(1);
   });
 
   it('publishes the final delivery outcome to notification-center subscribers', () => {
@@ -48,7 +48,7 @@ describe('NotificationService', () => {
     service.notify({ kind: 'agent-finished', title: 'Finished', body: 'One' });
     service.notify({ kind: 'agent-finished', title: 'Finished', body: 'One' });
 
-    expect(received).toEqual(['desktop', 'fingerprint-suppressed']);
+    expect(received).toEqual(['desktop', 'desktop']);
   });
 
   it('flushes a cooldown burst as one digest while retaining individual in-app records', async () => {
@@ -113,7 +113,7 @@ describe('NotificationService', () => {
     const duplicate = service.notify({ kind: 'automation-breaker', title: 'Breaker open', body: 'One', urgency: 'critical' });
 
     expect(desktop.show).toHaveBeenCalledTimes(1);
-    expect(duplicate.delivery).toBe('fingerprint-suppressed');
+    expect(duplicate.repeatCount).toBe(2);
   });
 
   it('reads cooldown policy at delivery time so settings apply without a restart', () => {
@@ -210,5 +210,89 @@ describe('NotificationService', () => {
 
     const internal = service as unknown as { fingerprintLastSeen: Map<string, number> };
     expect(internal.fingerprintLastSeen.size).toBeLessThanOrEqual(2_000);
+  });
+});
+
+ describe('notification lifecycle', () => {
+  it('folds hourly reminders without suppressing desktop delivery after the dedupe window', () => {
+    let now = 0;
+    const { service, desktop } = createHarness({ now: () => now });
+    const input = { kind: 'pending-approvals', title: 'Approval', body: 'Waiting', resolveKey: 'pending-approvals' };
+    const first = service.notify(input); now = 60 * 60_000;
+    const reminder = service.notify(input);
+    expect(desktop.show).toHaveBeenCalledTimes(2);
+    expect(reminder.id).toBe(first.id); expect(reminder.repeatCount).toBe(2);
+    expect(service.list()).toHaveLength(1);
+    service.dispose();
+  });
+
+  it('marks seen by ids or session and resolves only matching unresolved keys', () => {
+    let now = 10;
+    const { service } = createHarness({ now: () => now });
+    const a = service.notify({ kind: 'input', instanceId: 'a', title: 'Approval', body: '', resolveKey: 'input:1' });
+    const b = service.notify({ kind: 'input', instanceId: 'b', title: 'Approval', body: '', resolveKey: 'input:2' });
+    now = 20;
+    service.markSeen({ ids: [a.id] });
+    expect(service.list().find(r => r.id === a.id)?.seenAt).toBe(20);
+    expect(service.list().find(r => r.id === b.id)?.seenAt).toBeUndefined();
+    service.markSeen({ instanceId: 'b' });
+    service.resolve('input:1');
+    expect(service.list().find(r => r.id === a.id)?.resolvedAt).toBe(20);
+    expect(service.list().find(r => r.id === b.id)?.resolvedAt).toBeUndefined();
+    const next = service.notify({ kind: 'input', instanceId: 'a', title: 'Approval', body: '', resolveKey: 'input:1' });
+    expect(next.id).not.toBe(a.id);
+    service.dispose();
+  });
+
+  it('uses a session click by default and respects explicit click handlers', () => {
+    const { service, desktop } = createHarness();
+    const open = vi.fn();
+    const explicit = vi.fn();
+    service.setOpenTargetHandler(open);
+    service.notify({ kind: 'input', instanceId: 'a', title: 'Approval', body: '', cooldownKey: 'input:a' });
+    service.notify({ kind: 'input', instanceId: 'b', title: 'Approval', body: '', cooldownKey: 'input:b', onClick: explicit });
+    expect(desktop.show).toHaveBeenCalledTimes(2);
+    const calls = vi.mocked(desktop.show).mock.calls;
+    calls[0][0].onClick?.();
+    calls[1][0].onClick?.();
+    expect(open).toHaveBeenCalledWith('a');
+    expect(explicit).toHaveBeenCalledOnce();
+    service.dispose();
+  });
+});
+
+describe('deduplication across resolved episodes', () => {
+  it.each(['normal', 'critical'] as const)('deduplicates a reopened %s episode', urgency => {
+    let now = 0;
+    const { service, desktop } = createHarness({ now: () => now });
+    const notice = { kind: 'node-disconnected', title: 'Worker disconnected', body: 'Worker needs attention',
+      resolveKey: 'node:example', fingerprintFields: { nodeId: 'example' }, urgency };
+    service.notify(notice); service.resolve(notice.resolveKey);
+    now = urgency === 'normal' ? 31_000 : 1;
+    const reopened = service.notify(notice);
+    now += urgency === 'normal' ? 31_000 : 1;
+    const repeat = service.notify(notice);
+    expect(desktop.show).toHaveBeenCalledTimes(2);
+    expect(repeat.id).toBe(reopened.id);
+    expect(repeat.repeatCount).toBe(2);
+    expect(service.list()).toHaveLength(2);
+    service.dispose();
+  });
+  it('does not reset duplicate suppression when a notice is only seen', () => {
+    const { service, desktop } = createHarness();
+    const notice = { kind: 'node-disconnected', title: 'Worker disconnected', body: '', urgency: 'critical' as const };
+    const first = service.notify(notice);
+    service.markSeen({ ids: [first.id] }); service.notify(notice);
+    expect(desktop.show).toHaveBeenCalledTimes(1);
+    service.dispose();
+  });
+  it.each(['dismiss', 'clear'] as const)('retains suppression after %s', operation => {
+    const { service, desktop } = createHarness();
+    const notice = { kind: 'node-disconnected', title: 'Worker disconnected', body: '', urgency: 'critical' as const };
+    const first = service.notify(notice);
+    if (operation === 'dismiss') service.dismiss(first.id); else service.clear();
+    expect(service.notify(notice).delivery).toBe('fingerprint-suppressed');
+    expect(desktop.show).toHaveBeenCalledTimes(1);
+    service.dispose();
   });
 });

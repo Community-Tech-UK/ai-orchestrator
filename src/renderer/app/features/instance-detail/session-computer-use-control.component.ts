@@ -48,6 +48,7 @@ export class SessionComputerUseControlComponent {
   private readonly settingsStore = inject(SettingsStore);
 
   readonly instance = input.required<Pick<Instance, 'id' | 'computerUseMode'>>();
+  readonly compact = input(false);
   readonly pending = signal(false);
   readonly error = signal<string | null>(null);
   readonly globalLevel = computed<ComputerUseAutonomyLevel>(() => {

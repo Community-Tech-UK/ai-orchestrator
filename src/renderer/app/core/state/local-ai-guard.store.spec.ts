@@ -499,20 +499,13 @@ describe('LocalAiGuardStore', () => {
     expect(store.pendingFallbacks().map(({ id }) => id)).toEqual(['pending']);
   });
 
-  it('LT-189: exposes notify-and-allow fallback notifications and locally dismisses them', async () => {
-    const current = snapshot({
-      fallbackNotifications: [notification('event-1'), notification('event-2', { createdAt: 2_000 })],
-    });
-    ipc.getSnapshot.mockResolvedValue({ success: true, data: current });
-    const store = TestBed.inject(LocalAiGuardStore);
-    await store.initialize();
-
-    expect(store.fallbackNotifications().map(({ id }) => id)).toEqual(['event-1', 'event-2']);
-
-    store.dismissFallbackNotification('event-1');
-    expect(store.fallbackNotifications().map(({ id }) => id)).toEqual(['event-2']);
-
-    // A dismissal is a local UI affordance only — it never calls the IPC layer.
+  it('retains paid-fallback history in the authoritative snapshot for diagnostics', async () => {
+    ipc.getSnapshot.mockResolvedValue({ success: true,
+      data: snapshot({ fallbackNotifications: [notification('event-1')] }) });
+    const store = TestBed.inject(LocalAiGuardStore); await store.initialize();
+    expect(store.snapshot()?.fallbackNotifications?.map(event => event.id)).toEqual(['event-1']);
+    delta?.(snapshot({ revision: '1', fallbackNotifications: [notification('event-2'), notification('event-1')] }));
+    expect(store.snapshot()?.fallbackNotifications?.map(event => event.id)).toEqual(['event-2', 'event-1']);
     expect(ipc.resolveFallback).not.toHaveBeenCalled();
   });
 

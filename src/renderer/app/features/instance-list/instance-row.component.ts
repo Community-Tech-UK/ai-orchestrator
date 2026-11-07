@@ -10,12 +10,13 @@ import {
   inject,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { Instance } from '../../core/state/instance.store';
+import { Instance, InstanceStore } from '../../core/state/instance.store';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { ToolLoopAlertStore } from '../../core/state/tool-loop-alert.store';
 import { isRemoteNodeOnline } from '../../core/state/remote-node-connectivity';
 import { SideChatStore } from '../../core/state/side-chat.store';
+import { SessionHoverDetailsComponent } from './session-hover-details.component';
 import type { SideChatParentRef } from '../../../../shared/types/side-chat.types';
 import { sideChatRowBadge } from '../side-chat/side-chat-badge';
 import { computerName, providerName } from '../../../../shared/display-names';
@@ -27,12 +28,14 @@ import {
 @Component({
   selector: 'app-instance-row',
   standalone: true,
-  imports: [AioTooltipDirective],
+  imports: [AioTooltipDirective, SessionHoverDetailsComponent],
   templateUrl: './instance-row.component.html',
   styleUrl: './instance-row.component.scss',
+  styles: ['.activity-line { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 11px; }'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class InstanceRowComponent {
+  private readonly instances = inject(InstanceStore);
   private readonly remoteNodeStore = inject(RemoteNodeStore);
   private readonly toolLoopAlerts = inject(ToolLoopAlertStore);
   private readonly sideChatStore = inject(SideChatStore);
@@ -45,6 +48,7 @@ export class InstanceRowComponent {
   depth = input<number>(0);
   hasChildren = input<boolean>(false);
   childCount = input<number | null>(null);
+  descendantNeedsYou = input(0);
   isExpanded = input<boolean>(false);
   isLastChild = input<boolean>(false);
   parentChain = input<boolean[]>([]);
@@ -76,7 +80,11 @@ export class InstanceRowComponent {
   );
 
   /** The chip beside a pending permission request reads like the status that asks for it. */
-  readonly approvalChipLabel = presentInstanceStatus('waiting_for_permission').label;
+  readonly approvalChipLabel = computed(() => presentInstanceStatus(
+    this.instance().status === 'waiting_for_input' ? 'waiting_for_input' : 'waiting_for_permission').label);
+  /** A question is never called an approval: the chip says which of the two is waiting. */
+  readonly approvalChipTooltip = computed(() => this.instance().status === 'waiting_for_input'
+    ? 'This session has a question waiting for your answer' : 'This session is waiting for you to approve something');
 
   readonly hasDiffStats = computed(() => {
     const stats = this.instance().diffStats;
@@ -320,10 +328,14 @@ export class InstanceRowComponent {
    *    and it means tool calls run without asking, which is exactly the kind of
    *    thing a user should not have to infer from a border tint.
    */
+  readonly activityLine = computed(() => ['busy', 'processing', 'thinking_deeply'].includes(this.instance().status)
+    ? this.instances.liveActivities().get(this.instance().id) ?? null : null);
+
   readonly rowAriaLabel = computed(() => {
     const states: string[] = [];
     if (this.statusPresentation().label === 'Problem') states.push('problem');
     if (this.instance().yoloMode) states.push('auto-approve mode');
+    if (this.activityLine()) states.push(this.activityLine()!);
     const suffix = states.length > 0 ? ` — ${states.join(', ')}` : '';
     return `Select session ${this.resolvedDisplayTitle()}${suffix}`;
   });

@@ -21,17 +21,20 @@ import type { Instance } from './instance.types';
  */
 describe('InstanceStore pending approval count', () => {
   let resolved: Subject<InputRequiredResolvedEvent>;
+  let inputRequired: Subject<unknown>;
   let stateService: InstanceStateService;
 
   beforeEach(() => {
     const streams = [
-      'batchUpdate$', 'compactStatus$', 'fastToggled$', 'inputRequired$',
+      'batchUpdate$', 'compactStatus$', 'fastToggled$', 'inputContextDelivered$',
       'instanceCreated$', 'instanceOutput$', 'instanceRemoved$', 'instanceStateUpdate$',
       'instanceTranscriptChunk$', 'orchestrationActivity$', 'yoloToggled$',
     ];
     resolved = new Subject<InputRequiredResolvedEvent>();
+    inputRequired = new Subject<unknown>();
     const eventBus = {
       ...Object.fromEntries(streams.map((name) => [name, new Subject<unknown>()])),
+      inputRequired$: inputRequired,
       inputRequiredResolved$: resolved,
     };
 
@@ -56,9 +59,13 @@ describe('InstanceStore pending approval count', () => {
       ...current,
       instances: new Map([[
         'i-1',
-        { id: 'i-1', status: 'waiting_for_permission', pendingApprovalCount: 2 } as unknown as Instance,
+        { id: 'i-1', status: 'waiting_for_permission', pendingApprovalCount: 0 } as unknown as Instance,
       ]]),
     }));
+    // Two permission requests are waiting; each is tracked by its own request id.
+    for (const requestId of ['perm-1', 'perm-2']) {
+      inputRequired.next({ instanceId: 'i-1', requestId, prompt: 'Allow?', timestamp: 1, metadata: { type: 'deferred_permission' } });
+    }
   });
 
   afterEach(() => TestBed.resetTestingModule());

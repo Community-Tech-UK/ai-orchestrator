@@ -84,6 +84,13 @@ export function adapterHasActiveToolCalls(adapter: object | undefined): boolean 
     && typeof adapter.hasActiveToolCalls === 'function' && adapter.hasActiveToolCalls() === true;
 }
 
+/** Only a live process can be waiting for a person; a dead process must remain recoverable. */
+export function adapterHasPendingLiveAsk(adapter: object | undefined): boolean {
+  if (!adapter || !('isRunning' in adapter) || typeof adapter.isRunning !== 'function' || adapter.isRunning() !== true) return false;
+  const broker = 'livePermissions' in adapter ? adapter.livePermissions as { hasPending?: () => boolean } | undefined : undefined;
+  return typeof broker?.hasPending === 'function' && broker.hasPending() === true;
+}
+
 /**
  * Whether the adapter currently owns an in-flight provider turn. ACP adapters
  * have their own activity-aware request lease and can distinguish a slow

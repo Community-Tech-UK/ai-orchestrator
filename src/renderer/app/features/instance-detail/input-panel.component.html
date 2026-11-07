@@ -183,7 +183,7 @@
             (click)="onToggleYoloMode()"
             [appTooltip]="effectiveYoloMode() ? copy('composer.yoloOn') : copy('composer.yoloOff')"
           >
-            <span class="yolo-label">YOLO {{ effectiveYoloMode() ? 'ON' : 'OFF' }}</span>
+            <span class="yolo-label">Auto-approve: {{ effectiveYoloMode() ? 'on' : 'off' }}</span>
           </button>
           @if (showDraftFastModeToggle()) {
             <button
@@ -193,7 +193,7 @@
               (click)="onToggleDraftFastMode()"
               [appTooltip]="effectiveDraftFastMode() ? copy('composer.fastOn') : copy('composer.fastOff')"
             >
-              <span class="yolo-label">FAST {{ effectiveDraftFastMode() ? 'ON' : 'OFF' }}</span>
+              <span class="yolo-label">Fast: {{ effectiveDraftFastMode() ? 'on' : 'off' }}</span>
             </button>
           }
           @if (showHardenedToggle()) {
@@ -206,7 +206,7 @@
               (click)="onToggleHardened()"
               [appTooltip]="hardenedTitle()"
             >
-              <span class="yolo-label">Hardened {{ hardenedLabel() }}</span>
+              <span class="yolo-label">Hardened: {{ hardenedLabel() }}</span>
             </button>
             <button
               class="yolo-toggle fence-toggle"
@@ -219,6 +219,7 @@
             </button>
           }
         </div>
+        <div class="draft-posture input-hints">This session will: {{ draftPostureSentence() }}</div>
       </div>
     </div>
   }
@@ -464,6 +465,9 @@
       <div class="input-hints">
         <span class="hint">{{ composerHint() }}</span>
         <!-- Quota notices mount here, after the single hint line. -->
+        @if (!isDraftComposer()) {
+          <app-composer-quota-notice [instanceId]="instanceId()" />
+        }
       </div>
 
       @if (coldCacheOffered()) { <app-cold-cache-chip [instanceId]="instanceId()" /> }
@@ -519,7 +523,8 @@
               <rect x="6" y="6" width="12" height="12" rx="2"></rect>
             </svg>
           </button>
-        } @else {
+        }
+        @if (!showStopButton() || canSend() || loopArmed()) {
           <button
             type="button"
             class="btn-send"

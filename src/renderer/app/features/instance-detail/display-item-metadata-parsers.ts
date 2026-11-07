@@ -1,4 +1,6 @@
 import type { OutputMessage } from '../../core/state/instance/instance.types';
+import { describeInterruptBoundary } from '../../../../shared/copy/interrupt-copy';
+import { INTERRUPT_BOUNDARY_PHASES, INTERRUPT_BOUNDARY_OUTCOMES } from '../../../../shared/types/interrupt-boundary.types';
 import type {
   CompactionFallbackMode,
   CompactionSummaryDisplay,
@@ -24,14 +26,16 @@ export function parseInterruptBoundary(message: OutputMessage): InterruptBoundar
     return null;
   }
 
-  const fallbackMode = message.metadata['fallbackMode'];
+  const rawFallbackMode = message.metadata['fallbackMode'];
+  const fallbackMode = isInterruptFallbackMode(rawFallbackMode) ? rawFallbackMode : undefined;
   return {
     phase,
     requestId,
     outcome,
     at: typeof at === 'number' ? at : message.timestamp,
     reason: typeof message.metadata['reason'] === 'string' ? message.metadata['reason'] : undefined,
-    fallbackMode: isInterruptFallbackMode(fallbackMode) ? fallbackMode : undefined,
+    fallbackMode,
+    text: describeInterruptBoundary({ phase, outcome, fallbackMode }),
   };
 }
 
@@ -75,19 +79,11 @@ export function parseCompactionSummary(message: OutputMessage): CompactionSummar
 }
 
 function isInterruptDisplayPhase(value: unknown): value is InterruptDisplayPhase {
-  return value === 'requested' ||
-    value === 'cancelling' ||
-    value === 'escalated' ||
-    value === 'respawning' ||
-    value === 'completed';
+  return INTERRUPT_BOUNDARY_PHASES.some(phase => phase === value);
 }
 
 function isInterruptDisplayOutcome(value: unknown): value is InterruptDisplayOutcome {
-  return value === 'cancelled' ||
-    value === 'cancelled-for-edit' ||
-    value === 'respawn-success' ||
-    value === 'respawn-fallback' ||
-    value === 'unresolved';
+  return INTERRUPT_BOUNDARY_OUTCOMES.some(outcome => outcome === value);
 }
 
 function isInterruptFallbackMode(value: unknown): value is InterruptBoundaryDisplay['fallbackMode'] {

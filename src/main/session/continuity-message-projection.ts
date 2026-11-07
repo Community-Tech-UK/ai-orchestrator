@@ -1,3 +1,4 @@
+import { retrievedContextDeliveriesOf, retrievedContextMetadataOf } from '../../shared/utils/input-context-delivery';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import type { OutputMessage } from '../../shared/types/instance.types';
 import type { ConversationEntry } from './session-continuity.types';
@@ -118,6 +119,7 @@ export function outputMessageToContinuityEntry(
   const notice = role === 'system' ? readNoticeMetadata(message) : undefined;
 
   return {
+    ...(message.type === 'user' ? nonEmptyRetrievedContext(message.metadata) : {}),
     id: message.id,
     role,
     content: message.content,
@@ -248,6 +250,8 @@ export function continuityEntryToOutputMessage(entry: ConversationEntry): Output
     || entry.crossSessionMessage
     || entry.agentAuthored
     || entry.notice
+    || entry.retrievedContextDeliveries
+    || entry.retrievedContextMetadata
     ? {
         ...(entry.toolUse
           ? {
@@ -265,6 +269,8 @@ export function continuityEntryToOutputMessage(entry: ConversationEntry): Output
             }
           : {}),
         ...noticeToMetadata(entry.notice),
+        ...(entry.retrievedContextDeliveries ? { retrievedContextDeliveries: { ...entry.retrievedContextDeliveries } } : {}),
+        ...retrievedContextMetadataOf(entry.retrievedContextMetadata),
         ...(entry.tokens === undefined ? {} : { tokens: entry.tokens }),
         ...(entry.tokenUsage ? { tokenUsage: structuredClone(entry.tokenUsage) } : {}),
         ...(entry.isCompacted === undefined ? {} : { isCompacted: entry.isCompacted }),
@@ -307,5 +313,15 @@ export function continuityEntryToOutputMessage(entry: ConversationEntry): Output
           thinkingExtracted: true,
         }
       : {}),
+  };
+}
+
+/** Only keep retrieval records a user message really carries, so an ordinary message saves nothing extra. */
+function nonEmptyRetrievedContext(metadata: Record<string, unknown> | undefined) {
+  const deliveries = retrievedContextDeliveriesOf(metadata);
+  const measurements = retrievedContextMetadataOf(metadata);
+  return {
+    ...(Object.keys(deliveries).length ? { retrievedContextDeliveries: deliveries } : {}),
+    ...(Object.keys(measurements).length ? { retrievedContextMetadata: measurements } : {}),
   };
 }

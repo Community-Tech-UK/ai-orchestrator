@@ -105,3 +105,26 @@ export function respondToQuestion(
     ? ipc.respondToInputRequired(request.instanceId, request.id, text, key, undefined, undefined, undefined, undefined, receipt)
     : ipc.respondToInputRequired(request.instanceId, request.id, text, key);
 }
+
+const ACP_KINDS = ['allow_once', 'allow_always', 'reject_once', 'reject_always'] as const;
+export interface AcpPermissionOption {
+  optionId: string;
+  name: string;
+  kind: typeof ACP_KINDS[number];
+  tone: 'allow' | 'reject';
+  lasting: boolean;
+}
+
+export function acpPermissionOptions(request: { permissionMetadata?: { type?: string; options?: unknown } }): AcpPermissionOption[] | null {
+  const meta = request.permissionMetadata;
+  if (meta?.type !== 'acp_permission_request' || !Array.isArray(meta.options) || !meta.options.length) return null;
+  const options: AcpPermissionOption[] = [];
+  const ids = new Set<string>();
+  for (const raw of meta.options) {
+    if (!raw || typeof raw !== 'object' || typeof raw.optionId !== 'string' || !raw.optionId.trim() || ids.has(raw.optionId)
+      || typeof raw.name !== 'string' || !raw.name.trim() || !ACP_KINDS.includes(raw.kind)) return null;
+    ids.add(raw.optionId);
+    options.push({ optionId: raw.optionId, name: raw.name, kind: raw.kind, tone: raw.kind.startsWith('allow') ? 'allow' : 'reject', lasting: raw.kind.endsWith('_always') });
+  }
+  return options.sort((a, b) => ACP_KINDS.indexOf(a.kind) - ACP_KINDS.indexOf(b.kind));
+}

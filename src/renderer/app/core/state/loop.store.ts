@@ -157,13 +157,13 @@ export class LoopStore {
 
   // ────── lifecycle ──────
 
-  /**
-   * Wire IPC listeners once at app startup. Safe to call multiple times.
-   */
+  readonly activeStates = this.activeByChat.asReadonly();
+  readonly banners = this.bannerByChat.asReadonly();
   /** N3 — branch-and-select rounds, keyed by run and iteration. */
   private readonly branchEpisodes = createBranchEpisodeStore();
   readonly branchEpisodeFor = this.branchEpisodes.get;
 
+  /** Wire IPC listeners once at app startup. Safe to call multiple times. */
   ensureWired(): void {
     if (this.wired) return;
     this.wired = true;

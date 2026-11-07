@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { managedWorktreeStatus } from './managed-worktree-status.util';
 
 describe('managedWorktreeStatus', () => {
+  it.each(['integration', 'finalization', 'recovery'])('translates legacy %s reasons without exposing stored wording', kind => {
+    expect(managedWorktreeStatus({ phase: 'blocked', baseBranch: 'main', sessionBranch: 'task-loop',
+      lastError: `Managed worktree ${kind} failed; inspect AIO logs`, updatedAt: 1 }, 'completed')?.detail)
+      .toBe(`Managed worktree ${kind} failed; inspect Harness logs · saved on task-loop`);
+  });
+
   it('makes a blocked promotion and its durable branches explicit', () => {
     expect(managedWorktreeStatus({
       phase: 'blocked',
@@ -41,7 +47,7 @@ describe('managedWorktreeStatus', () => {
       sessionBranch: 'task-loop',
       lastError: reason,
       updatedAt: 1,
-    }, 'completed')?.detail).toBe(`${reason} · saved on task-loop`);
+    }, 'completed')?.detail).toBe(`${reason.replace('outside AIO', 'outside Harness')} · saved on task-loop`);
   });
 
   it('names the overlapping repository path when promotion collides with root work', () => {
@@ -64,7 +70,7 @@ describe('managedWorktreeStatus', () => {
       lastError: 'root checkout has uncommitted changes to a promoted path: /Users/someone/x',
       updatedAt: 1,
     }, 'completed')?.detail).toBe(
-      'manual attention required; inspect AIO logs · saved on task-loop',
+      'manual attention required; inspect Harness logs · saved on task-loop',
     );
   });
 
@@ -79,7 +85,7 @@ describe('managedWorktreeStatus', () => {
     }, 'completed')).toEqual({
       tone: 'preserved',
       label: 'marked resolved',
-      detail: 'you resolved this workspace by hand; AIO no longer manages task-loop',
+      detail: 'you resolved this workspace by hand; Harness no longer manages task-loop',
     });
   });
 
@@ -94,7 +100,7 @@ describe('managedWorktreeStatus', () => {
     }, 'completed');
 
     expect(view?.detail).toBe(
-      'manual attention required; inspect AIO logs · saved on task-loop and integration/main',
+      'manual attention required; inspect Harness logs · saved on task-loop and integration/main',
     );
     expect(view?.detail).not.toContain('/Users/');
     expect(view?.detail).not.toContain('fatal:');

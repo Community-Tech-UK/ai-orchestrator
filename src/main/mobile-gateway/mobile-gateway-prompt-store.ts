@@ -54,7 +54,7 @@ export class MobileGatewayPromptStore {
       kind: "permission",
       toolName: toolName || undefined,
       toolInput,
-      title: toolName ? `${toolName} needs approval` : "Permission required",
+      title: toolName ? `Needs your approval: ${toolName}` : "Needs your approval",
       message:
         request.prompt ||
         (toolName ? `Allow ${toolName}?` : "An action needs your approval."),
@@ -93,8 +93,8 @@ export class MobileGatewayPromptStore {
         action.requestType === "ask_questions"
           ? action.requestType
           : undefined,
-      title: action.title || "Input needed",
-      message: action.message || "An AI instance is waiting for your response.",
+      title: action.title || "Needs your answer",
+      message: action.message || "This session needs your answer.",
       options: Array.isArray(action.options)
         ? action.options
             .filter(

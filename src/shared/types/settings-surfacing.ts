@@ -52,6 +52,7 @@ export const SETTING_SURFACING = {
   modelUsageByKey: 'internal',
   modelPickerFavorites: 'internal',
   residentClaudeSession: 'internal',
+  claudeLivePermissionPrompts: 'internal', // Opt-in for live validation; no settings UI until the channel is proven.
   contextEvidenceModeByProvider: 'internal',
   theme: 'tab',
   workloadLevel: 'bespoke', // Shared slider in the Work panel and Orchestration settings.
@@ -132,6 +133,7 @@ export const SETTING_SURFACING = {
   claudeSubprocessEnvScrub: 'tab',
   claudeCliDebugLogging: 'tab',
   memoryInstructionGate: 'tab',
+  memoryNotesEveryMessage: 'tab',
   sessionFailoverProviders: 'tab',
   sessionFailoverMaxSwitches: 'tab',
   sessionFailoverOfferAfterMinutes: 'tab',

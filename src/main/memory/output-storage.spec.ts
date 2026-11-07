@@ -17,6 +17,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import * as zlib from 'zlib';
 import type { OutputMessage } from '../../shared/types/instance.types';
 
 let tempUserData = '';
@@ -256,4 +257,201 @@ describe('mergePromptIndex', () => {
 
     expect(prompts.map((p) => p.excerpt)).toEqual(['early ask', 'middle ask', 'late ask']);
   });
+});
+
+describe('OutputStorageManager retrieved-note delivery metadata', () => {
+  let storage: OutputStorageManager;
+  beforeEach(() => {
+    tempUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'output-storage-delivery-spec-'));
+    storage = new OutputStorageManager();
+  });
+  afterEach(() => { vi.restoreAllMocks(); fs.rmSync(tempUserData, { recursive: true, force: true }); });
+
+  it('updates existing cached and reloaded messages without adding a transcript row', async () => {
+    const user = msg('user', 'Synthetic question');
+    user.metadata = { example: 'retained' };
+    await storage.storeMessages('example-session', [user, msg('assistant', 'Synthetic answer')]);
+    await storage.loadMessagesBefore('example-session', { limit: 2 });
+    const delivery = { messageId: user.id, deliveryId: 'example-delivery', tokens: 120 };
+    await storage.patchInputContextDelivery('example-session', delivery);
+    await storage.patchInputContextDelivery('example-session', delivery);
+    for (const reader of [storage, new OutputStorageManager()]) {
+      const page = await reader.loadMessagesBefore('example-session', { limit: 2 });
+      expect(page.messages).toHaveLength(2);
+      expect(page.messages[0].content).toBe('Synthetic question');
+      expect(page.messages[0].metadata).toEqual({ example: 'retained', retrievedContextDeliveries: { 'example-delivery': 120 } });
+    }
+    const index = readIndex('example-session') as { totalMessages: number; totalSizeBytes: number; chunks: { sizeBytes: number }[] };
+    const bytes = fs.statSync(path.join(tempUserData, 'output-storage', 'example-session', 'chunk-000000.gz')).size;
+    expect(index.totalMessages).toBe(2);
+    expect(index.chunks).toHaveLength(1);
+    expect(index.totalSizeBytes).toBe(bytes);
+    expect(index.chunks[0].sizeBytes).toBe(bytes);
+  });
+
+  it('orders pending storage, metadata and paging and never inserts an absent prompt', async () => {
+    const user = msg('user', 'Synthetic question');
+    const writing = storage.storeMessages('example-session', [user]);
+    const updating = storage.patchInputContextDelivery('example-session', { messageId: user.id, deliveryId: 'example-unknown', tokens: null });
+    const reading = storage.loadMessagesBefore('example-session', { limit: 2 });
+    await Promise.all([writing, updating]);
+    expect((await reading).messages[0].metadata?.['retrievedContextDeliveries']).toEqual({ 'example-unknown': null });
+    const before = storage.getInstanceStats('example-session');
+    await storage.patchInputContextDelivery('example-session', { messageId: 'example-absent', deliveryId: 'example-other', tokens: 60 });
+    await storage.patchInputContextDelivery('example-unknown-session', { messageId: user.id, deliveryId: 'example-other', tokens: 60 });
+    expect(storage.getInstanceStats('example-session')).toEqual(before);
+    expect(storage.getInstanceStats('example-unknown-session')).toBeNull();
+  });
+
+  it('reports a failed replacement and leaves the previous compressed chunk readable', async () => {
+    const user = msg('user', 'Synthetic question');
+    await storage.storeMessages('example-session', [user]);
+    const failure = vi.spyOn(fs.promises, 'rename').mockRejectedValueOnce(new Error('Synthetic disk refusal'));
+    await expect(storage.patchInputContextDelivery('example-session', { messageId: user.id, deliveryId: 'example-delivery', tokens: 120 }))
+      .rejects.toThrow('Synthetic disk refusal');
+    failure.mockRestore();
+    const messages = await storage.loadMessages('example-session');
+    expect(messages).toHaveLength(1);
+    expect(messages[0].content).toBe('Synthetic question');
+    expect(messages[0].metadata?.['retrievedContextDeliveries']).toBeUndefined();
+    expect(fs.readdirSync(path.join(tempUserData, 'output-storage', 'example-session')).some(file => file.endsWith('.tmp'))).toBe(false);
+  });
+
+  it('queues global eviction behind the metadata owner while another instance writes', async () => {
+    const user = msg('user', 'Synthetic question');
+    await storage.storeMessages('a', [user]);
+    await storage.storeMessages('a', [msg('assistant', 'Surviving answer')]);
+    const aIndex = readIndex('a') as { totalSizeBytes: number };
+    const other = msg('assistant', 'Other conversation');
+    const otherBytes = zlib.gzipSync(JSON.stringify([other])).length;
+    storage.configure({ maxDiskStorageMB: (aIndex.totalSizeBytes + otherBytes - 1) / (1024 * 1024) });
+    let release!: () => void;
+    let entered!: () => void;
+    let wroteB!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const reached = new Promise<void>(resolve => { entered = resolve; });
+    const bDisk = new Promise<void>(resolve => { wroteB = resolve; });
+    const rename = fs.promises.rename.bind(fs.promises);
+    const writeFile = fs.promises.writeFile.bind(fs.promises);
+    vi.spyOn(fs.promises, 'rename').mockImplementation(async (from, to) => {
+      entered(); await gate; return rename(from, to);
+    });
+    vi.spyOn(fs.promises, 'writeFile').mockImplementation(async (file, data, options) => {
+      await writeFile(file, data, options);
+      if (String(file).endsWith(`${path.sep}b${path.sep}index.json`)) wroteB();
+    });
+    const unlink = vi.spyOn(fs.promises, 'unlink');
+    const updating = storage.patchInputContextDelivery('a', { messageId: user.id, deliveryId: 'delivery', tokens: 120 });
+    let writing: Promise<void> | undefined;
+    try {
+      await reached;
+      writing = storage.storeMessages('b', [other]);
+      await bDisk;
+      await Promise.race([writing, new Promise<void>(resolve => setImmediate(resolve))]);
+      expect(unlink.mock.calls.some(([file]) => String(file).includes(`${path.sep}a${path.sep}`))).toBe(false);
+    } finally { release(); await Promise.all([updating, writing]); }
+    const reloaded = new OutputStorageManager();
+    const messages = await reloaded.loadMessages('a');
+    const index = readIndex('a') as { totalSizeBytes: number; chunks: { chunkIndex: number; sizeBytes: number }[] };
+    expect(index.totalSizeBytes).toBe(index.chunks.reduce((sum, chunk) => sum + chunk.sizeBytes, 0));
+    expect(messages.every(message => message.id !== user.id)).toBe(true);
+    expect(fs.existsSync(path.join(tempUserData, 'output-storage', 'a', 'chunk-000000.gz'))).toBe(false);
+  });
+
+  it('queues explicit deletion after metadata replacement without recreating the directory', async () => {
+    const user = msg('user', 'Synthetic question');
+    await storage.storeMessages('a', [user]);
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const reached = new Promise<void>(resolve => { entered = resolve; });
+    const rename = fs.promises.rename.bind(fs.promises);
+    vi.spyOn(fs.promises, 'rename').mockImplementation(async (from, to) => {
+      entered(); await gate; return rename(from, to);
+    });
+    const updating = storage.patchInputContextDelivery('a', { messageId: user.id, deliveryId: 'delivery', tokens: 120 });
+    let deleting: Promise<void> | undefined;
+    try { await reached; deleting = storage.deleteInstance('a'); }
+    finally { release(); await Promise.all([updating, deleting]); }
+    expect(storage.getInstanceStats('a')).toBeNull();
+    expect(fs.existsSync(path.join(tempUserData, 'output-storage', 'a'))).toBe(false);
+    await storage.patchInputContextDelivery('a', { messageId: user.id, deliveryId: 'delivery', tokens: 120 });
+    expect(storage.getInstanceStats('a')).toBeNull();
+  });
+
+
+  it('does not restore stale paging cache from a read started before the metadata commit', async () => {
+    const user = msg('user', 'Synthetic question');
+    await storage.storeMessages('a', [user]);
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const reached = new Promise<void>(resolve => { entered = resolve; });
+    const readFile = fs.promises.readFile.bind(fs.promises);
+    let first = true;
+    vi.spyOn(fs.promises, 'readFile').mockImplementation(async (file, options) => {
+      const data = await readFile(file, options);
+      if (first && String(file).endsWith('.gz')) { first = false; entered(); await gate; }
+      return data;
+    });
+    const reading = storage.loadMessagesBefore('a', { limit: 1 });
+    try {
+      await reached;
+      await storage.patchInputContextDelivery('a', { messageId: user.id, deliveryId: 'delivery', tokens: 120 });
+    } finally { release(); await reading; }
+    expect((await storage.loadMessagesBefore('a', { limit: 1 })).messages[0].metadata?.['retrievedContextDeliveries'])
+      .toEqual({ delivery: 120 });
+  });
+
+  it('updates only the readable legacy duplicate and never recreates a missing chunk', async () => {
+    const user = msg('user', 'Synthetic question');
+    await storage.storeMessages('a', [user]);
+    const index = readIndex('a') as { userPrompts?: unknown; totalMessages: number; totalSizeBytes: number;
+      chunks: { chunkIndex: number; messageCount: number; sizeBytes: number }[] };
+    delete index.userPrompts;
+    index.chunks.unshift({ ...index.chunks[0] });
+    index.chunks.push({ ...index.chunks[0], chunkIndex: 99 });
+    index.totalMessages *= 3; index.totalSizeBytes *= 3;
+    fs.writeFileSync(indexPath('a'), JSON.stringify(index));
+    const legacy = new OutputStorageManager();
+    const delivery = { messageId: user.id, deliveryId: 'delivery', tokens: 120 };
+    await legacy.patchInputContextDelivery('a', delivery);
+    const after = legacy.getInstanceStats('a');
+    await legacy.patchInputContextDelivery('a', delivery);
+    expect(legacy.getInstanceStats('a')).toEqual(after);
+    const messages = await legacy.loadMessages('a');
+    expect(messages).toHaveLength(1);
+    expect(messages[0].metadata?.['retrievedContextDeliveries']).toEqual({ delivery: 120 });
+    expect(after?.totalMessages).toBe(3);
+    const saved = readIndex('a') as typeof index;
+    expect(saved.totalSizeBytes).toBe(saved.chunks.reduce((sum, chunk) => sum + chunk.sizeBytes, 0));
+    expect(fs.existsSync(path.join(tempUserData, 'output-storage', 'a', 'chunk-000099.gz'))).toBe(false);
+  });
+
+
+  it('queues legacy prompt-index backfill before deletion so its index cannot reappear', async () => {
+    const user = msg('user', 'Synthetic question');
+    await storage.storeMessages('a', [user]);
+    const index = readIndex('a'); delete index['userPrompts'];
+    fs.writeFileSync(indexPath('a'), JSON.stringify(index));
+    const legacy = new OutputStorageManager();
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const reached = new Promise<void>(resolve => { entered = resolve; });
+    const readFile = fs.promises.readFile.bind(fs.promises);
+    let first = true;
+    vi.spyOn(fs.promises, 'readFile').mockImplementation(async (file, options) => {
+      const data = await readFile(file, options);
+      if (first && String(file).endsWith('.gz')) { first = false; entered(); await gate; }
+      return data;
+    });
+    const backfilling = legacy.getUserPrompts('a');
+    let deleting: Promise<void> | undefined;
+    try { await reached; deleting = legacy.deleteInstance('a'); }
+    finally { release(); await Promise.all([backfilling, deleting]); }
+    expect(legacy.getInstanceStats('a')).toBeNull();
+    expect(fs.existsSync(path.join(tempUserData, 'output-storage', 'a'))).toBe(false);
+  });
+
 });

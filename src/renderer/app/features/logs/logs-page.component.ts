@@ -44,7 +44,7 @@ interface DebugCommand {
       <!-- Page header -->
       <div class="page-header">
         <div class="header-title">
-          <span class="title">Logs &amp; Debug</span>
+          <span class="title">Logs</span>
           <span class="subtitle">Application logs, debug commands, and diagnostics</span>
         </div>
         <div class="header-actions">

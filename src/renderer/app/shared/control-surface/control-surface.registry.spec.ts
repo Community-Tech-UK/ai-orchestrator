@@ -152,6 +152,7 @@ describe('control surface registry', () => {
       expect(VALID_GROUPS).toContain(surface.group);
       expect(VALID_KINDS).toContain(surface.kind);
       expect(VALID_LAYOUTS).toContain(surface.layout);
+      expect(['everyday', 'more']).toContain(surface.tier);
     }
   });
 

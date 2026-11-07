@@ -31,6 +31,8 @@ export interface AdvancedSectionDefinition {
 
 export const ADVANCED_SECTION_DEFINITIONS: readonly AdvancedSectionDefinition[] = [
   // --- Runtime ---
+  { id: 'retrieved-notes-heading', title: 'Retrieved notes', group: 'runtime',
+    description: 'Control when Harness adds remembered notes and code snippets to messages.', keys: ['memoryNotesEveryMessage'] },
   {
     id: 'observation-memory-heading',
     title: 'Observation memory',

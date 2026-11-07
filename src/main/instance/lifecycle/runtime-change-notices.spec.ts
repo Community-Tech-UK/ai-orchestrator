@@ -23,6 +23,7 @@ import {
   runtimeChangeNoticesFor,
   yoloNoticeText,
 } from './runtime-change-notices';
+import { InstanceContinuityInputQueue } from '../instance-continuity-input-queue';
 
 describe('notice wording', () => {
   it('does not promise full context preservation when a runtime may replay only a bounded history', () => {
@@ -229,6 +230,15 @@ describe('announceRuntimeChangeSet (LT-030)', () => {
   const instance = { id: 'inst-1' } as never;
   const notice = (text: string, kind: string) => ({ text, kind }) as never;
 
+  it('renders plain permission receipts and sends unchanged model control text', async () => {
+    const emitted = vi.fn(); const adapter = { sendInput: vi.fn(async () => undefined) };
+    const notices = runtimeChangeNoticesFor({ isYoloOnlyChange: true, isProviderSwap: false, yoloModeChanged: true, nextYoloMode: true,
+      oldProvider: 'claude', newProvider: 'claude', oldModel: 'sonnet', newModel: 'sonnet', oldReasoningEffort: 'high', newReasoningEffort: 'high' });
+    await announceRuntimeChangeSet({ instance, adapter, notices, emitSystemNotice: emitted });
+    expect(emitted).toHaveBeenCalledWith(instance, 'Auto-approve is on: the agent now acts without asking.', { kind: 'yolo-mode-changed' });
+    expect(adapter.sendInput).toHaveBeenCalledWith(yoloNoticeText(true));
+  });
+
   it('renders every notice, then delivers them as ONE message', async () => {
     const order: string[] = [];
     const emitSystemNotice = vi.fn((_i: unknown, text: string) => { order.push(`render:${text}`); });
@@ -279,7 +289,7 @@ describe('announceRuntimeChangeSet (LT-030)', () => {
       instance, adapter, emitSystemNotice: vi.fn(),
       notices: [notice('ACCOUNT', 'account-changed')], preamble: 'REPLAY', holdUntilAnswered,
     });
-    expect(holdUntilAnswered).toHaveBeenCalledWith('REPLAY', undefined);
+    expect(holdUntilAnswered).toHaveBeenCalledWith('REPLAY', []);
   });
 
   it('holds nothing for notices without history, or when no turn is started', async () => {
@@ -452,6 +462,26 @@ describe('announceRuntimeChangeSet (LT-030)', () => {
     expect(heldImages).toEqual([
       { name: 'who.png', type: 'image/png', size: 4, data: 'data:image/png;base64,AAAA' },
     ]);
+  });
+
+  it.each([true, false])('replaces a previous replay image list when inline images are now available=%s', async vision => {
+    const dir = workspace();
+    const queue = new InstanceContinuityInputQueue();
+    const holdUntilAnswered = (text: string, attachments?: Parameters<typeof queue.holdUntilAnswered>[2]) => {
+      queue.holdUntilAnswered('inst-1', text, attachments);
+    };
+    const common = { emitSystemNotice: vi.fn(), notices: [notice('ACCOUNT', 'account-changed')], holdUntilAnswered };
+    await announceRuntimeChangeSet({ ...common, instance: imageInstance(dir), preamble: 'first replay',
+      adapter: { sendInput: vi.fn(async () => undefined), getCapabilities: () => ({ vision: true }) } });
+    expect(queue.prepare('inst-1', null).attachments).toHaveLength(1);
+    await announceRuntimeChangeSet({ ...common, preamble: 'new replay',
+      instance: vision ? { id: 'inst-1', sessionId: 'session-1', workingDirectory: dir, outputBuffer: [] } as never : imageInstance(dir),
+      adapter: { sendInput: vi.fn(async () => undefined), getCapabilities: () => ({ vision }) } });
+    const next = queue.prepare('inst-1', null);
+    expect(next.contextBlock).toContain('new replay');
+    expect(next.contextBlock).not.toContain('first replay');
+    expect(next.attachments).toBeUndefined();
+    if (!vision) expect(next.contextBlock).toContain('.claude-attachments');
   });
 
   it('saves the original image and points the replay at it when the provider refuses attachments', async () => {

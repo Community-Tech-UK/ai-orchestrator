@@ -45,7 +45,7 @@ const SEVERITY_ORDER: SeverityLevel[] = ['critical', 'high', 'medium', 'low', 'i
     <div class="page">
       <div class="page-header">
         <div class="header-title">
-          <span class="title">Reviews</span>
+          <span class="title">Code Reviews</span>
           <span class="subtitle">Session start, agent selection, issue acknowledgment, and export</span>
         </div>
       </div>

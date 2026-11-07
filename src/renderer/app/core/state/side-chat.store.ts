@@ -53,6 +53,8 @@ interface SideChatListResponse {
   archived: ChatRecord[];
 }
 
+type AttentionLoadState = 'idle' | 'loading' | 'loaded' | 'error';
+
 /**
  * Session-scoped sidechat state. Lifetime is above the panel: drafts, selection,
  * provider choice and errors are keyed by parent identity, so two sessions in
@@ -72,12 +74,15 @@ export class SideChatStore {
   private readonly _permissions = signal(new Map<string, SideChatPermissionSummary>());
   private readonly _sendingParents = signal(new Set<string>());
   private readonly _errors = signal(new Map<string, SideChatSendError>());
+  private readonly _attentionLoadState = signal<AttentionLoadState>('idle');
   private readonly _openRequest = signal<SideChatOpenRequest | null>(null);
   private readonly listGeneration = new Map<string, number>();
   private unsubscribe: (() => void) | null = null;
+  private attentionLoadGeneration = 0;
   private openRequestId = 0;
 
   readonly attention = this._attention.asReadonly();
+  readonly attentionLoadState = this._attentionLoadState.asReadonly();
   readonly openRequest = this._openRequest.asReadonly();
 
   /** Aggregate unread + needs-action conversations across every parent. */
@@ -103,25 +108,57 @@ export class SideChatStore {
       return;
     }
     this.unsubscribe = this.ipc.onChatEvent((event) => this.onChatEvent(event));
+    await this.loadAttentionSnapshot();
+  }
+
+  /** Retry the all-parent attention snapshot; only meaningful after a failed load. */
+  async retryAttentionLoad(): Promise<void> {
+    if (this._attentionLoadState() !== 'error') {
+      return;
+    }
+    await this.loadAttentionSnapshot();
+  }
+
+  private async loadAttentionSnapshot(): Promise<void> {
+    const generation = this.attentionLoadGeneration;
+    const atRequest = this._attention();
+    this._attentionLoadState.set('loading');
     try {
       const response = await this.ipc.sideChatAttentionAll();
-      if (response.success && Array.isArray(response.data)) {
-        this._attention.update((map) => {
-          const next = new Map(map);
-          for (const entry of response.data as SideChatAttention[]) {
-            next.set(sideChatParentKey(entry.parent), entry);
-          }
-          return next;
-        });
+      if (generation !== this.attentionLoadGeneration) {
+        return;
       }
+      if (!response.success || !Array.isArray(response.data)) {
+        this._attentionLoadState.set('error');
+        return;
+      }
+
+      // The snapshot is authoritative except for entries a live delta set after the request started.
+      this._attention.update((current) => {
+        const next = new Map<string, SideChatAttention>();
+        for (const entry of response.data as SideChatAttention[]) {
+          next.set(sideChatParentKey(entry.parent), entry);
+        }
+        for (const [key, entry] of current) {
+          if (atRequest.get(key) !== entry) next.set(key, entry);
+        }
+        return next;
+      });
+      this._attentionLoadState.set('loaded');
     } catch {
-      // Badges fill in from the next attention delta.
+      if (generation !== this.attentionLoadGeneration) {
+        return;
+      }
+      this._attentionLoadState.set('error');
     }
   }
 
   disposeForTesting(): void {
     this.unsubscribe?.();
     this.unsubscribe = null;
+    // Invalidate a snapshot still in flight so it cannot land after teardown.
+    this.attentionLoadGeneration += 1;
+    this._attentionLoadState.set('idle');
   }
 
   sessionKey(parent: SideChatParentRef): string {

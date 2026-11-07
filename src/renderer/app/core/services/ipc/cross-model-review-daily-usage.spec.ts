@@ -69,14 +69,14 @@ describe('cross-model daily usage deadline', () => {
     indicator.componentRef.setInput('instanceId', 'fixture');
     const settings = TestBed.createComponent(ReviewSettingsTabComponent);
     indicator.detectChanges(); settings.detectChanges();
-    expect(indicator.nativeElement.textContent).toContain('Limit reached');
+    expect(indicator.nativeElement.textContent).toContain('Second opinion: limit reached');
     expect(settings.nativeElement.querySelector('p[role="status"]').textContent).toBe('Used today: 20 of 20');
 
     current = snapshot(0, secondMidnight);
     await vi.advanceTimersByTimeAsync(2000);
     indicator.detectChanges(); settings.detectChanges();
     expect(statusApi).toHaveBeenCalledTimes(1);
-    expect(indicator.nativeElement.textContent).not.toContain('Limit reached');
+    expect(indicator.nativeElement.textContent).not.toContain('Second opinion: limit reached');
     expect(settings.nativeElement.querySelector('p[role="status"]').textContent).toBe('Used today: 0 of 20');
 
     current = snapshot(2, thirdMidnight);

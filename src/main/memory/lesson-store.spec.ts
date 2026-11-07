@@ -128,3 +128,22 @@ describe('LessonStore WS16 — reinforce-on-use, provenance, use-weighted digest
     expect(next.uses).toBe(1);
   });
 });
+
+describe('project-scoped lessons', () => {
+  it('deduplicates only within a normalized project and never shows other projects', () => {
+    const store = new LessonStore();
+    const a = store.capture('Check migration order', 1, 'agent-derived', '/repo-a').lesson;
+    const b = store.capture('Check migration order', 2, 'agent-derived', '/repo-b').lesson;
+    const old = store.capture('Old global lesson', 3).lesson;
+    expect(a.id).not.toBe(b.id);
+    expect(store.capture('Check migration order', 4, 'agent-derived', '/repo-b/').reinforced).toBe(true);
+    expect(store.digest(10, { workspace: '/repo-b' }).map(l => l.id)).toEqual([b.id, old.id]);
+    expect(store.digest().map(l => l.id)).toEqual([old.id]);
+  });
+  it('keeps the project when a lesson is superseded', () => {
+    const store = new LessonStore(); const first = store.capture('Old', 1, 'agent-derived', '/repo-a').lesson;
+    const next = store.supersede(first.id, 'New', 2);
+    expect(next.projectKey).toBe('/repo-a');
+    expect(store.digest(10, { workspace: '/repo-b' })).toEqual([]);
+  });
+});

@@ -22,7 +22,7 @@ import { RLM_MIGRATIONS_056_060 } from './rlm-migrations-056-060';
 import { RLM_MIGRATIONS_061_065 } from './rlm-migrations-061-065';
 import { RLM_MIGRATIONS_066_070 } from './rlm-migrations-066-070';
 import { RLM_MIGRATIONS_071_075 } from './rlm-migrations-071-075';
-import { RLM_MIGRATIONS_076_080 } from './rlm-migrations-076-080';
+import { COPILOT_CREDITS_MIGRATION, RLM_MIGRATIONS_076_080 } from './rlm-migrations-076-080';
 import { RLM_MIGRATIONS_081_085 } from './rlm-migrations-081-085';
 
 /** Keep the persisted 083 migration name stable; 082 remains reserved. */
@@ -82,7 +82,14 @@ export const MIGRATIONS: Migration[] = [
   ...RLM_MIGRATIONS_076_080,
   ...RLM_MIGRATIONS_081_085,
   AUTOMATION_RUN_POLICY_MIGRATION,
+  COPILOT_CREDITS_MIGRATION,
 ];
+
+// Earlier Queue checkpoints persisted the credit migration under other numbers while
+// main took 078, 081, 082 and 083 for other work. Keep those rows and checksums intact.
+const LEGACY_COPILOT_CREDITS_NAMES = new Set(['078_copilot_credits', '081_copilot_credits', '082_copilot_credits']);
+const canonicalMigrationName = (name: string) =>
+  LEGACY_COPILOT_CREDITS_NAMES.has(name) ? COPILOT_CREDITS_MIGRATION.name : name;
 
 /** Enable WAL when main and the context worker open a fresh database together. */
 export function enableRlmWal(db: SqliteDriver): void {
@@ -403,11 +410,11 @@ export function runMigrations(
 
 function readPendingMigrations(db: SqliteDriver): Migration[] {
   const appliedMigrations = getAppliedMigrations(db);
-  const appliedNames = new Set(appliedMigrations.map(m => m.name));
+  const appliedNames = new Set(appliedMigrations.map(m => canonicalMigrationName(m.name)));
 
   // Verify checksums of applied migrations haven't changed
   for (const applied of appliedMigrations) {
-    const migration = MIGRATIONS.find(m => m.name === applied.name);
+    const migration = MIGRATIONS.find(m => m.name === canonicalMigrationName(applied.name));
     if (migration) {
       const expectedChecksum = computeMigrationChecksum(migration);
       if (applied.checksum !== expectedChecksum) {
@@ -435,7 +442,7 @@ export function getSchemaInfo(
   pendingMigrations: string[];
 } {
   const applied = getAppliedMigrations(db);
-  const appliedNames = new Set(applied.map(m => m.name));
+  const appliedNames = new Set(applied.map(m => canonicalMigrationName(m.name)));
   const pending = MIGRATIONS
     .filter(m => !appliedNames.has(m.name))
     .map(m => m.name);

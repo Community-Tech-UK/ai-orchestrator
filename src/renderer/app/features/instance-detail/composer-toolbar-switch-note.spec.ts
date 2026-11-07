@@ -5,6 +5,9 @@ import { InstanceIpcService } from '../../core/services/ipc/instance-ipc.service
 import { InstanceStore } from '../../core/state/instance.store';
 import { ToastService } from '../../core/services/toast.service';
 import { ProviderAccountIpcService } from '../../core/services/ipc/provider-account-ipc.service';
+import { resolveContextEvidenceTemplate } from './composer-toolbar-test-resources';
+
+await resolveContextEvidenceTemplate();
 
 /**
  * Plan 12a/14d: the line shown above the model list before a switch. The

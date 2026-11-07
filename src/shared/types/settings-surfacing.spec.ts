@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 
 import { SETTING_SURFACING, internalSettingKeys, type SettingSurfacing } from './settings-surfacing';
 import { SETTINGS_METADATA } from './settings.types';
+import { DEFAULT_SETTINGS } from './settings-defaults';
 
 /** Every renderer source file, specs excluded. */
 function rendererSources(): string[] {
@@ -50,6 +51,11 @@ function writtenSettingKeys(sources: readonly string[]): Set<string> {
 }
 
 describe('SETTING_SURFACING', () => {
+  it('keeps live Claude permissions off by default and internal until live validation', () => {
+    expect(DEFAULT_SETTINGS.claudeLivePermissionPrompts).toBe(false);
+    expect((SETTING_SURFACING as Record<string, SettingSurfacing>)['claudeLivePermissionPrompts']).toBe('internal');
+    expect(SETTINGS_METADATA.some(meta => meta.key === 'claudeLivePermissionPrompts')).toBe(false);
+  });
   const metaByKey = new Map<string, (typeof SETTINGS_METADATA)[number]>(
     SETTINGS_METADATA.map((m) => [m.key as string, m]),
   );

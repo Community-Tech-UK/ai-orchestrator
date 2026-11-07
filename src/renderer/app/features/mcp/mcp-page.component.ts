@@ -38,6 +38,7 @@ import {
 import { GlossaryTermComponent } from '../../shared/glossary/glossary-term.component';
 import { parseOptionalStringArray, parseOptionalStringRecord } from './mcp-management-form';
 import type { McpTransport } from '../../../../shared/types/mcp-orchestrator.types';
+import { mcpScopeLabel } from './mcp-scope-label';
 
 // ─── Local interfaces ────────────────────────────────────────────────────────
 
@@ -192,6 +193,7 @@ export class McpPageComponent implements OnInit, OnDestroy {
 
   readonly activeManagementTab = signal<ManagementTab>('orchestrator');
   readonly orchestratorInjectionProviders = ORCHESTRATOR_INJECTION_PROVIDERS;
+  readonly scopeLabel = mcpScopeLabel;
 
   readonly managementFormOpen = signal(false);
   readonly managementFormMode = signal<ManagementMode>('create');

@@ -314,11 +314,11 @@ describe('extractAuthoredUserMessage on the continuity-queue composition (R3J4)'
       queueDeferredInputContexts(deps, instanceId, Promise.resolve(options.earlier));
       await flush();
     }
-    if (options.history) queue.queueContinuity(instanceId, options.history);
+    if (options.history) queue.queueContinuity(instanceId, options.history, { userOnly: false });
     let current = buildContextBlock(deps, options.current ?? null);
     if (options.goal) current = appendActiveGoalContext(current, goalInstance);
     if (options.guidance) current = `${current ? `${current}\n\n` : ''}${guidance}`;
-    const prepared = queue.prepare(instanceId, current);
+    const prepared = queue.prepare(instanceId, current, undefined, 'user');
     prepared.commit();
     return prepared.contextBlock ? `${prepared.contextBlock}\n\n${options.text ?? message}` : (options.text ?? message);
   }
@@ -373,8 +373,8 @@ describe('extractAuthoredUserMessage on the continuity-queue composition (R3J4)'
       }
       // Nothing typed after the preamble: the CLI trims the trailing blank line.
       const queue = new InstanceContinuityInputQueue();
-      queue.queueContinuity(instanceId, replay);
-      expect(extractAuthoredUserMessage((queue.consume(instanceId, null) ?? '') as string)).toBe('');
+      queue.queueContinuity(instanceId, replay, { userOnly: false });
+      expect(extractAuthoredUserMessage((queue.consume(instanceId, null, 'user') ?? '') as string)).toBe('');
     });
 
     it('keeps everything the user typed, including text that looks like a second set', async () => {
@@ -497,7 +497,7 @@ describe('extractAuthoredUserMessage on the continuity-queue composition (R3J4)'
       const replay = buildReplayContinuityMessage(conversation, { reason: 'session-rebuild' }) as string;
       for (const planning of [false, true]) {
         const { instance, adapter, manager } = build(planning);
-        manager.queueContinuityPreamble(instance.id, replay);
+        manager.queueContinuityPreamble(instance.id, replay, { userOnly: false });
         raiseContextWarning(manager, instance);
         await manager.sendInput(instance.id, message);
         const sent = adapter.sendInput.mock.calls[0]?.[0] as string;

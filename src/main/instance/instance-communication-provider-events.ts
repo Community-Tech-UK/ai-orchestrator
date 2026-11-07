@@ -1,3 +1,4 @@
+import { publishSubagentUsage } from './subagent-usage-publisher';
 import type { ClaudeSelfWakeupEvent } from '../cli/adapters/claude-cli-self-wakeup';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type { CliToolCall } from '../cli/adapters/base-cli-adapter';
@@ -48,11 +49,20 @@ export function bindRawAdapterProviderEvents(input: BindRawAdapterProviderEvents
     if (!input.isStale('cache_lifetime')) recordClaudeCacheLifetime(input.adapter, value);
   });
 
+  const lastSubagentPush = new Map<string, number>();
   const recordedSubagents = new Set<string>();
   input.adapter.on('subagent_usage', (sample: ClaudeSubagentUsage) => {
-    if (input.isStale('subagent_usage') || !sample.final || recordedSubagents.has(sample.toolUseId)) return;
+    if (input.isStale('subagent_usage') || recordedSubagents.has(sample.toolUseId)) return;
     const instance = input.getInstance?.();
     if (!instance) return;
+    const now = Date.now();
+    if (sample.final || !lastSubagentPush.has(sample.toolUseId) || now - lastSubagentPush.get(sample.toolUseId)! >= 2000) {
+      lastSubagentPush.set(sample.toolUseId, now);
+      publishSubagentUsage({ instanceId: instance.id, toolUseId: sample.toolUseId, finalContextTokens: sample.finalContextTokens,
+        toolUses: sample.toolUses, durationMs: sample.durationMs, final: sample.final });
+    }
+    if (!sample.final) return;
+    lastSubagentPush.delete(sample.toolUseId);
     recordedSubagents.add(sample.toolUseId);
     recordCostAttribution({source:'instance-turn',purpose:'subagent',taskType:'claude-subagent-final',
       provider:'claude',instanceId:instance.id,sessionId:instance.sessionId,costSource:'unknown',costKnown:false,

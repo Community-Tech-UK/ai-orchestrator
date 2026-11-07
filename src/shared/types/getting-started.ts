@@ -80,7 +80,7 @@ function buildSteps(input: GettingStartedInput): GettingStartedStep[] {
       // provider to `degraded`; only Antigravity and Cursor need nothing but the
       // binary. Promising that PATH is the whole requirement would leave a
       // signed-out user stuck on a step whose own text said they had met it.
-      detail: 'AI Orchestrator drives coding CLIs like Claude Code and Codex — it needs at least one installed and ready to use (signed in, where that applies).',
+      detail: 'Harness drives coding CLIs like Claude Code and Codex — it needs at least one installed and ready to use (signed in, where that applies).',
       done: input.providerAnyStatus === 'ready',
     },
     {

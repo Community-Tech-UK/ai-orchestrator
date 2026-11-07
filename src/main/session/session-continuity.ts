@@ -38,7 +38,7 @@ import {
   findLastIndexById,
   getStateLookupKeys,
   migrateSessionState,
-  normalizeConversationEntryForPersistence,
+  normalizeConversationEntryForPersistence, cloneConversationEntryPatch,
   normalizeLookupIdentifier,
   normalizeStateForContinuity,
   shouldRewriteNormalizedState,
@@ -882,7 +882,7 @@ export class SessionContinuityManager extends EventEmitter {
       if (!fallback || (oldest && fallback.timestamp < oldest.timestamp)) return false;
       return this.addConversationEntry(instanceId, fallback);
     }
-    Object.assign(entry, structuredClone(patch));
+    Object.assign(entry, cloneConversationEntryPatch(entry, patch));
     state.conversationHistoryComplete = false;
     this.stateRecoveryMetadata.delete(instanceId);
     this.dirty.add(instanceId);

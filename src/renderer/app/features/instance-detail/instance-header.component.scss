@@ -520,3 +520,12 @@
   white-space: nowrap;
 }
 
+.header-top { align-items: center; gap: 8px; flex-direction: row; }
+.header-actions { flex-wrap: nowrap; min-width: 0; gap: 8px; }
+.instance-identity { flex: 1 1 160px; }
+.instance-name-text { display: block; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.name-row { align-items: center; }
+.name-row app-status-indicator { top: 0; }
+.header-actions app-recent-directories-dropdown { max-width: 150px; min-width: 0; }
+.yolo-badge.active { color: var(--warning-color, #eab308); border-color: currentColor; white-space: nowrap; }
+@media (max-width: 960px) { .header-top { flex-direction: row; align-items: center; } }

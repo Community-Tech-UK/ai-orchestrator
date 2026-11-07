@@ -8,6 +8,12 @@
  * so there is no hot-path cost.
  */
 
+import { ContextMeasuredViewComponent } from './context-measured-view.component';
+import { SettingsStore } from '../../core/state/settings.store';
+import { InstanceStore } from '../../core/state/instance.store';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { retrievedNotesUsage } from './retrieved-notes-usage';
+import type { ProviderMeasuredContext } from '../../../../shared/types/provider-measured-context.types';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import {
   ChangeDetectionStrategy,
@@ -32,7 +38,6 @@ import type {
   ContextManifestTrigger,
 } from '../../../../shared/types/context-manifest.types';
 import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
-import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
 
 const REFRESH_INTERVAL_MS = 10_000;
@@ -157,14 +162,18 @@ export function buildSparklinePoints(samples: readonly { ratio: number }[]): str
 @Component({
   selector: 'app-context-attribution-panel',
   standalone: true,
-  imports: [DecimalPipe, DatePipe, AioTooltipDirective],
+  imports: [DecimalPipe, DatePipe, ContextMeasuredViewComponent, AioTooltipDirective],
   template: `
     <div class="attribution-panel">
+      <app-context-measured-view [instanceId]="instanceId()" (measured)="measurement.set($event)" />
+      @if (retrievedNotes().times > 0) { <p>Retrieved notes added to your messages: {{ retrievedNotes().times }} times, @if (retrievedNotes().tokens === null) { token count not available } @else { about {{ retrievedNotes().tokens | number }} tokens }</p> }
+
       @if (error(); as message) {
         <p class="panel-error" role="alert">{{ message }}</p>
       } @else if (!attribution()) {
         <p class="panel-loading" role="status">Measuring context usage…</p>
       } @else {
+        @if (!measurement()) {
         <div class="section">
           <div class="section-title">
             Context by source
@@ -198,7 +207,9 @@ export function buildSparklinePoints(samples: readonly { ratio: number }[]): str
           </ul>
         </div>
 
+        }
         <div class="section">
+          <p>Re-sent at full price this session: {{ cacheRewriteIsEstimated() ? 'about ' : '' }}{{ cacheRewriteTokens() | number }} tokens{{ cacheRewriteCost() }}{{ lastBreak()?.cause ? ' · last: ' + lastBreak()?.cause : '' }}</p>
           <div class="section-title">Prompt-cache hit ratio</div>
           @if (cacheSamples().length > 1) {
             <svg class="sparkline" viewBox="0 0 100 24" preserveAspectRatio="none" role="img"
@@ -441,6 +452,17 @@ export class ContextAttributionPanelComponent implements OnInit, OnDestroy {
   instanceId = input.required<string>();
 
   private readonly ipc = inject(ElectronIpcService);
+  private readonly instances = inject(InstanceStore);
+  private readonly settings = inject(SettingsStore);
+  readonly measurement = signal<ProviderMeasuredContext | null>(null);
+  readonly retrievedNotes = computed(() => {
+    const instance = this.instances.getInstance(this.instanceId());
+    return retrievedNotesUsage([...(instance?.outputBuffer ?? []), ...(instance?.retainedPrompts ?? [])]);
+  });
+  readonly cacheRewriteIsEstimated = computed(() => this.cacheState()?.rewriteIsEstimated === true);
+  readonly cacheRewriteTokens = computed(() => this.cacheState()?.rewriteTokens ?? 0);
+  readonly cacheRewriteCost = computed(() => this.settings.showCost() && this.cacheState()?.rewriteCostUsd !== undefined
+    ? ` (≈$${this.cacheState()!.rewriteCostUsd!.toFixed(2)} API-price equivalent)` : '');
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
 
   private readonly attributionState = signal<ContextAttributionReport | null>(null);

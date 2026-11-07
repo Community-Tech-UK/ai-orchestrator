@@ -58,6 +58,20 @@ describe('InstanceOutputStore', () => {
     TestBed.resetTestingModule();
   });
 
+  it('applies a delivery after a throttled user event and never appends a missing old prompt', () => {
+    vi.useFakeTimers();
+    store.queueOutput('inst-1', { id: 'receiving-user', type: 'user', timestamp: 2, content: 'Continue' });
+    const delivery = { instanceId: 'inst-1', messageId: 'receiving-user', deliveryId: 'delivery', tokens: 120 };
+    store.acceptInputContextDelivery(delivery);
+    store.acceptInputContextDelivery(delivery);
+    expect(stateService.getInstance('inst-1')?.outputBuffer.find(message => message.id === 'receiving-user')?.metadata)
+      .toEqual({ retrievedContextDeliveries: { delivery: 120 } });
+    const before = stateService.getInstance('inst-1')?.outputBuffer.length;
+    store.acceptInputContextDelivery({ ...delivery, messageId: 'evicted-user' });
+    vi.advanceTimersByTime(LIMITS.TEXT_THROTTLE_MS * 2);
+    expect(stateService.getInstance('inst-1')?.outputBuffer).toHaveLength(before!);
+  });
+
   describe('authoritative native history replay', () => {
     const envelope = (messages: OutputMessage[], revision = 1) => {
       const identity = { kind: 'history-replay', instanceId: 'inst-1', createdAt: 0,
@@ -70,6 +84,19 @@ describe('InstanceOutputStore', () => {
       expect(apply).toBeTypeOf('function');
       apply.call(store, chunk);
     };
+    it('preserves metadata delivered after the first history chunk without manufacturing another user turn', () => {
+      const user: OutputMessage = { id: 'receiving-user', type: 'user', timestamp: 2, content: 'Continue '.repeat(100) };
+      const chunks = envelope([user]);
+      accept(chunks[0]);
+      store.queueOutput('inst-1', user);
+      store.acceptInputContextDelivery({ instanceId: 'inst-1', messageId: user.id, deliveryId: 'delivery', tokens: 120 });
+      store.acceptInputContextDelivery({ instanceId: 'inst-1', messageId: 'not-in-snapshot', deliveryId: 'missing', tokens: 90 });
+      for (const chunk of chunks.slice(1)) accept(chunk);
+      expect(stateService.getInstance('inst-1')?.outputBuffer).toEqual([
+        { ...user, metadata: { retrievedContextDeliveries: { delivery: 120 } } },
+      ]);
+    });
+
     it('replaces stale and queued output while retaining a complete large attachment', () => {
       vi.useFakeTimers();
       store.queueOutput('inst-1', { id: 'old-queued', timestamp: 1, type: 'assistant', content: 'stale' });

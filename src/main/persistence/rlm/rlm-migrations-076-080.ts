@@ -8,6 +8,30 @@ export const CONNECTOR_STORAGE_SQL = `
   CREATE TABLE IF NOT EXISTS connector_migration_state (source_id TEXT PRIMARY KEY);
 `;
 
+// Registered after 083; the SQL remains identical to the earlier credit migrations.
+export const COPILOT_CREDITS_MIGRATION: Migration = {
+    name: '084_copilot_credits',
+    up: `
+      ALTER TABLE cost_entries ADD COLUMN provider TEXT;
+      ALTER TABLE cost_entries ADD COLUMN ai_credits_nano INTEGER;
+      ALTER TABLE cost_entries ADD COLUMN premium_requests INTEGER;
+      ALTER TABLE cost_entries ADD COLUMN credit_checkpoint_id TEXT;
+      ALTER TABLE cost_entries ADD COLUMN credit_checkpoint_total_nano INTEGER;
+      ALTER TABLE cost_entries ADD COLUMN credit_checkpoint_premium_total INTEGER;
+      CREATE UNIQUE INDEX idx_cost_credit_checkpoint ON cost_entries(session_id, credit_checkpoint_id)
+        WHERE credit_checkpoint_id IS NOT NULL;
+    `,
+    down: `
+      DROP INDEX idx_cost_credit_checkpoint;
+      ALTER TABLE cost_entries DROP COLUMN credit_checkpoint_premium_total;
+      ALTER TABLE cost_entries DROP COLUMN credit_checkpoint_total_nano;
+      ALTER TABLE cost_entries DROP COLUMN credit_checkpoint_id;
+      ALTER TABLE cost_entries DROP COLUMN premium_requests;
+      ALTER TABLE cost_entries DROP COLUMN ai_credits_nano;
+      ALTER TABLE cost_entries DROP COLUMN provider;
+    `,
+};
+
 export const RLM_MIGRATIONS_076_080: Migration[] = [
   {
     // A denied/failed browser decision's reason code used to reach only the

@@ -1,4 +1,5 @@
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { NoticeSlotService } from '../notices/notice-slot.service';
 /**
  * Computer Use Permission Banner
  *
@@ -9,7 +10,7 @@ import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive'
  * {@link ComputerUsePermissionStore}.
  */
 
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, DestroyRef } from '@angular/core';
 import {
   ComputerUsePermissionStore,
   PERMISSION_LABELS,
@@ -22,6 +23,7 @@ import type { DesktopSystemPermission } from '../../../../shared/types/desktop-g
   imports: [AioTooltipDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    @if (slot()) {
     @if (store.bannerVisible()) {
       <section
         class="cu-permission-banner"
@@ -90,6 +92,7 @@ import type { DesktopSystemPermission } from '../../../../shared/types/desktop-g
           </button>
         </div>
       </section>
+    }
     }
   `,
   styles: [`
@@ -190,6 +193,8 @@ import type { DesktopSystemPermission } from '../../../../shared/types/desktop-g
 })
 export class ComputerUsePermissionBannerComponent {
   protected readonly store = inject(ComputerUsePermissionStore);
+
+  protected readonly slot = inject(NoticeSlotService).register('computer-use-permission', computed(() => this.store.bannerVisible()), inject(DestroyRef));
 
   protected readonly title = computed(() =>
     this.store.unavailable()

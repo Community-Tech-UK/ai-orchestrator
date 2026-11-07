@@ -571,7 +571,7 @@ export async function integrateIntoSharedBranch(
         return {
           success: false,
           integrationBranch,
-          error: 'Integration branch is not registered as AIO-owned',
+          error: 'Integration branch is not registered as Harness-owned',
         };
       }
     } else {
@@ -579,7 +579,7 @@ export async function integrateIntoSharedBranch(
         return {
           success: false,
           integrationBranch,
-          error: 'AIO integration ownership metadata is stale',
+          error: 'Harness integration ownership metadata is stale',
         };
       }
       const baseTip = await git(['rev-parse', baseBranch], repoRoot);

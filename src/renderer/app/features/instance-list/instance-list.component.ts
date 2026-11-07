@@ -27,6 +27,7 @@ import { InstanceRowComponent } from './instance-row.component';
 import { HistorySideChatBadgeComponent } from '../history/history-side-chat-badge.component';
 import { InstanceListLoadFailureComponent } from './instance-list-load-failure.component';
 import { PlanQueueStageRowsComponent } from './plan-queue-stage-rows.component';
+import { SessionAttentionTabsComponent } from './session-attention-tabs.component';
 import { CopilotProjectRoutingMenuComponent } from './copilot-project-routing-menu.component';
 import { ContextMenuComponent, type ContextMenuItem } from '../../shared/components/context-menu/context-menu.component';
 import { PromptModalComponent } from '../../shared/components/prompt-modal/prompt-modal.component';
@@ -85,7 +86,7 @@ import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive'
 @Component({
   selector: 'app-instance-list',
   standalone: true,
-  imports: [NgTemplateOutlet, ScrollingModule, InstanceRowComponent, HistorySideChatBadgeComponent, InstanceListLoadFailureComponent, PlanQueueStageRowsComponent, DragDropModule, ContextMenuComponent, PromptModalComponent, CopilotProjectRoutingMenuComponent, AioTooltipDirective],
+  imports: [NgTemplateOutlet, ScrollingModule, InstanceRowComponent, HistorySideChatBadgeComponent, InstanceListLoadFailureComponent, PlanQueueStageRowsComponent, SessionAttentionTabsComponent, DragDropModule, ContextMenuComponent, PromptModalComponent, CopilotProjectRoutingMenuComponent, AioTooltipDirective],
   templateUrl: './instance-list.component.html',
   styleUrl: './instance-list.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -171,12 +172,9 @@ export class InstanceListComponent implements OnDestroy {
   private filterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private static readonly FILTER_DEBOUNCE_MS = 250;
 
-  // The status filter ('active' vs 'all') only hides sessions/projects from the
-  // view — it never changes the persisted ordering. Both reorder handlers
-  // (onDrop / onProjectDrop -> getNextProjectPathOrder) perform a stable subset
-  // reorder: they walk the full persisted order and only reshuffle the visible
-  // entries into their existing slots, leaving hidden items in place. So
-  // reordering is safe under the status filter and must stay enabled there.
+  // Attention and state filters hide rows without changing persisted ordering.
+  // Both reorder handlers reshuffle visible entries within their existing slots,
+  // leaving hidden entries in place, so dragging stays enabled under these filters.
   isDragDisabled = computed(() =>
     this.filterInput().length > 0 ||
       this.locationFilter() !== 'all'

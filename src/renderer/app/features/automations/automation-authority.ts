@@ -244,7 +244,7 @@ function mustAskBeforeCard(input: AutomationAuthorityInput): AutomationAuthority
   const statements: AutomationAuthorityStatement[] = [];
   if (!input.yoloMode) {
     statements.push({
-      statement: 'Must ask before doing anything that needs approval — and because it runs unattended with nobody there to answer, it stops the run instead of guessing.',
+      statement: 'Must ask before doing anything that needs your approval — and because it runs unattended with nobody there to answer, it stops the run instead of guessing.',
       enforcement: 'technical',
       source: 'action.yoloMode',
     });
@@ -456,7 +456,7 @@ export const AUTOMATION_AUTHORITY_TEMPLATES: AutomationAuthorityTemplate[] = [
   {
     id: 'read-only-monitor',
     name: 'Read-only monitor',
-    description: 'Looks and reports only. Cannot make changes; stops instead of guessing if it hits something that needs approval.',
+    description: 'Looks and reports only. Cannot make changes; stops instead of guessing if it hits something that needs your approval.',
     apply: () => ({
       yoloMode: false,
       loopEnabled: false,

@@ -1,3 +1,6 @@
+import { ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
+import { readFileSync } from 'node:fs';
+import { join, basename } from 'node:path';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -11,6 +14,8 @@ import { ProviderAccountIpcService } from '../../core/services/ipc/provider-acco
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import { HistoryPreviewSessionService } from './history-preview-session.service';
 
+await resolveComponentResources(async url => url.endsWith('context-evidence-panel.component.html') ? readFileSync(join(__dirname, '../../shared/components/context-evidence-panel', basename(url)), 'utf8') : '');
+
 describe('Composer model feedback (rendered picker and host)', () => {
   let fixture: ComponentFixture<ComposerToolbarComponent>;
   const changeModel = vi.fn();
@@ -22,7 +27,7 @@ describe('Composer model feedback (rendered picker and host)', () => {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({ imports: [ComposerToolbarComponent], providers: [
       { provide: InstanceIpcService, useValue: { changeModel } },
-      { provide: InstanceStore, useValue: {} },
+      { provide: InstanceStore, useValue: { getInstance: () => undefined } },
       { provide: ToastService, useValue: { show } },
       { provide: ProviderAccountIpcService, useValue: { list: vi.fn().mockResolvedValue({ profiles: [], pools: {} }) } },
     ] });

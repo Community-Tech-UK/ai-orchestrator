@@ -190,6 +190,7 @@ const mockSettingsData = {
   maxRecentDirectories: 20,
   customModelOverride: '',
   parserBufferMaxKB: 512,
+  memoryNotesEveryMessage: false,
 };
 
 const mockSettingsGetAll = vi.fn(() => ({ ...mockSettingsData }));
@@ -1057,6 +1058,8 @@ describe('InstanceManager', () => {
     beforeEach(() => {
       getHarnessGuidance()._resetForTesting();
       mockGuidanceLogInfo.mockClear();
+      // These tests check every turn's notes, so they use the setting that adds notes to every message.
+      mockSettingsGetAll.mockReturnValue({ ...mockSettingsData, memoryNotesEveryMessage: true });
       mockIndexedBuildContext.mockResolvedValue({ storeId: 'store-r6n5', results: [], tokens: 12 });
       mockIndexedFormatContextBlock.mockReturnValueOnce(INDEXED).mockReturnValue(FRESH_INDEXED);
     });

@@ -223,7 +223,7 @@ describe('finalizeLoopWorktree', () => {
 
     expect(state.worktreeLifecycle).toMatchObject({
       phase: 'blocked',
-      lastError: 'Managed worktree finalization failed; inspect AIO logs',
+      lastError: 'Managed worktree finalization failed; inspect Harness logs',
     });
     expect(manager.cleanupWorktree).not.toHaveBeenCalled();
     expect(store.clearWorktreeInfo).not.toHaveBeenCalled();

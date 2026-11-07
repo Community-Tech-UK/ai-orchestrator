@@ -29,6 +29,7 @@ describe('SidebarNavComponent', () => {
   let fixture: ComponentFixture<SidebarNavComponent>;
 
   beforeEach(async () => {
+    localStorage.clear();
     await TestBed.configureTestingModule({
       imports: [SidebarNavComponent, RouterTestingModule.withRoutes([])],
       providers: [
@@ -50,8 +51,12 @@ describe('SidebarNavComponent', () => {
 
     expect(text).toContain('Automations');
     expect(text).toContain('Browser Gateway');
-    expect(text).toContain('Models');
-    expect(text).toContain('Background Jobs');
+    expect(text).not.toContain('Models');
+    fixture.componentInstance.toggleMore();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Models');
+    expect(fixture.nativeElement.textContent).toContain('Background Jobs');
+    expect(localStorage.getItem('aiorch.toolsViews.moreOpen')).toBe('true');
     expect(text).toContain('Workboard');
   });
 

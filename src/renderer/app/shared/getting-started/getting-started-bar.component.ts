@@ -1,3 +1,4 @@
+import { NoticeSlotService } from '../../core/notices/notice-slot.service';
 /**
  * UX5 — the getting-started bar.
  *
@@ -16,6 +17,7 @@ import {
   effect,
   inject,
   input,
+  DestroyRef,
 } from '@angular/core';
 import { Router } from '@angular/router';
 
@@ -34,28 +36,14 @@ import type { StartupCapabilityReport } from '../../../../shared/types/startup-c
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (state(); as s) {
-      @if (s.visible) {
+    @if (slot()) {
+      @if (nextStep(); as step) {
         <aside class="getting-started" role="status" aria-label="Getting started">
-          <span class="getting-started__counter">{{ counter() }}</span>
-          <ul class="getting-started__steps">
-            @for (step of s.steps; track step.id) {
-              <li class="getting-started__step" [attr.data-done]="step.done">
-                <!-- State in words, not a tick glyph alone. -->
-                <span class="getting-started__state">{{ step.done ? 'Done' : 'To do' }}</span>
-                <span class="getting-started__label">{{ step.label }}</span>
-                <span class="getting-started__detail">{{ step.detail }}</span>
-                @if (!step.done) {
-                  <button
-                    type="button"
-                    class="getting-started__go"
-                    [attr.data-step-id]="step.id"
-                    (click)="go(step.id)"
-                  >{{ actionLabel(step.id) }}</button>
-                }
-              </li>
-            }
-          </ul>
+          <span class="getting-started__counter">Setup: {{ counter() }} ·</span>
+          <span class="getting-started__step" data-done="false">Next: {{ nextLabel(step.id) }}</span>
+          <button type="button" class="getting-started__go" [attr.data-step-id]="step.id" (click)="go(step.id)">
+            {{ actionLabel(step.id) }}
+          </button>
         </aside>
       }
     }
@@ -88,6 +76,14 @@ export class GettingStartedBarComponent {
     defaultWorkingDirectory: this.settings.settings().defaultWorkingDirectory ?? '',
     hasEverStartedSession: this.sessionMarker.hasStarted(),
   }));
+
+  protected readonly slot = inject(NoticeSlotService).register('getting-started',
+    computed(() => this.state().visible), inject(DestroyRef));
+  protected readonly nextStep = computed(() => this.state().steps.find(step => !step.done));
+
+  protected nextLabel(id: GettingStartedStepId): string {
+    return id === 'provider-available' ? 'connect a CLI' : id === 'working-directory' ? 'choose a working folder' : 'start a session';
+  }
 
   protected readonly counter = computed(() => gettingStartedCounter(this.state()));
 

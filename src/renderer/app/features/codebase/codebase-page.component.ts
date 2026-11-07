@@ -45,7 +45,7 @@ const SYMBOL_KIND_ICONS: Record<string, string> = {
       <!-- Page Header -->
       <div class="page-header">
         <div class="header-title">
-          <span class="title">Codebase Search</span>
+          <span class="title">Search Code</span>
           <span class="subtitle">Semantic search, indexing, and symbol navigation</span>
         </div>
         <div class="header-actions">

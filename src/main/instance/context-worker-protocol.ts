@@ -1,3 +1,4 @@
+import type { RetrievalQueryStrategy } from '../memory/retrieval-eval/retrieval-query';
 /**
  * Clone-safe message types for the context worker boundary.
  *
@@ -57,6 +58,7 @@ export interface InitializeRlmMsg {
 }
 
 export interface BuildRlmContextMsg {
+  queryStrategy?: RetrievalQueryStrategy;
   type: 'build-rlm-context';
   id: number;
   instanceId: string;

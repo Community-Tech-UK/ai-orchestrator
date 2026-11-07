@@ -4,6 +4,7 @@ import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NotificationRecord } from '../../../../shared/types/notification.types';
+import { SessionNavigator } from '../../core/services/session-navigator.service';
 import { NotificationCenterStore } from '../../core/state/notification-center.store';
 import { NotificationCenterComponent } from './notification-center.component';
 import { ToolLoopAlertStore } from '../../core/state/tool-loop-alert.store';
@@ -22,6 +23,7 @@ const RECORD: NotificationRecord = {
 };
 
 describe('NotificationCenterComponent', () => {
+  const openSession = vi.fn();
   let fixture: ComponentFixture<NotificationCenterComponent>;
   const records = signal<readonly NotificationRecord[]>([RECORD]);
   const store = {
@@ -30,16 +32,20 @@ describe('NotificationCenterComponent', () => {
     init: vi.fn(),
     dismiss: vi.fn(),
     clearAll: vi.fn(),
+    markSeen: vi.fn(),
+    markSessionSeen: vi.fn(),
   };
 
   beforeEach(() => {
     records.set([RECORD]);
     store.init.mockClear();
+    store.markSeen.mockClear();
+    openSession.mockClear();
     store.dismiss.mockClear();
     store.clearAll.mockClear();
     TestBed.configureTestingModule({
       imports: [NotificationCenterComponent],
-      providers: [{ provide: NotificationCenterStore, useValue: store }],
+      providers: [{ provide: NotificationCenterStore, useValue: store }, { provide: SessionNavigator, useValue: { openSession } }],
     });
     fixture = TestBed.createComponent(NotificationCenterComponent);
     fixture.detectChanges();
@@ -66,6 +72,17 @@ describe('NotificationCenterComponent', () => {
     const clear = fixture.debugElement.query(By.css('.notification-center-clear'));
     expect(clear.nativeElement.textContent).toContain('Clear all notifications');
     expect(clear.injector.get(AioTooltipDirective).appTooltip()).toBe('Clear all notifications');
+  });
+
+  it('marks only the first ten rendered rows seen and opens a session row', () => {
+    records.set(Array.from({ length: 12 }, (_, i) => ({ ...RECORD, id: `n-${i}`, instanceId: 'a', resolvedAt: 2, repeatCount: 3 })));
+    fixture.nativeElement.querySelector('.notification-center-trigger').click(); fixture.detectChanges();
+    expect(store.markSeen).toHaveBeenLastCalledWith({ ids: Array.from({ length: 10 }, (_, i) => `n-${i}`) });
+    expect(fixture.nativeElement.querySelectorAll('li')).toHaveLength(10);
+    expect(fixture.nativeElement.textContent).toContain('Resolved');
+    expect(fixture.nativeElement.textContent).toContain('×3');
+    fixture.nativeElement.querySelector('button.notification-session').click();
+    expect(openSession).toHaveBeenCalledWith('a');
   });
 
   it('dismisses a single record and clears the whole center from the panel', () => {
@@ -140,6 +157,8 @@ describe('NotificationCenterComponent — tool-loop actions (N2)', () => {
     init: vi.fn(),
     dismiss: vi.fn(),
     clearAll: vi.fn(),
+    markSeen: vi.fn(),
+    markSessionSeen: vi.fn(),
   };
 
   let fixture: ComponentFixture<NotificationCenterComponent>;

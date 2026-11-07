@@ -1,3 +1,4 @@
+import type { InputContextDelivery } from '../../shared/types/input-context-delivery.types';
 /**
  * In-session auth repair.
  *
@@ -40,6 +41,9 @@ export const AUTH_RECHECK_INTERVAL_MS = 10_000;
 export const AUTH_WATCH_TIMEOUT_MS = 15 * 60_000;
 
 export interface AuthRepairTurn {
+  /** The existing user message and rendered notes survive physical and cross-call retries. */
+  inputMessageId?: string;
+  inputContextDelivery?: InputContextDelivery;
   message: string;
   attachments?: FileAttachment[];
   contextBlock?: string | null;

@@ -43,6 +43,9 @@ import { RunReadinessBannerComponent } from './run-readiness-banner.component';
 import { InlineHintComponent } from '../../shared/hint/inline-hint.component';
 import type { InstanceStatus } from '../../core/state/instance/instance.types';
 import type { ContextUsage, InstanceWaitReason } from '../../../../shared/types/instance.types';
+import { ComposerQuotaNoticeComponent } from './composer-quota-notice.component';
+import { ProviderQuotaStore } from '../../core/state/provider-quota.store';
+import type { ProviderQuotaSnapshot } from '../../../../shared/types/provider-quota.types';
 import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
@@ -293,6 +296,7 @@ describe('InputPanelComponent composer autocomplete integration', () => {
           ComposerToolbarStubComponent,
           QuickAskPanelStubComponent,
           ColdCacheChipStubComponent,
+          ComposerQuotaNoticeComponent,
           ComposerQueueStubComponent,
           ComposerAutocompleteComponent,
           ImageLightboxStubComponent,
@@ -316,6 +320,7 @@ describe('InputPanelComponent composer autocomplete integration', () => {
         { provide: InstanceStore,
           useValue: { getInstance: vi.fn(() => undefined), isQueueParked: () => false },
          },
+        { provide: ProviderQuotaStore, useValue: { snapshots: signal({}), accountSnapshots: signal([]) } },
         {
           provide: KeybindingService,
           useValue: { setContext: vi.fn(), onAction: vi.fn(() => vi.fn()), formatBindingByAction: () => 'Live binding', ariaShortcutsByAction: () => 'Control+Enter' },
@@ -393,6 +398,45 @@ describe('InputPanelComponent composer autocomplete integration', () => {
     expect(textarea.value).toBe('');
     expect(textarea.style.height).toBe('51px');
     expect(measuredFromHeights.at(-1)).toBe('auto');
+  });
+
+  it('shows the active session account quota inside the input hints', () => {
+    const instance = { id: 'inst-quota', provider: 'claude', currentModel: 'claude-sonnet-4-6', accountProfileId: 'seat-a' };
+    vi.mocked(TestBed.inject(InstanceStore).getInstance).mockReturnValue(instance as never);
+    const quota = TestBed.inject(ProviderQuotaStore);
+    const snapshot: ProviderQuotaSnapshot = { provider: 'claude', accountProfileId: 'seat-a', ok: true,
+      takenAt: Date.now(), source: 'admin-api', windows: [{ id: 'claude.5h', label: '5-hour', kind: 'rolling-window',
+        used: 82, limit: 100, remaining: 18, unit: 'percent', resetsAt: null }] };
+    (quota.accountSnapshots as ReturnType<typeof signal<ProviderQuotaSnapshot[]>>).set([snapshot]);
+    fixture.componentRef.setInput('instanceId', 'inst-quota');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.input-hints app-composer-quota-notice')?.textContent)
+      .toContain('Claude 5-hour limit: 18% left');
+    fixture.componentRef.setInput('instanceId', 'new');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('app-composer-quota-notice')).toBeNull();
+  });
+
+  it('shows the draft posture in visible words beneath Auto-approve', () => {
+    fixture.componentRef.setInput('instanceId', 'new');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.yolo-toggle')?.textContent).toContain('Auto-approve: off');
+    expect(fixture.nativeElement.querySelector('.draft-posture')?.textContent)
+      .toContain('This session will: Asks before acting');
+    newSessionDraft.yoloMode.set(true);
+    newSessionDraft.hardened.set(true);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.draft-posture')?.textContent)
+      .toContain('Acts without asking · edits only inside this folder · web allowed');
+  });
+
+  it('says in the hint that a queued message sends after compaction, without naming another provider', () => {
+    fixture.componentRef.setInput('provider', 'claude');
+    fixture.componentRef.setInput('isCompacting', true);
+    fixture.componentRef.setInput('queuedCount', 1);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.input-hints')?.textContent).toContain('Compacting the conversation');
+    expect(fixture.nativeElement.querySelector('.input-hints')?.textContent).not.toContain('Codex');
   });
 
   it('resizes the latest textarea when the composer remounts with a restored draft', () => {
@@ -591,13 +635,13 @@ describe('InputPanelComponent composer autocomplete integration', () => {
     fixture.detectChanges();
 
     const fastButton = fixture.nativeElement.querySelector('.fast-toggle') as HTMLButtonElement;
-    expect(fastButton.textContent).toContain('FAST OFF');
+    expect(fastButton.textContent).toContain('Fast: off');
 
     fastButton.click();
     fixture.detectChanges();
 
     expect(providerState.rememberFastModeForProvider).toHaveBeenCalledWith('claude', true);
-    expect(fastButton.textContent).toContain('FAST ON');
+    expect(fastButton.textContent).toContain('Fast: on');
   });
 
   it('explains new-session toggles and an empty Send on hover, not as text under the composer', () => {
@@ -608,7 +652,7 @@ describe('InputPanelComponent composer autocomplete integration', () => {
     expect(text).not.toContain('will prompt for approvals');
     expect(text).not.toContain('Click to enable faster output');
     expect(text).not.toContain('Write a message or attach a file or folder before sending');
-    expect(hintFor('.fast-toggle').appTooltip()).toBe('Fast Mode OFF — standard output. Click to enable faster output');
+    expect(hintFor('.fast-toggle').appTooltip()).toBe('Faster replies at some capability cost. Click to enable');
     expect(hintFor('.btn-send').appTooltipDisabledReason()).toBe('Write a message or attach a file or folder before sending');
   });
 
@@ -617,11 +661,11 @@ describe('InputPanelComponent composer autocomplete integration', () => {
     providerState.fastModeByProvider.set({ claude: false, codex: true });
     fixture.detectChanges();
 
-    expect(fixture.nativeElement.querySelector('.fast-toggle')?.textContent).toContain('FAST OFF');
+    expect(fixture.nativeElement.querySelector('.fast-toggle')?.textContent).toContain('Fast: off');
 
     providerState.selectedProvider.set('codex');
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('.fast-toggle')?.textContent).toContain('FAST ON');
+    expect(fixture.nativeElement.querySelector('.fast-toggle')?.textContent).toContain('Fast: on');
 
     providerState.selectedProvider.set('gemini');
     fixture.detectChanges();
@@ -644,21 +688,34 @@ describe('InputPanelComponent composer autocomplete integration', () => {
     expect(fixture.nativeElement.querySelector('.fast-toggle')).toBeNull();
   });
 
+  it('does not promise a Hardened boundary for an unsupported saved draft', () => {
+    fixture.componentRef.setInput('instanceId', 'new');
+    newSessionDraft.provider.set('gemini'); newSessionDraft.hardened.set(true);
+    fixture.detectChanges();
+    expect(component.draftPostureSentence()).not.toContain('edits only inside this folder');
+    expect(component.draftPostureSentence()).toContain('can edit files');
+    expect(fixture.nativeElement.querySelector('.draft-posture')?.textContent).toContain('can edit files');
+    expect(fixture.nativeElement.querySelector('.draft-posture')?.textContent).not.toContain('edits only inside this folder');
+    expect(component.hardenedLabel()).toBe('not available for Gemini');
+    expect(newSessionDraft.hardened()).toBe(true);
+    newSessionDraft.provider.set('claude'); fixture.detectChanges();
+    expect(component.draftPostureSentence()).toContain('edits only inside this folder');
+  });
   it('marks Hardened unavailable for a provider with no jail support, but still lets it be turned off', () => {
     fixture.componentRef.setInput('instanceId', 'new');
     newSessionDraft.provider.set('claude');
     fixture.detectChanges();
     expect(component.hardenedUnavailable()).toBe(false);
-    expect(component.hardenedLabel()).toBe('OFF');
+    expect(component.hardenedLabel()).toBe('off');
 
     newSessionDraft.provider.set('gemini');
     fixture.detectChanges();
     expect(component.hardenedUnavailable()).toBe(true);
-    expect(component.hardenedLabel()).toBe('N/A');
+    expect(component.hardenedLabel()).toBe('not available for Gemini');
     let hardenedButton = fixture.nativeElement.querySelector('.hardened-toggle') as HTMLButtonElement;
     expect(hardenedButton.disabled).toBe(false);
     expect(hardenedButton.getAttribute('aria-disabled')).toBe('true');
-    expect(hardenedButton.textContent).toContain('Hardened N/A');
+    expect(hardenedButton.textContent).toContain('Hardened: not available for Gemini');
     expect(hintFor('.hardened-toggle').appTooltipDisabledReason()).toContain('not supported for Gemini yet');
     hardenedButton.click();
     expect(newSessionDraft.setHardened).not.toHaveBeenCalled();
@@ -666,11 +723,11 @@ describe('InputPanelComponent composer autocomplete integration', () => {
     // A folder that remembered Hardened ON must show it and allow switching it off.
     newSessionDraft.hardened.set(true);
     fixture.detectChanges();
-    expect(component.hardenedLabel()).toBe('ON — unsupported');
+    expect(component.hardenedLabel()).toBe('not available for Gemini');
     expect(component.hardenedTitle()).toContain('Click to turn it off');
     hardenedButton = fixture.nativeElement.querySelector('.hardened-toggle') as HTMLButtonElement;
     expect(hardenedButton.disabled).toBe(false);
-    expect(hardenedButton.textContent).toContain('Hardened ON — unsupported');
+    expect(hardenedButton.textContent).toContain('Hardened: not available for Gemini');
     hardenedButton.click();
     expect(newSessionDraft.setHardened).toHaveBeenCalledWith(null);
 

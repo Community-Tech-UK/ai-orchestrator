@@ -36,6 +36,7 @@
     }
   </div>
 
+  @if (startupSlot()) {
   @if (startupBannerReport(); as report) {
     <section
       class="startup-banner"
@@ -78,6 +79,7 @@
     </section>
   }
 
+  }
   @if (settingsStore.isInitialized() && settingsStore.get('pauseFeatureEnabled')) {
     <app-pause-banner />
   }
@@ -98,13 +100,15 @@
   <!-- N12: recap of loop runs that ended while the window was unfocused. -->
   <!-- UX5: unmounts itself once setup is done; no dismissal needed. -->
   <app-getting-started-bar [report]="startupCapabilities()" />
-  <!-- N9: what is blocked on a human right now, while it is still true. -->
-  <app-approval-digest-banner />
+  <app-needs-you-strip />
   <app-away-recap-banner />
+  <app-notice-overflow />
   <!-- Decision 16(b): mounted app-wide, not in the collapsible sidebar, so the
        Cmd+W close-instance action can always reach it. -->
   <app-terminate-confirm-dialog />
   <app-confirm-dialog />
+  <app-command-palette-host />
+  <app-session-status-host />
   <app-help-drawer />
 
   <!-- tabindex="-1": focus lands here when a closing banner has no nearer target. -->
@@ -122,20 +126,23 @@
     <app-pause-detector-error-modal />
   }
 
-  @if (resumeToast(); as toast) {
-    <div class="resume-toast" role="status">
-      Sending {{ toast.queuedTotal }} queued message{{ toast.queuedTotal === 1 ? '' : 's' }}
-    </div>
-  }
-
   @if (toastService.toasts().length > 0) {
     <div class="toast-stack" role="status" aria-live="polite">
-      @for (toast of toastService.toasts(); track toast.id) {
+      @for (toast of toastService.visibleToasts(); track toast.id) {
         <div class="toast-item" [class.toast-error]="toast.type === 'error'"
+          [class.toast-warning]="toast.type === 'warning'"
+          [attr.role]="toast.type === 'error' ? 'alert' : 'status'"
           (mouseenter)="toastService.pause(toast.id, 'hover')" (mouseleave)="toastService.resume(toast.id, 'hover')"
           (focusin)="toastService.pause(toast.id, 'focus')" (focusout)="onToastFocusOut(toast.id, $event)">
-          <span>{{ toast.text }}</span>
+          <span>{{ toast.text }} @if (toast.repeatCount > 1) { ×{{ toast.repeatCount }} }</span>
           @if (toast.action; as action) { <button type="button" class="toast-action" (click)="action.run()">{{ action.label }}</button> }
+          <button type="button" [attr.aria-label]="'Dismiss ' + toast.text" appTooltip="Dismiss" (click)="toastService.dismiss(toast.id)">×</button>
+        </div>
+      }
+      @if (toastService.overflowCount() > 0) {
+        <div class="toast-item" role="status">
+          +{{ toastService.overflowCount() }} more
+          <button type="button" (click)="toastService.dismissAll()">Dismiss all</button>
         </div>
       }
     </div>

@@ -67,7 +67,7 @@ const DEFAULT_CONFIG: ResourceGovernorConfig = {
 
 /** User-facing notices left in the transcript so a reclaim is never silent. */
 const HIBERNATE_NOTICE =
-  'This session was hibernated automatically to free memory after it had been '
+  'This session was put to sleep automatically to free memory after it had been '
   + 'idle for a while. The conversation was preserved; send a message to wake it and continue.';
 const TERMINATE_NOTICE =
   'This session was closed automatically to free memory after it had been idle '

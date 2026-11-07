@@ -1,3 +1,4 @@
+import type { InstanceInputContextDeliveredEvent } from '../../shared/types/input-context-delivery.types';
 import { EventEmitter } from 'events';
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
@@ -2253,7 +2254,7 @@ describe('InstanceCommunicationManager', () => {
       instance.outputBuffer.some(
         (message) =>
           message.type === 'system'
-          && /copilot-cli does not support image attachments in orchestrator mode/i.test(message.content),
+          && /copilot-cli can.t take image attachments, so 1 image was left out/i.test(message.content),
       ),
     ).toBe(true);
   });
@@ -3945,6 +3946,8 @@ describe('provider-limit park on thrown sendInput errors', () => {
       provider: 'claude',
       model: 'claude-sonnet-4-5',
       prompt: 'continue the task',
+      resumeTurn: { message: 'continue the task', attachments: undefined, contextBlock: undefined,
+        internalSource: undefined, inputMessageId: undefined, inputContextDelivery: undefined },
     });
     expect(adapter.sendInput).not.toHaveBeenCalled();
   });
@@ -3970,6 +3973,28 @@ describe('provider-limit park on thrown sendInput errors', () => {
 
     // The account switch re-sends this turn itself; dispatching it here as well would send it twice.
     expect(adapter.sendInput).not.toHaveBeenCalled();
+  });
+
+  it('credits late notes once only after successful send and isolates bookkeeping exceptions', async () => {
+    const adapter = new FakeAdapter('claude-cli');
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+    const manager = createManager(vi.fn().mockReturnValue('skipped'));
+    const delivered: InstanceInputContextDeliveredEvent[] = [];
+    manager.on('input-context-delivered', (event: InstanceInputContextDeliveredEvent) => delivered.push(event));
+    manager.queueContinuityPreamble(instance.id, 'Late retrieved note', { userOnly: true, retrievedContextTokens: 120 });
+    const controller = new AbortController(); controller.abort();
+    await expect(manager.sendInput(instance.id, 'Continue', undefined, null,
+      { inputMessageId: 'original-user', signal: controller.signal })).rejects.toThrow('cancelled');
+    expect(delivered).toEqual([]);
+    await manager.sendInput(instance.id, 'Continue', undefined, null, { inputMessageId: 'original-user' });
+    expect(adapter.sendInput).toHaveBeenCalledWith('Late retrieved note\n\nContinue', undefined);
+    expect(delivered).toEqual([expect.objectContaining({ messageId: 'original-user', tokens: 120 })]);
+    await manager.sendInput(instance.id, 'Next', undefined, null, { inputMessageId: 'next-user' });
+    expect(delivered).toHaveLength(1);
+    manager.on('input-context-delivered', () => { throw new Error('Synthetic UI bookkeeping rejection'); });
+    manager.queueContinuityPreamble(instance.id, 'Another note', { userOnly: true, retrievedContextTokens: 80 });
+    await expect(manager.sendInput(instance.id, 'Inspect', undefined, null, { inputMessageId: 'another-user' })).resolves.toBeUndefined();
+    expect(adapter.sendInput).toHaveBeenCalledTimes(3);
   });
 
   it('preserves queued continuity context when the provider-limit preflight parks a turn', async () => {

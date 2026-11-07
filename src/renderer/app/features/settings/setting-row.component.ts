@@ -2,7 +2,8 @@
  * Setting Row Component - Reusable row for rendering individual settings
  */
 
-import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
+import { SettingsStore } from '../../core/state/settings.store';
+import { ChangeDetectionStrategy, Component, computed, inject, input, output, signal } from '@angular/core';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { DEFAULT_SETTINGS } from '../../../../shared/types/settings-defaults';
 import { badgesFor } from '../../../../shared/types/settings-stage';
@@ -181,7 +182,11 @@ export class SettingRowComponent {
    * so every caller gets it without threading a new input through five tabs.
    */
   /** S2.2 badges: lifecycle stage, restart requirement, and dependency. */
-  protected readonly stageBadges = computed(() => badgesFor(this.setting()));
+  private readonly store = inject(SettingsStore);
+  protected readonly stageBadges = computed(() => {
+    const meta = this.setting();
+    return badgesFor(meta, meta.dependsOn ? Boolean(this.store.settings()[meta.dependsOn]) : true);
+  });
 
   protected readonly defaultValue = computed<unknown>(
     () => (DEFAULT_SETTINGS as unknown as Record<string, unknown>)[this.setting().key],

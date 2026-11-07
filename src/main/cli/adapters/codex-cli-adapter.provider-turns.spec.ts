@@ -670,7 +670,7 @@ describe('CodexCliAdapter turns Codex starts by itself', () => {
     expect(turnStarts).toBe(1);
     expect(h.requests.map(([method]) => method)).not.toContain('thread/inject_items');
     expect(h.outputs.some((output) => output.metadata?.['contextCostRecovery'] === true
-      && output.content.includes('continuing the task by itself'))).toBe(true);
+      && output.content.includes('Codex is carrying on with the task.'))).toBe(true);
     expect(h.outputs.filter((output) => output.type === 'error')).toEqual([]);
   });
 });

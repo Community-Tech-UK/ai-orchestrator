@@ -200,8 +200,9 @@ describe('recordCompletionCost per-turn booking', () => {
     } finally { stop(); }
   });
 
+  // Claude's cache samples come from its exact context events, so this completion path is checked on Codex.
   it('retains measured cache samples across turns with no usage', () => {
-    const instance = chatInstance();
+    const instance = { ...chatInstance(), provider: 'codex', currentModel: 'gpt-5.5' } as Instance;
     recordCompletionCost('cache-instance', instance, { id: 'measured', role: 'assistant', content: '', usage: { inputTokens: 10, cacheReadTokens: 90 } });
     recordCompletionCost('cache-instance', instance, { id: 'unmeasured', role: 'assistant', content: '' });
     expect(getCostTracker().getEntries()).toHaveLength(2);

@@ -24,7 +24,7 @@ export const GENERAL_TAB_HELP: HelpEntry = {
     {
       kind: 'callout',
       variant: 'warning',
-      heading: 'Auto-approve (YOLO) is risky',
+      heading: 'Auto-approve is risky',
       body: 'With auto-approve on, agents act without asking. Enable it only for sandboxed work where mistakes cannot cause harm.',
     },
     {
@@ -254,13 +254,13 @@ export const REVIEW_TAB_HELP: HelpEntry = {
       kind: 'callout',
       variant: 'info',
       heading: 'What this does',
-      body: 'Enables cross-model review so a second AI double-checks code, plans, and architecture decisions. You choose which CLIs review, in what order, and with which models.',
+      body: 'Enables an automatic second opinion so another AI double-checks code, plans, and architecture decisions. You choose which CLIs review, in what order, and with which models.',
     },
     {
       kind: 'steps',
       heading: 'How to use it',
       items: [
-        'Turn on cross-model review.',
+        'Turn on Automatic second opinions.',
         'Choose review depth (Structured for a standard pass, Tiered to escalate complex work).',
         'Set how many reviewers run per check.',
         'Add reviewer CLIs in priority order, or leave empty to auto-pick.',

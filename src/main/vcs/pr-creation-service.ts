@@ -290,7 +290,7 @@ async function defaultAskApproval(details: PrApprovalPromptDetails): Promise<boo
   const result = await dialog.showMessageBox({
     type: 'warning',
     title: 'Publish pull request?',
-    message: 'AI Orchestrator wants to push this branch and open a pull request on GitHub.',
+    message: 'Harness wants to push this branch and open a pull request on GitHub.',
     detail,
     buttons: ['Create pull request', 'Cancel'],
     defaultId: 1,

@@ -64,7 +64,7 @@ import { registerDiagnosticsHandlers } from '../diagnostics-handlers';
 const fakeEvent = {};
 
 describe('diagnostics-handlers', () => {
-  const instanceManagerMock = { getInstance: vi.fn() };
+  const instanceManagerMock = { getInstance: vi.fn(), getAdapter: vi.fn() };
 
   beforeEach(() => {
     electronMocks.handlers.clear();
@@ -77,6 +77,7 @@ describe('diagnostics-handlers', () => {
     serviceMocks.refresh.mockResolvedValue({ count: 0, entries: [], generatedAt: 2 });
     manifestStoreMocks.getContextManifestHistory.mockReset();
     instanceManagerMock.getInstance.mockReset();
+    instanceManagerMock.getAdapter.mockReset();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     registerDiagnosticsHandlers({ instanceManager: instanceManagerMock as any });
   });
@@ -130,6 +131,25 @@ describe('diagnostics-handlers', () => {
       success: true,
       data: { generatedAt: 2 },
     });
+  });
+
+  it('maps resident context measurements and reuses the answer only for the same turn', async () => {
+    const instance = { id: 'i', sessionId: 's', requestCount: 1, restartEpoch: 0, adapterGeneration: 1 };
+    instanceManagerMock.getInstance.mockReturnValue(instance);
+    const requestContextUsage = vi.fn().mockResolvedValue({ ok: true, payload: { totalTokens: 100, maxTokens: 1000, categories: [{ name: 'Messages', tokens: 100 }] } });
+    instanceManagerMock.getAdapter.mockReturnValue({ requestContextUsage });
+    expect(await invoke('diagnostics:context-provider-measure', { instanceId: 'i' })).toMatchObject({ success: true, data: { status: 'measured' } });
+    await invoke('diagnostics:context-provider-measure', { instanceId: 'i' });
+    expect(requestContextUsage).toHaveBeenCalledTimes(1);
+    instance.requestCount++;
+    await invoke('diagnostics:context-provider-measure', { instanceId: 'i' });
+    expect(requestContextUsage).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['not-running', 'timeout'])('returns %s and estimate advice when Claude cannot be measured', async code => {
+    instanceManagerMock.getInstance.mockReturnValue({ id: 'i', sessionId: 's', requestCount: 1 });
+    instanceManagerMock.getAdapter.mockReturnValue({ requestContextUsage: async () => ({ ok: false, code, message: code }) });
+    expect(await invoke('diagnostics:context-provider-measure', { instanceId: 'i' })).toMatchObject({ success: true, data: { status: code, advice: [] } });
   });
 
   describe('context:manifest-for-instance (WS-C6)', () => {

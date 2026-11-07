@@ -1,4 +1,5 @@
 import { createHash } from 'crypto';
+import { HARNESS_DENY_PREFIX } from './claude-permission-response';
 
 import { generateId } from '../../../shared/utils/id-generator';
 
@@ -19,6 +20,7 @@ export interface ClaudePermissionDetails {
  * several known patterns rather than a single literal string.
  */
 export function isPermissionDenialContent(content: string): boolean {
+  if (content.trimStart().startsWith(HARNESS_DENY_PREFIX)) return false;
   // A Bash tool_result that opens with "Exit code N" means the command actually
   // EXECUTED — a permission-denied tool call never runs. Any denial-sounding
   // text after that prefix is the command's own output (`grep: /x: Permission

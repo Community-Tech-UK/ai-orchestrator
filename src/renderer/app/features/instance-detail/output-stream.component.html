@@ -116,8 +116,8 @@
           } @else if (item.type === 'interrupt-boundary' && item.interruptBoundary) {
             <div class="interrupt-boundary">
               <div class="boundary-line"></div>
-              <span class="boundary-label">
-                interrupt {{ item.interruptBoundary.phase }} · {{ item.interruptBoundary.outcome }}
+              <span class="boundary-label" tabindex="0" [appTooltip]="item.interruptBoundary.phase + ' · ' + item.interruptBoundary.outcome">
+                {{ item.interruptBoundary.text }}
               </span>
               <span class="boundary-time">{{ item.interruptBoundary.at | date: 'HH:mm:ss' }}</span>
               <div class="boundary-line"></div>
@@ -304,6 +304,9 @@
                       [class.user-message-collapsed]="item.message.type === 'user' && shouldShowUserMessageToggle(item.message) && !isUserMessageExpanded(item.message.id)"
                       [class.progress-note-collapsed]="isProgressNote(item.message) && !isProgressNoteExpanded(item.message.id)"
                       [innerHTML]="item.renderedMessage"></div>
+                    @if ((item.message.type === 'system' || item.message.type === 'error') && item.message.metadata?.['detail']; as detail) {
+                      <details class="message-detail"><summary>Details</summary><pre>{{ detail }}</pre></details>
+                    }
                     @if (item.message.type === 'assistant' && item.message.metadata?.['asyncUserInput']) {
                       <app-async-question-answers
                         [message]="item.message"

@@ -228,7 +228,7 @@ describe('InterruptRespawnHandler', () => {
       instance,
       expect.objectContaining({
         type: 'system',
-        content: 'Interrupted — waiting for input',
+        content: 'Stopped. Ready for your next message.',
         metadata: expect.objectContaining({
           interruptStatus: 'interrupted',
           turnId: 'turn-1',
@@ -237,7 +237,7 @@ describe('InterruptRespawnHandler', () => {
     );
     expect(emitOutput).toHaveBeenCalledWith(instance.id, expect.objectContaining({
       type: 'system',
-      content: 'Interrupted — waiting for input',
+      content: 'Stopped. Ready for your next message.',
     }));
     expect(queueUpdate.mock.calls.map((call) => call[1])).toEqual(['interrupting', 'cancelling', 'idle']);
     expect(onToolStateChange).toHaveBeenCalledWith(instance.id, 'idle');
@@ -268,7 +268,7 @@ describe('InterruptRespawnHandler', () => {
       instance,
       expect.objectContaining({
         type: 'system',
-        content: 'Interrupted — waiting for input',
+        content: 'Stopped. Ready for your next message.',
         metadata: expect.objectContaining({
           interruptStatus: 'rejected',
           interruptReason: 'Codex turn failed',

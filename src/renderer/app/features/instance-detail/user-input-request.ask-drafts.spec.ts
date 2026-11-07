@@ -223,3 +223,35 @@ describe('AskAnswerDrafts typed answers', () => {
     expect(picked()).toBe(true);
   });
 });
+
+describe('AskAnswerDrafts "Type your own answer"', () => {
+  it('swaps a single-select choice for the typed answer, and back', () => {
+    const drafts = new AskAnswerDrafts();
+    const request = card([single('flow', 'A', 'B')]);
+    drafts.toggle('req-1', 0, 'A', false);
+    drafts.toggleOwn('req-1', 0, false);
+    expect(drafts.isOwn('req-1', 0)).toBe(true);
+    expect(drafts.isPicked('req-1', 0, 'A')).toBe(false);
+    expect(drafts.canSubmit(request)).toBe(false);
+    drafts.setText('req-1', 0, 'Neither, use C');
+    expect(drafts.canSubmit(request)).toBe(true);
+    expect(drafts.responseText(request)).toBe('Flow: Neither, use C');
+    drafts.toggle('req-1', 0, 'B', false);
+    expect(drafts.isOwn('req-1', 0)).toBe(false);
+    expect(drafts.text('req-1', 0)).toBe('');
+    expect(drafts.responseText(request)).toBe('Flow: B');
+  });
+
+  it('keeps the chosen options of a multi-select beside nothing typed until the person types', () => {
+    const drafts = new AskAnswerDrafts();
+    const request = card([multi('Areas', 'UI', 'API')]);
+    drafts.toggle('req-1', 0, 'UI', true);
+    drafts.toggleOwn('req-1', 0, true);
+    expect(drafts.isPicked('req-1', 0, 'UI')).toBe(true);
+    expect(drafts.canSubmit(request)).toBe(true);
+    drafts.toggleOwn('req-1', 0, true);
+    expect(drafts.isOwn('req-1', 0)).toBe(false);
+    drafts.clear('req-1');
+    expect(drafts.isPicked('req-1', 0, 'UI')).toBe(false);
+  });
+});

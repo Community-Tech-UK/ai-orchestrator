@@ -443,6 +443,23 @@ export class PermissionManager extends EventEmitter {
     return Array.from(this.ruleSets.values());
   }
 
+  listUserRules(): PermissionRule[] {
+    return (this.ruleSets.get('user')?.rules ?? []).map(rule => ({ ...rule,
+      ...(rule.conditions ? { conditions: rule.conditions.map(condition => ({ ...condition })) } : {}),
+    }));
+  }
+
+  removeUserRule(ruleId: string): boolean {
+    const user = this.ruleSets.get('user');
+    if (!user?.rules.some(rule => rule.id === ruleId)) return false;
+    const previous = [...user.rules];
+    this.removeRule('user', ruleId);
+    try { this.persistUserRulesToDisk(true); }
+    catch (error) { user.rules = previous; throw error; }
+    this.emit('user_rule:removed', { ruleId });
+    return true;
+  }
+
   /**
    * Add a rule to a rule set
    */
@@ -886,9 +903,9 @@ export class PermissionManager extends EventEmitter {
     this.emit('ruleset:loaded', { id: 'user', filePath });
   }
 
-  private persistUserRulesToDisk(): void {
+  private persistUserRulesToDisk(strict = false): void {
     const filePath = this.getUserRulesFilePath();
-    if (!filePath) return;
+    if (!filePath) { if (strict) throw new Error('Permissions storage is unavailable.'); return; }
 
     const user = this.ruleSets.get('user');
     if (!user) return;
@@ -908,6 +925,7 @@ export class PermissionManager extends EventEmitter {
     try {
       fs.writeFileSync(filePath, JSON.stringify(payload, null, 2) + '\n', 'utf-8');
     } catch (error) {
+      if (strict) throw error;
       logger.warn('Failed to write permissions file', { filePath, error: error instanceof Error ? error.message : String(error) });
     }
   }

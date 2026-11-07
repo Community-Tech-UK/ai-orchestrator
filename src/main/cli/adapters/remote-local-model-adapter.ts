@@ -184,7 +184,7 @@ export class RemoteLocalModelAdapter extends EventEmitter {
       throw new Error('RemoteLocalModelAdapter: not spawned - call spawn() before sendInput()');
     }
     if (getPauseCoordinator().isPaused()) {
-      throw new OrchestratorPausedError('Remote local model input refused while orchestrator is paused');
+      throw new OrchestratorPausedError('Remote local model input refused while Harness is paused');
     }
     if (attachments && attachments.length > 0) {
       throw new Error('Remote local model does not currently support attachments in orchestrator mode.');

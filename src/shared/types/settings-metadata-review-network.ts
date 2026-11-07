@@ -5,7 +5,7 @@ import { AUTOMATION_PROVIDER_DEFINITIONS } from './automation-provider.types';
 export const REVIEW_NETWORK_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'crossModelReviewEnabled',
-    label: 'Enable cross-model review',
+    label: 'Automatic second opinions',
     description: 'Automatically review new file edits in regular sessions. Loops use their own review gates. You can also request a review from the latest answer.',
     type: 'boolean',
     category: 'review',
@@ -85,7 +85,7 @@ export const REVIEW_NETWORK_SETTINGS_METADATA: SettingMetadata[] = [
     // list so a raw JSON edit can't create a profile that was never signed in.
     key: 'copilotAccountProfiles',
     label: 'Copilot account profiles',
-    description: 'Which GitHub accounts AI Orchestrator may use for Copilot, each with its own isolated sign-in. Managed from the GitHub Copilot Accounts section. Set only from there — not changeable by agents.',
+    description: 'Which GitHub accounts Harness may use for Copilot, each with its own isolated sign-in. Managed from the GitHub Copilot Accounts section. Set only from there — not changeable by agents.',
     type: 'json',
     category: 'review',
     hidden: true,
@@ -104,7 +104,7 @@ export const REVIEW_NETWORK_SETTINGS_METADATA: SettingMetadata[] = [
     // profile that was never signed in.
     key: 'providerAccountProfiles',
     label: 'Claude and Codex account profiles',
-    description: 'Which Claude and ChatGPT subscriptions AI Orchestrator may use, each with its own isolated sign-in. Managed from the Accounts section. Set only from there — not changeable by agents.',
+    description: 'Which Claude and ChatGPT subscriptions Harness may use, each with its own isolated sign-in. Managed from the Accounts section. Set only from there — not changeable by agents.',
     type: 'json',
     category: 'review',
     hidden: true,
@@ -112,7 +112,7 @@ export const REVIEW_NETWORK_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'providerAccountPools',
     label: 'Account pool policy',
-    description: 'How AI Orchestrator moves a session to another of your accounts when one hits its usage limit. Managed from the Accounts section. Set only from there — not changeable by agents.',
+    description: 'How Harness moves a session to another of your accounts when one hits its usage limit. Managed from the Accounts section. Set only from there — not changeable by agents.',
     type: 'json',
     category: 'review',
     hidden: true,

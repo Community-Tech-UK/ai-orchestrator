@@ -38,6 +38,20 @@ function host(): CodexItemNotificationHost & {
 }
 
 describe('codex-notification-item-events', () => {
+  it('emits a bounded headline while retaining the complete reasoning summary', () => {
+    const emitReasoningHeadline = vi.fn();
+    const capture = state();
+    handleItemCompleted({ ...host(), emitReasoningHeadline }, capture, {
+      item: { type: 'reasoning', summary: [{ text: '**Checking migration order** More detail.' }] },
+    });
+    expect(emitReasoningHeadline).toHaveBeenCalledWith('Checking migration order');
+    expect(capture.reasoningSummary).toEqual(['**Checking migration order** More detail.']);
+  });
+  it('does not emit an empty reasoning headline', () => {
+    const emitReasoningHeadline = vi.fn();
+    handleItemCompleted({ ...host(), emitReasoningHeadline }, state(), { item: { type: 'reasoning', summary: [] } });
+    expect(emitReasoningHeadline).not.toHaveBeenCalled();
+  });
   it('classifies verification commands as verifying', () => {
     expect(VERIFICATION_CMD_PATTERN.test('npm test')).toBe(true);
     expect(VERIFICATION_CMD_PATTERN.test('ls -la')).toBe(false);

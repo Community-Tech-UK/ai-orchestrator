@@ -758,7 +758,7 @@ describe('session-handlers', () => {
         success: false,
         error: {
           code: 'ORCHESTRATOR_PAUSED',
-          message: 'Session recovery refused while orchestrator is paused',
+          message: 'Session recovery refused while Harness is paused',
           timestamp: expect.any(Number),
         },
       });

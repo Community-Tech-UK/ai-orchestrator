@@ -345,7 +345,7 @@ export function sendMobilePlanQueuePush(deps: MobileGatewayPushDeps, itemId: str
   try {
     if (!deps.apnsSender.isConfigured()) return;
     sendPersonalizedAlerts(deps, (hostDeviceId) => ({
-      title: 'Plan queue needs an answer',
+      title: 'Plan Queue needs your answer',
       body: 'Open Harness to answer the question.',
       category: 'AIO_PLAN_QUEUE',
       threadId: itemId,

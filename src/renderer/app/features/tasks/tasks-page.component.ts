@@ -36,7 +36,7 @@ interface RepoInfo {
       <header class="hero">
         <div class="hero-copy">
           <p class="eyebrow">Local Background Jobs</p>
-          <h1>Repo Jobs</h1>
+          <h1>Background Jobs</h1>
           <p class="subtitle">
             Launch PR reviews, issue implementation runs, and repository health audits locally in Harness.
           </p>

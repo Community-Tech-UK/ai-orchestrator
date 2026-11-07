@@ -34,7 +34,7 @@ const DEFAULT_DEBATE_MAX_ROUNDS = 2;
     <div class="debate-page">
       <div class="page-header">
         <div class="header-title">
-          <span class="title">Debate</span>
+          <span class="title">Debate Arena</span>
           <span class="subtitle">Multi-agent consensus and synthesis</span>
         </div>
       </div>

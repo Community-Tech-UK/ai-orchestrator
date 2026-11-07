@@ -47,4 +47,9 @@ export interface NotificationRecord {
   fingerprint: string;
   createdAt: number;
   delivery: NotificationDelivery;
+  seenAt?: number;
+  resolvedAt?: number;
+  updatedAt?: number;
+  repeatCount?: number;
+  resolveKey?: string;
 }

@@ -4,6 +4,7 @@ import type { InstanceContextPort } from '../instance-context-port';
 import type { RlmContextInfo, UnifiedMemoryContextInfo } from '../instance-types';
 import type { IndexedCodebaseContextInfo } from '../../indexing/indexed-codebase-context';
 import { getHarnessGuidance } from '../../orchestration/harness-guidance';
+import { _resetContextEngineForTesting } from '../../context/context-engine';
 
 const CONTEXT_DEADLINE_MS = 500;
 let InstanceManager: typeof import('../instance-manager').InstanceManager;
@@ -457,6 +458,7 @@ describe('InstanceManager context deadline', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    _resetContextEngineForTesting();
     mockStateInstances.clear();
     mockCommunicationSendInput.mockResolvedValue(undefined);
     mockCommunicationHooks.compactContext = undefined;
@@ -576,11 +578,12 @@ describe('InstanceManager context deadline', () => {
     mockStateInstances.set(instance.id, instance);
     const manager = new InstanceManager(undefined, contextPort);
 
-    const sendPromise = manager.sendInput(instance.id, 'current message');
+    const sendPromise = manager.sendInput(instance.id, 'Explain the migration sequencing and recovery behavior');
     await advancePastContextDeadline();
     await sendPromise;
 
     expect(mockCommunicationSendInput).toHaveBeenCalledTimes(1);
+    expect(contextPort.buildRlmContext).toHaveBeenCalledOnce();
   });
 
   it('passes the context block to communication.sendInput when context resolves within the deadline', async () => {
@@ -603,7 +606,8 @@ describe('InstanceManager context deadline', () => {
       tokens: 12,
       storeId: 'store-1',
       workspacePath: '/tmp/project',
-      results: [],
+      results: [{ sectionId: 'code-1', filePath: '/tmp/project/src/main/index.ts', relativePath: 'src/main/index.ts',
+        content: 'index context', startLine: 1, endLine: 1, score: 0.9, matchType: 'bm25' }],
       durationMs: 5,
     } satisfies IndexedCodebaseContextInfo;
     const contextPort = createContextPort({
@@ -615,7 +619,7 @@ describe('InstanceManager context deadline', () => {
     mockStateInstances.set(instance.id, instance);
     const manager = new InstanceManager(undefined, contextPort);
 
-    await manager.sendInput(instance.id, 'current message');
+    await manager.sendInput(instance.id, 'Explain the migration sequencing in src/main/index.ts');
 
     const contextBlock = mockCommunicationSendInput.mock.calls[0]?.[3] as string | null;
     expect(contextBlock).toContain('[Memory]\nmemory context');
@@ -633,11 +637,12 @@ describe('InstanceManager context deadline', () => {
     mockStateInstances.set(instance.id, instance);
     const manager = new InstanceManager(undefined, contextPort);
 
-    const sendPromise = manager.sendInput(instance.id, 'current message');
+    const sendPromise = manager.sendInput(instance.id, 'Explain the migration sequencing and recovery behavior');
     await advancePastContextDeadline();
     await sendPromise;
 
     expect(mockCommunicationSendInput.mock.calls[0]?.[3]).toBeNull();
+    expect(contextPort.buildRlmContext).toHaveBeenCalledOnce();
   });
 
   it('does not commit cancellable input state before provider dispatch', async () => {
@@ -802,7 +807,7 @@ describe('InstanceManager context deadline', () => {
     mockStateInstances.set(instance.id, instance);
     const manager = new InstanceManager(undefined, contextPort);
 
-    const sendPromise = manager.sendInput(instance.id, 'current message');
+    const sendPromise = manager.sendInput(instance.id, 'Explain the migration sequencing and recovery behavior');
     await advancePastContextDeadline();
     await sendPromise;
     expect(mockCommunicationSendInput.mock.calls[0]?.[3]).toBeNull();
@@ -822,6 +827,7 @@ describe('InstanceManager context deadline', () => {
     expect(mockQueueRetrievedContext).toHaveBeenCalledWith(
       instance.id,
       expect.stringContaining('late rlm context'),
+      4,
     );
   });
 
@@ -850,7 +856,7 @@ describe('InstanceManager context deadline', () => {
 
     const sendPromise = manager.sendInput(
       instance.id,
-      'Continue now.',
+      'Explain the migration sequencing and recovery behavior',
       undefined,
       { autoContinuation: true, signal: new AbortController().signal },
     );
@@ -872,6 +878,7 @@ describe('InstanceManager context deadline', () => {
     expect(mockQueueRetrievedContext).toHaveBeenCalledWith(
       instance.id,
       expect.stringContaining('late automatic context'),
+      6,
     );
   });
 
@@ -938,7 +945,7 @@ describe('InstanceManager context deadline', () => {
     mockStateInstances.set(instance.id, instance);
     const manager = new InstanceManager(undefined, contextPort);
 
-    await manager.sendInput(instance.id, 'schedule something daily');
+    await manager.sendInput(instance.id, 'schedule the migration review reminder daily');
 
     const contextBlock = mockCommunicationSendInput.mock.calls[0]?.[3] as string | null;
     expect(contextBlock).toContain('## Harness scheduling rules');

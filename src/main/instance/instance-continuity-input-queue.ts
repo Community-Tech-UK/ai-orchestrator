@@ -8,6 +8,14 @@ import { getInterruptedContextQueue } from './instance-interrupted-context';
  * the reply may never have been stored by the provider, so the held text rides
  * with the next input instead of being lost.
  */
+import { getLogger } from '../logging/logger';
+import type { FileAttachment, Instance } from '../../shared/types/instance.types';
+
+const logger = getLogger('InstanceContinuityInputQueue');
+
+export interface ContinuityPreambleOptions { userOnly?: boolean; retrievedContextTokens?: number | null }
+export type InputMessageOrigin = 'user' | 'internal' | 'automated';
+
 export class InstanceContinuityInputQueue {
   private readonly continuityPreambles = new Map<string, PendingPreamble>();
   private readonly retrievedContexts = new Map<string, PendingPreamble>();
@@ -15,9 +23,9 @@ export class InstanceContinuityInputQueue {
   private readonly unanswered = new Map<string, HeldContinuity>();
   private nextGeneration = 0;
 
-  queueContinuity(instanceId: string, preamble: string): boolean {
+  queueContinuity(instanceId: string, preamble: string, options?: ContinuityPreambleOptions): boolean {
     if (!preamble.trim()) return false;
-    this.continuityPreambles.set(instanceId, this.createPendingPreamble(preamble));
+    this.continuityPreambles.set(instanceId, { ...this.createPendingPreamble(preamble, options?.userOnly ?? true), retrievedContextTokens: options?.retrievedContextTokens });
     logger.info('Queued continuity preamble for next user input', { instanceId });
     return true;
   }
@@ -26,9 +34,9 @@ export class InstanceContinuityInputQueue {
    * Code and memory search results that missed their own turn. One-shot and
    * kept apart from continuity, so they never displace or replace history.
    */
-  queueRetrievedContext(instanceId: string, context: string): boolean {
+  queueRetrievedContext(instanceId: string, context: string, retrievedContextTokens: number | null = null): boolean {
     if (!context.trim()) return false;
-    this.retrievedContexts.set(instanceId, this.createPendingPreamble(context));
+    this.retrievedContexts.set(instanceId, { ...this.createPendingPreamble(context, true), retrievedContextTokens });
     logger.info('Queued retrieved context for next user input', { instanceId });
     return true;
   }
@@ -48,7 +56,8 @@ export class InstanceContinuityInputQueue {
    */
   holdUntilAnswered(instanceId: string, text: string, attachments?: FileAttachment[]): void {
     if (!text.trim()) return;
-    this.unanswered.set(instanceId, attachments?.length ? { text, attachments } : { text });
+    const heldAttachments = attachments ?? this.unanswered.get(instanceId)?.attachments;
+    this.unanswered.set(instanceId, heldAttachments?.length ? { text, attachments: heldAttachments } : { text });
   }
 
   /** The model replied, so it has the continuity text it was sent. */
@@ -61,8 +70,9 @@ export class InstanceContinuityInputQueue {
   consume(
     instanceId: string,
     contextBlock: string | null | undefined,
+    origin?: InputMessageOrigin,
   ): string | null | undefined {
-    const prepared = this.prepare(instanceId, contextBlock);
+    const prepared = this.prepare(instanceId, contextBlock, undefined, origin);
     prepared.commit();
     return prepared.contextBlock;
   }
@@ -71,12 +81,14 @@ export class InstanceContinuityInputQueue {
     instanceId: string,
     contextBlock: string | null | undefined,
     attachments?: FileAttachment[],
+    origin?: InputMessageOrigin,
   ): PreparedContinuityInput {
     const unanswered = this.unanswered.get(instanceId);
     // A retried turn already carries what it was first sent with.
     const resend = unanswered && !contextBlock?.includes(unanswered.text) ? unanswered : undefined;
-    const continuity = this.continuityPreambles.get(instanceId);
-    const retrieved = this.retrievedContexts.get(instanceId);
+    const pendingContinuity = this.continuityPreambles.get(instanceId);
+    const continuity = pendingContinuity && (!pendingContinuity.userOnly || origin === 'user') ? pendingContinuity : undefined;
+    const retrieved = origin === 'user' ? this.retrievedContexts.get(instanceId) : undefined;
     const interrupted = getInterruptedContextQueue().prepare(instanceId);
     const warning = this.contextWarnings.get(instanceId);
     const preambles = [resend?.text, continuity?.value, interrupted.value, retrieved?.value, warning?.value]
@@ -88,9 +100,14 @@ export class InstanceContinuityInputQueue {
     const preparedContextBlock = contextBlock
       ? `${preambles.join('\n\n')}\n\n${contextBlock}`
       : preambles.join('\n\n');
+    const tokenCounts = [continuity?.retrievedContextTokens, retrieved?.retrievedContextTokens];
+    const retrievedContextTokens = tokenCounts.includes(null) ? null
+      : tokenCounts.some(tokens => tokens !== undefined)
+        ? tokenCounts.reduce<number>((sum, tokens) => sum + (tokens ?? 0), 0) : undefined;
     let committed = false;
     return {
       contextBlock: preparedContextBlock,
+      retrievedContextTokens,
       attachments: resend?.attachments ? [...resend.attachments, ...(attachments ?? [])] : attachments,
       commit: () => {
         if (committed) return;
@@ -104,8 +121,10 @@ export class InstanceContinuityInputQueue {
         }
         // Newer continuity is newer history: it replaces the held text rather
         // than joining it, so repeated stopped turns cannot pile up copies (a
-        // condensed history alone may fill 30% of the context window).
-        if (continuity) this.unanswered.set(instanceId, { text: continuity.value });
+        // condensed history alone may fill 30% of the context window). This
+        // text-only queue has no replacement image list: keep unanswered images
+        // until a reply or an explicit image list from a complete runtime replay.
+        if (continuity && !continuity.userOnly) this.holdUntilAnswered(instanceId, continuity.value);
         this.deleteIfCurrent(this.retrievedContexts, instanceId, retrieved);
         if (this.deleteIfCurrent(this.contextWarnings, instanceId, warning)) {
           logger.info('Prepended pending context warning to user input', { instanceId });
@@ -122,9 +141,9 @@ export class InstanceContinuityInputQueue {
     this.unanswered.delete(instanceId);
   }
 
-  private createPendingPreamble(value: string): PendingPreamble {
+  private createPendingPreamble(value: string, userOnly = false): PendingPreamble {
     this.nextGeneration += 1;
-    return { value, generation: this.nextGeneration };
+    return { value, generation: this.nextGeneration, userOnly };
   }
 
   /** Remove `sent` unless something newer was queued while it was being sent. */
@@ -154,6 +173,8 @@ export function noteModelReplied(
 }
 
 interface PendingPreamble {
+  userOnly: boolean;
+  retrievedContextTokens?: number | null;
   value: string;
   generation: number;
 }
@@ -164,12 +185,9 @@ interface HeldContinuity {
 }
 
 interface PreparedContinuityInput {
+  retrievedContextTokens?: number | null;
   contextBlock: string | null | undefined;
   /** The caller's attachments, preceded by images carried with resent history. */
   attachments: FileAttachment[] | undefined;
   commit: () => void;
 }
-import { getLogger } from '../logging/logger';
-import type { FileAttachment, Instance } from '../../shared/types/instance.types';
-
-const logger = getLogger('InstanceContinuityInputQueue');

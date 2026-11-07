@@ -109,6 +109,18 @@ describe('InstancePermissionRequestFlow', () => {
     expect(host.emit).not.toHaveBeenCalledWith('instance:input-required', expect.anything());
   });
 
+  it.each(['user', 'system'] as const)('adds removal guidance only for a saved user deny (%s)', async source => {
+    const decision = gateDecision('deny');
+    decision.permission!.matchedRule = { source } as NonNullable<typeof decision.permission>['matchedRule'];
+    evaluate.mockReturnValue(decision);
+    const host = createHost();
+    await new InstancePermissionRequestFlow(host).handleInputRequired({ instanceId: 'inst-1', requestId: 'saved', prompt: 'Allow write?', timestamp: 1,
+      metadata: { type: 'permission_denial', tool_name: 'Edit', path: 'src/a.ts' } });
+    const output = JSON.stringify(vi.mocked(host.addToOutputBuffer).mock.calls);
+    if (source === 'user') expect(output).toContain('Settings');
+    else expect(output).not.toContain('Saved decisions');
+  });
+
   it.each([
     ['the master switch is off', { workspaceSecretsEnabled: false, workspaceSecretsAllowAgentRequests: true }],
     ['agent requests are barred', { workspaceSecretsEnabled: true, workspaceSecretsAllowAgentRequests: false }],
@@ -205,7 +217,7 @@ describe('InstancePermissionRequestFlow', () => {
       metadata: { type: 'deferred_permission', tool_name: 'Bash', tool_input: { command: 'ls' } },
     });
 
-    expect(host.resumeAfterDeferredPermission).toHaveBeenCalledWith('inst-1', true);
+    expect(host.resumeAfterDeferredPermission).toHaveBeenCalledWith('inst-1', true, { requestId: 'req-3' });
     expect(host.emit).not.toHaveBeenCalledWith('instance:input-required', expect.anything());
   });
 
@@ -244,5 +256,83 @@ describe('InstancePermissionRequestFlow', () => {
       scope: 'once',
     });
     expect(recordUserDecision).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe('live permission resources and strict once', () => {
+  beforeEach(() => { evaluate.mockReturnValue(gateDecision('ask')); recordUserDecision.mockReset(); });
+  it.each([
+    ['WebFetch', { url: 'https://example.com' }, 'tool_use', 'tool:WebFetch'],
+    ['Write', { file_path: './src/../a.ts' }, 'tool_use', 'tool:Write'],
+    ['Read', { file_path: 'a.ts' }, 'tool_use', 'tool:Read'],
+  ])('maps %s to the permission gate', async (tool, input, scope, resource) => {
+    const flow = new InstancePermissionRequestFlow(createHost());
+    await flow.handleInputRequired({ instanceId: 'inst-1', requestId: 'card', prompt: 'Allow?', timestamp: 1,
+      metadata: { type: 'deferred_permission', live: true, tool_name: tool, tool_input: input } });
+    expect(evaluate).toHaveBeenLastCalledWith(expect.objectContaining({ request: expect.objectContaining({ scope, resource, id: expect.stringMatching(/^perm-live-/) }) }));
+  });
+  it.each(['allow', 'deny'] as const)('does not cache a live once %s but preserves held Bash once and live session/always rules', async action => {
+    const flow = new InstancePermissionRequestFlow(createHost());
+    for (const [id, live, scope] of [['live-once', true, 'once'], ['held-once', false, 'once'], ['live-session', true, 'session'], ['live-always', true, 'always']] as const) {
+      await flow.handleInputRequired({ instanceId: 'inst-1', requestId: id, prompt: 'Allow?', timestamp: 1,
+        metadata: { type: 'deferred_permission', live, tool_name: 'Bash', tool_input: { command: 'pwd' } } });
+      flow.recordUserDecision({ instanceId: 'inst-1', requestId: id, action, scope });
+    }
+    expect(recordUserDecision).toHaveBeenCalledTimes(3);
+    expect(recordUserDecision.mock.calls.map(call => call[3])).toEqual(['once', 'session', 'always']);
+  });
+  it('passes the live card id through adjudication', async () => {
+    maybeAdjudicate.mockResolvedValueOnce({ approved: false, reason: 'policy', riskLevel: 'high' });
+    const host = createHost();
+    await new InstancePermissionRequestFlow(host).handleInputRequired({ instanceId: 'inst-1', requestId: 'adjudicated', prompt: 'Allow?', timestamp: 1,
+      metadata: { type: 'deferred_permission', live: true, tool_name: 'WebFetch' } });
+    expect(host.resumeAfterDeferredPermission).toHaveBeenCalledWith('inst-1', false, { requestId: 'adjudicated' });
+  });
+});
+
+
+describe('live permission gate failures and cancellation races', () => {
+  it('answers fail closed if permission evaluation throws instead of leaving Claude waiting', async () => {
+    evaluate.mockImplementationOnce(() => { throw new Error('gate unavailable'); });
+    const host = createHost();
+    const flow = new InstancePermissionRequestFlow(host);
+    await flow.handleInputRequired({ instanceId: 'inst-1', requestId: 'failed-live', prompt: 'Allow?', timestamp: 1,
+      metadata: { type: 'deferred_permission', live: true, tool_name: 'WebFetch' } });
+    expect(host.resumeAfterDeferredPermission).toHaveBeenCalledWith('inst-1', false, expect.objectContaining({ requestId: 'failed-live' }));
+    expect(host.emit).not.toHaveBeenCalledWith('instance:input-required', expect.anything());
+  });
+  it('does not forward an ask cancelled while its asynchronous adjudication was pending', async () => {
+    evaluate.mockReturnValue(gateDecision('ask'));
+    let finish!: () => void;
+    maybeAdjudicate.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+    const host = createHost();
+    const flow = new InstancePermissionRequestFlow(host);
+    const handling = flow.handleInputRequired({ instanceId: 'inst-1', requestId: 'cancelled-live', prompt: 'Allow?', timestamp: 1,
+      metadata: { type: 'deferred_permission', live: true, tool_name: 'WebFetch' } });
+    flow.clearPending('inst-1', 'cancelled-live'); finish(); await handling;
+    expect(host.emit).not.toHaveBeenCalledWith('instance:input-required', expect.anything());
+  });
+});
+
+
+describe('live decision recording survives provider resolution', () => {
+  it('keeps the live request until its caller records the session rule, even when the provider resolves first', async () => {
+    evaluate.mockReturnValue(gateDecision('ask')); recordUserDecision.mockReset();
+    const flow = new InstancePermissionRequestFlow(createHost());
+    await flow.handleInputRequired({ instanceId: 'inst-1', requestId: 'card', prompt: 'Allow?', timestamp: 1,
+      metadata: { type: 'deferred_permission', live: true, tool_name: 'WebFetch' } });
+    flow.handleResolved({ instanceId: 'inst-1', requestId: 'card', reason: 'decided' });
+    flow.recordUserDecision({ instanceId: 'inst-1', requestId: 'card', action: 'allow', scope: 'session' });
+    expect(recordUserDecision).toHaveBeenCalledOnce();
+  });
+  it('clears cancelled live requests so a late answer cannot save a rule', async () => {
+    evaluate.mockReturnValue(gateDecision('ask')); recordUserDecision.mockReset();
+    const flow = new InstancePermissionRequestFlow(createHost());
+    await flow.handleInputRequired({ instanceId: 'inst-1', requestId: 'card', prompt: 'Allow?', timestamp: 1,
+      metadata: { type: 'deferred_permission', live: true, tool_name: 'WebFetch' } });
+    flow.handleResolved({ instanceId: 'inst-1', requestId: 'card', reason: 'cancelled' });
+    flow.recordUserDecision({ instanceId: 'inst-1', requestId: 'card', action: 'allow', scope: 'always' });
+    expect(recordUserDecision).not.toHaveBeenCalled();
   });
 });

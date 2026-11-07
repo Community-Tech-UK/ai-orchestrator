@@ -19,11 +19,14 @@ import { readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 
 import { InstanceRowComponent } from './instance-row.component';
+import { InstanceStore } from '../../core/state/instance.store';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { ToolLoopAlertStore } from '../../core/state/tool-loop-alert.store';
 import { SideChatStore } from '../../core/state/side-chat.store';
+import { PendingRequestStore } from '../../core/state/pending-request.store';
+import { SessionTodoPeekService } from './session-todo-peek.service';
 import type { SideChatAttention } from '../../../../shared/types/side-chat.types';
-import type { Instance } from '../../../../shared/types/instance.types';
+import type { Instance } from '../../core/state/instance/instance.types';
 
 // This component uses `templateUrl`, so the usual `() => Promise.resolve('')`
 // resolver used by sibling specs would render NOTHING and every assertion here
@@ -35,22 +38,28 @@ await resolveComponentResources(async (url: string) =>
 function makeInstance(overrides: Partial<Instance> = {}): Instance {
   return {
     id: 'inst-1',
-    name: 'Test instance',
+    displayName: 'Test instance',
     provider: 'claude',
     status: 'idle',
     workingDirectory: '/tmp/project',
+    createdAt: 1, historyThreadId: 'thread-1', parentId: null, childrenIds: [], agentId: 'build', agentMode: 'build',
+    contextUsage: { used: 0, total: 200000, percentage: 0 }, lastActivity: 2,
+    providerSessionId: 'provider-session-1', sessionId: 'session-1', restartEpoch: 0,
+    yoloMode: false, launchMode: 'interactive', outputBuffer: [],
     ...overrides,
-  } as Instance;
+  };
 }
 
 @Component({
   standalone: true,
   imports: [InstanceRowComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `<app-instance-row [instance]="instance()" [isLooping]="false" />`,
+  template: `<app-instance-row [instance]="instance()" [isLooping]="false" [hasChildren]="hasChildren()" [descendantNeedsYou]="descendantNeedsYou()" />`,
 })
 class HostComponent {
   readonly instance = signal<Instance>(makeInstance());
+  readonly hasChildren = signal(false);
+  readonly descendantNeedsYou = signal(0);
 }
 
 function openTooltips(): HTMLElement[] {
@@ -58,6 +67,9 @@ function openTooltips(): HTMLElement[] {
 }
 
 let nodes: Record<string, { name: string; status: string; connected?: boolean }> = {};
+const liveActivities = signal(new Map<string, string>());
+const instanceProvider = { provide: InstanceStore, useValue: { liveActivities } };
+beforeEach(() => liveActivities.set(new Map()));
 
 describe('InstanceRowComponent — tooltip disclosure', () => {
   let fixture: ComponentFixture<HostComponent>;
@@ -66,7 +78,10 @@ describe('InstanceRowComponent — tooltip disclosure', () => {
     vi.useFakeTimers();
     await TestBed.configureTestingModule({
       imports: [HostComponent],
-      providers: [{ provide: RemoteNodeStore, useValue: { nodeById: (id: string) => nodes[id] ?? null } }],
+      providers: [instanceProvider,
+        { provide: PendingRequestStore, useValue: { forInstance: () => [{ text: 'May I use Bash?' }] } },
+        { provide: SessionTodoPeekService, useValue: { peek: () => Promise.resolve('Step 2 of 5: Implement') } },
+        { provide: RemoteNodeStore, useValue: { nodeById: (id: string) => nodes[id] ?? null } }],
     }).compileComponents();
     fixture = TestBed.createComponent(HostComponent);
     fixture.detectChanges();
@@ -93,6 +108,42 @@ describe('InstanceRowComponent — tooltip disclosure', () => {
 
   // Gate 6: this button's `title` was replaced with an `aria-label` alone,
   // leaving a bare glyph with no hover hint on a session-ending action.
+  it.each([
+    ['processing', 'Working'], ['thinking_deeply', 'Thinking'],
+    ['waiting_for_input', 'Needs your answer'], ['waiting_for_permission', 'Needs your OK'],
+    ['respawning', 'Restarting'], ['interrupting', 'Stopping'],
+    ['failed', 'Problem'], ['degraded', 'Problem'], ['hibernating', 'Asleep'],
+  ] as const)('names %s using the shared status words', (status, label) => {
+    fixture.componentInstance.instance.set(makeInstance({ status }));
+    fixture.detectChanges();
+    expect(query('.leading-indicator').getAttribute('aria-label')).toContain(label);
+  });
+
+  it('keeps the live activity line alongside canonical status wording', () => {
+    liveActivities.set(new Map([['inst-1', 'Reading the project files']]));
+    fixture.componentInstance.instance.set(makeInstance({ status: 'processing' }));
+    fixture.detectChanges();
+    expect(query('.activity-line').textContent).toContain('Reading the project files');
+    expect(query('.leading-indicator').getAttribute('aria-label')).toContain('Working');
+    expect(query('.instance-row').getAttribute('aria-label')).toContain('Reading the project files');
+  });
+
+  it('uses the approval vocabulary for a pending approval count even while the session is working', () => {
+    fixture.componentInstance.instance.set(makeInstance({ status: 'processing', pendingApprovalCount: 1 }));
+    fixture.detectChanges();
+    expect(query('.approval-chip').textContent).toContain('Needs your OK');
+  });
+
+  it('keeps question wording on the row chip and hover despite a separate pending permission', () => {
+    fixture.componentInstance.instance.set(makeInstance({ status: 'waiting_for_input', pendingApprovalCount: 1 }));
+    fixture.detectChanges();
+    expect(query('.approval-chip').textContent).toContain('Needs your answer');
+    expect(query('.leading-indicator').getAttribute('aria-label')).toContain('Needs your answer');
+    hover(query('.instance-name'));
+    expect(openTooltips()[0]?.textContent).toContain('Needs your answer');
+    expect(openTooltips()[0]?.textContent).not.toContain('Needs your OK');
+  });
+
   it('gives Close session both a hover disclosure and an accessible name', () => {
     const terminate = query('.action-btn.terminate');
     expect(terminate.getAttribute('aria-label')).toBeTruthy();
@@ -101,6 +152,23 @@ describe('InstanceRowComponent — tooltip disclosure', () => {
     const open = openTooltips();
     expect(open).toHaveLength(1);
     expect(open[0]?.textContent?.trim()).not.toBe('');
+  });
+  it('shows pending text and the cached step through the name-leaf tooltip without enclosing chip tooltips', async () => {
+    fixture.componentInstance.instance.set(makeInstance({ displayName: 'Fix login', status: 'waiting_for_permission', pendingApprovalCount: 1 }));
+    fixture.detectChanges();
+    const name = query('.instance-name'); hover(name);
+    expect(name.tabIndex).toBe(0);
+    await Promise.resolve(); fixture.detectChanges();
+    expect(openTooltips()).toHaveLength(1);
+    expect(openTooltips()[0].textContent).toContain('May I use Bash?');
+    expect(openTooltips()[0].textContent).toContain('Step 2 of 5: Implement');
+    expect(query('.instance-info').hasAttribute('aria-describedby')).toBe(false);
+    expect(name.querySelector('.approval-chip')).toBeNull();
+  });
+  it('names urgent descendants in the visible collapsed-parent text', () => {
+    fixture.componentInstance.instance.set(makeInstance({ displayName: 'Parent', childrenIds: ['child'] }));
+    fixture.componentInstance.hasChildren.set(true); fixture.componentInstance.descendantNeedsYou.set(1); fixture.detectChanges();
+    expect(query('.child-attention').textContent).toContain('1 child needs you');
   });
 
   it('names the leading indicator rather than relying on colour alone', () => {
@@ -336,7 +404,7 @@ describe('InstanceRowComponent — tooltip disclosure', () => {
     it('also names the error on the leading indicator, which drives its tooltip', () => {
       fixture.componentInstance.instance.set(makeInstance({ status: 'error' }));
       fixture.detectChanges();
-      expect(query('.leading-indicator').getAttribute('aria-label')).toContain('error');
+      expect(query('.leading-indicator').getAttribute('aria-label')).toContain('Problem');
     });
   });
 });
@@ -360,6 +428,7 @@ describe('InstanceRowComponent — tool-loop badge (N2)', () => {
     await TestBed.configureTestingModule({
       imports: [HostComponent],
       providers: [
+        instanceProvider,
         { provide: RemoteNodeStore, useValue: { nodeById: () => null } },
         {
           provide: ToolLoopAlertStore,
@@ -422,6 +491,7 @@ describe('InstanceRowComponent — waiting on background work', () => {
     await TestBed.configureTestingModule({
       imports: [HostComponent],
       providers: [
+        instanceProvider,
         { provide: RemoteNodeStore, useValue: { nodeById: () => null } },
         { provide: ToolLoopAlertStore, useValue: { hasCriticalAlert: () => false } },
       ],
@@ -497,6 +567,7 @@ describe('InstanceRowComponent — sidechat badge', () => {
     await TestBed.configureTestingModule({
       imports: [HostComponent],
       providers: [
+        instanceProvider,
         { provide: RemoteNodeStore, useValue: { nodeById: () => null } },
         { provide: ToolLoopAlertStore, useValue: { hasCriticalAlert: () => false } },
         {
@@ -520,7 +591,7 @@ describe('InstanceRowComponent — sidechat badge', () => {
   function show(attention: Partial<SideChatAttention>): void {
     attentionByThread.set('thread-1', {
       parent: { kind: 'session', historyThreadId: 'thread-1', originNodeId: null },
-      parentTitle: 'Session', total: 1, running: 0, unread: 0, needsAttention: 0, targetChatId: null, ...attention,
+      parentTitle: 'Session', total: 1, running: 0, unread: 0, needsAttention: 0, attentionSince: null, targetChatId: null, ...attention,
     });
     attentionVersion.update((value) => value + 1);
     fixture.componentInstance.instance.set(makeInstance({ historyThreadId: 'thread-1' }));

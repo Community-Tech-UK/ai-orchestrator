@@ -40,6 +40,7 @@ import {
   shouldQueueInput,
 } from "./mobile-input-queue";
 import { validateMobileInput } from './mobile-input-validation';
+import type { ResumeDeferredOptions } from '../instance/lifecycle/deferred-permission-options';
 import { stopLoopsForSessions } from '../orchestration/loop-stop-for-sessions';
 
 const MESSAGE_REPLAY_LIMIT = 300;
@@ -82,6 +83,7 @@ export interface GatewayInstanceSource extends EmitterLike {
     instanceId: string,
     approved: boolean,
     updatedInput?: Record<string, unknown>,
+    options?: ResumeDeferredOptions,
   ): Promise<void>;
   recordInputRequiredPermissionDecision(params: {
     instanceId: string;
@@ -501,6 +503,7 @@ export class MobileGatewayInstanceRoutes {
       instanceId,
       approved,
       resumeUpdatedInput,
+      { requestId, denyNote: !approved && typeof body.response === "string" ? body.response : undefined },
     );
     if (decisionScope) {
       this.source().recordInputRequiredPermissionDecision({

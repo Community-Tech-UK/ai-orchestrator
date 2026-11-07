@@ -13,6 +13,9 @@ import { getLogger } from './logging/logger';
 import { getSettingsManager } from './core/config/settings-manager';
 import { ElectronWindowTransport } from './event-bus/electron-window-transport';
 import { getMainEventBus, type MainEventBus } from './event-bus/main-event-bus';
+import { userActionNoticeTitle } from './notifications/attention-notices';
+import { USER_ACTION_DEFAULT_BODY } from './notifications/user-action-notification';
+import type { UserActionRequest } from './orchestration/orchestration-handler.types';
 import { getNotificationService } from './notifications/notification-service';
 import { isAppDocumentNavigation } from './window-navigation-policy';
 
@@ -46,6 +49,13 @@ export class WindowManager {
     this.mainEventBus = getMainEventBus();
     this.electronWindowTransport = new ElectronWindowTransport(() => this.mainWindow?.webContents);
     this.mainEventBus.addTransport(this.electronWindowTransport);
+    getNotificationService().setOpenTargetHandler(instanceId => {
+      if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
+      if (this.mainWindow.isMinimized()) this.mainWindow.restore();
+      this.mainWindow.show();
+      this.mainWindow.focus();
+      this.sendToRenderer(IPC_CHANNELS.NOTIFICATION_OPEN_TARGET, { instanceId });
+    });
   }
 
   async createMainWindow(): Promise<BrowserWindow> {
@@ -436,7 +446,7 @@ export class WindowManager {
         label: 'File',
         submenu: [
           {
-            label: 'New Instance',
+            label: 'New Session',
             accelerator: 'CmdOrCtrl+N',
             click: () => {
               this.sendToRenderer(IPC_CHANNELS.MENU_NEW_INSTANCE);
@@ -511,26 +521,22 @@ export class WindowManager {
       instanceId,
       title: 'Agent finished',
       body: `${displayName} has completed its task`,
-      onClick: () => {
-        this.mainWindow?.show();
-        this.mainWindow?.focus();
-      },
     });
   }
 
-  notifyUserActionRequest(title: string, body: string): void {
+  notifyUserActionRequest(request: UserActionRequest, sessionName?: string): void {
     getNotificationService().notify({
       kind: 'user-action-request',
-      title,
-      body,
-      onClick: () => {
-        if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
-        if (this.mainWindow.isMinimized()) this.mainWindow.restore();
-        this.mainWindow.show();
-        this.mainWindow.focus();
-      },
+      instanceId: request.instanceId,
+      title: userActionNoticeTitle(request, sessionName),
+      body: (request.message || USER_ACTION_DEFAULT_BODY).slice(0, 140),
+      fingerprintFields: { requestId: request.id },
+      cooldownKey: `user-action-request:${request.instanceId}`,
     });
+    this.drawAttention();
+  }
 
+  drawAttention(): void {
     if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
     if (this.mainWindow.isFocused()) return;
 

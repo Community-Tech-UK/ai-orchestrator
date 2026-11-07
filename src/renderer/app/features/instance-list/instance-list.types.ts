@@ -24,6 +24,7 @@ export interface HierarchicalInstance {
   childrenCount: number;
   isExpanded: boolean;
   children: HierarchicalRailItem[];
+  descendantNeedsYou?: number;
 }
 
 export interface HierarchicalHistoryItem {
@@ -51,6 +52,8 @@ export interface ProjectGroup {
   hasDraft: boolean;
   draftUpdatedAt: number | null;
   projectStateLabel: string;
+  needsYouCount?: number;
+  mostUrgentTitle?: string | null;
   projectStateTone: 'working' | 'attention' | 'connecting' | 'ready' | 'history';
   lastActivity: number;
   liveItems: HierarchicalInstance[];

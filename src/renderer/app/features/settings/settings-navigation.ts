@@ -135,7 +135,7 @@ export const NAV_ITEMS: SettingsNavItem[] = [
   },
   {
     id: 'auxiliary-models',
-    label: 'Auxiliary Models',
+    label: 'Helper models',
     summary: 'Route helper calls through local or cheap models.',
     group: 'Agent behavior',
     keywords: 'ollama local gemma auxiliary llm routing cheap loop classify',
@@ -143,14 +143,14 @@ export const NAV_ITEMS: SettingsNavItem[] = [
   },
   {
     id: 'review',
-    label: 'Cross-Model Review',
+    label: 'Second opinion',
     summary: 'Verify agent output with secondary models.',
     group: 'Agent behavior',
-    keywords: 'verification verify reviewers gemini codex',
+    keywords: 'verification verify reviewers gemini codex cross-model review second opinion',
   },
   {
     id: 'memory',
-    label: 'Memory',
+    label: 'Storage & buffers',
     summary: 'Session persistence, output buffers, and storage limits.',
     group: 'Agent behavior',
     keywords: 'buffer disk storage persistence heap',
@@ -227,10 +227,10 @@ export const NAV_ITEMS: SettingsNavItem[] = [
   },
   {
     id: 'connections',
-    label: 'Connections',
-    summary: 'Connect external services that can control Orchestrator remotely.',
+    label: 'Discord & WhatsApp',
+    summary: 'Connect Discord or WhatsApp so you can control Harness from your phone.',
     group: 'Network & Remote',
-    keywords: 'providers accounts auth login',
+    keywords: 'discord whatsapp phone chat bot pair',
   },
   {
     id: 'copilot-accounts',

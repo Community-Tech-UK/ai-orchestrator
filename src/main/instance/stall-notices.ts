@@ -13,13 +13,13 @@ export function buildInteractivePromptNotice(stdoutSilentMs: number): OutputMess
 export function buildStuckNotice(input: { elapsedMs: number; pid: number | null; sampleProcessFacts?: (silenceMs: number) => Promise<StallProcessFacts | null> }): Promise<OutputMessage> {
   const secs = Math.round(input.elapsedMs / 1000);
   return buildNotice('stuck-warn', input.pid, input.elapsedMs,
-    `Instance may be stuck — no output for ${secs}s. Will auto-restart if unresponsive.`,
-    { watchdogWarning: true, elapsedMs: input.elapsedMs }, input.sampleProcessFacts);
+    `No output for ${secs}s. If it stays silent, Harness will restart the session.`,
+    { watchdogWarning: true, elapsedMs: input.elapsedMs, detail: `${secs}s without output` }, input.sampleProcessFacts);
 }
 export function buildSpawnStallNotice(input: { timeoutMs: number; pid: number | null }): Promise<OutputMessage> {
   const secs = Math.round(input.timeoutMs / 1000);
   return buildNotice('spawn-stall', input.pid, input.timeoutMs,
-    `Instance started but produced no output for ${secs}s. It may be stuck. Will auto-restart if unresponsive.`,
+    `The session started ${secs}s ago and hasn't responded yet. It may still be loading. If nothing happens, restart the session.`,
     { spawnStall: true, timeoutMs: input.timeoutMs });
 }
 

@@ -37,7 +37,7 @@ interface InstanceOption {
     <div class="page">
       <div class="page-header">
         <div class="header-title">
-          <span class="title">Specialists</span>
+          <span class="title">Agent Roles</span>
           <span class="subtitle">Recommendations, spawning, and findings tracking</span>
         </div>
       </div>
@@ -523,7 +523,7 @@ export class SpecialistsPageComponent implements OnInit, OnDestroy {
 
   async createSpecialist(profile: SpecialistProfile): Promise<void> {
     if (!this.selectedInstanceId()) {
-      this.errorMessage.set('Select an orchestrator instance before creating a specialist.');
+      this.errorMessage.set('Select a Harness session before creating a specialist.');
       return;
     }
 

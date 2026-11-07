@@ -33,6 +33,8 @@ const mockReflections: Reflection[] = [
 const mockStore = {
   queryRelevantReflections: vi.fn().mockResolvedValue(mockReflections),
   recordInjection: vi.fn(),
+  recordShown: vi.fn(),
+  recordUse: vi.fn(),
 };
 
 vi.mock('./observation-store', () => ({
@@ -98,11 +100,13 @@ describe('PolicyAdapter', () => {
     it('should record injection for each reflection', async () => {
       await adapter.buildObservationContext('test context', 'inst-1');
 
-      expect(mockStore.recordInjection).toHaveBeenCalledWith('r1', true);
+      expect(mockStore.recordShown).toHaveBeenCalledWith('r1');
+      expect(mockStore.recordUse).not.toHaveBeenCalled();
+      expect(mockStore.recordInjection).not.toHaveBeenCalled();
     });
 
     it('should handle recordInjection errors gracefully', async () => {
-      mockStore.recordInjection.mockRejectedValueOnce(new Error('Recording failed'));
+      mockStore.recordShown.mockRejectedValueOnce(new Error('Recording failed'));
 
       const context = await adapter.buildObservationContext('test context');
 
@@ -249,6 +253,30 @@ describe('PolicyAdapter', () => {
 
       expect(context).toBe('');
     });
+  });
+
+  it('credits only a later assistant reply, once per shown note, within the first three replies', async () => {
+    await adapter.buildObservationContext('performance', 'inst-1');
+    adapter.noteOutput('other', { id: 'one', type: 'assistant', content: 'Use caching for better performance' });
+    adapter.noteOutput('inst-1', { id: 'one', type: 'user', content: 'Use caching for better performance' });
+    expect(mockStore.recordUse).not.toHaveBeenCalled();
+    adapter.noteOutput('inst-1', { id: 'two', type: 'assistant', content: 'Use caching for better performance' });
+    adapter.noteOutput('inst-1', { id: 'three', type: 'assistant', content: 'Use caching for better performance' });
+    expect(mockStore.recordUse).toHaveBeenCalledTimes(1);
+    expect(mockStore.recordUse).toHaveBeenCalledWith('r1');
+  });
+  it('detects use when a streamed reply grows after its first partial update', async () => {
+    await adapter.buildObservationContext('performance', 'stream');
+    adapter.noteOutput('stream', { id: 'reply', type: 'assistant', content: 'I will inspect this.' });
+    expect(mockStore.recordUse).not.toHaveBeenCalled();
+    adapter.noteOutput('stream', { id: 'reply', type: 'assistant', content: 'Use caching for better performance' });
+    expect(mockStore.recordUse).toHaveBeenCalledExactlyOnceWith('r1');
+  });
+  it('does not credit a note first echoed after the third reply', async () => {
+    await adapter.buildObservationContext('performance', 'inst-2');
+    for (let i = 0; i < 3; i++) adapter.noteOutput('inst-2', { id: String(i), type: 'assistant', content: 'Unrelated response' });
+    adapter.noteOutput('inst-2', { id: 'late', type: 'assistant', content: 'Use caching for better performance' });
+    expect(mockStore.recordUse).not.toHaveBeenCalled();
   });
 
   describe('configuration', () => {

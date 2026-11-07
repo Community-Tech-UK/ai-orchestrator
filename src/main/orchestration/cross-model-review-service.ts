@@ -538,7 +538,7 @@ export class CrossModelReviewService extends EventEmitter {
     try {
       const outcome = await breaker.execute(async () => {
         if (operationSignal.aborted) throw new Error('Review cancelled');
-        if (this.isPaused || getPauseCoordinator().isPaused()) throw new Error('Review skipped while orchestrator is paused');
+        if (this.isPaused || getPauseCoordinator().isPaused()) throw new Error('Review skipped while Harness is paused');
 
         const resolvedCli = await resolveCliType(reviewerCli as SettingsCliType);
         operationSignal.throwIfAborted();

@@ -14,6 +14,7 @@ import { SideChatStore } from '../../core/state/side-chat.store';
 import { ActionDispatchService } from '../../core/services/action-dispatch.service';
 import { TerminalDrawerStore } from '../../core/state/terminal-drawer.store';
 import { ContextMenuComponent, type ContextMenuItem } from '../../shared/components/context-menu/context-menu.component';
+import { NeedsYouStore } from '../workboard/needs-you.store';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
@@ -26,6 +27,12 @@ import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directi
   template: `
     <nav class="workspace-rail" aria-label="Workspace navigation">
       <div class="rail-section">
+        <a class="rail-btn" routerLink="/work" routerLinkActive="active"
+          [appTooltip]="needsYouTooltip"
+          [attr.aria-label]="needsYouCount() ? 'Needs you: ' + needsYouCount() + ' waiting' : 'Needs you: nothing waiting'">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 4h16l2 12v4H2v-4L4 4Z"/><path d="M2 16h6l2 3h4l2-3h6"/></svg>
+          @if (needsYouCount() > 0) { <span class="rail-badge" aria-hidden="true">{{ needsYouCount() > 99 ? '99+' : needsYouCount() }}</span> }
+        </a>
         <button
           type="button"
           class="rail-btn"
@@ -83,19 +90,6 @@ import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directi
           </svg>
         </a>
 
-        <a
-          class="rail-btn"
-          appTooltipPosition="after"
-          routerLink="/plugins"
-          routerLinkActive="active"
-          appTooltip="Manage installed plugins"
-          aria-label="Plugins"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" />
-            <rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" />
-          </svg>
-        </a>
       </div>
 
       <div class="rail-spacer"></div>
@@ -143,6 +137,21 @@ import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directi
             <span class="rail-activity-dot" aria-hidden="true"></span>
           }
         </button>
+
+        @if (sideChatAttentionFailed()) {
+          <button
+            type="button"
+            class="rail-btn rail-btn--alert"
+            aria-haspopup="menu"
+            [attr.aria-expanded]="sideChatMenuVisible()"
+            (click)="onSideChatContextMenu($event)"
+            appIconButton="Sidechat activity did not load. Open to try again."
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 9v4" /><path d="M12 17h.01" /><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+            </svg>
+          </button>
+        }
 
         @if (terminalDrawer.isAvailable()) {
           <button
@@ -210,6 +219,8 @@ export class WorkspaceRailComponent {
   readonly findSessionTooltip = copyFor('findSession');
   findSession(): void { void this.actions.dispatch('open-session-picker'); }
   protected readonly copy = copyFor;
+  readonly needsYouCount = inject(NeedsYouStore).count;
+  readonly needsYouTooltip = copyFor('rail.needsYou');
   private readonly automationStore = inject(AutomationStore);
   private readonly sideChatStore = inject(SideChatStore);
   protected readonly terminalDrawer = inject(TerminalDrawerStore);
@@ -261,7 +272,16 @@ export class WorkspaceRailComponent {
    * Global attention list naming parent sessions with sidechat activity. Each
    * entry opens that session's panel on the conversation that needs it.
    */
+  protected readonly sideChatAttentionFailed = computed(() => this.sideChatStore.attentionLoadState() === 'error');
+
   protected readonly sideChatAttentionItems = computed<ContextMenuItem[]>(() => {
+    const failed = this.sideChatAttentionFailed();
+    const failure: ContextMenuItem[] = failed
+      ? [
+          { id: 'side-chat-attention-failed', label: 'Sidechat activity did not load', disabled: true, action: () => undefined },
+          { id: 'side-chat-attention-retry', label: 'Try again', action: () => this.sideChatStore.retryAttentionLoad() },
+        ]
+      : [];
     const items = this.sideChatStore.attentionList().map((entry): ContextMenuItem => {
       const parts: string[] = [];
       if (entry.needsAttention > 0) parts.push(`${entry.needsAttention} needs action`);
@@ -274,8 +294,9 @@ export class WorkspaceRailComponent {
         action: () => this.sideChatStore.requestOpen(entry.parent, entry.targetChatId),
       };
     });
-    return items.length > 0
-      ? items
+    if (items.length > 0) return [...failure, ...items];
+    return failed
+      ? failure
       : [{ id: 'no-side-chat-activity', label: 'No sidechat activity', disabledReason: 'No sidechat needs attention right now.', action: () => undefined }];
   });
 

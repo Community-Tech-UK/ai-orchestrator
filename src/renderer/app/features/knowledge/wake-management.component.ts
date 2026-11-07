@@ -8,12 +8,12 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import type { WakeHint } from '../../../../shared/types/wake-context.types';
 import { summarizeWakeHints } from '../../../../shared/types/wake-hint-summary';
 import { KnowledgeStore } from '../../core/state/knowledge.store';
 import { UndoService } from '../../core/services/undo.service';
-import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
-import { copyFor } from '../../shared/tooltip/tooltip-copy';
 
 @Component({
   selector: 'app-wake-management',
@@ -408,6 +408,7 @@ import { copyFor } from '../../shared/tooltip/tooltip-copy';
   `],
 })
 export class WakeManagementComponent implements OnInit {
+  protected readonly copy = copyFor;
   protected store = inject(KnowledgeStore);
   private readonly undo = inject(UndoService);
   protected readonly copyFor = copyFor;

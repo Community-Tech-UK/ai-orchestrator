@@ -17,6 +17,7 @@ export type AwayOutcome = 'needs-you' | 'stopped-short' | 'finished';
 
 export interface AwayRunCard {
   runId: string;
+  chatId: string;
   goal: string;
   outcome: AwayOutcome;
   status: string;

@@ -5,6 +5,7 @@ import { ScratchDirectoryService } from '../../core/services/scratch-directory.s
 import type { Instance } from '../../core/state/instance.store';
 import type { ConversationHistoryEntry } from '../../../../shared/types/history.types';
 import { ProjectRailBuilderService, type ProjectRailBuildInput } from './project-rail-builder.service';
+import { NeedsYouStore } from '../workboard/needs-you.store';
 
 function makeHistoryEntry(
   id: string,
@@ -91,6 +92,7 @@ describe('ProjectRailBuilderService', () => {
     TestBed.configureTestingModule({
       providers: [
         ProjectRailBuilderService,
+        { provide: NeedsYouStore, useValue: { sessionIds: () => new Set(), entries: () => [] } },
         {
           provide: NewSessionDraftService,
           useValue: {

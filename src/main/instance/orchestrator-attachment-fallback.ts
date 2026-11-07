@@ -22,7 +22,7 @@ export function buildUnsupportedAttachmentWarnings(
       id: generateId(),
       timestamp: Date.now(),
       type: 'system',
-      content: `${adapterName} does not support image attachments in orchestrator mode. ${imageCount} image(s) were dropped.`,
+      content: `${adapterName} can't take image attachments, so ${imageCount} image${imageCount === 1 ? ' was' : 's were'} left out.`,
     });
   }
 
@@ -31,7 +31,7 @@ export function buildUnsupportedAttachmentWarnings(
       id: generateId(),
       timestamp: Date.now(),
       type: 'system',
-      content: `${adapterName} does not support file attachments in orchestrator mode. ${fileCount} file(s) were dropped.`,
+      content: `${adapterName} can't take file attachments, so ${fileCount} file${fileCount === 1 ? ' was' : 's were'} left out.`,
     });
   }
 

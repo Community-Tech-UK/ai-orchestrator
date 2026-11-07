@@ -1783,10 +1783,10 @@ describe('CodexCliAdapter', () => {
       finishCompaction('failed');
 
       const error = await send.then(() => null, (caught: unknown) => caught);
-      expect((error as Error | null)?.message).toMatch(/compaction could not be confirmed/);
+      expect((error as Error | null)?.message).toMatch(/couldn't confirm Codex shortened its conversation/);
       expect(order).toEqual(['turn/start', 'turn/interrupt', 'thread/compact/start']);
       // The controller's system notice is the only transcript entry — no duplicate "Codex error:".
-      expect(outputs.filter((output) => /compaction could not be confirmed/.test(output.content)))
+      expect(outputs.filter((output) => /couldn't confirm Codex shortened its conversation/.test(output.content)))
         .toEqual([expect.objectContaining({ type: 'system' })]);
       expect(statuses.at(-1)).toBe('idle');
     });
@@ -1943,7 +1943,7 @@ describe('CodexCliAdapter', () => {
 
       await expect((adapter as unknown as {
         appServerSendMessageInner(message: string): Promise<void>;
-      }).appServerSendMessageInner('Task that must pause')).rejects.toThrow(/recovery paused/i);
+      }).appServerSendMessageInner('Task that must pause')).rejects.toThrow(/Harness paused the task/i);
 
       expect(turnInputs).toEqual(['Task that must pause']);
     });

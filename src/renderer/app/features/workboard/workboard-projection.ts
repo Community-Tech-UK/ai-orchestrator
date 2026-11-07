@@ -1,4 +1,6 @@
 import type { LoopRunSummaryPayload } from '@contracts/schemas/loop';
+import { presentInstanceStatus } from '../../../../shared/attention/instance-status-presentation';
+import { loopStatusLabel } from '../loop/loop-formatters.util';
 import type { LoopStatus } from '../../../../shared/types/loop.types';
 import type { InstanceStatus } from '../../core/state/instance/instance.types';
 import type {
@@ -204,6 +206,7 @@ function firstLine(text: string, maxChars = 120): string {
 
 interface Candidate {
   relation: WorkboardRelation;
+  statusLabel?: string;
   title: string;
   workingDirectory: string;
   detail?: string;
@@ -216,17 +219,19 @@ interface Candidate {
 
 function instanceToCandidate(inst: WorkboardInstanceInput): Candidate {
   const phase = instanceStatusToPhase(inst.status);
+  const attention = (inst.pendingApprovalCount ?? 0) > 0 ? 'blocked' : attentionLevelForInstanceStatus(inst.status);
   return {
     relation: {
       kind: 'instance',
       id: inst.id,
       rawStatus: inst.status,
       phase,
-      lane: instanceStatusToLane(inst.status),
-      attentionLevel: attentionLevelForInstanceStatus(inst.status),
+      lane: attentionLevelToLane(attention),
+      attentionLevel: attention,
       updatedAt: inst.lastActivity,
       terminal: isTerminalPhase(phase),
     },
+    statusLabel: presentInstanceStatus((inst.pendingApprovalCount ?? 0) > 0 && attentionLevelForInstanceStatus(inst.status) !== 'blocked' ? 'waiting_for_permission' : inst.status).label,
     title: inst.displayName,
     workingDirectory: inst.workingDirectory,
     detail: inst.currentActivity,
@@ -234,21 +239,24 @@ function instanceToCandidate(inst: WorkboardInstanceInput): Candidate {
   };
 }
 
-function loopToCandidate(loop: LoopRunSummaryPayload): Candidate {
+function loopToCandidate(loop: LoopRunSummaryPayload, pauses: WorkboardProjectionInput['pausedForYou']): Candidate {
+  const reason = loop.status === 'paused' ? pauses?.get(loop.id) : undefined;
+  const labels = { 'sign-off': 'Needs your sign-off', blocked: 'Blocked: the agent asked for help', 'step-failed': 'Paused: a step failed', stuck: 'Stuck: needs your decision' };
   return {
     relation: {
       kind: 'loop-run',
       id: loop.id,
       rawStatus: loop.status,
       phase: loopStatusToPhase(loop.status),
-      lane: loopStatusToLane(loop.status, loop.endedAt),
-      attentionLevel: attentionLevelForLoopStatus(loop.status, loop.endedAt),
+      lane: reason ? 'needs-you' : loopStatusToLane(loop.status, loop.endedAt),
+      attentionLevel: reason ? 'blocked' : attentionLevelForLoopStatus(loop.status, loop.endedAt),
       updatedAt: loop.endedAt ?? loop.startedAt,
       // A loop is terminal exactly when it has an end time — this correctly
       // treats a resumable `provider-limit` (endedAt null) as still live and a
       // terminal `provider-limit` (endedAt set) as within the retention window.
       terminal: loop.endedAt !== null,
     },
+    statusLabel: reason ? labels[reason] : loopStatusLabel(loop.status),
     title: firstLine(loop.initialPrompt) || 'Loop run',
     workingDirectory: loop.workspaceCwd,
     detail: loop.totalIterations > 0 ? `Iteration ${loop.totalIterations}` : undefined,
@@ -332,7 +340,7 @@ function buildItem(
     title: primary.title,
     workspaceId: toWorkspaceId(primary.workingDirectory),
     workingDirectory: primary.workingDirectory,
-    statusLabel: statusLabel(primary.relation.rawStatus),
+    statusLabel: primary.statusLabel ?? statusLabel(primary.relation.rawStatus),
     detail: primary.detail,
     progress: primary.progress,
     errorText: primary.errorText,
@@ -379,12 +387,12 @@ function byIdAsc(a: { relation: WorkboardRelation }, b: { relation: WorkboardRel
  * do not also appear standalone. Records are never merged by title, path, time,
  * or prompt similarity.
  */
-function correlate(input: WorkboardProjectionInput): WorkboardItem[] {
+export function correlateWorkboard(input: Omit<WorkboardProjectionInput, 'now'>): WorkboardItem[] {
   const instances = new Map<string, Candidate>();
   for (const inst of input.instances) instances.set(inst.id, instanceToCandidate(inst));
   const knownInstanceIds = new Set(instances.keys());
   const loops = new Map<string, Candidate>();
-  for (const loop of input.loopRuns) loops.set(loop.id, loopToCandidate(loop));
+  for (const loop of input.loopRuns) loops.set(loop.id, loopToCandidate(loop, input.pausedForYou));
   const automationsById = new Map(input.automations.map((a) => [a.id, a]));
 
   const consumedInstances = new Set<string>();
@@ -479,7 +487,12 @@ function withinRetention(item: WorkboardItem, now: number): boolean {
  * resumable items are always retained regardless of age.
  */
 export function projectWorkboard(input: WorkboardProjectionInput): WorkboardItem[] {
-  return correlate(input).filter((item) => withinRetention(item, input.now));
+  return retainWorkboardItems(correlateWorkboard(input), input.now);
+}
+
+/** Apply the moving retention window without rebuilding unchanged source relations. */
+export function retainWorkboardItems(items: readonly WorkboardItem[], now: number): WorkboardItem[] {
+  return items.filter((item) => withinRetention(item, now));
 }
 
 /**

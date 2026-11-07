@@ -1,3 +1,6 @@
+import type { InstanceInputContextDeliveredEvent } from '../../shared/types/input-context-delivery.types';
+import { applyInputContextDelivery } from '../../shared/utils/input-context-delivery';
+import { getOutputStorageManager } from '../memory/output-storage';
 import { forwardCrossModelReviewEvents } from './cross-model-review-event-forwarding';
 import { attachReviewStalenessAbort } from '../orchestration/review-staleness-abort';
 import { registerCleanup } from '../util/cleanup-registry';
@@ -9,7 +12,6 @@ import { getDebateCoordinator } from '../orchestration/debate-coordinator';
 import { getDoomLoopDetector } from '../orchestration/doom-loop-detector';
 import { toolLoopNotice } from '../orchestration/tool-loop-notice';
 import { getNotificationService } from '../notifications/notification-service';
-import { USER_ACTION_DEFAULT_BODY, userActionNotificationTitle } from '../notifications/user-action-notification';
 import { getSettingsManager } from '../core/config/settings-manager';
 import type { UserActionRequest } from '../orchestration/orchestration-handler';
 import { getOrchestrationActivityBridge } from '../orchestration/orchestration-activity-bridge';
@@ -158,6 +160,22 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
   // renderer can sync the per-instance toggle and toast on unavailability.
   instanceManager.on('instance:fast-toggled', (payload) => {
     windowManager.sendToRenderer(IPC_CHANNELS.INSTANCE_FAST_TOGGLED, payload);
+  });
+
+  // Bookkeeping is separate from normal output: no new input, observation or mobile turn.
+  instanceManager.on('instance:input-context-delivered', (delivery: InstanceInputContextDeliveredEvent) => {
+    const instance = instanceManager.getInstance(delivery.instanceId);
+    if (!instance) return;
+    instance.outputBuffer = applyInputContextDelivery(instance.outputBuffer, delivery);
+    instance.retainedPrompts = applyInputContextDelivery(instance.retainedPrompts ?? [], delivery);
+    // Joins any in-flight overflow write before patching its existing disk record.
+    void getOutputStorageManager().patchInputContextDelivery(delivery.instanceId, delivery).catch(error => {
+      logger.warn('Unable to persist retrieved-note delivery metadata', { instanceId: delivery.instanceId,
+        error: error instanceof Error ? error.message : String(error) });
+    });
+    continuityQueue.enqueue({ kind: 'patch', instanceId: delivery.instanceId, entryId: delivery.messageId,
+      patch: { retrievedContextDeliveries: { [delivery.deliveryId]: delivery.tokens } } });
+    windowManager.sendToRenderer(IPC_CHANNELS.INSTANCE_INPUT_CONTEXT_DELIVERED, delivery);
   });
 
   instanceManager.on('provider:normalized-event', (envelope: ProviderRuntimeEventEnvelope) => {
@@ -562,10 +580,7 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
       options: request.options?.map((option) => option.label) || request.questions,
     });
 
-    windowManager.notifyUserActionRequest(
-      userActionNotificationTitle(request.requestType, request.targetMode),
-      request.message || USER_ACTION_DEFAULT_BODY
-    );
+    windowManager.notifyUserActionRequest(request, instanceManager.getInstance(request.instanceId)?.displayName);
   });
 
   for (const eventName of [

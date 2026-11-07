@@ -111,9 +111,9 @@ describe('native ACP history reconciliation', () => {
       ['plan-mode ultrathink in front of an earlier set and the current set', true],
     ] as const)('maps %s back onto the retained typed text', (_label, planning) => {
       const queue = new InstanceContinuityInputQueue();
-      queue.queueContinuity('i', buildContextBlock({ context, queueRetrievedContext: () => undefined }, bundle({ indexedCodebaseContext: indexed, rlmContext: retrieved })) as string);
+      queue.queueContinuity('i', buildContextBlock({ context, queueRetrievedContext: () => undefined }, bundle({ indexedCodebaseContext: indexed, rlmContext: retrieved })) as string, { userOnly: false });
       const current = `${buildContextBlock({ context, queueRetrievedContext: () => undefined }, bundle({ indexedCodebaseContext: indexed, rlmContext: retrieved }))}\n\n${guidance}`;
-      const composed = `${queue.consume('i', current)}\n\n${ask}`;
+      const composed = `${queue.consume('i', current, 'user')}\n\n${ask}`;
       const planInstance = { provider: 'claude', planMode: { enabled: planning, state: planning ? 'planning' : 'off' } } as unknown as Instance;
       const sent = applyPlanModeTurnHint(planInstance, composed, false);
       expect(sent.startsWith(planning ? 'ultrathink\n\n[Indexed' : '[Indexed')).toBe(true);

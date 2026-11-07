@@ -18,7 +18,6 @@
             [isChangingMode]="isChangingMode()"
             [isTogglingYolo]="isTogglingYolo()"
             [isTogglingFastMode]="isTogglingFastMode()"
-            [currentModel]="inst.currentModel"
             [contextUsage]="inst.contextUsage"
             [canShowFileExplorer]="canShowFileExplorer()"
             [isFileExplorerOpen]="isFileExplorerOpen()"
@@ -116,16 +115,6 @@
                 <button class="recovery-action recovery-action-primary" (click)="onRecoverySummarize()">Continue</button>
                 <button class="recovery-action" (click)="onRecoveryDismiss()">Dismiss</button>
               </div>
-            </div>
-          }
-
-          @if (restartToasts().length > 0) {
-            <div class="restart-toast-stack">
-              @for (toast of restartToasts(); track toast.id) {
-                <div class="restart-toast" [class.restart-toast-error]="toast.type === 'error'">
-                  {{ toast.message }}
-                </div>
-              }
             </div>
           }
 

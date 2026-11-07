@@ -129,7 +129,8 @@ export function saveShowHiddenAutomations(value: boolean): void {
 
 export function loadStatusFilter(): string {
   try {
-    return localStorage.getItem(STATUS_FILTER_STORAGE_KEY) === 'active' ? 'active' : 'all';
+    const saved = localStorage.getItem(STATUS_FILTER_STORAGE_KEY);
+    return saved && saved !== 'active' ? saved : 'all';
   } catch {
     return 'all';
   }

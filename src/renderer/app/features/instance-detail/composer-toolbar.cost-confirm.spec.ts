@@ -10,6 +10,9 @@ import type { PendingSelection } from '../models/compact-model-picker.types';
 import { ComposerToolbarComponent } from './composer-toolbar.component';
 import type { RuntimeChangePreviewController } from './runtime-change-preview.controller';
 import { HistoryPreviewSessionService } from './history-preview-session.service';
+import { resolveContextEvidenceTemplate } from './composer-toolbar-test-resources';
+
+await resolveContextEvidenceTemplate();
 
 const changeModel = vi.fn();
 const preview = vi.fn<(instanceId: string, request: unknown) => Promise<RuntimeChangeCostNote | null>>();
