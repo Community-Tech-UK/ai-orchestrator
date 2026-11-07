@@ -12,6 +12,7 @@ import type {
   WorkerNodeExtensionRelaySummary,
 } from '../../../../../shared/types/worker-node.types';
 import type { ServiceStatus } from '../../../../../shared/types/service.types';
+import type { TestMachineView, WorkToday } from '../../../../../shared/types/computers.types';
 import type { CanonicalCliType } from '../../../../../shared/types/settings.types';
 
 export type RemoteNodeDiagnosableProvider = Exclude<CanonicalCliType, 'auto'>;
@@ -75,6 +76,7 @@ export interface RemoteNodeServerStatus {
   pendingPairingCount?: number;
   localIps?: string[];
   tailscaleIp?: string | null;
+  tailscaleIpv6?: string | null;
   tailscaleDnsName?: string | null;
   requireTls?: boolean;
 }
@@ -147,6 +149,26 @@ export class RemoteNodeIpcService {
       : { success: false, error: result?.error?.message ?? 'Transfer failed' };
   }
 
+  /** The test machine and where today's work went; nulls when none is set up. A failure carries the error as sent. */
+  async getTestMachine(): Promise<
+    { ok: true; testMachine: TestMachineView | null; today: WorkToday | null } | { ok: false; error: unknown }
+  > {
+    if (!this.api) return { ok: true, testMachine: null, today: null };
+    const result = await this.api.computersGetTestMachine() as IpcResult | null;
+    if (!result?.success) return { ok: false, error: result?.error ?? result };
+    return { ok: true, ...(result.data as { testMachine: TestMachineView | null; today: WorkToday | null }) };
+  }
+
+  /** Changes the test machine's switches, returning it as it now is. A failure carries the error as sent. */
+  async changeTestMachine(
+    change: Partial<Pick<TestMachineView, 'paused' | 'testRuns' | 'checks' | 'slots'>>,
+  ): Promise<{ ok: true; testMachine: TestMachineView } | { ok: false; error: unknown }> {
+    if (!this.api) return { ok: false, error: 'Not in Electron' };
+    const result = await this.api.computersChangeTestMachine(change) as IpcResult | null;
+    if (!result?.success) return { ok: false, error: result?.error ?? result };
+    return { ok: true, testMachine: (result.data as { testMachine: TestMachineView }).testMachine };
+  }
+
   async getServerStatus(): Promise<RemoteNodeServerStatus> {
     if (!this.api) return { running: false };
     const result = await this.api.remoteNodeGetServerStatus() as IpcResult | null;
@@ -159,6 +181,7 @@ export class RemoteNodeIpcService {
       runningConfig?: { port?: number; host?: string; namespace?: string } | null;
       localIps?: string[];
       tailscaleIp?: string | null;
+      tailscaleIpv6?: string | null;
       tailscaleDnsName?: string | null;
       requireTls?: boolean;
     } | undefined;
@@ -172,6 +195,7 @@ export class RemoteNodeIpcService {
       pendingPairingCount: data?.pendingPairingCount ?? 0,
       localIps: data?.localIps ?? [],
       tailscaleIp: data?.tailscaleIp ?? null,
+      tailscaleIpv6: data?.tailscaleIpv6 ?? null,
       tailscaleDnsName: data?.tailscaleDnsName ?? null,
       requireTls: data?.requireTls ?? false,
     };

@@ -18,7 +18,7 @@ describe('isRemoteNodesSection', () => {
 describe('buildRemoteNodesSectionTabs', () => {
   it('renders four tabs with no badges when counts are zero', () => {
     const tabs = buildRemoteNodesSectionTabs(0, 0);
-    expect(tabs.map((tab) => tab.id)).toEqual(['overview', 'pairing', 'computers', 'advanced']);
+    expect(tabs.map((tab) => tab.id)).toEqual(['computers', 'pairing', 'overview', 'advanced']);
     expect(tabs.every((tab) => tab.badge === undefined)).toBe(true);
   });
 

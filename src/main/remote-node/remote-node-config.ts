@@ -9,8 +9,6 @@ export interface RemoteNodeConfig {
   autoOffloadBrowser: boolean;
   /** Auto-route Android tasks to nodes with Android capability */
   autoOffloadAndroid: boolean;
-  /** Auto-route GPU tasks to nodes with GPU */
-  autoOffloadGpu: boolean;
   /** Global cap on total remote instances */
   maxRemoteInstances: number;
   /** Logical namespace for grouping nodes */
@@ -31,7 +29,6 @@ const DEFAULT_CONFIG: RemoteNodeConfig = {
   serverHost: '127.0.0.1',
   autoOffloadBrowser: true,
   autoOffloadAndroid: true,
-  autoOffloadGpu: false,
   maxRemoteInstances: 20,
   namespace: 'default',
   tlsMode: 'auto',
@@ -60,7 +57,6 @@ export function hydrateRemoteNodeConfig(settings: import('../../shared/types/set
     serverHost: settings.remoteNodesServerHost,
     autoOffloadBrowser: settings.remoteNodesAutoOffloadBrowser,
     autoOffloadAndroid: settings.remoteNodesAutoOffloadAndroid,
-    autoOffloadGpu: settings.remoteNodesAutoOffloadGpu,
     namespace: settings.remoteNodesNamespace,
     tlsMode: settings.remoteNodesTlsMode,
     tlsCertPath: settings.remoteNodesTlsCertPath || undefined,

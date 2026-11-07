@@ -5,11 +5,13 @@ import { NodeDetailComponent } from './node-detail.component';
 import { RemoteNodesStore } from './remote-nodes.store';
 import { OTHER_COMPUTERS_TITLE } from '../../../../shared/display-names';
 import { RemoteNodeIpcService } from '../../core/services/ipc/remote-node-ipc.service';
+import { Router } from '@angular/router';
+import { ComputersListComponent } from '../settings/computers-list.component';
 
 @Component({
   selector: 'app-remote-nodes-page',
   standalone: true,
-  imports: [NodeCardComponent, NodeDetailComponent],
+  imports: [NodeCardComponent, NodeDetailComponent, ComputersListComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page-container">
@@ -28,10 +30,15 @@ import { RemoteNodeIpcService } from '../../core/services/ipc/remote-node-ipc.se
             class="btn btn-primary"
             (click)="toggleServer()"
           >
-            {{ serverRunning ? 'Stop Server' : 'Start Server' }}
+            {{ serverRunning() ? 'Stop Server' : 'Start Server' }}
           </button>
         </div>
       </div>
+
+      <section class="order" aria-label="Order of use">
+        <app-computers-list [nodes]="store.nodes()" [readOnly]="true" />
+        <button type="button" class="btn btn-secondary" (click)="openSettings()">Change these in Settings</button>
+      </section>
 
       @if (store.loading()) {
         <div class="loading-state">Loading your other computers…</div>
@@ -161,6 +168,16 @@ import { RemoteNodeIpcService } from '../../core/services/ipc/remote-node-ipc.se
       opacity: 0.7;
     }
 
+    .order {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .order app-computers-list {
+      align-self: stretch;
+    }
     .loading-state {
       text-align: center;
       padding: 48px 24px;
@@ -172,6 +189,7 @@ export class RemoteNodesPageComponent implements OnInit {
   readonly computersTitle = OTHER_COMPUTERS_TITLE;
   readonly store = inject(RemoteNodesStore);
   private readonly ipc = inject(RemoteNodeIpcService);
+  private readonly router = inject(Router);
   readonly selectedNodeId = signal<string | null>(null);
   readonly selectedNode = computed(() => {
     const selectedNodeId = this.selectedNodeId();
@@ -180,13 +198,15 @@ export class RemoteNodesPageComponent implements OnInit {
     }
     return this.store.nodes().find((node) => node.id === selectedNodeId) ?? null;
   });
-  serverRunning = false;
+  /** From the server itself, so a reload shows what it's really doing. */
+  readonly serverRunning = signal(false);
 
   ngOnInit(): void {
     this.refresh();
   }
 
   refresh(): void {
+    void this.ipc.getServerStatus().then(status => this.serverRunning.set(status.running), () => this.serverRunning.set(false));
     void this.store.refresh().then(() => {
       const selectedNodeId = this.selectedNodeId();
       const nodes = this.store.nodes();
@@ -201,13 +221,13 @@ export class RemoteNodesPageComponent implements OnInit {
   }
 
   async toggleServer(): Promise<void> {
-    if (this.serverRunning) {
-      await this.ipc.stopServer();
-      this.serverRunning = false;
-    } else {
-      await this.ipc.startServer();
-      this.serverRunning = true;
-    }
+    if (this.serverRunning()) await this.ipc.stopServer();
+    else await this.ipc.startServer();
+    this.refresh();
+  }
+
+  openSettings(): void {
+    void this.router.navigate(['/settings'], { queryParams: { tab: 'remote-nodes' } });
   }
 
   selectNode(nodeId: string): void {

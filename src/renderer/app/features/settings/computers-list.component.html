@@ -1,0 +1,148 @@
+<section class="computers" aria-labelledby="computers-order-title">
+  <h4 id="computers-order-title" class="list-title">In order of use</h4>
+  <p class="field-hint">
+    Harness sends work to the first computer that takes it and has room. This Mac takes what's left, and anything the
+    others can't do. Pausing a computer sends new work elsewhere and lets current work finish; a session sent to it by
+    name still goes there.
+  </p>
+
+  @if (loadFailure(); as detail) {
+    <p class="notice" role="alert">The test machine's settings couldn't be read, so it isn't shown.</p>
+    <details class="field-hint"><summary>Details</summary>{{ detail }}</details>
+  }
+
+  <ol class="computer-list">
+    @for (row of rows(); track row.id; let index = $index) {
+      <li class="computer-row" [class.paused]="row.paused">
+        <div class="computer-head">
+          <span class="computer-name">{{ row.name }}</span>
+          @if (describeNow(row); as now) {
+            <span class="computer-now">{{ now }}</span>
+          }
+          @if (!readOnly() && row.kind === 'paired') {
+            <span class="move-buttons">
+              <button
+                type="button"
+                class="btn btn-icon"
+                appIconButton="Move up"
+                [appIconButtonDisabledReason]="index === 0 ? 'It is already first' : null"
+                [disabled]="saving()"
+                (click)="index === 0 || move(row, -1)"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+              </button>
+              <button
+                type="button"
+                class="btn btn-icon"
+                appIconButton="Move down"
+                [appIconButtonDisabledReason]="index === pairedCount() - 1 ? 'It is already last before this Mac' : null"
+                [disabled]="saving()"
+                (click)="index === pairedCount() - 1 || move(row, 1)"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
+              </button>
+            </span>
+          }
+        </div>
+
+        @if (readOnly() || row.kind === 'this-mac') {
+          <p class="field-hint">{{ describeTakes(row) }}</p>
+        } @else {
+          <div class="switches">
+            @if (row.choice; as choice) {
+              <label class="switch-row" [for]="'sessions-' + row.id">
+                <span>Agent sessions</span>
+                <span class="toggle-label">
+                  <input
+                    [id]="'sessions-' + row.id"
+                    type="checkbox"
+                    class="toggle-input"
+                    [checked]="choice.sessions"
+                    [disabled]="saving()"
+                    (change)="setSessions(row, $event)"
+                  />
+                  <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                </span>
+              </label>
+            }
+            @if (row.testMachine; as machine) {
+              <label class="switch-row" [for]="'test-runs-' + row.id">
+                <span>Test runs</span>
+                <span class="toggle-label">
+                  <input
+                    [id]="'test-runs-' + row.id"
+                    type="checkbox"
+                    class="toggle-input"
+                    [checked]="machine.testRuns"
+                    [disabled]="saving()"
+                    (change)="changeTestMachine('testRuns', $event)"
+                  />
+                  <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                </span>
+              </label>
+              <label class="switch-row" [for]="'checks-' + row.id">
+                <span>Checks: type checks, lint and builds</span>
+                <span class="toggle-label">
+                  <input
+                    [id]="'checks-' + row.id"
+                    type="checkbox"
+                    class="toggle-input"
+                    [checked]="machine.checks"
+                    [disabled]="saving()"
+                    (change)="changeTestMachine('checks', $event)"
+                  />
+                  <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                </span>
+              </label>
+              <label class="switch-row" [for]="'slots-' + row.id">
+                <span>Test runs or checks at once</span>
+                <select
+                  [id]="'slots-' + row.id"
+                  class="field-input slots"
+                  [value]="machine.slots"
+                  [disabled]="saving()"
+                  (change)="slotsChanged($event)"
+                >
+                  @for (count of slotChoices; track count) {
+                    <option [value]="count" [selected]="count === machine.slots">{{ count }}</option>
+                  }
+                </select>
+              </label>
+            }
+            @if (row.alsoTakes.length) {
+              <p class="field-hint">Also takes {{ row.alsoTakes.join(' and ') }}, through the switches in Advanced.</p>
+            }
+            <label class="switch-row" [for]="'paused-' + row.id">
+              <span>Pause</span>
+              <span class="toggle-label">
+                <input
+                  [id]="'paused-' + row.id"
+                  type="checkbox"
+                  class="toggle-input"
+                  [checked]="row.paused"
+                  [disabled]="saving()"
+                  (change)="setPaused(row, $event)"
+                />
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </span>
+            </label>
+          </div>
+        }
+      </li>
+    }
+  </ol>
+
+  @if (saveFailure(); as detail) {
+    <p class="notice" role="alert">That change wasn't saved.</p>
+    <details class="field-hint"><summary>Details</summary>{{ detail }}</details>
+  }
+
+  @if (todayLines().length) {
+    <section class="today" aria-labelledby="computers-today-title">
+      <h4 id="computers-today-title" class="list-title">Today</h4>
+      @for (line of todayLines(); track line) {
+        <p class="today-line">{{ line }}</p>
+      }
+    </section>
+  }
+</section>

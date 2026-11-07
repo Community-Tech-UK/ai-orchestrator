@@ -338,7 +338,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   remoteNodesEnrollmentToken: '',
   remoteNodesAutoOffloadBrowser: true,
   remoteNodesAutoOffloadAndroid: true,
-  remoteNodesAutoOffloadGpu: false,
   computers: [],
   remoteNodesNamespace: 'default',
   remoteNodesRequireTls: false,

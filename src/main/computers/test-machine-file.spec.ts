@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { changeTestMachine, readTestMachine } from './test-machine-file';
+import { changeTestMachine, readRunLog, readTestMachine, summariseWorkToday } from './test-machine-file';
 
 const require = createRequire(import.meta.url);
 const { readConfig } = require('../../../scripts/remote-checks/route.js') as {
@@ -62,5 +62,42 @@ describe('the test machine file', () => {
     const dir = folder(null);
     expect(() => changeTestMachine({ paused: true }, dir)).toThrow(/No test machine/);
     expect(readdirSync(dir)).toEqual([]);
+  });
+});
+
+describe('where today\'s work went', () => {
+  const NOW = new Date(2026, 10, 7, 15, 0).getTime();
+  const at = (hoursAgo: number) => new Date(NOW - hoursAgo * 3_600_000).toISOString();
+
+  it('counts today\'s test runs and checks by where they ran, apart from short runs, with reasons', () => {
+    const summary = summariseWorkToday([
+      { at: at(1), ranOn: 'pc' },
+      { at: at(2), ranOn: 'pc', kind: 'commit' },
+      { at: at(3), ranOn: 'mac', fellBackBecause: 'the Windows PC is paused' },
+      { at: at(4), ranOn: 'mac', kind: 'targeted', fellBackBecause: 'the Windows PC is paused' },
+      { at: at(5), ranOn: 'mac', kind: 'project', fellBackBecause: 'the Windows PC could not be reached' },
+      { at: at(1), ranOn: 'pc', kind: 'checks' },
+      { at: at(1), ranOn: 'mac', kind: 'checks', fellBackBecause: 'checks are turned off for the Windows PC' },
+      { at: at(1), ranOn: 'mac', kind: 'local' },
+      { at: at(1), ranOn: 'mac', kind: 'local' },
+      { at: at(30), ranOn: 'mac', fellBackBecause: 'yesterday' },
+    ], NOW);
+    expect(summary).toEqual({
+      testRuns: { there: 2, here: 3 },
+      checks: { there: 1, here: 1 },
+      shortRunsHere: 2,
+      hereBecause: [
+        { reason: 'the Windows PC is paused', count: 2 },
+        { reason: 'the Windows PC could not be reached', count: 1 },
+        { reason: 'checks are turned off for the Windows PC', count: 1 },
+      ],
+    });
+  });
+
+  it('reads the older log first, then the current one, skipping half-written lines', () => {
+    const dir = folder(SET_UP);
+    writeFileSync(join(dir, 'runs.old.jsonl'), `${JSON.stringify({ at: 'a', ranOn: 'pc' })}\n`);
+    writeFileSync(join(dir, 'runs.jsonl'), `${JSON.stringify({ at: 'b', ranOn: 'mac' })}\n{"at": "half`);
+    expect(readRunLog(dir).map(run => run.at)).toEqual(['a', 'b']);
   });
 });

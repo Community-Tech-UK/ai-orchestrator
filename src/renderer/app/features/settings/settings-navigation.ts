@@ -256,7 +256,7 @@ export const NAV_ITEMS: SettingsNavItem[] = [
   {
     id: 'remote-nodes',
     label: OTHER_COMPUTERS_TITLE,
-    summary: 'Connect another computer to run browser, GPU, or extra CLI work for this app.',
+    summary: 'Choose which computers take test runs, checks, agent sessions and browser work, and in what order.',
     group: 'Network & Remote',
     keywords: 'remote nodes offload distributed gpu browser worker pair',
     layout: 'expanded',

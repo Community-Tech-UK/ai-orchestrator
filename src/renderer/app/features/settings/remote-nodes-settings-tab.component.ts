@@ -51,6 +51,7 @@ import {
 } from './remote-nodes-browser-automation';
 import { type AndroidAutomationConfigDraft } from './remote-node-android-config.component';
 import { CoordinatorPairingComponent } from './coordinator-pairing.component';
+import { ComputersListComponent } from './computers-list.component';
 import { getControlSurface } from '../../shared/control-surface/control-surface-nav';
 import { RemoteNodeListComponent } from './remote-node-list.component';
 import { RemoteNodeDetailComponent, type RemoteNodeDetailAction } from './remote-node-detail.component';
@@ -81,6 +82,7 @@ export type { RemoteNodesSection };
     CoordinatorPairingComponent,
     RemoteNodeListComponent,
     RemoteNodeDetailComponent,
+    ComputersListComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './remote-nodes-settings-tab.component.html',
@@ -102,7 +104,6 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
   protected readonly draftTlsMode = signal<'auto' | 'custom'>('auto');
   protected readonly draftAutoOffloadBrowser = signal(true);
   protected readonly draftAutoOffloadAndroid = signal(true);
-  protected readonly draftAutoOffloadGpu = signal(false);
 
   protected readonly tokenRevealed = signal(false);
   protected readonly customTokenMode = signal(false);
@@ -121,7 +122,7 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
   protected readonly connectedCount = signal(0);
 
   // Task-based section navigation (Task 3) and Computers list/detail selection (Task 4).
-  protected readonly activeSection = signal<RemoteNodesSection>('overview');
+  protected readonly activeSection = signal<RemoteNodesSection>('computers');
   protected readonly selectedNodeId = signal<string | null>(null);
   private nodeSelectionInitialDone = false;
 
@@ -155,8 +156,7 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
       this.draftRequireTls() !== this.store.remoteNodesRequireTls() ||
       this.draftTlsMode() !== this.store.remoteNodesTlsMode() ||
       this.draftAutoOffloadBrowser() !== this.store.remoteNodesAutoOffloadBrowser() ||
-      this.draftAutoOffloadAndroid() !== this.store.remoteNodesAutoOffloadAndroid() ||
-      this.draftAutoOffloadGpu() !== this.store.remoteNodesAutoOffloadGpu()
+      this.draftAutoOffloadAndroid() !== this.store.remoteNodesAutoOffloadAndroid()
     );
   });
 
@@ -252,7 +252,6 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     this.draftTlsMode.set(this.store.remoteNodesTlsMode());
     this.draftAutoOffloadBrowser.set(this.store.remoteNodesAutoOffloadBrowser());
     this.draftAutoOffloadAndroid.set(this.store.remoteNodesAutoOffloadAndroid());
-    this.draftAutoOffloadGpu.set(this.store.remoteNodesAutoOffloadGpu());
   }
 
   private async refreshStatus(): Promise<void> {
@@ -329,7 +328,6 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
       await this.store.set('remoteNodesTlsMode', this.draftTlsMode());
       await this.store.set('remoteNodesAutoOffloadBrowser', this.draftAutoOffloadBrowser());
       await this.store.set('remoteNodesAutoOffloadAndroid', this.draftAutoOffloadAndroid());
-      await this.store.set('remoteNodesAutoOffloadGpu', this.draftAutoOffloadGpu());
 
       await this.ipc.stopServer();
       await this.ipc.startServer({ port: this.draftPort(), host: this.draftHost() });

@@ -537,7 +537,6 @@ export const SETTINGS_TOOL_POLICY = {
   remoteNodesEnrollmentToken: secret(),
   remoteNodesAutoOffloadBrowser: open(z.boolean()),
   remoteNodesAutoOffloadAndroid: open(z.boolean()),
-  remoteNodesAutoOffloadGpu: open(z.boolean()),
   computers: open(z.array(z.object({ id: z.string().min(1).max(128), paused: z.boolean(), sessions: z.boolean() }).strict()).max(64)),
   remoteNodesNamespace: readOnly(true),
   remoteNodesRequireTls: readOnly(true),

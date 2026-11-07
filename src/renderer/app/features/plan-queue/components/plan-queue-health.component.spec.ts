@@ -3,7 +3,8 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { Router } from '@angular/router';
 import type { PlanQueueHealth } from '@contracts/schemas/plan-queue';
 import { PlanQueueHealthComponent } from './plan-queue-health.component';
 
@@ -50,6 +51,22 @@ describe('PlanQueueHealthComponent', () => {
     ]);
     expect(rows[0][1]).toBe('Nothing measured yet');
     expect(rows[8][1]).toBe('None');
+  });
+
+  it('links to where work runs only when there is a test machine', () => {
+    fixture.componentRef.setInput('health', empty);
+    fixture.detectChanges();
+    const labels = () => Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>).map(button => button.textContent?.trim());
+    expect(labels()).toEqual(['Refresh']);
+
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    fixture.componentRef.setInput('health', {
+      ...empty, testMachine: { label: 'the Windows PC', ranThere: NOTHING, movedToMac: NOTHING, unreachable: false },
+    });
+    fixture.detectChanges();
+    expect(labels()).toEqual(['Refresh', 'Choose where work runs']);
+    (fixture.nativeElement.querySelectorAll('button')[1] as HTMLButtonElement).click();
+    expect(navigate).toHaveBeenCalledWith(['/settings'], { queryParams: { tab: 'remote-nodes' } });
   });
 
   it('shows no notice while tests run where they should', () => {

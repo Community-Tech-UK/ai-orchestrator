@@ -75,17 +75,18 @@ describe('RemoteNodesSettingsTabComponent', () => {
     remoteNodesTlsMode: vi.fn(() => 'auto'),
     remoteNodesAutoOffloadBrowser: vi.fn(() => true),
     remoteNodesAutoOffloadAndroid: vi.fn(() => true),
-    remoteNodesAutoOffloadGpu: vi.fn(() => false),
     remoteNodesRegisteredNodes: vi.fn(() => ({})),
     remoteNodesEnrollmentToken: vi.fn(() => 'EXAMPLE_TOKEN'),
     remoteNodesEnabled: vi.fn(() => true),
     harnessRole: vi.fn(() => 'coordinator'),
     workerMode: vi.fn(() => ({ role: 'coordinator' })),
+    computers: vi.fn(() => []),
     set: vi.fn(),
   };
 
   const ipc = {
     getServerStatus: vi.fn(async () => ({ running: false }) as RemoteNodeServerStatus),
+    getTestMachine: vi.fn(async () => ({ ok: true, testMachine: null, today: null })),
     listNodes: vi.fn(async () => [] as RemoteNodeRosterEntry[]),
     listPairingCredentials: vi.fn(async () => []),
     updateAndroidAutomation: vi.fn(),
@@ -185,8 +186,15 @@ describe('RemoteNodesSettingsTabComponent', () => {
     expect(clipboard.copyText).toHaveBeenCalledExactlyOnceWith('EXAMPLE_TOKEN', { label: 'computer pairing details' });
   });
 
-  it('names computers and keeps a configured connection switch separate from live readiness', () => {
+  /** The tab opens on Computers; Overview is the third section. */
+  function showOverview(): void {
     fixture.detectChanges();
+    (fixture.nativeElement.querySelectorAll('[role="tab"]')[2] as HTMLButtonElement).click();
+    fixture.detectChanges();
+  }
+
+  it('names computers and keeps a configured connection switch separate from live readiness', () => {
+    showOverview();
     const root = fixture.nativeElement as HTMLElement;
     expect(root.querySelector('.section-title')?.textContent).toBe('Other computers');
     expect(root.textContent).toContain('Let your other computers connect');
@@ -201,7 +209,7 @@ describe('RemoteNodesSettingsTabComponent', () => {
     store.remoteNodesEnabled.mockReturnValue(false);
     (component as unknown as { serverStatus: WritableSignal<RemoteNodeServerStatus> }).serverStatus
       .set({ running: true, host: '127.0.0.1', port: 4878 });
-    fixture.detectChanges();
+    showOverview();
     const root = fixture.nativeElement as HTMLElement;
     expect(root.querySelector<HTMLInputElement>('.toggle-input')?.checked).toBe(false);
     expect(root.textContent).toContain('Configured: Off');
@@ -424,15 +432,15 @@ describe('RemoteNodesSettingsTabComponent', () => {
 
       const tabs = fixture.nativeElement.querySelectorAll('[role="tab"]');
       expect(Array.from(tabs).map((tab) => (tab as HTMLElement).textContent?.trim())).toEqual([
-        'Overview',
-        'Pairing',
         'Computers',
+        'Pairing',
+        'Overview',
         'Advanced',
       ]);
 
-      expect(fixture.nativeElement.querySelector('#remote-nodes-panel-overview')).not.toBeNull();
+      expect(fixture.nativeElement.querySelector('#remote-nodes-panel-computers')).not.toBeNull();
       expect(fixture.nativeElement.querySelector('#remote-nodes-panel-pairing')).toBeNull();
-      expect(fixture.nativeElement.querySelector('#remote-nodes-panel-computers')).toBeNull();
+      expect(fixture.nativeElement.querySelector('#remote-nodes-panel-overview')).toBeNull();
       expect(fixture.nativeElement.querySelector('#remote-nodes-panel-advanced')).toBeNull();
     });
 
@@ -440,15 +448,23 @@ describe('RemoteNodesSettingsTabComponent', () => {
       fixture.detectChanges();
 
       const tabs = fixture.nativeElement.querySelectorAll('[role="tab"]') as NodeListOf<HTMLButtonElement>;
-      tabs[2].click(); // Computers
+      tabs[2].click(); // Overview
       fixture.detectChanges();
 
-      expect(fixture.nativeElement.querySelector('#remote-nodes-panel-overview')).toBeNull();
-      expect(fixture.nativeElement.querySelector('#remote-nodes-panel-computers')).not.toBeNull();
+      expect(fixture.nativeElement.querySelector('#remote-nodes-panel-computers')).toBeNull();
+      expect(fixture.nativeElement.querySelector('#remote-nodes-panel-overview')).not.toBeNull();
+    });
+
+    it('opens on the order of use, which shows even when connections are off', () => {
+      store.remoteNodesEnabled.mockReturnValue(false);
+      fixture.detectChanges();
+      const panel = fixture.nativeElement.querySelector('#remote-nodes-panel-computers') as HTMLElement;
+      expect(panel.querySelector('app-computers-list')).not.toBeNull();
+      expect(panel.textContent).toContain('Allow connections in Overview to see connected computers.');
     });
 
     it('shows the Computer Role and Let your other computers connect controls on Overview', () => {
-      fixture.detectChanges();
+      showOverview();
 
       const overview = fixture.nativeElement.querySelector('#remote-nodes-panel-overview');
       expect(overview?.textContent).toContain('Computer Role');

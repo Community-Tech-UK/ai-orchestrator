@@ -56,6 +56,7 @@ export { registerRoutingHandlers } from './routing-handlers';
 export { registerCommunicationHandlers } from './communication-handlers';
 export { registerRemoteObserverHandlers } from './remote-observer-handlers';
 export { registerRemoteNodeHandlers } from './remote-node-handlers';
+export { registerComputersHandlers } from './computers-handlers';
 export { registerPairBothHandlers } from './pair-both-handlers';
 export { registerMobileGatewayHandlers } from './mobile-gateway-handlers';
 export { registerImageHandlers } from './image-handlers';

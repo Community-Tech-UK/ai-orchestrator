@@ -13,6 +13,9 @@
   </dl>
   <p class="pq-health-note">Finished work only. Waiting means a document was ready but every slot was busy, or its provider had no usage left.</p>
   <button type="button" class="pq-health-refresh" (click)="refresh.emit()">Refresh</button>
+  @if (health()?.testMachine) {
+    <button type="button" class="pq-health-refresh" (click)="openComputers()">Choose where work runs</button>
+  }
 } @else {
   <h2 id="pq-health-heading">Queue health</h2>
   <p class="pq-health-note">Not available yet.</p>

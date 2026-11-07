@@ -2854,5 +2854,11 @@
     "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
     "text": "Auto-approve will turn on when the current turn finishes. Click to cancel.",
     "why": "consequence"
+  },
+  {
+    "id": "df01747105824444",
+    "owner": "src/renderer/app/features/settings/computers-list.component.ts",
+    "text": "It is already last before this Mac",
+    "why": "long"
   }
 ]

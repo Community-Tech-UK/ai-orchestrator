@@ -9,10 +9,11 @@ import type { SettingsSectionTab } from './settings-navigation';
 /** Task-based sections for the Remote Nodes settings tab. */
 export type RemoteNodesSection = 'overview' | 'pairing' | 'computers' | 'advanced';
 
+/** Computers first: the order of use is what the tab is for. */
 const REMOTE_NODES_SECTIONS: readonly RemoteNodesSection[] = [
-  'overview',
-  'pairing',
   'computers',
+  'pairing',
+  'overview',
   'advanced',
 ];
 
@@ -26,19 +27,19 @@ export function buildRemoteNodesSectionTabs(
   connectedNodeCount: number,
 ): SettingsSectionTab[] {
   return [
-    { id: 'overview', label: 'Overview', panelId: 'remote-nodes-panel-overview' },
-    {
-      id: 'pairing',
-      label: 'Pairing',
-      panelId: 'remote-nodes-panel-pairing',
-      ...(pendingPairingCount > 0 ? { badge: String(pendingPairingCount) } : {}),
-    },
     {
       id: 'computers',
       label: 'Computers',
       panelId: 'remote-nodes-panel-computers',
       ...(connectedNodeCount > 0 ? { badge: String(connectedNodeCount) } : {}),
     },
+    {
+      id: 'pairing',
+      label: 'Pairing',
+      panelId: 'remote-nodes-panel-pairing',
+      ...(pendingPairingCount > 0 ? { badge: String(pendingPairingCount) } : {}),
+    },
+    { id: 'overview', label: 'Overview', panelId: 'remote-nodes-panel-overview' },
     { id: 'advanced', label: 'Advanced', panelId: 'remote-nodes-panel-advanced' },
   ];
 }

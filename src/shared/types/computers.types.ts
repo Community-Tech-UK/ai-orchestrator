@@ -1,0 +1,25 @@
+/** The Computers page's view of the test machine and of where today's work ran. */
+
+/** The test machine, as `scripts/remote-checks/route.js` reads its file. */
+export interface TestMachineView {
+  host: string;
+  /** What people call it, as the scripts print it: "Ran on the Windows PC in ...". */
+  label: string;
+  /** The paired computer this machine is part of, so the page shows them as one. */
+  nodeName: string | null;
+  paused: boolean;
+  testRuns: boolean;
+  checks: boolean;
+  /** How many test runs or checks it takes at once. */
+  slots: number;
+}
+
+/** Where today's work went. `there` ran on another computer; `here` could have and ran on this Mac. */
+export interface WorkToday {
+  testRuns: { there: number; here: number };
+  checks: { there: number; here: number };
+  /** Short test runs, which are quicker here and never try another computer. */
+  shortRunsHere: number;
+  /** Why work ran here that could have gone elsewhere, most common first. */
+  hereBecause: { reason: string; count: number }[];
+}

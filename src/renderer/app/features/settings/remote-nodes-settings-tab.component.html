@@ -1,8 +1,8 @@
 <div class="remote-nodes-tab">
   <h3 class="section-title">Other computers</h3>
   <p class="section-desc">
-    Let your other computers do work for Harness: running a web
-    browser, using their GPUs, or adding extra AI&nbsp;CLI capacity.
+    Let your other computers do work for Harness, so this Mac stays free: test runs and checks,
+    agent sessions, a web browser and Android.
   </p>
 
   @if (error()) {
@@ -126,8 +126,7 @@
             <span class="card-name">Automatic offload</span>
             <p class="field-hint">
               Browser: {{ store.remoteNodesAutoOffloadBrowser() ? 'On' : 'Off' }} ·
-              Android: {{ store.remoteNodesAutoOffloadAndroid() ? 'On' : 'Off' }} ·
-              GPU: {{ store.remoteNodesAutoOffloadGpu() ? 'On' : 'Off' }}.
+              Android: {{ store.remoteNodesAutoOffloadAndroid() ? 'On' : 'Off' }}.
               Change these in Advanced.
             </p>
             <div class="btn-row">
@@ -323,6 +322,8 @@
     }
     @case ('computers') {
       <section id="remote-nodes-panel-computers" role="tabpanel" aria-labelledby="computers" tabindex="0" class="section-panel">
+        <!-- Shown even with connections off: the test machine doesn't need them. -->
+        <app-computers-list [nodes]="liveNodes()" />
         @if (store.remoteNodesEnabled()) {
           <div class="card-row computers-header">
             <span class="card-name">Connected Computers</span>
@@ -510,28 +511,6 @@
               <p class="field-hint">
                 When a job needs an Android emulator or device and a connected computer
                 has Android automation enabled, send it there automatically.
-              </p>
-            </div>
-
-            <div class="field-group">
-              <div class="card-row">
-                <label class="field-label" for="rn-offload-gpu">Auto-offload GPU Tasks</label>
-                <label class="toggle-label">
-                  <input
-                    id="rn-offload-gpu"
-                    type="checkbox"
-                    class="toggle-input"
-                    [checked]="draftAutoOffloadGpu()"
-                    (change)="draftAutoOffloadGpu.set(!draftAutoOffloadGpu())"
-                  />
-                  <span class="toggle-track">
-                    <span class="toggle-thumb"></span>
-                  </span>
-                </label>
-              </div>
-              <p class="field-hint">
-                When a job needs a GPU (for example running a local model) and a
-                connected computer has one, send it there automatically.
               </p>
             </div>
 

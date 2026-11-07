@@ -59,7 +59,6 @@ const {
   const remoteNodeConfigState = {
     enabled: false,
     autoOffloadBrowser: false,
-    autoOffloadGpu: false,
     maxRemoteInstances: 20,
   };
   const updateRemoteNodeConfigMock = vi.fn((partial: Partial<typeof remoteNodeConfigState>) => {
@@ -362,7 +361,6 @@ describe('ChannelMessageRouter', () => {
   beforeEach(() => {
     remoteNodeConfigState.enabled = false;
     remoteNodeConfigState.autoOffloadBrowser = false;
-    remoteNodeConfigState.autoOffloadGpu = false;
     remoteNodeConfigState.maxRemoteInstances = 20;
     updateRemoteNodeConfigMock.mockClear();
     settingsSetMock.mockClear();

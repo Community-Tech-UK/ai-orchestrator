@@ -152,7 +152,7 @@ export const REMOTE_NODES_TAB_HELP: HelpEntry = {
       kind: 'callout',
       variant: 'info',
       heading: 'What this does',
-      body: 'Lets this computer hand agent work to your other paired computers, including browser automation, Android control, and GPU compute.',
+      body: 'Lets this computer hand work to your other computers in the order you choose: test runs and checks, agent sessions, browser automation and Android control.',
     },
     {
       kind: 'steps',

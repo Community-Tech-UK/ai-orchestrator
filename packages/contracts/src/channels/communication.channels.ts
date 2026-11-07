@@ -62,6 +62,8 @@ export const COMMUNICATION_CHANNELS = {
   REMOTE_NODE_REVOKE: 'remote-node:revoke',
   REMOTE_NODE_RESET_CONNECTION: 'remote-node:reset-connection',
   REMOTE_NODE_GET_SERVER_STATUS: 'remote-node:get-server-status',
+  COMPUTERS_GET_TEST_MACHINE: 'computers:get-test-machine',
+  COMPUTERS_CHANGE_TEST_MACHINE: 'computers:change-test-machine',
   REMOTE_NODE_REPAIR_DIAGNOSE: 'remote-node:repair:diagnose',
   REMOTE_NODE_REPAIR_COMMAND: 'remote-node:repair:command',
   REMOTE_NODE_PROVIDER_DIAGNOSE: 'remote-node:provider:diagnose',

@@ -579,7 +579,6 @@ export interface AppSettings
   remoteNodesEnrollmentToken: string;
   remoteNodesAutoOffloadBrowser: boolean;
   remoteNodesAutoOffloadAndroid: boolean;
-  remoteNodesAutoOffloadGpu: boolean;
   remoteNodesNamespace: string;
   remoteNodesRequireTls: boolean;
   remoteNodesTlsMode: 'auto' | 'custom';

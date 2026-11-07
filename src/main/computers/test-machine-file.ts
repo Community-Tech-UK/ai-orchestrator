@@ -6,34 +6,17 @@
 import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { z } from 'zod';
+import type { TestMachineView, WorkToday } from '../../shared/types/computers.types';
+import { ComputersChangeTestMachinePayloadSchema, type ValidatedChangeTestMachinePayload } from '@contracts/schemas/remote-node';
 
 export const DEFAULT_SLOTS = 3;
 export const MAX_SLOTS = 8;
 const DEFAULT_LABEL = 'the test machine';
 const MAX_LABEL_CHARS = 100;
 
-export interface TestMachine {
-  host: string;
-  /** What people call it, as the scripts print it: "Ran on the Windows PC in ...". */
-  label: string;
-  /** The paired computer this machine is part of, so the Computers page shows them as one. */
-  nodeName: string | null;
-  paused: boolean;
-  testRuns: boolean;
-  checks: boolean;
-  /** How many test runs or checks it takes at once. */
-  slots: number;
-}
+export type TestMachine = TestMachineView;
 
-/** What the Computers page may change. */
-export const TestMachineChangeSchema = z.object({
-  paused: z.boolean(),
-  testRuns: z.boolean(),
-  checks: z.boolean(),
-  slots: z.number().int().min(1).max(MAX_SLOTS),
-}).partial().strict();
-export type TestMachineChange = z.infer<typeof TestMachineChangeSchema>;
+export type TestMachineChange = ValidatedChangeTestMachinePayload;
 
 export function remoteChecksDir(): string {
   return process.env['AIO_REMOTE_CHECKS_DIR'] || join(homedir(), '.ai-orchestrator', 'remote-checks');
@@ -83,7 +66,7 @@ export function readTestMachine(dir = remoteChecksDir()): TestMachine | null {
  * same moment reads one or the other, never half of each. Throws when no test machine is set up.
  */
 export function changeTestMachine(change: TestMachineChange, dir = remoteChecksDir()): TestMachine {
-  const valid = TestMachineChangeSchema.parse(change);
+  const valid = ComputersChangeTestMachinePayloadSchema.parse(change);
   const raw = readRaw(dir);
   if (!raw) throw new Error('No test machine is set up on this Mac.');
   const next = { ...raw, ...valid };
@@ -96,4 +79,57 @@ export function changeTestMachine(change: TestMachineChange, dir = remoteChecksD
     rmSync(temporary, { force: true });
   }
   return result;
+}
+
+/** One line of the run log, as `scripts/remote-checks/` writes it. */
+export interface RunLine {
+  at: string;
+  kind?: string;
+  ranOn: string;
+  fellBackBecause?: string | null;
+}
+
+/** Both log files, the older first: the scripts start a new one past about a megabyte. Half-written lines are skipped. */
+export function readRunLog(dir = remoteChecksDir()): RunLine[] {
+  const text = ['runs.old.jsonl', 'runs.jsonl'].map((name) => {
+    try {
+      return readFileSync(join(dir, name), 'utf8');
+    } catch {
+      return '';
+    }
+  }).join('\n');
+  return text.split('\n').flatMap((line) => {
+    try {
+      const run = JSON.parse(line) as RunLine;
+      return typeof run.at === 'string' && typeof run.ranOn === 'string' ? [run] : [];
+    } catch {
+      return [];
+    }
+  });
+}
+
+
+const MAC = 'mac';
+
+/** Today in this Mac's own time zone. */
+export function summariseWorkToday(runs: readonly RunLine[], now: number): WorkToday {
+  const today = new Date(now).toDateString();
+  const summary: WorkToday = { testRuns: { there: 0, here: 0 }, checks: { there: 0, here: 0 }, shortRunsHere: 0, hereBecause: [] };
+  const reasons = new Map<string, number>();
+  for (const run of runs) {
+    if (new Date(run.at).toDateString() !== today) continue;
+    if (run.kind === 'local') {
+      summary.shortRunsHere += 1;
+      continue;
+    }
+    const counts = run.kind === 'checks' ? summary.checks : summary.testRuns;
+    if (run.ranOn === MAC) {
+      counts.here += 1;
+      if (run.fellBackBecause) reasons.set(run.fellBackBecause, (reasons.get(run.fellBackBecause) ?? 0) + 1);
+    } else {
+      counts.there += 1;
+    }
+  }
+  summary.hereBecause = [...reasons].map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count);
+  return summary;
 }
