@@ -114,6 +114,9 @@ export function repoJobStatusToLane(status: RepoJobStatus): WorkboardLane {
  * It survives `working`/`waiting` churn (including `working` → `waiting`,
  * which is a rank *rise* but carries no new demand on the user) and survives
  * staying at, or dropping below, its snooze-time urgency.
+ *
+ * A `blocked` item is never snoozed in the first place (`NeedsYouStore.snooze`):
+ * nothing ranks above it, so its snooze could never end by itself.
  */
 export function snoozeClearedByAttention(
   current: AttentionLevel,

@@ -8,11 +8,20 @@ export function quotaWindowsForSession(snapshot: ProviderQuotaSnapshot, model = 
       || (window.id === 'claude.weekly-opus' && model.toLowerCase().includes('opus'))
       || (window.id === 'claude.weekly-sonnet' && model.toLowerCase().includes('sonnet'))));
 }
-export function formatQuotaWindow(window: ProviderQuotaWindow): { label: string; remaining: string; reset: string } {
+/** "18:30" when the reset is today, "Mon 09:00" within the week, otherwise "14 Nov 09:00". */
+function formatResetTime(resetsAt: number, now: number): string {
+  const reset = new Date(resetsAt), today = new Date(now);
+  const time = reset.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  if (reset.toDateString() === today.toDateString()) return time;
+  const days = Math.round((new Date(reset).setHours(0, 0, 0, 0) - new Date(today).setHours(0, 0, 0, 0)) / 86_400_000);
+  return days > 0 && days < 7
+    ? `${reset.toLocaleDateString('en-GB', { weekday: 'short' })} ${time}`
+    : `${reset.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} ${time}`;
+}
+export function formatQuotaWindow(window: ProviderQuotaWindow, now: number): { label: string; remaining: string; reset: string } {
   const left = Math.max(0, 100 * (1 - window.used / window.limit));
   return { label: window.id === 'claude.5h' ? '5-hour' : window.label,
-    remaining: left < 1 ? '<1%' : `${Math.round(left)}%`, reset: window.resetsAt
-      ? new Date(window.resetsAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '' };
+    remaining: left < 1 ? '<1%' : `${Math.round(left)}%`, reset: window.resetsAt ? formatResetTime(window.resetsAt, now) : '' };
 }
 export function buildComposerQuotaNotice(input: { snapshot?: ProviderQuotaSnapshot | null; sessionModel?: string;
   now: number; previous?: ComposerQuotaNotice | null }): ComposerQuotaNotice | null {
@@ -22,7 +31,7 @@ export function buildComposerQuotaNotice(input: { snapshot?: ProviderQuotaSnapsh
   if (!snapshot) return null;
   const window = quotaWindowsForSession(snapshot, input.sessionModel).sort((a, b) => b.used / b.limit - a.used / a.limit)[0];
   if (!window || window.used / window.limit < 0.75) return null;
-  const { label, remaining, reset } = formatQuotaWindow(window);
+  const { label, remaining, reset } = formatQuotaWindow(window, input.now);
   const strong = window.used / window.limit >= 0.9;
   const provider = providerName(snapshot.provider);
   return { text: `${provider} ${label} limit: ${strong ? 'only ' : ''}${remaining} left${reset ? ` · resets ${reset}` : ''}${stale ? ' (may be out of date)' : ''}`,

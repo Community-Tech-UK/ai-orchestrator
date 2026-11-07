@@ -343,7 +343,7 @@
             }
             @if (yoloCost.confirmation(); as held) {
               @if (held.request === request) {
-                <app-runtime-change-confirm [text]="held.text" confirmLabel="Enable YOLO anyway"
+                <app-runtime-change-confirm [text]="held.text" confirmLabel="Turn on Auto-approve anyway"
                   cancelLabel="Keep permissions" (confirmed)="yoloCost.confirm()" (cancelled)="yoloCost.cancel()" />
               }
             }

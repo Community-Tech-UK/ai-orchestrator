@@ -314,12 +314,14 @@ describe('WorkboardCardComponent', () => {
     snooze.click();
     expect(activated).toBe(false);
   });
-  it('acknowledges a failure with Got it, while a live answer retains Snooze', () => {
+  it('acknowledges a failure with Got it, while a live answer has no Snooze to hide it with', () => {
     fixture.componentRef.setInput('item', item({ lane: 'needs-you', attentionLevel: 'failed' })); fixture.detectChanges();
     const button = fixture.nativeElement.querySelector('.wb-card-snooze') as HTMLButtonElement;
     expect(button.textContent?.trim()).toBe('Got it'); button.click();
     expect(markItemSeen).toHaveBeenCalledWith('instance:x'); expect(snoozeItem).not.toHaveBeenCalled();
+    // A question or approval someone is waiting on cannot be put away: it would vanish from the strip, badge and sidebar.
     fixture.componentRef.setInput('item', item({ lane: 'needs-you', attentionLevel: 'blocked' })); fixture.detectChanges();
-    expect(button.textContent?.trim()).toBe('Snooze');
+    expect(fixture.nativeElement.querySelector('.wb-card-snooze')).toBeNull();
+    expect(snoozeItem).not.toHaveBeenCalled();
   });
 });

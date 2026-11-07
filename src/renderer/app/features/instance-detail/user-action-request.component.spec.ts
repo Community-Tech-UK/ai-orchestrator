@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { IpcFacadeService, IpcEventBusService, InstanceIpcService } from '../../core/services/ipc';
 import { InstanceStore } from '../../core/state/instance.store';
+import { ToastService } from '../../core/services/toast.service';
 import type { AskAnswerDrafts } from './user-input-request.ask-drafts';
 import { PERMISSION_SCOPE_WORDS } from '../../../../shared/permissions/permission-scope-presentation';
 import {
@@ -646,7 +647,7 @@ describe('UserActionRequestComponent', () => {
     expect(fixture.nativeElement.querySelector('.btn-approve')).toBeNull();
     expect(fixture.nativeElement.querySelector('.scope-select')).toBeNull();
     expect(fixture.nativeElement.textContent).toContain("Harness can't add an allow rule for WebFetch");
-    expect(fixture.nativeElement.textContent).toContain('switch on Auto-approve with the YOLO button at the top of this session');
+    expect(fixture.nativeElement.textContent).toContain('switch on Auto-approve at the top of this session');
     buttonByText('OK').click();
     await settle(fixture);
     expect(fakeIpc.respondToInputRequired.mock.calls[0]?.slice(4, 6)).toEqual([undefined, undefined]);
@@ -1047,6 +1048,22 @@ describe('UserActionRequestComponent', () => {
     expect(fakeIpc.respondToInputRequired.mock.calls[0][2]).toContain('Permission denied');
     expect(fakeIpc.sendInput).toHaveBeenCalledExactlyOnceWith('inst-a', 'never touch that file');
     expect(fakeIpc.respondToInputRequired.mock.invocationCallOrder[0]).toBeLessThan(fakeIpc.sendInput.mock.invocationCallOrder[0]);
+  });
+
+  it.each([
+    ['answers with a failure', () => fakeIpc.sendInput.mockResolvedValueOnce({ success: false, error: { message: 'offline' } })],
+    ['rejects', () => fakeIpc.sendInput.mockRejectedValueOnce(new Error('offline'))],
+  ])('closes a refusal card whose denial was accepted when sending its note %s, and says the note was not sent', async (_label, failSend) => {
+    await showPermission({ type: 'permission_denial', tool_name: 'Edit', action: 'edit', path: '/tmp/file' });
+    failSend();
+
+    const outcome = await fixture.componentInstance.onDenyWithNote(fixture.componentInstance.pendingRequests()[0], 'never touch that file');
+
+    // The denial is final in the main process, so a card left behind would send a second answer to a request that is gone.
+    expect(outcome).toBe('sent');
+    expect(fixture.componentInstance.pendingRequests()).toEqual([]);
+    expect(fakeIpc.respondToInputRequired).toHaveBeenCalledOnce();
+    expect(TestBed.inject(ToastService).toasts().map(toast => toast.text).join(' ')).toContain('your note was not sent');
   });
 
   it('does not show a receipt for a decision being answered in this window', async () => {

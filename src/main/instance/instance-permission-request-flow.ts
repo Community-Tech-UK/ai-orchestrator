@@ -397,7 +397,10 @@ export class InstancePermissionRequestFlow {
     this.pendingByInputId.delete(key);
     // WS-B3: a live human decision breaks the adjudicator's denial streak.
     resetAdjudicatorBreaker(params.instanceId);
-    if (params.scope === 'once' && req.id.startsWith('perm-live-')) return;
+    // "Once" is never cached for a live ask, nor for a whole tool (`tool:Write`): that key cannot say which
+    // call was allowed, so the cached decision would answer every later call to the tool for an hour.
+    // A held Bash command keeps its once decision, because its key is the exact command.
+    if (params.scope === 'once' && (req.id.startsWith('perm-live-') || req.scope === 'tool_use')) return;
     try {
       getPermissionEnforcer().recordUserDecision(params.instanceId, req, params.action, params.scope);
     } catch {

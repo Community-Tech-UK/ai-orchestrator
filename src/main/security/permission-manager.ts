@@ -298,7 +298,9 @@ const SYSTEM_RULES: Omit<PermissionRule, 'id'>[] = [
     name: 'Allow Read Tools',
     description: 'Allow read-only tools',
     scope: 'tool_use',
-    pattern: 'Read|Glob|Grep|LS',
+    // Anchored: tool_use patterns are unanchored regexes, so a bare `Read|Glob|Grep|LS` also matched any tool whose
+    // name merely contained "read" or "ls" (a thread-posting or email-sending MCP tool, KillShell).
+    pattern: '^(tool:)?(Read|Glob|Grep|LS)$',
     action: 'allow',
     priority: 100,
     source: 'system',
@@ -596,7 +598,7 @@ export class PermissionManager extends EventEmitter {
         action: 'allow',
         decidedBy: 'yolo',
         fromCache: false,
-        reason: 'YOLO mode enabled - all permissions granted',
+        reason: 'Auto-approve is on - all permissions granted',
         decidedAt: Date.now(),
       };
     }

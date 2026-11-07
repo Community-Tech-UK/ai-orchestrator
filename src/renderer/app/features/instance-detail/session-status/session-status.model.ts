@@ -23,7 +23,7 @@ export function buildSessionStatus(input: { instance: Instance; quotaSnapshot?: 
   add('Account', [input.accountLabel, input.accountPlan ?? quota?.plan].filter(Boolean).join(' · ') || 'Not available yet');
   if (billing === 'plan' || billing === 'credits' || quota) {
     const lines = quota ? quotaWindowsForSession(quota, instance.currentModel).map(window => {
-      const { label, remaining, reset } = formatQuotaWindow(window);
+      const { label, remaining, reset } = formatQuotaWindow(window, now);
       return `${label}: ${remaining} left${reset ? ` · resets ${reset}` : ''}`;
     }) : [];
     if (instance.provider === 'copilot') lines.push(breakdown?.aiCreditsNano !== undefined

@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject } from '@angular/core';
-import { Router } from '@angular/router';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { NavigationEnd, Router } from '@angular/router';
+import { filter, map } from 'rxjs';
 import { NeedsYouStore } from './needs-you.store';
 import { InstanceStore } from '../../core/state/instance.store';
 import { PendingRequestStore } from '../../core/state/pending-request.store';
@@ -7,6 +9,9 @@ import { SessionNavigator } from '../../core/services/session-navigator.service'
 import { NoticeSlotService } from '../../core/notices/notice-slot.service';
 
 const TIMED_BANNERS = new Set(['permission-request', 'browser-approval', 'paid-fallback']);
+
+/** The chat is the root screen. Query and fragment do not change which screen is showing. */
+const isChatScreen = (url: string): boolean => ['', '/'].includes(url.split(/[?#]/)[0]);
 
 @Component({
   selector: 'app-needs-you-strip', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
@@ -30,8 +35,13 @@ export class NeedsYouStripComponent {
   private readonly requests = inject(PendingRequestStore);
   private readonly navigator = inject(SessionNavigator);
   private readonly router = inject(Router);
+  /** The selected session stays selected after the user leaves its chat, so only the route says whether it is in view. */
+  private readonly chatOnScreen = toSignal(this.router.events.pipe(
+    filter((event): event is NavigationEnd => event instanceof NavigationEnd),
+    map(() => isChatScreen(this.router.url))), { initialValue: isChatScreen(this.router.url) });
   readonly eligible = computed(() => this.needsYou.answerEntries().filter((entry) =>
-    !TIMED_BANNERS.has(entry.source) && (!entry.instanceId || entry.instanceId !== this.instances.selectedInstanceId())));
+    !TIMED_BANNERS.has(entry.source)
+    && !(this.chatOnScreen() && entry.instanceId && entry.instanceId === this.instances.selectedInstanceId())));
   readonly front = computed(() => this.eligible()[0] ?? null);
   protected readonly slot = inject(NoticeSlotService).register('needs-you-strip', computed(() => this.eligible().length > 0), inject(DestroyRef));
   readonly line = computed(() => {

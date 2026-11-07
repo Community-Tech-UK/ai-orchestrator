@@ -442,7 +442,8 @@ export class CostTracker extends EventEmitter {
       if (!result.changes) return false;
     } else if (entry.creditCheckpointId) return false;
     Object.assign(entry, values);
-    this.emit('cost-recorded', entry);
+    // Not 'cost-recorded': that event carries new spend, and this entry's cost was counted when it was recorded.
+    this.emit('cost-updated', entry);
     return true;
   }
 

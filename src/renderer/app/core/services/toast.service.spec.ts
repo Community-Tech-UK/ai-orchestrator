@@ -62,4 +62,17 @@ describe('ToastService notices', () => {
     expect(service.toasts()).toEqual([]);
     expect(vi.getTimerCount()).toBe(0);
   });
+  it('dismisses only the notices on screen, so an error behind "+N more" is never lost unread', () => {
+    vi.useFakeTimers();
+    const service = new ToastService();
+    for (const name of ['One', 'Two', 'Three', 'Four']) service.show(name, 'error');
+    expect(service.visibleToasts().map(t => t.text)).toEqual(['One', 'Two', 'Three']);
+    expect(service.overflowCount()).toBe(1);
+
+    service.dismissVisible();
+
+    expect(service.toasts().map(t => t.text)).toEqual(['Four']);
+    expect(service.visibleToasts().map(t => t.text)).toEqual(['Four']);
+    expect(service.overflowCount()).toBe(0);
+  });
 });

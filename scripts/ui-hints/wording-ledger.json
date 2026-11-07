@@ -318,19 +318,22 @@
     "id": "10c6f9654f32322a",
     "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
     "text": "YOLO will turn OFF when the current turn finishes. Click to cancel.",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Auto-approve wording replaces YOLO in the header switch (pending turn-off), same timing and cancel step kept"
   },
   {
     "id": "4abf1c8a29093348",
     "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
     "text": "Cannot toggle YOLO mode while the session is starting or recovering",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Auto-approve wording replaces YOLO in the header switch (locked while starting), same restriction kept"
   },
   {
     "id": "509a57f2c6ce5535",
     "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
     "text": "YOLO Mode: Auto-approve all tool calls without prompting. Click to disable",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Auto-approve wording replaces YOLO in the header switch (switch on), what it does and how to turn it off kept"
   },
   {
     "id": "717397e3fff3de97",
@@ -349,7 +352,8 @@
     "id": "915dbc129d58747e",
     "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
     "text": "YOLO will turn ON when the current turn finishes. Click to cancel.",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Auto-approve wording replaces YOLO in the header switch (pending turn-on), same timing and cancel step kept"
   },
   {
     "id": "d9ef61505eed1019",
@@ -368,7 +372,8 @@
     "id": "f134df89a3a85ef9",
     "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
     "text": "YOLO Mode: Requires manual approval for tool calls. Click to enable auto-approve",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Auto-approve wording replaces YOLO in the header switch (switch off), that it asks first and how to turn it on kept"
   },
   {
     "id": "2ed39562bae87071",
@@ -2819,5 +2824,35 @@
     "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
     "text": "This session has a question waiting for your answer",
     "why": "long"
+  },
+  {
+    "id": "341b78f48675c472",
+    "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
+    "text": "Auto-approve will turn off when the current turn finishes. Click to cancel.",
+    "why": "consequence"
+  },
+  {
+    "id": "3ee0bb4750979fbc",
+    "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
+    "text": "Auto-approve is off: asks before acting. Click to turn it on",
+    "why": "consequence"
+  },
+  {
+    "id": "60354e2b0bf27a93",
+    "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
+    "text": "Auto-approve is on: runs tools and edits without asking you. Click to turn it off",
+    "why": "consequence"
+  },
+  {
+    "id": "e2e5d450d07c3c8a",
+    "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
+    "text": "Cannot change Auto-approve while the session is starting or recovering",
+    "why": "consequence"
+  },
+  {
+    "id": "ecd0fff35b2cb06b",
+    "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
+    "text": "Auto-approve will turn on when the current turn finishes. Click to cancel.",
+    "why": "consequence"
   }
 ]

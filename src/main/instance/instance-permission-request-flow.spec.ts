@@ -282,6 +282,16 @@ describe('live permission resources and strict once', () => {
     expect(recordUserDecision).toHaveBeenCalledTimes(3);
     expect(recordUserDecision.mock.calls.map(call => call[3])).toEqual(['once', 'session', 'always']);
   });
+  // A tool-wide key (`tool:Write`) cannot say which write was allowed, so a cached "once" would allow every later Write for an hour.
+  it.each(['allow', 'deny'] as const)('does not cache a held once %s for a whole tool, but still records its session and always rules', async action => {
+    const flow = new InstancePermissionRequestFlow(createHost());
+    for (const [id, scope] of [['held-once', 'once'], ['held-session', 'session'], ['held-always', 'always']] as const) {
+      await flow.handleInputRequired({ instanceId: 'inst-1', requestId: id, prompt: 'Allow?', timestamp: 1,
+        metadata: { type: 'deferred_permission', live: false, tool_name: 'Write', tool_input: { file_path: 'a.ts' } } });
+      flow.recordUserDecision({ instanceId: 'inst-1', requestId: id, action, scope });
+    }
+    expect(recordUserDecision.mock.calls.map(call => call[3])).toEqual(['session', 'always']);
+  });
   it('passes the live card id through adjudication', async () => {
     maybeAdjudicate.mockResolvedValueOnce({ approved: false, reason: 'policy', riskLevel: 'high' });
     const host = createHost();

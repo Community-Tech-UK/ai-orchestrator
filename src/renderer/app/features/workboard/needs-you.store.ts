@@ -123,8 +123,9 @@ export class NeedsYouStore {
     return sortNeedsYou([...work, ...requests]);
   });
 
+  // An answer is never hidden by a snooze, even a stale one: a question or approval must stay in view until someone replies.
   readonly entries = computed(() => this.rawEntries().filter((entry) =>
-    !this.isSeen(entry) && !this.isSnoozed(entry.key)));
+    !this.isSeen(entry) && (entry.kind === 'answer' || !this.isSnoozed(entry.key))));
   readonly count = computed(() => this.entries().length);
   readonly answerEntries = computed(() => this.entries().filter((entry) => entry.kind === 'answer'));
   readonly sessionIds = computed(() => new Set(this.entries().filter((entry) => entry.kind !== 'applied' && entry.instanceId)
@@ -140,18 +141,13 @@ export class NeedsYouStore {
     });
     effect(() => {
       const snoozed = untracked(() => this.snoozed());
-      // Keep source dependencies even when no snoozes need cleanup.
-      const items = this.workItems(), entries = this.rawEntries();
+      // Keep the source dependency even when no snoozes need cleanup.
+      const items = this.workItems();
       if (snoozed.size === 0) return;
       const next = new Map<string, AttentionLevel>();
-      const itemKeys = new Set<string>();
       for (const item of items) {
         const key = workboardEntryKey(item), baseline = snoozed.get(key);
-        itemKeys.add(key);
         if (baseline !== undefined && !snoozeClearedByAttention(item.attentionLevel, baseline)) next.set(key, baseline);
-      }
-      for (const entry of entries) {
-        if (!itemKeys.has(entry.key) && snoozed.has(entry.key)) next.set(entry.key, snoozed.get(entry.key)!);
       }
       if (next.size !== snoozed.size) untracked(() => this.snoozed.set(next));
     });
@@ -213,11 +209,11 @@ export class NeedsYouStore {
     try { localStorage.setItem(SEEN_KEY, JSON.stringify([...next])); } catch { /* A reload safely re-shows checks. */ }
   }
   markSeenForInstance(id: string): void { this.rawEntries().filter((item) => item.instanceId === id).forEach((item) => this.markSeen(item.key)); }
+  /** Puts a card away until it needs you more than it did. A blocked card is a question or approval someone is waiting on, so it never snoozes. */
   snooze(key: string): void {
     const item = this.workItems().find((item) => workboardEntryKey(item) === key);
-    const entry = this.rawEntries().find((entry) => entry.key === key);
-    if (!item && entry?.kind !== 'answer') return;
-    this.snoozed.update((current) => new Map(current).set(key, item?.attentionLevel ?? 'blocked'));
+    if (!item || item.attentionLevel === 'blocked') return;
+    this.snoozed.update((current) => new Map(current).set(key, item.attentionLevel));
   }
   unsnooze(key: string): void { this.snoozed.update((current) => { const next = new Map(current); next.delete(key); return next; }); }
   isSnoozed(key: string): boolean { return this.snoozed().has(key); }

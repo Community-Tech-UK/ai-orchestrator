@@ -250,7 +250,7 @@
             "
             (click)="!isStartingOrRecovering() && !isTogglingYolo() && toggleYolo.emit()"
           >
-            {{ isTogglingYolo() ? 'Changing…' : 'YOLO' }} {{ instance().yoloMode ? 'ON' : 'OFF'
+            {{ isTogglingYolo() ? 'Changing…' : 'Auto-approve' }} {{ instance().yoloMode ? 'ON' : 'OFF'
             }}{{ yoloPending() ? (instance().pendingYoloMode ? ' → ON' : ' → OFF') : '' }}
           </button>
           @if (yoloNote) {

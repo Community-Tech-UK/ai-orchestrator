@@ -565,6 +565,20 @@ describe('AutomationsPageComponent row actions', () => {
     expect(fixture.nativeElement.querySelector('app-compact-model-picker')).toBeNull();
   });
 
+  it('names the approval checkbox Auto-approve and says what it does beside it', () => {
+    const component = fixture.componentInstance;
+    const automation = makeAutomation({ action: { prompt: 'Check the repo', workingDirectory: '/repo', provider: 'claude' } });
+    automations.set([automation]);
+    component.select(automation);
+    component.editSelected();
+    fixture.detectChanges();
+
+    const label = (fixture.nativeElement.querySelector('input[name="yoloMode"]') as HTMLInputElement).closest('label')!;
+    expect(label.querySelector('span')?.textContent?.trim()).toBe('Auto-approve');
+    expect(label.querySelector('.hint')?.textContent).toContain('Runs tools and edits without asking');
+    expect(fixture.nativeElement.textContent).not.toContain('YOLO');
+  });
+
   it('preserves provider and leaves the model unpinned when saving an untouched claude+empty automation', async () => {
     const component = fixture.componentInstance;
     const automation = makeAutomation({

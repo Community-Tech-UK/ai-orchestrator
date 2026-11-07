@@ -360,9 +360,10 @@ export function registerCostHandlers(deps: {
   // renderer cost page refreshes its summary/entries in response (the 10s poll is
   // only a fallback). Earlier this listened to a non-existent `usage-recorded`
   // event, so live updates never reached the renderer.
-  costTracker.on('cost-recorded', (entry: CostEntry) => {
-    sendToRenderer(IPC_CHANNELS.COST_USAGE_RECORDED, entry);
-  });
+  const sendEntry = (entry: CostEntry): void => sendToRenderer(IPC_CHANNELS.COST_USAGE_RECORDED, entry);
+  costTracker.on('cost-recorded', sendEntry);
+  // An entry that gained provider credits after it was recorded: same page refresh, no new spend.
+  costTracker.on('cost-updated', sendEntry);
 
   // Budget alerts: the tracker emits a single `budget-alert` carrying the breached
   // threshold (a percentage). Classify warning (<100%) vs exceeded (>=100% or over

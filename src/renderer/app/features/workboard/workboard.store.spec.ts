@@ -261,13 +261,11 @@ describe('WorkboardStore', () => {
       expect(store.lanes().working).toHaveLength(1);
     });
 
-    it('LT-481: a snooze set on an already-blocked card survives, and only a genuine rise clears it', () => {
+    it('LT-481: a snooze set on an already-failed card survives, and only a genuine rise clears it', () => {
       // The Needs You lane is `blocked`/`failed`/`review` by construction, so a
       // predicate keyed on the *current* level alone cleared every snooze the
       // instant it was set. Snoozing must be keyed to the level at snooze time.
-      instanceStore.instances.set([
-        instance({ id: 'inst-1', status: 'waiting_for_permission' }),
-      ]);
+      instanceStore.instances.set([instance({ id: 'inst-1', status: 'error' })]);
       expect(store.lanes()['needs-you']).toHaveLength(1);
 
       store.snoozeItem('instance:inst-1');
@@ -276,13 +274,23 @@ describe('WorkboardStore', () => {
 
       // Nothing changes but time passing and effects re-running.
       TestBed.flushEffects();
-      instanceStore.instances.set([
-        instance({ id: 'inst-1', status: 'waiting_for_permission' }),
-      ]);
+      instanceStore.instances.set([instance({ id: 'inst-1', status: 'error' })]);
       TestBed.flushEffects();
 
       expect(store.isSnoozed('instance:inst-1')).toBe(true);
       expect(store.visibleCount()).toBe(0);
+    });
+
+    it('a blocked card cannot be snoozed, so a waiting question or approval stays in its lane', () => {
+      instanceStore.instances.set([instance({ id: 'inst-1', status: 'waiting_for_permission' })]);
+      expect(store.lanes()['needs-you']).toHaveLength(1);
+
+      store.snoozeItem('instance:inst-1');
+
+      expect(store.isSnoozed('instance:inst-1')).toBe(false);
+      expect(store.snoozedCount()).toBe(0);
+      expect(store.lanes()['needs-you']).toHaveLength(1);
+      expect(store.visibleCount()).toBe(1);
     });
 
     it('LT-481: a rise above the snooze-time level still clears the snooze', () => {
@@ -301,10 +309,8 @@ describe('WorkboardStore', () => {
       expect(store.visibleCount()).toBe(1);
     });
 
-    it('LT-481: a blocked card that later completes still clears the snooze', () => {
-      instanceStore.instances.set([
-        instance({ id: 'inst-1', status: 'waiting_for_permission' }),
-      ]);
+    it('LT-481: a failed card that later completes still clears the snooze', () => {
+      instanceStore.instances.set([instance({ id: 'inst-1', status: 'error' })]);
       store.snoozeItem('instance:inst-1');
       expect(store.isSnoozed('instance:inst-1')).toBe(true);
 

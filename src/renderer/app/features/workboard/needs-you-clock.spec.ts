@@ -64,11 +64,12 @@ describe('NeedsYouStore clock transitions', () => {
   });
 
   it('keeps snooze membership work linear for a changed population', () => {
-    instances.set(Array.from({ length: 200 }, (_, i) => instance(String(i))));
+    // Failed sessions can be snoozed; a blocked one cannot, because it is waiting for an answer.
+    instances.set(Array.from({ length: 200 }, (_, i) => instance(String(i), 'error')));
     const store = TestBed.inject(NeedsYouStore); TestBed.flushEffects();
     store.snooze('session:0'); TestBed.flushEffects();
     const keys = vi.spyOn(sources, 'workboardEntryKey');
-    instances.set([...instances(), instance('new')]); TestBed.flushEffects();
+    instances.set([...instances(), instance('new', 'error')]); TestBed.flushEffects();
     expect(store.count()).toBe(200);
     expect(keys.mock.calls.length).toBeLessThan(201 * 4);
     expect(store.isSnoozed('session:0')).toBe(true);

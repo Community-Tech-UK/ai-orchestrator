@@ -111,14 +111,16 @@ const CARD_ACTIONABLE_REQUEST_TYPES = new Set(['approve_action', 'confirm']);
             {{ isResuming() ? 'Resuming…' : 'Resume' }}
           </button>
         }
-        <button
-          type="button"
-          class="wb-card-action wb-card-snooze"
-          [attr.aria-pressed]="isCheck() ? null : snoozed()"
-          (click)="onSnoozeToggle($event)"
-        >
-          {{ isCheck() ? 'Got it' : snoozed() ? 'Un-snooze' : 'Snooze' }}
-        </button>
+        @if (item().attentionLevel !== 'blocked') {
+          <button
+            type="button"
+            class="wb-card-action wb-card-snooze"
+            [attr.aria-pressed]="isCheck() ? null : snoozed()"
+            (click)="onSnoozeToggle($event)"
+          >
+            {{ isCheck() ? 'Got it' : snoozed() ? 'Un-snooze' : 'Snooze' }}
+          </button>
+        }
       </div>
     </div>
   `,

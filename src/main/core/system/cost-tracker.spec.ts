@@ -297,11 +297,14 @@ describe('CostTracker persistence (E15)', () => {
     const tracker = new CostTracker(); tracker.setDatabase(db);
     expect(tracker.getEntries()).toHaveLength(10000);
     expect(tracker.getEntries().some(entry => entry.id === old.id)).toBe(false);
-    const events: CostEntry[] = [];
-    tracker.on('cost-recorded', entry => events.push(entry));
+    const events: CostEntry[] = [], recorded: CostEntry[] = [];
+    tracker.on('cost-updated', entry => events.push(entry));
+    tracker.on('cost-recorded', entry => recorded.push(entry));
     const credits = { creditsNano: 3e9, premiumRequests: 1, checkpointEventId: 'outside-window',
       checkpointTotalNano: 8e9, checkpointPremiumTotal: 6 };
     expect(tracker.attachProviderCredits(old.id, credits)).toBe(true);
+    // The turn was counted when it was recorded; attaching credits only refreshes it.
+    expect(recorded).toEqual([]);
     expect(events).toHaveLength(1);
     expect(CostEntryEventSchema.safeParse(events[0]).success).toBe(true);
     expect(events[0]).toMatchObject({ id: old.id, instanceId: 'old-instance', sessionId: 'old-session',
@@ -320,7 +323,7 @@ describe('CostTracker persistence (E15)', () => {
   it('does not mutate memory or emit a booking when the credit database update fails', () => {
     const tracker = new CostTracker(); tracker.setDatabase(db);
     const entry = tracker.recordUsage('i', 's', 'gpt', 1, 1, 0, 0, 0, 0, false, { provider: 'copilot' });
-    const events: CostEntry[] = []; tracker.on('cost-recorded', value => events.push(value));
+    const events: CostEntry[] = []; tracker.on('cost-updated', value => events.push(value));
     db.exec(`CREATE TRIGGER refuse_credit_update BEFORE UPDATE OF ai_credits_nano ON cost_entries
       BEGIN SELECT RAISE(ABORT, 'credit update refused'); END`);
     expect(() => tracker.attachProviderCredits(entry.id, { creditsNano: 2e9, premiumRequests: 1,

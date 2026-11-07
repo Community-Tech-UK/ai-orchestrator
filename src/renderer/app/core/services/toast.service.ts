@@ -71,6 +71,8 @@ export class ToastService implements OnDestroy {
     this.toasts.update((list) => list.filter((toast) => toast.id !== id));
   }
   dismissKey(key: string): void { for (const toast of this.toasts()) if (toast.key === key) this.dismiss(toast.id); }
+  /** What "+N more" offers: clears the notices on screen, so the hidden ones, errors included, come forward instead of being dropped unseen. */
+  dismissVisible(): void { for (const toast of this.visibleToasts()) this.dismiss(toast.id); }
   dismissAll(): void { for (const toast of this.toasts()) this.dismiss(toast.id); }
   ngOnDestroy(): void { this.dismissAll(); }
   private start(id: string, clock: ToastTimer): void {

@@ -178,6 +178,19 @@ describe('cost-handlers event forwarding', () => {
     expect((usage[0].data as { cost: number }).cost).toBe(0.42);
   });
 
+  it('refreshes the live cost page when credits are attached to an entry already recorded', () => {
+    const { tracker, sent } = setup();
+    const entry = tracker.recordUsage('inst-2', 'sess-2', 'gpt', 10, 10, 0, 0, 0, 0, false, { provider: 'copilot' });
+    expect(sent.filter((s) => s.channel === IPC_CHANNELS.COST_USAGE_RECORDED)).toHaveLength(1);
+
+    expect(tracker.attachProviderCredits(entry.id, { creditsNano: 2e9, premiumRequests: 1,
+      checkpointEventId: 'checkpoint-2', checkpointTotalNano: 2e9 })).toBe(true);
+
+    const usage = sent.filter((s) => s.channel === IPC_CHANNELS.COST_USAGE_RECORDED);
+    expect(usage).toHaveLength(2);
+    expect(usage[1].data).toMatchObject({ id: entry.id, aiCreditsNano: 2e9, premiumRequests: 1 });
+  });
+
   it('delivers measured and estimated model breakdowns through strict renderer validation', () => {
     const { tracker, sent } = setup();
     const byModel = [{ model: 'claude-opus-5-5', inputTokens: 100, outputTokens: 200,

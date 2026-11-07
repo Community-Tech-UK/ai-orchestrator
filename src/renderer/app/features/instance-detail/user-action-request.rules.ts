@@ -113,7 +113,7 @@ export function permissionHintFor(meta: PermissionMetadata, scope: InputRequired
   if (permissionAskKind(meta) === 'claude-denial') {
     const tool = meta?.tool_name || 'this tool';
     if (!canAddClaudeAllowRule(meta)) {
-      return `Harness can't add an allow rule for ${tool}. To allow it, switch on Auto-approve with the YOLO button at the top of this session, then ask Claude to try again; or add a rule to ~/.claude/settings.json yourself.`;
+      return `Harness can't add an allow rule for ${tool}. To allow it, switch on Auto-approve at the top of this session, then ask Claude to try again; or add a rule to ~/.claude/settings.json yourself.`;
     }
     return `Allows ${tool} on ${meta?.path || 'the requested resource'} in every Claude session. The session restarts, so ask Claude to try again once it reconnects.`;
   }

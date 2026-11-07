@@ -338,6 +338,20 @@ describe('AppComponent startup banner', () => {
     expect(fixture.nativeElement.querySelector('.toast-item')).toBeNull();
   });
 
+  it('dismisses only the shown notices from the "+N more" row, so a hidden error is not lost unread', () => {
+    const toast = TestBed.inject(ToastService);
+    for (const name of ['One', 'Two', 'Three', 'Four']) toast.show(name, 'error');
+    fixture.detectChanges();
+    const rows = () => [...fixture.nativeElement.querySelectorAll('.toast-item')].map((row) => (row as HTMLElement).textContent ?? '');
+    expect(rows().join('|')).toContain('+1 more');
+    expect(rows().join('|')).not.toContain('Four');
+    const dismiss = [...fixture.nativeElement.querySelectorAll('.toast-item button')]
+      .find((button) => (button as HTMLButtonElement).textContent?.trim() === 'Dismiss these') as HTMLButtonElement;
+    dismiss.click(); fixture.detectChanges();
+    expect(rows().join('|')).toContain('Four');
+    expect(rows().join('|')).not.toContain('more');
+  });
+
   it('renders a dismiss control for degraded startup checks', () => {
     const dismiss = fixture.nativeElement.querySelector('.startup-banner-dismiss') as HTMLButtonElement | null;
 

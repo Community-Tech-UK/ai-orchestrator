@@ -107,9 +107,25 @@ describe('NeedsYouStore', () => {
     instances.set([failure('error', 43)]); TestBed.flushEffects(); expect(store.count()).toBe(0);
     instances.set([failure('waiting_for_permission', 44)]); TestBed.flushEffects();
     expect(store.count()).toBe(1); expect(store.answerEntries()).toHaveLength(1);
+    expect(store.isSnoozed('session:a')).toBe(false);
     store.markSeen('session:a'); expect(store.count()).toBe(1);
-    store.snooze('session:a'); TestBed.flushEffects(); expect(store.count()).toBe(0);
+  });
+  it('never lets a snooze hide a question or approval someone is waiting on', () => {
+    instances.set([failure('waiting_for_permission', 44)]);
+    const store = TestBed.inject(NeedsYouStore);
+    expect(store.answerEntries()).toHaveLength(1);
+    store.snooze('session:a'); TestBed.flushEffects();
+    expect(store.isSnoozed('session:a')).toBe(false); expect(store.snoozedCount()).toBe(0);
+    expect(store.count()).toBe(1); expect(store.answerEntries()).toHaveLength(1); expect(store.sessionIds().has('a')).toBe(true);
     store.clearSnoozes(); expect(store.count()).toBe(1);
+  });
+  it('shows a snoozed session again the moment it starts waiting, before the clean-up effect has run', () => {
+    instances.set([failure('processing', 43)]);
+    const store = TestBed.inject(NeedsYouStore);
+    store.snooze('session:a'); TestBed.flushEffects(); expect(store.isSnoozed('session:a')).toBe(true);
+    instances.set([failure('waiting_for_permission', 44)]);
+    // No flushEffects: the answer must not wait for the effect that drops the snooze.
+    expect(store.answerEntries()).toHaveLength(1); expect(store.count()).toBe(1);
   });
   it('keeps an applied decision counted when its session is seen or the entry is opened', async () => {
     listOutstanding.mockResolvedValueOnce({ success: true, data: { items: [{

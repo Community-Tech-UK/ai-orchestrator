@@ -75,9 +75,10 @@ describe('permission card decisions', () => {
     expect(permissionScopesFor({ type: 'permission_denial' })).toEqual([]);
   });
 
-  it('names the control the header really has when it points an unsupported-tool denial at Auto-approve', () => {
+  it('points an unsupported-tool denial at the Auto-approve control at the top of the session, without the old YOLO name', () => {
     const hint = permissionHintFor({ type: 'permission_denial', tool_name: 'WebFetch' }, 'always');
-    expect(hint).toContain('switch on Auto-approve with the YOLO button at the top of this session');
+    expect(hint).toContain('switch on Auto-approve at the top of this session');
+    expect(hint).not.toContain('YOLO');
     expect(hint).toContain('~/.claude/settings.json');
   });
 

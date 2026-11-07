@@ -226,6 +226,25 @@ describe('NotificationService', () => {
     service.dispose();
   });
 
+  it('raises the unseen state again when a seen problem recurs, and keeps it unseen until it is seen again', () => {
+    let now = 10;
+    const { service } = createHarness({ now: () => now });
+    const input = { kind: 'input', instanceId: 'a', title: 'Approval', body: 'Waiting', resolveKey: 'input:1' };
+    const first = service.notify(input);
+    now = 20; service.markSeen({ ids: [first.id] });
+    expect(service.list()[0].seenAt).toBe(20);
+
+    now = 30;
+    const repeat = service.notify(input);
+    expect(repeat.id).toBe(first.id); expect(repeat.repeatCount).toBe(2);
+    expect(repeat.seenAt).toBeUndefined();
+    expect(service.list()).toHaveLength(1); expect(service.list()[0].seenAt).toBeUndefined();
+
+    now = 40; service.markSeen({ ids: [first.id] });
+    expect(service.list()[0].seenAt).toBe(40);
+    service.dispose();
+  });
+
   it('marks seen by ids or session and resolves only matching unresolved keys', () => {
     let now = 10;
     const { service } = createHarness({ now: () => now });

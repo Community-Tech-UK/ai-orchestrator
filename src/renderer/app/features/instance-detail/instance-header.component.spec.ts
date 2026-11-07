@@ -121,6 +121,20 @@ describe('InstanceHeaderComponent interrupt tooltip', () => {
     expect(button.hasAttribute('title')).toBe(false);
   });
 
+  it('calls the approval switch Auto-approve, never YOLO, on the button and in its tooltip', () => {
+    fixture.componentRef.setInput('instance', { ...instance('claude'), yoloMode: false });
+    fixture.detectChanges();
+    const badge = () => fixture.nativeElement.querySelector('.yolo-badge') as HTMLButtonElement;
+    const hint = () => fixture.debugElement.query(By.css('.yolo-badge')).injector.get(AioTooltipDirective).appTooltip();
+    expect(badge().textContent?.replace(/\s+/g, ' ').trim()).toBe('Auto-approve OFF');
+    expect(hint()).toBe('Auto-approve is off: asks before acting. Click to turn it on');
+    fixture.componentRef.setInput('instance', { ...instance('claude'), yoloMode: true });
+    fixture.detectChanges();
+    expect(badge().textContent?.replace(/\s+/g, ' ').trim()).toBe('Auto-approve ON');
+    expect(hint()).toBe('Auto-approve is on: runs tools and edits without asking you. Click to turn it off');
+    expect(fixture.nativeElement.textContent).not.toContain('YOLO');
+  });
+
   it('shows measured Copilot premium usage and explicitly marks missing data unavailable', () => {
     fixture.componentRef.setInput('instance', instance('copilot'));
     fixture.detectChanges();

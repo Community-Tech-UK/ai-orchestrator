@@ -404,7 +404,7 @@ export class InstanceListStore {
       });
     } else if ('error' in response) {
       console.error('Failed to toggle YOLO mode:', response.error);
-      this.toast.show('Could not change YOLO mode. Please try again.', 'error');
+      this.toast.show('Could not change Auto-approve. Please try again.', 'error');
     }
   }
 

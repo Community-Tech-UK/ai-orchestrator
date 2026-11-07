@@ -19,6 +19,7 @@ import { IpcFacadeService, IpcEventBusService } from '../../core/services/ipc';
 import { shouldClearInputRequiredForStatus } from '../../core/services/ipc/input-required-lifecycle';
 import type { InputRequiredEvent } from '../../core/services/ipc/ipc-event-bus.service';
 import { InstanceStore } from '../../core/state/instance.store';
+import { ToastService } from '../../core/services/toast.service';
 import {
   approveLabelFor,
   canTellWhatToDoInstead,
@@ -88,6 +89,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
   private eventBus = inject(IpcEventBusService);
   private readonly registry = inject(UserInputRequestRegistry);
   private readonly receiptStore = inject(RequestReceiptStore);
+  private readonly toast = inject(ToastService);
 
   instanceId = input<string | null>(null);
   private readonly yoloModeEnabled = computed(() => {
@@ -678,11 +680,11 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         );
         this.instanceStore.clearPendingApprovals(request.instanceId);
       } else {
-        setResponseError(this.responseErrors, this.draftKey(request.instanceId, request.id), responseErrorMessage(result, 'Failed to enable YOLO mode.'));
+        setResponseError(this.responseErrors, this.draftKey(request.instanceId, request.id), responseErrorMessage(result, 'Could not turn on Auto-approve.'));
       }
     } catch (error) {
       console.error('Failed to enable YOLO mode:', error);
-      setResponseError(this.responseErrors, this.draftKey(request.instanceId, request.id), errorMessage(error, 'Failed to enable YOLO mode.'));
+      setResponseError(this.responseErrors, this.draftKey(request.instanceId, request.id), errorMessage(error, 'Could not turn on Auto-approve.'));
     } finally {
       this.isResponding.set(false);
     }
@@ -931,10 +933,17 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         }
         if (result.success) {
           // A Claude denial is final before the note exists, so the note goes to the agent as its next message.
+          // The denial is already accepted by now: if the note fails, the card still closes (a second answer would
+          // reach a request that is gone) and the failure is reported where the note can still be typed again.
           const denyNote = metadataExtras?.['denyNote'];
+          let noteFailure: string | null = null;
           if (!approved && this.isPermissionDenial(request) && typeof denyNote === 'string' && denyNote.trim()) {
-            const sent = await this.ipc.sendInput(request.instanceId, denyNote.trim());
-            if (!sent.success) throw new Error(responseErrorMessage(sent, 'Could not send your note.'));
+            try {
+              const sent = await this.ipc.sendInput(request.instanceId, denyNote.trim());
+              if (!sent.success) noteFailure = responseErrorMessage(sent, 'Could not send your note.');
+            } catch (error) {
+              noteFailure = errorMessage(error, 'Could not send your note.');
+            }
           }
           const resultData = result.data as { yoloMode?: boolean; granted?: boolean } | undefined;
           this.inputRequiredScopes.delete(this.draftKey(request.instanceId, request.id));
@@ -959,6 +968,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
             );
             if (!this.resolutions.has(this.draftKey(request.instanceId, request.id))) this.instanceStore.decrementPendingApproval(request.instanceId, request.id);
           }
+          if (noteFailure) this.toast.show(`Denied, but your note was not sent (${noteFailure.replace(/[.\s]+$/, '')}). Type it in the message box to send it.`, 'error');
           return 'sent';
         }
         setResponseError(this.responseErrors, this.draftKey(request.instanceId, request.id), responseErrorMessage(result, 'Failed to submit your decision.'));

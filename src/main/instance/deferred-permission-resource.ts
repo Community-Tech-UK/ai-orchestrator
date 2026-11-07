@@ -7,6 +7,9 @@ import type { PermissionScope } from '../security/permission-manager';
  * Every other tool is judged by the tool alone. Scoping Write and Edit to their file would
  * let the built-in "allow writes in the project folder" rule answer the ask, and the
  * person would never be shown it (a held Write asks because nothing has allowed it).
+ *
+ * Read, Glob, Grep and LS are the exception: the built-in "Allow Read Tools" rule (permission-manager.ts) allows them by
+ * tool name, so a held or live read never reaches the person. The rule matches those four names only.
  */
 export function deferredPermissionResource(toolName: string | undefined, input: Record<string, unknown> | undefined): { scope: PermissionScope; resource: string } {
   const command = toolName === 'Bash' ? input?.['command'] : undefined;

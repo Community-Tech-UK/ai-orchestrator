@@ -482,7 +482,8 @@
                   </label>
                   <label class="checkbox">
                     <input name="yoloMode" type="checkbox" [ngModel]="form().yoloMode" (ngModelChange)="patchForm({ yoloMode: $event })" />
-                    <span>YOLO</span>
+                    <span>Auto-approve</span>
+                    <span class="hint">Runs tools and edits without asking.</span>
                   </label>
                   <div class="checkbox">
                     <input id="automation-hidden-control" name="hidden" type="checkbox" [appTooltip]="hiddenHint" [ngModel]="form().hidden" (ngModelChange)="patchForm({ hidden: $event })" />

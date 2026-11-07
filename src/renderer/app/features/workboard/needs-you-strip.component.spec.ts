@@ -1,6 +1,7 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { Router } from '@angular/router';
+import { NavigationEnd, Router } from '@angular/router';
+import { Subject } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { sortNeedsYou, type NeedsYouEntry } from '../../../../shared/attention/needs-you';
 import { requestEntries } from './needs-you-sources';
@@ -13,24 +14,48 @@ import { SessionNavigator } from '../../core/services/session-navigator.service'
 describe('NeedsYouStripComponent', () => {
   const entries = signal<NeedsYouEntry[]>([]), selectedInstanceId = signal<string | null>(null);
   const openSession = vi.fn(), navigateByUrl = vi.fn();
+  const router = { events: new Subject<unknown>(), url: '/', navigateByUrl };
+  const goTo = (url: string) => { router.url = url; router.events.next(new NavigationEnd(1, url, url)); };
   beforeEach(() => {
-    entries.set([]); selectedInstanceId.set(null); vi.clearAllMocks();
+    entries.set([]); selectedInstanceId.set(null); router.url = '/'; vi.clearAllMocks();
     TestBed.configureTestingModule({ imports: [NeedsYouStripComponent], providers: [
       { provide: NeedsYouStore, useValue: { answerEntries: entries } },
       { provide: InstanceStore, useValue: { selectedInstanceId } },
       { provide: PendingRequestStore, useValue: { forInstance: () => [{ kind: 'permission', toolName: 'Bash' }] } },
-      { provide: SessionNavigator, useValue: { openSession } }, { provide: Router, useValue: { navigateByUrl } },
+      { provide: SessionNavigator, useValue: { openSession } }, { provide: Router, useValue: router },
     ] });
   });
   afterEach(() => TestBed.resetTestingModule());
   const entry = (source: NeedsYouEntry['source'], instanceId = 'a'): NeedsYouEntry => ({ key: source, source, instanceId, title: 'Fix login', since: 1, version: '1', kind: 'answer' });
-  it('hides with no answers, in the open session, and for every timed banner source', () => {
+  it('hides with no answers and for every timed banner source', () => {
     const fixture = TestBed.createComponent(NeedsYouStripComponent); fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('section')).toBeNull();
     entries.set(['permission-request', 'browser-approval', 'paid-fallback'].map((source) => entry(source as NeedsYouEntry['source'])));
     fixture.detectChanges(); expect(fixture.nativeElement.querySelector('section')).toBeNull();
+  });
+  it('hides the open session\u2019s own question while that chat is on screen', () => {
     selectedInstanceId.set('a'); entries.set([entry('session')]);
-    fixture.detectChanges(); expect(fixture.nativeElement.querySelector('section')).toBeNull();
+    const fixture = TestBed.createComponent(NeedsYouStripComponent); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('section')).toBeNull();
+    goTo('/?from=notification#top'); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('section')).toBeNull();
+  });
+  it('shows the selected session\u2019s question once the user leaves the chat, and hides it on return', () => {
+    // The selection survives leaving the chat, so only the route says whether the chat is in view.
+    selectedInstanceId.set('a'); entries.set([entry('session')]);
+    const fixture = TestBed.createComponent(NeedsYouStripComponent); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('section')).toBeNull();
+    goTo('/settings'); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('\u2018Fix login\u2019 wants permission to use Bash');
+    goTo('/plan-queue'); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('section')).not.toBeNull();
+    goTo('/'); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('section')).toBeNull();
+  });
+  it('starts out visible when the component is created while a page other than the chat is open', () => {
+    router.url = '/settings'; selectedInstanceId.set('a'); entries.set([entry('session')]);
+    const fixture = TestBed.createComponent(NeedsYouStripComponent); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('section')).not.toBeNull();
   });
   it('names the pending permission and opens the session or the complete board', () => {
     entries.set([entry('session')]);

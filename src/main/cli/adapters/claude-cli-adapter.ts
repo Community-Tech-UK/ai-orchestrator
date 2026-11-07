@@ -1536,7 +1536,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
                     id: generateId(),
                     timestamp: Date.now(),
                     type: 'system',
-                    content: `Permission for "${action} ${displayPath}" was denied by the CLI. To allow this action, enable YOLO mode (⚡ button) which auto-approves all tool use for this session.`,
+                    content: `Permission for "${action} ${displayPath}" was denied by the CLI. To allow this action, turn on Auto-approve at the top of the session. It approves all tool use for this session without asking.`,
                     metadata: { permissionHint: true, suggestYolo: true }
                   });
                 }

@@ -153,8 +153,10 @@ export class NotificationService {
       body: input.body,
     });
     const existing = [...this.records].reverse().find(record => record.fingerprint === fingerprint && record.resolvedAt === undefined);
+    // A problem that comes back is news again: the folded record drops its seen mark, so the unseen count rises.
+    const { seenAt: _recurred, ...unseenExisting } = existing ?? {};
     const record: NotificationRecord = {
-      ...existing,
+      ...unseenExisting,
       id: existing?.id ?? `notification-${now}-${++this.sequence}`,
       kind: input.kind,
       ...(input.instanceId ? { instanceId: input.instanceId } : {}),

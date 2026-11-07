@@ -274,8 +274,6 @@ export class InstanceDetailComponent {
 
     this.showCrossModelReviewPanel.set(false);
 
-    this.showCrossModelReviewPanel.set(false);
-
     // Reset welcome-screen state so it doesn't bleed across sessions.
     this.welcomeCoordinator.resetState();
   });
@@ -709,6 +707,7 @@ export class InstanceDetailComponent {
     }
 
     // Always dismiss the review panel after any action
+    this.showCrossModelReviewPanel.set(false);
     this.crossModelReviewService.dismiss({ reviewId: event.reviewId, instanceId: event.instanceId });
   }
 

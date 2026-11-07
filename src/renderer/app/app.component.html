@@ -142,7 +142,7 @@
       @if (toastService.overflowCount() > 0) {
         <div class="toast-item" role="status">
           +{{ toastService.overflowCount() }} more
-          <button type="button" (click)="toastService.dismissAll()">Dismiss all</button>
+          <button type="button" (click)="toastService.dismissVisible()">Dismiss these</button>
         </div>
       }
     </div>
