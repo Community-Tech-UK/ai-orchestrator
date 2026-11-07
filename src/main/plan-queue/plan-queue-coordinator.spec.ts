@@ -40,7 +40,7 @@ vi.mock('./plan-queue-gate-receipts', async original => {
   } };
 });
 
-const landing = vi.hoisted(() => ({ active: 0, max: 0, hang: false, hung: false, hangPromotion: false, hookTimeout: false, conflict: false, mergeCheckTimeout: false, mergeChecks: 0 }));
+const landing = vi.hoisted(() => ({ active: 0, max: 0, hang: false, hung: false, hangPromotion: false, hookTimeout: false, conflict: false, baseMovesOnce: null as (() => void) | null, mergeCheckTimeout: false, mergeChecks: 0 }));
 vi.mock('./plan-queue-landing', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./plan-queue-landing')>();
   return {
@@ -57,6 +57,12 @@ vi.mock('./plan-queue-landing', async (importOriginal) => {
         return new Promise<never>(() => undefined);
       }
       if (landing.conflict) return { status: 'conflict' as const, conflictFiles: ['shared.txt'] };
+      if (landing.baseMovesOnce) {
+        const move = landing.baseMovesOnce;
+        landing.baseMovesOnce = null;
+        move();
+        return { status: 'conflict' as const, conflictFiles: ['shared.txt'] };
+      }
       if (landing.hookTimeout) {
         return { status: 'hook-failed' as const, output: '[plan queue] the pre-commit hook timed out after 3600000ms', timedOut: true };
       }
@@ -321,6 +327,7 @@ beforeEach(() => {
   landing.mergeCheckTimeout = false;
   landing.mergeChecks = 0;
   landing.conflict = false;
+  landing.baseMovesOnce = null;
   repo = realpathSync(mkdtempSync(join(tmpdir(), 'plan-queue-coord-')));
   git(['init', '-q', '-b', 'main']);
   git(['config', 'user.name', 'Plan Queue Test']);
@@ -2480,6 +2487,26 @@ describe('PlanQueueCoordinator — the landing commit runs the repository hooks'
     const worker = fake.created.find((i) => i.role === 'worker')!;
     expect(fake.inputs.filter((m) => m.instanceId === worker.id && m.message.includes('shared.txt'))).toHaveLength(3);
     expect(git(['log', '--format=%s', 'main'])).toBe('base');
+  });
+
+  it('checks and builds again, with no worker, when main moved during landing but merges cleanly', async () => {
+    landing.baseMovesOnce = () => {
+      writeFileSync(join(repo, 'other.txt'), 'other\n');
+      git(['add', 'other.txt']);
+      git(['commit', '-q', '--no-verify', '-m', 'other work']);
+    };
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForRun(run.id);
+
+    const item = coordinator.getRunDto(run.id)!.items[0];
+    expect(item).toMatchObject({ state: 'landed', round: 1 });
+    const worker = fake.created.find((i) => i.role === 'worker')!;
+    expect(fake.inputs.filter((m) => m.instanceId === worker.id && m.message.includes('shared.txt'))).toHaveLength(0);
+    expect(landing.mergeChecks).toBe(1);
+    expect(git(['log', '--format=%s', 'main']).split('\n')).toEqual(['Plan: 2026-01-01-alpha_plan', 'other work', 'base']);
   });
 
   it('keeps the pass and starts no worker when the check after merging runs out of time', async () => {

@@ -2,7 +2,7 @@
 import { stripVTControlCharacters } from 'node:util';
 import { gitExec } from '../workspace/git/git-exec';
 import { buildCliEnv } from '../cli/cli-environment';
-import { extractVerifyFailureKeys } from '../orchestration/verify-failure-keys';
+import { extractVerifyFailureKeys, failedTestNames } from '../orchestration/verify-failure-keys';
 import { QUEUE_TEST_ENV, runInProcessGroup } from './plan-queue-process';
 
 export type GateEvidence = 'passed' | 'failed' | 'no-tests-found' | 'not-recognised';
@@ -20,6 +20,8 @@ export interface PlanQueueGateReceipt {
   classification: GateEvidence;
   baseline: 'new' | 'also-failing-on-base';
   failureKeyCounts: Record<string, number>;
+  /** Named tests that failed, kept with the verdict so Queue health can spot one failing across unrelated jobs. */
+  failingTests?: string[];
 }
 interface GateExecution { exitCode: number; output: string; timedOut?: boolean }
 type ExecuteGate = (command: string, cwd: string, signal?: AbortSignal, extraEnv?: Record<string, string>) => Promise<GateExecution>;
@@ -36,6 +38,8 @@ export interface GateInput {
 const MAC = 'the Mac';
 const MAX_TAIL_CHARS = 2048;
 const MAX_MACHINE_CHARS = 200;
+const MAX_FAILING_TESTS = 20;
+const MAX_TEST_NAME_CHARS = 300;
 const STAY_ON_THE_MAC = { AIO_REMOTE_CHECKS: 'off' };
 const MACHINE_MISMATCH_NOTE = '\nThe comparison with main ran on a different machine, so this check did not finish.';
 
@@ -128,13 +132,15 @@ export class PlanQueueGateRunner {
       input.signal?.throwIfAborted();
       const timedOut = result.timedOut === true;
       const machine = ranOn(result.output);
+      const output = result.output.replaceAll(input.cwd, '');
+      const tests = failedTestNames(output).slice(0, MAX_FAILING_TESTS).map(name => name.slice(0, MAX_TEST_NAME_CHARS));
       receipts.push({ command, head: input.head, testedTree, exitCode: timedOut ? 1 : result.exitCode, timedOut,
         ...(machine ? { ranOn: machine } : {}),
         durationMs: Date.now() - started, tail: Buffer.from(result.output).subarray(-2048).toString('utf8').replace(/^\uFFFD+/, ''),
         classification: timedOut ? 'failed' : classifyGateEvidence(command, result.exitCode, result.output), baseline: 'new',
-        failureKeyCounts: Object.fromEntries(extractVerifyFailureKeys(result.output.replaceAll(input.cwd, ''), {
+        failureKeyCounts: Object.fromEntries(extractVerifyFailureKeys(output, {
           truncated: result.output.length >= 256_000, failureKind: 'command',
-        }).keys) });
+        }).keys), ...(tests.length ? { failingTests: tests } : {}) });
       // The rest would wait behind the same computer, holding the one checklist turn for nothing.
       if (timedOut) break;
     }

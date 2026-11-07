@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -227,9 +227,9 @@ describe('document-only landing overlap', () => {
     expect(await readFile(join(repo, 'register.md'), 'utf8')).toBe(append('LT-SAME') + 'ours\n');
   });
 
-  it('refuses code and staged overlaps', async () => {
+  it('refuses a clash in code and staged overlaps', async () => {
     await prepare('ours\n', 'theirs\n', 'source.ts');
-    expect(await promote()).toMatchObject({ status: 'blocked', reason: expect.stringContaining('source.ts') });
+    expect(await promote()).toMatchObject({ status: 'blocked', reason: 'You and the item changed the same lines of source.ts.' });
     expect(await readFile(join(repo, 'source.ts'), 'utf8')).toBe('ours\n');
     git(['reset', '--hard', baseTip]);
     await prepare(append('LT-OURS'), append('LT-ITEM'));
@@ -346,6 +346,135 @@ describe('document-only landing overlap', () => {
     expect(result).toMatchObject({ status: 'promoted', method: 'checked-out-ff', tip: integrationTip, documentMergeInterrupted: 'write failed' });
     expect(finish).toHaveBeenCalledTimes(1); expect(undo).not.toHaveBeenCalled();
     expect(git(['rev-parse', 'HEAD'])).toBe(integrationTip);
+  });
+
+  describe('uncommitted code edits', () => {
+    const source = (top: string, bottom: string) => [top, ...Array.from({ length: 8 }, (_, line) => `line ${line}`), bottom, ''].join('\n');
+    const read = () => readFile(join(repo, 'source.ts'), 'utf8');
+    beforeEach(async () => {
+      await writeFile(join(repo, 'source.ts'), source('top', 'bottom'));
+      git(['add', '.']); git(['commit', '-qm', 'longer source']); baseTip = git(['rev-parse', 'HEAD']);
+    });
+
+    it('merges edits to different lines and leaves James\'s uncommitted', async () => {
+      await prepare(source('my edit', 'bottom'), source('top', 'the job\'s edit'), 'source.ts');
+      expect(await promote()).toMatchObject({ status: 'promoted', mergedPaths: ['source.ts'] });
+      expect(await read()).toBe(source('my edit', 'the job\'s edit'));
+      expect(git(['show', 'HEAD:source.ts'])).toBe(source('top', 'the job\'s edit').trim());
+      expect(git(['status', '--porcelain'])).toBe('M source.ts');
+    });
+
+    it('never joins two insertions at the same place, which a document may do', async () => {
+      const ours = source('top', 'bottom').replace('line 3\n', 'line 3\nmine();\n');
+      await prepare(ours, source('top', 'bottom').replace('line 3\n', 'line 3\ntheirs();\n'), 'source.ts');
+      expect(await promote()).toMatchObject({ status: 'blocked', reason: expect.stringContaining('same lines') });
+      expect(await read()).toBe(ours);
+      expect(git(['rev-parse', 'HEAD'])).toBe(baseTip);
+    });
+
+    it('refuses a staged file', async () => {
+      await prepare(source('my edit', 'bottom'), source('top', 'the job\'s edit'), 'source.ts');
+      git(['add', 'source.ts']);
+      expect(await promote()).toMatchObject({ status: 'blocked', reason: expect.stringContaining('staged, deleted, renamed') });
+      expect(await read()).toBe(source('my edit', 'bottom'));
+    });
+
+    it('refuses a file staged between read and reset', async () => {
+      await prepare(source('my edit', 'bottom'), source('top', 'the job\'s edit'), 'source.ts');
+      hook.beforeManifest = async () => { git(['add', 'source.ts']); };
+      expect(await promote()).toMatchObject({ status: 'blocked', reason: expect.stringContaining('status changed') });
+      expect(await read()).toBe(source('my edit', 'bottom'));
+      expect(git(['rev-parse', 'HEAD'])).toBe(baseTip);
+    });
+
+    it('refuses a file whose permissions have uncommitted changes, however its bytes look', async () => {
+      await prepare(source('top', 'bottom'), source('top', 'the job\'s edit'), 'source.ts');
+      await chmod(join(repo, 'source.ts'), 0o755);
+      expect(await promote()).toMatchObject({ status: 'blocked', reason: expect.stringContaining('permissions') });
+      expect((await stat(join(repo, 'source.ts'))).mode & 0o111).not.toBe(0);
+      expect(git(['rev-parse', 'HEAD'])).toBe(baseTip);
+    });
+
+    it('ignores permissions when the repository tells Git to', async () => {
+      git(['config', 'core.fileMode', 'false']);
+      await prepare(source('my edit', 'bottom'), source('top', 'the job\'s edit'), 'source.ts');
+      await chmod(join(repo, 'source.ts'), 0o755);
+      expect(await promote()).toMatchObject({ status: 'promoted', mergedPaths: ['source.ts'] });
+    });
+
+    it('merges a file that is meant to be executable, and leaves it executable', async () => {
+      await chmod(join(repo, 'source.ts'), 0o755);
+      git(['add', '.']); git(['commit', '-qm', 'executable']); baseTip = git(['rev-parse', 'HEAD']);
+      await prepare(source('my edit', 'bottom'), source('top', 'the job\'s edit'), 'source.ts');
+      expect(await promote()).toMatchObject({ status: 'promoted', mergedPaths: ['source.ts'] });
+      expect((await stat(join(repo, 'source.ts'))).mode & 0o100).not.toBe(0);
+    });
+
+    it('refuses an untracked executable, whose permissions a rollback could not restore', async () => {
+      await prepare('same\n', 'same\n', 'new-tool.sh');
+      await chmod(join(repo, 'new-tool.sh'), 0o755);
+      expect(await promote()).toMatchObject({ status: 'blocked', reason: expect.stringContaining('permissions') });
+    });
+
+    it('resets only the named file when its path looks like a pattern', async () => {
+      await mkdir(join(repo, 'app/[id]'), { recursive: true }); await mkdir(join(repo, 'app/i'), { recursive: true });
+      await writeFile(join(repo, 'app/[id]/page.ts'), source('top', 'bottom'));
+      await writeFile(join(repo, 'app/i/page.ts'), 'sibling\n');
+      git(['add', '.']); git(['commit', '-qm', 'pattern paths']); baseTip = git(['rev-parse', 'HEAD']);
+      await prepare(source('my edit', 'bottom'), source('top', 'the job\'s edit'), 'app/[id]/page.ts');
+      await writeFile(join(repo, 'app/i/page.ts'), 'unrelated uncommitted edit\n');
+      expect(await promote()).toMatchObject({ status: 'promoted', mergedPaths: ['app/[id]/page.ts'] });
+      expect(await readFile(join(repo, 'app/i/page.ts'), 'utf8')).toBe('unrelated uncommitted edit\n');
+    });
+
+    it('refuses a deleted file', async () => {
+      await prepare(source('my edit', 'bottom'), source('top', 'the job\'s edit'), 'source.ts');
+      await rm(join(repo, 'source.ts'));
+      expect(await promote()).toMatchObject({ status: 'blocked', reason: expect.stringContaining('staged, deleted, renamed') });
+      expect(git(['rev-parse', 'HEAD'])).toBe(baseTip);
+    });
+
+    it('refuses a file that isn\'t text, untouched', async () => {
+      await prepare('ours\0binary\n', source('top', 'the job\'s edit'), 'source.ts');
+      expect(await promote()).toMatchObject({ status: 'blocked', reason: "Couldn't merge source.ts: it isn't a text file." });
+      expect(await read()).toBe('ours\0binary\n');
+    });
+
+    it('keeps an edit made between the read and the write, and a backup of the merge', async () => {
+      await prepare(source('my edit', 'bottom'), source('top', 'the job\'s edit'), 'source.ts');
+      const target = join(await realpath(repo), 'source.ts');
+      const resolver = createDocumentOverlapResolver({ itemId: 'item-1' });
+      const result = await promoteIntegrationBranch(repo, 'main', 'integration/item', integrationTip, {
+        dirtyRootPolicy: 'block-overlap', resolveDirtyOverlap: { prepare: async input => {
+          const prepared = await resolver.prepare(input);
+          hook.target = target;
+          hook.beforeRead = async () => { await writeFile(target, 'typed just now\n'); };
+          return prepared;
+        } },
+      });
+      expect(result).toMatchObject({ status: 'promoted', documentMergeInterrupted: expect.stringContaining('source.ts') });
+      expect(await read()).toBe('typed just now\n');
+      const recovered = await recoverDocumentMergeForItem(repo, 'item-1');
+      expect(recovered).toMatchObject({ ok: false, reason: expect.stringContaining('Harness kept a copy') });
+      expect(await read()).toBe('typed just now\n');
+    });
+
+    it.each([false, true])('recovers a crash after reset, HEAD moved=%s', async (moved) => {
+      await prepare(source('my edit', 'bottom'), source('top', 'the job\'s edit'), 'source.ts');
+      const prepared = await createDocumentOverlapResolver({ itemId: 'item-1' }).prepare({ repoRoot: repo, baseTip, integrationTip, overlaps: [{ path: 'source.ts', status: ' M' }] });
+      expect(prepared.ok).toBe(true);
+      if (moved) git(['merge', '--ff-only', 'integration/item']);
+      await recoverInterruptedDocumentMerges(recoveryStore());
+      expect(await read()).toBe(source('my edit', moved ? 'the job\'s edit' : 'bottom'));
+    });
+
+    it('puts the edit back when promotion fails after the reset', async () => {
+      await prepare(source('my edit', 'bottom'), source('top', 'the job\'s edit'), 'source.ts');
+      const prepared = await createDocumentOverlapResolver({ itemId: 'item-1' }).prepare({ repoRoot: repo, baseTip, integrationTip, overlaps: [{ path: 'source.ts', status: ' M' }] });
+      if (!prepared.ok) throw new Error(prepared.reason);
+      await prepared.undo();
+      expect(await read()).toBe(source('my edit', 'bottom'));
+    });
   });
 
   it('refuses invalid UTF-8 before a root write', async () => {

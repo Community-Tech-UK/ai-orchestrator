@@ -8,7 +8,7 @@ import { landItemBranch, runPostMergeGate, syncItemWithBase } from './plan-queue
 import type { PlanQueueItem } from './plan-queue.types';
 
 /** One-shot hook used to fail a document-merge write inside the real resolver. */
-const hook = vi.hoisted(() => ({ beforeWrite: null as (() => Promise<void>) | null, target: '' }));
+const hook = vi.hoisted(() => ({ failWrite: '', beforeWrite: null as (() => Promise<void>) | null, target: '' }));
 vi.mock('node:fs/promises', async (original) => {
   const actual = await original<typeof import('node:fs/promises')>();
   return {
@@ -18,6 +18,13 @@ vi.mock('node:fs/promises', async (original) => {
         const run = hook.beforeWrite; hook.beforeWrite = null; await run();
       }
       return actual.open(...args);
+    },
+    writeFile: async (...args: Parameters<typeof actual.writeFile>) => {
+      if (String(args[0]) === hook.failWrite) {
+        await actual.writeFile(args[0], 'half written');
+        throw new Error('disk trouble');
+      }
+      return actual.writeFile(...args);
     },
   };
 });
@@ -95,6 +102,7 @@ beforeEach(() => {
   hookBudget.timeoutMs = null;
   hook.beforeWrite = null;
   hook.target = '';
+  hook.failWrite = '';
   repo = realpathSync(mkdtempSync(join(tmpdir(), 'plan-queue-land-')));
   git(['init', '-q', '-b', 'main']);
   git(['config', 'user.name', 'Plan Queue Test']);
@@ -134,6 +142,133 @@ describe('syncItemWithBase', () => {
 
     expect(result).toEqual({ status: 'conflict', conflictFiles: ['a.txt'] });
     expect(readFileSync(join(item.worktreePath ?? '', 'a.txt'), 'utf8')).toContain('<<<<<<<');
+  });
+
+  describe('when the only clash is the live-test register', () => {
+    const REGISTER = 'docs/plans/livetest-remediation-register.md';
+    const register = (...rows: string[]) => ['| Id | Status |', '| --- | --- |', ...rows, '', '## Notes', ''].join('\n');
+    const read = (item: PlanQueueItem, file = REGISTER) => readFileSync(join(item.worktreePath ?? '', file), 'utf8');
+    beforeEach(() => {
+      mkdirSync(join(repo, 'docs/plans'), { recursive: true });
+      commitOnMain(REGISTER, register('| LT-1 | open |'));
+    });
+
+    it('keeps the rows both sides added', async () => {
+      const item = makeItemWithWork({ [REGISTER]: register('| LT-1 | open |', '| LT-2 | from the job |') });
+      commitOnMain(REGISTER, register('| LT-1 | open |', '| LT-3 | from main |'));
+
+      const result = await syncItemWithBase(item, 'main', repo);
+
+      expect(result.status).toBe('merged');
+      expect(read(item)).toBe(register('| LT-1 | open |', '| LT-2 | from the job |', '| LT-3 | from main |'));
+      expect(git(['status', '--porcelain'], item.worktreePath ?? '')).toBe('');
+      expect(git(['log', '-1', '--format=%p'], item.worktreePath ?? '').split(' ')).toHaveLength(2);
+    });
+
+    it('keeps main\'s copy when both sides recorded the same defect or changed the same row', async () => {
+      const item = makeItemWithWork({ [REGISTER]: register('| LT-1 | fixed by the job |', '| LT-2 | the job\'s words |') });
+      commitOnMain(REGISTER, register('| LT-1 | fixed on main |', '| LT-2 | main\'s words |'));
+
+      expect((await syncItemWithBase(item, 'main', repo)).status).toBe('merged');
+      expect(read(item)).toBe(register('| LT-1 | fixed on main |', '| LT-2 | main\'s words |'));
+    });
+
+    it('keeps main\'s copy when both sides added the same new defect', async () => {
+      const item = makeItemWithWork({ [REGISTER]: register('| LT-1 | open |', '| LT-2 | the job\'s words |') });
+      commitOnMain(REGISTER, register('| LT-1 | open |', '| LT-2 | main\'s words |'));
+
+      expect((await syncItemWithBase(item, 'main', repo)).status).toBe('merged');
+      expect(read(item)).toBe(register('| LT-1 | open |', '| LT-2 | main\'s words |'));
+    });
+
+    it('puts a new section after main\'s lines, so they stay with the section they belong to', async () => {
+      const notes = (...lines: string[]) => [register('| LT-1 | open |'), '## LT-1: old', '', 'Details.', ...lines, ''].join('\n');
+      commitOnMain(REGISTER, notes());
+      const item = makeItemWithWork({ [REGISTER]: notes('## LT-2: new', 'From the job.') });
+      commitOnMain(REGISTER, notes('Verified on main.'));
+
+      expect((await syncItemWithBase(item, 'main', repo)).status).toBe('merged');
+      expect(read(item)).toBe(notes('Verified on main.', '## LT-2: new', 'From the job.'));
+    });
+
+    it('keeps main\'s text for a section both sides added', async () => {
+      const section = (words: string) => `${register('| LT-1 | open |')}\n## LT-2: one defect\n\n${words}\n`;
+      const item = makeItemWithWork({ [REGISTER]: section('The job\'s words.') });
+      commitOnMain(REGISTER, section('Main\'s words.'));
+
+      expect((await syncItemWithBase(item, 'main', repo)).status).toBe('merged');
+      expect(read(item)).toBe(section('Main\'s words.'));
+    });
+
+    it.each([
+      ['both sides changed the same plain line', ['Original.'], ['The job.'], ['Main.']],
+      ['the job changed a plain line next to main\'s', ['- one', '- two'], ['- the job', '- two'], ['- one', '- main']],
+      ['the job deleted a plain line next to main\'s', ['- one', '- two'], ['- two'], ['- one', '- main']],
+      ['the job deleted a plain line main reworded', ['- one'], [], ['- main']],
+      ['the job\'s changed line matches another line', ['- a', '- b'], ['- b', '- b'], ['- m', '- n']],
+      ['the job deleted text main kept, in a section both changed', ['## LT-5: a', 'Text.'], ['## LT-5: b'], ['## LT-5: c', 'Text.']],
+      ['the job deleted a row main left alone', ['| LT-7 | a |', '| LT-8 | b |'], ['| LT-8 | b |'], ['| LT-7 | a |', '| LT-8 | main |']],
+      ['the job deleted a row main changed', ['| LT-7 | a |'], [], ['| LT-7 | main |']],
+      ['one row holds an id main lacks', [], ['| LT-5, LT-6 | the job |'], ['| LT-5 | main |']],
+    ])('leaves the merge for a worker when %s', async (_name, base, job, main) => {
+      const notes = (lines: string[]) => `${register('| LT-1 | open |')}\n${[...lines, 'End.'].join('\n')}\n`;
+      commitOnMain(REGISTER, notes(base));
+      const item = makeItemWithWork({ [REGISTER]: notes(job) });
+      commitOnMain(REGISTER, notes(main));
+
+      expect(await syncItemWithBase(item, 'main', repo)).toEqual({ status: 'conflict', conflictFiles: [REGISTER] });
+      expect(read(item)).toContain('<<<<<<<');
+    });
+
+    it('leaves the merge for a worker when the job changed a neighbouring row main left alone', async () => {
+      commitOnMain(REGISTER, register('| LT-1 | open |', '| LT-2 | open |'));
+      const item = makeItemWithWork({ [REGISTER]: register('| LT-1 | fixed by the job |', '| LT-2 | open |') });
+      commitOnMain(REGISTER, register('| LT-1 | open |', '| LT-2 | changed on main |'));
+
+      expect(await syncItemWithBase(item, 'main', repo)).toEqual({ status: 'conflict', conflictFiles: [REGISTER] });
+    });
+
+    it('leaves the merge for a worker when the job added a row main lacks next to one they share', async () => {
+      const item = makeItemWithWork({ [REGISTER]: register('| LT-1 | open |', '| LT-2 | the job |', '| LT-3 | only the job |') });
+      commitOnMain(REGISTER, register('| LT-1 | open |', '| LT-2 | main |'));
+
+      expect(await syncItemWithBase(item, 'main', repo)).toEqual({ status: 'conflict', conflictFiles: [REGISTER] });
+    });
+
+    it('reports an ordinary conflict when settling the register fails part way', async () => {
+      const item = makeItemWithWork({ [REGISTER]: register('| LT-1 | open |', '| LT-2 | from the job |') });
+      commitOnMain(REGISTER, register('| LT-1 | open |', '| LT-3 | from main |'));
+      hook.failWrite = join(item.worktreePath ?? '', REGISTER);
+
+      expect(await syncItemWithBase(item, 'main', repo)).toEqual({ status: 'conflict', conflictFiles: [REGISTER] });
+      expect(read(item)).toContain('<<<<<<<');
+    });
+
+    it('leaves the merge for a worker rather than listing one defect twice', async () => {
+      const item = makeItemWithWork({ [REGISTER]: ['| Id | Status |', '| --- | --- |', '| LT-1 | open |', '| LT-9 | the job, first |', '', '## Notes', '', '| LT-4 | clash |', ''].join('\n') });
+      commitOnMain(REGISTER, ['| Id | Status |', '| --- | --- |', '| LT-1 | open |', '', '## Notes', '', '| LT-9 | main, elsewhere |', ''].join('\n'));
+
+      expect(await syncItemWithBase(item, 'main', repo)).toEqual({ status: 'conflict', conflictFiles: [REGISTER] });
+      expect(read(item)).toContain('<<<<<<<');
+    });
+
+    it('sends the merge to a worker as usual when any other file clashes too', async () => {
+      const item = makeItemWithWork({ 'a.txt': 'item version\n', [REGISTER]: register('| LT-1 | open |', '| LT-2 | from the job |') });
+      commitOnMain('a.txt', 'main version\n');
+      commitOnMain(REGISTER, register('| LT-1 | open |', '| LT-3 | from main |'));
+
+      const result = await syncItemWithBase(item, 'main', repo);
+
+      expect(result).toEqual({ status: 'conflict', conflictFiles: expect.arrayContaining(['a.txt', REGISTER]) });
+    });
+
+    it('leaves other documents to clash', async () => {
+      commitOnMain('other.md', 'one\n');
+      const item = makeItemWithWork({ 'other.md': 'job\n' });
+      commitOnMain('other.md', 'main\n');
+
+      expect(await syncItemWithBase(item, 'main', repo)).toEqual({ status: 'conflict', conflictFiles: ['other.md'] });
+    });
   });
 });
 
@@ -227,7 +362,7 @@ describe('landItemBranch', () => {
 
     expect(result).toEqual({
       status: 'blocked',
-      reason: "Couldn't merge clash.txt: only Markdown documents and files the repository's pre-commit hook regenerates can be merged with your edits.",
+      reason: "Couldn't merge clash.txt: your untracked file differs from the item's copy.",
     });
     expect(git(['rev-parse', 'main'])).toBe(mainBefore);
     expect(readFileSync(join(repo, 'clash.txt'), 'utf8')).toBe('operator copy\n');

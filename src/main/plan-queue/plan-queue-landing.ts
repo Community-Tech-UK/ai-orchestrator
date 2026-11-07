@@ -24,7 +24,7 @@ import { QUEUE_TEST_ENV, runInProcessGroup } from './plan-queue-process';
 import { buildLandingCommit, type LandingDocument } from './plan-queue-squash';
 import type { PlanQueueItem } from './plan-queue.types';
 import { LandingTimer } from './plan-queue-timings';
-import { createDocumentOverlapResolver, recoverDocumentMergeForItem } from './plan-queue-doc-merge';
+import { createDocumentOverlapResolver, recoverDocumentMergeForItem, resolveRegisterClash } from './plan-queue-doc-merge';
 
 const logger = getLogger('PlanQueueLanding');
 
@@ -94,7 +94,7 @@ export async function syncItemWithBase(item: PlanQueueItem, baseBranch: string, 
         .filter((line) => CONFLICT_CODES.has(line.slice(0, 2)))
         .map((line) => line.slice(3).trim());
       if (conflictFiles.length === 0) throw new Error(`Merging ${baseBranch} failed without conflicts`);
-      return { status: 'conflict', conflictFiles };
+      if (!await resolveRegisterClash(worktreePath, conflictFiles)) return { status: 'conflict', conflictFiles };
     }
     return { status: 'merged', head: await gitExec(['rev-parse', 'HEAD'], worktreePath) };
   });

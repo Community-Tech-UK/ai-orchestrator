@@ -38,7 +38,7 @@ function landingValue(landing: PlanQueueHealth['landingTime']): string {
 
 /** The measures in reading order. Every figure covers the recent window and finished work only. */
 export function describeQueueHealth(health: PlanQueueHealth): { heading: string; lines: PlanQueueHealthLine[] } {
-  const { waiting, setAsideRounds } = health;
+  const { waiting, setAsideRounds, repeatFailingTests } = health;
   return {
     heading: `Queue health, last ${health.windowDays} days`,
     lines: [
@@ -53,6 +53,8 @@ export function describeQueueHealth(health: PlanQueueHealth): { heading: string;
         : `${percent(waiting.share)} (${describeHealthDuration(waiting.waitingMs)} waiting for a free slot or for usage, ${describeHealthDuration(waiting.workingMs)} working)` },
       { label: 'Rounds spent on items that were set aside', value: setAsideRounds.items === 0 ? 'None'
         : `${setAsideRounds.rounds} ${setAsideRounds.rounds === 1 ? 'round' : 'rounds'} on ${setAsideRounds.items} ${setAsideRounds.items === 1 ? 'item' : 'items'}` },
+      { label: 'Tests failing in more than one job', value: repeatFailingTests.length === 0 ? 'None'
+        : repeatFailingTests.map(({ test, jobs }) => `${test} (${jobs} jobs)`).join('; ') },
     ],
   };
 }

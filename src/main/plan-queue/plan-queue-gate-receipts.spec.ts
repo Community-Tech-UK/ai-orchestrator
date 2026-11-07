@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createServer, type AddressInfo, type Socket } from 'node:net';
+import { PlanQueueGateRunSchema } from '@contracts/schemas/plan-queue';
 import { blockingGateReceipts, classifyGateEvidence, GATE_TIMEOUT_MS, onlyTimedOut, PlanQueueGateRunner } from './plan-queue-gate-receipts';
 import { runInProcessGroup } from './plan-queue-process';
 import { gitExec } from '../workspace/git/git-exec';
@@ -84,6 +85,36 @@ describe('Harness queue gate receipts', () => {
     await runner.run(input);
     expect(onExecution).toHaveBeenCalledTimes(1);
     expect(calls).toEqual(['/combined', '/base']);
+  });
+
+  it('keeps the names of failing tests from a clipped report, through the cache and the schema', async () => {
+    const output = [
+      '✗ src/a.spec.ts › first test', '  → expected 1 to be 2',
+      '✗ src/a.spec.ts › first test', '  → expected 3 to be 4',
+      '✗ src/b.spec.ts › group | second test', '  → boom', '     ', '    …(truncated — see log)', '',
+      '  …and 28 more failed test(s) — see _scratch/test-run.log',
+    ].join('\n');
+    const runner = new PlanQueueGateRunner(async () => ({ exitCode: 1, output }), async () => 'tree');
+    const input = { cwd: '/repo', head: 'head', commands: ['npm test'] };
+    const [receipt] = await runner.run(input);
+    expect(receipt.failingTests).toEqual(['src/a.spec.ts › first test', 'src/b.spec.ts › group | second test']);
+    expect(runner.cached(input)?.[0].failingTests).toEqual(receipt.failingTests);
+    expect(PlanQueueGateRunSchema.parse(receipt).failingTests).toEqual(receipt.failingTests);
+  });
+
+  it('caps the names it keeps so a stored result stays within the schema', async () => {
+    const output = Array.from({ length: 30 }, (_, index) => `✗ src/a.spec.ts › ${'long '.repeat(80)}${index}\n  → no`).join('\n');
+    const runner = new PlanQueueGateRunner(async () => ({ exitCode: 1, output }), async () => 'tree');
+    const [receipt] = await runner.run({ cwd: '/repo', head: 'head', commands: ['npm test'] });
+    expect(() => PlanQueueGateRunSchema.parse(receipt)).not.toThrow();
+    expect(receipt.failingTests!.length).toBeGreaterThan(0);
+    expect(receipt.failingTests!.length).toBeLessThanOrEqual(20);
+  });
+
+  it('names no tests for a failure that is not a test', async () => {
+    const runner = new PlanQueueGateRunner(async () => ({ exitCode: 1, output: 'src/a.ts(1,1): error TS2322: Nope' }), async () => 'tree');
+    const [receipt] = await runner.run({ cwd: '/repo', head: 'head', commands: ['tsc'] });
+    expect(receipt).not.toHaveProperty('failingTests');
   });
 
   it('starts real command groups concurrently and cancels one without killing the other', async () => {

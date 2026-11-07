@@ -13,7 +13,7 @@ const health: PlanQueueHealth = {
   checkTime: { count: 9, medianMs: 25 * MIN },
   landingTime: { count: 5, medianMs: 9 * MIN, syncMs: 10_000, mergeCheckMs: null, commitCheckMs: 8 * MIN, publishMs: 2_000 },
   waiting: { waitingMs: 30 * MIN, workingMs: 90 * MIN, share: 0.25 },
-  setAsideRounds: { items: 12, rounds: 41 },
+  setAsideRounds: { items: 12, rounds: 41 }, repeatFailingTests: [],
 };
 
 describe('Queue health wording', () => {
@@ -30,6 +30,7 @@ describe('Queue health wording', () => {
       'Time to land': '9 min typically (5 landings): bringing in the base branch 10 seconds, the pre-commit check 8 min, adding it to the base branch 2 seconds',
       'Time spent waiting rather than working': '25% (30 min waiting for a free slot or for usage, 1 h 30 min working)',
       'Rounds spent on items that were set aside': '41 rounds on 12 items',
+      'Tests failing in more than one job': 'None',
     });
   });
 
@@ -44,6 +45,14 @@ describe('Queue health wording', () => {
     expect(values['Time to land']).toBe('Nothing measured yet');
     expect(values['Time spent waiting rather than working']).toBe('Nothing measured yet');
     expect(values['Rounds spent on items that were set aside']).toBe('None');
+  });
+
+  it('names tests that keep failing across jobs', () => {
+    const line = (repeatFailingTests: PlanQueueHealth['repeatFailingTests']) => describeQueueHealth({ ...health, repeatFailingTests }).lines
+      .find(row => row.label === 'Tests failing in more than one job')?.value;
+    expect(line([])).toBe('None');
+    expect(line([{ test: 'src/a.spec.ts › works', jobs: 3 }, { test: 'src/b.spec.ts › also', jobs: 2 }]))
+      .toBe('src/a.spec.ts › works (3 jobs); src/b.spec.ts › also (2 jobs)');
   });
 
   it('formats durations', () => {

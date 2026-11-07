@@ -37,6 +37,7 @@ import { clearPlanningMoveRecord, planningMoveNote } from './plan-queue-planning
 import { returnToItemCheckout } from './plan-queue-squash';
 import { PlanQueueCheckoutOwnershipError, rescueNote } from './plan-queue-worktree';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
+import type { PlanQueueGateReceipt } from './plan-queue-gate-receipts';
 import { groupCoversMovedBase, groupRoundStillIntact } from './plan-queue-group-landing';
 import { LandingTimer, recordItemTiming, recordTiming, TIMING_REASONS } from './plan-queue-timings';
 
@@ -269,25 +270,9 @@ export class PlanQueueItemLanding {
           `merging ${baseBranch} before landing conflicted (${sync.conflictFiles.join(', ')})`);
         return null;
       }
-      if (sync.status === 'merged') item = await host.worktrees.checkpoint(item, `merge ${baseBranch} before landing`);
-      // A timed-out check left the merge in place, so Try merging again finds nothing to merge but still owes the check.
-      if (sync.status === 'merged' || mergeCheckStillOwed(host, item)) {
-        const covered = group && await gitExec(['rev-parse', `refs/heads/${baseBranch}`], repoRoot) === baseTip
-          && groupRoundStillIntact(group, host);
-        const gate = covered ? { ok: true } as const : await timer.measure('mergeCheck', () => runPostMergeGate(run.config.postMergeGate, item.worktreePath!, signal));
-        if (!gate.ok && gate.timedOut) {
-          recordMergeCheckTimeout(host, item);
-          await this.ctx.park(item, 'land-blocked', `Not landed: \`${gate.command}\` ran out of time after merging ${baseBranch}, so nothing changed on ${baseBranch}. A worker cannot fix a timeout; press Try merging again once the machine is quieter.`);
-          // Parking saves anything the killed check left behind, which makes a new commit: record that one too.
-          recordMergeCheckTimeout(host, host.getItem(item.id));
-          return null;
-        }
-        if (!gate.ok) {
-          await this.returnForBase(item, baseBranch, buildGateFailurePrompt(gate.command, gate.output),
-            `\`${gate.command}\` failed after merging ${baseBranch}`);
-          return null;
-        }
-      }
+      const checked = await this.checkMergedBase(item, run, sync.status === 'merged', baseTip, group, signal, timer);
+      if (!checked) return null;
+      item = checked;
     }
     if (closeDocuments && !item.landedCommit) {
       assertDocumentReview(await readDocumentReview(item.documentPath), this.reviewedDocuments(item));
@@ -336,6 +321,12 @@ export class PlanQueueItemLanding {
         // Base moved between the check above and the squash; bring it in so the
         // conflict is in the worker's tree, where it can be resolved.
         const sync = await timer.measure('sync', () => syncItemWithBase(item, baseBranch, repoRoot));
+        if (sync.status === 'merged') {
+          // It merged after all, so there is nothing for a worker to resolve: check that and build the commit again.
+          const tip = await gitExec(['rev-parse', `refs/heads/${baseBranch}`], repoRoot);
+          const checked = await this.checkMergedBase(host.getItem(item.id), run, true, tip, undefined, signal, timer);
+          return checked && this.buildAndPromoteMeasured(checked, run, tip, closeDocuments, signal, timer);
+        }
         const files = sync.status === 'conflict' ? sync.conflictFiles : result.conflictFiles;
         await this.returnForBase(item, baseBranch, buildConflictPrompt(baseBranch, files),
           `${baseBranch} moved during landing and conflicts (${files.join(', ')})`);
@@ -359,6 +350,38 @@ export class PlanQueueItemLanding {
           buildActiveDocumentsPrompt(result.paths), result.paths.join(', '));
         return null;
     }
+  }
+
+  /** Record a merge of the base and run the check it owes. Returns the item, or null when it went elsewhere. */
+  private async checkMergedBase(
+    start: PlanQueueItem,
+    run: PlanQueueRun,
+    merged: boolean,
+    baseTip: string,
+    group: PlanQueueGateReceipt['checkGroup'],
+    signal: AbortSignal,
+    timer: LandingTimer,
+  ): Promise<PlanQueueItem | null> {
+    const { host } = this.ctx;
+    const repoRoot = run.workspaceCwd;
+    const baseBranch = requireBaseBranch(run);
+    const item = merged ? await host.worktrees.checkpoint(start, `merge ${baseBranch} before landing`) : start;
+    // A timed-out check left the merge in place, so Try merging again finds nothing to merge but still owes the check.
+    if (!merged && !mergeCheckStillOwed(host, item)) return item;
+    const covered = group && await gitExec(['rev-parse', `refs/heads/${baseBranch}`], repoRoot) === baseTip
+      && groupRoundStillIntact(group, host);
+    const gate = covered ? { ok: true } as const : await timer.measure('mergeCheck', () => runPostMergeGate(run.config.postMergeGate, item.worktreePath!, signal));
+    if (gate.ok) return item;
+    if (gate.timedOut) {
+      recordMergeCheckTimeout(host, item);
+      await this.ctx.park(item, 'land-blocked', `Not landed: \`${gate.command}\` ran out of time after merging ${baseBranch}, so nothing changed on ${baseBranch}. A worker cannot fix a timeout; press Try merging again once the machine is quieter.`);
+      // Parking saves anything the killed check left behind, which makes a new commit: record that one too.
+      recordMergeCheckTimeout(host, host.getItem(item.id));
+      return null;
+    }
+    await this.returnForBase(item, baseBranch, buildGateFailurePrompt(gate.command, gate.output),
+      `\`${gate.command}\` failed after merging ${baseBranch}`);
+    return null;
   }
 
   /** Back to the worker while the base branch keeps moving under the item; parked on the fourth return, so it cannot loop. */

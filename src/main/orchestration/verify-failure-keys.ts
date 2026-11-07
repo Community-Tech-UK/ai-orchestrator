@@ -61,6 +61,15 @@ export function extractVerifyFailureKeys(
   return { keys, ...(failedStep ? { failedStep } : {}), parse: 'complete' };
 }
 
+/** Every failed test the output names. Unlike the keys this is for reading, so a clipped report still counts. */
+export function failedTestNames(output: string): string[] {
+  const names = stripVTControlCharacters(output).replaceAll('\r', '').split('\n').flatMap(line => {
+    const match = VITEST_DETAIL.exec(line) ?? VITEST_QUIET.exec(line);
+    return match ? [`${match[1]} › ${testName(match[2])}`] : [];
+  });
+  return [...new Set(names)];
+}
+
 function hasUnsupportedFailure(lines: readonly string[]): boolean {
   let vitestFile = false;
   for (const line of lines) {

@@ -56,7 +56,7 @@ describe('aio-mcp plan-queue move through the parent dispatcher', () => {
       windowDays: 14, since: 0, attemptsLanded: NOTHING, documentsLanded: NOTHING, passesNotLanded: NOTHING, firstCheckPassed: NOTHING,
       freeSlotToStart: { count: 0, medianMs: null }, checkTime: { count: 0, medianMs: null },
       landingTime: { count: 0, medianMs: null, syncMs: null, mergeCheckMs: null, commitCheckMs: null, publishMs: null },
-      waiting: { waitingMs: 0, workingMs: 0, share: null }, setAsideRounds: { items: 0, rounds: 0 },
+      waiting: { waitingMs: 0, workingMs: 0, share: null }, setAsideRounds: { items: 0, rounds: 0 }, repeatFailingTests: [],
     });
     const text = await cli(['list']);
     expect(text).toContain('run-1 | paused | plans | 0 document(s) | owner: session owner');

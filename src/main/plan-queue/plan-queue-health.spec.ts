@@ -147,4 +147,20 @@ describe('Queue health', () => {
     ];
     expect(computeQueueHealth({ now: NOW, windowDays: 14, items: [], verdicts: [], states: [], timings: rows }).checkTime).toEqual({ count: 0, medianMs: null });
   });
+
+  it('lists tests that failed for more than one document, counting each document once', () => {
+    const items = [['a', '/repo/one_plan.md'], ['b', '/repo/one_plan.md'], ['c', '/repo/two_plan.md'], ['d', '/repo/three_plan.md']]
+      .map(([id, documentPath]) => ({ id, documentPath, state: 'parked' }));
+    const row = (itemId: string, ...gates: object[]) => ({ itemId, verdict: 'FAIL', gates: JSON.stringify(gates) });
+    const health = computeQueueHealth({ now: NOW, windowDays: 14, items, states: [], timings: [], verdicts: [
+      row('a', { failingTests: ['shared test', 'same document only'] }),
+      row('a', { failingTests: ['shared test'] }),
+      row('b', { failingTests: ['same document only'] }),
+      row('c', { failingTests: ['shared test', 'pair test'] }),
+      row('d', { failingTests: ['shared test', 'pair test'] }, { timedOut: true, failingTests: ['timed out test'] }),
+      row('c', { timedOut: true, failingTests: ['timed out test'] }),
+      row('d', { command: 'older verdict with no names' }),
+    ] });
+    expect(health.repeatFailingTests).toEqual([{ test: 'shared test', jobs: 3 }, { test: 'pair test', jobs: 2 }]);
+  });
 });

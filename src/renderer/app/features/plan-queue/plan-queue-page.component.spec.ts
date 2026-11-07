@@ -296,7 +296,7 @@ describe('PlanQueuePageComponent', () => {
       passesNotLanded: { count: 0, of: 6, share: 0 }, firstCheckPassed: { count: 3, of: 6, share: 0.5 },
       freeSlotToStart: { count: 2, medianMs: 30_000 }, checkTime: { count: 4, medianMs: 600_000 },
       landingTime: { count: 3, medianMs: 300_000, syncMs: null, mergeCheckMs: null, commitCheckMs: 240_000, publishMs: null },
-      waiting: { waitingMs: 60_000, workingMs: 180_000, share: 0.25 }, setAsideRounds: { items: 1, rounds: 3 },
+      waiting: { waitingMs: 60_000, workingMs: 180_000, share: 0.25 }, setAsideRounds: { items: 1, rounds: 3 }, repeatFailingTests: [],
     });
     fixture.detectChanges();
     const section = fixture.nativeElement.querySelector('.pq-section-health') as HTMLElement;

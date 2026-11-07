@@ -88,6 +88,7 @@ export const PlanQueueGateRunSchema = z.object({
   tail: z.string().max(2048).optional(),
   classification: z.enum(['passed', 'failed', 'no-tests-found', 'not-recognised']).optional(),
   baseline: z.enum(['new', 'also-failing-on-base']).optional(),
+  failingTests: z.array(z.string().min(1).max(300)).max(20).optional(),
 });
 
 export const PlanQueueNeedJamesEntrySchema = z.object({
@@ -394,6 +395,8 @@ export const PlanQueueHealthSchema = z.object({
   }),
   waiting: z.object({ waitingMs: z.number().nonnegative(), workingMs: z.number().nonnegative(), share: z.number().min(0).max(1).nullable() }),
   setAsideRounds: z.object({ items: z.number().int().nonnegative(), rounds: z.number().int().nonnegative() }),
+  /** Tests that failed in more than one document, most documents first. */
+  repeatFailingTests: z.array(z.object({ test: z.string().min(1).max(300), jobs: z.number().int().min(2) })).max(5),
 });
 
 export const PlanQueueRunDtoSchema = z.object({

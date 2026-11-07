@@ -6215,7 +6215,7 @@
     },
     {
       "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
-      "lines": 3493
+      "lines": 3520
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
