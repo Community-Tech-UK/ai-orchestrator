@@ -6,6 +6,7 @@
  *   - Dependencies: `npm ci --dry-run` must succeed when the project has a lockfile. It runs in the live checkout, and
  *     npm before 10.8 ignores `--dry-run` and empties node_modules, so older npm is skipped, never run.
  *   - Gates: every configured check command must exist (an npm script in package.json, or a program on the PATH).
+ *   - Disk: each job needs its own work folder with dependencies, so a nearly full disk refuses the run.
  */
 
 import * as fs from 'fs/promises';
@@ -90,12 +91,27 @@ async function checkGates(repoRoot: string, gates: readonly string[], shell: Rea
   return null;
 }
 
+/**
+ * Each job's work folder and its dependencies need room. macOS reports less than it can free on demand (local
+ * snapshots, iCloud files), so the floor is low: below it the folders themselves start failing.
+ */
+export const MIN_FREE_DISK_BYTES = 2e9;
+
+async function checkDisk(repoRoot: string): Promise<string | null> {
+  const disk = await fs.statfs(repoRoot).catch(() => null);
+  if (!disk) return null;
+  const free = disk.bavail * disk.bsize;
+  return free >= MIN_FREE_DISK_BYTES ? null
+    : `only ${(free / 1e9).toFixed(1)} GB is free right now on the disk holding ${repoRoot}. Each job needs a work folder of its own; free some space, then try again.`;
+}
+
 /** Throws a plain-language error when the project cannot run this run's checks; the run then does not start. */
 export async function assertRunReady(
   repoRoot: string,
   gates: readonly string[],
   shell: ReadinessShell = defaultReadinessShell,
 ): Promise<void> {
-  const problem = await checkGates(repoRoot, gates, shell) ?? await checkNode(repoRoot, shell) ?? await checkDependencies(repoRoot, shell);
+  const problem = await checkDisk(repoRoot) ?? await checkGates(repoRoot, gates, shell) ?? await checkNode(repoRoot, shell)
+    ?? await checkDependencies(repoRoot, shell);
   if (problem) throw new Error(`This run cannot start: ${problem}`);
 }

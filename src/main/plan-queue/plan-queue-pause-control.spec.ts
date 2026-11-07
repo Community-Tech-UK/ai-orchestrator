@@ -72,7 +72,7 @@ beforeEach(() => {
   git(['worktree', 'add', '-qb', 'queue/example', worktreePath]);
   db = new Database(':memory:') as unknown as SqliteDriver; runLoopMigrations(db); store = new PlanQueueStore(db);
   run = { id: 'run', parentInstanceId: 'parent', parentHistoryThreadId: null, kind: 'plans', workspaceCwd: repo, status: 'running',
-    config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, baseBranch: 'main', routing: { workers: [{ provider: 'claude' }], verifiers: [{ provider: 'codex' }] }, startingSessionRoute: { provider: 'claude' } },
+    config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, baseBranch: 'main', verifierGates: [], postMergeGate: [], routing: { workers: [{ provider: 'claude' }], verifiers: [{ provider: 'codex' }] }, startingSessionRoute: { provider: 'claude' } },
     workerProvider: 'claude', workerModel: null, relaxation: null, startedAt: 1, endedAt: null };
   item = newPlanQueueItem('item', run.id, join(repo, 'example_plan.md'), 1, {
     state: 'working', branchName: 'queue/example', worktreePath, checkpointCommit: git(['rev-parse', 'HEAD']), workerInstanceId: 'worker',
@@ -219,6 +219,31 @@ describe('Plan Queue pause controls in the coordinator', () => {
     expect(snapshot.filter(entry => entry.status === 'running')).toHaveLength(1);
     expect(snapshot.filter(entry => entry.status === 'paused')).toHaveLength(0);
     expect(new Set(snapshot.map(entry => entry.id)).size).toBe(snapshot.length);
+  });
+
+  it('refuses to resume a paused run whose main folder moved to another branch, and leaves it paused', async () => {
+    await coordinator.control({ action: 'pause', runId: run.id });
+    await coordinator._whenSettledForTesting();
+    git(['checkout', '-qb', 'elsewhere']);
+    await expect(coordinator.control({ action: 'resume', runId: run.id })).rejects.toThrow(/on elsewhere, but the run lands its work on main/);
+    expect(store.getRun(run.id)?.status).toBe('paused');
+  });
+
+  it('refuses to resume a job in a finished run whose folder moved branch, without reopening the run', async () => {
+    store.upsertRun({ ...store.getRun(run.id)!, status: 'completed', endedAt: 2 });
+    store.upsertItem({ ...store.getItem(item.id)!, state: 'parked', parkReason: 'round-limit', workerInstanceId: null });
+    git(['checkout', '-qb', 'elsewhere']);
+    await expect(coordinator.control({ action: 'resume-item', itemId: item.id })).rejects.toThrow(/on elsewhere/);
+    expect(store.getRun(run.id)?.status).toBe('completed');
+    expect(store.getItem(item.id)?.state).toBe('parked');
+  });
+
+  it('lets a person retry a merge in a finished run without the start checks, as a merge needs no install', async () => {
+    store.upsertRun({ ...store.getRun(run.id)!, status: 'completed', endedAt: 2 });
+    git(['checkout', '-qb', 'elsewhere']);
+    const refusal = await coordinator.control({ action: 'retry-landing', itemId: item.id }).then(() => null, (error: Error) => error.message);
+    // It may still be refused for its own reasons, never by the checks a fresh start needs.
+    expect(refusal ?? '').not.toMatch(/cannot carry on|cannot start/);
   });
 
   it('publishes paused while checkpointing and serializes concurrent Resume until the saved work is safe', async () => {

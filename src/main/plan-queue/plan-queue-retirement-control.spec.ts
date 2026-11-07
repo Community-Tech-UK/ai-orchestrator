@@ -69,7 +69,7 @@ beforeEach(() => {
   git(['worktree', 'add', '-qb', 'queue/example', worktreePath]);
   db = new Database(':memory:') as unknown as SqliteDriver; runLoopMigrations(db); store = new PlanQueueStore(db);
   run = { id: 'run', parentInstanceId: 'parent', parentHistoryThreadId: null, kind: 'plans', workspaceCwd: repo, status: 'running',
-    config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, baseBranch: 'main', routing: { workers: [{ provider: 'claude' }], verifiers: [{ provider: 'codex' }] }, startingSessionRoute: { provider: 'claude' } },
+    config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, baseBranch: 'main', verifierGates: [], postMergeGate: [], routing: { workers: [{ provider: 'claude' }], verifiers: [{ provider: 'codex' }] }, startingSessionRoute: { provider: 'claude' } },
     workerProvider: 'claude', workerModel: null, relaxation: null, startedAt: 1, endedAt: null };
   item = newPlanQueueItem('item', run.id, join(repo, 'example_plan.md'), 1, {
     state: 'working', branchName: 'queue/example', worktreePath, checkpointCommit: git(['rev-parse', 'HEAD']), workerInstanceId: 'worker',

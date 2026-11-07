@@ -8,6 +8,8 @@ import type { PlanQueueRun } from './plan-queue.types';
 const logger = getLogger('PlanQueueRunControl');
 type RunPayload = Extract<PlanQueueControlPayload, { runId: string }>;
 export interface PlanQueueRunControlHost extends PlanQueueRunRoutingChangeHost {
+  /** Routing, the folder's branch and the start checks, before a paused run carries on. */
+  preflightResume(run: PlanQueueRun): Promise<void>;
   getRun(id: string): PlanQueueRun;
   authorize(run: PlanQueueRun, action: RunPayload['action'], caller?: string): string;
   cancel(run: PlanQueueRun, actor: string): Promise<void>;
@@ -43,7 +45,7 @@ export class PlanQueueRunControl {
         case 'resume':
           if (run.status === 'running' && run.holdReason) { host.upsertRun({ ...run, holdReason: null }); break; }
           if (run.status !== 'paused') break;
-          await host.preflightRun(run);
+          await host.preflightResume(run);
           // Retry an interrupted checkpoint/revert before allowing the scheduler to run.
           await host.holdRun(run);
           host.upsertRun({ ...host.getRun(run.id), status: 'running', holdReason: null });

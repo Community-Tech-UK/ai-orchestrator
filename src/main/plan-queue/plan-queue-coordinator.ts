@@ -12,7 +12,7 @@
  * (PlanQueueItemFlow).
  */
 import { randomUUID } from 'crypto';
-import { preflightPlanQueueRun } from './plan-queue-run-preflight';
+import { preflightPlanQueueRun, preflightResumedRun, preflightRunRouting } from './plan-queue-run-preflight';
 import { assertRunReady } from './plan-queue-run-readiness';
 import { claimDocumentsAndCreateItems } from './plan-queue-run-start';
 import { rememberJamesAnswer } from './plan-queue-triage-memory';
@@ -549,9 +549,8 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
         hasParkedWork: (run) => this.store.listItems(run.id).some(item => item.state === 'parked'),
         authorize: (run, action, caller) => this.authorizeControl(run, action, caller),
         upsertRun: (run) => { this.saveRun(run); },
-        preflightRun: run => preflightPlanQueueRun({ routing: run.config.routing ?? { workers: [], verifiers: [] },
-          workspaceCwd: run.workspaceCwd, workerProvider: run.workerProvider ?? 'claude', workerModel: run.workerModel,
-          selectVerifier: input => this.selectVerifier(input) }),
+        preflightRun: run => preflightRunRouting(run, input => this.selectVerifier(input)),
+        preflightResume: run => preflightResumedRun(run, input => this.selectVerifier(input)),
         holdRun: async (run) => {
           const moving = run.status === 'running';
           if (moving) this.saveRun({ ...this.getRun(run.id), status: 'paused' });
@@ -593,6 +592,8 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     const run = this.require(this.parents).follow(this.getRun(item.runId));
     const actor = this.authorizeControl(run, payload.action, callerInstanceId);
     if (payload.action === 'resume-item' || payload.action === 'retry-landing') this.refuseIfNewerAttemptLanded(item);
+    // Resuming a job reopens its finished run: the same checks as resuming a run (step 5.3). A merge needs no new folder or install.
+    if (payload.action === 'resume-item' && (run.status === 'completed' || run.status === 'cancelled')) await preflightResumedRun(run, input => this.selectVerifier(input));
     this.setAside?.spendRestart(callerInstanceId, payload.action, item);
     switch (payload.action) {
       case 'skip-item':

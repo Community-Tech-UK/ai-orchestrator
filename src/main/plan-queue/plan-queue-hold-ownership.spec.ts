@@ -68,7 +68,7 @@ beforeEach(() => {
   store = new PlanQueueStore(db);
   run = {
     id: 'run', parentInstanceId: 'parent', parentHistoryThreadId: null, kind: 'plans', workspaceCwd: repo, status: 'paused',
-    config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, baseBranch: 'main',
+    config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, baseBranch: 'main', verifierGates: [], postMergeGate: [],
       routing: { workers: [{ provider: 'claude' }], verifiers: [{ provider: 'codex' }] }, startingSessionRoute: { provider: 'claude' } },
     workerProvider: 'claude', workerModel: null, relaxation: null, startedAt: 1, endedAt: null,
   };

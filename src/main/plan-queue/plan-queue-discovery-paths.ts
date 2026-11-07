@@ -109,7 +109,8 @@ export async function selectPlanQueuePaths(
 ): Promise<string[]> {
   const rules = await readIgnore(repoRoot);
   if (isExactPlanQueueSelection(glob)) {
-    return (await exactPath(repoRoot, glob, rules)).filter(file => wanted(path.basename(file)));
+    const exact = (await exactPath(repoRoot, glob, rules)).filter(file => wanted(path.basename(file)));
+    return exact.length && await inNestedRepository(repoRoot, exact[0]) ? [] : exact;
   }
   const files: string[] = [];
   let entries = 0;
@@ -122,7 +123,8 @@ export async function selectPlanQueuePaths(
       const relative = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        if (!skipDirectory(entry.name, withinPlans) && !rules.ignores(`${relative}/`)) {
+        // A folder that is its own repository: its documents belong to another project, and a run here would land them in this one.
+        if (!skipDirectory(entry.name, withinPlans) && !rules.ignores(`${relative}/`) && !await isRepository(full)) {
           await walk(full, relative, withinPlans || entry.name.toLowerCase() === 'plans', depth + 1);
         }
       } else if (entry.isFile() && wanted(entry.name) && matcher.test(relative) && !rules.ignores(relative)) {
@@ -132,8 +134,21 @@ export async function selectPlanQueuePaths(
     }
   }
   const start = await wildcardStart(repoRoot, glob, rules, false);
-  if (start) await walk(start.dir, start.relative, start.withinPlans, start.depth);
+  // A narrowed selection can start inside another repository; the walk only checks the folders below its start.
+  if (start && !await inNestedRepository(repoRoot, path.join(start.dir, 'any'))) await walk(start.dir, start.relative, start.withinPlans, start.depth);
   return files.sort();
+}
+
+async function isRepository(folder: string): Promise<boolean> {
+  return fs.lstat(path.join(folder, '.git')).then(() => true, () => false);
+}
+
+/** True when a folder between the root and the file is its own repository: the file belongs to another project. */
+export async function inNestedRepository(repoRoot: string, file: string): Promise<boolean> {
+  for (let folder = path.dirname(file); folder.startsWith(repoRoot + path.sep); folder = path.dirname(folder)) {
+    if (await isRepository(folder)) return true;
+  }
+  return false;
 }
 
 /** Advisory copy count has its own budget: copies cannot crowd real plans out. */

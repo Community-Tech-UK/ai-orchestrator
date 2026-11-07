@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, realpathSync } from 'node:fs';
+import { readFileSync, realpathSync, symlinkSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -213,6 +213,19 @@ describe('verified retry landing', () => {
     await test.flow.resume('item-1');
 
     expect(forget).toHaveBeenCalledWith('checked-commit');
+  });
+
+  it('still resumes when the parked note can\'t safely be taken off, leaving it in place', async () => {
+    const test = fixture({ landedCommit: null });
+    const real = join(repo, 'real_plan.md');
+    await writeFile(real, '# Plan\n\n> Plan Queue parked work: `queue/item-1` — 1 commit(s), reason: round-limit.\n');
+    await rm(test.get().documentPath);
+    symlinkSync(real, test.get().documentPath);
+
+    await test.flow.resume('item-1');
+
+    expect(test.get().state).toBe('queued');
+    expect(await readFile(real, 'utf8')).toContain('Plan Queue parked work');
   });
 
   it('leaves the note alone while another attempt at the document is being checked', async () => {

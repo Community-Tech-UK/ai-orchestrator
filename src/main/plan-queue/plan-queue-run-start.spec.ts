@@ -63,6 +63,32 @@ describe('starting a document that keeps stopping the same way', () => {
   });
 });
 
+describe('a plan too big for one job', () => {
+  const bigPlan = (lines: string[]) => { const path = join(folder, 'big_plan.md'); writeFileSync(path, ['# Big', ...lines].join('\n')); return path; };
+  const startWith = (path: string, queueDirectly = false, kind: PlanQueueRun['kind'] = 'plans') => {
+    const target = { ...run, kind };
+    claimDocumentsAndCreateItems({ store, now: () => 100, newId: () => `big-${kind}-${queueDirectly}` }, target, [{ path, readiness: 'candidate' }], { queueDirectly });
+    return store.listItems(run.id).find(item => item.documentPath === path)!;
+  };
+
+  it('is left out of a bulk start, saying why, when it has many unticked items', () => {
+    const item = startWith(bigPlan(Array.from({ length: 21 }, (_, n) => `- [ ] step ${n}`)));
+    expect(item).toMatchObject({ state: 'skipped', detail: expect.stringContaining('21 unticked items') });
+  });
+
+  it('is left out when it is very large, even with few items left', () => {
+    expect(startWith(bigPlan(['x'.repeat(60_000), '- [ ] last step'])).state).toBe('skipped');
+  });
+
+  it('starts when picked by name, and a normal plan starts as usual', () => {
+    expect(startWith(bigPlan(Array.from({ length: 21 }, (_, n) => `- [ ] step ${n}`)), true).state).toBe('queued');
+  });
+
+  it('leaves live-test documents alone, whose checklists are long by nature', () => {
+    expect(startWith(bigPlan(Array.from({ length: 30 }, (_, n) => `- [ ] check ${n}`)), false, 'livetests').state).not.toBe('skipped');
+  });
+});
+
 describe('rounds across attempts', () => {
   it('reaches the job row, and counts verdicts from every attempt', () => {
     for (const [itemId, runId, round] of [['first', 'older', 1], ['first', 'older', 2], ['second', 'old', 1]] as const) {

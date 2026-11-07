@@ -641,7 +641,12 @@ export class PlanQueueItemFlow {
       if (resumed.checkpointCommit) this.verification.forgetResults(resumed.checkpointCommit);
       // Unless another attempt is being checked or landing: its review holds these bytes, note and all.
       if (resumed.branchName && !this.host.store.documentBeingChecked(resumed.documentPath, resumed.id)) {
-        this.host.history.recordDocumentTransformation(resumed, await removeParkedNote(resumed.documentPath, resumed.branchName));
+        // A document that can't safely be edited keeps its note, as it always did; the Resume still goes ahead.
+        const change = await removeParkedNote(resumed.documentPath, resumed.branchName).catch((error: unknown) => {
+          logger.warn('Plan queue: the parked note stayed in the document', { itemId, error: errorMessage(error) });
+          return undefined;
+        });
+        this.host.history.recordDocumentTransformation(resumed, change);
       }
       // `steppedUpAt` stays: a handed-over document resumes on the step-up choice and is never handed over twice.
       this.host.transition(this.host.getItem(itemId), 'queued', { parkReason: null, detail: null, heldAt: null, discardedAt: null, discardedBy: null, round: 0, erroredRounds: 0, landingRefusals: 0, baseConflicts: 0, question: null, landedCommit: null, verdict: null, verifiedMainCommit: null, pendingInstruction: this.workerSessions.carryOverForResume(itemId) });

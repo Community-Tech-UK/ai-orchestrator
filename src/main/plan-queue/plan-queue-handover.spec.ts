@@ -254,7 +254,7 @@ it('allows the notified owner to hand over within the same awaited input turn', 
     getRun: deps.getRun, authorize: (current: PlanQueueRun, action: Parameters<typeof authorizePlanQueueControl>[1], caller?: string) => authorizePlanQueueControl(current, action, caller, lookup),
     requestHandover: (current: PlanQueueRun, caller?: string) => requestRunHandover(current, caller, deps),
     handover: (current: PlanQueueRun, target: string, caller?: string) => handoverRunParent(current, target, caller, deps),
-    preflightRun: vi.fn(async () => undefined), adopt: vi.fn(), cancel: vi.fn(), upsertRun: vi.fn(), hasParkedWork: () => true, parentRoute: () => ({}),
+    preflightRun: vi.fn(async () => undefined), preflightResume: vi.fn(async () => undefined), adopt: vi.fn(), cancel: vi.fn(), upsertRun: vi.fn(), hasParkedWork: () => true, parentRoute: () => ({}),
     holdRun: vi.fn(), requestPump: vi.fn(), notifyParent: vi.fn(),
   };
   deps.instances.sendInput.mockImplementation(async () => {

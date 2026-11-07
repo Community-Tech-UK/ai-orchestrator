@@ -4,6 +4,14 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { assertRunReady, type ReadinessShell } from './plan-queue-run-readiness';
 
+/** Set to fake a nearly full disk; null reads the real one. */
+const disk = vi.hoisted(() => ({ freeBlocks: null as number | null }));
+vi.mock('fs/promises', async (original) => {
+  const actual = await original<typeof import('fs/promises')>();
+  return { ...actual, statfs: (async (...args: Parameters<typeof actual.statfs>) => disk.freeBlocks === null
+    ? actual.statfs(...args) : { bavail: disk.freeBlocks, bsize: 1024 ** 2 }) as typeof actual.statfs };
+});
+
 let root: string;
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'plan-queue-ready-')); });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
@@ -14,6 +22,12 @@ function shell(answers: Record<string, { exitCode: number; output: string }> = {
 }
 
 describe('assertRunReady', () => {
+  it('refuses when the disk is nearly full, saying how much is free', async () => {
+    disk.freeBlocks = 1024;
+    try { await expect(assertRunReady(root, [], shell())).rejects.toThrow(/only 1\.1 GB is free right now/); }
+    finally { disk.freeBlocks = null; }
+  });
+
   it('passes a project with no pins, no lockfile and no gates without running anything', async () => {
     const sh = shell();
     await expect(assertRunReady(root, [], sh)).resolves.toBeUndefined();

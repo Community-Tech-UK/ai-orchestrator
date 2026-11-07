@@ -97,11 +97,12 @@ describe('explicit orphan Discard through the real queue flow', () => {
       runLoopMigrations(db);
       const store = new PlanQueueStore(db);
       store.upsertRun({ id: item.runId, parentInstanceId: 'parent', parentHistoryThreadId: null,
-        kind: 'plans', workspaceCwd: repo, status: 'completed', config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, baseBranch: 'main' },
+        kind: 'plans', workspaceCwd: repo, status: 'completed', config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, baseBranch: 'main', verifierGates: [], postMergeGate: [] },
         workerProvider: null, workerModel: null, relaxation: null, startedAt: 1, endedAt: 1 });
       store.upsertItem(item);
       const control = new PlanQueueCoordinator();
-      Object.assign(control, { deps: { store, now: Date.now }, worktreeService: service,
+      // Resuming a job in a finished run runs the start checks, which choose a checker.
+      Object.assign(control, { deps: { store, now: Date.now, selectVerifier: async () => ({ ok: true, choice: { provider: 'codex' } }) }, worktreeService: service,
         parents: { follow: (value: unknown) => value }, authorizeControl: () => 'James',
         reopen: () => undefined, requestPump: () => undefined });
       Object.assign(control, { flow: new PlanQueueItemFlow(control) });

@@ -12,7 +12,7 @@ import type { PlanQueueStore } from './plan-queue-store';
 import { isTerminalItemState, newPlanQueueItem } from './plan-queue-state';
 import { rememberedOutcomeForPath, type RememberedOutcome } from './plan-queue-triage-memory';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync, statSync } from 'fs';
 import { repeatedStopNote } from './plan-queue-document-memory';
 import { automaticDecisionPatch } from './plan-queue-readiness';
 
@@ -28,6 +28,23 @@ export interface PlanQueueRunStartDeps {
   memory?: PlanQueueHistoryStore;
   now: () => number;
   newId: () => string;
+}
+
+/** One worker rarely finishes more than this in a job (step 5.1); revisit with Queue health's numbers. */
+const OVERSIZED_BYTES = 50_000;
+const OVERSIZED_OPEN_ITEMS = 20;
+
+/** Why a bulk start leaves a plan out as too big for one job, or null. Picking it by name still starts it. */
+export function oversizedNote(documentPath: string): string | null {
+  let size: number;
+  try { size = statSync(documentPath).size; } catch { return null; }
+  const kilobytes = Math.round(size / 1000);
+  // Too big already: no need to read it, and this runs on the main thread.
+  if (size > OVERSIZED_BYTES) return `Left out of this run: at ${kilobytes} KB it is likely too big for one job. Split it, or pick it by name to start it anyway.`;
+  let open: number;
+  try { open = readFileSync(documentPath, 'utf8').match(/^\s*[-*] \[ \]/gm)?.length ?? 0; } catch { return null; }
+  if (open <= OVERSIZED_OPEN_ITEMS) return null;
+  return `Left out of this run: with ${open} unticked items it is likely too big for one job. Split it, or pick it by name to start it anyway.`;
 }
 
 const NEEDS_PLAN_DETAIL = 'No implementation plan exists. The spec remains open; create and link a plan in a planning task, then queue that plan.';
@@ -55,11 +72,12 @@ export function claimDocumentsAndCreateItems(
     const previousRun = previous ? deps.store.getRun(previous.runId) : null;
     // Merged work has moved on from this attempt, so offering to resume it would be an option that always fails.
     const setAside = previous && previousRun?.parentInstanceId === run.parentInstanceId && !deps.store.newerAttemptLanded(previous) ? previous : null;
-    const repeatedStop = !options.queueDirectly && !needsPlan && !setAside ? repeatedStopNote(deps.store, doc.path) : null;
+    const leftOut = options.queueDirectly || needsPlan || setAside ? null
+      : (run.kind === 'plans' ? oversizedNote(doc.path) : null) ?? repeatedStopNote(deps.store, doc.path);
     const remembered = !options.queueDirectly && !needsPlan && doc.readiness === 'candidate' && !setAside
       ? rememberedOutcomeForPath(deps.memory, doc.path, run.workspaceCwd)
       : { kind: 'none', detail: '' } as RememberedOutcome;
-    const patch = (repeatedStop ? { state: 'skipped' as PlanQueueItemState, detail: repeatedStop } : rememberedPatch(remembered))
+    const patch = (leftOut ? { state: 'skipped' as PlanQueueItemState, detail: leftOut } : rememberedPatch(remembered))
       ?? (setAside
         ? { state: 'needs-answer' as PlanQueueItemState, detail: null, question: setAsideQuestion(setAside) }
         : needsPlan

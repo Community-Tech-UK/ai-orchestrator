@@ -69,6 +69,16 @@ describe('globToRegExp', () => {
 });
 
 describe('discoverPlanQueueDocuments', () => {
+  it('skips a folder that is its own repository, whose plans belong to another project', async () => {
+    write('vendor/other-project/.git/HEAD', 'ref: refs/heads/main\n');
+    write('vendor/other-project/docs/plans/2026-10-01-elsewhere_plan.md');
+    const docs = await discoverPlanQueueDocuments(root, 'plans');
+    expect(docs.map(doc => doc.path).some(file => file.includes('elsewhere'))).toBe(false);
+    expect(docs.length).toBeGreaterThan(0);
+    expect(await discoverPlanQueueDocuments(root, 'plans', 'vendor/other-project/docs/plans/*')).toEqual([]);
+    expect(await discoverPlanQueueDocuments(root, 'plans', 'vendor/other-project/docs/plans/2026-10-01-elsewhere_plan.md')).toEqual([]);
+  });
+
   it('previews real documents separately from matching copies without reading their content', async () => {
     write('docs/plans/evidence/snapshot/docs/plans/copied_plan.md');
     write('docs/plans/nested/plans/also-copied_plan.md');
