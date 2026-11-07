@@ -3,7 +3,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { availableParallelism } from 'node:os';
-import { sampleBusyCores, testMaxForks } from '../../vitest.pool';
+import { CHOSEN_FORKS, resolveTestMaxForks, sampleBusyCores, testMaxForks } from '../../vitest.pool';
 
 /**
  * Both Vitest projects ran `singleFork: true` until 2026-08-20, which put every
@@ -102,6 +102,24 @@ describe('test worker fan-out', () => {
       expect(sampleBusyCores(10)).toBeNull();
     } finally {
       Atomics.wait = original;
+    }
+  });
+
+  it('keeps the first count for the whole run, so every project gets the same one', () => {
+    const chosen = globalThis as { [CHOSEN_FORKS]?: number };
+    const kept = chosen[CHOSEN_FORKS];
+    delete chosen[CHOSEN_FORKS];
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      const parallelism = availableParallelism();
+      const first = resolveTestMaxForks(() => 0);
+      const second = resolveTestMaxForks(() => parallelism);
+      expect(second).toBe(first);
+      expect(stderr.mock.calls.filter(([line]) => String(line).startsWith('[test pool]'))).toHaveLength(1);
+    } finally {
+      stderr.mockRestore();
+      if (kept === undefined) delete chosen[CHOSEN_FORKS];
+      else chosen[CHOSEN_FORKS] = kept;
     }
   });
 

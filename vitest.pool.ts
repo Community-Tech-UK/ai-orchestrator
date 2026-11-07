@@ -115,10 +115,20 @@ export function testMaxForks(
   return Math.max(1, Math.min(MAX_FORKS, spareCores));
 }
 
-/** What `vitest.config.ts` calls: samples the host, then sizes the pool. */
-export function resolveTestMaxForks(): number {
-  const busyCores = sampleBusyCores();
+/**
+ * Where the run's count is kept. Vitest reads the config once for the run and again for each project, each time as a
+ * fresh module, and Vitest 5 refuses projects with different `maxWorkers`. A second sample taken as the load moved
+ * stopped mixed main and renderer runs before any test ran ("have different 'maxWorkers'"), so the first one stands.
+ */
+export const CHOSEN_FORKS = Symbol.for('harness.vitest.testMaxForks');
+
+/** What `vitest.config.ts` calls: samples the host once per process, then sizes the pool. */
+export function resolveTestMaxForks(sample: () => number | null = sampleBusyCores): number {
+  const chosen = globalThis as { [CHOSEN_FORKS]?: number };
+  if (chosen[CHOSEN_FORKS] !== undefined) return chosen[CHOSEN_FORKS];
+  const busyCores = sample();
   const forks = testMaxForks(availableParallelism(), loadavg()[0], busyCores);
+  chosen[CHOSEN_FORKS] = forks;
   // A run stays on this count until it ends, so it is the first thing to check on a slow run.
   // scripts/run-tests-quiet.js reads this line for its progress report.
   process.stderr.write(`[test pool] ${forks} test worker(s); ${busyCores?.toFixed(1) ?? 'unknown'} of ${availableParallelism()} cores busy at the start\n`);
