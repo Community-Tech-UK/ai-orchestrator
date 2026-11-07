@@ -17,6 +17,7 @@ import type { ObservationSettings } from './observation-settings.types';
 import type { WorkloadSettings } from './workload-settings.types';
 import type { RemoteReviewerProvider } from './reviewer-provider.types';
 import type { TokenLeverSettings } from './token-lever-settings.types';
+import type { StorageSettings } from './storage-settings.types';
 
 export type { ModelUsageEntry } from './model-usage.types';
 export type { MobileGatewaySettings } from './mobile-gateway-settings.types';
@@ -59,7 +60,7 @@ export interface ComputerChoice {
 
 /** Application settings that are persisted to disk. */
 export interface AppSettings
-  extends DesktopComputerUseSettings, PlanQueueMessageSettings, DisplaySettings, MobileGatewaySettings, ObservationSettings, TokenLeverSettings, TokenTrialSettings,
+  extends DesktopComputerUseSettings, PlanQueueMessageSettings, DisplaySettings, MobileGatewaySettings, ObservationSettings, StorageSettings, TokenLeverSettings, TokenTrialSettings,
     CodexTurnCeilingSettings, WorkloadSettings {
   // General
   /** Keep the system awake; the display may still sleep. */

@@ -1,6 +1,7 @@
 import { SETTINGS_TOOLTIP_COPY } from './settings-tooltip-copy';
 import { ChangeDetectionStrategy, Component, ElementRef, OnDestroy, OnInit, effect, inject, viewChild } from '@angular/core';
 import { StorageUsageStore } from '../../core/state/storage-usage.store';
+import { SettingsStore } from '../../core/state/settings.store';
 import { formatStorageBytes } from '../../../../shared/utils/storage-format';
 import type { StorageCleanupTarget } from '../../../../shared/types/storage.types';
 import { createFocusTrap, type FocusTrapHandle } from '../../shared/utils/focus-trap';
@@ -16,6 +17,7 @@ import { LeftoverWorktreesCardComponent } from './leftover-worktrees-card.compon
 export class StorageUsageCardComponent implements OnInit, OnDestroy {
   protected readonly tooltipCopy = SETTINGS_TOOLTIP_COPY;
   readonly store = inject(StorageUsageStore);
+  readonly settings = inject(SettingsStore);
   readonly bytes = formatStorageBytes;
   readonly reviewHint = copyFor('diskSpace.review');
   readonly refreshHint = copyFor('diskSpace.refresh');

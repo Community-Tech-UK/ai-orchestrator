@@ -75,15 +75,15 @@ beforeEach(async () => {
   vi.mocked(landItemBranch).mockImplementation(async () => ({ status: 'landed', commit: 'promoted' }));
 });
 afterEach(() => { vi.restoreAllMocks(); db.close(); rmSync(root, { recursive: true, force: true }); });
-async function checkedItem(id = 'item', content = reviewed): Promise<PlanQueueItem> {
+async function checkedItem(id = 'item', content = reviewed, runId = 'run'): Promise<PlanQueueItem> {
   const documentPath = join(root, `${id}_plan.md`);
   const worktreePath = join(root, `${id}-worktree`); mkdirSync(worktreePath);
   writeFileSync(documentPath, content);
-  const item = newPlanQueueItem(id, 'run', documentPath, 1, { state: 'verifying', branchName: `queue/${id}`,
+  const item = newPlanQueueItem(id, runId, documentPath, 1, { state: 'verifying', branchName: `queue/${id}`,
     worktreePath, checkpointCommit: 'head', verifiedMainCommit: 'base' });
   store.upsertItem(item);
   const verification = new PlanQueueVerification(host, new PlanQueueGateRunner(), { lock: async (_id, action) => action(), waiting: () => false });
-  await verification.prompt(item, host.getRun('run'), 'main');
+  await verification.prompt(item, host.getRun(runId), 'main');
   const verdict = await verification.record(item, pass);
   expect(verdict.verdict).toBe('PASS');
   return host.transition(item, 'landing', { verdict, round: 1 });
@@ -287,5 +287,67 @@ describe('reviewed root document through landing and closure', () => {
     expect(host.getItem(item.id).state).toBe('landed');
     expect(readFileSync(join(root, 'item_history.md'), 'utf8')).toBe(journal);
     expect(existsSync(item.documentPath)).toBe(false);
+  });
+
+  it('lands nothing and keeps the plan open when its Status names work on another branch', async () => {
+    const item = await checkedItem('elsewhere', '# Plan\n\n## Status\n\nOn main: no (queue/other-branch)\n\n- [x] Done.\n');
+    await flow.enqueueLanding(item.id); await flow.whenSettled();
+    const parked = host.getItem(item.id);
+    expect(parked.state).toBe('parked');
+    expect(parked.parkReason).toBe('land-blocked');
+    expect(parked.detail).toContain('its Status names other unlanded work');
+    expect(landItemBranch).not.toHaveBeenCalled();
+    expect(existsSync(item.documentPath)).toBe(true);
+    expect(existsSync(join(root, 'elsewhere_plan_completed.md'))).toBe(false);
+  });
+
+  it('closes a plan whose Status names only its own branch, saying the work is on main', async () => {
+    const item = await checkedItem('own', '# Plan\n\n## Status\n\nOn main: no (queue/own)\n\n- [x] Done.\n');
+    await flow.enqueueLanding(item.id); await flow.whenSettled();
+    expect(host.getItem(item.id).state).toBe('landed');
+    // This folder is not a git repository, so the plan is closed in place with the landed commit.
+    const closed = readFileSync(join(root, 'own_plan_completed.md'), 'utf8');
+    expect(closed).toMatch(/On main: yes \(\w+\)/);
+    expect(closed).not.toContain('On main: no');
+  });
+
+  it('updates the "On main" line of a plan that stays open once its work lands', async () => {
+    const item = await checkedItem('open', '# Plan\n\n## Status\n\nOn main: no (queue/open)\nNext: Step 2.\n\n- [x] Done.\n');
+    host.save({ ...host.getItem(item.id), verdict: { ...item.verdict!, documentComplete: false } });
+    await flow.enqueueLanding(item.id); await flow.whenSettled();
+    expect(host.getItem(item.id).state).toBe('landed');
+    const text = readFileSync(item.documentPath, 'utf8');
+    expect(text).toContain('On main: yes (');
+    expect(text).not.toContain('On main: no');
+    expect(text).toContain('Next: Step 2.');
+    expect(existsSync(join(root, 'open_plan_completed.md'))).toBe(false);
+  });
+
+  it.each(['## Status (7 Nov)', '## Status: nearly done'])('updates the existing "%s" block of an open plan instead of adding a second Status heading', async heading => {
+    const item = await checkedItem('dated', `# Plan\n\n${heading}\n\nOn main: no (queue/dated)\nNext: Step 2.\n\n- [x] Done.\n`);
+    host.save({ ...host.getItem(item.id), verdict: { ...item.verdict!, documentComplete: false } });
+    await flow.enqueueLanding(item.id); await flow.whenSettled();
+    expect(host.getItem(item.id).state).toBe('landed');
+    const text = readFileSync(item.documentPath, 'utf8');
+    expect(text).toContain(`${heading}\n\nOn main: yes (`);
+    expect(text.match(/^## Status/gm)).toHaveLength(1);
+    expect(text).toContain('Next: Step 2.');
+  });
+
+  it('refuses to close a plan whose dated Status heading names other unlanded work', async () => {
+    const item = await checkedItem('dated-other', '# Plan\n\n## Status (7 Nov)\n\nOn main: no (queue/other-branch)\n\n- [x] Done.\n');
+    await flow.enqueueLanding(item.id); await flow.whenSettled();
+    expect(host.getItem(item.id).parkReason).toBe('land-blocked');
+    expect(host.getItem(item.id).detail).toContain('queue/other-branch');
+    expect(existsSync(join(root, 'dated-other_plan_completed.md'))).toBe(false);
+  });
+
+  it('leaves a live-test document without a Status block alone when its work lands', async () => {
+    store.upsertRun({ ...store.getRun('run')!, id: 'live-run', kind: 'livetests' });
+    const item = await checkedItem('live', '# Live checks\n\n- [x] Done.\n', 'live-run');
+    host.save({ ...host.getItem(item.id), verdict: { ...item.verdict!, documentComplete: false } });
+    await flow.enqueueLanding(item.id); await flow.whenSettled();
+    expect(host.getItem(item.id).state).toBe('landed');
+    expect(readFileSync(item.documentPath, 'utf8')).toBe('# Live checks\n\n- [x] Done.\n');
   });
 });

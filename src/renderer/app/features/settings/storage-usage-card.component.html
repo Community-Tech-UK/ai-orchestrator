@@ -2,6 +2,10 @@
   <header><h3 id="disk-space-heading">Disk space used by Harness</h3>
     <button type="button" [appTooltip]="refreshHint" [disabled]="store.busy() || store.loading()" (click)="store.refresh(true)">Refresh</button>
   </header>
+  <label><input #codexRetention data-codex-retention type="checkbox" [checked]="settings.settings().codexBackupKeepThree"
+    (change)="settings.set('codexBackupKeepThree', codexRetention.checked)"> Keep only the newest 3 Codex backups</label>
+  <p>At the next start, Harness removes older automatic Codex backups. Clean-up and archive backups stay.</p>
+  @if (settings.error()) { <p role="alert">Harness could not save that setting. Try again.</p> }
   @if (store.error(); as error) { <p role="alert">{{ error }}</p> }
   @if (store.loading() && !store.usage()) { <p role="status">Measuring Harness's files…</p> }
   @if (store.usage(); as usage) {

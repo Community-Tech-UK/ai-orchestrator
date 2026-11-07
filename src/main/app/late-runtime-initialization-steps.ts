@@ -27,7 +27,7 @@ import { initAcpAttachmentStoreCleanup } from '../cli/adapters/acp-attachment-st
 import { initializeCodexTempHomeMaintenance } from '../cli/adapters/codex/codex-temp-home-maintenance';
 import { sweepStaleCodexTempHomes } from '../cli/adapters/codex/codex-home-manager';
 import { reconcilePrivateCodexRolloutPaths } from '../cli/adapters/codex/codex-private-rollout-reconcile';
-import { pruneCodexStateBackups } from '../cli/adapters/codex/codex-state-backup-retention';
+import { pruneCodexBackupsAtStartup } from '../cli/adapters/codex/codex-backup-retention-policy';
 import { startLowDiskSpaceWatcher } from '../storage/low-disk-space-watcher';
 import { startScratchSweepScheduler } from '../storage/scratch-sweep-scheduler';
 import { cleanupLeakedAioCodexThreads } from '../cli/adapters/codex/codex-state-cleanup';
@@ -347,7 +347,7 @@ export function createLateRuntimeInitializationSteps(
     { name: 'ACP attachment store cleanup', fn: () => { initAcpAttachmentStoreCleanup(); } },
     { name: 'Leaked Harness Codex thread cleanup', fn: () => { cleanupLeakedAioCodexThreads(); } },
     { name: 'Private Codex rollout-path reconcile', fn: () => { reconcilePrivateCodexRolloutPaths(); } },
-    { name: 'Codex state backup pruning', fn: () => { pruneCodexStateBackups(); } },
+    { name: 'Codex backup pruning', fn: () => { pruneCodexBackupsAtStartup(getSettingsManager().get('codexBackupKeepThree') === true); } },
     { name: 'Stale Codex temp home sweep', fn: () => { sweepStaleCodexTempHomes(); initializeCodexTempHomeMaintenance(); } },
     { name: 'Artifact cleanup maintenance', fn: () => { initializeArtifactCleanupMaintenance(); } },
     { name: 'Close reviews for completed documents', fn: () => { initializeCompletedReviewSweep(); } },

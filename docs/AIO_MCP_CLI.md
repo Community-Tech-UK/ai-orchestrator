@@ -259,7 +259,7 @@ Because of that, the two surfaces have different write boundaries:
 The `CLI-Write` column (`cliWritable` under `--json`) answers "can this CLI
 change it". The `Policy` column reports the safe MCP tool tier instead, so a
 `read-only` policy does not imply the CLI is blocked. `CLI-Write: no` marks the
-28 operator-only authorization anchors: the six Computer Use policy keys, the
+29 operator-only authorization anchors: the six Computer Use policy keys, the
 five Microsoft Graph keys (OAuth, the calendar allowlist and the "Always allow" change list), the context-evidence
 rollout mode, the three Local AI Guard fallback-policy and budget keys, the
 WS-B1 per-project PR-creation opt-in map (`allowPrCreation`), the licence-scoping
@@ -269,8 +269,9 @@ the two account-pool keys (`providerAccountProfiles`,
 `providerAccountPools`, covering Claude, Codex and MiMo), the Plan Queue
 provider-and-account choice (`planQueueRouting`), the Plan Queue never-use and use-last account lists (`planQueueAccountRules`), the Plan Queue checklist for each project folder (`planQueueFolderChecklists`), the two Workspace Secret Card keys (`workspaceSecretsEnabled`,
 `workspaceSecretsAllowAgentRequests`), the post-fill observation lock
-(`browserSecretObservationProtectionEnabled`), and the macOS session signal
-fence (`providerSignalFenceEnabled`).
+(`browserSecretObservationProtectionEnabled`), the macOS session signal
+fence (`providerSignalFenceEnabled`), and automatic Codex backup deletion
+(`codexBackupKeepThree`).
 Those are changed from the Settings UI by the operator, never by an agent.
 `planQueueAccountRules` is the never-use and use-last account list for Plan Queue
 sessions and automation runs: a never-use account is never started on, switched to or

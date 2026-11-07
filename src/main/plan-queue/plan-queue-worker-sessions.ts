@@ -6,6 +6,7 @@ import { hasCheckout } from './plan-queue-orphan-checkout';
 import { unresolvedMergeFiles } from './plan-queue-git';
 import { allocateLivetestPort } from './plan-queue-livetest-port';
 import { buildConflictPrompt, buildParkedCarryOver } from './plan-queue-prompts';
+import { readPlanBrief } from './plan-queue-plan-extract';
 import type { PlanQueueRun, PlanQueueItem } from './plan-queue.types';
 const logger = getLogger('PlanQueueWorkerSessions');
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
@@ -41,13 +42,22 @@ export class PlanQueueWorkerSessions {
     return saved;
   }
 
-  promptContext(run: PlanQueueRun, item: PlanQueueItem) {
+  /** The short continue nudge goes into a session that already has its first prompt, so it carries no plan brief. */
+  continueContext(run: PlanQueueRun, item: PlanQueueItem) {
     return {
       item,
       kind: run.kind,
       repoRoot: run.workspaceCwd,
       worktreePath: item.worktreePath ?? '',
       answer: item.answer,
+    };
+  }
+
+  /** What a worker, resume or step-up prompt is built from; a plan's Status and open work are read fresh from the root checkout. */
+  async promptContext(run: PlanQueueRun, item: PlanQueueItem) {
+    return {
+      ...this.continueContext(run, item),
+      ...(run.kind === 'plans' ? { brief: await readPlanBrief(item.documentPath) } : {}),
     };
   }
 

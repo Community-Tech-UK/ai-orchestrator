@@ -31,6 +31,7 @@ import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { getLogger } from '../logging/logger';
+import { STATUS_TEXT_RE } from './plan-queue-plan-extract';
 import type { PlanQueueHistoryStore } from './plan-queue-history-store';
 import type { PlanQueueItem } from './plan-queue.types';
 import { changeDocumentFile } from './plan-queue-document-mutation';
@@ -42,7 +43,6 @@ export const DIET_GROWTH_BYTES = 8 * 1024;
 export const CLOSE_SMALL_SUMMARY_BYTES = 3 * 1024;
 
 const AS_BUILT_HEADING_RE = /\bas[-\s]?built\b|\basbuilt\b|\bjournal\b/i;
-const STATUS_TEXT_RE = /^status\b/i;
 const STEP_HEADING_RE = /\bsteps?\b/i;
 const NUMBERED_PART_RE = /^\d+[a-z]\.\s/i;
 const MONTHS = String.raw`Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?`;

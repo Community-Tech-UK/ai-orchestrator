@@ -209,7 +209,7 @@ export class PlanQueueItemFlow {
         this.preparationErrors.failed(item, error);
         return;
       }
-      const ctx = this.workerSessions.promptContext(run, item);
+      const ctx = await this.workerSessions.promptContext(run, item);
       try { await this.verification.pin(item); }
       catch (error) { await this.parkUnlocked(item, 'missing-document', errorMessage(error)); return; }
       const prompt = resuming
@@ -251,8 +251,8 @@ export class PlanQueueItemFlow {
       if (await recordQueueRestart(this.host, item) >= 3) {
         await this.parkUnlocked(item, 'restart-loop', 'Restarted 3 times without progress. Check the saved work, then Resume.'); return;
       }
-      const prompt = buildResumePrompt(this.workerSessions.promptContext(run, item), 'the app restarted') + (await this.workerSessions.conflictAddendum(item, run));
-      await this.spawnWorker(item, prompt, item.state === 'preparing' ? 'working' : null, buildContinuePrompt(this.workerSessions.promptContext(run, item), 'the app restarted') + (await this.workerSessions.conflictAddendum(item, run)));
+      const prompt = buildResumePrompt(await this.workerSessions.promptContext(run, item), 'the app restarted') + (await this.workerSessions.conflictAddendum(item, run));
+      await this.spawnWorker(item, prompt, item.state === 'preparing' ? 'working' : null, buildContinuePrompt(this.workerSessions.continueContext(run, item), 'the app restarted') + (await this.workerSessions.conflictAddendum(item, run)));
     });
   }
 
@@ -361,7 +361,7 @@ export class PlanQueueItemFlow {
       try {
         if (await recycleQueueCopilotSession(this.host.instances, worker, () => this.host.tracker.untrack(workerId))) {
           this.workerSessions.record(item.id, workerId);
-          prompt = buildResumePrompt(this.workerSessions.promptContext(this.host.getRun(item.runId), item), 'Copilot compaction left its context above 90%') + '\n\n' + prompt;
+          prompt = buildResumePrompt(await this.workerSessions.promptContext(this.host.getRun(item.runId), item), 'Copilot compaction left its context above 90%') + '\n\n' + prompt;
         }
       } catch (error) {
         await this.parkUnlocked(item, 'worker-error', `Could not refresh Copilot context: ${errorMessage(error)}`); return;
@@ -382,8 +382,8 @@ export class PlanQueueItemFlow {
     }
     if (workerId) { this.workerSessions.record(item.id, workerId); await this.stopInstance(workerId); item = this.host.getItem(item.id); }
     const run = this.host.getRun(item.runId);
-    const resume = buildResumePrompt(this.workerSessions.promptContext(run, item), 'the previous worker session ended');
-    await this.spawnWorker(item, resume, null, buildContinuePrompt(this.workerSessions.promptContext(run, item), 'the previous worker session ended'));
+    const resume = buildResumePrompt(await this.workerSessions.promptContext(run, item), 'the previous worker session ended');
+    await this.spawnWorker(item, resume, null, buildContinuePrompt(this.workerSessions.continueContext(run, item), 'the previous worker session ended'));
   }
 
   onWorkerOutcome(instanceId: string, outcome: PlanQueueTurnOutcome): Promise<void> {

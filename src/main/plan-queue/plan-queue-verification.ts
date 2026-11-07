@@ -9,6 +9,7 @@ import { CHECK_HUNG_DETAIL, recordCheckTimeout } from './plan-queue-check-timeou
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { readPlanPin, comparePinnedUnchecked, extractChecklistItems } from './plan-queue-plan-pins';
 import { buildGateFailurePrompt, buildVerifierPrompt } from './plan-queue-prompts';
+import { bounded, PLAN_BRIEF_BYTES, readPlanBrief } from './plan-queue-plan-extract';
 import { decideNoProgress, documentContentSha256, progressFingerprint, recordRepeatedFindingObservation, repeatedFindingIds } from './plan-queue-progress';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import { PlanQueueCheckGroups, type CheckGroupFlow } from './plan-queue-check-groups';
@@ -187,6 +188,9 @@ export class PlanQueueVerification {
     } else this.checkedDocuments.set(item.id, await readDocumentReview(item.documentPath));
     return buildVerifierPrompt({ item, kind: run.kind, repoRoot: run.workspaceCwd, worktreePath: item.worktreePath!, baseBranch,
       gates: run.config.verifierGates, receipts: this.receipts.get(item.id) ?? [],
+      // The checker reads the plan's Status and open work and a change summary, then sections by line range.
+      diffStat: bounded(await gitExec(['diff', '--stat', `${baseBranch}...HEAD`], item.worktreePath!), PLAN_BRIEF_BYTES, '[Change summary truncated. Run git diff --stat for the rest.]'),
+      ...(run.kind === 'plans' ? { brief: await readPlanBrief(item.documentPath) } : {}),
       earlierRounds: rows.length ? JSON.stringify({ earlier, diffSinceLastCheck: diff }) : undefined,
       documentChanges: pin ? JSON.stringify({ originalHash: pin.documentSha256, originalUnchecked: pin.unchecked,
         changes: comparePinnedUnchecked(pin.unchecked, extractChecklistItems(current, 'all')), diff: docDiff }) : undefined });

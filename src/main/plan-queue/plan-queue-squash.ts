@@ -22,6 +22,7 @@ import { gitExec, WORKTREE_CHECKOUT_TIMEOUT_MS } from '../workspace/git/git-exec
 import { declaresStandingRegister, isActivePlanDocumentPath } from '../workspace/git/active-plan-pattern';
 import { hermeticGitEnv } from '../workspace/git/git-env';
 import { CONFLICT_CODES } from './plan-queue-git';
+import { otherUnlandedBranches } from './plan-queue-document-status';
 import { QUEUE_TEST_ENV, runInProcessGroup, type GroupRunResult } from './plan-queue-process';
 import { LANDING_MARKER_FILE } from './plan-queue-landing-leftover';
 import { relocatePlanningFiles } from './plan-queue-planning-files';
@@ -47,7 +48,7 @@ export type LandingCommitResult =
   | { status: 'nothing-to-land' }
   | { status: 'conflict'; conflictFiles: string[] }
   | { status: 'hook-failed'; output: string; timedOut?: boolean }
-  | { status: 'active-documents'; paths: string[] };
+  | { status: 'active-documents'; paths: string[]; note?: string };
 
 /**
  * The detach, squash and restore rewrite the whole working tree, which on a
@@ -121,16 +122,23 @@ export async function restoreItemCheckout(worktreePath: string, branchName: stri
   await fs.rm(path.join(await gitExec(['rev-parse', '--absolute-git-dir'], worktreePath), LANDING_MARKER_FILE), { force: true });
 }
 
-async function stagedActiveDocuments(worktreePath: string): Promise<string[]> {
-  const staged = (await gitExec(['diff', '--cached', '--name-only', '--diff-filter=ACMR'], worktreePath))
-    .split('\n')
-    .filter(isActivePlanDocumentPath);
+/**
+ * Planning files that must not land: active ones, and a `_completed` copy whose Status says other work
+ * is still unlanded (closing it would hide that work). Closing is the coordinator's job, after landing.
+ */
+async function stagedActiveDocuments(worktreePath: string, branchName: string): Promise<{ blocked: string[]; note?: string }> {
+  const staged = (await gitExec(['diff', '--cached', '--name-only', '--diff-filter=ACMR'], worktreePath)).split('\n');
   const blocked: string[] = [];
-  for (const file of staged) {
+  for (const file of staged.filter(isActivePlanDocumentPath)) {
     const head = await gitExec(['show', `:${file}`], worktreePath).catch(() => '');
     if (!declaresStandingRegister(head)) blocked.push(file);
   }
-  return blocked;
+  const notes: string[] = [];
+  for (const file of staged.filter(file => /_completed\.md$/i.test(file))) {
+    const others = otherUnlandedBranches(await gitExec(['show', `:${file}`], worktreePath), branchName);
+    if (others.length) { blocked.push(file); notes.push(`${file}: its Status says work is unlanded on ${others.join(', ')}; edit the "On main" line if that is wrong`); }
+  }
+  return { blocked, ...(notes.length ? { note: notes.join('; ') } : {}) };
 }
 
 /** Only an owned history with a byte-verified completed snapshot may leave the squash. */
@@ -242,8 +250,8 @@ export async function buildLandingCommit(params: {
     }
 
     await preserveActiveHistories(worktreePath, baseTip, documents);
-    const active = await stagedActiveDocuments(worktreePath);
-    if (active.length) return { status: 'active-documents', paths: active };
+    const active = await stagedActiveDocuments(worktreePath, branchName);
+    if (active.blocked.length) return { status: 'active-documents', paths: active.blocked, ...(active.note ? { note: active.note } : {}) };
 
     for (const doc of documents) {
       const target = path.join(worktreePath, doc.relativePath);

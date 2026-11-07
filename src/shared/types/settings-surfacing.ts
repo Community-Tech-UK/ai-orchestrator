@@ -36,6 +36,7 @@ import type { AppSettings } from './settings.types';
 export type SettingSurfacing = 'tab' | 'bespoke' | 'hidden' | 'internal';
 
 export const SETTING_SURFACING = {
+  codexBackupKeepThree: 'bespoke', // Storage card
   keepAwakeMode: 'tab',
   defaultYoloMode: 'tab',
   defaultWorkingDirectory: 'tab',

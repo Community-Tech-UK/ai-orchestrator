@@ -5,16 +5,33 @@ import { readFileSync } from 'fs';
 import { basename } from 'path';
 import { StorageUsageCardComponent } from './storage-usage-card.component';
 import { StorageUsageStore } from '../../core/state/storage-usage.store';
+import { SettingsStore } from '../../core/state/settings.store';
 import type { StorageCleanupPreview, StorageUsage } from '../../../../shared/types/storage.types';
 await resolveComponentResources(url => Promise.resolve(url.endsWith('.html') ? readFileSync(`src/renderer/app/features/settings/${basename(url)}`, 'utf8') : ''));
 const preview: StorageCleanupPreview = { previewId: 'fixture', target: 'event-record', items: [], bytes: 1024 ** 3, estimatedCount: 4_900_000, oldestAt: 1, newestAt: 2, consequence: 'This cannot be undone. The conversation file stays the same size until you also choose Shrink the file.', reversible: false };
 describe('disk usage card', () => {
   const store = { usage: signal<StorageUsage | null>(null), preview: signal<StorageCleanupPreview | null>(null), busy: signal(false), loading: signal(false), error: signal<string | null>(null), refresh: vi.fn(), review: vi.fn(), run: vi.fn(), cancel: vi.fn(() => store.preview.set(null)), stopPolling: vi.fn() };
+  const settings = { settings: signal({ codexBackupKeepThree: false }), set: vi.fn(), error: signal<string | null>(null) };
   beforeEach(async () => {
     vi.clearAllMocks(); store.preview.set(null); store.usage.set(null); store.busy.set(false);
-    await TestBed.configureTestingModule({ imports: [StorageUsageCardComponent], providers: [{ provide: StorageUsageStore, useValue: store }] }).compileComponents();
+    await TestBed.configureTestingModule({ imports: [StorageUsageCardComponent], providers: [{ provide: StorageUsageStore, useValue: store }, { provide: SettingsStore, useValue: settings }] }).compileComponents();
   });
   function render() { const fixture = TestBed.createComponent(StorageUsageCardComponent); fixture.detectChanges(); return fixture; }
+  it('shows the opt-in Codex backup control and saves its checked value', () => {
+    const element = render().nativeElement as HTMLElement;
+    const checkbox = element.querySelector('[data-codex-retention]') as HTMLInputElement;
+    expect(element.textContent).toContain('Keep only the newest 3 Codex backups');
+    expect(checkbox.checked).toBe(false);
+    checkbox.checked = true; checkbox.dispatchEvent(new Event('change'));
+    expect(settings.set).toHaveBeenCalledWith('codexBackupKeepThree', true);
+  });
+  it('tells the user in plain words when the backup setting could not be saved, without the raw error', () => {
+    settings.error.set('EACCES: raw detail');
+    const text = (render().nativeElement as HTMLElement).textContent!;
+    settings.error.set(null);
+    expect(text).toContain('Harness could not save that setting. Try again.');
+    expect(text).not.toContain('EACCES');
+  });
   it('shows total size, measured weekly change and a confirmed shrink offer with its size', () => {
     store.usage.set({ measuredAt: 1, totalBytes: 8 * 1024 ** 3, weeklyGrowthBytes: 1024 ** 3, rows: [{ id: 'event-record', label: 'Debug record', bytes: 10, reclaimableBytes: 0, diskReclaimableBytes: 4 * 1024 ** 3, target: 'event-record', shrinkAvailable: true, note: 'Fixture' }], reclaimableBytes: 0, progress: null });
     const element = render().nativeElement as HTMLElement;

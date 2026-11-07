@@ -505,6 +505,25 @@ describe('landItemBranch', () => {
       expect((await landItemBranch(register, repo, 'main', 'feat: register', [])).status).toBe('landed');
     });
 
+    it('refuses a closed copy that a worker made while its Status names work on another branch', async () => {
+      const hidden = '# Plan\n\n## Status\n\nOn main: no (queue/other-branch)\n';
+      const item = makeItemWithWork({ 'one.txt': '1\n', 'h_plan_completed.md': hidden });
+      const mainBefore = git(['rev-parse', 'main']);
+
+      expect(await landItemBranch(item, repo, 'main', 'feat: hidden', []))
+        .toMatchObject({ status: 'active-documents', paths: ['h_plan_completed.md'], note: expect.stringContaining('queue/other-branch') });
+      expect(git(['rev-parse', 'main'])).toBe(mainBefore);
+
+      const own = makeItemWithWork({ 'two.txt': '2\n', 'o_plan_completed.md': '# Plan\n\n## Status\n\nOn main: no (queue/sample-own123)\n' }, 'item-own123');
+      expect((await landItemBranch(own, repo, 'main', 'feat: own', [])).status).toBe('landed');
+    });
+
+    it('lands a closed copy whose On main line only mentions a file path or hyphenated words', async () => {
+      const prose = '# Plan\n\n## Status\n\nOn main: no, waiting on docs/plan.md review of the feature-flag work\n';
+      const item = makeItemWithWork({ 'three.txt': '3\n', 'p_plan_completed.md': prose }, 'item-prose777');
+      expect((await landItemBranch(item, repo, 'main', 'feat: prose', [])).status).toBe('landed');
+    });
+
     it('lands the closed documents in the same commit as the code', async () => {
       const item = makeItemWithWork({ 'one.txt': '1\n' });
 

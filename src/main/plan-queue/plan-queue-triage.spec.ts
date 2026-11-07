@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PLAN_QUEUE_CONFIG } from '@contracts/schemas/plan-queue';
 import { newPlanQueueItem } from './plan-queue-state';
 import type { InstanceCreateConfig } from '../../shared/types/instance.types';
@@ -89,6 +92,24 @@ describe('readiness batches and retries', () => {
     const prompt = create.mock.calls[0][0].initialPrompt;
     expect(prompt).toContain('/repo/7_plan.md');
     expect(prompt).not.toContain('/repo/8_plan.md');
+  });
+
+  describe('plan headers', () => {
+    let dir = '';
+    afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+    it('hands the session each plan\'s first 40 lines as data instead of making it read whole plans', async () => {
+      dir = mkdtempSync(join(tmpdir(), 'triage-headers-'));
+      const file = join(dir, 'real_plan.md');
+      writeFileSync(file, Array.from({ length: 60 }, (_, index) => `header line ${index + 1}`).join('\n'));
+      items[0] = { ...items[0], documentPath: file };
+      await start();
+      const prompt = create.mock.calls[0][0].initialPrompt;
+      expect(prompt).toContain('header line 40');
+      expect(prompt).not.toContain('header line 41');
+      // A plan that cannot be read still gets triaged; the session is told to read its source.
+      expect(prompt).toContain('could not be read');
+    });
   });
 
   it('does not spend an attempt on a rejected spawn, and waits one minute', async () => {

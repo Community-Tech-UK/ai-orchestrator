@@ -6,6 +6,7 @@ import { DEFAULT_PLAN_QUEUE_CONFIG, type PlanQueueVerdict } from '@contracts/sch
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { createSqliteWasmDatabase, initSqliteWasm } from '../db/sqlite-wasm-driver';
 import { runLoopMigrations } from '../orchestration/loop-schema';
+import { gitExec } from '../workspace/git/git-exec';
 import { PlanQueueGateRunner } from './plan-queue-gate-receipts';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { newPlanQueueItem } from './plan-queue-state';
@@ -87,6 +88,32 @@ describe('queue verification policy', () => {
     writeFileSync(host.getItem('item').documentPath, `# Work\n- [${mark}] Keep this criterion only for one case\n`);
     expect(await policy.prompt(host.getItem('item'), host.getRun('run'), 'main')).toContain('"status":"reworded"');
   });
+  it('hands the checker the plan Status, open work and a change summary instead of the whole document', async () => {
+    const policy = createPolicy(createGates(async () => ({ exitCode: 0, output: '' })));
+    await policy.pin(host.getItem('item'));
+    writeFileSync(host.getItem('item').documentPath, '# Work\n\n## Status\nNext: Step 9\n\n## Open\n- [ ] Keep this criterion\n');
+    const prompt = await policy.prompt(host.getItem('item'), host.getRun('run'), 'main');
+    expect(prompt).toContain('<plan_status>\nNext: Step 9\n</plan_status>');
+    expect(prompt).toContain('- [ ] Keep this criterion');
+    expect(prompt).toContain('<diff_stat>');
+  });
+
+  it('caps the change summary handed to the checker at about 4 KB, with a truncation marker', async () => {
+    const policy = createPolicy(createGates(async () => ({ exitCode: 0, output: '' })));
+    await policy.pin(host.getItem('item'));
+    const stat = Array.from({ length: 400 }, (_, index) => ` src/some/long/path/file-${index}.ts | 12 ++++++------`).join('\n');
+    vi.mocked(gitExec).mockImplementation(async (args: string[]) => args.includes('--stat') && args.includes('main...HEAD') ? stat
+      : args.some(arg => arg.startsWith('refs/heads/')) ? 'base' : 'head');
+    try {
+      const prompt = await policy.prompt(host.getItem('item'), host.getRun('run'), 'main');
+      const block = /<diff_stat>\n([\s\S]*?)\n<\/diff_stat>/.exec(prompt)![1];
+      expect(Buffer.byteLength(block)).toBeLessThanOrEqual(4096);
+      expect(block).toContain('[Change summary truncated.');
+    } finally {
+      vi.mocked(gitExec).mockImplementation(async (args: string[]) => args.some(arg => arg.startsWith('refs/heads/')) ? 'base' : 'head');
+    }
+  });
+
   it('records red gates before spawning a checker and refuses an unbacked PASS afterward', async () => {
     const gates = createGates(async (_command, cwd) => cwd === '/baseline'
       ? { exitCode: 0, output: '' } : { exitCode: 1, output: 'src/work.ts(1,1): error TS2322: New failure' });

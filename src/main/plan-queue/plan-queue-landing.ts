@@ -55,7 +55,7 @@ export type LandResult =
   /** The repository's pre-commit hook refused the landing commit, or ran out of time (`timedOut`). */
   | { status: 'hook-failed'; output: string; timedOut?: boolean }
   /** The item branch carries active plan/spec/livetest documents, which never land. */
-  | { status: 'active-documents'; paths: string[] };
+  | { status: 'active-documents'; paths: string[]; note?: string };
 
 const ZERO_OID = '0000000000000000000000000000000000000000';
 

@@ -214,8 +214,9 @@ the two account-pool keys (`providerAccountProfiles`,
 `providerAccountPools`, covering Claude, Codex and MiMo), the Plan Queue
 provider-and-account choice (`planQueueRouting`), the Plan Queue never-use and use-last account lists (`planQueueAccountRules`), the Plan Queue checklist for each project folder (`planQueueFolderChecklists`), the two Workspace Secret Card keys (`workspaceSecretsEnabled`,
 `workspaceSecretsAllowAgentRequests`), the post-fill observation lock
-(`browserSecretObservationProtectionEnabled`), and the macOS session signal
-fence (`providerSignalFenceEnabled`).
+(`browserSecretObservationProtectionEnabled`), the macOS session signal
+fence (`providerSignalFenceEnabled`), and automatic Codex backup deletion
+(`codexBackupKeepThree`).
 `PRIVILEGED_CLI_OPERATOR_ONLY_KEYS` in
 `src/main/core/config/settings-control-policy.ts` is the authoritative list.
 `planQueueAccountRules` (26th anchor) is the never-use and use-last account list for

@@ -107,6 +107,8 @@ const PRIVILEGED_CLI_OPERATOR_ONLY_KEYS = new Set<keyof AppSettings>([
   // Plan Queue folder checklists (2026-11-04): the commands the queue runs in a
   // shell for a folder. An agent that could write them could run any command.
   'planQueueFolderChecklists',
+  // Authorizes automatic deletion of backup copies; the operator decides.
+  'codexBackupKeepThree',
   'computerUseEnabled',
   'computerUseAllowedAppsJson',
   'computerUseDeniedAppsJson',
@@ -329,6 +331,7 @@ const secret = (restartRequired = false): ClosedSettingsToolPolicy => ({
 // is added. This object is the canonical CLI settings exposure policy for both
 // safe MCP tools and the privileged `aio-mcp settings` repair surface.
 export const SETTINGS_TOOL_POLICY = {
+  codexBackupKeepThree: readOnly(true, z.boolean()),
   keepAwakeMode: open(z.enum(['off', 'while-working', 'always'])),
   defaultYoloMode: readOnly(),
   defaultWorkingDirectory: open(settingStringSchema),

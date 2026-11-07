@@ -22,6 +22,7 @@ import type { PlanQueueParkReason } from '@contracts/schemas/plan-queue';
 import { getLogger } from '../logging/logger';
 import { gitExec } from '../workspace/git/git-exec';
 import {
+  assertNoOtherUnlandedWork,
   documentsAreCommitted,
   prepareClosedDocuments,
   renameDocumentsInPlace,
@@ -34,6 +35,7 @@ import type { PlanQueueFlowHost } from './plan-queue-host';
 import { mergeCheckStillOwed, recordMergeCheckOwed } from './plan-queue-check-timeouts';
 import { landItemBranch, runPostMergeGate, syncItemWithBase } from './plan-queue-landing';
 import { landingBlockers, overlapReason, type PlanQueueLandingWaits } from './plan-queue-landing-wait';
+import { updatePlanIntegrationStatus } from './plan-queue-document-status';
 import { buildActiveDocumentsPrompt, buildConflictPrompt, buildGateFailurePrompt } from './plan-queue-prompts';
 import { clearPlanningMoveRecord, planningMoveNote } from './plan-queue-planning-files';
 import { returnToItemCheckout } from './plan-queue-squash';
@@ -194,6 +196,11 @@ export class PlanQueueItemLanding {
     } else if (closeDocuments) {
       notes.push(...(await this.finishDocuments(item, repoRoot, baseBranch)));
     }
+    // A plan that stays open says whether its work is on main; a closed one carries that in its closed copy. Live-test documents have no such line.
+    if (!closeDocuments && run.kind === 'plans') {
+      try { await updatePlanIntegrationStatus(item.documentPath, item.branchName ?? '', item.landedCommit!); }
+      catch (error) { notes.push(`Code landed, but the plan's "On main" line could not be updated: ${errorMessage(error)}`); }
+    }
 
     item = host.transition(item, 'landed', { workerSession: undefined, detail: notes.join(' ') || null, question: null, parkReason: null });
     await this.finishCleanup(item);
@@ -322,6 +329,7 @@ export class PlanQueueItemLanding {
     let prepared: PreparedDocuments = { mode: 'commit', documents: [] };
     if (closeDocuments && !item.landedCommit) {
       try {
+        await assertNoOtherUnlandedWork(item.documentPath, item.branchName ?? '');
         prepared = await prepareClosedDocuments(item.documentPath, repoRoot, item.worktreePath, this.reviewedDocuments(item));
       } catch (error) {
         await this.ctx.park(item, 'land-blocked', `Nothing was landed: the documents could not be closed (${errorMessage(error)}).`);
@@ -378,7 +386,7 @@ export class PlanQueueItemLanding {
           buildGateFailurePrompt('git commit (the repository pre-commit hook)', result.output), result.output);
         return null;
       case 'active-documents':
-        await this.refused(host.getItem(item.id), `the branch carries active planning documents (${result.paths.join(', ')})`,
+        await this.refused(host.getItem(item.id), `the branch carries active planning documents (${result.paths.join(', ')})${result.note ? `: ${result.note}` : ''}`,
           buildActiveDocumentsPrompt(result.paths), result.paths.join(', '));
         return null;
     }
@@ -476,7 +484,7 @@ export class PlanQueueItemLanding {
     // Never committed (outside the repository or ignored): close in place,
     // revalidating the accepted bytes rather than adopting a later snapshot.
     try {
-      await renameDocumentsInPlace(item.documentPath, reviewedSha256);
+      await renameDocumentsInPlace(item.documentPath, reviewedSha256, item.landedCommit!);
       return [];
     } catch (error) {
       throw new Error(`Code landed, but the uncommitted documents remain open: ${errorMessage(error)}`, { cause: error });

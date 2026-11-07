@@ -33,6 +33,7 @@ import { isLegacyPlanQueueRouting, upgradePlanQueueRouting } from '../../../shar
 // adapter-spawn-helpers has no path back to the settings manager, so this
 // introduces no cycle.
 import { getCopilotOrchestratorHome } from '../../cli/adapters/adapter-spawn-helpers';
+import { migrateCodexBackupRetention } from '../../cli/adapters/codex/codex-backup-retention-policy';
 
 const logger = getLogger('SettingsMigrations');
 
@@ -557,6 +558,7 @@ function migrateGraphAuthorityToOrganizations(store: SettingsMigrationStore): vo
 }
 
 export function runSettingsMigrations(store: SettingsMigrationStore): void {
+  migrateCodexBackupRetention(store);
   const observationOffMarker = '__migration_observation_memory_off_20261020';
   if (store.get(observationOffMarker) !== true) {
     store.persistSetting('observationMemoryEnabled', false);

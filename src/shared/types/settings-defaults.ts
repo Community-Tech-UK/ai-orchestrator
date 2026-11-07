@@ -120,6 +120,7 @@ export const DEFAULT_ORCHESTRATION_ROUTING_POLICY_JSON = JSON.stringify(
  * Default settings values
  */
 export const DEFAULT_SETTINGS: AppSettings = {
+  codexBackupKeepThree: false,
   // General
   keepAwakeMode: 'while-working',
   defaultYoloMode: false,

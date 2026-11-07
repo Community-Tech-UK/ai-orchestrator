@@ -9,6 +9,7 @@ import { getLogger } from '../logging/logger';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import type { PlanQueueTurnOutcome } from './plan-queue-instance-tracker';
 import { buildTriagePrompt } from './plan-queue-prompts';
+import { readPlanHeader } from './plan-queue-plan-extract';
 import type { PlanQueueRunBreaker } from './plan-queue-run-breaker';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import type { VerifierChoice } from './plan-queue-verifier-select';
@@ -140,11 +141,14 @@ export class PlanQueueTriage {
         if (JSON.stringify(current.config.routing) === routingKey) break;
       }
     }
+    // Triage judges readiness from each plan's first 40 lines rather than reading every document whole.
+    const documents = session.itemIds.map((id) => this.host.getItem(id).documentPath);
+    const headers = documents.map((documentPath) => ({ path: documentPath, header: readPlanHeader(documentPath) }));
     if (this.triageByRun.get(run.id) !== session || this.host.tracker.isShuttingDown()) return;
     session.provider = choice?.provider ?? run.workerProvider ?? '';
     const instance = await this.host.instances.createInstance({
       displayName: 'Queue triage', isRenamed: true, parentId: this.host.liveParentId(run), workingDirectory: run.workspaceCwd,
-      initialPrompt: buildTriagePrompt(run.id, session.itemIds.map((id) => this.host.getItem(id).documentPath)),
+      initialPrompt: buildTriagePrompt(run.id, documents, headers),
       ...(session.provider ? { provider: session.provider as InstanceProvider } : {}),
       ...(choice ? { ...(choice.modelOverride ? { modelOverride: choice.modelOverride } : {}),
         ...(choice.copilotProfileId ? { copilotAccountProfileId: choice.copilotProfileId } : {}),

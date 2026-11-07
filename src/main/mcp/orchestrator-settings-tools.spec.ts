@@ -503,6 +503,7 @@ describe('privileged settings CLI writability reporting', () => {
       'graphAgentWritableAccountsJson',
       'contextEvidenceModeByProvider',
       'localAiGuardDailyFallbackBudgetUsd',
+      'codexBackupKeepThree',
     ] as const) {
       expect(byKey.get(key)?.cliWritable, key).toBe(false);
     }
@@ -561,11 +562,13 @@ describe('privileged settings CLI writability reporting', () => {
     // so an agent that could edit them could run anything. On 2026-11-08
     // `graphAlwaysAllowedChanges` became the 28th: an agent that could add to it
     // could send mail or change calendars as James without anyone being asked.
-    // Fail here if a 29th is added, or one is removed, without updating the
+    // `codexBackupKeepThree` is the 29th: it authorizes deletion of backup copies
+    // and remains controlled by the operator.
+    // Fail here if a 30th is added, or one is removed, without updating the
     // prose.
     const anchors = [...privilegedList().values()].filter((setting) => !setting.cliWritable);
 
-    expect(anchors).toHaveLength(28);
+    expect(anchors).toHaveLength(29);
   });
 
   it('keeps the saved Plan Queue folder checklists out of reach of every agent-reachable settings tool', async () => {

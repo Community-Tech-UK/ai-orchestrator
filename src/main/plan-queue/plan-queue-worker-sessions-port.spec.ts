@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { PlanQueueWorkerSessions } from './plan-queue-worker-sessions';
 import { newPlanQueueItem } from './plan-queue-state';
@@ -46,5 +49,21 @@ describe('PlanQueueWorkerSessions.withLivetestPort', () => {
     (host.livetestPortsInUse as ReturnType<typeof vi.fn>).mockReturnValue([9123]);
     const result = await sessions.withLivetestPort(current(), run);
     expect(result.livetestPort).not.toBe(9123);
+  });
+});
+
+describe('PlanQueueWorkerSessions.promptContext', () => {
+  it('reads a plan\'s Status and open work for its worker, and none for a livetest', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'prompt-context-'));
+    try {
+      const file = join(dir, 'a_plan.md');
+      writeFileSync(file, '# A\n\n## Status\nNext: Step 2\n\n## Open\n- [ ] Open item\n');
+      const plans = setup('plans', { documentPath: file });
+      const context = await plans.sessions.promptContext(plans.run, plans.current());
+      expect(context.brief).toEqual({ status: 'Next: Step 2', acceptance: '- [ ] Open item' });
+      const livetests = setup('livetests');
+      expect(await livetests.sessions.promptContext(livetests.run, livetests.current())).not.toHaveProperty('brief');
+      expect(plans.sessions.continueContext(plans.run, plans.current())).not.toHaveProperty('brief');
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });

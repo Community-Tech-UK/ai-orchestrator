@@ -27,6 +27,7 @@ import type { LandingDocument } from './plan-queue-squash';
 import { branchExists, commitsAhead } from './plan-queue-git';
 import type { PlanQueueHistoryStore } from './plan-queue-history-store';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
+import { closedIntegrationContent, otherUnlandedBranches } from './plan-queue-document-status';
 
 import { assertDocumentReview, linkedSpecPaths, readDocumentReview, type DocumentReview } from './plan-queue-document-review';
 
@@ -180,7 +181,8 @@ function parseClosure(content: string, documentPath: string): Closure {
  * histories. Legacy completed histories remain immutable; their bytes and the
  * shared active history are included in the new snapshot alongside the journal.
  */
-async function buildClosure(documentPath: string, candidate: CandidateHistory | null, reviewedSha256: DocumentReview | null): Promise<ClosureBundle> {
+async function buildClosure(documentPath: string, candidate: CandidateHistory | null, reviewedSha256: DocumentReview | null,
+  landedCommit?: string): Promise<ClosureBundle> {
   if (documentPath === completedDocumentPath(documentPath)) throw new Error('Cannot close an already completed document');
   const spec = await findSpec(documentPath);
   const actives = spec ? [documentPath, spec] : [documentPath];
@@ -218,14 +220,14 @@ async function buildClosure(documentPath: string, candidate: CandidateHistory | 
     closedContent = repointLink(closedContent, path.basename(documentHistoryPath(documentPath)), historyName);
     if (!closedContent.includes(historyName)) closedContent += `\n> Closure history: \`${historyName}\`.\n`;
   }
-  documents.push({ relativePath: toRepoPath(completedDocumentPath(documentPath), dir), content: closedContent });
+  documents.push({ relativePath: toRepoPath(completedDocumentPath(documentPath), dir), content: closedIntegrationContent(closedContent, landedCommit) });
   if (records.length) documents.push({ relativePath: toRepoPath(history, dir), content: records.join('\n\n'),
     ...(candidate ? { historySource: { relativePath: candidate.relativePath,
       sha256: candidate.content === null ? null : digest(candidate.content) } } : {}) });
   if (spec) {
     const link = linkFor(spec, true, documentPath);
     documents.push({ relativePath: toRepoPath(completedDocumentPath(spec), dir),
-      content: repointLink(snapshots[1].content!, link.from, link.to) });
+      content: closedIntegrationContent(repointLink(snapshots[1].content!, link.from, link.to), landedCommit) });
   }
   const closure: Closure = { version: 1, sources, ...(candidate ? { candidateHistorySha256 } : {}),
     outputs: documents.map(doc => ({ relativePath: doc.relativePath, sha256: digest(doc.content) })) };
@@ -280,6 +282,19 @@ async function assertSources(closure: Closure, documentPath: string, allowRetire
 async function assertFree(bundle: ClosureBundle, documentPath: string): Promise<void> {
   for (const target of [closurePath(documentPath), ...bundle.documents.map(doc => path.resolve(path.dirname(documentPath), doc.relativePath))]) {
     if (await exists(target)) throw new Error(`Refusing to overwrite ${target}`);
+  }
+}
+
+/**
+ * A plan whose Status says some of its work is on another branch must stay open: closing it would
+ * hide that work. Checked before anything lands, on the plan and its linked spec.
+ */
+export async function assertNoOtherUnlandedWork(documentPath: string, landingBranch: string): Promise<void> {
+  for (const file of [documentPath, await findSpec(documentPath)]) {
+    const others = file ? otherUnlandedBranches(await fs.readFile(file, 'utf8'), landingBranch) : [];
+    if (file && others.length) {
+      throw new Error(`Refusing to close ${path.basename(file)}: its Status names other unlanded work (${others.join(', ')}). Edit the "On main" line if that is wrong`);
+    }
   }
 }
 
@@ -358,14 +373,14 @@ async function publishExclusive(file: string, content: string, checkSources: () 
  * document. The original inputs remain until ALL output hashes are verified.
  * Legacy closed files without a receipt are never treated as mutable scratch.
  */
-export async function renameDocumentsInPlace(documentPath: string, reviewedSha256: DocumentReview | null): Promise<string[]> {
+export async function renameDocumentsInPlace(documentPath: string, reviewedSha256: DocumentReview | null, landedCommit?: string): Promise<string[]> {
   const dir = path.dirname(documentPath);
   const receiptPath = closurePath(documentPath);
   const receipt = await readOptional(receiptPath);
   let closure: Closure;
   let bundle: ClosureBundle | undefined;
   if (receipt === null) {
-    bundle = await buildClosure(documentPath, null, reviewedSha256);
+    bundle = await buildClosure(documentPath, null, reviewedSha256, landedCommit);
     await assertFree(bundle, documentPath);
     await assertSources(bundle.closure, documentPath);
     closure = bundle.closure;
@@ -376,7 +391,7 @@ export async function renameDocumentsInPlace(documentPath: string, reviewedSha25
     if (await hasActiveSources(closure, documentPath)) await assertSources(closure, documentPath, true);
     // If inputs still exist, reconstruct a partially published closure exactly.
     if (await exists(documentPath)) {
-      bundle = await buildClosure(documentPath, null, reviewedSha256);
+      bundle = await buildClosure(documentPath, null, reviewedSha256, landedCommit);
       if (receiptContent(bundle.closure) !== receiptContent(closure)) throw new Error('Closure inputs changed; refusing to overwrite completed documents');
     }
   }

@@ -14,10 +14,15 @@ AI Orchestrator is an Electron 42 + Angular 22 desktop app that coordinates Clau
 
 ## Plan and Spec Filename States
 
+- Keep one `## Status` block at the top of each active plan, at most about 1,500 characters: done, next, decisions, open issues and pointers to sections; rewrite it in place.
+- Never append dated status or as-built sections. Put round evidence in `<stem>_history.md` beside the plan.
+- Do not read history unless the Status block points there; other history lives in commit messages and verdicts.
+- `*_history.md` is active and must remain uncommitted; `*_history_completed.md` is closed.
+- Queue workers write history in the root checkout at the prompt's absolute path, never inside the managed worktree.
 - `*_spec.md` means the spec does not yet have an implementation plan.
 - When a plan is created from a spec, link the spec to the plan, rename the spec to `*_spec_planned.md`, and verify that both files remain untracked. `_planned` records only that the plan exists; it is not a completion or commit-ready state.
 - `*_plan.md` means implementation work is active. Keep it and its linked `*_spec_planned.md` file uncommitted while work continues.
-- After every required item is implemented and verified, update both documents' status/as-built notes, update the spec's link to the plan's completed filename, rename the plan to `*_plan_completed.md`, and rename the spec from `*_spec_planned.md` to `*_spec_completed.md`.
+- After every required item is implemented and verified, rewrite the Status block in both documents in place, update the spec's link to the plan's completed filename, rename the plan to `*_plan_completed.md`, and rename the spec from `*_spec_planned.md` to `*_spec_completed.md`.
 - Only `_completed` documents may be staged and committed with the completed work, subject to the Live-Test Deferral rules below.
 
 ## Before Writing Code
@@ -125,6 +130,8 @@ The complete repo-local Angular conventions are in `docs/angular-conventions.md`
 When adding an `@contracts/schemas/...` or `@contracts/types/...` subpath, update `tsconfig.json`, `tsconfig.electron.json`, `src/main/register-aliases.ts`, and `vitest.config.ts` when tests import it. TypeScript aliases do not rewrite emitted Node imports.
 
 ## Integration Checks
+
+Generated files are never merged by hand: run `npm run generate:ipc` (`src/preload/generated/channels.ts`), `npm run generate:aliases` and `npm run generate:architecture` (`docs/generated/architecture-inventory.json`).
 
 For big-change documents:
 

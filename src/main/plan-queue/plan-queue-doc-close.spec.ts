@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { GitWriteQueue } from '../workspace/git/git-write-queue';
 import {
   appendParkedNote,
+  assertNoOtherUnlandedWork,
   completedDocumentPath,
   documentsAreCommitted,
   prepareClosedDocuments,
@@ -315,5 +316,48 @@ describe('appendParkedNote', () => {
     expect(content.match(/Plan Queue parked work/g)).toHaveLength(1);
     expect(content).toContain('`queue/x-abc123` — 4 commit(s), reason: round-limit.');
     expect(content.startsWith('# Plan\n\nbody')).toBe(true);
+  });
+});
+
+describe('saying whether closed work is on main', () => {
+  it('refuses to close a plan or its spec whose Status names work on another branch, and allows its own branch', async () => {
+    const plan = write('docs/plans/other_plan.md', '# Plan\n\n## Status\n\nOn main: no (`queue/other-branch`)\n');
+    await expect(assertNoOtherUnlandedWork(plan, 'queue/this-branch')).rejects.toThrow(/Status names other unlanded work \(queue\/other-branch\)/);
+    await expect(assertNoOtherUnlandedWork(plan, 'queue/other-branch')).resolves.toBeUndefined();
+
+    const clean = write('docs/plans/clean_plan.md', '# Plan\n\n## Status\n\nOn main: yes (abc1234)\n');
+    write('docs/plans/clean_spec_planned.md', '# Spec\n\n## Status\n\nOn main: no (queue/spec-branch)\n');
+    await expect(assertNoOtherUnlandedWork(clean, 'queue/this-branch')).rejects.toThrow(/clean_spec_planned\.md/);
+  });
+
+  it('does not refuse a close because the On main line mentions a file path or hyphenated words', async () => {
+    const plan = write('docs/plans/prose_plan.md', '# Plan\n\n## Status\n\nOn main: no, waiting on docs/plan.md review of the feature-flag work\n');
+    await expect(assertNoOtherUnlandedWork(plan, 'queue/this-branch')).resolves.toBeUndefined();
+  });
+
+  it('writes "On main: yes" into the closed copies that land with the code, and leaves a plan without Status alone', async () => {
+    const plan = write('docs/plans/status_plan.md', '# Plan\n\n## Status\n\nOn main: no (queue/this-branch)\nNext: nothing.\n');
+    write('docs/plans/status_spec_planned.md', '# Spec\n\n## Status\n\nOn main: no\n');
+    const prepared = await prepareClosedDocuments(plan, repo, null, null);
+    if (prepared.mode !== 'commit') throw new Error('Expected landing documents');
+    const closed = prepared.documents.find(d => d.relativePath.endsWith('status_plan_completed.md'))!;
+    expect(closed.content).toContain('On main: yes (this landing commit)');
+    expect(closed.content).not.toContain('On main: no');
+    expect(closed.content).toContain('Next: nothing.');
+    expect(prepared.documents.find(d => d.relativePath.endsWith('status_spec_completed.md'))!.content).toContain('On main: yes (this landing commit)');
+    expect(readFileSync(plan, 'utf8')).toContain('On main: no (queue/this-branch)');
+
+    const bare = write('docs/plans/bare_plan.md', '# Plan\n\nNo status block.\n');
+    const bareClosed = await prepareClosedDocuments(bare, repo, null, null);
+    if (bareClosed.mode !== 'commit') throw new Error('Expected landing documents');
+    expect(bareClosed.documents.find(d => d.relativePath.endsWith('bare_plan_completed.md'))!.content).toBe('# Plan\n\nNo status block.\n');
+  });
+
+  it('writes the landed commit into documents closed in place, and keeps that on a repeat', async () => {
+    const plan = write('docs/plans/place_plan.md', '# Plan\n\n## Status\n\nOn main: no (queue/this-branch)\n');
+    await renameDocumentsInPlace(plan, null, 'abc1234');
+    await renameDocumentsInPlace(plan, null, 'abc1234');
+    expect(readFileSync(join(repo, 'docs/plans/place_plan_completed.md'), 'utf8')).toContain('On main: yes (abc1234)');
+    expect(existsSync(plan)).toBe(false);
   });
 });
