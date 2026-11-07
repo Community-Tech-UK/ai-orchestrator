@@ -66,6 +66,19 @@ describe('Harness queue gate receipts', () => {
     expect(execute).toHaveBeenCalledTimes(3);
   });
 
+  it('runs a commit\'s checks again after forgetting it, and leaves other commits cached', async () => {
+    const execute = vi.fn(async () => ({ exitCode: 1, output: 'src/a.ts(1,1): error TS2322: Nope' }));
+    const runner = fakeRunner(execute);
+    const job = { cwd: '/repo', head: 'job', commands: ['check'] };
+    const other = { ...job, head: 'other' };
+    await runner.run(job); await runner.run(other);
+    runner.forgetCommit('job');
+    expect(runner.cached(job)).toBeUndefined();
+    expect(runner.cached(other)).toBeDefined();
+    await runner.run(job);
+    expect(execute).toHaveBeenCalledTimes(3);
+  });
+
   it('keeps base comparison separate from copy execution and records only real job runs', async () => {
     const calls: string[] = [];
     const runner = new PlanQueueGateRunner(async (_command, cwd) => {

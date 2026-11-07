@@ -551,6 +551,17 @@ export const LOOP_MIGRATIONS: readonly LoopMigration[] = [
     `,
   },
   {
+    // Plan Queue: a landing blocked by the root checkout's uncommitted code waits instead of parking. 43 and 44
+    // stay held for the worker report and the source columns (`PLAN_QUEUE_RESERVED_MIGRATIONS`); the array keeps
+    // them in order when they land, and the runner applies by version, so landing 45 first is safe.
+    version: 45,
+    name: '045_plan_queue_item_landing_wait',
+    up: `
+      ALTER TABLE plan_queue_items ADD COLUMN landing_wait_since INTEGER;
+      ALTER TABLE plan_queue_items ADD COLUMN landing_wait_paths TEXT;
+    `,
+  },
+  {
     // Plan Queue: Discard was recorded as a sentence at the end of `detail`, which any later save could
     // lose, bringing the job back. Earlier discards move to these fields; `discard_ref_expires_at`
     // stays empty for them until the hourly sweep finds a kept reference. Held numbers below this one

@@ -94,6 +94,11 @@ export class PlanQueueGateRunner {
     this.cache.delete(this.key(input));
   }
 
+  /** Resume asks for a fresh check: a replayed failure wouldn't show that the computer has since been fixed. */
+  forgetCommit(head: string): void {
+    for (const key of this.cache.keys()) if ((JSON.parse(key) as unknown[])[1] === head) this.cache.delete(key);
+  }
+
   seed(input: GateInput, receipts: readonly PlanQueueGateReceipt[]): void {
     input.signal?.throwIfAborted();
     if (receipts.length !== input.commands.length || receipts.some((receipt, index) =>

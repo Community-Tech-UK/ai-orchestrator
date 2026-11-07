@@ -13,6 +13,7 @@ import { isTerminalItemState, newPlanQueueItem } from './plan-queue-state';
 import { rememberedOutcomeForPath, type RememberedOutcome } from './plan-queue-triage-memory';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import { existsSync } from 'fs';
+import { repeatedStopNote } from './plan-queue-document-memory';
 import { automaticDecisionPatch } from './plan-queue-readiness';
 
 export interface DiscoveredPlanQueueDocument {
@@ -54,10 +55,11 @@ export function claimDocumentsAndCreateItems(
     const previousRun = previous ? deps.store.getRun(previous.runId) : null;
     // Merged work has moved on from this attempt, so offering to resume it would be an option that always fails.
     const setAside = previous && previousRun?.parentInstanceId === run.parentInstanceId && !deps.store.newerAttemptLanded(previous) ? previous : null;
+    const repeatedStop = !options.queueDirectly && !needsPlan && !setAside ? repeatedStopNote(deps.store, doc.path) : null;
     const remembered = !options.queueDirectly && !needsPlan && doc.readiness === 'candidate' && !setAside
       ? rememberedOutcomeForPath(deps.memory, doc.path, run.workspaceCwd)
       : { kind: 'none', detail: '' } as RememberedOutcome;
-    const patch = rememberedPatch(remembered)
+    const patch = (repeatedStop ? { state: 'skipped' as PlanQueueItemState, detail: repeatedStop } : rememberedPatch(remembered))
       ?? (setAside
         ? { state: 'needs-answer' as PlanQueueItemState, detail: null, question: setAsideQuestion(setAside) }
         : needsPlan

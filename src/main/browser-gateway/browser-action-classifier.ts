@@ -18,7 +18,7 @@ export interface BrowserActionClassificationInput {
   /**
    * Skip the two-factor words. Only for re-checking a click that submits a code
    * the gateway itself filled, so the checks the two-factor match would have
-   * hidden (password, declaration, destructive) still apply to it.
+   * hidden (declaration, destructive) still apply to it.
    */
   ignoreTwoFactor?: boolean;
 }
@@ -91,7 +91,8 @@ const TWO_FACTOR_WORDS = [
   'verification code',
   'recovery code',
 ];
-const PASSWORD_WORDS = ['password', 'passkey', 'token', 'secret'];
+// "Tokenize" is not a token: it stopped typing into Play Console's tester box.
+const PASSWORD_WORDS = /password|passkey|secret|token(?!i[sz])/;
 
 // Payment fields are NEVER automatable, even under an autonomous grant — they
 // hard-stop AND are never grantable (see grant policy). Detected ahead of the
@@ -269,7 +270,11 @@ export function classifyBrowserAction(
   if (!input.ignoreTwoFactor && hasAny(contextText, TWO_FACTOR_WORDS)) {
     return { actionClass: 'credential', hardStop: true, reason: TWO_FACTOR_CHALLENGE_REASON };
   }
-  if (hasAny(contextText, PASSWORD_WORDS)) {
+  // Only writing text can put a password somewhere it should not go. A click,
+  // selection or key press cannot, whatever its control is called, and falls
+  // through to the ordinary rules below: "Configure Recovery Password Rotation"
+  // stopped a plain Intune dropdown on 2026-11-07.
+  if (TEXT_ENTRY_TOOLS.has(input.toolName) && PASSWORD_WORDS.test(contextText)) {
     return { actionClass: 'credential', hardStop: true, reason: CREDENTIAL_CHALLENGE_REASON };
   }
 
@@ -445,8 +450,11 @@ export const PAGE_ACTING_TOOLS: ReadonlySet<string> = new Set([
   'browser.press_key',
 ]);
 
-/** Tools that write into fields: writing into a code box stops them (typing can itself submit). */
-export const ONE_TIME_CODE_ENTRY_TOOLS: ReadonlySet<string> = new Set([
+/**
+ * Tools that write text into fields: a password word on the field stops them, and
+ * so does writing into a code box (typing can itself submit).
+ */
+export const TEXT_ENTRY_TOOLS: ReadonlySet<string> = new Set([
   'browser.type',
   'browser.fill_form',
 ]);
@@ -483,7 +491,7 @@ export function withPageChallengeEvidence(
     return classification;
   }
   const submitsCode = PAGE_ACTING_TOOLS.has(toolName) && code.filled;
-  const entersCode = ONE_TIME_CODE_ENTRY_TOOLS.has(toolName) && code.targetIsCodeField;
+  const entersCode = TEXT_ENTRY_TOOLS.has(toolName) && code.targetIsCodeField;
   return submitsCode || entersCode
     ? { actionClass: 'credential', hardStop: true, reason: TWO_FACTOR_CHALLENGE_REASON }
     : classification;

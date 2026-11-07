@@ -13,7 +13,7 @@ const health: PlanQueueHealth = {
   checkTime: { count: 9, medianMs: 25 * MIN },
   landingTime: { count: 5, medianMs: 9 * MIN, syncMs: 10_000, mergeCheckMs: null, commitCheckMs: 8 * MIN, publishMs: 2_000 },
   waiting: { waitingMs: 30 * MIN, workingMs: 90 * MIN, share: 0.25 },
-  setAsideRounds: { items: 12, rounds: 41 }, repeatFailingTests: [],
+  setAsideRounds: { items: 12, rounds: 41 }, repeatFailingTests: [], lateFindings: { critical: 0, high: 0, medium: 0, low: 0 },
 };
 
 describe('Queue health wording', () => {
@@ -31,6 +31,7 @@ describe('Queue health wording', () => {
       'Time spent waiting rather than working': '25% (30 min waiting for a free slot or for usage, 1 h 30 min working)',
       'Rounds spent on items that were set aside': '41 rounds on 12 items',
       'Tests failing in more than one job': 'None',
+      'New findings from round 3 on': 'None',
     });
   });
 
@@ -83,6 +84,11 @@ describe('Queue health wording', () => {
     expect(line([])).toBe('None');
     expect(line([{ test: 'src/a.spec.ts › works', jobs: 3 }, { test: 'src/b.spec.ts › also', jobs: 2 }]))
       .toBe('src/a.spec.ts › works (3 jobs); src/b.spec.ts › also (2 jobs)');
+  });
+
+  it('counts late findings by severity, leaving out the empty ones', () => {
+    const { lines } = describeQueueHealth({ ...health, lateFindings: { critical: 0, high: 2, medium: 7, low: 0 } });
+    expect(lines.find(row => row.label === 'New findings from round 3 on')?.value).toBe('2 high, 7 medium');
   });
 
   it('formats durations', () => {

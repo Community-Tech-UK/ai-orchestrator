@@ -67,6 +67,13 @@ export interface PlanQueueItem {
   landingRefusals: number;
   /** Returns to the worker for a base-branch conflict or failed post-merge check since the item last landed or was resumed. */
   baseConflicts: number;
+  /**
+   * When a landing first found the root checkout's uncommitted code in its way, and which paths. Both are written only
+   * while the state is `landing` (the store drops them on any other state). The paths are empty once the wait has
+   * ended and a landing attempt is running; the time stays so the 24-hour limit is counted from the first wait.
+   */
+  landingWaitSince?: number | null;
+  landingWaitPaths?: string[];
   /** Set by Discard. The job stays parked but leaves the Set aside list. */
   discardedAt?: number | null;
   discardedBy?: string | null;

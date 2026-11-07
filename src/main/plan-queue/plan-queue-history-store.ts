@@ -181,6 +181,13 @@ export class PlanQueueHistoryStore {
    * round counter: a Resume resets `round` to 0 while earlier verdicts stay,
    * so round order would put the newest round after an obsolete one.
    */
+  /** Rounds checked per document across every attempt and Resume. A timed-out check judged nothing and leaves no verdict. */
+  totalRoundsByDocument(): Map<string, number> {
+    return new Map(this.db.prepare(`SELECT item.document_path AS path, COUNT(*) AS rounds FROM plan_queue_verdicts verdict
+      JOIN plan_queue_items item ON item.id = verdict.item_id GROUP BY item.document_path`)
+      .all<{ path: string; rounds: number }>().map(row => [row.path, row.rounds]));
+  }
+
   listVerdicts(itemId: string): PlanQueueVerdictRecord[] {
     return this.db
       .prepare('SELECT * FROM plan_queue_verdicts WHERE item_id = ? ORDER BY at ASC, rowid ASC')

@@ -11,6 +11,7 @@ import { GitWriteQueue } from '../workspace/git/git-write-queue';
 import { WorktreeManager } from '../workspace/git/worktree-manager';
 import { _setPlanQueueDataDirForTesting } from './plan-queue-data-dir';
 import { PlanQueueItemLanding } from './plan-queue-item-landing';
+import { PlanQueueLandingWaits } from './plan-queue-landing-wait';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { assertItemTransition, newPlanQueueItem } from './plan-queue-state';
 import { PlanQueueStore } from './plan-queue-store';
@@ -62,7 +63,9 @@ beforeEach(() => {
     saveItem: save, skipInstall: true, history: store.history, stopLeftoversIn: async () => 0 });
   const host = { store, history: store.history, getRun: (id: string) => store.getRun(id)!, getItem: (id: string) => store.getItem(id)!,
     save, transition, worktrees: service, requestPump: () => undefined } as PlanQueueFlowHost;
-  landing = new PlanQueueItemLanding({ host, stopInstance: async () => undefined,
+  // The real wait, with ports that never need a lock or a pump: neither file waits on the root checkout.
+  const waits = new PlanQueueLandingWaits({ host, lock: (_id, action) => action(), enqueueLanding: async () => undefined, park: async () => undefined });
+  landing = new PlanQueueItemLanding({ host, waits, stopInstance: async () => undefined,
     toFixing: async (item, _prompt, detail) => { transition(item, 'fixing', { detail }); },
     park: async (item, reason, detail) => { parked.push({ reason, detail }); transition(item, 'parked', { parkReason: reason, detail }); } });
 });

@@ -17,10 +17,11 @@ import { IS_TIMING_SQL, NOT_TIMING_SQL, notTimingSql, TIMING_REASONS } from './p
 export const HEALTH_WINDOW_DAYS = 14;
 const DAY_MS = 24 * 60 * 60_000;
 const MAX_REPEAT_FAILING_TESTS = 5;
+const LATE_ROUND = 3;
 const WORKING_STATES: ReadonlySet<string> = new Set(['preparing', 'working', 'fixing', 'verifying', 'landing']);
 
 export interface HealthItemRow { id: string; documentPath: string; state: string }
-export interface HealthVerdictRow { itemId: string; verdict: string; gates: string }
+export interface HealthVerdictRow { itemId: string; verdict: string; gates: string; round: number; findings: string }
 export interface HealthStateRow { itemId: string; at: number; toState: string }
 export interface HealthTimingRow { itemId: string; at: number; reason: string; detail: string | null }
 export interface HealthInput {
@@ -44,7 +45,7 @@ export function readQueueHealth(db: SqliteDriver, now: number, windowDays = HEAL
   const since = now - windowDays * DAY_MS;
   const items = db.prepare(`SELECT id, document_path AS documentPath, state FROM plan_queue_items WHERE id IN (${WORKED_ITEMS_SQL})`)
     .all<HealthItemRow>(since);
-  const verdicts = db.prepare(`SELECT item_id AS itemId, verdict, gates_json AS gates FROM plan_queue_verdicts
+  const verdicts = db.prepare(`SELECT item_id AS itemId, verdict, gates_json AS gates, round, findings_json AS findings FROM plan_queue_verdicts
     WHERE item_id IN (${WORKED_ITEMS_SQL}) ORDER BY at, rowid`).all<HealthVerdictRow>(since);
   const states = db.prepare(`SELECT item_id AS itemId, at, to_state AS toState FROM plan_queue_item_events
     WHERE item_id IN (${WORKED_ITEMS_SQL}) AND ${NOT_TIMING_SQL} ORDER BY item_id, at, rowid`).all<HealthStateRow>(since);
@@ -88,6 +89,21 @@ function repeatFailingTests(input: HealthInput): PlanQueueHealth['repeatFailingT
   }
   return [...failedIn].filter(([, jobs]) => jobs.size > 1).map(([test, jobs]) => ({ test, jobs: jobs.size }))
     .sort((a, b) => b.jobs - a.jobs || a.test.localeCompare(b.test)).slice(0, MAX_REPEAT_FAILING_TESTS);
+}
+
+/** Whether late rounds still find things worth blocking on (Decision 4). A finding repeated from an earlier round isn't new. */
+function lateFindings(verdicts: readonly HealthVerdictRow[]): PlanQueueHealth['lateFindings'] {
+  const counts = { critical: 0, high: 0, medium: 0, low: 0 };
+  const seen = new Map<string, Set<string>>();
+  for (const row of verdicts) {
+    const known = seen.get(row.itemId) ?? new Set<string>();
+    seen.set(row.itemId, known);
+    for (const { id, severity } of JSON.parse(row.findings) as { id: string; severity: keyof typeof counts }[]) {
+      if (!known.has(id) && row.round >= LATE_ROUND) counts[severity] += 1;
+      known.add(id);
+    }
+  }
+  return counts;
 }
 
 /** Pure: the same rows always give the same answer. */
@@ -144,5 +160,6 @@ export function computeQueueHealth(input: HealthInput): PlanQueueHealth {
     waiting: { waitingMs, workingMs, share: waitingMs + workingMs ? waitingMs / (waitingMs + workingMs) : null },
     setAsideRounds: { items: setAside.length, rounds: sum(setAside.map(item => verdictsByItem.get(item.id)?.length ?? 0)) },
     repeatFailingTests: repeatFailingTests(input),
+    lateFindings: lateFindings(input.verdicts),
   };
 }

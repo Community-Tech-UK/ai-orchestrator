@@ -46,7 +46,8 @@ export function planQueueStageLine(item: PlanQueueItemDto, now: number): PlanQue
   const name = planQueueDocumentLabel(item.documentPath);
   // A start slightly ahead of this clock is negative here, which reads as just started.
   const elapsed = stage.startedAt === null ? null : now - stage.startedAt;
-  const long = elapsed !== null && elapsed > PLAN_QUEUE_STAGE_LONG_MS;
+  // A landing can wait a day for edits; that isn't a step running long.
+  const long = stage.name !== 'waiting-for-edits' && elapsed !== null && elapsed > PLAN_QUEUE_STAGE_LONG_MS;
   const time = elapsed === null ? ''
     : `, ${elapsed < 60_000 ? 'just started' : describeHealthDuration(elapsed)}${long ? ' (longer than usual)' : ''}`;
   const line = (group: PlanQueueStageGroup, text: string, hint: string): PlanQueueStageLine =>
@@ -63,6 +64,9 @@ export function planQueueStageLine(item: PlanQueueItemDto, now: number): PlanQue
       // The queue's own note is more exact when it has one (usage, a closed checker).
       return line('waiting', `${name}: ${wait.text}`, foldDetail(item.detail)?.preview ?? wait.hint);
     }
+    case 'waiting-for-edits':
+      return line('waiting', `${name}: passed, waiting for uncommitted edits in the main folder`,
+        foldDetail(item.detail)?.preview ?? 'It lands by itself once they are committed or put away.');
     case 'waiting-to-land':
       return line('waiting', `${name}: waiting for another job to finish landing`,
         'Jobs land one at a time; this one has passed its checks.');

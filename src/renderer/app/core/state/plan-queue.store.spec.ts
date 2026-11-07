@@ -421,6 +421,15 @@ describe('PlanQueueStore', () => {
       expect(store.lastError()).toBeNull();
     });
 
+    it('moves on when a job starts waiting for uncommitted edits, which can take a day', async () => {
+      const { finished } = await started(['a', 'b']);
+      push([{ ...parked('a'), state: 'landing', updatedAt: 2, stage: { name: 'waiting-for-edits', startedAt: 2 } }, parked('b')]);
+      await new Promise(resolve => setTimeout(resolve));
+      expect(ipc.control.mock.calls.map(([payload]) => payload)).toEqual(['a', 'b'].map(itemId => ({ action: 'retry-landing', itemId })));
+      push([{ ...parked('a'), state: 'landing', updatedAt: 2, stage: { name: 'waiting-for-edits', startedAt: 2 } }, { ...parked('b'), state: 'landed', updatedAt: 3 }]);
+      await finished;
+    });
+
     it('says how many merged when one is blocked again', async () => {
       const { store, finished } = await started(['a']);
       push([{ ...parked('a'), updatedAt: 2 }]);

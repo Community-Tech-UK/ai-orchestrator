@@ -481,5 +481,12 @@ export interface ProviderRuntimeEventEnvelope {
    * durable persistence. Absent/false means "persist as before."
    */
   readonly ephemeral?: boolean;
+  /**
+   * LT-728: set only when Harness published this output itself (for example
+   * the user's sent message), never for provider-relayed output. Unlike `raw`,
+   * it is not forensic data, so crash-recovery redaction keeps it and the
+   * transcript can still tell the user's input from a provider echo.
+   */
+  readonly harnessPublished?: true;
   readonly event: ProviderRuntimeEvent;
 }

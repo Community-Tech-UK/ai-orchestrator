@@ -285,9 +285,25 @@ describe('appendParkedNote', () => {
     await appendParkedNote(plan, { branchName: 'queue/retry', reason: 'land-blocked', commitCount: 2 });
     await removeParkedNote(plan, 'queue/retry');
     const prepared = await prepareClosedDocuments(plan, repo, null, null);
-    expect(prepared.mode === 'commit' && prepared.documents[0].content).toBe('# Plan\n\nbody\n\n');
+    expect(prepared.mode === 'commit' && prepared.documents[0].content).toBe('# Plan\n\nbody\n');
     expect(readFileSync(plan, 'utf8')).not.toContain('Plan Queue parked work');
   });
+  it.each(['# Plan\n', '# Plan', '# Plan\n\n', '# Plan  \n\n\n'])('puts the document back byte for byte, so a built commit still matches it: %j', async (original) => {
+    const plan = write('docs/plans/exact_plan.md', original);
+    await appendParkedNote(plan, { branchName: 'queue/exact', reason: 'land-blocked', commitCount: 1 });
+    await removeParkedNote(plan, 'queue/exact');
+    expect(readFileSync(plan, 'utf8')).toBe(original);
+  });
+
+  it('still removes the note when someone added text below it', async () => {
+    const plan = write('docs/plans/below_plan.md', '# Plan\n');
+    await appendParkedNote(plan, { branchName: 'queue/below', reason: 'land-blocked', commitCount: 1 });
+    writeFileSync(plan, `${readFileSync(plan, 'utf8')}\nAdded later.\n`);
+    await removeParkedNote(plan, 'queue/below');
+    expect(readFileSync(plan, 'utf8')).not.toContain('Plan Queue parked work');
+    expect(readFileSync(plan, 'utf8')).toContain('Added later.');
+  });
+
   it('adds one findable line and never duplicates it', async () => {
     const plan = write('docs/plans/x_plan.md', '# Plan\n\nbody\n');
     const note = { branchName: 'queue/x-abc123', reason: 'round-limit', commitCount: 4 };

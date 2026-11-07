@@ -233,7 +233,7 @@ describe('promotion with streamed status', () => {
     const result = await promoteIntegrationBranch(directory, 'main', 'integration/main', undefined, {
       dirtyRootPolicy: 'block-overlap',
     });
-    expect(result).toEqual({ status: 'blocked',
+    expect(result).toEqual({ status: 'blocked', code: 'dirty-overlap', overlaps: ['promoted.txt'],
       reason: 'root checkout has uncommitted changes to a promoted path: promoted.txt' });
     expect(await git(['rev-parse', 'HEAD'])).toBe(before);
     expect(readFileSync(join(directory, 'promoted.txt'), 'utf8')).toBe('operator version\n');
@@ -293,7 +293,7 @@ describe('promotion with streamed status', () => {
       largeStatus(`${status} other.txt\0promoted.txt\0`);
       await expect(promoteIntegrationBranch(directory, 'main', 'integration/main', undefined, {
         dirtyRootPolicy: 'block-overlap',
-      })).resolves.toEqual({ status: 'blocked',
+      })).resolves.toEqual({ status: 'blocked', code: 'dirty-overlap', overlaps: ['promoted.txt'],
         reason: 'root checkout has uncommitted changes to a promoted path: promoted.txt' });
       expect(await git(['rev-parse', 'HEAD'])).toBe(before);
     },

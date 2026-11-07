@@ -176,7 +176,7 @@ describe('document-only landing overlap', () => {
     hook.beforeRename = async () => { await writeFile(join(repo, 'b.md'), 'later human edit\n'); };
     const result = await createDocumentOverlapResolver({ itemId: 'item-1' }).prepare({ repoRoot: repo, baseTip, integrationTip,
       overlaps: ['a.md', 'b.md'].map((path) => ({ path, status: '??' })) });
-    expect(result).toMatchObject({ ok: false, reason: expect.stringContaining('doc-merge/item-1') });
+    expect(result).toMatchObject({ ok: false, keptEdits: true, reason: expect.stringContaining('doc-merge/item-1') });
     expect(await readFile(join(repo, 'b.md'), 'utf8')).toBe('later human edit\n');
     expect(await readFile(join(repo, '.git/aio-plan-queue/doc-merge/item-1/ours-1'), 'utf8')).toBe('item\n');
     expect(await readFile(join(repo, '.git/aio-plan-queue/doc-merge/item-1/aside-0'), 'utf8')).toBe('item\n');
@@ -317,7 +317,7 @@ describe('document-only landing overlap', () => {
     const result = await promoteIntegrationBranch(repo, 'main', 'integration/item', integrationTip, {
       dirtyRootPolicy: 'block-overlap', resolveDirtyOverlap: { prepare: async (input) => { seen.push(input); return { ok: false, reason: 'Resolve these files first.' }; } },
     });
-    expect(result).toEqual({ status: 'blocked', reason: 'Resolve these files first.', overlaps: ['register.md', 'source.ts'] });
+    expect(result).toEqual({ status: 'blocked', code: 'dirty-overlap', reason: 'Resolve these files first.', overlaps: ['register.md', 'source.ts'] });
     expect(seen).toEqual([expect.objectContaining({ overlaps: [{ path: 'register.md', status: ' M' }, { path: 'source.ts', status: ' M' }] })]);
   });
 

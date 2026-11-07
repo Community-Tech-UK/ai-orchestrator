@@ -21,8 +21,8 @@
 import type { BrowserElementContext } from '@contracts/types/browser';
 import {
   classifyBrowserAction,
-  ONE_TIME_CODE_ENTRY_TOOLS,
   PAGE_ACTING_TOOLS,
+  TEXT_ENTRY_TOOLS,
   withPageChallengeEvidence,
   type BrowserActionClassification,
   type BrowserPageChallengeEvidence,
@@ -88,7 +88,7 @@ export type BrowserPageChallengeProbe = (target: {
 /** Every tool the probe has evidence for. */
 export const PAGE_PROBED_TOOLS: ReadonlySet<string> = new Set([
   ...PAGE_ACTING_TOOLS,
-  ...ONE_TIME_CODE_ENTRY_TOOLS,
+  ...TEXT_ENTRY_TOOLS,
 ]);
 
 export function createBrowserPageChallengeProbe(deps: BrowserPageChallengeProbeDeps): BrowserPageChallengeProbe {

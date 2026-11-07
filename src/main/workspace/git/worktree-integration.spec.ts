@@ -414,11 +414,25 @@ describe('promoteIntegrationBranch', () => {
 
     expect(result).toEqual({
       status: 'blocked',
+      code: 'dirty-overlap',
+      overlaps: ['promoted.txt'],
       reason: 'root checkout has uncommitted changes to a promoted path: promoted.txt',
     });
     expect(await git(['rev-parse', 'main'], repo)).toBe(mainBefore);
     expect(await import('node:fs/promises').then((fs) => fs.readFile(join(repo, 'promoted.txt'), 'utf8')))
       .toBe('operator version\n');
+  });
+
+  it('does not offer a wait when the refusal says edits were set aside, because someone must act on it', async () => {
+    await integrateFeature('task-overlap-clash');
+    writeFileSync(join(repo, 'promoted.txt'), 'operator version\n');
+
+    const result = await promoteIntegrationBranch(repo, 'main', 'integration/main', undefined, {
+      dirtyRootPolicy: 'block-overlap',
+      resolveDirtyOverlap: { prepare: async () => ({ ok: false, keptEdits: true, reason: 'Harness kept a copy of your edits at /backup.' }) },
+    });
+
+    expect(result).toEqual({ status: 'blocked', overlaps: ['promoted.txt'], reason: 'Harness kept a copy of your edits at /backup.' });
   });
 
   it('blocks when main diverged from the integration branch', async () => {

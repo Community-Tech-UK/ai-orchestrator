@@ -273,7 +273,7 @@ describe('PlanQueueWorktreeService', () => {
     const result = await landItemBranch(item, repo, 'main', 'first candidate', [], [], (commit) => {
       item = { ...item, landedCommit: commit };
     });
-    expect(result.status).toBe('blocked');
+    expect(result.status).toBe('dirty-overlap');
     expect(item.landedCommit).not.toBeNull();
     return item;
   }

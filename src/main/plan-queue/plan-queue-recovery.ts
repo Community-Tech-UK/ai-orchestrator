@@ -16,6 +16,7 @@ import type { PlanQueueFlowHost } from './plan-queue-host';
 import type { PlanQueueItemFlow } from './plan-queue-item-flow';
 import type { PlanQueueStore } from './plan-queue-store';
 import { restoreCheckpointAfterVerification } from './plan-queue-run-hold';
+import { isLandingWait } from './plan-queue-state';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import { recordQueueRestart } from './plan-queue-restart-progress';
 export { recoverInterruptedDocumentMerges } from './plan-queue-doc-merge';
@@ -100,7 +101,9 @@ async function recoverItem(host: PlanQueueRecoveryHost, flow: PlanQueueItemFlow,
       host.transition(item, 'awaiting-slot', { verifierInstanceId: null });
       break;
     case 'landing':
-      void flow.enqueueLanding(item.id);
+      // A waiting landing re-checks its paths first; the landing itself runs only once they are clear.
+      if (isLandingWait(item)) await flow.recheckLandingWait(item.id);
+      else void flow.enqueueLanding(item.id);
       break;
     case 'landed':
       await flow.hold(item.id);

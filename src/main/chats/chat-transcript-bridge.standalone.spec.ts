@@ -55,11 +55,25 @@ function tool(id = 'call-1'): ProviderRuntimeEventEnvelope {
   };
 }
 
-function user(source: string): ProviderRuntimeEventEnvelope {
-  return {
-    ...tool('user-1'), raw: { source, payload: {} },
-    event: { kind: 'output', messageType: 'user', messageId: 'user-1', content: 'Synthetic request' },
+type UserOrigin = 'provider-echo' | 'harness' | 'harness-recovery-redacted' | 'label-only';
+
+function user(origin: UserOrigin, id = 'user-1'): ProviderRuntimeEventEnvelope {
+  const base: ProviderRuntimeEventEnvelope = {
+    ...tool(id),
+    event: { kind: 'output', messageType: 'user', messageId: id, content: 'Synthetic request' },
   };
+  switch (origin) {
+    case 'provider-echo':
+      return { ...base, raw: { source: 'adapter-event:output', payload: {} } };
+    case 'harness':
+      return { ...base, raw: { source: 'instance-output', payload: {} }, harnessPublished: true };
+    // Crash-recovery redaction removes `raw` (and `sessionId`) but keeps the marker.
+    case 'harness-recovery-redacted':
+      return { ...base, harnessPublished: true };
+    // The forensic label alone is not provenance.
+    case 'label-only':
+      return { ...base, raw: { source: 'instance-output', payload: {} } };
+  }
 }
 
 describe('standalone canonical transcript source persistence', () => {
@@ -74,9 +88,19 @@ describe('standalone canonical transcript source persistence', () => {
 
   it('persists real runtime user sends and excludes provider echoes', async () => {
     const h = setup();
-    h.manager.emit('provider:normalized-event', user('adapter-event:output'));
-    h.manager.emit('provider:normalized-event', user('instance-output'));
+    h.manager.emit('provider:normalized-event', user('provider-echo', 'echo-1'));
+    h.manager.emit('provider:normalized-event', user('label-only', 'label-1'));
+    h.manager.emit('provider:normalized-event', user('harness'));
     await h.bridge.flush();
+    expect(h.ledger.appendMessagesReturningRecords).toHaveBeenCalledWith(
+      'canonical-instance', [expect.objectContaining({ nativeMessageId: 'user-1', role: 'user' })],
+    );
+  });
+
+  it('persists the user send of a crash-recovered session whose raw data was redacted (LT-728)', async () => {
+    const h = setup();
+    h.manager.emit('provider:normalized-event', user('harness-recovery-redacted'));
+    await h.bridge.flushForSource('instance-1');
     expect(h.ledger.appendMessagesReturningRecords).toHaveBeenCalledWith(
       'canonical-instance', [expect.objectContaining({ nativeMessageId: 'user-1', role: 'user' })],
     );
@@ -101,7 +125,7 @@ describe('standalone canonical transcript source persistence', () => {
     const chat = { id: 'chat-1', ledgerThreadId: 'canonical-instance' } as ChatRecord;
     h.chatStore.get.mockReturnValue(chat);
     h.chatStore.getByInstanceId.mockReturnValue(chat);
-    h.manager.emit('provider:normalized-event', user('instance-output'));
+    h.manager.emit('provider:normalized-event', user('harness'));
     await h.bridge.flushForSource('instance-1');
     expect(h.ledger.appendMessagesReturningRecords).not.toHaveBeenCalled();
   });

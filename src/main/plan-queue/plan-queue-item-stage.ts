@@ -5,6 +5,7 @@
  */
 import type { PlanQueueCheckWait, PlanQueueItemStage } from '@contracts/schemas/plan-queue';
 import type { PlanQueueHistoryStore, PlanQueueStageMarks } from './plan-queue-history-store';
+import { isLandingWait } from './plan-queue-state';
 import type { PlanQueueItem } from './plan-queue.types';
 
 const latest = (a: number | null, b: number | null): number | null => a === null ? b : b === null ? a : Math.max(a, b);
@@ -23,6 +24,7 @@ export function itemStage(item: PlanQueueItem, marks: PlanQueueStageMarks | unde
     case 'verifying':
       return item.verifierInstanceId ? null : { name: 'checks', startedAt: latest(enteredAt, marks?.checksAt ?? null) };
     case 'landing': {
+      if (isLandingWait(item)) return { name: 'waiting-for-edits', startedAt: item.landingWaitSince ?? enteredAt };
       const turn = marks?.landingAt ?? null;
       return turn !== null && turn >= sessionStartedAt && (enteredAt === null || turn >= enteredAt)
         ? { name: 'landing', startedAt: turn }

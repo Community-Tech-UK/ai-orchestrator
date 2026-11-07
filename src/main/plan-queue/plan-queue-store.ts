@@ -27,7 +27,7 @@ import type { PlanQueueItem, PlanQueueRelaxationSnapshot, PlanQueueRun, PlanQueu
 import { PlanQueueHistoryStore, PLAN_QUEUE_CHECK_SUMMARIES_SQL } from './plan-queue-history-store';
 import { readQueueHealth } from './plan-queue-health';
 import { PlanQueueSlotWaits } from './plan-queue-timings';
-import { itemHoldsWorktree } from './plan-queue-state';
+import { itemHoldsWorkerSlot } from './plan-queue-state';
 
 interface RunRow {
   unpriced_tokens: number;
@@ -73,6 +73,8 @@ interface ItemRow {
   worker_session_json: string | null;
   livetest_port: number | null;
   base_conflicts: number;
+  landing_wait_since: number | null;
+  landing_wait_paths: string | null;
   discarded_at: number | null;
   discarded_by: string | null;
   discard_ref_expires_at: number | null;
@@ -182,12 +184,16 @@ export class PlanQueueStore {
       .map(rowToRun);
   }
 
-  /** Verification and landing remain work even when no session is replying. */
+  /**
+   * Verification and landing remain work even when no session is replying. A landing that is waiting for the
+   * root checkout's uncommitted code to clear is not: nothing runs, so it must not keep the Mac awake.
+   */
   hasActiveWork(): boolean {
     return this.db.prepare(`
       SELECT 1 FROM plan_queue_runs r JOIN plan_queue_items i ON i.run_id = r.id
       WHERE r.status = 'running'
-        AND i.state IN ('preparing', 'working', 'fixing', 'verifying', 'landing')
+        AND (i.state IN ('preparing', 'working', 'fixing', 'verifying')
+          OR (i.state = 'landing' AND i.landing_wait_paths IS NULL))
       LIMIT 1
     `).get() !== undefined;
   }
@@ -250,18 +256,21 @@ export class PlanQueueStore {
     // Read the durable row, not a caller's possibly stale item snapshot, in the
     // same transaction as the write so another save cannot lose a receipt.
     this.db.transaction(() => {
-      const previous = this.db.prepare('SELECT detail, state FROM plan_queue_items WHERE id = ?')
-        .get<{ detail: string | null; state: PlanQueueItemState }>(item.id);
+      const previous = this.db.prepare('SELECT detail, state, landing_wait_paths FROM plan_queue_items WHERE id = ?')
+        .get<{ detail: string | null; state: PlanQueueItemState; landing_wait_paths: string | null }>(item.id);
       this.writeItem({ ...item, detail: preserveRecoveryReceipts(previous?.detail ?? null, item.detail) });
+      // A slot is freed when the item stops holding one, which includes starting to wait to land.
+      const freedWorkerSlot = previous && itemHoldsWorkerSlot({ state: previous.state, landingWaitPaths: previous.landing_wait_paths ? JSON.parse(previous.landing_wait_paths) as string[] : [] })
+        && !itemHoldsWorkerSlot({ state: item.state, landingWaitPaths: item.state === 'landing' ? item.landingWaitPaths : [] });
       if (!previous || previous.state !== item.state) {
         this.history.recordEvent({
           itemId: item.id, runId: item.runId, fromState: previous?.state ?? null, toState: item.state,
           reason: item.parkReason, detailHead: item.detail, round: item.round, tokens: item.spend?.tokens ?? 0,
         });
-        // A worker slot is held from preparing to landing; a check slot while verifying.
-        if (previous && itemHoldsWorktree(previous.state) && !itemHoldsWorktree(item.state)) this.waits.freed('worker');
         if (previous?.state === 'verifying') this.waits.freed('check');
       }
+      // A worker slot is held from preparing to landing; a check slot while verifying.
+      if (freedWorkerSlot) this.waits.freed('worker');
     })();
   }
 
@@ -271,8 +280,9 @@ export class PlanQueueStore {
         id, run_id, document_path, state, round, errored_rounds, landing_refusals, branch_name, worktree_path,
         base_commit, checkpoint_commit, verified_main_commit, landed_commit,
         worker_instance_id, verifier_instance_id, question_json, answer, park_reason, detail,
-        verdict_json, created_at, updated_at, held_at, pending_instruction, worker_provider, worker_model, stepped_up_at, worker_session_json, livetest_port, base_conflicts, discarded_at, discarded_by, discard_ref_expires_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        verdict_json, created_at, updated_at, held_at, pending_instruction, worker_provider, worker_model, stepped_up_at, worker_session_json, livetest_port, base_conflicts, discarded_at, discarded_by, discard_ref_expires_at,
+        landing_wait_since, landing_wait_paths
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         state                = excluded.state,
         round                = excluded.round,
@@ -299,6 +309,8 @@ export class PlanQueueStore {
         worker_session_json  = excluded.worker_session_json,
         livetest_port        = excluded.livetest_port,
         base_conflicts       = excluded.base_conflicts,
+        landing_wait_since   = excluded.landing_wait_since,
+        landing_wait_paths   = excluded.landing_wait_paths,
         discarded_at         = excluded.discarded_at,
         discarded_by         = excluded.discarded_by,
         discard_ref_expires_at = excluded.discard_ref_expires_at,
@@ -337,6 +349,9 @@ export class PlanQueueStore {
       item.discardedAt ?? null,
       item.discardedBy ?? null,
       item.discardRefExpiresAt ?? null,
+      // A wait only means something while the item is landing; leaving that state ends it.
+      item.state === 'landing' ? item.landingWaitSince ?? null : null,
+      item.state === 'landing' && item.landingWaitPaths?.length ? JSON.stringify(item.landingWaitPaths) : null,
     );
   }
 
@@ -352,6 +367,18 @@ export class PlanQueueStore {
         AND run.parent_instance_id = ? ORDER BY item.created_at DESC, item.id DESC LIMIT 1`)
       .get<ItemRow>(documentPath, parentInstanceId);
     return row ? rowToItem(row) : null;
+  }
+
+  /** Attempts at a document, newest first. A skipped row never ran, and routine saves move `updated_at`, so creation orders them. */
+  latestAttempts(documentPath: string, limit: number): PlanQueueItem[] {
+    return this.db.prepare(`SELECT * FROM plan_queue_items WHERE document_path = ? AND state != 'skipped' ORDER BY created_at DESC, id DESC LIMIT ?`)
+      .all<ItemRow>(documentPath, limit).map(rowToItem);
+  }
+
+  /** When an attempt last stopped. Discarding and retrying move `updated_at`, so that can't say whether a file changed since. */
+  lastParkedAt(itemId: string): number | null {
+    return this.db.prepare(`SELECT MAX(at) AS at FROM plan_queue_item_events WHERE item_id = ? AND to_state = 'parked' AND from_state != 'parked'`)
+      .get<{ at: number | null }>(itemId)?.at ?? null;
   }
 
   listItems(runId: string): PlanQueueItem[] {
@@ -390,6 +417,12 @@ export class PlanQueueStore {
       .prepare('SELECT landed_commit FROM plan_queue_items WHERE document_path = ? AND created_at > ? AND landed_commit IS NOT NULL')
       .all<{ landed_commit: string }>(item.documentPath, item.createdAt)
       .map((row) => row.landed_commit);
+  }
+
+  /** True when another attempt's review of this document is in force. */
+  documentBeingChecked(documentPath: string, exceptItemId: string): boolean {
+    return this.db.prepare(`SELECT 1 FROM plan_queue_items WHERE document_path = ? AND id != ? AND state IN ('verifying', 'landing') LIMIT 1`)
+      .get(documentPath, exceptItemId) !== undefined;
   }
 
   /** True when another item is working on this document. */
@@ -540,6 +573,8 @@ function rowToItem(row: ItemRow): PlanQueueItem {
     erroredRounds: row.errored_rounds,
     landingRefusals: row.landing_refusals,
     baseConflicts: row.base_conflicts ?? 0,
+    ...(row.landing_wait_since === null || row.landing_wait_since === undefined ? {} : { landingWaitSince: row.landing_wait_since }),
+    ...(row.landing_wait_paths ? { landingWaitPaths: JSON.parse(row.landing_wait_paths) as string[] } : {}),
     ...(row.discarded_at ? { discardedAt: row.discarded_at, discardedBy: row.discarded_by } : {}),
     ...(row.discard_ref_expires_at ? { discardRefExpiresAt: row.discard_ref_expires_at } : {}),
     branchName: row.branch_name,

@@ -49,9 +49,8 @@ describe('BrowserOneTimeCodeFillLedger', () => {
 
 describe('classifyOneTimeCodeSubmit keeps the checks two-factor words would hide', () => {
   // Each of these classifies as a two-factor challenge first. After a gateway
-  // fill they must still stop for the password, declaration or reset they carry.
+  // fill they must still stop for the declaration or reset they carry.
   it.each([
-    ['a new password', 'Verify and set new password', 'Enter the OTP we emailed and choose a password'],
     ['a legal declaration', 'Validate OTP', 'I declare that the information is true. Enter OTP'],
     ['a destructive action', 'Reset account', 'Enter verification code'],
   ])('keeps a click with %s parked', (_label, visibleText, nearbyText) => {

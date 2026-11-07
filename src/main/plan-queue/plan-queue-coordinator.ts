@@ -445,18 +445,18 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     logger.info('Plan queue run started', { runId: run.id, kind: run.kind, items: items.length, excluded: excluded.length });
     this.announce({ runId: run.id });
     this.requestPump();
-    return { run: runToDto(this.getRun(run.id), items, deps.store.history.checksSummary(run.id), this.stagesOf(items)), excluded, routingSetAside: setAside, accountNotes, checklistSetAside: callerGatesSetAside };
+    return { run: runToDto(this.getRun(run.id), items, deps.store.history.checksSummary(run.id), this.stagesOf(items), this.history.totalRoundsByDocument()), excluded, routingSetAside: setAside, accountNotes, checklistSetAside: callerGatesSetAside };
   }
   getRunDto(runId: string): PlanQueueRunDto | null {
     const run = this.requireDeps().store.getRun(runId);
     if (!run) return null;
     const items = this.requireDeps().store.listItems(run.id);
-    return runToDto(run, items, this.history.checksSummary(run.id), this.stagesOf(items));
+    return runToDto(run, items, this.history.checksSummary(run.id), this.stagesOf(items), this.history.totalRoundsByDocument());
   }
   listRunDtos(limit = 20): PlanQueueRunDto[] {
     const snapshots = this.requireDeps().store.listRunSnapshots(limit);
-    const stages = this.stagesOf(snapshots.flatMap(snapshot => snapshot.items));
-    return snapshots.map(({ run, items, checks }) => runToDto(run, items, checks, stages));
+    const stages = this.stagesOf(snapshots.flatMap(snapshot => snapshot.items)), rounds = this.history.totalRoundsByDocument();
+    return snapshots.map(({ run, items, checks }) => runToDto(run, items, checks, stages, rounds));
   }
   listRunEvents(runId: string, limit: number) { return this.history.listRunEvents(runId, limit); }
   /** Steps with no session (checks, landing, waits), timed from stored history; see plan-queue-item-stage.ts. */

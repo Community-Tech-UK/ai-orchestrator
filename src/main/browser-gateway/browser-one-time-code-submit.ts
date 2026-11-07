@@ -5,7 +5,7 @@ import type { BrowserGuardedMutationRequest } from './browser-gateway-action-gua
 import type { BrowserElementContext } from '@contracts/types/browser';
 import {
   classifyBrowserAction,
-  ONE_TIME_CODE_ENTRY_TOOLS,
+  TEXT_ENTRY_TOOLS,
   TWO_FACTOR_CHALLENGE_REASON,
   type BrowserActionClassification,
 } from './browser-action-classifier';
@@ -29,8 +29,8 @@ import {
  * After a successful code fill the ledger holds one entry for that session and
  * tab. A later `browser.click` on the same tab and page origin within the window,
  * that the classifier marks as a two-factor challenge, is classified again with
- * the two-factor words ignored. If that finds nothing else to stop for (password,
- * legal declaration, payment, destructive), the click is what it looks like: the
+ * the two-factor words ignored. If that finds nothing else to stop for (legal
+ * declaration, payment, destructive), the click is what it looks like: the
  * submit of a form the gateway filled, and it is checked as an ordinary submit
  * that still needs a submit grant. The entry is spent only when the guard
  * actually releases the click, so a click that first waits for approval can be
@@ -169,7 +169,7 @@ export async function classifyGuardedActionWithCodeFill(input: {
     classification: await classifyGuardedBrowserAction({
       probe: input.probe, profileId: scope.profileId, targetId: scope.targetId, toolName, actionHint,
       elementContext, elementContextSource, override: input.override,
-      ...(ONE_TIME_CODE_ENTRY_TOOLS.has(toolName) ? { inputTargets: probeInputTargets(input.request) } : {}),
+      ...(TEXT_ENTRY_TOOLS.has(toolName) ? { inputTargets: probeInputTargets(input.request) } : {}),
     }),
     classifyWithoutTwoFactor: () =>
       classifyBrowserAction({ toolName, actionHint, elementContext, elementContextSource, ignoreTwoFactor: true }),

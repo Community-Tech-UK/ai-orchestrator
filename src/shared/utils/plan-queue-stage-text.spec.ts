@@ -22,6 +22,7 @@ describe('planQueueStageLine', () => {
     expect(text({ name: 'landing', startedAt: NOW - 9 * MIN })).toBe('Landing desk-shared-crm: commit checks running, 9 min');
     expect(text({ name: 'waiting-for-checks', startedAt: NOW - 4 * MIN, checkWait: 'other-checks' })).toBe('desk-shared-crm: waiting for a free check slot, 4 min');
     expect(text({ name: 'waiting-to-land', startedAt: NOW - 2 * MIN })).toBe('desk-shared-crm: waiting for another job to finish landing, 2 min');
+    expect(text({ name: 'waiting-for-edits', startedAt: NOW - 200 * MIN })).toBe('desk-shared-crm: passed, waiting for uncommitted edits in the main folder, 3 h 20 min');
   });
 
   it.each([

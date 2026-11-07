@@ -22,7 +22,7 @@ const empty: PlanQueueHealth = {
   windowDays: 14, since: 0, attemptsLanded: NOTHING, documentsLanded: NOTHING, passesNotLanded: NOTHING, firstCheckPassed: NOTHING,
   freeSlotToStart: { count: 0, medianMs: null }, checkTime: { count: 0, medianMs: null },
   landingTime: { count: 0, medianMs: null, syncMs: null, mergeCheckMs: null, commitCheckMs: null, publishMs: null },
-  waiting: { waitingMs: 0, workingMs: 0, share: null }, setAsideRounds: { items: 0, rounds: 0 }, repeatFailingTests: [],
+  waiting: { waitingMs: 0, workingMs: 0, share: null }, setAsideRounds: { items: 0, rounds: 0 }, repeatFailingTests: [], lateFindings: { critical: 0, high: 0, medium: 0, low: 0 },
 };
 
 describe('PlanQueueHealthComponent', () => {
@@ -46,7 +46,7 @@ describe('PlanQueueHealthComponent', () => {
     expect(rows.map(row => row[0])).toEqual([
       'Attempts that land', 'Documents that land', 'Passed checks that did not land', 'Passed the first check',
       'Wait from a free slot to the next start', 'Time a check takes', 'Time to land',
-      'Time spent waiting rather than working', 'Rounds spent on items that were set aside', 'Tests failing in more than one job',
+      'Time spent waiting rather than working', 'Rounds spent on items that were set aside', 'Tests failing in more than one job', 'New findings from round 3 on',
     ]);
     expect(rows[0][1]).toBe('Nothing measured yet');
     expect(rows[8][1]).toBe('None');

@@ -298,7 +298,8 @@ export class PlanQueueStore {
     const wait = this.landingWait;
     if (!wait) return;
     const item = this.itemById(wait.itemId);
-    const finished = item?.state === 'landed' || (item?.state === 'parked' && item.updatedAt !== wait.updatedAt);
+    const finished = item?.state === 'landed' || (item?.state === 'parked' && item.updatedAt !== wait.updatedAt)
+      || item?.stage?.name === 'waiting-for-edits';
     if (!finished && (item?.state === 'landing' || !(this.retryStopped || this.runIsPaused(item)))) return;
     this.landingWait = null;
     wait.resolve();

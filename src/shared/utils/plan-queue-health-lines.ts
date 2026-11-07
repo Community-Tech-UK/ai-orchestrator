@@ -54,7 +54,9 @@ function testMachineNotice(testMachine: PlanQueueHealth['testMachine']): string 
 
 /** The measures in reading order. Every figure covers the recent window and finished work only. */
 export function describeQueueHealth(health: PlanQueueHealth): { heading: string; lines: PlanQueueHealthLine[]; notice: string | null } {
-  const { waiting, setAsideRounds, repeatFailingTests } = health;
+  const { waiting, setAsideRounds, repeatFailingTests, lateFindings } = health;
+  const late = (['critical', 'high', 'medium', 'low'] as const).filter(severity => lateFindings[severity] > 0)
+    .map(severity => `${lateFindings[severity]} ${severity}`);
   return {
     heading: `Queue health, last ${health.windowDays} days`,
     notice: testMachineNotice(health.testMachine),
@@ -72,6 +74,7 @@ export function describeQueueHealth(health: PlanQueueHealth): { heading: string;
         : `${setAsideRounds.rounds} ${setAsideRounds.rounds === 1 ? 'round' : 'rounds'} on ${setAsideRounds.items} ${setAsideRounds.items === 1 ? 'item' : 'items'}` },
       { label: 'Tests failing in more than one job', value: repeatFailingTests.length === 0 ? 'None'
         : repeatFailingTests.map(({ test, jobs }) => `${test} (${jobs} jobs)`).join('; ') },
+      { label: 'New findings from round 3 on', value: late.length ? late.join(', ') : 'None' },
       ...testMachineLines(health.testMachine),
     ],
   };

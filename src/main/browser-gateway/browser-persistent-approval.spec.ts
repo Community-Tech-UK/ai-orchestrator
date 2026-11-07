@@ -17,7 +17,7 @@ import type { BrowserGatewayResultInput } from './browser-gateway-result';
 
 const dbs: SqliteDriver[] = [];
 const origin = { scheme: 'https' as const, hostPattern: 'entra.microsoft.com', includeSubdomains: false };
-const hint = 'Open token configuration to add the optional amr claim.';
+const hint = 'Type the new client secret.';
 
 function fixture(managed = false) {
   const db = defaultDriverFactory(':memory:');
@@ -46,7 +46,7 @@ function fixture(managed = false) {
   const operations = new BrowserGatewayApprovalOperations({ approvalStore, grantStore, result, profileStore });
   const context = { profileId: tab.profileId, targetId: tab.targetId, instanceId: 'instance-1', provider: 'codex' };
   const prepare = (overrides: Partial<typeof context> & { requestId?: string } = {}) => guard.prepareMutatingAction(
-    { ...context, ...overrides }, 'click', 'browser.click', 'uid:3219', hint,
+    { ...context, ...overrides }, 'type', 'browser.type', 'uid:3219', hint,
   );
   const approve = async (mode: BrowserGrantMode) => {
     const pending = await prepare();
@@ -97,7 +97,7 @@ describe('explicit reusable browser approvals', () => {
     const prepared = await f.prepare({ instanceId: 'another-instance', provider: 'claude' });
     expect(prepared).toMatchObject({ grant: { id: grant.id } });
     expect(f.guard.recheckPreparedGrant({ ...f.context, instanceId: 'another-instance', provider: 'claude' },
-      'click', 'browser.click', prepared as BrowserGatewayPreparedMutation)).toBeNull();
+      'type', 'browser.type', prepared as BrowserGatewayPreparedMutation)).toBeNull();
     reopened.revokeGrant(grant.id);
     expect(await f.prepare({ instanceId: 'another-instance', provider: 'claude' })).toMatchObject({ result: { decision: 'requires_user' } });
   });
@@ -123,9 +123,9 @@ describe('explicit reusable browser approvals', () => {
     })).data!;
     expect(f.grantStore.listGrants({ instanceId: future.instanceId, nodeId: 'windows-pc' })[0].id).toBe(replacement.id);
     expect(await f.prepare(future)).toMatchObject({ grant: { id: replacement.id } });
-    expect(f.guard.recheckPreparedGrant(future, 'click', 'browser.click', preparation)).toBeNull();
+    expect(f.guard.recheckPreparedGrant(future, 'type', 'browser.type', preparation)).toBeNull();
     f.grantStore.revokeGrant(grant.id);
-    expect(f.guard.recheckPreparedGrant(future, 'click', 'browser.click', preparation))
+    expect(f.guard.recheckPreparedGrant(future, 'type', 'browser.type', preparation))
       .toMatchObject({ decision: 'requires_user', outcome: 'not_run' });
     expect(await f.prepare(future)).toMatchObject({ grant: { id: replacement.id } });
   });

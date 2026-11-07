@@ -160,6 +160,77 @@ describe('orchestrator-tools evidence RPC', () => {
     }
   });
 
+  it('anchors a tool call on a crash-recovered session user send whose raw data was redacted (LT-728)', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rpc-evidence-recovered-'));
+    const db = defaultDriverFactory(':memory:');
+    createOperatorTables(db);
+    const ledger = new ConversationLedgerService({
+      dbPath: ':memory:', enableWAL: false, registry: new NativeConversationRegistry(),
+    });
+    runtime.ledger = ledger;
+    const conversation = await ledger.startConversation({
+      provider: 'orchestrator', metadata: { scope: 'instance', historyThreadId: 'history-recovered' },
+    });
+    const instance = {
+      id: 'instance-known', provider: 'codex', historyThreadId: 'history-recovered',
+      metadata: { reason: 'crash-recovery' },
+      contextEvidence: { mode: 'enforce', conversationId: conversation.id, captureFailureCount: 0 },
+    };
+    const manager = Object.assign(new EventEmitter(), { getInstance: () => instance });
+    const bridge = new ChatTranscriptBridge({
+      ledger, chatStore: new ChatStore(db), instanceManager: manager as never,
+      eventBus: new EventEmitter(), flushIntervalMs: 10_000,
+    });
+    bridge.start();
+    const list = vi.fn(async () => ({ connectedCount: 0, totalCount: 0, nodes: [] }));
+    const capture = vi.fn(async (input: { result: unknown }) => ({
+      capture: {
+        status: 'captured',
+        record: { id: 'evidence-recovered-call', conversationId: conversation.id, status: 'complete' },
+      },
+      providerResult: input.result,
+    }));
+    const server = new OrchestratorToolsRpcServer({
+      operatorDbPath: path.join(root, 'operator.db'), userDataPath: root,
+      isKnownLocalInstance: (id) => id === instance.id, registerCleanup: () => undefined,
+      listRemoteNodes: list,
+      prepareEvidenceSource: flushChatTranscriptSource,
+      resolveContextEvidence: () => ({
+        ...instance.contextEvidence, mode: 'enforce',
+        coordinator: { ...coordinatorStub(), captureAioMcpResult: capture },
+      }),
+    });
+    const userOutput = (messageId: string) => ({
+      instanceId: instance.id, eventId: messageId, provider: 'codex' as const, seq: 1, timestamp: 1,
+      event: { kind: 'output' as const, messageType: 'user', messageId, content: 'Check the queue run.' },
+    });
+    try {
+      // A provider echo is never the user's input, even with nothing else recorded.
+      manager.emit('provider:normalized-event', {
+        ...userOutput('provider-echo'), raw: { source: 'adapter-event:output', payload: {} },
+      });
+      await expect(server.handleRequest(request('orchestrator_tools.list_remote_nodes', {})))
+        .rejects.toThrow(/SOURCE_MESSAGE_MISSING/);
+      expect(list).not.toHaveBeenCalled();
+
+      // Recovery redaction removed `raw`; the Harness-published marker remains.
+      manager.emit('provider:normalized-event', { ...userOutput('typed-send'), harnessPublished: true });
+      await expect(server.handleRequest(request('orchestrator_tools.list_remote_nodes', {})))
+        .resolves.toEqual({ connectedCount: 0, totalCount: 0, nodes: [] });
+
+      const persisted = (await ledger.getRecentConversation(conversation.id, 10)).messages;
+      expect(persisted).toEqual([expect.objectContaining({ role: 'user', nativeMessageId: 'typed-send' })]);
+      expect(capture).toHaveBeenCalledWith(expect.objectContaining({ turnRef: persisted[0].id }));
+    } finally {
+      bridge.stop();
+      await server.stop();
+      runtime.ledger = null;
+      await ledger.close();
+      db.close();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('rejects unresolved canonical ownership before dispatching a worker operation', async () => {
     const db = defaultDriverFactory(':memory:');
     createOperatorTables(db);

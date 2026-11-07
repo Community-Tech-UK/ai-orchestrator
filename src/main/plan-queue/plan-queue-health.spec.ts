@@ -151,7 +151,7 @@ describe('Queue health', () => {
   it('lists tests that failed for more than one document, counting each document once', () => {
     const items = [['a', '/repo/one_plan.md'], ['b', '/repo/one_plan.md'], ['c', '/repo/two_plan.md'], ['d', '/repo/three_plan.md']]
       .map(([id, documentPath]) => ({ id, documentPath, state: 'parked' }));
-    const row = (itemId: string, ...gates: object[]) => ({ itemId, verdict: 'FAIL', gates: JSON.stringify(gates) });
+    const row = (itemId: string, ...gates: object[]) => ({ itemId, verdict: 'FAIL', gates: JSON.stringify(gates), round: 1, findings: '[]' });
     const health = computeQueueHealth({ now: NOW, windowDays: 14, items, states: [], timings: [], verdicts: [
       row('a', { failingTests: ['shared test', 'same document only'] }),
       row('a', { failingTests: ['shared test'] }),
@@ -162,5 +162,17 @@ describe('Queue health', () => {
       row('d', { command: 'older verdict with no names' }),
     ] });
     expect(health.repeatFailingTests).toEqual([{ test: 'shared test', jobs: 3 }, { test: 'pair test', jobs: 2 }]);
+  });
+
+  it('counts a finding once, in the round it first appeared, and only from round 3 on', () => {
+    const finding = (id: string, severity: string) => ({ id, severity, summary: id });
+    const row = (itemId: string, round: number, ...findings: object[]) => ({ itemId, verdict: 'FAIL', gates: '[]', round, findings: JSON.stringify(findings) });
+    const health = computeQueueHealth({ now: NOW, windowDays: 14, states: [], timings: [], items: [{ id: 'a', documentPath: '/repo/a_plan.md', state: 'parked' }, { id: 'b', documentPath: '/repo/b_plan.md', state: 'parked' }], verdicts: [
+      row('a', 1, finding('early', 'high')),
+      row('a', 3, finding('early', 'high'), finding('late', 'medium')),
+      row('a', 4, finding('late', 'medium'), finding('later', 'low')),
+      row('b', 3, finding('early', 'critical')),
+    ] });
+    expect(health.lateFindings).toEqual({ critical: 1, high: 0, medium: 1, low: 1 });
   });
 });

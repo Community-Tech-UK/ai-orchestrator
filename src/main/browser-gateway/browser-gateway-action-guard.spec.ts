@@ -816,13 +816,24 @@ describe('BrowserGatewayActionGuard one-time code submit (British Council TAP, 2
     expect(raise).not.toHaveBeenCalled();
   });
 
-  it('keeps parking a code click that also sets a password', async () => {
+  it('checks a code click that also sets a password as an ordinary submit', async () => {
+    const ledger = new BrowserOneTimeCodeFillLedger();
+    ledger.record({ instanceId: 'i1', profileId: 'p1', targetId: 't1', origin: PORTAL });
+    const { guard, raise } = makeGuard({ grants: [CAMPAIGN_SUBMIT_GRANT], oneTimeCodeFills: ledger });
+
+    expect(await guard.prepareMutatingAction(
+      CONTEXT, 'click', 'browser.click', '#verify', 'Verify OTP and set new password',
+    )).toMatchObject({ grant: { id: 'g1' }, actionClass: 'submit' });
+    expect(raise).not.toHaveBeenCalled();
+  });
+
+  it('keeps parking a code click that also makes a declaration', async () => {
     const ledger = new BrowserOneTimeCodeFillLedger();
     ledger.record({ instanceId: 'i1', profileId: 'p1', targetId: 't1', origin: PORTAL });
     const { guard, raise } = makeGuard({ grants: [CAMPAIGN_SUBMIT_GRANT], oneTimeCodeFills: ledger });
 
     const result = resultOf(await guard.prepareMutatingAction(
-      CONTEXT, 'click', 'browser.click', '#verify', 'Verify OTP and set new password',
+      CONTEXT, 'click', 'browser.click', '#verify', 'Verify OTP, I declare the details are accurate',
     ));
 
     expect(result.reason).toBe('two_factor_unavailable_parked_to_escalation_queue');

@@ -331,7 +331,7 @@ export const PlanQueueCheckWaitSchema = z.enum([
  * `checkWait` is absent until the scheduler has looked at the job.
  */
 export const PlanQueueItemStageSchema = z.object({
-  name: z.enum(['checks', 'landing', 'waiting-for-checks', 'waiting-to-land']),
+  name: z.enum(['checks', 'landing', 'waiting-for-checks', 'waiting-to-land', 'waiting-for-edits']),
   startedAt: z.number().int().nullable(),
   checkWait: PlanQueueCheckWaitSchema.optional(),
 });
@@ -343,6 +343,8 @@ export const PlanQueueItemDtoSchema = z.object({
   documentPath: PathSchema,
   state: PlanQueueItemStateSchema,
   round: z.number().int().min(0),
+  /** Rounds checked across every attempt at this document, sent only when more than `round`. */
+  totalRounds: z.number().int().min(0).optional(),
   erroredRounds: z.number().int().min(0),
   branchName: z.string().max(500).nullable(),
   worktreePath: z.string().max(4000).nullable(),
@@ -397,6 +399,8 @@ export const PlanQueueHealthSchema = z.object({
   setAsideRounds: z.object({ items: z.number().int().nonnegative(), rounds: z.number().int().nonnegative() }),
   /** Tests that failed in more than one document, most documents first. */
   repeatFailingTests: z.array(z.object({ test: z.string().min(1).max(300), jobs: z.number().int().min(2) })).max(5),
+  /** Findings first raised in round 3 or later, by severity. */
+  lateFindings: z.record(PlanQueueFindingSeveritySchema, z.number().int().nonnegative()),
   /** Where full test runs went. Absent when no test machine is set up. */
   testMachine: z.object({
     label: z.string().min(1).max(100),

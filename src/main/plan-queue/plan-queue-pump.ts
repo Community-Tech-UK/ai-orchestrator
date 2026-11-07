@@ -9,13 +9,13 @@ import type { PlanQueueTriage } from './plan-queue-triage';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import { reconcileWaitingDocuments } from './plan-queue-readiness';
 import { hasPendingLandingCleanup } from './plan-queue-item-landing';
-import { isTerminalItemState, itemHoldsWorktree } from './plan-queue-state';
+import { isLandingWait, isTerminalItemState, itemHoldsWorkerSlot, itemHoldsWorktree } from './plan-queue-state';
 import { queueAdmission } from '../work-admission/queue-admission';
 import { pathCompareKey } from '../util/path-helpers';
 
 interface QueuePumpHost extends Pick<PlanQueueFlowHost, 'getRun' | 'getItem' | 'transition' | 'notifyParent' | 'resolveRunParent'> {
   store: PlanQueueStore;
-  flow: Pick<PlanQueueItemFlow, 'startItem' | 'startVerification' | 'isWaitingForUsage' | 'isClaimed' | 'checklistTurns' | 'breaker' | 'finishLandingCleanup'> & { keptFolders: Pick<PlanQueueKeptFolders, 'retryDue'>; discardedRefs: Pick<PlanQueueDiscardedRefs, 'sweepDue'> };
+  flow: Pick<PlanQueueItemFlow, 'startItem' | 'startVerification' | 'isWaitingForUsage' | 'isClaimed' | 'recheckLandingWait' | 'checklistTurns' | 'breaker' | 'finishLandingCleanup'> & { keptFolders: Pick<PlanQueueKeptFolders, 'retryDue'>; discardedRefs: Pick<PlanQueueDiscardedRefs, 'sweepDue'> };
   triage: Pick<PlanQueueTriage, 'isStopping' | 'maybeStart'> | null;
   loadAverage(): number[];
   followParent(run: PlanQueueRun): PlanQueueRun;
@@ -72,6 +72,12 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
       const run = host.followParent(host.getRun(snapshot.id));
       if (run.status !== 'running' && run.status !== 'paused') continue;
       host.resolveRunParent(run);
+      // Before the pending-cleanup skip below, so a waiting landing is never stranded behind another item's cleanup.
+      if (run.status === 'running') {
+        for (const waiting of store.listItems(run.id).filter(isLandingWait)) {
+          await flow.recheckLandingWait(waiting.id).catch((error: unknown) => host.logItemError(waiting, error));
+        }
+      }
       const items = store.listItems(run.id);
       const awaitingChecks = items.filter(item => item.state === 'awaiting-slot');
       const cleanups = items.filter(hasPendingLandingCleanup);
@@ -89,7 +95,8 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
         }
         const overloaded = oneMinute > policy.maxLoadAverage || fiveMinute > policy.maxLoadAverage;
         if (!overloaded) {
-          let inFlight = items.filter((item) => itemHoldsWorktree(item.state)).length;
+          // A waiting landing keeps its folder (counted in totalJobs and the app-wide limit) but not its worker slot.
+          let inFlight = items.filter(itemHoldsWorkerSlot).length;
           for (const item of items.filter((candidate) => candidate.state === 'queued' && !flow.isWaitingForUsage(candidate.id))) {
             if (!flow.breaker.canStart(run) || !queueAdmission(run.config, totalJobs, verifying).canStartWorker(inFlight)) { store.waits.blocked(item.id); continue; }
             flow.breaker.started(run, item.id);

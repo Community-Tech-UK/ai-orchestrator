@@ -162,6 +162,15 @@ describe('PlanQueueItemListComponent', () => {
     expect(text).toContain('1 round ended with an error');
   });
 
+  it('shows the total across attempts only when there is one to show', () => {
+    fixture.componentRef.setInput('items', [makeItem({ round: 2, totalRounds: 11 })]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Round 2 of 3 · 11 in total');
+    fixture.componentRef.setInput('items', [makeItem({ round: 2 })]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).not.toContain('in total');
+  });
+
   it('shows recorded cost beside the actual round cap', () => {
     fixture.componentRef.setInput('items', [makeItem({ round:2,spend:{tokens:100,costUsd:3.1,exactUsd:2} })]);
     fixture.detectChanges(); expect(fixture.nativeElement.textContent).toContain('Round 2 of 3 · $3.10');

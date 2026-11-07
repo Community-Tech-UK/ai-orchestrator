@@ -305,7 +305,8 @@ export interface PromoteIntegrationOptions {
   resolveDirtyOverlap?: DirtyOverlapResolver;
 }
 
-function pathsCollide(a: string, b: string): boolean {
+/** Same file, or one is a folder holding the other. */
+export function pathsCollide(a: string, b: string): boolean {
   const left = a.replace(/\/$/, '');
   const right = b.replace(/\/$/, '');
   return left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
@@ -318,7 +319,12 @@ export type BasePromotionResult =
     documentMergeInterrupted?: string;
   }
   | { status: 'already-promoted'; tip: string }
-  | { status: 'blocked'; reason: string; overlaps?: string[] };
+  /**
+   * `code` is set when the root checkout's uncommitted work is in the way: a changed path the promotion also changes
+   * that the overlap resolver could not merge. `overlaps` then lists those paths, so a caller can wait for them
+   * instead of reading `reason`.
+   */
+  | { status: 'blocked'; reason: string; overlaps?: string[]; code?: 'dirty-overlap' };
 
 const ZERO_OID = '0000000000000000000000000000000000000000';
 
@@ -453,8 +459,8 @@ export async function promoteIntegrationBranch(
         }
         if (overlaps.length) {
           const result = await options.resolveDirtyOverlap?.prepare({ repoRoot, baseTip, integrationTip, overlaps });
-          if (!result?.ok) return { status: 'blocked',
-            ...(result || overlaps.length > 1 ? { overlaps: overlaps.map((entry) => entry.path) } : {}),
+          if (!result?.ok) return { status: 'blocked', ...(result?.keptEdits ? {} : { code: 'dirty-overlap' as const }),
+            overlaps: overlaps.map((entry) => entry.path),
             reason: result?.reason ?? `root checkout has uncommitted changes to ${overlaps.length === 1 ? 'a promoted path' : 'promoted paths'}: ${overlaps.map((entry) => entry.path).join(', ')}` };
           resolution = result;
         }

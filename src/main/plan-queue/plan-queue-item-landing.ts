@@ -7,9 +7,10 @@
  *      post-merge gate → back to the worker);
  *   2. prepare the closed documents without touching the root checkout — a
  *      failure here parks the item `land-blocked` before anything lands;
- *   3. build the squash commit with hooks (a refusal goes back to the worker
- *      once, then parks) and record it before promoting, so a crash in between
- *      re-promotes instead of rebuilding;
+ *   3. check the root checkout's uncommitted edits would merge (it waits if
+ *      not, before any hook runs), then build the squash commit with hooks (a
+ *      refusal goes back to the worker once, then parks) and record it before
+ *      promoting, so a crash in between re-promotes instead of rebuilding;
  *   4. fast-forward the base, then retire the superseded root documents;
  *   5. stop retained sessions before proof cleanup, keeping IDs until it succeeds.
  *
@@ -32,6 +33,7 @@ import { assertDocumentReview, readDocumentReview, type DocumentReview } from '.
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { mergeCheckStillOwed, recordMergeCheckTimeout } from './plan-queue-check-timeouts';
 import { landItemBranch, runPostMergeGate, syncItemWithBase } from './plan-queue-landing';
+import { landingBlockers, overlapReason, type PlanQueueLandingWaits } from './plan-queue-landing-wait';
 import { buildActiveDocumentsPrompt, buildConflictPrompt, buildGateFailurePrompt } from './plan-queue-prompts';
 import { clearPlanningMoveRecord, planningMoveNote } from './plan-queue-planning-files';
 import { returnToItemCheckout } from './plan-queue-squash';
@@ -59,6 +61,8 @@ export interface PlanQueueLandingContext {
   /** Park, stopping writers before checkpointing. Lock held. */
   park(item: PlanQueueItem, reason: PlanQueueParkReason, detail: string, requireCheckpoint?: boolean): Promise<void>;
   stopInstance(instanceId: string): Promise<void>;
+  /** Where a landing the root checkout's uncommitted code is blocking waits. */
+  readonly waits: Pick<PlanQueueLandingWaits, 'begin'>;
 }
 
 function errorMessage(error: unknown): string {
@@ -70,7 +74,7 @@ function requireBaseBranch(run: PlanQueueRun): string {
   return run.config.baseBranch;
 }
 
-async function isAncestor(commit: string, of: string, repoRoot: string): Promise<boolean> {
+export async function isAncestor(commit: string, of: string, repoRoot: string): Promise<boolean> {
   return gitExec(['merge-base', '--is-ancestor', commit, of], repoRoot).then(() => true, () => false);
 }
 
@@ -100,7 +104,12 @@ export class PlanQueueItemLanding {
         logger.error('Plan queue landing failed unexpectedly', error instanceof Error ? error : undefined, { itemId });
         // A folder that is not the item's checkout cannot be checkpointed; requiring it would leave the item stuck in landing.
         if (item.state !== 'landed') {
-          await this.ctx.park(item, 'land-blocked', `Landing failed: ${errorMessage(error)}`, !(error instanceof PlanQueueCheckoutOwnershipError));
+          const reason = `Landing failed: ${errorMessage(error)}`;
+          // Saving the folder can fail for the same reason the landing did. Stay in `landing` only for Pause, whose next hold recovers it.
+          await this.ctx.park(item, 'land-blocked', reason, !(error instanceof PlanQueueCheckoutOwnershipError)).catch((parkError: unknown) => {
+            if (controller.signal.aborted) throw parkError;
+            return this.ctx.park(item, 'land-blocked', reason, false);
+          });
         }
       }
     } finally { this.active.delete(itemId); }
@@ -157,7 +166,8 @@ export class PlanQueueItemLanding {
         await this.ctx.park(item, 'land-blocked', 'Nothing was landed: a newer attempt at this document merged first.');
         return;
       }
-      const landed = await this.buildAndPromote(item, run, baseTip, closeDocuments, signal);
+      // Land anyway cannot wait: the pump's later attempt would not know it was an override.
+      const landed = await this.buildAndPromote(item, run, baseTip, closeDocuments, signal, !options.operatorOverride);
       if (!landed) return;
       item = landed;
     }
@@ -228,11 +238,12 @@ export class PlanQueueItemLanding {
     baseTip: string,
     closeDocuments: boolean,
     signal: AbortSignal,
+    canWait: boolean,
   ): Promise<PlanQueueItem | null> {
     const timer = new LandingTimer();
     let outcome = 'failed';
     try {
-      const landed = await this.buildAndPromoteMeasured(start, run, baseTip, closeDocuments, signal, timer);
+      const landed = await this.buildAndPromoteMeasured(start, run, baseTip, closeDocuments, signal, canWait, timer);
       outcome = landed ? 'landed' : 'not-landed';
       return landed;
     } finally {
@@ -248,6 +259,7 @@ export class PlanQueueItemLanding {
     baseTip: string,
     closeDocuments: boolean,
     signal: AbortSignal,
+    canWait: boolean,
     timer: LandingTimer,
   ): Promise<PlanQueueItem | null> {
     const { host } = this.ctx;
@@ -274,11 +286,15 @@ export class PlanQueueItemLanding {
       if (!checked) return null;
       item = checked;
     }
-    if (closeDocuments && !item.landedCommit) {
+    // A recorded commit carries its closed documents, so it needs no check, unless the landing waited: they could be edited meanwhile.
+    if (closeDocuments && (!item.landedCommit || item.landingWaitSince != null)) {
       assertDocumentReview(await readDocumentReview(item.documentPath), this.reviewedDocuments(item));
     }
     if (!item.landedCommit) {
       item = await host.worktrees.checkpoint(item, 'final');
+      // Before the planning files move and the hook runs: a landing that cannot promote must not spend the hook's time.
+      const blockers = await landingBlockers(item, run);
+      if (blockers.length) { await this.waitOrPark(item, blockers, canWait); return null; }
       // Planning files are moved now, before the squash, so landing cleanup never runs with one in the folder.
       const planning = await host.worktrees.preflightPlanningFiles(item);
       const note = planningMoveNote(planning);
@@ -325,7 +341,7 @@ export class PlanQueueItemLanding {
           // It merged after all, so there is nothing for a worker to resolve: check that and build the commit again.
           const tip = await gitExec(['rev-parse', `refs/heads/${baseBranch}`], repoRoot);
           const checked = await this.checkMergedBase(host.getItem(item.id), run, true, tip, undefined, signal, timer);
-          return checked && this.buildAndPromoteMeasured(checked, run, tip, closeDocuments, signal, timer);
+          return checked && this.buildAndPromoteMeasured(checked, run, tip, closeDocuments, signal, canWait, timer);
         }
         const files = sync.status === 'conflict' ? sync.conflictFiles : result.conflictFiles;
         await this.returnForBase(item, baseBranch, buildConflictPrompt(baseBranch, files),
@@ -334,6 +350,9 @@ export class PlanQueueItemLanding {
       }
       case 'blocked':
         await this.ctx.park(host.getItem(item.id), 'land-blocked', result.reason);
+        return null;
+      case 'dirty-overlap':
+        await this.waitOrPark(host.getItem(item.id), result.paths, canWait);
         return null;
       case 'hook-failed':
         // A timeout is not something a worker can fix, and another round would hold every project's landings again.
@@ -382,6 +401,13 @@ export class PlanQueueItemLanding {
     await this.returnForBase(item, baseBranch, buildGateFailurePrompt(gate.command, gate.output),
       `\`${gate.command}\` failed after merging ${baseBranch}`);
     return null;
+  }
+
+  /** The root checkout's uncommitted code is in the way: wait for it to clear, or park when waiting is not allowed. Lock held. */
+  private async waitOrPark(item: PlanQueueItem, paths: readonly string[], canWait: boolean): Promise<void> {
+    const reason = overlapReason(paths);
+    const parkNote = canWait ? this.ctx.waits.begin(item, paths, reason) : `Not landed. ${reason} Land anyway works once these are committed or put away.`;
+    if (parkNote !== null) await this.ctx.park(item, 'land-blocked', parkNote);
   }
 
   /** Back to the worker while the base branch keeps moving under the item; parked on the fourth return, so it cannot loop. */

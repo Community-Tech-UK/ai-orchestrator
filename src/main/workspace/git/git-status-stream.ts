@@ -76,7 +76,8 @@ export function readGitStatusPaths(
     const parser = new GitStatusParser(visit);
     const child = spawn('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all'], {
       cwd,
-      env: hermeticGitEnv(),
+      // Asked often; refreshing the index would hold its lock and could fail a commit or a landing.
+      env: { ...hermeticGitEnv(), GIT_OPTIONAL_LOCKS: '0' },
       stdio: ['ignore', 'pipe', 'ignore'],
     });
     let failure: Error | undefined;

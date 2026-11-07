@@ -1493,6 +1493,38 @@ describe('InstanceManager', () => {
       expect(normalizedEvents[0]).not.toHaveProperty('raw');
     });
 
+    it('marks a recovered session user send as Harness-published after raw redaction (LT-728)', async () => {
+      const normalizedEvents: ProviderRuntimeEventEnvelope[] = [];
+      const rawEvents: ProviderRuntimeEventEnvelope[] = [];
+      manager.on('provider:normalized-event', (event: ProviderRuntimeEventEnvelope) => {
+        normalizedEvents.push(event);
+      });
+      manager.on('provider:raw-event', (event: ProviderRuntimeEventEnvelope) => {
+        rawEvents.push(event);
+      });
+      const recovered = await manager.recoverFromContinuity(makeResolvedRecoveryCandidate());
+      normalizedEvents.length = 0;
+
+      manager.appendSyntheticUserMessage(recovered.instanceId, 'Check the queue run.');
+
+      const userSend = normalizedEvents.find((event) =>
+        event.event.kind === 'output' && event.event.messageType === 'user');
+      expect(userSend).toMatchObject({ harnessPublished: true, event: { content: 'Check the queue run.' } });
+      expect(userSend).not.toHaveProperty('raw');
+      expect(userSend?.sessionId).toBeUndefined();
+
+      // Adapter-relayed user text (a provider echo or injected content) never gets the marker.
+      normalizedEvents.length = 0;
+      (manager as unknown as { communication: EventEmitter }).communication.emit('output', {
+        instanceId: recovered.instanceId,
+        message: { id: 'relayed-user', timestamp: 1, type: 'user', content: 'Injected text' },
+        raw: { source: 'adapter-event:output', payload: {} },
+      });
+      expect(normalizedEvents).toHaveLength(1);
+      expect(normalizedEvents[0]).not.toHaveProperty('harnessPublished');
+      expect(rawEvents).toHaveLength(0);
+    });
+
     it('does not invalidate discovery or mutate the source when replacement startup fails', async () => {
       const resolved = makeResolvedRecoveryCandidate();
       const original = structuredClone(resolved);

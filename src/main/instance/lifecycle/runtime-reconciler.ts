@@ -62,6 +62,7 @@ import { announceRuntimeChangeSet, runtimeChangeNoticesFor } from './runtime-cha
 import type { UnifiedSpawnOptions } from '../../cli/adapters/adapter-factory';
 import type { DesiredRuntime, Instance } from '../../../shared/types/instance.types';
 import { isLogicalMiMoModel } from '../../../shared/types/provider-account.types';
+import { initializeInstanceEvidenceOwnership } from '../../context-evidence/evidence-conversation-resolver';
 import { getInstanceProviderLimitHandler } from '../instance-provider-limit-handler';
 import { userTurnFollowsPark } from '../instance-provider-limit-runtime';
 import { currentAccountProfileId } from '../../providers/account-pool/account-failover-coordinator';
@@ -130,6 +131,7 @@ export class RuntimeReconciler {
       const oldCopilotProfileId = instance.copilotAccountProfileId;
       const oldAccount = snapshotAccount(instance);
       const oldAccountPreferences = instance.accountPreferences;
+      const oldContextEvidence = instance.contextEvidence;
       const localModelTarget = desired.modelRuntimeTarget?.kind === 'local-model'
         ? desired.modelRuntimeTarget
         : null;
@@ -291,6 +293,10 @@ export class RuntimeReconciler {
             });
             instance.fastMode = false;
           }
+          // The evidence mode is set per provider; keeping the old provider's
+          // mode made a Codex-to-Claude session refuse every Harness tool (LT-728).
+          await initializeInstanceEvidenceOwnership(instance, this.deps.getSettings());
+          assertCurrent();
         }
 
         // Copilot account handoff. Terminating the old provider session and
@@ -605,6 +611,7 @@ export class RuntimeReconciler {
           instance.fastMode = oldFastMode;
           instance.currentModel = oldCurrentModel;
           instance.reasoningEffort = oldReasoningEffort;
+          instance.contextEvidence = oldContextEvidence;
         }
         if (diff.copilotAccountChanged) {
           // Same reasoning as the provider rollback above: a failed handoff

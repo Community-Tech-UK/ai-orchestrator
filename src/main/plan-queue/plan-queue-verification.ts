@@ -29,6 +29,7 @@ export class PlanQueueVerification {
 
   cancel(itemId: string): void { this.groups.cancel(itemId); this.controllers.get(itemId)?.abort(); }
   /** Called under the item lock once its review has stopped. */
+  forgetResults(head: string): void { this.gates.forgetCommit(head); }
   forgetCheck(itemId: string): void { this.groups.forget(itemId); this.checkedBases.delete(itemId); this.checkedDocuments.delete(itemId); this.receipts.delete(itemId); }
   cancelAll(): void { this.groups.cancelAll(); for (const controller of this.controllers.values()) controller.abort(); }
 

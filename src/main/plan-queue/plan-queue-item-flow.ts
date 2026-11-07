@@ -40,7 +40,9 @@ import {
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { relaxedSettingsFor } from './plan-queue-relaxation';
 import { unreportedVerifierReason, type PlanQueueTurnOutcome } from './plan-queue-instance-tracker';
-import { hasPendingLandingCleanup, PlanQueueItemLanding } from './plan-queue-item-landing';
+import { hasPendingLandingCleanup, PlanQueueItemLanding, isAncestor } from './plan-queue-item-landing';
+import { PlanQueueLandingWaits } from './plan-queue-landing-wait';
+import { isLandingWait } from './plan-queue-state';
 import { startQueueVerification } from './plan-queue-start-verification';
 import { hasCheckout, InvalidQueueCheckoutError, retainedQueuePathExists } from './plan-queue-orphan-checkout';
 import { discardParkedItem, PlanQueueDiscardedRefs, restoreBeforeResume, restoreDiscardedWork } from './plan-queue-discard';
@@ -91,6 +93,7 @@ export class PlanQueueItemFlow {
   private readonly usageWaits: PlanQueueUsageWaits;
   private landingChain: Promise<void> = Promise.resolve();
   private readonly landing: PlanQueueItemLanding;
+  private readonly landingWaits: PlanQueueLandingWaits;
   private readonly verification: PlanQueueVerification;
   private readonly preparationErrors: PlanQueuePreparationErrors;
   private readonly retries: PlanQueueTurnRetries;
@@ -118,8 +121,12 @@ export class PlanQueueItemFlow {
       failed: (id, reason) => this.onWorkerOutcome(id, { kind: 'failed', reason }),
     });
     this.reminders = new PlanQueueVerifierReminders(host, (id, outcome) => void this.onVerifierOutcome(id, outcome).catch((error: unknown) => logger.warn('Plan queue: handling checker reminder failure failed', { instanceId: id, error: errorMessage(error) })));
+    this.landingWaits = new PlanQueueLandingWaits({
+      host, lock: (id, action) => this.withItemLock(id, action), enqueueLanding: (id) => this.enqueueLanding(id),
+      park: (item, reason, detail) => this.parkUnlocked(item, reason, detail),
+    });
     this.landing = new PlanQueueItemLanding({
-      host,
+      host, waits: this.landingWaits,
       toFixing: (item, prompt, detail) => this.toFixing(item, prompt, detail),
       park: (item, reason, detail, requireCheckpoint) => this.parkUnlocked(item, reason, detail, requireCheckpoint),
       stopInstance: (id) => this.stopInstance(id),
@@ -131,7 +138,8 @@ export class PlanQueueItemFlow {
 
   hasActiveWork(itemId: string): boolean {
     const item = this.host.getItem(itemId);
-    return this.locks.has(itemId) || hasPendingLandingCleanup(item) || ['preparing', 'working', 'fixing', 'verifying', 'landing'].includes(item.state)
+    // A landing that waits for the root checkout to clear runs nothing, so it is not work.
+    return this.locks.has(itemId) || hasPendingLandingCleanup(item) || ['preparing', 'working', 'fixing', 'verifying'].includes(item.state) || (item.state === 'landing' && !isLandingWait(item))
       || [item.workerInstanceId, item.verifierInstanceId].some(id => !!id
         && (this.stopping.has(id) || (this.pendingRetirements.has(id) && this.host.instances.getInstance(id) !== undefined)
           || this.host.tracker.isTracked(id) || this.host.roleOf(id) !== undefined));
@@ -254,7 +262,8 @@ export class PlanQueueItemFlow {
   }
 
   private async holdUnlocked(item: PlanQueueItem, reason = 'Paused'): Promise<void> {
-    if (item.state === 'landing') { await this.landing.land(item.id, {}); item = this.host.getItem(item.id); }
+    // A waiting landing has nothing to stop and keeps its wait through Pause.
+    if (item.state === 'landing' && !isLandingWait(item)) { await this.landing.land(item.id, {}); item = this.host.getItem(item.id); }
     if (hasPendingLandingCleanup(item)) return this.landing.finishCleanup(item);
     if (item.workerInstanceId) { this.workerSessions.record(item.id, item.workerInstanceId); item = this.host.getItem(item.id); }
     await holdItem(this.host, item, (id) => this.stopInstance(id), async (checking) => {
@@ -595,6 +604,9 @@ export class PlanQueueItemFlow {
     await this.runWorkerTurn(fixing, prompt);
   }
 
+  /** Land a waiting item whose paths have cleared, or park it after 24 hours. Never awaits a landing. */
+  recheckLandingWait(itemId: string): Promise<void> { return this.landingWaits.recheck(itemId); }
+
   // Landing — serial, one at a time across every run
   /** Queue a landing. Never await this while holding the item's lock. */
   enqueueLanding(itemId: string, options: { operatorOverride?: boolean } = {}): Promise<void> {
@@ -615,6 +627,13 @@ export class PlanQueueItemFlow {
       await Promise.all([item.workerInstanceId, item.verifierInstanceId].filter((id): id is string => Boolean(id)).map(id => this.stopInstance(id)));
       this.preparationErrors.succeeded(item.runId, item.id);
       await restoreBeforeResume(this.host, itemId);
+      // A checker must not review the note: its hash would go into the closed documents, and a later retry takes the note off.
+      const resumed = this.host.getItem(itemId);
+      if (resumed.checkpointCommit) this.verification.forgetResults(resumed.checkpointCommit);
+      // Unless another attempt is being checked or landing: its review holds these bytes, note and all.
+      if (resumed.branchName && !this.host.store.documentBeingChecked(resumed.documentPath, resumed.id)) {
+        this.host.history.recordDocumentTransformation(resumed, await removeParkedNote(resumed.documentPath, resumed.branchName));
+      }
       // `steppedUpAt` stays: a handed-over document resumes on the step-up choice and is never handed over twice.
       this.host.transition(this.host.getItem(itemId), 'queued', { parkReason: null, detail: null, heldAt: null, discardedAt: null, discardedBy: null, round: 0, erroredRounds: 0, landingRefusals: 0, baseConflicts: 0, question: null, landedCommit: null, verdict: null, verifiedMainCommit: null, pendingInstruction: this.workerSessions.carryOverForResume(itemId) });
     });
@@ -706,7 +725,10 @@ export class PlanQueueItemFlow {
       const reattached = await this.host.worktrees.reattach(item, run.workspaceCwd);
       const change = await removeParkedNote(reattached.documentPath, reattached.branchName!);
       this.host.history.recordDocumentTransformation(reattached, change);
-      this.host.transition(reattached, 'landing', { parkReason: null, detail: null });
+      // A commit not yet on the base carries the document as it was before the note, which no longer matches: build it again.
+      const stale = change && reattached.landedCommit
+        && !await isAncestor(reattached.landedCommit, `refs/heads/${run.config.baseBranch}`, run.workspaceCwd);
+      this.host.transition(reattached, 'landing', { parkReason: null, detail: null, ...(stale ? { landedCommit: null } : {}) });
       void this.enqueueLanding(itemId);
     });
   }

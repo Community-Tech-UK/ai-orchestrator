@@ -77,6 +77,8 @@ export interface PendingEnvelope {
    * in `captureRawBackedEvent` below.
    */
   ephemeral?: boolean;
+  /** LT-728: see `ProviderRuntimeEventEnvelope.harnessPublished`. */
+  harnessPublished?: true;
   event: ProviderRuntimeEvent;
 }
 
@@ -232,6 +234,7 @@ export class ProviderRuntimeEventBus {
       turnId: pending.turnId,
       ...(pending.raw ? { raw: pending.raw } : {}),
       ...(pending.ephemeral ? { ephemeral: pending.ephemeral } : {}),
+      ...(pending.harnessPublished ? { harnessPublished: true as const } : {}),
       event: pending.event,
     };
     this.emitted++;

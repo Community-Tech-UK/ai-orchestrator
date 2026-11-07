@@ -200,21 +200,18 @@ describe('BrowserGatewayService approvals', () => {
 
   it('deduplicates and redeems an explicit Allow once credential approval without broadening its scope', async () => {
     const { service, driver, grants, grantStore, approvalRequests } = makeService();
-    inspectElementMock(driver).mockResolvedValue({
-      role: 'button',
-      accessibleName: 'Continue with password',
-      nearbyText: 'Password',
-    });
+    inspectElementMock(driver).mockResolvedValue({ label: 'Password', inputType: 'password' });
     const request = {
       profileId: 'profile-1',
       targetId: 'target-1',
-      selector: 'button[name="action"]',
+      selector: '#password',
+      value: 'test-placeholder',
       instanceId: 'instance-1',
       provider: 'copilot' as const,
     };
 
-    const first = await service.click(request);
-    const duplicate = await service.click(request);
+    const first = await service.type(request);
+    const duplicate = await service.type(request);
 
     expect(first).toMatchObject({ decision: 'requires_user', requestId: 'request-1' });
     expect(duplicate).toMatchObject({
@@ -241,15 +238,15 @@ describe('BrowserGatewayService approvals', () => {
       autonomous: false,
     });
 
-    const retry = await service.click({ ...request, requestId: first.requestId! });
+    const retry = await service.type({ ...request, requestId: first.requestId! });
 
     expect(retry).toMatchObject({ decision: 'allowed', outcome: 'succeeded' });
-    expect(driver.click).toHaveBeenCalledTimes(1);
+    expect(driver.type).toHaveBeenCalledTimes(1);
     expect(grantStore.consumeGrant).toHaveBeenCalledWith(grants[0].id);
 
-    const spentRetry = await service.click({ ...request, requestId: first.requestId! });
+    const spentRetry = await service.type({ ...request, requestId: first.requestId! });
     expect(spentRetry).toMatchObject({ decision: 'requires_user', outcome: 'not_run' });
-    expect(driver.click).toHaveBeenCalledTimes(1);
+    expect(driver.type).toHaveBeenCalledTimes(1);
   });
 
   it('redeems an exact unknown approval when element inspection still fails', async () => {

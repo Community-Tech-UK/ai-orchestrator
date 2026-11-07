@@ -180,7 +180,7 @@ describe('browser input control operations', () => {
       expect(sendCommand).not.toHaveBeenCalled();
     });
 
-    it('refuses Enter that describes credential work instead of routing it around the hard stops', async () => {
+    it('refuses Enter that describes a two-factor step instead of routing it around the hard stops', async () => {
       const sendCommand = vi.fn(async () => ({ applied: true, key: 'Enter', modifiers: [] }));
       const { service } = makeService({
         existingTab: fixtureTab,
@@ -194,10 +194,10 @@ describe('browser input control operations', () => {
         profileId: fixtureTab.profileId,
         targetId: fixtureTab.targetId,
         key: 'Enter',
-        actionHint: 'submit the password field',
+        actionHint: 'submit the two-factor code',
       });
 
-      // Password words hard-stop as credential-class even under auto-approve.
+      // Two-factor words hard-stop as credential-class even under auto-approve.
       expect(result.decision).not.toBe('allowed');
       expect(sendCommand).not.toHaveBeenCalled();
     });

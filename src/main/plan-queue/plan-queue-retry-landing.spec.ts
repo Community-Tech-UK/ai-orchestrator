@@ -14,6 +14,7 @@ import { GitWriteQueue } from '../workspace/git/git-write-queue';
 import { appendParkedNote } from './plan-queue-doc-close';
 import { createDocumentOverlapResolver } from './plan-queue-doc-merge';
 import type { PlanQueueFlowHost } from './plan-queue-host';
+import { PlanQueueGateRunner } from './plan-queue-gate-receipts';
 import { PlanQueueItemFlow } from './plan-queue-item-flow';
 import { newPlanQueueItem } from './plan-queue-state';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
@@ -96,13 +97,13 @@ describe('verified retry landing', () => {
     expect(await readFile(join(repo, '.git/aio-plan-queue/doc-merge/item-1/ours-0'), 'utf8')).toContain('User edits.');
   });
 
-  it('reattaches first, retains PASS/round/base/commit, and enqueues without an operator override', async () => {
+  it('reattaches first, retains PASS/round/base, and enqueues without an operator override', async () => {
     const test = fixture();
     const enqueue = vi.spyOn(test.flow, 'enqueueLanding').mockResolvedValue(undefined);
     test.host.history.recordDocumentTransformation(test.get(), await appendParkedNote(test.get().documentPath, { branchName: 'queue/item-1', reason: 'land-blocked', commitCount: 2 }));
     await test.flow.retryLanding('item-1');
     expect(test.get()).toMatchObject({ state: 'landing', verdict: { verdict: 'PASS' }, round: 2,
-      verifiedMainCommit: 'base-verified', landedCommit: 'recorded-commit', worktreePath: join(repo, 'wt'), parkReason: null, detail: null });
+      verifiedMainCommit: 'base-verified', worktreePath: join(repo, 'wt'), parkReason: null, detail: null });
     expect(enqueue).toHaveBeenCalledWith('item-1');
     expect(await readFile(test.get().documentPath, 'utf8')).not.toContain('Plan Queue parked work');
   });
@@ -192,6 +193,83 @@ describe('verified retry landing', () => {
       expect(test.get().state).toBe('landed');
       expect(git(['rev-parse', 'main'])).not.toBe(base);
     });
+  });
+
+  it('takes the parked note off on Resume, so a checker never reviews it', async () => {
+    const test = fixture({ landedCommit: null });
+    await appendParkedNote(test.get().documentPath, { branchName: 'queue/item-1', reason: 'round-limit', commitCount: 1 });
+
+    await test.flow.resume('item-1');
+
+    expect(test.get().state).toBe('queued');
+    expect(await readFile(test.get().documentPath, 'utf8')).not.toContain('Plan Queue parked work');
+  });
+
+  it('forgets cached check results on Resume, so the checks really run again', async () => {
+    const forget = vi.spyOn(PlanQueueGateRunner.prototype, 'forgetCommit');
+    const test = fixture({ landedCommit: null, checkpointCommit: 'checked-commit' });
+
+    await test.flow.resume('item-1');
+
+    expect(forget).toHaveBeenCalledWith('checked-commit');
+  });
+
+  it('leaves the note alone while another attempt at the document is being checked', async () => {
+    const test = fixture({ landedCommit: null });
+    await appendParkedNote(test.get().documentPath, { branchName: 'queue/item-1', reason: 'round-limit', commitCount: 1 });
+    vi.spyOn(test.store, 'documentBeingChecked').mockReturnValue(true);
+
+    await test.flow.resume('item-1');
+
+    expect(test.get().state).toBe('queued');
+    expect(await readFile(test.get().documentPath, 'utf8')).toContain('Plan Queue parked work');
+  });
+
+  it('still sets the job aside with the reason when saving its folder fails too', async () => {
+    git(['init', '-q', '-b', 'main']); git(['config', 'user.name', 'Queue Test']);
+    git(['config', 'user.email', 'queue@example.invalid']); git(['config', 'commit.gpgsign', 'false']);
+    await writeFile(join(repo, 'a.txt'), 'base\n'); git(['add', 'a.txt']); git(['commit', '-qm', 'base']);
+    const base = git(['rev-parse', 'HEAD']);
+    git(['worktree', 'add', '-q', '-b', 'queue/item-1', join(repo, 'wt')]);
+    const test = fixture({ state: 'landing', parkReason: null, landedCommit: null, worktreePath: join(repo, 'wt'),
+      baseCommit: base, checkpointCommit: base, verifiedMainCommit: base });
+    const checkpoint = vi.fn(async () => { throw new Error('index is locked'); });
+    test.worktrees.checkpoint = checkpoint;
+
+    await test.flow.enqueueLanding('item-1'); await test.flow.whenSettled();
+
+    expect(checkpoint.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(test.get()).toMatchObject({ state: 'parked', parkReason: 'land-blocked', detail: expect.stringContaining('Landing failed') });
+  });
+
+  it('builds the commit again when removing the parked note changed the document it was built from', async () => {
+    git(['init', '-q', '-b', 'main']); git(['config', 'user.name', 'Queue Test']);
+    git(['config', 'user.email', 'queue@example.invalid']); git(['config', 'commit.gpgsign', 'false']);
+    await writeFile(join(repo, 'a.txt'), 'base\n'); git(['add', 'a.txt']); git(['commit', '-qm', 'base']);
+    const base = git(['rev-parse', 'HEAD']);
+    const test = fixture({ baseCommit: base, checkpointCommit: base, verifiedMainCommit: base, landedCommit: 'f'.repeat(40) });
+    test.host.history.recordDocumentTransformation(test.get(), await appendParkedNote(test.get().documentPath, { branchName: 'queue/item-1', reason: 'land-blocked', commitCount: 1 }));
+    const landings: (string | null)[] = [];
+    vi.spyOn(test.flow, 'enqueueLanding').mockImplementation(async () => { landings.push(test.get().landedCommit); });
+
+    await test.flow.retryLanding('item-1');
+
+    expect(landings).toEqual([null]);
+  });
+
+  it('keeps a recorded commit that already reached the base, so the retry only finishes closing', async () => {
+    git(['init', '-q', '-b', 'main']); git(['config', 'user.name', 'Queue Test']);
+    git(['config', 'user.email', 'queue@example.invalid']); git(['config', 'commit.gpgsign', 'false']);
+    await writeFile(join(repo, 'a.txt'), 'base\n'); git(['add', 'a.txt']); git(['commit', '-qm', 'base']);
+    const base = git(['rev-parse', 'HEAD']);
+    const test = fixture({ baseCommit: base, checkpointCommit: base, verifiedMainCommit: base, landedCommit: base });
+    test.host.history.recordDocumentTransformation(test.get(), await appendParkedNote(test.get().documentPath, { branchName: 'queue/item-1', reason: 'land-blocked', commitCount: 1 }));
+    const landings: (string | null)[] = [];
+    vi.spyOn(test.flow, 'enqueueLanding').mockImplementation(async () => { landings.push(test.get().landedCommit); });
+
+    await test.flow.retryLanding('item-1');
+
+    expect(landings).toEqual([base]);
   });
 
   it('lands real branch work and a completed document without the override or parked note', async () => {

@@ -7,7 +7,7 @@
         <div class="pq-item-head">
           <span class="pq-item-doc" tabindex="0" [appTooltip]="item.documentPath">{{ documentBasename(item.documentPath) }}</span>
           <span class="pq-item-state" [attr.data-state]="item.state">{{ item.heldAt !== null && item.heldAt !== undefined ? 'Paused' : isNotReached(item) ? notReachedLabel : stateLabel(item.state) }}</span>
-          <span class="pq-item-round">Round {{ item.round }} of {{ maxRounds() }}@if (item.spend) { · {{ spendLabel(item.spend) }} }</span>
+          <span class="pq-item-round">Round {{ item.round }} of {{ maxRounds() }}@if (item.totalRounds) { · {{ item.totalRounds }} in total }@if (item.spend) { · {{ spendLabel(item.spend) }} }</span>
           @if (item.erroredRounds > 0) {
             <span class="pq-item-errored-rounds">{{ pluralise(item.erroredRounds, 'round ended with an error', 'rounds ended with an error') }}</span>
           }

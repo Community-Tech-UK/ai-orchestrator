@@ -83,6 +83,73 @@ describe('browser-action-classifier', () => {
     ).toMatchObject({ actionClass: 'credential', hardStop: true, reason: CREDENTIAL_CHALLENGE_REASON });
   });
 
+  // Every hint below is real wording from the approval log. The two Intune
+  // clicks expired unanswered on 2026-11-07 and left a Windows LAPS policy unset.
+  describe('password words only stop writing text', () => {
+    it.each([
+      ['open Configure Recovery Password Rotation dropdown'],
+      ['open Backup Directory dropdown (LAPS policy setting, no secret involved)'],
+      ['Open token configuration to add the optional amr claim.'],
+      ['Read existing Token Plan subscription and allowance'],
+      ['Open Password Rules so we can see allowed characters'],
+    ])('lets a click through as ordinary input: %s', (hint) => {
+      expect(classifyBrowserAction({
+        toolName: 'browser.click',
+        actionHint: hint,
+        elementContext: { visibleText: hint, nearbyText: hint },
+        elementContextSource: 'agent_hint',
+      })).toEqual({ actionClass: 'input', hardStop: false });
+    });
+
+    it('lets a selection through on a setting named after a password', () => {
+      expect(classifyBrowserAction({
+        toolName: 'browser.select',
+        elementContext: { role: 'combobox', label: 'Password Age Days' },
+      })).toEqual({ actionClass: 'input', hardStop: false });
+    });
+
+    it('treats a key press like the click it stands in for', () => {
+      expect(classifyPressKeyAction({ key: 'Tab', actionHint: 'move keyboard focus to the sign-in password field' }))
+        .toEqual({ actionClass: 'input', hardStop: false });
+      expect(classifyPressKeyAction({ key: 'Enter', actionHint: 'confirm the password' }))
+        .toEqual({ actionClass: 'submit', hardStop: false });
+      expect(classifyPressKeyAction({ key: 'Enter', actionHint: 'the password field' }))
+        .toEqual({ actionClass: 'unknown', hardStop: true, reason: PRESS_KEY_ACTIVATION_REASON });
+    });
+
+    it('still gates a click by what it does, whatever the password word beside it', () => {
+      expect(classifyBrowserAction({
+        toolName: 'browser.click',
+        elementContext: { role: 'button', accessibleName: 'Submit the password to sign in' },
+      })).toEqual({ actionClass: 'submit', hardStop: false });
+      expect(classifyBrowserAction({
+        toolName: 'browser.click',
+        elementContext: { role: 'button', accessibleName: 'Reset password for Jim Taylor' },
+      })).toEqual({ actionClass: 'destructive', hardStop: false });
+    });
+
+    it('does not read "tokenize" as a token', () => {
+      const hint = 'Type tester email with comma to tokenize';
+      expect(classifyBrowserAction({
+        toolName: 'browser.type',
+        actionHint: hint,
+        elementContext: { visibleText: hint, nearbyText: hint },
+        elementContextSource: 'agent_hint',
+      })).toEqual({ actionClass: 'input', hardStop: false });
+    });
+
+    it('keeps stopping text typed into a password or secret field', () => {
+      for (const elementContext of [
+        { inputType: 'password', label: 'New password' },
+        { label: 'Client secret' },
+        { label: 'API token' },
+      ]) {
+        expect(classifyBrowserAction({ toolName: 'browser.type', elementContext }))
+          .toEqual({ actionClass: 'credential', hardStop: true, reason: CREDENTIAL_CHALLENGE_REASON });
+      }
+    });
+  });
+
   it('hard-stops genuine card-payment fields as a distinct payment class (never a credential)', () => {
     for (const elementContext of [{ label: 'Card number' }, { inputName: 'cvv', label: 'CVV' }]) {
       expect(
@@ -325,7 +392,7 @@ describe('browser-action-classifier', () => {
       })).toMatchObject({ actionClass: 'payment', hardStop: true });
 
       expect(link({
-        accessibleName: 'Password help',
+        accessibleName: 'Two-factor help',
       })).toMatchObject({ actionClass: 'credential', hardStop: true });
     });
   });
@@ -460,7 +527,7 @@ describe('classifyPressKeyAction', () => {
   });
 
   it('keeps credential and identity hard stops for hinted key presses', () => {
-    expect(classifyPressKeyAction({ key: 'Enter', actionHint: 'confirm the password' }))
+    expect(classifyPressKeyAction({ key: 'Enter', actionHint: 'confirm the two-factor code' }))
       .toMatchObject({ actionClass: 'credential', hardStop: true });
     expect(classifyPressKeyAction({ key: 'Enter', actionHint: 'enter the IBAN' }))
       .toMatchObject({ actionClass: 'financial_identity', hardStop: true });

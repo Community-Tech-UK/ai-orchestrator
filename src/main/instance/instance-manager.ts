@@ -923,11 +923,15 @@ export class InstanceManager extends EventEmitter {
   ): void {
     if (this.state.isInstancePending?.(instanceId) === true) return;
     this.settledTracker.recordActivity(instanceId, message.timestamp);
-    this.emitProviderRuntimeEvent(instanceId, toProviderOutputEvent(message), {
-      raw: raw ?? {
+    // Without adapter `raw`, Harness produced this output itself. Mark it
+    // separately: crash-recovery redaction strips `raw`, and the transcript
+    // must still record the user's own input (LT-728).
+    this.emitProviderRuntimeEvent(instanceId, toProviderOutputEvent(message), raw ? { raw } : {
+      raw: {
         source: 'instance-output',
         payload: toJsonSafeProviderEventPayload(message),
       },
+      harnessPublished: true,
     });
   }
 
@@ -975,6 +979,8 @@ export class InstanceManager extends EventEmitter {
       raw?: ProviderRuntimeEventEnvelope['raw'];
       /** WS-B10: must-not-persist marker; see `ProviderRuntimeEventEnvelope.ephemeral`. */
       ephemeral?: boolean;
+      /** LT-728: see `ProviderRuntimeEventEnvelope.harnessPublished`. */
+      harnessPublished?: true;
     },
   ): void {
     if (this.state.isInstancePending?.(instanceId) === true) return;

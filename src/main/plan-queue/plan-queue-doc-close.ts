@@ -478,8 +478,8 @@ export async function appendParkedNote(
   const bytes = await fs.readFile(documentPath);
   const content = documentText(bytes, documentPath);
   if (content.includes(marker)) return;
-  const line = `\n\n> ${marker} — ${note.commitCount} commit(s), reason: ${note.reason}.\n`;
-  const updated = content.replace(/\s*$/, '') + line;
+  // The document stays byte for byte above the note: its closed copy is checked against the hash of those bytes.
+  const updated = `${content}\n\n> ${marker} — ${note.commitCount} commit(s), reason: ${note.reason}.\n`;
   changeDocumentFile(identity, bytes, updated);
   return { beforeSha256: digest(content), afterSha256: digest(updated) };
 }
@@ -491,7 +491,11 @@ export async function removeParkedNote(documentPath: string, branchName: string)
   const identity = documentFileIdentity(documentPath);
   const bytes = await fs.readFile(documentPath);
   const content = documentText(bytes, documentPath);
-  const updated = content.split('\n').filter((line) => !line.startsWith(marker)).join('\n');
+  const last = content.lastIndexOf(`\n\n${marker}`);
+  const updated = last >= 0 && content.indexOf('\n', last + 2) === content.length - 1
+    ? content.slice(0, last)
+    // Text added below the note, or a note written before this was exact.
+    : content.split('\n').filter((line) => !line.startsWith(marker)).join('\n');
   if (updated === content) return;
   changeDocumentFile(identity, bytes, updated);
   return { beforeSha256: digest(content), afterSha256: digest(updated) };

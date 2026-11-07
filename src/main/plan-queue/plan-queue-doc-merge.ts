@@ -298,6 +298,17 @@ async function permissionsDiffer(repoRoot: string, full: string, overlap: { path
   return executable !== (await gitExec(['ls-files', '--stage', '--', literal(overlap.path)], repoRoot)).startsWith('100755');
 }
 
+/** Read-only: would promotion merge this uncommitted file? A clash can then wait before the hook spends up to an hour. */
+export async function rootEditWouldMerge(repoRoot: string, baseTip: string, itemHead: string, file: string): Promise<boolean> {
+  const kind = /\.md$/i.test(file) ? 'document' : 'code';
+  try {
+    const [ours, base, theirs] = await Promise.all([fs.readFile(path.join(repoRoot, file)), version(repoRoot, baseTip, file), version(repoRoot, itemHead, file)]);
+    if (!base || !theirs) return false;
+    await mergeVersions(repoRoot, file, kind, ours, base, theirs);
+    return true;
+  } catch { return false; }
+}
+
 export function createDocumentOverlapResolver(options: { itemId: string }): DirtyOverlapResolver {
   return { prepare: (input) => prepareDocuments(input, options.itemId) };
 }
@@ -402,7 +413,7 @@ async function prepareDocuments(input: DirtyOverlapInput, itemId: string) {
   } catch (error) {
     if (backup && !resetStarted) await fs.rm(backup, { recursive: true, force: true });
     // A partially completed reset is recovered using the durable manifest; never overwrite later edits here.
-    return { ok: false as const, reason: (error instanceof Error ? error.message : 'Document merge preparation failed.')
+    return { ok: false as const, keptEdits: Boolean(backup && resetStarted), reason: (error instanceof Error ? error.message : 'Document merge preparation failed.')
       + (backup && resetStarted ? ` Harness kept a copy of your edits at ${backup}.` : '') };
   }
 }

@@ -353,7 +353,7 @@ describe('landItemBranch', () => {
     expect(git(['branch', '--show-current'], item.worktreePath ?? '')).toBe(item.branchName);
   });
 
-  it('blocks, changing nothing, when a root file would be overwritten', async () => {
+  it('answers dirty-overlap, changing nothing, when a root file would be overwritten', async () => {
     const item = makeItemWithWork({ 'clash.txt': 'from item\n' });
     writeFileSync(join(repo, 'clash.txt'), 'operator copy\n');
     const mainBefore = git(['rev-parse', 'main']);
@@ -361,7 +361,8 @@ describe('landItemBranch', () => {
     const result = await landItemBranch(item, repo, 'main', 'feat: clash', []);
 
     expect(result).toEqual({
-      status: 'blocked',
+      status: 'dirty-overlap',
+      paths: ['clash.txt'],
       reason: "Couldn't merge clash.txt: your untracked file differs from the item's copy.",
     });
     expect(git(['rev-parse', 'main'])).toBe(mainBefore);
@@ -522,7 +523,7 @@ describe('landItemBranch', () => {
       writeFileSync(join(repo, 'clash.txt'), 'operator copy\n');
       let built = '';
       const first = await landItemBranch(item, repo, 'main', 'feat: once', [], [], (commit) => { built = commit; });
-      expect(first.status).toBe('blocked');
+      expect(first.status).toBe('dirty-overlap');
       expect(built).not.toBe('');
       rmSync(join(repo, 'clash.txt'));
 

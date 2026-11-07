@@ -267,6 +267,8 @@ describe('WorktreeManager.integrateWorktree — auto-integration (real git)', ()
       mgr.promoteWorktreeIntegration(session.id, integration.integrationBranch),
     ).resolves.toEqual({
       status: 'blocked',
+      code: 'dirty-overlap',
+      overlaps: ['feature.txt'],
       reason: 'root checkout has uncommitted changes to a promoted path: feature.txt',
     });
 

@@ -35,6 +35,8 @@ vi.mock('../workspace/git/git-exec', () => ({ gitExec: vi.fn(async (args: string
 }), gitExecSafe: vi.fn(async () => '0') }));
 vi.mock('./plan-queue-doc-merge', () => ({ recoverDocumentMergeForItem: async () => ({ ok: true, mergedPaths: [] }) }));
 vi.mock('./plan-queue-squash', () => ({ returnToItemCheckout: async () => null }));
+// The work folder here is not a git checkout, so the pre-commit overlap check has nothing to read.
+vi.mock('./plan-queue-landing-wait', async original => ({ ...(await original<typeof import('./plan-queue-landing-wait')>()), landingBlockers: async () => [] }));
 vi.mock('./plan-queue-landing', () => ({ landItemBranch: vi.fn(async () => ({ status: 'landed', commit: 'promoted' })) }));
 let root: string;
 let db: SqliteDriver;
@@ -105,6 +107,15 @@ describe('reviewed root document through landing and closure', () => {
     expect(existsSync(join(root, 'item_spec_completed.md'))).toBe(false);
     if (change !== 'removed') expect(readFileSync(spec, 'utf8')).toContain(addition);
     expect(landItemBranch).not.toHaveBeenCalled();
+  });
+
+  it('promotes nothing when the document changed after its commit was built, as it can during a landing wait', async () => {
+    const item = await checkedItem();
+    host.save({ ...item, landedCommit: 'built-before-the-wait', landingWaitSince: 1 });
+    writeFileSync(item.documentPath, reviewed + addition);
+    await flow.enqueueLanding(item.id); await flow.whenSettled();
+    expect(landItemBranch).not.toHaveBeenCalled();
+    expectOpen(item);
   });
 
   it('keeps a linked specification changed at promotion open for another review', async () => {

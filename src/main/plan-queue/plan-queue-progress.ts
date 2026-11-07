@@ -104,6 +104,8 @@ export async function decideNoProgress(
   item: PlanQueueItem,
   previouslyWarned: boolean,
 ): Promise<NoProgressDecision> {
+  // Rounds restart at Resume, which asks for a fresh check: what failed may have been the computer, not the code.
+  if (item.round === 0) return { kind: 'continue' };
   const lastFail = [...rows].reverse().find((row) => row.verdict === 'FAIL');
   if (!lastFail) return { kind: 'continue' };
   const current = progressFingerprint(

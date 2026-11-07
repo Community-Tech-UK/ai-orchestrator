@@ -36,7 +36,7 @@ export class PlanQueueRunControlsComponent {
     if (run.status === 'paused') return `Paused · ${pluralise(run.items.filter(item => item.heldAt != null).length, 'document')} waiting to resume`;
     if (run.status !== 'running') return STATUS_LABELS[run.status];
     if (run.holdReason) return 'On hold · no new work is starting';
-    const current = run.items.find(item => ['preparing', 'working', 'fixing', 'verifying', 'landing'].includes(item.state));
+    const current = run.items.find(item => ['preparing', 'working', 'fixing', 'verifying', 'landing'].includes(item.state) && item.stage?.name !== 'waiting-for-edits');
     const next = run.items.find(item => item.state === 'queued');
     return 'Running' + (current ? ` · working on ${planQueueDocumentBasename(current.documentPath)}` : '')
       + (next ? `${current ? ';' : ' ·'} next ${planQueueDocumentBasename(next.documentPath)}` : '');

@@ -23,6 +23,11 @@ const marks = (enteredAt: number | null, checksAt: number | null = null, landing
 const item = (patch: Partial<PlanQueueItem>) => newPlanQueueItem('item', 'run', '/repo/a_plan.md', 1, patch);
 
 describe('itemStage', () => {
+  it('says a landing is waiting on edits, from when the wait began, not that its checks are running', () => {
+    expect(itemStage(item({ state: 'landing', landingWaitPaths: ['src/a.ts'], landingWaitSince: 500 }), marks(100, null, 130), 0))
+      .toEqual({ name: 'waiting-for-edits', startedAt: 500 });
+  });
+
   it('names the three steps that have no session, timed from stored history', () => {
     expect(itemStage(item({ state: 'awaiting-slot' }), marks(100), 0)).toEqual({ name: 'waiting-for-checks', startedAt: 100 });
     expect(itemStage(item({ state: 'verifying', detail: 'Running checks' }), marks(100, 160), 0)).toEqual({ name: 'checks', startedAt: 160 });

@@ -18,6 +18,8 @@ export interface ProviderRuntimeEventIngressOptions {
   raw?: ProviderRuntimeEventEnvelope['raw'];
   /** WS-B10: forwarded onto the bus's PendingEnvelope; see `ProviderRuntimeEventEnvelope.ephemeral`. */
   ephemeral?: boolean;
+  /** LT-728: forwarded onto the bus's PendingEnvelope; see `ProviderRuntimeEventEnvelope.harnessPublished`. */
+  harnessPublished?: true;
 }
 
 interface BuildProviderRuntimeEventIngressInput {
@@ -44,6 +46,7 @@ export function buildProviderRuntimeEventIngress(
     turnId: resolveRuntimeEventTurnId(input.event, instance),
     raw: input.options?.raw,
     ...(input.options?.ephemeral !== undefined ? { ephemeral: input.options.ephemeral } : {}),
+    ...(input.options?.harnessPublished ? { harnessPublished: true as const } : {}),
     event: enrichProviderTurnEndingIngress(instance, input.event, input.options?.raw?.payload),
   };
 }

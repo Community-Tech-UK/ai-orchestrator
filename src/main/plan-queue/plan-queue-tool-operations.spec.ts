@@ -34,7 +34,7 @@ describe('Plan Queue tool operation adoption routing', () => {
       windowDays: 14, since: 0, attemptsLanded: { count: 7, of: 10, share: 0.7 }, documentsLanded: NOTHING, passesNotLanded: NOTHING, firstCheckPassed: NOTHING,
       freeSlotToStart: { count: 0, medianMs: null }, checkTime: { count: 0, medianMs: null },
       landingTime: { count: 0, medianMs: null, syncMs: null, mergeCheckMs: null, commitCheckMs: null, publishMs: null },
-      waiting: { waitingMs: 0, workingMs: 0, share: null }, setAsideRounds: { items: 0, rounds: 0 }, repeatFailingTests: [],
+      waiting: { waitingMs: 0, workingMs: 0, share: null }, setAsideRounds: { items: 0, rounds: 0 }, repeatFailingTests: [], lateFindings: { critical: 0, high: 0, medium: 0, low: 0 },
     });
     const overview = createPlanQueueToolOperations(() => coordinator).status('caller') as { queueHealth: Record<string, string> };
     expect(overview.queueHealth).toMatchObject({ heading: 'Queue health, last 14 days', 'Attempts that land': '70% (7 of 10 finished attempts)', 'Time to land': 'Nothing measured yet' });

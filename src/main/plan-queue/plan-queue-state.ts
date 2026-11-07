@@ -46,6 +46,19 @@ export function itemHoldsWorktree(state: PlanQueueItemState): boolean {
   );
 }
 
+/** A landing that is waiting for the root checkout's uncommitted code to clear; it holds no lock and runs nothing. */
+export function isLandingWait(item: Pick<PlanQueueItem, 'state' | 'landingWaitPaths'>): boolean {
+  return item.state === 'landing' && (item.landingWaitPaths?.length ?? 0) > 0;
+}
+
+/**
+ * Counts toward a run's worker slots. A waiting landing still keeps its folder (it counts toward the app-wide
+ * limit through `itemHoldsWorktree`) but frees its slot for the next document.
+ */
+export function itemHoldsWorkerSlot(item: Pick<PlanQueueItem, 'state' | 'landingWaitPaths'>): boolean {
+  return itemHoldsWorktree(item.state) && !isLandingWait(item);
+}
+
 export function canTransitionItem(from: PlanQueueItemState, to: PlanQueueItemState): boolean {
   if (to === 'parked') {
     return !TERMINAL_STATES.has(from);

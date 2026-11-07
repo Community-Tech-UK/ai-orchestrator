@@ -49,6 +49,8 @@ export type LandResult =
    * fast-forward and the document writes would.
    */
   | { status: 'blocked'; reason: string }
+  /** The root checkout's uncommitted work is on paths this landing changes, and the overlap resolver refused them. */
+  | { status: 'dirty-overlap'; reason: string; paths: string[] }
   /** The repository's pre-commit hook refused the landing commit, or ran out of time (`timedOut`). */
   | { status: 'hook-failed'; output: string; timedOut?: boolean }
   /** The item branch carries active plan/spec/livetest documents, which never land. */
@@ -156,8 +158,9 @@ async function promote(
   await deleteIntegrationRefs(repoRoot, integrationBranch);
   if (promotion.status === 'blocked') {
     logger.warn('Plan queue landing blocked', { itemId: item.id, reason: promotion.reason });
-    return { status: 'blocked', reason: promotion.reason
-      + (promotion.overlaps && promotion.overlaps.length > 1 ? ` Overlapping paths: ${promotion.overlaps.join(', ')}.` : '') };
+    const reason = promotion.reason
+      + (promotion.overlaps && promotion.overlaps.length > 1 ? ` Overlapping paths: ${promotion.overlaps.join(', ')}.` : '');
+    return promotion.code === 'dirty-overlap' ? { status: 'dirty-overlap', reason, paths: promotion.overlaps ?? [] } : { status: 'blocked', reason };
   }
   if (promotion.status === 'promoted' && promotion.documentMergeInterrupted) {
     // The fast-forward already moved the base; only the document-merge writes

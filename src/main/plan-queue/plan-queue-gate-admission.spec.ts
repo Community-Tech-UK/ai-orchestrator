@@ -52,7 +52,7 @@ function fixture(groups: { folder: string; slots: number; jobs: number }[]) {
         pending.push(result);
         return result;
       },
-      isWaitingForUsage: () => false, isClaimed: () => false, keptFolders: { retryDue: () => undefined }, breaker: { canStart: () => true, started: () => undefined } as never, discardedRefs: { sweepDue: () => undefined }, checklistTurns, finishLandingCleanup: async () => undefined,
+      isWaitingForUsage: () => false, isClaimed: () => false, recheckLandingWait: async () => undefined, keptFolders: { retryDue: () => undefined }, breaker: { canStart: () => true, started: () => undefined } as never, discardedRefs: { sweepDue: () => undefined }, checklistTurns, finishLandingCleanup: async () => undefined,
     },
     triage: null, getRun: id => runs.find(run => run.id === id)!, getItem: id => items.find(item => item.id === id)!,
     transition: (item, state, patch) => Object.assign(item, patch, { state }),

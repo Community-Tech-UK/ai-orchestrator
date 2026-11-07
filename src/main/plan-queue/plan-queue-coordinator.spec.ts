@@ -2118,16 +2118,21 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     const parent = fake.addParent();
     const hooks = join(repo, '.git', 'hooks');
     const counter = join(repo, '.git', 'landing-hook-runs');
+    // The operator edits a.txt in the main folder while the first landing's hook runs: after the pre-commit overlap
+    // check (which would make the landing wait before the hook), so only promotion sees it and the candidate exists.
     writeFileSync(join(hooks, 'pre-commit'),
-      `#!/bin/sh\nn=$(cat "${counter}" 2>/dev/null || echo 0); echo $((n+1)) > "${counter}"\n`);
+      `#!/bin/sh\nn=$(cat "${counter}" 2>/dev/null || echo 0); echo $((n+1)) > "${counter}"\n[ "$n" = 0 ] && echo 'operator work' > "${join(repo, 'a.txt')}"\nexit 0\n`);
     chmodSync(join(hooks, 'pre-commit'), 0o755);
     git(['config', 'core.hooksPath', hooks]);
-    writeFileSync(join(repo, 'a.txt'), 'operator work\n');
     fake.scripts.worker = (instance) => {
       writeFileSync(join(instance.workingDirectory!, 'a.txt'), 'first version\n');
     };
 
     const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    // Promotion refuses the edit, so the landing waits; it has waited the full 24 hours by the next pump.
+    await vi.waitFor(() => expect(store.getItem(run.items[0].id)?.landingWaitPaths).toEqual(['a.txt']), { timeout: 30_000 });
+    store.upsertItem({ ...store.getItem(run.items[0].id)!, landingWaitSince: Date.now() - 25 * 60 * 60_000 });
+    coordinator.requestPump();
     await waitForRun(run.id);
     const before = store.getItem(run.items[0].id)!;
     expect(before).toMatchObject({ state: 'parked', parkReason: 'land-blocked' });

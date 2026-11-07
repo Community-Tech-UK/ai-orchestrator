@@ -237,5 +237,7 @@ export const ProviderRuntimeEventEnvelopeSchema = z.object({
   }).optional(),
   // WS-B10: must-not-persist marker honored by ProviderRuntimeEventBus.captureRawBackedEvent.
   ephemeral: z.boolean().optional(),
+  // LT-728: Harness-published output marker; survives crash-recovery redaction.
+  harnessPublished: z.literal(true).optional(),
   event: ProviderRuntimeEventSchema,
 });

@@ -503,7 +503,10 @@ export class ChatTranscriptBridge {
   ): QueuedMessage | null {
     const outputMessage = toOutputMessageFromProviderEnvelope(envelope);
     if (outputMessage) {
-      if (outputMessage.type === 'user' && envelope.raw?.source !== 'instance-output') {
+      // Only input Harness published itself is a user record; a provider echo
+      // or adapter-emitted user text never is. `raw` cannot decide this: it is
+      // stripped from crash-recovered sessions (LT-728).
+      if (outputMessage.type === 'user' && envelope.harnessPublished !== true) {
         return null;
       }
       if (outputMessage.metadata?.['streaming'] === true) {

@@ -28,12 +28,12 @@ describe('queue checklist summaries', () => {
     [{ runs: 1, jobs: 1 }, '1 test run covered 1 job'],
   ])('reports actual checklist coverage in the message and DTO: %s', (checks, label) => {
     expect(buildRunSummaryMessage(run, [], checks)).toContain(label);
-    expect(runToDto(run, [], checks, new Map()).checks).toEqual(checks);
+    expect(runToDto(run, [], checks, new Map(), new Map()).checks).toEqual(checks);
   });
 
   it('omits the checklist line and DTO field when no checklist executed', () => {
     expect(buildRunSummaryMessage(run, [], undefined)).not.toContain('test run');
-    expect(runToDto(run, [], undefined, new Map())).not.toHaveProperty('checks');
+    expect(runToDto(run, [], undefined, new Map(), new Map())).not.toHaveProperty('checks');
   });
 });
 
@@ -45,7 +45,7 @@ describe('queue item stages in the DTO', () => {
   it('sends a stage only for the items that have one', () => {
     const checking = newPlanQueueItem('checking', run.id, '/repo/a_plan.md', 1, { state: 'verifying' });
     const working = newPlanQueueItem('working', run.id, '/repo/b_plan.md', 1, { state: 'working' });
-    const dto = runToDto(run, [checking, working], undefined, new Map([[checking.id, { name: 'checks' as const, startedAt: 500 }]]));
+    const dto = runToDto(run, [checking, working], undefined, new Map([[checking.id, { name: 'checks' as const, startedAt: 500 }]]), new Map());
     expect(dto.items[0].stage).toEqual({ name: 'checks', startedAt: 500 });
     expect(dto.items[1]).not.toHaveProperty('stage');
   });

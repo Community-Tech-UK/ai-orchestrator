@@ -303,6 +303,31 @@ describe('provider swaps scope account profiles to the destination', () => {
   });
 });
 
+describe('the context-evidence mode follows the provider (LT-728)', () => {
+  const evidenceSettings = { contextEvidenceModeByProvider: { codex: 'enforce', claude: 'off' } } as const;
+  const enforcedCodex = (): Partial<Instance> => ({
+    provider: 'codex', currentModel: 'gpt-6-sol', accountProfileId: 'example-codex',
+    contextEvidence: { mode: 'enforce', conversationId: 'example-conversation', captureFailureCount: 0 },
+  });
+
+  it('drops the source provider\'s enforce mode when the destination has evidence off', async () => {
+    const h = harness(enforcedCodex(), [profile('codex', 'example-codex')], evidenceSettings);
+    await h.reconciler.applyRuntimeChange(h.instance.id, { provider: 'claude', model: 'opus' });
+    expect(h.instance.provider).toBe('claude');
+    expect(h.instance.contextEvidence).toEqual({ mode: 'off', captureFailureCount: 0 });
+  });
+
+  it('restores the source provider\'s evidence state when the destination spawn fails', async () => {
+    const h = harness(enforcedCodex(), [profile('codex', 'example-codex')], evidenceSettings);
+    const original = h.instance.contextEvidence;
+    vi.mocked(h.adapter.spawn).mockRejectedValue(new Error('Example spawn failure'));
+    await expect(h.reconciler.applyRuntimeChange(h.instance.id, { provider: 'claude', model: 'opus' }))
+      .rejects.toThrow('Example spawn failure');
+    expect(h.instance.provider).toBe('codex');
+    expect(h.instance.contextEvidence).toBe(original);
+  });
+});
+
 describe('a session parked on a provider limit', () => {
   const codexSession = { provider: 'codex', currentModel: 'gpt-6-sol', accountProfileId: 'example-codex' } as const;
 
