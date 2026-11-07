@@ -79,6 +79,39 @@ beforeEach(() => {
 const assistant = (content: string): Recorded => ({ channel: 'provider', kind: 'output', messageType: 'assistant', content });
 
 describe('PlanQueueInstanceTracker', () => {
+  it('waits through idle and complete while background work inhibits completion', () => {
+    let busy = true;
+    source = new ReplaySource();
+    source.snapshots.set('w1', { id: 'w1', status: 'initializing', outputBuffer: [] });
+    tracker = new PlanQueueInstanceTracker(source as unknown as PlanQueueInstanceEventSource,
+      (instanceId, outcome) => outcomes.push({ instanceId, outcome }), { hasInhibitor: () => busy, on: () => undefined });
+    tracker.attach();
+    tracker.track('w1');
+    source.replay('w1', [assistant('Waiting for checks.'), { channel: 'provider', kind: 'complete' }, { channel: 'status', status: 'idle' }]);
+    expect(outcomes).toEqual([]);
+    busy = false;
+    source.replay('w1', [{ channel: 'status', status: 'busy' }, assistant('Checks passed.'), { channel: 'status', status: 'idle' }]);
+    expect(outcomes).toEqual([{ instanceId: 'w1', outcome: { kind: 'turn-complete', lastAssistantOutput: 'Checks passed.' } }]);
+  });
+
+  it('settles a held turn when the background work clears while the session is idle', async () => {
+    let busy = true;
+    const registry = Object.assign(new EventEmitter(), { hasInhibitor: () => busy });
+    source = new ReplaySource();
+    source.snapshots.set('w1', { id: 'w1', status: 'initializing', outputBuffer: [] });
+    tracker = new PlanQueueInstanceTracker(source as unknown as PlanQueueInstanceEventSource,
+      (instanceId, outcome) => outcomes.push({ instanceId, outcome }), registry);
+    tracker.attach();
+    tracker.track('w1');
+    source.snapshots.set('w1', { id: 'w1', status: 'idle', outputBuffer: [] });
+    source.replay('w1', [assistant('Waiting.'), { channel: 'status', status: 'idle' }]);
+    expect(outcomes).toEqual([]);
+    busy = false;
+    registry.emit('work:inhibitor-cleared', { instanceId: 'w1' });
+    await Promise.resolve();
+    expect(outcomes).toEqual([{ instanceId: 'w1', outcome: { kind: 'turn-complete', lastAssistantOutput: 'Waiting.' } }]);
+  });
+
   it('ignores the idle a fresh spawn settles into before any assistant output', () => {
     tracker.track('w1');
     source.replay('w1', [{ channel: 'status', status: 'idle', previousStatus: 'initializing' }]);

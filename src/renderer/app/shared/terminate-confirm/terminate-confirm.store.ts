@@ -21,12 +21,16 @@
  */
 import { Injectable, computed, inject, signal } from '@angular/core';
 
+import type { TerminationPolicy } from '../../../../shared/types/supervision.types';
+import { DraftService } from '../../core/services/draft.service';
+import { isTerminalStatus } from '../../core/state/instance/instance-messaging-queue-utils';
 import { InstanceStore } from '../../core/state/instance.store';
 import { LoopStore } from '../../core/state/loop.store';
 import { PlanQueueStore } from '../../core/state/plan-queue.store';
 
 @Injectable({ providedIn: 'root' })
 export class TerminateConfirmStore {
+  private readonly drafts = inject(DraftService);
   private readonly instances = inject(InstanceStore);
   private readonly loops = inject(LoopStore);
   private readonly queue = inject(PlanQueueStore);
@@ -50,6 +54,15 @@ export class TerminateConfirmStore {
       ? this.instances.instances().filter((instance) => ids.has(instance.id)).length
       : Number(ids.has(pending.instanceId));
   });
+
+  readonly runningHelperCount = computed(() => this.helpersFor(this.pendingId()));
+
+  private helpersFor(instanceId: string | null): number {
+    const instances = this.instances.instances();
+    const parent = instances.find(instance => instance.id === instanceId);
+    const children = new Set(parent?.childrenIds ?? []);
+    return instances.filter(instance => children.has(instance.id) && !isTerminalStatus(instance.status)).length;
+  }
 
   /**
    * Name for the prompt. Falls back to "this session" rather than showing a raw
@@ -80,7 +93,25 @@ export class TerminateConfirmStore {
 
   /** Ask before terminating. Every entry point goes through here. */
   request(instanceId: string): void {
+    if (this.canCloseWithoutConfirmation(instanceId)) {
+      void this.instances.terminateInstance(instanceId);
+      return;
+    }
     this.pending.set({ kind: 'one', instanceId });
+  }
+
+  private canCloseWithoutConfirmation(instanceId: string): boolean {
+    const instance = this.instances.instances().find(item => item.id === instanceId);
+    // Unknown/unloaded transcript state is not evidence of an empty session.
+    return Boolean(instance && instance.status === 'idle' && instance.hasLoadedTranscript === true
+      && !instance.restoreMode && !instance.recoveryMethod && !instance.lastTurnOutcome
+      && !instance.activeTurnId && !instance.waitReason && !instance.backgroundWork && !instance.pendingApprovalCount
+      && !instance.metadata?.['planQueueRole'] && !this.loops.runningChatIds().has(instanceId)
+      && Array.isArray(instance.outputBuffer) && instance.outputBuffer.length === 0
+      && !instance.retainedPrompts?.length && this.helpersFor(instanceId) === 0
+      && !this.drafts.hasDraft(instanceId) && !this.drafts.hasPendingFiles(instanceId)
+      && !this.drafts.getPendingFolders(instanceId).length
+      && !(this.instances.getQueuedMessageCount?.(instanceId) ?? 0));
   }
 
   requestAll(): void {
@@ -88,7 +119,7 @@ export class TerminateConfirmStore {
     this.pending.set({ kind: 'all' });
   }
 
-  confirm(): void {
+  confirm(childPolicy?: TerminationPolicy): void {
     const pending = this.pending();
     if (!pending) return;
     this.pending.set(null);
@@ -96,7 +127,8 @@ export class TerminateConfirmStore {
       void this.instances.terminateAllInstances();
     } else {
       const id = pending.instanceId;
-      void this.instances.terminateInstance(id);
+      if (childPolicy) void this.instances.terminateInstance(id, true, childPolicy);
+      else void this.instances.terminateInstance(id);
     }
   }
 

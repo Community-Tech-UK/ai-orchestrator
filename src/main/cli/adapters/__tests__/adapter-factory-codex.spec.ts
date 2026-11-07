@@ -273,3 +273,9 @@ describe('adapter factory - codex', () => {
     expect(toml).toContain('args = ["/x/imap-mcp-server/dist/index.js"]');
   });
 });
+
+
+it('preserves the machine large-document exemption', () => {
+  const adapter = createCodexAdapter({ sessionKind: 'plan-queue', planQueueLargeDocument: true });
+  expect((adapter as unknown as { cliConfig: unknown }).cliConfig).toMatchObject({ planQueueLargeDocument: true });
+});

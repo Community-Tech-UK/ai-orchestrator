@@ -87,6 +87,15 @@ describe('buildClaudeCliArgs', () => {
     expect(args).not.toContain('--dangerously-skip-permissions');expect(args).not.toContain('--allowedTools');expect(args).not.toContain('acceptEdits');expect(args).not.toContain('--settings');
   });
 
+  it('denies ScheduleWakeup as a whole tool only for queue roles', () => {
+    const args = buildClaudeCliArgs(baseInput({ spawnOptions: { machineSession: 'plan-queue' } }));
+    const tools = args[args.indexOf('--disallowedTools') + 1].split(',');
+    expect(tools).toContain('ScheduleWakeup');
+    expect(tools.every((tool) => !tool.includes('('))).toBe(true);
+    const chat = buildClaudeCliArgs(baseInput());
+    expect(chat[chat.indexOf('--disallowedTools') + 1].split(',')).not.toContain('ScheduleWakeup');
+  });
+
   it('always includes the fixed stream-json flags', () => {
     const args = buildClaudeCliArgs(baseInput());
     expect(args.slice(0, 6)).toEqual([

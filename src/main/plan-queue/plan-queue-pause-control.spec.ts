@@ -30,6 +30,7 @@ class Instances extends EventEmitter {
   live = new Map<string, PlanQueueInstanceRecord>();
   created: InstanceCreateConfig[] = [];
   sendInput = vi.fn(async () => undefined);
+  postNote = vi.fn<(id: string, text: string) => void>();
   terminateInstance = vi.fn(async (id: string) => { this.live.delete(id); });
   restartFreshInstance = vi.fn(async () => undefined);
   getInstance = (id: string) => this.live.get(id);
@@ -83,7 +84,7 @@ beforeEach(() => {
   instances.live.set('parent', { id: 'parent', status: 'idle', outputBuffer: [], provider: 'claude', workingDirectory: repo });
   instances.live.set('worker', { id: 'worker', status: 'busy', outputBuffer: [], provider: 'claude' });
   coordinator = PlanQueueCoordinator.getInstance();
-  coordinator.initialize({ store, instances, skipInstall: true, pumpIntervalMs: null, loadAverage: () => [0, 0, 0],
+  coordinator.initialize({ store, instances, postNote: instances.postNote, skipInstall: true, pumpIntervalMs: null, loadAverage: () => [0, 0, 0],
     worktreeCreator: { createWorktree: vi.fn(), cleanupWorktree: vi.fn(), getAllSessions: () => [] },
     selectVerifier: async () => ({ ok: true, choice: { provider: 'codex' } }),
     accountRules: {
@@ -409,7 +410,8 @@ describe('Plan Queue pause controls in the coordinator', () => {
     await coordinator.control({ action: 'resume', runId: run.id });
     await coordinator._whenSettledForTesting();
     expect(instances.created[0]?.provider).toBe('cursor');
-    expect(instances.sendInput).toHaveBeenCalledWith('parent', expect.stringContaining('James changed'), undefined, expect.anything());
+    expect(instances.postNote).toHaveBeenCalledWith('parent', expect.stringContaining('James changed'));
+    expect(instances.sendInput).not.toHaveBeenCalledWith('parent', expect.anything(), undefined, expect.anything());
   });
 
   it('moves live documents on opt-in and preserves the original session route', async () => {

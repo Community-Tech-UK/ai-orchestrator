@@ -54,6 +54,7 @@ describe('ACP status updates through the main buffer and ordinary renderer merge
   it.each([
     ['completed', 'Compaction completed.'],
     ['failed', 'Compaction failed.'],
+    ['cancelled', 'Compaction cancelled.'],
   ])('replaces a compacting notice with its %s result', async (phase, expected) => {
     const h = await harness();
     try {

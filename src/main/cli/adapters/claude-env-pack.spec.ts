@@ -22,6 +22,15 @@ describe('applyClaudeHygieneEnv', () => {
     getSettingMock.mockReturnValue(undefined);
   });
 
+  it('disables background tasks for queue sessions while leaving chat and other roles alone', () => {
+    const queue: Record<string, string> = { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '0' };
+    applyClaudeHygieneEnv(queue, 'queue', { machineSession: 'plan-queue' });
+    expect(queue['CLAUDE_CODE_DISABLE_BACKGROUND_TASKS']).toBe('1');
+    const chat: Record<string, string> = {};
+    applyClaudeHygieneEnv(chat, 'chat');
+    expect(chat['CLAUDE_CODE_DISABLE_BACKGROUND_TASKS']).toBeUndefined();
+  });
+
   it('sets DISABLE_UPDATES and a per-session CLAUDE_CODE_TMPDIR that exists on disk', () => {
     const env: Record<string, string> = {};
     applyClaudeHygieneEnv(env, 'sess-abc');

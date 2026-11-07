@@ -6,6 +6,10 @@
  * `handleInstanceEvent`, `reconcileInstanceState`, `completeTrackedInstance`):
  *  - a turn is complete at `idle` (or provider `complete`) AFTER assistant output
  *    was seen — an idle before any output is the spawn settling, not a turn;
+ *  - a session still running its own background work (a shell command or helper agent
+ *    it started) has not finished: its turn ending at `idle` is the model waiting, so
+ *    the turn settles only once that work is gone, and the existing 10-minute
+ *    stalled-work check-in covers a stall;
  *  - `waiting_for_input` / `waiting_for_permission` need a human;
  *  - failure statuses and removal are failures, and so are a non-recoverable
  *    provider error or a non-zero exit during a turn;
@@ -39,6 +43,12 @@ export type PlanQueueTurnOutcome =
   | { kind: 'needs-input'; status: InstanceStatus; lastAssistantOutput: string | null }
   | { kind: 'failed'; reason: string };
 
+/** The slice of the async-work registry the tracker reads: who is still busy, and when that can change. */
+export interface BackgroundWorkSource {
+  hasInhibitor(instanceId: string): boolean;
+  on(event: 'work:changed' | 'work:inhibitor-cleared', listener: (change: { instanceId: string }) => void): unknown;
+}
+
 /** The slice of InstanceManager the tracker reads. */
 export interface PlanQueueInstanceEventSource {
   on(event: 'provider:normalized-event', listener: (envelope: ProviderRuntimeEventEnvelope) => void): unknown;
@@ -60,6 +70,8 @@ interface Tracking {
   settled: boolean;
   /** The outcome that settled it, so a resumed wait can re-arm. */
   settledBy: PlanQueueTurnOutcome['kind'] | null;
+  /** The turn ended while background work was still running; settle when that work is gone. */
+  completionBlocked: boolean;
 }
 
 const WORKING_STATUSES = new Set<InstanceStatus>(['busy', 'processing', 'thinking_deeply']);
@@ -72,6 +84,7 @@ export class PlanQueueInstanceTracker {
   constructor(
     private readonly source: PlanQueueInstanceEventSource,
     private readonly onOutcome: (instanceId: string, outcome: PlanQueueTurnOutcome) => void,
+    private readonly backgroundWork?: BackgroundWorkSource,
   ) {}
 
   attach(): void {
@@ -80,6 +93,14 @@ export class PlanQueueInstanceTracker {
     this.source.on('provider:normalized-event', (envelope) => this.handleProviderEvent(envelope));
     this.source.on('instance:event', (envelope) => this.handleInstanceEvent(envelope));
     this.source.on('instance:removed', (instanceId) => this.fail(instanceId, 'instance was removed'));
+    // The registry installs its continuation inhibitor just after it reports changed work, so recheck a tick later.
+    const recheck = ({ instanceId }: { instanceId: string }): void => {
+      queueMicrotask(() => {
+        if (this.tracking.get(instanceId)?.completionBlocked && this.source.getInstance(instanceId)?.status === 'idle') this.completeTurn(instanceId);
+      });
+    };
+    this.backgroundWork?.on('work:changed', recheck);
+    this.backgroundWork?.on('work:inhibitor-cleared', recheck);
   }
 
   /** App quit terminates every instance. That is not a worker failure. */
@@ -186,6 +207,7 @@ export class PlanQueueInstanceTracker {
       this.fail(instanceId, `instance entered ${status}`);
       return;
     }
+    if (WORKING_STATUSES.has(status)) tracking.completionBlocked = false;
     if (WORKING_STATUSES.has(status) && tracking.settledBy === 'needs-input') {
       // James answered the worker directly; watch the turn that answer started.
       this.tracking.set(instanceId, emptyTracking());
@@ -208,6 +230,11 @@ export class PlanQueueInstanceTracker {
   private completeTurn(instanceId: string): void {
     const tracking = this.tracking.get(instanceId);
     if (!tracking || tracking.settled) return;
+    if (this.backgroundWork?.hasInhibitor(instanceId)) {
+      tracking.completionBlocked = true;
+      return;
+    }
+    tracking.completionBlocked = false;
     const limit = classifyFinalOutputProviderLimit(tracking.lastAssistantOutput ?? undefined);
     this.settle(
       instanceId,
@@ -235,7 +262,7 @@ export class PlanQueueInstanceTracker {
 }
 
 function emptyTracking(): Tracking {
-  return { seenAssistantOutput: false, lastAssistantOutput: null, settled: false, settledBy: null };
+  return { seenAssistantOutput: false, lastAssistantOutput: null, settled: false, settledBy: null, completionBlocked: false };
 }
 
 /** Why a verifier without a verdict stopped, kept distinct for queue reports. */

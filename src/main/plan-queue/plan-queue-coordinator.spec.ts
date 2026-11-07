@@ -112,6 +112,7 @@ let poolProfiles: ProviderAccountProfile[];
 let verifierInputs: VerifierSelectInput[];
 let excludedProviders: string[];
 /** History entries archived at a simulated shutdown, read by the restored-parent lookup. */
+let questionsToParent = false;
 let archivedEntries: { originalInstanceId: string; historyThreadId?: string }[];
 
 function git(args: string[], cwd = repo): string {
@@ -153,6 +154,7 @@ class FakeInstances extends EventEmitter {
   readonly live = new Map<string, FakeInstance>();
   readonly created: FakeInstance[] = [];
   readonly inputs: { instanceId: string; message: string; internalSource?: string }[] = [];
+  readonly notes: { instanceId: string; message: string }[] = [];
   readonly adoptions: { childId: string; parentId: string }[] = [];
   readonly scripts: Partial<Record<Role, Script>> = {};
   maxLive: Partial<Record<Role, number>> = {};
@@ -356,6 +358,7 @@ beforeEach(() => {
   excludedProviders = [];
   archivedEntries = [];
   personTurns = new InputTurnRegistry();
+  questionsToParent = false;
   fake = new FakeInstances();
   fake.scripts.triage = triageAllReady;
   fake.scripts.worker = implement;
@@ -374,6 +377,8 @@ function startCoordinator(
     instances,
     worktreeCreator: WorktreeManager.getInstance(),
     skipInstall: true,
+    postNote: (instanceId, message) => instances.notes.push({ instanceId, message }),
+    questionsToParent: () => questionsToParent,
     selectVerifier: async (input) => {
       verifierInputs.push(input);
       return { ok: true, choice: { provider: 'codex' } };
@@ -409,6 +414,8 @@ function startCoordinator(
 const never: Script = () => new Promise<void>(() => undefined);
 
 describe('PlanQueueCoordinator parent thread recovery and adoption', { timeout: 30_000 }, () => {
+  // These cases exercise the explicit parent-chat destination across restored owners.
+  beforeEach(() => { questionsToParent = true; });
   async function pendingRun() {
     planDoc('2026-01-01-parent-recovery');
     const parent = fake.addParent();
@@ -427,7 +434,8 @@ describe('PlanQueueCoordinator parent thread recovery and adoption', { timeout: 
     const restored = fake.addParent();
     restored.historyThreadId = 'history-parent';
     coordinator.notifyParent(coordinator.getRun(run.id), 'Recovery summary');
-    expect(fake.inputs).toContainEqual({ instanceId: restored.id, message: 'Recovery summary', internalSource: 'plan-queue' });
+    expect(fake.notes).toContainEqual({ instanceId: restored.id, message: 'Recovery summary' });
+    expect(fake.inputs).toEqual([]);
     expect(store.getRun(run.id)?.parentInstanceId).toBe(restored.id);
   });
 
@@ -610,7 +618,7 @@ describe('PlanQueueCoordinator parent thread recovery and adoption', { timeout: 
     const adopter = fake.addParent(); adopter.historyThreadId = 'adopter-thread';
     await coordinator.control({ action: 'adopt', runId: run.id }, adopter.id);
     expect(store.getRun(run.id)).toMatchObject({ parentInstanceId: adopter.id, parentHistoryThreadId: 'adopter-thread', status: 'running' });
-    expect(fake.inputs.some((input) => input.instanceId === adopter.id && input.message.includes('You now own Plan Queue run')
+    expect(fake.notes.some((input) => input.instanceId === adopter.id && input.message.includes('You now own Plan Queue run')
       && input.message.includes('1 items waiting, 0 in progress'))).toBe(true);
     store.upsertItem({ ...item, state: 'queued' });
     coordinator.requestPump();
@@ -628,7 +636,7 @@ describe('PlanQueueCoordinator parent thread recovery and adoption', { timeout: 
     await coordinator.control({ action: 'pause', runId: run.id });
     await move();
     expect(store.getRun(run.id)).toMatchObject({ parentInstanceId: taker.id, status: 'paused' });
-    expect(fake.inputs.some(input => input.instanceId === taker.id && input.message.includes('You now own Plan Queue run'))).toBe(true);
+    expect(fake.notes.some(input => input.instanceId === taker.id && input.message.includes('You now own Plan Queue run'))).toBe(true);
     await vi.waitFor(() => expect(fake.inputs.some(input => input.instanceId === parent.id && input.message.includes('You no longer own it'))).toBe(true));
   });
 
@@ -1288,6 +1296,7 @@ describe('PlanQueueCoordinator — whole run against a temp repo', { timeout: 30
   });
 
   it('asks James about a genuine authority boundary and starts it after his answer', async () => {
+    questionsToParent = true;
     writeDoc('docs/plans/2026-01-01-orphan_plan.md', '# Plan\n\n**Spec:** [spec](./2026-01-01-orphan_spec_planned.md)\n');
     fake.scripts.triage = (instance) => {
       const runId = instance.config.metadata!['planQueueRunId'] as string;
@@ -1531,6 +1540,7 @@ describe('PlanQueueCoordinator — boot recovery', { timeout: 30_000 }, () => {
   });
 
   it('asks James about a genuine authority boundary and starts it after his answer', async () => {
+    questionsToParent = true;
     writeDoc('docs/plans/2026-01-01-orphan_plan.md', '# Plan\n\n**Spec:** [spec](./2026-01-01-orphan_spec_planned.md)\n');
     fake.scripts.triage = (instance) => {
       const runId = instance.config.metadata!['planQueueRunId'] as string;
@@ -2650,6 +2660,7 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
   });
 
   it('surfaces a worker waiting for input as a question and resumes it on "continue"', async () => {
+    questionsToParent = true;
     planDoc('2026-01-01-alpha');
     const parent = fake.addParent();
     let asked = false;
@@ -2675,6 +2686,32 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     await coordinator.answer(item.id, 'continue');
     await waitForRun(run.id);
     expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'landed', question: null });
+  });
+});
+
+describe('PlanQueueCoordinator — a worker respawn proves its work folder first', { timeout: 30_000 }, () => {
+  it('parks instead of starting a worker when the saved folder was replaced by a plain directory', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.worker = async (instance, _message, f) => {
+      f.say(instance, 'Should the retention period be 30 or 90 days?');
+      f.setStatus(instance, 'waiting_for_input');
+    };
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await vi.waitFor(() => { if (!coordinator.getRunDto(run.id)!.items[0].question) throw new Error('no question yet'); });
+    const item = store.listItems(run.id)[0];
+    // The worker's session is gone and its folder is now a plain directory inside the root checkout.
+    fake.live.delete(item.workerInstanceId!);
+    rmSync(item.worktreePath!, { recursive: true, force: true });
+    mkdirSync(item.worktreePath!, { recursive: true });
+    const workersBefore = fake.created.filter((i) => i.role === 'worker').length;
+
+    await coordinator.answer(item.id, 'continue');
+    await coordinator._whenSettledForTesting();
+
+    expect(fake.created.filter((i) => i.role === 'worker')).toHaveLength(workersBefore);
+    expect(store.getItem(item.id)).toMatchObject({ state: 'parked', parkReason: 'worktree-error' });
+    expect(store.getItem(item.id)?.detail).toContain("isn't this job's own folder");
   });
 });
 
@@ -3399,7 +3436,7 @@ describe('PlanQueueCoordinator — handing a stuck document to the step-up worke
   };
   const workers = (instances = fake) => instances.created.filter((i) => i.role === 'worker');
   const steppedUp = (instance: FakeInstance) => instance.config.metadata?.['planQueueSteppedUp'] === true;
-  const parentMessages = (parent: FakeInstance) => fake.inputs.filter((m) => m.instanceId === parent.id).map((m) => m.message);
+  const parentNotes = (parent: FakeInstance) => fake.notes.filter((m) => m.instanceId === parent.id).map((m) => m.message);
 
   beforeEach(() => {
     savedRouting = { workers: [haiku], verifiers: [], stepUp: opus };
@@ -3430,9 +3467,10 @@ describe('PlanQueueCoordinator — handing a stuck document to the step-up worke
     expect(item).toMatchObject({ state: 'landed', round: 1, erroredRounds: 0 });
     expect(item.steppedUpAt).toEqual(expect.any(Number));
     expect(git(['show', 'main:2026-01-01-alpha_plan.feature.txt'])).toBe('built 2026-01-01-alpha_plan');
-    expect(parentMessages(parent).filter((m) => m.includes('handed to the stronger worker'))).toEqual([
+    expect(parentNotes(parent).filter((m) => m.includes('handed to the stronger worker'))).toEqual([
       expect.stringContaining('2026-01-01-alpha_plan.md failed its checks in all 1 verification round(s), so it was handed to the stronger worker James chose (claude / opus).'),
     ]);
+    expect(fake.inputs.filter((m) => m.instanceId === parent.id && m.message.includes('handed to the stronger worker'))).toEqual([]);
   });
 
   it('parks a document the step-up worker could not pass either, never handing it over twice, and Resume keeps the step-up worker', async () => {
@@ -3447,7 +3485,7 @@ describe('PlanQueueCoordinator — handing a stuck document to the step-up worke
     expect(parked).toMatchObject({ state: 'parked', parkReason: 'round-limit', round: 2 });
     expect(parked.detail).toMatch(/^Still failing after the step-up worker's 2 verification round\(s\): \[high, confidence 80\] Retry never resets\./);
     expect(workers().map(steppedUp)).toEqual([false, true]);
-    expect(parentMessages(parent).filter((m) => m.includes('handed to the stronger worker'))).toHaveLength(1);
+    expect(parentNotes(parent).filter((m) => m.includes('handed to the stronger worker'))).toHaveLength(1);
 
     // James resumes it: the next worker is the step-up worker again.
     fake.scripts.verifier = pass;
@@ -3457,6 +3495,8 @@ describe('PlanQueueCoordinator — handing a stuck document to the step-up worke
     expect(workers()).toHaveLength(3);
     expect(workers()[2].config).toMatchObject({ provider: 'claude', modelOverride: 'opus' });
     expect(steppedUp(workers()[2])).toBe(true);
+    expect(parentNotes(parent).filter((m) => m.includes('handed to the stronger worker'))).toHaveLength(1);
+    expect(fake.inputs.filter((m) => m.instanceId === parent.id && m.message.includes('handed to the stronger worker'))).toEqual([]);
   });
 
   it('parks as before when the run has no step-up choice', async () => {
@@ -3494,7 +3534,7 @@ describe('PlanQueueCoordinator — handing a stuck document to the step-up worke
     expect(item.detail).toContain('no findings listed');
     expect(workers()).toHaveLength(1);
     expect(workers().some(steppedUp)).toBe(false);
-    expect(parentMessages(parent).filter((m) => m.includes('handed to the stronger worker'))).toHaveLength(0);
+    expect(parentNotes(parent).filter((m) => m.includes('handed to the stronger worker'))).toHaveLength(0);
   });
 
   it('does not hand over a document whose findings are all environment or needs-human: it parks for setup or James (step 5.4)', async () => {
@@ -3626,7 +3666,7 @@ describe('PlanQueueCoordinator — handing a stuck document to the step-up worke
     const parked = coordinator.getRunDto(run.id)!.items[0];
     expect(parked).toMatchObject({ state: 'parked', parkReason: 'worker-error' });
     expect(parked.steppedUpAt).toEqual(expect.any(Number));
-    const handover = parentMessages(parent).filter((m) => m.includes('handed to the stronger worker'));
+    const handover = parentNotes(parent).filter((m) => m.includes('handed to the stronger worker'));
     expect(handover).toEqual([expect.stringContaining('That worker could not start, so the document is parked; Resume continues with the stronger worker.')]);
     expect(handover[0]).not.toContain('more round(s)');
 
@@ -3634,6 +3674,7 @@ describe('PlanQueueCoordinator — handing a stuck document to the step-up worke
     await waitForRun(run.id);
     expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'landed', steppedUpAt: parked.steppedUpAt });
     expect(workers().at(-1)!.config).toMatchObject({ provider: 'claude', modelOverride: 'opus' });
+    expect(fake.inputs.filter((m) => m.instanceId === parent.id && m.message.includes('handed to the stronger worker'))).toEqual([]);
   });
 });
 

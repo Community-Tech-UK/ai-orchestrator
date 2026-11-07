@@ -11,6 +11,7 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { Instance, InstanceStore } from '../../core/state/instance.store';
+import { isTerminalStatus } from '../../core/state/instance/instance-messaging-queue-utils';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { ToolLoopAlertStore } from '../../core/state/tool-loop-alert.store';
@@ -78,7 +79,7 @@ export class InstanceRowComponent {
   toggleExpand = output<string>();
   contextMenu = output<{ event: MouseEvent; instance: Instance; displayTitle: string }>();
   readonly resolvedDisplayTitle = computed(() => this.displayTitle()?.trim() || this.instance().displayName);
-  readonly resolvedChildCount = computed(() => this.childCount() ?? this.instance().childrenIds.length);
+  readonly resolvedChildCount = computed(() => this.childCount() ?? this.instance().childrenIds?.length ?? 0);
 
   readonly hasPendingApproval = computed(() =>
     (this.instance().pendingApprovalCount ?? 0) > 0
@@ -353,11 +354,25 @@ export class InstanceRowComponent {
   /**
    * Only a root session is archived on close (`archiveRootConversation()` bails
    * on `parentId`), and this same row template renders every child in the tree,
-   * so the history half of the sentence has to be earned per row.
+   * so the history half of the sentence has to be earned per row. The live
+   * helper count arrives as an argument (template `@let`) so the wording below
+   * stays statically readable to the ui-hints measurement while the count
+   * itself remains live.
    */
-  readonly closeTooltip = computed(() => this.instance().parentId
-    ? 'Close session — stops this child agent and removes it from the tree'
-    : 'Close session — stops the agent and moves this session to history');
+  closeTooltip(helperCount: number): string {
+    const base = this.instance().parentId
+      ? 'Close session — stops this child agent and removes it from the tree'
+      : 'Close session — stops the agent and moves this session to history';
+    return helperCount
+      ? `${base}. Choose whether to close its ${helperCount} helper ${helperCount === 1 ? 'session' : 'sessions'} too.`
+      : base;
+  }
+
+  /** Direct helper sessions the close dialog would ask about — live children only. */
+  readonly closeHelperCount = computed(() => {
+    const children = new Set(this.instance().childrenIds ?? []);
+    return children.size ? this.instances.instances().filter(child => children.has(child.id) && !isTerminalStatus(child.status)).length : 0;
+  });
 
   readonly restartTooltip = computed(() => this.supportsResume()
     ? 'Restart and resume the conversation'

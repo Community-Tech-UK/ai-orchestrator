@@ -126,7 +126,7 @@ const ALLOWLIST: Record<string, number> = {
   // Thin pressKey/viewport delegates; page-level impl in browser-input-control-driver.ts.
   'src/main/browser-gateway/puppeteer-browser-driver.ts': 717,
   // Self-allowlisted: the registry below grows one line per documented ceiling.
-  'scripts/check-ts-max-loc.ts': 706,
+  'scripts/check-ts-max-loc.ts': 707, // +1: one allowlist entry for plan-queue.schemas.ts
   // Raised 700 -> 704 for close_tab / close_matching RPC dispatch cases.
   'src/main/browser-gateway/browser-gateway-rpc-server.ts': 704,
   // Health aggregator: one section per surface. Crossed 700 with the per-node
@@ -227,7 +227,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/core/config/claude-md-loader.ts': 804,
   // Raised 776 -> 840 for the interSessionMessaging readOnly() MCP settings
   // policy entry (cross-session messaging, 2026-09-16).
-  'src/main/core/config/settings-control-policy.ts': 850, // +5: one entry per Oct-2 Phase D setting (checker catalog, four Codex round limits); +1: computers (remote-first plan); +4: Microsoft 365 "Always allow" setting
+  'src/main/core/config/settings-control-policy.ts': 851, // +5: one entry per Oct-2 Phase D setting (checker catalog, four Codex round limits); +1: computers (remote-first plan); +4: Microsoft 365 "Always allow" setting; +1: planQueueQuestionsDestination
   'src/main/core/error-recovery.ts': 990,
   // Main process — history
   // Raised from 1582 for the fix to the intermittent "written as 0 bytes" CI
@@ -514,7 +514,7 @@ const ALLOWLIST: Record<string, number> = {
   // Recorded at the actual size, 829: the file had already grown to 825
   // within slack before LT-651 added 4 lines (contextEvidence follow-up emit,
   // sibling of the reasoningEffort handling). Re-tighten after a store split.
-  'src/renderer/app/core/state/instance/instance.store.ts': 829,
+  'src/renderer/app/core/state/instance/instance.store.ts': 830, // +1: close-dialog helper choice passes a child policy
   // Added 2026-07-16 at 710 (Fable WS6 recipe picker options + WS6 maxTurns/
   // allowUnbounded loop-config plumbing). Re-tighten after a store split.
   'src/renderer/app/core/state/loop.store.ts': 751,
@@ -646,7 +646,8 @@ const ALLOWLIST: Record<string, number> = {
   // Added 2026-10-27: Plan Queue account-rule hooks (686 -> 727). This includes the
   // uncommitted Plan Queue handover lines in the same working tree (+15); re-tighten
   // once the handover and account-rule code are committed and split out.
-  'src/main/plan-queue/plan-queue-coordinator.ts': 846, // 727 -> 781: folder-checklist wiring in startRun; 781 -> 846: Land anyway authority wiring (the file was already 821 on main). Re-tighten with a split of the coordinator.
+  'packages/contracts/src/schemas/plan-queue.schemas.ts': 719, // 700 -> 719: the Oct-2 stack's round-activity and step-section schema fields; split when next touched.
+  'src/main/plan-queue/plan-queue-coordinator.ts': 863, // 727 -> 781: folder-checklist wiring in startRun; 781 -> 846: Land anyway authority wiring (the file was already 821 on main); 846 -> 863: quiet parent notes and background-work wiring from the Oct-2 stack. Re-tighten with a split of the coordinator.
   // Added 2026-10-27: the Plan Queue hold re-checks the banned session under the item
   // lock (+6 lines). The file was exactly 700 at HEAD; most of the growth to 706 is
   // other uncommitted Plan Queue work in the same working tree (retirements, active-work

@@ -163,4 +163,5 @@ export const PAUSE_SETTING_VALIDATORS: Partial<{
   pauseReachabilityProbeMode: validateProbeMode,
   pauseReachabilityProbeIntervalSec: validateIntInRange(10, 600),
   projectPluginTrust: validateProjectPluginTrust,
+  planQueueQuestionsDestination: value => value === 'queue-page' || value === 'parent-chat' ? { ok: true, value } : { ok: false, error: 'Expected queue-page or parent-chat' },
 };

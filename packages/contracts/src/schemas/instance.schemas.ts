@@ -309,6 +309,7 @@ export type InstanceGetPromptIndexPayload = z.infer<typeof InstanceGetPromptInde
 
 export const InstanceTerminatePayloadSchema = z.object({
   instanceId: InstanceIdSchema,
+  childPolicy: z.enum(['terminate-children', 'orphan-children', 'reparent-to-root']).optional(),
   graceful: z.boolean().optional().default(true),
 });
 

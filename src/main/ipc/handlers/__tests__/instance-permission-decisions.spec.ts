@@ -164,4 +164,22 @@ describe('permission card refusal through IPC and PermissionManager', () => {
     expect(resumed).toEqual([]);
     expect(sendInputResponse).not.toHaveBeenCalled();
   });
+
+  it('requires new approval for a distinct identical tool call after Allow once', async () => {
+    const metadata = { type: 'deferred_permission', tool_name: 'Bash', tool_use_id: 'toolu_original', tool_input: { command: 'echo approval-example' } };
+    await ask('req-first', metadata);
+    expect(forwarded).toEqual(['req-first']);
+    const decision = decisionFor(metadata, true, 'once');
+    const response = await handlers.get(IPC_CHANNELS.INPUT_REQUIRED_RESPOND)!({}, {
+      instanceId: 'inst-a', requestId: 'req-first', response: 'Allow once',
+      decisionAction: decision?.action, decisionScope: decision?.scope, metadata,
+    });
+    expect(response.success).toBe(true);
+    expect(resumed).toEqual([true]);
+    await ask('req-next-distinct', { ...metadata, tool_use_id: 'toolu_next_distinct' });
+    expect(forwarded).toEqual(['req-first', 'req-next-distinct']);
+    expect(resumed).toEqual([true]);
+    expect(readFileSync(permissionsFile, 'utf8')).toBe(originalFile);
+    expect(manager.getStats().sessionRulesCount).toBe(0);
+  });
 });

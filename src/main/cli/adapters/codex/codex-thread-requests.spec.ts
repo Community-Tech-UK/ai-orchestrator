@@ -114,11 +114,11 @@ describe('Codex trial logging in the session-policy log', () => {
     expect(config.skillCatalogOmitted).toBe(true);
   });
 
-  it('records a rejected override set as no keys on Codex\'s own catalog, and leaves the catalog on', async () => {
+  it('records a rejected catalog override as dropped alone, keeping the rest and the cap, and leaves the catalog on', async () => {
     const request = vi.fn().mockRejectedValueOnce(new Error('unsupported skills.include_instructions')).mockResolvedValue({ threadId: 'thread-2' });
     const config: CodexCliConfig = { sessionKind: 'plan-queue', trialKey: 'item-1', queueRole: 'verifier' };
     await resumeCodexThread({ request }, { threadId: 'thread-2' }, checkerPolicy, config);
-    expect(recorded()[0]).toMatchObject({ threadId: 'thread-2', operation: 'resume', applied: false, catalog: 'native', configKeys: [], checkerArm: 'candidate' });
+    expect(recorded()[0]).toMatchObject({ threadId: 'thread-2', operation: 'resume', applied: false, catalog: 'capped', configKeys: ['skills.max_context_tokens', 'tool_output_token_limit'], rejectedKeys: ['skills.include_instructions'], checkerArm: 'candidate' });
     expect(config.skillCatalogOmitted).toBe(false);
   });
 
@@ -135,4 +135,37 @@ describe('Codex trial logging in the session-policy log', () => {
     expect(record).not.toHaveProperty('checkerArm');
     expect(JSON.stringify(record)).not.toContain('fork_turns');
   });
+});
+
+
+it.each(['start', 'resume'] as const)('preserves supported overrides when %s rejects a named key', async (operation) => {
+  const request = vi.fn().mockRejectedValueOnce(new Error('unsupported model_context_window config key')).mockResolvedValue({ threadId: 'thread' });
+  const capped = { ...policy, config: { ...policy.config, tool_output_token_limit: 4000, model_context_window: 272000 } };
+  if (operation === 'start') await startCodexThread({ request }, { cwd: '/repo' }, capped);
+  else await resumeCodexThread({ request }, { threadId: 'thread' }, capped);
+  expect(request.mock.calls[1][1]).toMatchObject({ config: { 'agents.enabled': false, tool_output_token_limit: 4000 } });
+  expect(request.mock.calls[1][1].config).not.toHaveProperty('model_context_window');
+  expect(capped.config.model_context_window).toBe(272000);
+  expect(recordSessionPolicy).toHaveBeenLastCalledWith(expect.objectContaining({ applied: false, helperPolicyApplied: true, rejectedKeys: ['model_context_window'], contextWindow: undefined }));
+});
+
+it('records the helper trial as unapplied if the helper setting itself is rejected', async () => {
+  const request = vi.fn().mockRejectedValueOnce(new Error('unsupported agents.enabled config key')).mockResolvedValue({ threadId: 'thread' });
+  await startCodexThread({ request }, { cwd: '/repo' }, policy);
+  expect(recordSessionPolicy).toHaveBeenLastCalledWith(expect.objectContaining({ applied: false, helperPolicyApplied: false, rejectedKeys: ['agents.enabled'] }));
+});
+
+it('drops only the field a message rejects, not the valid keys it lists beside it', async () => {
+  const request = vi.fn().mockRejectedValueOnce(new Error('unknown field `include_instructions`, expected `max_context_tokens`')).mockResolvedValue({ threadId: 'thread' });
+  const both = { ...policy, config: { 'skills.max_context_tokens': 1500, 'skills.include_instructions': false } };
+  await startCodexThread({ request }, { cwd: '/repo' }, both);
+  expect(request.mock.calls[1][1]).toMatchObject({ config: { 'skills.max_context_tokens': 1500 } });
+  expect(request.mock.calls[1][1].config).not.toHaveProperty('skills.include_instructions');
+  expect(recordSessionPolicy).toHaveBeenLastCalledWith(expect.objectContaining({ rejectedKeys: ['skills.include_instructions'] }));
+});
+
+it('does not read a bare generic word as a rejected override', async () => {
+  const request = vi.fn().mockRejectedValue(new Error('invalid request: the enabled plan is unsupported'));
+  await expect(startCodexThread({ request }, { cwd: '/repo' }, policy)).rejects.toThrow('enabled plan');
+  expect(request).toHaveBeenCalledTimes(1);
 });

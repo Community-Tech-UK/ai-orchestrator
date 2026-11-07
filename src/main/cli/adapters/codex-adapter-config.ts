@@ -18,6 +18,14 @@ export interface CodexCliConfig {
   sessionKind?: SessionKind;
   trialKey?: string;
   trialKeySource?: TrialKeySource;
+  /** Set by the queue for a plan over about 100 KB: such a thread skips the 272K machine-work window cap. */
+  planQueueLargeDocument?: boolean;
+  /**
+   * Context window in effect for this thread. App-server threads record the window of the config Codex accepted;
+   * exec fallback records the `model_context_window` override the process was spawned with (Codex clamps it to
+   * the model maximum). Not a user-configured preference.
+   */
+  effectiveContextWindow?: number;
   trialArm?: CodexTrialArm;
   /** Plan-queue role (`planQueueRole`), so the policy can tell a checker from a worker. */
   queueRole?: string;

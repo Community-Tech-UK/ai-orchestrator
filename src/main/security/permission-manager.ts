@@ -172,6 +172,7 @@ export interface PermissionDecision {
 interface CachedDecision {
   decision: PermissionDecision;
   cacheKey: string;
+  consumeOnHit: boolean;
   expiresAt: number;
 }
 
@@ -605,11 +606,13 @@ export class PermissionManager extends EventEmitter {
 
     // Check cache first
     const cacheKey = this.buildCacheKey(request);
-    const cached = this.decisionCache.get(cacheKey);
+    const cached = this.decisionCache.get(this.buildCacheKey(request, true)) ?? this.decisionCache.get(cacheKey);
     if (cached && Date.now() < cached.expiresAt) {
-      this.emit('permission:cache_hit', { requestId: request.id, cacheKey });
+      if (cached.consumeOnHit) this.decisionCache.delete(cached.cacheKey);
+      this.emit('permission:cache_hit', { requestId: request.id, cacheKey: cached.cacheKey });
       return {
         ...cached.decision,
+        request,
         fromCache: true,
       };
     }
@@ -675,15 +678,15 @@ export class PermissionManager extends EventEmitter {
   ): void {
     switch (scope) {
       case 'once':
-        // Just cache the decision
-        const cacheKey = this.buildCacheKey(request);
+        // Batch/request-id paths recheck this request; a later identical tool call needs new approval.
+        const cacheKey = this.buildCacheKey(request, true);
         this.cacheDecision(cacheKey, {
           request,
           action,
           fromCache: false,
           reason: `User chose: ${action} (once)`,
           decidedAt: Date.now(),
-        });
+        }, true);
         break;
 
       case 'session':
@@ -1139,11 +1142,12 @@ export class PermissionManager extends EventEmitter {
     }
   }
 
-  private buildCacheKey(request: PermissionRequest): string {
-    return `${request.instanceId}:${request.scope}:${request.resource}`;
+  private buildCacheKey(request: PermissionRequest, once = false): string {
+    const parts = [request.instanceId, request.scope, request.resource];
+    return JSON.stringify(once ? [...parts, request.id] : parts);
   }
 
-  private cacheDecision(key: string, decision: PermissionDecision): void {
+  private cacheDecision(key: string, decision: PermissionDecision, consumeOnHit = false): void {
     // Enforce cache size limit
     if (this.decisionCache.size >= this.config.maxCacheEntries) {
       // Remove oldest entries
@@ -1157,6 +1161,7 @@ export class PermissionManager extends EventEmitter {
     this.decisionCache.set(key, {
       decision,
       cacheKey: key,
+      consumeOnHit,
       expiresAt: Date.now() + this.config.cacheTTLMs,
     });
   }

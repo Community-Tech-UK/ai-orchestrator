@@ -184,6 +184,8 @@ export interface Instance {
   reasoningEffort?: ReasoningEffort; // Optional thinking/reasoning effort override
   runtimeSummary?: InstanceRuntimeSummary;
   outputBuffer: OutputMessage[];
+  /** Renderer received a transcript array; a mapper fallback is not proof of emptiness. */
+  hasLoadedTranscript?: boolean;
   /** Opening and recent user prompts retained beside the bounded live buffer. */
   retainedPrompts?: OutputMessage[];
   /** How this instance was restored from history, if applicable */

@@ -150,6 +150,7 @@ describe('Codex app-server initializer sends the thread policy on every thread r
       tool_output_token_limit: 4000,
       model_post_turn_compact_threshold_percent: 60,
       'skills.max_context_tokens': 1500, // Harness-started work caps Codex's skills list (Oct-2 T5)
+      model_context_window: 272000, // and keeps its requests under the 272K price break (Oct-2 T2)
     });
   });
 });

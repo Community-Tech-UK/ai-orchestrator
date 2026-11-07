@@ -20,6 +20,7 @@ import { PlanQueueVerification } from './plan-queue-verification';
 import { getLogger } from '../logging/logger';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 
+vi.mock('./plan-queue-spawn-guard', () => ({ requireOwnWorkFolder: async (item: { worktreePath: string | null }) => item.worktreePath ?? '/unused' })); // folder proof has its own spec
 vi.mock('./plan-queue-git', async (original) => ({
   ...await original<typeof import('./plan-queue-git')>(),
   branchExists: vi.fn(async () => true), unresolvedMergeFiles: vi.fn(async () => []),

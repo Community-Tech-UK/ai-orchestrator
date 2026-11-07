@@ -123,6 +123,7 @@ export class CodexCliAdapter extends CodexAppServerTurnAdapter {
     if (this.codexReportedContextWindow > 0) {
       return this.codexReportedContextWindow;
     }
+    if (this.cliConfig.effectiveContextWindow) return this.cliConfig.effectiveContextWindow;
     const model = this.cliConfig.model ?? 'default';
     const caps = getModelCapabilitiesRegistry().getCapabilities('codex', model);
     return caps.contextWindow;

@@ -14,7 +14,7 @@
   p { margin: 0 0 16px; font-size: 12px; opacity: 0.85; line-height: 1.5; }
 }
 .confirm-actions {
-  display: flex; justify-content: flex-end; gap: 8px;
+  display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px;
 
   button {
     padding: 5px 14px; font-size: 12px; border-radius: 4px; cursor: pointer;

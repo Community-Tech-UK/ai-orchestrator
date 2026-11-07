@@ -52,7 +52,7 @@ export class OpenCodeAcpUpdates {
       : record(meta) && record(meta['opencode/compaction']) ? meta['opencode/compaction'] : undefined;
     if (!marker) return undefined;
     const status = marker['status'];
-    if (!['started', 'in_progress', 'completed', 'failed'].includes(String(status))) return undefined;
+    if (!['started', 'in_progress', 'completed', 'failed', 'cancelled'].includes(String(status))) return undefined;
     if (status === 'failed') this.onCompactionFailed();
     const key = marker['compactionId'] ?? marker['messageId'];
     if (typeof key !== 'string') return undefined;
@@ -62,7 +62,7 @@ export class OpenCodeAcpUpdates {
     const firstCompletion = status === 'completed' && !state.completed;
     if (firstCompletion) state.completed = true;
     this.compactions.set(key, state);
-    const content = status === 'completed' ? 'Compaction completed.' : status === 'failed' ? 'Compaction failed.' : 'Compacting the session…';
+    const content = status === 'completed' ? 'Compaction completed.' : status === 'failed' ? 'Compaction failed.' : status === 'cancelled' ? 'Compaction cancelled.' : 'Compacting the session…';
     return { id: state.id, timestamp: Date.now(), type: 'system', content,
       metadata: { source: 'acp-compaction', transport: 'acp', phase: status, streaming: status === 'started' || status === 'in_progress', accumulatedContent: content,
         // Record the boundary on the status row once, without appending another notice.

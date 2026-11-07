@@ -316,7 +316,7 @@ export class SupervisorTree extends EventEmitter {
    * session; see instance-adoption.ts). The registration stays under the root
    * supervisor like every other instance, so only the parent link moves.
    */
-  reparentInstance(instanceId: string, parentId: string): void {
+  reparentInstance(instanceId: string, parentId: string | null): void {
     const registration = this.instances.get(instanceId);
     if (!registration) return;
     registration.parentId = parentId;

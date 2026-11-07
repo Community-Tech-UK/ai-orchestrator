@@ -109,7 +109,7 @@ export function createInstanceDomain(
      */
     terminateInstance: (payload: {
       instanceId: string;
-      graceful?: boolean;
+      graceful?: boolean; childPolicy?: import('../../shared/types/supervision.types').TerminationPolicy;
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.INSTANCE_TERMINATE, payload);
     },

@@ -519,6 +519,7 @@ export const SETTINGS_TOOL_POLICY = {
   providerAccountProfiles: readOnly(false, ProviderAccountProfilesSchema),
   providerAccountPools: readOnly(false, ProviderAccountPoolsSchema),
   planQueueRouting: readOnly(false, PlanQueueRoutingSchema),
+  planQueueQuestionsDestination: open(z.enum(['queue-page', 'parent-chat'])),
   planQueueAccountRules: readOnly(false, PlanQueueAccountRulesSchema),
   planQueueFolderChecklists: readOnly(false, PlanQueueFolderChecklistsSchema),
   pingPongReviewerProvider: open(

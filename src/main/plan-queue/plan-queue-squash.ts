@@ -174,7 +174,7 @@ export function commitWithHooks(
   timeoutMs = HOOK_TIMEOUT_MS,
   signal?: AbortSignal,
 ): Promise<GroupRunResult> {
-  const env = hermeticGitEnv({ ...buildCliEnv(), ...QUEUE_TEST_ENV });
+  const env = hermeticGitEnv({ ...buildCliEnv(), ...QUEUE_TEST_ENV }, worktreePath);
   delete env['AIO_PLAN_QUEUE_TESTS_COVERED'];
   delete env['AIO_PLAN_QUEUE_TESTS_COVERED_TREE'];
   if (testedIndexTree) {

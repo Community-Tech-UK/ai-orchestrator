@@ -17,8 +17,10 @@ vi.mock('../../../core/config/settings-manager', () => ({
 const logMock = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }));
 vi.mock('../../../logging/logger', () => ({ getLogger: () => logMock }));
 
+import { CodexCliAdapter } from '../codex-cli-adapter';
+import type { CodexCliConfig } from '../codex-adapter-config';
 import {
-  resolveCodexThreadPolicy, resolveTrialArm, codexCheckerArm, codexThreadPolicyForConfig, _resetCodexThreadPolicyForTesting,
+  resolveCodexThreadPolicy, resolveTrialArm, codexCheckerArm, codexThreadPolicyForConfig, codexExecContextWindowArgs, _resetCodexThreadPolicyForTesting,
 } from './codex-thread-policy';
 
 /** Pretend to be the Electron main process (versions.electron + type 'browser') for one test. */
@@ -44,7 +46,7 @@ describe('Codex machine thread policy',()=>{
     expect(resolveTrialArm('queue-item', 'trial', false)).toBe(resolveTrialArm('queue-item', 'trial', false));
     expect(resolveTrialArm(undefined, 'trial', false)).toBe('unassigned');
     const off=resolveCodexThreadPolicy({kind:'plan-queue',chatsSetting:'full',harnessWorkSetting:'off',tuningSetting:'harness'});
-    expect(off.config).toEqual({'agents.enabled':false,'skills.max_context_tokens':1500,tool_output_token_limit:4000,model_post_turn_compact_threshold_percent:60});
+    expect(off.config).toEqual({'agents.enabled':false,'skills.max_context_tokens':1500,tool_output_token_limit:4000,model_post_turn_compact_threshold_percent:60,model_context_window:272000});
     expect(resolveCodexThreadPolicy({kind:'chat',chatsSetting:'economy',harnessWorkSetting:'off',tuningSetting:'codex'}).config).toEqual({'agents.default_subagent_reasoning_effort':'medium','agents.max_concurrent_threads_per_session':2,'features.multi_agent_v2.multi_agent_mode_hint_text':expect.stringContaining('fork_turns="none"')});
     expect(resolveCodexThreadPolicy({kind:'plan-queue',chatsSetting:'economy',harnessWorkSetting:'trial',tuningSetting:'codex',arm:'unassigned'}).level).toBe('full');
   });
@@ -134,6 +136,7 @@ describe('codexThreadPolicyForConfig settings resolution', () => {
       'skills.max_context_tokens': 1500,
       tool_output_token_limit: 4000,
       model_post_turn_compact_threshold_percent: 60,
+      model_context_window: 272000,
     });
   });
 
@@ -164,4 +167,56 @@ describe('codexThreadPolicyForConfig settings resolution', () => {
     settingsMock.failure = new Error('Please specify the `projectName` option.');
     expect(codexThreadPolicyForConfig({}).config).toEqual({});
   });
+});
+
+
+describe('machine context window boundary', () => {
+  beforeEach(() => { settingsMock.value = {}; settingsMock.failure = null; });
+  it.each(['child', 'loop', 'plan-queue', 'automation', 'review'] as const)('caps %s while retaining helper policy', (kind) => {
+    expect(resolveCodexThreadPolicy({ kind, harnessWorkSetting: 'off' }).config).toMatchObject({ model_context_window: 272000, 'agents.enabled': false });
+  });
+  it('leaves chats, Codex tuning and large queue documents uncapped', () => {
+    expect(resolveCodexThreadPolicy({ kind: 'chat' }).config).not.toHaveProperty('model_context_window');
+    expect(resolveCodexThreadPolicy({ kind: 'loop', tuningSetting: 'codex' }).config).not.toHaveProperty('model_context_window');
+    expect(resolveCodexThreadPolicy({ kind: 'plan-queue', planQueueLargeDocument: true }).config).not.toHaveProperty('model_context_window');
+  });
+  it('carries the exemption from the spawn configuration', () => {
+    expect(codexThreadPolicyForConfig({ sessionKind: 'plan-queue', planQueueLargeDocument: true }).config).not.toHaveProperty('model_context_window');
+  });
+});
+
+
+it('caps exec fallback machine sessions and honors the same exceptions', () => {
+  settingsMock.failure = null; settingsMock.value = { codexContextTuning: 'harness' };
+  expect(codexExecContextWindowArgs({ sessionKind: 'loop' })).toEqual(['-c', 'model_context_window=272000']);
+  expect(codexExecContextWindowArgs({ sessionKind: 'chat' })).toEqual([]);
+  expect(codexExecContextWindowArgs({ sessionKind: 'plan-queue', planQueueLargeDocument: true })).toEqual([]);
+  settingsMock.value = { codexContextTuning: 'codex' };
+  expect(codexExecContextWindowArgs({ sessionKind: 'loop' })).toEqual([]);
+});
+
+
+it('records the emitted exec window as effective and leaves uncapped sessions unconfirmed', () => {
+  settingsMock.failure = null; settingsMock.value = { codexContextTuning: 'harness' };
+  const machine: CodexCliConfig = { sessionKind: 'loop' };
+  expect(codexExecContextWindowArgs(machine)).toEqual(['-c', 'model_context_window=272000']);
+  expect(machine.effectiveContextWindow).toBe(272000);
+  const chat: CodexCliConfig = { sessionKind: 'chat' };
+  expect(codexExecContextWindowArgs(chat)).toEqual([]);
+  expect(chat.effectiveContextWindow).toBeUndefined();
+  const exempt: CodexCliConfig = { sessionKind: 'plan-queue', planQueueLargeDocument: true };
+  expect(codexExecContextWindowArgs(exempt)).toEqual([]);
+  expect(exempt.effectiveContextWindow).toBeUndefined();
+  settingsMock.value = { codexContextTuning: 'codex' };
+  const tuned: CodexCliConfig = { sessionKind: 'loop' };
+  expect(codexExecContextWindowArgs(tuned)).toEqual([]);
+  expect(tuned.effectiveContextWindow).toBeUndefined();
+});
+
+
+it('puts the machine cap on the actual exec argv', () => {
+  settingsMock.failure = null; settingsMock.value = { codexContextTuning: 'harness' };
+  const adapter = new CodexCliAdapter({ sessionKind: 'loop' });
+  const args = (adapter as unknown as { buildArgs(message: { role: string; content: string }): string[] }).buildArgs({ role: 'user', content: 'task' });
+  expect(args.slice(0, 3)).toEqual(['-c', 'model_context_window=272000', 'exec']);
 });

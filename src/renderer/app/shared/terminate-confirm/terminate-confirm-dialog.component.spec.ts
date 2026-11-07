@@ -14,7 +14,9 @@ import { TerminateConfirmDialogComponent } from './terminate-confirm-dialog.comp
 import { TerminateConfirmStore } from './terminate-confirm.store';
 import { InstanceStore } from '../../core/state/instance.store';
 import { LoopStore } from '../../core/state/loop.store';
+import { DraftService } from '../../core/services/draft.service';
 import { PlanQueueStore } from '../../core/state/plan-queue.store';
+import { InstanceListStore } from '../../core/state/instance/instance-list.store';
 
 await resolveComponentResources(() => Promise.resolve(''));
 
@@ -23,10 +25,12 @@ const terminateAllInstances = vi.fn();
 let queueRunning = false;
 
 const ROOT_SESSION = { id: 'i1', displayName: 'Refactor the parser' };
+const EMPTY_SESSION = { ...ROOT_SESSION, status: 'idle', hasLoadedTranscript: true, outputBuffer: [], childrenIds: [], retainedPrompts: [] };
 
 function mount(
   instances: Record<string, unknown>[] = [ROOT_SESSION],
   runningChatIds = new Set<string>(),
+  queuedMessageCount = 0,
 ): { fixture: ComponentFixture<TerminateConfirmDialogComponent>; store: TerminateConfirmStore } {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
@@ -38,6 +42,7 @@ function mount(
           instances: () => instances,
           terminateInstance,
           terminateAllInstances,
+          getQueuedMessageCount: () => queuedMessageCount,
         },
       },
       { provide: LoopStore, useValue: { runningChatIds: () => runningChatIds } },
@@ -71,6 +76,89 @@ function pressTab(target: HTMLElement): KeyboardEvent {
 
 describe('TerminateConfirmDialogComponent (Decision 16b)', () => {
   beforeEach(() => { terminateInstance.mockClear(); terminateAllInstances.mockClear(); queueRunning = false; });
+
+  it('names its running helpers and lets the parent close while they keep running', () => {
+    const { fixture, store } = mount([
+      { ...ROOT_SESSION, childrenIds: ['c1', 'c2', 'done', 'gone'] },
+      { id: 'c1', status: 'busy' }, { id: 'c2', status: 'idle' }, { id: 'done', status: 'terminated' },
+    ]);
+    store.request('i1'); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('This session has 2 running helper sessions.');
+    expect(button(fixture, '.btn-confirm').textContent).toContain('Close this session and its 2 helpers');
+    const keepHelpers = button(fixture, '.btn-keep-helpers');
+    expect(keepHelpers.textContent).toContain('Close only this session (helpers keep running)');
+    keepHelpers.click(); fixture.detectChanges();
+    expect(terminateInstance).toHaveBeenCalledWith('i1', true, 'orphan-children');
+    expect(overlay(fixture)).toBeNull();
+  });
+
+  it('explicitly closes the parent and its helpers when that action is chosen', () => {
+    const { fixture, store } = mount([{ ...ROOT_SESSION, childrenIds: ['c1'] }, { id: 'c1', status: 'busy' }]);
+    store.request('i1'); fixture.detectChanges(); button(fixture, '.btn-confirm').click();
+    expect(terminateInstance).toHaveBeenCalledWith('i1', true, 'terminate-children');
+  });
+
+  it('closes a known empty session without showing confirmation', () => {
+    const { fixture, store } = mount([EMPTY_SESSION]);
+    store.request('i1'); fixture.detectChanges();
+    expect(terminateInstance).toHaveBeenCalledWith('i1');
+    expect(overlay(fixture)).toBeNull();
+  });
+
+  it.each([
+    { status: 'busy' }, { status: 'initializing' }, { status: 'hibernated' },
+    { metadata: { planQueueRole: 'verifier' } }, { backgroundWork: { count: 1, since: 1 } },
+    { restoreMode: 'replay' }, { recoveryMethod: 'native' }, { hasLoadedTranscript: false },
+    { outputBuffer: [{ type: 'user', content: 'Work' }] }, { retainedPrompts: [{ type: 'user', content: 'Earlier work' }] },
+  ])('requires confirmation for unsafe or unknown empty state %j', patch => {
+    const { fixture, store } = mount([{ ...EMPTY_SESSION, ...patch }]);
+    store.request('i1'); fixture.detectChanges();
+    expect(terminateInstance).not.toHaveBeenCalled();
+    expect(overlay(fixture)).not.toBeNull();
+    store.confirm();
+    expect(terminateInstance).toHaveBeenCalledOnce();
+  });
+
+  it('requires confirmation for an empty session with a running loop', () => {
+    const { fixture, store } = mount([EMPTY_SESSION], new Set(['i1']));
+    store.request('i1'); fixture.detectChanges();
+    expect(terminateInstance).not.toHaveBeenCalled();
+    expect(overlay(fixture)).not.toBeNull();
+  });
+
+  it('does not mistake the IPC mapper default for a loaded empty transcript', () => {
+    const list = Object.create(InstanceListStore.prototype) as InstanceListStore;
+    const mapped = list.deserializeInstance({ ...ROOT_SESSION, status: 'idle' });
+    expect(mapped.outputBuffer).toEqual([]);
+    expect(mapped.hasLoadedTranscript).toBe(false);
+    expect(list.deserializeInstance({ ...ROOT_SESSION, status: 'idle', outputBuffer: [] }).hasLoadedTranscript).toBe(true);
+    const { fixture, store } = mount([mapped as unknown as Record<string, unknown>]);
+    store.request('i1'); fixture.detectChanges();
+    expect(terminateInstance).not.toHaveBeenCalled();
+    expect(overlay(fixture)).not.toBeNull();
+  });
+
+  it('still confirms an empty session with an unsent draft', () => {
+    const { fixture, store } = mount([EMPTY_SESSION]);
+    TestBed.inject(DraftService).setDraft('i1', 'Unsent work');
+    store.request('i1'); fixture.detectChanges();
+    expect(terminateInstance).not.toHaveBeenCalled();
+    expect(overlay(fixture)).not.toBeNull();
+  });
+
+  it('still confirms an empty parent with running helpers', () => {
+    const { fixture, store } = mount([{ ...EMPTY_SESSION, childrenIds: ['c1'] }, { id: 'c1', status: 'busy' }]);
+    store.request('i1'); fixture.detectChanges();
+    expect(terminateInstance).not.toHaveBeenCalled();
+    expect(overlay(fixture)).not.toBeNull();
+  });
+
+  it('still confirms a loaded empty session with queued input', () => {
+    const { fixture, store } = mount([EMPTY_SESSION], new Set(), 1);
+    store.request('i1'); fixture.detectChanges();
+    expect(terminateInstance).not.toHaveBeenCalled();
+    expect(overlay(fixture)).not.toBeNull();
+  });
 
   it('asks before closing all and closes only after confirmation', () => {
     const { fixture, store } = mount([ROOT_SESSION, { id: 'i2' }]);

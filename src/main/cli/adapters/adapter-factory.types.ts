@@ -41,6 +41,8 @@ export interface UnifiedSpawnOptions {
   /** Runtime-owned job/request ID. Never infer this from an experiment grouping key. */
   jobId?: string;
   sessionKind?: SessionKind;
+  /** The queue marks a worker or checker on a plan over about 100 KB; it skips the 272K machine-work window cap. */
+  planQueueLargeDocument?: boolean;
   trialKey?: string;
   trialKeySource?: TrialKeySource;
   trialArm?: CodexTrialArm;

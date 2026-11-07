@@ -655,7 +655,8 @@ describe('UserActionRequestComponent', () => {
 
   it('refuses a held command without a scope so it is not cached for an hour', async () => {
     await showPermission({ type: 'deferred_permission', tool_name: 'Bash', tool_use_id: 'toolu_1' });
-    expect(fixture.nativeElement.textContent).toContain('Also allows the same command for the next hour.');
+    // Decision 8: a once approval may serve one recheck only.
+    expect(fixture.nativeElement.textContent).toContain('Allows this command once.');
     expect(fixture.nativeElement.querySelector('.btn-approve')?.textContent?.trim()).toBe(PERMISSION_SCOPE_WORDS.once.allow);
     buttonByText("Don't allow").click();
     await settle(fixture);

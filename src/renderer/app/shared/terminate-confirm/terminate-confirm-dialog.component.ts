@@ -64,6 +64,9 @@ import { TerminateConfirmStore } from './terminate-confirm.store';
             @if (confirmStore.runningLoopCount(); as count) {
               {{ count }} running {{ count === 1 ? 'loop' : 'loops' }} will be stopped too.
             }
+            @if (!confirmStore.isAll() && confirmStore.runningHelperCount(); as count) {
+              This session has {{ count }} running helper {{ count === 1 ? 'session' : 'sessions' }}.
+            }
             @if (confirmStore.queueWillPause()) { Plan Queue runs will be paused. Resume them from the Plan Queue page. }
           </p>
           <div class="confirm-actions">
@@ -72,11 +75,18 @@ import { TerminateConfirmStore } from './terminate-confirm.store';
               class="btn-cancel"
               (click)="confirmStore.cancel()"
             >Keep running</button>
+            @if (!confirmStore.isAll() && confirmStore.runningHelperCount()) {
+              <button type="button" class="btn-keep-helpers btn-cancel" (click)="confirmStore.confirm('orphan-children')">
+                Close only this session (helpers keep running)
+              </button>
+            }
             <button
               type="button"
               class="btn-confirm danger"
-              (click)="confirmStore.confirm()"
-            >{{ confirmStore.isAll() ? 'Close all sessions' : 'Close session' }}</button>
+              (click)="confirmStore.confirm(confirmStore.runningHelperCount() ? 'terminate-children' : undefined)"
+            >@if (confirmStore.isAll()) { Close all sessions }
+              @else if (confirmStore.runningHelperCount(); as count) { Close this session and its {{ count }} {{ count === 1 ? 'helper' : 'helpers' }} }
+              @else { Close session }</button>
           </div>
         </div>
       </div>

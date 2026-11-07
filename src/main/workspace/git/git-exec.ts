@@ -14,7 +14,7 @@ export async function gitExec(args: string[], cwd: string, timeoutMs = 30_000): 
     // Strip inherited GIT_DIR/GIT_INDEX_FILE/etc. (set when running inside a git
     // hook) so the command resolves its repo purely from cwd. Without this,
     // worktree ops run under a commit hook hit `.git/index: Not a directory`.
-    env: hermeticGitEnv(),
+    env: hermeticGitEnv(process.env, cwd),
     encoding: 'utf-8',
     maxBuffer: 10 * 1024 * 1024,
     timeout: timeoutMs,

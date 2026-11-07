@@ -308,10 +308,9 @@ export function registerInstanceHandlers(deps: {
 
         await prepareUserClose([validatedPayload.instanceId], 'one');
         GlobalPauseService.peek()?.voidTarget(validatedPayload.instanceId, 'closed-by-james');
-        await instanceManager.terminateInstance(
-          validatedPayload.instanceId,
-          validatedPayload.graceful ?? true
-        );
+        const { instanceId, graceful, childPolicy } = validatedPayload;
+        if (childPolicy) await instanceManager.terminateInstance(instanceId, graceful ?? true, { childPolicy });
+        else await instanceManager.terminateInstance(instanceId, graceful ?? true);
 
         return { success: true };
       } catch (error) {

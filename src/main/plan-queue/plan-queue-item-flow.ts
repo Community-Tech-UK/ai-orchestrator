@@ -1,4 +1,6 @@
 import { spawnQueueChecker } from './plan-queue-checker-spawn';
+import { requireOwnWorkFolder } from './plan-queue-spawn-guard';
+import { isLargeQueueDocument } from './plan-queue-document-policy';
 import { PlanQueueVerification } from './plan-queue-verification';
 import { PlanQueueGateRunner } from './plan-queue-gate-receipts';
 import { PlanQueuePreparationErrors } from './plan-queue-error-class';
@@ -296,17 +298,18 @@ export class PlanQueueItemFlow {
     const run = this.host.getRun(item.runId);
     if (run.status === 'paused') { await this.holdUnlocked(item); return; }
     try {
+      const workingDirectory = await requireOwnWorkFolder(item, run.workspaceCwd);
       const instance = await this.host.instances.createInstance({
         displayName: `Queue · ${documentStem(item.documentPath)}`,
         isRenamed: true,
         parentId: this.host.liveParentId(run),
-        workingDirectory: item.worktreePath ?? run.workspaceCwd,
+        workingDirectory,
         initialPrompt: prompt,
         ...(run.workerProvider ? { provider: run.workerProvider as InstanceProvider } : {}),
         ...(run.workerModel ? { modelOverride: run.workerModel } : {}),
         yoloMode: true,
         // A handed-over document's every later worker takes the run's step-up choice (`queueWorkerChoices`).
-        metadata: { planQueueRunId: run.id, planQueueItemId: item.id, planQueueRole: 'worker', planQueueRound: item.round, ...(continuePrompt ? { planQueueContinuePrompt: continuePrompt } : {}), ...(item.steppedUpAt ? { planQueueSteppedUp: true } : {}) },
+        metadata: { planQueueLargeDocument: isLargeQueueDocument(item.documentPath), planQueueRunId: run.id, planQueueItemId: item.id, planQueueRole: 'worker', planQueueRound: item.round, ...(continuePrompt ? { planQueueContinuePrompt: continuePrompt } : {}), ...(item.steppedUpAt ? { planQueueSteppedUp: true } : {}) },
       });
       this.host.registerRole(instance.id, { role: 'worker', runId: run.id, itemId: item.id });
       const started = this.host.instances.getInstance(instance.id);
@@ -325,6 +328,9 @@ export class PlanQueueItemFlow {
       this.workerSessions.watch(instance, item, prompt);
       this.preparationErrors.succeeded(run.id, item.id);
     } catch (error) {
+      if (error instanceof InvalidQueueCheckoutError) {
+        await this.parkUnlocked(this.host.getItem(item.id), 'worktree-error', `The saved work folder isn't this job's own folder; no worker was started. ${error.message}`); return;
+      }
       if (error instanceof PlanQueueSpawnRunPaused) {
         const current = this.host.getItem(item.id);
         await this.holdUnlocked(error.instanceId ? this.host.save({ ...current, workerInstanceId: error.instanceId }) : current); return;

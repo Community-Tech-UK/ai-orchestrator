@@ -8,6 +8,7 @@
  * 4. Re-exports queries for consumers
  */
 
+import type { TerminationPolicy } from '../../../../../shared/types/supervision.types';
 import { Injectable, inject, OnDestroy, signal } from '@angular/core';
 import { InstanceIpcService, IpcEventBusService } from '../../services/ipc';
 import { StatsIpcService } from '../../services/ipc/stats-ipc.service';
@@ -411,7 +412,7 @@ export class InstanceStore implements OnDestroy {
               : inst.computerUseMode,
           accountProfileId: update.accountProfileId ?? inst.accountProfileId,
           accountRoutingSource: update.accountRoutingSource ?? inst.accountRoutingSource,
-          parentId: update.parentId ?? inst.parentId,
+          parentId: update.parentId !== undefined ? update.parentId : inst.parentId,
           ...(update.displayName ? { displayName: update.displayName } : {}),
           ...(update.executionLocation ? { executionLocation: update.executionLocation } : {}),
         });
@@ -535,7 +536,7 @@ export class InstanceStore implements OnDestroy {
                 : instance.computerUseMode,
             accountProfileId: update.accountProfileId ?? instance.accountProfileId,
             accountRoutingSource: update.accountRoutingSource ?? instance.accountRoutingSource,
-            parentId: update.parentId ?? instance.parentId,
+            parentId: update.parentId !== undefined ? update.parentId : instance.parentId,
             ...(update.displayName ? { displayName: update.displayName } : {}),
             ...(update.executionLocation ? { executionLocation: update.executionLocation } : {}),
           });
@@ -702,8 +703,8 @@ export class InstanceStore implements OnDestroy {
   }
 
   /** Terminate an instance */
-  async terminateInstance(instanceId: string, graceful = true): Promise<void> {
-    return this.listStore.terminateInstance(instanceId, graceful);
+  async terminateInstance(instanceId: string, graceful = true, childPolicy?: TerminationPolicy): Promise<void> {
+    return childPolicy ? this.listStore.terminateInstance(instanceId, graceful, childPolicy) : this.listStore.terminateInstance(instanceId, graceful);
   }
 
   /** Interrupt an instance (Ctrl+C equivalent) */

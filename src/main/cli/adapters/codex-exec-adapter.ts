@@ -2,6 +2,7 @@ import type { AdapterInputDispatch, CliAttachment, CliMessage, CliResponse, Inte
 import { assertAdapterInputCurrent, createAdapterInputDispatch } from './adapter-input-dispatch';
 import { codexExecUsage } from './codex/exec-ephemeral-usage';
 import { CodexBaseAdapter } from './codex-base-adapter';
+import { codexExecContextWindowArgs } from './codex/codex-thread-policy';
 import type { CodexCliConfig } from './codex-adapter-config';
 import type { CodexConversationEntry } from './codex/exec-helpers';
 import { getLogger } from '../../logging/logger';
@@ -77,7 +78,7 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
 
   protected override buildArgs(message: CliMessage): string[] {
     const useResume = this.shouldUseResumeCommand();
-    const args: string[] = [...this.configOverrideArgs(), ...(useResume ? ['exec', 'resume'] : ['exec'])];
+    const args: string[] = [...this.configOverrideArgs(), ...codexExecContextWindowArgs(this.cliConfig), ...(useResume ? ['exec', 'resume'] : ['exec'])];
 
     if (this.cliConfig.model && !this.execModelArgSuppressed) {
       args.push('--model', this.cliConfig.model);

@@ -81,10 +81,11 @@ export async function terminateInstance(
     'THIN_CLIENT_INSTANCE_TERMINATE',
   );
   await stopLoopsForSessions([validated.instanceId]);
-  await deps.instanceManager.terminateInstance(
-    validated.instanceId,
-    validated.graceful ?? true,
-  );
+  if (validated.childPolicy) {
+    await deps.instanceManager.terminateInstance(validated.instanceId, validated.graceful ?? true, { childPolicy: validated.childPolicy });
+  } else {
+    await deps.instanceManager.terminateInstance(validated.instanceId, validated.graceful ?? true);
+  }
   return { success: true };
 }
 

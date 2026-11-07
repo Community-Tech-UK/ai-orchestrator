@@ -178,7 +178,7 @@ function gitWithIndex(args: string[], cwd: string, indexFile: string): Promise<s
 async function gitLarge(args: string[], cwd: string, indexFile?: string): Promise<string> {
   const { stdout } = await execFileAsync('git', args, {
     cwd,
-    env: indexFile ? { ...hermeticGitEnv(), GIT_INDEX_FILE: indexFile } : hermeticGitEnv(),
+    env: indexFile ? { ...hermeticGitEnv(process.env, cwd), GIT_INDEX_FILE: indexFile } : hermeticGitEnv(process.env, cwd),
     encoding: 'utf-8',
     maxBuffer: 256 * 1024 * 1024,
     timeout: WORKTREE_CHECKOUT_TIMEOUT_MS,

@@ -94,7 +94,7 @@ export interface StateUpdate {
   /** Sticky: keep this hidden automation's session in the rail. undefined preserves. */
   automationRevealed?: boolean;
   /** Live parent link; set when a parentless session is adopted. undefined preserves. */
-  parentId?: string;
+  parentId?: string | null;
 }
 
 type FlushCallback = (updates: StateUpdate[]) => void;
@@ -160,7 +160,7 @@ export class UpdateBatcherService {
         : existing?.computerUseMode,
       automationRevealed: update.automationRevealed ?? existing?.automationRevealed,
       residentClaude: update.residentClaude ?? existing?.residentClaude,
-      parentId: update.parentId ?? existing?.parentId,
+      parentId: update.parentId !== undefined ? update.parentId : existing?.parentId,
     });
   }
 

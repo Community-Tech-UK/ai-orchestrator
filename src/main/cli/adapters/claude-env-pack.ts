@@ -71,8 +71,8 @@ export function resolveClaudeHelperAgentModelSetting(): ClaudeHelperAgentModelSe
 }
 
 /**
- * Apply the hygiene vars to a spawn env in place. Caller-provided values are
- * never clobbered. The per-session tmp dir is created eagerly; if creation
+ * Apply hygiene defaults in place, preserving caller-provided values except
+ * the enforced queue foreground-check policy. The per-session tmp dir is created eagerly; if creation
  * fails the var is skipped (fail-soft — the CLI falls back to the system tmp).
  */
 export function applyClaudeHygieneEnv(
@@ -89,6 +89,8 @@ export function applyClaudeHygieneEnv(
       && process.env['CLAUDE_CODE_AUTO_COMPACT_WINDOW'] === undefined) {
     env['CLAUDE_CODE_AUTO_COMPACT_WINDOW'] = String(options.contextCeilingTokens);
   }
+  // Supported since CLI 2.1.4 (installed CHANGELOG.md); queue turns must finish checks before ending.
+  if (options?.machineSession === 'plan-queue') env['CLAUDE_CODE_DISABLE_BACKGROUND_TASKS'] = '1';
   if (options?.machineSession && !('SECURITY_GUIDANCE_DISABLE' in env)) env['SECURITY_GUIDANCE_DISABLE'] = '1';
   // Installed 2.1.304 changelog: depth (2.1.219), concurrency (2.1.217),
   // session spawn cap (2.1.212) and noninteractive forks (2.1.121).

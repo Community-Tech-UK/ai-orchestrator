@@ -303,6 +303,8 @@ export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
   const disallowedTools = Array.from(
     new Set<string>([
       ...DEFAULT_DISALLOWED_TOOLS,
+      // A queue session that schedules its own wake-up ends its turn without a verdict; checks run in the foreground.
+      ...(spawnOptions.machineSession === 'plan-queue' ? ['ScheduleWakeup'] : []),
       ...(spawnOptions.disallowedTools ?? []),
       // D2 (#6): transient per-send override (loop cap wrap-up tools-disable).
       ...(input.disallowedToolsOverride ?? []),

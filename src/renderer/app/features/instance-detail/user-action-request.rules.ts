@@ -122,7 +122,7 @@ export function permissionHintFor(meta: PermissionMetadata, scope: InputRequired
     if (scope === 'once') return 'Allows only this call.';
     return scope === 'always' ? 'Saved in Harness. Remove it under Settings > Permissions > Rules.' : 'Applies only in this session.';
   }
-  if (scope === 'once') return 'Also allows the same command for the next hour.';
+  if (scope === 'once') return 'Allows this command once.';
   return scope === 'always' ? 'Saved in Harness (~/.orchestrator/permissions.json) for this exact command, in every session.' : '';
 }
 

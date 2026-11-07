@@ -1102,7 +1102,8 @@
     "id": "5efd3e282d9ef9f9",
     "owner": "src/renderer/app/features/instance-detail/user-action-request.component.ts",
     "text": "Once: just this command (an identical one in the next hour is allowed too). This session: this exact command until the session closes. Always: this exact command in every session.",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Once now approves a single call only; the identical-next-hour allowance copy went with the hour-based once scope and the new meaning line replaces this text."
   },
   {
     "id": "0cffdad15dd10b8a",
@@ -2866,5 +2867,17 @@
     "owner": "src/renderer/app/features/doc-review/doc-review-decision-bar.component.ts",
     "text": "Answer everything you haven't answered yet with the agent's recommendations",
     "why": "long"
+  },
+  {
+    "id": "508441d4e8025790",
+    "owner": "src/renderer/app/features/instance-detail/user-action-request.component.ts",
+    "text": "Once: this command once. This session: this exact command until the session closes. Always: this exact command in every session.",
+    "why": "consequence"
+  },
+  {
+    "id": "e9eb120db6189ec4",
+    "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
+    "text": ". Choose whether to close its ",
+    "why": "consequence"
   }
 ]

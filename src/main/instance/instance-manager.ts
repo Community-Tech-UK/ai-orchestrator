@@ -1210,7 +1210,7 @@ export class InstanceManager extends EventEmitter {
   async recoverFromContinuity(resolvedCandidate: ResolvedRecoveryCandidate): Promise<RecoverSessionResult> {
     return this.continuityRecovery.recover(resolvedCandidate); }
 
-  async terminateInstance(instanceId: string, graceful = true): Promise<void> {
+  async terminateInstance(instanceId: string, graceful = true, options?: import('./lifecycle/instance-termination').TerminateInstanceOptions): Promise<void> {
     const instance = this.state.getInstance(instanceId);
     getAutoTitleService().clearInstance(instanceId);
     // Drop per-instance accumulated state so long-running daemons don't leak.
@@ -1218,7 +1218,7 @@ export class InstanceManager extends EventEmitter {
     cleanupAdjudicatorBreakerForInstance(instanceId);
     deleteContextManifest(instanceId);
     forgetLspFeedbackInstance(instanceId);
-    await this.lifecycle.terminateInstance(instanceId, graceful);
+    await this.lifecycle.terminateInstance(instanceId, graceful, options);
     dispatchInstanceLifecycleHook('SessionEnd', instance, {
       instanceId,
       stopReason: graceful ? 'graceful' : 'terminated',

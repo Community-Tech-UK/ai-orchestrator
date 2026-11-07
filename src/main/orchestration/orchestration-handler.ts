@@ -176,9 +176,11 @@ export class OrchestrationHandler extends EventEmitter {
     // Close any cards still open for this instance, so they do not linger (or time out later) once it is gone.
     this.userActions.settleForInstance(instanceId, { reason: 'exited' });
 
-    // Remove from parent's children list
+    // Remove both directions of the link. Surviving helpers become parents
+    // themselves when a session is closed without terminating its children.
     for (const ctx of this.contexts.values()) {
       ctx.childrenIds = ctx.childrenIds.filter((id) => id !== instanceId);
+      if (ctx.parentId === instanceId) ctx.parentId = null;
     }
   }
 

@@ -3,6 +3,7 @@ import type { InstanceInputContextDeliveredEvent } from '../../../../../shared/t
  * Instance IPC Service - Instance lifecycle and management
  */
 
+import type { TerminationPolicy } from '../../../../../shared/types/supervision.types';
 import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService, IpcResponse } from './electron-ipc.service';
 import type {
@@ -206,9 +207,9 @@ export class InstanceIpcService {
   /**
    * Terminate an instance
    */
-  async terminateInstance(instanceId: string, graceful = true): Promise<IpcResponse> {
+  async terminateInstance(instanceId: string, graceful = true, childPolicy?: TerminationPolicy): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.terminateInstance({ instanceId, graceful });
+    return this.api.terminateInstance({ instanceId, graceful, ...(childPolicy ? { childPolicy } : {}) });
   }
 
   /**

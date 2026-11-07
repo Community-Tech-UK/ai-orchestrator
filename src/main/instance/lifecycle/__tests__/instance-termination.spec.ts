@@ -208,6 +208,29 @@ describe('InstanceTerminationCoordinator', () => {
     expect(parent.childrenIds).toEqual([]);
   });
 
+  it('per-call orphan policy overrides the stored terminate-children policy', async () => {
+    const parent = makeInstance({ id: 'parent', childrenIds: ['child'], terminationPolicy: 'terminate-children' });
+    const child = makeInstance({ id: 'child', parentId: 'parent', depth: 1 });
+    instances.set(parent.id, parent); instances.set(child.id, child);
+    const detached: string[] = [];
+    deps.onChildDetached = instance => { if (instance.parentId === null) detached.push(instance.id); };
+    await new InstanceTerminationCoordinator(deps).terminateInstance(parent.id, true, { childPolicy: 'orphan-children' });
+    expect(detached).toEqual(['child']);
+    expect(deps.terminateChild).not.toHaveBeenCalled();
+    expect(instances.get('child')).toBe(child);
+    expect(child.parentId).toBeNull();
+    expect(continuityUpdateState).toHaveBeenCalledWith('child', { parentId: null });
+    expect(parent.terminationPolicy).toBe('terminate-children');
+  });
+
+  it('per-call terminate policy overrides a stored orphan policy', async () => {
+    const parent = makeInstance({ id: 'parent', childrenIds: ['child'], terminationPolicy: 'orphan-children' });
+    instances.set(parent.id, parent);
+    await new InstanceTerminationCoordinator(deps).terminateInstance(parent.id, false, { childPolicy: 'terminate-children' });
+    expect(deps.terminateChild).toHaveBeenCalledWith('child', false);
+    expect(parent.terminationPolicy).toBe('orphan-children');
+  });
+
   it('orphans children when configured', async () => {
     const parent = makeInstance({
       id: 'parent-1',

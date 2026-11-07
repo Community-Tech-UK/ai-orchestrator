@@ -1,4 +1,5 @@
 import { PlanQueueSpawnRoutingChanged } from './plan-queue-checker-routing';
+import { isLargeQueueDocument } from './plan-queue-document-policy';
 import { PlanQueueSpawnRunPaused } from './plan-queue-run-hold';
 import { PlanQueueSpawnStoppedByUser } from './plan-queue-user-close';
 import { PlanQueueSpawnOutOfUsage, USAGE_RECHECK_MS } from './plan-queue-spawn';
@@ -149,7 +150,7 @@ export class PlanQueueTriage {
         ...(choice.copilotProfileId ? { copilotAccountProfileId: choice.copilotProfileId } : {}),
         ...(choice.accountProfileIds?.length ? { allowedAccountProfileIds: [...choice.accountProfileIds] } : {}) }
         : run.workerModel ? { modelOverride: run.workerModel } : {}),
-      yoloMode: true, metadata: { planQueueRunId: run.id, planQueueRole: 'triage', ...(choice ? { planQueueTriageRetry: true, planQueueRouting: JSON.stringify(run.config.routing) } : {}) },
+      yoloMode: true, metadata: { planQueueLargeDocument: session.itemIds.some((id) => isLargeQueueDocument(this.host.getItem(id).documentPath)), planQueueRunId: run.id, planQueueRole: 'triage', ...(choice ? { planQueueTriageRetry: true, planQueueRouting: JSON.stringify(run.config.routing) } : {}) },
     });
     if (this.triageByRun.get(run.id) !== session || this.host.tracker.isShuttingDown()
       || this.host.getRun(run.id).status !== 'running') {

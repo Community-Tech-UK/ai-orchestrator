@@ -264,12 +264,13 @@ describe('InstanceStateManager', () => {
     const state = new InstanceStateManager();
     const instance = makeInstance({ parentId: null });
     state.setInstance(instance);
-    const batches: Array<{ updates: Array<{ parentId?: string }> }> = [];
+    const batches: Array<{ updates: Array<{ parentId?: string | null }> }> = [];
     state.on('batch-update', (batch) => batches.push(batch));
 
     state.queueUpdate('instance-1', 'busy');
     vi.advanceTimersByTime(1_000);
-    expect(batches.at(-1)?.updates[0]?.parentId).toBeUndefined();
+    // Explicit null now detaches helpers as well as representing an initial root.
+    expect(batches.at(-1)?.updates[0]?.parentId).toBeNull();
 
     instance.parentId = 'parent-1';
     state.queueUpdate('instance-1', 'busy');

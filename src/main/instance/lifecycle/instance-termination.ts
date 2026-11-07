@@ -38,6 +38,7 @@ export interface TranscriptImportOptions {
 }
 
 export interface TerminateInstanceOptions {
+  childPolicy?: Instance['terminationPolicy'];
   skipTranscriptMining?: boolean;
   /**
    * App-shutdown bulk terminate: keep the durable provider-limit resume
@@ -49,6 +50,7 @@ export interface TerminateInstanceOptions {
 }
 
 export interface InstanceTerminationDeps {
+  onChildDetached?: (child: Instance) => void;
   getAdapter: (instanceId: string) => CliAdapter | undefined;
   getInstance: (instanceId: string) => Instance | undefined;
   deleteAdapter: (instanceId: string) => boolean | void;
@@ -155,7 +157,7 @@ export class InstanceTerminationCoordinator {
     this.markTerminated(instance);
     instance.processId = null;
 
-    await this.applyChildPolicy(instance, graceful);
+    await this.applyChildPolicy(instance, graceful, options.childPolicy);
 
     instance.childrenIds = [];
     this.deps.unregisterSupervisor(instanceId);
@@ -319,7 +321,7 @@ export class InstanceTerminationCoordinator {
     }
   }
 
-  private async applyChildPolicy(instance: Instance, graceful: boolean): Promise<void> {
+  private async applyChildPolicy(instance: Instance, graceful: boolean, childPolicy = instance.terminationPolicy): Promise<void> {
     if (instance.parentId) {
       const parent = this.deps.getInstance(instance.parentId);
       if (parent) {
@@ -329,7 +331,7 @@ export class InstanceTerminationCoordinator {
 
     const childrenToTerminate: string[] = [];
 
-    switch (instance.terminationPolicy) {
+    switch (childPolicy) {
       case 'terminate-children':
         childrenToTerminate.push(...instance.childrenIds);
         break;
@@ -339,6 +341,7 @@ export class InstanceTerminationCoordinator {
           if (child) {
             child.parentId = null;
             this.recordDetachedChild(childId);
+            this.deps.onChildDetached?.(child);
             logger.info('Orphaned child instance', { childId, parentId: instance.id });
           }
         }
@@ -350,6 +353,7 @@ export class InstanceTerminationCoordinator {
             child.parentId = null;
             child.depth = 0;
             this.recordDetachedChild(childId);
+            this.deps.onChildDetached?.(child);
             logger.info('Reparented child instance to root', {
               childId,
               formerParentId: instance.id,

@@ -20,6 +20,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import ts from 'typescript';
 
 const ROOT = join(__dirname, '..', '..', '..', '..', '..');
 const RENDERER = join(ROOT, 'src/renderer');
@@ -34,7 +35,6 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
-const STORE = readFileSync(join(__dirname, 'terminate-confirm.store.ts'), 'utf8');
 const DIALOG = readFileSync(join(__dirname, 'terminate-confirm-dialog.component.ts'), 'utf8');
 
 /**
@@ -62,7 +62,7 @@ const ALLOWED_UNCONFIRMED: readonly { file: string; why: string }[] = [
   },
   {
     file: 'app/shared/terminate-confirm/terminate-confirm.store.ts',
-    why: 'the confirmed path — this is where a confirmed terminate lands',
+    why: 'the confirmed path and its guarded loaded-empty-session exception',
   },
   {
     // Not a user-initiated destructive action: the interrupt was rejected, and
@@ -153,15 +153,29 @@ describe('every terminate path in the renderer is accounted for (Decision 16b)',
 });
 
 describe('the confirmation itself', () => {
-  it('only confirm() reaches the store, and request() does not', () => {
-    const request = STORE.slice(STORE.indexOf('request(instanceId: string)'), STORE.indexOf('confirm()'));
-    expect(request).not.toContain('terminateInstance(');
-
-    const confirm = STORE.slice(STORE.indexOf('confirm()'), STORE.indexOf('cancel()'));
-    expect(confirm).toContain('pending.kind === \'all\'');
-    expect(confirm).toContain('this.instances.terminateAllInstances()');
-    expect(confirm).toContain('const id = pending.instanceId');
-    expect(confirm).toContain('this.instances.terminateInstance(id)');
+  it('permits request() to terminate only inside the named empty-session guard', () => {
+    const source = ts.createSourceFile('store.ts', readFileSync(join(__dirname, 'terminate-confirm.store.ts'), 'utf8'), ts.ScriptTarget.Latest, true);
+    const calls: string[] = [];
+    const visit = (node: ts.Node): void => {
+      if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+        && /^terminate(?:Instance|AllInstances)$/.test(node.expression.name.text)) {
+        let owner: ts.Node | undefined = node.parent;
+        while (owner && !ts.isMethodDeclaration(owner)) owner = owner.parent;
+        expect(owner).toBeDefined();
+        const method = (owner as ts.MethodDeclaration).name.getText(source);
+        calls.push(method);
+        if (method === 'request') {
+          let guard: ts.Node | undefined = node.parent;
+          while (guard && guard !== owner && !ts.isIfStatement(guard)) guard = guard.parent;
+          expect(guard && ts.isIfStatement(guard) ? guard.expression.getText(source) : null)
+            .toBe('this.canCloseWithoutConfirmation(instanceId)');
+        } else expect(method).toBe('confirm');
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+    expect(calls.filter(method => method === 'request')).toHaveLength(1);
+    expect(calls).toContain('confirm');
   });
 
   it('renders a real modal, offers a way out, and says what is lost', () => {

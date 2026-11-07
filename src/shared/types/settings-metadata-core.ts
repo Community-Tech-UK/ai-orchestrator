@@ -14,6 +14,14 @@ function buildDefaultModelOptions(): { value: string; label: string }[] {
 }
 
 export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
+  {
+    key: 'planQueueQuestionsDestination',
+    label: 'Send queue questions to',
+    description: 'The queue page keeps questions there until you answer. Sending them to the chat starts a reply in the session that began the run.',
+    type: 'select',
+    category: 'orchestration',
+    options: [{ value: 'queue-page', label: 'The queue page' }, { value: 'parent-chat', label: 'The chat that started the run' }],
+  },
   { key: 'recordProviderEvents', label: 'Keep a detailed debug record of every AI message', description: 'Saves a full copy of each message the AI tools send. It is large (several GB a day when Harness is busy) and only developer scripts read it. Harness does not use it. Existing records are removed after 30 days as before.', type: 'boolean', category: 'memory' },
   {
     key: 'keepAwakeMode',

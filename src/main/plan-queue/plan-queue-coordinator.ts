@@ -11,6 +11,7 @@
  * slots shared by the runs in one project folder, and one landing at a time
  * (PlanQueueItemFlow).
  */
+import { getInstanceAsyncWorkRegistry } from '../instance/instance-async-work-registry';
 import { randomUUID } from 'crypto';
 import { preflightPlanQueueRun, preflightResumedRun, preflightRunRouting } from './plan-queue-run-preflight';
 import { assertRunReady } from './plan-queue-run-readiness';
@@ -106,6 +107,8 @@ export interface PlanQueueCoordinatorDeps extends Pick<PlanQueueSetAsideDeps, 'h
   findRestoredSession?: (instanceId: string) => string | undefined;
   /** Which turn a person's message started (Land anyway from a session); defaults to the app's registry. */
   personTurns?: Pick<InputTurnRegistry, 'checkPersonTurn'>;
+  postNote?: (parentId: string, text: string) => void; // a status line in the parent chat that starts no turn
+  questionsToParent?: () => boolean; // James chose to have queue questions sent to the chat that started the run
 }
 export interface StartRunInput {
   parentInstanceId: string;
@@ -206,6 +209,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     this.trackerInstance = new PlanQueueInstanceTracker(
       deps.instances as unknown as PlanQueueInstanceEventSource,
       (instanceId, outcome) => { void this.routeOutcome(instanceId, outcome); },
+      getInstanceAsyncWorkRegistry(),
     );
     this.trackerInstance.attach();
     this.whenOrchestratorToolsListening = deps.whenOrchestratorToolsListening ?? (() => Promise.resolve());
@@ -221,6 +225,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
         this.announce({ runId });
       },
       listItems: (id) => this.store.listItems(id),
+      postNote: deps.postNote, questionsToParent: deps.questionsToParent,
     });
     this.flow = new PlanQueueItemFlow(this);
     this.parents = new PlanQueueParentTracker({
@@ -373,8 +378,8 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       requestPump: () => this.requestPump(), persistPreferences: this.requireDeps().accountRules?.persistPreferences,
     }));
   }
-  notifyParent(run: PlanQueueRun, message: string, questions?: readonly PlanQueueItem[]): void {
-    this.require(this.parentMessenger).notify(run, message, questions);
+  notifyParent(run: PlanQueueRun, message: string, questions?: readonly PlanQueueItem[], modelVisible = false): void {
+    this.require(this.parentMessenger).notify(run, message, questions, modelVisible);
   }
   livetestPortsInUse(exceptItemId: string): readonly number[] { return this.requireDeps().store.listLivetestPortsInUse(exceptItemId); }
   /** The run's parent session, followed across a restart; undefined while it is gone. */
@@ -737,7 +742,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     if (this.triage && !this.triage.finish(run.id)) return;
     const ended = this.releaseRelaxation({ ...run, status, endedAt: this.requireDeps().now() });
     this.saveRun(ended);
-    this.notifyParent(ended, buildRunSummaryMessage(ended, this.requireDeps().store.listItems(run.id), this.history.checksSummary(run.id)));
+    this.notifyParent(ended, buildRunSummaryMessage(ended, this.requireDeps().store.listItems(run.id), this.history.checksSummary(run.id)), undefined, true);
     this.parentMessenger?.clear(run.id);
     logger.info('Plan queue run ended', { runId: run.id, status });
   }

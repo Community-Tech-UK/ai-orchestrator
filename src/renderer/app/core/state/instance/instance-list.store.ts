@@ -5,6 +5,7 @@
  * Also includes file handling helpers for attachments.
  */
 
+import type { TerminationPolicy } from '../../../../../shared/types/supervision.types';
 import { Injectable, inject } from '@angular/core';
 import { IpcFacadeService } from '../../services/ipc';
 import { ProviderStateService, type ProviderType } from '../../services/provider-state.service';
@@ -310,8 +311,9 @@ export class InstanceListStore {
   /**
    * Terminate an instance
    */
-  async terminateInstance(instanceId: string, graceful = true): Promise<void> {
-    await this.ipc.terminateInstance(instanceId, graceful);
+  async terminateInstance(instanceId: string, graceful = true, childPolicy?: TerminationPolicy): Promise<void> {
+    if (childPolicy) await this.ipc.terminateInstance(instanceId, graceful, childPolicy);
+    else await this.ipc.terminateInstance(instanceId, graceful);
   }
 
   /**
@@ -569,6 +571,7 @@ export class InstanceListStore {
   setInstanceMessages(instanceId: string, messages: OutputMessage[]): void {
     this.stateService.updateInstance(instanceId, {
       outputBuffer: messages,
+      hasLoadedTranscript: true,
     });
   }
 
@@ -793,6 +796,7 @@ export class InstanceListStore {
         ? (d['runtimeSummary'] as unknown as Instance['runtimeSummary'])
         : undefined,
       outputBuffer: (d['outputBuffer'] as OutputMessage[]) || [],
+      hasLoadedTranscript: Array.isArray(d['outputBuffer']),
       retainedPrompts: Array.isArray(d['retainedPrompts']) ? d['retainedPrompts'] as OutputMessage[] : undefined,
       restoreMode: d['restoreMode'] as HistoryRestoreMode | undefined,
       diffStats: d['diffStats'] as Instance['diffStats'] | undefined,

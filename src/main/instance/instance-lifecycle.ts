@@ -138,7 +138,7 @@ import { InterruptRespawnHandler } from './lifecycle/interrupt-respawn-handler';
 import { RuntimeReadinessCoordinator, type ResumeHealthVerdict } from './lifecycle/runtime-readiness';
 import { interpretUnconfirmedResumeAttempt } from './lifecycle/resume-attempt-interpretation';
 import { shouldPreWarmReplacement } from './lifecycle/warm-start-policy';
-import { InstanceTerminationCoordinator } from './lifecycle/instance-termination';
+import { InstanceTerminationCoordinator, type TerminateInstanceOptions } from './lifecycle/instance-termination';
 import { SpawnConfigBuilder } from './lifecycle/spawn-config-builder';
 import { createInitialUserMessage, getSeededInitialUserMessage } from './lifecycle/initial-user-message';
 import { getCompactionCoordinator } from '../context/compaction-coordinator';
@@ -370,6 +370,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           deps.queueUpdate(id, inst.status, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, waitReason);
         }
       },
+      onChildDetached: (child) => { getSupervisorTree().reparentInstance(child.id, null); this.emit('state-update', { instanceId: child.id, status: child.status, parentId: null }); },
       terminateChild: (id, graceful) => this.terminateInstance(id, graceful),
       unregisterSupervisor: (id) => getSupervisorTree().unregisterInstance(id),
       unregisterOrchestration: (id) => deps.unregisterOrchestration(id),
@@ -1893,12 +1894,9 @@ export class InstanceLifecycleManager extends EventEmitter {
   /**
    * Terminate an instance
    */
-  async terminateInstance(
-    instanceId: string,
-    graceful = true
-  ): Promise<void> {
+  async terminateInstance(instanceId: string, graceful = true, options: TerminateInstanceOptions = {}): Promise<void> {
     this.abortPendingInitialization(instanceId);
-    await this.terminator.terminateInstance(instanceId, graceful);
+    await this.terminator.terminateInstance(instanceId, graceful, options);
   }
 
   private abortPendingInitialization(instanceId: string): void {

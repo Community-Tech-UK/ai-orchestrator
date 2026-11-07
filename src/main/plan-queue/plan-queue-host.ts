@@ -83,7 +83,8 @@ export interface PlanQueueFlowHost {
   registerRole(instanceId: string, record: PlanQueueRoleRecord): void;
   unregisterRole(instanceId: string): void;
   roleOf(instanceId: string): PlanQueueRoleRecord | undefined;
-  notifyParent(run: PlanQueueRun, message: string, questions?: readonly PlanQueueItem[]): void;
+  /** Quiet by default: a status line in the parent chat that starts no turn. Questions go only where James chose; `modelVisible` is for the one run-end summary. */
+  notifyParent(run: PlanQueueRun, message: string, questions?: readonly PlanQueueItem[], modelVisible?: boolean): void;
   /** The run's parent session, followed across a restart; undefined while it is gone. */
   liveParentId(run: PlanQueueRun): string | undefined;
   resolveRunParent(run: PlanQueueRun): string | undefined;

@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 /**
  * git-env — strip repo-scoping git environment variables from a base env.
  *
@@ -31,10 +32,16 @@ const GIT_SCOPED_ENV_VARS = [
  * environment variables removed, so a spawned git command resolves its repo
  * purely from `cwd`.
  */
-export function hermeticGitEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+export function hermeticGitEnv(base: NodeJS.ProcessEnv = process.env, cwd?: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...base };
   for (const key of GIT_SCOPED_ENV_VARS) {
     delete env[key];
+  }
+  if (cwd) {
+    const resolved = path.resolve(cwd);
+    const marker = `${path.sep}.worktrees${path.sep}`;
+    const offset = resolved.lastIndexOf(marker);
+    if (offset >= 0) env['GIT_CEILING_DIRECTORIES'] = resolved.slice(0, offset + marker.length - 1);
   }
   return env;
 }

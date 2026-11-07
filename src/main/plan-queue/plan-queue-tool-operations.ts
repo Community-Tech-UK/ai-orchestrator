@@ -113,7 +113,10 @@ export function createPlanQueueToolOperations(coordinator: () => PlanQueueCoordi
         excluded,
         message: (run.items.length === 0
           ? 'No matching documents were found.'
-          : 'The run has started. Workers appear nested under this session. Documents that need James will arrive as a message with questions to ask him; a summary arrives when the run ends. Use plan_queue_status to check progress.')
+          : 'The run has started. Workers appear nested under this session. ' + (getSettingsManager().get('planQueueQuestionsDestination') === 'parent-chat'
+            ? 'Documents that need James will arrive as a message with questions to ask him'
+            : 'Documents that need James wait on the Plan Queue page for him to answer; plan_queue_status lists them')
+            + '; a summary arrives when the run ends. Use plan_queue_status to check progress.')
           + (excluded.length ? ' Some documents belong to another active run. If its session no longer exists, adopt that run instead of starting again.' : '')
           + (routingSetAside.length ? ` James's saved Plan Queue choice for ${setAsideRoles(routingSetAside)} was used instead of the one you passed.` : '')
           + (checklistSetAside ? ' James\'s saved checklist for this folder was used instead of the verifier_gates and post_merge_gate you passed.' : '')

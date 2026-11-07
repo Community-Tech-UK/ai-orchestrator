@@ -22,6 +22,7 @@ export const TRIAGE_TOOL = 'plan_queue_report_triage';
 /** What a later worker turn ends with: the report, which the coordinator clears when each turn starts. */
 const REPORT_AGAIN = `report again with \`${REPORT_READY_TOOL}\` (the same \`item_id\` as in your first instructions; the report from an earlier turn is cleared), confirm accepted: true,`;
 
+const FOREGROUND_CHECK_RULE = '- Run checks in the foreground; do not end your turn while one runs.';
 const RUNBOOK_RELATIVE = 'docs/plans/livetest-campaign-runbook.md';
 const MAX_DATA_CHARS = 12_000;
 export const WORKER_WAIT_RULE = 'Your work is handed over when you report, not when your turn ends. A command you start in the background (tests, a build, a gate) must be waited for, polling its output until it exits, before you report; never report or end your turn while one is still running.';
@@ -87,6 +88,7 @@ export function buildWorkerPrompt(ctx: ItemPromptContext): string {
     '',
     'Rules:',
     ...documentRules(ctx),
+    FOREGROUND_CHECK_RULE,
     ...autonomyRules(),
     WORKER_EVIDENCE_CLEANUP_RULE,
     '- Follow AGENTS.md in the repository. Read the plan, its linked spec and every file you change, with its callers and tests, before editing.',
@@ -106,6 +108,7 @@ function buildLivetestWorkerPrompt(ctx: ItemPromptContext, answer: string[]): st
     '',
     'Rules:',
     ...documentRules(ctx),
+    FOREGROUND_CHECK_RULE,
     ...autonomyRules(),
     WORKER_EVIDENCE_CLEANUP_RULE,
     `- Read \`${path.join(ctx.repoRoot, RUNBOOK_RELATIVE)}\` in full first and follow it. Build and launch the dev app from your worktree.`,

@@ -1,9 +1,11 @@
 /**
  * Plan Queue DTOs and the messages sent to the parent session.
  *
- * The parent session is the one that called `plan_queue_start`. It is told
- * about questions (so it can ask James with its own structured-question tool)
- * and gets one summary when the run ends. The panel shows the same data and is
+ * The parent session is the one that called `plan_queue_start`. It gets one
+ * summary when the run ends, and quiet notes that start no turn. Questions wait
+ * on the Plan Queue page for James; they are sent to the parent (so it can ask
+ * James with its own structured-question tool) only when the setting
+ * `planQueueQuestionsDestination` says so. The panel shows the same data and is
  * authoritative.
  */
 

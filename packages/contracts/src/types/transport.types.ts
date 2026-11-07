@@ -114,9 +114,9 @@ export interface InstanceStateUpdatePayload {
    * The live parent link. Sent on every update because a parentless session
    * can be adopted after creation (a Plan Queue run following its parent
    * across a restart), and the renderer otherwise learns the parent only at
-   * creation. Undefined preserves the renderer's existing value.
+   * creation. Null detaches a child; undefined preserves the existing value.
    */
-  parentId?: string;
+  parentId?: string | null;
   /**
    * Machine-readable reason for the current wait state (Phase 6 / §G).
    * Populated by the backend when the instance enters a long-wait status;
@@ -189,6 +189,7 @@ export interface InstanceSendInputPayload {
 
 export interface InstanceTerminatePayload {
   instanceId: string;
+  childPolicy?: import('@shared/types/supervision.types').TerminationPolicy;
   graceful?: boolean;
 }
 

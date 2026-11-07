@@ -5,14 +5,35 @@ import { PlanQueueCoordinator } from './plan-queue-coordinator';
 import { PLAN_QUEUE_EVIDENCE_EVENT_LIMIT } from './plan-queue-run-evidence';
 import { createPlanQueueToolOperations } from './plan-queue-tool-operations';
 
+const questionsDestination = vi.hoisted(() => ({ value: 'queue-page' }));
 vi.mock('../core/config/settings-manager', () => ({
   // The run summary's account-rules line reads these; none are set here.
   getSettingsManager: () => ({
+    get: () => questionsDestination.value,
     getAll: () => ({ planQueueAccountRules: { never: [], last: [] }, providerAccountProfiles: [], copilotAccountProfiles: [] }),
   }),
 }));
 
 describe('Plan Queue tool operation adoption routing', () => {
+  it.each([
+    ['queue-page', 'wait on the Plan Queue page', 'arrive as a message'],
+    ['parent-chat', 'arrive as a message', 'wait on the Plan Queue page'],
+  ])('tells the starting agent where questions go when the destination is %s', async (destination, said, notSaid) => {
+    questionsDestination.value = destination;
+    const coordinator = new PlanQueueCoordinator();
+    vi.spyOn(coordinator, 'startRun').mockResolvedValue({ run: { id: 'dest-run', parentInstanceId: 'caller', kind: 'plans',
+      workspaceCwd: '/repo', status: 'running', config: DEFAULT_PLAN_QUEUE_CONFIG.plans,
+      workerProvider: 'claude', relaxedSettings: [], startedAt: 1, endedAt: null,
+      items: [{ id: 'item', runId: 'dest-run', documentPath: '/repo/a_plan.md', state: 'queued', round: 0, erroredRounds: 0, branchName: null, worktreePath: null,
+        baseCommit: null, checkpointCommit: null, landedCommit: null, workerInstanceId: null, verifierInstanceId: null, question: null, answer: null,
+        parkReason: null, detail: null, verdict: null, createdAt: 1, updatedAt: 1 }] },
+    excluded: [], routingSetAside: [], accountNotes: [], checklistSetAside: false });
+    const result = await createPlanQueueToolOperations(() => coordinator).start('caller', { kind: 'plans' }) as { message: string };
+    expect(result.message).toContain(said);
+    expect(result.message).not.toContain(notSaid);
+    questionsDestination.value = 'queue-page';
+  });
+
   it('maps the requested batch size into the new run configuration', async () => {
     const coordinator = new PlanQueueCoordinator();
     const startRun = vi.spyOn(coordinator, 'startRun').mockResolvedValue({ run: { id: 'batch-run', parentInstanceId: 'caller', kind: 'plans',

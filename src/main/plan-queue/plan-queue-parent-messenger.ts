@@ -23,6 +23,8 @@ export class PlanQueueParentMessenger {
   constructor(private readonly deps: ParentDeps & {
     instances: PlanQueueInstancePort;
     listItems: (runId: string) => PlanQueueItem[];
+    postNote?: (parentId: string, text: string) => void;
+    questionsToParent?: () => boolean;
   }) {}
 
   clear(runId?: string): void {
@@ -50,7 +52,7 @@ export class PlanQueueParentMessenger {
     return parentId;
   }
 
-  notify(run: PlanQueueRun, message: string, questions?: readonly PlanQueueItem[]): void {
+  notify(run: PlanQueueRun, message: string, questions?: readonly PlanQueueItem[], modelVisible = false): void {
     if (this.stopped) return;
     const parentId = this.resolve(run, questions);
     if (!parentId) return;
@@ -60,7 +62,7 @@ export class PlanQueueParentMessenger {
       return status !== 'sending' && status !== 'sent';
     });
     if (unsent?.length === 0) return;
-    this.send(run, parentId, unsent && unsent.length !== questions?.length ? buildQuestionsMessage(unsent) : message, unsent ?? []);
+    this.send(run, parentId, unsent && unsent.length !== questions?.length ? buildQuestionsMessage(unsent) : message, unsent ?? [], modelVisible);
   }
 
   private replay(run: PlanQueueRun, notifying: readonly PlanQueueItem[]): void {
@@ -75,9 +77,21 @@ export class PlanQueueParentMessenger {
     if (pending.length) this.send(run, replay.parentId, buildQuestionsMessage(pending), pending);
   }
 
-  private send(run: PlanQueueRun, parentId: string, message: string, questions: readonly PlanQueueItem[]): void {
+  private send(run: PlanQueueRun, parentId: string, message: string, questions: readonly PlanQueueItem[], modelVisible = false): void {
     const parent = this.deps.instances.getInstance(parentId);
     if (!parent || AUTOMATION_FAILURE_STATUSES.has(parent.status)) return;
+    // Questions wait on the queue page unless James chose to have them sent to the chat.
+    if (questions.length && !this.deps.questionsToParent?.()) return;
+    // Every other notice is a visible note that starts no turn; only the run-end summary reaches the model.
+    if (!questions.length && !modelVisible) {
+      try { this.deps.postNote?.(parentId, message); }
+      catch (error) {
+        logger.warn('Plan queue: could not post a quiet parent note', {
+          runId: run.id, error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return;
+    }
     const replay = this.replays.get(run.id);
     const deliveries = questions.flatMap((item) => {
       const delivery = replay?.questions.get(identity(item));

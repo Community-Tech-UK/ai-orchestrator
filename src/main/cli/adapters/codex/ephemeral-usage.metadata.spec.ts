@@ -11,7 +11,7 @@ import { CodexUsageAccounting } from './usage-accounting';
 import { codexExecUsage } from './exec-ephemeral-usage';
 import { createMockProcess } from '../codex-cli-adapter.test-helpers';
 
-vi.mock('./codex-thread-policy', () => ({ codexTrialArm: () => 'unassigned' }));
+vi.mock('./codex-thread-policy', () => ({ codexTrialArm: () => 'unassigned', codexExecContextWindowArgs: () => [] }));
 vi.mock('../../../core/config/settings-manager', () => ({ getSettingsManager: () => ({ get: () => undefined, getAll: () => ({ providerAccountProfiles: [], providerAccountPools: {} }) }) }));
 const directories: string[] = [];
 afterEach(() => { for (const dir of directories.splice(0)) rmSync(dir, { recursive: true, force: true }); });

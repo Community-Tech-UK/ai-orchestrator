@@ -19,6 +19,9 @@ export type CodexCheckerArm = 'control' | 'candidate' | 'unassigned';
 /** The checker catalog trial has its own salt, so its half-and-half split is independent of the helper-agent trial. */
 export const CHECKER_CATALOG_TRIAL = 'checker-catalog';
 
+/** Requests above this many input tokens are billed at a higher rate for the whole request. */
+const MACHINE_CONTEXT_WINDOW = 272_000;
+
 export const CODEX_HARNESS_WORK_KINDS: readonly SessionKind[] = [
   'loop', 'plan-queue', 'child', 'automation', 'review',
 ];
@@ -58,6 +61,8 @@ export function resolveTrialArm(
 
 export function resolveCodexThreadPolicy(input: {
   kind: SessionKind;
+  /** Set by the queue for a plan over about 100 KB, where a 272K window would compact over and over. */
+  planQueueLargeDocument?: boolean;
   chatsSetting?: CodexChatsSetting;
   harnessWorkSetting?: CodexHarnessWorkSetting;
   tuningSetting?: CodexTuningSetting;
@@ -95,6 +100,9 @@ export function resolveCodexThreadPolicy(input: {
   const postTurnCompactPercent = input.tuningSetting === 'codex' ? null : input.kind === 'chat' ? 70 : 60;
   if (outputLimit !== null) config['tool_output_token_limit'] = outputLimit;
   if (postTurnCompactPercent !== null) config['model_post_turn_compact_threshold_percent'] = postTurnCompactPercent;
+  // Harness-started Codex work stays under the 272K price break; own chats keep the model's full window.
+  // Codex clamps the value to the model's maximum, so a wrong number cannot break a thread.
+  if (!chat && input.tuningSetting !== 'codex' && !input.planQueueLargeDocument) config['model_context_window'] = MACHINE_CONTEXT_WINDOW;
   return {
     level, config, outputLimit, postTurnCompactPercent, arm,
     catalog: chat ? 'native' : omitCatalog ? 'omitted' : 'capped',
@@ -148,7 +156,7 @@ export function codexThreadPolicyForConfig(config: CodexCliConfig): CodexThreadP
   const arm = config.trialArm ?? resolveTrialArm(config.trialKey, setting, harnessWork);
   config.trialArm = arm;
   return {
-    ...resolveCodexThreadPolicy({ kind, chatsSetting: settings.codexHelperAgentsChats,
+    ...resolveCodexThreadPolicy({ kind, planQueueLargeDocument: config.planQueueLargeDocument, chatsSetting: settings.codexHelperAgentsChats,
       harnessWorkSetting: settings.codexHelperAgentsHarnessWork,
       tuningSetting: settings.codexContextTuning, arm, queueRole: config.queueRole,
       checkerCatalogSetting: codexCheckerCatalogSetting(settings.codexCheckerSkillCatalog),
@@ -157,4 +165,19 @@ export function codexThreadPolicyForConfig(config: CodexCliConfig): CodexThreadP
     armKey: config.trialKey ?? null,
     armSource: config.trialKeySource ?? null,
   };
+}
+
+/** Exec fallback has no thread/start RPC; pass the same machine cap as a CLI override and record it as effective. */
+export function codexExecContextWindowArgs(config: CodexCliConfig): string[] {
+  const window = codexExecMachineContextWindow(config);
+  // Exec has no thread/start request to confirm the applied window, so the emitted override is what the
+  // process runs with. Record it like `logPolicy` records an accepted app-server config, or context
+  // diagnostics fall back to the stale catalogue.
+  config.effectiveContextWindow = window;
+  return window === undefined ? [] : ['-c', `model_context_window=${window}`];
+}
+function codexExecMachineContextWindow(config: CodexCliConfig): number | undefined {
+  if (!config.sessionKind || config.sessionKind === 'chat' || config.planQueueLargeDocument) return undefined;
+  const window = codexThreadPolicyForConfig(config).config['model_context_window'];
+  return typeof window === 'number' ? window : undefined;
 }

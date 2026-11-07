@@ -76,6 +76,8 @@ export async function initializePlanQueue(instanceManager: InstanceManager): Pro
   coordinator.initialize({
     store: planQueueStore,
     instances: instanceManager,
+    postNote: (parentId, text) => instanceManager.emitSystemMessage(parentId, text, { source: 'plan-queue' }),
+    questionsToParent: () => settings.get('planQueueQuestionsDestination') === 'parent-chat',
     worktreeCreator: getWorktreeManager(),
     relaxation: new PlanQueueRelaxation({
       get: (key) => settings.get(key as keyof AppSettings),

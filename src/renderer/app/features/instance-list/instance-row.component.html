@@ -209,10 +209,11 @@
         >
           ↻
         </button>
+        @let helperCount = closeHelperCount();
         <button
           class="action-btn terminate"
-          [appTooltip]="closeTooltip()"
-          [attr.aria-label]="closeTooltip()"
+          [appTooltip]="closeTooltip(helperCount)"
+          [attr.aria-label]="closeTooltip(helperCount)"
           (click)="onTerminate($event)"
         >
           ×

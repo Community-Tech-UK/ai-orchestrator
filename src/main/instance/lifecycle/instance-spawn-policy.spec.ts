@@ -107,3 +107,9 @@ describe('live permission spawn policy', () => {
     expect(applyInstanceSpawnPolicy('claude', { ...human, ...data }, {}, true).livePermissionPrompts).toBe(false);
   });
 });
+
+it('carries the large-document exemption through respawns', () => {
+  const queue = { depth: 1, parentId: 'parent', id: 'worker', metadata: { planQueueRunId: 'run', planQueueItemId: 'item', planQueueLargeDocument: true } };
+  expect(applyInstanceSpawnPolicy('codex', queue, { resume: true })).toMatchObject({ planQueueLargeDocument: true });
+  expect(applyInstanceSpawnPolicy('codex', { ...queue, metadata: {} }, { resume: true }).planQueueLargeDocument).toBe(false);
+});

@@ -122,15 +122,19 @@ export class InstanceAsyncWorkRegistry extends EventEmitter {
   }
 
   finishCompletionDelivery(instanceId: string): void {
-    this.completionDeliveries.delete(instanceId);
+    if (this.completionDeliveries.delete(instanceId) && !this.hasInhibitor(instanceId)) {
+      this.emit('work:inhibitor-cleared', { instanceId });
+    }
   }
 
   clearInstance(instanceId: string): void {
+    const inhibited = this.hasInhibitor(instanceId);
     const before = this.summaryKey(instanceId);
     this.activeWork.delete(instanceId);
     this.completionDeliveries.delete(instanceId);
     this.deliveredTerminalEvents.delete(instanceId);
     this.emitChangedIfDifferent(instanceId, before);
+    if (inhibited) this.emit('work:inhibitor-cleared', { instanceId });
   }
 
   private applySnapshot(instanceId: string, work: { workId: string; kind: CliAsyncWorkKind }[]): void {

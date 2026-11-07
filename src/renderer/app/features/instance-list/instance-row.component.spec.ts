@@ -75,12 +75,14 @@ beforeEach(() => liveActivities.set(new Map()));
 
 describe('InstanceRowComponent — tooltip disclosure', () => {
   let fixture: ComponentFixture<HostComponent>;
+  const helperInstances = signal<Instance[]>([]);
 
   beforeEach(async () => {
     vi.useFakeTimers();
+    helperInstances.set([]);
     await TestBed.configureTestingModule({
       imports: [HostComponent],
-      providers: [instanceProvider,
+      providers: [{ provide: InstanceStore, useValue: { liveActivities, instances: helperInstances } },
         { provide: PendingRequestStore, useValue: { forInstance: () => [{ text: 'May I use Bash?' }] } },
         { provide: SessionTodoPeekService, useValue: { peek: () => Promise.resolve('Step 2 of 5: Implement') } },
         { provide: RemoteNodeStore, useValue: { nodeById: (id: string) => nodes[id] ?? null } }],
@@ -180,6 +182,29 @@ describe('InstanceRowComponent — tooltip disclosure', () => {
     expect(query('.needs-you-reason').textContent).toContain('Asked you: which council first?');
     expect(fixture.nativeElement.querySelector('.activity-line')).toBeNull();
     expect(query('.instance-row').getAttribute('aria-label')).toContain('needs you: Asked you: which council first?');
+  });
+
+  it('discloses how many helper sessions the close choice affects', () => {
+    helperInstances.set([makeInstance({ id: 'c1', status: 'busy' }), makeInstance({ id: 'c2', status: 'idle' })]);
+    fixture.componentInstance.instance.set(makeInstance({ childrenIds: ['c1', 'c2'] }));
+    fixture.detectChanges();
+    const terminate = query('.action-btn.terminate');
+    expect(terminate.getAttribute('aria-label')).toContain('2 helper sessions');
+    hover(terminate);
+    expect(openTooltips()[0]?.textContent).toContain('Choose whether to close its 2 helper sessions too.');
+  });
+
+  it('counts only live direct helpers, matching the close dialog as statuses change', () => {
+    helperInstances.set([
+      makeInstance({ id: 'live', status: 'busy' }), makeInstance({ id: 'finished', status: 'terminated' }),
+      makeInstance({ id: 'grandchild', status: 'busy', parentId: 'live' }),
+    ]);
+    fixture.componentInstance.instance.set(makeInstance({ childrenIds: ['live', 'finished', 'missing'] }));
+    fixture.detectChanges();
+    expect(query('.action-btn.terminate').getAttribute('aria-label')).toContain('1 helper session');
+    helperInstances.set([makeInstance({ id: 'live', status: 'terminated' }), makeInstance({ id: 'finished', status: 'failed' })]);
+    fixture.detectChanges();
+    expect(query('.action-btn.terminate').getAttribute('aria-label')).not.toContain('Choose whether');
   });
 
   it('names the leading indicator rather than relying on colour alone', () => {

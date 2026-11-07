@@ -19,6 +19,7 @@ import { getWorkAdmission, WorkAdmission } from '../work-admission/work-admissio
 import { limitsFor } from '../work-admission/workload-policy';
 import { WorktreeCapacityError } from '../workspace/git/worktree-manager';
 
+vi.mock('./plan-queue-spawn-guard', () => ({ requireOwnWorkFolder: async (item: { worktreePath: string | null }) => item.worktreePath ?? '/unused' })); // folder proof has its own spec
 vi.mock('../workspace/git/git-exec', async original => ({ ...await original<typeof import('../workspace/git/git-exec')>(), gitExec: vi.fn() }));
 vi.mock('./plan-queue-landing', () => ({ syncItemWithBase: vi.fn(async () => ({ status: 'up-to-date' })) }));
 vi.mock('./plan-queue-orphan-checkout', () => ({ hasCheckout: vi.fn(async () => true) }));

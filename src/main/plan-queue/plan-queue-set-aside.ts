@@ -55,7 +55,7 @@ const UNKNOWN: SetAsideInspection = { holding: 'unknown', mergesCleanly: null, f
 async function mergedTree(folder: string, base: string, branch: string): Promise<string | null> {
   try {
     const { stdout } = await execFileAsync('git', ['merge-tree', '--write-tree', '--no-messages', base, branch], {
-      cwd: folder, env: hermeticGitEnv(), encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024, timeout: 30_000,
+      cwd: folder, env: hermeticGitEnv(process.env, folder), encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024, timeout: 30_000,
     });
     return stdout.split('\n')[0].trim();
   } catch (error) {

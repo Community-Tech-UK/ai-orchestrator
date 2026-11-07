@@ -436,7 +436,7 @@ export const TOOLTIP_COPY = {
   },
   'permissions.scope': {
     label: 'Remember this decision',
-    meaning: 'Once: just this command (an identical one in the next hour is allowed too). This session: this exact command until the session closes. Always: this exact command in every session.',
+    meaning: 'Once: this command once. This session: this exact command until the session closes. Always: this exact command in every session.',
   },
   'automations.checkCommand': {
     label: 'Check before starting the AI',

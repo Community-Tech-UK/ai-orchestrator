@@ -1,6 +1,7 @@
 /** Application settings shared by the main and renderer processes. */
 
 import type { PlanQueueAccountRules, PlanQueueFolderChecklist, PlanQueueRouting } from '@contracts/schemas/plan-queue';
+import type { PlanQueueMessageSettings } from './plan-queue-settings.types';
 import type { AuxiliaryLlmRoutingMode } from './auxiliary-llm.types';
 import type { CopilotAccountProfile, CopilotAccountRoutingRule } from './copilot-account.types';
 import type { CodexTurnCeilingSettings } from './codex-turn-ceiling-settings.types';
@@ -58,7 +59,7 @@ export interface ComputerChoice {
 
 /** Application settings that are persisted to disk. */
 export interface AppSettings
-  extends DesktopComputerUseSettings, DisplaySettings, MobileGatewaySettings, ObservationSettings, TokenLeverSettings, TokenTrialSettings,
+  extends DesktopComputerUseSettings, PlanQueueMessageSettings, DisplaySettings, MobileGatewaySettings, ObservationSettings, TokenLeverSettings, TokenTrialSettings,
     CodexTurnCeilingSettings, WorkloadSettings {
   // General
   /** Keep the system awake; the display may still sleep. */

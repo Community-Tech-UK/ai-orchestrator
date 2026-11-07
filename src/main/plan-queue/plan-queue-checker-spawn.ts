@@ -1,4 +1,7 @@
 /** The checker spawn and teardown protocol, separate from item transitions. */
+import { requireOwnWorkFolder } from './plan-queue-spawn-guard';
+import { InvalidQueueCheckoutError } from './plan-queue-orphan-checkout';
+import { isLargeQueueDocument } from './plan-queue-document-policy';
 import type { InstanceProvider } from '../../shared/types/instance.types';
 import { getLogger } from '../logging/logger';
 import { snapshotTree, type TreeSnapshot } from './plan-queue-git';
@@ -34,7 +37,7 @@ export async function spawnQueueChecker(deps: CheckerSpawnDeps, waiting: PlanQue
   baseBranch: string, choice: Extract<VerifierSelection, { ok: true }>['choice']): Promise<void> {
     let item = waiting;
     try {
-      const worktreePath = item.worktreePath!;
+      const worktreePath = await requireOwnWorkFolder(item, run.workspaceCwd);
       deps.snapshots.set(item.id, await snapshotTree(worktreePath));
       const mainTip = deps.checkedBase(item.id);
       item = deps.host.save({ ...item, verifiedMainCommit: mainTip });
@@ -49,7 +52,7 @@ export async function spawnQueueChecker(deps: CheckerSpawnDeps, waiting: PlanQue
         ...(choice.copilotProfileId ? { copilotAccountProfileId: choice.copilotProfileId } : {}),
         ...(choice.accountProfileIds?.length ? { allowedAccountProfileIds: choice.accountProfileIds } : {}),
         yoloMode: true,
-        metadata: { planQueueRunId: run.id, planQueueItemId: item.id, planQueueRole: 'verifier', planQueueRound: item.round, planQueueRouting: JSON.stringify(run.config.routing) },
+        metadata: { planQueueLargeDocument: isLargeQueueDocument(item.documentPath), planQueueRunId: run.id, planQueueItemId: item.id, planQueueRole: 'verifier', planQueueRound: item.round, planQueueRouting: JSON.stringify(run.config.routing) },
       });
       deps.host.registerRole(instance.id, { role: 'verifier', runId: run.id, itemId: item.id });
       recordSessionStart(deps.host, item.id, 'checker', instance.id, choice.provider, choice.modelOverride ?? deps.host.instances.getInstance(instance.id)?.currentModel);
@@ -67,6 +70,12 @@ export async function spawnQueueChecker(deps: CheckerSpawnDeps, waiting: PlanQue
       if (error instanceof PlanQueueSpawnRunPaused) {
         const current = deps.host.getItem(item.id);
         await deps.hold(error.instanceId ? deps.host.save({ ...current, verifierInstanceId: error.instanceId }) : current); return;
+      }
+      if (error instanceof InvalidQueueCheckoutError) {
+        deps.snapshots.delete(item.id);
+        parkAfterVerifierRestoreFailure(deps.host, deps.host.getItem(item.id), error, 'No checker was started: the saved work folder is not this job\'s own folder.');
+        deps.forgetCheck(item.id);
+        return;
       }
       if (error instanceof PlanQueueSpawnRoutingChanged) { await deps.select(deps.host.getItem(item.id), baseBranch); return; }
       if (error instanceof PlanQueueSpawnOutOfUsage) {

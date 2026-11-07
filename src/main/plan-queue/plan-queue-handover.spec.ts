@@ -194,17 +194,20 @@ it('protects an assigned idle verifier that has not completed its Queue outcome'
   expect(deps.setParent).not.toHaveBeenCalled();
 });
 
-it('replays the unchanged pending question through the existing messenger after transfer', () => {
+it.each([false, true])('preserves a pending question after transfer and follows its destination setting (chat=%s)', questionsToParent => {
   const { run, deps } = fixture();
   const question = { question: 'May this work proceed?', options: [{ id: 'yes', label: 'Yes' }, { id: 'no', label: 'No' }] };
   const item = { id: 'pending', documentPath: '/repo/pending_plan.md', state: 'needs-answer', question } as PlanQueueItem;
-  const messenger = new PlanQueueParentMessenger({ ...deps, listItems: () => [item] });
+  const messenger = new PlanQueueParentMessenger({ ...deps, listItems: () => [item],
+    ...(questionsToParent ? { questionsToParent: () => true } : {}) });
   deps.onParentChanged.mockImplementation(updated => messenger.onParentChanged(updated));
   handoverRunParent(run, 'target', 'owner', deps);
   expect(item.question).toBe(question);
   expect(item.state).toBe('needs-answer');
-  expect(deps.instances.sendInput).toHaveBeenCalledWith('target', expect.stringContaining('May this work proceed?'), undefined,
-    { automatedInput: true, internalSource: 'plan-queue' });
+  if (questionsToParent) {
+    expect(deps.instances.sendInput).toHaveBeenCalledWith('target', expect.stringContaining('May this work proceed?'), undefined,
+      { automatedInput: true, internalSource: 'plan-queue' });
+  } else expect(deps.instances.sendInput).not.toHaveBeenCalled();
   messenger.shutdown();
 });
 

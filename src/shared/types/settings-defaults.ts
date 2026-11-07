@@ -313,6 +313,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   providerAccountPools: defaultProviderAccountPools(),
   // Plan Queue: workers follow the starting session, checkers are automatic.
   planQueueRouting: { workers: [], verifiers: [] },
+  planQueueQuestionsDestination: 'queue-page',
   planQueueAccountRules: { never: [], last: [] },
   planQueueFolderChecklists: [],
 

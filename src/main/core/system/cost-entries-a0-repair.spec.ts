@@ -1,11 +1,16 @@
-import { beforeEach, afterEach, describe, it, expect } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
 import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../../db/sqlite-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../../persistence/rlm/rlm-schema';
-import { costProviderKey, repairCostEntriesA0 } from './cost-entries-a0-repair';
+import { _resetCostAttributionForTesting } from './cost-attribution';
+import { costProviderKey, repairCostEntriesA0, repairStoredCostEntriesA0 } from './cost-entries-a0-repair';
 
 describe('A0 stored cost repair', () => {
   let db: SqliteDriver;
+  let directory: string;
   const providers = new Map([[costProviderKey('mixed', 'claude-opus-5'), 'copilot'], [costProviderKey('cursor', 'gpt-6.1-sol'), 'cursor']]);
   const row = (id: string, instance: string, session: string, model: string, timestamp: number,
     cost: number, input = 0, output = 0, read = 0, write = 0) => db.prepare(`INSERT INTO cost_entries
@@ -14,6 +19,9 @@ describe('A0 stored cost repair', () => {
   const costs = () => db.prepare('SELECT id,cost FROM cost_entries ORDER BY id').all<{id:string;cost:number}>();
   const backupIds = () => db.prepare('SELECT id FROM cost_entries_a0_backup ORDER BY id').all<{id:string}>().map(r => r.id);
   beforeEach(() => {
+    directory = mkdtempSync(join(tmpdir(), 'a0-repair-'));
+    vi.stubEnv('AIO_COST_ATTRIBUTION_DIR', directory);
+    _resetCostAttributionForTesting();
     db = defaultDriverFactory(':memory:'); createTables(db); createMigrationsTable(db); runMigrations(db);
     db.prepare("UPDATE maintenance_markers SET completed_at=1000 WHERE name='a0-per-turn-booking-live'").run();
     row('a', 'first', 'shared', 'opus', 100, 0.5);
@@ -27,7 +35,12 @@ describe('A0 stored cost repair', () => {
     row('i', 'mixed', 'copilot-session', 'claude-opus-5', 1100, 0, 10, 5);
     row('j', 'other', 'other-session', 'gemini-unlisted', 100, 0.1);
   });
-  afterEach(() => db.close());
+  afterEach(() => {
+    db.close();
+    _resetCostAttributionForTesting();
+    vi.unstubAllEnvs();
+    rmSync(directory, { recursive: true, force: true });
+  });
   it('keeps the fixed backup shape when the live table gains columns', () => {
     db.exec('ALTER TABLE cost_entries ADD COLUMN future_cost_tag TEXT');
     const before = db.prepare("SELECT * FROM cost_entries WHERE id='b'").get<Record<string, unknown>>()!;
@@ -60,6 +73,87 @@ describe('A0 stored cost repair', () => {
     const first = costs(); repairCostEntriesA0(db, providers);
     expect(costs()).toEqual(first); expect(backupIds()).toHaveLength(7);
     expect(db.prepare("SELECT name FROM maintenance_markers WHERE name='a0-cost-deltas'").get()).toBeDefined();
+  });
+  it('protects Claude per-turn rows at its earlier cutoff while repairing Copilot and Cursor until migration time', () => {
+    row('k', 'second', 'shared', 'opus', 500, 0.8);
+    row('l', 'second', 'shared', 'opus', 501, 1.6);
+    row('m', 'mixed', 'copilot-session', 'claude-opus-5', 600, 9, 60, 7, 20, 5);
+    row('n', 'cursor', 'cursor-session', 'gpt-6.1-sol', 600, 6);
+    repairCostEntriesA0(db, providers, 500);
+    expect(costs().filter(r => ['k', 'l', 'm', 'n'].includes(r.id))).toEqual([
+      { id: 'k', cost: 0.8 }, { id: 'l', cost: 1.6 }, { id: 'm', cost: 0 }, { id: 'n', cost: 0 },
+    ]);
+    expect(backupIds()).not.toContain('k');
+    expect(backupIds()).not.toContain('l');
+    expect(backupIds()).toContain('m');
+    expect(backupIds()).toContain('n');
+    expect(db.prepare("SELECT input_tokens FROM cost_entries WHERE id='m'").get()).toEqual({ input_tokens: 30 });
+  });
+  it('keeps the migration boundary when it is earlier than the Claude evidence', () => {
+    repairCostEntriesA0(db, providers, 1200);
+    expect(backupIds()).not.toContain('h');
+    expect(costs().find(r => r.id === 'h')?.cost).toBe(0.3);
+  });
+  it('uses the first Claude instance-turn purpose record rather than helper or other-provider purposes', () => {
+    writeFileSync(join(directory, 'cost-attribution-2026-10-10.jsonl'), [
+      { ts: 100, source: 'auxiliary', provider: 'claude', purpose: 'helper' },
+      { ts: 200, source: 'instance-turn', provider: 'copilot', purpose: 'chat' },
+      { ts: 500, source: 'instance-turn', provider: 'claude-cli', purpose: 'chat' },
+    ].map(r => JSON.stringify(r)).join('\n'));
+    row('k', 'second', 'shared', 'opus', 500, 0.8);
+    repairStoredCostEntriesA0(db);
+    expect(costs().find(r => r.id === 'k')?.cost).toBe(0.8);
+    expect(backupIds()).not.toContain('k');
+  });
+  it('pins the documented BST installed-app start before its first purpose record', () => {
+    const installedStart = 1792222279000;
+    db.prepare("UPDATE maintenance_markers SET completed_at=? WHERE name='a0-per-turn-booking-live'").run(installedStart + 1000);
+    writeFileSync(join(directory, 'cost-attribution-2026-10-17.jsonl'), [
+      { ts: 1792223492775, source: 'instance-turn', provider: 'claude', purpose: 'chat' },
+      { ts: 1792225932751, source: 'instance-turn', provider: 'claude-cli', purpose: 'chat' },
+    ].map(r => JSON.stringify(r)).join('\n'));
+    row('k', 'installed', 'installed-session', 'opus', installedStart - 1, 0.8);
+    row('l', 'installed', 'installed-session', 'opus', installedStart, 1.6);
+    repairStoredCostEntriesA0(db);
+    expect(costs().find(r => r.id === 'l')?.cost).toBe(1.6);
+    expect(backupIds()).toContain('k');
+    expect(backupIds()).not.toContain('l');
+  });
+  it('protects the generic first per-turn row just before its purpose receipt without exempting earlier cumulative history', () => {
+    const purposeAt = 10000;
+    db.prepare("UPDATE maintenance_markers SET completed_at=? WHERE name='a0-per-turn-booking-live'").run(20000);
+    writeFileSync(join(directory, 'cost-attribution-2026-10-18.jsonl'), [
+      { ts: purposeAt, source: 'instance-turn', provider: 'claude', purpose: 'chat' },
+      { instanceId: 'mixed', model: 'claude-opus-5', provider: 'copilot' },
+      { instanceId: 'cursor', model: 'gpt-6.1-sol', provider: 'cursor' },
+    ].map(record => JSON.stringify(record)).join('\n'));
+    row('k', 'generic', 'generic-session', 'opus', purposeAt - 2000, 0.8);
+    row('l', 'generic', 'generic-session', 'opus', purposeAt - 1001, 1.6);
+    // recordUsage writes the DB row before recordInstanceTurnAttribution appends JSONL.
+    row('m', 'generic', 'generic-session', 'opus', purposeAt - 2, 2.5);
+    row('n', 'generic', 'generic-session', 'opus', purposeAt, 3.5);
+    row('o', 'mixed', 'copilot-session', 'claude-opus-5', purposeAt - 2, 20, 100, 10, 20, 5);
+    row('p', 'cursor', 'cursor-session', 'gpt-6.1-sol', purposeAt - 2, 10);
+    const summary = repairStoredCostEntriesA0(db);
+    expect(summary.status).toBe('repaired');
+    expect(costs().filter(r => ['k', 'l', 'm', 'n', 'o', 'p'].includes(r.id))).toEqual([
+      { id: 'k', cost: 0.8 }, { id: 'l', cost: 0.8 }, { id: 'm', cost: 2.5 },
+      { id: 'n', cost: 3.5 }, { id: 'o', cost: 0 }, { id: 'p', cost: 0 },
+    ]);
+    expect(backupIds()).toEqual(expect.arrayContaining(['k', 'l', 'o', 'p']));
+    expect(backupIds()).not.toEqual(expect.arrayContaining(['m']));
+    expect(backupIds()).not.toEqual(expect.arrayContaining(['n']));
+    const repaired = costs();
+    expect(repairStoredCostEntriesA0(db).status).toBe('already-repaired');
+    expect(costs()).toEqual(repaired);
+  });
+  it('uses the documented install start when no Claude per-turn record exists, instead of deferring forever', () => {
+    // The fixture's marker (1000) is earlier than the documented start, and the earlier of the two wins.
+    expect(repairStoredCostEntriesA0(db).status).toBe('repaired');
+    // No provider log either, so only the rows whose model names are Claude aliases can be repaired.
+    expect(backupIds()).toEqual(['a', 'b', 'c']);
+    expect(db.prepare("SELECT name FROM maintenance_markers WHERE name='a0-cost-deltas'").get()).toBeDefined();
+    expect(repairStoredCostEntriesA0(db).status).toBe('already-repaired');
   });
   it('rolls the backup, rewrites and marker back together, then safely retries', () => {
     db.exec(`CREATE TRIGGER abort_repair_marker BEFORE INSERT ON maintenance_markers

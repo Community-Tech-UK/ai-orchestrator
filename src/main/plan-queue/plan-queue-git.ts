@@ -32,7 +32,7 @@ export interface TreeSnapshot {
 async function statusLines(worktreePath: string): Promise<string[]> {
   const { stdout } = await execFileAsync('git', ['status', '--porcelain', '-z', '--untracked-files=all', '--no-renames'], {
     cwd: worktreePath,
-    env: hermeticGitEnv(),
+    env: hermeticGitEnv(process.env, worktreePath),
     encoding: 'utf-8',
     maxBuffer: 10 * 1024 * 1024,
   });

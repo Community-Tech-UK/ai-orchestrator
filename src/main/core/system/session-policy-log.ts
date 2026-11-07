@@ -17,6 +17,10 @@ export interface CodexSessionPolicyRecord {
   configKeys?:string[];
   /** Skills catalog the overrides asked for ('native' when none were accepted), not one Codex confirmed. Also the checker-catalog trial arm for plan-queue checkers (Oct-2 Phase D Steps 2.1 and 3). */
   catalog?:'native'|'capped'|'omitted';checkerArm?:'control'|'candidate'|'unassigned';
+  /** Helper trial exposure, independent of context/output tuning compatibility. */
+  helperPolicyApplied?:boolean;
+  /** Override keys Codex rejected (a retry drops only these), the window in force and whether a large plan was exempt from the 272K cap. */
+  rejectedKeys?:string[];contextWindow?:number;largeDocumentExempt?:boolean;
 }
 export interface ClaudeSessionPolicyRecord {
   provider: 'claude'; sessionId: string; setting: 'parent' | 'sonnet' | 'trial';

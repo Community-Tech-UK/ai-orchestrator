@@ -1,3 +1,4 @@
+import { InstanceStateUpdateEventPayloadSchema } from '@contracts/schemas/instance';
 import { TestBed } from '@angular/core/testing';
 import { Subject } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -23,6 +24,7 @@ import type { Instance } from './instance.types';
 describe('InstanceStore parent adoption wiring', () => {
   let eventBus: {
     instanceStateUpdate$: Subject<StateUpdate>;
+    instanceRemoved$: Subject<string>;
     batchUpdate$: Subject<{ updates: StateUpdate[] }>;
   };
   let stateService: InstanceStateService;
@@ -46,9 +48,9 @@ describe('InstanceStore parent adoption wiring', () => {
         { provide: ToastService, useValue: {} },
         { provide: ProviderStateService, useValue: {} },
         { provide: AutomationStore, useValue: {} },
-        { provide: InstanceListStore, useValue: { loadInitialInstances: vi.fn() } },
+        { provide: InstanceListStore, useValue: { loadInitialInstances: vi.fn(), removeInstance: (id: string) => TestBed.inject(InstanceStateService).removeInstance(id) } },
         { provide: InstanceSelectionStore, useValue: {} },
-        { provide: InstanceOutputStore, useValue: { flushInstanceOutput: vi.fn(), cleanupAll: vi.fn() } },
+        { provide: InstanceOutputStore, useValue: { flushInstanceOutput: vi.fn(), cleanupAll: vi.fn(), cleanupInstance: vi.fn() } },
         {
           provide: InstanceMessagingStore,
           useValue: { processMessageQueue: vi.fn(), clearQueueWithNotification: vi.fn() },
@@ -79,6 +81,17 @@ describe('InstanceStore parent adoption wiring', () => {
     eventBus.batchUpdate$.next({ updates: [{ instanceId: 'worker-1', status: 'idle' }] });
     batcher.forceFlush();
     expect(stateService.getInstance('worker-1')?.parentId).toBe('parent-1');
+  });
+
+  it('keeps a detached helper visible as a root after direct and batched status updates', () => {
+    stateService.updateInstance('worker-1', { parentId: 'parent-1' });
+    stateService.state.update(current => ({ ...current, instances: new Map([...current.instances, ['parent-1', { id: 'parent-1', status: 'busy', parentId: null } as Instance]]) }));
+    eventBus.instanceStateUpdate$.next(InstanceStateUpdateEventPayloadSchema.parse({ instanceId: 'worker-1', status: 'busy', parentId: null }));
+    eventBus.instanceRemoved$.next('parent-1');
+    eventBus.batchUpdate$.next({ updates: [{ instanceId: 'worker-1', status: 'busy' }] });
+    batcher.forceFlush();
+    expect(stateService.getInstance('worker-1')?.parentId).toBeNull();
+    expect(TestBed.inject(InstanceStore).rootInstances().map(instance => instance.id)).toContain('worker-1');
   });
 
   it('applies an adopted parent from a direct update', () => {

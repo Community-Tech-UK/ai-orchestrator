@@ -43,7 +43,7 @@ function readable(file: string, bytes: Buffer): void {
 /** Binary stdout is intentional: gitExec trims, and document bytes must survive unchanged. */
 function gitBytes(args: string[], cwd: string): Promise<{ code: number; output: Buffer }> {
   return new Promise((resolve, reject) => {
-    execFile('git', args, { cwd, env: hermeticGitEnv(), encoding: 'buffer', timeout: 30_000, maxBuffer: 10 * 1024 * 1024 }, (error, stdout) => {
+    execFile('git', args, { cwd, env: hermeticGitEnv(process.env, cwd), encoding: 'buffer', timeout: 30_000, maxBuffer: 10 * 1024 * 1024 }, (error, stdout) => {
       if (error && typeof error.code !== 'number') reject(new Error('The document merge git command could not run.'));
       else resolve({ code: error?.code as number ?? 0, output: Buffer.from(stdout) });
     });
