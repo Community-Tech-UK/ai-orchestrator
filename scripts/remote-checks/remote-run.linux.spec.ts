@@ -379,6 +379,31 @@ describe.runIf(hasUserSystemd())('remote-run.sh on a real machine', () => {
     expect(output).toContain('"exit":3');
   }, LIMIT);
 
+  it('runs every listed check in the snapshot instead of the tests, and reports each one', async () => {
+    const machine = setUp();
+    writeFileSync(join(machine.project, 'package.json'), JSON.stringify({
+      name: 'stub', version: '1.0.0', scripts: { lint: 'echo "lint failed at $PWD"; exit 3', typecheck: 'echo typecheck passed' },
+    }));
+    const commit = machine.snapshot('pass');
+    const run = { id: `checks-${process.pid}` };
+    execFileSync('bash', [machine.script, 'checks', run.id], { input: 'npm run lint\nnpm run typecheck\n' });
+    const started = startRun(machine.script, 'checks', commit);
+    expect(started.id).toBe(run.id);
+    await started.finished;
+
+    expect(started.output()).toContain('[remote checks] check 1: npm run lint');
+    expect(started.output()).toContain('typecheck passed');
+    expect(started.output()).not.toContain('stub vitest running');
+    expect(started.output()).not.toContain('building dist');
+    expect(started.result()).toMatchObject({ status: 'ok', exit: 3, tests: 2, root: expect.stringContaining('/slots/') });
+    const report = JSON.parse(gunzipSync(execFileSync('bash', [machine.script, 'fetch', run.id])).toString()) as {
+      command: string; exitCode: number; durationMs: number; output: string;
+    }[];
+    expect(report.map(check => [check.command, check.exitCode])).toEqual([['npm run lint', 3], ['npm run typecheck', 0]]);
+    expect(report[0]!.output).toContain(`lint failed at ${started.result()!['root']}`);
+    expect(report.every(check => Number.isInteger(check.durationMs) && check.durationMs >= 0)).toBe(true);
+  }, LIMIT);
+
   it('names a setup fault rather than reporting tests', async () => {
     const machine = setUp();
     writeFileSync(join(machine.project, 'scripts/ci-npm-ci.sh'), 'exit 1\n');

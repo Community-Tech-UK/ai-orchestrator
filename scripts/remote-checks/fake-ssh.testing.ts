@@ -1,5 +1,5 @@
 /**
- * Stands in for `ssh`. It passes `bases`, `receive` and `related` straight to the real
+ * Stands in for `ssh`. It passes `bases`, `receive`, `related` and `checks` straight to the real
  * remote-run.sh, so packs truly travel between repositories, and acts out `run` and `fetch`
  * per scenario. The real `run` is in remote-run.linux.spec.ts.
  */
@@ -23,6 +23,7 @@ case "$cmd" in
     commit="${'$'}{@: -3:1}"
     echo "$cmd" > "$FAKE_DIR/run-args"
     [ -f "remote-checks/runs/$id/related.json" ] && cp "remote-checks/runs/$id/related.json" "$FAKE_DIR/related-list"
+    [ -f "remote-checks/runs/$id/checks.list" ] && cp "remote-checks/runs/$id/checks.list" "$FAKE_DIR/checks-list"
     repo=remote-checks/repo.git
     node_file=.nvmrc
     lock_file=package-lock.json
@@ -44,6 +45,7 @@ case "$cmd" in
       wrong-lock) lock=0000 ;;
       wrong-major) node=v22.0.0 ;;
       tests-fail|crash-clean-report|failed-with-log) code=1 ;;
+      checks-fail) code=2 ;;
       exit-75) code=75 ;;
     esac
     echo '[test pool] 8 test worker(s); far machine output'
@@ -66,6 +68,22 @@ case "$cmd" in
     echo "AIO_REMOTE_RESULT {\"status\":\"ok\",\"reason\":\"\",\"exit\":$code,\"tree\":\"$tree\",\"node\":\"$node\",\"lock\":\"$lock\",\"root\":\"/far/slots/1/repo\",\"tests\":$tests}"
     ;;
   *' fetch '*)
+    set -- $cmd
+    list="remote-checks/runs/${'$'}{@: -1}/checks.list"
+    if [ -f "$list" ]; then
+      # Each check passes, or the second fails naming a far path; checks-short answers for one too few.
+      node -e '
+        const checks = require("fs").readFileSync(process.argv[1], "utf8").split("\n").filter(Boolean);
+        const scenario = process.argv[2];
+        const results = checks.map((command, at) => {
+          const fails = scenario === "checks-fail" && at === 1;
+          return { command, exitCode: fails ? 2 : 0, durationMs: 1000,
+            output: fails ? "src/x.ts(1,1): error TS2322 at /far/slots/1/repo/src/x.ts\n" : "far ok\n" };
+        });
+        process.stdout.write(JSON.stringify(scenario === "checks-short" ? results.slice(1) : results));
+      ' "$list" "$scenario" | gzip -c
+      exit 0
+    fi
     case "$scenario" in
       missing-report) exit 1 ;;
       mac-only-ran) printf '%s' '{"numTotalTests":1,"numPassedTests":1,"numFailedTests":0,"testResults":[{"name":"/far/slots/1/repo/src/main/sandbox/signal-fence.spec.ts","status":"passed","assertionResults":[{"status":"passed","title":"a","fullName":"a","failureMessages":[]}]}]}' | gzip -c ;;

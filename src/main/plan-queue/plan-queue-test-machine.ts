@@ -66,7 +66,9 @@ export function readTestMachineHealth(now: number, windowDays: number, dir = rem
   if (!label) return undefined;
 
   const since = now - windowDays * DAY_MS;
-  const recent = readRuns(dir).filter(run => Date.parse(run.at) >= since);
+  // A run that was always going to stay here says nothing about the test machine, and as the latest
+  // line it would clear an "unreachable" notice.
+  const recent = readRuns(dir).filter(run => run.kind !== 'local' && Date.parse(run.at) >= since);
   const tried = recent.filter(run => !CHOSE_THE_MAC.test(run.fellBackBecause ?? ''));
   const fullRuns = recent.filter(run => !run.kind);
   const triedFullRuns = tried.filter(run => !run.kind);

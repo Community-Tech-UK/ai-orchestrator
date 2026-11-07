@@ -5,6 +5,7 @@
 #   bases                                    list commits the machine already has
 #   receive <commit> <base|none>             take a git pack on stdin and name the snapshot
 #   related <id>                             take a JSON list of source files on stdin; the run tests only what relates to them
+#   checks <id>                              take check commands on stdin, one a line; the run does those instead of tests
 #   run <id> <commit> <ci> <no-cache>        run the suite, streaming output; last line is the result
 #   fetch <id>                               send the JSON report, gzipped, then tidy up
 #
@@ -158,6 +159,12 @@ cmd_slot_job() {
     printf '%s\n' "$stamp" > "$stamp_file"
   fi
 
+  if [ -f "$dir/checks.list" ]; then
+    [ "$ci" = 1 ] && export CI=1
+    checks_job "$dir" "$tree" "$lock" "$work" "$waited"
+    return
+  fi
+
   # Five specs start a real worker from dist, and an old dist must never meet new code.
   # A type error is the job's own fault, not the machine's: tsc still writes its output,
   # so sync-dist runs regardless and the tests show the truth.
@@ -182,6 +189,34 @@ cmd_slot_job() {
     code=$?
   fi
   write_result "$dir" ok '' "$code" "$tree" "$(node -v)" "$lock" "$work" "$waited"
+}
+
+# Runs each listed check in turn, every one whatever fails, as the Mac would. Each one's output
+# streams back and is kept, and results.json holds every check's exit code, time and output.
+checks_job() {
+  local dir="$1" tree="$2" lock="$3" work="$4" waited="$5"
+  local check index=0 first_failure=0 code started
+  while IFS= read -r check; do
+    index=$((index + 1))
+    echo "[remote checks] check $index: $check"
+    started="$(date +%s%3N)"
+    LANG=C.UTF-8 bash -c "$check" < /dev/null 2>&1 | tee "$dir/check-$index.log"
+    code="${PIPESTATUS[0]}"
+    printf '%s %s\n' "$code" "$(($(date +%s%3N) - started))" > "$dir/check-$index.status"
+    [ "$first_failure" -ne 0 ] || [ "$code" -eq 0 ] || first_failure="$code"
+  done < "$dir/checks.list"
+  # Up to 256 KB of each check's output: what the Mac keeps from a check run there.
+  node -e '
+    const fs = require("fs");
+    const dir = process.argv[1];
+    const checks = fs.readFileSync(dir + "/checks.list", "utf8").split("\n").filter(Boolean);
+    process.stdout.write(JSON.stringify(checks.map((command, at) => {
+      const [exitCode, durationMs] = fs.readFileSync(`${dir}/check-${at + 1}.status`, "utf8").trim().split(" ").map(Number);
+      const output = fs.readFileSync(`${dir}/check-${at + 1}.log`).subarray(-256000).toString("utf8");
+      return { command, exitCode, durationMs, output };
+    })));
+  ' "$dir" > "$dir/results.json" || setup_failed "$dir" 'could not write the check results'
+  write_result "$dir" ok '' "$first_failure" "$tree" "$(node -v)" "$lock" "$work" "$waited" "$index"
 }
 
 # Installs once per lockfile, then runs the project's own quiet runner, which prints what a person
@@ -230,6 +265,29 @@ cmd_job() {
     [ "$announced" = 1 ] || { echo "[remote checks] waiting for a free slot"; announced=1; }
     sleep 2
   done
+}
+
+# The only commands `checks` will run, exactly as written. scripts/remote-checks/checks.js has the same list.
+known_check() {
+  case "$1" in
+    'npx tsc --noEmit' | 'npm run typecheck' | 'npm run typecheck:spec' | 'npm run lint' | 'npm run check:ts-max-loc' | \
+    'npm run check:ui-hints' | 'npm run build:main' | 'npm run build:worker-agent' | 'npm run build:renderer') return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Refuses the whole list if one line isn't a known check, so nothing runs that the Mac didn't mean.
+cmd_checks() {
+  local dir="$RUNS/$1" list check count=0
+  list="$(cat)" || exit 1
+  while IFS= read -r check; do
+    [ -n "$check" ] || continue
+    known_check "$check" || { echo "remote-run.sh: not a known check: $check" >&2; exit 4; }
+    count=$((count + 1))
+  done <<< "$list"
+  [ "$count" -gt 0 ] || { echo 'remote-run.sh: no checks given' >&2; exit 4; }
+  mkdir -p "$dir" || exit 1
+  printf '%s\n' "$list" | grep -v '^$' > "$dir/checks.list" || exit 1
 }
 
 cmd_related() {
@@ -312,9 +370,10 @@ case "$command_name" in
   bases) cmd_bases ;;
   receive) cmd_receive "$@" ;;
   related) cmd_related "$@" ;;
+  checks) cmd_checks "$@" ;;
   run) cmd_run "$@" ;;
   job) cmd_job "$@" ;;
   slot-job) cmd_slot_job "$@" ;;
   fetch) cmd_fetch "$@" ;;
-  *) echo "usage: remote-run.sh bases|receive|related|run|fetch" >&2; exit 2 ;;
+  *) echo "usage: remote-run.sh bases|receive|related|checks|run|fetch" >&2; exit 2 ;;
 esac

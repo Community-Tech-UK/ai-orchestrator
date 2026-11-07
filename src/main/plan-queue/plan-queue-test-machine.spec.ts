@@ -90,6 +90,11 @@ describe('readTestMachineHealth', () => {
       }
     });
 
+    it('ignores a small run that never tried the machine', () => {
+      expect(read(folder([run(5 * MIN, 'mac', UNREACHABLE), run(MIN, 'mac', null, 'local')]))?.unreachable).toBe(true);
+      expect(read(folder([run(MIN, 'pc'), run(MIN, 'mac', null, 'local')]))?.ranThere).toEqual({ count: 1, of: 1, share: 1 });
+    });
+
     it('ignores a run someone chose to keep on the Mac, which proves nothing either way', () => {
       expect(read(folder([run(5 * MIN, 'mac', UNREACHABLE), run(MIN, 'mac', OFF)]))?.unreachable).toBe(true);
       expect(read(folder([run(5 * MIN, 'pc'), run(MIN, 'mac', OFF)]))?.unreachable).toBe(false);

@@ -49,12 +49,7 @@ describe('run-git-hook', () => {
       { command: 'npm', args: ['run', 'check:contracts'] },
       { command: 'npm', args: ['run', 'check:ts-max-loc', '--', '--warn'] },
       { command: 'npm', args: ['run', 'verify:architecture'] },
-      { command: 'npm', args: ['run', 'lint'] },
-      { command: 'npm', args: ['run', 'typecheck'] },
-      { command: 'npm', args: ['run', 'typecheck:spec'] },
-      { command: 'npm', args: ['run', 'build:main'] },
-      { command: 'npm', args: ['run', 'build:worker-agent'] },
-      { command: 'npm', args: ['run', 'build:renderer'] },
+      { command: 'node', args: ['scripts/remote-checks/checks.js', '--set', 'push'] },
     ]);
   });
 

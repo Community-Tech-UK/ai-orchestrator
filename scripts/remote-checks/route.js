@@ -46,9 +46,13 @@ function isPlainFullRun(args) {
   return args.every(arg => arg === '--no-cache');
 }
 
+function countSpecFiles(args) {
+  return args.filter(arg => SPEC_FILE.test(arg)).length;
+}
+
 /** A long list of spec files costs a full run's worth of waiting here: one of 137 files took nearly 14 minutes. */
 function isLargeTargetedRun(args) {
-  return args.length >= LARGE_TARGETED_SPECS && args.every(arg => SPEC_FILE.test(arg));
+  return args.length >= LARGE_TARGETED_SPECS && countSpecFiles(args) === args.length;
 }
 
 /**
@@ -84,4 +88,4 @@ function appendRunLog(entry, env = process.env) {
   }
 }
 
-module.exports = { appendRunLog, decideRoute, isLoopRun, isQueueCheck, readConfig, remoteChecksDir };
+module.exports = { appendRunLog, countSpecFiles, decideRoute, isLoopRun, isQueueCheck, readConfig, remoteChecksDir };

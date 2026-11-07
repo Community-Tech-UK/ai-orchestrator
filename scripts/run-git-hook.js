@@ -49,12 +49,10 @@ const HOOK_COMMANDS = {
     { command: 'npm', args: ['run', 'check:contracts'] },
     { command: 'npm', args: ['run', 'check:ts-max-loc', '--', '--warn'] },
     { command: 'npm', args: ['run', 'verify:architecture'] },
-    { command: 'npm', args: ['run', 'lint'] },
-    { command: 'npm', args: ['run', 'typecheck'] },
-    { command: 'npm', args: ['run', 'typecheck:spec'] },
-    { command: 'npm', args: ['run', 'build:main'] },
-    { command: 'npm', args: ['run', 'build:worker-agent'] },
-    { command: 'npm', args: ['run', 'build:renderer'] },
+    // Lint, both type checks and the three builds, on the test machine when one is set up and here
+    // otherwise, from one snapshot of the working tree. All six run whatever fails, and the first
+    // failure's exit code stops the push.
+    { command: 'node', args: ['scripts/remote-checks/checks.js', '--set', 'push'] },
     // The full `npm run test` suite is deliberately NOT run here. It is a
     // CI gate (plus the slow-tier `test:slow`), and a multi-minute suite per
     // push is the wrong latency for agent-driven workflows; a flaky test would

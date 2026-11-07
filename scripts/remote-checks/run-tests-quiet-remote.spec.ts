@@ -206,11 +206,11 @@ describe('run-tests-quiet with remote checks', () => {
     expect(loop.sshCalls.join('\n')).not.toContain('not-for-the-far-machine');
   }, LIMIT);
 
-  it('leaves targeted runs alone', () => {
-    const run = runQuiet(setUp(), { args: ['src/a.spec.ts'] });
+  it('runs a short targeted list here, and logs it as a local run', () => {
+    const run = runQuiet(setUp(), { args: ['src/a.spec.ts', '-t', 'name'] });
     expect(run.sshCalls).toEqual([]);
     expect(run.stdout).not.toContain('Ran on');
-    expect(run.runLog).toEqual([]);
+    expect(run.runLog).toEqual([expect.objectContaining({ kind: 'local', ranOn: 'mac', specFiles: 1, exitCode: 0 })]);
   }, LIMIT);
 
   describe('a long list of spec files', () => {
@@ -248,6 +248,7 @@ describe('run-tests-quiet with remote checks', () => {
     expect(run.sshCalls).toEqual([]);
     expect(run.stdout).not.toContain('Ran on');
     expect(run.localRuns).toEqual([{ macOnly: false }]);
+    expect(run.runLog).toEqual([]);
   }, LIMIT);
 
   it('stays on the Mac when AIO_REMOTE_CHECKS=off asks for it', () => {
@@ -269,6 +270,7 @@ describe('run-tests-quiet with remote checks', () => {
     const run = runQuiet(setUp(), { env: { GITHUB_ACTIONS: 'true', CI: 'true' } });
     expect(run.sshCalls).toEqual([]);
     expect(run.stdout).not.toContain('Ran on');
+    expect(run.runLog).toEqual([]);
   }, LIMIT);
 
   it.runIf(process.platform === 'darwin')('fails the run when a Mac-only spec fails after a pass elsewhere', () => {

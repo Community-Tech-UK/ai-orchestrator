@@ -36,16 +36,14 @@ For architecture and subsystem ownership, read `docs/architecture.md`. Key direc
 After code changes, run all applicable targeted tests, then these project gates:
 
 ```bash
-npx tsc --noEmit
-npm run typecheck:spec
-npm run lint
-npm run check:ts-max-loc
-npm run check:ui-hints
-npm run build:main
-npm run build:renderer
+npm run checks
 npm run test:quiet
 ```
 
+- `npm run checks` runs `npm run typecheck`, `typecheck:spec`, `lint`, `check:ts-max-loc`, `check:ui-hints`,
+  `build:main` and `build:renderer` from one snapshot, on the test machine when one is set up and on this Mac
+  otherwise, and says where. Every check runs whatever fails, and each still works on its own. Name checks to run only
+  those, for example `npm run checks -- "npm run lint"`.
 - `npm run typecheck` and `npm run typecheck:spec` use TypeScript 7, installed beside TypeScript 6 as `typescript7`.
   It's about half the processor time and several times quicker. Angular's build and `build:main` stay on TypeScript 6.
   Both packages install a `tsc` command, so a bare `tsc` or `npx tsc` can be either: `npm ci` leaves it as 6, and

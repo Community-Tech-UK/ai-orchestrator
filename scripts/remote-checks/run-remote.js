@@ -18,6 +18,8 @@ const { SnapshotRefused, snapshotFileHash, snapshotFileText, takeSnapshot } = re
 
 const RESULT_PREFIX = 'AIO_REMOTE_RESULT ';
 const SSH_UNREACHABLE = 255;
+/** remote-run.sh's answer to a check it doesn't know. */
+const REFUSED = 4;
 const SETUP_LIMIT_MS = 5 * 60_000;
 /** A little over the far machine's own limit, for a run that goes quiet without the connection dropping. */
 const RUN_LIMIT_MS = 62 * 60_000;
@@ -150,10 +152,10 @@ function escapeForJson(text) {
   return JSON.stringify(text).slice(1, -1);
 }
 
-/** Fetches the report and swaps the far machine's folder for this one, inside failure messages too. */
-async function fetchReport(config, script, id, remoteRoot, root, jsonPath) {
+/** Fetches the run's results file and swaps the far machine's folder for this one, inside messages too. Null if it can't. */
+async function fetchResults(config, script, id, remoteRoot, root) {
   const fetched = await sshCommand(config, `bash ${script} fetch ${id}`, { binary: true });
-  if (fetched.code !== 0 || fetched.stdout.length === 0) return false;
+  if (fetched.code !== 0 || fetched.stdout.length === 0) return null;
   const gunzip = createGunzip();
   const text = await new Promise((resolve) => {
     const parts = [];
@@ -162,17 +164,30 @@ async function fetchReport(config, script, id, remoteRoot, root, jsonPath) {
     gunzip.on('error', () => resolve(null));
     gunzip.end(fetched.stdout);
   });
-  if (text === null) return false;
+  if (text === null) return null;
   const rewritten = remoteRoot ? text.split(escapeForJson(remoteRoot)).join(escapeForJson(root)) : text;
-  let report;
   try {
-    report = JSON.parse(rewritten);
+    return { text: rewritten, value: JSON.parse(rewritten) };
   } catch {
-    return false;
+    return null;
   }
-  if (!(report.numTotalTests > 0)) return false;
-  fs.writeFileSync(jsonPath, rewritten);
+}
+
+async function fetchReport(config, script, id, remoteRoot, root, jsonPath) {
+  const results = await fetchResults(config, script, id, remoteRoot, root);
+  if (!(results?.value?.numTotalTests > 0)) return false;
+  fs.writeFileSync(jsonPath, results.text);
   return true;
+}
+
+/** Every check that was sent, in order, each with a result. Null for anything less. */
+async function fetchChecks(config, script, id, remoteRoot, root, checks) {
+  const results = await fetchResults(config, script, id, remoteRoot, root);
+  const value = results?.value;
+  if (!Array.isArray(value) || value.length !== checks.length) return null;
+  const complete = value.every((check, at) => check?.command === checks[at] && Number.isInteger(check.exitCode)
+    && Number.isFinite(check.durationMs) && typeof check.output === 'string');
+  return complete ? value : null;
 }
 
 /**
@@ -185,11 +200,13 @@ async function fetchReport(config, script, id, remoteRoot, root, jsonPath) {
  * @param {string|undefined} options.ci value of `CI` to pass through
  * @param {(root: string) => object} [options.take] how to capture the code; the files on disk by default
  * @param {string[]} [options.relatedTo] run only the tests related to these files, not the whole suite
+ * @param {string[]} [options.checks] run these check commands instead of the tests. Each must be on the far machine's
+ *   list. The result's `checks` holds each one's exit code, time and output, and `jsonPath` is unused.
  * @param {{id: string, suite: string, nodeFile: string, lockFile: string}} [options.project] another repository's
  *   recipe, from projects.js. Its own runner reports on the far machine, so no report comes back: the result
  *   line's test count is the proof instead, and `jsonPath` is unused.
  */
-async function runOnRemote({ config, root, logPath, jsonPath, noCache, ci, take = takeSnapshot, relatedTo, project }) {
+async function runOnRemote({ config, root, logPath, jsonPath, noCache, ci, take = takeSnapshot, relatedTo, checks, project }) {
   let snapshot;
   try {
     snapshot = take(root);
@@ -229,6 +246,12 @@ async function runOnRemote({ config, root, logPath, jsonPath, noCache, ci, take 
       const listed = await sshCommand(config, `bash ${script} related ${id}`, { input: JSON.stringify(relatedTo) });
       if (listed.code !== 0 || listed.timedOut) return { ok: false, reason: `${config.label} could not be reached` };
     }
+    if (checks) {
+      // Commands travel as data too, and the far machine runs only those on its own list.
+      const listed = await sshCommand(config, `bash ${script} checks ${id}`, { input: `${checks.join('\n')}\n` });
+      if (listed.code === REFUSED) return { ok: false, reason: `${config.label} does not know one of these checks` };
+      if (listed.code !== 0 || listed.timedOut) return { ok: false, reason: `${config.label} could not be reached` };
+    }
     const flag = value => (value ? '1' : '0');
     const result = await streamRun(config, `${prefix}bash ${script} run ${id} ${snapshot.commit} ${flag(ci)} ${flag(noCache)}`, logPath);
 
@@ -238,10 +261,12 @@ async function runOnRemote({ config, root, logPath, jsonPath, noCache, ci, take 
     if (result.tree !== expected.tree || !sameNode(expected.node, result.node) || result.lock !== expected.lock) {
       return { ok: false, reason: `the result from ${config.label} did not match the code sent` };
     }
-    const reported = project ? result.tests > 0 : await fetchReport(config, script, id, result.root, root, jsonPath);
+    const checkResults = checks ? await fetchChecks(config, script, id, result.root, root, checks) : undefined;
+    const reported = project ? result.tests > 0 : checks ? checkResults !== null : await fetchReport(config, script, id, result.root, root, jsonPath);
     if (!reported) return { ok: false, reason: `${config.label} sent back no usable report` };
     return {
       ok: true, exitCode: result.exit, fingerprint: snapshot.tree, waitedMs: (result.waited ?? 0) * 1000, farRoot: result.root, tests: result.tests,
+      ...(checks ? { checks: checkResults } : {}),
     };
   } catch (err) {
     return { ok: false, reason: `the run could not be sent: ${err.message}` };

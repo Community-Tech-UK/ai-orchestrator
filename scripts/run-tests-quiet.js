@@ -63,7 +63,7 @@ const os = require('os');
 const path = require('path');
 const { MAC_ONLY_SPECS, mergeMacOnlyReport } = require('./remote-checks/mac-only');
 const { takeMacTurn } = require('./remote-checks/mac-turn');
-const { appendRunLog, decideRoute, isLoopRun, readConfig, remoteChecksDir } = require('./remote-checks/route');
+const { appendRunLog, countSpecFiles, decideRoute, isLoopRun, readConfig, remoteChecksDir } = require('./remote-checks/route');
 const { runOnRemote } = require('./remote-checks/run-remote');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -282,7 +282,24 @@ async function runSuite() {
     config = null;
   }
   const route = decideRoute({ args: passthroughArgs, root: ROOT, config });
-  if (route.kind === 'local') return { exitCode: await runVitest(), where: null };
+  if (route.kind === 'local') {
+    const started = Date.now();
+    const exitCode = await runVitest();
+    // Runs that never try the far machine are logged too, so the record shows what still happens here.
+    if (config && !process.env.GITHUB_ACTIONS) {
+      appendRunLog({
+        at: new Date(started).toISOString(),
+        project: path.basename(ROOT),
+        kind: 'local',
+        loop: isLoopRun(),
+        ranOn: 'mac',
+        specFiles: countSpecFiles(passthroughArgs),
+        tookMs: Date.now() - started,
+        exitCode,
+      });
+    }
+    return { exitCode, where: null };
+  }
 
   const started = Date.now();
   let outcome;

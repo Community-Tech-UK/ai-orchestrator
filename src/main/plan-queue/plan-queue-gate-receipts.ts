@@ -1,4 +1,8 @@
 /** Machine-owned evidence, taken before a read-only checker sees the worktree. */
+import { randomUUID } from 'node:crypto';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import { gitExec } from '../workspace/git/git-exec';
 import { buildCliEnv } from '../cli/cli-environment';
@@ -23,7 +27,7 @@ export interface PlanQueueGateReceipt {
   /** Named tests that failed, kept with the verdict so Queue health can spot one failing across unrelated jobs. */
   failingTests?: string[];
 }
-interface GateExecution { exitCode: number; output: string; timedOut?: boolean }
+interface GateExecution { exitCode: number; output: string; timedOut?: boolean; durationMs?: number; ranOn?: string }
 type ExecuteGate = (command: string, cwd: string, signal?: AbortSignal, extraEnv?: Record<string, string>) => Promise<GateExecution>;
 export interface GateInput {
   cwd: string; head: string; commands: readonly string[]; signal?: AbortSignal;
@@ -41,6 +45,15 @@ const MAX_MACHINE_CHARS = 200;
 const MAX_FAILING_TESTS = 20;
 const MAX_TEST_NAME_CHARS = 300;
 const STAY_ON_THE_MAC = { AIO_REMOTE_CHECKS: 'off' };
+/**
+ * Checks `scripts/remote-checks/checks.js` runs as one batch, on the test machine when it can: one snapshot
+ * for all of them. It has the same list. A worktree without that script runs each one as before.
+ */
+const BATCHED_CHECKS = new Set([
+  'npx tsc --noEmit', 'npm run typecheck', 'npm run typecheck:spec', 'npm run lint', 'npm run check:ts-max-loc',
+  'npm run check:ui-hints', 'npm run build:main', 'npm run build:worker-agent', 'npm run build:renderer',
+]);
+const CHECKS_SCRIPT = 'scripts/remote-checks/checks.js';
 const MACHINE_MISMATCH_NOTE = '\nThe comparison with main ran on a different machine, so this check did not finish.';
 
 /** `scripts/run-tests-quiet.js` prints this line for every run it routes. */
@@ -129,19 +142,31 @@ export class PlanQueueGateRunner {
     const testedTree = typeof tree === 'string' ? tree : await tree;
     input.signal?.throwIfAborted();
     const receipts: PlanQueueGateReceipt[] = [];
+    const batch = input.commands.filter(command => BATCHED_CHECKS.has(command));
+    let batched: Map<string, GateExecution> | undefined;
+    let announced = false;
+    const announce = () => {
+      if (!announced) input.onExecution?.();
+      announced = true;
+    };
+    if (batch.length && existsSync(join(input.cwd, CHECKS_SCRIPT))) {
+      announce();
+      batched = await this.executeBatch(batch, input);
+      input.signal?.throwIfAborted();
+    }
     for (const command of input.commands) {
       input.signal?.throwIfAborted();
-      if (!receipts.length) input.onExecution?.();
+      announce();
       const started = Date.now();
-      const result = await this.execute(command, input.cwd, input.signal, input.extraEnv);
+      const result = batched?.get(command) ?? await this.execute(command, input.cwd, input.signal, input.extraEnv);
       input.signal?.throwIfAborted();
       const timedOut = result.timedOut === true;
-      const machine = ranOn(result.output);
+      const machine = result.ranOn?.slice(0, MAX_MACHINE_CHARS) ?? ranOn(result.output);
       const output = result.output.replaceAll(input.cwd, '');
       const tests = failedTestNames(output).slice(0, MAX_FAILING_TESTS).map(name => name.slice(0, MAX_TEST_NAME_CHARS));
       receipts.push({ command, head: input.head, testedTree, exitCode: timedOut ? 1 : result.exitCode, timedOut,
         ...(machine ? { ranOn: machine } : {}),
-        durationMs: Date.now() - started, tail: Buffer.from(result.output).subarray(-2048).toString('utf8').replace(/^\uFFFD+/, ''),
+        durationMs: result.durationMs ?? Date.now() - started, tail: Buffer.from(result.output).subarray(-2048).toString('utf8').replace(/^\uFFFD+/, ''),
         classification: timedOut ? 'failed' : classifyGateEvidence(command, result.exitCode, result.output), baseline: 'new',
         failureKeyCounts: Object.fromEntries(extractVerifyFailureKeys(output, {
           truncated: result.output.length >= 256_000, failureKind: 'command',
@@ -150,6 +175,27 @@ export class PlanQueueGateRunner {
       if (timedOut) break;
     }
     return receipts;
+  }
+
+  /**
+   * One trip for every batched check, each with its own result. A batch that ran out of time times out every
+   * check in it. Undefined when the script left no usable answer, so each check then runs on its own.
+   */
+  private async executeBatch(commands: readonly string[], input: GateInput): Promise<Map<string, GateExecution> | undefined> {
+    const jsonPath = join(tmpdir(), `aio-checks-${randomUUID()}.json`);
+    // Every command comes from BATCHED_CHECKS, which holds no quote marks.
+    const command = `node ${CHECKS_SCRIPT} --json '${jsonPath}' -- ${commands.map(check => `'${check}'`).join(' ')}`;
+    try {
+      const result = await this.execute(command, input.cwd, input.signal, input.extraEnv);
+      if (result.timedOut) return new Map(commands.map(check => [check, { exitCode: 1, output: result.output, timedOut: true }]));
+      const outcome = readBatchOutcome(jsonPath, commands);
+      if (!outcome) return undefined;
+      return new Map(outcome.checks.map(check => [check.command, {
+        exitCode: check.exitCode, output: check.output, durationMs: check.durationMs, ...(outcome.ranOn ? { ranOn: outcome.ranOn } : {}),
+      }]));
+    } finally {
+      rmSync(jsonPath, { force: true });
+    }
   }
 
   async compareWithBase(input: GateInput, raw: readonly PlanQueueGateReceipt[]): Promise<PlanQueueGateReceipt[]> {
@@ -212,6 +258,25 @@ export class PlanQueueGateRunner {
       return base;
     } finally { this.pendingBases.delete(key); }
   }
+}
+
+/** `ranOn` is null when no test machine is set up: like a check run directly, it names no machine. */
+interface BatchOutcome { ranOn: string | null; checks: { command: string; exitCode: number; durationMs: number; output: string }[] }
+
+/** The script's answer, only if it covers exactly the checks asked for, in order. */
+function readBatchOutcome(jsonPath: string, commands: readonly string[]): BatchOutcome | undefined {
+  let outcome: Partial<BatchOutcome>;
+  try {
+    outcome = JSON.parse(readFileSync(jsonPath, 'utf8')) as Partial<BatchOutcome>;
+  } catch {
+    return undefined;
+  }
+  const checks = outcome.checks;
+  const ranOn = outcome.ranOn ?? null;
+  if ((ranOn !== null && typeof ranOn !== 'string') || !Array.isArray(checks) || checks.length !== commands.length) return undefined;
+  const complete = checks.every((check, at) => check?.command === commands[at] && Number.isInteger(check.exitCode)
+    && Number.isFinite(check.durationMs) && typeof check.output === 'string');
+  return complete ? { ranOn, checks } : undefined;
 }
 
 /** Reuse only the identical base computation; unrelated gate sets never wait here. */

@@ -102,6 +102,8 @@
     "audit:build": "node scripts/audit-build-dependencies.js && node scripts/verify-release-toolchain.js",
     "audit:ui-hints": "tsx scripts/audit-ui-hints.ts",
     "check:ui-hints": "tsx scripts/check-ui-hints.ts",
+    "report:where-work-ran": "node scripts/remote-checks/report.js",
+    "checks": "node scripts/remote-checks/checks.js",
     "glossary:agents": "tsx scripts/generate-agent-glossary.ts"
   },
   "keywords": [

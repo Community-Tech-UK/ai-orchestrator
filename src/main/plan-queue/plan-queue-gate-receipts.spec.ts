@@ -1,4 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createServer, type AddressInfo, type Socket } from 'node:net';
 import { PlanQueueGateRunSchema } from '@contracts/schemas/plan-queue';
 import { blockingGateReceipts, classifyGateEvidence, GATE_TIMEOUT_MS, onlyTimedOut, PlanQueueGateRunner } from './plan-queue-gate-receipts';
@@ -526,5 +529,104 @@ describe('Harness queue gate receipts', () => {
       const [receipt] = await compare(vi.fn(async () => failing(null)));
       expect(receipt).toMatchObject({ baseline: 'also-failing-on-base', timedOut: false });
     });
+  });
+});
+
+describe('Harness queue checks sent as one batch', () => {
+  const folders: string[] = [];
+  afterEach(() => {
+    for (const folder of folders.splice(0)) rmSync(folder, { recursive: true, force: true });
+  });
+
+  /** A worktree that has the checks script, as main does since the remote-first plan's Stage 2. */
+  function worktree(): string {
+    const folder = mkdtempSync(join(tmpdir(), 'gate-batch-'));
+    folders.push(folder);
+    mkdirSync(join(folder, 'scripts/remote-checks'), { recursive: true });
+    writeFileSync(join(folder, 'scripts/remote-checks/checks.js'), '');
+    return folder;
+  }
+
+  /** Answers the batch the way checks.js does, and anything else as a test run on the PC. */
+  const answerFiles: string[] = [];
+  function machine(answer: (checks: string[]) => object | null, batch: Partial<{ timedOut: boolean }> = {}) {
+    return vi.fn(async (command: string, _cwd?: string, _signal?: AbortSignal, _extraEnv?: Record<string, string>) => {
+      if (!command.startsWith('node scripts/remote-checks/checks.js')) {
+        return { exitCode: 0, output: '5 tests passed\nRan on the Windows PC in 7m 0s.' };
+      }
+      const jsonPath = /--json '([^']+)'/.exec(command)![1]!;
+      answerFiles.push(jsonPath);
+      const checks = [...command.slice(command.indexOf(' -- ')).matchAll(/'([^']+)'/g)].map(match => match[1]!);
+      const outcome = answer(checks);
+      if (outcome) writeFileSync(jsonPath, JSON.stringify(outcome));
+      return { exitCode: 0, output: 'batch output', ...batch };
+    });
+  }
+
+  const passing = (checks: string[]) => ({
+    ranOn: 'the Windows PC',
+    checks: checks.map(command => command === 'npm run lint'
+      ? { command, exitCode: 2, durationMs: 1234, output: 'src/a.ts(1,1): error TS2322: Nope' }
+      : { command, exitCode: 0, durationMs: 1000, output: 'fine' }),
+  });
+
+  it('sends the checks it knows in one trip, and keeps one receipt per check in the original order', async () => {
+    const execute = machine(passing);
+    const onExecution = vi.fn();
+    const receipts = await fakeRunner(execute).run({
+      cwd: worktree(), head: 'head', commands: ['npx tsc --noEmit', 'npm run test:quiet', 'npm run lint'], onExecution,
+    });
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(onExecution).toHaveBeenCalledTimes(1);
+    expect(receipts.map(receipt => receipt.command)).toEqual(['npx tsc --noEmit', 'npm run test:quiet', 'npm run lint']);
+    expect(receipts[0]).toMatchObject({ exitCode: 0, classification: 'passed', ranOn: 'the Windows PC', durationMs: 1000 });
+    expect(receipts[1]).toMatchObject({ classification: 'passed', ranOn: 'the Windows PC' });
+    expect(receipts[2]).toMatchObject({ exitCode: 2, classification: 'failed', ranOn: 'the Windows PC', durationMs: 1234 });
+    expect(receipts[2]!.tail).toContain('TS2322');
+    expect(answerFiles.at(-1)).toContain(tmpdir());
+    expect(existsSync(answerFiles.at(-1)!)).toBe(false);
+  });
+
+  it('runs each check on its own in a worktree without the checks script', async () => {
+    const execute = vi.fn(async (_command: string) => ({ exitCode: 0, output: '' }));
+    await fakeRunner(execute).run({ cwd: '/older-branch', head: 'head', commands: ['npx tsc --noEmit', 'npm run lint'] });
+    expect(execute.mock.calls.map(call => call[0])).toEqual(['npx tsc --noEmit', 'npm run lint']);
+  });
+
+  it('times out the checks when the batch runs out of time, which says nothing about the code', async () => {
+    const execute = machine(() => null, { timedOut: true });
+    const receipts = await fakeRunner(execute).run({ cwd: worktree(), head: 'head', commands: ['npx tsc --noEmit', 'npm run lint'] });
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(receipts).toHaveLength(1);
+    expect(onlyTimedOut(receipts)).toBe(true);
+  });
+
+  it('runs each check on its own when the batch leaves no usable answer', async () => {
+    for (const answer of [() => null, (checks: string[]) => ({ ranOn: 'the Mac', checks: passing(checks).checks.slice(1) })]) {
+      const execute = machine(answer);
+      const onExecution = vi.fn();
+      const receipts = await fakeRunner(execute).run({
+        cwd: worktree(), head: 'head', commands: ['npx tsc --noEmit', 'npm run lint'], onExecution,
+      });
+      expect(onExecution).toHaveBeenCalledTimes(1);
+      expect(execute.mock.calls.map(call => call[0]).slice(1)).toEqual(['npx tsc --noEmit', 'npm run lint']);
+      expect(receipts.map(receipt => receipt.command)).toEqual(['npx tsc --noEmit', 'npm run lint']);
+    }
+  });
+
+  it('names no machine when no test machine is set up, as a check run directly names none', async () => {
+    const execute = machine(checks => ({ ranOn: null, checks: passing(checks).checks }));
+    const [receipt] = await fakeRunner(execute).run({ cwd: worktree(), head: 'head', commands: ['npm run typecheck'] });
+    expect(receipt).toMatchObject({ classification: 'passed' });
+    expect(receipt).not.toHaveProperty('ranOn');
+  });
+
+  it('passes the stay-on-the-Mac request through to the batch', async () => {
+    const execute = machine(checks => ({ ranOn: 'the Mac', checks: passing(checks).checks }));
+    const [receipt] = await fakeRunner(execute).run({
+      cwd: worktree(), head: 'head', commands: ['npm run typecheck'], extraEnv: { AIO_REMOTE_CHECKS: 'off' },
+    });
+    expect(execute.mock.calls[0]![3]).toEqual({ AIO_REMOTE_CHECKS: 'off' });
+    expect(receipt).toMatchObject({ ranOn: 'the Mac', classification: 'passed' });
   });
 });
