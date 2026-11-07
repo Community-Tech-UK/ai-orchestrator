@@ -28,6 +28,10 @@ export interface ContinuityStats {
   summaryTotalMessages: number;
   skippedRanges: string[];
 }
+/** Provider user-role transport must not turn an app notice into a human request. */
+export function compactionTurnLabel(message: Pick<OutputMessage, 'type' | 'metadata'>): string {
+  return message.metadata?.internalInput ? 'harness' : message.type;
+}
 export function realUserMessages(messages: readonly OutputMessage[]): OutputMessage[] {
   return messages.filter(message => message.type === 'user'
     && !message.metadata?.['internalInput'] && !message.metadata?.['crossSessionMessage']
@@ -172,7 +176,7 @@ export function buildContinuityPackage(input: {
         + (input.resumeTurn ? ` ${INTERRUPTED_REQUEST_NOTE}` : ''),
       block('latest_user_request', `Latest request before compaction (it may already be done):\n${latestRequest}`),
       block('open_user_items', `Open items noticed at compaction time (they may already be done):\n${open || '(none)'}`),
-      block('summary', input.summary), block('recent_messages', input.recent.map(message => `[${message.type}]: ${message.content}`).join('\n\n')),
+      block('summary', input.summary), block('recent_messages', input.recent.map(message => `[${compactionTurnLabel(message)}]: ${message.content}`).join('\n\n')),
       block('user_messages', user.text), block('identifier_index', anchors.text),
       recoveryBlock,
       block('authenticated_evidence', input.evidence ?? ''), block('decision_log', input.decisions ?? ''),

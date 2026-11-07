@@ -11,6 +11,7 @@ import type {
   PlanQueueQuestion,
   PlanQueueRunConfig,
   PlanQueueRunStatus,
+  PlanQueueRoundActivity,
   PlanQueueVerdict,
   PlanQueueWorkerReport,
 } from '@contracts/schemas/plan-queue';
@@ -52,6 +53,7 @@ export interface PlanQueueWorkerSession {
 }
 
 export interface PlanQueueItem {
+  roundActivity?: PlanQueueRoundActivity[];
   workerSession?: PlanQueueWorkerSession;
   /** Paused work retains its branch and pending next-turn instructions. */
   heldAt?: number | null;

@@ -8,6 +8,20 @@ import {
 } from './messaging-retry-disposition';
 
 describe('messaging-retry-disposition', () => {
+  it('never replays an unknown failure, even when the session status changed during send', () => {
+    expect(getRetryDisposition('idle', 'Connection closed after write')).toEqual({ shouldRetry: false });
+    expect(getRetryDisposition('respawning', 'Connection closed after write')).toEqual({ shouldRetry: false });
+  });
+  it.each([
+    ['initializing', 'Instance initialization timed out'],
+    ['waking', 'Instance wake timed out'],
+    ['respawning', 'Instance respawn timed out'],
+    ['respawning', 'Instance abc is recovering. Please wait for it to be ready.'],
+  ] as const)('retries the refusal main gives a session that is still %s: %s', (status, message) => {
+    expect(getRetryDisposition(status, message).shouldRetry).toBe(true);
+    expect(getRetryDisposition('idle', message).shouldRetry).toBe(true);
+  });
+
   it('parks send-input timeouts as idle without retry', () => {
     expect(getRetryDisposition('busy', 'Send input timed out after 30s')).toEqual({
       shouldRetry: false,

@@ -19,6 +19,7 @@ export type ContextAttributionBucketKey =
 export interface ContextAttributionDetail {
   label: string;
   tokens: number;
+  measurement?: 'unverified';
 }
 
 export interface ContextAttributionBucket {
@@ -27,6 +28,8 @@ export interface ContextAttributionBucket {
   tokens: number;
   /** Top contributors inside the bucket (e.g. per instruction file, per MCP server). */
   detail?: ContextAttributionDetail[];
+  measurement?: 'partial' | 'unverified';
+  onDemand?: { label: string; availability: 'not-loaded' | 'unverified' }[];
 }
 
 export interface ContextAttributionReport {

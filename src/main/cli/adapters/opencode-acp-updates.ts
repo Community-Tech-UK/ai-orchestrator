@@ -2,6 +2,8 @@ import type { AcpRetryStateUpdate } from '../../../shared/types/cli.types';
 import type { OutputMessage } from '../../../shared/types/instance.types';
 import type { AcpChildActivity } from './acp-delegated-task-liveness';
 
+const MAX_SUMMARY_CHARS = 96_000;
+
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -9,7 +11,7 @@ function record(value: unknown): value is Record<string, unknown> {
 /** Metadata-only child ownership; never append child answers to the parent transcript. */
 export class OpenCodeAcpUpdates {
   private readonly children = new Map<string, { rootId: string; title: string; createdAt: number }>();
-  private readonly compactions = new Map<string, { id: string; completed: boolean }>();
+  private readonly compactions = new Map<string, { id: string; completed: boolean; summary: string; truncated: boolean }>();
 
   constructor(private readonly onCompactionFailed: () => void = () => undefined) {}
 
@@ -48,16 +50,31 @@ export class OpenCodeAcpUpdates {
   /** False means a keyed marker was handled without another output. */
   compaction(update: Record<string, unknown>, newId: () => string): OutputMessage | false | undefined {
     const meta = update['_meta'];
-    const marker = update['sessionUpdate'] === 'compaction_update' ? update
+    const chunk = update['sessionUpdate'] === 'compaction_summary_chunk';
+    const marker = update['sessionUpdate'] === 'compaction_update' || chunk ? update
       : record(meta) && record(meta['opencode/compaction']) ? meta['opencode/compaction'] : undefined;
     if (!marker) return undefined;
-    const status = marker['status'];
+    const key = marker['compactionId'] ?? marker['messageId'];
+    // A summary chunk carries no status of its own; it belongs to a compaction already started.
+    if (chunk && (typeof key !== 'string' || !this.compactions.has(key))) return undefined;
+    const status = chunk ? 'in_progress' : marker['status'];
     if (!['started', 'in_progress', 'completed', 'failed', 'cancelled'].includes(String(status))) return undefined;
     if (status === 'failed') this.onCompactionFailed();
-    const key = marker['compactionId'] ?? marker['messageId'];
     if (typeof key !== 'string') return undefined;
     if (!this.compactions.has(key) && this.compactions.size >= 128) return false;
-    const state = this.compactions.get(key) ?? { id: newId(), completed: false };
+    const state = this.compactions.get(key) ?? { id: newId(), completed: false, summary: '', truncated: false };
+    if (chunk && record(marker['content']) && marker['content']['type'] === 'text' && typeof marker['content']['text'] === 'string') {
+      const combined = state.summary + marker['content']['text'];
+      state.truncated ||= combined.length > MAX_SUMMARY_CHARS;
+      state.summary = combined.slice(0, MAX_SUMMARY_CHARS);
+      this.compactions.set(key, state);
+      return false; // The completed row carries the whole summary once.
+    } else if (!chunk && (marker['summary'] === null || Array.isArray(marker['summary']))) {
+      const text = ((marker['summary'] as unknown[] | null) ?? []).filter(record)
+        .filter(block => block['type'] === 'text' && typeof block['text'] === 'string').map(block => block['text']).join('\n\n');
+      state.summary = text.slice(0, MAX_SUMMARY_CHARS);
+      state.truncated = text.length > MAX_SUMMARY_CHARS;
+    }
     if (status === 'completed' && state.completed) return false;
     const firstCompletion = status === 'completed' && !state.completed;
     if (firstCompletion) state.completed = true;
@@ -67,6 +84,7 @@ export class OpenCodeAcpUpdates {
       metadata: { source: 'acp-compaction', transport: 'acp', phase: status, streaming: status === 'started' || status === 'in_progress', accumulatedContent: content,
         // Record the boundary on the status row once, without appending another notice.
         ...(firstCompletion ? { threadCompacted: true, providerCompaction: 'completed' } : {}),
+        ...(state.summary ? { compactionSummary: state.summary, compactionSummaryTruncated: state.truncated } : {}),
       } };
   }
 }

@@ -7,6 +7,8 @@ import type { FileAttachment } from '../../shared/types/instance.types';
 import type { Instance } from '../../shared/types/instance.types';
 import { throwIfInstanceInputAborted, type InstanceSendInputOptions } from './instance-input-cancellation';
 import { captureInstanceRecoveryEpoch, isInstanceRecoveryEpochCurrent } from './instance-turn-ending-state';
+import { claimMessageDelivery } from './message-delivery';
+import { isKnownSendRefusal } from '../../shared/utils/send-refusal';
 const logger = getLogger('InstanceInputReceipt');
 
 /** Keeps request and provider identity authoritative after the first input write commits. */
@@ -63,6 +65,7 @@ export function createInstanceInputReceipt(
 ): { record: () => void; delivered: () => void; failed: (error: unknown) => void } {
   let admission: ReturnType<ReturnType<typeof getSessionAdmissionService>['recordUserSend']> = null;
   let observed = false;
+  const notifyDelivery = claimMessageDelivery(instanceId);
   return {
     record: () => {
       if (admission) return; // The same send may consume a preparation failure locally.
@@ -76,12 +79,14 @@ export function createInstanceInputReceipt(
       catch (error) {
         logger.error('Input delivered but delivery bookkeeping failed', error instanceof Error ? error : new Error(String(error)), { instanceId });
       }
+      notifyDelivery?.('accepted');
       if (observed) return;
       observed = true;
       try { onDelivered?.(); } catch (error) { logger.warn('Provider delivery observer failed', { instanceId, error }); }
     },
     failed: (error) => {
       if (admission) getSessionAdmissionService().markFailed(admission.admissionId, error instanceof Error ? error.message : String(error));
+      notifyDelivery?.(error instanceof Error && isKnownSendRefusal(error.message) ? 'not-accepted' : 'uncertain');
     },
   };
 }

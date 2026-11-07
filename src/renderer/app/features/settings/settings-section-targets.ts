@@ -22,6 +22,7 @@ export const SETTINGS_SECTION_TARGETS: readonly SettingsSectionTarget[] = [
   { tab: 'copilot-accounts', anchor: 'accounts', label: 'Copilot accounts', keywords: 'github routing repository seat account' },
   { tab: 'remote-nodes', anchor: 'workers', label: 'Remote nodes', keywords: 'worker pair browser gpu remote computer order pause test machine checks windows pc' },
   { tab: 'cli-health', anchor: 'updates', label: 'CLI health', keywords: 'version update install diagnose' },
+  { tab: 'about', anchor: 'build', label: 'About', keywords: 'version build commit branch data folder migration' },
   { tab: 'doctor', anchor: 'diagnostics', label: 'Doctor', keywords: 'diagnostics troubleshoot startup health' },
   { tab: 'models', anchor: 'models', label: 'Models', keywords: 'provider model overrides' },
   { tab: 'mcp', anchor: 'servers', label: 'MCP servers', keywords: 'tools servers context protocol connectors microsoft 365 mail calendar always allow' },

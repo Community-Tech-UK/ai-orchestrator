@@ -112,6 +112,15 @@ describe('PlanQueueInstanceTracker', () => {
     expect(outcomes).toEqual([{ instanceId: 'w1', outcome: { kind: 'turn-complete', lastAssistantOutput: 'Waiting.' } }]);
   });
 
+  it('records status-only activity separately for each armed queue turn', () => {
+    tracker.track('w1');
+    source.replay('w1', [assistant('Checking progress.'), { channel: 'status', status: 'idle' }]);
+    expect(tracker.getTurnActivity('w1')).toEqual({ toolCalls: 0, outputCharacters: 18, statusOnlyTurns: 1 });
+    tracker.beginTurn('w1');
+    source.emit('provider:normalized-event', { instanceId: 'w1', event: { kind: 'tool_use', toolUseId: 'read-1', toolName: 'Read' } });
+    source.replay('w1', [assistant('Read the file.'), { channel: 'status', status: 'idle' }]);
+    expect(tracker.getTurnActivity('w1')).toEqual({ toolCalls: 1, outputCharacters: 14, statusOnlyTurns: 0 });
+  });
   it('ignores the idle a fresh spawn settles into before any assistant output', () => {
     tracker.track('w1');
     source.replay('w1', [{ channel: 'status', status: 'idle', previousStatus: 'initializing' }]);

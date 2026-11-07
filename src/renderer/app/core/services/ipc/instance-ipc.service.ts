@@ -106,6 +106,7 @@ export interface InstanceQueueInitialPromptPayload {
 // ============================================
 
 export interface QueueSourceMetadata {
+  userMessageId?: string;
   hadAttachmentsDropped?: boolean;
   kind?: 'queue' | 'steer';
   retryCount?: number;
@@ -162,9 +163,9 @@ export class InstanceIpcService {
   /**
    * Send input to an instance
    */
-  async sendInput(instanceId: string, message: string, attachments?: FileAttachment[], isRetry?: boolean, automatedInput?: boolean, queuedAdmissionId?: string, origin?: PersonInputOrigin): Promise<IpcResponse> {
+  async sendInput(instanceId: string, message: string, attachments?: FileAttachment[], isRetry?: boolean, automatedInput?: boolean, queuedAdmissionId?: string, origin?: PersonInputOrigin, userMessageId?: string): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.sendInput({ instanceId, message, attachments, isRetry, automatedInput, queuedAdmissionId, origin });
+    return this.api.sendInput({ instanceId, message, attachments, isRetry, automatedInput, queuedAdmissionId, origin, userMessageId });
   }
 
   /** Ask the resident Claude conversation without adding to its transcript. */

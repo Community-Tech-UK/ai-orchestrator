@@ -70,7 +70,8 @@ export async function spawnQueueInstance(
     if (!left.usable) throw new PlanQueueSpawnOutOfUsage(left.resumeAt, route.modelOverride ? `${route.provider} (${route.modelOverride})` : String(route.provider));
     break;
   }
-  const route = routeQueueSpawn(config, host.getRun, worker, isExcluded, host.readAccountRules());
+  const chosenRoute = routeQueueSpawn(config, host.getRun, worker, isExcluded, host.readAccountRules());
+  const route = { ...chosenRoute, metadata: { ...chosenRoute.metadata, unattended: true } };
   const itemId = config.metadata?.['planQueueItemId'];
   const item = typeof itemId === 'string' ? host.getItem(itemId) : null;
   const session = config.metadata?.['planQueueRole'] === 'worker' ? continuableWorkerSession(item, route) : null;

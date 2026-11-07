@@ -3,6 +3,7 @@ import { listSettingsExternalLinks } from '../../shared/control-surface/control-
 import { OTHER_COMPUTERS_TITLE } from '../../../../shared/display-names';
 
 export type SettingsTab =
+  | 'about'
   | 'general'
   | 'orchestration'
   | 'cross-session-messaging'
@@ -100,6 +101,7 @@ export function resolveSettingsLayout(item: SettingsNavItem | undefined): Settin
  * network/remote controls, and health diagnostics.
  */
 export const NAV_ITEMS: SettingsNavItem[] = [
+  { id: 'about', label: 'About', summary: 'Running version, build details and data folder.', group: 'Health & Diagnostics', keywords: 'version build branch commit data migration' },
   {
     id: 'general',
     label: 'General',

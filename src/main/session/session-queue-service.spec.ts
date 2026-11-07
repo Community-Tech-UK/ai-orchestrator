@@ -27,6 +27,7 @@ vi.mock('./content-store', () => {
   };
 });
 
+import { SessionQueueEnqueuePayloadSchema } from '@contracts/schemas/session';
 import { SessionAdmissionStore, STALE_PROMOTION_RECLAIM_MS } from './session-admission-store';
 import { createInstanceInputReceipt } from '../instance/instance-adapter-input-dispatch';
 import { _resetSessionAdmissionServiceForTesting } from './session-admission-service';
@@ -38,6 +39,24 @@ describe('SessionQueueService', () => {
     SessionAdmissionStore._resetForTesting();
     _resetSessionQueueServiceForTesting();
     _resetSessionAdmissionServiceForTesting();
+  });
+
+  it('retains distinct bubble identities through queue validation, persistence and promotion', async () => {
+    const service = getSessionQueueService();
+    for (const userMessageId of ['first-bubble', 'second-bubble']) {
+      const payload = SessionQueueEnqueuePayloadSchema.parse({
+        instanceId: 'i1', message: 'identical request', sourceMetadata: { userMessageId, retryCount: 1 },
+      });
+      await service.enqueueUserMessage({
+        instanceId: payload.instanceId, message: payload.message, sourceMetadata: payload.sourceMetadata,
+      });
+    }
+    _resetSessionQueueServiceForTesting();
+    const rows = (await getSessionQueueService().listQueue('i1'))['i1'];
+    expect(rows.map(row => row.sourceMetadata?.userMessageId)).toEqual(['first-bubble', 'second-bubble']);
+    expect(rows[0].admissionId).not.toBe(rows[1].admissionId);
+    const promoted = await getSessionQueueService().promoteQueuedMessage(rows[0].admissionId);
+    expect(promoted?.sourceMetadata?.userMessageId).toBe('first-bubble');
   });
 
   it('enqueueUserMessage is durable before ack: the row exists (queued) once the promise resolves', async () => {

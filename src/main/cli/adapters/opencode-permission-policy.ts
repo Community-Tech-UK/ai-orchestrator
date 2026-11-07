@@ -41,7 +41,7 @@ export function applyOpenCodePermissionPolicy(base: Record<string, unknown>, yol
   base['agent'] = agents;
 }
 
-function matchesPermission(key: string, action: string, caseSensitive = process.platform !== 'win32'): boolean {
+export function matchesPermission(key: string, action: string, caseSensitive = process.platform !== 'win32'): boolean {
   if (key.length > 256) throw new Error('Unable to enforce native OpenCode doom-loop permission safely.');
   // Match native wildcard syntax; coalesce stars to avoid pathological regex backtracking.
   let pattern = key.replaceAll('\\', '/').replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*+/g, '.*').replace(/\?/g, '.');
@@ -50,8 +50,8 @@ function matchesPermission(key: string, action: string, caseSensitive = process.
 }
 
 /** Verify post-overlay precedence, including managed config and OPENCODE_PERMISSION. */
-export function assertOpenCodePermissionPolicy(effective: Record<string, unknown>, yoloMode = true, cliMajor = 1): void {
-  if (cliMajor >= 2) { assertNativePermissions(effective, yoloMode); return; }
+export function assertOpenCodePermissionPolicy(effective: Record<string, unknown>, yoloMode = true, cliMajor = 1, helpersDenied = false): void {
+  if (cliMajor >= 2) { assertNativePermissions(effective, yoloMode, helpersDenied); return; }
   const globalPermission = openCodeRecord(effective['permission']);
   const agents = openCodeRecord(effective['agent']);
   for (const name of new Set([...NATIVE_AGENTS, ...Object.keys(agents)])) {
@@ -65,7 +65,7 @@ export function assertOpenCodePermissionPolicy(effective: Record<string, unknown
 }
 
 
-function assertNativePermissions(effective: Record<string, unknown>, yoloMode: boolean): void {
+function assertNativePermissions(effective: Record<string, unknown>, yoloMode: boolean, helpersDenied: boolean): void {
   const agents = openCodeRecord(effective['agent']);
   const globalRules = Array.isArray(effective['permissionRules']) ? effective['permissionRules'] : [];
   for (const name of new Set([...NATIVE_AGENTS, ...Object.keys(agents)])) {
@@ -75,6 +75,7 @@ function assertNativePermissions(effective: Record<string, unknown>, yoloMode: b
     // Native Windows action casing is not guaranteed; both interpretations must be safe.
     for (const caseSensitive of process.platform === 'win32' ? [true, false] : [true]) {
       for (const action of yoloMode ? ['doom_loop'] : NATIVE_ASK_PERMISSIONS) {
+        if (action === 'subagent' && helpersDenied) continue; // Checked separately against a universal deny.
         const matching = rules.filter((rule) => typeof rule['action'] === 'string' && matchesPermission(rule['action'], action, caseSensitive));
         const universal = matching.reduce((last, rule, index) => rule['resource'] === '*' ? index : last, -1);
         if (universal < 0 || matching[universal]?.['effect'] !== 'ask'

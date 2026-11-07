@@ -11,7 +11,7 @@
 
 import { getLogger } from '../logging/logger';
 import type { SqliteDriver } from '../db/sqlite-driver';
-import { DEFAULT_PLAN_QUEUE_CONFIG } from '@contracts/schemas/plan-queue';
+import { DEFAULT_PLAN_QUEUE_CONFIG, PlanQueueRoundActivitySchema } from '@contracts/schemas/plan-queue';
 import type {
   PlanQueueItemState,
   PlanQueueKind,
@@ -50,6 +50,7 @@ interface RunRow {
 
 interface ItemRow {
   unpriced_tokens: number;
+  round_activity_json: string | null;
   held_at: number | null;
   pending_instruction: string | null;
   tokens: number; cost_usd: number; exact_cost_usd: number;
@@ -284,8 +285,8 @@ export class PlanQueueStore {
         base_commit, checkpoint_commit, verified_main_commit, landed_commit,
         worker_instance_id, verifier_instance_id, question_json, answer, park_reason, detail,
         verdict_json, created_at, updated_at, held_at, pending_instruction, worker_provider, worker_model, stepped_up_at, worker_session_json, livetest_port, base_conflicts, discarded_at, discarded_by, discard_ref_expires_at,
-        landing_wait_since, landing_wait_paths, landing_automatic, worker_report_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        landing_wait_since, landing_wait_paths, landing_automatic, worker_report_json, round_activity_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         state                = excluded.state,
         round                = excluded.round,
@@ -319,6 +320,7 @@ export class PlanQueueStore {
         discarded_by         = excluded.discarded_by,
         discard_ref_expires_at = excluded.discard_ref_expires_at,
         worker_report_json   = excluded.worker_report_json,
+        round_activity_json  = excluded.round_activity_json,
         updated_at           = excluded.updated_at
     `).run(
       item.id,
@@ -359,6 +361,7 @@ export class PlanQueueStore {
       item.state === 'landing' && item.landingWaitPaths?.length ? JSON.stringify(item.landingWaitPaths) : null,
       item.state === 'landing' && item.landingAutomatic ? 1 : 0,
       item.workerReport ? JSON.stringify(item.workerReport) : null,
+      item.roundActivity ? JSON.stringify(item.roundActivity) : null,
     );
   }
 
@@ -566,6 +569,20 @@ function rowToRun(row: RunRow): PlanQueueRun {
 }
 
 const invalidWorkerSessions = new Set<string>();
+const invalidRoundActivity = new Set<string>();
+/** A damaged measurement must not break every queue read; it simply counts as no activity. */
+function readRoundActivity(row: ItemRow): NonNullable<PlanQueueItem['roundActivity']> {
+  if (!row.round_activity_json) return [];
+  try { return PlanQueueRoundActivitySchema.array().max(100).parse(JSON.parse(row.round_activity_json)); }
+  catch {
+    if (!invalidRoundActivity.has(row.id)) {
+      invalidRoundActivity.add(row.id);
+      getLogger('PlanQueueStore').warn('Invalid round activity record', { itemId: row.id });
+    }
+    return [];
+  }
+}
+
 function readWorkerSession(row: ItemRow): PlanQueueItem['workerSession'] {
   if (!row.worker_session_json) return undefined;
   try {
@@ -587,6 +604,7 @@ function readWorkerSession(row: ItemRow): PlanQueueItem['workerSession'] {
 
 function rowToItem(row: ItemRow): PlanQueueItem {
   return {
+    roundActivity: readRoundActivity(row),
     ...(row.tokens || row.cost_usd || row.exact_cost_usd ? { spend: { tokens: row.tokens, costUsd: row.cost_usd, exactUsd: row.exact_cost_usd, ...(row.unpriced_tokens ? { unpricedTokens: row.unpriced_tokens } : {}) } } : {}),
     workerSession: readWorkerSession(row),
     ...(row.livetest_port === null || row.livetest_port === undefined ? {} : { livetestPort: row.livetest_port }),

@@ -1,4 +1,5 @@
 /** Project-grouped session rail. */
+import { groupSessionCopyActions } from './session-menu-groups';
 import { NgTemplateOutlet } from '@angular/common';
 import {
   ChangeDetectionStrategy,
@@ -614,7 +615,7 @@ export class InstanceListComponent implements OnDestroy {
       action: () => this.onTerminateInstance(instance.id),
     });
 
-    return items;
+    return groupSessionCopyActions(items);
   }
 
   private buildHistoryContextMenuItems(entry: ConversationHistoryEntry): ContextMenuItem[] {

@@ -107,7 +107,16 @@ export function queueQuietTurnNudge(
   iteration: LoopIteration,
   ledger: IdleNudgeLedgerView,
 ): boolean {
-  if (maybeQueueStepLimitContinuation(state, iteration)) return true;
-  if (maybeQueueAnnounceThenHaltContinuation(state, iteration)) return true;
-  return maybeQueueIdleNotDoneNudge(state, iteration, ledger);
+  const queued = maybeQueueStepLimitContinuation(state, iteration)
+    || maybeQueueAnnounceThenHaltContinuation(state, iteration)
+    || maybeQueueIdleNotDoneNudge(state, iteration, ledger);
+  if (!queued) return false;
+  const input = state.pendingInterventions.at(-1);
+  if (input && (input.source === 'step-limit' || input.source === 'announce-then-halt' || input.source === 'idle-nudge')) {
+    state.nudgeReceipts = [...(state.nudgeReceipts ?? []), {
+      id: input.id, source: input.source, openItems: ledger.openLeaves,
+      at: input.enqueuedAt, message: input.message, seq: iteration.seq,
+    }].slice(-32);
+  }
+  return true;
 }

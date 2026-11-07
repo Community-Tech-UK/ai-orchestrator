@@ -8,6 +8,7 @@ export function scorecardLines(card: LoopScorecard): string[] {
     `Exact from the provider: ${formatMoneyRate(card.knownCents, card.costCents)}`,
     ...(estimatedCalls ? [`${estimatedCalls} recorded call(s) use estimated costs; an estimate can round to zero cents`] : []),
     `Rounds after the task list was already finished: ${card.roundsAfterLedgerClosed} of ${card.rounds}`,
+    ...(card.statusOnlyTurns !== undefined ? [`Status-only turns: ${card.statusOnlyTurns} of ${card.activityRecordedRounds ?? 0} with recorded activity (no tools and at most 400 characters)`] : []),
     `Rounds that hit the step limit: ${card.stepLimitedRounds} of ${card.recordedStopRounds} with a recorded reason`,
     `Tokens per finished task: ${formatMean(card.tokens, card.finishedTasks ?? 0, 'tokens per task')}`,
     `Median instruction size: ${card.medianPromptBytes === null ? '-' : `${card.medianPromptBytes.toLocaleString('en-US')} bytes`}`,

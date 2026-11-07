@@ -1,4 +1,11 @@
 import { z } from 'zod';
+export const AppBuildInfoSchema = z.object({
+  version: z.string(), dataFolder: z.string(),
+  builtAt: z.string().nullable(), branch: z.string().nullable(),
+  commit: z.string().nullable(), dirty: z.boolean().nullable(),
+  migrations: z.array(z.object({ name: z.string(), level: z.string().nullable() })).default([]),
+}).strict();
+export type AppBuildInfo = z.infer<typeof AppBuildInfoSchema>;
 import {
   FilePathSchema,
   DirectoryPathSchema,

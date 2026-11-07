@@ -24,6 +24,7 @@ export const SessionAdmissionsListPayloadSchema = z.object({
 const AdmissionIdSchema = z.string().min(1).max(200);
 
 const QueueSourceMetadataSchema = z.object({
+  userMessageId: z.string().min(1).max(200).optional(),
   hadAttachmentsDropped: z.boolean().optional(),
   kind: z.enum(['queue', 'steer']).optional(),
   retryCount: z.number().int().min(0).max(1000).optional(),

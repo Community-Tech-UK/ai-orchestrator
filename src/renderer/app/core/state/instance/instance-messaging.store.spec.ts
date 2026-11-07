@@ -103,6 +103,36 @@ describe('InstanceMessagingStore', () => {
     stateService = undefined;
   });
 
+  it('keeps one bubble identity from a busy queue through a known-refusal retry', async () => {
+    stateService!.addInstance(createInstance({ status: 'busy' }));
+    ipcMock.sendInput.mockResolvedValueOnce({ success: false, error: { message: 'Cannot send while compacting' } })
+      .mockResolvedValue({ success: true });
+    await store!.sendInput('inst-1', 'same request');
+    await store!.sendInput('inst-1', 'same request');
+    const [first, second] = store!.getMessageQueue('inst-1');
+    expect(first.userMessageId).toEqual(expect.any(String));
+    expect(second.userMessageId).toEqual(expect.any(String));
+    expect(first.userMessageId).not.toBe(second.userMessageId);
+    stateService!.updateInstance('inst-1', { status: 'idle' });
+    store!.processMessageQueue('inst-1');
+    await vi.advanceTimersByTimeAsync(150);
+    expect(ipcMock.sendInput).toHaveBeenNthCalledWith(1, 'inst-1', first.message, undefined, false, true, undefined, undefined, first.userMessageId);
+    expect(store!.getMessageQueue('inst-1')[0]).toMatchObject({ retryCount: 1, userMessageId: first.userMessageId });
+    await vi.advanceTimersByTimeAsync(16_000);
+    expect(ipcMock.sendInput).toHaveBeenNthCalledWith(2, 'inst-1', first.message, undefined, true, true, undefined, undefined, first.userMessageId);
+    expect(ipcMock.sendInput).toHaveBeenCalledTimes(2);
+    expect(store!.getMessageQueue('inst-1')).toEqual([second]);
+  });
+
+  it.each(['Delivery uncertain', 'disconnected after dispatch'])('never replays an ambiguous send: %s', async errorMessage => {
+    stateService!.addInstance(createInstance());
+    ipcMock.sendInput.mockResolvedValue({ success: false, error: { message: errorMessage } });
+    await store!.sendInput('inst-1', 'uncertain request');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(ipcMock.sendInput).toHaveBeenCalledTimes(1);
+    expect(store!.getMessageQueue('inst-1')).toEqual([]);
+  });
+
   it('queues and wakes instead of sending into a hibernated session', async () => {
     const currentStore = store!;
     const currentStateService = stateService!;
@@ -137,7 +167,7 @@ describe('InstanceMessagingStore', () => {
       store!.processReadyHandoff('inst-1', 'admission', 1),
     ]);
     expect(promote).toHaveBeenCalledTimes(1);
-    expect(ipcMock.sendInput).toHaveBeenCalledExactlyOnceWith('inst-1', entry.message, undefined, false, true, 'admission');
+    expect(ipcMock.sendInput).toHaveBeenCalledExactlyOnceWith('inst-1', entry.message, undefined, false, true, 'admission', undefined, expect.any(String));
     expect(store!.getMessageQueue('inst-1')).toEqual([]);
     expect(stateService!.getInstance('inst-1')?.status).toBe('busy');
   });
@@ -186,7 +216,7 @@ describe('InstanceMessagingStore', () => {
     stateService!.updateInstance('inst-1', { status: 'idle' });
     store!.processMessageQueue('inst-1');
     await vi.advanceTimersByTimeAsync(150);
-    expect(ipcMock.sendInput).toHaveBeenLastCalledWith('inst-1', entry.message, undefined, true, true, 'retry-promotion');
+    expect(ipcMock.sendInput).toHaveBeenLastCalledWith('inst-1', entry.message, undefined, true, true, 'retry-promotion', undefined, entry.userMessageId);
     expect(store!.getMessageQueue('inst-1')).toEqual([]);
   });
 
@@ -327,7 +357,7 @@ describe('InstanceMessagingStore', () => {
     expect(ipcMock.sendInput).toHaveBeenCalledTimes(1);
     expect(currentStateService.getInstance('inst-1')?.status).toBe('respawning');
     expect(currentStore.getMessageQueue('inst-1')).toEqual([
-      { message: 'retry me', files: undefined, retryCount: 1, retryAfterAt: expect.any(Number) },
+      { message: 'retry me', files: undefined, retryCount: 1, retryAfterAt: expect.any(Number), userMessageId: expect.any(String) },
     ]);
 
     currentStateService.updateInstance('inst-1', { status: 'idle' });
@@ -353,7 +383,7 @@ describe('InstanceMessagingStore', () => {
     expect(ipcMock.sendInput).toHaveBeenCalledTimes(1);
     expect(currentStateService.getInstance('inst-1')?.status).toBe('busy');
     expect(currentStore.getMessageQueue('inst-1')).toEqual([
-      { message: 'continue', files: undefined, retryCount: 1, retryAfterAt: expect.any(Number) },
+      { message: 'continue', files: undefined, retryCount: 1, retryAfterAt: expect.any(Number), userMessageId: expect.any(String) },
     ]);
   });
 
@@ -374,7 +404,7 @@ describe('InstanceMessagingStore', () => {
     expect(ipcMock.sendInput).toHaveBeenCalledTimes(1);
     expect(currentStateService.getInstance('inst-1')?.status).toBe('busy');
     expect(currentStore.getMessageQueue('inst-1')).toEqual([
-      { message: 'continue', files: undefined, retryCount: 1, retryAfterAt: expect.any(Number) },
+      { message: 'continue', files: undefined, retryCount: 1, retryAfterAt: expect.any(Number), userMessageId: expect.any(String) },
     ]);
   });
 
@@ -600,7 +630,7 @@ describe('InstanceMessagingStore', () => {
     const instance = currentStateService.getInstance('inst-1');
     expect(instance?.restoreMode).toBeUndefined();
     expect(instance?.recoveryMethod).toBeUndefined();
-    expect(ipcMock.sendInput).toHaveBeenCalledWith('inst-1', 'continue', undefined, false);
+    expect(ipcMock.sendInput).toHaveBeenCalledWith('inst-1', 'continue', undefined, false, false, undefined, undefined, expect.any(String));
   });
 
   it('routes sends from a superseded edit source to its replacement instance', async () => {
@@ -624,7 +654,7 @@ describe('InstanceMessagingStore', () => {
       'replacement-1',
       'Continue seamlessly',
       undefined,
-      false
+      false, false, undefined, undefined, expect.any(String)
     );
     expect(currentStateService.getInstance('source-1')?.outputBuffer).toEqual([]);
   });
@@ -640,14 +670,14 @@ describe('InstanceMessagingStore', () => {
     expect(listStoreMock.restartInstance).toHaveBeenCalledWith('inst-1');
     expect(ipcMock.sendInput).not.toHaveBeenCalled();
     expect(currentStore.getMessageQueue('inst-1')).toEqual([
-      { message: 'continue here', files: undefined },
+      { message: 'continue here', files: undefined, userMessageId: expect.any(String) },
     ]);
 
     currentStateService.updateInstance('inst-1', { status: 'idle' });
     currentStore.processMessageQueue('inst-1');
     await vi.advanceTimersByTimeAsync(150);
 
-    expect(ipcMock.sendInput).toHaveBeenCalledWith('inst-1', 'continue here', undefined, false, true);
+    expect(ipcMock.sendInput).toHaveBeenCalledWith('inst-1', 'continue here', undefined, false, true, undefined, undefined, expect.any(String));
     expect(currentStore.getQueuedMessageCount('inst-1')).toBe(0);
   });
 
@@ -738,7 +768,7 @@ describe('InstanceMessagingStore', () => {
     expect(ipcMock.steerInput).toHaveBeenCalledWith('inst-1', 'stop and do this', undefined);
     expect(listStoreMock.interruptInstance).not.toHaveBeenCalled();
     expect(currentStore.getMessageQueue('inst-1')).toEqual([
-      { message: 'later', files: undefined },
+      { message: 'later', files: undefined, userMessageId: expect.any(String) },
     ]);
   });
 
@@ -755,8 +785,8 @@ describe('InstanceMessagingStore', () => {
     expect(listStoreMock.interruptInstance).toHaveBeenCalledTimes(1);
     expect(listStoreMock.interruptInstance).toHaveBeenCalledWith('inst-1');
     expect(currentStore.getMessageQueue('inst-1')).toEqual([
-      { message: 'second passive', files: undefined, kind: 'steer' },
-      { message: 'first passive', files: undefined },
+      { message: 'second passive', files: undefined, kind: 'steer', userMessageId: expect.any(String) },
+      { message: 'first passive', files: undefined, userMessageId: expect.any(String) },
     ]);
   });
 
@@ -772,8 +802,8 @@ describe('InstanceMessagingStore', () => {
       stateService!.updateInstance('inst-1', { status: 'idle' });
       await currentStore.sendInput('inst-1', 'Cross-model review flagged concerns');
 
-      expect(ipcMock.sendInput).toHaveBeenNthCalledWith(1, 'inst-1', 'land it anyway', undefined, false, false, undefined, person);
-      expect(ipcMock.sendInput).toHaveBeenNthCalledWith(2, 'inst-1', 'Cross-model review flagged concerns', undefined, false);
+      expect(ipcMock.sendInput).toHaveBeenNthCalledWith(1, 'inst-1', 'land it anyway', undefined, false, false, undefined, person, expect.any(String));
+      expect(ipcMock.sendInput).toHaveBeenNthCalledWith(2, 'inst-1', 'Cross-model review flagged concerns', undefined, false, false, undefined, undefined, expect.any(String));
     });
 
     it('records the time the person typed, not the time the queued message is sent', async () => {
@@ -806,7 +836,7 @@ describe('InstanceMessagingStore', () => {
       await vi.advanceTimersByTimeAsync(150);
 
       // A drained entry still goes out as automated input (it is not a fresh submission), now with the mark.
-      expect(ipcMock.sendInput).toHaveBeenCalledWith('inst-1', 'typed while busy', undefined, false, true, undefined, person);
+      expect(ipcMock.sendInput).toHaveBeenCalledWith('inst-1', 'typed while busy', undefined, false, true, undefined, person, expect.any(String));
     });
 
     it('does not mark a queued app-built message, and a re-queued retry keeps its mark', async () => {
@@ -816,7 +846,7 @@ describe('InstanceMessagingStore', () => {
       expect(currentStore.getMessageQueue('inst-1')[0].origin).toBeUndefined();
       currentStore.clearMessageQueue('inst-1');
 
-      ipcMock.sendInput.mockResolvedValueOnce({ success: false, error: { message: 'Instance is busy' } });
+      ipcMock.sendInput.mockResolvedValueOnce({ success: false, error: { message: 'Instance is not ready' } });
       ipcMock.sendInput.mockResolvedValue({ success: true });
       await currentStore.sendInput('inst-1', 'typed', undefined, { typedByPerson: true });
       stateService!.updateInstance('inst-1', { status: 'idle' });
@@ -902,7 +932,7 @@ describe('InstanceMessagingStore', () => {
 
     expect(listStoreMock.interruptInstance).not.toHaveBeenCalled();
     expect(currentStore.getMessageQueue('inst-1')).toEqual([
-      { message: 'new direction', files: undefined, kind: 'steer' },
+      { message: 'new direction', files: undefined, kind: 'steer', userMessageId: expect.any(String) },
     ]);
   });
 
@@ -1073,7 +1103,7 @@ describe('InstanceMessagingStore', () => {
 
       expect(ipcMock.sendInput).not.toHaveBeenCalled();
       expect(currentStore.getMessageQueue('inst-1')).toEqual([
-        { message: 'are you there?', files: undefined },
+        { message: 'are you there?', files: undefined, userMessageId: expect.any(String) },
       ]);
     });
 
@@ -1223,7 +1253,7 @@ describe('InstanceMessagingStore — durable queue wiring (WS-A1 Phase B)', () =
     queuePersistenceMock.getAdmissionId.mockReturnValueOnce('original-admission');
     store!.processMessageQueue('inst-1'); store!.processMessageQueue('inst-1');
     await vi.advanceTimersByTimeAsync(150);
-    expect(ipcMock.sendInput).toHaveBeenCalledExactlyOnceWith('inst-1', entry.message, undefined, false, true, 'original-admission');
+    expect(ipcMock.sendInput).toHaveBeenCalledExactlyOnceWith('inst-1', entry.message, undefined, false, true, 'original-admission', undefined, expect.any(String));
     expect(queuePersistenceMock.finishSend).toHaveBeenCalledExactlyOnceWith('inst-1', entry, true);
   });
 

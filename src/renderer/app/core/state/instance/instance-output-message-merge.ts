@@ -28,7 +28,13 @@ export function appendInstanceOutputMessage(buffer: OutputMessage[], message: Ou
     return;
   }
   if (message.type === 'user') {
-    if (userIds.has(message.id)) return;
+    if (userIds.has(message.id)) {
+      const index = buffer.findIndex(previous => previous.id === message.id);
+      if (index >= 0 && typeof message.metadata?.['deliveryState'] === 'string') {
+        buffer[index] = { ...buffer[index], metadata: { ...buffer[index].metadata, ...message.metadata } };
+      }
+      return;
+    }
     userIds.add(message.id);
   }
   buffer.push(message);

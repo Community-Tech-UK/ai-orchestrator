@@ -7,6 +7,7 @@ export const INFRASTRUCTURE_CHANNELS = {
   // App operations
   APP_READY: 'app:ready',
   APP_GET_VERSION: 'app:get-version',
+  APP_GET_BUILD_INFO: 'app:get-build-info',
   APP_GET_STARTUP_CAPABILITIES: 'app:get-startup-capabilities',
   APP_STARTUP_CAPABILITIES: 'app:startup-capabilities',
   APP_GET_KEEP_AWAKE_STATE: 'app:get-keep-awake-state',

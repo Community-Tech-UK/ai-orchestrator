@@ -26,11 +26,13 @@ import { CACHE_MISS_ADVICE, LONG_CONTEXT_ADVICE } from '../../../../shared/usage
  */
 const CODEX_PRICE_LINE_TOKENS = 272_000;
 const CODEX_PRICE_LINE_NOTE = '272K tokens. Requests above this cost double.';
+import { SessionFactsComponent } from './session-facts.component';
+import { SessionWakeupsComponent } from './session-wakeups.component';
 
 @Component({
   selector: 'app-context-bar',
   standalone: true,
-  imports: [DecimalPipe, ContextEvidencePanelComponent, ContextAttributionPanelComponent, AioTooltipDirective],
+  imports: [DecimalPipe, ContextEvidencePanelComponent, ContextAttributionPanelComponent, AioTooltipDirective, SessionFactsComponent, SessionWakeupsComponent],
   template: `
     <div class="context-bar" [class.compact]="compact()">
       <div class="bar-meter">
@@ -114,8 +116,10 @@ const CODEX_PRICE_LINE_NOTE = '272K tokens. Requests above this cost double.';
       }
     </div>
 
+    @if (instanceId()) { <app-session-wakeups [instanceId]="instanceId()!" /> }
     @if (attributionPanelOpen()) {
       @if (instanceId(); as id) {
+        <app-session-facts [instanceId]="id" />
         <app-context-attribution-panel [instanceId]="id" />
       }
     }

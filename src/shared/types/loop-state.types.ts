@@ -472,6 +472,8 @@ export interface LoopState {
   latestFinalAudit?: LoopFinalAuditResult;
   phaseRecovery?: Record<string, LoopPhaseRecoveryState>;
   pendingInterventions: LoopPendingInput[];
+  /** Bounded automatic-nudge history retained after pending input is drained. */
+  nudgeReceipts?: { id: string; source: 'step-limit' | 'announce-then-halt' | 'idle-nudge'; openItems: number; at: number; message: string; seq: number }[];
   loopControl?: LoopControlMetadata;
   inFlightIteration?: LoopInFlightIteration;
   terminalIntentPending?: LoopTerminalIntent;

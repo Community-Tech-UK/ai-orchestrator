@@ -424,6 +424,38 @@ describe('QueuePersistenceService', () => {
     beforeEach(() => {
       settingsValues['persistSessionContent'] = true;
     });
+    it('persists and restores the original bubble id separately from the durable admission id', async () => {
+      const service = TestBed.inject(QueuePersistenceService);
+      const entry: QueuedMessage = { message: 'retry after reload', userMessageId: 'original-bubble', retryCount: 1 };
+      await service.notifyEnqueued('inst-1', entry, 'front');
+      expect(ipcMock.queueEnqueue).toHaveBeenCalledWith('inst-1', expect.objectContaining({
+        sourceMetadata: expect.objectContaining({ userMessageId: 'original-bubble', retryCount: 1 }),
+      }));
+      ipcMock.queueList.mockResolvedValue({ success: true, data: { queues: { 'inst-1': [{
+        admissionId: 'retry-row', instanceId: 'inst-1', message: entry.message, attachments: [], attachmentsDropped: false,
+        contextBlock: null, queuePosition: 0, state: 'queued', sourceMetadata: { userMessageId: entry.userMessageId, retryCount: 1 },
+        createdAt: 1, updatedAt: 1,
+      }] } } });
+      await service.restoreFromDisk();
+      const restored = queueSignal().get('inst-1')![0];
+      expect(restored).toMatchObject({ userMessageId: 'original-bubble', retryCount: 1 });
+      expect(service.getAdmissionId(restored)).toBe('retry-row');
+    });
+
+    it('loads old persisted queue rows without inventing an association to an existing bubble', async () => {
+      ipcMock.queueList.mockResolvedValue({ success: true, data: { queues: { 'inst-1': [{
+        admissionId: 'old-row', instanceId: 'inst-1', message: 'old queued request', attachments: [], attachmentsDropped: false,
+        contextBlock: null, queuePosition: 0, state: 'queued', sourceMetadata: { retryCount: 1, seededAlready: true },
+        createdAt: 1, updatedAt: 1,
+      }] } } });
+      const service = TestBed.inject(QueuePersistenceService);
+      await service.restoreFromDisk();
+      const restored = queueSignal().get('inst-1')![0];
+      expect(restored).toMatchObject({ message: 'old queued request', retryCount: 1, seededAlready: true });
+      expect(restored.userMessageId).toBeUndefined();
+      expect(service.getAdmissionId(restored)).toBe('old-row');
+    });
+
     it('merges a held initial prompt once, retaining its attachment and durable identity', async () => {
       settingsValues['pauseFeatureEnabled'] = false;
       ipcMock.queueList.mockResolvedValue({ success: true, data: { queues: { 'inst-1': [{

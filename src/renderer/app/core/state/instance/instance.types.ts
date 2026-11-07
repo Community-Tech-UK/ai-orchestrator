@@ -270,6 +270,8 @@ export interface InstanceStoreState {
 // ============================================
 
 export interface QueuedMessage {
+  /** Original OutputMessage.id, retained across queue waits and safe retries. */
+  userMessageId?: string;
   message: string;
   files?: File[];
   retryCount?: number;

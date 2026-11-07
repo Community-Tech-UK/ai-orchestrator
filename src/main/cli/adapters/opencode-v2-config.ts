@@ -114,6 +114,9 @@ function mapAgent(agent: Record<string, unknown>): Record<string, unknown> {
 }
 
 function mergeInfo(target: Record<string, unknown>, info: Record<string, unknown>): void {
+  for (const key of ['tool_output', 'compaction']) {
+    if (isRecord(info[key])) target[key] = { ...openCodeRecord(target[key]), ...info[key] };
+  }
   const model = modelRef(info['model']);
   if (model !== undefined) target['model'] = model;
   const incomingAgents = openCodeRecord(info['agent'] ?? info['agents']);

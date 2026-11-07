@@ -871,6 +871,8 @@ import { InstanceManager } from '../instance-manager';
 import { getContextEngine } from '../../context/context-engine';
 import { getHarnessGuidance } from '../../orchestration/harness-guidance';
 import { SCHEDULING_RULES_REPEAT_LINE } from '../../orchestration/orchestration-protocol.prompts';
+import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
+import { createInstanceInputReceipt } from '../instance-adapter-input-dispatch';
 import { getInstanceProviderLimitHandler } from '../instance-provider-limit-handler';
 import { getAccountFailoverCoordinator, type AccountFailoverDeps } from '../../providers/account-pool/account-failover-coordinator';
 import { buildReplayContinuityMessage } from '../../session/replay-continuity';
@@ -1484,6 +1486,82 @@ describe('InstanceManager', () => {
         expect(repeats[0][1]).toMatchObject({ path: 'later-turn', added: [], repeated: ['scheduling'] });
       } finally { guidance._resetForTesting(); }
     });
+    it('updates the original bubble after a known-refusal retry receives native acceptance', async () => {
+      const instance = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+      await instance.readyPromise;
+      const communication = (manager as unknown as { communication: import('../instance-communication').InstanceCommunicationManager }).communication;
+      const send = vi.spyOn(communication, 'sendInput')
+        .mockRejectedValueOnce(new Error('Cannot send while compacting'))
+        .mockImplementationOnce(async () => {
+          const receipt = createInstanceInputReceipt(instance.id, () => ({ message: 'same request' }));
+          receipt.record(); receipt.delivered();
+        });
+      const identity = { isRetry: false, userMessageId: 'logical-send-first' };
+      const published: ProviderRuntimeEventEnvelope[] = [];
+      manager.on('provider:normalized-event', event => published.push(event));
+      try {
+        await expect(manager.sendInput(instance.id, 'same request', undefined, identity)).rejects.toThrow('Cannot send while compacting');
+        const original = instance.outputBuffer.find(output => output.type === 'user')!;
+        expect(original.metadata?.['deliveryState']).toBe('not-accepted');
+        const timestamp = original.timestamp;
+        original.metadata = { ...original.metadata, fixtureMetadata: 'preserve' };
+        await manager.sendInput(instance.id, 'same request', undefined, { ...identity, isRetry: true });
+        expect(original.metadata?.['deliveryState']).toBe('accepted');
+        expect(original.metadata?.['fixtureMetadata']).toBe('preserve');
+        expect(published.at(-1)?.event).toMatchObject({ kind: 'output', messageId: identity.userMessageId,
+          metadata: { deliveryState: 'accepted', fixtureMetadata: 'preserve' } });
+        expect(instance.outputBuffer.filter(output => output.type === 'user')).toEqual([original]);
+        expect(original.id).toBe(identity.userMessageId);
+        expect(original.timestamp).toBe(timestamp);
+        expect(send).toHaveBeenCalledTimes(2);
+      } finally { send.mockRestore(); }
+    });
+
+    it('keeps concurrent identical logical sends separate when only one retry is accepted', async () => {
+      const instance = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+      await instance.readyPromise;
+      const communication = (manager as unknown as { communication: import('../instance-communication').InstanceCommunicationManager }).communication;
+      const send = vi.spyOn(communication, 'sendInput').mockRejectedValue(new Error('Cannot send while compacting'));
+      const first = { userMessageId: 'logical-send-first', isRetry: false };
+      const second = { userMessageId: 'logical-send-second', isRetry: false };
+      try {
+        await Promise.all([
+          expect(manager.sendInput(instance.id, 'identical request', undefined, first)).rejects.toThrow('Cannot send while compacting'),
+          expect(manager.sendInput(instance.id, 'identical request', undefined, second)).rejects.toThrow('Cannot send while compacting'),
+        ]);
+        const originals = instance.outputBuffer.filter(output => output.type === 'user');
+        expect(originals.map(output => output.id).sort()).toEqual([first.userMessageId, second.userMessageId]);
+        send.mockImplementationOnce(async () => {
+          const receipt = createInstanceInputReceipt(instance.id, () => ({ message: 'identical request' }));
+          receipt.record(); receipt.delivered();
+        });
+        await manager.sendInput(instance.id, 'identical request', undefined, { ...first, isRetry: true });
+        expect(originals.find(output => output.id === first.userMessageId)?.metadata?.['deliveryState']).toBe('accepted');
+        expect(originals.find(output => output.id === second.userMessageId)?.metadata?.['deliveryState']).toBe('not-accepted');
+        send.mockRejectedValueOnce(new Error('Delivery uncertain'));
+        await expect(manager.sendInput(instance.id, 'identical request', undefined, { ...second, isRetry: true })).rejects.toThrow('Delivery uncertain');
+        expect(originals.find(output => output.id === first.userMessageId)?.metadata?.['deliveryState']).toBe('accepted');
+        expect(originals.find(output => output.id === second.userMessageId)?.metadata?.['deliveryState']).toBe('uncertain');
+        expect(instance.outputBuffer.filter(output => output.type === 'user')).toEqual(originals);
+      } finally { send.mockRestore(); }
+    });
+
+    it('publishes one identified bubble when an earlier refusal happened before bubble creation', async () => {
+      const instance = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+      await instance.readyPromise;
+      const communication = (manager as unknown as { communication: import('../instance-communication').InstanceCommunicationManager }).communication;
+      const send = vi.spyOn(communication, 'sendInput').mockImplementationOnce(async () => {
+        const receipt = createInstanceInputReceipt(instance.id, () => ({ message: 'held during initialization' }));
+        receipt.record(); receipt.delivered();
+      });
+      try {
+        await manager.sendInput(instance.id, 'held during initialization', undefined, { userMessageId: 'logical-held-send', isRetry: true });
+        expect(instance.outputBuffer.filter(output => output.type === 'user')).toEqual([
+          expect.objectContaining({ id: 'logical-held-send', metadata: expect.objectContaining({ deliveryState: 'accepted' }) }),
+        ]);
+      } finally { send.mockRestore(); }
+    });
+
     it('forwards the repeatable native owner fence through the real manager preparation path', async () => {
       const instance = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
       await instance.readyPromise;

@@ -1,10 +1,16 @@
+import { generateId } from '../../../../../shared/utils/id-generator';
 import type { Instance, InstanceStatus, QueuedMessage } from './instance.types';
 import type { FileAttachment } from '../../../../../shared/types/instance.types';
 import type { PersonInputOrigin } from '../../../../../shared/types/input-provenance.types';
 import { validateAttachmentCount } from './instance-attachments';
 import type { InstanceStateService } from './instance-state.service';
 
-export type QueuedMetadata = Pick<QueuedMessage, 'kind' | 'hadAttachmentsDropped' | 'seededAlready' | 'origin'>;
+export type QueuedMetadata = Pick<QueuedMessage, 'kind' | 'hadAttachmentsDropped' | 'seededAlready' | 'origin' | 'userMessageId'>;
+
+/** Old seeded/retried records have no safe bubble association; never guess one. */
+export function ensureQueuedMessageIdentity(entry: Pick<QueuedMessage, 'userMessageId' | 'seededAlready' | 'retryCount'>): void {
+  if (!entry.seededAlready && !entry.retryCount) entry.userMessageId ??= generateId();
+}
 
 export interface SendInputImmediateOptions {
   /** Original queued object retains its promotion ownership if Pause wins. */
@@ -22,6 +28,7 @@ export interface SendInputImmediateOptions {
 
 /** Append to the back of an instance's queue. Extracted so InstanceMessagingStore stays under its LOC ratchet. */
 export function enqueueToQueue(stateService: InstanceStateService, instanceId: string, queuedMessage: QueuedMessage): void {
+  ensureQueuedMessageIdentity(queuedMessage);
   stateService.messageQueue.update((currentMap) => {
     const newMap = new Map(currentMap);
     const queue = newMap.get(instanceId) || [];
@@ -32,6 +39,7 @@ export function enqueueToQueue(stateService: InstanceStateService, instanceId: s
 
 /** Prepend to the front of an instance's queue (pause-front-of-line, retry-requeue, terminal-restart). */
 export function enqueueToQueueFront(stateService: InstanceStateService, instanceId: string, queuedMessage: QueuedMessage): void {
+  ensureQueuedMessageIdentity(queuedMessage);
   stateService.messageQueue.update((currentMap) => {
     const newMap = new Map(currentMap);
     const queue = newMap.get(instanceId) || [];
@@ -42,6 +50,7 @@ export function enqueueToQueueFront(stateService: InstanceStateService, instance
 
 /** Insert after any existing steer messages but before the first passive-queue message. */
 export function enqueueSteerToQueue(stateService: InstanceStateService, instanceId: string, queuedMessage: QueuedMessage): void {
+  ensureQueuedMessageIdentity(queuedMessage);
   stateService.messageQueue.update((currentMap) => {
     const newMap = new Map(currentMap);
     const queue = newMap.get(instanceId) || [];
@@ -160,6 +169,7 @@ export function resolveMessageTarget(
 
 export function createQueuedMetadata(
   options: SendInputImmediateOptions,
+  retryCount: number,
 ): QueuedMetadata {
   const metadata: QueuedMetadata = {};
 
@@ -177,6 +187,10 @@ export function createQueuedMetadata(
     metadata.origin = origin;
   }
 
+  if (options.queuedEntry?.userMessageId) metadata.userMessageId = options.queuedEntry.userMessageId;
+  else if (options.queuedMetadata?.userMessageId) metadata.userMessageId = options.queuedMetadata.userMessageId;
+  if (retryCount === 0) ensureQueuedMessageIdentity(metadata);
+  if (options.queuedEntry && metadata.userMessageId) options.queuedEntry.userMessageId = metadata.userMessageId;
   return metadata;
 }
 
@@ -185,6 +199,7 @@ export function pickQueuedMetadata(
 ): QueuedMetadata {
   const metadata: QueuedMetadata = {};
 
+  if (message.userMessageId) metadata.userMessageId = message.userMessageId;
   if (message.kind) {
     metadata.kind = message.kind;
   }
@@ -252,7 +267,9 @@ export function ipcTail(
   automatedInput: boolean,
   queuedAdmissionId: string | undefined,
   origin: PersonInputOrigin | undefined,
-): [boolean?, string?, PersonInputOrigin?] {
+  userMessageId?: string,
+): [boolean?, string?, PersonInputOrigin?, string?] {
+  if (userMessageId) return [automatedInput, queuedAdmissionId, origin, userMessageId];
   if (origin) return [automatedInput, queuedAdmissionId, origin];
   if (queuedAdmissionId) return [automatedInput, queuedAdmissionId];
   return automatedInput ? [true] : [];

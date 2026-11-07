@@ -16,6 +16,14 @@ const NonConvergenceReasonSchema = z.enum([
 ]);
 
 export const LoopHealthStateFieldsSchema = z.object({
+  nudgeReceipts: z.array(z.object({
+    id: z.string(),
+    source: z.enum(['step-limit', 'announce-then-halt', 'idle-nudge']),
+    openItems: z.number().int().nonnegative(),
+    at: z.number().int().nonnegative(),
+    message: z.string(),
+    seq: z.number().int().nonnegative(),
+  })).max(32).optional(),
   /** L6: ledger leaves deferred with a named reason; the work is never dropped. */
   parkedLeaves: z.array(z.object({
     id: z.string().min(1),

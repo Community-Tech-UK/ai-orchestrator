@@ -14,6 +14,23 @@ const path = require('path');
 
 const distRoot = path.join(__dirname, '..', 'dist');
 const dirs = ['main', 'preload', 'shared', 'worker-agent'];
+const { execFileSync } = require('node:child_process');
+let provenance = { builtAt: new Date().toISOString(), branch: null, commit: null, dirty: null };
+try {
+  const projectRoot = path.resolve(__dirname, '..');
+  const git = (args) => execFileSync('git', args, { cwd: projectRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  // An exported tree inside some other repository must not be stamped with that repository's commit.
+  if (fs.realpathSync(git(['rev-parse', '--show-toplevel'])) !== fs.realpathSync(projectRoot)) throw new Error('not the project repository');
+  // Untracked files (plans, scratch output) say nothing about the code that was built.
+  provenance = { ...provenance, branch: git(['branch', '--show-current']) || '(detached)', commit: git(['rev-parse', 'HEAD']),
+    dirty: git(['status', '--porcelain', '--untracked-files=no']).length > 0 };
+} catch {
+  console.warn('sync-dist: Git build provenance unavailable');
+}
+for (const root of [distRoot, path.join(distRoot, 'src')]) {
+  fs.mkdirSync(root, { recursive: true });
+  fs.writeFileSync(path.join(root, 'build-info.json'), JSON.stringify(provenance));
+}
 
 // TypeScript does not emit non-code assets. Copy doc-review's self-contained template
 // and portable capture server into the compiled tree before mirroring dist/src/main to

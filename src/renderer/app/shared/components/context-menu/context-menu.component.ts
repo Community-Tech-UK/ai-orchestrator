@@ -1,6 +1,7 @@
 import { AioTooltipDirective } from '../../tooltip/aio-tooltip.directive';
 import {
   Component,
+  signal,
   ChangeDetectionStrategy,
   HostListener,
   DestroyRef,
@@ -26,6 +27,8 @@ export interface ContextMenuItem {
   disabled?: boolean;
   /** Why a lasting blocked action cannot run. */
   disabledReason?: string;
+  /** A folded group: choosing the entry opens or closes its actions instead of running it. */
+  children?: ContextMenuItem[];
   danger?: boolean;
   divider?: boolean;
 }
@@ -51,23 +54,30 @@ export interface ContextMenuItem {
         role="menu"
         (contextmenu)="$event.preventDefault()"
       >
-        @for (item of menuItems(); track item.id ?? item.label) {
-          @if (item.divider) {
+        @for (row of rows(); track row.key) {
+          @let item = row.item;
+          @if (item.divider && !row.child) {
             <div class="context-menu-divider"></div>
           }
           <button
             class="context-menu-item"
+            [class.child]="row.child"
             [class.disabled]="item.disabled || !!item.disabledReason"
             [class.danger]="item.danger"
             [disabled]="item.disabled"
             [appTooltipDisabledReason]="item.disabledReason ?? null"
+            [attr.aria-haspopup]="item.children ? 'true' : null"
+            [attr.aria-expanded]="item.children ? row.key === expandedKey() : null"
             role="menuitem"
-            (click)="onItemClick(item)"
+            (click)="onItemClick(item, row.key)"
           >
             @if (item.icon) {
               <span class="context-menu-icon" aria-hidden="true">{{ item.icon }}</span>
             }
             <span class="context-menu-label">{{ item.label }}</span>
+            @if (item.children) {
+              <span class="context-menu-more" aria-hidden="true">{{ row.key === expandedKey() ? '▾' : '▸' }}</span>
+            }
           </button>
         }
       </div>
@@ -148,6 +158,15 @@ export interface ContextMenuItem {
       color: var(--error-color, #f87171);
     }
 
+    .context-menu-item.child {
+      padding-left: 26px;
+    }
+
+    .context-menu-more {
+      margin-left: auto;
+      font-size: 11px;
+    }
+
     .context-menu-icon {
       width: 16px;
       display: inline-flex;
@@ -185,7 +204,13 @@ export class ContextMenuComponent {
   readonly x = input<number | string | null | undefined>();
   readonly y = input<number | string | null | undefined>();
   readonly visible = input<boolean | string | null | undefined>();
-  protected readonly menuItems = computed(() => this.items() ?? []);
+  protected readonly expandedKey = signal<string | null>(null);
+  /** Top-level entries, with the actions of one opened group listed right after it. */
+  protected readonly rows = computed(() => (this.items() ?? []).flatMap(item => {
+    const key = item.id ?? item.label;
+    return [{ item, key, child: false }, ...(item.children && this.expandedKey() === key
+      ? item.children.map(child => ({ item: child, key: `${key}/${child.id ?? child.label}`, child: true })) : [])];
+  }));
   private readonly menuX = computed(() => this.coerceNumber(this.x()));
   private readonly menuY = computed(() => this.coerceNumber(this.y()));
   protected readonly menuVisible = computed(() => {
@@ -216,6 +241,7 @@ export class ContextMenuComponent {
   }
 
   onOverlayAttach(): void {
+    this.expandedKey.set(null);
     if (this.focusOnOpen()) this.menuButtons()[0]?.focus();
   }
 
@@ -237,7 +263,11 @@ export class ContextMenuComponent {
     if (next >= 0 && buttons[next]) { event.preventDefault(); event.stopImmediatePropagation(); buttons[next].focus(); }
   };
 
-  onItemClick(item: ContextMenuItem): void {
+  onItemClick(item: ContextMenuItem, key: string): void {
+    if (item.children) {
+      this.expandedKey.update(open => (open === key ? null : key));
+      return;
+    }
     if (!item.disabled && !item.disabledReason) {
       this.closed.emit();
       void item.action();

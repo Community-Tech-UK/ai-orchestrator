@@ -40,6 +40,11 @@ import {
 } from './settings-help-system';
 
 export const SETTINGS_TAB_HELP: Record<SettingsTab, HelpEntry> = {
+  'about': { sections: [
+    { kind: 'callout', variant: 'info', heading: 'Running build', body: 'These details identify the running Harness version, the code it was built from, its data folder and the latest database updates.' },
+    { kind: 'steps', heading: 'Reporting a problem', items: ['Select Copy build details.', 'Include the details in your report so the problem can be matched to the running build.'] },
+    { kind: 'callout', variant: 'tip', heading: 'Unverified details', body: 'Unverified means a detail could not be read or has no usable build record. Include that in your report rather than guessing its value.' },
+  ] },
   'general': GENERAL_TAB_HELP,
   'orchestration': ORCHESTRATION_TAB_HELP,
   'cross-session-messaging': CROSS_SESSION_MESSAGING_TAB_HELP,

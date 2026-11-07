@@ -110,6 +110,26 @@ describe('ContextMenuComponent', () => {
     expect(overlay.flexibleDimensions).toBe(false);
     expect(overlay.push).toBe(true);
   });
+  it('folds a group: its actions appear when opened and choosing one runs it and closes the menu', () => {
+    const copyId = vi.fn();
+    render([
+      { id: 'rename', label: 'Rename', action: vi.fn() },
+      { id: 'copy', label: 'Copy', action: vi.fn(), children: [{ id: 'copy-id', label: 'Copy ID', action: copyId }] },
+    ]);
+    const labels = () => Array.from(renderedMenu()!.querySelectorAll('button[role="menuitem"]')).map(button => button.textContent?.trim());
+    expect(labels()).toEqual(['Rename', 'Copy▸']);
+    const group = renderedMenu()!.querySelectorAll('button')[1]!;
+    expect(group.getAttribute('aria-expanded')).toBe('false');
+    group.click();
+    fixture.detectChanges();
+    TestBed.tick();
+    expect(fixture.componentInstance.closed).not.toHaveBeenCalled();
+    expect(labels()).toEqual(['Rename', 'Copy▾', 'Copy ID']);
+    (renderedMenu()!.querySelectorAll('button')[2] as HTMLButtonElement).click();
+    expect(copyId).toHaveBeenCalledOnce();
+    expect(fixture.componentInstance.closed).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps a lasting blocked item focusable with its actual reason and recovers', () => {
     const action = vi.fn();
     render([{ id: 'copy', label: 'Copy file', disabledReason: 'This file is on a remote computer.', action }]);

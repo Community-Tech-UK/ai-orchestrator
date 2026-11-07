@@ -4,6 +4,8 @@ import type { AdapterInputRetryReason } from '../cli/adapters/base-cli-adapter.t
 
 export interface InstanceSendInputOptions {
   isRetry?: boolean;
+  /** Exact transcript bubble for one logical user send, shared by safe retries. */
+  userMessageId?: string;
   /** Durable user queue row to claim exactly once at provider dispatch. */
   queuedAdmissionId?: string;
   /** Original published user turn, retained across resolved-turn retries. */

@@ -14,6 +14,7 @@ import { PlanQueueSpawnOutOfUsage } from './plan-queue-spawn';
 import { PlanQueueUsageWaits, takeUsageHold } from './plan-queue-usage-wait';
 import { recordItemTiming, recordSessionEnd, recordSessionStart, TIMING_REASONS } from './plan-queue-timings';
 import { PlanQueueSpawnStoppedByUser } from './plan-queue-user-close';
+import { remindUnattendedWorker } from './plan-queue-routine-clarification';
 /**
  * Plan Queue item flow — the side effects of each item transition: prepare a
  * worktree, run the worker, verify, land, park.
@@ -396,8 +397,9 @@ export class PlanQueueItemFlow {
     const role = this.host.roleOf(instanceId);
     if (role?.role !== 'worker') return Promise.resolve();
     this.workerSessions.record(role.itemId, instanceId);
+    const activity = outcome.kind === 'turn-complete' ? this.host.tracker.getTurnActivity(instanceId) : null;
     return this.withItemLock(role.itemId, async () => {
-      const item = this.host.getItem(role.itemId);
+      let item = this.host.getItem(role.itemId);
       // Only the item's current worker drives it; and a turn James started by
       // talking to an idle worker is not a work round.
       if (item.workerInstanceId !== instanceId) return;
@@ -405,6 +407,9 @@ export class PlanQueueItemFlow {
       if (outcome.kind === 'failed' && (closedDuringReopen || this.host.consumeUserClose?.(instanceId))) {
         await this.parkUnlocked(item, 'cancelled', 'Stopped: you closed its session. Resume carries on from the same branch.'); return;
       }
+      if (activity) item = this.host.save({ ...item, roundActivity: [...(item.roundActivity ?? []), {
+        ...activity, round: item.round + 1, workerInstanceId: instanceId, recordedAt: Date.now(),
+      }].slice(-100) });
       if (this.host.getRun(item.runId).status === 'paused') { await this.holdUnlocked(item); return; }
       if (outcome.kind === 'turn-complete') {
         // A turn that ended without its report is reminded; once the reminders are spent it is a failed turn.
@@ -436,6 +441,7 @@ export class PlanQueueItemFlow {
           }
           return;
         case 'needs-input':
+          if (await remindUnattendedWorker(item, outcome.lastAssistantOutput, this.host, (next, prompt) => this.runWorkerTurn(next, prompt))) return;
           askJamesForWorker(this.host, item, outcome.lastAssistantOutput);
           return;
         case 'provider-limit': {

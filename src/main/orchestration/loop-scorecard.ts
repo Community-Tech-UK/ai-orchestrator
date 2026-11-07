@@ -3,7 +3,8 @@ import type { LoopScorecard, LoopSpendByPurpose, LoopSpendRow, LoopUsageProvenan
 export { scorecardLines } from '../../shared/util/loop-scorecard-format';
 export interface ScorecardInputs {
   run: { totalCostCents: number; totalTokens: number };
-  iterations: Pick<LoopIteration, 'seq' | 'tokens' | 'costCents' | 'costKnown' | 'finishReason' | 'promptBytes' | 'completionSignalsFired'>[];
+  iterations: (Pick<LoopIteration, 'seq' | 'tokens' | 'costCents' | 'costKnown' | 'finishReason' | 'promptBytes' | 'completionSignalsFired'>
+    & { toolCallCount?: number; outputCharacters?: number })[];
   spendRows: LoopSpendRow[];
   ledger?: { knownTaskStates: Record<string, string> };
 }
@@ -27,7 +28,10 @@ export function buildLoopScorecard({ run, iterations, spendRows, ledger }: Score
   const sizes = iterations.flatMap(round => round.promptBytes === undefined ? [] : [round.promptBytes]).sort((a,b) => a-b);
   const middle = Math.floor(sizes.length / 2);
   const tasks = ledger ? Object.values(ledger.knownTaskStates) : undefined;
+  const observed = iterations.filter(round => typeof round.toolCallCount === 'number' && typeof round.outputCharacters === 'number' && round.outputCharacters > 0);
   return {
+    statusOnlyTurns: observed.filter(round => round.toolCallCount === 0 && round.outputCharacters! <= 400).length,
+    activityRecordedRounds: observed.length,
     costCents: Math.max(run.totalCostCents, reconstructedCents), tokens: Math.max(run.totalTokens, reconstructedTokens), knownCents,
     unattributedCents: Math.max(0, run.totalCostCents - reconstructedCents), unattributedTokens: Math.max(0, run.totalTokens - reconstructedTokens), byPurpose,
     legacyRounds: iterations.filter(round => round.costKnown === undefined).length,

@@ -22,9 +22,16 @@ describe('plan queue machine session call-site guard', () => {
               .flatMap(fn => fn.body?.statements ?? [])
               .filter(ts.isVariableStatement)
               .flatMap(statement => statement.declarationList.declarations);
-            const route = declarations.find(declaration => declaration.name.getText(source) === 'route')?.initializer;
-            expect(route && ts.isCallExpression(route) && route.expression.getText(source)).toBe('routeQueueSpawn');
-            expect(route && ts.isCallExpression(route) && route.arguments[0].getText(source)).toBe('config');
+            const declared = (name: string) => declarations.find(declaration => declaration.name.getText(source) === name)?.initializer;
+            const chosen = declared('chosenRoute');
+            expect(chosen && ts.isCallExpression(chosen) && chosen.expression.getText(source)).toBe('routeQueueSpawn');
+            expect(chosen && ts.isCallExpression(chosen) && chosen.arguments[0].getText(source)).toBe('config');
+            const route = declared('route');
+            expect(route && ts.isObjectLiteralExpression(route)).toBe(true);
+            if (route && ts.isObjectLiteralExpression(route)) {
+              expect(route.properties.map(entry => entry.getText(source)))
+                .toEqual(['...chosenRoute', 'metadata: { ...chosenRoute.metadata, unattended: true }']);
+            }
             if (options && ts.isConditionalExpression(options)) {
               expect(options.whenFalse.getText(source)).toBe('route');
               expect(ts.isObjectLiteralExpression(options.whenTrue)).toBe(true);

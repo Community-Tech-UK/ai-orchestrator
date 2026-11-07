@@ -34,6 +34,7 @@ import { harnessStopDetailsOf, isHarnessStopError } from '../../shared/utils/har
 
 /** True for the typed error a Harness stop raises, so a caller never retries it as an ordinary failure. */
 export const isStoppedByHarnessError = isHarnessStopError;
+import { getLogger } from '../logging/logger';
 
 export type PlanQueueTurnOutcome =
   | { kind: 'turn-complete'; lastAssistantOutput: string | null }
@@ -61,9 +62,13 @@ export interface TrackedInstanceSnapshot {
   id: string;
   status: InstanceStatus;
   outputBuffer: readonly { type: string; content: string }[];
+  metadata?: Record<string, unknown>;
 }
 
 interface Tracking {
+  toolCalls: Set<string>;
+  outputCharacters: number;
+  observedOutput: boolean;
   seenAssistantOutput: boolean;
   lastAssistantOutput: string | null;
   /** True after an outcome was reported for the current turn. */
@@ -115,6 +120,12 @@ export class PlanQueueInstanceTracker {
   isTracked(instanceId: string): boolean {
     return this.tracking.has(instanceId);
   }
+  getTurnActivity(instanceId: string): { toolCalls: number; outputCharacters: number; statusOnlyTurns: number } | null {
+    const turn = this.tracking.get(instanceId);
+    if (!turn?.observedOutput) return null;
+    return { toolCalls: turn.toolCalls.size, outputCharacters: turn.outputCharacters,
+      statusOnlyTurns: turn.toolCalls.size === 0 && turn.outputCharacters > 0 && turn.outputCharacters <= 400 ? 1 : 0 };
+  }
 
   /**
    * Start watching an instance whose turn is already running (a fresh spawn
@@ -161,9 +172,16 @@ export class PlanQueueInstanceTracker {
     switch (event.kind) {
       case 'output':
         if (event.messageType === 'assistant' && event.content.trim().length > 0) {
+          if (!tracking.settled) {
+            tracking.observedOutput = true;
+            tracking.outputCharacters += event.content.length;
+          }
           tracking.seenAssistantOutput = true;
           tracking.lastAssistantOutput = event.content;
         }
+        break;
+      case 'tool_use':
+        if (!tracking.settled) tracking.toolCalls.add(event.toolUseId ?? envelope.eventId);
         break;
       case 'complete':
         if (tracking.seenAssistantOutput && !tracking.settled) this.completeTurn(envelope.instanceId);
@@ -257,12 +275,20 @@ export class PlanQueueInstanceTracker {
     if (this.appShuttingDown) return;
     tracking.settled = true;
     tracking.settledBy = outcome.kind;
+    if (outcome.kind === 'turn-complete') {
+      const metadata = this.source.getInstance(instanceId)?.metadata;
+      getLogger('PlanQueueTurns').info('Queue round activity', {
+        instanceId, itemId: metadata?.['planQueueItemId'], runId: metadata?.['planQueueRunId'],
+        activity: this.getTurnActivity(instanceId),
+      });
+    }
     this.onOutcome(instanceId, outcome);
   }
 }
 
 function emptyTracking(): Tracking {
-  return { seenAssistantOutput: false, lastAssistantOutput: null, settled: false, settledBy: null, completionBlocked: false };
+  return { toolCalls: new Set<string>(), outputCharacters: 0, observedOutput: false,
+    seenAssistantOutput: false, lastAssistantOutput: null, settled: false, settledBy: null, completionBlocked: false };
 }
 
 /** Why a verifier without a verdict stopped, kept distinct for queue reports. */

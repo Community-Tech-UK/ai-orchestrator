@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ChildProcess } from 'child_process';
@@ -62,6 +62,27 @@ afterEach(() => {
 });
 
 describe('OpenCode selected-install availability', () => {
+  it('keeps Harness instructions in a readable native file list after startup', async () => {
+    const adapter = createOpenCodeAdapter({ workingDirectory: root, systemPrompt: 'Keep the accepted rules.',
+      env: { AI_ORCHESTRATOR_STATE_ROOT: root, OPENCODE_CONFIG_CONTENT: JSON.stringify({ instructions: ['project-rules.md'] }) } });
+    captureSpawn(adapter);
+    await adapter.spawn();
+    const config = JSON.parse(state.probe.mock.calls.at(-1)![0].env.OPENCODE_CONFIG_CONTENT);
+    expect(config.instructions[0]).toBe('project-rules.md');
+    expect(readFileSync(config.instructions[1], 'utf8')).toBe('Keep the accepted rules.');
+    await adapter.terminate(false);
+  });
+  it('denies unaccounted helper sessions and caps tool output for unattended OpenCode 2 spawns', async () => {
+    const adapter = createOpenCodeAdapter({ workingDirectory: root, machineSession: 'plan-queue' });
+    captureSpawn(adapter);
+    await adapter.spawn();
+    const config = JSON.parse(state.probe.mock.calls.at(-1)![0].env.OPENCODE_CONFIG_CONTENT);
+    expect(config.tool_output).toEqual({ max_lines: 1000, max_bytes: 30000 });
+    expect(config.compaction.buffer).toBe(20000);
+    expect(config.permissions.at(-1)).toEqual({ action: 'subagent', resource: '*', effect: 'deny' });
+    expect(config.agents.build.permissions.at(-1)).toEqual({ action: 'subagent', resource: '*', effect: 'deny' });
+    await adapter.terminate(false);
+  });
   it('uses the selected install for direct status, request initialization and actual factory startup', async () => {
     const adapter = createOpenCodeAdapter({ workingDirectory: root });
     adapter.configureHardenedMode({ writableRoots: [root] });

@@ -9,7 +9,7 @@
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { PLAN_QUEUE_MIGRATIONS } from '../plan-queue/plan-queue-migrations';
 
-export const LOOP_SCHEMA_VERSION = 52;
+export const LOOP_SCHEMA_VERSION = 53;
 
 export interface LoopMigration {
   version: number;
@@ -602,6 +602,17 @@ export const LOOP_MIGRATIONS: readonly LoopMigration[] = [
     version: 52,
     name: '052_plan_queue_item_landing_automatic',
     up: `ALTER TABLE plan_queue_items ADD COLUMN landing_automatic INTEGER NOT NULL DEFAULT 0;`,
+  },
+  {
+    // Plan Queue: how many short, tool-free turns each worker round had, kept with the round record.
+    version: 53,
+    name: '053_plan_queue_round_activity',
+    // A profile that once ran the branch build that first added this column already has it.
+    up: (db) => {
+      const exists = db.prepare('PRAGMA table_info(plan_queue_items)').all<{ name: string }>()
+        .some(column => column.name === 'round_activity_json');
+      if (!exists) db.exec('ALTER TABLE plan_queue_items ADD COLUMN round_activity_json TEXT;');
+    },
   },
 ];
 

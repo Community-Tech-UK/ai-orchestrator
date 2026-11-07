@@ -194,13 +194,16 @@ describe('OpenCode 2 ACP integration', () => {
     proc.onRequest('session/prompt', (request) => {
       proc.notify('session/update', { sessionId: 'sess-acp-1', update: { sessionUpdate: 'session_info_update', _meta: { 'opencode/retry': { attempt: 2, error: { status: 429, message: 'private provider body' } } } } });
       proc.notify('session/update', { sessionId: 'sess-acp-1', update: { sessionUpdate: 'compaction_update', compactionId: 'compact-1', status: 'started' } });
-      proc.notify('session/update', { sessionId: 'sess-acp-1', update: { sessionUpdate: 'compaction_update', compactionId: 'compact-1', status: 'completed' } });
+      proc.notify('session/update', { sessionId: 'sess-acp-1', update: { sessionUpdate: 'compaction_update', compactionId: 'compact-1', status: 'completed', summary: [{ type: 'text', text: 'Keep the accepted blue theme.' }] } });
       proc.respond(request.id, { stopReason: 'end_turn' });
     });
     await adapter.sendMessage({ role: 'user', content: 'go' });
     expect(outputs.some((output) => output.content.includes('retrying'))).toBe(true);
     expect(outputs.some((output) => output.content.includes('Compacting'))).toBe(true);
     expect(outputs.some((output) => output.content.includes('Compaction completed'))).toBe(true);
+    expect(outputs).toContainEqual(expect.objectContaining({ metadata: expect.objectContaining({
+      threadCompacted: true, compactionSummary: 'Keep the accepted blue theme.',
+    }) }));
     expect(JSON.stringify(outputs)).not.toContain('private provider body');
     proc.exit();
   });

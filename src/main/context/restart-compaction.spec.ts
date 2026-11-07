@@ -45,6 +45,19 @@ describe('restart compaction handoff', () => {
     expect(prepared.stats.summaryGenerated).toBe(false);
     expect(prepared.text).toContain('[user]: hello\n\n[assistant]: reply');
   });
+  it('keeps Harness notices distinct from human requests in the summary and verbatim tail', async () => {
+    const messages = [message('human', 'user', 'Original request '.repeat(10000)),
+      message('old-nudge', 'user', 'Earlier automatic notice', { internalInput: { actor: 'harness', source: 'plan-queue' } }),
+      message('answer', 'assistant', 'Work so far '.repeat(10000)),
+      message('nudge', 'system', 'Continue working', { internalInput: { actor: 'harness', source: 'plan-queue' } })];
+    const prepared = await prepareRestartCompaction(instance('provenance', messages), { keepLatestExchanges: 0 });
+    expect(models.generate.mock.calls[0]![2]).toContain('[harness]: Earlier automatic notice');
+    expect(models.generate.mock.calls[0]![2]).not.toContain('[user]: Earlier automatic notice');
+    expect(models.generate.mock.calls[0]![2]).toContain('[harness]: Continue working');
+    const short = await prepareRestartCompaction(instance('tail', messages.slice(3)));
+    expect(short.text).toContain('[harness]: Continue working');
+    expect(short.stats.userMessages).toBe(0);
+  });
   it('isolates concurrent sessions and passes the previous handoff explicitly', async () => {
     const prior = buildContinuityPackage({ summary: 'Keep the blue theme', recent: [], messages: [], contextWindow: 10000, stats: { summaryGenerated: true, summarySampledMessages: 1, summaryTotalMessages: 1, skippedRanges: [] } }).text;
     const one = instance('one', [message('old', 'user', 'ARCHIVED'), message('boundary', 'system', 'boundary', { kind: 'session-boundary' }), message('prior', 'system', prior, { internalInput: { source: 'compaction-continuity' } }), message('goal', 'user', 'one '.repeat(10000)), message('reply', 'assistant', 'reply '.repeat(10000)), message('last', 'user', 'one newest')]);

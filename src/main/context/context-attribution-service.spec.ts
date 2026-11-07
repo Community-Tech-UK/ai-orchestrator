@@ -40,6 +40,7 @@ function makeDeps(overrides: Partial<ContextAttributionDeps> = {}): ContextAttri
     createStableOrchestratorTools: () => [TOOL],
     createCodememTools: () => [TOOL],
     createComputerUseTools: () => [TOOL],
+    getBrowserRevealed: () => null,
     ...overrides,
   };
 }
@@ -67,6 +68,16 @@ function bucket(report: Awaited<ReturnType<typeof computeContextAttribution>>, k
 }
 
 describe('computeContextAttribution', () => {
+  it('keeps failed measurements distinct from measured zero and reports deferred availability', async () => {
+    const input = makeInput();
+    input.mcpProfile.browserGateway = 'stable';
+    const report = await computeContextAttribution(input, makeDeps({ readFile: async () => { throw new Error('unreadable'); } }));
+    expect(bucket(report, 'instructionFiles')?.measurement).toBe('unverified');
+    expect(bucket(report, 'mcpToolSchemas')?.onDemand).toContainEqual(expect.objectContaining({ availability: 'not-loaded' }));
+    const zero = await computeContextAttribution(makeInput(), makeDeps({ readFile: async () => '' }));
+    expect(bucket(zero, 'instructionFiles')?.measurement).toBeUndefined();
+    expect(bucket(zero, 'instructionFiles')?.tokens).toBe(0);
+  });
   it('attributes applied instruction files only, with per-file detail', async () => {
     const report = await computeContextAttribution(makeInput(), makeDeps());
     const instructions = bucket(report, 'instructionFiles')!;

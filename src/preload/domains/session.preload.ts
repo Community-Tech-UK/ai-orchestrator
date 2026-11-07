@@ -165,7 +165,7 @@ export function createSessionDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHA
       message: string;
       attachments?: { name: string; type: string; size: number; data?: string }[];
       contextBlock?: string;
-      sourceMetadata?: { hadAttachmentsDropped?: boolean; kind?: 'queue' | 'steer'; retryCount?: number; seededAlready?: boolean };
+      sourceMetadata?: { userMessageId?: string; hadAttachmentsDropped?: boolean; kind?: 'queue' | 'steer'; retryCount?: number; seededAlready?: boolean };
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.SESSION_QUEUE_ENQUEUE, payload);
     },

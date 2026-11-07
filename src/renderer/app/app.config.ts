@@ -18,6 +18,8 @@ import { ToastService } from './core/services/toast.service';
 import { RendererErrorHandler } from './core/services/renderer-error-handler';
 import { RendererHeartbeatService } from './core/services/renderer-heartbeat.service';
 import { MobileCompletionSyncService } from './core/services/mobile-completion-sync.service';
+import { VisibleAnimationsService } from './core/services/visible-animations.service';
+import { NextAttentionSessionService } from './core/services/next-attention-session.service';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -38,6 +40,8 @@ export const appConfig: ApplicationConfig = {
     }),
 
     provideAppInitializer(() => { inject(TitleTooltipBridge).start(); }),
+    provideAppInitializer(() => { inject(VisibleAnimationsService); }),
+    provideAppInitializer(() => { inject(NextAttentionSessionService); }),
 
     // Reading a finished session on the desktop or the phone clears it on both.
     provideAppInitializer(() => { inject(MobileCompletionSyncService); }),

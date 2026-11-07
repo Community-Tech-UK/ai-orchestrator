@@ -3,6 +3,7 @@
  */
 
 import { KeepAwakeStateSchema, type KeepAwakeState } from '@contracts/schemas/observability';
+import { AppBuildInfoSchema, type AppBuildInfo } from '@contracts/schemas/observability';
 import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService, IpcResponse } from './electron-ipc.service';
 import type { StartupCapabilityReport } from '../../../../../shared/types/startup-capability.types';
@@ -10,6 +11,12 @@ import type { StateSyncSnapshot } from '../../../../../shared/types/thin-client-
 
 @Injectable({ providedIn: 'root' })
 export class AppIpcService {
+  async getBuildInfo(): Promise<AppBuildInfo | null> {
+    if (!this.api) return null;
+    const response = await this.api.getBuildInfo();
+    if (!response.success) throw new Error('Build information could not be read.');
+    return AppBuildInfoSchema.parse(response.data);
+  }
   private base = inject(ElectronIpcService);
 
   private get api() {

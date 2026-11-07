@@ -182,6 +182,8 @@ import { getHarnessGuidance } from '../orchestration/harness-guidance';
 import { findPendingInitialPrompt, takePendingInitialPromptGuidance } from './lifecycle/initial-prompt-recovery';
 import { compactForOverflow } from './overflow-compaction-route';
 import { captureOverflowRecoveryOwner } from './overflow-recovery-owner';
+import { findMessageDeliveryTarget, withMessageDelivery } from './message-delivery';
+import { getSendInputTimeoutMs } from '../../shared/utils/send-refusal';
 const logger = getLogger('InstanceManager');
 const CHILD_STARTUP_TIMEOUT_MS = 60_000;
 const INPUT_PREFLIGHT_DEADLINE_MS = 5_000;
@@ -1687,8 +1689,9 @@ export class InstanceManager extends EventEmitter {
     const metadata = buildInputContextMetadata(inputContexts);
 
     // Add user message to output buffer
-    const userMessage = {
-      id: generateId(),
+    const deliveryTarget = internalSource ? undefined : findMessageDeliveryTarget(instance, options?.userMessageId);
+    const userMessage: OutputMessage = deliveryTarget ?? {
+      id: options?.userMessageId ?? generateId(),
       timestamp: Date.now(),
       type: internalSource ? 'system' as const : 'user' as const,
       content: message,
@@ -1845,10 +1848,11 @@ export class InstanceManager extends EventEmitter {
       contextBlock = `${prefix}${guidance.text}`;
     }
 
+    const publishUserMessage = !deliveryTarget && (!options?.isRetry || Boolean(options?.userMessageId));
     // Add user message to output buffer BEFORE sending to CLI.
     // Streaming output can arrive during sendInput, so publish user input first.
     // Skip on retries to avoid duplicate user bubbles in the chat.
-    if (!options?.isRetry && !deferInputCommitUntilDispatch) {
+    if (publishUserMessage && !deferInputCommitUntilDispatch) {
       throwIfInstanceInputAborted(options?.signal);
       this.communication.addToOutputBuffer(instance, userMessage);
       this.publishOutput(instanceId, userMessage);
@@ -1864,13 +1868,15 @@ export class InstanceManager extends EventEmitter {
             instance.requestCount++;
             instance.lastActivity = Date.now();
             commitFirstMessageTracking();
-            this.communication.addToOutputBuffer(instance, userMessage);
-            this.publishOutput(instanceId, userMessage);
+            if (publishUserMessage) {
+              this.communication.addToOutputBuffer(instance, userMessage);
+              this.publishOutput(instanceId, userMessage);
+            }
             if (!inputContexts) queueLateInputContexts();
           }
         }
       : undefined;
-    await this.communication.sendInput(instanceId, resolvedMessage, attachments, contextBlock, {
+    const send = () => this.communication.sendInput(instanceId, resolvedMessage, attachments, contextBlock, {
       autoContinuation: options?.autoContinuation === true, automatedInput: options?.automatedInput === true,
       internalSource, crossSessionSourceId: options?.crossSessionSourceId,
       queuedAdmissionId: options?.queuedAdmissionId,
@@ -1884,6 +1890,8 @@ export class InstanceManager extends EventEmitter {
       } : undefined,
       assertProviderDispatchCurrent: options?.assertProviderDispatchCurrent,
     });
+    if ((!options?.isRetry || options?.userMessageId) && !internalSource) await withMessageDelivery(instanceId, getSendInputTimeoutMs(instance.provider), userMessage, output => this.publishOutput(instanceId, output), send);
+    else await send();
     } catch (error) {
       hookError = error instanceof Error ? error.message : String(error);
       if (recordedInputId) getInputTurnRegistry().noteInputFailed(instanceId, recordedInputId);

@@ -12,6 +12,8 @@
  */
 
 import { isAbsolute } from 'node:path';
+import { ensureOpenCodeInstructions } from './opencode-instructions';
+import { isUnattendedOpenCodeSpawn, applyOpenCodeUnattendedPolicy, assertOpenCodeHelpersDenied, assertOpenCodeUnattendedLimits } from './opencode-unattended-policy';
 import { normalizeOpenCodeAdditionalDirectories } from '../../../shared/utils/opencode-additional-directories';
 import { AcpCliAdapter } from './acp-cli-adapter';
 import { resolveAcpStallWarningMs } from './acp-prompt-timeout-policy';
@@ -53,6 +55,7 @@ import {
   extendEnvWithRtk,
   mergeAcpMcpServers,
   mergeSpawnEnv,
+  getProviderStateRoot,
   withBrowserGatewayProvider,
 } from './adapter-spawn-helpers';
 
@@ -137,6 +140,7 @@ export function createOpenCodeAdapter(options: UnifiedSpawnOptions): AcpCliAdapt
   // the same file Claude consumes via --mcp-config and Codex via TOML.
   const staticMcpServers = buildStaticMcpServersAcpMcpServers(options.mcpConfig);
   const yoloMode = options.yoloMode !== false;
+  const unattended = isUnattendedOpenCodeSpawn(options);
   const env = mergeSpawnEnv(options);
   env['OPENCODE_DISABLE_CLAUDE_CODE_PROMPT'] = '1';
   env[OPENCODE_CONFIG_CONTENT_ENV] = buildOpenCodeConfigContent(
@@ -203,6 +207,14 @@ export function createOpenCodeAdapter(options: UnifiedSpawnOptions): AcpCliAdapt
       if (launch.major >= 2) serializeOpenCodeConfigForV2(probeConfig);
       const effectiveConfig = await probe(JSON.stringify(probeConfig));
       const currentConfig = JSON.parse(originalConfigContent) as Record<string, unknown>;
+      if (options.systemPrompt?.trim()) {
+        const instructions = ensureOpenCodeInstructions(getProviderStateRoot(env), options.systemPrompt);
+        const existing = currentConfig['instructions'];
+        if (existing !== undefined && (!Array.isArray(existing) || !existing.every((entry: unknown) => typeof entry === 'string'))) {
+          throw new Error('OpenCode instructions must be a list of file paths.');
+        }
+        currentConfig['instructions'] = [...new Set([...(existing as string[] | undefined ?? []), instructions])];
+      }
       const accountBlocks = accountBlocksFor();
       const routedAccount = accountSpawn.accounts.find(
         (account) => account.providerName === accountSpawn.routedProviderName,
@@ -254,9 +266,12 @@ export function createOpenCodeAdapter(options: UnifiedSpawnOptions): AcpCliAdapt
       // A built-in model without an overlay can make the ceiling create its
       // first provider entry. Convert that entry before verification and spawn.
       if (launch.major >= 2) serializeOpenCodeConfigForV2(currentConfig);
+      if (unattended) applyOpenCodeUnattendedPolicy(currentConfig, effectiveConfig, launch.major);
       const preparedContent = JSON.stringify(currentConfig);
       const verified = await probe(preparedContent);
-      assertOpenCodePermissionPolicy(verified, yoloMode, launch.major);
+      assertOpenCodePermissionPolicy(verified, yoloMode, launch.major, unattended);
+      if (unattended) assertOpenCodeHelpersDenied(verified, launch.major);
+      if (unattended) assertOpenCodeUnattendedLimits(verified, launch.major);
       if (generationBudget) assertOpenCodeGenerationBudget(verified, generationBudget);
       env[OPENCODE_CONFIG_CONTENT_ENV] = preparedContent;
       return childProgress.prepareSpawn(args, env, { serveHttp: launch.major < 2 });

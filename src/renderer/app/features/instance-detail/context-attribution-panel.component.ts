@@ -28,6 +28,8 @@ import {
 import type {
   CacheAnalyticsReport,
   ContextAttributionBucketKey,
+  ContextAttributionBucket,
+  ContextAttributionDetail,
   ContextAttributionReport,
 } from '../../../../shared/types/context-attribution.types';
 import type {
@@ -132,7 +134,9 @@ export interface AttributionRow {
   label: string;
   tokens: number;
   percent: number;
-  detail: { label: string; tokens: number }[];
+  detail: ContextAttributionDetail[];
+  measurement: ContextAttributionBucket['measurement'];
+  onDemand: NonNullable<ContextAttributionBucket['onDemand']>;
 }
 
 /** Non-empty buckets as legend/bar rows with percentages of the known total. */
@@ -140,13 +144,15 @@ export function buildAttributionRows(report: ContextAttributionReport | null): A
   if (!report) return [];
   const total = report.buckets.reduce((sum, bucket) => sum + bucket.tokens, 0);
   return report.buckets
-    .filter((bucket) => bucket.tokens > 0)
+    .filter((bucket) => bucket.tokens > 0 || bucket.measurement || bucket.onDemand?.length)
     .map((bucket) => ({
       key: bucket.key,
       label: BUCKET_LABELS[bucket.key],
       tokens: bucket.tokens,
       percent: total > 0 ? (bucket.tokens / total) * 100 : 0,
       detail: bucket.detail ?? [],
+      measurement: bucket.measurement,
+      onDemand: bucket.onDemand ?? [],
     }));
 }
 
@@ -194,14 +200,17 @@ export function buildSparklinePoints(samples: readonly { ratio: number }[]): str
               <li>
                 <span class="swatch" [class]="'swatch seg-' + row.key"></span>
                 <span class="label">{{ row.label }}</span>
-                <span class="tokens">{{ row.tokens | number:'1.0-0' }}</span>
-                <span class="percent">({{ row.percent | number:'1.0-0' }}%)</span>
+                <span class="tokens">@if (row.measurement === 'unverified') { Unverified } @else { @if (row.measurement === 'partial') { At least } {{ row.tokens | number:'1.0-0' }} }</span>
+                @if (!row.measurement) { <span class="percent">({{ row.percent | number:'1.0-0' }}%)</span> }
               </li>
               @for (detail of row.detail; track detail.label) {
                 <li class="detail-row">
                   <span class="label detail-label" tabindex="0" [appTooltip]="detail.label" appTooltipVariant="overflow">{{ detail.label }}</span>
-                  <span class="tokens">{{ detail.tokens | number:'1.0-0' }}</span>
+                  <span class="tokens">@if (detail.measurement) { Unverified } @else { {{ detail.tokens | number:'1.0-0' }} }</span>
                 </li>
+              }
+              @for (deferred of row.onDemand; track deferred.label) {
+                <li class="detail-row"><span>{{ deferred.label }}</span><span>@if (deferred.availability === 'not-loaded') { Available on demand, not loaded } @else { Available on demand; whether loaded is unverified }</span></li>
               }
             }
           </ul>

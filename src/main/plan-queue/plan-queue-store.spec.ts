@@ -35,6 +35,7 @@ function makeItem(overrides: Partial<PlanQueueItem> = {}): PlanQueueItem {
     runId: 'run-1',
     documentPath: '/repo/docs/plans/a_plan.md',
     state: 'discovered',
+    roundActivity: [],
     round: 0,
     erroredRounds: 0,
     landingRefusals: 0,
@@ -550,7 +551,7 @@ it('upgrades v25 with existing queue work to worker-session storage and repeats 
     expect(old.prepare('SELECT COUNT(*) AS n FROM loop_migrations WHERE version = ?')
       .get<{ n: number }>(LOOP_SCHEMA_VERSION)?.n).toBe(1);
     expect(old.prepare('SELECT name FROM loop_migrations WHERE version = ?')
-      .get<{ name: string }>(LOOP_SCHEMA_VERSION)?.name).toBe('052_plan_queue_item_landing_automatic');
+      .get<{ name: string }>(LOOP_SCHEMA_VERSION)?.name).toBe('053_plan_queue_round_activity');
   } finally { old.close(); }
 });
 

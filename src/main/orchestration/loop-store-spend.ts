@@ -11,11 +11,14 @@ export function listLoopSpend(db: SqliteDriver, loopRunId: string): LoopSpendRow
 export function loadScorecardInputs(db: SqliteDriver, loopRunId: string): import('./loop-scorecard').ScorecardInputs | null {
   const run = db.prepare('SELECT total_cost_cents AS totalCostCents, total_tokens AS totalTokens FROM loop_runs WHERE id = ?').get<{ totalCostCents: number; totalTokens: number }>(loopRunId);
   if (!run) return null;
-  const rows = db.prepare(`SELECT seq, tokens, cost_cents, cost_known, finish_reason, prompt_bytes, completion_signals_fired_json FROM loop_iterations WHERE loop_run_id = ? ORDER BY seq`).all<{seq:number;tokens:number;cost_cents:number;cost_known:number|null;finish_reason:string|null;prompt_bytes:number|null;completion_signals_fired_json:string}>(loopRunId);
+  const rows = db.prepare(`SELECT seq, tokens, cost_cents, cost_known, finish_reason, prompt_bytes, completion_signals_fired_json,
+    CASE WHEN json_type(tool_calls_json) = 'array' THEN json_array_length(tool_calls_json) END AS tool_call_count,
+    length(trim(output_full)) AS output_characters FROM loop_iterations WHERE loop_run_id = ? ORDER BY seq`)
+    .all<{seq:number;tokens:number;cost_cents:number;cost_known:number|null;finish_reason:string|null;prompt_bytes:number|null;completion_signals_fired_json:string;tool_call_count:number|null;output_characters:number}>(loopRunId);
   const checkpoint = db.prepare('SELECT state_json FROM loop_checkpoints WHERE loop_run_id = ?').get<{state_json:string}>(loopRunId);
   let ledger: import('./loop-scorecard').ScorecardInputs['ledger'];
   try { ledger = checkpoint ? (JSON.parse(checkpoint.state_json) as {ledgerConvergence?: typeof ledger}).ledgerConvergence : undefined; } catch { /* Corrupt checkpoint leaves the task metric unrecorded. */ }
-  return {run, iterations: rows.map(row => ({seq:row.seq,tokens:row.tokens,costCents:row.cost_cents,costKnown:row.cost_known === null ? undefined : row.cost_known === 1,finishReason:row.finish_reason ?? undefined,promptBytes:row.prompt_bytes ?? undefined,completionSignalsFired:JSON.parse(row.completion_signals_fired_json)})),spendRows:listLoopSpend(db,loopRunId),ledger};
+  return {run, iterations: rows.map(row => ({seq:row.seq,tokens:row.tokens,costCents:row.cost_cents,costKnown:row.cost_known === null ? undefined : row.cost_known === 1,finishReason:row.finish_reason ?? undefined,promptBytes:row.prompt_bytes ?? undefined,completionSignalsFired:JSON.parse(row.completion_signals_fired_json),toolCallCount:row.tool_call_count ?? undefined,outputCharacters:row.output_characters})),spendRows:listLoopSpend(db,loopRunId),ledger};
 }
 
 export function summarizePersistedLoopSpend(db: SqliteDriver, loopRunId: string): import('../../shared/types/loop-spend.types').LoopSpendByPurpose | undefined {

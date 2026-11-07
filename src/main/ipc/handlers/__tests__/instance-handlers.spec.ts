@@ -7,6 +7,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { IpcRenderer } from 'electron';
+import { createInstanceDomain } from '../../../../preload/domains/instance.preload';
 import type { IpcResponse } from '../../../../shared/types/ipc.types';
 import type { InstanceManager } from '../../../instance/instance-manager';
 import type { WindowManager } from '../../../window-manager';
@@ -789,6 +791,27 @@ describe('instance-handlers', () => {
   });
 
   describe('INSTANCE_SEND_INPUT', () => {
+    it('preserves the exact bubble identity through preload and validation on safe retries', async () => {
+      const ipcRenderer = { invoke: (channel: string, payload: unknown) => invoke(channel, payload) } as unknown as IpcRenderer;
+      const api = createInstanceDomain(ipcRenderer, IPC_CHANNELS);
+      vi.mocked(mockInstanceManager.sendInput)
+        .mockRejectedValueOnce(new Error('Cannot send while compacting'))
+        .mockResolvedValueOnce(undefined);
+      const payload = { instanceId: 'inst-7', message: 'same request', userMessageId: 'original-bubble' };
+      expect((await api.sendInput(payload)).success).toBe(false);
+      expect((await api.sendInput({ ...payload, isRetry: true })).success).toBe(true);
+      expect(mockInstanceManager.sendInput).toHaveBeenNthCalledWith(1, 'inst-7', payload.message, undefined,
+        { isRetry: undefined, userMessageId: payload.userMessageId, automatedInput: undefined, queuedAdmissionId: undefined });
+      expect(mockInstanceManager.sendInput).toHaveBeenNthCalledWith(2, 'inst-7', payload.message, undefined,
+        { isRetry: true, userMessageId: payload.userMessageId, automatedInput: undefined, queuedAdmissionId: undefined });
+    });
+
+    it.each(['', 'x'.repeat(201)])('rejects an invalid bubble identity before dispatch', async userMessageId => {
+      const result = await invoke(IPC_CHANNELS.INSTANCE_SEND_INPUT, { instanceId: 'inst-7', message: 'request', userMessageId });
+      expect(result.success).toBe(false);
+      expect(mockInstanceManager.sendInput).not.toHaveBeenCalled();
+    });
+
     it('sends message on valid INSTANCE_SEND_INPUT', async () => {
       vi.mocked(mockInstanceManager.sendInput).mockResolvedValue(undefined);
 

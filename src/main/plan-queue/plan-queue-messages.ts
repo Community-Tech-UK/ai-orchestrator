@@ -26,6 +26,7 @@ import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 export function itemToDto(item: PlanQueueItem, stage: PlanQueueItemStage | undefined, totalRounds = 0): PlanQueueItemDto {
   return {
     ...(totalRounds > item.round ? { totalRounds } : {}),
+    roundActivity: item.roundActivity ?? [],
     ...(item.spend ? { spend: item.spend } : {}),
     ...(stage ? { stage } : {}),
     id: item.id,

@@ -1,13 +1,14 @@
-import type { Instance } from '../../shared/types/instance.types';
+import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import type { CompactionBoundaryOptions } from '../../shared/types/compaction-preview.types';
 import { estimateTokens } from '../../shared/utils/token-estimate';
 import { ContextCompactor } from './context-compactor';
 import { activeMessagesOf, selectCompactionTail } from './compaction-tail';
-import { buildContinuityPackage, latestPriorSummary } from './compaction-continuity';
+import { buildContinuityPackage, compactionTurnLabel, latestPriorSummary } from './compaction-continuity';
 import { fitCompactionSummary } from './compaction-summary-fit';
 import { buildCompactionPrompt, COMPACTION_SYSTEM_PROMPT, extractBranchSummaryBlocks } from './context-compaction-prompt';
 import { extractFileOperationsFromTurns } from './file-operation-extractor';
 import { resolveCompactionInputLimit } from './compaction-input-limit';
+import { getLogger } from '../logging/logger';
 
 export async function prepareRestartCompaction(
   instance: Instance,
@@ -35,10 +36,15 @@ export async function prepareRestartCompaction(
   // The interrupted ask is carried by <interrupted_request>; omit its old
   // transcript copy from the summary and recent tail so it appears only once.
   const messages = interruptedIndex < 0 ? active : active.filter((_, index) => index !== interruptedIndex);
-  const turns = messages.filter(message => message.type === 'user' || message.type === 'assistant');
+  const turns = messages.filter(message => message.type === 'user' || message.type === 'assistant'
+    || (message.metadata?.internalInput && message.metadata.internalInput.source !== 'compaction-continuity'));
+  getLogger('RestartCompaction').info('Restart summary input provenance', {
+    turns: turns.length, harnessTurns: turns.filter(turn => turn.metadata?.internalInput).length,
+    harnessTurnsInUserRole: turns.filter(turn => turn.type === 'user' && turn.metadata?.internalInput).length,
+  });
   const contextWindow = instance.contextUsage?.total || 200_000;
   const selected = selectCompactionTail(
-    turns.map(message => ({ role: message.type as 'user' | 'assistant', content: message.content })),
+    turns.map(message => ({ role: message.metadata?.internalInput ? 'assistant' : message.type as 'user' | 'assistant', content: message.content })),
     contextWindow,
     options.keepLatestExchanges,
   );
@@ -49,10 +55,10 @@ export async function prepareRestartCompaction(
   const fileOperations = extractFileOperationsFromTurns(referenceTurns);
   const branches = extractBranchSummaryBlocks(referenceTurns);
   const carryForward = [options.evidence, options.decisions].filter((text): text is string => Boolean(text));
-  const composeRequest = (sample: readonly { type: string; content: string }[]) => ({
+  const composeRequest = (sample: readonly OutputMessage[]) => ({
     system: COMPACTION_SYSTEM_PROMPT,
     user: buildCompactionPrompt(
-      sample.map(turn => `[${turn.type}]: ${turn.content}`).join('\n\n'),
+      sample.map(turn => `[${compactionTurnLabel(turn)}]: ${turn.content}`).join('\n\n'),
       priorSummary,
       fileOperations,
       branches,

@@ -229,6 +229,7 @@ export class QueuePersistenceService {
         message: entry.message,
         attachments,
         sourceMetadata: {
+          userMessageId: entry.userMessageId,
           kind: entry.kind,
           retryCount: entry.retryCount,
           seededAlready: entry.seededAlready,
@@ -330,6 +331,7 @@ export class QueuePersistenceService {
     const msg: QueuedMessage = {
       message: row.message,
       files,
+      userMessageId: row.sourceMetadata?.userMessageId,
       retryCount: row.sourceMetadata?.retryCount,
       kind: row.sourceMetadata?.kind,
       seededAlready: row.sourceMetadata?.seededAlready,

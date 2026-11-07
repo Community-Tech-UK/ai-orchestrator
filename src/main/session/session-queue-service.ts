@@ -27,6 +27,7 @@ import { stageQueuedAttachments, resolveQueuedAttachments } from './session-queu
 import type { FileAttachment } from '../../shared/types/instance.types';
 
 export interface QueueSourceMetadata {
+  userMessageId?: string;
   hadAttachmentsDropped?: boolean;
   kind?: 'queue' | 'steer';
   retryCount?: number;

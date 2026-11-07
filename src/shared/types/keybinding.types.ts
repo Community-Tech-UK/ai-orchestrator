@@ -65,6 +65,7 @@ export type KeybindingAction =
   | 'next-instance'
   | 'prev-instance'
   | 'restart-instance'
+  | 'next-attention-session'
   // UI
   | 'toggle-command-palette'
   | 'undo-last-action'
@@ -250,6 +251,11 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
     when: ['instance-selected'],
     category: 'Instance',
     customizable: true,
+  },
+  {
+    id: 'next-attention-session', name: 'Next session needing you', action: 'next-attention-session',
+    description: 'Go to the next session waiting for your input, approval or sign-in',
+    keys: { key: 'j', modifiers: ['meta', 'shift'] }, context: 'global', category: 'Instance', customizable: true,
   },
 
   // UI

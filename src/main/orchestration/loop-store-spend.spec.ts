@@ -3,7 +3,7 @@ import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import type { LoopState } from '../../shared/types/loop.types';
 import { spendProvenanceOf, type LoopSpendPortion } from '../../shared/types/loop-spend.types';
-import { LoopSpendByPurposeSchema } from '@contracts/schemas/loop-spend';
+import { LoopSpendByPurposeSchema, LoopScorecardResponseSchema } from '@contracts/schemas/loop-spend';
 import { runLoopMigrations } from './loop-schema';
 import { foldPingPongSpend } from './loop-spend-ledger';
 import { insertLoopSpend, listLoopSpend, loadScorecardInputs, summarizePersistedLoopSpend } from './loop-store-spend';
@@ -17,6 +17,20 @@ describe('persisted reviewer provenance', () => {
     db.prepare("INSERT INTO loop_runs (id, chat_id, config_json, status, started_at) VALUES ('run', 'chat', '{}', 'completed', 1)").run();
   });
   afterEach(() => db.close());
+
+  it('loads status-only counts from persisted rounds and retains them in the renderer response', () => {
+    const insert = db.prepare(`INSERT INTO loop_iterations
+      (id,loop_run_id,seq,stage,started_at,work_hash,progress_verdict,verify_status,tool_calls_json,output_full)
+      VALUES (?,'run',?,'IMPLEMENT',1,'fixture','progress','pending',?,?)`);
+    insert.run('status', 1, '[]', 'Checking.');
+    insert.run('tools', 2, '[{"name":"read"}]', 'Read the file.');
+    insert.run('long', 3, '[]', 'Long analysis. '.repeat(100));
+    insert.run('legacy', 4, '[]', '');
+    const inputs = loadScorecardInputs(db, 'run')!;
+    const response = LoopScorecardResponseSchema.parse({ scorecard: buildLoopScorecard(inputs) });
+    expect(response.scorecard).toMatchObject({ statusOnlyTurns: 1, activityRecordedRounds: 3 });
+    expect(scorecardLines(response.scorecard!).join('\n')).toContain('Status-only turns: 1 of 3');
+  });
 
   it('reconstructs exact cents and zero-cent computed/unknown calls through the real store', () => {
     const portions: LoopSpendPortion[] = [

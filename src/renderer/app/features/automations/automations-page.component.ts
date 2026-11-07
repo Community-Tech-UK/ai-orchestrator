@@ -53,6 +53,7 @@ import { describeCheckStatsLine, describeDailyRunsLine, describeRun, runRowClass
 import { AutomationIpcService } from '../../core/services/ipc/automation-ipc.service';
 import type { WebhookRouteConfig } from '../../../../shared/types/webhook.types';
 import { describeSchedule } from './schedule-format';
+import { AutomationCountdownComponent } from '../../shared/components/automation-countdown.component';
 import {
   automationByline,
   automationToForm,
@@ -85,6 +86,7 @@ interface AutomationGroup {
     AutomationAuthorityPanelComponent, AutomationExecutionProfileSelectorComponent,
     AioTooltipDirective,
     AppIconButtonDirective,
+    AutomationCountdownComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { '(document:keydown.escape)': 'onEscape()' },

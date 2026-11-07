@@ -264,6 +264,7 @@ export const InstanceSendInputPayloadSchema = z.object({
   isRetry: z.boolean().optional(),
   /** Explicit user continuation; main attaches the saved interrupted context, never replays the old prompt. */
   continueInterrupted: z.boolean().optional(),
+  userMessageId: z.string().min(1).max(200).optional(),
   /** A queued user message being drained automatically, rather than a fresh submission. */
   automatedInput: z.boolean().optional(),
   /** Words a person typed or spoke themselves; never set for text built from an agent's words (see PersonInputOrigin). */

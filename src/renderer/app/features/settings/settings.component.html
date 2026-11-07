@@ -188,6 +188,7 @@
           [class.hidden]="isLoading()"
         >
           @switch (activeTab()) {
+            @case ('about') { <app-about-settings-tab data-setting-key="section:about.build" /> }
             @case ('general') {
               <app-general-settings-tab />
             }

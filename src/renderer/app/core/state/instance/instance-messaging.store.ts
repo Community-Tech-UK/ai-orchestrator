@@ -30,7 +30,8 @@ import {
   typedOrigin,
   type SendInputImmediateOptions,
 } from './instance-messaging-queue-utils';
-import { getSendInputTimeoutMs, sendInputWithTimeout } from './instance-messaging-send-utils';
+import { sendInputWithTimeout } from './instance-messaging-send-utils';
+import { getSendInputTimeoutMs } from '../../../../../shared/utils/send-refusal';
 import {
   canRestartForTerminalSend,
   getRetryDisposition,
@@ -43,10 +44,9 @@ import { QueueRetryTimers } from './instance-queue-retry-timers';
 import { createReadyInputHandoff } from './instance-ready-input-handoff';
 import { presentSendFailure, sendRefusedText } from '../../../../../shared/copy/user-message';
 
-// Max transient-failure retries before dropping a queued message. Sized so the
+// Retry explicit refusals only; provider compaction has a separate longer budget in
+// `messaging-retry-disposition.ts` (LT-652), and a compact outlives this budget. Sized so the
 // cumulative wait exceeds one large-context restart (resume failure → replay).
-// LT-652: a provider-compaction rejection uses its own larger budget in
-// `messaging-retry-disposition.ts` — a compact outlives this one.
 const MAX_QUEUE_RETRIES = 5;
 @Injectable({ providedIn: 'root' })
 export class InstanceMessagingStore {
@@ -519,6 +519,7 @@ export class InstanceMessagingStore {
     if (!target) return;
     const { instanceId: targetInstanceId } = target;
     const previousStatus = target.instance.status;
+    const queuedMetadata = createQueuedMetadata(options, retryCount);
 
     if (this.pauseStore.isPaused() || (automatedInput && this.globalPause.holdsAutomaticInput(targetInstanceId))) {
       this.enqueueMessageFront(targetInstanceId, Object.assign(options.queuedEntry ?? {}, {
@@ -527,7 +528,7 @@ export class InstanceMessagingStore {
         retryCount,
         // Preserve backoff when Pause wins before dispatch.
         retryAfterAt: options.retryAfterAt,
-        ...createQueuedMetadata(options),
+        ...queuedMetadata,
       }));
       return;
     }
@@ -559,17 +560,19 @@ export class InstanceMessagingStore {
           message,
           attachments,
           retryCount > 0 || options.skipUserBubble === true,
-          ...ipcTail(automatedInput, queuedAdmissionId, options.origin ?? options.queuedMetadata?.origin)
+          ...ipcTail(automatedInput, queuedAdmissionId, options.origin ?? options.queuedMetadata?.origin, queuedMetadata.userMessageId)
         ),
         getSendInputTimeoutMs(target.instance.provider)
       );
+    } catch {
+      result = { success: false, error: { message: 'Delivery uncertain, not retried. Check the conversation before sending again.' } };
     } finally {
       this.statusReconciler.noteSendSettled(targetInstanceId);
     }
 
     if (options.queuedEntry) this.queuePersistence.finishSend(targetInstanceId, options.queuedEntry, result.success);
     if (!result.success) {
-      console.error('InstanceMessagingStore: sendInput failed', result.error);
+      console.error('InstanceMessagingStore: sendInput failed', { instanceId: targetInstanceId, provider: target.instance.provider, retryCount });
 
       const errorMessage = result.error?.message || 'Failed to send message';
       const currentInstance = this.stateService.getInstance(targetInstanceId);
@@ -599,7 +602,6 @@ export class InstanceMessagingStore {
           instanceId: targetInstanceId,
           retryCount: nextRetryCount,
           maxRetries,
-          errorMessage,
         });
         if (currentInstance && currentInstance.status === 'busy') {
           this.stateService.updateInstance(targetInstanceId, {
@@ -629,7 +631,7 @@ export class InstanceMessagingStore {
         files,
         retryCount: nextRetryCount,
         retryAfterAt: Date.now() + retryAfterMs,
-        ...createQueuedMetadata(options),
+        ...queuedMetadata,
       });
 
       // Schedule a retry. The primary drain trigger is batch-update → idle,

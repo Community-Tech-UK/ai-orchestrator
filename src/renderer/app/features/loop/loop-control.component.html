@@ -122,6 +122,12 @@
       </div>
 
       <app-loop-questions-chip [loopRunId]="a.id" [chatId]="a.chatId" />
+      @for (nudge of a.nudgeReceipts ?? []; track nudge.id) {
+        <details class="loop-runcfg">
+          <summary>Harness nudge, {{ time(nudge.at) }}: not done, {{ nudge.openItems }} {{ nudge.openItems === 1 ? 'item' : 'items' }} open</summary>
+          <p>{{ nudge.message }}</p>
+        </details>
+      }
 
       @if (showToolLoopHint()) {
         <!-- UX5: behaviour-gated, so it appears only for the configuration that

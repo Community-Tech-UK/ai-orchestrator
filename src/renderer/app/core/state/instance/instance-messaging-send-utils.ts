@@ -7,29 +7,6 @@
  * keep the send promise open for a whole turn.
  */
 import type { IpcResponse } from '../../services/ipc';
-import type { Instance } from './instance.types';
-
-const DEFAULT_SEND_INPUT_IPC_TIMEOUT_MS = 60_000;
-const NO_SEND_INPUT_IPC_TIMEOUT_MS = null;
-
-export function getSendInputTimeoutMs(provider: Instance['provider']): number | null {
-  // These adapters keep the IPC send promise open for the whole turn. Their
-  // main-process runtimes own bounded inactivity detection and cancellation,
-  // so a renderer deadline would only abandon the local wait while leaving
-  // the provider turn alive. That makes the composer look idle and lets the
-  // next send collide with the still-running turn.
-  // Grok Build and OpenCode use the same ACP session/prompt contract as Cursor/Copilot.
-  if (
-    provider === 'codex'
-    || provider === 'cursor'
-    || provider === 'copilot'
-    || provider === 'grok'
-    || provider === 'opencode'
-  ) {
-    return NO_SEND_INPUT_IPC_TIMEOUT_MS;
-  }
-  return DEFAULT_SEND_INPUT_IPC_TIMEOUT_MS;
-}
 
 /** Race a send IPC against its provider deadline. `null` timeout = wait for the bridge. */
 export async function sendInputWithTimeout(
@@ -46,7 +23,7 @@ export async function sendInputWithTimeout(
       resolve({
         success: false,
         error: {
-          message: `Send input timed out after ${timeoutMs / 1000}s. The app cleared the optimistic busy state; please retry after checking the session.`,
+          message: `Send input timed out after ${timeoutMs / 1000}s. Delivery uncertain, not retried. Check the conversation before sending again.`,
         },
       });
     }, timeoutMs);

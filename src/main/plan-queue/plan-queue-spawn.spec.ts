@@ -41,6 +41,12 @@ function host(ready: Promise<void>) {
 }
 
 describe('Plan Queue asynchronous spawn fences', () => {
+  it('marks every queue role as unattended without changing its prompt or authority', async () => {
+    await spawnQueueInstance(config, host(Promise.resolve()));
+    expect(instances.createInstance).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: expect.objectContaining({ unattended: true, planQueueRole: 'worker' }),
+    }));
+  });
   it('refuses a run paused while waiting for readiness with the distinct pause error', async () => {
     const ready = deferred<void>();
     const pending = spawnQueueInstance(config, host(ready.promise));

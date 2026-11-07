@@ -11,6 +11,7 @@ export const LoopPhase2StateFieldsSchema = z.object({
 });
 export const LoopScorecardRequestSchema = z.object({ loopRunId: z.string().min(1).max(200) });
 export const LoopScorecardSchema = z.object({
+  statusOnlyTurns: z.number().int().nonnegative().optional(), activityRecordedRounds: z.number().int().nonnegative().optional(),
   costCents: z.number().nonnegative(), tokens: z.number().nonnegative(), knownCents: z.number().nonnegative(),
   unattributedCents: z.number().nonnegative(), unattributedTokens: z.number().nonnegative(), byPurpose: LoopSpendByPurposeSchema,
   legacyRounds: z.number().int().nonnegative(), rounds: z.number().int().nonnegative(), roundsAfterLedgerClosed: z.number().int().nonnegative(),

@@ -29,6 +29,7 @@ import type {
 import { estimateTokens } from '../../shared/utils/token-estimate';
 import type { McpServerToolDefinition } from '../mcp/mcp-server-tools';
 import { getLogger } from '../logging/logger';
+import { getBrowserToolRevealStore } from '../browser-gateway/browser-tool-reveal-store';
 
 const logger = getLogger('ContextAttribution');
 
@@ -77,6 +78,7 @@ export interface ContextAttributionDeps {
   createStableOrchestratorTools(): McpServerToolDefinition[];
   createCodememTools(): McpServerToolDefinition[];
   createComputerUseTools(): McpServerToolDefinition[];
+  getBrowserRevealed(instanceId: string): string[] | null;
 }
 
 function defaultDeps(): ContextAttributionDeps {
@@ -118,6 +120,11 @@ function defaultDeps(): ContextAttributionDeps {
       ),
     createCodememTools: () => codemem.createCodememForwarderTools(noopClient),
     createComputerUseTools: () => desktop.createDesktopMcpTools(noopClient),
+    getBrowserRevealed: (id) => {
+      const store = getBrowserToolRevealStore();
+      const surface = store.getSurface(id);
+      return surface && !surface.revealRestoreFailed ? store.getRevealed(id) : null;
+    },
   };
 }
 
@@ -170,9 +177,9 @@ function estimateAttachmentTokens(message: OutputMessage): number {
 
 function sortedDetail(entries: ContextAttributionDetail[]): ContextAttributionDetail[] {
   return [...entries]
-    .filter((entry) => entry.tokens > 0)
+    .filter((entry) => entry.tokens > 0 || entry.measurement)
     .sort((a, b) => b.tokens - a.tokens)
-    .slice(0, DETAIL_LIMIT);
+    .slice(0, Math.max(DETAIL_LIMIT, entries.filter(entry => entry.measurement).length));
 }
 
 export async function computeContextAttribution(
@@ -184,6 +191,7 @@ export async function computeContextAttribution(
   // --- Instruction files -------------------------------------------------
   const instructionDetail: ContextAttributionDetail[] = [];
   let instructionTokens = 0;
+  let instructionUnknown = false;
   try {
     const stack = await deps.resolveInstructionStack({
       workingDirectory: instance.workingDirectory,
@@ -215,10 +223,12 @@ export async function computeContextAttribution(
         instructionTokens += tokens;
         instructionDetail.push({ label: source.path, tokens });
       } catch {
-        // Unreadable file — it cannot be occupying context either.
+        instructionUnknown = true;
+        instructionDetail.push({ label: source.path, tokens: 0, measurement: 'unverified' });
       }
     }
   } catch (error) {
+    instructionUnknown = true;
     logger.warn('Instruction stack resolution failed for attribution', {
       instanceId: instance.id,
       error: error instanceof Error ? error.message : String(error),
@@ -228,12 +238,16 @@ export async function computeContextAttribution(
   // --- MCP tool schemas ----------------------------------------------------
   const mcpDetail: ContextAttributionDetail[] = [];
   let mcpTokens = 0;
+  let mcpUnknown = false;
+  const onDemand: NonNullable<ContextAttributionBucket['onDemand']> = [];
   const addServer = (label: string, create: () => McpServerToolDefinition[]): void => {
     try {
       const tokens = estimateToolSchemaTokens(create());
       mcpTokens += tokens;
       mcpDetail.push({ label, tokens });
     } catch (error) {
+      mcpUnknown = true;
+      mcpDetail.push({ label, tokens: 0, measurement: 'unverified' });
       logger.warn('MCP schema measurement failed for attribution', {
         instanceId: instance.id,
         server: label,
@@ -249,12 +263,22 @@ export async function computeContextAttribution(
   if (mcpProfile.browserGateway === 'stable') {
     addServer('browser-gateway (stable)', deps.createStableBrowserTools);
   }
+  if (mcpProfile.browserGateway === 'stable' || mcpProfile.browserGateway === 'deferred') {
+    const revealed = mcpProfile.browserGateway === 'stable' ? [] : deps.getBrowserRevealed(instance.id);
+    onDemand.push({ label: 'Additional browser tools', availability: revealed === null ? 'unverified' : 'not-loaded' });
+    if (revealed === null) mcpUnknown = true;
+    else if (revealed.length > 0) addServer('browser-gateway (revealed)', () => deps.createBrowserTools().filter(tool => revealed.includes(tool.name)));
+  }
   const orchestratorMode = resolveOrchestratorAttributionMode(mcpProfile.orchestratorTools);
   if (orchestratorMode === 'eager') addServer('orchestrator-tools', deps.createOrchestratorTools);
   else if (orchestratorMode === 'deferred') {
     addServer('orchestrator-tools (deferred)', deps.createDeferredOrchestratorTools);
   } else if (orchestratorMode === 'stable') {
     addServer('orchestrator-tools (stable)', deps.createStableOrchestratorTools);
+  }
+  if (orchestratorMode === 'stable' || orchestratorMode === 'deferred') {
+    onDemand.push({ label: 'Additional Harness tools', availability: orchestratorMode === 'stable' ? 'not-loaded' : 'unverified' });
+    if (orchestratorMode === 'deferred') mcpUnknown = true;
   }
   if (mcpProfile.codemem) addServer('codemem', deps.createCodememTools);
   // LT-040: must match the registered server name, or this attribution row is
@@ -275,8 +299,10 @@ export async function computeContextAttribution(
   }
 
   const buckets: ContextAttributionBucket[] = [
-    { key: 'instructionFiles', tokens: instructionTokens, detail: sortedDetail(instructionDetail) },
-    { key: 'mcpToolSchemas', tokens: mcpTokens, detail: sortedDetail(mcpDetail) },
+    { key: 'instructionFiles', tokens: instructionTokens, detail: sortedDetail(instructionDetail),
+      ...(instructionUnknown ? { measurement: instructionTokens > 0 ? 'partial' as const : 'unverified' as const } : {}) },
+    { key: 'mcpToolSchemas', tokens: mcpTokens, detail: sortedDetail(mcpDetail), onDemand,
+      ...(mcpUnknown ? { measurement: mcpTokens > 0 ? 'partial' as const : 'unverified' as const } : {}) },
     { key: 'conversationHistory', tokens: conversationTokens },
     { key: 'toolResults', tokens: toolTokens },
     { key: 'attachments', tokens: attachmentTokens },

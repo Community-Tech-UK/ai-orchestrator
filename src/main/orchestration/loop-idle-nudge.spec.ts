@@ -156,6 +156,9 @@ describe('queueQuietTurnNudge (L1)', () => {
 
     expect(queueQuietTurnNudge(state, quietIteration(), OPEN)).toBe(true);
     expect(coercePendingInput(state.pendingInterventions[0]!).source).toBe('idle-nudge');
+    expect(state.nudgeReceipts).toEqual([expect.objectContaining({ source: 'idle-nudge', openItems: 3, at: expect.any(Number) })]);
+    state.pendingInterventions = [];
+    expect(state.nudgeReceipts).toHaveLength(1);
   });
 
   it('queues nothing when neither diagnosis applies', () => {

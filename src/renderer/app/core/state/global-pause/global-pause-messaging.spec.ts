@@ -9,6 +9,8 @@ import { IpcFacadeService } from '../../services/ipc';
 import { GlobalPauseStore } from './global-pause.store';
 import type { Instance } from '../instance/instance.types';
 
+vi.mock('../../../../../shared/utils/id-generator', () => ({ generateId: () => 'new-bubble' }));
+
 describe('restart pause message delivery', () => {
   const held = signal(true);
   const sendInput = vi.fn(async () => ({ success: true }));
@@ -27,22 +29,23 @@ describe('restart pause message delivery', () => {
     state = TestBed.inject(InstanceStateService);
     state.addInstance({ id: 'chat', status: 'idle', provider: 'claude', outputBuffer: [], historyThreadId: 'thread' } as unknown as Instance);
     messages = TestBed.inject(InstanceMessagingStore);
-    state.messageQueue.set(new Map([['chat', [{ message: 'saved question' }]]]));
+    state.messageQueue.set(new Map([['chat', [{ message: 'saved question', userMessageId: 'saved-bubble' }]]]));
   });
   afterEach(() => { vi.clearAllTimers(); TestBed.resetTestingModule(); vi.useRealTimers(); });
   it('keeps queued text through idle while held, then sends as automatic input after release', async () => {
     messages.processMessageQueue('chat'); await vi.advanceTimersByTimeAsync(150);
     expect(sendInput).not.toHaveBeenCalled();
-    expect(state.messageQueue().get('chat')?.[0].message).toBe('saved question');
+    expect(state.messageQueue().get('chat')?.[0]).toEqual({ message: 'saved question', userMessageId: 'saved-bubble' });
     held.set(false);
     messages.processMessageQueue('chat'); await vi.advanceTimersByTimeAsync(150);
-    expect(sendInput).toHaveBeenCalledWith('chat', 'saved question', undefined, false, true);
+    expect(sendInput).toHaveBeenCalledExactlyOnceWith('chat', 'saved question', undefined, false, true, undefined, undefined, 'saved-bubble');
+    expect(state.messageQueue().has('chat')).toBe(false);
     expect(pickUp).not.toHaveBeenCalled();
   });
   it('picks up the session only for a newly submitted user message', async () => {
     await messages.sendInput('chat', 'I will take over');
     expect(pickUp).toHaveBeenCalledWith('chat');
-    expect(sendInput).toHaveBeenCalledWith('chat', 'I will take over', undefined, false);
+    expect(sendInput).toHaveBeenCalledExactlyOnceWith('chat', 'I will take over', undefined, false, false, undefined, undefined, 'new-bubble');
   });
   it('keeps a message if pause begins during durable promotion', async () => {
     held.set(false);

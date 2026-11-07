@@ -18,7 +18,7 @@ export const SETTINGS_PAGES: readonly SettingsNavPage[] = [
   { id: 'workspace', label: 'Workspace & history', summary: 'Worktrees, snapshots and archives.', tabs: ['worktrees', 'snapshots', 'archive'] },
   { id: 'accounts', label: 'Accounts', summary: 'Subscriptions and account routing.', tabs: ['provider-accounts', 'copilot-accounts'] },
   { id: 'phone', label: 'Phone & remote', summary: 'Phone connections and remote computers.', tabs: ['connections', 'mobile', 'remote-nodes', 'remote-config', 'network'] },
-  { id: 'health', label: 'Health', summary: 'Diagnostics, updates and usage limits.', tabs: ['cli-health', 'doctor', 'provider-quota', 'rtk-savings'] },
+  { id: 'health', label: 'Health', summary: 'Diagnostics, updates, usage limits and build details.', tabs: ['cli-health', 'doctor', 'provider-quota', 'rtk-savings', 'about'] },
   { id: 'advanced', label: 'Advanced', summary: 'Runtime options and storage.', tabs: ['advanced', 'memory'] },
 ];
 export function pageForTab(tab: SettingsTab): SettingsNavPage {

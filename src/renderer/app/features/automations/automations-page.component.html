@@ -58,6 +58,7 @@
                         }
                         @if (isActive(automation)) {
                           <span class="row-schedule">{{ scheduleLabel(automation) }}</span>
+                          <app-automation-countdown [automation]="automation" />
                         } @else {
                           <span class="row-schedule muted">Paused</span>
                         }
@@ -613,7 +614,7 @@
 
                 <div class="stats">
                   <div><span>Schedule</span><strong>{{ scheduleLabel(automation) }}</strong></div>
-                  <div><span>Next</span><strong>{{ formatTime(automation.nextFireAt) }}</strong></div>
+                  <div><span>Next</span><strong><app-automation-countdown [automation]="automation" /></strong></div>
                   <div><span>Last</span><strong>{{ formatTime(automation.lastFiredAt) }}</strong></div>
                   <div><span>Status</span><strong>{{ automation.enabled && automation.active ? 'Active' : 'Paused' }}</strong></div>
                   @if (checkStatsLine(); as statsLine) {

@@ -28,6 +28,9 @@ import { sendValidatedRendererEvent } from '../../event-bus/renderer-event-valid
 import { getKeepAwakeService } from '../../app/keep-awake-service';
 import { ensureScratchDirectory } from '../../util/scratch-directory';
 import { openTerminalAtDirectory } from './app-terminal';
+import { readBuildInfo, readMigrationLevels } from '../../app/build-info';
+import { getRLMDatabase } from '../../persistence/rlm-database';
+import { getLoopStoreService } from '../../orchestration/loop-store-service';
 
 const execFileAsync = promisify(execFile);
 
@@ -109,6 +112,11 @@ async function copyFileReferenceToClipboard(filePath: string): Promise<'native' 
 
 export function registerAppHandlers(deps: AppHandlerDependencies): void {
   const { getIpcAuthToken } = deps;
+  ipcMain.handle(IPC_CHANNELS.APP_GET_BUILD_INFO, async (): Promise<IpcResponse> => {
+    const { app } = await import('electron');
+    return { success: true, data: { ...readBuildInfo(app.getVersion(), app.getPath('userData')),
+      migrations: readMigrationLevels(getRLMDatabase().getRawDb(), getLoopStoreService().getDb()) } };
+  });
 
   // App ready signal — no payload, keep plain
   ipcMain.handle(IPC_CHANNELS.APP_READY, async (event): Promise<IpcResponse> => {

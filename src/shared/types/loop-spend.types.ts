@@ -37,6 +37,7 @@ export function spendProvenanceOf(byPurpose?: LoopSpendByPurpose): { label: 'pro
   return { ...totals, label };
 }
 export interface LoopScorecard {
+  statusOnlyTurns?: number; activityRecordedRounds?: number;
   costCents: number; tokens: number; knownCents: number; unattributedCents: number; unattributedTokens: number;
   byPurpose: LoopSpendByPurpose; legacyRounds: number; rounds: number; roundsAfterLedgerClosed: number;
   stepLimitedRounds: number; recordedStopRounds: number; stopReasons: Record<string, number>;

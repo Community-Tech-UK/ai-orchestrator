@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { inputFilesToAttachments } from './instance-messaging-queue-utils';
-import { FILE_LIMITS } from './instance.types';
+import { createQueuedMetadata, ensureQueuedMessageIdentity, inputFilesToAttachments, pickQueuedMetadata } from './instance-messaging-queue-utils';
+import { FILE_LIMITS, type QueuedMessage } from './instance.types';
 import type { FileAttachment } from '../../../../../shared/types/instance.types';
 
 function image(index: number): File {
@@ -97,5 +97,24 @@ describe('inputFilesToAttachments', () => {
       'inst-1',
       expect.stringContaining('exceeds maximum size of 5MB'),
     );
+  });
+});
+
+describe('queued bubble identity', () => {
+  it('keeps the same identity across queue metadata and safe retries', () => {
+    const entry: QueuedMessage = { message: 'request' };
+    ensureQueuedMessageIdentity(entry);
+    const originalId = entry.userMessageId;
+    expect(originalId).toEqual(expect.any(String));
+    const metadata = createQueuedMetadata({ queuedEntry: entry, queuedMetadata: pickQueuedMetadata(entry) }, 0);
+    expect(metadata.userMessageId).toBe(originalId);
+    expect(createQueuedMetadata({ queuedMetadata: metadata }, 1).userMessageId).toBe(originalId);
+  });
+
+  it.each([{ seededAlready: true }, { retryCount: 1 }])('leaves an old record without a safe bubble association unchanged: %j', legacy => {
+    const entry: QueuedMessage = { message: 'legacy request', ...legacy };
+    ensureQueuedMessageIdentity(entry);
+    expect(entry.userMessageId).toBeUndefined();
+    expect(createQueuedMetadata({ queuedEntry: entry, queuedMetadata: pickQueuedMetadata(entry) }, entry.retryCount ?? 0).userMessageId).toBeUndefined();
   });
 });

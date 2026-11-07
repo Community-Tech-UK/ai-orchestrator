@@ -5,7 +5,7 @@ import { getInterruptedContextQueue, type InterruptedContextQueue } from '../../
 
 interface ContinuationDispatch {
   getInstance(id: string): { lastTurnOutcome?: string; status?: string; activeTurnId?: string; waitReason?: unknown; outputBuffer: ContinuationMessage[]; retainedPrompts?: ContinuationMessage[] } | undefined;
-  sendInput(id: string, message: string, attachments?: FileAttachment[], options?: { isRetry?: boolean; automatedInput?: boolean; queuedAdmissionId?: string; origin?: InstanceSendInputPayload['origin'] }): Promise<void>;
+  sendInput(id: string, message: string, attachments?: FileAttachment[], options?: { isRetry?: boolean; userMessageId?: string; automatedInput?: boolean; queuedAdmissionId?: string; origin?: InstanceSendInputPayload['origin'] }): Promise<void>;
 }
 
 export async function sendInstanceInput(
@@ -30,7 +30,7 @@ export async function sendInstanceInput(
       payload.instanceId,
       payload.continueInterrupted ? SAFE_CONTINUATION : payload.message,
       payload.attachments?.map(attachment => ({ ...attachment, data: attachment.data ?? '' })),
-      { isRetry: payload.isRetry, automatedInput: payload.automatedInput, queuedAdmissionId: payload.queuedAdmissionId, origin: payload.origin },
+      { isRetry: payload.isRetry, userMessageId: payload.userMessageId, automatedInput: payload.automatedInput, queuedAdmissionId: payload.queuedAdmissionId, origin: payload.origin },
     );
   } catch (error) {
     discardContext?.();

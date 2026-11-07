@@ -8,6 +8,7 @@
 
 import type { InstanceStatus } from './instance.types';
 import { isInterruptRecoveryStatus } from './instance-messaging-queue-utils';
+import { isKnownSendRefusal } from '../../../../../shared/utils/send-refusal';
 
 /** Spacing for an ordinary transient send failure (the previous hard-coded value). */
 export const DEFAULT_SEND_RETRY_DELAY_MS = 2_000;
@@ -83,8 +84,7 @@ export function getRetryDisposition(
   }
 
   if (
-    isInterruptRecoveryStatus(status)
-    || normalized.includes('respawning')
+    normalized.includes('respawning after interrupt')
     || normalized.includes('interrupt recovery')
     || normalized.includes('recovering from interrupt')
   ) {
@@ -92,10 +92,6 @@ export function getRetryDisposition(
       shouldRetry: true,
       nextStatus: isInterruptRecoveryStatus(status) ? status : 'respawning',
     };
-  }
-
-  if (status === 'initializing' || status === 'waking') {
-    return { shouldRetry: true, nextStatus: status };
   }
 
   if (normalized.includes('not ready') || normalized.includes('not spawned')) {
@@ -114,7 +110,7 @@ export function getRetryDisposition(
     return { shouldRetry: false, nextStatus: 'terminated' };
   }
 
-  return { shouldRetry: true };
+  return { shouldRetry: isKnownSendRefusal(errorMessage) };
 }
 
 export function canRestartForTerminalSend(status: InstanceStatus): boolean {

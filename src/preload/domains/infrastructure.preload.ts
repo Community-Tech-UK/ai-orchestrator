@@ -33,6 +33,7 @@ export function createInfrastructureDomain(
     getVersion: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.APP_GET_VERSION);
     },
+    getBuildInfo: (): Promise<IpcResponse> => ipcRenderer.invoke(ch.APP_GET_BUILD_INFO),
     getStartupCapabilities: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.APP_GET_STARTUP_CAPABILITIES);
     },

@@ -366,7 +366,18 @@ export const PlanQueueItemStageSchema = z.object({
   checkWait: PlanQueueCheckWaitSchema.optional(),
 });
 
+export const PlanQueueRoundActivitySchema = z.object({
+  round: z.number().int().positive(),
+  workerInstanceId: IdSchema,
+  recordedAt: z.number().int().nonnegative(),
+  toolCalls: z.number().int().nonnegative(),
+  outputCharacters: z.number().int().nonnegative(),
+  statusOnlyTurns: z.number().int().min(0).max(1),
+});
+
 export const PlanQueueItemDtoSchema = z.object({
+  /** Last 100 observed worker turns; absent on older app versions. */
+  roundActivity: z.array(PlanQueueRoundActivitySchema).max(100).optional(),
   spend: PlanQueueSpendSchema.nullable().optional(),
   id: IdSchema,
   runId: IdSchema,
@@ -647,6 +658,7 @@ export type PlanQueueRouteChoiceArgs = z.infer<typeof PlanQueueRouteChoiceArgsSc
 export type PlanQueueCheckWait = z.infer<typeof PlanQueueCheckWaitSchema>;
 export type PlanQueueItemStage = z.infer<typeof PlanQueueItemStageSchema>;
 export type PlanQueueItemDto = z.infer<typeof PlanQueueItemDtoSchema>;
+export type PlanQueueRoundActivity = z.infer<typeof PlanQueueRoundActivitySchema>;
 export type PlanQueueRunDto = z.infer<typeof PlanQueueRunDtoSchema>;
 export type PlanQueueAlert = z.infer<typeof PlanQueueAlertSchema>;
 export type PlanQueueHealth = z.infer<typeof PlanQueueHealthSchema>;

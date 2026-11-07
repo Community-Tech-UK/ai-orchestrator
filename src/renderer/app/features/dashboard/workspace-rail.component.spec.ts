@@ -169,6 +169,7 @@ describe('WorkspaceRailComponent', () => {
     const item = renderedMenu()?.querySelector('button[role="menuitem"]') as HTMLButtonElement;
     expect(item?.textContent).toContain('Clear notifications');
     expect(item.disabled).toBe(false);
+    expect(item.getAttribute('aria-disabled')).toBeNull();
 
     item.click();
     fixture.detectChanges();

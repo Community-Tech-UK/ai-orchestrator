@@ -7,6 +7,12 @@ export function openCodePositive(value: unknown): number | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 1) throw new Error('Unsupported native numeric limit');
   return Math.floor(value);
 }
+export function openCodeCompactionBuffer(value: unknown): number | string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return Math.floor(value);
+  if (typeof value === 'string' && /^\d+(?:\.\d+)?%$/.test(value) && Number.parseFloat(value) <= 100) return value;
+  throw new Error('Unsupported native compaction buffer');
+}
 
 export function openCodeModelConfig(config: Record<string, unknown>, model: string): Record<string, unknown> {
   const [providerId, ...modelParts] = model.split('/');
@@ -54,6 +60,13 @@ export function projectOpenCodeConfig(config: unknown, model?: string): Record<s
     // A boolean marker, never plugin paths, arguments, or configuration values.
     ...(Array.isArray(native['plugin']) && native['plugin'].length ? { plugin: [true] } : {}),
     ...(native['small_model'] ? { small_model: identifier(native['small_model']) } : {}),
+    ...(native['tool_output'] ? { tool_output: {
+      max_lines: openCodePositive(openCodeRecord(native['tool_output'])['max_lines']),
+      max_bytes: openCodePositive(openCodeRecord(native['tool_output'])['max_bytes']),
+    } } : {}),
+    ...(['number', 'string'].includes(typeof openCodeRecord(native['compaction'])['buffer']) ? {
+      compaction: { buffer: openCodeCompactionBuffer(openCodeRecord(native['compaction'])['buffer']) },
+    } : {}),
   };
   if (!model) return result;
   const [providerId, ...modelParts] = model.split('/');

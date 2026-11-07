@@ -36,6 +36,7 @@ import { isRemoteNodeOnline } from '../../core/state/remote-node-connectivity';
 import { ProviderQuotaStore } from '../../core/state/provider-quota.store';
 import type { StartupCapabilityReport } from '../../../../shared/types/startup-capability.types';
 import { GeneralSettingsTabComponent } from './general-settings-tab.component';
+import { AboutSettingsTabComponent } from './about-settings-tab.component';
 import { OrchestrationSettingsTabComponent } from './orchestration-settings-tab.component';
 import { CrossSessionMessagingSettingsTabComponent } from './cross-session-messaging-settings-tab.component';
 import { MemorySettingsTabComponent } from './memory-settings-tab.component';
@@ -94,7 +95,7 @@ import { SettingsCompactNavFocus } from './settings-compact-nav-focus';
   standalone: true,
   imports: [
     SettingsHealthNoticesComponent, SettingsSectionTabsComponent, AioTooltipDirective,
-    GeneralSettingsTabComponent,
+    GeneralSettingsTabComponent, AboutSettingsTabComponent,
     OrchestrationSettingsTabComponent,
     CrossSessionMessagingSettingsTabComponent,
     MemorySettingsTabComponent,
