@@ -613,8 +613,8 @@ export type PlanQueueControlArgs = z.infer<typeof PlanQueueControlArgsSchema>;
 /** The canonical verification checklist from AGENTS.md. */
 const CANONICAL_GATES = [
   'npx tsc --noEmit',
-  // The npm script (not bare `tsc --noEmit -p tsconfig.spec.json`) raises the V8
-  // heap ceiling; the spec program peaks near 5 GiB and OOMs at Node's default.
+  // The npm script, not bare `tsc -p tsconfig.spec.json`: only TypeScript 7 fits the
+  // spec program in memory without a raised heap, and a bare `tsc` may be TypeScript 6.
   'npm run typecheck:spec',
   'npm run lint',
   'npm run check:ts-max-loc',

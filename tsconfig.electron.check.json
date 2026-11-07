@@ -1,0 +1,24 @@
+{
+  // Type-checks the Electron build with TypeScript 7, which has removed the node10 resolution
+  // that tsconfig.electron.json still builds with. Never used to emit. Declarations stay on, so
+  // the errors only a build reports are caught here too.
+  "extends": "./tsconfig.electron.json",
+  "compilerOptions": {
+    "moduleResolution": "bundler",
+    "noEmit": true
+  },
+  "exclude": [
+    "src/renderer/**/*",
+    "node_modules",
+    "src/**/*.spec.ts",
+    "src/**/*.test.ts",
+    "packages/**/*.spec.ts",
+    "packages/**/*.test.ts",
+    "src/main/channels/adapters/whatsapp-adapter.ts",
+    // Test helpers. Under bundler resolution their inferred Vitest mock types can't be named in
+    // a declaration. build:main and tsconfig.spec.json still check them.
+    "src/main/browser-gateway/browser-gateway-service.test-helpers.ts",
+    "src/main/browser-gateway/browser-secret-recovery.testutil.ts",
+    "src/main/instance/__tests__/instance-lifecycle-source-diagnostics.fixture.ts"
+  ]
+}

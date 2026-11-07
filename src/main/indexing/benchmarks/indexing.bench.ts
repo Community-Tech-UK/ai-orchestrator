@@ -10,9 +10,10 @@
  * Target: 1000 files/min (16.67 files/sec)
  */
 
-import { describe, bench, beforeAll, afterAll, expect } from 'vitest';
+import { describe, beforeAll, afterAll, expect } from 'vitest';
 import * as path from 'path';
 import {
+  bench,
   createSyntheticCodebase,
   createLargeFile,
   generateTypeScriptFile,

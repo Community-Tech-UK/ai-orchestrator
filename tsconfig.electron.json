@@ -10,10 +10,11 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    // TypeScript 6 errors on node10 module resolution and `baseUrl` (both used
-    // below and both still required by this CommonJS Electron build + its
-    // `paths` aliases). Acknowledge the deprecation so `build:main` compiles;
-    // migrating to node16 resolution is a separate piece of work.
+    // TypeScript 6 errors on node10 module resolution, which this CommonJS
+    // Electron build still needs: bundler resolution fails on two generated
+    // declaration files. Acknowledge the deprecation so `build:main` compiles;
+    // migrating is a separate piece of work. TypeScript 7 has removed node10, so
+    // the type check goes through tsconfig.electron.check.json.
     "ignoreDeprecations": "6.0",
     "declaration": true,
     "declarationMap": true,
@@ -87,8 +88,7 @@
       "@sdk/provider-adapter": ["./packages/sdk/src/provider-adapter"],
       "@sdk/provider-adapter-worker-bridge": ["./packages/sdk/src/provider-adapter-worker-bridge"],
       "@sdk/provider-adapter-registry": ["./packages/sdk/src/provider-adapter-registry"]
-    },
-    "baseUrl": "."
+    }
   },
   "include": [
     "src/main/**/*",

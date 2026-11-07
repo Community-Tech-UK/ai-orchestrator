@@ -17,9 +17,8 @@ function hasUserSystemd(): boolean {
 }
 
 const FAKE_INSTALL = `#!/usr/bin/env bash
-mkdir -p node_modules/.bin node_modules/vitest
-printf '#!/bin/sh\\nexit 0\\n' > node_modules/.bin/tsc
-chmod +x node_modules/.bin/tsc
+mkdir -p node_modules/typescript/bin node_modules/vitest
+: > node_modules/typescript/bin/tsc
 cp stub-vitest.mjs node_modules/vitest/vitest.mjs
 `;
 

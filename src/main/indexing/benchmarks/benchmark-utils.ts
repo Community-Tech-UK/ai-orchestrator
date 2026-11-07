@@ -8,6 +8,24 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { test } from 'vitest';
+
+// ============================================================================
+// Registering a benchmark
+// ============================================================================
+
+interface BenchmarkOptions {
+  iterations?: number;
+  warmupIterations?: number;
+  time?: number;
+}
+
+/** Vitest hands `bench` to a test, so each benchmark here is one test with one measurement. */
+export function bench(name: string, measure: () => unknown, options?: BenchmarkOptions): void {
+  test(name, async ({ bench: register }) => {
+    await register(name, measure).run(options);
+  });
+}
 
 // ============================================================================
 // Types

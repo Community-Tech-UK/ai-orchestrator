@@ -75,6 +75,6 @@
     "./types/mobile-gateway":     { "types": "./src/types/mobile-gateway.types.ts",         "default": "./src/types/mobile-gateway.types.ts" }
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "node ../../node_modules/typescript/bin/tsc --noEmit"
   }
 }

@@ -132,7 +132,7 @@ cmd_slot_job() {
   # A type error is the job's own fault, not the machine's: tsc still writes its output,
   # so sync-dist runs regardless and the tests show the truth.
   echo "[remote checks] building dist"
-  npx tsc -p tsconfig.electron.json
+  node node_modules/typescript/bin/tsc -p tsconfig.electron.json
   node scripts/sync-dist.js
 
   echo "[remote checks] running tests"

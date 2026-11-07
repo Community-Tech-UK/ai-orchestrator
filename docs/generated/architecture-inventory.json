@@ -7410,6 +7410,10 @@
       "lines": 843
     },
     {
+      "path": "src/main/indexing/benchmarks/benchmark-utils.ts",
+      "lines": 838
+    },
+    {
       "path": "src/main/orchestration/child-result-storage.ts",
       "lines": 838
     },
@@ -7468,10 +7472,6 @@
     {
       "path": "docs/superpowers/plans/2026-07-13-codex-context-pressure-observability-discovery-plan_livetest_completed.md",
       "lines": 822
-    },
-    {
-      "path": "src/main/indexing/benchmarks/benchmark-utils.ts",
-      "lines": 820
     },
     {
       "path": "docs/plans/2026-02-22-token-memory-optimization-design_completed.md",
@@ -7540,10 +7540,6 @@
     {
       "path": "src/renderer/app/shared/components/provider-quota-chip/provider-quota-chip.component.spec.ts",
       "lines": 802
-    },
-    {
-      "path": "scripts/run-tests-quiet.js",
-      "lines": 801
     },
     {
       "path": "src/main/memory/procedural-store.ts",

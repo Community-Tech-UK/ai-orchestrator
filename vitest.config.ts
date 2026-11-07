@@ -1,4 +1,5 @@
 import { angularJitApplicationTransform } from '@angular/compiler-cli';
+import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import type { Plugin } from 'vite';
 import { defineConfig } from 'vitest/config';
@@ -6,13 +7,23 @@ import { aliases } from './vitest.aliases';
 import { testHeapExecArgv } from './vitest.heap';
 import { resolveTestMaxForks } from './vitest.pool';
 
+// Every test file starts a fresh process, which would otherwise compile the same libraries
+// again: about 5% of a full run's processor time. Workers inherit this. Node checks each
+// entry against its source, so a stale one is ignored.
+process.env['NODE_COMPILE_CACHE'] ??= fileURLToPath(new URL('./node_modules/.cache/node-compile-cache', import.meta.url));
+
 function angularJitPlugin(): Plugin {
-  const config = ts.readConfigFile('tsconfig.json', ts.sys.readFile);
-  if (config.error) {
-    throw new Error(ts.flattenDiagnosticMessageText(config.error.messageText, '\n'));
-  }
-  const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, '.');
-  const program = ts.createProgram(parsed.fileNames, parsed.options);
+  // Parsing all 4,000 source files costs a few seconds, so only a run that reaches a
+  // renderer file pays for it. Most runs don't, and there are hundreds a day.
+  let compiler: { options: ts.CompilerOptions; program: ts.Program } | undefined;
+  const loadCompiler = () => {
+    const config = ts.readConfigFile('tsconfig.json', ts.sys.readFile);
+    if (config.error) {
+      throw new Error(ts.flattenDiagnosticMessageText(config.error.messageText, '\n'));
+    }
+    const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, '.');
+    return { options: parsed.options, program: ts.createProgram(parsed.fileNames, parsed.options) };
+  };
 
   return {
     name: 'aio-angular-jit-transform',
@@ -23,17 +34,18 @@ function angularJitPlugin(): Plugin {
         return null;
       }
 
+      compiler ??= loadCompiler();
       const result = ts.transpileModule(code, {
         fileName,
         compilerOptions: {
-          ...parsed.options,
+          ...compiler.options,
           module: ts.ModuleKind.ESNext,
           target: ts.ScriptTarget.ES2022,
           sourceMap: true,
           inlineSources: true,
         },
         transformers: {
-          before: [angularJitApplicationTransform(program)],
+          before: [angularJitApplicationTransform(compiler.program)],
         },
       });
       return {
@@ -68,7 +80,14 @@ const rendererIntegrationTestGlobs = [
 export default defineConfig({
   test: {
     globals: true,
-    // Vitest 4 caps the whole run with maxWorkers; worker arguments belong to
+    // Vitest 5 clears mocks between tests by default. Specs here were written to set a
+    // mock up once for a whole file, so keep them as they are.
+    clearMocks: false,
+    // Vitest 5 keeps transformed files on disk between runs. Measured on 7 November 2026 it
+    // saved under 1% here, and renderer output depends on other files' types, which its key
+    // doesn't cover, so a warm entry could be wrong.
+    fsModuleCache: false,
+    // Vitest caps the whole run with maxWorkers; worker arguments belong to
     // each project. Preserve the host-aware cap and heap budget after removing
     // the old poolOptions API. See vitest.heap.ts and vitest.pool.ts.
     maxWorkers: resolveTestMaxForks(),
@@ -151,8 +170,6 @@ export default defineConfig({
     benchmark: {
       include: ['src/**/*.bench.ts'],
       exclude: ['node_modules'],
-      reporters: ['default'],
-      outputJson: './benchmark-results.json',
     },
   },
   resolve: {

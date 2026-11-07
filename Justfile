@@ -84,10 +84,6 @@ typecheck:
 typecheck-spec:
     npm run typecheck:spec
 
-# Experimental fast typecheck via tsgo
-typecheck-fast:
-    npm run typecheck:fast
-
 # Verify IPC channels match contracts
 verify-ipc:
     node scripts/verify-ipc-channels.js

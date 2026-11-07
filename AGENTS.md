@@ -46,12 +46,12 @@ npm run build:renderer
 npm run test:quiet
 ```
 
-- `npm run typecheck:spec` (not bare `tsc --noEmit -p tsconfig.spec.json`) raises the V8
-  heap ceiling to 8 GiB before running the spec program. The spec + contracts + SDK graph
-  peaked at ~4.8 GiB in 2026-09 and died at Node's default old-space limit with
-  `JavaScript heap out of memory` (CI run 35803026198). The ceiling is a limit, not an
-  allocation — small runs never grow into it. Do not inline the bare `tsc` form in scripts
-  or CI: it reintroduces the OOM.
+- `npm run typecheck` and `npm run typecheck:spec` use TypeScript 7, installed beside TypeScript 6 as `typescript7`.
+  It's about half the processor time and several times quicker. Angular's build and `build:main` stay on TypeScript 6.
+  Both packages install a `tsc` command, so a bare `tsc` or `npx tsc` can be either: `npm ci` leaves it as 6, and
+  `npm install` can leave it as 7. `npx tsc --noEmit` is right with either. Anything that needs one in particular
+  names it by path, as the npm scripts do. `tsconfig.electron.json` still needs node10 resolution, which TypeScript 7
+  has removed, so its type check uses `tsconfig.electron.check.json`.
 - `npm run build:renderer` is a required gate for the same reason `build:main` is,
   and was added after a broken production build shipped invisibly past all the
   other checks. Neither `tsc --noEmit` invocation compiles Angular templates, so

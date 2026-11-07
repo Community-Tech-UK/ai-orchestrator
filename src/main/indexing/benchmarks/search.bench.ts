@@ -11,8 +11,9 @@
  * Target: < 500ms p95 latency
  */
 
-import { describe, bench, expect, vi } from 'vitest';
+import { describe, expect, vi } from 'vitest';
 import {
+  bench,
   generateTypeScriptFile,
   calculatePercentiles,
 } from './benchmark-utils';

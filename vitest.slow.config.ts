@@ -14,6 +14,8 @@ export default defineConfig({
   test: {
     name: 'slow',
     globals: true,
+    clearMocks: false,
+    fsModuleCache: false,
     environment: 'node',
     include: [
       'src/**/*.e2e.spec.ts',
