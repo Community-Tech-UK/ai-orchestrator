@@ -4,6 +4,7 @@ import { automationInvocations } from './automation-invocation-context';
 import { markAutomationDelivery } from './automation-delivery-audit';
 import { AutomationDispatchDeadline } from './automation-dispatch-deadline';
 import { completedAutomationTurnError, reconcileAutomationInstance } from './automation-runner-reconcile';
+import { providerLimitParkedRunError } from './automation-run-provider-limit';
 import { RESTART_INTERRUPTION } from './automation-restart-retry';
 import { AutomationRunLimits } from './automation-run-limits';
 import type { AutomationResult } from '@contracts/schemas/automation';
@@ -11,6 +12,7 @@ import { harnessStopDetailsOf } from '../../shared/utils/harness-stop';
 import { getLogger } from '../logging/logger';
 import { getWorkAdmission } from '../work-admission/work-admission';
 import type { InstanceManager } from '../instance/instance-manager';
+import type { ProviderLimitParkedEvent } from '../instance/instance-provider-limit-handler';
 import type { Instance } from '../../shared/types/instance.types';
 import type {
   Automation,
@@ -159,6 +161,10 @@ export class AutomationRunner {
     });
     instanceManager.on('instance:removed', (instanceId: string) => {
       this.handleInstanceRemoved(instanceId);
+    });
+    // A held session sends nothing until the reset, and a retry would hit the same limit.
+    instanceManager.on('instance:provider-limit-parked', ({ instanceId, provider, resumeAt }: ProviderLimitParkedEvent) => {
+      this.failTrackedInstance(instanceId, providerLimitParkedRunError(provider, resumeAt), { retryable: false });
     });
 
     const pausedRuns = GlobalPauseService.peek()?.getState().entries

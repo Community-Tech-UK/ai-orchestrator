@@ -48,6 +48,9 @@ export const ASSUMED_ACCOUNT_LIMIT_MS = 60 * 60_000;
 
 export type ProviderLimitTurnOutcome = 'parked' | 'already-parked' | 'skipped' | 'switching-account';
 
+/** One successful provider-limit park; InstanceManager re-emits it as `instance:provider-limit-parked`. */
+export interface ProviderLimitParkedEvent { instanceId: string; provider: ProviderId; resumeAt: number }
+
 export interface InstanceProviderLimitHandlerDeps {
   /** Feature gate — regular-session auto-resume is opt-in (default OFF). */
   isEnabled: () => boolean;
@@ -120,7 +123,7 @@ export interface InstanceProviderLimitHandlerDeps {
    * (fallback list configured + resume far enough away) and notifies.
    * Best-effort; never blocks the park.
    */
-  onParked?: (params: { instanceId: string; provider: ProviderId; resumeAt: number }) => void;
+  onParked?: (params: ProviderLimitParkedEvent) => void;
   /**
    * Schedule the durable + in-process resume. Injectable for tests; defaults to
    * {@link scheduleInstanceProviderLimitResume} in production.

@@ -52,6 +52,7 @@ describe('ModelSelectionResolver', () => {
         provider: 'gemini',
         requestedModel: 'gemini-retired-preview',
         fallbackModel: 'gemini-3.1-pro-preview',
+        fallbackKind: 'default',
         reason: 'model-unavailable',
       },
       // LT-016: an explicit override is the user's own choice, so this

@@ -12,6 +12,17 @@ import { NeedsYouStore } from './needs-you.store';
 import { DocReviewStore } from '../doc-review/doc-review.store';
 import { MemoryReviewStore } from '../memory-review/memory-review.store';
 
+const REQUEST_KIND_LABELS: Partial<Record<NeedsYouEntry['source'], string>> = {
+  'permission-request': 'Permission request',
+  'browser-approval': 'Browser approval',
+  'paid-fallback': 'Paid model request',
+  'plan-queue-question': 'Plan Queue question',
+  'doc-review': 'Document waiting for your review',
+  'memory-review': 'Memory waiting for your review',
+  'sidechat': 'Sidechat',
+  'tool-loop': 'Session repeating the same tool',
+};
+
 @Component({
   selector: 'app-needs-you-request-row', standalone: true, imports: [LoopQuestionRowComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -20,16 +31,29 @@ import { MemoryReviewStore } from '../memory-review/memory-review.store';
       <app-loop-question-row [item]="item" [busy]="busy()" (answerRequested)="answer($event)" />
     } @else {
       <article class="request-row">
-        <strong>{{ entry().title }}</strong>
+        @if (kindLabel(); as label) { <span class="request-kind">{{ label }}</span> }
+        <strong class="request-title">{{ entry().title }}</strong>
         @if (entry().detail) { <p>{{ entry().detail }}</p> }
-        @if (expiry()) { <span>{{ expiry() }}</span> }
-        <button type="button" [attr.aria-label]="'Open ' + entry().title" (click)="open()">Open</button>
-        @if (entry().kind === 'check') { <button type="button" (click)="store.markSeen(entry().key)">Got it</button> }
+        @if (expiry()) { <span class="request-expiry">{{ expiry() }}</span> }
+        <div class="request-actions">
+          <button type="button" [attr.aria-label]="openLabel() + ' ' + entry().title" (click)="open()">{{ openLabel() }}</button>
+          @if (entry().kind === 'check') { <button type="button" (click)="store.markSeen(entry().key)">Got it</button> }
+        </div>
       </article>
     }
     @if (error()) { <p role="alert">{{ error() }}</p> }
   `,
-  styles: [`.request-row { padding:12px; border:1px solid var(--border-color); border-radius:var(--radius-md,8px); background:var(--bg-secondary); font-size:12px; } p { margin:6px 0; overflow-wrap:anywhere; } button { margin:6px 6px 0 0; cursor:pointer; } span { display:block; color:var(--text-secondary); }`],
+  styles: [`
+    .request-row { display:flex; flex-direction:column; gap:4px; padding:12px; border:1px solid var(--border-color); border-radius:var(--radius-md,8px); background:var(--bg-secondary); font-size:12px; }
+    .request-kind { color:var(--text-muted); font-size:11px; }
+    .request-title { overflow-wrap:anywhere; }
+    p { margin:0; color:var(--text-secondary); overflow-wrap:anywhere; }
+    .request-expiry { color:var(--text-secondary); }
+    .request-actions { display:flex; flex-wrap:wrap; gap:4px; margin-top:4px; }
+    button { font-size:11px; font-weight:600; padding:3px 10px; border-radius:var(--radius-sm,6px); border:1px solid var(--border-color); background:var(--bg-tertiary); color:var(--text-primary); cursor:pointer; }
+    button:hover { background:var(--bg-hover); }
+    button:focus-visible { outline:2px solid var(--border-focus, var(--primary-color)); outline-offset:2px; }
+  `],
 })
 export class NeedsYouRequestRowComponent {
   readonly entry = input.required<NeedsYouEntry>();
@@ -44,6 +68,9 @@ export class NeedsYouRequestRowComponent {
   readonly error = signal<string | null>(null);
   readonly loopItem = computed(() => ['loop-question', 'loop-decision'].includes(this.entry().source)
     ? this.store.outstanding().find((item) => `${this.entry().source}:${item.id}` === this.entry().key) ?? null : null);
+  /** What kind of request this is, so a bare document title still says what is being asked. */
+  readonly kindLabel = computed(() => REQUEST_KIND_LABELS[this.entry().source] ?? null);
+  readonly openLabel = computed(() => ['doc-review', 'memory-review'].includes(this.entry().source) ? 'Review' : 'Open');
   readonly expiry = computed(() => {
     const deadline = this.entry().deadlineAt;
     return deadline ? `Expires in ${Math.max(0, Math.ceil((deadline - this.clock()) / 60_000))} min` : '';

@@ -3,7 +3,7 @@ import type { AutomationResult } from '@contracts/schemas/automation';
 import { isVisibleOutputMessage } from '../../shared/types/tool-outcome';
 import { FAILURE_STATUSES, WAIT_STATUSES } from './automation-runner-snapshots';
 import type { RunTracking } from './automation-runner-helpers';
-import { classifyFinalOutputProviderLimit } from './automation-run-provider-limit';
+import { classifyFinalOutputProviderLimit, providerLimitParkedRunError } from './automation-run-provider-limit';
 
 /** Evaluate the final output only after the caller has established settled completion. */
 export function completedAutomationTurnError(tracking: RunTracking, result: AutomationResult | null): string | null {
@@ -43,6 +43,13 @@ export function reconcileAutomationInstance(instance: Instance, tracking: RunTra
         : 'Automation requires unattended user input',
       { retryable: false },
     );
+    return;
+  }
+
+  // Held on a provider usage limit before tracking began (the first prompt can
+  // park within a second of spawn): nothing will happen until the reset.
+  if (instance.waitReason?.kind === 'quota-park') {
+    fail(providerLimitParkedRunError(instance.waitReason.provider, instance.waitReason.resumeAt), { retryable: false });
     return;
   }
 

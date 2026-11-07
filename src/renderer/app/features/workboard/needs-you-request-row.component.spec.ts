@@ -47,4 +47,15 @@ describe('NeedsYouRequestRowComponent', () => {
     fixture.detectChanges(); expect(fixture.nativeElement.textContent).toContain('Expires in 1 min');
     fixture.nativeElement.querySelector('button').click(); expect(openSession).toHaveBeenCalledWith('a');
   });
+  it('says a bare document title is waiting for review and offers Review on its own control', () => {
+    const fixture = TestBed.createComponent(NeedsYouRequestRowComponent);
+    fixture.componentRef.setInput('entry', { key: 'doc-review:x', source: 'doc-review', kind: 'answer', title: 'MiMo: decide the renewal', route: '/doc-review', since: 1, version: '1' });
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('.request-kind')?.textContent).toBe('Document waiting for your review');
+    expect(element.querySelector('.request-title')?.textContent).toBe('MiMo: decide the renewal');
+    const button = element.querySelector('.request-actions button') as HTMLButtonElement;
+    expect(button.textContent).toBe('Review');
+    expect(button.getAttribute('aria-label')).toBe('Review MiMo: decide the renewal');
+  });
 });

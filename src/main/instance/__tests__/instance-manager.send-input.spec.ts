@@ -1267,6 +1267,14 @@ describe('InstanceManager', () => {
   });
 
   describe('sendInput', () => {
+    it('announces each provider-limit park so a tracked automation run can end at once', () => {
+      // The automation runner listens for this; without it a held run stayed "running" until its time limit.
+      const deps = (getInstanceProviderLimitHandler() as unknown as { deps: { onParked?: (event: { instanceId: string; provider: 'codex'; resumeAt: number }) => void } }).deps;
+      const parked = vi.fn();
+      manager.on('instance:provider-limit-parked', parked);
+      deps.onParked?.({ instanceId: 'held-session', provider: 'codex', resumeAt: 1_234 });
+      expect(parked).toHaveBeenCalledWith({ instanceId: 'held-session', provider: 'codex', resumeAt: 1_234 });
+    });
     it.each(['accepted','early-known-limit','parked','already-parked','switching-account','unhandled','observer-failure'])('real manager guidance receipt remains honest for %s',async mode=>{
       const instance=await manager.createInstance({workingDirectory:TEST_WORKING_DIR});await instance.readyPromise;
       instance.provider='codex';instance.currentModel='fixture';

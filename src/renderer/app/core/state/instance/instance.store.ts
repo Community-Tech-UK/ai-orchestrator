@@ -206,12 +206,10 @@ export class InstanceStore implements OnDestroy {
 
         // Surface model-change problems as toasts — these system messages are
         // easy to miss in the transcript, and a silently-degraded model is the
-        // main reason a swap can look like it "didn't work".
-        if (
-          message.type === 'system'
-          && (message.metadata?.['kind'] === 'model-selection-degraded'
-            || message.metadata?.['kind'] === 'pending-model-change-failed')
-        ) {
+        // main reason a swap can look like it "didn't work". A closest-equivalent replacement stays a transcript note.
+        const kind = message.type === 'system' ? message.metadata?.['kind'] : undefined;
+        if ((kind === 'model-selection-degraded' && message.metadata?.['fallbackKind'] !== 'equivalent')
+          || kind === 'pending-model-change-failed') {
           this.toast.show(message.content, 'error', { key: `model-change:${instanceId}`,
             action: { label: 'Show session', run: () => this.sessionNavigator.openSession(instanceId) } });
         }

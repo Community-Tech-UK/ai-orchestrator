@@ -87,4 +87,11 @@ describe('InstanceStore output and provider notices', () => {
       expect(navigate).toHaveBeenCalledWith(['/']);
     },
   );
+
+  it('does not raise an error toast when a retired model was replaced by its equivalent', () => {
+    output.next({ instanceId: 'session-a', message: { id: 'equivalent', timestamp: Date.now(), type: 'system',
+      content: 'Model "grok-4.5-xhigh" is no longer available for cursor.',
+      metadata: { kind: 'model-selection-degraded', fallbackKind: 'equivalent' } } });
+    expect(TestBed.inject(ToastService).toasts()).toHaveLength(0);
+  });
 });

@@ -141,11 +141,10 @@ describe('ProviderQuotaChipComponent', () => {
       expect(component.variant()).toBe('plan');
     });
 
-    it('shows the provider name and plan tier', () => {
+    it('shows the provider code and plan tier, with the full name on hover', () => {
       const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
-      expect(text).toContain('Claude');
-      expect(text).not.toContain('CC');
-      expect(text.toLowerCase()).toContain('max');
+      expect(text.trim()).toBe('CC max');
+      expect(component.tooltip()).toBe('Claude signed in (plan: max)');
     });
   });
 
@@ -304,10 +303,9 @@ describe('ProviderQuotaChipComponent', () => {
       expect(entries).toHaveLength(5);
       const strip = host.querySelector('[data-testid="quota-strip"]')?.textContent ?? '';
       expect(Array.from(entries).map((entry) => entry.textContent?.trim())).toEqual([
-        'Claude 95%', 'Codex 4%', 'Gemini 3%', 'Copilot 2%', 'Cursor 1%',
+        'CC 95%', 'CX 4%', 'GM 3%', 'CP 2%', 'CU 1%',
       ]);
-      // The two-letter codes are gone, and CU no longer means Cursor here while it means Computer Use elsewhere.
-      expect(strip).not.toMatch(/\b(CC|CX|GM|CP|CU|AG|GX|OC)\d/);
+      expect(strip).not.toContain('Claude');
 
       const button = host.querySelector('button[data-testid="quota-toggle"]') as HTMLButtonElement;
       expect(button).toBeTruthy();
@@ -341,11 +339,11 @@ describe('ProviderQuotaChipComponent', () => {
       const entries = Array.from(host.querySelectorAll<HTMLElement>('[data-testid="quota-strip"] .provider-entry'));
       const findEntry = (name: string) => entries.find((entry) => entry.textContent?.startsWith(name));
 
-      const claude = findEntry('Claude');
-      const codex = findEntry('Codex');
-      const gemini = findEntry('Gemini');
-      const copilot = findEntry('Copilot');
-      const cursor = findEntry('Cursor');
+      const claude = findEntry('CC');
+      const codex = findEntry('CX');
+      const gemini = findEntry('GM');
+      const copilot = findEntry('CP');
+      const cursor = findEntry('CU');
 
       expect(claude?.style.color).toBeTruthy();
       expect(codex?.style.color).toBeTruthy();
@@ -368,8 +366,8 @@ describe('ProviderQuotaChipComponent', () => {
       const host = fixture.nativeElement as HTMLElement;
       const stripText = host.querySelector('[data-testid="quota-strip"]')?.textContent ?? '';
 
-      expect(stripText).toContain('Codex 8%');
-      expect(stripText).not.toContain('Codex 16%');
+      expect(stripText).toContain('CX 8%');
+      expect(stripText).not.toContain('16%');
     });
 
     it('summarizes Claude by weekly usage even when 5-hour or credits windows are higher', () => {
@@ -385,9 +383,7 @@ describe('ProviderQuotaChipComponent', () => {
       const host = fixture.nativeElement as HTMLElement;
       const stripText = host.querySelector('[data-testid="quota-strip"]')?.textContent ?? '';
 
-      expect(stripText).toContain('Claude 12%');
-      expect(stripText).not.toContain('Claude 83%');
-      expect(stripText).not.toContain('Claude 0%');
+      expect(stripText.trim()).toBe('CC 12%');
     });
 
     it('summarizes Antigravity by the binding Gemini quota window', () => {
@@ -401,8 +397,7 @@ describe('ProviderQuotaChipComponent', () => {
       const host = fixture.nativeElement as HTMLElement;
       const stripText = host.querySelector('[data-testid="quota-strip"]')?.textContent ?? '';
 
-      expect(stripText).toContain('Antigravity 100%');
-      expect(stripText).not.toContain('Antigravity 0%');
+      expect(stripText.trim()).toBe('AG 100%');
     });
 
     it('shows per-provider freshness and refresh controls in the detail popover', () => {
@@ -444,7 +439,7 @@ describe('ProviderQuotaChipComponent', () => {
 
       const host = fixture.nativeElement as HTMLElement;
       const stripText = host.querySelector('[data-testid="quota-strip"]')?.textContent ?? '';
-      expect(stripText).toContain('Cursor Signed out');
+      expect(stripText.trim()).toBe('CU Signed out');
       expect(stripText).not.toMatch(/reauth/i);
 
       const button = host.querySelector('button[data-testid="quota-toggle"]') as HTMLButtonElement;
@@ -507,7 +502,7 @@ describe('ProviderQuotaChipComponent', () => {
 
       const host = fixture.nativeElement as HTMLElement;
       const stripText = host.querySelector('[data-testid="quota-strip"]')?.textContent ?? '';
-      expect(stripText).toContain('Cursor 65% ⚠');
+      expect(stripText.trim()).toBe('CU 65% ⚠');
 
       const button = host.querySelector('button[data-testid="quota-toggle"]') as HTMLButtonElement;
       button.click();
@@ -534,8 +529,8 @@ describe('ProviderQuotaChipComponent', () => {
 
       const host = fixture.nativeElement as HTMLElement;
       const stripText = host.querySelector('[data-testid="quota-strip"]')?.textContent ?? '';
-      expect(stripText).toContain('Claude');
-      expect(stripText).not.toContain('Cursor');
+      expect(stripText).toContain('CC');
+      expect(stripText).not.toContain('CU');
 
       const button = host.querySelector('button[data-testid="quota-toggle"]') as HTMLButtonElement;
       button.click();
@@ -562,8 +557,8 @@ describe('ProviderQuotaChipComponent', () => {
 
       const host = fixture.nativeElement as HTMLElement;
       const stripText = host.querySelector('[data-testid="quota-strip"]')?.textContent ?? '';
-      expect(stripText).toContain('Claude');
-      expect(stripText).not.toContain('MiMo');
+      expect(stripText).toContain('CC');
+      expect(stripText).not.toContain('OC');
 
       const button = host.querySelector('button[data-testid="quota-toggle"]') as HTMLButtonElement;
       button.click();
@@ -648,7 +643,7 @@ describe('ProviderQuotaChipComponent', () => {
       expect(store.refresh).toHaveBeenCalledTimes(1);
     });
 
-    it('shows the account as MiMo in the strip and the popover, never as OpenCode or OC', async () => {
+    it('shows the plan as OC in the strip and as MiMo in the popover, never as OpenCode', async () => {
       store.setSnapshot('opencode', {
         ...makeSnapshot('opencode', 'token plan', true, [
           { ...makeWindow(43, 100), id: 'opencode.plan', label: 'Token plan' },
@@ -657,13 +652,13 @@ describe('ProviderQuotaChipComponent', () => {
       fixture.detectChanges();
       const host = fixture.nativeElement as HTMLElement;
       const strip = host.querySelector('[data-testid="quota-strip"]')?.textContent ?? '';
-      expect(strip.trim()).toBe('MiMo 43%');
+      expect(strip.trim()).toBe('OC 43%');
       host.querySelector<HTMLButtonElement>('[data-testid="quota-toggle"]')!.click();
       fixture.detectChanges();
 
       const detail = host.querySelector('[data-testid="quota-provider-opencode"]');
       expect(detail?.querySelector('.provider-heading')?.textContent?.trim()).toBe('MiMo');
-      expect(host.textContent).not.toMatch(/OpenCode|\bOC\b/);
+      expect(host.querySelector('[data-testid="quota-popover"]')?.textContent).not.toMatch(/OpenCode|\bOC\b/);
       expect(component.tooltip()).toBe('MiMo signed in (plan: token plan)');
       store.setWorst({ provider: 'opencode', window: { ...makeWindow(43, 100), id: 'opencode.plan', label: 'Token plan' } });
       expect(component.tooltip()).toMatch(/^MiMo: Token plan: 43 of 100/);
@@ -765,13 +760,13 @@ describe('ProviderQuotaChipComponent', () => {
       expect(host.querySelector('[data-testid="quota-provider-claude"]')?.textContent).toContain('10');
     });
 
-    it('shows one provider with its worst percentage, and each account by name in the popover', async () => {
+    it('shows every account in the strip, in the same order the popover names them', async () => {
       store.setSnapshot('claude', makeSnapshot('claude', 'max', true, [claudeWeekly(100)]));
       store.setAccountSnapshots([accountSnap('max-b', 4), accountSnap('max-c', 11)]);
       fixture.detectChanges();
       const host = fixture.nativeElement as HTMLElement;
       await openPopover(host);
-      expect(stripText(host).trim()).toBe('Claude 100%');
+      expect(stripText(host).trim()).toBe('CC 100%·11%·4%');
       expect(host.querySelectorAll('[data-testid="quota-strip"] .provider-entry')).toHaveLength(1);
       // Pool priority order (Personal, Max C, Max B), not snapshot arrival order.
       const popover = host.querySelector('[data-testid="quota-provider-claude"]')!;
@@ -782,19 +777,19 @@ describe('ProviderQuotaChipComponent', () => {
       expect([accountPercent('legacy'), accountPercent('max-c'), accountPercent('max-b')]).toEqual(['100%', '11%', '4%']);
     });
 
-    it('colours the strip entry by its worst account, not by the first or the last', () => {
+    it('colours the provider code by its worst account, not by the first or the last', () => {
       store.setSnapshot('claude', makeSnapshot('claude', 'max', true, [claudeWeekly(7)]));
       store.setAccountSnapshots([accountSnap('max-c', 95)]);
       fixture.detectChanges();
       const host = fixture.nativeElement as HTMLElement;
       const entry = () => host.querySelector<HTMLElement>('[data-testid="quota-strip"] .provider-entry')!;
-      expect(entry().textContent?.trim()).toBe('Claude 95%');
+      expect(entry().textContent?.trim()).toBe('CC 7%·95%');
       const hot = entry().style.color;
 
       store.setAccountSnapshots([accountSnap('max-c', 8)]);
       fixture.detectChanges();
 
-      expect(entry().textContent?.trim()).toBe('Claude 8%');
+      expect(entry().textContent?.trim()).toBe('CC 7%·8%');
       expect(entry().style.color).not.toBe(hot);
     });
 
@@ -803,7 +798,7 @@ describe('ProviderQuotaChipComponent', () => {
       fixture.detectChanges();
       const host = fixture.nativeElement as HTMLElement;
       await openPopover(host);
-      expect(stripText(host)).toContain('Claude 20%');
+      expect(stripText(host).trim()).toBe('CC 20%');
       expect(host.querySelector('[data-testid="quota-provider-claude"]')?.textContent).not.toContain('Account:');
     });
 
@@ -824,7 +819,7 @@ describe('ProviderQuotaChipComponent', () => {
       await openPopover(host);
       expect(host.querySelector('[data-testid="quota-account-claude-max-b"]')?.textContent).toContain('Account: Max B (disabled)');
       expect(host.querySelector('[data-testid="quota-account-claude-removed"]')).toBeFalsy();
-      expect(stripText(host).trim()).toBe('Claude 60%');
+      expect(stripText(host).trim()).toBe('CC 50%·60%');
       expect(stripText(host)).not.toContain('99%');
     });
 
@@ -838,7 +833,7 @@ describe('ProviderQuotaChipComponent', () => {
       fixture.detectChanges();
       const host = fixture.nativeElement as HTMLElement;
       await openPopover(host);
-      expect(stripText(host).trim()).toBe('Claude 40%');
+      expect(stripText(host).trim()).toBe('CC 40%');
       expect(host.querySelector('[data-testid="quota-account-claude-max-c"]')?.textContent).toContain('Usage endpoint unavailable');
     });
 
@@ -853,7 +848,7 @@ describe('ProviderQuotaChipComponent', () => {
       fixture.detectChanges();
       const host = fixture.nativeElement as HTMLElement;
       await openPopover(host);
-      expect(stripText(host).trim()).toBe('Claude 40% ⚠');
+      expect(stripText(host).trim()).toBe('CC 40%·Signed out');
       expect(host.querySelector('[data-testid="quota-reauth-claude"]')).toBeFalsy();
       // The sentence names the account; the probe's own wording is under Details.
       const row = host.querySelector('[data-testid="quota-reauth-row-claude-max-c"]')!;
@@ -873,7 +868,7 @@ describe('ProviderQuotaChipComponent', () => {
       fixture.detectChanges();
       const host = fixture.nativeElement as HTMLElement;
       await openPopover(host);
-      expect(stripText(host).trim()).toBe('Claude 40% ⚠');
+      expect(stripText(host).trim()).toBe('CC 40%·20% ⚠');
       expect(host.querySelector('[data-testid="quota-account-claude-max-c"]')?.textContent).toContain('Weekly (all models)');
       expect(host.querySelector('[data-testid="quota-reauth-row-claude-max-c"] details')?.textContent).toMatch(/oauth token expired/i);
     });

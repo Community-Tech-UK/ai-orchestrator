@@ -45,19 +45,24 @@ describe('quotaSummaryWindow', () => {
 });
 
 describe('quotaStripEntry', () => {
-  it('uses the short provider name, with MiMo for OpenCode', () => {
-    expect(quotaStripEntry('claude', [section('claude', { windows: [win('claude.weekly', 4)] })])?.name).toBe('Claude');
-    expect(quotaStripEntry('opencode', [section('opencode', { windows: [win('opencode.plan', 43)] })]))
-      .toMatchObject({ name: 'MiMo', text: '43%' });
+  const texts = (entry: ReturnType<typeof quotaStripEntry>) => entry?.parts.map((part) => part.text);
+
+  it('uses the two-letter provider code, OC for the MiMo plan', () => {
+    expect(quotaStripEntry('claude', [section('claude', { windows: [win('claude.weekly', 4)] })])?.code).toBe('CC');
+    const mimo = quotaStripEntry('opencode', [section('opencode', { windows: [win('opencode.plan', 43)] })]);
+    expect(mimo?.code).toBe('OC');
+    expect(texts(mimo)).toEqual(['43%']);
   });
 
-  it('shows the worst percentage across accounts, not all of them', () => {
+  it('shows every account in the order given, each coloured by its own figure, the code by the worst', () => {
     const entry = quotaStripEntry('claude', [
-      section('claude', { windows: [win('claude.weekly', 100)] }),
-      section('claude', { windows: [win('claude.weekly', 11)] }, 'Max C'),
-      section('claude', { windows: [win('claude.weekly', 4)] }, 'Max B'),
+      section('claude', { windows: [win('claude.weekly', 4)] }),
+      section('claude', { windows: [win('claude.weekly', 100)] }, 'Max C'),
+      section('claude', { windows: [win('claude.weekly', 11)] }, 'Max B'),
     ]);
-    expect(entry?.text).toBe('100%');
+    expect(texts(entry)).toEqual(['4%', '100%', '11%']);
+    expect(entry?.parts[0].fg).not.toBe(BAND_COLORS.red.fg);
+    expect(entry?.parts[1].fg).toBe(BAND_COLORS.red.fg);
     expect(entry?.fg).toBe(BAND_COLORS.red.fg);
   });
 
@@ -71,21 +76,37 @@ describe('quotaStripEntry', () => {
     expect(colorAt(90)).toBe(BAND_COLORS.red.fg);
   });
 
-  it('marks a signed-out account with a warning, keeping its last-known figure in the count', () => {
+  it('marks only the signed-out account with a warning, keeping its last-known figure', () => {
     const entry = quotaStripEntry('cursor', [
-      section('cursor', { needsReauth: true, windows: [win('cursor.included', 65)] }),
+      section('cursor', { windows: [win('cursor.included', 20)] }),
+      section('cursor', { needsReauth: true, windows: [win('cursor.included', 65)] }, 'Work'),
     ]);
-    expect(entry).toMatchObject({ text: '65% ⚠', fg: BAND_COLORS.red.fg });
+    expect(texts(entry)).toEqual(['20%', '65% ⚠']);
+    expect(entry?.parts[1].fg).toBe(BAND_COLORS.red.fg);
+    expect(entry?.fg).toBe(BAND_COLORS.red.fg);
   });
 
-  it('says Signed out when no account has a figure to show', () => {
-    const entry = quotaStripEntry('cursor', [section('cursor', { ok: false, needsReauth: true })]);
-    expect(entry).toMatchObject({ text: 'Signed out', fg: BAND_COLORS.red.fg });
+  it('says Signed out for an account with no figure to show, beside the others', () => {
+    expect(texts(quotaStripEntry('cursor', [section('cursor', { ok: false, needsReauth: true })]))).toEqual(['Signed out']);
+    const entry = quotaStripEntry('claude', [
+      section('claude', { windows: [win('claude.weekly', 30)] }),
+      section('claude', { ok: false, needsReauth: true }, 'Max C'),
+    ]);
+    expect(texts(entry)).toEqual(['30%', 'Signed out']);
+    expect(entry?.fg).toBe(BAND_COLORS.red.fg);
+  });
+
+  it('leaves out an account that is neither measured nor signed out', () => {
+    const entry = quotaStripEntry('claude', [
+      section('claude', { windows: [win('claude.weekly', 30)] }),
+      section('claude', { ok: false, error: 'Usage endpoint unavailable' }, 'Max C'),
+    ]);
+    expect(texts(entry)).toEqual(['30%']);
   });
 
   it('falls back to the plan name, then "ok", when there are no windows', () => {
-    expect(quotaStripEntry('copilot', [section('copilot', { plan: 'pro' })])?.text).toBe('pro');
-    expect(quotaStripEntry('copilot', [section('copilot')])?.text).toBe('ok');
+    expect(texts(quotaStripEntry('copilot', [section('copilot', { plan: 'pro' })]))).toEqual(['pro']);
+    expect(texts(quotaStripEntry('copilot', [section('copilot')]))).toEqual(['ok']);
   });
 
   it('has nothing to show for an unavailable provider or no accounts', () => {

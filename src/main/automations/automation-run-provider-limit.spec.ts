@@ -265,4 +265,49 @@ describe('AutomationRunner final-output provider-limit detection', () => {
     expect(run.outputSummary).toBe('Resumed and finished: 4 drafts queued for review.');
     expect(retries).toHaveLength(0);
   });
+
+  async function startRun(maxAttempts: number): Promise<string> {
+    const automationId = await createAutomation();
+    manager.removeAllListeners();
+    const runner = new AutomationRunner(store, getAutomationEvents(), () => Date.now(),
+      vi.fn().mockReturnValue({ fireThreadWakeup: vi.fn() }), maxAttempts, 100,
+      () => ({ automationDefaultCli: 'auto', automationDefaultModel: '', modelPickerFavorites: [] }));
+    runners.push(runner);
+    runner.setRetryScheduler((_run, nextAttempt, _max, delayMs) => retries.push({ nextAttempt, delayMs }));
+    runner.initialize(manager);
+    expect((await runner.fire(automationId, { trigger: 'manual' })).status).toBe('started');
+    return automationId;
+  }
+
+  it('ends a run as a provider-limit stop, without a retry, as soon as its session is held', async () => {
+    const automationId = await startRun(3);
+    expect(store.listRuns({ automationId })[0]?.status).toBe('running');
+
+    const resumeAt = Date.UTC(2026, 10, 8, 12, 21, 31);
+    manager.emit('instance:provider-limit-parked', { instanceId: 'instance-1', provider: 'codex', resumeAt });
+
+    const run = store.listRuns({ automationId })[0]!;
+    expect(run.status).toBe('failed');
+    expect(run.error).toBe('provider_limit: codex usage limit reached; the session is held until 2026-11-08T12:21:31.000Z');
+    expect(retries).toHaveLength(0);
+    expect((await store.get(automationId))?.consecutiveFailures).toBe(0);
+  });
+
+  it('ends the run when its session was already held before tracking began', async () => {
+    const instance = manager.getInstance('instance-1') as unknown as { waitReason?: unknown };
+    instance.waitReason = { kind: 'quota-park', provider: 'codex', resumeAt: Date.UTC(2026, 10, 8, 12, 21, 31) };
+
+    const automationId = await startRun(3);
+
+    const run = store.listRuns({ automationId })[0]!;
+    expect(run.status).toBe('failed');
+    expect(run.error).toMatch(/^provider_limit: codex usage limit reached/);
+    expect(retries).toHaveLength(0);
+  });
+
+  it('ignores a held session that no run is tracking', async () => {
+    const automationId = await startRun(1);
+    manager.emit('instance:provider-limit-parked', { instanceId: 'someone-else', provider: 'codex', resumeAt: Date.now() });
+    expect(store.listRuns({ automationId })[0]?.status).toBe('running');
+  });
 });
