@@ -93,11 +93,16 @@ Send these on the CDP connection **before** `Runtime.evaluate`:
 
 ```
 Emulation.setFocusEmulationEnabled  { enabled: true }
-Emulation.setPageVisibilityOverride { visibility: 'visible' }
+Page.setWebLifecycleState           { state: 'active' }
 ```
 
 After that `document.hidden:false`, rAF fires, and the DOM updates on its own with no forced change
 detection. A ready-made harness that does this: `_scratch/lt-2026-08-11/cdp-eval.mjs`.
+
+**`Emulation.setPageVisibilityOverride` is gone.** On Chrome 144 / Electron 40 it returns
+`-32601 'Emulation.setPageVisibilityOverride' wasn't found` (measured 2026-09-20). Treat the two
+calls above as the current pair, and make the harness tolerate a missing method rather than abort on
+it — an older helper that sends the removed call and dies takes the whole batch with it.
 
 Same root cause as LT-032/LT-033 — but note it cuts the *other* way here. As a product defect the
 stuck-frame shape hides behaviour; as a **harness** fault it invents it. Before filing any renderer
@@ -159,6 +164,54 @@ the root component; its injected fields (e.g. `ipcService`) are reachable from t
 `contextBridge` objects are frozen — to inject a failure you must patch the **Angular service**, not
 `window.electronAPI`.
 
+#### A disposable worker node is something you can build, not something you wait for
+
+Two checks in the Local AI Guard document sat unrun from 2026-07-29 to 2026-09-21 because they
+needed "a disposable worker" and the only node ever connected is `windows-pc`, James's real one.
+Nothing in those checks required a *separate machine* — only a worker that could be broken and
+thrown away. A second worker agent on the coordinator Mac satisfies them, and costs about five
+minutes:
+
+```bash
+npm run build:worker-agent            # dist/worker-agent/index.js, same commit as the dev app
+# in the dev app renderer, over CDP:
+#   setSetting('remoteNodesServerPort', 4979)   # NOT 4878 — the packaged Harness owns that
+#   setSetting('remoteNodesServerHost', '127.0.0.1')
+#   setSetting('remoteNodesEnabled', true)
+#   then RESTART the dev app (see the last note below), and after it is up:
+#   remoteNodeIssuePairing({ label: 'lt-disposable-worker' })   → one-shot token
+cat > /tmp/aio-lt-<batch>-workerhome/.orchestrator/worker-node.json <<'JSON'
+{ "nodeId": "<a real UUID>", "name": "lt-disposable-worker",
+  "coordinatorUrl": "ws://127.0.0.1:4979", "namespace": "default",
+  "maxConcurrentInstances": 1, "workingDirectories": ["/tmp/aio-lt-<batch>-workerhome/work"],
+  "reconnectIntervalMs": 5000, "heartbeatIntervalMs": 10000, "fileTransfer": {"enabled": false} }
+JSON
+HOME=/tmp/aio-lt-<batch>-workerhome AIO_WORKER_TOKEN=<pairing token> \
+  node dist/worker-agent/index.js --config /tmp/aio-lt-<batch>-workerhome/.orchestrator/worker-node.json
+```
+
+Four things that will cost you time otherwise:
+
+- **`nodeId` must be a real UUID.** `node.register`'s param schema demands one, but the socket layer
+  authenticates first, so a human-readable id is accepted, stored, and only then rejected by the
+  router with `RPC validation failed … "Invalid UUID"` — which reads like an auth problem.
+- **Override `HOME`,** so the worker's config and log files land in `/tmp` instead of James's real
+  `~/.orchestrator` (the single-instance lock is keyed on `namespace:nodeId` in `os.tmpdir()`, so a
+  fresh UUID already keeps it clear of a real worker). Pass the pairing token via `AIO_WORKER_TOKEN`, never `--token`,
+  which puts it in the process table.
+- **Use a non-default server port.** The packaged Harness holds 4878; starting a second server there
+  either fails or steals his workers.
+- **The setting must be on at launch.** Enabling remote nodes in a *running* app starts the server
+  with no `RpcEventRouter`, so the worker authenticates, reports `Registration accepted`, and is
+  still reported `disconnected` forever — filed as LT-604. Restart the dev app after writing the
+  setting.
+
+A worker built this way advertises whatever local model server is listening on the worker host's
+`127.0.0.1:11434` / `:1234`, so a ~40-line fake Ollama (`/api/version`, `/api/tags`, `/api/ps`,
+`POST /api/generate` returning the exact-token canary) is enough to enrol a Local AI target and then
+break it on demand by killing one process. Check whether real Ollama/LM Studio are *running* first —
+installed but stopped is the safe case, and it is the normal state on this Mac.
+
 ### Packaged app — for the real profile, and only that
 
 `/Applications/Harness.app` has **no debug port**. Use it when a check specifically needs the real
@@ -188,6 +241,8 @@ use the dev app and a real `sendInput`.
 | A provider swap you expected to be refused succeeds | `antigravity` is **detected and available** even though `command -v antigravity` finds nothing. For a guaranteed local refusal use `gemini` — a valid `CliType` deliberately excluded from `SUPPORTED_CLIS`. |
 | Dev-app log lines appear in the production log | The dev app writes `app.log` into the **production** profile (`Logger` reads `app.getPath('userData')` at import time, before the dev path is set). Timestamp-check every log-based claim against your dev-app window, or prefer zero-count assertions where contamination can only add. |
 | Renderer behaves unlike current source | A pre-existing `ng serve` may be days old. Either restart it or treat renderer-side conclusions as provisional. Main-process answers (IPC results, DB rows) are unaffected. |
+| `window.ng` is `undefined`, so no component, store or router is reachable | You served a **production** renderer build. `ng build --configuration production` strips the debug global; `ng build --configuration development` (~14 s) keeps it. Without it you cannot click a real button or read a real signal, only the preload API — which is exactly how a broken renderer→preload seam gets missed. |
+| The app reloads into a 404 page after `location.reload()` | Whatever is serving `dist/renderer/browser` has no SPA fallback (`python3 -m http.server` does not), so a deep link like `/skills` 404s. Serve it with a fallback to `index.html`, or drive routing through the Angular router instead of reloading. |
 | Dev app won't start | `harness-dev` is single-instance. Check for a stale `SingletonLock` and any existing `electron .` process. |
 | `sqlite3` says "command not found" mid-pipeline | `timeout` is not on macOS by default either. Avoid both in compound commands. |
 | Killing a Codex CLI seems to kill unrelated sessions | It doesn't — `codex app-server` is **per-instance** (there can be 20+ parented to Harness). But gate every kill anyway (below). |

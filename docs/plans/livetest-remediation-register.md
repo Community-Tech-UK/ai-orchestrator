@@ -319,6 +319,14 @@ sections below. The historical reproduction remains unchanged.
 | LT-705 | P1 | **MACHINE REPAIR + CODE VERIFIED 2026-10-13 — gates and full suite pass, independent reviews PASS; queue re-verified 2026-10-14; packaged smoke pending.** OpenCode 1 failed in `~/work/communitytech` (`no such column: project_id`) after OpenCode 2 rebuilt the shared `workspace` table, so selection fell back to OpenCode 2, whose `acp` ignores the per-spawn overlay and lacked the second account's key. Added nullable `workspace.project_id` (backed up); selection now refuses OpenCode 2 and explains why. The install/restart prerequisite is satisfied as for LT-704; the communitytech packaged smoke remains unrun and its exact deferred procedure is recorded inline in [LT-705 detail](#lt-705-deferred-packaged-acceptance) (branch-resident) and mirrored in the untracked root-checkout [startup remediation live test](2026-10-13-opencode-startup-remediation_livetest.md). | [LT-705 detail](#lt-705) | [Plan-owned packaged checks](2026-10-13-opencode-launch-environment_livetest.md) |
 | LT-706 | P2 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree); live re-check pending.** A MiMo step that spends the whole combined cap on reasoning (OpenCode `finish: "length"`, ACP `end_turn`) was classified `completed` (or `dangling_tool_result`), so the session stopped silently. LT-690's saturation check skipped empty text, judged from whole-turn text while usage covers only the final step, and the shared observation layer could not see the cap. MiMo cap raised 16384 → 32000 at James's request. | [LT-706 detail](#lt-706) | [MiMo reasoning-cap live checks](2026-10-14-mimo-reasoning-cap-cutoff_livetest.md) |
 | LT-707 | P2 | **FIXED + REGRESSION-TESTED 2026-10-24 (working tree); live cell re-run pending (Windows PC outage #5).** `finalizeScoredRun` persists the record before best-effort cleanup and `cleanupWorkspace` retries transient ENOTEMPTY/EBUSY; regression tests cover record-survives-cleanup-throw and the retry paths. Implementation status lives in [the active plan](2026-10-14-local-model-plan-execute-ab_plan.md). Original report: reproduced 2026-10-24 (benchmark campaign harness, `benchmarks/plan-execute-ab/` — experiment tooling, not app code; owned by plan 2026-10-14-local-model-plan-execute-ab).** A completed scored pilot run is discarded when workspace cleanup flakes: `runArm` calls `cleanupWorkspace` (bare `rmSync` recursive) BEFORE `appendRunRecord`, so a transient `ENOTEMPTY` (macOS removal race) lost the AIO-05 C1 run after coding, patch capture and scoring — the batch logged `run failed: ENOTEMPTY, Directory not empty` and the leftover workspace then blocks re-export (`workspace already exists`). | [LT-707 detail](#lt-707) | [Local-model plan/execute deferred checks A5/A6](2026-10-14-local-model-plan-execute-ab_plan_livetest.md) |
+| LT-709 | P2 | **OPEN — reproduced in the compiled runtime 2026-10-26; unimplemented.** A provider-slot runtime package installs, but its worker fails on a compiled `require('file://...')` before provider registration; the normal session-create schema also rejects its plugin provider identifier. Phase 1 records the failure and omits the custom-provider claim. | [LT-709 detail](#lt-709) | [Plugins cleanup Phase 1](2026-10-26-plugins-cleanup-and-global-connectors_plan_completed.md#phase-1-plugins-page-cleanup); [implementation status](2026-07-19-livetest-failure-remediation-followup_plan.md#lt-709) |
+| LT-722 | P2 | **OPEN — reproduced live 2026-10-27 (1 of 3 triage runs that day); unimplemented.** A Plan Queue triage agent looked for `plan_queue_report_triage` only in its provider's own tool list, never in Harness's `orchestrator_tool_search`, so it could not report; both the Claude attempt and the Codex retry ended without answering and the document parked `triage-failed`. The triage prompt has no tool-discovery steps (the verifier prompt gained them separately). | [LT-722 detail](#lt-722) | [Implementation status](2026-07-19-livetest-failure-remediation-followup_plan.md#lt-722) |
+| LT-723 | P2 | **CONFIRMED FIXED LIVE 2026-11-06. Source fix verified 2026-11-04; installed provisioning passed 2026-11-05; shared receipts and saving passed 2026-11-06.** Preparing a shared Plan Queue check parks the leader when a scripts-only Node project triggers unnecessary `npm ci` with the packaged app's stripped PATH. Dependency setup must be required by the checked-out project, use the discovered CLI environment, and choose `ci` only for an npm lockfile/shrinkwrap. | [LT-723 detail](#lt-723) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-04-balanced-rerun-failure); [verified source repair](2026-11-04-plan-queue-check-copy-provisioning_plan_completed.md); [installed evidence](2026-11-04-plan-queue-check-copy-provisioning_livetest_completed.md#evidence--2026-11-05-real-shared-check-and-later-member-recheck) |
+| LT-724 | P2 | **CONFIRMED FIXED LIVE 2026-11-06. Source fix verified 2026-11-05; the rebuilt installed run used one checklist for three jobs, with three separate reviews and mandatory landing sync.** A successful grouped checklist is rerun for its waiting member after the first member independently passes and lands. A real two-member group ran, but the later member lost shared receipt reuse and the run used three checklists for three jobs. Preserve checked-base provenance and strict proof while retaining separate reviews and mandatory serialized landing synchronization. | [LT-724 detail](#lt-724) | [Verified receipt-reuse repair](2026-11-05-plan-queue-group-receipt-reuse_plan_completed.md); [installed batching evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-05-real-group-with-lost-later-member-reuse) |
+| LT-725 | P2 | **SOURCE FIX VERIFIED 2026-11-06; rebuilt installed acceptance pending.** Automatic code context was mostly irrelevant on real messages: about 7% of top results were relevant and 75% of short messages got code. It now needs a source file named after two words of the message, and skips text too long to search whole. Blind review on unseen messages: 52% relevant, 12% of short messages get code. | [LT-725 detail](#lt-725) | [Fixing plan](2026-11-06-code-context-precision_plan_completed.md); [installed check 3](2026-11-06-search-and-memory-repair_plan_livetest.md#3-automatic-code-context-is-relevant-and-quiet-when-it-should-be) |
+| LT-726 | P2 | **SOURCE FIX VERIFIED 2026-11-06 in a Linux container; first AppImage release build pending.** Linux packages could not finish building, because `scripts/set-electron-fuses.js` opened `Harness` when the binary is `harness`, so the security fuses were never set. | [LT-726 detail](#lt-726) | [Fixing plan](2026-11-06-code-context-precision_plan_completed.md); [installed check 9](2026-11-06-search-and-memory-repair_plan_livetest.md#9-windows-and-linux-packages-hold-only-their-own-runtime) |
+| LT-727 | P1 | **SOURCE FIX VERIFIED 2026-11-06; rebuilt-app check pending.** Every Microsoft 365 connector tool call was refused before reaching Microsoft, because the connector rejected the standard `_meta` field that MCP clients add to a call. | [LT-727 detail](#lt-727) | [Check 3](2026-10-26-plugins-cleanup-and-global-connectors_livetest.md#3-microsoft-365-account-routing-and-write-policy) |
+
 
 ## LT-001: Existing-Tab Browser Grant Scope Mismatch
 
@@ -10114,3 +10122,241 @@ scoring".
   failure that persists is surfaced as a note/warning without dropping the record.
 - The AIO-05 C1 cell is re-run and recorded normally after the fix; the benchmark suite and the
   canonical static gates stay green.
+
+<a id="lt-709"></a>
+
+## LT-709 — installed runtime provider packages fail before registration in the compiled app
+
+**Status: OPEN; reproduced 2026-10-26; no remediation implemented.**
+Origin: the custom-provider proof required by
+[Plugins cleanup Phase 1](2026-10-26-plugins-cleanup-and-global-connectors_plan_completed.md#phase-1-plugins-page-cleanup).
+That phase explicitly permits recording a failed proof and omitting the custom-provider claim;
+this entry does not turn that proof into a completed feature or expand its implementation scope.
+Implementation status: [active remediation follow-up](2026-07-19-livetest-failure-remediation-followup_plan.md#lt-709).
+
+Numbering note: LT-708 is already reserved by the active remediation follow-up's LT-707/LT-708
+reconciliation, although this checkout's register still ends at the older benchmark LT-707.
+LT-709 avoids a collision when that separate work lands; existing entries are unchanged.
+
+### Observed behaviour
+
+A disposable package declaring `slot: provider` and `isolation: worker` installs successfully
+through the compiled `PluginPackageManager`. Its manifest loads and validates, but activation
+through the compiled `OrchestratorPluginManager` and real `PluginWorkerHost` fails during
+instantiation:
+
+```text
+Cannot find module 'file:///<repository>/packages/sdk/src/provider-adapter-worker-bridge.ts'
+Require stack:
+- <repository>/dist/main/plugins/plugin-worker-host.js
+```
+
+The resulting report has `pluginLifecycle: failed`, `ready: false`, an empty creatable provider
+registry, and `providerListIncludesPackage: false`. No assistant response is produced. Independently,
+the compiled `InstanceCreatePayloadSchema` rejects the fixture's `provider: 'plugin:proof'` because
+its provider enum contains only built-in providers and `auto`.
+
+The probe uses the real compiled package, manager, worker, registry and provider-manager code;
+only Electron host/settings/logging objects are replaced. It uses a disposable home and package,
+opens no window, reads no credentials and starts no AI-provider process. Re-running
+`rtk proxy node _scratch/plugins-connectors-provider-runtime-probe.cjs` exits 1 at the assertion
+that the package appears in the provider list. This is a reproduced failure, not a passing gate.
+
+Evidence (read and independently rerun 2026-10-26):
+
+- [Runtime report](../../_scratch/plugins-connectors-provider-runtime-report.md).
+- [Synthetic load report and schema rejection](../../_scratch/plugins-connectors-provider-runtime-evidence.json).
+- [Reproduction fixture](../../_scratch/plugins-connectors-provider-runtime-probe.cjs) and
+  [failing command output](../../_scratch/plugins-connectors-provider-runtime-command.log).
+- The observed error and result fields above are retained here because `_scratch/` is disposable.
+
+### Root cause
+
+`src/main/plugins/plugin-worker-host.ts:159-162` dynamically imports the SDK bridge as a file URL.
+The CommonJS main build (`tsconfig.electron.json:4`) emits that expression as
+`Promise.resolve(fileURL).then(s => __importStar(require(s)))` in
+`dist/main/plugins/plugin-worker-host.js:85`. CommonJS `require` cannot load that `file://` URL.
+`startWorkerRuntime` calls this loader before the helper, package factory or adapter registration
+(`src/main/plugins/plugin-worker-host.ts:535-543`), so the observed worker failure prevents any
+provider registration. The helper and plugin-module imports have the same emitted transformation
+(`dist/main/plugins/plugin-worker-host.js:94,395`); correcting only the first import is insufficient.
+
+The bridge resolver also walks from `dist/main/plugins` to repository source
+`packages/sdk/src` (`src/main/plugins/plugin-worker-host.ts:149-155`), rather than the emitted
+`dist/packages/sdk/src`. A packaged build must resolve its shipped SDK; missing packaged files
+have not been independently reproduced here.
+
+The provider-list wiring is real: `PROVIDER_LIST` calls `getAllConfigs`
+(`src/main/ipc/handlers/provider-handlers.ts:53-57`), which includes only creatable registered
+plugin providers (`src/main/providers/provider-instance-manager.ts:123-129,428-429`;
+`src/main/providers/provider-adapter-registry.ts:106-111`). The normal session-create boundary
+separately validates the built-in-only provider enum before creating an instance
+(`packages/contracts/src/schemas/instance.schemas.ts:39,188`;
+`src/main/ipc/handlers/instance-handlers.ts:92-100`).
+
+One further source-backed concern was not reached by this failing worker: the manager selects
+hook/notifier/tracker/telemetry runtime proxies but has no provider case, then requires that
+selected runtime for readiness (`src/main/plugins/plugin-manager.ts:454-464`). This is not claimed
+as a separately reproduced runtime failure.
+
+### Required behaviour
+
+Compiled and packaged workers must load the shipped SDK, helper and plugin modules correctly.
+A provider-slot package must report truthful readiness, appear in the provider list, and answer
+through a supported user-facing session path. Plugins and Help must omit custom-provider support
+until the complete route is proven. The Phase 1 wording follows that restriction while this item
+remains open.
+
+### Acceptance
+
+- Reproduce install, successful activation/readiness, provider-list visibility, session
+  initialization and an actual assistant response against compiled output in a disposable profile.
+- Verify the packaged SDK/helper loads without depending on repository source files.
+- Exercise the ordinary session-create IPC route with the plugin provider, or explicitly implement
+  and expose another supported user-facing session route; a registry-only response is insufficient.
+- Verify unregister, uninstall and worker cleanup after a successful response, and truthful failure
+  reporting for an invalid package.
+- Add source and compiled-worker regressions so source/tsx-only tests cannot hide another build
+  transformation failure, then run the canonical gates and the originating provider proof.
+
+<a id="lt-722"></a>
+
+## LT-722 — Plan Queue triage cannot find its reporting tool
+
+**Status: OPEN; reproduced 2026-10-27; no remediation implemented.**
+Origin: [Plan Queue step-up live checks](2026-10-27-plan-queue-stuck-worker-step-up_plan_livetest.md#evidence-run--2026-10-27),
+first LT-SU-3 attempt. Not caused by the step-up change: triage runs before any worker.
+Implementation status: [active remediation follow-up](2026-07-19-livetest-failure-remediation-followup_plan.md#lt-722).
+
+### Observed behaviour
+
+Run `35edd9c1-1d5c-4afc-a276-1e623e9611eb` in the disposable repository `/tmp/stepup-live-off`
+(one plan, started 15:34 UTC by a one-time automation) parked its only document as
+`triage-failed`: "it ended without answering (Claude), then it ended without answering (Codex)".
+The Claude triage transcript (`claude-cli-profiles/*/projects/-private-tmp-stepup-live-off/294c6e0e-….jsonl`)
+shows it calling Claude's native `ToolSearch` with `select:plan_queue_report_triage`, then
+`plan queue triage report`, then `plan_queue`, each returning no match, and ending with
+"I couldn't submit the triage. The `plan_queue_report_triage` tool isn't available in this session."
+It never called `orchestrator_tool_search`, where the tool is listed. Two other triage runs the
+same afternoon (`/tmp/stepup-live`, `/tmp/stepup-live-off2`) did report, so the failure is
+intermittent and depends on how the agent searches.
+
+### Root cause
+
+`buildTriagePrompt` (`src/main/plan-queue/plan-queue-prompts.ts`) tells the agent to call
+`plan_queue_report_triage` but, unlike `buildVerifierPrompt` and `buildVerifierReminderPrompt`,
+does not include the discovery steps (`VERDICT_DISCOVERY_STEPS`: use the provider's discovery
+mechanism to find `orchestrator.tool_search` / `tool_describe`; native tool search alone is not
+enough). The tool is a deferred Harness tool, so an agent that only searches its native list
+cannot find it.
+
+### Required behaviour
+
+The triage prompt carries the same discovery route as the verifier prompt, naming
+`plan_queue_report_triage`, so a triage agent on any provider finds and calls the tool, and
+reports a discovery failure with the exact tool error rather than ending silently.
+
+### Acceptance
+
+- A prompt regression test asserts the triage prompt contains the discovery steps for
+  `plan_queue_report_triage` before its task line.
+- A live triage run on Claude in a disposable repository reports through the tool on its first
+  attempt; repeat until three consecutive runs report without a retry.
+
+
+## LT-723 — shared queue checks try an unnecessary npm install through the wrong environment
+
+Origin: [batched checks installed-app procedure](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-04-balanced-rerun-failure).
+Implementation notes: [verified source repair](2026-11-04-plan-queue-check-copy-provisioning_plan_completed.md). The index row owns status.
+
+### Observed behaviour
+
+Installed run `557b9f7f-3127-436c-b6e4-33ed0bf04b68` used three workers, one effective check slot and batch size four under Balanced Workload. Epsilon was being checked while delta and zeta waited together. Delta then parked as `worktree-error`: `Could not run Harness checks: Command failed: npm ci` followed by `/bin/sh: npm: command not found`. Epsilon and zeta passed separate checklists and landed; the end notice reported two test runs covering two jobs, not a successful shared check.
+
+The disposable project has a scripts-only package manifest, built-in Node tests, no external dependencies and no npm lockfile. The same source-runtime call against that fixture with PATH limited to `/usr/bin:/bin` reproduced the exact npm-not-found error before the fix. Evidence is retained in `_scratch/batch-live-provisioning-fix/runtime-red.json`. The real run's parent report, snapshots and restoration evidence are under `_scratch/batch-live-20261104/balanced-retry/`. Workload was restored from 3 to its original 5 and read back. Delta's branch and work remain preserved; it has not been force-landed or discarded.
+
+### Root cause
+
+At reproduction, `PlanQueueCheckGroups.run` called the combined-copy path in `PlanQueueWorktreeService`. `withPlanQueueCombinedCopy` called `provisionPlanQueueCheckCopy`, which always supplied `installCommand: 'npm ci'`. The shared `provisionNodeModules` fallback treated any package manifest as requiring an install when no modules could be copied, even if it contained only scripts and no setup requirements. Its `child_process.exec` call inherited the raw app environment, whereas queue gate and readiness commands use `buildCliEnv()` to discover the installed Node/npm paths. The combined-copy failure propagated before shared receipts could be produced. Individual worker-worktree provisioning catches/logs its error, explaining why ordinary checks could still pass.
+
+The missing npm command is the observed failure. The lockless fixture also makes unconditional selection of `npm ci` inappropriate by source contract; this entry does not claim the same live run reached a separate lockfile rejection.
+
+### Required behaviour
+
+- Skip automatic package installation for a genuinely dependency-free scripts-only project, including base and combined queue copies; preserve explicit custom setup commands.
+- Keep required setup for dependencies, workspace packages, lifecycle scripts and implicit native setup. Preserve existing root-module cloning, workspace-link isolation and native-binary checks.
+- Select `npm ci` only for an npm lockfile/shrinkwrap; otherwise use the existing supported install default. Launch real install commands with the same discovered CLI environment as gate/readiness commands.
+- Surface real setup failures, preserve the parked job's work, and remove failed temporary copies through the existing ownership-proven cleanup. Do not bypass review or landing gates.
+
+### Acceptance
+
+1. The source runtime provisions the original dependency-free fixture successfully under the same stripped PATH without creating modules, lockfiles or tracked changes.
+2. Regressions cover installation-enabled combined/base copies, lock/shrinkwrap selection, lockless dependency setup, lifecycle/workspace/native requirements, explicit custom commands, a discovered npm path, and surfaced install failures. Existing clone/isolation/native and cleanup tests remain intact.
+3. Focused tests, all canonical project gates and a genuinely fresh independent completion review pass before the fixing plan is closed.
+4. A rebuilt installed-app rerun meets the waiting-group prerequisite, completes the shared checklist without parking its leader for this error, retains independent reviews and own-HEAD/shared-tree receipts, and records actual checklist/job totals, temporary-copy cleanup and Workload restoration in the owning live-test document. A lone resumed delta is recovery evidence, not proof of batching.
+
+## LT-724 — successful grouped checks are lost before a later member's independent review
+
+Origin: [installed batching evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-05-real-group-with-lost-later-member-reuse) and [provisioning retest](2026-11-04-plan-queue-check-copy-provisioning_livetest_completed.md#evidence--2026-11-05-real-shared-check-and-later-member-recheck).
+Implementation notes: [verified receipt-reuse repair](2026-11-05-plan-queue-group-receipt-reuse_plan_completed.md); [installed retest](2026-11-05-plan-queue-group-receipt-reuse_livetest_completed.md). The index row owns status.
+
+### Observed behaviour
+
+Installed run `62cd9771-061f-4c40-bf3a-bf153c83c33a` used Balanced Workload, three workers, one effective check slot and batch size four. Theta occupied the slot while eta and iota waited together. At `01:18:04.471Z`, a real checklist event named both eta and iota in group `5c57aac4-d2ec-4a28-9fe6-4416e3b93f2d`. Eta's persisted PASS receipt has own HEAD `b29c41d16ccdc1d603bd9803d494e581b38f4c56`, tested tree `7c5daffed145db620a0724e205ba6162274c7319`, group base `10c1dfaebd1d718858a8ca6026a4219fa7c08531` and both member IDs. The successful Node checklist output includes both members' tests.
+
+Eta landed at `01:20:51.005Z`. Iota entered verification at `01:20:51.707Z` and started another, solo checklist at `01:20:52.480Z`. Its final PASS receipt uses HEAD `93c6941fea05af7b27ef0718bfb210a81b0bb7a2`, tested tree `83f70328d726ddf3bb0289710e1ba7f228ef544f` and no group. All three jobs landed without fixes, but three checklist events covered three distinct jobs; the intended saving was lost. This corrects the fixture parent's inference that no batch occurred: persisted rows prove a real combined check, followed by unnecessary later-member rerun.
+
+Exact run/item/event/verdict rows, parent snapshots and restored Workload evidence are retained under `_scratch/batch-live-20261104/installed-retest-20261105/`. Workload was restored to 5. Earlier parked delta remains outside this repair's mutation scope.
+
+### Root cause
+
+The source investigation recorded in the active repair plan identifies synchronization before receipt lookup: after eta lands, synchronizing the waiting checkout changes its HEAD/base and the strict ordinary cache correctly misses. The existing moved-base group proof expects the current member's independent PASS, unavailable before that member's checker runs. Checker startup also records current main rather than necessarily the original checked base. Reusing machine evidence before synchronization therefore requires separate checked-base provenance; skipping landing synchronization or fabricating an independent PASS would be incorrect. The source diagnosis and repair are verified in the linked source plan; installed acceptance passed on 2026-11-06.
+
+### Required behaviour
+
+- Reuse successful exact-round grouped machine receipts for a waiting, unchanged member when current main contains only proven unchanged group-member landings since the tested base.
+- Revalidate commits/checkpoints, commands, document/source identity, cleanliness, group history and active state; unrelated changes, invalid proof or changed work require fresh checks.
+- Keep each member's independent checker and verdict. Machine receipts are not an invented independent PASS.
+- Retain the actual checked base, mandatory serialized synchronization/checkpointing at landing, conflict handling and final proof revalidation. Preserve limits, lifecycle cancellation/cleanup and bounded memory ownership.
+- Preserve parked work and all unrelated state; never force landing or weaken the exact ordinary receipt cache.
+
+### Acceptance
+
+1. A real temporary-Git production-flow reproduction checks one solo job and one pair, lets the first pair member independently pass and actually land, then admits the second. Exactly two checklist executions cover three jobs, with own HEADs and shared group/tested tree for the pair; the second member still synchronizes/checkpoints at landing.
+2. Meaningful regressions reject unrelated base changes, changed/dirty work, changed commands/source, departed rounds, holds/pauses/cancellation and proof errors. No current-member PASS is fabricated; review/document checks stay separate.
+3. Actual runtime verification precedes regression updates; focused tests, all canonical gates and a fresh independent completion review pass before the source plan closes.
+4. A rebuilt/restarted installed rerun proves both grouped receipts survive sequential independent reviews/landings, records actual savings and cleanup/restoration, and meets the owning live-test documents' remaining acceptance. Source proof alone does not close installed acceptance.
+
+## LT-725 — automatic code context is still mostly irrelevant on real messages
+
+**Observed:** on the rebuilt app, from Claude session transcripts between 10:03 and 13:02 on 6 November 2026, 12 of 34 real messages got an `[Indexed Codebase Context]` block, most at the full 3,790 characters. Two were clearly relevant, for example `yeah keep the 5 minute check in` got `instance-async-work-continuation.ts`. Eight were unrelated: `This looks interesting to us.` got `docs/plans/completed/copilot_completed.md`, `Why would do that? It's a shared resource!?` got `configurationRepository.ts`, and a request to commit and close cards got a `.tap` evidence file. Two automated prompts got a file from `tmp/tsx-501`. A sample from before the upgrade was as poor, and included `yeah send that please.` getting a WordPress `moxie.js`, so this is an old defect that item 2 of the search repair only partly fixed. A later message, `How about putting those message into this session?`, got the same `node-failover.ts` chunk twice, matched on the words `putting` and `session`, so the block can also repeat a result. The check 6 prompt `what is a good recipe for sourdough` got a full-size block from `docs/plans/completed/loop-library-borrow_notes_completed.md`, matched on `good` and `recipe`, which is the clearest single reproduction.
+
+**Root cause:** `isStrongMatch` in `src/main/codemem/code-search-query.ts` accepts any two informative words covering half the query, so a short remark with two everyday words qualifies. The stop list covers filler words, not ordinary vocabulary. `classifyFileKind` also treats unknown extensions and files in cache, build and archive folders as source. The earlier evaluation measured whether the right file was found for commit descriptions, not whether unrelated messages stayed quiet.
+
+**Required behaviour:** automatic context stays quiet unless the message is about code in that workspace. It must not add scratch, cache, build-output or archive files, or plan documents, on a conversational message.
+
+**Acceptance:** build a labelled set from real messages, including ones that should get nothing, and show a large fall in unrelated code without harming ordinary search. Check 3 in the live-test document then passes on the rebuilt app. The first version of this entry asked for 80% relevant. That was set before any labels existed, and no keyword rule tried came close: the fix reached 52% for the top result, with short messages getting unrelated code falling from about 70% to about 6%.
+
+## LT-726 — Linux package build fails in the fuses hook
+
+**Observed:** building commit f15d20a2b with `electron-builder --linux dir --x64` in a `node:24-bookworm` container on 6 November 2026 exited 1 with `ENOENT: no such file or directory, open '/work/out/linux-unpacked/Harness'` at `scripts/set-electron-fuses.js:55`. The `--linux AppImage` jobs in `.github/workflows/release.yml` use the same hook. `gh run list` shows no run of that workflow, so no Linux release has exercised it.
+
+**Root cause:** `scripts/set-electron-fuses.js:45` builds the Linux path from `appInfo.productName`. electron-builder names the Linux binary from the lower-cased package name unless `linux.executableName` is set, so the file is `harness`. The script has not changed since May 2026, so this predates the search repair.
+
+**Required behaviour:** the hook hardens the binary electron-builder actually produced on every platform, and a Linux package completes with its fuses set.
+
+**Acceptance:** `electron-builder --linux dir --x64` succeeds in a clean container, the fuses read back as set on the Linux binary, and a regression test covers the Linux path.
+
+**Verified 2026-11-06:** with the fix, `electron-builder --linux dir --x64` exited 0 in a clean `node:24-bookworm` container. RunAsNode, EnableNodeOptionsEnvironmentVariable and EnableNodeCliInspectArguments read back as disabled and OnlyLoadAppFromAsar as enabled on `harness`. `scripts/__tests__/set-electron-fuses.spec.ts` covers all three platforms. An AppImage has not been built.
+
+<a id="lt-727"></a>
+
+## LT-727 — Microsoft 365 connector refused every tool call
+
+**Observed:** on 6 November 2026 a session reported the Community Tech connector refused every request and sent mail through the IMAP connection instead. Calling `graph_mail_list_folders` from a Claude session on `m365-communitytech` and `m365-fortitude` both failed with `unrecognized_keys` for `_meta`. The same call sent straight to the running app worked without `_meta` (10 and 8 folders) and failed identically with it, so sign-in and Microsoft Graph were healthy.
+
+**Root cause:** the `tools/call` branch of `dispatchConnectorRpc` in `src/main/mcp/connector-rpc.ts` parsed the request params with a strict schema allowing only `name` and `arguments`. MCP allows `_meta` in request params, and `ConnectorForwarder` passes params through unchanged. `list_automations`, which has an equally strict arguments schema, succeeded from the same session, so the field is in the params rather than the tool arguments.
+
+**Required behaviour:** connector tool calls succeed when the client adds protocol fields, those fields never reach the tool, and each connector stays bound to its account with its write and approval checks unchanged.
+
+**Acceptance:** after a rebuild and restart, a new Claude session and a new Codex session each list folders through `m365-communitytech` and `m365-fortitude` using the ordinary connector tools. A regression test in `connector-rpc.spec.ts` covers the `_meta` call. Check 3 in the [owning live-test document](2026-10-26-plugins-cleanup-and-global-connectors_livetest.md) stays open for the rest of its steps.

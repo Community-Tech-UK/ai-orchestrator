@@ -1,28 +1,45 @@
 # Phase C partial implementation handoff
 
-Status: IN PROGRESS. **0 of 13 items verified end to end.** The supplied branch remains at checkpoint
-`317e0c91f549c905e90fdbb10729a84ad79c37c5`, with two uncommitted test corrections from this resume.
-This is not a whole-plan PASS or an instruction to integrate or rename the plan.
+Status: IN PROGRESS. **12 of 13 items implemented on the queue branch (24 Oct resume); the remaining open
+pieces are cross-branch/live items listed per row below.** Not a whole-plan PASS and not an instruction to
+integrate or rename the plan.
 
 Plan: [active plan](../2026-10-20-oct2-phaseC-queue-that-finishes_plan.md).
 As-built details: [history](../2026-10-20-oct2-phaseC-queue-that-finishes_history.md).
 Installed/OS checks: [live tests](../2026-10-20-oct2-phaseC-queue-that-finishes_livetest.md).
 
+## 24 October resume evidence
+
+- Prerequisites re-verified in source before editing: Phase A's guards/usage-log exist only on its queue
+  branch; Phase B's migration 24 likewise; `automation_result` (A15) exists nowhere; the root register is its
+  owner's active uncommitted work. Sequencing decision recorded in the history: parallel implementation with
+  new modules/extract-first room, following Phase B's precedent and the plan's own Ground rules 4/5
+  (migration 25–27 taken in step order; 24 reserved for Phase B).
+- Four implementation waves plus Step 7 built Steps 1–8 and the remaining 11.2-queue/12.2/13 items, each
+  with RED-first tests. Fresh self-review of the whole diff fixed the diet's missing root-document hash
+  guard (RED reproduced: a concurrent edit was clobbered) and hardened three load-sensitive waits that
+  flaked under CPU contention (reproduced twice; identical selection then passed 822/822).
+- Final targeted verification: **109 files / 1,396 tests passed**, exit 0 (`_scratch/test-run.pid-93781.log`,
+  worktree `_scratch/`). Static gates all exit 0: `npx tsc --noEmit`, `npm run typecheck:spec`,
+  `npm run lint`, `npm run check:ts-max-loc`, `npm run build:main`, `npm run build:renderer`, `generate:ipc`,
+  `verify:ipc`, `verify:ipc-usage` (`_scratch/phasec-final/gates-1.txt` … `gates-4.txt`). This is not the
+  full repository suite; that and a genuinely fresh task-completion-gate pass belong to the verifier.
+
 | Item | Actual status and remaining work |
 |---|---|
-| 1. History/fingerprint | Open. Phase A Steps 0/3/4 guards are absent in this worktree and root source. Implement after AIO integrates those prerequisites. |
-| 2. Machine gate receipts | Open; depends on 1 and guarded queue operations. |
-| 3. Capacity/retry/recovery | Open; depends on 1 and Phase A guards. |
-| 4. Round memory | Open; depends on 1–3. |
-| 5. Plan diet | Open; depends on 4 and Phase B root-document handling. |
-| 6. Discovery/triage | Open; depends on 1. |
-| 7. Queue spend | Open; depends on 1. |
-| 8. Queue page | Open; depends on 2–7. |
-| 9. Scheduled jobs | Partial. Existing time/processed-token limits, retry, caller ceilings, check defaults/backoff and live-thread ownership code are retained. Step 9.4 semantic outcomes/quiet rows and the semantic quiet hint need Phase B A15. Current focused tests pass; installed behavior and a fresh independent gate remain pending. |
-| 10. Second opinions | Code implemented and included in current tests. Post-K2 premium-per-review measurement remains a live check; no installed restart/measurement is claimed. |
-| 11. Copilot | Local labels/numeric tail/loop recycle and compatibility warning implemented and tested. Queue recycle still needs a guarded reset seam after Phase A; remote usage/recycle remains unsupported. |
-| 12. Live-check register | Next-ID script and AGENTS/runbook guidance implemented and tested. Archive/header restructuring preserves the root register owner's nine uncommitted additions. Queue prompt awaits shared steps; weekly campaign awaits Phase B landing. |
-| 13. Full ephemeral usage line | Open. Phase A Step 6 minimal usage-log implementation is absent. |
+| 1. History/fingerprint | **Built 24 Oct** (migrations 25/27 tables; event+verdict rows on every transition/round; progress module). Wired and tested. |
+| 2. Machine gate receipts | **Built 24 Oct.** Harness runs the gates before the checker; per-gate receipts with timeout flags and base comparison; `not_checked` required in both schemas; a PASS with a red "new" receipt is refused. |
+| 3. Capacity/retry/recovery | **Built 24 Oct.** Transient errors wait with back-off; run preflight; worker-turn retry allow-list; `restart-loop` after three restarts without progress. |
+| 4. Round memory | **Built 24 Oct.** Earlier-rounds block (≤12,000 chars), no-progress park, same-finding step-back log-only behind `PARK_ON_REPEATED_FINDING=false` (one-week live window in the livetest doc). |
+| 5. Plan diet | **Built 24 Oct.** Diet at checkpoint (root history file, hash-guarded on both shared files), pinned criteria + document-change block for the checker, close-small at `_completed` rename, `_history` squash guard. |
+| 6. Discovery/triage | **Built 24 Oct.** Copy/ignore skips, 16 KB headers, saved glob + counts + >25 confirmation, triage memory ("Already decided on <date>", "not reached" for cancelled runs), single-path runs skip triage, "Skip all not started". |
+| 7. Queue spend | **Built 24 Oct.** Per-call `plan_queue_spend` rows (processed/output split, NULL unpriced, role/round/provider/model/basis); Codex self-estimates labelled estimated; honest labels ("$379.93 known · 17.2M tokens not priced"). |
+| 8. Queue page | **Built 24 Oct.** Three tabs, History/N-earlier folding, exhaustive park-reason help, detail folding + path stripping, plain words, bulk previews, receipts and "Passed. Not checked: …" on the card. Live layout check deferred (livetest §6). |
+| 9. Scheduled jobs | 9.1–9.3, 9.5–9.7 retained from earlier rounds. **9.4 (quiet result) remains open**: awaits Phase B's A15; `automation_result` exists nowhere yet. |
+| 10. Second opinions | Code implemented and tested earlier. Post-K2 premium-per-review measurement remains a live check (livetest §1). |
+| 11. Copilot | Labels/tail/loop recycle/compatibility warning earlier; **queue recycle built 24 Oct** at turn boundaries (livetest §3 covers the live check). Remote usage/recycling remains an implementation limitation. |
+| 12. Live-check register | Script + AGENTS/runbook + queue prompt pointer done. **12.1 archive move and 12.3 register-header reword remain open**: the root register is its owner's active uncommitted work (LT-707 row written 24 Oct); the plan says wait for that owner or agree the move. 12.4 campaign awaits Phase B + the Windows PC. |
+| 13. Full ephemeral usage line | Fields module + reader + Costs panel **built 24 Oct**. The one-line writer hook remains: Phase A's `codex-ephemeral-usage-log.ts` is only on its branch and was deliberately not copied here. |
 
 ## Current resume evidence
 
@@ -47,9 +64,14 @@ No database cluster, browser, dependency installation or copied checkout was cre
 
 ## Coordinator action
 
-Keep the plan active. AIO must integrate the required Phase A guards/minimal usage logging and Phase B prerequisites
-through its normal lifecycle, then synchronize this worktree before shared queue implementation continues. Preserve
-other sessions' root edits. Complete the open code items above before requesting a whole-plan completion verdict.
-The independent verifier owns the full suite and a genuinely fresh task-completion-gate pass; the coordinator owns
-commits, integration and completion renames. No commit, stash, branch/worktree creation, restart or external action
-was performed during this resume.
+Keep the plan active. When the verifier passes this diff, the remaining open rows need: Phase B's A15 landing
+(9.4), the root register owner's commit or an agreed move (12.1/12.3-header), Phase B landings plus the
+Windows PC (12.4), and one line in Phase A's `CodexEphemeralUsageLog.finish()` calling
+`codexEphemeralUsageFields` (13). Merge note for the integrator: this branch deliberately mirrors sibling
+shapes where they overlap (the `_history` regex matches Phase A's exact form; `plan-queue-run-relaxation.ts`
+mirrors Phase A's class/API; migrations 25–27 leave version 24 to Phase B) — resolve conflicts keeping both
+sides' behaviour, especially Phase A's checkout guard/verdict nudge in `plan-queue-item-flow.ts` and
+`plan-queue-coordinator.ts`. Preserve other sessions' root edits. The independent verifier owns the full
+suite and a genuinely fresh task-completion-gate pass; the coordinator owns commits, integration and
+completion renames. No commit, stash, branch/worktree creation, restart or external action was performed
+during this resume.

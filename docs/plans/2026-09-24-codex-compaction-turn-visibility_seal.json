@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "at": "2026-10-27T02:47:21.567774+00:00",
+  "head": "80412201a07ec93cefb9a4b6ddb06579ad314d75",
+  "branch": "queue/2026-09-24-codex-compaction-tu-23ae4a",
+  "acceptanceComplete": false,
+  "readyForPass": false,
+  "openChecks": [
+    4
+  ],
+  "check4": {
+    "status": "partial",
+    "observedDurationMs": 154021,
+    "requiredDurationMs": 2100000,
+    "operatorActionRequired": false
+  },
+  "productCodeChanges": false,
+  "buildMain": 0,
+  "buildRenderer": 0,
+  "focusedTests": {
+    "exitCode": 0,
+    "files": 5,
+    "tests": 44
+  },
+  "independentGate": "pending queue coordinator; no PASS claimed",
+  "cleanup": "complete",
+  "evidenceDirectory": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-09-24-codex-compaction-turn-visibility_evidence/2026-10-27-queue-5223ae4a",
+  "document": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-09-24-codex-compaction-turn-visibility_livetest.md",
+  "documentSha256": "250ae4e827d7a325220bfd72d0cb3b0660ffbc0811f1c793d474d97e94dd8393",
+  "receipts": [
+    {
+      "path": "2026-09-24-codex-compaction-turn-visibility_evidence/2026-10-27-queue-5223ae4a/after-compaction.json",
+      "sha256": "63183fb655ec959e57c98d58ab9417902a5c60e108d3fb80237f90a2cc38902e",
+      "bytes": 1317
+    },
+    {
+      "path": "2026-09-24-codex-compaction-turn-visibility_evidence/2026-10-27-queue-5223ae4a/app-log-slice.log",
+      "sha256": "e6c792b72cf35a3a0a5eb3aaeeb23ac03f893d2b251a5406116b1dd52819b4cb",
+      "bytes": 11935
+    },
+    {
+      "path": "2026-09-24-codex-compaction-turn-visibility_evidence/2026-10-27-queue-5223ae4a/baseline.json",
+      "sha256": "1969e48726029730ee8f55f5e5e19211a4edb77ca3795b45b8d074509f5fd919",
+      "bytes": 436
+    },
+    {
+      "path": "2026-09-24-codex-compaction-turn-visibility_evidence/2026-10-27-queue-5223ae4a/build-main.log",
+      "sha256": "e53c77df92cb08959c7fa8f45a78f861be16cb74a6c6e53c0e3c249bcbb9a40a",
+      "bytes": 284
+    },
+    {
+      "path": "2026-09-24-codex-compaction-turn-visibility_evidence/2026-10-27-queue-5223ae4a/build-renderer.log",
+      "sha256": "609f20c2d75eae3743fa5c13d069f5103ccc2f7fef394b34931bb334264b84b5",
+      "bytes": 5447
+    },
+    {
+      "path": "2026-09-24-codex-compaction-turn-visibility_evidence/2026-10-27-queue-5223ae4a/cleanup-beforequit.json",
+      "sha256": "3621f1e9d804a500667dd6c94c401f3534adf1c37b77fde13b4d3fdc4a63f513",
+      "bytes": 334
+    },
+    {
+      "path": "2026-09-24-codex-compaction-turn-visibility_evidence/2026-10-27-queue-5223ae4a/cleanup-receipt.json",
+      "sha256": "888f373a56c192ff1294e67689a8eecd01b8b6a34b5ea68562da01fd8edaaa02",
+      "bytes": 1345
+    },
+    {
+      "path": "2026-09-24-codex-compaction-turn-visibility_evidence/2026-10-27-queue-5223ae4a/command-sources.txt",
+      "sha256": "e288362588d6deb3325c22b1ac175a750399b1481e1ba0cf67c062a576f82ab0",
+      "bytes": 23372
+    },
+    {
+      "path": "2026-09-24-codex-compaction-turn-visibility_evidence/2026-10-27-queue-5223ae4a/commands.ndjson",
+      "sha256": "aaecc7896a02909bf52e77f5909c843d8cae1b9900c1f8cfcaddd2a0eea97933",
+      "bytes": 702
+    },
+    {
+      "path": "2026-09-24-codex-compaction-turn-visibility_evidence/2026-10-27-queue-5223ae4a/electron.log",
+      "sha256": "512728e93b6406ffea226813f7fd68b8b10a569ef83957a44e3b11e79b804231",
+      "bytes": 732
+    },
+    {
+      "path": "2026-09-24-codex-compaction-turn-visibility_evidence/2026-10-27-queue-5223ae4a/focused-tests.log",
+      "sha256": "3dedef8a43d79556df02a7b3a5eb5417b32461c0ae35d68ee100d4e7d84a9cb5",
+      "bytes": 427
+    },
+    {
+      "path": "2026-09-24-codex-compaction-turn-visibility_evidence/2026-10-27-queue-5223ae4a/lifecycle-slice.ndjson",
+      "sha256": "feccdf2fd55ac93c9bd27524ec32b14684dc96d81a0e8df4e806e25290c701ac",
+      "bytes": 6240
+    },
+    {
+      "path": "2026-09-24-codex-compaction-turn-visibility_evidence/2026-10-27-queue-5223ae4a/runtime-receipts.ndjson",
+      "sha256": "20177ea4a3a1ef0aa8ed9c65eea13a77e03fc7b31450781b93302f521ba45d24",
+      "bytes": 2327
+    },
+    {
+      "path": "2026-09-24-codex-compaction-turn-visibility_evidence/2026-10-27-queue-5223ae4a/runtime-snapshot.json",
+      "sha256": "f7ff130f912b0bfe13566b528bb2492058f39e5b27d0f6b40d39a526d139c846",
+      "bytes": 4776
+    },
+    {
+      "path": "2026-09-24-codex-compaction-turn-visibility_evidence/2026-10-27-queue-5223ae4a/short-resume-result.json",
+      "sha256": "4f439052a4b426eb9fc63cd47d5de6cc89b1c695de13ec54a229b3979786b7c4",
+      "bytes": 57
+    },
+    {
+      "path": "2026-09-24-codex-compaction-turn-visibility_evidence/2026-10-27-queue-5223ae4a/short-watch.ndjson",
+      "sha256": "289a6b677e526163de56719b430ca7e5e62fb9d013cfe4da0e679cfafd464360",
+      "bytes": 7617
+    },
+    {
+      "path": "2026-09-24-codex-compaction-turn-visibility_evidence/2026-10-27-queue-5223ae4a/shutdown-check.json",
+      "sha256": "3a43f05cc2f59c3aba31be01126d82a7a4c7b51dafda1e9738fa8318dfc12ccd",
+      "bytes": 496
+    },
+    {
+      "path": "2026-09-24-codex-compaction-turn-visibility_evidence/2026-10-27-queue-5223ae4a/watch.ndjson",
+      "sha256": "3280ea6d97810b6c9b3dc41f0621e506309774592f3008468502c623324578fd",
+      "bytes": 3542
+    },
+    {
+      "path": "2026-09-24-codex-compaction-turn-visibility_evidence/2026-10-27-queue-5223ae4a/review-receipt.json",
+      "sha256": "5ce5aabf0c9f40d9e4a0eacba1192640e2e0dfa8ffd26a8af82f1cbcfe0aa7ff",
+      "bytes": 264
+    }
+  ]
+}
